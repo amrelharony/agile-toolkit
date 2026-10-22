@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  BookOpen,
   Bot,
   CalendarRange,
   HeartPulse,
@@ -194,12 +193,6 @@ export const SECTIONS: ToolSection[] = [
       "rlhf-log",
       "vector-store-inventory",
     ],
-  },
-  {
-    id: "library",
-    label: "Library",
-    icon: BookOpen,
-    toolIds: ["agile-at-work"],
   },
 ];
 

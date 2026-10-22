@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useMounted } from "@/hooks/use-mounted";
 import {
   DropdownMenu,
@@ -36,6 +36,7 @@ import { clearLocalWorkspaceData } from "@/lib/utils/clear-local-data";
 import { toast } from "@/lib/utils/toast";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
+import { useSignInHref } from "@/lib/auth/sign-in-href";
 import {
   LogOut,
   History,
@@ -138,13 +139,12 @@ function VisitorMenu({
   sessionUnverified: boolean;
 }) {
   const openAiSettings = useLlmUiStore((s) => s.openSettings);
-  const pathname = usePathname();
+  const signIn = useSignInHref();
   const ownerSeen = useOwnerSeen();
   const [clearOpen, setClearOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
 
-  const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
   const title = sessionUnverified
     ? "Signed in — checking owner access"
     : ownerSeen
@@ -243,7 +243,7 @@ function VisitorMenu({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href={signInHref} className="cursor-pointer">
+                  <Link href={signIn} className="cursor-pointer">
                     <LogIn className="w-4 h-4" aria-hidden="true" />
                     <span>{ownerSeen ? "Sign in to sync" : "Owner sign in"}</span>
                   </Link>

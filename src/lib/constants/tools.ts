@@ -84,14 +84,11 @@ import {
   Atom,
   Repeat,
   PenLine,
-  BookImage,
   Gauge,
   type LucideIcon,
 } from "lucide-react";
 
 export type ToolCategory =
-  // Reading material (the "Agile at Work" comic) — not interactive tools
-  | "Library"
   | "Sprint Planning & Estimation"
   | "Metrics & Dashboards"
   | "Ceremonies"
@@ -205,15 +202,9 @@ export interface ToolDefinition {
   crossToolSubscriptions?: ToolSubscription[];
   /** Causal annotations to compute and overlay on this tool's charts. */
   causalAnnotations?: CausalAnnotationSpec[];
-  /** "reading" marks content to read (the comic) rather than an interactive
-   * tool: it still gets the sidebar, palette, favourites and recents, but
-   * is left out of "N tools" counts. Defaults to "tool" if omitted. */
-  kind?: "tool" | "reading";
 }
 
 export const categories: ToolCategory[] = [
-  // First so the comic heads the sidebar, command palette and home grid.
-  "Library",
   "Sprint Planning & Estimation",
   "Metrics & Dashboards",
   "Ceremonies",
@@ -255,27 +246,6 @@ export const categories: ToolCategory[] = [
 ];
 
 export const tools: ToolDefinition[] = [
-  // Library — reading material. No action module, AI prompt or MCP entry:
-  // the reader has no workspace data to act on.
-  {
-    id: "agile-at-work",
-    code: "LB1",
-    name: "Agile at Work",
-    description:
-      "Read the “Agile at Work” comic book — page by page or as spreads, fullscreen, keyboard and swipe — or download the PDF",
-    category: "Library",
-    path: "/agile-at-work",
-    icon: BookImage,
-    badge: "new",
-    requiresAuth: false,
-    isRealtime: false,
-    phase: 34,
-    usesWorkspace: false,
-    audience: "both",
-    analyticsTier: 3,
-    kind: "reading",
-  },
-
   // Category A: Sprint Planning & Estimation
   {
     id: "planning-poker",

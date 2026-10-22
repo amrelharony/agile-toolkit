@@ -9,12 +9,6 @@ import { ToolCard } from "@/components/shared/tool-card";
 import { MoodReveal } from "@/components/shared/mood-reveal";
 import { cn } from "@/lib/utils";
 
-/** "3 tools", or "1 title" for a section that only holds reading material. */
-function countLabel(list: ToolDefinition[]): string {
-  const noun = list.every((t) => t.kind === "reading") ? "title" : "tool";
-  return `${list.length} ${list.length === 1 ? noun : `${noun}s`}`;
-}
-
 /**
  * Every tool, grouped by the job it serves (lib/constants/sections) rather
  * than the 18 build-time categories. Sections start collapsed so the page
@@ -74,7 +68,9 @@ function SectionGroup({
             {section.label}
           </span>
         </span>
-        <span className="shrink-0 font-mono text-xs text-sub">{countLabel(section.tools)}</span>
+        <span className="shrink-0 font-mono text-xs text-sub">
+          {section.tools.length} {section.tools.length === 1 ? "tool" : "tools"}
+        </span>
       </summary>
       {opened && (
         <MoodReveal

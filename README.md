@@ -2,8 +2,7 @@
 
 A free, public toolkit of 110 interactive tools for agile delivery — sprint
 planning, retros, story mapping, OKRs, metrics dashboards, decision frameworks,
-whiteboarding, AI/ML PM workflows, and more — plus the free "Agile at Work"
-comic book.
+whiteboarding, AI/ML PM workflows, and more.
 
 Every tool works without an account: a visitor's work stays in their browser.
 The owner's sign-in adds cross-device cloud sync, the in-app agent and MCP.
@@ -85,7 +84,7 @@ Required environment variables (`.env.local`):
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...             # server-only, for PAT resolution
+SUPABASE_SERVICE_ROLE_KEY=eyJ...             # server-only: PATs, squads, the private comic
 AUTHORIZED_EMAILS=you@example.com            # comma-separated, lowercased
 ANTHROPIC_API_KEY=sk-ant-...                 # optional; falls back to per-tool BYOK
 ```
@@ -98,15 +97,16 @@ npx supabase db push
 
 ## Scripts
 
-| Command              | Purpose                                                           |
-| -------------------- | ----------------------------------------------------------------- |
-| `npm run dev`        | Next.js dev server with HMR.                                      |
-| `npm run build`      | Production build.                                                 |
-| `npm run start`      | Run the production build locally.                                 |
-| `npm run lint`       | ESLint over the project.                                          |
-| `npm run test`       | Vitest in watch mode.                                             |
-| `npm run test:run`   | Vitest one-shot (CI uses this).                                   |
-| `npm run pdf:worker` | Copy the pdf.js worker to `public/` (after bumping `pdfjs-dist`). |
+| Command                  | Purpose                                                            |
+| ------------------------ | ------------------------------------------------------------------ |
+| `npm run dev`            | Next.js dev server with HMR.                                       |
+| `npm run build`          | Production build.                                                  |
+| `npm run start`          | Run the production build locally.                                  |
+| `npm run lint`           | ESLint over the project.                                           |
+| `npm run test`           | Vitest in watch mode.                                              |
+| `npm run test:run`       | Vitest one-shot (CI uses this).                                    |
+| `npm run pdf:worker`     | Copy the pdf.js worker to `public/` (after bumping `pdfjs-dist`).  |
+| `npm run comic:new-link` | Mint a new private comic link and print its hash (writes nothing). |
 
 ## Deployment
 
@@ -139,24 +139,55 @@ The public "Owner sign in" button lets anyone start a Google sign-in, so:
   deployments. Previews share the production Supabase project and would
   otherwise be public.
 
-## "Agile at Work" comic
+## "Agile at Work" comic (private)
 
-The reader lives at `/agile-at-work`. The PDF is a static file the owner
-commits; nothing else is needed.
+The colour edition of the comic is **not public**. Nothing on the site lists
+or links to it, it is not in the sitemap, and its page is `noindex`. The only
+way in is the private link the owner prints as a QR code in the book:
 
-- Put it at `public/comics/agile-at-work.pdf`.
-- Keep it at **50 MB or less**. GitHub's web uploader caps files at 25 MB
-  and `git push` rejects files over 100 MB, so push larger files with git.
-- Export it for the web: **linearized ("Fast Web View")**, JPEG images at
-  **150–200 dpi**, fonts embedded. Avoid JPEG2000 and JBIG2 images — the
-  reader doesn't configure pdf.js's WASM decoders for them, so they won't
-  render.
-- Availability is decided at build time (`scripts/comic-asset.mjs`): until
-  the file exists the page shows "Coming soon", and the home banner and the
-  sitemap entry stay hidden. Restart `npm run dev` after adding or
-  replacing the file; on Vercel the push that adds it rebuilds.
-- After bumping `pdfjs-dist`, run `npm run pdf:worker` so the public worker
-  matches the library version.
+```
+https://agile.amrelharony.com/comic/<token>
+```
+
+- **Never write the token down** in the repo, issues, PRs, chats or logs. Only
+  its SHA-256 is committed (`COMIC_LINK_TOKEN_SHA256` in
+  [src/lib/comic/token.ts](src/lib/comic/token.ts)). The middleware checks the
+  token and rewrites the right link to the reader page (`src/app/read/[token]`);
+  any other `/comic/...` URL is the same 404 as any unknown URL, and so is the
+  reader page's own `/read/...` URL. Nothing every visitor downloads names the
+  comic: the shared header, mascot and toasts learn about it only from the
+  mounted reader.
+- **Read online only.** The PDF sits in a **private** Supabase Storage
+  bucket; the page hands the browser a signed URL that expires after 12 hours
+  (a reload mints a new one). There is no download button.
+- Needs `SUPABASE_SERVICE_ROLE_KEY` on the server (already set for MCP and
+  squads). Without it the page says the comic can't be loaded right now.
+
+**Uploading the PDF** (Supabase dashboard → **Storage**):
+
+1. **New bucket** → name `comics`, **Public bucket: off** — and keep it off.
+   A public bucket serves the PDF to anyone at
+   `https://<project-ref>.supabase.co/storage/v1/object/public/comics/agile-at-work.pdf`,
+   so the page refuses to show the comic while it is on. That URL must not
+   return `200`.
+2. Upload the file to the bucket root as **`agile-at-work.pdf`**. Until it's
+   there, the link shows "coming soon". To replace it later, delete the old
+   file and upload the new one under the same name — no deploy needed. Never
+   commit the PDF (e.g. to the old `public/comics/`): anything under
+   `public/` is served to everyone, so `.gitignore` excludes it and a test
+   fails CI if one gets in.
+3. The free plan caps uploads at **50 MB per file**. Export for the web:
+   **linearized ("Fast Web View")**, **JPEG** images at 150–200 dpi, fonts
+   embedded. Avoid JPEG2000 and JBIG2 images — the reader doesn't configure
+   pdf.js's WASM decoders for them, so they won't render.
+
+**Rotating the link:** `npm run comic:new-link` prints a new link and the
+SHA-256 of its token. Paste the hash into `COMIC_LINK_TOKEN_SHA256`, commit
+and deploy. The old link — and every QR code already printed with it — stops
+working.
+
+After bumping `pdfjs-dist`, run `npm run pdf:worker` so the public worker
+matches the library version (the reader and the Canvas PDF import share it).
 
 ## MCP integration
 

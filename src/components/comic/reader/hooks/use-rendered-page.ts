@@ -5,6 +5,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PageUrlCache, pageCacheKey } from "@/lib/comic/page-url-cache";
 import { scaleForBucket } from "@/lib/comic/reader-math";
 import { pdfErrorKind } from "@/lib/pdf/load-pdfjs";
+import { isExpiredLinkError } from "./use-pdf-document";
 
 /** Two at once keeps the worker busy without starving the visible page. */
 const MAX_CONCURRENT_RENDERS = 2;
@@ -21,6 +22,19 @@ function cancelledError(): Error {
 
 function isCancelled(err: unknown): boolean {
   return pdfErrorKind(err) === "cancelled";
+}
+
+/**
+ * Some of the PDF's bytes failed to download: an HTTP error
+ * (`ResponseException` — an expired signed URL, a Supabase 5xx or 429) or a
+ * network / CORS failure, which pdf.js hands back from its worker as
+ * `UnknownErrorException`. Matched on `name`: the error crossed the worker
+ * boundary as a structured clone.
+ */
+function isFetchFailure(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const { name } = err as { name?: unknown };
+  return name === "ResponseException" || name === "UnknownErrorException";
 }
 
 /**
@@ -100,6 +114,10 @@ interface RenderJob {
  * first. Finished URLs go into the LRU; a request for a page already being
  * drawn shares that job. Work nobody wants any more is cancelled via
  * AbortController → `renderTask.cancel()`.
+ *
+ * Every failed render (not a cancel) is reported to `onFailure`, prefetches
+ * included: nobody awaits those, yet a failed download poisons the whole
+ * document (see useRenderedPages).
  */
 class PageRenderQueue {
   private readonly jobs = new Map<string, RenderJob>();
@@ -109,7 +127,8 @@ class PageRenderQueue {
 
   constructor(
     private readonly doc: PDFDocumentProxy,
-    private readonly cache: PageUrlCache
+    private readonly cache: PageUrlCache,
+    private readonly onFailure: (err: unknown) => void
   ) {}
 
   request(page: number, bucket: number, priority: Priority): Promise<string> {
@@ -204,7 +223,10 @@ class PageRenderQueue {
           this.cache.set(job.key, url);
           job.resolve(url);
         },
-        (err: unknown) => job.reject(err)
+        (err: unknown) => {
+          if (!this.destroyed && !isCancelled(err)) this.onFailure(err);
+          job.reject(err);
+        }
       )
       .finally(() => {
         this.running.delete(job);
@@ -235,9 +257,26 @@ export interface RenderedPages {
    * keeps showing its previous rendering instead of flashing a skeleton.
    */
   urls: ReadonlyMap<number, string>;
-  /** Visible pages whose render failed (not cancelled). */
+  /**
+   * Visible pages whose render failed (not cancelled) — and, once `broken`,
+   * every visible page that has no image yet.
+   */
   failed: ReadonlySet<number>;
   retry: (page: number) => void;
+  /**
+   * Some of the PDF's bytes failed to download (any page, prefetches
+   * included). pdf.js never asks again for a byte range that failed for an
+   * open document — a new render needing it would wait forever — so no
+   * uncached page is requested any more, and `retry` can't help: reopen the
+   * document instead (or reload the page, when `expired`).
+   */
+  broken: boolean;
+  /**
+   * The download failed because the PDF's signed URL has expired (the tab
+   * was left open for hours). Reopening can't help either: the page must be
+   * reloaded for a fresh URL. Implies `broken`.
+   */
+  expired: boolean;
 }
 
 /**
@@ -267,6 +306,8 @@ export function useRenderedPages({
   // fresh URL) still counts as a change and re-renders the reader.
   const [latest, setLatest] = useState<ReadonlyMap<number, LatestRender>>(() => new Map());
   const [failed, setFailed] = useState<ReadonlySet<number>>(() => new Set());
+  const [broken, setBroken] = useState(false);
+  const [expired, setExpired] = useState(false);
   const failedRef = useRef(failed);
   failedRef.current = failed;
   const [retryToken, setRetryToken] = useState(0);
@@ -274,7 +315,11 @@ export function useRenderedPages({
   useEffect(() => {
     if (!doc) return;
     const cache = new PageUrlCache();
-    const queue = new PageRenderQueue(doc, cache);
+    const queue = new PageRenderQueue(doc, cache, (err) => {
+      if (!isFetchFailure(err)) return;
+      setBroken(true);
+      if (isExpiredLinkError(err)) setExpired(true);
+    });
     cacheRef.current = cache;
     queueRef.current = queue;
     return () => {
@@ -284,6 +329,8 @@ export function useRenderedPages({
       queueRef.current = null;
       setLatest(new Map());
       setFailed(new Set());
+      setBroken(false);
+      setExpired(false);
     };
   }, [doc]);
 
@@ -308,12 +355,19 @@ export function useRenderedPages({
   useEffect(() => {
     const queue = queueRef.current;
     if (!doc || !queue || bucket <= 0) return;
+    // Cancel everything and request nothing: cached pages still show, the
+    // rest wait for the document to be reopened.
+    if (broken) {
+      queue.retain(new Set());
+      return;
+    }
     let active = true;
     const wanted = new Set([...visible, ...prefetch].map((page) => pageCacheKey(page, bucket)));
     queue.retain(wanted);
 
     // A failure is remembered only while its page stays on screen, so
-    // leaving and coming back tries again (as does the Retry button).
+    // leaving and coming back tries again (as does the Retry button). After
+    // a failed download, `broken` (above) stops all of this for the document.
     const stillFailed = new Set(Array.from(failedRef.current).filter((p) => visible.includes(p)));
     if (stillFailed.size !== failedRef.current.size) setFailed(stillFailed);
 
@@ -342,6 +396,7 @@ export function useRenderedPages({
     void Promise.all(requests).then(() => {
       if (!active) return;
       cancelIdle = whenIdle(() => {
+        // Failures reach the queue's onFailure; nothing else to do here.
         for (const page of prefetch) queue.request(page, bucket, "prefetch").catch(() => {});
       });
     });
@@ -352,7 +407,7 @@ export function useRenderedPages({
     };
     // `visible` / `prefetch` are tracked through their joined keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, bucket, visibleKey, prefetchKey, retryToken]);
+  }, [doc, bucket, visibleKey, prefetchKey, retryToken, broken]);
 
   const retry = useCallback((page: number) => {
     setFailed((prev) => {
@@ -377,7 +432,9 @@ export function useRenderedPages({
       if (url) urls.set(page, url);
     }
   }
-  const visibleFailed = new Set(visible.filter((page) => failed.has(page) && !urls.has(page)));
+  const visibleFailed = new Set(
+    visible.filter((page) => (broken || failed.has(page)) && !urls.has(page))
+  );
 
-  return { urls, failed: visibleFailed, retry };
+  return { urls, failed: visibleFailed, retry, broken, expired };
 }

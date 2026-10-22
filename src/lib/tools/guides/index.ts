@@ -20,7 +20,7 @@ const SECTION_GUIDES: Record<string, () => Promise<GuideModule>> = {
 /**
  * Whether `toolId` has a guide, known without loading any guide text, so
  * the panel can render its header immediately. Every tool in a section
- * has one except the comic reader (see test/constants/guides.test.ts).
+ * has one (see test/constants/guides.test.ts).
  */
 export function hasGuide(toolId: string): boolean {
   const section = getSectionForTool(toolId);

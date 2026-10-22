@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/authorize";
 import { jsonError } from "@/lib/auth/json-error";
 import { routeKind } from "@/lib/auth/owner-routes";
+import { isValidComicTokenEdge } from "@/lib/comic/token";
 
 /**
  * How long the session check may take before we give up and treat the auth
@@ -121,6 +122,10 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
  * while signed-out visitors saw a perfectly healthy site, because with no
  * session cookie supabase-js answers locally and never touches the network.
  *
+ * The private comic link (/comic/<token>, see routeComicLink) is settled
+ * before the session is looked at: the token is its only key, so a reader
+ * never costs a getUser round-trip.
+ *
  * Bypass list (see isBypassPath, and `config.matcher` at the bottom):
  *   /auth/*           — sign-in, callback, sign-out flows
  *   /not-authorized   — the denied page itself
@@ -135,6 +140,9 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isBypassPath(pathname)) return bypass(request);
+
+  const comic = await routeComicLink(request);
+  if (comic) return comic;
 
   const kind = routeKind(pathname);
 
@@ -264,6 +272,76 @@ export async function middleware(request: NextRequest) {
   }
 
   return buildResponse(NextResponse.next({ request }));
+}
+
+/** The private comic link: exactly /comic/<one segment>. */
+const COMIC_LINK = /^\/comic\/([^/]+)$/;
+/** Where the reader page really lives (src/app/read/[token]). */
+const COMIC_READER_ROUTE = "/read";
+/**
+ * Matches no route and no file: Next renders its ordinary 404 for it. A
+ * leading `_` keeps it that way, since an app folder named so is private
+ * and never becomes a route.
+ */
+const NO_ROUTE = "/_no-route";
+/**
+ * On the right link's response only: never indexed, never cached anywhere
+ * (the page embeds a short-lived signed URL for the PDF), and no Referer
+ * carrying the token off-site. Referrer-Policy replaces next.config.mjs's
+ * site-wide one, since middleware headers are applied after those.
+ */
+const COMIC_HEADERS = {
+  "X-Robots-Tag": "noindex, nofollow, noarchive",
+  "Referrer-Policy": "no-referrer",
+  "Cache-Control": "private, no-store",
+} as const;
+
+/**
+ * Route the private comic link, or return null to carry on as usual.
+ *
+ *   - /comic/<right token>: rewritten to the reader route, with
+ *     COMIC_HEADERS. The URL in the address bar stays the link.
+ *   - /comic/<anything else>: untouched. /comic/* matches no route, so a
+ *     wrong token gets the very 404 any unknown URL gets — same document,
+ *     same headers — and says nothing about how close a guess was.
+ *   - The reader route's own URL: rewritten to NO_ROUTE, so it renders the
+ *     ordinary 404 too, instead of the reader page's own not-found (which
+ *     differs from it, and names the route). Decoded and lowercased first,
+ *     so no encoding or case variant slips through on a host that matches
+ *     routes more loosely than `next start`. The one trace left is the
+ *     `x-middleware-rewrite: /_no-route` response header Next adds to
+ *     those hits (under `next start`, at least).
+ *
+ * Only the session-free part of the middleware runs for the link: an
+ * owner's session is neither refreshed nor checked on that one request,
+ * and the comic page reads no session.
+ */
+async function routeComicLink(request: NextRequest): Promise<NextResponse | null> {
+  const { pathname } = request.nextUrl;
+  if (isReaderRoute(pathname)) return rewriteTo(request, NO_ROUTE);
+
+  const token = COMIC_LINK.exec(pathname)?.[1];
+  if (!token || !(await isValidComicTokenEdge(token))) return null;
+
+  const resp = rewriteTo(request, `${COMIC_READER_ROUTE}/${token}`);
+  for (const [key, value] of Object.entries(COMIC_HEADERS)) resp.headers.set(key, value);
+  return resp;
+}
+
+function isReaderRoute(pathname: string): boolean {
+  let p = pathname;
+  try {
+    p = decodeURIComponent(pathname);
+  } catch {
+    // A malformed escape: check the path as it came.
+  }
+  return p.toLowerCase().startsWith(`${COMIC_READER_ROUTE}/`);
+}
+
+function rewriteTo(request: NextRequest, pathname: string): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  return NextResponse.rewrite(url);
 }
 
 // Bypass paths that must remain reachable for the auth flow itself,
@@ -425,7 +503,7 @@ export const config = {
   //   - _next/static, _next/image, _next/data         (build artifacts)
   //   - favicon.ico, robots.txt, sitemap.xml, manifest (root statics)
   //   - .well-known/*                                  (security.txt et al.)
-  //   - a file directly under /comics or a .glb directly under /mascot
+  //   - a .glb directly under /mascot
   //   - any top-level file with an extension served from /public (.svg, …)
   //
   // The inner `(?!…)` is a negative lookahead consumed by Next's matcher
@@ -439,11 +517,13 @@ export const config = {
     // middleware. The prior `.*\.[a-zA-Z0-9]+$` rule matched the whole
     // pathname and silently exempted any dotted route. (BUG-A1)
     //
-    // The comic PDF is exempt because pdf.js fetches it in HTTP range
-    // requests: running middleware per chunk would cost the owner a getUser
-    // round-trip each time. Only a FILE directly under /comics is exempt,
-    // never the bare `comics/` prefix, which would also exempt any future
-    // page or nested route under /comics. Same idea for the mascot model.
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/[^/]+\\.[a-zA-Z0-9]+$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
+    // The mascot model is exempt so its fetch never costs the owner a
+    // getUser round-trip. Only a .glb directly under /mascot is exempt,
+    // never the bare `mascot/` prefix, which would also exempt any future
+    // page or nested route under /mascot. (The comic PDF is not served from
+    // this origin at all: it lives in private Supabase Storage. /comic/<token>
+    // and the reader route behind it must both reach the middleware, which
+    // routes the one and hides the other — see routeComicLink.)
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
   ],
 };

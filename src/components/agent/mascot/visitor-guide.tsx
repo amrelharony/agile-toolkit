@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { getToolById, getToolByPath } from "@/lib/constants/tools";
 import { searchTools } from "@/lib/search/tool-search";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { useSignInHref } from "@/lib/auth/sign-in-href";
 import { JOBS } from "@/lib/constants/jobs";
 import { getGuide, type ToolGuide } from "@/lib/tools/guides";
 
@@ -44,12 +45,12 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
 export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const current = pathname ? getToolByPath(pathname) : undefined;
+  const signIn = useSignInHref();
   const guide = useToolGuide(current?.id);
   const openSettings = useLlmUiStore((s) => s.openSettings);
   const [query, setQuery] = useState("");
   const trimmed = query.trim();
   const results = useMemo(() => (trimmed ? searchTools(trimmed, 6) : []), [trimmed]);
-  const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
 
   return (
     <div
@@ -156,7 +157,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
             AI settings
           </Button>
           <Link
-            href={signInHref}
+            href={signIn}
             onClick={onNavigate}
             className="text-xs text-sub underline-offset-2 hover:text-text hover:underline"
           >

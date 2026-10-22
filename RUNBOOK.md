@@ -14,7 +14,7 @@ Everything required to bring the toolkit online, in roughly the order you'll tou
 4. **Project Settings → API** → copy three values:
    - **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
    - **Project API keys → anon public** → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - **Project API keys → service_role** → `SUPABASE_SERVICE_ROLE_KEY` (server-only, used for PAT lookup)
+   - **Project API keys → service_role** → `SUPABASE_SERVICE_ROLE_KEY` (server-only, used for PAT lookup, squads and the private comic link)
 5. **Authentication → Providers → Google** → enable.
    - You'll need a Google OAuth client (Cloud Console → OAuth 2.0 client IDs → Web application). Authorized redirect URI: `https://<your-project-ref>.supabase.co/auth/v1/callback` (Supabase shows this string on the same page).
 6. **Authentication → URL configuration** → add `http://localhost:3000` and (later) your production URL to **Site URL** + **Redirect URLs**.
@@ -358,19 +358,40 @@ Burndown, Burnup, Velocity, Sprint Comparison and Sprint Metrics share one list 
 
 ---
 
-## Publishing the "Agile at Work" comic
+## The private "Agile at Work" comic
 
-The reader at `/agile-at-work` shows "Coming soon" until the PDF exists, and the home banner and sitemap entry stay hidden. Availability is decided at build time (`scripts/comic-asset.mjs` → `NEXT_PUBLIC_COMIC_PDF_SIZE` / `NEXT_PUBLIC_COMIC_PDF_VERSION`).
+The colour edition is **private**. It is not in the tool list, the home page, the sitemap or any search index. Readers get in only through the private link printed as a QR code in the book: `https://agile.amrelharony.com/comic/<token>`. Read online only — there is no download.
 
-1. Export the PDF for the web:
+How it works: the middleware hashes the token and compares it with `COMIC_LINK_TOKEN_SHA256` in `src/lib/comic/token.ts` (only the hash is in the repo). A right one is rewritten to the reader page (`src/app/read/[token]`, which checks the token again), and only that response carries `X-Robots-Tag: noindex, nofollow, noarchive`, `Referrer-Policy: no-referrer` and `Cache-Control: private, no-store`. The page gets a 12-hour signed URL for the PDF in a private Supabase Storage bucket; a reload mints a new one. A wrong token is left alone and gets exactly the 404 any unknown URL gets (same page, same headers), so a guess learns nothing. The reader page's own `/read/...` URL is answered with that 404 too; the only trace is the `x-middleware-rewrite: /_no-route` header Next adds to it (seen under `next start`; not checked on Vercel).
+
+**Never write the token down** — not in the repo, issues, PRs, chats, screenshots or logs.
+
+### Upload (or replace) the PDF
+
+1. Export it for the web:
    - **Linearized** ("Fast Web View" / "Optimize for fast web view"), so page 1 shows before the whole file downloads.
    - Images as **JPEG at 150–200 dpi**; fonts **embedded**.
    - **No JPEG2000 or JBIG2** images — the reader doesn't configure pdf.js's WASM decoders for them, so those images won't render.
-   - Aim for **50 MB or less**.
-2. Commit it as `public/comics/agile-at-work.pdf`. GitHub's web uploader caps files at **25 MB** and `git push` rejects files over **100 MB**, so push anything over 25 MB with git.
-3. Restart `npm run dev` locally (the build-time check runs once per start). On Vercel the push that adds the file rebuilds.
-4. Verify: `curl -I https://<domain>/comics/agile-at-work.pdf` → `200`, `content-type: application/pdf`, `accept-ranges: bytes`, `cache-control: public, max-age=86400, stale-while-revalidate=604800`. Then open `/agile-at-work`.
-5. Replacing the file later needs no other change: the reader requests `?v=<content hash>`, so browsers never mix byte ranges of the old and new file.
+   - **50 MB or less** — the Supabase free plan's per-file upload limit.
+2. Supabase dashboard → **Storage** → **New bucket**: name `comics`, **Public bucket: off**. (Once.) It must stay off: a public bucket serves the PDF to anyone, token or not, so the page refuses to show the comic while it is on.
+3. Upload the file to the bucket root as **`agile-at-work.pdf`**. To replace it, delete the old file first, then upload the new one under the same name. No deploy needed either way. **Never put the PDF in the repo** (e.g. the old `public/comics/`): everything under `public/` is served to anyone. `.gitignore` excludes PDFs there, and `test/comic/no-public-pdf.test.ts` fails CI if one slips in.
+4. Make sure `SUPABASE_SERVICE_ROLE_KEY` is set on Vercel (Production) — it already is if MCP and squads work.
+5. Verify:
+   - Open the private link on a phone: page 1 appears; there is no download button.
+   - On a desktop, open the link with devtools → Network: after the first request to `…supabase.co/storage/v1/object/sign/comics/agile-at-work.pdf`, the next ones should be `206` (range requests). If instead there is one big `200` download and page 1 appears only when it ends, the browser can't see `Accept-Ranges` across origins. The reader still works (it gives up only after 30 s with no data at all), but every reader downloads the whole file first — keep the PDF small.
+   - `curl -sI https://agile.amrelharony.com/comic/not-the-token` → `404` with the same headers as `curl -sI https://agile.amrelharony.com/no-such-page` (no `x-robots-tag`). (Don't curl the real link — it would land in your shell history. Open it in a browser and check its response headers in devtools → Network instead: `x-robots-tag: noindex, nofollow, noarchive`, `referrer-policy: no-referrer`, `cache-control: private, no-store`.)
+   - `/sitemap.xml` has no `/comic` entry; `/comics/agile-at-work.pdf` → `404`.
+   - `curl -sI https://<project-ref>.supabase.co/storage/v1/object/public/comics/agile-at-work.pdf` must **not** return `200` (expect `400`/`404`). If it does, Storage → `comics` → **Edit bucket** → turn **Public bucket** off.
+
+If the link shows **"coming soon"**, the bucket or the file is missing or misnamed. If it says the comic **"can't be loaded right now"**, the server couldn't sign a URL or found the bucket public: check that `SUPABASE_SERVICE_ROLE_KEY` is set, and look for `[comic]` warnings in the Vercel function logs. **Never turn on "Public bucket"** to fix either message: it fixes neither, and it makes the PDF downloadable by anyone.
+
+### Rotate the link
+
+```bash
+npm run comic:new-link
+```
+
+It prints a new link and the SHA-256 of its token, and writes nothing. Paste the hash into `COMIC_LINK_TOKEN_SHA256` in `src/lib/comic/token.ts`, commit and deploy, then print the new link as a QR code. **The old link — and every QR code already printed with it — stops working** once the new hash is live.
 
 After bumping `pdfjs-dist`, run `npm run pdf:worker` (copies the matching worker to `public/pdf.worker.legacy.min.mjs`) and commit the result.
 

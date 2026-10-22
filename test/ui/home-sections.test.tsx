@@ -30,7 +30,7 @@ describe("home: tools by job", () => {
   it("lists the job sections and renders a section's cards only once it is opened", () => {
     const { container } = render(<ToolSections />);
     const summaries = Array.from(container.querySelectorAll("summary")).map((s) => s.textContent);
-    for (const s of SECTIONS.filter((x) => x.id !== "library")) {
+    for (const s of SECTIONS) {
       expect(summaries.some((t) => t?.includes(s.label))).toBe(true);
     }
     expect(screen.queryByRole("link", { name: "WSJF Calculator" })).toBeNull();

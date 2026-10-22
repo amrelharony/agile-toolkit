@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { pageLabel, viewFor } from "@/lib/comic/reader-math";
 import { cn } from "@/lib/utils";
-import { DownloadPdfButton } from "./comic-status";
 
 export type LayoutMode = "auto" | "single" | "spread";
 
@@ -54,20 +53,18 @@ interface ReaderToolbarProps {
   onModeChange: (mode: LayoutMode) => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  src: string;
-  size: number | null;
 }
 
 /**
- * Prev/Next, the page label, a page scrubber, the layout toggle,
- * fullscreen and Download.
+ * Prev/Next, the page label, a page scrubber, the layout toggle and
+ * fullscreen. Read online only: there is deliberately no Download button.
  *
  * Hints are `title` + `aria-label`, not Radix tooltips: tooltips portal
  * into <body>, which is not rendered while the reader is in native
  * fullscreen. At phone width the controls wrap into three rows (nav,
- * scrubber, then layout / fullscreen / download) of 44 px targets; from
- * `sm` the nav and the buttons share a row above the scrubber, and from
- * `md` everything fits on one line where there is room.
+ * scrubber, then layout / fullscreen) of 44 px targets; from `sm` the nav
+ * and the buttons share a row above the scrubber, and from `md` everything
+ * fits on one line where there is room.
  */
 export const ReaderToolbar = forwardRef<HTMLButtonElement, ReaderToolbarProps>(
   function ReaderToolbar(
@@ -82,8 +79,6 @@ export const ReaderToolbar = forwardRef<HTMLButtonElement, ReaderToolbarProps>(
       onModeChange,
       isFullscreen,
       onToggleFullscreen,
-      src,
-      size,
     },
     fullscreenButtonRef
   ) {
@@ -218,7 +213,6 @@ export const ReaderToolbar = forwardRef<HTMLButtonElement, ReaderToolbarProps>(
           >
             {isFullscreen ? <Minimize aria-hidden="true" /> : <Maximize aria-hidden="true" />}
           </Button>
-          <DownloadPdfButton src={src} size={size} />
         </div>
       </div>
     );

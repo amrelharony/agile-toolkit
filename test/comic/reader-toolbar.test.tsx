@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { ReaderToolbar } from "@/app/(tools)/agile-at-work/components/reader-toolbar";
+import { ReaderToolbar } from "@/components/comic/reader/reader-toolbar";
 
 /**
  * The page scrubber's keyboard steps in spread mode. The thumb sits on the
@@ -39,8 +39,6 @@ function renderToolbar(view: number[], spread: boolean) {
       onModeChange={() => {}}
       isFullscreen={false}
       onToggleFullscreen={() => {}}
-      src="/comics/agile-at-work.pdf"
-      size={null}
     />
   );
   const thumb = screen.getByRole("slider", { name: "Go to page" });

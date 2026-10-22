@@ -11,7 +11,7 @@ describe("HowItWorks", () => {
   });
 
   it("renders nothing for tools without a guide", async () => {
-    const { container } = render(<HowItWorks toolId="agile-at-work" />);
+    const { container } = render(<HowItWorks toolId="not-a-tool" />);
     await new Promise((r) => setTimeout(r, 20));
     expect(container).toBeEmptyDOMElement();
   });

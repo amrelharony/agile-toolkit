@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { usePageSwipe } from "@/app/(tools)/agile-at-work/hooks/use-page-swipe";
+import { usePageSwipe } from "@/components/comic/reader/hooks/use-page-swipe";
 
 /**
  * Swipe-to-turn on the comic stage. Unlike useSwipeToClose it must ignore

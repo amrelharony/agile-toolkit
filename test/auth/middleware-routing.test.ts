@@ -15,6 +15,10 @@
  * and which writes cookies through the real set/remove callbacks, the way
  * supabase-js does when it refreshes or clears a session — so the cookie
  * batching is exercised, not just the branch choice.
+ *
+ * The private comic link is routed before any of that. Its token check is
+ * the real one, pointed at the hash of a dummy token made up here — never
+ * the real link.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,6 +59,20 @@ vi.mock("@supabase/ssr", () => ({
     };
   },
 }));
+
+/** Shaped like a link token ([A-Za-z0-9_-], 32 chars); not the real one. */
+const COMIC = vi.hoisted(() => ({ token: "Dummy_Token-For-Middleware-Tests" }));
+
+vi.mock("@/lib/comic/token", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/comic/token")>();
+  const { createHash } = await import("node:crypto");
+  const hash = createHash("sha256").update(COMIC.token).digest("hex");
+  return {
+    ...actual,
+    isValidComicTokenEdge: (token: unknown, hashes?: readonly string[]) =>
+      actual.isValidComicTokenEdge(token, hashes ?? [hash]),
+  };
+});
 
 const OWNER_EMAIL = "owner@example.com";
 
@@ -397,6 +415,94 @@ describe("the owner", () => {
   it("is matched against the allowlist case-insensitively", async () => {
     signedInAs(googleUser("Owner@Example.COM"));
     expect(passes(await run(req("/api/kudos", { cookie: CHUNKED })))).toBe(true);
+  });
+});
+
+describe("the private comic link", () => {
+  const COMIC_HEADERS = ["x-robots-tag", "referrer-policy", "cache-control"];
+
+  /** Where the middleware rewrote the request to, as a path; null if it didn't. */
+  function rewrittenTo(res: Response): string | null {
+    const target = res.headers.get("x-middleware-rewrite");
+    if (!target) return null;
+    const url = new URL(target);
+    expect(url.origin).toBe("https://agile.test");
+    return url.pathname;
+  }
+
+  function expectUntouched(res: Response) {
+    expect(passes(res)).toBe(true);
+    expect(rewrittenTo(res)).toBeNull();
+    for (const name of COMIC_HEADERS) expect(res.headers.get(name), name).toBeNull();
+  }
+
+  it("rewrites the right token to the reader route, with its three headers", async () => {
+    const res = await run(req(`/comic/${COMIC.token}`));
+    expect(rewrittenTo(res)).toBe(`/read/${COMIC.token}`);
+    expect(passes(res)).toBe(false);
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow, noarchive");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.getSetCookie()).toEqual([]);
+    expect(h.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it("spends no session check on the right token, even for the owner", async () => {
+    const res = await run(req(`/comic/${COMIC.token}`, { cookie: CHUNKED }));
+    expect(rewrittenTo(res)).toBe(`/read/${COMIC.token}`);
+    expect(res.headers.getSetCookie()).toEqual([]);
+    expect(h.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a wrong token", `/comic/${"x".repeat(32)}`],
+    ["a too-short token", `/comic/${COMIC.token.slice(0, 20)}`],
+    ["an extra segment", `/comic/${COMIC.token}/x`],
+    ["the bare prefix", "/comic"],
+    ["another case", `/Comic/${COMIC.token}`],
+    ["an encoded token", `/comic/${encodeURIComponent(`${COMIC.token}/`)}`],
+    ["a suffix", `/comic/${COMIC.token}.rsc`],
+  ])("leaves %s alone, like any unknown URL", async (_label, path) => {
+    expectUntouched(await run(req(path)));
+    expect(h.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it("handles a wrong token with a session like any page: owner passes, others expire", async () => {
+    const path = `/comic/${"x".repeat(32)}`;
+    expectUntouched(await run(req(path, { cookie: CHUNKED })));
+    expect(h.createServerClient).toHaveBeenCalledTimes(1);
+
+    signedInAs(STRANGER);
+    const res = await run(req(path, { cookie: CHUNKED }));
+    expectUntouched(res);
+    expectExpired(res, ["sb-ref-auth-token.0", "sb-ref-auth-token.1"]);
+  });
+
+  it.each([
+    ["with the right token", `/read/${COMIC.token}`],
+    ["with a wrong token", `/read/${"x".repeat(32)}`],
+    ["in another case", `/READ/${COMIC.token}`],
+    ["percent-encoded", `/r%65ad/${COMIC.token}`],
+    ["with an encoded slash", `/read%2F${COMIC.token}`],
+    ["one level deeper", `/read/${COMIC.token}/x`],
+  ])("answers the reader route's own URL %s with the ordinary 404", async (_label, path) => {
+    for (const cookie of [undefined, CHUNKED]) {
+      const res = await run(req(path, { cookie }));
+      expect(rewrittenTo(res)).toBe("/_no-route");
+      for (const name of COMIC_HEADERS) expect(res.headers.get(name), name).toBeNull();
+      expect(res.headers.getSetCookie()).toEqual([]);
+    }
+    expect(h.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it("leaves /read itself alone: it has no page, so it is a plain 404 already", async () => {
+    expectUntouched(await run(req("/read")));
+  });
+
+  it("does not change the gating of the API or owner pages", async () => {
+    await expectJsonError(await run(req("/api/kudos")), 401, "unauthenticated");
+    expectRedirect(await run(req("/settings/squads")), "/auth/sign-in?next=%2Fsettings%2Fsquads");
+    expect(passes(await run(req("/api/squads", { cookie: CHUNKED })))).toBe(true);
   });
 });
 

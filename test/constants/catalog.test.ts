@@ -6,20 +6,17 @@ import {
 } from "@/lib/tools/catalog";
 
 describe("tool catalog visibility", () => {
-  it("hides the comic and its empty Library category until the PDF ships", () => {
-    expect(getVisibleTools(false).some((t) => t.id === "agile-at-work")).toBe(false);
-    expect(getVisibleToolsByCategory("Library", false)).toEqual([]);
-    expect(getVisibleCategories(false)).not.toContain("Library");
-  });
-
-  it("shows the comic once it is available", () => {
-    expect(getVisibleTools(true).some((t) => t.id === "agile-at-work")).toBe(true);
-    expect(getVisibleCategories(true)).toContain("Library");
+  // The comic is private (/comic/<token>): nothing a visitor browses lists it.
+  it("never lists the private comic", () => {
+    const comic = getVisibleTools().filter(
+      (t) => t.id === "agile-at-work" || /^\/comics?(\/|$)/.test(t.path)
+    );
+    expect(comic).toEqual([]);
   });
 
   it("never lists an empty category", () => {
-    for (const c of getVisibleCategories(false)) {
-      expect(getVisibleToolsByCategory(c, false).length).toBeGreaterThan(0);
+    for (const c of getVisibleCategories()) {
+      expect(getVisibleToolsByCategory(c).length).toBeGreaterThan(0);
     }
   });
 });

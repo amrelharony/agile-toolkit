@@ -36,6 +36,7 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { useAgentStore } from "@/lib/agent/store";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { useReaderPageStore } from "@/lib/stores/reader-page-store";
 
 const OWNER = { status: "authenticated", user: { id: "u1" } };
 
@@ -63,6 +64,7 @@ describe("MascotAssistant — owner gating", () => {
     stubPhoneWidth(false);
     useAgentStore.setState({ open: true });
     useLlmUiStore.setState({ settingsOpen: false });
+    useReaderPageStore.setState({ title: null });
   });
 
   afterEach(() => {
@@ -96,6 +98,17 @@ describe("MascotAssistant — owner gating", () => {
     fireEvent.click(screen.getByRole("button", { name: "AI settings" }));
     expect(useLlmUiStore.getState().settingsOpen).toBe(true);
     expect(useAgentStore.getState().open).toBe(false);
+  });
+
+  it("never carries the private comic link into owner sign-in", () => {
+    h.pathname = "/comic/AbCdEf0123456789_-AbCdEf";
+    useReaderPageStore.setState({ title: "Agile at Work" });
+    render(<MascotAssistant />);
+
+    expect(screen.getByRole("link", { name: "Owner sign in" })).toHaveAttribute(
+      "href",
+      "/auth/sign-in?next=%2F"
+    );
   });
 
   it("mounts neither the notice nor the chat while auth is loading", () => {
@@ -161,6 +174,7 @@ describe("MascotAssistant — comic reader", () => {
   beforeEach(() => {
     h.auth = null;
     useAgentStore.setState({ open: false });
+    useReaderPageStore.setState({ title: null });
   });
 
   afterEach(() => {
@@ -168,20 +182,32 @@ describe("MascotAssistant — comic reader", () => {
   });
 
   // The reader's toolbar sits at the bottom of the viewport at every width,
-  // so the figure's hit box would cover Download PDF on a laptop too.
+  // so the figure's hit box would cover its controls on a laptop too.
   it.each([
     ["on a phone", true],
     ["on a wide screen", false],
-  ])("hides the floating mascot on /agile-at-work %s", (_label, isPhone) => {
+  ])("hides the floating mascot while the comic reader is mounted %s", (_label, isPhone) => {
     stubPhoneWidth(isPhone);
-    h.pathname = "/agile-at-work";
+    h.pathname = "/comic/AbCdEf0123456789_-AbCdEf";
+    useReaderPageStore.setState({ title: "Agile at Work" });
     render(<MascotAssistant />);
     expect(screen.queryByRole("button", { name: "Open assistant" })).toBeNull();
+  });
+
+  it("brings the mascot back when the reader unmounts", () => {
+    stubPhoneWidth(false);
+    useReaderPageStore.setState({ title: "Agile at Work" });
+    render(<MascotAssistant />);
+    expect(screen.queryByRole("button", { name: "Open assistant" })).toBeNull();
+    act(() => useReaderPageStore.getState().leave());
+    expect(screen.getByRole("button", { name: "Open assistant" })).toBeInTheDocument();
   });
 
   it.each([
     ["another page on a phone", "/kudos", true],
     ["another page on a wide screen", "/kudos", false],
+    // The path alone means nothing: only a mounted reader hides the figure.
+    ["a /comic/ path with no reader", "/comic/AbCdEf0123456789_-AbCdEf", false],
   ])("keeps the mascot on %s", async (_label, pathname, isPhone) => {
     stubPhoneWidth(isPhone);
     h.pathname = pathname;

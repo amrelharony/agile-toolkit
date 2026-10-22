@@ -32,7 +32,6 @@ const MODES = [
 
 /** Served straight from /public (or by Next) without running middleware. */
 const EXEMPT = [
-  "/comics/agile-at-work.pdf",
   "/.well-known/security.txt",
   "/mascot/mascot.glb",
   "/AT.svg",
@@ -49,6 +48,15 @@ const EXEMPT = [
 /** Must reach the middleware: pages, owner pages, every API route. */
 const CHECKED = [
   "/",
+  // The private comic link, which the middleware routes, and the reader
+  // route behind it, which the middleware hides — dotted variants too. Also
+  // the old public PDF path (now just a 404).
+  "/comic/AbCdEf0123456789_-AbCdEf",
+  "/comic/AbCdEf0123456789_-AbCdEf.rsc",
+  "/read/AbCdEf0123456789_-AbCdEf",
+  "/read/AbCdEf0123456789_-AbCdEf.rsc",
+  "/read/x.pdf",
+  "/comics/agile-at-work.pdf",
   "/comics",
   "/comics/",
   "/comics/agile-at-work",

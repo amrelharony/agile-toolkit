@@ -1,5 +1,3 @@
-import { readComicAsset } from "./scripts/comic-asset.mjs";
-
 /** @type {import('next').NextConfig} */
 
 /**
@@ -84,16 +82,7 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
-// Comic PDF size + content hash, read once per `next dev` / `next build` (see
-// scripts/comic-asset.mjs). Both are "" while public/comics/agile-at-work.pdf
-// is absent; restart `next dev` after adding or replacing the file.
-const comicAsset = await readComicAsset();
-
 const nextConfig = {
-  env: {
-    NEXT_PUBLIC_COMIC_PDF_SIZE: comicAsset.size,
-    NEXT_PUBLIC_COMIC_PDF_VERSION: comicAsset.version,
-  },
   async headers() {
     return [
       {
@@ -113,18 +102,6 @@ const nextConfig = {
       {
         source: "/sw.js",
         headers: [{ key: "Cache-Control", value: "no-cache" }],
-      },
-      // Comic PDFs: matching rules stack, so the security headers above still
-      // apply. Not `immutable` — the filename is stable and the owner may
-      // replace the file; the reader's `?v=<hash>` URL handles cache busting.
-      {
-        source: "/comics/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=604800",
-          },
-        ],
       },
     ];
   },

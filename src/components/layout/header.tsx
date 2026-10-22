@@ -33,6 +33,7 @@ import { UserMenu } from "@/components/auth/user-menu";
 import { VisitorDataMergeDialog } from "@/components/auth/visitor-data-merge-dialog";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
+import { useSignInHref } from "@/lib/auth/sign-in-href";
 import {
   setVisitorDataPromptOpen,
   useOwnerSeen,
@@ -42,6 +43,7 @@ import {
 import { installLocalDataChannelListener } from "@/lib/utils/clear-local-data";
 import { KudosHeaderBeacon } from "@/lib/kudos/beacon/header-beacon";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
+import { useReaderPageStore } from "@/lib/stores/reader-page-store";
 import { cn } from "@/lib/utils";
 import { setThemePreference, useAppliedTheme } from "@/lib/theme/theme";
 
@@ -54,6 +56,11 @@ interface HeaderProps {
 export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: HeaderProps) {
   const pathname = usePathname();
   const tool = getToolByPath(pathname);
+  // A reader page (the private comic) is in no registry, but it is a page of
+  // its own, not "Home". It names itself through the store: its path carries
+  // a secret token, and is never shown or matched here.
+  const readerTitle = useReaderPageStore((s) => s.title);
+  const readerPage = !tool && readerTitle !== null;
   const openAgent = useAgentStore((s) => s.openSheet);
   // The agent and the Cairo weather are the owner's; visitors get the
   // mascot's help panel behind the same button instead.
@@ -175,7 +182,17 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
                 </BreadcrumbItem>
               </>
             )}
-            {!tool && (
+            {readerPage && (
+              <>
+                <BreadcrumbSeparator className="text-sub hidden lg:block" />
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage className="text-text font-medium truncate max-w-[50vw] sm:max-w-[16rem] lg:max-w-[20rem]">
+                    {readerTitle}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </>
+            )}
+            {!tool && !readerPage && (
               <BreadcrumbItem className="lg:hidden">
                 <BreadcrumbPage className="text-text font-medium">Home</BreadcrumbPage>
               </BreadcrumbItem>
@@ -300,7 +317,7 @@ const NOTICE_DISMISSED_KEY = "agile-toolkit:signed-out-notice-dismissed";
  */
 function SharedBrowserNotice() {
   const { status, error } = useAuth();
-  const pathname = usePathname();
+  const signIn = useSignInHref();
   const ownerSeen = useOwnerSeen();
   const syncPending = useVisitorDataPending();
   const promptOpen = useOwnerSyncGateStore((s) => s.promptOpen);
@@ -358,7 +375,7 @@ function SharedBrowserNotice() {
       <CloudOff className="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
       <span className="flex-1 min-w-0">Signed out — changes stay on this device.</span>
       <Link
-        href={`/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`}
+        href={signIn}
         className="shrink-0 font-medium text-accent hover:underline underline-offset-4"
       >
         Sign in to sync

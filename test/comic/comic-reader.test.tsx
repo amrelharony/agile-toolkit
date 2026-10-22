@@ -4,8 +4,9 @@ import { COMIC_LAST_PAGE_KEY } from "@/lib/comic/agile-at-work";
 
 /**
  * The "Agile at Work" reader against a fake pdf.js: page images, keyboard,
- * #page=N deep links, the resume chip, error / coming-soon fallbacks and
- * the toolbar's accessible names. jsdom has no canvas, so the canvas,
+ * #page=N deep links, the resume chip, error / coming-soon / expired-link
+ * fallbacks and the toolbar's accessible names. Read online only: nothing
+ * may offer the PDF as a download. jsdom has no canvas, so the canvas,
  * toBlob and blob-URL APIs are stubbed; the stage measures 800 × 900, which
  * is below the 900 px spread threshold (single pages).
  */
@@ -18,18 +19,26 @@ vi.mock("@/lib/pdf/load-pdfjs", async (importOriginal) => ({
 }));
 vi.mock("@/lib/sonification/emit", () => ({ emit }));
 
-import { ComicReader } from "@/app/(tools)/agile-at-work/components/comic-reader";
-import { AgileAtWorkClient } from "@/app/(tools)/agile-at-work/agile-at-work-client";
+import { ComicReader } from "@/components/comic/reader/comic-reader";
 
-const SRC = "/comics/agile-at-work.pdf?v=abc123";
-const SIZE = 12_897_485;
+/** Shaped like a Supabase Storage signed URL; the token here is a dummy. */
+const SRC =
+  "https://ref.supabase.co/storage/v1/object/sign/comics/agile-at-work.pdf?token=signed-url-token";
 
-function fakePdfjs(numPages = 24) {
+/** pdf.js's error for an HTTP failure, e.g. an expired signed URL (400). */
+function responseError(status: number) {
+  return pdfError("ResponseException", { status, missing: status === 404 });
+}
+
+function fakePdfjs(numPages = 24, renderError?: (page: number) => Error | null) {
   const doc = {
     numPages,
-    getPage: vi.fn(async () => ({
+    getPage: vi.fn(async (page: number) => ({
       getViewport: ({ scale }: { scale: number }) => ({ width: 600 * scale, height: 900 * scale }),
-      render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
+      render: vi.fn(() => {
+        const err = renderError?.(page);
+        return { promise: err ? Promise.reject(err) : Promise.resolve(), cancel: vi.fn() };
+      }),
       cleanup: vi.fn(),
     })),
   };
@@ -71,11 +80,18 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+const reload = vi.fn();
+
+function renderReader() {
+  return render(<ComicReader src={SRC} onReload={reload} />);
+}
+
 beforeEach(() => {
-  window.history.replaceState(null, "", "/agile-at-work");
+  window.history.replaceState(null, "", "/comic/AbCdEf0123456789_-AbCdEf");
   localStorage.clear();
   emit.mockReset();
   loadPdfjs.mockReset();
+  reload.mockReset();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
     width: 800,
     height: 900,
@@ -99,14 +115,13 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
 });
 
 describe("ComicReader", () => {
   it("opens the PDF with range requests and shows page 1", async () => {
     const pdfjs = fakePdfjs();
     loadPdfjs.mockResolvedValue(pdfjs);
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
 
     expect(await screen.findByAltText("Agile at Work — page 1 of 24")).toBeInTheDocument();
     expect(pdfjs.getDocument).toHaveBeenCalledWith(
@@ -123,7 +138,7 @@ describe("ComicReader", () => {
 
   it("turns pages with the arrow keys and mirrors them in #page=N", async () => {
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     fireEvent.keyDown(window, { key: "ArrowRight" });
@@ -138,7 +153,7 @@ describe("ComicReader", () => {
 
   it("scopes End (and other single keys) to the focused reader", async () => {
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     fireEvent.keyDown(window, { key: "End" });
@@ -156,16 +171,16 @@ describe("ComicReader", () => {
   });
 
   it("opens on the page named in #page=N", async () => {
-    window.history.replaceState(null, "", "/agile-at-work#page=5");
+    window.history.replaceState(null, "", "/comic/AbCdEf0123456789_-AbCdEf#page=5");
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     expect(await screen.findByAltText("Agile at Work — page 5 of 24")).toBeInTheDocument();
   });
 
   it("offers to resume from the saved page instead of jumping there", async () => {
     localStorage.setItem(COMIC_LAST_PAGE_KEY, "7");
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     fireEvent.click(await screen.findByRole("button", { name: /Continue from p\. 7/ }));
@@ -176,7 +191,7 @@ describe("ComicReader", () => {
   it("hands focus to the stage when the resume chip is dismissed", async () => {
     localStorage.setItem(COMIC_LAST_PAGE_KEY, "7");
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     const dismiss = await screen.findByRole("button", { name: "Dismiss, start from the cover" });
@@ -191,7 +206,7 @@ describe("ComicReader", () => {
 
   it("keeps the scrubber label and thumb in step after keyboard use (Radix commits first)", async () => {
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     const controls = screen.getByRole("group", { name: "Comic reader controls" });
@@ -213,9 +228,9 @@ describe("ComicReader", () => {
     expect(thumb).toHaveAttribute("aria-valuetext", "Page 6 of 24");
   });
 
-  it("labels the toolbar controls and offers the PDF download", async () => {
+  it("labels the toolbar controls and offers no download", async () => {
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     const controls = screen.getByRole("group", { name: "Comic reader controls" });
@@ -237,36 +252,116 @@ describe("ComicReader", () => {
     const thumb = within(controls).getByRole("slider", { name: "Go to page" });
     expect(thumb).toHaveAttribute("aria-valuetext", "Page 1 of 24");
 
-    const download = within(controls).getByRole("link", { name: "Download PDF (12.3 MB)" });
-    expect(download).toHaveAttribute("href", SRC);
-    expect(download).toHaveAttribute("download", "Agile-at-Work.pdf");
+    // Read online only: no link (download or otherwise) to the PDF.
+    expect(within(controls).queryByRole("link")).toBeNull();
+    expect(within(controls).queryByText(/download/i)).toBeNull();
+    expect(document.querySelector("a[download]")).toBeNull();
+    expect(document.querySelector(`a[href="${SRC}"]`)).toBeNull();
   });
 
   it("shows 'coming soon' when the PDF is missing", async () => {
     loadPdfjs.mockRejectedValue(pdfError("ResponseException", { status: 404, missing: true }));
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     expect(await screen.findByText("Agile at Work is coming soon")).toBeInTheDocument();
     expect(document.querySelector("a[download]")).toBeNull();
   });
 
-  it("shows Retry and Download when the PDF can't be read", async () => {
+  it("shows Retry (and no download) when the PDF can't be read", async () => {
     loadPdfjs.mockRejectedValueOnce(pdfError("InvalidPDFException"));
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     expect(await screen.findByText(/couldn't be read/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Download PDF/ })).toHaveAttribute("href", SRC);
+    expect(screen.queryByRole("link", { name: /download/i })).toBeNull();
+    expect(document.querySelector("a[download]")).toBeNull();
 
     loadPdfjs.mockResolvedValue(fakePdfjs());
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByAltText("Agile at Work — page 1 of 24")).toBeInTheDocument();
     expect(loadPdfjs).toHaveBeenCalledTimes(2);
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it("does not offer Retry for a password-protected PDF", async () => {
     loadPdfjs.mockRejectedValue(pdfError("PasswordException"));
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     expect(await screen.findByText(/password-protected/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    expect(screen.getByRole("link", { name: /Download PDF/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /download/i })).toBeNull();
+  });
+
+  it.each([400, 401, 403])(
+    "reloads the page for a fresh link when the signed URL is refused (%i)",
+    async (status) => {
+      loadPdfjs.mockRejectedValue(responseError(status));
+      renderReader();
+      expect(await screen.findByText("This reading session has expired.")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      expect(reload).toHaveBeenCalledTimes(1);
+      // Retrying the same (expired) URL can't help: no second load.
+      expect(loadPdfjs).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("retries other HTTP failures in place", async () => {
+    loadPdfjs.mockRejectedValueOnce(responseError(500));
+    renderReader();
+    expect(await screen.findByText("Something went wrong while opening the comic.")).toBeVisible();
+
+    loadPdfjs.mockResolvedValue(fakePdfjs());
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByAltText("Agile at Work — page 1 of 24")).toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("reloads from a page's Try again once its signed URL has expired mid-read", async () => {
+    // Page 2's bytes are fetched lazily; by then the URL has run out.
+    loadPdfjs.mockResolvedValue(fakePdfjs(24, (page) => (page === 2 ? responseError(400) : null)));
+    renderReader();
+    await screen.findByAltText("Agile at Work — page 1 of 24");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(await screen.findByText("Page 2 didn't load.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a server error", () => responseError(500)],
+    ["a network failure", () => pdfError("UnknownErrorException")],
+  ])("reopens the document from a page's Try again after %s", async (_label, makeError) => {
+    // pdf.js never re-requests bytes that failed for an open document, so
+    // retrying the page alone would hang: a fresh document is needed.
+    const first = fakePdfjs(24, (page) => (page === 2 ? makeError() : null));
+    const second = fakePdfjs();
+    loadPdfjs.mockResolvedValueOnce(first).mockResolvedValue(second);
+    renderReader();
+    await screen.findByAltText("Agile at Work — page 1 of 24");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(await screen.findByText("Page 2 didn't load.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    // Same page, from the reopened document.
+    expect(await screen.findByAltText("Agile at Work — page 2 of 24")).toBeInTheDocument();
+    expect(second.getDocument).toHaveBeenCalledTimes(1);
+    expect(first.task.destroy).toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("retries a page in place when its render failed for another reason", async () => {
+    let failPage2 = true;
+    loadPdfjs.mockResolvedValue(
+      fakePdfjs(24, (page) => (page === 2 && failPage2 ? new Error("canvas lost") : null))
+    );
+    renderReader();
+    await screen.findByAltText("Agile at Work — page 1 of 24");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(await screen.findByText("Page 2 didn't load.")).toBeInTheDocument();
+    failPage2 = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByAltText("Agile at Work — page 2 of 24")).toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
   });
 });
 
@@ -284,7 +379,7 @@ describe("ComicReader fullscreen", () => {
       value: requestFullscreen,
     });
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    render(<ComicReader src={SRC} size={SIZE} />);
+    renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
@@ -296,7 +391,7 @@ describe("ComicReader fullscreen", () => {
 
   it("falls back to a modal overlay without the Fullscreen API (iPhone)", async () => {
     loadPdfjs.mockResolvedValue(fakePdfjs());
-    const { container } = render(<ComicReader src={SRC} size={SIZE} />);
+    const { container } = renderReader();
     await screen.findByAltText("Agile at Work — page 1 of 24");
 
     fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
@@ -316,30 +411,5 @@ describe("ComicReader fullscreen", () => {
     expect(document.body.style.overflow).toBe("");
     expect(screen.getByRole("button", { name: "Enter fullscreen" })).toHaveFocus();
     expect(screen.getByAltText("Agile at Work — page 2 of 24")).toBeInTheDocument();
-  });
-});
-
-describe("AgileAtWorkClient", () => {
-  it("shows 'coming soon' without a download when no PDF was built in", () => {
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_SIZE", "");
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "");
-    render(<AgileAtWorkClient />);
-
-    expect(screen.getByRole("heading", { level: 1, name: "Agile at Work" })).toBeInTheDocument();
-    expect(screen.getByText("Agile at Work is coming soon")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to tools" })).toHaveAttribute("href", "/");
-    expect(document.querySelector("a[download]")).toBeNull();
-    expect(loadPdfjs).not.toHaveBeenCalled();
-  });
-
-  it("mounts the reader on the versioned PDF when one was built in", async () => {
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_SIZE", String(SIZE));
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "abc123");
-    const pdfjs = fakePdfjs();
-    loadPdfjs.mockResolvedValue(pdfjs);
-    render(<AgileAtWorkClient />);
-
-    expect(await screen.findByAltText("Agile at Work — page 1 of 24")).toBeInTheDocument();
-    expect(pdfjs.getDocument).toHaveBeenCalledWith(expect.objectContaining({ url: SRC }));
   });
 });

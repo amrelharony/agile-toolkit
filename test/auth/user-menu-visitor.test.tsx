@@ -35,6 +35,7 @@ import { UserMenu } from "@/components/auth/user-menu";
 import { OWNER_SEEN_KEY } from "@/lib/auth/use-is-owner";
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
 import { useOwnerSyncGateStore } from "@/lib/sync/owner-sync-gate";
+import { useReaderPageStore } from "@/lib/stores/reader-page-store";
 
 /** Radix opens the menu on keyboard activation of the trigger. */
 function openMenu(name: string | RegExp) {
@@ -63,6 +64,7 @@ beforeEach(() => {
   sessionStorage.clear();
   toast.warning.mockClear();
   useOwnerSyncGateStore.setState({ decision: "unchecked", promptOpen: false });
+  useReaderPageStore.setState({ title: null });
   h.auth = { status: "anonymous", user: null, profile: null };
 });
 
@@ -80,6 +82,16 @@ describe("UserMenu for visitors", () => {
     expect(screen.getByText("Owner sign in").closest("a")).toHaveAttribute(
       "href",
       "/auth/sign-in?next=%2Fretro"
+    );
+  });
+
+  it("signs in to the home page from a reader page, never to its path", () => {
+    useReaderPageStore.setState({ title: "A reader page" });
+    render(<UserMenu />);
+    openMenu("Visitor menu");
+    expect(screen.getByText("Owner sign in").closest("a")).toHaveAttribute(
+      "href",
+      "/auth/sign-in?next=%2F"
     );
   });
 

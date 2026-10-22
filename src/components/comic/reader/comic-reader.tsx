@@ -31,11 +31,11 @@ import {
   type ReaderKeyAction,
 } from "@/lib/comic/reader-math";
 import { cn } from "@/lib/utils";
-import { usePdfDocument, type PdfDocumentState } from "../hooks/use-pdf-document";
-import { useRenderedPages } from "../hooks/use-rendered-page";
-import { usePageSwipe, useIsZoomed } from "../hooks/use-page-swipe";
-import { useBodyScrollLock, useFullscreen, useInertSiblings } from "../hooks/use-fullscreen";
-import { useElementSize } from "../hooks/use-element-size";
+import { usePdfDocument, type PdfDocumentState } from "./hooks/use-pdf-document";
+import { useRenderedPages } from "./hooks/use-rendered-page";
+import { usePageSwipe, useIsZoomed } from "./hooks/use-page-swipe";
+import { useBodyScrollLock, useFullscreen, useInertSiblings } from "./hooks/use-fullscreen";
+import { useElementSize } from "./hooks/use-element-size";
 import { ReaderToolbar, type LayoutMode } from "./reader-toolbar";
 import { ComicComingSoon, ComicErrorPanel } from "./comic-status";
 
@@ -84,26 +84,35 @@ function containSize(aspect: number, boxW: number, boxH: number): { w: number; h
 /**
  * The "Agile at Work" reader: opens the PDF, then hands a loading or ready
  * document to the view. A missing file falls back to "coming soon"; any
- * other failure shows Retry + Download.
+ * other failure shows Retry. Read online only — nothing here offers the
+ * file for download.
+ *
+ * `src` is a short-lived signed URL. Once it has expired, retrying it
+ * can't help, so Retry calls `onReload` instead: reloading the page asks
+ * the server for a fresh URL. Any other failed download mid-read reopens
+ * the document (`pdf.retry`), since pdf.js won't fetch those bytes again.
  */
-export function ComicReader({ src, size }: { src: string; size: number | null }) {
+export function ComicReader({ src, onReload }: { src: string; onReload: () => void }) {
   const pdf = usePdfDocument(src);
   if (pdf.status === "error") {
     if (pdf.kind === "missing") return <ComicComingSoon />;
-    return <ComicErrorPanel kind={pdf.kind} onRetry={pdf.retry} src={src} size={size} />;
+    return (
+      <ComicErrorPanel kind={pdf.kind} onRetry={pdf.kind === "expired" ? onReload : pdf.retry} />
+    );
   }
-  // Same element for loading and ready, so the stage never remounts.
-  return <ReaderView pdf={pdf} src={src} size={size} />;
+  // Same element for loading and ready (and while reopening), so the stage
+  // never remounts and the reader keeps its page.
+  return <ReaderView pdf={pdf} onReload={onReload} onReopen={pdf.retry} />;
 }
 
 function ReaderView({
   pdf,
-  src,
-  size,
+  onReload,
+  onReopen,
 }: {
   pdf: Exclude<PdfDocumentState, { status: "error" }>;
-  src: string;
-  size: number | null;
+  onReload: () => void;
+  onReopen: () => void;
 }) {
   const doc = pdf.status === "ready" ? pdf.doc : null;
   const numPages = pdf.status === "ready" ? pdf.numPages : 0;
@@ -238,7 +247,12 @@ function ReaderView({
     () => (numPages ? prefetchPages(page, numPages, spread) : []),
     [page, numPages, spread]
   );
-  const { urls, failed, retry } = useRenderedPages({ doc, visible: view, prefetch, bucket });
+  const { urls, failed, retry, broken, expired } = useRenderedPages({
+    doc,
+    visible: view,
+    prefetch,
+    bucket,
+  });
   const [firstShown, setFirstShown] = useState(false);
   const reducedMotion = useReducedMotion();
 
@@ -376,10 +390,19 @@ function ReaderView({
                         variant="outline"
                         size="sm"
                         onClick={() => {
+                          // The PDF's signed URL ran out: only a reload (a
+                          // fresh URL) can fetch the page now.
+                          if (expired) {
+                            onReload();
+                            return;
+                          }
                           // The button unmounts (skeleton) on retry: keep focus
                           // in the reader rather than dropping it to <body>.
                           stageRef.current?.focus();
-                          retry(p);
+                          // A download failed: pdf.js never fetches those
+                          // bytes again for this document, so open it afresh.
+                          if (broken) onReopen();
+                          else retry(p);
                         }}
                       >
                         <RotateCcw aria-hidden="true" />
@@ -491,8 +514,6 @@ function ReaderView({
         onModeChange={setMode}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggle}
-        src={src}
-        size={size}
       />
     </div>
   );

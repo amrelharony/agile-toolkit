@@ -5,16 +5,12 @@ import { ShieldCheck, TrendingUp } from "lucide-react";
 import { getVisibleTools } from "@/lib/tools/catalog";
 import { PageHeader } from "@/components/shared/page-header";
 import { InsightsEngine } from "@/components/shared/insights-engine";
-import { FeaturedComicBanner } from "@/components/comic/featured-comic-banner";
 import { HomeSearch } from "@/components/home/home-search";
 import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
 import { ToolSections } from "@/components/home/tool-sections";
-import { comicAsset } from "@/lib/comic/agile-at-work";
 
-// Reading material (the comic) lives in the grid but isn't an interactive
-// tool, so it stays out of the "N tools" number.
-const toolCount = getVisibleTools().filter((t) => t.kind !== "reading").length;
+const toolCount = getVisibleTools().length;
 
 /**
  * Home: say what this is, then get people to the right tool fast — search,
@@ -23,9 +19,6 @@ const toolCount = getVisibleTools().filter((t) => t.kind !== "reading").length;
  * visitor had to know which category "retro" lived in.)
  */
 export default function Home() {
-  // Build-time flag (scripts/comic-asset.mjs): no banner until the PDF is committed.
-  const showComic = comicAsset().available;
-
   return (
     <div className="mx-auto max-w-[1200px] space-y-10 px-4 py-6 sm:space-y-12 sm:px-6 sm:py-8 md:p-8">
       {/* Hero */}
@@ -52,8 +45,6 @@ export default function Home() {
           </Link>
         </div>
       </div>
-
-      {showComic && <FeaturedComicBanner />}
 
       <JobLauncher />
 

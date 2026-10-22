@@ -10,6 +10,11 @@ const SITE_URL = "https://agile.amrelharony.com";
  * (/join/<tool>/<code>) and the not-authorized page. These also carry
  * `noindex` metadata where they render HTML; robots.txt just saves
  * crawlers the requests.
+ *
+ * The private comic link (/comic/<token>) is deliberately NOT listed: a
+ * Disallow would stop crawlers from fetching the page and so from ever
+ * seeing its noindex (meta + X-Robots-Tag), and a URL that leaked somewhere
+ * could then still be indexed from links alone.
  */
 export default function robots(): MetadataRoute.Robots {
   return {

@@ -33,9 +33,16 @@ describe("robots", () => {
 
   it("does not block any tool route", () => {
     const disallow = [rule().disallow ?? []].flat();
-    for (const path of ["/", "/planning-poker", "/retro", "/agile-at-work", "/history"]) {
+    for (const path of ["/", "/planning-poker", "/retro", "/history"]) {
       expect(disallow.some((prefix) => path.startsWith(prefix))).toBe(false);
     }
+  });
+
+  it("leaves the private comic link crawlable, so its noindex is seen", () => {
+    const disallow = [rule().disallow ?? []].flat();
+    expect(disallow.some((prefix) => "/comic/AbCdEf0123456789_-AbCdEf".startsWith(prefix))).toBe(
+      false
+    );
   });
 
   it("points at the sitemap on the canonical domain", () => {

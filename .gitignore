@@ -67,3 +67,11 @@ next-env.d.ts
 
 # Lighthouse CI local runs (npm run lighthouse)
 /.lighthouseci/
+
+# The "Agile at Work" comic is private: it lives in the private Supabase
+# Storage bucket "comics" and is served only via /comic/<token>. Anything
+# under public/ is served to everyone, so the PDF must never go there
+# (test/comic/no-public-pdf.test.ts backs this up for `git add -f` and web
+# uploads, which ignore this file).
+/public/comics/
+/public/**/*.[pP][dD][fF]

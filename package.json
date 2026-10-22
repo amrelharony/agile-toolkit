@@ -22,6 +22,7 @@
     "scaffold:action": "node scripts/scaffold-action.mjs",
     "optimize:mascot": "node scripts/optimize-mascot-glb.mjs",
     "pdf:worker": "node scripts/copy-pdf-worker.mjs",
+    "comic:new-link": "node scripts/new-comic-link.mjs",
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "verify:migrations": "node scripts/verify-mcp-migrations.mjs",
     "lighthouse": "npm run build && npx --yes @lhci/cli@0.14.x autorun",

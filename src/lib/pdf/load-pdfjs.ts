@@ -6,7 +6,8 @@
  * built-ins (Math.sumPrecise, Map.prototype.getOrInsertComputed,
  * Promise.try) with no polyfills, so it throws on older Safari / iOS /
  * Chromium. That was tolerable for an owner-only canvas import; it isn't
- * for a public reader. The legacy build bundles the polyfills for roughly
+ * for the comic reader, which readers open (from a QR code) on whatever
+ * phone they have. The legacy build bundles the polyfills for roughly
  * +20 KB gzipped.
  *
  * The worker is a committed byte copy of

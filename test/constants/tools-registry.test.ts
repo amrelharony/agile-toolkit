@@ -46,15 +46,10 @@ describe("tool registry", () => {
     expect(missing).toEqual([]);
   });
 
-  it("files the Agile at Work comic as reading material in the Library", () => {
-    const comic = tools.find((t) => t.id === "agile-at-work");
-    expect(comic).toMatchObject({
-      category: "Library",
-      kind: "reading",
-      path: "/agile-at-work",
-      isRealtime: false,
-      usesWorkspace: false,
-    });
-    expect(categories[0]).toBe("Library");
+  // The comic is reachable only through its private link, so it must never
+  // reach the sidebar, command palette, home grid or sitemap.
+  it("keeps the private comic out of the registry", () => {
+    const comic = tools.filter((t) => t.id === "agile-at-work" || /^\/comics?(\/|$)/.test(t.path));
+    expect(comic.map((t) => t.id)).toEqual([]);
   });
 });

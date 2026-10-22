@@ -1,53 +1,35 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import sitemap from "@/app/sitemap";
 import { tools } from "@/lib/constants/tools";
 
 /**
- * /sitemap.xml lists the landing page and every public tool route, and only
- * advertises the comic reader once its PDF exists (build-time env written by
- * next.config.mjs). The module is re-imported per case so a future
- * module-level read of the env can't make these tests pass by accident.
+ * /sitemap.xml lists the landing page and every public tool route — and
+ * nothing about the comic, which is reachable only through its private link.
  */
 
 const BASE = "https://agile.amrelharony.com";
-const COMIC_URL = `${BASE}/agile-at-work`;
 
-async function loadSitemapUrls(): Promise<string[]> {
-  vi.resetModules();
-  const { default: sitemap } = await import("@/app/sitemap");
+function urls(): string[] {
   return sitemap().map((entry) => entry.url);
 }
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
 describe("sitemap", () => {
-  it("lists the landing page and every tool path except the comic while its PDF is missing", async () => {
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_SIZE", "");
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "");
-    const urls = await loadSitemapUrls();
+  it("lists the landing page and every tool path, once each", () => {
+    const list = urls();
+    expect(list).toContain(`${BASE}/`);
+    for (const tool of tools) expect(list).toContain(`${BASE}${tool.path}`);
+    expect(list).toHaveLength(tools.length + 1);
+    expect(new Set(list).size).toBe(list.length);
+  });
 
-    expect(urls).toContain(`${BASE}/`);
-    for (const tool of tools) {
-      if (tool.path === "/agile-at-work") continue;
-      expect(urls).toContain(`${BASE}${tool.path}`);
+  it("never lists the comic", () => {
+    for (const url of urls()) {
+      expect(url).not.toMatch(/comic|agile-at-work/);
     }
-    expect(urls).not.toContain(COMIC_URL);
-    expect(new Set(urls).size).toBe(urls.length);
   });
 
-  it("includes the comic reader once the PDF is available", async () => {
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_SIZE", "12897485");
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "a163ac728a97");
-    const urls = await loadSitemapUrls();
-
-    expect(urls).toContain(COMIC_URL);
-    expect(urls).toHaveLength(tools.length + 1);
-  });
-
-  it("only emits absolute URLs on the production origin", async () => {
-    const urls = await loadSitemapUrls();
-    for (const url of urls) expect(url.startsWith(`${BASE}/`)).toBe(true);
+  it("only emits absolute URLs on the production origin", () => {
+    for (const url of urls()) expect(url.startsWith(`${BASE}/`)).toBe(true);
   });
 });

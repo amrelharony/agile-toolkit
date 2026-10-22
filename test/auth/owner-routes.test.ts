@@ -23,7 +23,8 @@ describe("routeKind", () => {
   it.each([
     "/",
     "/planning-poker",
-    "/agile-at-work",
+    // The private comic link: the token is the gate, not a session.
+    "/comic/AbCdEf0123456789_-AbCdEf",
     "/settings",
     "/settings/appearance",
     "/settings/access-tokens-old",
