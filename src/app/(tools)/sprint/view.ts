@@ -8,7 +8,6 @@
 import type {
   Impediment,
   RetroBoard,
-  RetroCard,
   Sprint,
   SprintReview,
   SprintSeries,
@@ -20,7 +19,8 @@ import { sprintStatus, type SprintStatus } from "@/lib/sprints/metrics";
 import { fmt, type Tile } from "@/lib/sprints/hub-view";
 import { CEREMONY_HREF, CEREMONY_LABEL, type CeremonyKind } from "@/lib/sprints/cadence";
 import { dayForDate } from "@/lib/sprints/series";
-import { previousRetro, retroActionItems } from "@/app/(tools)/retro/archive";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { collectRetroActions, type RetroAction } from "@/lib/retro/actions";
 
 /** MUST match RB_ID in src/app/(tools)/retro/retro-client.tsx. */
 export const RETRO_CURRENT_ID = "retro:current";
@@ -47,8 +47,10 @@ export interface ReviewPrep {
 export interface RetroState {
   /** Any retro, current or archived, exists. */
   hasRetro: boolean;
-  /** Action items agreed in the last finished retro. */
-  lastActions: number;
+  /** Action items still open, across every retro. */
+  openActions: number;
+  /** Open actions past their due date. */
+  overdue: number;
   /** Cards on the current (unfinished) board. */
   currentCards: number;
 }
@@ -254,13 +256,15 @@ export function flowCards(input: CockpitInput): FlowCard[] {
       href: CEREMONY_HREF.retro,
       cta: "Open the retro board",
     };
-  } else if (retro.lastActions > 0) {
+  } else if (retro.openActions > 0) {
     retroCard = {
       kind: "retro",
       label: CEREMONY_LABEL.retro,
       state: "doing",
-      line: `${plural(retro.lastActions, "action")} from the last retro`,
-      href: CEREMONY_HREF.retro,
+      line: `${plural(retro.openActions, "open action")}${
+        retro.overdue > 0 ? ` (${retro.overdue} overdue)` : ""
+      }`,
+      href: "/retro-actions",
       cta: "Follow up",
     };
   } else {
@@ -268,9 +272,9 @@ export function flowCards(input: CockpitInput): FlowCard[] {
       kind: "retro",
       label: CEREMONY_LABEL.retro,
       state: "done",
-      line: "Last retro left no open actions",
-      href: CEREMONY_HREF.retro,
-      cta: "Open the retro board",
+      line: "No open retro actions",
+      href: "/retro-actions",
+      cta: "See past actions",
     };
   }
 
@@ -340,11 +344,13 @@ export interface CockpitSources {
   retroBoards: readonly RetroBoard[];
   reviews: readonly SprintReview[];
   today: string;
+  /** Whether a hand-off target is finished (lib/handoffs routes); absent in previews. */
+  targetDone?: (link: HandoffLink) => boolean;
 }
 
 export interface CockpitData extends CockpitInput {
-  /** The last finished retro's action items, for the report. */
-  lastRetroActions: RetroCard[];
+  /** The open retro actions, for the report. */
+  openActions: RetroAction[];
   reviewDoc: SprintReview | undefined;
 }
 
@@ -369,9 +375,12 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
   const posted = new Set(todayEntries.map((e) => nameKey(e.member)).filter(Boolean)).size;
   const blockers = todayEntries.filter((e) => e.blockers.trim() && !e.blockerResolved).length;
 
-  const current = retroBoards.find((b) => b.id === RETRO_CURRENT_ID);
-  const prev = previousRetro(retroBoards, current?.previousRetroId);
-  const lastRetroActions = prev ? retroActionItems(prev) : [];
+  const current = retroBoards.find((b) => b.id === RETRO_CURRENT_ID && !b.archivedAt);
+  const actions = collectRetroActions(retroBoards, {
+    today: src.today,
+    targetDone: src.targetDone,
+  });
+  const openActions = actions.filter((a) => !a.done);
   const reviewDoc = reviews.find((r) => r.id === SPRINT_REVIEW_ID);
 
   return {
@@ -386,11 +395,14 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
       feedback: reviewDoc?.feedbackItems.length ?? 0,
     },
     retro: {
-      hasRetro: Boolean(prev) || Boolean(current && current.cards.length > 0),
-      lastActions: lastRetroActions.length,
+      hasRetro:
+        retroBoards.some((b) => typeof b.archivedAt === "string") ||
+        Boolean(current && current.cards.length > 0),
+      openActions: openActions.length,
+      overdue: openActions.filter((a) => a.overdue).length,
       currentCards: current?.cards.length ?? 0,
     },
-    lastRetroActions,
+    openActions,
     reviewDoc,
   };
 }

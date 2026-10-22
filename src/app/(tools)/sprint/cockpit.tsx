@@ -46,6 +46,7 @@ import { updateSeries, updateSprint } from "@/lib/sprints/store";
 import { nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { sprintReport } from "@/lib/sprints/report";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
 import { blockersTile, flowCards, gatherCockpitData, type CockpitData } from "./view";
 import { FlowStrip } from "./components/flow-strip";
@@ -117,6 +118,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             retroBoards,
             reviews,
             today,
+            // Done when the impediment or Kanban card an action was sent to is finished.
+            targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
           })
         : null,
     [
@@ -296,7 +299,7 @@ function CockpitBody({
         stories: data.sprintStories,
         openImpediments: data.openImpediments,
         standup: data.standup,
-        retroActions: data.lastRetroActions.map((a) => ({ text: a.text, assignee: a.assignee })),
+        retroActions: data.openActions.map((a) => ({ text: a.text, assignee: a.assignee })),
         review: data.reviewDoc
           ? {
               demoItems: data.reviewDoc.features.map((f) => ({

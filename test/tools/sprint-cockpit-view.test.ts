@@ -30,7 +30,7 @@ const base: CockpitInput = {
   standup: { posted: 0, members: 0, blockers: 0 },
   openImpediments: [],
   review: { demoItems: 0, feedback: 0 },
-  retro: { hasRetro: false, lastActions: 0, currentCards: 0 },
+  retro: { hasRetro: false, openActions: 0, overdue: 0, currentCards: 0 },
 };
 
 const card = (input: CockpitInput, kind: string) => flowCards(input).find((c) => c.kind === kind)!;
@@ -113,13 +113,22 @@ describe("flowCards", () => {
     );
     expect(card(base, "retro")).toMatchObject({ state: "todo", line: "No retro yet" });
     expect(
-      card({ ...base, retro: { hasRetro: true, lastActions: 3, currentCards: 0 } }, "retro")
-    ).toMatchObject({ state: "doing", line: "3 actions from the last retro" });
+      card(
+        { ...base, retro: { hasRetro: true, openActions: 3, overdue: 1, currentCards: 0 } },
+        "retro"
+      )
+    ).toMatchObject({ state: "doing", line: "3 open actions (1 overdue)", href: "/retro-actions" });
     expect(
-      card({ ...base, retro: { hasRetro: true, lastActions: 3, currentCards: 5 } }, "retro")
+      card(
+        { ...base, retro: { hasRetro: true, openActions: 3, overdue: 0, currentCards: 5 } },
+        "retro"
+      )
     ).toMatchObject({ state: "doing", line: "Retro in progress · 5 cards" });
     expect(
-      card({ ...base, retro: { hasRetro: true, lastActions: 0, currentCards: 0 } }, "retro").state
+      card(
+        { ...base, retro: { hasRetro: true, openActions: 0, overdue: 0, currentCards: 0 } },
+        "retro"
+      ).state
     ).toBe("done");
   });
 });
@@ -254,8 +263,8 @@ describe("gatherCockpitData", () => {
     expect(data.standup).toEqual({ posted: 1, members: 2, blockers: 1 });
     expect(data.openImpediments.map((i) => i.id)).toEqual(["crit", "high-old", "high-new", "low"]);
     expect(data.review).toEqual({ demoItems: 1, feedback: 0 });
-    expect(data.retro).toEqual({ hasRetro: true, lastActions: 2, currentCards: 0 });
-    expect(data.lastRetroActions.map((c) => c.id)).toEqual(["a1", "a2"]);
+    expect(data.retro).toEqual({ hasRetro: true, openActions: 2, overdue: 0, currentCards: 0 });
+    expect(data.openActions.map((c) => c.id)).toEqual(["a1", "a2"]);
     expect(data.status.committed).toBe(30);
   });
 });
