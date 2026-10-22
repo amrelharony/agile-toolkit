@@ -68,3 +68,37 @@ describe("tool.platform_maturity.set_dimension", () => {
     expect(r.updated).toBe(false);
   });
 });
+
+describe("tool.platform_maturity — later edits", () => {
+  beforeEach(() => useWorkspaceStore.setState({ platformMaturities: [] }));
+
+  const set = (params: Record<string, unknown>) =>
+    registry.get("tool.platform_maturity.set_dimension")!.handler(params, ctx());
+  const list = async () =>
+    (await registry.get("tool.platform_maturity.list_state")!.handler({}, ctx())) as {
+      exists: boolean;
+      averageScore: number;
+      byDimension: { id: string; score: number; note: string }[];
+    };
+
+  it("keeps a dimension's note when a later score change omits it", async () => {
+    await set({ dimensionId: "runbookHygiene", score: 2, note: "yearly review" });
+    await set({ dimensionId: "runbookHygiene", score: 4 });
+    const r = await list();
+    expect(r.exists).toBe(true);
+    expect(r.byDimension.find((d) => d.id === "runbookHygiene")).toEqual({
+      id: "runbookHygiene",
+      score: 4,
+      note: "yearly review",
+    });
+  });
+
+  it("leaves the other dimensions alone and reports blank notes as ''", async () => {
+    await set({ dimensionId: "goldenPaths", score: 3 });
+    await set({ dimensionId: "onCallMaturity", score: 5, note: "" });
+    const r = await list();
+    expect(r.byDimension.map((d) => d.score)).toEqual([3, 1, 1, 5, 1, 1, 1, 1]);
+    expect(r.byDimension.every((d) => d.note === "")).toBe(true);
+    expect(r.averageScore).toBe(1.75); // (3 + 5 + 6) / 8
+  });
+});

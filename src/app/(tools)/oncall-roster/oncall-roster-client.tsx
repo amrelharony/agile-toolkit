@@ -276,7 +276,13 @@ function ExpectedPagesInput({
                 return;
               }
               const n = Number(draft);
-              if (Number.isFinite(n) && n !== value) {
+              // min=0 (the agent action rejects negatives too): put a
+              // negative entry back to the committed value.
+              if (!Number.isFinite(n) || n < 0) {
+                setDraft(value === undefined ? "" : String(value));
+                return;
+              }
+              if (n !== value) {
                 lastSyncedRef.current = n;
                 commit(n);
               }
@@ -426,7 +432,10 @@ export function OncallRosterClient() {
       .sort((a, b) => b.totalPages - a.totalPages);
   }, [state.shifts, pageCountByShift, now]);
 
-  const topPagedPerson = personStats[0]?.person ?? null;
+  // Nobody is "top-paged" until someone has been paged; the first rostered
+  // person used to be named with "0 pages".
+  const topPaged = personStats[0] && personStats[0].totalPages > 0 ? personStats[0] : null;
+  const topPagedPerson = topPaged?.person ?? null;
 
   // ── Tier-2: weekly paging trend + CUSUM changepoints ──────────────
   // Bucket pages into the most recent 26 calendar weeks: 25 full weeks
@@ -607,7 +616,7 @@ export function OncallRosterClient() {
           icon={Flame}
           label="Top-paged person"
           value={topPagedPerson ?? "—"}
-          hint={personStats[0] ? `${personStats[0].totalPages} pages` : "no pages logged"}
+          hint={topPaged ? `${topPaged.totalPages} pages` : "no pages logged"}
         />
       </KpiGrid>
 

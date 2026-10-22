@@ -7,7 +7,7 @@
  *   4. set_status — publish stamps publishedAt; remove_postmortem.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -139,5 +139,73 @@ describe("tool.post_mortem — lifecycle", () => {
     expect(rm.removed).toBe(true);
     r = await list();
     expect(r.total).toBe(0);
+  });
+});
+
+describe("tool.post_mortem — dates and blanks", () => {
+  beforeEach(() => useWorkspaceStore.setState({ postMortemLogs: [] }));
+  afterEach(() => vi.useRealTimers());
+
+  /** A moment whose UTC calendar day differs from the local one (when the zone allows). */
+  function nearLocalMidnight() {
+    const east = new Date(2026, 9, 19, 0, 30).getTimezoneOffset() < 0;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(east ? new Date(2026, 9, 19, 0, 30) : new Date(2026, 9, 19, 23, 30));
+  }
+
+  // Bug: "today" was the UTC day (toISOString), while the post-mortem UI
+  // uses the local calendar day for the default incident date and overdue.
+  it("defaults the incident date to the local calendar day", async () => {
+    nearLocalMidnight();
+    await call("add_postmortem", { title: "Cache stampede" });
+    expect(useWorkspaceStore.getState().postMortemLogs?.[0].postmortems[0].incidentDate).toBe(
+      "2026-10-19"
+    );
+  });
+
+  it("counts an action due yesterday (local) as overdue, and one due today as not", async () => {
+    nearLocalMidnight();
+    const { id } = (await call("add_postmortem", { title: "Cache stampede" })) as { id: string };
+    await call("add_action", { postmortemId: id, text: "Yesterday", dueDate: "2026-10-18" });
+    await call("add_action", { postmortemId: id, text: "Today", dueDate: "2026-10-19" });
+    expect((await list()).overdueActions).toBe(1);
+  });
+
+  it("keeps the first publishedAt when a post-mortem is re-published", async () => {
+    const { id } = (await call("add_postmortem", { title: "Cache stampede" })) as { id: string };
+    await call("set_status", { postmortemId: id, status: "published" });
+    const first = (await list()).postmortems[0].publishedAt;
+    await call("set_status", { postmortemId: id, status: "review" });
+    await call("set_status", { postmortemId: id, status: "published" });
+    expect((await list()).postmortems[0].publishedAt).toBe(first);
+  });
+
+  // Bug: whitespace-only text passed `min(1)` and was stored as an empty
+  // factor / action / timeline entry; the UI refuses blank ones.
+  it("refuses whitespace-only factors, actions and timeline entries", async () => {
+    const { id } = (await call("add_postmortem", { title: "Cache stampede" })) as { id: string };
+    const f = (await call("add_factor", { postmortemId: id, text: "  " })) as { added: boolean };
+    const a = (await call("add_action", { postmortemId: id, text: "  " })) as { added: boolean };
+    const t = (await call("add_timeline_entry", { postmortemId: id, text: "  " })) as {
+      added: boolean;
+    };
+    expect([f.added, a.added, t.added]).toEqual([false, false, false]);
+    const r = await list();
+    expect(r.postmortems[0]).toMatchObject({ factorCount: 0, actionCount: 0, timelineCount: 0 });
+  });
+});
+
+describe("tool.post_mortem.add_postmortem — blank title", () => {
+  beforeEach(() => useWorkspaceStore.setState({ postMortemLogs: [] }));
+
+  // Bug: a whitespace-only title passed `min(1)` and created a blank
+  // post-mortem; the UI trims and refuses a blank title.
+  it("refuses a whitespace-only title and trims a real one", async () => {
+    const blank = (await call("add_postmortem", { title: "   " })) as { added: boolean };
+    expect(blank.added).toBe(false);
+    await call("add_postmortem", { title: "  Cache stampede  " });
+    expect(useWorkspaceStore.getState().postMortemLogs![0].postmortems.map((p) => p.title)).toEqual(
+      ["Cache stampede"]
+    );
   });
 });

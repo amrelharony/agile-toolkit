@@ -214,7 +214,7 @@ export function IncidentCommanderClient() {
   const avgMttrHours = useMemo(() => {
     const cutoff = nowHourBucket * 3600000 - 7 * 24 * 60 * 60 * 1000;
     const samples = state.incidents
-      .filter((i) => i.resolvedAt)
+      .filter((i) => i.status === "resolved" && i.resolvedAt)
       .filter((i) => new Date(i.resolvedAt!).getTime() >= cutoff)
       .map(mttrHours)
       .filter((v): v is number => v !== null);
@@ -242,7 +242,7 @@ export function IncidentCommanderClient() {
   // in minutes (industry-typical for incident KPIs).
   const mttrMinutesResolved = useMemo(() => {
     return state.incidents
-      .filter((i) => i.resolvedAt)
+      .filter((i) => i.status === "resolved" && i.resolvedAt)
       .map((i) => {
         const ms = new Date(i.resolvedAt!).getTime() - new Date(i.openedAt).getTime();
         return Math.max(0, Math.round(ms / 60000));
@@ -264,7 +264,7 @@ export function IncidentCommanderClient() {
   const survivalCurve = useMemo(() => {
     if (mttrMinutesResolved.length < 4) return [];
     const obs = state.incidents
-      .filter((i) => i.resolvedAt)
+      .filter((i) => i.status === "resolved" && i.resolvedAt)
       .map((i) => {
         const start = new Date(i.openedAt).getTime();
         const end = new Date(i.resolvedAt!).getTime();

@@ -93,3 +93,46 @@ describe("tool.runbook_scorer — add/score/remove/list", () => {
     expect(r.total).toBe(2);
   });
 });
+
+describe("tool.runbook_scorer — edges", () => {
+  beforeEach(() => useWorkspaceStore.setState({ runbookScorers: [] }));
+
+  it("reports no scorecard and a 0 average before anything is added", async () => {
+    const r = (await registry.get("tool.runbook_scorer.list_state")!.handler({}, ctx())) as {
+      exists: boolean;
+      total: number;
+      avgHygiene: number;
+    };
+    expect(r).toMatchObject({ exists: false, total: 0, avgHygiene: 0 });
+  });
+
+  it("patches only the fields given and puts new runbooks first", async () => {
+    const add = (params: Record<string, unknown>) =>
+      registry.get("tool.runbook_scorer.add_runbook")!.handler(params, ctx()) as Promise<{
+        id: string;
+      }>;
+    const a = await add({ name: "A", freshness: 2, completeness: 4, testedRecently: true });
+    await add({ name: "B" });
+    await registry
+      .get("tool.runbook_scorer.score_runbook")!
+      .handler({ runbookId: a.id, completeness: 5 }, ctx());
+    const runbooks = useWorkspaceStore.getState().runbookScorers![0].runbooks;
+    expect(runbooks.map((r) => r.name)).toEqual(["B", "A"]);
+    expect(runbooks[1]).toMatchObject({ freshness: 2, completeness: 5, testedRecently: true });
+    expect(runbooks[0]).toMatchObject({ freshness: 3, completeness: 3, testedRecently: false });
+  });
+
+  // Bug: a whitespace-only name passed `min(1)` and was stored blank; the
+  // UI trims and refuses a blank name.
+  it("refuses a whitespace-only name and trims a real one", async () => {
+    const add = (name: string) =>
+      registry.get("tool.runbook_scorer.add_runbook")!.handler({ name }, ctx()) as Promise<{
+        added: boolean;
+      }>;
+    expect((await add("   ")).added).toBe(false);
+    expect((await add("  DB failover  ")).added).toBe(true);
+    expect(useWorkspaceStore.getState().runbookScorers![0].runbooks.map((r) => r.name)).toEqual([
+      "DB failover",
+    ]);
+  });
+});

@@ -39,7 +39,8 @@ const nowISO = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function mttrHours(i: Incident): number | null {
-  if (!i.resolvedAt) return null;
+  // resolvedAt survives a re-open; only a resolved incident has an MTTR.
+  if (i.status !== "resolved" || !i.resolvedAt) return null;
   const ms = new Date(i.resolvedAt).getTime() - new Date(i.openedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return null;
   return ms / 3_600_000;
@@ -117,15 +118,18 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Open an incident (status 'active', openedAt now, empty timeline). severity is sev1..sev4. Returns {opened: true, id}.",
+    "Open an incident (status 'active', openedAt now, empty timeline). severity is sev1..sev4. Returns {opened: false} when the title is blank, else {opened: true, id}.",
   paramsSchema: openParams,
   handler: async (params) => {
+    if (!params.title.trim()) return { opened: false };
     const base = browserDoc() ?? emptyDoc();
     const incident = newIncident(params);
     ws().upsertIncidentCommander({ ...base, id: IC_ID, incidents: [incident, ...base.incidents] });
     return { opened: true, id: incident.id };
   },
   mcpHandler: async (params, ctx) => {
+    // Whitespace-only passes min(1); the UI trims and refuses a blank title.
+    if (!params.title.trim()) return { opened: false };
     const base =
       (await serverGetEntity<IncidentCommander>(ctx.userId, KIND_IC, IC_ID)) ?? emptyDoc();
     const incident = newIncident(params);
@@ -213,7 +217,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Append a timeline note to an incident (ts now; author defaults to 'agent'). Returns {added: false} when the id is unknown, else {added: true, id}.",
+    "Append a timeline note to an incident (ts now; author defaults to 'agent'). Returns {added: false} when the id is unknown or the text is blank, else {added: true, id}.",
   paramsSchema: timelineParams,
   handler: async (params) => {
     const r = applyTimeline(browserDoc(), params);
@@ -257,7 +261,7 @@ registry.register({
 function newIncident(params: z.infer<typeof openParams>): Incident {
   return {
     id: crypto.randomUUID(),
-    title: params.title,
+    title: params.title.trim(),
     severity: params.severity,
     status: "active",
     openedAt: nowISO(),
@@ -303,11 +307,14 @@ function applyTimeline(
   params: z.infer<typeof timelineParams>
 ): { doc: IncidentCommander; id: string } | null {
   if (!doc || !doc.incidents.some((i) => i.id === params.incidentId)) return null;
+  // Whitespace-only text passes min(1); refuse it like the UI does.
+  const text = params.text.trim();
+  if (!text) return null;
   const entry: IncidentTimelineEntry = {
     id: crypto.randomUUID(),
     ts: nowISO(),
     author: params.author?.trim() || "agent",
-    text: params.text.trim(),
+    text,
   };
   return {
     doc: {

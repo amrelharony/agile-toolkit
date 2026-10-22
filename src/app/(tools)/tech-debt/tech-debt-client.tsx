@@ -65,9 +65,26 @@ function ageDays(item: TechDebtItem): number {
   // Guard against NaN propagation when raisedAt is missing or unparseable —
   // an unparseable date would otherwise yield NaN days, which then poisons
   // every priorityScore() that depends on it.
-  const t = new Date(item.raisedAt).getTime();
-  if (!Number.isFinite(t)) return 0;
-  return Math.floor((Date.now() - t) / 86_400_000);
+  //
+  // Whole LOCAL calendar days: `new Date("YYYY-MM-DD")` is UTC midnight, so
+  // an item raised today read -1 days old just after local midnight east of
+  // UTC (and a day old by evening west of it).
+  const raw = item.raisedAt ?? "";
+  const raised = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw);
+  if (!Number.isFinite(raised.getTime())) return 0;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(raised.getFullYear(), raised.getMonth(), raised.getDate()).getTime();
+  // Round: a DST change makes one day 23 or 25 hours long. Future dates count as 0.
+  return Math.max(0, Math.round((today - day) / 86_400_000));
+}
+
+/** A YYYY-MM-DD date as is; a timestamp (agent `mark_resolved`) as its local
+ *  calendar day — `slice(0, 10)` of an ISO string is the UTC day. */
+function localDay(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(value);
+  return Number.isFinite(d.getTime()) ? todayLocalISO(d) : value.slice(0, 10);
 }
 
 function priorityScore(item: TechDebtItem): number {
@@ -329,8 +346,9 @@ export function TechDebtClient() {
 
   const areas = useMemo(() => {
     const m = new Map<string, number>();
+    // Open debt only, like the heatmap: paid-off items aren't a hotspot.
     for (const i of items) {
-      if (!i.area) continue;
+      if (!i.area || i.resolvedAt) continue;
       m.set(i.area, (m.get(i.area) ?? 0) + i.impact);
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
@@ -616,7 +634,7 @@ export function TechDebtClient() {
                 </div>
               </div>
               {i.resolvedAt && (
-                <div className="text-xs text-success">Resolved {i.resolvedAt.slice(0, 10)}</div>
+                <div className="text-xs text-success">Resolved {localDay(i.resolvedAt)}</div>
               )}
               <DescriptionEditor
                 value={i.description ?? ""}

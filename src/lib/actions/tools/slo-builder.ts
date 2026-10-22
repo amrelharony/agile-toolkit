@@ -22,6 +22,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { SloBuilder, SloDefinition, SloBurn } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_SLO = "workspace:sloBuilder";
 // MUST match SB_ID in slo-builder-client.tsx.
@@ -114,7 +115,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Define an SLO. target is 0..1 (e.g. 0.999); windowDays is the rolling window. Creates the doc if absent. Returns {added: true, id}.",
+    "Define an SLO. target is 0..1 (e.g. 0.999); windowDays is the rolling window. Creates the doc if absent. Returns {added: false} when the name or SLI is blank, else {added: true, id}.",
   paramsSchema: z.object({
     name: z.string().min(1).max(200),
     sliDescription: z.string().min(1).max(1000),
@@ -123,14 +124,16 @@ registry.register({
     description: z.string().max(2000).optional(),
   }),
   handler: async (params) => {
+    const slo = newSlo(params);
+    if (!slo) return { added: false };
     const base = browserDoc() ?? emptyDoc();
-    const slo: SloDefinition = { id: crypto.randomUUID(), ...params };
     ws().upsertSloBuilder({ ...base, id: SB_ID, slos: [...base.slos, slo] });
     return { added: true, id: slo.id };
   },
   mcpHandler: async (params, ctx) => {
+    const slo = newSlo(params);
+    if (!slo) return { added: false };
     const base = (await serverGetEntity<SloBuilder>(ctx.userId, KIND_SLO, SB_ID)) ?? emptyDoc();
-    const slo: SloDefinition = { id: crypto.randomUUID(), ...params };
     await serverUpsertEntity<SloBuilder>(ctx.userId, KIND_SLO, {
       ...base,
       id: SB_ID,
@@ -176,11 +179,28 @@ registry.register({
   },
 });
 
+/** The SLO to add, or null when the name or SLI is only whitespace (passes
+ *  min(1)); the UI trims and requires both. */
+function newSlo(params: {
+  name: string;
+  sliDescription: string;
+  target: number;
+  windowDays: number;
+  description?: string;
+}): SloDefinition | null {
+  const name = params.name.trim();
+  const sliDescription = params.sliDescription.trim();
+  if (!name || !sliDescription) return null;
+  return { id: crypto.randomUUID(), ...params, name, sliDescription };
+}
+
 function newBurn(params: { sloId: string; errorMinutes: number; date?: string }): SloBurn {
   return {
     id: crypto.randomUUID(),
     sloId: params.sloId,
     errorMinutes: params.errorMinutes,
-    date: params.date ?? new Date().toISOString().slice(0, 10),
+    // Local calendar day, like the UI's burn form (the UTC day was off by
+    // one near midnight, and the builder windows burns by local day).
+    date: params.date ?? todayLocalISO(),
   };
 }

@@ -304,14 +304,22 @@ export function SloBuilderClient() {
       state.slos.map((slo) => {
         const budget = budgetMinutes(slo);
         const consumed = consumedMinutes(slo, state.burns);
-        const remainingPct = budget === 0 ? 0 : Math.max(0, ((budget - consumed) / budget) * 100);
+        // A zero budget (100 % target) is intact until the first error
+        // minute and gone after it; it used to read "0 % remaining" and
+        // "Healthy" even with errors logged.
+        const remainingPct =
+          budget === 0
+            ? consumed > 0
+              ? 0
+              : 100
+            : Math.max(0, ((budget - consumed) / budget) * 100);
         return {
           slo,
           budget,
           consumed,
           remainingPct,
           atRisk: remainingPct < 50 && remainingPct > 0,
-          burned: remainingPct === 0 && budget > 0,
+          burned: remainingPct === 0,
         };
       }),
     [state.slos, state.burns]

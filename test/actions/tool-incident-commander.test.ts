@@ -136,3 +136,80 @@ describe("tool.incident_commander — lifecycle", () => {
     expect(r.total).toBe(0);
   });
 });
+
+describe("tool.incident_commander — edges", () => {
+  beforeEach(() => useWorkspaceStore.setState({ incidentCommanders: [] }));
+
+  // Bug: resolvedAt survives a re-open, and it alone decided whether an
+  // incident had an MTTR — so a re-opened incident stayed in avgMttrHours.
+  it("drops a re-opened incident from the MTTR average", async () => {
+    const { id } = (await call("open_incident", { title: "Flapping", severity: "sev2" })) as {
+      id: string;
+    };
+    await call("set_status", { incidentId: id, status: "resolved" });
+    const resolvedAt = (await list()).incidents[0].resolvedAt;
+    expect((await list()).avgMttrHours).not.toBeNull();
+
+    await call("set_status", { incidentId: id, status: "active" });
+    let r = await list();
+    expect(r.activeCount).toBe(1);
+    expect(r.avgMttrHours).toBeNull();
+
+    // Re-resolving keeps the first resolution time ("stamps resolvedAt if unset").
+    await call("set_status", { incidentId: id, status: "resolved" });
+    r = await list();
+    expect(r.incidents[0].resolvedAt).toBe(resolvedAt);
+    expect(r.avgMttrHours).not.toBeNull();
+  });
+
+  it("clears a role given a blank value and trims a set one", async () => {
+    const { id } = (await call("open_incident", {
+      title: "DB",
+      severity: "sev3",
+      commander: "Ada",
+    })) as { id: string };
+    await call("assign_role", { incidentId: id, role: "commander", value: "   " });
+    expect((await list()).incidents[0].commander).toBeUndefined();
+    await call("assign_role", { incidentId: id, role: "scribe", value: "  Grace " });
+    expect(useWorkspaceStore.getState().incidentCommanders?.[0].incidents[0].scribe).toBe("Grace");
+  });
+
+  it("defaults the timeline author to 'agent' and trims the text", async () => {
+    const { id } = (await call("open_incident", { title: "DB", severity: "sev3" })) as {
+      id: string;
+    };
+    await call("add_timeline_entry", { incidentId: id, text: "  Restarted primary  " });
+    const entry = useWorkspaceStore.getState().incidentCommanders?.[0].incidents[0].timeline[0];
+    expect(entry).toMatchObject({ author: "agent", text: "Restarted primary" });
+  });
+
+  // Bug: whitespace-only text passed `min(1)` and was stored as an empty
+  // timeline entry; the UI refuses blank entries.
+  it("refuses a whitespace-only timeline entry", async () => {
+    const { id } = (await call("open_incident", { title: "DB", severity: "sev3" })) as {
+      id: string;
+    };
+    const r = (await call("add_timeline_entry", { incidentId: id, text: "   " })) as {
+      added: boolean;
+    };
+    expect(r.added).toBe(false);
+    expect((await list()).incidents[0].timelineCount).toBe(0);
+  });
+});
+
+describe("tool.incident_commander.open_incident — blank title", () => {
+  beforeEach(() => useWorkspaceStore.setState({ incidentCommanders: [] }));
+
+  // Bug: a whitespace-only title passed `min(1)` and opened a blank
+  // incident; the UI trims and refuses a blank title.
+  it("refuses a whitespace-only title and trims a real one", async () => {
+    const blank = (await call("open_incident", { title: "   ", severity: "sev2" })) as {
+      opened: boolean;
+    };
+    expect(blank.opened).toBe(false);
+    await call("open_incident", { title: "  API 500s  ", severity: "sev2" });
+    const r = await list();
+    expect(r.total).toBe(1);
+    expect(useWorkspaceStore.getState().incidentCommanders![0].incidents[0].title).toBe("API 500s");
+  });
+});

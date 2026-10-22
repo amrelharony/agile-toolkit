@@ -15,7 +15,9 @@ export function formatDuration(ms: number): string {
 }
 
 export function mttrHours(i: Incident): number | null {
-  if (!i.resolvedAt) return null;
+  // `resolvedAt` survives a re-open (status back to active/mitigated), so
+  // the status — not the timestamp — says whether the incident is resolved.
+  if (i.status !== "resolved" || !i.resolvedAt) return null;
   const ms = new Date(i.resolvedAt).getTime() - new Date(i.openedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return null;
   return ms / 3_600_000;

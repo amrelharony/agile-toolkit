@@ -60,9 +60,11 @@ export function ActiveIncidentCard({
     lastScribeRef.current = next;
   }, [incident.scribe]);
 
+  // A re-opened incident keeps its old resolvedAt; only a resolved one stops the clock.
   const elapsedMs =
-    (incident.resolvedAt ? new Date(incident.resolvedAt).getTime() : now) -
-    new Date(incident.openedAt).getTime();
+    (incident.status === "resolved" && incident.resolvedAt
+      ? new Date(incident.resolvedAt).getTime()
+      : now) - new Date(incident.openedAt).getTime();
 
   const slackTemplate =
     `:rotating_light: ${SEVERITY_LABEL[incident.severity]} INCIDENT — ${incident.title}\n` +

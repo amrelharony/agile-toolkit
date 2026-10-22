@@ -102,17 +102,17 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add an on-call shift. Dates are YYYY-MM-DD. Returns {added:false} when endDate is before startDate, else {added:true, id}.",
+    "Add an on-call shift. Dates are YYYY-MM-DD. Returns {added:false} when endDate is before startDate or the person is blank, else {added:true, id}.",
   paramsSchema: shiftParams,
   handler: async (params) => {
-    if (params.endDate < params.startDate) return { added: false };
+    if (!isValidShift(params)) return { added: false };
     const base = browserDoc() ?? emptyDoc();
     const shift = newShift(params);
     ws().upsertOncallRoster({ ...base, id: OR_ID, shifts: [...base.shifts, shift] });
     return { added: true, id: shift.id };
   },
   mcpHandler: async (params, ctx) => {
-    if (params.endDate < params.startDate) return { added: false };
+    if (!isValidShift(params)) return { added: false };
     const base = (await serverGetEntity<OncallRoster>(ctx.userId, KIND_OR, OR_ID)) ?? emptyDoc();
     const shift = newShift(params);
     await serverUpsertEntity<OncallRoster>(ctx.userId, KIND_OR, {
@@ -235,10 +235,15 @@ registry.register({
   },
 });
 
+/** End not before start, and a person that isn't just whitespace (passes min(1)). */
+function isValidShift(params: z.infer<typeof shiftParams>): boolean {
+  return params.person.trim() !== "" && params.endDate >= params.startDate;
+}
+
 function newShift(params: z.infer<typeof shiftParams>): OncallShift {
   return {
     id: crypto.randomUUID(),
-    person: params.person,
+    person: params.person.trim(),
     startDate: params.startDate,
     endDate: params.endDate,
     description: params.description,

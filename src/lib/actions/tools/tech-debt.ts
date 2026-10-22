@@ -117,10 +117,21 @@ function rankTier(priority: number): "must_fix" | "should_fix" | "defer" {
 /** Age-aware priority matching the tool client. Used by list_state
  *  so the agent sees the same ordering as the on-screen ranking. */
 function clientPriorityScore(item: TechDebtItem): number {
-  const t = new Date(item.raisedAt).getTime();
-  const ageDays = Number.isFinite(t) ? Math.floor((Date.now() - t) / 86_400_000) : 0;
-  const interest = (item.interestRate ?? 0) * ageDays;
+  const interest = (item.interestRate ?? 0) * localAgeDays(item.raisedAt);
   return item.impact * 4 - item.effort + interest * 0.5;
+}
+
+/** Whole local calendar days since raisedAt, as the tool client counts them
+ *  (a YYYY-MM-DD date is a local day, not UTC midnight); 0 if unparseable
+ *  or in the future. */
+function localAgeDays(raisedAt: string | undefined): number {
+  const raw = raisedAt ?? "";
+  const raised = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw);
+  if (!Number.isFinite(raised.getTime())) return 0;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(raised.getFullYear(), raised.getMonth(), raised.getDate()).getTime();
+  return Math.max(0, Math.round((today - day) / 86_400_000));
 }
 
 // ──────── tool.tech_debt.compute_priority ────────
@@ -163,7 +174,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List all tech-debt items in the workspace, sorted by priority (descending). Returns {totalImpact, totalEffort, openCount, resolvedCount, byArea: Record<area, count>, items: sorted}. Items without an area roll up under '__unassigned'.",
+    "List all tech-debt items in the workspace: open items by priority (descending), then resolved ones. Returns {totalImpact, totalEffort, openCount, resolvedCount, byArea: Record<area, count>, items: sorted}. Items without an area roll up under '__unassigned'.",
   paramsSchema: z.object({}),
   handler: async () => {
     return summarize(ws().techDebt ?? []);
@@ -190,9 +201,15 @@ function summarize(items: TechDebtItem[]) {
     const area = it.area && it.area.length > 0 ? it.area : "__unassigned";
     byArea[area] = (byArea[area] ?? 0) + 1;
   }
-  // Sort by client-priority descending so list_state matches what the
-  // tool's on-screen `ranked` view shows.
-  const sorted = items.slice().sort((a, b) => clientPriorityScore(b) - clientPriorityScore(a));
+  // Sort like the tool's on-screen `ranked` view: open items by
+  // client-priority descending, then resolved ones.
+  const sorted = items
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(Boolean(a.resolvedAt)) - Number(Boolean(b.resolvedAt)) ||
+        clientPriorityScore(b) - clientPriorityScore(a)
+    );
   return {
     totalImpact,
     totalEffort,

@@ -111,3 +111,57 @@ describe("tool.oncall_roster — shifts, pages, cascade", () => {
     expect(r.totalPages).toBe(0);
   });
 });
+
+describe("tool.oncall_roster — edges", () => {
+  beforeEach(() => useWorkspaceStore.setState({ oncallRosters: [] }));
+
+  it("creates the roster when only the expected-pages baseline is set", async () => {
+    expect((await list()).exists).toBe(false);
+    await call("set_expected_pages", { expectedPagesPerWeek: 0 });
+    const r = await list();
+    expect(r).toMatchObject({ exists: true, totalShifts: 0, expectedPagesPerWeek: 0 });
+  });
+
+  it("stamps a page without ts with now and keeps an explicit ts", async () => {
+    const { id } = (await call("add_shift", {
+      person: "Ada",
+      startDate: "2026-05-01",
+      endDate: "2026-05-01",
+    })) as { id: string };
+    const before = Date.now();
+    await call("log_page", { shiftId: id, severity: "sev3" });
+    await call("log_page", { shiftId: id, severity: "sev4", ts: "2026-05-01T10:00:00.000Z" });
+    const pages = useWorkspaceStore.getState().oncallRosters![0].pages;
+    expect(Date.parse(pages[0].ts)).toBeGreaterThanOrEqual(before);
+    expect(pages[1].ts).toBe("2026-05-01T10:00:00.000Z");
+  });
+
+  it("accepts a one-day shift and reports unknown ids on remove", async () => {
+    const r = (await call("add_shift", {
+      person: "Ada",
+      startDate: "2026-05-01",
+      endDate: "2026-05-01",
+    })) as { added: boolean };
+    expect(r.added).toBe(true);
+    expect(
+      ((await call("remove_shift", { shiftId: "nope" })) as { removed: boolean }).removed
+    ).toBe(false);
+    expect(((await call("remove_page", { pageId: "nope" })) as { removed: boolean }).removed).toBe(
+      false
+    );
+  });
+
+  // Bug: a whitespace-only person passed `min(1)` and was stored as a blank
+  // name; the UI trims and refuses a blank person.
+  it("refuses a whitespace-only person and trims a real one", async () => {
+    const blank = (await call("add_shift", {
+      person: "   ",
+      startDate: "2026-05-01",
+      endDate: "2026-05-02",
+    })) as { added: boolean };
+    expect(blank.added).toBe(false);
+    await call("add_shift", { person: "  Ada  ", startDate: "2026-05-01", endDate: "2026-05-02" });
+    const r = await list();
+    expect(r.shifts.map((s) => s.person)).toEqual(["Ada"]);
+  });
+});

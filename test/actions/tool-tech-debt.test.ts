@@ -31,7 +31,7 @@
  * how production loads the module exactly once at boot.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TechDebtItem } from "@/lib/stores/workspace-types";
@@ -406,5 +406,55 @@ describe("tool.tech_debt.set_area — overwrite categorisation", () => {
       updated: boolean;
     };
     expect(result.updated).toBe(false);
+  });
+});
+
+describe("tool.tech_debt.list_state — matches the on-screen ranking", () => {
+  beforeEach(() => useWorkspaceStore.setState({ techDebt: [] }));
+  afterEach(() => vi.useRealTimers());
+
+  const list = async () =>
+    (
+      (await registry.get("tool.tech_debt.list_state")!.handler({}, ctx())) as {
+        items: TechDebtItem[];
+      }
+    ).items.map((i) => i.id);
+
+  // Bug: the UI ranks resolved items below every open one, but list_state
+  // sorted by score alone, so paid-off debt topped the agent's list.
+  it("puts resolved items after open ones, whatever their score", async () => {
+    for (const s of [
+      seed({ id: "open-low", title: "Low", impact: 1, effort: 5 }),
+      seed({ id: "done-high", title: "Done", impact: 5, effort: 1, resolvedAt: "2026-10-01" }),
+      seed({ id: "open-mid", title: "Mid", impact: 3, effort: 3 }),
+    ]) {
+      useWorkspaceStore.getState().upsertTechDebt(s);
+    }
+    expect(await list()).toEqual(["open-mid", "open-low", "done-high"]);
+  });
+
+  // Bug: a YYYY-MM-DD raisedAt was aged in UTC days, so an item raised
+  // today was −1 days old just after local midnight east of UTC and its
+  // interest pulled it down the list.
+  it("ages a YYYY-MM-DD raised date in local calendar days", async () => {
+    const east = new Date(2026, 9, 19, 0, 30).getTimezoneOffset() < 0;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(east ? new Date(2026, 9, 19, 0, 30) : new Date(2026, 9, 19, 23, 30));
+    for (const s of [
+      // 3·4 − 1 + 10·0·½ = 11 when aged 0 days.
+      seed({
+        id: "interest",
+        title: "A",
+        impact: 3,
+        effort: 1,
+        interestRate: 10,
+        raisedAt: "2026-10-19",
+      }),
+      // 3·4 − 2 = 10.
+      seed({ id: "plain", title: "B", impact: 3, effort: 2, raisedAt: "2026-10-19" }),
+    ]) {
+      useWorkspaceStore.getState().upsertTechDebt(s);
+    }
+    expect(await list()).toEqual(["interest", "plain"]);
   });
 });

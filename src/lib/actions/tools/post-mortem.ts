@@ -25,6 +25,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import type {
   PostMortemLog,
   PostMortem,
@@ -39,7 +40,10 @@ const PM_ID = "postMortem:current";
 const ws = () => useWorkspaceStore.getState();
 
 const nowISO = () => new Date().toISOString();
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Local calendar day, like the post-mortem UI (helpers.ts todayIso): the UTC
+// day put a new post-mortem on the wrong date near midnight and shifted
+// "overdue" by a day.
+const todayISO = () => todayLocalISO();
 
 function isOverdue(a: PostMortemAction): boolean {
   if (a.status === "done" || !a.dueDate) return false;
@@ -117,15 +121,18 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Create a post-mortem (status 'draft', stamps createdAt). incidentDate defaults to today (YYYY-MM-DD). Returns {added: true, id}.",
+    "Create a post-mortem (status 'draft', stamps createdAt). incidentDate defaults to today (YYYY-MM-DD). Returns {added: false} when the title is blank, else {added: true, id}.",
   paramsSchema: addParams,
   handler: async (params) => {
+    if (!params.title.trim()) return { added: false };
     const base = browserDoc() ?? emptyDoc();
     const pm = newPostMortem(params);
     ws().upsertPostMortemLog({ ...base, id: PM_ID, postmortems: [pm, ...base.postmortems] });
     return { added: true, id: pm.id };
   },
   mcpHandler: async (params, ctx) => {
+    // Whitespace-only passes min(1); the UI trims and refuses a blank title.
+    if (!params.title.trim()) return { added: false };
     const base = (await serverGetEntity<PostMortemLog>(ctx.userId, KIND_PM, PM_ID)) ?? emptyDoc();
     const pm = newPostMortem(params);
     await serverUpsertEntity<PostMortemLog>(ctx.userId, KIND_PM, {
@@ -180,7 +187,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Append a contributing factor to a post-mortem. Returns {added: false} when the id is unknown.",
+    "Append a contributing factor to a post-mortem. Returns {added: false} when the id is unknown or the text is blank.",
   paramsSchema: factorParams,
   handler: async (params) => {
     const next = applyFactor(browserDoc(), params);
@@ -212,7 +219,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add an action item (status 'open') to a post-mortem. Returns {added: false} when the id is unknown, else {added: true, id}.",
+    "Add an action item (status 'open') to a post-mortem. Returns {added: false} when the id is unknown or the text is blank, else {added: true, id}.",
   paramsSchema: actionParams,
   handler: async (params) => {
     const r = applyAddAction(browserDoc(), params);
@@ -276,7 +283,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Append a timeline note to a post-mortem (ts now; author defaults to 'agent'). Returns {added: false} when the id is unknown, else {added: true, id}.",
+    "Append a timeline note to a post-mortem (ts now; author defaults to 'agent'). Returns {added: false} when the id is unknown or the text is blank, else {added: true, id}.",
   paramsSchema: timelineParams,
   handler: async (params) => {
     const r = applyTimeline(browserDoc(), params);
@@ -320,7 +327,7 @@ registry.register({
 function newPostMortem(params: z.infer<typeof addParams>): PostMortem {
   return {
     id: crypto.randomUUID(),
-    title: params.title,
+    title: params.title.trim(),
     incidentDate: params.incidentDate || todayISO(),
     status: "draft",
     contributingFactors: [],
@@ -358,9 +365,12 @@ function applyFactor(
   doc: PostMortemLog | null,
   params: z.infer<typeof factorParams>
 ): PostMortemLog | null {
+  // Whitespace-only text passes min(1); refuse it like the UI does.
+  const text = params.text.trim();
+  if (!text) return null;
   return mapPm(doc, params.postmortemId, (pm) => ({
     ...pm,
-    contributingFactors: [...pm.contributingFactors, params.text.trim()],
+    contributingFactors: [...pm.contributingFactors, text],
   }));
 }
 
@@ -368,9 +378,11 @@ function applyAddAction(
   doc: PostMortemLog | null,
   params: z.infer<typeof actionParams>
 ): { doc: PostMortemLog; id: string } | null {
+  const text = params.text.trim();
+  if (!text) return null;
   const action: PostMortemAction = {
     id: crypto.randomUUID(),
-    text: params.text.trim(),
+    text,
     owner: params.owner,
     dueDate: params.dueDate,
     status: "open",
@@ -408,11 +420,13 @@ function applyTimeline(
   doc: PostMortemLog | null,
   params: z.infer<typeof timelineParams>
 ): { doc: PostMortemLog; id: string } | null {
+  const text = params.text.trim();
+  if (!text) return null;
   const entry: PostMortemTimelineEntry = {
     id: crypto.randomUUID(),
     ts: nowISO(),
     author: params.author?.trim() || "agent",
-    text: params.text.trim(),
+    text,
   };
   const next = mapPm(doc, params.postmortemId, (pm) => ({
     ...pm,

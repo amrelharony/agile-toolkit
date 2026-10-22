@@ -85,15 +85,18 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add a runbook. freshness/completeness are 1..5 (default 3); testedRecently defaults to false. Creates the scorecard if absent. Returns {added: true, id}.",
+    "Add a runbook. freshness/completeness are 1..5 (default 3); testedRecently defaults to false. Creates the scorecard if absent. Returns {added: false} when the name is blank, else {added: true, id}.",
   paramsSchema: addParams,
   handler: async (params) => {
+    if (!params.name.trim()) return { added: false };
     const base = browserDoc() ?? emptyDoc();
     const runbook = newRunbook(params);
     ws().upsertRunbookScorer({ ...base, id: RS_ID, runbooks: [runbook, ...base.runbooks] });
     return { added: true, id: runbook.id };
   },
   mcpHandler: async (params, ctx) => {
+    // Whitespace-only passes min(1); the UI trims and refuses a blank name.
+    if (!params.name.trim()) return { added: false };
     const base = (await serverGetEntity<RunbookScorer>(ctx.userId, KIND_RS, RS_ID)) ?? emptyDoc();
     const runbook = newRunbook(params);
     await serverUpsertEntity<RunbookScorer>(ctx.userId, KIND_RS, {
@@ -164,7 +167,7 @@ registry.register({
 function newRunbook(params: z.infer<typeof addParams>): Runbook {
   return {
     id: crypto.randomUUID(),
-    name: params.name,
+    name: params.name.trim(),
     owner: params.owner,
     freshness: (params.freshness ?? 3) as ScoreValue,
     completeness: (params.completeness ?? 3) as ScoreValue,
