@@ -52,4 +52,7 @@ export interface HandoffRoute {
   /** Whether the target item still exists. A send whose target is gone
    *  (deleted, or lost to a concurrent edit) can be sent again. */
   exists: (targetId: string) => boolean;
+  /** Whether the target item is finished (an impediment resolved, a Kanban
+   *  card in Done). Absent when the route can't tell. */
+  isDone?: (targetId: string) => boolean;
 }
