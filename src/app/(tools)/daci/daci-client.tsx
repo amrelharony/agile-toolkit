@@ -82,6 +82,13 @@ export function DaciClient() {
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
       ...draft,
+      // Save what the validation above looked at: trimmed text, so a
+      // whitespace-only Driver doesn't render an empty "D:" line.
+      title: draft.title.trim(),
+      context: draft.context?.trim(),
+      driver: draft.driver?.trim(),
+      approver: draft.approver?.trim(),
+      recommendation: draft.recommendation?.trim(),
       contributors,
       informed,
       options,

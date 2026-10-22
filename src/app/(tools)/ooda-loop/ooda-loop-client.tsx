@@ -16,6 +16,18 @@ import { generateOodaPrompts } from "@/lib/ai-prompts/ooda-loop";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OODA_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { todayLocalISO } from "@/lib/utils/formatters";
+
+/** `YYYY-MM-DD HH:mm` in the viewer's local time. `startedAt` is a UTC ISO
+ *  string; slicing it printed the UTC clock time, unlabeled. */
+function localStamp(iso: string | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 16).replace("T", " ");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${todayLocalISO(d)} ${hh}:${mm}`;
+}
 
 /**
  * Per-stage textarea with a local string draft so typing doesn't fire
@@ -200,7 +212,7 @@ export function OodaLoopClient() {
                       <span className="font-medium text-text min-w-0 break-words">{c.topic}</span>
                       <span className="flex items-center gap-2 shrink-0">
                         <span className="text-xs text-sub font-mono">
-                          {(c.startedAt ?? "").slice(0, 16).replace("T", " ")}
+                          {localStamp(c.startedAt)}
                         </span>
                         {!c.completedAt && (
                           <button

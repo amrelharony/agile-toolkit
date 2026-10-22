@@ -70,10 +70,16 @@ export function RapidDecisionClient() {
     const agree = agreeDraft !== null ? splitList(agreeDraft) : (draft.agree ?? []);
     const perform = performDraft !== null ? splitList(performDraft) : (draft.perform ?? []);
     const input = inputDraft !== null ? splitList(inputDraft) : (draft.input ?? []);
+    // Save what was validated: trimmed, like the comma lists above and the
+    // MCP set_recommend / set_decider verbs.
     const item: RAPIDDecision = {
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
       ...draft,
+      title: draft.title.trim(),
+      context: (draft.context ?? "").trim(),
+      recommend: (draft.recommend ?? "").trim(),
+      decide: (draft.decide ?? "").trim(),
       agree,
       perform,
       input,

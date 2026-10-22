@@ -66,6 +66,18 @@ function PoleListTextarea({
   );
 }
 
+/** A not-yet-saved pole with a stable id, so its first edit creates it once. */
+function placeholderPole(polarityId: string, side: PolarityPole["side"]): PolarityPole {
+  return {
+    id: `${polarityId}:${side}`,
+    polarityId,
+    side,
+    label: side === "left" ? "Left pole" : "Right pole",
+    upsides: [],
+    downsides: [],
+  };
+}
+
 export function PolarityMapClient() {
   const polarities = useWorkspaceStore((s) => s.polarities ?? []);
   const poles = useWorkspaceStore((s) => s.polarityPoles ?? []);
@@ -250,9 +262,15 @@ export function PolarityMapClient() {
         </SectionCard>
 
         {polarities.map((pol) => {
-          const left = poles.find((p) => p.polarityId === pol.id && p.side === "left");
-          const right = poles.find((p) => p.polarityId === pol.id && p.side === "right");
-          if (!left || !right) return null;
+          // A polarity created by the agent (tool.polarity_map.create_polarity)
+          // has no pole rows yet. Show it with blank poles; editing a list
+          // saves that pole for the first time.
+          const left =
+            poles.find((p) => p.polarityId === pol.id && p.side === "left") ??
+            placeholderPole(pol.id, "left");
+          const right =
+            poles.find((p) => p.polarityId === pol.id && p.side === "right") ??
+            placeholderPole(pol.id, "right");
           return (
             <SectionCard
               key={pol.id}

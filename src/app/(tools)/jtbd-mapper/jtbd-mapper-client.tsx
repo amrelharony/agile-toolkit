@@ -62,6 +62,16 @@ function descendantIds(jobs: JobStory[], id: string): Set<string> {
 }
 
 /**
+ * Top-level jobs: no parent, or a parent that no longer exists (deleted via
+ * the agent's CRUD, or a stale `parentJobId` from `add_job`). Without the
+ * second case such a job was nobody's child and never rendered.
+ */
+function topLevelJobs(jobs: JobStory[]): JobStory[] {
+  const ids = new Set(jobs.map((j) => j.id));
+  return jobs.filter((j) => !j.parentJobId || !ids.has(j.parentJobId));
+}
+
+/**
  * Compute the deepest descendant chain. Uses a visited set so a corrupted
  * import with cyclic parentJobId doesn't loop forever.
  */
@@ -74,7 +84,7 @@ function computeMaxDepth(jobs: JobStory[]): number {
       childrenByParent.set(j.parentJobId, list);
     }
   }
-  const roots = jobs.filter((j) => !j.parentJobId);
+  const roots = topLevelJobs(jobs);
   let maxDepth = roots.length === 0 ? 0 : 1;
 
   const walk = (id: string, depth: number, visited: Set<string>) => {
@@ -122,7 +132,7 @@ export function JtbdMapperClient() {
     return map;
   }, [jobs]);
 
-  const rootJobs = useMemo(() => jobs.filter((j) => !j.parentJobId), [jobs]);
+  const rootJobs = useMemo(() => topLevelJobs(jobs), [jobs]);
   const maxDepth = useMemo(() => computeMaxDepth(jobs), [jobs]);
   const jobsWithoutChildren = useMemo(
     () => jobs.filter((j) => !childrenByParent.has(j.id)).length,

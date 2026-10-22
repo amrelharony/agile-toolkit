@@ -63,6 +63,18 @@ describe("tool.jtbd_mapper.list_state", () => {
     expect(r.rootCount).toBe(2); // root, root2
     expect(r.leafCount).toBe(2); // grandchild, root2
   });
+
+  // The page shows a story whose parent is gone as top-level; the agent's
+  // count used to leave it out, so the two disagreed on "Top-level".
+  it("counts a story whose parent no longer exists as a root, like the page", async () => {
+    useWorkspaceStore.setState({
+      jobStories: [job({ id: "root" }), job({ id: "orphan", parentJobId: "deleted" })],
+    });
+    const action = registry.get("tool.jtbd_mapper.list_state");
+    const r = (await action!.handler({}, ctx())) as { rootCount: number; leafCount: number };
+    expect(r.rootCount).toBe(2);
+    expect(r.leafCount).toBe(2);
+  });
 });
 
 describe("tool.jtbd_mapper.add_job", () => {

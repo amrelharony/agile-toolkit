@@ -26,9 +26,7 @@ export function generateJtbdPrompts(
   const table = formatTable(
     ["#", "Job Story", "Parent", "Description"],
     data.jobs.slice(0, 30).map((j, i) => {
-      const parent = j.parentJobId
-        ? data.jobs.find((p) => p.id === j.parentJobId)
-        : undefined;
+      const parent = j.parentJobId ? data.jobs.find((p) => p.id === j.parentJobId) : undefined;
       return [
         i + 1,
         renderJob(j),
@@ -38,7 +36,9 @@ export function generateJtbdPrompts(
     })
   );
 
-  const orphans = data.jobs.filter((j) => !j.parentJobId).length;
+  // Top-level, as the page counts it: no parent, or a parent that's gone.
+  const ids = new Set(data.jobs.map((j) => j.id));
+  const orphans = data.jobs.filter((j) => !j.parentJobId || !ids.has(j.parentJobId)).length;
   const childCount = data.jobs.length - orphans;
 
   return [
@@ -57,8 +57,7 @@ export function generateJtbdPrompts(
     {
       id: "jtbd-outcome-wording",
       title: "Outcome Wording Guidance",
-      description:
-        "Audit the \"so I can\" outcome clauses for emotional and functional clarity.",
+      description: 'Audit the "so I can" outcome clauses for emotional and functional clarity.',
       prompt:
         buildPreamble(
           "Job Story Mapper",

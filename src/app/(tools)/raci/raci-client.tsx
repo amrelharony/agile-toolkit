@@ -517,17 +517,27 @@ export function RACIClient() {
     };
   }, [roles, activities, matrix]);
 
-  const jsonData = useMemo(
-    () => ({
+  const jsonData = useMemo(() => {
+    // Assignments are keyed by role name; a repeated name gets " (2)", " (3)"…
+    // so Object.fromEntries can't collapse two roles into one key.
+    const used = new Set<string>();
+    const roleKeys = roles.map((r) => {
+      let key = r.name;
+      for (let n = 2; used.has(key); n++) key = `${r.name} (${n})`;
+      used.add(key);
+      return key;
+    });
+    return {
       roles: roles.map((r) => ({ name: r.name, description: r.description ?? "" })),
       activities: activities.map((a) => ({
         name: a.name,
         description: a.description ?? "",
-        assignments: Object.fromEntries(roles.map((r) => [r.name, matrix[a.id]?.[r.id] || ""])),
+        assignments: Object.fromEntries(
+          roles.map((r, i) => [roleKeys[i], matrix[a.id]?.[r.id] || ""])
+        ),
       })),
-    }),
-    [roles, activities, matrix]
-  );
+    };
+  }, [roles, activities, matrix]);
 
   const workspace = useWorkspaceStore(
     useShallow(

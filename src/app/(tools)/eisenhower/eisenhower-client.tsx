@@ -30,6 +30,14 @@ const QUADRANTS: { id: Quadrant; label: string; subtitle: string; color: string 
   { id: "delete", label: "Delete", subtitle: "Neither", color: "#888" },
 ];
 
+/** The quadrant a task is filed under. Validate against the known set — a
+ *  stale persisted value (or a renamed enum) falls back to "do", and the
+ *  column, the task's own dropdown and the CSV row must all agree on that. */
+function quadrantOf(it: PrioritizationItem): Quadrant {
+  const raw = it.fields?.quadrant;
+  return raw === "schedule" || raw === "delegate" || raw === "delete" ? raw : "do";
+}
+
 export function EisenhowerClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
   const items = useMemo(() => all.filter((x) => x.framework === "eisenhower"), [all]);
@@ -76,13 +84,10 @@ export function EisenhowerClient() {
       delete: [],
     };
     for (const it of items) {
-      // Validate the quadrant against the known set before indexing — a
-      // stale persisted value (or a renamed enum) would otherwise resolve
-      // to `m[unknown]` = undefined and crash with
+      // Indexing with the raw value would resolve an unknown quadrant to
+      // `m[unknown]` = undefined and crash with
       // "Cannot read property 'push' of undefined" on board load.
-      const raw = it.fields?.quadrant;
-      const q: Quadrant = raw === "schedule" || raw === "delegate" || raw === "delete" ? raw : "do";
-      m[q].push(it);
+      m[quadrantOf(it)].push(it);
     }
     return m;
   }, [items]);
@@ -115,7 +120,7 @@ export function EisenhowerClient() {
 
   const csvData = {
     headers: ["Quadrant", "Title"],
-    rows: items.map((it) => [String(it.fields?.quadrant ?? ""), it.title]),
+    rows: items.map((it) => [quadrantOf(it), it.title]),
   };
 
   return (
@@ -182,7 +187,7 @@ export function EisenhowerClient() {
                   {grouped[q.id].map((it) => (
                     <li key={it.id} className="flex items-center gap-2">
                       <Select
-                        value={(it.fields?.quadrant as Quadrant) ?? "do"}
+                        value={quadrantOf(it)}
                         onValueChange={(v) => move(it.id, v as Quadrant)}
                       >
                         <SelectTrigger

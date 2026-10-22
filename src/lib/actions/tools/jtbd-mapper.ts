@@ -23,12 +23,16 @@ const KIND_JOB = "workspace:jobStory";
 
 const ws = () => useWorkspaceStore.getState();
 
-/** {total, rootCount, leafCount, jobs} — shared by browser + MCP paths. */
+/**
+ * {total, rootCount, leafCount, jobs} — shared by browser + MCP paths. A job
+ * whose parent no longer exists counts as a root, as the page shows it.
+ */
 function summarize(jobs: JobStory[]) {
   const parentIds = new Set(jobs.map((j) => j.parentJobId).filter(Boolean));
+  const ids = new Set(jobs.map((j) => j.id));
   return {
     total: jobs.length,
-    rootCount: jobs.filter((j) => !j.parentJobId).length,
+    rootCount: jobs.filter((j) => !j.parentJobId || !ids.has(j.parentJobId)).length,
     leafCount: jobs.filter((j) => !parentIds.has(j.id)).length,
     jobs,
   };
@@ -41,7 +45,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List all Jobs-to-be-Done job stories with hierarchy counts. Returns {total, rootCount (no parent), leafCount (no children), jobs: JobStory[]}.",
+    "List all Jobs-to-be-Done job stories with hierarchy counts. Returns {total, rootCount (no parent, or its parent no longer exists), leafCount (no children), jobs: JobStory[]}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(ws().jobStories ?? []),
   mcpHandler: async (_params, ctx) => {
