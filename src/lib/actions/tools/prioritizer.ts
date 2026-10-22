@@ -23,6 +23,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverUpsertEntity } from "../server-store";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import { backlogRice, backlogWsjf, frameworkScores } from "@/lib/prioritization/scores";
+import { createBacklogItem } from "@/lib/prioritization/frameworks";
 
 const KIND_BACKLOG = "workspace:backlogItem";
 const KIND_PRIORITIZATION = "workspace:prioritization";
@@ -111,21 +112,14 @@ function buildItem(p: {
   confidence?: number;
   effort?: number;
 }): BacklogItem {
-  const impact = (p.impact ?? 1) as BacklogItem["impact"];
-  return {
-    id: crypto.randomUUID(),
-    name: p.name,
-    description: p.description,
-    moscow: p.moscow ?? "should",
-    businessValue: p.businessValue ?? 5,
-    timeCriticality: p.timeCriticality ?? 5,
-    riskReduction: p.riskReduction ?? 5,
-    jobSize: p.jobSize ?? 5,
-    reach: p.reach ?? 100,
-    impact,
-    confidence: p.confidence ?? 80,
-    effort: p.effort ?? 1,
-    value: p.businessValue ?? 5,
-    matrixEffort: p.effort ?? 5,
-  };
+  // Same defaults and value coupling as a row added in the Prioritizer
+  // (createBacklogItem): business value also sets the matrix value (clamped
+  // to 1–10). RICE effort is person-months and stays out of the 1–10 matrix
+  // effort, which keeps its default.
+  const { name, ...inputs } = p;
+  const patch: Partial<BacklogItem> = {};
+  for (const [key, v] of Object.entries(inputs)) {
+    if (v !== undefined) (patch as Record<string, unknown>)[key] = v;
+  }
+  return createBacklogItem(name, patch);
 }

@@ -37,6 +37,12 @@ const BUCKETS: { id: Bucket; label: string; color: string }[] = [
   { id: "wont", label: "Won't have (this time)", color: "#888" },
 ];
 
+/** The item's bucket; an unknown or missing one (stale data) counts as Must have. */
+function bucketOf(it: PrioritizationItem): Bucket {
+  const raw = it.fields?.bucket;
+  return isMoscowBucket(raw) ? raw : "must";
+}
+
 export function MoscowClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
   const items = useMemo(() => all.filter((x) => x.framework === "moscow"), [all]);
@@ -92,12 +98,7 @@ export function MoscowClient() {
 
   const grouped = useMemo(() => {
     const m: Record<Bucket, PrioritizationItem[]> = { must: [], should: [], could: [], wont: [] };
-    for (const it of items) {
-      const raw = it.fields?.bucket as Bucket;
-      const b: Bucket =
-        raw === "must" || raw === "should" || raw === "could" || raw === "wont" ? raw : "must";
-      m[b].push(it);
-    }
+    for (const it of items) m[bucketOf(it)].push(it);
     return m;
   }, [items]);
 
@@ -201,10 +202,9 @@ export function MoscowClient() {
                 <ul className="space-y-1">
                   {grouped[b.id].map((it) => (
                     <li key={it.id} className="flex items-center gap-2 text-sm">
-                      <Select
-                        value={(it.fields?.bucket as Bucket) ?? "must"}
-                        onValueChange={(v) => move(it.id, v as Bucket)}
-                      >
+                      {/* The same bucket the item is listed under: an unknown
+                          stored value used to leave this menu blank. */}
+                      <Select value={bucketOf(it)} onValueChange={(v) => move(it.id, v as Bucket)}>
                         <SelectTrigger
                           className="h-7 w-24 text-xs"
                           aria-label={`Bucket for ${it.title}`}

@@ -30,6 +30,11 @@ function joinAnd(parts: readonly string[]): string {
     : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
+/** A score for display: at most two decimals, so 3.3 × 3 × 1 reads 9.9, not 9.899999999999999. */
+function showScore(score: number): number {
+  return Number(score.toFixed(2));
+}
+
 /** What's missing before an idea can be scored. */
 function missingMessage(titleMissing: boolean, missingScores: readonly string[]): string {
   const parts = [...(titleMissing ? ["a title"] : []), ...missingScores];
@@ -165,7 +170,7 @@ export function IceScoreClient() {
       r.fields.impact,
       r.fields.confidence,
       r.fields.ease,
-      r.score,
+      showScore(r.score),
     ]),
   };
 
@@ -276,7 +281,7 @@ export function IceScoreClient() {
                       <td className="p-2 text-right font-mono text-xs">{r.fields.impact}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.confidence}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.ease}</td>
-                      <td className="p-2 text-right font-mono">{r.score}</td>
+                      <td className="p-2 text-right font-mono">{showScore(r.score)}</td>
                       <td className="p-2">
                         <button
                           type="button"

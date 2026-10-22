@@ -35,16 +35,36 @@ const ValueEffortScatterChart = dynamic(
   }
 );
 
-function quadrantOf(
-  value: number,
-  effort: number
-): "Quick Wins" | "Big Bets" | "Fill-Ins" | "Time Wasters" {
+type Quadrant = "Quick Wins" | "Big Bets" | "Fill-Ins" | "Time Wasters";
+
+function quadrantOf(value: number, effort: number): Quadrant {
   const hiV = value >= 5,
     hiE = effort >= 5;
   if (hiV && !hiE) return "Quick Wins";
   if (hiV && hiE) return "Big Bets";
   if (!hiV && !hiE) return "Fill-Ins";
   return "Time Wasters";
+}
+
+/** Stored quadrant keys: the UI writes "Quick Wins", the MCP actions "quick_wins". */
+const QUADRANT_BY_KEY: Record<string, Quadrant> = {
+  quick_wins: "Quick Wins",
+  big_bets: "Big Bets",
+  fill_ins: "Fill-Ins",
+  time_wasters: "Time Wasters",
+};
+
+/** A row's quadrant: the stored one in either spelling, else re-derived from its inputs. */
+function quadrantFor(fields: PrioritizationItem["fields"]): Quadrant {
+  const key = String(fields?.quadrant ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const stored = QUADRANT_BY_KEY[key];
+  if (stored) return stored;
+  const v = Number(fields?.value);
+  const e = Number(fields?.effort);
+  return Number.isFinite(v) && Number.isFinite(e) ? quadrantOf(v, e) : "Fill-Ins";
 }
 /** What's missing before an item can be plotted. */
 function missingMessage(titleMissing: boolean, missingScores: readonly string[]): string {
@@ -155,7 +175,7 @@ export function ValueEffortMatrixClient() {
           title: it.title,
           x: Number(it.fields?.effort),
           y: Number(it.fields?.value),
-          quadrant: String(it.fields?.quadrant ?? ""),
+          quadrant: quadrantFor(it.fields),
         }))
         .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y)),
     [items]
@@ -168,7 +188,9 @@ export function ValueEffortMatrixClient() {
       "Fill-Ins": [],
       "Time Wasters": [],
     };
-    for (const it of items) g[String(it.fields?.quadrant ?? "Fill-Ins")]?.push(it);
+    // Rows the MCP actions saved carry "quick_wins"-style keys, and imported
+    // rows may have none; both used to drop out of (or misfile into) the lists.
+    for (const it of items) g[quadrantFor(it.fields)].push(it);
     return g;
   }, [items]);
 
@@ -204,7 +226,7 @@ export function ValueEffortMatrixClient() {
       it.title,
       it.fields?.value ?? "",
       it.fields?.effort ?? "",
-      String(it.fields?.quadrant ?? ""),
+      quadrantFor(it.fields),
     ]),
   };
 

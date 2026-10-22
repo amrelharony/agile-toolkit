@@ -31,6 +31,18 @@ const CostOfDelayChart = dynamic(() => import("./charts").then((m) => m.CostOfDe
   ),
 });
 
+/**
+ * A row's total cost of delay ($/week × weeks). The form stores it as both
+ * `score` and `fields.totalCost`; the agent's CD3 actions store `score` as
+ * CD3 (cost ÷ job size) and keep the total in `fields.totalCost`, so read
+ * that first.
+ */
+function totalCostOf(it: PrioritizationItem): number {
+  const total = Number(it.fields?.totalCost);
+  if (it.fields?.totalCost !== undefined && Number.isFinite(total)) return total;
+  return Number.isFinite(it.score) ? (it.score as number) : 0;
+}
+
 export function CostOfDelayClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
   // CoD has its own framework value so WSJF items aren't mixed in.
@@ -83,11 +95,11 @@ export function CostOfDelayClient() {
     setPerWeekUsd("");
     setWeeksDelayed("");
   }
-  const totalCost = codItems.reduce((s, x) => s + (x.score ?? 0), 0);
-  const sorted = [...codItems].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const totalCost = codItems.reduce((s, x) => s + totalCostOf(x), 0);
+  const sorted = [...codItems].sort((a, b) => totalCostOf(b) - totalCostOf(a));
   const chartData = sorted.slice(0, 10).map((it) => ({
     title: it.title.length > 18 ? it.title.slice(0, 18) + "…" : it.title,
-    cost: Math.round(it.score ?? 0),
+    cost: Math.round(totalCostOf(it)),
   }));
 
   const workspace = useWorkspaceStore(
@@ -122,7 +134,7 @@ export function CostOfDelayClient() {
       it.title,
       it.fields?.perWeekUsd ?? 0,
       it.fields?.weeksDelayed ?? 0,
-      it.score ?? 0,
+      totalCostOf(it),
     ]),
   };
 
@@ -226,7 +238,7 @@ export function CostOfDelayClient() {
                         {Number(it.fields?.weeksDelayed) || 0}
                       </td>
                       <td className="p-2 text-right font-mono">
-                        ${Math.round(it.score ?? 0).toLocaleString()}
+                        ${Math.round(totalCostOf(it)).toLocaleString()}
                       </td>
                       <td className="p-2">
                         <button

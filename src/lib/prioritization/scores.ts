@@ -98,6 +98,8 @@ export function frameworkScores(
     },
     ice: finiteOrNull(ice?.score),
     kano: typeof kanoCategory === "string" && kanoCategory ? kanoCategory : null,
-    costOfDelay: finiteOrNull(cod?.score),
+    // The agent's CD3 rows keep score = cost ÷ job size and the total in
+    // fields.totalCost; form rows store the total in both.
+    costOfDelay: finiteOrNull(cod?.fields?.totalCost) ?? finiteOrNull(cod?.score),
   };
 }

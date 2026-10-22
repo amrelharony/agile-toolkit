@@ -181,6 +181,25 @@ describe("tool.prioritizer.list_state frameworkScores", () => {
     expect(b.frameworkScores).toMatchObject({ ice: null, kano: null, costOfDelay: null });
     expect(r.rankedByWsjf[0].frameworkScores).toBeDefined();
   });
+
+  // A CD3 row from tool.cost_of_delay.* stores score = cost ÷ job size; the
+  // Cost of Delay column must show the total, as the Cost of Delay page does.
+  it("reads a CD3 row's total cost of delay, not its CD3 ratio", async () => {
+    useWorkspaceStore.getState().upsertBacklogItem(item({ id: "a", name: "Auth" }));
+    useWorkspaceStore.setState({
+      prioritizations: [
+        row("cod-cd3", "cost-of-delay", {
+          backlogItemId: "a",
+          score: 5000,
+          fields: { jobSize: 8, totalCost: 40000 },
+        }),
+      ],
+    });
+    const r = (await registry.get("tool.prioritizer.list_state")!.handler({}, ctx())) as {
+      items: { id: string; frameworkScores: { costOfDelay: number | null } }[];
+    };
+    expect(r.items.find((i) => i.id === "a")!.frameworkScores.costOfDelay).toBe(40000);
+  });
 });
 
 describe("tool.prioritizer.add_item", () => {
@@ -196,5 +215,56 @@ describe("tool.prioritizer.add_item", () => {
     expect(stored?.name).toBe("Search");
     expect(stored?.moscow).toBe("should");
     expect(stored?.jobSize).toBe(5);
+  });
+
+  // Bug: add_item copied RICE effort (person-months, e.g. 12 or 0.5) into the
+  // 1–10 matrix effort, plotting the item off the Value vs Effort chart, and
+  // copied an out-of-range business value into the matrix value unclamped.
+  it("keeps RICE effort out of the 1–10 matrix effort and clamps the matrix value", async () => {
+    const action = registry.get("tool.prioritizer.add_item");
+    const r = (await action!.handler(
+      { name: "Rebuild", effort: 12, businessValue: 14 },
+      ctx()
+    )) as { id: string };
+    const stored = (useWorkspaceStore.getState().backlogItems ?? []).find((i) => i.id === r.id)!;
+    expect(stored.effort).toBe(12);
+    expect(stored.matrixEffort).toBe(5);
+    expect(stored.businessValue).toBe(14);
+    expect(stored.value).toBe(10);
+  });
+
+  it("uses every supplied input and trims the name", async () => {
+    const action = registry.get("tool.prioritizer.add_item");
+    const r = (await action!.handler(
+      {
+        name: "  Guest checkout  ",
+        moscow: "must",
+        businessValue: 8,
+        timeCriticality: 6,
+        riskReduction: 2,
+        jobSize: 3,
+        reach: 6000,
+        impact: 2,
+        confidence: 100,
+        effort: 2,
+      },
+      ctx()
+    )) as { id: string };
+    const stored = (useWorkspaceStore.getState().backlogItems ?? []).find((i) => i.id === r.id)!;
+    expect(stored).toEqual({
+      id: r.id,
+      name: "Guest checkout",
+      moscow: "must",
+      businessValue: 8,
+      timeCriticality: 6,
+      riskReduction: 2,
+      jobSize: 3,
+      reach: 6000,
+      impact: 2,
+      confidence: 100,
+      effort: 2,
+      value: 8,
+      matrixEffort: 5,
+    });
   });
 });

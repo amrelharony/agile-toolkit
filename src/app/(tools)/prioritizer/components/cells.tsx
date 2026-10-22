@@ -50,9 +50,15 @@ export function NumCell({
   useEffect(() => setDraft(String(value)), [value]);
 
   const commit = () => {
-    const n = Number(draft);
+    // A number input reports "" when cleared (or holding junk), and
+    // Number("") is 0, which would commit the minimum: treat it as invalid.
+    const n = draft.trim() === "" ? NaN : Number(draft);
     if (Number.isFinite(n)) {
-      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
+      const clamped = Math.max(min, Math.min(max ?? Infinity, n));
+      onCommit(clamped);
+      // When the clamp lands on the stored value, `value` doesn't change and
+      // the effect above won't re-sync, so show the clamped number here.
+      setDraft(String(clamped));
     } else {
       setDraft(String(value));
     }
