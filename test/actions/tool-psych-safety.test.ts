@@ -109,4 +109,26 @@ describe("tool.psych_safety lifecycle", () => {
     expect(r.anomaly).toBe(true);
     expect(r.delta).toBeCloseTo(19 / 7 - 23 / 7, 5);
   });
+
+  it("summarises an empty log without NaN", async () => {
+    const r = (await registry.get("tool.psych_safety.list_state")!.handler({}, ctx())) as {
+      exists: boolean;
+      teamScore: number;
+      lowestQuestionId?: string;
+      delta?: number;
+      anomaly: boolean;
+    };
+    expect(r).toMatchObject({ exists: false, teamScore: 0, anomaly: false });
+    expect(r.lowestQuestionId).toBeUndefined();
+    expect(r.delta).toBeUndefined();
+  });
+
+  it("trims respondent / description and drops blank ones", async () => {
+    await registry
+      .get("tool.psych_safety.log_response")!
+      .handler({ scores: scores(3), respondent: "  Ana  ", description: "   " }, ctx());
+    const [r] = useWorkspaceStore.getState().psychSafetyLogs![0].responses;
+    expect(r.respondent).toBe("Ana");
+    expect(r.description).toBeUndefined();
+  });
 });

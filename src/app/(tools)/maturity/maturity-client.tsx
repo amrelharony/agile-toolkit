@@ -111,8 +111,10 @@ export function MaturityClient() {
     [scores]
   );
 
+  // Each score clamped into 1-5, like tool.maturity.list_state: a corrupted
+  // stored score must not push the overall badge past 100%.
   const averageLevel = useMemo(() => {
-    const values = MATURITY_DIMENSIONS.map((d) => scores[d.id] ?? 1);
+    const values = MATURITY_DIMENSIONS.map((d) => Math.min(5, Math.max(1, scores[d.id] ?? 1)));
     return values.reduce((a, b) => a + b, 0) / values.length;
   }, [scores]);
 

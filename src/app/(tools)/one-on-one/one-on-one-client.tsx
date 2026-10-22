@@ -115,7 +115,9 @@ export function OneOnOneClient() {
       id,
       manager: manager.trim(),
       report: report.trim(),
-      date,
+      // A cleared date field falls back to today: a dateless meeting can't be
+      // sorted, counted this month or matched for carry-over.
+      date: date || todayLocalISO(),
       agenda: [],
       description: desc.length > 0 ? desc : undefined,
     };
@@ -324,7 +326,9 @@ export function OneOnOneClient() {
     // that fed into AI prompts as a KPI, misdirecting manager
     // attention toward themes that weren't actually about employee
     // growth.
-    const re = /\bgrowth\b/i;
+    // `\b` alone still matched "growth-hacking" (a hyphen is a word
+    // boundary), so a hyphen on either side also disqualifies the match.
+    const re = /(?<![\w-])growth(?![\w-])/i;
     let count = 0;
     for (const m of meetings) {
       if (re.test(m.notes ?? "") || re.test(m.description ?? "")) count += 1;

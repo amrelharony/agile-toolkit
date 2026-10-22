@@ -131,4 +131,56 @@ describe("tool.skills_matrix lifecycle", () => {
     expect(r.members).toHaveLength(3);
     expect(r.skills).toHaveLength(4);
   });
+
+  it("names unnamed members / skills with the lowest free number and trims text", async () => {
+    const m = (await registry
+      .get("tool.skills_matrix.add_member")!
+      .handler({ name: "   ", description: "  Tech lead  " }, ctx())) as { id: string };
+    const s = (await registry
+      .get("tool.skills_matrix.add_skill")!
+      .handler({ description: "   " }, ctx())) as { id: string };
+    const r = await list();
+    expect(r.members.find((x) => x.id === m.id)).toEqual({
+      id: m.id,
+      name: "Member 1",
+      description: "Tech lead",
+    });
+    expect(r.skills.find((x) => x.id === s.id)).toEqual({
+      id: s.id,
+      name: "Skill 1",
+      description: undefined,
+    });
+    // The new skill row covers every member, including the one just added.
+    expect(r.grid[s.id]).toEqual({ m1: 0, m2: 0, m3: 0, [m.id]: 0 });
+  });
+
+  it("remove_skill drops the row and refuses an unknown id", async () => {
+    const ok = (await registry
+      .get("tool.skills_matrix.remove_skill")!
+      .handler({ id: "s2" }, ctx())) as { removed: boolean };
+    expect(ok.removed).toBe(true);
+    const r = await list();
+    expect(r.skills.map((s) => s.id)).toEqual(["s1", "s3", "s4"]);
+    expect(r.grid["s2"]).toBeUndefined();
+
+    const ghost = (await registry
+      .get("tool.skills_matrix.remove_skill")!
+      .handler({ id: "nope" }, ctx())) as { removed: boolean };
+    expect(ghost.removed).toBe(false);
+  });
+
+  it("flags knowledge gaps and keeps analysis in sync with the grid", async () => {
+    const set = (skillId: string, memberId: string, level: number) =>
+      registry.get("tool.skills_matrix.set_rating")!.handler({ skillId, memberId, level }, ctx());
+    await set("s1", "m1", 4);
+    await set("s1", "m2", 3);
+    await set("s2", "m1", 2);
+    const r = await list();
+    const byId = Object.fromEntries(r.analysis.map((a) => [a.skillId, a]));
+    expect(byId.s1).toMatchObject({ proficient: 2, advanced: 2, isBusFactor: false });
+    expect(byId.s2).toMatchObject({ proficient: 1, advanced: 0, isBusFactor: false });
+    expect(r.spofCount).toBe(2); // s3, s4
+    expect(r.busFactorCount).toBe(0);
+    expect(r.overallCoverage).toBe(25); // 3 of 12
+  });
 });

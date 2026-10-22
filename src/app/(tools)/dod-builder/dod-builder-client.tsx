@@ -368,7 +368,7 @@ export function DodBuilderClient() {
                     type="button"
                     onClick={() => toggleDone(item.id)}
                     role="checkbox"
-                    aria-checked={item.done}
+                    aria-checked={item.done === true}
                     aria-label={`Done: ${item.label}`}
                     className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse ${
                       item.done

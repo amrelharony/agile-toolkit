@@ -21,6 +21,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { DevexSurvey, DevexResponse } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_DEVEX = "workspace:devexSurvey";
 // MUST match DX_ID in devex-survey-client.tsx.
@@ -117,7 +118,9 @@ function newResponse(params: {
   return {
     id: crypto.randomUUID(),
     respondent: params.respondent ?? "",
-    date: params.date ?? new Date().toISOString().slice(0, 10),
+    // Local calendar day, as the form uses: toISOString() is UTC and gave
+    // yesterday's date just after local midnight east of UTC.
+    date: params.date ?? todayLocalISO(),
     flowState: params.flowState,
     feedbackLoops: params.feedbackLoops,
     cognitiveLoad: params.cognitiveLoad,

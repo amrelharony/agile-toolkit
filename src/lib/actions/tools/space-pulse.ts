@@ -54,13 +54,37 @@ function summarize(doc: SpacePulse | null) {
   const overall = scores.length
     ? round2(DIMS.reduce((a, d) => a + averages[d], 0) / DIMS.length)
     : 0;
+  // "Latest" is the newest quarter (as the UI shows it), not the last-inserted
+  // score: a back-filled older quarter must not become the latest.
+  const chronological = [...scores].sort((a, b) => a.quarter.localeCompare(b.quarter));
   return {
     exists: doc !== null,
     total: scores.length,
-    latest: scores.length ? scores[scores.length - 1] : null,
+    latest: chronological.length ? chronological[chronological.length - 1] : null,
     averages: { ...averages, overall },
     scores,
   };
+}
+
+/**
+ * Add a score, mirroring the client: the quarter is canonicalised to upper case
+ * ("2026-q1" -> "2026-Q1") and an existing entry for that quarter is replaced,
+ * so a quarter never has two pulses (the trend would compare it with itself).
+ */
+function addScore(
+  base: SpacePulse,
+  params: Omit<SpaceScore, "id">
+): { next: SpacePulse; id: string; replaced: boolean } {
+  const score: SpaceScore = {
+    id: crypto.randomUUID(),
+    ...params,
+    quarter: params.quarter.trim().toUpperCase(),
+  };
+  const replaced = base.scores.some((s) => s.quarter === score.quarter);
+  const scores = replaced
+    ? base.scores.map((s) => (s.quarter === score.quarter ? score : s))
+    : [...base.scores, score];
+  return { next: { ...base, id: SP_ID, scores }, id: score.id, replaced };
 }
 
 // ──────── tool.space_pulse.list_state ────────
@@ -70,7 +94,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the SPACE pulse. Returns {exists, total, latest (| null), averages: {satisfaction, performance, activity, communication, efficiency, overall} (1..5), scores}.",
+    "Summarise the SPACE pulse. Returns {exists, total, latest (the newest quarter's score | null), averages: {satisfaction, performance, activity, communication, efficiency, overall} (1..5), scores}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(browserDoc()),
   mcpHandler: async (_params, ctx) => {
@@ -87,7 +111,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record a quarterly SPACE score. Each dimension is 1 (low) … 5 (high). Creates the doc if absent. Returns {added: true, id}.",
+    "Record a quarterly SPACE score. Each dimension is 1 (low) … 5 (high). quarter is YYYY-QN (case-insensitive); a score for a quarter that already has one replaces it. Creates the doc if absent. Returns {added: true, id, replaced}.",
   paramsSchema: z.object({
     quarter: z.string().min(1).max(50),
     satisfaction: z.number().int().min(1).max(5),
@@ -98,19 +122,14 @@ registry.register({
     description: z.string().max(2000).optional(),
   }),
   handler: async (params) => {
-    const base = browserDoc() ?? emptyDoc();
-    const score: SpaceScore = { id: crypto.randomUUID(), ...params };
-    ws().upsertSpacePulse({ ...base, id: SP_ID, scores: [...base.scores, score] });
-    return { added: true, id: score.id };
+    const { next, id, replaced } = addScore(browserDoc() ?? emptyDoc(), params);
+    ws().upsertSpacePulse(next);
+    return { added: true, id, replaced };
   },
   mcpHandler: async (params, ctx) => {
     const base = (await serverGetEntity<SpacePulse>(ctx.userId, KIND_SPACE, SP_ID)) ?? emptyDoc();
-    const score: SpaceScore = { id: crypto.randomUUID(), ...params };
-    await serverUpsertEntity<SpacePulse>(ctx.userId, KIND_SPACE, {
-      ...base,
-      id: SP_ID,
-      scores: [...base.scores, score],
-    });
-    return { added: true, id: score.id };
+    const { next, id, replaced } = addScore(base, params);
+    await serverUpsertEntity<SpacePulse>(ctx.userId, KIND_SPACE, next);
+    return { added: true, id, replaced };
   },
 });

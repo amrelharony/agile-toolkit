@@ -6,9 +6,27 @@
  *   3. set_score refuses an unknown dimension id.
  *   4. set_target_level — re-derives the improvement roadmap.
  *   5. reset — back to all-level-1 / target 4.
+ *   6. out-of-range stored levels are clamped (the page agrees); the MCP
+ *      path round-trips through the server store.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+// The MCP path talks to the server store: an in-memory row per kind + id.
+const rows = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("@/lib/actions/server-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
+  return {
+    ...actual,
+    serverGetEntity: vi.fn(async (_u: string, kind: string, id: string) => {
+      return rows.get(`${kind}/${id}`) ?? null;
+    }),
+    serverUpsertEntity: vi.fn(async (_u: string, kind: string, entity: { id: string }) => {
+      rows.set(`${kind}/${entity.id}`, entity);
+    }),
+  };
+});
+
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -101,5 +119,92 @@ describe("tool.maturity lifecycle", () => {
     expect(r.averageLevel).toBeCloseTo(1, 5);
     expect(r.percentage).toBe(20);
     expect(r.targetLevel).toBe(4);
+  });
+});
+
+describe("tool.maturity — stored data and the MCP path", () => {
+  beforeEach(() => {
+    rows.clear();
+    useWorkspaceStore.setState({ maturityAssessments: [] });
+  });
+
+  it("clamps out-of-range stored levels into 1-5 for the summary and roadmap", async () => {
+    useWorkspaceStore.setState({
+      maturityAssessments: [
+        {
+          id: "maturity:current",
+          scores: {
+            "scrum-practices": 9,
+            "team-collaboration": 0,
+            "technical-excellence": 5,
+            "product-management": 5,
+            "metrics-transparency": 5,
+            "continuous-improvement": 5,
+            "stakeholder-engagement": 5,
+            "agile-culture": 5,
+          },
+          targetLevel: 4,
+        },
+      ],
+    });
+    const r = (await registry.get("tool.maturity.list_state")!.handler({}, ctx())) as {
+      averageLevel: number;
+      percentage: number;
+      roadmap: { dimensionId: string; current: number }[];
+    };
+    // (5 + 1 + 6·5)/8 = 4.5
+    expect(r.averageLevel).toBeCloseTo(4.5, 5);
+    expect(r.percentage).toBe(90);
+    expect(r.roadmap).toEqual([
+      expect.objectContaining({ dimensionId: "team-collaboration", current: 1 }),
+    ]);
+  });
+
+  it("reports a missing assessment as all level 1, target 4", async () => {
+    const r = (await registry.get("tool.maturity.list_state")!.handler({}, ctx())) as {
+      exists: boolean;
+      percentage: number;
+      label: string;
+      roadmap: unknown[];
+    };
+    expect(r).toMatchObject({ exists: false, percentage: 20, label: "Initial" });
+    expect(r.roadmap).toHaveLength(8);
+  });
+
+  it("writes through the server store on the MCP path", async () => {
+    await registry.get("tool.maturity.set_score")!.mcpHandler!(
+      { dimensionId: "agile-culture", level: 4 },
+      ctx()
+    );
+    await registry.get("tool.maturity.set_target_level")!.mcpHandler!({ level: 5 }, ctx());
+    const unknown = (await registry.get("tool.maturity.set_score")!.mcpHandler!(
+      { dimensionId: "ghost", level: 2 },
+      ctx()
+    )) as { set: boolean };
+    expect(unknown.set).toBe(false);
+
+    const row = rows.get("workspace:maturityAssessment/maturity:current") as {
+      scores: Record<string, number>;
+      targetLevel: number;
+    };
+    expect(row.scores["agile-culture"]).toBe(4);
+    expect(row.scores["scrum-practices"]).toBe(1);
+    expect(row.targetLevel).toBe(5);
+    expect(useWorkspaceStore.getState().maturityAssessments).toEqual([]);
+
+    const r = (await registry.get("tool.maturity.list_state")!.mcpHandler!({}, ctx())) as {
+      exists: boolean;
+      averageLevel: number;
+      roadmap: unknown[];
+    };
+    expect(r.exists).toBe(true);
+    expect(r.averageLevel).toBeCloseTo(11 / 8, 5);
+    expect(r.roadmap).toHaveLength(8);
+
+    await registry.get("tool.maturity.reset")!.mcpHandler!({}, ctx());
+    expect(
+      (rows.get("workspace:maturityAssessment/maturity:current") as { targetLevel: number })
+        .targetLevel
+    ).toBe(4);
   });
 });

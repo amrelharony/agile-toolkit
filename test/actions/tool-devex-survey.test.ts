@@ -5,7 +5,7 @@
  *   2. record_response + list_state — per-metric averages.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -43,5 +43,47 @@ describe("tool.devex_survey.record_response + list_state", () => {
     expect(r.averages.flowState).toBe(3); // (4+2)/2
     expect(r.averages.feedbackLoops).toBe(3); // (2+4)/2
     expect(r.averages.cognitiveLoad).toBe(2); // (3+1)/2
+  });
+
+  const record = (params: Record<string, unknown>) =>
+    registry
+      .get("tool.devex_survey.record_response")!
+      .handler({ flowState: 3, feedbackLoops: 3, cognitiveLoad: 3, ...params }, ctx());
+  const responses = () => (useWorkspaceStore.getState().devexSurveys ?? [])[0]?.responses ?? [];
+
+  it("returns zero averages when empty", async () => {
+    const r = (await registry.get("tool.devex_survey.list_state")!.handler({}, ctx())) as {
+      exists: boolean;
+      total: number;
+      averages: { flowState: number };
+    };
+    expect(r).toMatchObject({ exists: false, total: 0, averages: { flowState: 0 } });
+  });
+
+  it("keeps an explicit date, respondent and comments", async () => {
+    await record({ date: "2026-09-01", respondent: "Ana", comments: "CI is slow" });
+    expect(responses()[0]).toMatchObject({
+      date: "2026-09-01",
+      respondent: "Ana",
+      comments: "CI is slow",
+    });
+  });
+
+  // Bug: the default date came from toISOString() (UTC), so just after local
+  // midnight east of UTC an agent-logged response landed on yesterday, while
+  // the form (todayLocalISO) logs today.
+  it("defaults the date to the local today, not the UTC one", async () => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    process.env.TZ = "Asia/Tokyo"; // UTC+9, no DST
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 18, 0, 30)); // 2026-10-17T15:30Z
+      await record({});
+      expect(responses()[0].date).toBe("2026-10-18");
+      expect(responses()[0].respondent).toBe("");
+    } finally {
+      vi.useRealTimers();
+      process.env.TZ = zone;
+    }
   });
 });

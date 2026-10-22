@@ -333,7 +333,9 @@ const LEVEL_COLORS: Record<number, string> = {
  * overall badge.
  */
 export function getMaturityScore(averageLevel: number): MaturityScore {
-  const percentage = Math.round((averageLevel / 5) * 100);
+  // `× 20` rather than `/ 5 × 100`: the latter turns 2.875 into 57.4999…
+  // and rounds a half percent down.
+  const percentage = Math.round(averageLevel * 20);
   const level = Number.isFinite(averageLevel)
     ? Math.min(5, Math.max(1, Math.round(averageLevel)))
     : 1;

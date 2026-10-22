@@ -226,6 +226,8 @@ function FilterChip({ label, active, onClick }: FilterChipProps) {
     <button
       type="button"
       onClick={onClick}
+      // The active chip is otherwise marked by colour only.
+      aria-pressed={active}
       className={`px-3 py-1.5 rounded-full text-xs font-semibold transition border ${
         active
           ? "bg-accent/15 text-accent border-accent/60"
@@ -289,13 +291,21 @@ export function LiberatingStructuresClient() {
     });
   }, [groupFilter, timingFilter]);
 
-  const favoriteEntries = useMemo(
-    () =>
-      state.favorites
-        .map((f) => CATALOG.find((c) => c.id === f.structureId))
-        .filter((c): c is CatalogEntry => Boolean(c)),
-    [state.favorites]
-  );
+  // Known structures only, once each (first-favorited order): an unknown or
+  // malformed structureId, or a duplicate entry, must not show up in the
+  // strip, the export or the Favorites count.
+  const favoriteEntries = useMemo(() => {
+    const seen = new Set<string>();
+    const entries: CatalogEntry[] = [];
+    for (const f of state.favorites) {
+      const c = CATALOG.find((x) => x.id === f?.structureId);
+      if (c && !seen.has(c.id)) {
+        seen.add(c.id);
+        entries.push(c);
+      }
+    }
+    return entries;
+  }, [state.favorites]);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -373,7 +383,7 @@ export function LiberatingStructuresClient() {
           hint="structures"
           valueClassName="text-accent"
         />
-        <StatCard variant="compact" icon={Heart} label="Favorites" value={state.favorites.length} />
+        <StatCard variant="compact" icon={Heart} label="Favorites" value={favoriteEntries.length} />
         <StatCard variant="compact" label="Showing" value={filtered.length} hint="match filters" />
       </KpiGrid>
 

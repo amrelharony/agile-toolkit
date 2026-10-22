@@ -35,8 +35,10 @@ const CategorySchema = z.enum(CATEGORIES);
 
 const ws = () => useWorkspaceStore.getState();
 
+// Version 0 = never published, as on the page (its DEFAULT_STATE); the first
+// Publish there makes it v1.
 function emptyDoc(): WorkingAgreement {
-  return { id: WA_ID, rules: [], meta: { version: 1 } };
+  return { id: WA_ID, rules: [], meta: { version: 0 } };
 }
 
 function browserDoc(): WorkingAgreement | null {
