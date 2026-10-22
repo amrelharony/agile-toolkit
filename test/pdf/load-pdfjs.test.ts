@@ -63,7 +63,9 @@ describe("pdfErrorKind", () => {
     expect(pdfErrorKind({ name: "InvalidPDFException", message: "bad" })).toBe("invalid");
   });
 
-  it("agrees with the installed pdf.js exception classes", async () => {
+  // Imports the real pdf.js build, which can outlast the default 5 s under a
+  // full parallel run.
+  it("agrees with the installed pdf.js exception classes", { timeout: 30_000 }, async () => {
     const { pdfErrorKind } = await import("@/lib/pdf/load-pdfjs");
     const real = await vi.importActual<Pdfjs>("pdfjs-dist/legacy/build/pdf.mjs");
     const notFound = createResponseError(real, 404);

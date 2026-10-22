@@ -27,7 +27,11 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
  * before that import does, and Vitest then fails the whole run with an
  * EnvironmentTeardownError ("Cannot load ... after the environment was torn
  * down") although every test passed. Let in-flight imports finish first.
+ *
+ * The registry pulls in the whole sync layer, so under a full parallel run
+ * the transform can outlast the default 10 s hook timeout and fail a file
+ * whose tests all passed. Give the wait a minute.
  */
 afterAll(async () => {
   await vi.dynamicImportSettled();
-});
+}, 60_000);
