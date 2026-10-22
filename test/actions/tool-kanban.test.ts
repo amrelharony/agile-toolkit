@@ -140,11 +140,73 @@ describe("tool.kanban add_card / move_card", () => {
     expect(card.completedAt).toBeTruthy();
   });
 
+  // Bug: move_card kept completedAt when a card left Done (and startedAt when
+  // it went back to Backlog/Ready), unlike the board's own move, so a
+  // reopened card still counted toward throughput and cycle time.
+  it("move_card drops stale stamps when a card leaves Done, like the board does", async () => {
+    useWorkspaceStore.getState().upsertKanbanBoard(
+      board({
+        cards: [
+          {
+            id: "x",
+            title: "X",
+            column: "done",
+            class: "standard",
+            createdAt: "2026-01-01",
+            startedAt: "2026-01-02",
+            completedAt: "2026-01-05",
+          },
+        ],
+      })
+    );
+    const move = registry.get("tool.kanban.move_card")!;
+    const cardX = () => (useWorkspaceStore.getState().kanbanBoards ?? [])[0].cards[0];
+
+    await move.handler({ cardId: "x", column: "in_progress" }, ctx());
+    expect(cardX().completedAt).toBeUndefined();
+    expect(cardX().startedAt).toBe("2026-01-02");
+    let state = (await registry.get("tool.kanban.list_state")!.handler({}, ctx())) as {
+      avgCycleTimeDays: number | null;
+    };
+    expect(state.avgCycleTimeDays).toBeNull();
+
+    await move.handler({ cardId: "x", column: "ready" }, ctx());
+    expect(cardX().startedAt).toBeUndefined();
+
+    // Re-done: fresh stamps, so the rework counts once.
+    await move.handler({ cardId: "x", column: "in_progress" }, ctx());
+    await move.handler({ cardId: "x", column: "done" }, ctx());
+    expect(cardX().startedAt).toBeTruthy();
+    expect(cardX().completedAt).toBeTruthy();
+    state = (await registry.get("tool.kanban.list_state")!.handler({}, ctx())) as {
+      avgCycleTimeDays: number | null;
+    };
+    expect(state.avgCycleTimeDays).toBe(0);
+  });
+
   it("move_card returns {updated:false} for an unknown card", async () => {
     useWorkspaceStore.getState().upsertKanbanBoard(board());
     const r = (await registry
       .get("tool.kanban.move_card")!
       .handler({ cardId: "nope", column: "done" }, ctx())) as { updated: boolean };
     expect(r.updated).toBe(false);
+  });
+});
+
+// Bug: the agent stamped date-only UTC days while the board stamps full
+// timestamps, so cycle times from agent moves lost up to a day.
+describe("tool.kanban stamps — full timestamps like the board", () => {
+  beforeEach(() => useWorkspaceStore.setState({ kanbanBoards: [] }));
+
+  it("add_card and move_card write full ISO timestamps", async () => {
+    const add = (await registry
+      .get("tool.kanban.add_card")!
+      .handler({ title: "Ship it", column: "in_progress" }, ctx())) as { id: string };
+    await registry.get("tool.kanban.move_card")!.handler({ cardId: add.id, column: "done" }, ctx());
+    const card = useWorkspaceStore.getState().kanbanBoards![0].cards[0];
+    const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+    expect(card.createdAt).toMatch(iso);
+    expect(card.startedAt).toMatch(iso);
+    expect(card.completedAt).toMatch(iso);
   });
 });

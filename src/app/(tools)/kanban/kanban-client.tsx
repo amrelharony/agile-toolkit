@@ -121,16 +121,17 @@ function WipLimitInput({
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
-    if (draft === "") {
+    const n = Number(draft);
+    // Blank, non-numeric or negative: put the current limit back, so the
+    // box never shows a number the board isn't using.
+    if (draft.trim() === "" || !Number.isFinite(n) || n < 0) {
       setDraft(String(value));
       return;
     }
-    const n = Number(draft);
-    if (Number.isFinite(n) && n >= 0 && n !== value) {
-      onCommit(n);
-    } else if (!Number.isFinite(n)) {
-      setDraft(String(value));
-    }
+    // The same rounding and cap as setWip.
+    const next = Math.min(999, Math.floor(n));
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
   };
   return (
     <Input

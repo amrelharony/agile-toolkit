@@ -3,7 +3,8 @@
  *
  * Appends to the board singleton (`kanban:current`) the same card
  * `tool.kanban.add_card` makes with its defaults (backlog column, standard
- * class, date-only createdAt), plus `sourceRef`. The board is read fresh
+ * class, a full-timestamp createdAt like the board's own cards), plus
+ * `sourceRef`. The board is read fresh
  * right before the write, so a card added a moment ago isn't dropped.
  */
 
@@ -35,7 +36,7 @@ export function buildKanbanCard(src: HandoffSource, id = crypto.randomUUID()): K
     description,
     column: "backlog",
     class: "standard",
-    createdAt: new Date().toISOString().slice(0, 10),
+    createdAt: new Date().toISOString(),
     startedAt: undefined,
     completedAt: undefined,
     sourceRef: src.sourceRef,

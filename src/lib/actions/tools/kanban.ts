@@ -10,7 +10,8 @@
  *      cycle time of done cards (startedAt → completedAt).
  *   2. add_card   — add a card (defaults: backlog column, standard class).
  *   3. move_card  — move a card to a column; stamps startedAt on first entry
- *      to in_progress and completedAt on entry to done.
+ *      to in_progress and completedAt on entry to done, and clears them when
+ *      the card moves back (same rules as the board UI).
  *
  * Entity kind "workspace:kanbanBoard" (camelCase via kindFromToolId) matches
  * the browser sync engine so MCP writes round-trip into the UI.
@@ -42,8 +43,10 @@ function browserBoard(): KanbanBoard | null {
   return (ws().kanbanBoards ?? []).find((b) => b.id === KB_ID) ?? null;
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+/** A full timestamp, as the board stamps its cards: a date-only UTC day
+ *  cost cycle times up to a day of precision (and could be the wrong day). */
+function now(): string {
+  return new Date().toISOString();
 }
 
 function summarize(board: KanbanBoard | null) {
@@ -129,7 +132,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Move a card to a column. Stamps startedAt on first move into in_progress and completedAt on move into done. Returns {updated: true} or {updated: false} when the board/card is unknown.",
+    "Move a card to a column. Stamps startedAt on first move into in_progress and completedAt on move into done; clears completedAt when the card leaves done and startedAt when it goes back to backlog or ready. Returns {updated: true} or {updated: false} when the board/card is unknown.",
   paramsSchema: z.object({ cardId: z.string(), column: ColumnEnum }),
   handler: async (params) => {
     const board = browserBoard();
@@ -162,9 +165,9 @@ function newCard(params: {
     description: params.description,
     column,
     class: params.class ?? "standard",
-    createdAt: today(),
-    startedAt: column === "in_progress" ? today() : undefined,
-    completedAt: column === "done" ? today() : undefined,
+    createdAt: now(),
+    startedAt: column === "in_progress" ? now() : undefined,
+    completedAt: column === "done" ? now() : undefined,
   };
 }
 
@@ -175,12 +178,18 @@ function moveCard(board: KanbanBoard, cardId: string, column: KanbanColumnId): K
     ...board,
     cards: board.cards.map((c) => {
       if (c.id !== cardId) return c;
-      return {
-        ...c,
-        column,
-        startedAt: column === "in_progress" && !c.startedAt ? today() : c.startedAt,
-        completedAt: column === "done" && !c.completedAt ? today() : c.completedAt,
-      };
+      // Same rules as the board's own move (kanban-client moveCard): leaving
+      // Done drops the completion stamp, and going back to Backlog or Ready
+      // drops the start stamp, so a reopened card stops counting toward
+      // throughput and cycle time.
+      const startedAt =
+        column === "backlog" || column === "ready"
+          ? undefined
+          : column === "in_progress" && !c.startedAt
+            ? now()
+            : c.startedAt;
+      const completedAt = column !== "done" ? undefined : c.completedAt || now();
+      return { ...c, column, startedAt, completedAt };
     }),
   };
 }

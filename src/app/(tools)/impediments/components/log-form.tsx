@@ -54,7 +54,14 @@ export function LogForm() {
   const handleSubmit = () => {
     if (!form.title.trim()) return;
     sonify("impediments", "impediment-raised");
-    addImpediment(form);
+    // Stored trimmed, like the check above and the history entry below.
+    addImpediment({
+      ...form,
+      title: form.title.trim(),
+      description: form.description.trim(),
+      raisedBy: form.raisedBy.trim(),
+      assignedTo: form.assignedTo.trim(),
+    });
     log(IMPEDIMENT_ACTIONS.IMPEDIMENT_RAISED, {
       title: form.title.trim(),
       category: form.category,

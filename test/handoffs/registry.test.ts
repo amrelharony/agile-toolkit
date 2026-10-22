@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HandoffLink, HandoffRouteId, KanbanCard, Risk } from "@/lib/stores/workspace-types";
 import { useImpedimentStore } from "@/app/(tools)/impediments/use-impediment-store";
@@ -225,6 +225,15 @@ describe("Undo", () => {
 });
 
 describe("Kanban card shape", () => {
+  // Both stamp a full timestamp; a fixed clock lets createdAt compare equal.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-18T09:30:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("matches what tool.kanban.add_card makes, plus sourceRef", async () => {
     const added = (await registry
       .get("tool.kanban.add_card")!
@@ -238,6 +247,8 @@ describe("Kanban card shape", () => {
     const link = sendHandoff("kanban", src(), linkStore())!;
     const viaHandoff = kanbanCards().find((c) => c.id === link.targetId)!;
 
+    // A full timestamp, as the board stamps its own cards.
+    expect(viaAgent.createdAt).toBe("2026-10-18T09:30:00.000Z");
     const { sourceRef, ...rest } = viaHandoff;
     expect(sourceRef).toEqual({ tool: "retro", id: "card-1", doc: "retro:current" });
     expect(Object.keys(rest).sort()).toEqual(Object.keys(viaAgent).sort());

@@ -240,6 +240,23 @@ export function CFDClient() {
     [columns, entries, wipLimit]
   );
 
+  /* -- Rename column handler ----------------------------------------------- */
+  // `renameColumn` trims and refuses blank or duplicate names. BlurInput keeps
+  // its draft while `value` doesn't change, so after a refusal the box went on
+  // showing the refused text. Remount it (new key) to show the real name, and
+  // say why a duplicate was refused, as the add form does.
+  const [nameBoxKeys, setNameBoxKeys] = useState<Record<string, number>>({});
+  const commitRename = (id: string, raw: string) => {
+    const name = raw.trim();
+    const duplicate =
+      name !== "" &&
+      columns.some((c) => c.id !== id && c.name.toLowerCase() === name.toLowerCase());
+    renameColumn(id, raw);
+    const saved = useCFDStore.getState().columns.find((c) => c.id === id)?.name;
+    if (saved !== raw) setNameBoxKeys((k) => ({ ...k, [id]: (k[id] ?? 0) + 1 }));
+    if (duplicate) toast.warning(`A column named "${name}" already exists.`);
+  };
+
   /* -- Add column handler -------------------------------------------------- */
   const handleAddColumn = () => {
     const name = newColName.trim();
@@ -426,8 +443,9 @@ export function CFDClient() {
                         old text into the DOM node, making a trailing space (or
                         any in-progress edit) impossible to type. */}
                     <BlurInput
+                      key={`${col.id}:${nameBoxKeys[col.id] ?? 0}`}
                       value={col.name}
-                      onCommit={(v) => renameColumn(col.id, v)}
+                      onCommit={(v) => commitRename(col.id, v)}
                       aria-label={`Name for column ${idx + 1}`}
                       className="h-7 w-32 bg-transparent border-none p-0 text-sm text-text focus:ring-0 focus:outline-none"
                     />

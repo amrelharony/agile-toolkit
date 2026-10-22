@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -226,6 +226,64 @@ function StatCard({
 
 const inputCls =
   "bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20";
+
+/**
+ * A config number box that can be emptied while typing. Numbers in range
+ * update the forecast as they're typed (`onType`, quiet); leaving the box
+ * commits the clamped number (`onCommit`, logged), and a box left empty gets
+ * its number back. Writing every keystroke straight through `Number()` read
+ * an emptied box as 0, clamped it to the minimum of 1 and put "1" back in the
+ * box, so the next digit landed after it.
+ */
+function ConfigNumberInput({
+  id,
+  value,
+  min,
+  max,
+  onType,
+  onCommit,
+}: {
+  id: string;
+  value: number;
+  min: number;
+  max?: number;
+  onType: (n: number) => void;
+  onCommit: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  // Follow changes from elsewhere (Reset), but keep a draft that already says
+  // the same number.
+  useEffect(() => {
+    setDraft((d) => (d.trim() !== "" && Number(d) === value ? d : String(value)));
+  }, [value]);
+  const clamp = (n: number) => Math.min(max ?? Infinity, Math.max(min, n));
+  return (
+    <Input
+      id={id}
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        const n = Number(raw);
+        if (raw.trim() !== "" && Number.isFinite(n) && n === clamp(n)) onType(n);
+      }}
+      onBlur={() => {
+        const n = Number(draft);
+        if (draft.trim() === "" || !Number.isFinite(n)) {
+          setDraft(String(value));
+          return;
+        }
+        const next = clamp(n);
+        setDraft(String(next));
+        onCommit(next);
+      }}
+      className={inputCls}
+    />
+  );
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Main Client Component                                                      */
@@ -529,74 +587,38 @@ export function ReleasePlannerClient() {
               <Label htmlFor="rp-backlog" className="text-sub text-xs">
                 Backlog Size (story points)
               </Label>
-              <Input
+              <ConfigNumberInput
                 id="rp-backlog"
-                type="number"
                 min={1}
                 value={config.backlogSize}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n)) {
-                    updateConfigQuiet({ backlogSize: Math.max(1, n) });
-                  }
-                }}
-                onBlur={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n)) {
-                    updateConfig({ backlogSize: Math.max(1, n) });
-                  }
-                }}
-                className={inputCls}
+                onType={(n) => updateConfigQuiet({ backlogSize: n })}
+                onCommit={(n) => updateConfig({ backlogSize: n })}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="rp-buffer" className="text-sub text-xs">
                 Scope Buffer %
               </Label>
-              <Input
+              <ConfigNumberInput
                 id="rp-buffer"
-                type="number"
                 min={0}
                 max={100}
                 value={config.scopeBuffer}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n)) {
-                    updateConfigQuiet({ scopeBuffer: Math.min(100, Math.max(0, n)) });
-                  }
-                }}
-                onBlur={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n)) {
-                    updateConfig({ scopeBuffer: Math.min(100, Math.max(0, n)) });
-                  }
-                }}
-                className={inputCls}
+                onType={(n) => updateConfigQuiet({ scopeBuffer: n })}
+                onCommit={(n) => updateConfig({ scopeBuffer: n })}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="rp-sprint-length" className="text-sub text-xs">
                 Sprint Length (days)
               </Label>
-              <Input
+              <ConfigNumberInput
                 id="rp-sprint-length"
-                type="number"
                 min={1}
                 max={90}
                 value={config.sprintLengthDays}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n)) {
-                    updateConfigQuiet({ sprintLengthDays: Math.min(90, Math.max(1, n)) });
-                  }
-                }}
-                onBlur={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n)) {
-                    updateConfig({ sprintLengthDays: Math.min(90, Math.max(1, n)) });
-                  }
-                }}
-                className={inputCls}
+                onType={(n) => updateConfigQuiet({ sprintLengthDays: n })}
+                onCommit={(n) => updateConfig({ sprintLengthDays: n })}
               />
             </div>
             <div className="space-y-1.5">

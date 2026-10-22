@@ -5,6 +5,7 @@
  */
 
 import type { Impediment as WorkspaceImpediment } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import type { Impediment, Severity } from "./types";
 
 const SEVERITY_TO_WORKSPACE: Record<Severity, WorkspaceImpediment["severity"]> = {
@@ -48,14 +49,26 @@ export function sameWorkspaceImpediment(a: WorkspaceImpediment, b: WorkspaceImpe
   );
 }
 
+/** Local midnight of the day a stored date names. A date-only string
+ *  ("2026-10-18", what the tracker stores) is a local calendar day; `new
+ *  Date("2026-10-18")` would read it as UTC midnight instead. */
+function localDayStart(dateStr: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(dateStr);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Whole local calendar days from `dateStr` to today; 0 for a bad or future date. */
 export function daysSince(dateStr: string): number {
-  const d = new Date(dateStr).getTime();
+  const d = localDayStart(dateStr);
   // Guard against `new Date("garbage")` → NaN; without this the badge below
   // displayed "NaNd" for any impediment whose raisedDate got corrupted in
   // localStorage.
   if (!Number.isFinite(d)) return 0;
-  const now = Date.now();
-  return Math.max(0, Math.floor((now - d) / (1000 * 60 * 60 * 24)));
+  const today = localDayStart(todayLocalISO());
+  // Round: a day across a DST change is 23 or 25 hours.
+  return Math.max(0, Math.round((today - d) / (1000 * 60 * 60 * 24)));
 }
 
 export function avgResolutionDays(impediments: Impediment[]): number {
@@ -119,11 +132,16 @@ export function buildWeeklyImpedimentSeries(impediments: Impediment[]): {
   weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
   weekStart.setUTCHours(0, 0, 0, 0);
 
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  // Today's LOCAL calendar day, on the same UTC-midnight axis as the stored
+  // dates. `new Date()` + setUTCHours took the UTC day instead, so just after
+  // local midnight east of UTC a Sunday's new impediment fell outside every
+  // bucket (and west of UTC the window ran a day ahead).
+  const today = parseISODateUTC(todayLocalISO())!;
+  // Whole weeks from the first Sunday to this week's Sunday, plus this week.
+  // Math.ceil here counted one week past today's on every day but Sunday.
   const totalWeeks = Math.max(
     1,
-    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
+    Math.floor((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
   );
   const cappedWeeks = Math.min(totalWeeks, 26);
   // The cap must keep the MOST RECENT 26 weeks. Anchoring at the earliest

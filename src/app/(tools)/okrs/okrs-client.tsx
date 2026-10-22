@@ -87,9 +87,11 @@ function NumCell({
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
     const n = Number(draft);
-    if (Number.isFinite(n)) {
+    // A blank box is no number (Number("") is 0): put the value back.
+    if (draft.trim() !== "" && Number.isFinite(n)) {
       const clamped = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n));
-      onChange(clamped);
+      // Tabbing through unchanged boxes writes (and logs) nothing.
+      if (clamped !== value) onChange(clamped);
       setDraft(String(clamped));
     } else {
       setDraft(String(value));

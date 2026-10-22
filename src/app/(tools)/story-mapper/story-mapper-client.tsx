@@ -1276,7 +1276,9 @@ export function StoryMapperClient() {
             <div className="flex items-center gap-2 text-sub text-sm">
               <Map className="w-4 h-4 text-accent" />
               <span>
-                {steps.length} steps · {slices.length} slices · {storyCount} stories
+                {steps.length} {steps.length === 1 ? "step" : "steps"} · {slices.length}{" "}
+                {slices.length === 1 ? "slice" : "slices"} · {storyCount}{" "}
+                {storyCount === 1 ? "story" : "stories"}
               </span>
             </div>
             <div className="flex items-center gap-2">
