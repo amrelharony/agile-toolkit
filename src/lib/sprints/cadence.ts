@@ -65,10 +65,14 @@ export const DEFAULT_CADENCE: CeremonyCadence = {
 
 export const WEEKDAY_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
+/** A local time as "HH:MM", 24-hour. */
+export const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** A sprint is at least one and at most this many calendar days long. */
+export const MAX_SPRINT_LENGTH_DAYS = 60;
 
 export function isTime(value: unknown): value is string {
-  return typeof value === "string" && TIME.test(value);
+  return typeof value === "string" && TIME_PATTERN.test(value);
 }
 
 function isWeekday(value: unknown): value is number {
@@ -87,7 +91,7 @@ export function normalizeCadence(raw: unknown): CeremonyCadence {
   const ref = r.refinement as { weekday?: unknown; time?: unknown } | null | undefined;
   return {
     sprintLengthDays:
-      Number.isInteger(length) && length >= 1 && length <= 60
+      Number.isInteger(length) && length >= 1 && length <= MAX_SPRINT_LENGTH_DAYS
         ? length
         : DEFAULT_CADENCE.sprintLengthDays,
     dailyTime: isTime(r.dailyTime) ? r.dailyTime : DEFAULT_CADENCE.dailyTime,
@@ -115,7 +119,7 @@ export interface CeremonyOccurrence {
 /** A local Date for `YYYY-MM-DD` at `HH:MM`, or null when either is malformed. */
 export function localDateTime(iso: string, time: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  const t = TIME.exec(time);
+  const t = TIME_PATTERN.exec(time);
   if (!m || !t) return null;
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(t[1]), Number(t[2]), 0, 0);
 }
