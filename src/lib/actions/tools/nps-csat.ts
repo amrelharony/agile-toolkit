@@ -20,6 +20,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverUpsertEntity } from "../server-store";
 import type { NpsResponse } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_NPS = "workspace:npsResponse";
 
@@ -69,19 +70,28 @@ registry.register({
   requiresConfirmation: false,
   description:
     "Record one survey response. kind 'nps' (score 0–10) or 'csat' (score 1–5); date defaults to today. Returns {added: true, id}.",
-  paramsSchema: z.object({
-    kind: z.enum(["nps", "csat"]),
-    score: z.number(),
-    respondent: z.string().optional(),
-    verbatim: z.string().optional(),
-    date: z.string().optional(),
-  }),
+  // Each survey's own range, as the in-app form clamps it: NPS 0–10, CSAT 1–5.
+  paramsSchema: z
+    .object({
+      kind: z.enum(["nps", "csat"]),
+      score: z.number().describe("0–10 for nps, 1–5 for csat"),
+      respondent: z.string().optional(),
+      verbatim: z.string().optional(),
+      date: z.string().optional(),
+    })
+    .refine(
+      (p) => (p.kind === "nps" ? p.score >= 0 && p.score <= 10 : p.score >= 1 && p.score <= 5),
+      {
+        message: "score must be 0–10 for nps or 1–5 for csat",
+        path: ["score"],
+      }
+    ),
   handler: async (params) => {
     const entry: NpsResponse = {
       id: crypto.randomUUID(),
       kind: params.kind,
       score: params.score,
-      date: params.date ?? new Date().toISOString().slice(0, 10),
+      date: params.date ?? todayLocalISO(),
       respondent: params.respondent,
       verbatim: params.verbatim,
     };
@@ -93,7 +103,7 @@ registry.register({
       id: crypto.randomUUID(),
       kind: params.kind,
       score: params.score,
-      date: params.date ?? new Date().toISOString().slice(0, 10),
+      date: params.date ?? todayLocalISO(),
       respondent: params.respondent,
       verbatim: params.verbatim,
     };

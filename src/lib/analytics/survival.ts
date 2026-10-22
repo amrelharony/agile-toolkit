@@ -84,13 +84,15 @@ export function durationsFromTimeRanges(
     items
       .map((item) => {
         const start = new Date(item.raisedAt).getTime();
-        const end = item.resolvedAt ? new Date(item.resolvedAt).getTime() : now.getTime();
-        const rawDays = (end - start) / (1000 * 60 * 60 * 24);
         // If status is provided, only treat the item as a "closed event"
         // when status is explicitly closed. Otherwise fall back to the
         // legacy `resolvedAt` heuristic.
         const event =
           item.status !== undefined ? item.status === "closed" : Boolean(item.resolvedAt);
+        // A still-open item is censored at `now`, not at a preserved
+        // `resolvedAt` from before it was reopened.
+        const end = event && item.resolvedAt ? new Date(item.resolvedAt).getTime() : now.getTime();
+        const rawDays = (end - start) / (1000 * 60 * 60 * 24);
         return { duration: Math.round(rawDays), event, rawDays };
       })
       // Drop observations where end is strictly before start — clamping to 0

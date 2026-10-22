@@ -87,7 +87,8 @@ function NumCell({
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
-    const n = Number(draft);
+    // Blank is not 0: Number("") would clamp a cleared cell up to `min`.
+    const n = draft.trim() === "" ? NaN : Number(draft);
     if (Number.isFinite(n)) {
       const clamped = Math.max(min, Math.min(max, n));
       onChange(clamped);

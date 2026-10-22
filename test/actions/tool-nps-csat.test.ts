@@ -7,7 +7,7 @@
  *   3. record appends a response (auto id + date)
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { NpsResponse } from "@/lib/stores/workspace-types";
@@ -92,5 +92,80 @@ describe("tool.nps_csat.record", () => {
     expect(stored).toHaveLength(1);
     expect(stored[0].score).toBe(10);
     expect(stored[0].date).toBeTruthy();
+  });
+});
+
+describe("tool.nps_csat.record — edges", () => {
+  beforeEach(() => useWorkspaceStore.setState({ npsResponses: [] }));
+  afterEach(() => vi.useRealTimers());
+
+  const record = registry.get("tool.nps_csat.record")!;
+
+  it("keeps the respondent, verbatim and a supplied date", async () => {
+    await record.handler(
+      { kind: "csat", score: 4, respondent: "Lee", verbatim: "Quick fix", date: "2026-09-30" },
+      ctx()
+    );
+    expect(useWorkspaceStore.getState().npsResponses).toEqual([
+      expect.objectContaining({
+        kind: "csat",
+        score: 4,
+        respondent: "Lee",
+        verbatim: "Quick fix",
+        date: "2026-09-30",
+      }),
+    ]);
+  });
+
+  // Bug: the default date was the UTC day, so a response recorded just after
+  // local midnight east of UTC landed on the day before.
+  it("defaults the date to the local day, like the in-app form", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    for (const at of [new Date(2026, 9, 18, 0, 30), new Date(2026, 9, 18, 23, 30)]) {
+      vi.setSystemTime(at);
+      useWorkspaceStore.setState({ npsResponses: [] });
+      await record.handler({ kind: "nps", score: 9 }, ctx());
+      expect(useWorkspaceStore.getState().npsResponses?.[0].date).toBe("2026-10-18");
+    }
+  });
+
+  // Bug: the schema took any number, so an agent could store NPS 50 or a
+  // CSAT 8 that the CSAT card then averaged under its "(1-5)" hint.
+  it("rejects a score outside its survey's range at the schema boundary", () => {
+    const parse = (p: unknown) => record.paramsSchema.safeParse(p).success;
+    expect(parse({ kind: "nps", score: 0 })).toBe(true);
+    expect(parse({ kind: "nps", score: 10 })).toBe(true);
+    expect(parse({ kind: "nps", score: 11 })).toBe(false);
+    expect(parse({ kind: "nps", score: -1 })).toBe(false);
+    expect(parse({ kind: "csat", score: 1 })).toBe(true);
+    expect(parse({ kind: "csat", score: 5 })).toBe(true);
+    expect(parse({ kind: "csat", score: 0 })).toBe(false);
+    expect(parse({ kind: "csat", score: 8 })).toBe(false);
+  });
+});
+
+describe("tool.nps_csat.list_state — edges", () => {
+  beforeEach(() => useWorkspaceStore.setState({ npsResponses: [] }));
+
+  it("rounds the CSAT average to two decimals and the NPS to a whole number", async () => {
+    useWorkspaceStore.setState({
+      npsResponses: [
+        resp({ id: "c1", kind: "csat", score: 4 }),
+        resp({ id: "c2", kind: "csat", score: 4 }),
+        resp({ id: "c3", kind: "csat", score: 5 }),
+        resp({ id: "n1", kind: "nps", score: 10 }),
+        resp({ id: "n2", kind: "nps", score: 8 }),
+        resp({ id: "n3", kind: "nps", score: 8 }),
+      ],
+    });
+    const r = (await registry.get("tool.nps_csat.list_state")!.handler({}, ctx())) as {
+      total: number;
+      nps: { score: number; passives: number };
+      csat: { average: number };
+    };
+    expect(r.total).toBe(6);
+    // 1 promoter of 3 → 33.33… → 33.
+    expect(r.nps).toMatchObject({ score: 33, passives: 2 });
+    expect(r.csat.average).toBe(4.33);
   });
 });

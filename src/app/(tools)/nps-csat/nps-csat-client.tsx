@@ -107,7 +107,8 @@ export function NpsCsatClient() {
   const { log } = useHistoryLogger("nps-csat");
 
   const commitScore = () => {
-    const n = Number(scoreDraft);
+    // Blank is not 0: Number("") would record a cleared field as a 0 detractor.
+    const n = scoreDraft.trim() === "" ? NaN : Number(scoreDraft);
     if (Number.isFinite(n)) {
       const min = draft.kind === "nps" ? 0 : 1;
       const max = draft.kind === "nps" ? 10 : 5;

@@ -289,8 +289,10 @@ export function RiskRegisterClient() {
   }, [risks]);
 
   const survivalCurve = useMemo(() => {
+    // Pass the status: a reopened risk keeps its old resolvedAt, and without
+    // it the helper counted that date as a closure (BUG-T7-risk-register-3).
     const obs = durationsFromTimeRanges(
-      risks.map((r) => ({ raisedAt: r.raisedAt, resolvedAt: r.resolvedAt }))
+      risks.map((r) => ({ raisedAt: r.raisedAt, resolvedAt: r.resolvedAt, status: r.status }))
     );
     return kaplanMeier(obs);
   }, [risks]);

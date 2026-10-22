@@ -71,6 +71,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { Risk } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 /** Entity kind in user_entities — matches kindFromToolId("workspace.risk")
  *  used by the generic workspace CRUD, so reads/writes here line up
@@ -261,10 +262,10 @@ registry.register({
     }
     const next: Risk = { ...current, status: params.status };
     if (params.status === "closed" && !next.resolvedAt) {
-      // Stamp closure date so K-M survival analysis picks it up.
-      // Use yyyy-mm-dd to match the in-app todayLocalISO format
-      // (risk-register-client.tsx:631).
-      next.resolvedAt = new Date().toISOString().slice(0, 10);
+      // Stamp closure date so K-M survival analysis picks it up. The local
+      // day, as the in-app status select stamps it: the UTC day put a close
+      // just after local midnight (east of UTC) on the day before.
+      next.resolvedAt = todayLocalISO();
     }
     ws().upsertRisk(next);
     return { updated: true };
@@ -280,7 +281,7 @@ registry.register({
     // the file header for the rationale.
     const next: Risk = { ...current, status: params.status };
     if (params.status === "closed" && !next.resolvedAt) {
-      next.resolvedAt = new Date().toISOString().slice(0, 10);
+      next.resolvedAt = todayLocalISO();
     }
     await serverUpsertEntity<Risk>(ctx.userId, KIND_RISK, next);
     return { updated: true };

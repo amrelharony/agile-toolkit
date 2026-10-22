@@ -27,7 +27,7 @@
  * one-time module load.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Risk } from "@/lib/stores/workspace-types";
@@ -533,5 +533,59 @@ describe("tool.risk_register.set_mitigation — plan + auto-transition", () => {
     };
     expect(result.updated).toBe(false);
     expect(result.transitioned).toBe(false);
+  });
+});
+
+describe("tool.risk_register.set_status — closure date", () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      risks: [seed({ id: "r1", title: "DB failover risk", status: "open" })],
+    });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  // Bug: resolvedAt was the UTC day, so a risk closed just after local
+  // midnight east of UTC got yesterday's date, unlike a close in the UI.
+  it("stamps resolvedAt with the local day, like the in-app status select", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const action = registry.get("tool.risk_register.set_status")!;
+    for (const at of [new Date(2026, 9, 18, 0, 30), new Date(2026, 9, 18, 23, 30)]) {
+      vi.setSystemTime(at);
+      useWorkspaceStore.setState({ risks: [seed({ id: "r1", status: "open" })] });
+      await action.handler({ id: "r1", status: "closed" }, ctx());
+      expect((useWorkspaceStore.getState().risks ?? [])[0].resolvedAt).toBe("2026-10-18");
+    }
+  });
+
+  it("keeps resolvedAt when a closed risk is reopened", async () => {
+    useWorkspaceStore.setState({
+      risks: [seed({ id: "r1", status: "closed", resolvedAt: "2026-10-05" })],
+    });
+    const action = registry.get("tool.risk_register.set_status")!;
+    await action.handler({ id: "r1", status: "mitigating" }, ctx());
+    expect((useWorkspaceStore.getState().risks ?? [])[0]).toMatchObject({
+      status: "mitigating",
+      resolvedAt: "2026-10-05",
+    });
+  });
+});
+
+describe("tool.risk_register.list_state — corrupt entities", () => {
+  it("clamps out-of-range or unreadable probability/impact into 1..5 for the buckets", async () => {
+    useWorkspaceStore.setState({
+      risks: [
+        seed({ id: "hi", probability: 9 as unknown as Risk["probability"], impact: 5 }),
+        seed({ id: "nan", probability: "x" as unknown as Risk["probability"], impact: 2 }),
+      ],
+    });
+    const result = (await registry.get("tool.risk_register.list_state")!.handler({}, ctx())) as {
+      byLevel: Record<string, number>;
+      topRisks: { id: string; score: number }[];
+    };
+    expect(result.topRisks.map((r) => [r.id, r.score])).toEqual([
+      ["hi", 25],
+      ["nan", 2],
+    ]);
+    expect(result.byLevel).toEqual({ low: 1, medium: 0, high: 0, critical: 1 });
   });
 });
