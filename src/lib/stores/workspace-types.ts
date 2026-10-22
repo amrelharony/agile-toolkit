@@ -1,4 +1,5 @@
 import type { RetroFormat } from "@/lib/constants/retro-formats";
+import type { CeremonyCadence } from "@/lib/sprints/cadence";
 
 export type ISODateString = string;
 
@@ -54,6 +55,22 @@ export interface SprintSeries {
   /** The old per-tool storage keys this row was built from (migration audit). */
   migratedFrom?: string[];
   updatedAt?: ISODateString;
+}
+
+/** The one ceremony-cadence document's id (see `CeremonyCadenceDoc`). */
+export const CEREMONY_CADENCE_ID = "ceremony-cadence:current";
+
+/**
+ * The team's ceremony cadence as a workspace document: when the Daily Scrum,
+ * Planning, Refinement, Review and Retro happen relative to a sprint's dates
+ * (the fields of `CeremonyCadence` in `@/lib/sprints/cadence`). One document
+ * under `CEREMONY_CADENCE_ID`, so agents read and set the same cadence the
+ * Sprint Cockpit and the team charter show. Readers normalise it
+ * (`normalizeCadence`), so an older or hand-edited row still yields a usable
+ * cadence.
+ */
+export interface CeremonyCadenceDoc extends CeremonyCadence {
+  id: string;
 }
 
 export interface Story {
@@ -1951,6 +1968,8 @@ export interface Workspace {
   sprints: Sprint[];
   /** Daily logs and ratings per sprint (see `SprintSeries`). */
   sprintSeries?: SprintSeries[];
+  /** The team's ceremony cadence: one document (see `CeremonyCadenceDoc`). */
+  ceremonyCadences?: CeremonyCadenceDoc[];
   stories: Story[];
   impediments: Impediment[];
   risks: Risk[];
@@ -2183,6 +2202,7 @@ export const emptyWorkspace = {
   teamMembers: [],
   sprints: [],
   sprintSeries: [],
+  ceremonyCadences: [],
   stories: [],
   impediments: [],
   risks: [],

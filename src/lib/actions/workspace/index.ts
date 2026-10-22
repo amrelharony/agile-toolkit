@@ -15,9 +15,12 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { defineCrudActions } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { CEREMONY_CADENCE_ID } from "@/lib/stores/workspace-types";
+import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import type {
   Sprint,
   SprintSeries,
+  CeremonyCadenceDoc,
   Story,
   Impediment,
   Risk,
@@ -265,6 +268,25 @@ defineCrudActions<SprintSeries>({
   selectAll: () => ws().sprintSeries ?? [],
   upsert: (x) => ws().upsertSprintSeries(x),
   remove: (id) => ws().removeSprintSeries(id),
+});
+
+// The team's ceremony cadence: one document under CEREMONY_CADENCE_ID, the
+// row the Sprint Cockpit and the team charter read (tool.ceremony_cadence.*
+// has the normalised reading and a patch). The schema rejects what
+// `normalizeCadence` would replace by a default, so a bad time or weekday is
+// an error rather than a silent reset. No `generateId`: the id must be the
+// singleton's, so a create without one is rejected.
+const CeremonyCadenceDocSchema = CeremonyCadenceSchema.extend({
+  id: z.literal(CEREMONY_CADENCE_ID),
+}) as unknown as z.ZodType<CeremonyCadenceDoc>;
+
+defineCrudActions<CeremonyCadenceDoc>({
+  toolId: "workspace.ceremony_cadence",
+  entityName: "ceremony cadence",
+  schema: CeremonyCadenceDocSchema,
+  selectAll: () => ws().ceremonyCadences ?? [],
+  upsert: (x) => ws().upsertCeremonyCadence(x),
+  remove: (id) => ws().removeCeremonyCadence(id),
 });
 
 defineCrudActions<Story>({
