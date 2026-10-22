@@ -286,6 +286,13 @@ export const SPRINT_METRICS_ACTIONS = {
   SPRINT_REOPENED: "sprint_reopened",
 } as const;
 
+/** The Sprint Cockpit: the current sprint's day-to-day. Payloads carry `sprintId`. */
+export const SPRINT_COCKPIT_ACTIONS = {
+  SPRINT_CREATED: "sprint_created",
+  DAY_LOGGED: "day_logged",
+  SPRINT_CLOSED: "sprint_closed", // milestone
+} as const;
+
 export const EPIC_ROADMAP_ACTIONS = {
   EPIC_ADDED: "epic_added",
   EPIC_REMOVED: "epic_removed",
@@ -910,6 +917,7 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `sprint-compare:${SPRINT_COMPARE_ACTIONS.COMPARE_RESET}`,
   `release-planner:${RELEASE_PLANNER_ACTIONS.RELEASE_RESET}`,
   `sprint-metrics:${SPRINT_METRICS_ACTIONS.SPRINT_CLOSED}`,
+  `sprint:${SPRINT_COCKPIT_ACTIONS.SPRINT_CLOSED}`,
   `epic-roadmap:${EPIC_ROADMAP_ACTIONS.ROADMAP_RESET}`,
   `refinement:${REFINEMENT_ACTIONS.REFINEMENT_RESET}`,
   `story-mapper:${STORY_MAPPER_ACTIONS.STORY_MAP_RESET}`,
