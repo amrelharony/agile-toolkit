@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
-import type { SprintToolId } from "../view";
+import type { SprintToolId } from "@/lib/sprints/hub-view";
 
 interface ToolLink {
   path: string;

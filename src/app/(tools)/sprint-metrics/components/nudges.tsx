@@ -4,7 +4,7 @@ import { useId } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
-import { migratedSourceNames, type NudgeKind } from "../view";
+import { migratedSourceNames, type NudgeKind } from "@/lib/sprints/hub-view";
 
 export interface NudgesProps {
   sprint: Sprint;

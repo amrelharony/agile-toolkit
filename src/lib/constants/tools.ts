@@ -1021,6 +1021,22 @@ export const tools: ToolDefinition[] = [
     ],
   },
   {
+    id: "sprint",
+    code: "B11",
+    name: "Sprint Cockpit",
+    description:
+      "Your current sprint on one page: goal and days left, burndown, today's standup, open blockers, retro actions and the next ceremony",
+    category: "Metrics & Dashboards",
+    path: "/sprint",
+    icon: Compass,
+    badge: "new",
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 40,
+    usesWorkspace: true,
+    analyticsTier: 2,
+  },
+  {
     id: "sprint-metrics",
     code: "B10",
     name: "Sprint Metrics",

@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Archive,
   ChevronDown,
+  Compass,
   ChevronLeft,
   History,
   Activity,
@@ -427,6 +428,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           {/* Activity meta links — always visible, above categories */}
           <div className="space-y-0.5 mb-3 pb-3 border-b border-border">
             {[
+              { href: "/sprint", label: "Sprint", icon: Compass },
               { href: "/history", label: "History", icon: History },
               { href: "/insights", label: "My activity", icon: Activity },
               { href: "/team", label: "Team", icon: Users },

@@ -69,11 +69,11 @@ export const JOBS: Job[] = [
     id: "track-delivery",
     title: "Track delivery",
     description: "See progress, flow and predictability across sprints.",
-    primaryToolId: "burndown",
+    primaryToolId: "sprint",
     alternatives: [
+      { toolId: "burndown", pickWhen: "you want to log and chart the points left each day" },
       { toolId: "velocity", pickWhen: "you want sprint-over-sprint trends and forecasts" },
       { toolId: "kanban", pickWhen: "you work in flow rather than sprints" },
-      { toolId: "cycle-time", pickWhen: "you want to know how long work really takes" },
     ],
   },
   {

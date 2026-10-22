@@ -3,6 +3,29 @@ import type { ToolGuide } from "./types";
 /** Guides for the "Run the sprint" and "Retrospect & improve" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
+    toolId: "sprint",
+    summary:
+      "The Sprint Cockpit is the Scrum master's home page for the current sprint: the goal and day count, the burndown, who has posted today's update, the open blockers, the last retro's actions and when the next ceremony is. Everything on it comes from the other tools; nothing is typed twice.",
+    whenToUse: [
+      "First thing each day, to see what needs attention before the Daily Scrum.",
+      "When someone asks how the sprint is going and you want one page to share.",
+      "To start the sprint cycle for a new team: it walks you through the team, the first sprint and the ceremony times.",
+    ],
+    steps: [
+      "With no sprint yet, add your team, create the sprint and set the ceremony times. Or load the example to look around first.",
+      "Read the ceremony strip left to right: Planning, Daily, Refinement, Review, Retro. Each card says where that ceremony stands and opens the tool for it.",
+      "Log today's points left under the burndown. Burndown, Sprint Metrics and the forecasts all use the same number.",
+      "Check Open blockers and the actions from the last retro; open Impediments or the Retro board to work on them.",
+      "At the end of the sprint, click Close sprint and copy the Sprint report into your review notes or wiki.",
+    ],
+    tips: [
+      "The cockpit also appears at the top of the home page once a sprint exists.",
+      "Ceremony times are kept in this browser (and synced for the owner); adjust them from the Next ceremony card.",
+      "Pick a different sprint in the picker; every sprint tool follows the same choice.",
+    ],
+    timebox: "Two minutes a day; ten at the start and end of a sprint.",
+  },
+  {
     toolId: "async-standup",
     summary:
       "An async standup replaces the daily meeting with short written updates. Each person posts what they did, what's next and any blockers, and the tool rolls them into one daily digest with blockers at the top.",

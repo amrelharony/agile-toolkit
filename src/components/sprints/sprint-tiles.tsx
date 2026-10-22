@@ -3,7 +3,7 @@
 import { useId } from "react";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
-import type { Tile } from "../view";
+import type { Tile } from "@/lib/sprints/hub-view";
 
 /** The sprint's numbers: plan, scope, progress, pace and history. */
 export function SprintTiles({ tiles }: { tiles: Tile[] }) {

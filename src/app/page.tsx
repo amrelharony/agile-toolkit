@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ShieldCheck, TrendingUp } from "lucide-react";
+import { Compass, ShieldCheck, TrendingUp } from "lucide-react";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { PageHeader } from "@/components/shared/page-header";
 import { InsightsEngine } from "@/components/shared/insights-engine";
@@ -10,18 +10,24 @@ import { HomeSearch } from "@/components/home/home-search";
 import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
 import { ToolSections } from "@/components/home/tool-sections";
+import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
 import { comicAsset } from "@/lib/comic/agile-at-work";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 
 /**
- * Home: say what this is, then get people to the right tool fast — search,
- * the eight common jobs, what they used last — before the full index.
- * (It used to open on stats and 18 collapsed categories; a first-time
- * visitor had to know which category "retro" lived in.)
+ * Home: say what this is, then the team's sprint — the cockpit once a sprint
+ * exists, the three-step start before that — then the common jobs, what they
+ * used last, and the full index. The server renders the page without the
+ * sprint block (it needs this browser's data), which appears once the
+ * workspace has loaded.
  */
 export default function Home() {
   // Build-time flag (scripts/comic-asset.mjs): no banner until the PDF is committed.
   const showComic = comicAsset().available;
   const { tools: visibleTools, shelfCount, showAll } = useToolVisibility();
+  const hydrated = useWorkspaceHydrated();
+  const hasSprints = useWorkspaceStore((s) => (s.sprints?.length ?? 0) > 0);
   // Reading material (the comic) lives in the grid but isn't an interactive
   // tool, so it stays out of the "N tools" number.
   const toolCount = visibleTools.filter((t) => t.kind !== "reading").length;
@@ -43,15 +49,34 @@ export default function Home() {
         />
         <div className="mt-4 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:items-start">
           <HomeSearch />
-          <Link
-            href="/health-dashboard"
-            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-accent/40 hover:text-accent sm:h-10 sm:min-h-0"
-          >
-            <TrendingUp className="h-4 w-4" aria-hidden="true" />
-            Team dashboard
-          </Link>
+          {hydrated && hasSprints ? (
+            <Link
+              href="/sprint"
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-accent/40 hover:text-accent sm:h-10 sm:min-h-0"
+            >
+              <Compass className="h-4 w-4" aria-hidden="true" />
+              Sprint Cockpit
+            </Link>
+          ) : (
+            <Link
+              href="/health-dashboard"
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-accent/40 hover:text-accent sm:h-10 sm:min-h-0"
+            >
+              <TrendingUp className="h-4 w-4" aria-hidden="true" />
+              Team dashboard
+            </Link>
+          )}
         </div>
       </div>
+
+      {hydrated && (
+        <section aria-labelledby="your-sprint-heading" className="space-y-4">
+          <h2 id="your-sprint-heading" className="font-display text-lg font-semibold text-text">
+            {hasSprints ? "Your sprint" : "Start your sprint"}
+          </h2>
+          <SprintCockpit compact />
+        </section>
+      )}
 
       {showComic && <FeaturedComicBanner />}
 

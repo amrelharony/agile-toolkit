@@ -13,7 +13,7 @@ import {
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
-import { fmt, suggestedCompletedPoints } from "../view";
+import { fmt, suggestedCompletedPoints } from "@/lib/sprints/hub-view";
 
 export interface CloseSprintDialogProps {
   open: boolean;

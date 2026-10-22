@@ -59,6 +59,7 @@ export const SECTIONS: ToolSection[] = [
     label: "Run the sprint",
     icon: CirclePlay,
     toolIds: [
+      "sprint",
       "standup",
       "async-standup",
       "impediments",
