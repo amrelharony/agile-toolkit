@@ -361,28 +361,6 @@ export const GUIDES: ToolGuide[] = [
     ],
   },
   {
-    toolId: "six-hats",
-    summary:
-      "Six Thinking Hats (Edward de Bono) has a group look at a problem from one angle at a time, together: facts, feelings, risks, benefits, new ideas and process. It avoids debates where one side attacks and the other defends.",
-    whenToUse: [
-      "Discussing a proposal where people keep talking past each other.",
-      "Workshops that need both critical and creative thinking without one drowning out the other.",
-    ],
-    steps: [
-      "Start with the Blue hat: state the question and agree the order of the hats.",
-      "Everyone wears the same hat at the same time. Pick it in the Hat menu and Log each thought.",
-      "Work through the White, Red, Black, Yellow and Green hats in the agreed order, a few minutes each.",
-      "Finish with the Blue hat: summarize what came up and agree next steps.",
-      "Review the thoughts grouped by hat, and export them for the record.",
-    ],
-    tips: [
-      "Keep the Red hat short: gut reactions, with no need to justify them.",
-      "Don't open with the Black hat, or new ideas die early.",
-      "Use the Ceremony Timer to timebox each hat.",
-    ],
-    timebox: "30–60 minutes",
-  },
-  {
     toolId: "cynefin",
     summary:
       "Cynefin (Dave Snowden) helps you work out what kind of situation you're in before deciding how to act. Each domain calls for a different way of deciding.",

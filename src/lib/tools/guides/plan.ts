@@ -1,6 +1,6 @@
 import type { ToolGuide } from "./types";
 
-/** Guides for the "Plan & estimate" tools. Loaded on demand (see ./index.ts). */
+/** Guides for the "Plan the sprint" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
     toolId: "refinement",

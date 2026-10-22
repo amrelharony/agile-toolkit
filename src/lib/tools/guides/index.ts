@@ -5,8 +5,8 @@ export type { ToolGuide } from "./types";
 
 type GuideModule = { GUIDES: ToolGuide[] };
 
-/** One chunk per navigation section, so a tool page loads only its own section's text. */
-const SECTION_GUIDES: Record<string, () => Promise<GuideModule>> = {
+/** The guide chunks, so a tool page loads only the text for its own job. */
+const CHUNKS = {
   plan: () => import("./plan"),
   ceremonies: () => import("./ceremonies"),
   prioritize: () => import("./prioritize"),
@@ -15,6 +15,23 @@ const SECTION_GUIDES: Record<string, () => Promise<GuideModule>> = {
   outcomes: () => import("./outcomes"),
   quality: () => import("./quality"),
   ai: () => import("./ai"),
+} satisfies Record<string, () => Promise<GuideModule>>;
+
+/**
+ * Which chunk holds each navigation section's guides. "Run the sprint" and
+ * "Retrospect & improve" share the ceremonies chunk. A section missing here
+ * (the Library) has no guides.
+ */
+const SECTION_CHUNK: Record<string, keyof typeof CHUNKS> = {
+  plan: "plan",
+  run: "ceremonies",
+  retro: "ceremonies",
+  prioritize: "prioritize",
+  delivery: "delivery",
+  team: "team",
+  outcomes: "outcomes",
+  quality: "quality",
+  ai: "ai",
 };
 
 /**
@@ -24,7 +41,7 @@ const SECTION_GUIDES: Record<string, () => Promise<GuideModule>> = {
  */
 export function hasGuide(toolId: string): boolean {
   const section = getSectionForTool(toolId);
-  return Boolean(section && SECTION_GUIDES[section.id]);
+  return Boolean(section && SECTION_CHUNK[section.id]);
 }
 
 /**
@@ -37,15 +54,15 @@ export async function getGuide(toolId: string): Promise<ToolGuide | undefined> {
   const core = CORE_GUIDES.find((g) => g.toolId === toolId);
   if (core) return core;
   const section = getSectionForTool(toolId);
-  const load = section ? SECTION_GUIDES[section.id] : undefined;
-  if (!load) return undefined;
-  const { GUIDES } = await load();
+  const chunk = section ? SECTION_CHUNK[section.id] : undefined;
+  if (!chunk) return undefined;
+  const { GUIDES } = await CHUNKS[chunk]();
   return GUIDES.find((g) => g.toolId === toolId);
 }
 
-/** Every guide, for tests and search indexing. Loads all chunks. */
+/** Every guide, for tests and search indexing. Loads each chunk once. */
 export async function getAllGuides(): Promise<ToolGuide[]> {
   const { CORE_GUIDES } = await import("./core");
-  const chunks = await Promise.all(Object.values(SECTION_GUIDES).map((load) => load()));
+  const chunks = await Promise.all(Object.values(CHUNKS).map((load) => load()));
   return [...CORE_GUIDES, ...chunks.flatMap((m) => m.GUIDES)];
 }

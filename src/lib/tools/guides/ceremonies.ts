@@ -1,6 +1,6 @@
 import type { ToolGuide } from "./types";
 
-/** Guides for the "Run ceremonies" tools. Loaded on demand (see ./index.ts). */
+/** Guides for the "Run the sprint" and "Retrospect & improve" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
     toolId: "async-standup",
@@ -85,75 +85,6 @@ export const GUIDES: ToolGuide[] = [
       "Agile activities double as a warm-up for the meeting's topic.",
     ],
     timebox: "2–15 minutes",
-  },
-  {
-    toolId: "one-on-one",
-    summary:
-      "A 1:1 is a regular private conversation between a manager and a team member about their work, wellbeing and growth. The tracker keeps a rolling agenda, so open topics carry over and agreed actions get followed up.",
-    whenToUse: [
-      "Every week or two between a manager and each direct report.",
-      "When follow-ups from past 1:1s keep getting lost.",
-    ],
-    steps: [
-      "Enter the Manager, Report and Date, then click Start meeting. Open items and Actions from your last 1:1 with the same person carry over automatically.",
-      "Add agenda items before or during the meeting. Let the report bring most of them.",
-      "Click an item's status to cycle it from Open to Discussed to Action. For an Action, fill in the action, Owner and due date.",
-      "Write Notes as you talk. They save when you click out of the box.",
-      "Before the next 1:1, check Action items overdue and open the last meeting under Past meetings to follow up.",
-    ],
-    scales: [
-      {
-        name: "Agenda status",
-        values: [
-          { value: "Open", meaning: "not covered yet; carries over to the next 1:1" },
-          { value: "Discussed", meaning: "covered, nothing more to do" },
-          {
-            value: "Action",
-            meaning:
-              "needs follow-up with an owner and due date; carries over until set to Discussed",
-          },
-        ],
-      },
-    ],
-    tips: [
-      "It's the report's meeting. Talk about growth and blockers, not a status update.",
-      "Actions carry over with their owner and due date. When one is done, set it to Discussed so it stops carrying over.",
-      "Mention “growth” in career topics; the Growth themes count picks up that word.",
-    ],
-    timebox: "30–60 minutes",
-  },
-  {
-    toolId: "working-agreement",
-    summary:
-      "A working agreement is a short set of rules the team writes together about how it communicates, meets, decides and handles conflict. Because the team wrote it, the team can hold itself to it.",
-    whenToUse: [
-      "When a new team forms or several people join.",
-      "When the same friction keeps coming up in retros, like slow reviews or meetings without agendas.",
-      "Every few months, to check the rules still fit.",
-    ],
-    steps: [
-      "Add a Team name and purpose, then pick rules from the Starter catalog or add your own under Add custom rule.",
-      "Discuss each rule and reword it until everyone can live with it. Remove rules nobody will follow.",
-      "Enter names in Agreed by, then click Publish to save a new version (v1, v2…).",
-      "Every month or so, run a check-in: click New check-in round to reset every status to Check in, then click each rule's status to mark it Working or Not working, and watch Adherence.",
-      "Rewrite or drop the rules that aren't working and publish the next version.",
-    ],
-    scales: [
-      {
-        name: "Check-in status",
-        values: [
-          { value: "Check in", meaning: "not reviewed yet" },
-          { value: "Working", meaning: "the team follows it and it helps" },
-          { value: "Not working", meaning: "ignored, or no longer useful" },
-        ],
-      },
-    ],
-    tips: [
-      "Keep it short. Five to ten rules people remember beat thirty nobody reads.",
-      "Write behaviors (“PRs reviewed within one working day”), not values (“be respectful”).",
-      "A check-in fits well at the start of a retro.",
-    ],
-    timebox: "60–90 minutes for the first version",
   },
   {
     toolId: "liberating-structures",
@@ -244,5 +175,59 @@ export const GUIDES: ToolGuide[] = [
       "The Vote widget runs a quick poll (Fibonacci, T-shirt or Dots). Votes stay hidden until you click the eye icon.",
     ],
     timebox: "45–60 minutes for a brainstorm with affinity mapping",
+  },
+  {
+    toolId: "six-hats",
+    summary:
+      "Six Thinking Hats (Edward de Bono) has a group look at a problem from one angle at a time, together: facts, feelings, risks, benefits, new ideas and process. It avoids debates where one side attacks and the other defends.",
+    whenToUse: [
+      "Discussing a proposal where people keep talking past each other.",
+      "Workshops that need both critical and creative thinking without one drowning out the other.",
+    ],
+    steps: [
+      "Start with the Blue hat: state the question and agree the order of the hats.",
+      "Everyone wears the same hat at the same time. Pick it in the Hat menu and Log each thought.",
+      "Work through the White, Red, Black, Yellow and Green hats in the agreed order, a few minutes each.",
+      "Finish with the Blue hat: summarize what came up and agree next steps.",
+      "Review the thoughts grouped by hat, and export them for the record.",
+    ],
+    tips: [
+      "Keep the Red hat short: gut reactions, with no need to justify them.",
+      "Don't open with the Black hat, or new ideas die early.",
+      "Use the Ceremony Timer to timebox each hat.",
+    ],
+    timebox: "30–60 minutes",
+  },
+  {
+    toolId: "impediments",
+    summary:
+      "An impediment is anything slowing the team down that it can't easily fix on its own. The tracker logs each one with a category, severity and owner, and shows how long items stay open and how fast they get resolved.",
+    whenToUse: [
+      "When blockers come up at standup and need follow-up afterwards.",
+      "When the same problems keep coming back and you need evidence to escalate them.",
+    ],
+    steps: [
+      "Click Log Impediment. Add a Title, a Description of the impact, a Category (Technical, Organizational, External or Process) and a Severity.",
+      "Fill in Raised By, Assigned To and Expected Resolution (days).",
+      "Review open items at standup or at least weekly. The age badge turns amber after 3 days and red after 7.",
+      "Click Escalate when the team can't remove it alone, and Resolve when it's gone. The tool records the resolved date.",
+      "Use the filters and the Weekly raised chart to spot recurring categories, and watch the resolution time card.",
+    ],
+    tips: [
+      "Describe the blocker, not a person: “test environment down for two days”, not “Ops is slow”.",
+      "Every impediment needs an owner, even if their job is only to escalate it.",
+      "Recurring impediments make good retro topics. Ones that might happen again belong in the Risk Register.",
+    ],
+    scales: [
+      {
+        name: "Severity",
+        values: [
+          { value: "Low", meaning: "a nuisance; work carries on" },
+          { value: "Medium", meaning: "slows the team down" },
+          { value: "High", meaning: "blocks a story or a person" },
+          { value: "Critical", meaning: "blocks the sprint goal or a release" },
+        ],
+      },
+    ],
   },
 ];

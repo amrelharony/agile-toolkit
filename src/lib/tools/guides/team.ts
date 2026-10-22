@@ -1,6 +1,6 @@
 import type { ToolGuide } from "./types";
 
-/** Guides for the "Team health" tools. Loaded on demand (see ./index.ts). */
+/** Guides for the "Team & people" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
     toolId: "psych-safety",
@@ -86,38 +86,6 @@ export const GUIDES: ToolGuide[] = [
       "Be specific. “Your test fixes halved our build time” means more than “Great job”.",
       "Spread it around. Quiet work like reviews, docs and support often goes unthanked.",
       "Add a short kudos round to the end of your retro.",
-    ],
-  },
-  {
-    toolId: "impediments",
-    summary:
-      "An impediment is anything slowing the team down that it can't easily fix on its own. The tracker logs each one with a category, severity and owner, and shows how long items stay open and how fast they get resolved.",
-    whenToUse: [
-      "When blockers come up at standup and need follow-up afterwards.",
-      "When the same problems keep coming back and you need evidence to escalate them.",
-    ],
-    steps: [
-      "Click Log Impediment. Add a Title, a Description of the impact, a Category (Technical, Organizational, External or Process) and a Severity.",
-      "Fill in Raised By, Assigned To and Expected Resolution (days).",
-      "Review open items at standup or at least weekly. The age badge turns amber after 3 days and red after 7.",
-      "Click Escalate when the team can't remove it alone, and Resolve when it's gone. The tool records the resolved date.",
-      "Use the filters and the Weekly raised chart to spot recurring categories, and watch the resolution time card.",
-    ],
-    tips: [
-      "Describe the blocker, not a person: “test environment down for two days”, not “Ops is slow”.",
-      "Every impediment needs an owner, even if their job is only to escalate it.",
-      "Recurring impediments make good retro topics. Ones that might happen again belong in the Risk Register.",
-    ],
-    scales: [
-      {
-        name: "Severity",
-        values: [
-          { value: "Low", meaning: "a nuisance; work carries on" },
-          { value: "Medium", meaning: "slows the team down" },
-          { value: "High", meaning: "blocks a story or a person" },
-          { value: "Critical", meaning: "blocks the sprint goal or a release" },
-        ],
-      },
     ],
   },
   {
@@ -358,6 +326,171 @@ export const GUIDES: ToolGuide[] = [
       "Always write the rationale. A blip without a reason invites the same debate again.",
       "Record big moves, like adopting a new framework, in the Decision Log (ADR).",
       "Keep it small. A radar with a hundred blips stops being read.",
+    ],
+  },
+  {
+    toolId: "dod-builder",
+    summary:
+      "The Definition of Done (DoD) is the shared checklist every backlog item must meet before the team calls it done. This builder assembles the checklist by category and tracks how well the team kept to it each sprint.",
+    whenToUse: [
+      "Forming a new team, or when “done” means different things to different people.",
+      "When bugs or rework keep coming back from work that was marked done.",
+      "At a retro, to check whether the team is living up to its own quality bar.",
+    ],
+    steps: [
+      "Start from the starter items and add your own under the tabs: Code, Testing, Docs, Performance, Security and Other.",
+      "Mark each item Required or Optional. Only Required items count toward adherence.",
+      "During the sprint, tick the done checkbox for each item the team actually met for its work.",
+      "At sprint end, type the Sprint name and click Snapshot this sprint. This saves the score and clears the ticks for the next sprint.",
+      "After four or more snapshots, watch the adherence chart. A point below the LCL line means the DoD slipped more than normal variation.",
+    ],
+    tips: [
+      "Keep the Required list short enough that the team really meets it every time. Add items as the team's skills grow.",
+      "The DoD applies to every item; acceptance criteria apply to one story. You need both.",
+      "Pair it with the Refinement Checklist, which covers whether work is ready to start.",
+    ],
+  },
+  {
+    toolId: "one-on-one",
+    summary:
+      "A 1:1 is a regular private conversation between a manager and a team member about their work, wellbeing and growth. The tracker keeps a rolling agenda, so open topics carry over and agreed actions get followed up.",
+    whenToUse: [
+      "Every week or two between a manager and each direct report.",
+      "When follow-ups from past 1:1s keep getting lost.",
+    ],
+    steps: [
+      "Enter the Manager, Report and Date, then click Start meeting. Open items and Actions from your last 1:1 with the same person carry over automatically.",
+      "Add agenda items before or during the meeting. Let the report bring most of them.",
+      "Click an item's status to cycle it from Open to Discussed to Action. For an Action, fill in the action, Owner and due date.",
+      "Write Notes as you talk. They save when you click out of the box.",
+      "Before the next 1:1, check Action items overdue and open the last meeting under Past meetings to follow up.",
+    ],
+    scales: [
+      {
+        name: "Agenda status",
+        values: [
+          { value: "Open", meaning: "not covered yet; carries over to the next 1:1" },
+          { value: "Discussed", meaning: "covered, nothing more to do" },
+          {
+            value: "Action",
+            meaning:
+              "needs follow-up with an owner and due date; carries over until set to Discussed",
+          },
+        ],
+      },
+    ],
+    tips: [
+      "It's the report's meeting. Talk about growth and blockers, not a status update.",
+      "Actions carry over with their owner and due date. When one is done, set it to Discussed so it stops carrying over.",
+      "Mention “growth” in career topics; the Growth themes count picks up that word.",
+    ],
+    timebox: "30–60 minutes",
+  },
+  {
+    toolId: "working-agreement",
+    summary:
+      "A working agreement is a short set of rules the team writes together about how it communicates, meets, decides and handles conflict. Because the team wrote it, the team can hold itself to it.",
+    whenToUse: [
+      "When a new team forms or several people join.",
+      "When the same friction keeps coming up in retros, like slow reviews or meetings without agendas.",
+      "Every few months, to check the rules still fit.",
+    ],
+    steps: [
+      "Add a Team name and purpose, then pick rules from the Starter catalog or add your own under Add custom rule.",
+      "Discuss each rule and reword it until everyone can live with it. Remove rules nobody will follow.",
+      "Enter names in Agreed by, then click Publish to save a new version (v1, v2…).",
+      "Every month or so, run a check-in: click New check-in round to reset every status to Check in, then click each rule's status to mark it Working or Not working, and watch Adherence.",
+      "Rewrite or drop the rules that aren't working and publish the next version.",
+    ],
+    scales: [
+      {
+        name: "Check-in status",
+        values: [
+          { value: "Check in", meaning: "not reviewed yet" },
+          { value: "Working", meaning: "the team follows it and it helps" },
+          { value: "Not working", meaning: "ignored, or no longer useful" },
+        ],
+      },
+    ],
+    tips: [
+      "Keep it short. Five to ten rules people remember beat thirty nobody reads.",
+      "Write behaviors (“PRs reviewed within one working day”), not values (“be respectful”).",
+      "A check-in fits well at the start of a retro.",
+    ],
+    timebox: "60–90 minutes for the first version",
+  },
+  {
+    toolId: "stakeholder-map",
+    summary:
+      "A stakeholder map places people on an Interest × Authority grid, often called a power/interest grid. Each quadrant suggests how closely to engage that person.",
+    whenToUse: [
+      "At the start of a project, product or change initiative.",
+      "When decisions stall or someone keeps being surprised by plans.",
+    ],
+    steps: [
+      "Add each stakeholder with their Name and Role.",
+      "Set Interest (how much the work matters to them) and Authority (how much they can shape or block it), each from 0 to 10.",
+      "Choose their Sentiment, from Champion to Blocker, and write an Engagement strategy: who owns the relationship and how often you'll talk.",
+      "Use the matrix and the quadrant cards to plan who gets what level of attention.",
+      "Review the map monthly or at each milestone, because interest, authority and sentiment change.",
+    ],
+    scales: [
+      {
+        name: "Quadrants (5 or more counts as high)",
+        values: [
+          {
+            value: "Manage Closely",
+            meaning: "high authority, high interest: engage often, plan together",
+          },
+          {
+            value: "Keep Satisfied",
+            meaning: "high authority, low interest: brief them, avoid surprises",
+          },
+          { value: "Keep Informed", meaning: "low authority, high interest: share progress" },
+          {
+            value: "Monitor",
+            meaning: "low authority, low interest: light touch, watch for changes",
+          },
+        ],
+      },
+    ],
+    tips: [
+      "Give Skeptics and Blockers in Manage Closely the most attention; find out what they need.",
+      "Be careful where you share the map. Sentiment labels can hurt if the wrong person reads them.",
+      "Once you know who matters, agree who does what with the RACI Matrix Builder.",
+    ],
+  },
+  {
+    toolId: "adkar",
+    summary:
+      "ADKAR (from Prosci) names five things people need for a change to stick: Awareness, Desire, Knowledge, Ability and Reinforcement. The tracker moves each change initiative through these stages so you can see where adoption stalls.",
+    whenToUse: [
+      "Rolling out a new process, tool or way of working.",
+      "When a change has been announced but people aren't adopting it.",
+    ],
+    steps: [
+      "Add the Initiative with an Owner, Start date and a short description of the change.",
+      "Each initiative starts at Awareness. Agree what would show that the people affected have reached the current stage.",
+      "Click Advance stage when most of them have, and plan actions for the next stage.",
+      "Review every few weeks. Avg days / stage and the Initiatives by current stage chart show where changes get stuck.",
+      "Keep going until Reinforcement, and keep reinforcing after that so people don't slip back.",
+    ],
+    scales: [
+      {
+        name: "ADKAR stages",
+        values: [
+          { value: "Awareness", meaning: "people understand why the change is needed" },
+          { value: "Desire", meaning: "people choose to take part" },
+          { value: "Knowledge", meaning: "people know how to change" },
+          { value: "Ability", meaning: "people can do it in real work" },
+          { value: "Reinforcement", meaning: "the change is sustained so it sticks" },
+        ],
+      },
+    ],
+    tips: [
+      "Don't skip stages: training (Knowledge) won't help if people don't want the change (Desire).",
+      "The tracker only moves forward, so advance with care. If adoption slips, work on the earliest weak stage again.",
+      "ADKAR describes individuals. For a group, advance when most people are there and follow up with the rest.",
     ],
   },
 ];

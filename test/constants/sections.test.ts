@@ -10,9 +10,16 @@ describe("navigation sections", () => {
     expect([...placed].sort()).toEqual(all);
   });
 
+  it("follows the sprint: plan, run, retrospect, then the standing jobs", () => {
+    expect(SECTIONS.slice(0, 4).map((s) => s.id)).toEqual(["plan", "run", "retro", "delivery"]);
+  });
+
   it("look tools up by id", () => {
-    expect(getSectionForTool("retro")?.id).toBe("ceremonies");
-    expect(getSectionForTool("premortem")?.id).toBe("ceremonies");
+    expect(getSectionForTool("retro")?.id).toBe("retro");
+    expect(getSectionForTool("premortem")?.id).toBe("retro");
+    expect(getSectionForTool("kanban")?.id).toBe("run");
+    expect(getSectionForTool("six-hats")?.id).toBe("retro");
+    expect(getSectionForTool("dod-builder")?.id).toBe("team");
     expect(getSectionForTool("wsjf")?.id).toBe("prioritize");
   });
 });
