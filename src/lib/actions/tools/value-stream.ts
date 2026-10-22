@@ -40,7 +40,9 @@ function summarize(stages: ValueStreamStage[]) {
     totalProcessTime: round1(totalProcessTime),
     totalLeadTime: round1(totalLeadTime),
     // Flow efficiency: value-add (process) time as a % of total lead time.
-    flowEfficiencyPct: totalLeadTime > 0 ? Math.round((totalProcessTime / totalLeadTime) * 100) : 0,
+    // Capped at 100% like the UI — process > lead is bad input, not "183%".
+    flowEfficiencyPct:
+      totalLeadTime > 0 ? Math.min(100, Math.round((totalProcessTime / totalLeadTime) * 100)) : 0,
     rolledCompleteAccuratePct: Math.round(rolled * 100),
   };
 }

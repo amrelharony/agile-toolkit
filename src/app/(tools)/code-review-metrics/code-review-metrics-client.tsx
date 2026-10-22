@@ -427,8 +427,10 @@ export function CodeReviewMetricsClient() {
       if (!s.mergedAt || s.cycleHours === null) continue;
       const d = new Date(s.mergedAt);
       if (Number.isNaN(d.getTime())) continue;
-      // ISO-week key (matches the cycle-time tool's pattern).
-      const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      // ISO-week key (matches the cycle-time tool's pattern). Built from the
+      // LOCAL calendar day: mergedAt is usually a datetime-local value, and
+      // its UTC day differs near midnight away from UTC.
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
       date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
       const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
       const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
@@ -858,6 +860,11 @@ function NumericTile({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={() => {
+          // Blank stays blank: Number("") is 0, which would fill in a count.
+          if (value.trim() === "") {
+            onChange("");
+            return;
+          }
           const n = Number(value);
           if (!Number.isFinite(n) || n < 0) {
             onChange("");

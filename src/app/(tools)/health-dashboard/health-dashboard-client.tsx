@@ -412,8 +412,10 @@ export function HealthDashboardClient() {
     }
 
     if (impedimentData.openCount !== null) {
+      const open = impedimentData.openCount;
+      const critical = impedimentData.criticalCount ?? 0;
       lines.push(
-        `${impedimentData.openCount} impediment${impedimentData.openCount !== 1 ? "s" : ""} are open, ${impedimentData.criticalCount ?? 0} are critical.`
+        `${open} impediment${open !== 1 ? "s" : ""} ${open === 1 ? "is" : "are"} open, ${critical} ${critical === 1 ? "is" : "are"} critical.`
       );
     } else {
       lines.push("Impediment data is not yet available.");

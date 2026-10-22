@@ -157,8 +157,10 @@ export function DoraScorecardClient() {
   const parsePercent = (v: string): number | null => {
     if (v.trim() === "") return null;
     const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    return Math.min(1, Math.max(0, n / 100));
+    // Negative is rejected like every other metric — clamping it to 0%
+    // would band a typo as Elite. Above 100% still caps at 100%.
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.min(1, n / 100);
   };
 
   const addSample = () => {

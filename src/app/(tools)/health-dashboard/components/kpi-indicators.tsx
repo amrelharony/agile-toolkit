@@ -57,7 +57,9 @@ export function MannKendallChip({
   if (series.length < 5 || result.trend === "none") return null;
   // A trend in the metric is "good" or "bad" depending on the metric.
   // For positive-is-good (predictability, health), an "up" trend is good.
-  // For positive-is-bad (open impediments), an "up" trend is bad.
+  // For positive-is-bad (open impediments), an "up" trend is bad. The colour
+  // says good/bad; the words always name the direction, so a rising bad
+  // metric reads "↑ trending up" in red, not "↑ trending down".
   const trendUp = result.trend === "up";
   const isGood = trendUp === positiveIsGood;
   const color = isGood ? "#22c55e" : "#ef4444";
@@ -71,7 +73,7 @@ export function MannKendallChip({
       }}
       title={`Mann-Kendall p=${result.pValue.toFixed(3)} — distribution-free monotonic trend test`}
     >
-      {trendUp ? "↑" : "↓"} {isGood ? "trending up" : "trending down"}
+      {trendUp ? "↑ trending up" : "↓ trending down"}
     </span>
   );
 }

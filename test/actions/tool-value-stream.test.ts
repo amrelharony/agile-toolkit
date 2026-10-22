@@ -69,6 +69,35 @@ describe("tool.value_stream.list_state", () => {
     expect(r.flowEfficiencyPct).toBe(25);
     expect(r.rolledCompleteAccuratePct).toBe(72);
   });
+
+  // Bug: process > lead (bad input) reported e.g. 183% flow efficiency to the
+  // agent while the tool's UI caps the same figure at 100%.
+  it("caps flow efficiency at 100% like the UI", async () => {
+    useWorkspaceStore
+      .getState()
+      .upsertValueStreamStage(stage({ id: "s1", processTime: 11, leadTime: 6 }));
+    const r = (await registry.get("tool.value_stream.list_state")!.handler({}, ctx())) as {
+      flowEfficiencyPct: number;
+    };
+    expect(r.flowEfficiencyPct).toBe(100);
+  });
+
+  it("clamps an out-of-range %C/A into 0..100 and rounds totals to 1 decimal", async () => {
+    useWorkspaceStore.setState({
+      valueStreamStages: [
+        stage({ id: "s1", processTime: 0.26, leadTime: 1.04, completeAccurate: 150 }),
+        stage({ id: "s2", processTime: 0.1, leadTime: 1.02, completeAccurate: 50 }),
+      ],
+    });
+    const r = (await registry.get("tool.value_stream.list_state")!.handler({}, ctx())) as {
+      totalProcessTime: number;
+      totalLeadTime: number;
+      rolledCompleteAccuratePct: number;
+    };
+    expect(r.totalProcessTime).toBe(0.4);
+    expect(r.totalLeadTime).toBe(2.1);
+    expect(r.rolledCompleteAccuratePct).toBe(50);
+  });
 });
 
 describe("tool.value_stream.add_stage", () => {

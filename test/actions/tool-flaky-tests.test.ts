@@ -6,7 +6,7 @@
  *   3. set_status — stamps fixedAt on "fixed"; unknown → {updated:false}.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { FlakyTestBoard } from "@/lib/stores/workspace-types";
@@ -99,5 +99,34 @@ describe("tool.flaky_tests.set_status", () => {
       .get("tool.flaky_tests.set_status")!
       .handler({ testId: "nope", status: "quarantined" }, ctx())) as { updated: boolean };
     expect(r.updated).toBe(false);
+  });
+});
+
+// Bug: "today" was the UTC date (toISOString), while the scoreboard shows and
+// buckets local days — near midnight away from UTC an agent's write landed on
+// the wrong day.
+describe("tool.flaky_tests — dates are the user's local day", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    useWorkspaceStore.setState({ flakyTestBoards: [] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ["just after local midnight", new Date(2026, 9, 23, 0, 30)],
+    ["just before local midnight", new Date(2026, 9, 23, 23, 30)],
+  ])("stamps firstSeenAt and fixedAt %s", async (_when, now) => {
+    vi.setSystemTime(now);
+    const r = (await registry
+      .get("tool.flaky_tests.add_test")!
+      .handler({ name: "late", failureRate: 0.2 }, ctx())) as { id: string };
+    await registry
+      .get("tool.flaky_tests.set_status")!
+      .handler({ testId: r.id, status: "fixed" }, ctx());
+    const t = (useWorkspaceStore.getState().flakyTestBoards ?? [])[0].tests[0];
+    expect(t.firstSeenAt).toBe("2026-10-23");
+    expect(t.fixedAt).toBe("2026-10-23");
   });
 });

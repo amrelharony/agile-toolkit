@@ -142,9 +142,15 @@ export function FlakyTestsClient() {
               ...t,
               status,
               // fixedAt is the date the test was LAST fixed; preserved across
-              // reopens for audit. We stamp it on the first transition into
-              // "fixed" and never clear it when transitioning out.
-              fixedAt: status === "fixed" ? (t.fixedAt ?? todayLocalISO()) : t.fixedAt,
+              // reopens for audit. We stamp it on every transition into
+              // "fixed" (so a re-fix counts in "Fixed this quarter") and
+              // never clear it when transitioning out.
+              fixedAt:
+                status === "fixed"
+                  ? t.status === "fixed"
+                    ? (t.fixedAt ?? todayLocalISO())
+                    : todayLocalISO()
+                  : t.fixedAt,
             }
           : t
       ),

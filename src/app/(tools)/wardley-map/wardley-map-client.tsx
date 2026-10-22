@@ -86,6 +86,12 @@ function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
 }
 
+/** Parse a 0-1 field; blank or non-numeric → `fallback` (Number("") is 0, not NaN). */
+function parseUnit(raw: string, fallback: number): number {
+  const n = raw.trim() === "" ? NaN : Number(raw);
+  return clamp01(Number.isFinite(n) ? n : fallback);
+}
+
 interface NumDraftInputProps {
   value: number;
   onCommit: (n: number) => void;
@@ -121,8 +127,15 @@ function NumDraftInput({ value, onCommit, ariaLabel }: NumDraftInputProps) {
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
-        const parsed = Number(draft);
-        const next = Number.isFinite(parsed) ? clamp01(parsed) : value;
+        // Blank / non-numeric → revert. Untouched text or the same number →
+        // no commit, so tabbing through doesn't log a phantom move or round
+        // an agent-written 0.333 to 0.33.
+        const parsed = draft.trim() === "" ? NaN : Number(draft);
+        const next = clamp01(parsed);
+        if (!Number.isFinite(parsed) || draft === value.toFixed(2) || next === value) {
+          setDraft(value.toFixed(2));
+          return;
+        }
         lastCommittedRef.current = next;
         onCommit(next);
         setDraft(next.toFixed(2));
@@ -169,11 +182,10 @@ export function WardleyMapClient() {
     // `Number(x) || 0.5` collapses an explicit 0 (Genesis / pure infrastructure)
     // to 0.5 because 0 is falsy. The onBlur handlers on the form inputs use
     // Number.isFinite for that reason; apply the same fix here so the Enter
-    // key submit path doesn't silently move the component to mid-axis.
-    const evoRaw = Number(draft.evolution);
-    const visRaw = Number(draft.visibility);
-    const evolution = clamp01(Number.isFinite(evoRaw) ? evoRaw : 0.5);
-    const visibility = clamp01(Number.isFinite(visRaw) ? visRaw : 0.5);
+    // key submit path doesn't silently move the component to mid-axis. A
+    // blank field keeps the 0.5 default rather than becoming 0.
+    const evolution = parseUnit(draft.evolution, 0.5);
+    const visibility = parseUnit(draft.visibility, 0.5);
     const description = draft.description.trim() || undefined;
     const c: Component = {
       id: newId(),
@@ -205,6 +217,11 @@ export function WardleyMapClient() {
       // Drop any links that reference the deleted component.
       links: s.links.filter((l) => l.fromId !== id && l.toId !== id),
     }));
+    // ...and un-pick it in the link form, or "Link" would store a dangling link.
+    setLinkDraft((p) => ({
+      fromId: p.fromId === id ? "" : p.fromId,
+      toId: p.toId === id ? "" : p.toId,
+    }));
     log(WARDLEY_ACTIONS.COMPONENT_REMOVED, {
       componentId: id,
       name: c?.name,
@@ -233,6 +250,9 @@ export function WardleyMapClient() {
   const addLink = () => {
     const { fromId, toId } = linkDraft;
     if (!fromId || !toId || fromId === toId) return;
+    // Both ends must still exist (a component can vanish via sync/agent).
+    const ids = new Set(state.components.map((c) => c.id));
+    if (!ids.has(fromId) || !ids.has(toId)) return;
     if (state.links.some((l) => l.fromId === fromId && l.toId === toId)) {
       return;
     }
@@ -541,9 +561,8 @@ export function WardleyMapClient() {
                   onChange={(e) => setDraft((d) => ({ ...d, evolution: e.target.value }))}
                   onBlur={(e) => {
                     // `Number(x) || 0.5` collapses 0 to 0.5 — use Number.isFinite
-                    // so a deliberate 0 (Genesis) survives.
-                    const n = Number(e.target.value);
-                    const v = clamp01(Number.isFinite(n) ? n : 0.5);
+                    // so a deliberate 0 (Genesis) survives; blank → 0.5.
+                    const v = parseUnit(e.target.value, 0.5);
                     setDraft((d) => ({ ...d, evolution: v.toFixed(2) }));
                   }}
                   className="bg-bg border-border font-data"
@@ -566,9 +585,8 @@ export function WardleyMapClient() {
                   onChange={(e) => setDraft((d) => ({ ...d, visibility: e.target.value }))}
                   onBlur={(e) => {
                     // `Number(x) || 0.5` collapses 0 to 0.5 — use Number.isFinite
-                    // so a deliberate 0 (infrastructure) survives.
-                    const n = Number(e.target.value);
-                    const v = clamp01(Number.isFinite(n) ? n : 0.5);
+                    // so a deliberate 0 (infrastructure) survives; blank → 0.5.
+                    const v = parseUnit(e.target.value, 0.5);
                     setDraft((d) => ({ ...d, visibility: v.toFixed(2) }));
                   }}
                   className="bg-bg border-border font-data"

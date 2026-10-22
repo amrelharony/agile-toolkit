@@ -57,9 +57,14 @@ function NumCell({
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
-    const n = Number(draft);
+    // Number("") is 0, so a blank field is treated as invalid (revert), not 0.
+    const n = draft.trim() === "" ? NaN : Number(draft);
     if (Number.isFinite(n)) {
-      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
+      const clamped = Math.max(min, Math.min(max ?? Infinity, n));
+      // Show the clamped value even when it equals `value` (no upstream
+      // change → the sync effect above would not fire).
+      setDraft(String(clamped));
+      onCommit(clamped);
     } else {
       setDraft(String(value));
     }

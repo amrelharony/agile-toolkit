@@ -22,6 +22,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import type { FlakyTestBoard, FlakyTest, FlakyStatus } from "@/lib/stores/workspace-types";
 
 const KIND_FLAKY = "workspace:flakyTestBoard";
@@ -33,7 +34,9 @@ const StatusSchema = z.enum(STATUSES);
 
 const ws = () => useWorkspaceStore.getState();
 
-const today = () => new Date().toISOString().slice(0, 10);
+// The local calendar day, as the scoreboard shows and buckets it (toISOString
+// gave the UTC day, off by one near midnight away from UTC).
+const today = () => todayLocalISO();
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 function emptyDoc(): FlakyTestBoard {

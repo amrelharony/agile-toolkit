@@ -129,6 +129,62 @@ function isStale(f: Flag): boolean {
   return ageDays(f.createdAt) > STALE_DAYS;
 }
 
+/**
+ * Flags created per week (Sunday-start, local time) over the `weeks` weeks
+ * up to now — the series behind the weekly flag-creation trend chip.
+ * Empty when no created date falls in the window.
+ */
+export function weeklyCreationCounts(createdAts: string[], now: Date, weeks = 26): number[] {
+  // R11-fix: unify on LOCAL time throughout. The previous mix
+  // (UTC-anchored weekStart + local-parsed flag timestamps) drifted
+  // by up to one week in UTC+8 / UTC-12 zones when flags were
+  // created late in the evening. `f.createdAt` is `todayLocalISO()`
+  // → parseLocalDate returns the local-midnight Date; the anchor
+  // and weekStart now also use local accessors so the bucketing
+  // matches the user's calendar.
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  // Step back via setDate() and bucket against explicit per-week boundaries,
+  // mirroring oncall-roster (BUG-T5-oncall-roster-4/5). The previous
+  // `floor((t - weekStart) / (7*86_400_000))` divided by a fixed week-in-ms:
+  // across a DST transition the ms-distance between two local midnights is no
+  // longer an exact week multiple, AND the window boundary pushed the most
+  // recent days into bucket 26 (>= weeks) which the `w < weeks` guard dropped
+  // — so the latest flags silently vanished from the chart and skewed the
+  // Mann-Kendall trend. A linear scan over setDate()-built boundaries fixes both.
+  // The last bucket is the CURRENT week, so the window starts weeks - 1
+  // weeks back. Anchoring a full `weeks` back left today's week without a
+  // bucket, and the scan below folded it into the previous week's count.
+  const anchor = new Date(today);
+  anchor.setDate(today.getDate() - (weeks - 1) * 7);
+  const weekStart = new Date(anchor);
+  weekStart.setDate(anchor.getDate() - anchor.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+  const ts = createdAts
+    .map((c) => parseLocalDate(c)?.getTime() ?? new Date(c).getTime())
+    .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());
+  if (ts.length === 0) return [];
+  const bucketStarts: number[] = [];
+  for (let w = 0; w < weeks; w++) {
+    const start = new Date(weekStart);
+    start.setDate(weekStart.getDate() + w * 7);
+    start.setHours(0, 0, 0, 0);
+    bucketStarts.push(start.getTime());
+  }
+  const counts = new Array(weeks).fill(0) as number[];
+  for (const t of ts) {
+    // Linear scan over 26 buckets — assign to the latest bucket that started
+    // on or before t. Every t >= weekStart lands in a bucket (never dropped).
+    for (let w = weeks - 1; w >= 0; w--) {
+      if (t >= bucketStarts[w]) {
+        counts[w] += 1;
+        break;
+      }
+    }
+  }
+  return counts;
+}
+
 export function FeatureFlagTrackerClient() {
   const [flags, setFlags] = usePersisted<Flag[]>("agile-toolkit:feature-flag-tracker", []);
   const { log } = useHistoryLogger("feature-flag-tracker");
@@ -298,58 +354,12 @@ export function FeatureFlagTrackerClient() {
   );
 
   // Mann-Kendall on weekly flag-creation count for the trend chip.
-  // Anchor at today - 26 weeks so the chart always shows the most recent
-  // half-year of activity rather than getting frozen on the team's earliest
-  // ever flag (which would let recent surges drop silently off the right edge).
-  const weeklyFlagCount = useMemo(() => {
-    if (flags.length === 0) return [];
-    const WEEKS = 26;
-    // R11-fix: unify on LOCAL time throughout. The previous mix
-    // (UTC-anchored weekStart + local-parsed flag timestamps) drifted
-    // by up to one week in UTC+8 / UTC-12 zones when flags were
-    // created late in the evening. `f.createdAt` is `todayLocalISO()`
-    // → parseLocalDate returns the local-midnight Date; the anchor
-    // and weekStart now also use local accessors so the bucketing
-    // matches the user's calendar.
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    // Step back via setDate() and bucket against explicit per-week boundaries,
-    // mirroring oncall-roster (BUG-T5-oncall-roster-4/5). The previous
-    // `floor((t - weekStart) / (7*86_400_000))` divided by a fixed week-in-ms:
-    // across a DST transition the ms-distance between two local midnights is no
-    // longer an exact week multiple, AND the window boundary pushed the most
-    // recent days into bucket 26 (>= WEEKS) which the `w < WEEKS` guard dropped
-    // — so the latest flags silently vanished from the chart and skewed the
-    // Mann-Kendall trend. A linear scan over setDate()-built boundaries fixes both.
-    const anchor = new Date(today);
-    anchor.setDate(today.getDate() - WEEKS * 7);
-    const weekStart = new Date(anchor);
-    weekStart.setDate(anchor.getDate() - anchor.getDay());
-    weekStart.setHours(0, 0, 0, 0);
-    const ts = flags
-      .map((f) => parseLocalDate(f.createdAt)?.getTime() ?? new Date(f.createdAt).getTime())
-      .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());
-    if (ts.length === 0) return [];
-    const bucketStarts: number[] = [];
-    for (let w = 0; w < WEEKS; w++) {
-      const start = new Date(weekStart);
-      start.setDate(weekStart.getDate() + w * 7);
-      start.setHours(0, 0, 0, 0);
-      bucketStarts.push(start.getTime());
-    }
-    const counts = new Array(WEEKS).fill(0) as number[];
-    for (const t of ts) {
-      // Linear scan over 26 buckets — assign to the latest bucket that started
-      // on or before t. Every t >= weekStart lands in a bucket (never dropped).
-      for (let w = WEEKS - 1; w >= 0; w--) {
-        if (t >= bucketStarts[w]) {
-          counts[w] += 1;
-          break;
-        }
-      }
-    }
-    return counts;
-  }, [flags]);
+  // The 26 weeks up to and including this one, so the chip always reflects
+  // the most recent half-year of activity rather than getting frozen on the
+  // team's earliest ever flag (which would let recent surges drop silently
+  // off the right edge).
+  const createdAts = useMemo(() => flags.map((f) => f.createdAt), [flags]);
+  const weeklyFlagCount = useMemo(() => weeklyCreationCounts(createdAts, new Date()), [createdAts]);
 
   const flagTrend = useMemo(() => {
     if (weeklyFlagCount.length < 5) return null;

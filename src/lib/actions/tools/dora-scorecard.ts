@@ -29,6 +29,14 @@ const ws = () => useWorkspaceStore.getState();
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+const QUARTER = /^\d{4}-Q[1-4]$/;
+
+function assertNewQuarter(doc: DoraScorecard, quarter: string) {
+  if (doc.samples.some((s) => s.quarter === quarter)) {
+    throw new Error(`A sample for ${quarter} already exists.`);
+  }
+}
+
 function emptyDoc(): DoraScorecard {
   return { id: DS_ID, samples: [] };
 }
@@ -80,9 +88,11 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record a quarterly DORA sample. deployFreqPerWeek = deployments/week; leadTimeHours = commit→prod; changeFailRate = 0..1; mttrHours = mean time to restore. Creates the doc if absent. Returns {added: true, id}.",
+    "Record a quarterly DORA sample. quarter is YYYY-Q[1-4] (e.g. 2026-Q2), one sample per quarter. deployFreqPerWeek = deployments/week; leadTimeHours = commit→prod; changeFailRate = 0..1; mttrHours = mean time to restore. Creates the doc if absent. Returns {added: true, id}.",
   paramsSchema: z.object({
-    quarter: z.string().min(1).max(50),
+    // Same rule as the UI form: free-text quarters sort out of order on the
+    // trend chart, and a repeated quarter duplicates its x-axis key.
+    quarter: z.string().regex(QUARTER, "Expected quarter format YYYY-Q[1-4], e.g. 2026-Q2"),
     deployFreqPerWeek: z.number().min(0),
     leadTimeHours: z.number().min(0),
     changeFailRate: z.number().min(0).max(1),
@@ -91,12 +101,14 @@ registry.register({
   }),
   handler: async (params) => {
     const base = browserDoc() ?? emptyDoc();
+    assertNewQuarter(base, params.quarter);
     const sample: DoraSample = { id: crypto.randomUUID(), ...params };
     ws().upsertDoraScorecard({ ...base, id: DS_ID, samples: [...base.samples, sample] });
     return { added: true, id: sample.id };
   },
   mcpHandler: async (params, ctx) => {
     const base = (await serverGetEntity<DoraScorecard>(ctx.userId, KIND_DORA, DS_ID)) ?? emptyDoc();
+    assertNewQuarter(base, params.quarter);
     const sample: DoraSample = { id: crypto.randomUUID(), ...params };
     await serverUpsertEntity<DoraScorecard>(ctx.userId, KIND_DORA, {
       ...base,

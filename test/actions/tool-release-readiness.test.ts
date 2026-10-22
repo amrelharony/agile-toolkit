@@ -8,7 +8,7 @@
  *   5. set_status — planning/rolled_back transitions; remove_release.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -124,5 +124,79 @@ describe("tool.release_readiness — gates, ship, status", () => {
     expect(rm.removed).toBe(true);
     r = await list();
     expect(r.total).toBe(0);
+  });
+});
+
+describe("tool.release_readiness — reopen and planned date", () => {
+  beforeEach(() => useWorkspaceStore.setState({ releaseReadinesses: [] }));
+
+  const doc = () => (useWorkspaceStore.getState().releaseReadinesses ?? [])[0];
+
+  it("reopening for planning clears the ship date; rolling back keeps it", async () => {
+    const a = await add("v2.1");
+    await registry.get("tool.release_readiness.ship_release")!.handler({ releaseId: a.id }, ctx());
+    const shippedDate = doc().releases[0].shippedDate;
+    expect(shippedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    await registry
+      .get("tool.release_readiness.set_status")!
+      .handler({ releaseId: a.id, status: "rolled_back" }, ctx());
+    expect(doc().releases[0]).toMatchObject({ status: "rolled_back", shippedDate });
+
+    await registry
+      .get("tool.release_readiness.set_status")!
+      .handler({ releaseId: a.id, status: "planning" }, ctx());
+    expect(doc().releases[0].status).toBe("planning");
+    expect(doc().releases[0].shippedDate).toBeUndefined();
+  });
+
+  it("keeps an explicit planned date and description", async () => {
+    await registry
+      .get("tool.release_readiness.add_release")!
+      .handler({ name: "v3", plannedDate: "2026-12-01", description: "Q4 train" }, ctx());
+    expect(doc().releases[0]).toMatchObject({
+      name: "v3",
+      plannedDate: "2026-12-01",
+      description: "Q4 train",
+      status: "planning",
+    });
+  });
+
+  it("returns updated:false / removed:false for an unknown id", async () => {
+    await add("v4");
+    const st = (await registry
+      .get("tool.release_readiness.set_status")!
+      .handler({ releaseId: "nope", status: "planning" }, ctx())) as { updated: boolean };
+    const rm = (await registry
+      .get("tool.release_readiness.remove_release")!
+      .handler({ releaseId: "nope" }, ctx())) as { removed: boolean };
+    expect(st.updated).toBe(false);
+    expect(rm.removed).toBe(false);
+    expect(doc().releases).toHaveLength(1);
+  });
+});
+
+// Bug: "today" was the UTC date (toISOString), while the tool compares local
+// planned and ship dates — near midnight away from UTC an agent's ship landed
+// on the wrong day and could flip "% on time".
+describe("tool.release_readiness — dates are the user's local day", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    useWorkspaceStore.setState({ releaseReadinesses: [] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ["just after local midnight", new Date(2026, 9, 23, 0, 30)],
+    ["just before local midnight", new Date(2026, 9, 23, 23, 30)],
+  ])("defaults plannedDate and stamps shippedDate %s", async (_when, now) => {
+    vi.setSystemTime(now);
+    const a = await add("late night");
+    await registry.get("tool.release_readiness.ship_release")!.handler({ releaseId: a.id }, ctx());
+    const r = (useWorkspaceStore.getState().releaseReadinesses ?? [])[0].releases[0];
+    expect(r.plannedDate).toBe("2026-10-23");
+    expect(r.shippedDate).toBe("2026-10-23");
   });
 });

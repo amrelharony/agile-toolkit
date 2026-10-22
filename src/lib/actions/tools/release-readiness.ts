@@ -29,6 +29,7 @@ import {
   type Release,
   type GateId,
 } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_RR = "workspace:releaseReadiness";
 // MUST match RR_ID in release-readiness-client.tsx.
@@ -36,7 +37,10 @@ const RR_ID = "releaseReadiness:current";
 
 const ws = () => useWorkspaceStore.getState();
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// The local calendar day, as the UI stamps it (toISOString gave the UTC day,
+// off by one near midnight away from UTC — and planned vs shipped dates
+// decide "% on time").
+const todayISO = () => todayLocalISO();
 
 const isGateId = (g: string): g is GateId => (RELEASE_GATE_IDS as string[]).includes(g);
 

@@ -10,7 +10,8 @@
  *
  *   1. list_state     — components + links + counts.
  *   2. add_component  — place a component (evolution 0..1, visibility 0..1).
- *   3. add_link       — link two existing components (refuses dangling ends).
+ *   3. add_link       — link two existing components (refuses dangling ends,
+ *                       self-links and duplicates).
  *
  * Entity kind "workspace:wardleyMap" + the fixed WM_ID match
  * wardley-map-client.tsx, so MCP writes round-trip into the UI.
@@ -97,7 +98,8 @@ registry.register({
 
 // ──────── tool.wardley_map.add_link ────────
 // Refuses dangling links — both endpoints must be existing components, else
-// the link would render nowhere and skew the value chain. Additive → no confirm.
+// the link would render nowhere and skew the value chain — plus self-links and
+// exact duplicates, which the UI refuses too. Additive → no confirm.
 registry.register({
   id: "tool.wardley_map.add_link",
   toolId: "tool.wardley_map",
@@ -105,18 +107,18 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Link two components (fromId → toId), both of which must already exist. Returns {added: false} when the map is missing or either endpoint is unknown, else {added: true, id}.",
+    "Link two components (fromId → toId), both of which must already exist. Returns {added: false} when the map is missing, either endpoint is unknown, fromId equals toId, or the same link already exists; else {added: true, id}.",
   paramsSchema: z.object({ fromId: z.string(), toId: z.string() }),
   handler: async (params) => {
     const base = browserDoc();
-    if (!base || !hasBoth(base, params)) return { added: false };
+    if (!base || !canLink(base, params)) return { added: false };
     const link: WardleyLink = { id: crypto.randomUUID(), fromId: params.fromId, toId: params.toId };
     ws().upsertWardleyMap({ ...base, id: WM_ID, links: [...base.links, link] });
     return { added: true, id: link.id };
   },
   mcpHandler: async (params, ctx) => {
     const base = await serverGetEntity<WardleyMap>(ctx.userId, KIND_WM, WM_ID);
-    if (!base || !hasBoth(base, params)) return { added: false };
+    if (!base || !canLink(base, params)) return { added: false };
     const link: WardleyLink = { id: crypto.randomUUID(), fromId: params.fromId, toId: params.toId };
     await serverUpsertEntity<WardleyMap>(ctx.userId, KIND_WM, {
       ...base,
@@ -127,7 +129,11 @@ registry.register({
   },
 });
 
-function hasBoth(map: WardleyMap, params: { fromId: string; toId: string }): boolean {
+/** Both ends exist, it isn't a self-link, and it isn't an exact duplicate —
+ *  the same rules the UI's Link button enforces. */
+function canLink(map: WardleyMap, params: { fromId: string; toId: string }): boolean {
+  if (params.fromId === params.toId) return false;
+  if (map.links.some((l) => l.fromId === params.fromId && l.toId === params.toId)) return false;
   const ids = new Set(map.components.map((c) => c.id));
   return ids.has(params.fromId) && ids.has(params.toId);
 }

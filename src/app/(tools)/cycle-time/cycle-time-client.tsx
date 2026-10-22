@@ -50,6 +50,9 @@ export function CycleTimeClient() {
   };
   const exportRef = useRef<HTMLDivElement>(null);
   const [targetPct, setTargetPct] = useState(85);
+  // What the user is typing into the target field. Null shows the committed
+  // target; a blank buffer lets the field be cleared without snapping to 1.
+  const [targetPctBuffer, setTargetPctBuffer] = useState<string | null>(null);
 
   /* -- Computed cycle times ------------------------------------------------ */
   const itemsWithCT = useMemo(
@@ -407,13 +410,17 @@ export function CycleTimeClient() {
                           type="number"
                           min={1}
                           max={99}
-                          value={targetPct}
+                          value={targetPctBuffer ?? targetPct}
                           onChange={(e) => {
-                            const n = Number(e.target.value);
+                            const raw = e.target.value;
+                            setTargetPctBuffer(raw);
+                            if (raw.trim() === "") return;
+                            const n = Number(raw);
                             if (Number.isFinite(n)) {
                               setTargetPct(Math.min(99, Math.max(1, n)));
                             }
                           }}
+                          onBlur={() => setTargetPctBuffer(null)}
                           className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
                         />
                       </div>
