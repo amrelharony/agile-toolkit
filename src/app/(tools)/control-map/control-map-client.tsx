@@ -28,6 +28,7 @@ import { generateControlMapPrompts } from "@/lib/ai-prompts/control-map";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CONTROL_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { toast } from "@/lib/utils/toast";
+import { sanitizeEvidenceUrl } from "./evidence-url";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
@@ -123,31 +124,6 @@ function useDraftField(
     }
   };
   return { draft, setDraft, onBlur };
-}
-
-/**
- * Sanitize an evidence URL. If the user types something without a scheme,
- * default to https. Reject anything that isn't http/https (especially
- * `javascript:` / `data:` / `file:`) to prevent XSS via the rendered <a href>.
- * Returns the normalized URL string, or null if invalid.
- */
-function sanitizeEvidenceUrl(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-  // Add scheme if missing — also normalize scheme-relative "//host/...".
-  const candidate = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)
-    ? value
-    : `https://${value.replace(/^\/\//, "")}`;
-  let parsed: URL;
-  try {
-    parsed = new URL(candidate);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return null;
-  }
-  return parsed.toString();
 }
 
 /* ── Per-control row ────────────────────────────────────────────────────── */
@@ -278,8 +254,11 @@ function ControlRow({
             <ul className="space-y-1">
               {c.evidenceLinks.map((url, i) => (
                 <li key={`${c.id}-evidence-${i}`} className="flex items-center gap-2 text-xs">
+                  {/* Stored links can predate the sanitiser or come from an
+                      import, so the href is re-checked: a non-http(s) link
+                      shows as text, never as a live javascript:/data: href. */}
                   <a
-                    href={url}
+                    href={sanitizeEvidenceUrl(url) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-accent hover:underline truncate flex-1 min-w-0"
@@ -669,11 +648,12 @@ export function ControlMapClient() {
         {state.controls
           .slice()
           .sort((a, b) => {
-            // Group by framework, then by control ID for natural order.
+            // Group by framework, then by control ID for natural order
+            // (numeric-aware, so A.9.4.2 comes before A.10.1.1).
             if (a.framework !== b.framework) {
               return a.framework.localeCompare(b.framework);
             }
-            return a.controlId.localeCompare(b.controlId);
+            return a.controlId.localeCompare(b.controlId, undefined, { numeric: true });
           })
           .map((c) => (
             <ControlRow

@@ -162,14 +162,37 @@ export function VulnBurndownClient() {
   // a single bool. The previous code reset the bool to false after one
   // severity change — so picking custom for one severity, switching to
   // another, then BACK to the first re-clobbered the custom value.
-  // Now: a per-severity Set survives across switches; the override
+  // Now: a per-severity override survives across switches; the override
   // sticks until the user explicitly switches back to the default.
-  const slaOverriddenRef = useRef<Set<typeof severity>>(new Set());
+  //
+  // The overrides hold the custom VALUE per severity, not just a flag: with a
+  // flag alone, the shared draft still held the other severity's default
+  // when switching back (Low 45 → Medium → Low showed Medium's 60).
+  const slaOverridesRef = useRef<Partial<Record<Severity, string>>>({});
 
   useEffect(() => {
-    if (slaOverriddenRef.current.has(severity)) return;
-    setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
+    setSlaDraft(slaOverridesRef.current[severity] ?? String(SEVERITY_DEFAULT_SLA[severity]));
   }, [severity]);
+
+  const editSla = (next: string) => {
+    slaOverridesRef.current[severity] = next;
+    setSlaDraft(next);
+  };
+
+  const commitSla = () => {
+    const n = Number(slaDraft);
+    if (!Number.isFinite(n) || n < 1) {
+      // Reset to severity default and treat as unmodified again.
+      delete slaOverridesRef.current[severity];
+      setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
+    } else {
+      const rounded = String(Math.round(n));
+      if (slaOverridesRef.current[severity] !== undefined) {
+        slaOverridesRef.current[severity] = rounded;
+      }
+      setSlaDraft(rounded);
+    }
+  };
 
   const addVuln = () => {
     const sla = Number(slaDraft);
@@ -503,10 +526,7 @@ export function VulnBurndownClient() {
             {severity === "critical" ? (
               <SmartInput<number>
                 predicted={slaCriticalPrediction}
-                onAccept={(v) => {
-                  slaOverriddenRef.current.add(severity);
-                  setSlaDraft(String(v));
-                }}
+                onAccept={(v) => editSla(String(v))}
                 render={({ ghost, chip, accept }) => (
                   <>
                     <Input
@@ -521,19 +541,8 @@ export function VulnBurndownClient() {
                           accept();
                         }
                       }}
-                      onChange={(e) => {
-                        slaOverriddenRef.current.add(severity);
-                        setSlaDraft(e.target.value);
-                      }}
-                      onBlur={() => {
-                        const n = Number(slaDraft);
-                        if (!Number.isFinite(n) || n < 1) {
-                          slaOverriddenRef.current.delete(severity);
-                          setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
-                        } else {
-                          setSlaDraft(String(Math.round(n)));
-                        }
-                      }}
+                      onChange={(e) => editSla(e.target.value)}
+                      onBlur={commitSla}
                       className="bg-bg border-border font-data"
                     />
                     {chip}
@@ -546,20 +555,8 @@ export function VulnBurndownClient() {
                 type="text"
                 inputMode="numeric"
                 value={slaDraft}
-                onChange={(e) => {
-                  slaOverriddenRef.current.add(severity);
-                  setSlaDraft(e.target.value);
-                }}
-                onBlur={() => {
-                  const n = Number(slaDraft);
-                  if (!Number.isFinite(n) || n < 1) {
-                    // Reset to severity default and treat as unmodified again.
-                    slaOverriddenRef.current.delete(severity);
-                    setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
-                  } else {
-                    setSlaDraft(String(Math.round(n)));
-                  }
-                }}
+                onChange={(e) => editSla(e.target.value)}
+                onBlur={commitSla}
                 placeholder="e.g. 30"
                 className="bg-bg border-border font-data"
               />

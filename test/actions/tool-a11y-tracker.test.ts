@@ -7,7 +7,7 @@
  *   3. set_status — stamps resolvedAt on "resolved"; unknown → {updated:false}.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { A11yTracker } from "@/lib/stores/workspace-types";
@@ -111,5 +111,39 @@ describe("tool.a11y_tracker.set_status", () => {
       .get("tool.a11y_tracker.set_status")!
       .handler({ issueId: "nope", status: "in_progress" }, ctx())) as { updated: boolean };
     expect(r.updated).toBe(false);
+  });
+});
+
+/** A local instant on 18 Oct 2026 whose UTC calendar date differs from the
+ *  local one in any zone with an offset (00:30 east of UTC, 23:30 west). */
+function nearLocalMidnight(): Date {
+  return new Date(2026, 9, 18, 12).getTimezoneOffset() > 0
+    ? new Date(2026, 9, 18, 23, 30)
+    : new Date(2026, 9, 18, 0, 30);
+}
+
+describe("tool.a11y_tracker — local calendar dates", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(nearLocalMidnight());
+    useWorkspaceStore.setState({ a11yTrackers: [] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Bug: openedAt/resolvedAt were UTC dates while the client stamps and ages in local days.
+  it("stamps openedAt and resolvedAt with the local date, like the UI", async () => {
+    const r = (await registry
+      .get("tool.a11y_tracker.add_issue")!
+      .handler({ component: "Nav", wcagCriterion: "2.4.1", severity: "serious" }, ctx())) as {
+      id: string;
+    };
+    await registry
+      .get("tool.a11y_tracker.set_status")!
+      .handler({ issueId: r.id, status: "resolved" }, ctx());
+    const i = (useWorkspaceStore.getState().a11yTrackers ?? [])[0].issues[0];
+    expect(i.openedAt).toBe("2026-10-18");
+    expect(i.resolvedAt).toBe("2026-10-18");
   });
 });

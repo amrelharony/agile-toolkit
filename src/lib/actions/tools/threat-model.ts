@@ -23,6 +23,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import type { ThreatModel, Threat, ThreatStride, ThreatStatus } from "@/lib/stores/workspace-types";
 
 const KIND_THREAT_MODEL = "workspace:threatModel";
@@ -44,7 +45,9 @@ const StatusSchema = z.enum(STATUSES);
 
 const ws = () => useWorkspaceStore.getState();
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Local calendar date, the same stamp the client writes (todayLocalISO);
+// a UTC date was a day off around midnight.
+const today = () => todayLocalISO();
 
 function emptyModel(): ThreatModel {
   return { id: TM_ID, threats: [] };

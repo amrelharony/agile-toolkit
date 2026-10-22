@@ -15,7 +15,9 @@
  *   4. add_evidence  — append an evidence link to a control.
  *
  * Entity kind "workspace:controlMap" + the fixed CM_ID match
- * control-map-client.tsx, so MCP writes round-trip into the UI.
+ * control-map-client.tsx, so MCP writes round-trip into the UI. Evidence
+ * links go through the page's sanitizeEvidenceUrl: http(s) only (the page
+ * renders them as <a href>), scheme-less links get https.
  */
 
 import { z } from "zod";
@@ -28,6 +30,7 @@ import type {
   ControlFramework,
   ControlStatus,
 } from "@/lib/stores/workspace-types";
+import { sanitizeEvidenceUrl } from "@/app/(tools)/control-map/evidence-url";
 
 const KIND_CONTROL_MAP = "workspace:controlMap";
 // MUST match CM_ID in control-map-client.tsx.
@@ -105,7 +108,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Register a control. controlId is the framework's control number (e.g. 'CC6.1'); framework is soc2|iso27001|hipaa|gdpr|custom; status defaults to 'not_started'. Creates the doc if absent. Returns {added: true, id} (id is the row id, distinct from controlId).",
+    "Register a control. controlId is the framework's control number (e.g. 'CC6.1'); framework is soc2|iso27001|hipaa|gdpr|custom; status defaults to 'not_started'. evidenceLinks must be http(s) URLs (a link without a scheme gets https; any other link is dropped). Creates the doc if absent. Returns {added: true, id} (id is the row id, distinct from controlId).",
   paramsSchema: z.object({
     controlId: z.string().min(1).max(100),
     framework: FrameworkSchema,
@@ -170,25 +173,29 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Append an evidence link to a control (by row id). Returns {updated: false} when the doc or control id is unknown.",
+    "Append an evidence link to a control (by row id). The link must be an http(s) URL; one without a scheme gets https. Returns {updated: false, reason: 'invalid_link'} for any other link, {updated: false} when the doc or control id is unknown.",
   paramsSchema: z.object({
     id: z.string().describe("The control's row id (from list_state)."),
     link: z.string().min(1).max(2000),
   }),
   handler: async (params) => {
+    const link = sanitizeEvidenceUrl(params.link);
+    if (!link) return { updated: false, reason: "invalid_link" as const };
     const next = mutateControl(browserDoc(), params.id, (c) => ({
       ...c,
-      evidenceLinks: [...c.evidenceLinks, params.link],
+      evidenceLinks: [...c.evidenceLinks, link],
     }));
     if (!next) return { updated: false };
     ws().upsertControlMap(next);
     return { updated: true };
   },
   mcpHandler: async (params, ctx) => {
+    const link = sanitizeEvidenceUrl(params.link);
+    if (!link) return { updated: false, reason: "invalid_link" as const };
     const base = await serverGetEntity<ControlMap>(ctx.userId, KIND_CONTROL_MAP, CM_ID);
     const next = mutateControl(base ?? null, params.id, (c) => ({
       ...c,
-      evidenceLinks: [...c.evidenceLinks, params.link],
+      evidenceLinks: [...c.evidenceLinks, link],
     }));
     if (!next) return { updated: false };
     await serverUpsertEntity<ControlMap>(ctx.userId, KIND_CONTROL_MAP, next);
@@ -212,7 +219,9 @@ function newControl(params: {
     title: params.title,
     status: params.status ?? "not_started",
     owner: params.owner,
-    evidenceLinks: params.evidenceLinks ?? [],
+    evidenceLinks: (params.evidenceLinks ?? [])
+      .map(sanitizeEvidenceUrl)
+      .filter((l): l is string => l !== null),
     description: params.description,
   };
 }

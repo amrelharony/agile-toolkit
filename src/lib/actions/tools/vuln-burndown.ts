@@ -22,6 +22,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import type {
   VulnBurndown,
   Vulnerability,
@@ -40,9 +41,22 @@ const StatusSchema = z.enum(STATUSES);
 
 const ws = () => useWorkspaceStore.getState();
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Local calendar date, the same stamp the client writes (todayLocalISO);
+// a UTC date was a day off around midnight.
+const today = () => todayLocalISO();
 
 const DAY_MS = 86_400_000;
+
+/** Whole local-calendar days from a YYYY-MM-DD date to `now`, or null when
+ *  the date doesn't parse — the client's age rule, so "overdue" here means
+ *  what its "SLA breaches" KPI means (age > slaTargetDays). */
+function ageDays(openedAt: string, now: Date): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(openedAt);
+  if (!m) return null;
+  const from = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.max(0, Math.round((to - from) / DAY_MS));
+}
 
 function emptyDoc(): VulnBurndown {
   return { id: VB_ID, vulns: [] };
@@ -68,15 +82,15 @@ function summarize(doc: VulnBurndown | null) {
   };
   let openCount = 0;
   let overdueCount = 0;
-  const now = Date.now();
+  const now = new Date();
   for (const v of vulns) {
     if (v.severity in bySeverity) bySeverity[v.severity] += 1;
     if (v.status in byStatus) byStatus[v.status] += 1;
     if (isActive(v)) {
       openCount += 1;
-      // Overdue = active AND past its SLA window (openedAt + slaTargetDays).
-      const opened = Date.parse(v.openedAt);
-      if (!Number.isNaN(opened) && opened + v.slaTargetDays * DAY_MS < now) overdueCount += 1;
+      // Overdue = active AND its age in local days exceeds the SLA target.
+      const age = ageDays(v.openedAt, now);
+      if (age !== null && age > v.slaTargetDays) overdueCount += 1;
     }
   }
   return {

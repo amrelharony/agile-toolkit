@@ -10,7 +10,7 @@
  *      threat → {updated:false}.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { ThreatModel } from "@/lib/stores/workspace-types";
@@ -131,5 +131,39 @@ describe("tool.threat_model.set_status", () => {
       .get("tool.threat_model.set_status")!
       .handler({ threatId: "nope", status: "accepted" }, ctx())) as { updated: boolean };
     expect(r.updated).toBe(false);
+  });
+});
+
+/** A local instant on 18 Oct 2026 whose UTC calendar date differs from the
+ *  local one in any zone with an offset (00:30 east of UTC, 23:30 west). */
+function nearLocalMidnight(): Date {
+  return new Date(2026, 9, 18, 12).getTimezoneOffset() > 0
+    ? new Date(2026, 9, 18, 23, 30)
+    : new Date(2026, 9, 18, 0, 30);
+}
+
+describe("tool.threat_model — local calendar dates", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(nearLocalMidnight());
+    useWorkspaceStore.setState({ threatModels: [] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Bug: raisedAt/mitigatedAt were UTC dates while the client stamps local dates.
+  it("stamps raisedAt and mitigatedAt with the local date, like the UI", async () => {
+    const r = (await registry
+      .get("tool.threat_model.add_threat")!
+      .handler({ service: "auth-api", category: "spoofing", severity: 4 }, ctx())) as {
+      id: string;
+    };
+    await registry
+      .get("tool.threat_model.set_status")!
+      .handler({ threatId: r.id, status: "mitigated" }, ctx());
+    const t = (useWorkspaceStore.getState().threatModels ?? [])[0].threats[0];
+    expect(t.raisedAt).toBe("2026-10-18");
+    expect(t.mitigatedAt).toBe("2026-10-18");
   });
 });

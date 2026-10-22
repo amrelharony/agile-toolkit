@@ -205,7 +205,11 @@ export function A11yTrackerClient() {
         issueId: id,
         component: prev?.component,
         wcagCriterion: prev?.wcagCriterion,
-        ageDays: prev ? ageDays({ ...prev, status, resolvedAt: todayLocalISO() }) : undefined,
+        // Measure against the stamp actually stored (the preserved first
+        // resolution date, if any), as vuln-burndown does.
+        ageDays: prev
+          ? ageDays({ ...prev, status, resolvedAt: prev.resolvedAt ?? todayLocalISO() })
+          : undefined,
       });
     } else {
       log(A11Y_ACTIONS.ISSUE_UPDATED, { issueId: id, fields: ["status"] });
@@ -625,7 +629,7 @@ export function A11yTrackerClient() {
                     size="sm"
                     onClick={() => remove(i.id)}
                     className="text-sub hover:text-danger min-touch-coarse"
-                    aria-label="Remove issue"
+                    aria-label={`Remove ${i.component} issue (WCAG ${i.wcagCriterion})`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
