@@ -3,6 +3,9 @@
 import { useState, useRef, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { updateSprint } from "@/lib/sprints/store";
+import { toast } from "@/lib/utils/toast";
 import type { SprintGoal } from "@/lib/stores/workspace-types";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -132,6 +135,8 @@ export function SprintGoalClient() {
   ) => patchGoal("criteria", v);
   const setKeyResults = (v: string[] | ((p: string[]) => string[])) => patchGoal("keyResults", v);
   const { log } = useHistoryLogger("sprint-goal");
+  // The shared sprint the sprint tools are looking at, to write the goal onto.
+  const { selected: selectedSprint } = useSelectedSprint();
   const isEmpty =
     !businessObjective.trim() &&
     !sprintGoal.trim() &&
@@ -447,6 +452,26 @@ export function SprintGoalClient() {
                         {sprintGoal.length}/{GOAL_MAX_CHARS}
                       </span>
                     </div>
+
+                    {selectedSprint && (
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!sprintGoal.trim()}
+                          onClick={() => {
+                            updateSprint(selectedSprint.id, { goal: sprintGoal.trim() });
+                            toast.success(`Goal set on ${selectedSprint.name}`);
+                          }}
+                        >
+                          Use as the goal of {selectedSprint.name}
+                        </Button>
+                        <span className="text-xs text-sub">
+                          Sprint Planning, the Sprint Cockpit and the charts show it.
+                        </span>
+                      </div>
+                    )}
 
                     {/* Tips */}
                     <div className="mt-4 p-4 rounded-lg bg-accent-cyan/5 border border-accent-cyan/15">
