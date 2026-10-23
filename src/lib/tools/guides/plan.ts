@@ -59,9 +59,9 @@ export const GUIDES: ToolGuide[] = [
       {
         name: "Readiness",
         values: [
-          { value: "Ready", meaning: "every criterion is met and the story has points" },
+          { value: "Ready", meaning: "marked ready: every criterion met and the story has points" },
           { value: "Ready once sized", meaning: "every criterion is met, but no points yet" },
-          { value: "Partial", meaning: "some criteria are met" },
+          { value: "Partial", meaning: "some or all criteria met, not marked ready yet" },
           { value: "Not ready", meaning: "no criteria are met yet" },
           { value: "Not checked", meaning: "not checked against the list yet" },
         ],
@@ -132,7 +132,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     tips: [
       "Commit to the P85 date, not the P50 one. P50 is a coin flip.",
-      "It needs at least 4 completed sprints. Stories or cards without points are left out of the scope, so estimate them first.",
+      "It needs at least 4 sprints of velocity, completed or typed. Stories or cards without points are left out of the scope, so estimate them first.",
       "If Change in pace (CUSUM) under Advanced analysis says the velocity shifted, forecast from the sprints since the change.",
     ],
     scales: [
@@ -204,7 +204,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Add a team, add each team with its name and Velocity (points per iteration).",
       "Under Board, set Iterations in the PI. Five is SAFe's usual four development iterations plus one for innovation and planning.",
       "Click Add item in a team's iteration and choose its Kind: Feature, Dependency or Risk. Only features count toward the team's load.",
-      "For a dependency, pick the team it Waits on and an optional Due date: it goes on the Dependency Map, and its status shows on the card. Use Move to put any item in another cell.",
+      "For a dependency, pick the team it Waits on and, if it has a deadline, the date it's Due: it goes on the Dependency Map, and its status shows on the card. Use Move to put any item in another cell.",
       "Watch each cell's planned / velocity points. A cell over capacity turns red: cut scope or move work to a later iteration. Load vs capacity charts every team.",
       "Under PI objectives, add each team's objectives as Committed or Uncommitted, and score Business value once the business owners have.",
     ],
@@ -237,10 +237,10 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Under Add an epic, name it, pick its Start quarter and End quarter, an Owner and a Colour, and describe the outcome. Click Add epic.",
-      "Under Epics, open Stories on an epic and use Link a story to attach its stories. Progress then rolls up from their points, or from story counts while some aren't estimated.",
+      "Under Epics, each epic shows its schedule, such as Under way or Past its end quarter. Open Stories on an epic and use Link a story to attach its stories. Progress then rolls up from their points, or from story counts while some aren't estimated.",
       "If some linked stories have no points, click Queue N for Planning Poker so progress can count points.",
       "With no stories linked, edit the epic and type Progress, typed (%); the row marks it as typed.",
-      "Under Roadmap, set View from and View to to choose the quarters shown, or click Fit to epics. Each row shows its schedule, such as Under way or Past its end quarter.",
+      "Under Roadmap, set View from and View to to choose the quarters shown. Fit to epics then puts the view back on every epic's quarters.",
       "Review it every sprint or two. A note appears when sprints or OKRs changed in the last 14 days.",
     ],
     tips: [
@@ -283,7 +283,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Under Nodes, add each team, service, epic or story with its Owning team if that helps, and click Add node.",
-      "Under Dependencies, pick From, a Type and To, then an Owner, a Due date and a Note, and click Add dependency. Check the Reads line: “A blocks B” means B waits for A; “A needs B” means A waits for B.",
+      "Under Dependencies, pick From, a Type and To, then an Owner, the date it's Due and a Note, and click Add dependency. Check the Reads line: “A blocks B” means B waits for A; “A needs B” means A waits for B.",
       "Read the Map: the verdict, then the graph with the critical path highlighted.",
       "Read the Critical path: the longest chain of open blocks and needs links in delivery order, with flags such as Overdue, At risk or Due before the link it waits on.",
       "If Circular waits is above zero, resolve one of the links in the loop. There's no critical path until it's gone.",
