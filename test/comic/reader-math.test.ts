@@ -13,6 +13,7 @@ import {
   pageHash,
   pageLabel,
   readerKeyAction,
+  zoomStep,
   MAX_CANVAS_AREA,
   MAX_CANVAS_EDGE,
   type ReaderKeyEvent,
@@ -180,6 +181,38 @@ describe("fitScale", () => {
   it("returns 0 for unusable sizes so callers skip the render", () => {
     expect(fitScale({ pageW: 600, pageH: 900, boxW: 0, boxH: 900, dpr: 1 })).toBe(0);
     expect(fitScale({ pageW: NaN, pageH: 900, boxW: 600, boxH: 900, dpr: 1 })).toBe(0);
+  });
+  it("multiplies by the pinch-zoom factor after capping the pixel ratio", () => {
+    const phone = { pageW: 600, pageH: 900, boxW: 300, boxH: 450 };
+    expect(fitScale({ ...phone, dpr: 2, zoom: 2 })).toBe(2);
+    // A 3× screen is still rendered at 2× per screen pixel, then zoomed.
+    expect(fitScale({ ...phone, dpr: 3, zoom: 2.5 })).toBe(2.5);
+  });
+  it("treats a zoom below 1 or an unusable zoom as no zoom", () => {
+    const base = { pageW: 600, pageH: 900, boxW: 600, boxH: 900, dpr: 1 };
+    expect(fitScale({ ...base, zoom: 0.5 })).toBe(1);
+    expect(fitScale({ ...base, zoom: NaN })).toBe(1);
+  });
+  it("keeps the canvas caps however far the page is zoomed", () => {
+    const s = fitScale({ pageW: 600, pageH: 900, boxW: 300, boxH: 450, dpr: 2, zoom: 10 });
+    expect(900 * s).toBeCloseTo(MAX_CANVAS_EDGE);
+  });
+});
+
+describe("zoomStep", () => {
+  it("is 1 when not zoomed or the scale is unusable", () => {
+    expect(zoomStep(1)).toBe(1);
+    expect(zoomStep(1.005)).toBe(1);
+    expect(zoomStep(0.8)).toBe(1);
+    expect(zoomStep(NaN)).toBe(1);
+    expect(zoomStep(Infinity)).toBe(1);
+  });
+  it("rounds a zoom up to the next half step", () => {
+    expect(zoomStep(1.02)).toBe(1.5);
+    expect(zoomStep(1.5)).toBe(1.5);
+    expect(zoomStep(2)).toBe(2);
+    expect(zoomStep(2.01)).toBe(2.5);
+    expect(zoomStep(3.3)).toBe(3.5);
   });
 });
 

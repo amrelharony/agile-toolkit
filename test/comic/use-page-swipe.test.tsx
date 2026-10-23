@@ -1,6 +1,6 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { usePageSwipe } from "@/app/(tools)/agile-at-work/hooks/use-page-swipe";
+import { usePageSwipe, useSettledZoom } from "@/app/(tools)/agile-at-work/hooks/use-page-swipe";
 
 /**
  * Swipe-to-turn on the comic stage. Unlike useSwipeToClose it must ignore
@@ -98,5 +98,61 @@ describe("usePageSwipe", () => {
     pointer(el, "pointerdown", { x: 300 });
     pointer(el, "pointerup", { x: 100 });
     expect(onSwipeLeft).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The zoom pages re-render for. jsdom has no visualViewport, so a plain
+ * EventTarget with a `scale` stands in for it.
+ */
+describe("useSettledZoom", () => {
+  const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
+
+  function fakeViewport(scale = 1) {
+    const vv = Object.assign(new EventTarget(), { scale });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: vv });
+    return {
+      pinchTo(next: number) {
+        vv.scale = next;
+        vv.dispatchEvent(new Event("resize"));
+      },
+    };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (original) Object.defineProperty(window, "visualViewport", original);
+    else delete (window as { visualViewport?: unknown }).visualViewport;
+  });
+
+  it("follows a pinch only once it rests, in half steps", () => {
+    vi.useFakeTimers();
+    const vv = fakeViewport();
+    const { result } = renderHook(() => useSettledZoom());
+    expect(result.current).toBe(1);
+
+    vv.pinchTo(1.8);
+    act(() => vi.advanceTimersByTime(100));
+    vv.pinchTo(2.3);
+    act(() => vi.advanceTimersByTime(200));
+    // Still moving: the last change was only 200 ms ago.
+    expect(result.current).toBe(1);
+    act(() => vi.advanceTimersByTime(100));
+    expect(result.current).toBe(2.5);
+
+    vv.pinchTo(1);
+    act(() => vi.advanceTimersByTime(300));
+    expect(result.current).toBe(1);
+  });
+
+  it("starts from the current zoom", () => {
+    fakeViewport(3);
+    const { result } = renderHook(() => useSettledZoom());
+    expect(result.current).toBe(3);
+  });
+
+  it("is 1 without visualViewport", () => {
+    const { result } = renderHook(() => useSettledZoom());
+    expect(result.current).toBe(1);
   });
 });

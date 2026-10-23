@@ -103,8 +103,9 @@ function validSize(...values: number[]): boolean {
 /**
  * Render scale for a page (pageW × pageH at scale 1) shown inside a CSS box
  * of boxW × boxH: fit the box, multiply by the device pixel ratio (at most
- * 2), then cap the canvas size. Returns 0 when any size is unusable (e.g.
- * the stage hasn't been measured yet) so callers can skip rendering.
+ * 2) and by the pinch-zoom factor (`zoom`, see `zoomStep`), then cap the
+ * canvas size. Returns 0 when any size is unusable (e.g. the stage hasn't
+ * been measured yet) so callers can skip rendering.
  */
 export function fitScale(
   opts: {
@@ -113,13 +114,33 @@ export function fitScale(
     boxW: number;
     boxH: number;
     dpr: number;
+    /** Pinch-zoom factor; anything below 1 (or unusable) counts as 1. */
+    zoom?: number;
   } & CanvasLimits
 ): number {
-  const { pageW, pageH, boxW, boxH, dpr } = opts;
+  const { pageW, pageH, boxW, boxH, dpr, zoom = 1 } = opts;
   if (!validSize(pageW, pageH, boxW, boxH)) return 0;
   const ratio = Number.isFinite(dpr) && dpr > 0 ? Math.min(Math.max(dpr, 1), MAX_DPR) : 1;
+  // Zoomed in, one CSS px spans `zoom` times the screen pixels, so the
+  // pixel-ratio cap above applies per screen pixel, before the zoom.
+  const magnify = Number.isFinite(zoom) && zoom > 1 ? zoom : 1;
   const fit = Math.min(boxW / pageW, boxH / pageH);
-  return Math.min(fit * ratio, scaleCap(pageW, pageH, opts));
+  return Math.min(fit * ratio * magnify, scaleCap(pageW, pageH, opts));
+}
+
+/** visualViewport.scale above this means the page is pinch-zoomed. */
+export const ZOOM_EPSILON = 1.01;
+/** Zoom is rendered for in half steps, so small pinches reuse a render. */
+const ZOOM_STEP = 0.5;
+
+/**
+ * The pinch-zoom factor to render pages for: 1 when not zoomed (or the
+ * scale is unusable), otherwise the zoom rounded up to the next half step,
+ * so a page is never undersampled at the zoom it was rendered for.
+ */
+export function zoomStep(scale: number): number {
+  if (!Number.isFinite(scale) || scale <= ZOOM_EPSILON) return 1;
+  return Math.ceil(scale / ZOOM_STEP) * ZOOM_STEP;
 }
 
 /** Width buckets are 256 px wide, so small resizes reuse earlier renders. */

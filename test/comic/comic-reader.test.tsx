@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { COMIC_LAST_PAGE_KEY } from "@/lib/comic/agile-at-work";
 
@@ -25,11 +25,16 @@ const SRC = "/comics/agile-at-work.pdf?v=abc123";
 const SIZE = 12_897_485;
 
 function fakePdfjs(numPages = 24) {
+  /** Every page render, with the pixel width it was drawn at. */
+  const renders: { page: number; width: number }[] = [];
   const doc = {
     numPages,
-    getPage: vi.fn(async () => ({
+    getPage: vi.fn(async (page: number) => ({
       getViewport: ({ scale }: { scale: number }) => ({ width: 600 * scale, height: 900 * scale }),
-      render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
+      render: vi.fn(({ viewport }: { viewport: { width: number } }) => {
+        renders.push({ page, width: viewport.width });
+        return { promise: Promise.resolve(), cancel: vi.fn() };
+      }),
       cleanup: vi.fn(),
     })),
   };
@@ -42,6 +47,7 @@ function fakePdfjs(numPages = 24) {
     VerbosityLevel: { ERRORS: 0 },
     getDocument: vi.fn(() => task),
     task,
+    renders,
   };
 }
 
@@ -267,6 +273,39 @@ describe("ComicReader", () => {
     expect(await screen.findByText(/password-protected/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByRole("link", { name: /Download PDF/ })).toBeInTheDocument();
+  });
+});
+
+describe("ComicReader pinch-zoom", () => {
+  const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
+
+  afterEach(() => {
+    if (original) Object.defineProperty(window, "visualViewport", original);
+    else delete (window as { visualViewport?: unknown }).visualViewport;
+  });
+
+  it("re-renders the page on screen for the zoom once the pinch rests", async () => {
+    // jsdom has no visualViewport; an EventTarget with a scale stands in.
+    const vv = Object.assign(new EventTarget(), { scale: 1 });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: vv });
+    const pdfjs = fakePdfjs();
+    loadPdfjs.mockResolvedValue(pdfjs);
+    render(<ComicReader src={SRC} size={SIZE} />);
+    const alt = "Agile at Work — page 1 of 24";
+    const before = (await screen.findByAltText(alt)).getAttribute("src");
+    // 776 × 876 px inside the stage padding fits a 600 × 900 page 584 px
+    // wide at 1× → the 768 px bucket.
+    expect(pdfjs.renders).toContainEqual({ page: 1, width: 768 });
+
+    act(() => {
+      vv.scale = 2.5;
+      vv.dispatchEvent(new Event("resize"));
+    });
+    // 584 × 2.5 = 1460 px → the 1536 px bucket, swapped in when drawn.
+    await waitFor(() => expect(pdfjs.renders).toContainEqual({ page: 1, width: 1536 }));
+    await waitFor(() => expect(screen.getByAltText(alt).getAttribute("src")).not.toBe(before));
+    // Neighbours are never drawn at the zoomed size.
+    expect(pdfjs.renders.filter((r) => r.page !== 1).every((r) => r.width === 768)).toBe(true);
   });
 });
 

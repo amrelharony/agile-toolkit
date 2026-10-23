@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ZOOM_EPSILON, zoomStep } from "@/lib/comic/reader-math";
 
 /** Minimum horizontal travel for a page turn. */
 const MIN_SWIPE_PX = 50;
 /** Vertical drift allowed per px of horizontal travel ("mostly horizontal"). */
 const MAX_SLOPE = 0.5;
-/** visualViewport.scale above this means the reader is pinch-zoomed. */
-const ZOOM_EPSILON = 1.01;
 /** How long after a swipe the synthetic click is ignored. */
 const CLICK_SUPPRESS_MS = 400;
+/** How long a pinch must rest before pages re-render for its zoom. */
+const ZOOM_SETTLE_MS = 250;
 
 /**
  * True while the page is pinch-zoomed. Swipes and tap zones turn off then,
@@ -26,6 +27,32 @@ export function useIsZoomed(): boolean {
     return () => vv.removeEventListener("resize", sync);
   }, []);
   return zoomed;
+}
+
+/**
+ * The pinch-zoom factor to render pages for (`zoomStep` of
+ * visualViewport.scale), updated once the zoom has rested for a moment:
+ * following every frame of a pinch would queue renders the next frame
+ * makes stale. 1 when not zoomed or without visualViewport.
+ */
+export function useSettledZoom(): number {
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setZoom(zoomStep(vv.scale)), ZOOM_SETTLE_MS);
+    };
+    setZoom(zoomStep(vv.scale));
+    vv.addEventListener("resize", settle);
+    return () => {
+      clearTimeout(timer);
+      vv.removeEventListener("resize", settle);
+    };
+  }, []);
+  return zoom;
 }
 
 export interface PageSwipeOptions {
