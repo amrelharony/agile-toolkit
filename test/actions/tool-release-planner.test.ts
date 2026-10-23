@@ -25,6 +25,14 @@ type Forecast = {
   sprints: { p50: number; p75: number; p85: number; p95: number };
   minSprints: number;
   maxSprints: number;
+  unfinishedRuns: number;
+  finishDates: { p50: string; p85: string; p95: string } | null;
+  target: {
+    date: string;
+    sprints: number;
+    chance: number;
+    deliverable: { p50: number; p85: number };
+  } | null;
 };
 
 describe("tool.release_planner.forecast", () => {
@@ -32,10 +40,10 @@ describe("tool.release_planner.forecast", () => {
     expect(registry.get("tool.release_planner.forecast")?.category).toBe("read");
   });
 
-  it("returns an all-zero forecast for empty velocities (no NaN)", async () => {
+  it("can't forecast without velocities: nulls, not 0 sprints (no NaN)", async () => {
     const action = registry.get("tool.release_planner.forecast");
     const r = (await action!.handler({ backlogPoints: 100, velocities: [] }, ctx())) as Forecast;
-    expect(r.sprints).toEqual({ p50: 0, p75: 0, p85: 0, p95: 0 });
+    expect(r.sprints).toEqual({ p50: null, p75: null, p85: null, p95: null });
     expect(r.avgVelocity).toBe(0);
   });
 
@@ -72,5 +80,47 @@ describe("tool.release_planner.forecast", () => {
       ctx()
     )) as Forecast;
     expect(r.effectiveBacklog).toBe(125);
+  });
+});
+
+describe("tool.release_planner.forecast matches the page", () => {
+  const run = async (params: Record<string, unknown>) =>
+    (await registry.get("tool.release_planner.forecast")!.handler(params, ctx())) as Forecast;
+
+  it("counts 0-point sprints instead of dropping them", async () => {
+    const withZero = await run({ backlogPoints: 100, velocities: [20, 0], iterations: 2000 });
+    const without = await run({ backlogPoints: 100, velocities: [20], iterations: 2000 });
+    expect(without.sprints.p50).toBe(5);
+    expect(withZero.sprints.p50).toBeGreaterThan(5);
+  });
+
+  it("never finishes when every sprint delivered 0", async () => {
+    const r = await run({ backlogPoints: 50, velocities: [0, 0], iterations: 200 });
+    expect(r.sprints.p50).toBeNull();
+    expect(r.unfinishedRuns).toBe(200);
+  });
+
+  it("prefers scopeChangePct, and accepts a cut", async () => {
+    expect(
+      (await run({ backlogPoints: 100, velocities: [20], scopeChangePct: -20, scopeBufferPct: 50 }))
+        .effectiveBacklog
+    ).toBe(80);
+  });
+
+  it("answers 'by this date?' with dates and the deliverable scope", async () => {
+    const r = await run({
+      backlogPoints: 100,
+      velocities: [20],
+      startDate: "2026-11-02",
+      sprintLengthDays: 14,
+      targetDate: "2026-12-28",
+    });
+    expect(r.finishDates?.p50).toBe("2027-01-11");
+    expect(r.target).toEqual({
+      date: "2026-12-28",
+      sprints: 4,
+      chance: 0,
+      deliverable: { p50: 80, p85: 80 },
+    });
   });
 });

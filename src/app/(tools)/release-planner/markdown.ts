@@ -1,5 +1,5 @@
 import { fmt } from "@/lib/charts/chart-text";
-import { formatDay, ITERATIONS } from "./forecast";
+import { formatDay, ITERATIONS } from "@/lib/sprints/release-forecast";
 import { signedPct, type ReleasePlan } from "./plan";
 import { headlineText, lengthText, sampleText, scopeText } from "./describe";
 import { releaseVerdict } from "./verdict";

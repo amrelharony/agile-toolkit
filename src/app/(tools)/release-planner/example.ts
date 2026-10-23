@@ -1,6 +1,6 @@
 import { exampleId } from "@/components/tool-frame/example-data";
 import { todayIso } from "@/lib/sprints/series";
-import { addDaysIso } from "./forecast";
+import { addDaysIso } from "@/lib/sprints/release-forecast";
 import { pickExampleFields, type ReleasePlannerConfig } from "./store";
 
 export const EXAMPLE_ID = exampleId("release-plan");

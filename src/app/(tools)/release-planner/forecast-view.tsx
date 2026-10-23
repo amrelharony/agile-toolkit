@@ -14,7 +14,7 @@ import { CalloutAlert } from "@/components/shared/callout-alert";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { fmt, plural } from "@/lib/charts/chart-text";
 import { simulationHistogramText } from "./chart-text";
-import { formatDay, ITERATIONS, MAX_SPRINTS } from "./forecast";
+import { formatDay, ITERATIONS, MAX_SPRINTS } from "@/lib/sprints/release-forecast";
 import { bootstrapCrossCheck, recentShift } from "./advanced";
 import { releaseNextStep } from "./next-step";
 import { sampleText } from "./describe";

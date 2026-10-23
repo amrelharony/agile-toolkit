@@ -4,7 +4,7 @@
  */
 
 import { fmt, plural, type ChartText } from "@/lib/charts/chart-text";
-import { MAX_SPRINTS } from "./forecast";
+import { MAX_SPRINTS } from "@/lib/sprints/release-forecast";
 
 export interface SimulationText {
   /** One bar per sprint count: how many runs finished in that many sprints. */

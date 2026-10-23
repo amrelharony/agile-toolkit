@@ -18,7 +18,7 @@ import {
   type Deliverable,
   type SimulationOptions,
   type SprintForecast,
-} from "./forecast";
+} from "@/lib/sprints/release-forecast";
 
 /** The draws a forecast samples: points per sprint, oldest first, and what each one was. */
 export interface VelocitySample {

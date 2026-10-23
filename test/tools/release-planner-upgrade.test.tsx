@@ -79,7 +79,7 @@ import {
   formatDay,
   simulateRelease,
   sprintsUntil,
-} from "@/app/(tools)/release-planner/forecast";
+} from "@/lib/sprints/release-forecast";
 import {
   planRelease,
   resolveTargetDate,

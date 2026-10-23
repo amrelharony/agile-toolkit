@@ -24,8 +24,7 @@ export function releasePrompts(plan: ReleasePlan): PromptDefinition[] {
     config: {
       backlogSize: plan.scope.points ?? 0,
       velocityInput: plan.sample.points.join(", "),
-      scopeBuffer: plan.scopeChangePct ?? 0,
-      scopeAdjustment: 0,
+      scopeChangePct: plan.scopeChangePct ?? 0,
       sprintLengthDays: plan.lengthDays,
       startDate: plan.start.date,
     },

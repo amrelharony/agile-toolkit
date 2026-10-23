@@ -12,6 +12,9 @@
  * zero draws, which is right for throughput counts but makes a release
  * forecast optimistic), so this module runs its own loop.
  *
+ * Shared by the Release Planner and tool.release_planner.forecast, so an
+ * agent gets the page's numbers.
+ *
  * The generator is seeded, so the same inputs give the same numbers on
  * every render: an unrelated edit no longer nudges the dates by a sprint.
  * Percentiles use the nearest-rank rule of `percentile` in

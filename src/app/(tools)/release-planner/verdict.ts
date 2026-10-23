@@ -1,6 +1,6 @@
 import { MIN_SAMPLE, needMore } from "@/lib/analytics/min-sample";
 import { fmt, plural } from "@/lib/charts/chart-text";
-import { formatDay, MAX_SPRINTS } from "./forecast";
+import { formatDay, MAX_SPRINTS } from "@/lib/sprints/release-forecast";
 import { signedPct, type ReleasePlan, type TargetAnswer } from "./plan";
 
 /** "an 8%", "a 64%": the article English uses before the spoken number. */
