@@ -83,7 +83,7 @@ import {
   consensusVerdict,
   estimateCards,
   isEstimateCard,
-} from "@/app/(tools)/planning-poker/consensus";
+} from "@/lib/estimation/consensus";
 import {
   loggedQueueStoryIds,
   planBacklogSave,

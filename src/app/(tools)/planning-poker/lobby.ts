@@ -8,7 +8,7 @@
  */
 
 import type { Validation } from "@/lib/utils/form";
-import { estimateCards } from "./consensus";
+import { estimateCards } from "@/lib/estimation/consensus";
 import { DEFAULT_CUSTOM_DECK, SCALES, type ScaleType } from "./types";
 import { DEFAULT_DISPLAY_NAME, DEFAULT_SESSION_NAME } from "./example";
 

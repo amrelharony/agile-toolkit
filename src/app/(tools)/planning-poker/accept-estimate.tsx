@@ -14,7 +14,7 @@ import { useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup } from "@/components/ui/toggle-group";
-import { estimateCards } from "./consensus";
+import { estimateCards } from "@/lib/estimation/consensus";
 
 export function AcceptEstimate({
   deck,

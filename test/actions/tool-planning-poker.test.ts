@@ -143,3 +143,39 @@ describe("tool.planning_poker compute helpers", () => {
     expect(r.scales.tshirt).toContain("XL");
   });
 });
+
+describe("tool.planning_poker.compute_consensus counts card positions", () => {
+  type R = {
+    consensus: string;
+    level: string | null;
+    cardsApart: number | null;
+    abstained: number;
+    suggestion: string | null;
+    verdict: string;
+  };
+  const run = async (params: Record<string, unknown>) =>
+    (await registry.get("tool.planning_poker.compute_consensus")!.handler(params, ctx())) as R;
+
+  it("reads neighbouring big cards as close and two cards apart as spread", async () => {
+    expect((await run({ votes: ["13", "21"] })).consensus).toBe("close");
+    expect((await run({ votes: ["1", "3"] })).consensus).toBe("spread");
+  });
+
+  it("gives T-shirt decks a verdict and a suggestion", async () => {
+    const r = await run({ votes: ["M", "L", "M"] });
+    expect(r).toMatchObject({ consensus: "close", cardsApart: 1, suggestion: "M" });
+    expect(r.verdict).toMatch(/^Neighbouring cards, M and L/);
+  });
+
+  it("counts '?' and ∞ as abstained, and has no level when nobody estimated", async () => {
+    expect(await run({ votes: ["5", "?", "∞"] })).toMatchObject({ abstained: 2, level: "agree" });
+    expect(await run({ votes: ["?", "?"] })).toMatchObject({ level: null, abstained: 2 });
+  });
+
+  it("uses an explicit deck when given", async () => {
+    // On a Powers-of-2 deck 4 and 8 are neighbours.
+    expect(
+      (await run({ votes: ["4", "8"], deck: ["1", "2", "4", "8", "16", "32"] })).consensus
+    ).toBe("close");
+  });
+});

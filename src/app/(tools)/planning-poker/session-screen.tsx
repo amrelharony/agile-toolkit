@@ -46,7 +46,12 @@ import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
 import { REDACTED_VOTE } from "./merge";
 import { castVotes, isNumeric, withRound } from "./rounds";
-import { consensusLabel, consensusOf, consensusVerdict, type ConsensusLevel } from "./consensus";
+import {
+  consensusLabel,
+  consensusOf,
+  consensusVerdict,
+  type ConsensusLevel,
+} from "@/lib/estimation/consensus";
 import { AcceptEstimate } from "./accept-estimate";
 import { AddStoryForm } from "./add-story-form";
 import { CardReferencePanel } from "./card-reference";

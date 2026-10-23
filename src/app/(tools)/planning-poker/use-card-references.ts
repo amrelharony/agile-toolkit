@@ -19,7 +19,7 @@ import {
 } from "@/app/(tools)/estimation-guide/references";
 import { scales } from "@/lib/constants/scales";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { estimateCards, isEstimateCard } from "./consensus";
+import { estimateCards, isEstimateCard } from "@/lib/estimation/consensus";
 import { GUIDE_SCALE, type ScaleType } from "./types";
 
 export type CardReferenceLookup = (card: string) => CardReference | null;
