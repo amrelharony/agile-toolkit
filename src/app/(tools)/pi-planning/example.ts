@@ -4,8 +4,12 @@ import type { PiItem, PiItemKind, PiObjective, PiState, PiTeam } from "./store";
 
 const id = (key: string) => exampleId(`pi-${key}`);
 
-/** Example map ids start with this, so "Clear example" removes only the board's own edges. */
-export const EXAMPLE_MAP_PREFIX = id("");
+/**
+ * Every node and edge the board's example puts on the Dependency Map has an
+ * id starting with this. Example items link only among these nodes (never
+ * the user's own "Checkout"), and "Clear example" removes exactly them.
+ */
+export const EXAMPLE_MAP_PREFIX = id("map-");
 
 type Row = [key: string, title: string, iteration: number, kind: PiItemKind, points?: number];
 

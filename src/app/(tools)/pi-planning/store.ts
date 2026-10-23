@@ -144,7 +144,5 @@ export function usePiState(): [PiState, (fn: (s: PiState) => PiState) => void] {
 }
 
 /** The PI board's team names, for other tools' team pickers (Scrum of Scrums). */
-export function usePiTeamNames(): string[] {
-  const [state] = usePiState();
-  return useMemo(() => state.teams.map((t) => t.name).filter((n) => n.trim()), [state.teams]);
-}
+export const piTeamNames = (state: PiState): string[] =>
+  state.teams.map((t) => t.name).filter((n) => n.trim());

@@ -126,6 +126,16 @@ export function dependencyViews(
     .map((i) => dependencyView(map, i, today));
 }
 
+/**
+ * True when a dependency item in `teamName` would wait on its own team: the
+ * Move menu can't put it in the team it waits on (the map hides a
+ * self-edge, so nobody could see or remove it there).
+ */
+export function waitsOnTeam(view: DependencyView | undefined, teamName: string): boolean {
+  const waitsOn = view?.item.kind === "dependency" ? view.waitsOn.trim().toLowerCase() : "";
+  return Boolean(waitsOn) && waitsOn === teamName.trim().toLowerCase();
+}
+
 /** Dependency items saved before the map link: no edge and no named other side. */
 export const isLegacyDependency = (i: PiItem) =>
   i.kind === "dependency" && !i.edgeId && !i.dependsOn?.trim();

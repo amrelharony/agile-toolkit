@@ -51,7 +51,8 @@ export const teamDraftFrom = (t: PiTeam): TeamDraft => ({
 /**
  * A team needs a name no other team on the board has (the Dependency Map
  * finds a team by its name). Velocity is optional: blank means "not set",
- * which the board shows as such instead of comparing against 0.
+ * which the board shows as such instead of comparing against 0. A typed 0
+ * is an error, not a silent "not set": no load can be checked against it.
  */
 export function validateTeam(
   d: TeamDraft,
@@ -65,8 +66,8 @@ export function validateTeam(
     errors.name = `“${name}” is already on the board.`;
   }
   const velocity = parseNumber(d.velocity);
-  if (velocity !== undefined && (!Number.isFinite(velocity) || velocity < 0)) {
-    errors.velocity = "Enter points per iteration (0 or more), or leave it blank.";
+  if (velocity !== undefined && (!Number.isFinite(velocity) || velocity <= 0)) {
+    errors.velocity = "Enter points per iteration (more than 0), or leave it blank.";
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   const description = d.description.trim();

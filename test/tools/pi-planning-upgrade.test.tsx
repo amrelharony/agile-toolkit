@@ -45,8 +45,8 @@ import {
   validateObjective,
   validateTeam,
 } from "@/app/(tools)/pi-planning/forms";
-import { syncDependencyEdge } from "@/app/(tools)/pi-planning/dependency-link";
-import { DEPENDENCY_MAP_ID } from "@/app/(tools)/dependency-map/link";
+import { boardHeir, syncDependencyEdge } from "@/app/(tools)/pi-planning/dependency-link";
+import { DEPENDENCY_MAP_ID, linkDependency } from "@/app/(tools)/dependency-map/link";
 
 const TODAY = "2026-10-23";
 const ws = () => useWorkspaceStore.getState();
@@ -94,7 +94,7 @@ const openMenu = (name: string) =>
 beforeEach(() => {
   toastSpy.mockReset();
   localStorage.clear();
-  useWorkspaceStore.setState({ dependencyMaps: [], teamMembers: [] });
+  useWorkspaceStore.setState({ dependencyMaps: [], teamMembers: [], sosEntries: [] });
 });
 
 /* ── Stored boards ────────────────────────────────────────────────────── */
@@ -220,7 +220,11 @@ describe("validation", () => {
       errors: { name: "“checkout” is already on the board." },
     });
     expect(validateTeam({ ...EMPTY_TEAM, name: "Mobile", velocity: "-2" }, teams)).toMatchObject({
-      errors: { velocity: "Enter points per iteration (0 or more), or leave it blank." },
+      errors: { velocity: "Enter points per iteration (more than 0), or leave it blank." },
+    });
+    // A typed 0 is an error, not silently "not set".
+    expect(validateTeam({ ...EMPTY_TEAM, name: "Mobile", velocity: "0" }, teams)).toMatchObject({
+      errors: { velocity: "Enter points per iteration (more than 0), or leave it blank." },
     });
     expect(validateTeam({ ...EMPTY_TEAM, name: " Mobile " }, teams)).toEqual({
       ok: true,
@@ -600,5 +604,254 @@ describe("PI Planning page", () => {
     expect(stored().objectives).toEqual([]);
     undoLast();
     expect(stored().objectives).toHaveLength(1);
+  });
+});
+
+/* ── Review fixes ─────────────────────────────────────────────────────── */
+
+describe("PI Planning, after review", () => {
+  /** A dependency item already linked on the map, as the board saves one. */
+  const linked = (id: string, title: string, extra: Partial<PiItem> = {}): PiItem => {
+    const d = item(id, {
+      kind: "dependency",
+      title,
+      dependsOn: "Payments",
+      points: undefined,
+      ...extra,
+    });
+    const edgeId = syncDependencyEdge(null, d, {
+      teamName: "Checkout",
+      dependsOn: d.dependsOn ?? "",
+      title,
+    });
+    return { ...d, edgeId };
+  };
+  const editorOf = (button: string) =>
+    screen.getByRole("button", { name: button }).closest("form")!;
+
+  it("won't move a dependency into the team it waits on", () => {
+    seedBoard(board({ items: [linked("d1", "Refund API")] }));
+    renderBoard();
+    openMenu("Move Refund API");
+    const blocked = screen.getByRole("menuitem", {
+      name: "Payments, iteration 2 (waits on this team)",
+    });
+    expect(blocked).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(blocked);
+    expect(stored().items[0]).toMatchObject({ teamId: "t1", iteration: 0 });
+    expect(map().edges).toHaveLength(1);
+    expect(map().edges[0].from).not.toBe(map().edges[0].to);
+  });
+
+  it("puts focus on the moved item's Move button and says where it went", async () => {
+    seedBoard(board({ items: [item("a", { title: "Saved cards" })] }));
+    renderBoard();
+    openMenu("Move Saved cards");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Payments, iteration 3" }));
+    // The menu's own focus restore runs on a timer: let it pass first.
+    await act(() => new Promise((r) => setTimeout(r, 0)));
+    expect(screen.getByRole("button", { name: "Move Saved cards" })).toHaveFocus();
+    expect(screen.getByText("Moved “Saved cards” to Payments, iteration 3.")).toBeInTheDocument();
+  });
+
+  it("hands a shared edge to the item still showing it when the one that drew it goes", () => {
+    const a = linked("d1", "Refund API");
+    const b = linked("d2", "Refund status"); // the same wait: it reuses a's edge
+    expect(b.edgeId).toBe(a.edgeId);
+    seedBoard(board({ items: [a, b] }));
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Refund API" }));
+    expect(lastToast()[1].description).toBeUndefined();
+    expect(map().edges).toMatchObject([
+      { id: a.edgeId, sourceRef: { tool: "pi-planning", id: "d2" } },
+    ]);
+    expect(screen.queryByText(/Not on the Dependency Map/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resolve Refund status" })).toBeInTheDocument();
+    undoLast();
+    expect(map().edges[0].sourceRef).toEqual({ tool: "pi-planning", id: "d1" });
+    expect(stored().items).toHaveLength(2);
+  });
+
+  it("hands it on when the item that drew it stops being a dependency, too", () => {
+    const a = linked("d1", "Refund API");
+    const b = linked("d2", "Refund status");
+    syncDependencyEdge(
+      a,
+      { ...a, kind: "feature" },
+      { teamName: "Checkout", dependsOn: "Payments", title: a.title },
+      boardHeir([a, b], new Set([a.id]))
+    );
+    expect(map().edges).toMatchObject([
+      { id: a.edgeId, sourceRef: { tool: "pi-planning", id: "d2" } },
+    ]);
+  });
+
+  it("hands an edge to a Scrum of Scrums entry showing it when its PI item goes", () => {
+    const a = linked("d1", "Refund API");
+    useWorkspaceStore.setState({
+      sosEntries: [
+        {
+          id: "s1",
+          meetingDate: TODAY,
+          team: "Checkout",
+          kind: "dependency",
+          text: "Refunds",
+          blockedBy: "Payments",
+          status: "open",
+          loggedAt: "2026-10-23T09:00:00.000Z",
+        },
+      ],
+    });
+    seedBoard(board({ items: [a] }));
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Refund API" }));
+    expect(map().edges).toMatchObject([
+      { id: a.edgeId, sourceRef: { tool: "scrum-of-scrums", id: "s1" } },
+    ]);
+  });
+
+  it("puts a typed due date on an open edge it links onto", () => {
+    useWorkspaceStore.getState().upsertDependencyMap({
+      id: DEPENDENCY_MAP_ID,
+      nodes: [
+        { id: "c", label: "Checkout" },
+        { id: "p", label: "Payments" },
+      ],
+      edges: [{ id: "theirs", from: "c", to: "p", kind: "needs" }],
+    });
+    seedBoard(board());
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Add item to Checkout, iteration 1" }));
+    const form = editorOf("Add item");
+    fireEvent.change(within(form).getByLabelText(/^Item/), { target: { value: "Refund API" } });
+    fireEvent.click(within(form).getByRole("radio", { name: "Dependency" }));
+    fireEvent.change(within(form).getByLabelText(/^Waits on/), { target: { value: "Payments" } });
+    fireEvent.change(within(form).getByLabelText(/^Due/), { target: { value: "2026-11-30" } });
+    fireEvent.submit(form);
+    expect(stored().items[0].edgeId).toBe("theirs");
+    expect(map().edges).toMatchObject([{ id: "theirs", due: "2026-11-30" }]);
+    // Focus goes back to the cell's Add item button.
+    expect(screen.getByRole("button", { name: "Add item to Checkout, iteration 1" })).toHaveFocus();
+  });
+
+  it("keeps the example among its own nodes: the user's map is never read or written", () => {
+    useWorkspaceStore.getState().upsertDependencyMap({
+      id: DEPENDENCY_MAP_ID,
+      nodes: [
+        { id: "c", label: "Checkout" },
+        { id: "p", label: "Payments" },
+      ],
+      edges: [{ id: "real", from: "c", to: "p", kind: "needs", status: "open", due: "2026-12-01" }],
+    });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const example = map().edges.filter((x) => x.id !== "real");
+    expect(example).toHaveLength(2);
+    expect(
+      example.every((x) => [x.id, x.from, x.to].every((id) => id.startsWith("example-pi-map-")))
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Resolve Refund API" }));
+    expect(map().edges.find((x) => x.id === "real")).toMatchObject({
+      status: "open",
+      due: "2026-12-01",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(map().nodes.map((x) => x.id)).toEqual(["c", "p"]);
+    expect(map().edges.map((x) => x.id)).toEqual(["real"]);
+  });
+
+  it("renames the team's node with the team, and a later edit keeps the same edge", () => {
+    const d = linked("d1", "Refund API");
+    seedBoard(board({ items: [d] }));
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Edit team Checkout" }));
+    // The card stays a named region while its heading is swapped for the editor.
+    expect(screen.getByRole("region", { name: "Checkout" })).toBeInTheDocument();
+    const team = editorOf("Save team");
+    fireEvent.change(within(team).getByLabelText(/^Team name/), {
+      target: { value: "Checkout web" },
+    });
+    fireEvent.submit(team);
+    expect(map().nodes.map((x) => x.label)).toEqual(["Checkout web", "Payments"]);
+    expect(screen.getByRole("button", { name: "Edit team Checkout web" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Refund API" }));
+    const form = editorOf("Save");
+    fireEvent.change(within(form).getByLabelText(/^Item/), { target: { value: "Refund API v2" } });
+    fireEvent.submit(form);
+    expect(map().nodes).toHaveLength(2);
+    expect(map().edges.map((x) => x.id)).toEqual([d.edgeId]);
+    expect(screen.getByRole("button", { name: "Edit Refund API v2" })).toHaveFocus();
+  });
+
+  it("keeps an item's edge when only its title changes after nodes were renamed on the map", () => {
+    const d = linked("d1", "Refund API");
+    seedBoard(board({ items: [d] }));
+    useWorkspaceStore.getState().upsertDependencyMap({
+      ...map(),
+      nodes: map().nodes.map((x) => ({ ...x, label: `${x.label} team` })),
+    });
+    renderBoard();
+    expect(screen.getByText("Waits on Payments team")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Refund API" }));
+    const form = editorOf("Save");
+    fireEvent.change(within(form).getByLabelText(/^Item/), { target: { value: "Refunds" } });
+    fireEvent.submit(form);
+    expect(map().nodes.map((x) => x.label)).toEqual(["Checkout team", "Payments team"]);
+    expect(map().edges.map((x) => x.id)).toEqual([d.edgeId]);
+  });
+
+  it("says how many teams lack a velocity instead of comparing totals over different teams", () => {
+    seedBoard(
+      board({
+        teams: [
+          { id: "t1", name: "Checkout", velocity: 10 },
+          { id: "t2", name: "Payments" },
+        ],
+        items: [item("a", { teamId: "t2", points: 40 })],
+      })
+    );
+    renderBoard();
+    expect(screen.getByText("1 team without a velocity")).toBeInTheDocument();
+    expect(screen.queryByText(/of 30 capacity/)).not.toBeInTheDocument();
+  });
+
+  it("asks to cut the PI to 1 iteration, not 1 iterations", () => {
+    seedBoard(board({ iterations: 2, items: [item("late", { iteration: 1 })] }));
+    renderBoard();
+    fireEvent.change(screen.getByLabelText(/^Iterations in the PI/), { target: { value: "1" } });
+    expect(screen.getByRole("dialog")).toHaveTextContent("Cut the PI to 1 iteration?");
+  });
+
+  it("puts focus back on an objective's Edit button after cancelling", () => {
+    seedBoard(
+      board({ objectives: [{ id: "o1", teamId: "t1", title: "Guest checkout", committed: true }] })
+    );
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Edit objective Guest checkout" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Edit objective Guest checkout" })).toHaveFocus();
+  });
+
+  it("leaves an old item titled like its own team to edit rather than drawing a self-wait", () => {
+    expect(linkDependency({ from: "Checkout", to: "checkout" })).toBeNull();
+    seedBoard(
+      board({
+        items: [
+          item("self", { kind: "dependency", title: "Checkout" }),
+          item("old", { kind: "dependency", title: "Refund API" }),
+        ],
+      })
+    );
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Add to the Dependency Map" }));
+    expect(lastToast()[0]).toBe("Added 1 dependency to the Dependency Map");
+    expect(map().edges).toHaveLength(1);
+    expect(stored().items.find((i) => i.id === "self")?.edgeId).toBeUndefined();
+    // Only the self-wait is left: the callout stays, without a button that can't help.
+    expect(screen.getByText(/1 dependency item was saved before/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add to the Dependency Map" })
+    ).not.toBeInTheDocument();
   });
 });

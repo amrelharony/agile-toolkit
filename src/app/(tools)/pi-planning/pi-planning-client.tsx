@@ -21,6 +21,7 @@ import {
   hasExampleItems,
 } from "@/components/tool-frame/example-data";
 import { generatePiPlanningPrompts } from "@/lib/ai-prompts/pi-planning";
+import { plural } from "@/lib/charts/chart-text";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import type { DependencyStatus } from "@/lib/stores/workspace-types";
@@ -29,20 +30,28 @@ import { undoable } from "@/lib/utils/undoable";
 import { SelectField } from "../dependency-map/fields";
 import {
   linkDependency,
-  restoreEdges,
+  releaseEdges,
+  restoreReleased,
   setEdgeStatus,
-  takeEdges,
   unlink,
   updateDependencyMap,
   useDependencyMap,
   type LinkResult,
-  type TakenEdges,
+  type ReleasedEdges,
 } from "../dependency-map/link";
+import { useReturnFocus } from "../dependency-map/use-return-focus";
 import { TeamCard, type BoardActions, type Editing } from "./board";
-import { itemRef, ownEdge, syncDependencyEdge } from "./dependency-link";
+import {
+  boardHeir,
+  itemRef,
+  ownEdge,
+  renameTeamOnMap,
+  scopeOf,
+  syncDependencyEdge,
+} from "./dependency-link";
 import { EXAMPLE_MAP_PREFIX, buildExample, withoutExample } from "./example";
 import { TeamAddForm, type ItemValues, type ObjectiveValues, type TeamValues } from "./forms";
-import { dependencyViews, isLegacyDependency, overloads, teamLoad } from "./load";
+import { dependencyViews, isLegacyDependency, overloads, teamLoad, waitsOnTeam } from "./load";
 import { LoadChart } from "./load-chart";
 import { toMarkdown } from "./markdown";
 import { ObjectivesPanel } from "./objectives";
@@ -98,6 +107,22 @@ export function PiPlanningClient() {
   const [editing, setEditing] = useState<Editing>(null);
   const [editingObjective, setEditingObjective] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
+  // Where a moved item went, for screen readers (it re-renders in another cell).
+  const [announcement, setAnnouncement] = useState("");
+  const { refFor, returnTo } = useReturnFocus();
+
+  /** Close the board's editor and put focus back on what opened it. */
+  const closeEditor = () => {
+    if (editing?.kind === "team") returnTo(`team:${editing.id}`);
+    else if (editing?.kind === "item") returnTo(`item:${editing.id}`);
+    else if (editing?.kind === "add") returnTo(`add:${editing.teamId}:${editing.iteration}`);
+    setEditing(null);
+  };
+
+  const closeObjective = (id: string) => {
+    setEditingObjective(null);
+    returnTo(`objective:${id}`);
+  };
 
   const teamOf = (id: string) => state.teams.find((t) => t.id === id);
   const objectives = state.objectives ?? [];
@@ -106,6 +131,12 @@ export function PiPlanningClient() {
     [state, map, today]
   );
   const legacy = state.items.filter((i) => isLegacyDependency(i) && teamOf(i.teamId));
+  // An old item titled like its own team would be a self-wait on the map: it stays to edit.
+  const legacyTarget = (i: PiItem) => i.title || "Unnamed dependency";
+  const movable = legacy.filter(
+    (i) =>
+      legacyTarget(i).trim().toLowerCase() !== (teamOf(i.teamId)?.name ?? "").trim().toLowerCase()
+  );
 
   /* ── Teams ── */
 
@@ -120,7 +151,9 @@ export function PiPlanningClient() {
   };
 
   const saveTeam = (team: PiTeam, v: TeamValues) => {
-    setEditing(null);
+    closeEditor();
+    // Its node on the map is renamed too, so its dependencies keep their team.
+    renameTeamOnMap(state.items, team.id, team.name, v.name);
     update((s) => ({
       ...s,
       teams: s.teams.map((t) => {
@@ -134,19 +167,20 @@ export function PiPlanningClient() {
   /**
    * Remove a team with everything planned for it, and offer Undo. The
    * dependencies its items drew come off the map with them (Undo puts them
-   * back too); edges other tools drew stay.
+   * back too), unless another item still shows one; edges other tools drew
+   * stay.
    */
   const removeTeam = (team: PiTeam) => {
-    const own = state.items
-      .filter((i) => i.teamId === team.id)
-      .flatMap((i) => ownEdge(i)?.id ?? []);
-    let taken: TakenEdges = [];
+    const leaving = state.items.filter((i) => i.teamId === team.id);
+    const own = leaving.flatMap((i) => ownEdge(i)?.id ?? []);
+    const heir = boardHeir(state.items, new Set(leaving.map((i) => i.id)));
+    let released: ReleasedEdges = { taken: [], handed: [] };
     let removed: { team: Placed<PiTeam>; items: Placed<PiItem>; objectives: Placed<PiObjective> } =
       { team: [], items: [], objectives: [] };
     undoable({
       label: `Removed team “${team.name}”`,
       apply: () => {
-        taken = takeEdges(own);
+        released = releaseEdges(own, heir);
         update((s) => {
           removed = {
             team: pick(s.teams, (t) => t.id === team.id),
@@ -169,7 +203,7 @@ export function PiPlanningClient() {
           items: putBack(s.items, removed.items),
           objectives: putBack(s.objectives ?? [], removed.objectives),
         }));
-        restoreEdges(taken);
+        restoreReleased(released);
       },
     });
   };
@@ -204,24 +238,29 @@ export function PiPlanningClient() {
       });
       item = withOptional(item, "edgeId", edgeId);
     }
-    setEditing(null);
+    closeEditor();
     update((s) => ({ ...s, items: [...s.items, item] }));
     log(PI_PLANNING_ACTIONS.ITEM_ADDED, { itemId: item.id, teamId: team.id, iteration });
   };
 
   const saveItem = (item: PiItem, v: ItemValues) => {
-    setEditing(null);
+    closeEditor();
     const team = teamOf(item.teamId);
     let next: PiItem = { ...item, title: v.title, kind: v.kind };
     next = withOptional(next, "points", v.points);
     next = withOptional(next, "description", v.description);
     next = withOptional(next, "dependsOn", v.dependsOn);
-    const edgeId = syncDependencyEdge(item, next, {
-      teamName: team?.name ?? "",
-      dependsOn: v.dependsOn ?? "",
-      title: v.title,
-      due: v.due || null,
-    });
+    const edgeId = syncDependencyEdge(
+      item,
+      next,
+      {
+        teamName: team?.name ?? "",
+        dependsOn: v.dependsOn ?? "",
+        title: v.title,
+        due: v.due || null,
+      },
+      boardHeir(state.items, new Set([item.id]))
+    );
     next = withOptional(next, "edgeId", edgeId);
     update((s) => ({ ...s, items: s.items.map((i) => (i.id === item.id ? next : i)) }));
     if (v.kind !== item.kind || v.points !== item.points) {
@@ -229,31 +268,46 @@ export function PiPlanningClient() {
     }
   };
 
+  /**
+   * Move an item to another cell. It re-renders there as a new element, so
+   * focus goes to its Move button in the new cell and a live region says
+   * where it went. A dependency can't move into the team it waits on.
+   */
   const moveItem = (item: PiItem, teamId: string, iteration: number) => {
-    let next: PiItem = { ...item, teamId, iteration };
+    const target = teamOf(teamId);
     const view = views.get(item.id);
+    if (!target || waitsOnTeam(view, target.name)) return;
+    let next: PiItem = { ...item, teamId, iteration };
     if (item.kind === "dependency" && teamId !== item.teamId && view?.waitsOn) {
       // The waiting side changed: the edge follows the item to its new team.
-      const edgeId = syncDependencyEdge(item, next, {
-        teamName: teamOf(teamId)?.name ?? "",
-        dependsOn: view.waitsOn,
-        title: item.title,
-      });
+      const edgeId = syncDependencyEdge(
+        item,
+        next,
+        { teamName: target.name, dependsOn: view.waitsOn, title: item.title },
+        boardHeir(state.items, new Set([item.id]))
+      );
       next = withOptional(next, "edgeId", edgeId);
     }
     update((s) => ({ ...s, items: s.items.map((i) => (i.id === item.id ? next : i)) }));
+    setAnnouncement(
+      `Moved “${item.title || "item"}” to ${target.name || "team"}, iteration ${iteration + 1}.`
+    );
+    returnTo(`move:${item.id}`);
     log(PI_PLANNING_ACTIONS.ITEM_ASSIGNED, { itemId: item.id, teamId, iteration });
   };
 
   const removeItem = (item: PiItem) => {
     const own = ownEdge(item);
-    let taken: TakenEdges = [];
+    const heir = boardHeir(state.items, new Set([item.id]));
+    // A shared edge stays on the map with the item or entry that still shows it.
+    const goes = own !== undefined && heir(own) === undefined;
+    let released: ReleasedEdges = { taken: [], handed: [] };
     let removed: Placed<PiItem> = [];
     undoable({
       label: `Deleted “${item.title || "item"}”`,
-      description: own ? "and its dependency on the map" : undefined,
+      description: goes ? "and its dependency on the map" : undefined,
       apply: () => {
-        taken = takeEdges(own ? [own.id] : []);
+        released = releaseEdges(own ? [own.id] : [], heir);
         update((s) => {
           removed = pick(s.items, (i) => i.id === item.id);
           return { ...s, items: s.items.filter((i) => i.id !== item.id) };
@@ -262,7 +316,7 @@ export function PiPlanningClient() {
       },
       revert: () => {
         update((s) => ({ ...s, items: putBack(s.items, removed) }));
-        restoreEdges(taken);
+        restoreReleased(released);
       },
     });
   };
@@ -294,24 +348,26 @@ export function PiPlanningClient() {
   const moveLegacyToMap = () => {
     let links: { itemId: string; result: LinkResult }[] = [];
     undoable({
-      label: `Added ${legacy.length} ${legacy.length === 1 ? "dependency" : "dependencies"} to the Dependency Map`,
+      label: `Added ${movable.length} ${movable.length === 1 ? "dependency" : "dependencies"} to the Dependency Map`,
       apply: () => {
-        links = legacy.map((item) => ({
-          itemId: item.id,
-          result: linkDependency({
-            from: teamOf(item.teamId)?.name ?? "",
-            to: item.title || "Unnamed dependency",
-            note: item.description,
-            sourceRef: itemRef(item),
-          }),
-        }));
+        links = movable.flatMap((item) => {
+          const result = linkDependency(
+            {
+              from: teamOf(item.teamId)?.name ?? "",
+              to: legacyTarget(item),
+              note: item.description,
+              sourceRef: itemRef(item),
+            },
+            undefined,
+            scopeOf(item)
+          );
+          return result ? [{ itemId: item.id, result }] : [];
+        });
         const byItem = new Map(links.map((l) => [l.itemId, l.result.edgeId]));
         update((s) => ({
           ...s,
           items: s.items.map((i) =>
-            byItem.has(i.id)
-              ? { ...i, edgeId: byItem.get(i.id), dependsOn: i.title || "Unnamed dependency" }
-              : i
+            byItem.has(i.id) ? { ...i, edgeId: byItem.get(i.id), dependsOn: legacyTarget(i) } : i
           ),
         }));
       },
@@ -337,14 +393,15 @@ export function PiPlanningClient() {
   const shrink = (next: number) => {
     const doomed = state.items.filter((i) => i.iteration >= next);
     const own = doomed.flatMap((i) => ownEdge(i)?.id ?? []);
+    const heir = boardHeir(state.items, new Set(doomed.map((i) => i.id)));
     let previous = state.iterations;
-    let taken: TakenEdges = [];
+    let released: ReleasedEdges = { taken: [], handed: [] };
     let removed: Placed<PiItem> = [];
     undoable({
       label: `Cut the PI to ${next} ${next === 1 ? "iteration" : "iterations"}`,
       description: `${doomed.length} ${doomed.length === 1 ? "item" : "items"} removed`,
       apply: () => {
-        taken = takeEdges(own);
+        released = releaseEdges(own, heir);
         update((s) => {
           previous = s.iterations;
           removed = pick(s.items, (i) => i.iteration >= next);
@@ -353,7 +410,7 @@ export function PiPlanningClient() {
       },
       revert: () => {
         update((s) => ({ ...s, iterations: previous, items: putBack(s.items, removed) }));
-        restoreEdges(taken);
+        restoreReleased(released);
       },
     });
   };
@@ -376,7 +433,7 @@ export function PiPlanningClient() {
   };
 
   const saveObjective = (o: PiObjective, v: ObjectiveValues) => {
-    setEditingObjective(null);
+    closeObjective(o.id);
     update((s) => ({
       ...s,
       objectives: (s.objectives ?? []).map((x) => {
@@ -402,12 +459,20 @@ export function PiPlanningClient() {
 
   /* ── Example ── */
 
+  /**
+   * Take the example's edges off the map, and its nodes unless one of the
+   * user's own edges was drawn to it since: that node stays with it (the
+   * Dependency Map's "Clear example" offers Undo for such edges).
+   */
   const clearExampleEdges = () =>
     updateDependencyMap((m) => {
       const mine = (id: string) => id.startsWith(EXAMPLE_MAP_PREFIX);
+      const edges = m.edges.filter((e) => !mine(e.id));
       return {
-        nodes: m.nodes.filter((n) => !mine(n.id)),
-        edges: m.edges.filter((e) => ![e.id, e.from, e.to].some(mine)),
+        nodes: m.nodes.filter(
+          (n) => !mine(n.id) || edges.some((e) => e.from === n.id || e.to === n.id)
+        ),
+        edges,
       };
     });
 
@@ -419,7 +484,8 @@ export function PiPlanningClient() {
     const edgeOf = new Map(
       links.map((l) => {
         const item = ex.items.find((i) => i.id === l.itemId);
-        const { edgeId } = linkDependency(
+        // Among the example's own nodes only: never the user's "Checkout" or their edges.
+        const result = linkDependency(
           {
             from: l.team,
             to: l.dependsOn,
@@ -427,9 +493,10 @@ export function PiPlanningClient() {
             note: item?.title,
             sourceRef: itemRef({ id: l.itemId }),
           },
-          makeId
+          makeId,
+          EXAMPLE_MAP_PREFIX
         );
-        return [l.itemId, edgeId] as const;
+        return [l.itemId, result?.edgeId] as const;
       })
     );
     const items = ex.items.map((i) => (edgeOf.has(i.id) ? { ...i, edgeId: edgeOf.get(i.id) } : i));
@@ -455,7 +522,11 @@ export function PiPlanningClient() {
   const over = overloads(state);
   const loads = state.teams.map((t) => teamLoad(state, t));
   const planned = loads.reduce((a, l) => a + l.planned, 0);
-  const capacity = loads.reduce((a, l) => a + (l.capacity ?? 0), 0);
+  // Capacity only means something against the same teams' plans: with some
+  // teams unset, say so (as the verdict does) instead of comparing totals.
+  const withVelocity = loads.filter((l) => l.capacity !== null);
+  const capacity = withVelocity.reduce((a, l) => a + (l.capacity ?? 0), 0);
+  const noVelocity = loads.length - withVelocity.length;
   const deps = Array.from(views.values());
   const openDeps = deps.filter((d) => d.status !== "resolved");
   const lateDeps = deps.filter((d) => d.overdue).length;
@@ -522,6 +593,9 @@ export function PiPlanningClient() {
     >
       <div ref={exportRef} className="space-y-4">
         {hasExampleItems(state.teams) && <ExampleNotice onClear={clearExample} />}
+        <p role="status" className="sr-only">
+          {announcement}
+        </p>
 
         <ActionRow>
           <AiPromptGenerator config={promptConfig} />
@@ -545,7 +619,13 @@ export function PiPlanningClient() {
             variant="compact"
             label="Feature points"
             value={planned}
-            hint={capacity > 0 ? `of ${capacity} capacity` : "no velocity set"}
+            hint={
+              withVelocity.length === 0
+                ? "no velocity set"
+                : noVelocity > 0
+                  ? `${plural(noVelocity, "team")} without a velocity`
+                  : `of ${capacity} capacity`
+            }
           />
           <StatCard
             variant="compact"
@@ -596,16 +676,18 @@ export function PiPlanningClient() {
                       {legacy.length === 1 ? "it" : "them"} now, or edit an item to name the team it
                       waits on.
                     </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="mt-2 gap-1"
-                      onClick={moveLegacyToMap}
-                    >
-                      <GitBranch aria-hidden="true" />
-                      Add to the Dependency Map
-                    </Button>
+                    {movable.length > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-2 gap-1"
+                        onClick={moveLegacyToMap}
+                      >
+                        <GitBranch aria-hidden="true" />
+                        Add to the Dependency Map
+                      </Button>
+                    )}
                   </CalloutAlert>
                 )}
                 {state.teams.map((team) => (
@@ -616,6 +698,8 @@ export function PiPlanningClient() {
                     views={views}
                     editing={editing}
                     setEditing={setEditing}
+                    onClose={closeEditor}
+                    refFor={refFor}
                     actions={actions}
                   />
                 ))}
@@ -632,6 +716,8 @@ export function PiPlanningClient() {
                 objectives={objectives}
                 editingId={editingObjective}
                 setEditingId={setEditingObjective}
+                onClose={closeObjective}
+                refFor={refFor}
                 onAdd={addObjective}
                 onSave={saveObjective}
                 onRemove={removeObjective}
@@ -649,7 +735,9 @@ export function PiPlanningClient() {
         title={
           confirm?.kind === "team"
             ? `Remove team “${confirm.team.name}”?`
-            : `Cut the PI to ${confirm?.kind === "iterations" ? confirm.next : ""} iterations?`
+            : confirm?.kind === "iterations"
+              ? `Cut the PI to ${confirm.next} ${confirm.next === 1 ? "iteration" : "iterations"}?`
+              : ""
         }
         description={confirmText(confirm, state)}
         confirmLabel={confirm?.kind === "team" ? "Remove team" : "Remove iterations"}

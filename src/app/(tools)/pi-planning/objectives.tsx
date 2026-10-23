@@ -3,6 +3,7 @@
 import { Pencil, Trash2 } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
+import type { RefFor } from "../dependency-map/use-return-focus";
 import { ObjectiveAddForm, ObjectiveEditor, type ObjectiveValues } from "./forms";
 import type { PiObjective, PiTeam } from "./store";
 
@@ -30,6 +31,8 @@ export function ObjectivesPanel({
   objectives,
   editingId,
   setEditingId,
+  onClose,
+  refFor,
   onAdd,
   onSave,
   onRemove,
@@ -38,6 +41,9 @@ export function ObjectivesPanel({
   objectives: readonly PiObjective[];
   editingId: string | null;
   setEditingId: (id: string | null) => void;
+  /** Close the editor on this objective, focus back on its Edit button. */
+  onClose: (id: string) => void;
+  refFor: RefFor;
   onAdd: (v: ObjectiveValues) => void;
   onSave: (o: PiObjective, v: ObjectiveValues) => void;
   onRemove: (o: PiObjective) => void;
@@ -61,7 +67,7 @@ export function ObjectivesPanel({
                       objective={o}
                       teams={teams}
                       onSave={(v) => onSave(o, v)}
-                      onCancel={() => setEditingId(null)}
+                      onCancel={() => onClose(o.id)}
                     />
                   ) : (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -85,6 +91,7 @@ export function ObjectivesPanel({
                       </span>
                       <span className="flex shrink-0 items-center">
                         <IconButton
+                          ref={refFor(`objective:${o.id}`)}
                           label={`Edit objective ${o.title}`}
                           icon={<Pencil className="h-4 w-4" />}
                           className="text-sub hover:text-text"

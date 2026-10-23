@@ -17,6 +17,7 @@ import type { DependencyStatus } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { dayLabel } from "../dependency-map/format";
 import { DependencyStatusChip } from "../dependency-map/status-chip";
+import type { RefFor } from "../dependency-map/use-return-focus";
 import {
   EMPTY_ITEM,
   PiItemEditor,
@@ -25,7 +26,7 @@ import {
   type ItemValues,
   type TeamValues,
 } from "./forms";
-import { capacityOf, cellLoad, teamLoad, type DependencyView } from "./load";
+import { capacityOf, cellLoad, teamLoad, waitsOnTeam, type DependencyView } from "./load";
 import type { PiItem, PiItemKind, PiState, PiTeam } from "./store";
 
 const KIND_STYLE: Record<PiItemKind, { label: string; border: string; text: string }> = {
@@ -76,6 +77,8 @@ export function TeamCard({
   views,
   editing,
   setEditing,
+  onClose,
+  refFor,
   actions,
 }: {
   team: PiTeam;
@@ -84,6 +87,10 @@ export function TeamCard({
   views: ReadonlyMap<string, DependencyView>;
   editing: Editing;
   setEditing: (e: Editing) => void;
+  /** Close the open editor, focus back on what opened it. */
+  onClose: () => void;
+  /** Registers the controls focus returns to (`useReturnFocus`). */
+  refFor: RefFor;
   actions: BoardActions;
 }) {
   const headingId = useId();
@@ -94,7 +101,10 @@ export function TeamCard({
 
   return (
     <section
-      aria-labelledby={headingId}
+      // The heading is swapped for the editor while editing; keep the region named.
+      {...(editingTeam
+        ? { "aria-label": team.name || "Unnamed team" }
+        : { "aria-labelledby": headingId })}
       className="min-w-0 rounded-xl border border-border bg-surface p-3 sm:p-4"
     >
       {editingTeam ? (
@@ -102,7 +112,7 @@ export function TeamCard({
           team={team}
           teams={state.teams}
           onSave={(v) => actions.saveTeam(team, v)}
-          onCancel={() => setEditing(null)}
+          onCancel={onClose}
         />
       ) : (
         <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
@@ -124,6 +134,7 @@ export function TeamCard({
           </div>
           <span className="ml-auto flex shrink-0 items-center">
             <IconButton
+              ref={refFor(`team:${team.id}`)}
               label={`Edit team ${team.name}`}
               icon={<Pencil className="h-4 w-4" />}
               className="text-sub hover:text-text"
@@ -188,13 +199,14 @@ export function TeamCard({
                             otherTeams={others}
                             submitLabel="Save"
                             onSave={(v) => actions.saveItem(item, v)}
-                            onCancel={() => setEditing(null)}
+                            onCancel={onClose}
                           />
                         ) : (
                           <ItemCard
                             item={item}
                             view={views.get(item.id)}
                             state={state}
+                            refFor={refFor}
                             onEdit={() => setEditing({ kind: "item", id: item.id })}
                             actions={actions}
                           />
@@ -210,10 +222,11 @@ export function TeamCard({
                     otherTeams={others}
                     submitLabel="Add item"
                     onSave={(v) => actions.addItem(team, it, v)}
-                    onCancel={() => setEditing(null)}
+                    onCancel={onClose}
                   />
                 ) : (
                   <Button
+                    ref={refFor(`add:${team.id}:${it}`)}
                     type="button"
                     variant="ghost"
                     size="sm"
@@ -238,12 +251,14 @@ function ItemCard({
   item,
   view,
   state,
+  refFor,
   onEdit,
   actions,
 }: {
   item: PiItem;
   view: DependencyView | undefined;
   state: PiState;
+  refFor: RefFor;
   onEdit: () => void;
   actions: BoardActions;
 }) {
@@ -267,8 +282,15 @@ function ItemCard({
         <DependencyLine item={item} view={view} actions={actions} />
       )}
       <div className="flex flex-wrap items-center justify-end">
-        <MoveMenu item={item} state={state} onMove={(t, it) => actions.moveItem(item, t, it)} />
+        <MoveMenu
+          item={item}
+          view={view}
+          state={state}
+          triggerRef={refFor(`move:${item.id}`)}
+          onMove={(t, it) => actions.moveItem(item, t, it)}
+        />
         <IconButton
+          ref={refFor(`item:${item.id}`)}
           label={`Edit ${name}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
@@ -356,14 +378,23 @@ function DependencyLine({
   );
 }
 
-/** "Move to…": any team's any iteration, from the keyboard as well as the mouse. */
+/**
+ * "Move to…": any team's any iteration, from the keyboard as well as the
+ * mouse. A dependency can't go to the team it waits on: those iterations
+ * are disabled, and say why.
+ */
 function MoveMenu({
   item,
+  view,
   state,
+  triggerRef,
   onMove,
 }: {
   item: PiItem;
+  view: DependencyView | undefined;
   state: PiState;
+  /** Focus lands here after a move: the item re-renders in its new cell. */
+  triggerRef: (el: HTMLElement | null) => void;
   onMove: (teamId: string, iteration: number) => void;
 }) {
   const name = item.title || "item";
@@ -371,6 +402,7 @@ function MoveMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
+          ref={triggerRef}
           type="button"
           variant="ghost"
           size="sm"
@@ -382,25 +414,32 @@ function MoveMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
-        {state.teams.map((t) => (
-          <DropdownMenuGroup key={t.id}>
-            <DropdownMenuLabel className="text-xs font-medium text-sub">{t.name}</DropdownMenuLabel>
-            {Array.from({ length: state.iterations }, (_, it) => {
-              const here = t.id === item.teamId && it === item.iteration;
-              return (
-                <DropdownMenuItem
-                  key={it}
-                  disabled={here}
-                  aria-label={`${t.name}, iteration ${it + 1}${here ? " (here now)" : ""}`}
-                  onSelect={() => onMove(t.id, it)}
-                >
-                  Iteration {it + 1}
-                  {here && <span className="ml-auto text-xs text-sub">here</span>}
-                </DropdownMenuItem>
-              );
-            })}
-          </DropdownMenuGroup>
-        ))}
+        {state.teams.map((t) => {
+          const waitsOn = waitsOnTeam(view, t.name);
+          return (
+            <DropdownMenuGroup key={t.id}>
+              <DropdownMenuLabel className="text-xs font-medium text-sub">
+                {t.name}
+                {waitsOn && <span className="font-normal"> · waits on this team</span>}
+              </DropdownMenuLabel>
+              {Array.from({ length: state.iterations }, (_, it) => {
+                const here = t.id === item.teamId && it === item.iteration;
+                const note = here ? " (here now)" : waitsOn ? " (waits on this team)" : "";
+                return (
+                  <DropdownMenuItem
+                    key={it}
+                    disabled={here || waitsOn}
+                    aria-label={`${t.name}, iteration ${it + 1}${note}`}
+                    onSelect={() => onMove(t.id, it)}
+                  >
+                    Iteration {it + 1}
+                    {here && <span className="ml-auto text-xs text-sub">here</span>}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuGroup>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
