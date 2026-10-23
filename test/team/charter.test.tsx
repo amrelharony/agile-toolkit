@@ -52,6 +52,7 @@ beforeEach(() => {
     selectedScale: "Fibonacci",
     descriptions: { "Fibonacci:1": "Our tiniest change" },
     examples: {},
+    referenceStoryIds: {},
   });
   window.localStorage.setItem(
     DOD_STORAGE_KEY,
@@ -63,7 +64,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  useWorkspaceStore.setState({ teamMembers: [], workingAgreements: [] });
+  useWorkspaceStore.setState({ teamMembers: [], workingAgreements: [], stories: [] });
 });
 
 describe("TeamCharter", () => {
@@ -91,6 +92,56 @@ describe("TeamCharter", () => {
       .querySelector('[data-charter="agreement"]') as HTMLElement;
     expect(card).toHaveTextContent("No rules agreed yet");
     expect(within(card).getByRole("link", { name: /Write it/ })).toBeInTheDocument();
+  });
+
+  it("reads refinement checks on the stories and lists the guide's pinned stories", async () => {
+    useWorkspaceStore.setState({
+      stories: [
+        {
+          id: "s1",
+          title: "Refund an order",
+          status: "done",
+          points: 8,
+          readiness: {
+            checked: ["c1", "c2", "c3"],
+            ready: true,
+            updatedAt: new Date(2026, 9, 20, 12).toISOString(),
+          },
+        },
+        {
+          id: "s2",
+          title: "Split a bill",
+          status: "backlog",
+          readiness: {
+            checked: [],
+            ready: false,
+            updatedAt: new Date(2026, 9, 21, 12).toISOString(),
+          },
+        },
+      ],
+    });
+    // The example's pin on 8 is the guide's sample, not the team's.
+    useEstimationGuideStore.setState({
+      referenceStoryIds: { "Fibonacci:8": ["s1", "example-guide-ref-8"] },
+    });
+    render(<TeamCharter />);
+    const list = screen.getByRole("list", { name: "Charter documents" });
+    const card = (id: string) => list.querySelector(`[data-charter="${id}"]`) as HTMLElement;
+
+    expect(card("dor")).toHaveTextContent("50% pass rate over the last 2 stories");
+    expect(card("estimation")).toHaveTextContent("1 reference story on 1 card");
+    const refs = within(card("estimation")).getByRole("list", {
+      name: "Reference stories by card",
+    });
+    expect(within(refs).getAllByRole("listitem")).toHaveLength(1);
+    expect(refs).toHaveTextContent("Card 8Refund an order");
+    expect(within(refs).getByRole("link", { name: "Refund an order" })).toHaveAttribute(
+      "href",
+      "/estimation-guide"
+    );
+
+    await screen.findByText("1 criterion · 1 required");
+    expect(screen.getByTestId("export-markdown").textContent).toContain(" |  | Refund an order |");
   });
 
   it("edits the ceremony times in place", () => {

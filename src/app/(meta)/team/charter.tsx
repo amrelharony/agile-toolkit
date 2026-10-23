@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, CalendarClock, ScrollText } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -9,6 +9,7 @@ import { ExportButton } from "@/components/shared/export-button";
 import { CadenceForm } from "@/components/sprints/cadence-form";
 import { getToolById } from "@/lib/constants/tools";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Story } from "@/lib/stores/workspace-types";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { todayIso } from "@/lib/sprints/series";
@@ -21,6 +22,8 @@ import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view"
 
 /** MUST match WA_ID in working-agreement-client.tsx and actions/tools/working-agreement.ts. */
 const WA_ID = "workingAgreement:current";
+/** One empty list, so a workspace without stories doesn't make the docs anew each render. */
+const NO_STORIES: Story[] = [];
 
 /**
  * The team charter: the agreements the team works by, each a card with
@@ -40,8 +43,12 @@ export function TeamCharter() {
       selectedScale: s.selectedScale,
       descriptions: s.descriptions,
       examples: s.examples,
+      referenceStoryIds: s.referenceStoryIds,
     }))
   );
+  // Refinement checks now live on the stories, and the guide pins stories
+  // by id: both cards read the workspace's stories.
+  const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
   // The guide's store waits to be asked (its page merges a shared link first).
   useEffect(() => {
     void useEstimationGuideStore.persist.rehydrate();
@@ -50,8 +57,8 @@ export function TeamCharter() {
   const [today] = useState(() => todayIso());
 
   const docs = useMemo<CharterDocs>(
-    () => ({ members, cadence, agreement, dod, dor, estimation }),
-    [members, cadence, agreement, dod, dor, estimation]
+    () => ({ members, cadence, agreement, dod, dor, estimation, stories }),
+    [members, cadence, agreement, dod, dor, estimation, stories]
   );
   const cards = useMemo(() => charterCards(docs), [docs]);
   const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);
@@ -90,6 +97,32 @@ export function TeamCharter() {
                   {card.status}
                 </p>
                 {card.detail && <p className="text-xs text-sub">{card.detail}</p>}
+                {card.references && (
+                  <ul aria-label="Reference stories by card" className="space-y-0.5 pt-0.5">
+                    {card.references.map((ref) => (
+                      <li key={ref.value} className="flex items-baseline gap-2 text-xs">
+                        <span className="w-6 shrink-0 text-right font-semibold tabular-nums text-text">
+                          <span className="sr-only">Card </span>
+                          {ref.value}
+                        </span>
+                        <span className="min-w-0 break-words text-sub">
+                          {ref.stories.map((s, i) => (
+                            <Fragment key={s.id}>
+                              {i > 0 && "; "}
+                              <Link
+                                href={card.href}
+                                className="text-accent underline-offset-2 hover:underline"
+                              >
+                                {s.title}
+                              </Link>
+                              {s.drift && <span className="text-warning"> ({s.drift})</span>}
+                            </Fragment>
+                          ))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <Link
                   href={card.href}
                   className="mt-auto inline-flex items-center gap-1 pt-1 text-sm font-medium text-accent hover:underline"

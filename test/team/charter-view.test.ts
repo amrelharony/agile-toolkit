@@ -48,8 +48,24 @@ const FULL: CharterDocs = {
       { id: "c2", label: "Estimated by team" },
     ],
     history: [
-      { passRate: 100, date: "2026-10-20", storyName: "A" },
-      { passRate: 50, date: "2026-10-19", storyName: "B" },
+      {
+        id: "h1",
+        storyName: "A",
+        date: "2026-10-20",
+        checks: [],
+        totalCriteria: 2,
+        metCount: 2,
+        passRate: 100,
+      },
+      {
+        id: "h2",
+        storyName: "B",
+        date: "2026-10-19",
+        checks: [],
+        totalCriteria: 2,
+        metCount: 1,
+        passRate: 50,
+      },
     ],
   },
   estimation: {
@@ -89,7 +105,9 @@ describe("charterCards", () => {
       detail: "75% pass rate over the last 2 stories",
     });
     expect(estimation.status).toMatch(/^Fibonacci · 2 of \d+ values in the team's words$/);
-    expect(estimation.detail).toBe("1 reference story");
+    // The guide's free-text example column; pinned stories are counted apart.
+    expect(estimation.detail).toBe("1 team example");
+    expect(estimation.references).toBeUndefined();
   });
 });
 
