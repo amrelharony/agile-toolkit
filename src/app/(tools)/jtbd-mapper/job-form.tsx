@@ -2,6 +2,7 @@
 
 import { Plus } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
+import Link from "next/link";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +10,8 @@ import { ItemForm, useItemForm, type ItemFormState } from "@/components/shared/i
 import type { JobStory } from "@/lib/stores/workspace-types";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import { descendantIds, jobSentence, jobsInTreeOrder, wouldCycle } from "./jobs";
+import { OPPORTUNITY_TREE_HREF, opportunityIds } from "./opportunities";
+import type { OpportunityGroup } from "./opportunities";
 
 /** Per clause; the sentence is shown in full, so a pasted page is an error. */
 export const CLAUSE_MAX = 500;
@@ -21,6 +24,12 @@ export interface JobDraft {
   description: string;
   /** "" for a top-level job. */
   parentJobId: string;
+  /**
+   * The Opportunity Tree opportunity it serves; "" for none. Only the add
+   * form sets it: a saved job's link changes from its row (Link, Unlink),
+   * so editing the clauses never touches it.
+   */
+  opportunityId?: string;
 }
 
 export interface JobValues {
@@ -29,6 +38,7 @@ export interface JobValues {
   outcome: string;
   description?: string;
   parentJobId?: string;
+  opportunityId?: string;
 }
 
 export type JobField = keyof JobDraft;
@@ -39,6 +49,7 @@ export const EMPTY_JOB_DRAFT: JobDraft = {
   outcome: "",
   description: "",
   parentJobId: "",
+  opportunityId: "",
 };
 
 type Clause = "situation" | "motivation" | "outcome";
@@ -73,6 +84,8 @@ export interface JobContext {
   jobs: readonly JobStory[];
   /** The job being edited (it can't sit under itself or its own sub-jobs). */
   editingId?: string;
+  /** The opportunities a new job may link to (the add form's picker). */
+  opportunityIds?: ReadonlySet<string>;
 }
 
 /**
@@ -104,6 +117,12 @@ export function validateJob(d: JobDraft, ctx: JobContext): Validation<JobValues,
       errors.parentJobId = "A job can’t sit under itself or one of its own sub-jobs.";
   }
 
+  // The pick can vanish while the form is open (deleted in the tree in
+  // another tab, or by an agent); saving it would start the job dangling.
+  const opportunityId = d.opportunityId ?? "";
+  if (opportunityId && ctx.opportunityIds && !ctx.opportunityIds.has(opportunityId))
+    errors.opportunityId = "That opportunity was removed from the tree. Pick another, or none.";
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return {
     ok: true,
@@ -111,6 +130,7 @@ export function validateJob(d: JobDraft, ctx: JobContext): Validation<JobValues,
       ...clean,
       ...(description ? { description } : {}),
       ...(parentJobId ? { parentJobId } : {}),
+      ...(opportunityId ? { opportunityId } : {}),
     },
   };
 }
@@ -156,17 +176,22 @@ const SELECT_CLASS =
 
 const short = (s: string, max = 80) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 
-/** The three clauses, a preview of the sentence, the parent and notes. */
+/**
+ * The three clauses, a preview of the sentence, the parent and notes, and
+ * (in the add form only, when `opportunities` is given) the opportunity.
+ */
 function JobFields({
   draft,
   update,
   errors,
   ctx,
+  opportunities,
 }: {
   draft: JobDraft;
   update: (patch: Partial<JobDraft>) => void;
   errors: FormErrors<JobField>;
   ctx: JobContext;
+  opportunities?: readonly OpportunityGroup[];
 }) {
   // A job can go under any other job except itself and its own sub-jobs.
   const blocked = ctx.editingId
@@ -239,10 +264,20 @@ function JobFields({
             </select>
           )}
         </Field>
+        {opportunities && (
+          <OpportunityField
+            groups={opportunities}
+            value={draft.opportunityId ?? ""}
+            error={errors.opportunityId}
+            onChange={(opportunityId) => update({ opportunityId })}
+          />
+        )}
         <Field
           label="Notes"
           hint="Optional: context, evidence, open questions."
           error={errors.description}
+          // With the opportunity beside the parent, the notes take the full row.
+          className={opportunities ? "md:col-span-2" : undefined}
         >
           {(props) => (
             <Textarea
@@ -259,14 +294,78 @@ function JobFields({
   );
 }
 
+/**
+ * "Opportunity": optional, grouped under each opportunity's outcome
+ * for context. With none in the tree yet the picker is off and the hint
+ * points to the Opportunity Tree.
+ */
+function OpportunityField({
+  groups,
+  value,
+  error,
+  onChange,
+}: {
+  groups: readonly OpportunityGroup[];
+  value: string;
+  error?: string;
+  onChange: (opportunityId: string) => void;
+}) {
+  const empty = groups.length === 0;
+  return (
+    <Field
+      label="Opportunity"
+      hint={
+        empty ? (
+          <>
+            None yet: map them in the{" "}
+            <Link href={OPPORTUNITY_TREE_HREF} className="text-accent hover:underline">
+              Opportunity Tree
+            </Link>
+            .
+          </>
+        ) : (
+          "Optional: the Opportunity Tree need this job is part of."
+        )
+      }
+      error={error}
+    >
+      {(props) => (
+        <select
+          {...props}
+          className={SELECT_CLASS}
+          value={value}
+          disabled={empty}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">None</option>
+          {groups.map((g) => (
+            <optgroup
+              key={g.outcomeId ?? "none"}
+              label={g.outcomeId ? `Outcome: ${short(g.outcome)}` : g.outcome}
+            >
+              {g.options.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {short(o.title)}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      )}
+    </Field>
+  );
+}
+
 /** The add form's state; the client owns it so "Add a job under this" can set the parent. */
 export function useJobAddForm(
   onAdd: (values: JobValues) => void,
-  jobs: readonly JobStory[]
+  jobs: readonly JobStory[],
+  opportunities: readonly OpportunityGroup[] = []
 ): ItemFormState<JobDraft, JobField> {
+  const ids = opportunityIds(opportunities);
   return useItemForm<JobDraft, JobValues, JobField>({
     initial: EMPTY_JOB_DRAFT,
-    validate: (d) => validateJob(d, { jobs }),
+    validate: (d) => validateJob(d, { jobs, opportunityIds: ids }),
     onSave: onAdd,
   });
 }
@@ -275,10 +374,13 @@ export function useJobAddForm(
 export function JobAddForm({
   form,
   jobs,
+  opportunities = [],
   footer,
 }: {
   form: ItemFormState<JobDraft, JobField>;
   jobs: readonly JobStory[];
+  /** The opportunities the new job may serve; with none, the picker says so. */
+  opportunities?: readonly OpportunityGroup[];
   footer?: ReactNode;
 }) {
   return (
@@ -288,7 +390,13 @@ export function JobAddForm({
       submitIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
       footer={footer}
     >
-      <JobFields draft={form.draft} update={form.update} errors={form.errors} ctx={{ jobs }} />
+      <JobFields
+        draft={form.draft}
+        update={form.update}
+        errors={form.errors}
+        ctx={{ jobs }}
+        opportunities={opportunities}
+      />
     </ItemForm>
   );
 }

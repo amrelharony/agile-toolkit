@@ -48,6 +48,14 @@ import {
 } from "./jobs";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
+import {
+  opportunityGroups,
+  resolveOpportunity,
+  treeNodes,
+  withoutOpportunity,
+} from "./opportunities";
+import type { OpportunityGroup, OpportunityLink } from "./opportunities";
+import { LinkOpportunityMenu, OpportunityChip } from "./opportunity-link";
 import { useFocusAfter } from "./use-focus-after";
 import { jtbdSummary } from "./verdict";
 
@@ -60,7 +68,10 @@ const STORY_STATE: Record<Story["status"], string> = {
   done: "done",
 };
 
-/** The note saying why example jobs can't become stories; their disabled buttons point to it. */
+/**
+ * The note saying why example jobs can't become stories or link to
+ * opportunities; their disabled buttons point to it.
+ */
 const EXAMPLE_NOTE_ID = "jtbd-example-story-note";
 
 /** Deep enough for any real job map; stops a hand-edited chain from blowing the stack. */
@@ -71,6 +82,12 @@ const EMPTY_JOBS: JobStory[] = [];
 export function JtbdMapperClient() {
   const jobs = useWorkspaceStore((s) => s.jobStories ?? EMPTY_JOBS);
   const stories = useWorkspaceStore((s) => s.stories);
+  // The Opportunity Tree's nodes, read live: a node renamed or deleted
+  // there shows here at once (the job stores only the node's id).
+  const trees = useWorkspaceStore((s) => s.opportunityTrees);
+  const nodes = useMemo(() => treeNodes(trees), [trees]);
+  const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const groups = useMemo(() => opportunityGroups(nodes), [nodes]);
   // A whole-array replace over the synced collection, reading the store at
   // the moment it writes so two quick edits can't overwrite each other.
   const setJobs = (update: (prev: JobStory[]) => JobStory[]) => {
@@ -92,9 +109,10 @@ export function JtbdMapperClient() {
       outcome: job.outcome,
       parentJobId: job.parentJobId,
       description: job.description,
+      opportunityId: job.opportunityId,
     });
   }
-  const form = useJobAddForm(add, jobs);
+  const form = useJobAddForm(add, jobs, groups);
 
   /** Close the editor, back on the row's Edit button. */
   function closeEditor(id: string) {
@@ -107,6 +125,42 @@ export function JtbdMapperClient() {
     if (sameJob(job, v)) return;
     setJobs((s) => s.map((j) => (j.id === job.id ? withJobValues(j, v) : j)));
     log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: job.id, patch: v });
+  }
+
+  /**
+   * "Link to opportunity". Example jobs never link to real nodes, so the
+   * example stays something to look at and clear, never mixed into the
+   * team's discovery work; nor is a user's job offered an example node
+   * (see opportunityGroups). Focus moves to the new chip, as the menu's
+   * button is gone.
+   */
+  function linkOpportunity(job: JobStory, opportunityId: string) {
+    if (isExampleId(job.id) || !nodeById.has(opportunityId)) return;
+    setJobs((s) => s.map((j) => (j.id === job.id ? { ...j, opportunityId } : j)));
+    log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: job.id, patch: { opportunityId } });
+    focusAfter(`opportunity:${job.id}`);
+  }
+
+  /** Unlink, with Undo; focus goes back to the row's "Link to opportunity". */
+  function unlinkOpportunity(job: JobStory) {
+    const previous = job.opportunityId;
+    if (!previous) return;
+    focusAfter(`link-opportunity:${job.id}`, `edit:${job.id}`);
+    undoable({
+      label: "Unlinked the opportunity",
+      description: jobSentence(job),
+      apply: () => {
+        setJobs((s) => s.map((j) => (j.id === job.id ? withoutOpportunity(j) : j)));
+        log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: job.id, patch: { opportunityId: null } });
+      },
+      // Only a job still without a link gets it back: one linked anew since wins.
+      revert: () =>
+        setJobs((s) =>
+          s.map((j) =>
+            j.id === job.id && !j.opportunityId ? { ...j, opportunityId: previous } : j
+          )
+        ),
+    });
   }
 
   /** "Add a job under this": the add form takes the parent and gets focus. */
@@ -292,10 +346,19 @@ export function JtbdMapperClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: ["Situation", "Motivation", "Outcome", "Parent", "Description", "Backlog story"],
+      headers: [
+        "Situation",
+        "Motivation",
+        "Outcome",
+        "Parent",
+        "Description",
+        "Backlog story",
+        "Opportunity",
+      ],
       rows: jobs.map((j) => {
         const parent = j.parentJobId ? jobs.find((p) => p.id === j.parentJobId) : undefined;
         const story = byJob.get(j.id);
+        const link = resolveOpportunity(j, nodeById);
         return [
           j.situation,
           j.motivation,
@@ -303,10 +366,11 @@ export function JtbdMapperClient() {
           parent ? jobSentence(parent) : "",
           j.description ?? "",
           story ? (STORY_STATE[story.status] ?? story.status) : "",
+          link.state === "linked" ? link.title : link.state === "missing" ? "(removed)" : "",
         ];
       }),
     }),
-    [jobs, byJob]
+    [jobs, byJob, nodeById]
   );
 
   const renderRow = (job: JobStory, depth: number, seen: ReadonlySet<string>): React.ReactNode => {
@@ -328,6 +392,10 @@ export function JtbdMapperClient() {
             <JobRow
               job={job}
               story={byJob.get(job.id)}
+              opportunity={resolveOpportunity(job, nodeById)}
+              groups={groups}
+              onLinkOpportunity={(id) => linkOpportunity(job, id)}
+              onUnlinkOpportunity={() => unlinkOpportunity(job)}
               onCreateStory={() => createStory(job)}
               onAddUnder={() => addUnder(job)}
               onEdit={() => setEditingId(job.id)}
@@ -359,7 +427,7 @@ export function JtbdMapperClient() {
 
         <SectionCard title="Add a job story" icon={Plus}>
           <div data-focus-key="add">
-            <JobAddForm form={form} jobs={jobs} />
+            <JobAddForm form={form} jobs={jobs} opportunities={groups} />
           </div>
         </SectionCard>
 
@@ -379,7 +447,7 @@ export function JtbdMapperClient() {
                   filename="jtbd-mapper"
                   csvData={csvData}
                   jsonData={jobs}
-                  markdown={toMarkdown(jobs, stories)}
+                  markdown={toMarkdown(jobs, stories, new Date(), nodes)}
                   targetRef={exportRef}
                 />
               </>
@@ -388,8 +456,8 @@ export function JtbdMapperClient() {
             <p className="mb-3 text-sm font-medium text-text">{summary}</p>
             {hasExampleItems(jobs) && (
               <p id={EXAMPLE_NOTE_ID} className="mb-3 text-xs text-sub">
-                Example jobs can’t become backlog stories. Clear the example to make stories from
-                your own jobs.
+                Example jobs can’t become backlog stories or link to opportunities. Clear the
+                example to do that with your own jobs.
               </p>
             )}
             <ul className="space-y-2" aria-label="Job stories">
@@ -413,13 +481,17 @@ export function JtbdMapperClient() {
 }
 
 /**
- * One job: the sentence, its notes, its backlog story, and the actions. A
- * job with a blank clause (the old form saved those) offers to be completed
- * instead of making a story titled "…I want to (motivation)…".
+ * One job: the sentence, its notes and opportunity, its backlog story, and
+ * the actions. A job with a blank clause (the old form saved those) offers
+ * to be completed instead of making a story titled "…I want to (motivation)…".
  */
 function JobRow({
   job,
   story,
+  opportunity,
+  groups,
+  onLinkOpportunity,
+  onUnlinkOpportunity,
   onCreateStory,
   onAddUnder,
   onEdit,
@@ -427,6 +499,10 @@ function JobRow({
 }: {
   job: JobStory;
   story: Story | undefined;
+  opportunity: OpportunityLink;
+  groups: readonly OpportunityGroup[];
+  onLinkOpportunity: (opportunityId: string) => void;
+  onUnlinkOpportunity: () => void;
   onCreateStory: () => void;
   onAddUnder: () => void;
   onEdit: () => void;
@@ -451,6 +527,14 @@ function JobRow({
         </p>
         {job.description && (
           <p className="whitespace-pre-wrap break-words text-xs text-sub">{job.description}</p>
+        )}
+        {opportunity.state !== "none" && (
+          <OpportunityChip
+            link={opportunity}
+            when={when}
+            focusKey={`opportunity:${job.id}`}
+            onUnlink={onUnlinkOpportunity}
+          />
         )}
       </div>
       {/* Free to shrink, so on a phone a nested row's actions wrap instead of
@@ -492,6 +576,16 @@ function JobRow({
             <BookPlus aria-hidden="true" />
             Create story
           </Button>
+        )}
+        {opportunity.state === "none" && (
+          <LinkOpportunityMenu
+            groups={groups}
+            when={when}
+            focusKey={`link-opportunity:${job.id}`}
+            disabled={example}
+            describedBy={example ? EXAMPLE_NOTE_ID : undefined}
+            onLink={onLinkOpportunity}
+          />
         )}
         <IconButton
           label={`Add a job under: ${when}`}

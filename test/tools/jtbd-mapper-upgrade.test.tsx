@@ -109,7 +109,7 @@ describe("Job Story Mapper first run", () => {
     });
     expect(create).toBeDisabled();
     // The reason is on screen, not in a tooltip a disabled button never shows.
-    const note = screen.getByText(/Example jobs can’t become backlog stories\./);
+    const note = screen.getByText(/Example jobs can’t become backlog stories or link/);
     expect(create).toHaveAttribute("aria-describedby", note.id);
     expect(create).not.toHaveAttribute("title");
     expect(stories()).toEqual([]);
