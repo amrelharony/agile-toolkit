@@ -8,7 +8,8 @@
  *
  *   - The starter values (a 120-point backlog and the velocities
  *     "18, 22, 19, 25, 21, 17, 23, 20") looked like real data. A config that
- *     still holds both was never filled in, so it loads as empty.
+ *     still holds every starter value was never filled in, so it loads as
+ *     empty; the starter list alone is dropped from any config.
  *   - "Scope buffer %" and the "Scope sensitivity" slider compounded the
  *     same idea. They are one "expected scope change %" now; an old config
  *     gets the two combined, so its forecast doesn't move.
@@ -48,8 +49,35 @@ export interface ReleasePlannerConfig {
    * only while no target date is set, so an old target still shows.
    */
   sprintsToReleaseTarget?: string;
-  /** Set while the example is loaded (an `example-` id); "Clear example" empties the config. */
+  /** Set while the example is loaded (an `example-` id). */
   example?: string;
+  /**
+   * What the example's fields held before it loaded, so "Clear example"
+   * puts back a target date or scope change the user had already set
+   * instead of blanking it. Only kept while `example` is set.
+   */
+  beforeExample?: ExampleFields;
+}
+
+/** The fields the example fills in (see example.ts). */
+export const EXAMPLE_FIELDS = [
+  "scopeSource",
+  "backlogSize",
+  "scopeChangePct",
+  "velocitySource",
+  "velocityInput",
+  "targetDate",
+] as const;
+
+export type ExampleFields = Pick<ReleasePlannerConfig, (typeof EXAMPLE_FIELDS)[number]>;
+
+/** The example's fields of `config`, as they are now. */
+export function pickExampleFields(config: ReleasePlannerConfig): ExampleFields {
+  const picked: Partial<ExampleFields> = {};
+  for (const key of EXAMPLE_FIELDS) {
+    if (config[key] !== undefined) Object.assign(picked, { [key]: config[key] });
+  }
+  return picked as ExampleFields;
 }
 
 export const EMPTY_CONFIG: ReleasePlannerConfig = {
@@ -108,14 +136,24 @@ export function normalizeConfig(raw: unknown): ReleasePlannerConfig {
   }
   const target = text(r.sprintsToReleaseTarget).trim();
   if (target) config.sprintsToReleaseTarget = target;
-  if (typeof r.example === "string" && isExampleId(r.example)) config.example = r.example;
+  if (typeof r.example === "string" && isExampleId(r.example)) {
+    config.example = r.example;
+    if (r.beforeExample && typeof r.beforeExample === "object") {
+      config.beforeExample = pickExampleFields(normalizeConfig(r.beforeExample));
+    }
+  }
   return config;
 }
 
 /** Version 0's starter backlog size. */
 const LEGACY_STARTER_BACKLOG = 120;
+/** Version 0's starter scope buffer, in percent. */
+const LEGACY_STARTER_BUFFER = 10;
 /** Version 0's fixed sprint length. */
 const LEGACY_DEFAULT_LENGTH = 14;
+
+/** A version-0 value still at its starter value (or missing: an older save). */
+const atStarter = (v: unknown, starter: unknown) => v === undefined || v === starter;
 
 /** Version 0's buffer and adjustment as one change: (1 + b)(1 + a) − 1, to one decimal. */
 export function combineScopeChange(bufferPct: unknown, adjustmentPct: unknown): number {
@@ -128,8 +166,19 @@ export function combineScopeChange(bufferPct: unknown, adjustmentPct: unknown): 
 /** A version-0 config in the version-1 shape (see the header for the rules). */
 export function migrateLegacyConfig(raw: unknown): ReleasePlannerConfig {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  // Never filled in: every field still holds its starter value. The old
+  // velocity box kept the starter numbers whenever velocities came from
+  // sprints, so "120 and the starter list" alone isn't enough: a changed
+  // buffer, length, start or target means the 120 was planned with, and
+  // the config (buffer included) keeps the forecast it had.
   const untouched =
-    r.backlogSize === LEGACY_STARTER_BACKLOG && isStarterVelocityInput(text(r.velocityInput));
+    r.backlogSize === LEGACY_STARTER_BACKLOG &&
+    isStarterVelocityInput(text(r.velocityInput)) &&
+    atStarter(r.scopeBuffer, LEGACY_STARTER_BUFFER) &&
+    atStarter(r.scopeAdjustment, 0) &&
+    atStarter(r.sprintLengthDays, LEGACY_DEFAULT_LENGTH) &&
+    !text(r.startDate) &&
+    !text(r.sprintsToReleaseTarget).trim();
   const change = untouched ? 0 : combineScopeChange(r.scopeBuffer, r.scopeAdjustment);
   return normalizeConfig({
     ...r,

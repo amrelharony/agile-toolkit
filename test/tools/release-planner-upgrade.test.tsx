@@ -66,6 +66,7 @@ import {
   LEGACY_STARTER_VELOCITIES,
   headlineVelocity,
   parseVelocities,
+  sprintEndingBefore,
   sprintSample,
   validateVelocities,
 } from "@/app/(tools)/release-planner/velocity-source";
@@ -88,12 +89,19 @@ import {
 import { releaseVerdict } from "@/app/(tools)/release-planner/verdict";
 import { toMarkdown } from "@/app/(tools)/release-planner/markdown";
 import { releaseNextStep } from "@/app/(tools)/release-planner/next-step";
-import { buildExample, EXAMPLE_ID } from "@/app/(tools)/release-planner/example";
 import {
+  buildExample,
+  clearedExample,
+  withExample,
+  EXAMPLE_ID,
+} from "@/app/(tools)/release-planner/example";
+import {
+  isPartialNumber,
   validateScopeChange,
   validateScopePoints,
   validateSprintLength,
 } from "@/app/(tools)/release-planner/validate";
+import { releasePrompts } from "@/app/(tools)/release-planner/prompts";
 import { bootstrapCrossCheck, recentShift } from "@/app/(tools)/release-planner/advanced";
 import { simulationHistogramText } from "@/app/(tools)/release-planner/chart-text";
 
@@ -188,28 +196,53 @@ describe("scope sources", () => {
       ],
       sprints
     );
-    expect(scope).toEqual({ points: 9.5, stories: 6, unestimated: 1, inOpenSprints: 2 });
+    expect(scope).toEqual({
+      points: 9.5,
+      stories: 6,
+      unestimated: 1,
+      inOpenSprints: 2,
+      skipped: 0,
+    });
     expect(backlogScope([], [])).toEqual({
       points: 0,
       stories: 0,
       unestimated: 0,
       inOpenSprints: 0,
+      skipped: 0,
     });
   });
 
-  it("reads card estimates as points, and anything else as unestimated", () => {
-    expect(
-      ["5", "3.5", "0,5", "½", "8 pts", "13 points", "2sp", "0", " 21 "].map(estimatePoints)
-    ).toEqual([5, 3.5, 0.5, 0.5, 8, 13, 2, 0, 21]);
-    expect(["?", "XL", "", "☕", "-3", "1/2", undefined].map(estimatePoints)).toEqual([
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
+  it("reads card estimates on the Story Mapper's rule, and anything else as unestimated", () => {
+    // The Story Mapper sums a card when Number(estimate) is a finite 0 or
+    // more, so "Plan release" must total a slice the same way.
+    expect(["5", "3.5", ".5", "0", " 21 ", "1e1"].map(estimatePoints)).toEqual([
+      5, 3.5, 0.5, 0, 21, 10,
     ]);
+    const custom = ["?", "XL", "", "  ", "☕", "-3", "1/2", "8 pts", "0,5", "½", "Infinity"];
+    expect([...custom, undefined].map(estimatePoints)).toEqual(Array(12).fill(null));
+  });
+
+  it("leaves out the running sprint's stories when the forecast starts after it", () => {
+    const sprints = [
+      sprint(1, 20),
+      sprint(3, undefined, "active"),
+      sprint(4, undefined, "planned"),
+    ];
+    const stories = [
+      story("b1", 5),
+      story("in-active", 2, { sprintId: "s3", status: "in_progress" }),
+      story("in-active-2", undefined, { sprintId: "s3", status: "todo" }),
+      story("in-planned", 1.5, { sprintId: "s4", status: "todo" }),
+    ];
+    expect(backlogScope(stories, sprints, "s3")).toEqual({
+      points: 6.5,
+      stories: 2,
+      unestimated: 0,
+      inOpenSprints: 1,
+      skipped: 2,
+    });
+    // Starting during the sprint keeps its stories in the scope.
+    expect(backlogScope(stories, sprints)).toMatchObject({ points: 8.5, stories: 4, skipped: 0 });
   });
 
   it("totals each slice over the map's steps only", () => {
@@ -230,7 +263,7 @@ describe("scope sources", () => {
   });
 
   it("resolves the scope of each source, flagging a slice that's gone", () => {
-    const backlog = { points: 40, stories: 5, unestimated: 2, inOpenSprints: 0 };
+    const backlog = { points: 40, stories: 5, unestimated: 2, inOpenSprints: 0, skipped: 0 };
     const slices = storyMapSlices(MAP);
     expect(resolveScope("backlog", { backlogSize: null }, backlog, slices)).toMatchObject({
       points: 40,
@@ -367,6 +400,59 @@ describe("saved config", () => {
     ).toMatchObject({ backlogSize: 300, velocityInput: "", scopeChangePct: 10 });
   });
 
+  it("keeps a 120 backlog's buffer once anything else was set", () => {
+    // The old box kept the starter numbers when velocities came from
+    // sprints, so 120 + the starter list alone doesn't mean "never used".
+    expect(
+      migrateLegacyConfig({
+        backlogSize: 120,
+        velocityInput: LEGACY_STARTER_VELOCITIES,
+        scopeBuffer: 25,
+        scopeAdjustment: 10,
+        sprintLengthDays: 10,
+        startDate: "2027-01-04",
+        sprintsToReleaseTarget: "5",
+        velocitySource: "sprints",
+      })
+    ).toEqual({
+      backlogSize: 120,
+      scopeChangePct: 37.5,
+      velocitySource: "sprints",
+      velocityInput: "",
+      sprintLengthDays: 10,
+      startDate: "2027-01-04",
+      targetDate: "",
+      sprintsToReleaseTarget: "5",
+    });
+    // Any one changed field is enough to keep the backlog and the change.
+    const starter = {
+      backlogSize: 120,
+      velocityInput: LEGACY_STARTER_VELOCITIES,
+      scopeBuffer: 10,
+      scopeAdjustment: 0,
+      sprintLengthDays: 14,
+      startDate: "",
+      sprintsToReleaseTarget: "",
+    };
+    expect(migrateLegacyConfig({ ...starter, scopeBuffer: 20 })).toMatchObject({
+      backlogSize: 120,
+      scopeChangePct: 20,
+    });
+    expect(migrateLegacyConfig({ ...starter, sprintsToReleaseTarget: "6" })).toMatchObject({
+      backlogSize: 120,
+      scopeChangePct: 10,
+    });
+    // Only the velocity source picked: still the starter scope.
+    expect(migrateLegacyConfig({ ...starter, velocitySource: "sprints" })).toEqual({
+      ...EMPTY_CONFIG,
+      velocitySource: "sprints",
+    });
+    // An older save without the later fields reads as untouched too.
+    expect(
+      migrateLegacyConfig({ backlogSize: 120, velocityInput: LEGACY_STARTER_VELOCITIES })
+    ).toEqual(EMPTY_CONFIG);
+  });
+
   it("survives junk", () => {
     expect(normalizeConfig(null)).toEqual(EMPTY_CONFIG);
     expect(
@@ -477,6 +563,19 @@ describe("simulation", () => {
     });
     // A slow tail of 0 has no pace to divide by.
     expect(bootstrapCrossCheck(100, [0, 0, 0, 20, 20])).toBeNull();
+    // One 0-point sprint: the slow bound is 0, so there's no upper bound
+    // (dividing by a clamped 0.01 read "scope × 100 sprints").
+    expect(bootstrapCrossCheck(207, [23, 19, 27, 0, 22, 25, 21, 26])).toEqual({
+      point: 11,
+      optimistic: 10,
+      pessimistic: null,
+    });
+    expect(bootstrapCrossCheck(100, [20, 0, 22, 18, 21])?.pessimistic).toBeNull();
+    expect(bootstrapCrossCheck(207, [23, 19, 27, 14, 22, 25, 21, 26])).toEqual({
+      point: 11,
+      optimistic: 10,
+      pessimistic: 15,
+    });
     expect(recentShift([1, 2, 3, 4, 5, 6, 7])).toBeNull();
     expect(recentShift([20, 21, 19, 20, 22, 21, 20, 21])).toBe(false);
   });
@@ -588,7 +687,7 @@ describe("the plan and its verdict", () => {
       deliverable: { p50: 40, p85: 40 },
     });
     expect(releaseVerdict(short)).toBe(
-      "Very unlikely: almost no run finishes all 50 points by Mar 1, 2027; to be 85% sure, plan for Mar 15, 2027 or cut to about 40 points."
+      "Very unlikely: almost no run finishes all 50 points by Mar 1, 2027; to be 85% sure, plan for Mar 15, 2027 or cut the 50 points to about 40."
     );
 
     const mixed = planRelease(
@@ -602,7 +701,7 @@ describe("the plan and its verdict", () => {
     expect(mixed.target!.chance).toBeGreaterThan(0.6);
     expect(mixed.target!.chance).toBeLessThan(0.75);
     expect(releaseVerdict(mixed)).toMatch(
-      /^A 6\d% chance of finishing all 40 points by Mar 1, 2027; to be 85% sure, plan for [A-Z][a-z]{2} \d+, 2027 or cut to about \d+ points\.$/
+      /^A 6\d% chance of finishing all 40 points by Mar 1, 2027; to be 85% sure, plan for [A-Z][a-z]{2} \d+, 2027 or cut the 40 points to about \d+\.$/
     );
 
     const none = planRelease(input({ targetDate: "2027-01-10", targetFrom: "user" }));
@@ -719,7 +818,9 @@ describe("first run", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(config()).toMatchObject({ example: EXAMPLE_ID, backlogSize: 180, scopeChangePct: 15 });
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
-    expect(verdict()).toMatch(/^Unlikely: a \d+% chance of finishing all 207 points by /);
+    expect(verdict()).toMatch(
+      /^Unlikely: a \d+% chance of finishing all 207 points \(180 with a \+15% change\) by .+ or cut the 180 points to about \d+\.$/
+    );
     expect(useWorkspaceStore.getState().sprints).toEqual([]);
     expect(useWorkspaceStore.getState().stories).toEqual([]);
 
@@ -810,9 +911,9 @@ describe("velocity and dates on the page", () => {
     expect(
       screen.getByText("14 points per sprint, the average of the last 3 sprints.")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("Close 1 more completed sprint to see a forecast.")
-    ).toBeInTheDocument();
+    // NotEnoughData is the verdict here, not a second copy under it.
+    expect(screen.getByText("Close 1 more sprint to see a forecast.")).toBeInTheDocument();
+    expect(screen.queryByTestId("release-verdict")).toBeNull();
     expect(screen.queryByText("Coin flip (P50)")).toBeNull();
 
     act(() => useWorkspaceStore.getState().upsertSprint(sprint(4, 18)));
@@ -907,5 +1008,372 @@ describe("reset", () => {
     expect(label).toBe("Reset the Release Planner");
     act(() => opts.action.onClick());
     expect(config()).toEqual(filled);
+  });
+});
+
+/* ── Review fixes ────────────────────────────────────────────────────── */
+
+const EXAMPLE_VELOCITIES = [23, 19, 27, 14, 22, 25, 21, 26];
+
+describe("verdict wording", () => {
+  const base = planRelease(
+    input({
+      scope: { source: "typed", points: 40, items: 0, unestimated: 0 },
+      sample: { points: [5, 15, 5, 15], labels: [] },
+      targetDate: "2027-03-01",
+      targetFrom: "user",
+    })
+  );
+  const at = (chance: number) => releaseVerdict({ ...base, target: { ...base.target!, chance } });
+
+  it("follows the rounded percentage the page shows", () => {
+    // 84.7% shows as 85%: "Likely", not "85% … to be 85% sure".
+    expect(at(0.847)).toBe("Likely: an 85% chance of finishing all 40 points by Mar 1, 2027.");
+    expect(at(0.844)).toMatch(
+      /^An 84% chance of finishing all 40 points by Mar 1, 2027; to be 85%/
+    );
+    expect(at(0.496)).toMatch(/^A 50% chance of /);
+    expect(at(0.494)).toMatch(/^Unlikely: a 49% chance of /);
+    expect(at(0.994)).toBe("Likely: a 99% chance of finishing all 40 points by Mar 1, 2027.");
+    expect(at(0.995)).toBe("Very likely: almost every run finishes all 40 points by Mar 1, 2027.");
+    expect(at(0.004)).toMatch(/^Very unlikely: almost no run finishes /);
+    // "50%" isn't a long shot for the next step either.
+    expect(releaseNextStep({ ...base, target: { ...base.target!, chance: 0.496 } })).toBeNull();
+    expect(releaseNextStep({ ...base, target: { ...base.target!, chance: 0.494 } })).toMatchObject({
+      id: "release-cut-scope",
+    });
+  });
+
+  it("never advises cutting the scope to 0 points", () => {
+    const plan = planRelease(
+      input({
+        scope: { source: "typed", points: 30, items: 0, unestimated: 0 },
+        sample: { points: [0, 0, 0, 30], labels: [] },
+        targetDate: "2027-01-18",
+        targetFrom: "user",
+      })
+    );
+    expect(plan.target).toMatchObject({ sprints: 1, deliverable: { p85: 0 } });
+    const text = releaseVerdict(plan);
+    expect(text).toMatch(
+      /^Unlikely: a 2\d% chance of finishing all 30 points by Jan 18, 2027; to be 85% sure, plan for [A-Z][a-z]{2} \d+, 2027\.$/
+    );
+    expect(text).not.toContain("cut");
+  });
+
+  it("states the cut in the scope the user edits, before the expected change", () => {
+    const typed = (points: number) =>
+      planRelease(
+        input({
+          scope: { source: "typed", points, items: 0, unestimated: 0 },
+          scopeChangePct: 15,
+          sample: { points: EXAMPLE_VELOCITIES, labels: [] },
+          targetDate: addDaysIso("2027-01-04", 126),
+          targetFrom: "user",
+        })
+      );
+    const plan = typed(180);
+    expect(plan.effective).toBe(207);
+    expect(plan.target).toMatchObject({ sprints: 9, deliverable: { p85: 187 } });
+    // 187 deliverable ÷ 1.15 = 162 typed points, not "cut to 187" (more than the 180 typed).
+    expect(releaseVerdict(plan)).toBe(
+      "Unlikely: a 28% chance of finishing all 207 points (180 with a +15% change) by May 10, 2027; to be 85% sure, plan for May 24, 2027 or cut the 180 points to about 162."
+    );
+    // And the cut gets there.
+    expect(typed(162).effective).toBe(186);
+    expect(typed(162).target!.chance).toBeGreaterThanOrEqual(0.85);
+    // The Markdown export reuses the verdict.
+    expect(toMarkdown(plan)).toContain("cut the 180 points to about 162.");
+  });
+
+  it("names the scope before the change only when there is one", () => {
+    expect(releaseVerdict(planRelease(input({ scopeChangePct: 0 })))).toBe(
+      "Plan for Mar 15, 2027 (5 sprints) to be 85% sure of finishing all 50 points."
+    );
+    expect(releaseVerdict(planRelease(input({ scopeChangePct: -20 })))).toBe(
+      "Plan for Mar 1, 2027 (4 sprints) to be 85% sure of finishing all 40 points (50 with a −20% change)."
+    );
+  });
+
+  it("asks for enough sprints of history, not one", () => {
+    const none = { sample: { points: [], labels: [] } };
+    expect(releaseVerdict(planRelease(input({ ...none, velocitySource: "sprints" })))).toBe(
+      "Close at least 4 sprints with their completed points to get a forecast."
+    );
+    expect(releaseVerdict(planRelease(input(none)))).toBe(
+      "Type the points of at least 4 past sprints to get a forecast."
+    );
+  });
+});
+
+describe("the target date without a forecast", () => {
+  const noScope = { source: "typed" as const, points: null, items: 0, unestimated: 0 };
+
+  it("still says what the team can deliver by the date", () => {
+    const open = planRelease(
+      input({ scope: noScope, targetDate: "2027-03-15", targetFrom: "user" })
+    );
+    expect(open.blocked).toBe("no-scope");
+    expect(open.target).toEqual({
+      date: "2027-03-15",
+      sprints: 5,
+      chance: null,
+      deliverable: { p50: 50, p85: 50 },
+    });
+    const md = toMarkdown(open);
+    expect(md).toContain("## By Mar 15, 2027 (5 sprints)");
+    expect(md).toContain(
+      "- Scope the team can deliver: about 50 points likely (P50), 50 points to promise (P85)"
+    );
+    expect(md).not.toContain("Chance of finishing");
+    // Below the minimum sample there's nothing to say about the date.
+    expect(
+      planRelease(
+        input({
+          scope: noScope,
+          sample: { points: [10, 10, 10], labels: [] },
+          targetDate: "2027-03-15",
+          targetFrom: "user",
+        })
+      ).target
+    ).toBeNull();
+  });
+
+  it("answers the date when the scope is out of reach too", () => {
+    const far = planRelease(
+      input({
+        scope: { source: "typed", points: 100_000, items: 0, unestimated: 0 },
+        sample: { points: [1, 1, 1, 1], labels: [] },
+        targetDate: "2027-03-15",
+        targetFrom: "user",
+      }),
+      { iterations: 20 }
+    );
+    expect(far.blocked).toBe("beyond-cap");
+    expect(far.target).toMatchObject({ sprints: 5, chance: 0, deliverable: { p50: 5, p85: 5 } });
+    // A blocked plan's verdict says what to fix; no "decide what to cut".
+    expect(releaseNextStep(far)).toBeNull();
+    const none = planRelease(
+      input({ scope: noScope, targetDate: "2027-01-10", targetFrom: "user" })
+    );
+    expect(none.target).toMatchObject({ sprints: 0, chance: null, deliverable: null });
+    expect(toMarkdown(none)).toContain("- No full sprint fits between the start and this date.");
+  });
+
+  it("shows the scope to promise on the page without a scope", () => {
+    useReleasePlannerStore.setState({
+      config: {
+        ...EMPTY_CONFIG,
+        scopeSource: "typed",
+        velocityInput: "10, 10, 10, 10",
+        startDate: "2027-01-04",
+        targetDate: "2027-02-15",
+      },
+    });
+    renderPlanner();
+    expect(verdict()).toBe("Add the release scope to get a forecast.");
+    const answer = screen.getByRole("group", { name: /By Feb 15, 2027/ });
+    expect(within(answer).getByText("Scope we can deliver by then").nextSibling).toHaveTextContent(
+      "30 pts to promise (P85) · 30 likely (P50)"
+    );
+    expect(within(answer).queryByText("Probability of finishing by then")).toBeNull();
+  });
+});
+
+describe("the running sprint and the backlog", () => {
+  const running: Sprint = {
+    id: "s9",
+    name: "Sprint 9",
+    startDate: "2026-10-12",
+    endDate: "2026-10-25",
+    pointsPlanned: 30,
+    status: "active",
+  };
+
+  it("finds the running sprint the forecast starts after", () => {
+    expect(sprintEndingBefore(running, "2026-10-26")).toBe(running);
+    expect(sprintEndingBefore(running, "2026-10-25")).toBeUndefined();
+    expect(sprintEndingBefore(running, "2026-10-20")).toBeUndefined();
+    expect(sprintEndingBefore(undefined, "2026-10-26")).toBeUndefined();
+    expect(
+      sprintEndingBefore({ ...running, startDate: "2020-01-03", endDate: "" }, "2026-10-26")
+    ).toBeUndefined();
+  });
+
+  it("counts the running sprint's stories only when the forecast starts during it", () => {
+    useWorkspaceStore.setState({
+      sprints: [...[1, 2, 3, 4].map((n) => sprint(n, 10)), running],
+      stories: [story("b1", 5), story("r1", 3, { sprintId: "s9", status: "in_progress" })],
+    });
+    renderPlanner();
+    // No start set: the day after Sprint 9 ends, so its story is its own work.
+    expect(screen.getByLabelText("Start")).toHaveValue("2026-10-26");
+    expect(screen.getByText(/in 1 open story\.$/).textContent).toBe("5 points in 1 open story.");
+    expect(
+      screen.getByText(
+        "Leaves out 1 open story in Sprint 9, which ends before the forecast starts."
+      )
+    ).toBeInTheDocument();
+    expect(verdict()).toMatch(/finishing all 5 points\.$/);
+
+    // A start inside the sprint plans its work too.
+    fireEvent.change(screen.getByLabelText("Start"), { target: { value: "2026-10-20" } });
+    expect(screen.getByText(/in 2 open stories\.$/).textContent).toBe(
+      "8 points in 2 open stories."
+    );
+    expect(screen.queryByText(/^Leaves out/)).toBeNull();
+    expect(
+      screen.getByText("Includes 1 open story in running or planned sprints.")
+    ).toBeInTheDocument();
+  });
+});
+
+describe("the example keeps what was there", () => {
+  it("puts back a target date and scope change set before it loaded", () => {
+    const before = { ...EMPTY_CONFIG, targetDate: "2027-06-01", scopeChangePct: 5 };
+    useReleasePlannerStore.setState({ config: before });
+    renderPlanner();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(config()).toMatchObject({
+      example: EXAMPLE_ID,
+      scopeChangePct: 15,
+      beforeExample: { targetDate: "2027-06-01", scopeChangePct: 5 },
+    });
+    expect(config().targetDate).not.toBe("2027-06-01");
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(config()).toEqual(before);
+  });
+
+  it("stores the snapshot only alongside the example", () => {
+    const loaded = { ...EMPTY_CONFIG, ...withExample(EMPTY_CONFIG, "2026-10-23") };
+    expect(loaded.beforeExample).toEqual({
+      backlogSize: null,
+      scopeChangePct: null,
+      velocityInput: "",
+      targetDate: "",
+    });
+    // A refresh keeps it (persisted), minus anything that isn't the example's.
+    const stored = normalizeConfig({
+      ...loaded,
+      beforeExample: { targetDate: "2027-06-01", sliceId: "x", backlogSize: -3, junk: 1 },
+    });
+    expect(stored.beforeExample).toEqual({
+      backlogSize: null,
+      scopeChangePct: null,
+      velocityInput: "",
+      targetDate: "2027-06-01",
+    });
+    expect(normalizeConfig({ beforeExample: { targetDate: "2027-06-01" } })).toEqual(EMPTY_CONFIG);
+    // An example saved before snapshots existed clears to empty.
+    expect(clearedExample({ ...EMPTY_CONFIG, ...buildExample("2026-10-23") })).toMatchObject({
+      example: undefined,
+      backlogSize: null,
+      targetDate: "",
+    });
+  });
+});
+
+describe("number fields", () => {
+  it("reads comma decimals and the printed minus in the scope change", () => {
+    expect(validateScopeChange("12,5")).toEqual({ ok: true, values: 12.5 });
+    expect(validateScopeChange("-12,25")).toEqual({ ok: true, values: -12.25 });
+    expect(validateScopeChange("−5")).toEqual({ ok: true, values: -5 });
+    // A thousands comma is flagged, not read as 1%.
+    expect(validateScopeChange("1,000").ok).toBe(false);
+    expect(["-", "−", "+", ".", "-,"].map(isPartialNumber)).toEqual([true, true, true, true, true]);
+    expect(["", " ", "-5", "5.", "abc"].map(isPartialNumber)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it("lets a phone type a cut, and waits for the number after a lone minus", () => {
+    renderPlanner();
+    const change = screen.getByLabelText("Expected scope change");
+    expect(change).toHaveAttribute("inputmode", "text");
+    expect(screen.getByLabelText("Points left to deliver")).toHaveAttribute("inputmode", "decimal");
+    fireEvent.change(change, { target: { value: "-" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(config().scopeChangePct).toBeNull();
+    fireEvent.change(change, { target: { value: "-5" } });
+    expect(config().scopeChangePct).toBe(-5);
+    fireEvent.change(change, { target: { value: "-" } });
+    fireEvent.blur(change);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a percentage, such as 10 or -5.");
+    expect(config().scopeChangePct).toBe(-5);
+  });
+
+  it("drops a field's error when its value changes from outside", () => {
+    useReleasePlannerStore.setState({
+      config: { ...EMPTY_CONFIG, velocitySource: "manual", velocityInput: "10, 12" },
+    });
+    renderPlanner();
+    const box = screen.getByRole("textbox", { name: /Points completed per sprint/ });
+    fireEvent.change(box, { target: { value: "10, x" } });
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    // Undo, another tab: the box shows the new value and no stale message.
+    act(() => useReleasePlannerStore.getState().updateConfig({ velocityInput: "9, 9, 9, 9" }));
+    expect(box).toHaveValue("9, 9, 9, 9");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(box).not.toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("clears drafts and messages on Reset, even where the saved value didn't change", () => {
+    useReleasePlannerStore.setState({
+      config: { ...EMPTY_CONFIG, scopeSource: "typed", backlogSize: 120, targetDate: "2027-05-01" },
+    });
+    renderPlanner();
+    fireEvent.change(screen.getByLabelText("Points left to deliver"), {
+      target: { value: "-5" },
+    });
+    fireEvent.change(screen.getByLabelText("Sprint length"), { target: { value: "2.5" } });
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset planner" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByLabelText("Points left to deliver")).toHaveValue("");
+    expect(screen.getByLabelText("Sprint length")).toHaveValue("");
+  });
+});
+
+describe("focus after replacing every field", () => {
+  const scopeHeading = () => screen.getByText("Scope", { selector: "span" });
+
+  it("lands on the Scope heading after Reset, Load example and Clear example", () => {
+    useReleasePlannerStore.setState({ config: { ...EMPTY_CONFIG, targetDate: "2027-05-01" } });
+    renderPlanner();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset planner" }));
+    // The Reset button is disabled now (nothing left to reset).
+    expect(screen.getByRole("button", { name: "Reset" })).toBeDisabled();
+    expect(document.activeElement).toBe(scopeHeading());
+
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(document.activeElement).toBe(scopeHeading());
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(document.activeElement).toBe(scopeHeading());
+  });
+});
+
+describe("AI prompts", () => {
+  it("give the page's headline velocity, not a plain mean of the sample", () => {
+    const sprints = [20, 22, 18, 24].map((p, i) => sprint(i + 1, p));
+    const plan = planRelease(
+      input({
+        velocitySource: "sprints",
+        sample: { points: [20, 22, 18, 24], labels: [] },
+        headline: velocity(sprints),
+      })
+    );
+    const [first] = releasePrompts(plan);
+    expect(first.prompt).toContain(
+      "Average Velocity: 21.3 pts/sprint (the last 3 sprints, as the Release Planner shows it)"
+    );
+    expect(first.prompt).not.toMatch(/^Average Velocity: 21 pts\/sprint$/m);
+    expect(first.prompt).toContain("Historical Velocities: 20, 22, 18, 24 pts/sprint");
+    expect(releasePrompts(planRelease(input({ sample: { points: [], labels: [] } })))).toEqual([]);
   });
 });

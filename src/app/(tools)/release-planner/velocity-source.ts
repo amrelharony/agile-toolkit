@@ -136,3 +136,17 @@ export function effectiveStartDate(
   }
   return { date: today, from: "today" };
 }
+
+/**
+ * The running sprint, when the forecast starts after it ends (the default
+ * start, or a later date): its open stories are its own work, so the
+ * backlog scope leaves them out. Undefined when the forecast starts during
+ * it, or when its dates can't say when it ends.
+ */
+export function sprintEndingBefore(
+  activeSprint: Sprint | undefined,
+  start: string
+): Sprint | undefined {
+  if (!activeSprint || hasSyntheticDates(activeSprint)) return undefined;
+  return start > activeSprint.endDate.slice(0, 10) ? activeSprint : undefined;
+}

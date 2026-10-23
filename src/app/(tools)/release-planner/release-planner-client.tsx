@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import Link from "next/link";
 import { CalendarRange, Gauge, Layers, Rocket } from "lucide-react";
 import { selectActiveSprint, useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -18,7 +18,6 @@ import {
   LoadExampleButton,
   isExampleId,
 } from "@/components/tool-frame/example-data";
-import { generateReleasePlannerPrompts } from "@/lib/ai-prompts/release-planner";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RELEASE_PLANNER_ACTIONS } from "@/lib/history/event-actions";
 import { STORY_MAP_ID } from "@/lib/handoffs/poker-writeback";
@@ -46,6 +45,7 @@ import {
   headlineVelocity,
   parseVelocities,
   resolveVelocitySource,
+  sprintEndingBefore,
   sprintSample,
   type VelocitySource,
 } from "./velocity-source";
@@ -54,8 +54,9 @@ import { headlineText, unestimatedText } from "./describe";
 import { validateScopeChange, validateScopePoints, validateSprintLength } from "./validate";
 import { DateField, NumberField, VelocityField, inputCls } from "./inputs";
 import { ForecastView } from "./forecast-view";
-import { CLEARED_EXAMPLE, buildExample } from "./example";
+import { clearedExample, withExample } from "./example";
 import { toMarkdown } from "./markdown";
+import { releasePrompts } from "./prompts";
 
 const NO_SPRINTS: Sprint[] = [];
 const NO_STORIES: Story[] = [];
@@ -111,14 +112,29 @@ export function ReleasePlannerClient() {
     const current = useReleasePlannerStore.getState().config;
     if (current.scopeSource === "slice" && current.sliceId === slice) return;
     updateConfigRaw({
-      ...(current.example ? CLEARED_EXAMPLE : {}),
+      ...(current.example ? clearedExample(current) : {}),
       scopeSource: "slice",
       sliceId: slice,
     });
   }, [updateConfigRaw]);
 
+  /* -- Dates ---------------------------------------------------------------- */
+  const activeSprint = useMemo(() => selectActiveSprint({ sprints }), [sprints]);
+  const start = useMemo(
+    () => effectiveStartDate(config.startDate, activeSprint),
+    [config.startDate, activeSprint]
+  );
+  const lengthDays = config.sprintLengthDays ?? cadence.sprintLengthDays;
+  const target = resolveTargetDate(config, start.date, lengthDays);
+  // The forecast starts once the running sprint is over: that sprint's open
+  // stories are its own work, not the release's (see backlogScope).
+  const runningBefore = sprintEndingBefore(activeSprint, start.date);
+
   /* -- Scope ---------------------------------------------------------------- */
-  const backlog = useMemo(() => backlogScope(stories, sprints), [stories, sprints]);
+  const backlog = useMemo(
+    () => backlogScope(stories, sprints, runningBefore?.id),
+    [stories, sprints, runningBefore?.id]
+  );
   const slices = useMemo(() => storyMapSlices(storyMap), [storyMap]);
   const scopeSource = resolveScopeSource(config, backlog);
   const scope = useMemo(
@@ -144,15 +160,6 @@ export function ReleasePlannerClient() {
     () => headlineVelocity(velocitySource, sprints, typed),
     [velocitySource, sprints, typed]
   );
-
-  /* -- Dates ---------------------------------------------------------------- */
-  const activeSprint = useMemo(() => selectActiveSprint({ sprints }), [sprints]);
-  const start = useMemo(
-    () => effectiveStartDate(config.startDate, activeSprint),
-    [config.startDate, activeSprint]
-  );
-  const lengthDays = config.sprintLengthDays ?? cadence.sprintLengthDays;
-  const target = resolveTargetDate(config, start.date, lengthDays);
 
   const plan = useMemo(
     () =>
@@ -183,12 +190,31 @@ export function ReleasePlannerClient() {
   );
 
   /* -- Example, reset, export ----------------------------------------------- */
-  const loadExample = () => updateConfig(buildExample());
-  const clearExample = () => updateConfigRaw(CLEARED_EXAMPLE);
+  // Reset, Load example and Clear example replace every field at once. The
+  // inputs remount (no draft or message left from before), and focus moves
+  // to the Scope heading: the button pressed is gone (the empty state's,
+  // the notice's) or disabled (Reset, with nothing left to reset), and
+  // focus would otherwise drop to the top of the document.
+  const [round, setRound] = useState(0);
+  const scopeHeading = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (round > 0) scopeHeading.current?.focus();
+  }, [round]);
+  const restart = () => setRound((n) => n + 1);
+
+  const loadExample = () => {
+    updateConfig(withExample(useReleasePlannerStore.getState().config));
+    restart();
+  };
+  const clearExample = () => {
+    updateConfigRaw(clearedExample(useReleasePlannerStore.getState().config));
+    restart();
+  };
   const snapshot = useRef<ReleasePlannerConfig>(EMPTY_CONFIG);
   const reset = () => {
     snapshot.current = useReleasePlannerStore.getState().config;
     resetRaw();
+    restart();
     log(RELEASE_PLANNER_ACTIONS.RELEASE_RESET, {});
   };
 
@@ -200,27 +226,10 @@ export function ReleasePlannerClient() {
     }),
     [plan.rows]
   );
-  const promptConfig = useMemo(() => {
-    const [p50, p75, p85, p95] = plan.rows.map((r) => r.sprints);
-    const results =
-      p50 != null && p75 != null && p85 != null && p95 != null ? { p50, p75, p85, p95 } : null;
-    return {
-      toolName: "Release Planner",
-      prompts: generateReleasePlannerPrompts({
-        // The prompt still names a buffer and an adjustment; the one expected
-        // change rides in the buffer, so the numbers stay right.
-        config: {
-          backlogSize: plan.scope.points ?? 0,
-          velocityInput: plan.sample.points.join(", "),
-          scopeBuffer: config.scopeChangePct ?? 0,
-          scopeAdjustment: 0,
-          sprintLengthDays: lengthDays,
-          startDate: start.date,
-        },
-        results,
-      }),
-    };
-  }, [plan, config.scopeChangePct, lengthDays, start.date]);
+  const promptConfig = useMemo(
+    () => ({ toolName: "Release Planner", prompts: releasePrompts(plan) }),
+    [plan]
+  );
 
   const nothingYet = scope.points === null && sample.points.length === 0 && !config.example;
 
@@ -257,84 +266,88 @@ export function ReleasePlannerClient() {
 
         {isExampleId(config.example) && <ExampleNotice onClear={clearExample} />}
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <ScopeCard
-            config={config}
-            source={scopeSource}
-            scope={scope}
-            backlog={backlog}
-            slices={slices}
-            effective={plan.effective}
-            onSource={(v) => {
-              updateConfig({ scopeSource: v });
-              syncSliceParam(v === "slice" ? (config.sliceId ?? null) : null);
-            }}
-            onSlice={(id) => {
-              updateConfig({ sliceId: id || undefined });
-              syncSliceParam(id || null);
-            }}
-            onQuiet={updateConfigQuiet}
-            onCommit={updateConfig}
-          />
-          <VelocityCard
-            config={config}
-            source={velocitySource}
-            sample={sample}
-            averageLine={headline.average === null ? null : `${headlineText({ headline })}.`}
-            onSource={(v) => updateConfig({ velocitySource: v })}
-            onQuiet={updateConfigQuiet}
-            onCommit={updateConfig}
-          />
-        </div>
-
-        <SectionCard title="Dates" icon={CalendarRange}>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <DateField
-              label="Start"
-              value={start.date}
-              onCommit={(v) => updateConfig({ startDate: v })}
-              hint={
-                start.from === "sprint" && activeSprint
-                  ? `The day after ${activeSprint.name} ends.`
-                  : start.from === "today"
-                    ? "Today."
-                    : "Clear it to start after the active sprint, or today."
-              }
+        <Fragment key={round}>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ScopeCard
+              headingRef={scopeHeading}
+              config={config}
+              source={scopeSource}
+              scope={scope}
+              backlog={backlog}
+              runningBefore={runningBefore}
+              slices={slices}
+              effective={plan.effective}
+              onSource={(v) => {
+                updateConfig({ scopeSource: v });
+                syncSliceParam(v === "slice" ? (config.sliceId ?? null) : null);
+              }}
+              onSlice={(id) => {
+                updateConfig({ sliceId: id || undefined });
+                syncSliceParam(id || null);
+              }}
+              onQuiet={updateConfigQuiet}
+              onCommit={updateConfig}
             />
-            <NumberField
-              label="Sprint length"
-              suffix="days"
-              value={config.sprintLengthDays}
-              placeholder={String(cadence.sprintLengthDays)}
-              validate={validateSprintLength}
-              onChange={(v) => updateConfigQuiet({ sprintLengthDays: v })}
-              onCommit={(v) => updateConfig({ sprintLengthDays: v })}
-              hint={
-                config.sprintLengthDays === null ? (
-                  <>
-                    {plural(cadence.sprintLengthDays, "day")}, from the team&apos;s cadence (
-                    <Link href="/team" className={linkCls}>
-                      Team charter
-                    </Link>
-                    ).
-                  </>
-                ) : (
-                  `The cadence says ${plural(cadence.sprintLengthDays, "day")}. Clear it to follow the cadence.`
-                )
-              }
-            />
-            <DateField
-              label="Target date (optional)"
-              value={config.targetDate || (target.from === "legacy" ? target.date : "")}
-              onCommit={(v) => updateConfig({ targetDate: v, sprintsToReleaseTarget: undefined })}
-              hint={
-                target.from === "legacy"
-                  ? `Your earlier target of ${plural(Number(config.sprintsToReleaseTarget), "sprint")} from the start.`
-                  : "The date stakeholders ask about: see the chance of making it."
-              }
+            <VelocityCard
+              config={config}
+              source={velocitySource}
+              sample={sample}
+              averageLine={headline.average === null ? null : `${headlineText({ headline })}.`}
+              onSource={(v) => updateConfig({ velocitySource: v })}
+              onQuiet={updateConfigQuiet}
+              onCommit={updateConfig}
             />
           </div>
-        </SectionCard>
+
+          <SectionCard title="Dates" icon={CalendarRange}>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <DateField
+                label="Start"
+                value={start.date}
+                onCommit={(v) => updateConfig({ startDate: v })}
+                hint={
+                  start.from === "sprint" && activeSprint
+                    ? `The day after ${activeSprint.name} ends.`
+                    : start.from === "today"
+                      ? "Today."
+                      : "Clear it to start after the active sprint, or today."
+                }
+              />
+              <NumberField
+                label="Sprint length"
+                suffix="days"
+                value={config.sprintLengthDays}
+                placeholder={String(cadence.sprintLengthDays)}
+                validate={validateSprintLength}
+                onChange={(v) => updateConfigQuiet({ sprintLengthDays: v })}
+                onCommit={(v) => updateConfig({ sprintLengthDays: v })}
+                hint={
+                  config.sprintLengthDays === null ? (
+                    <>
+                      {plural(cadence.sprintLengthDays, "day")}, from the team&apos;s cadence (
+                      <Link href="/team" className={linkCls}>
+                        Team charter
+                      </Link>
+                      ).
+                    </>
+                  ) : (
+                    `The cadence says ${plural(cadence.sprintLengthDays, "day")}. Clear it to follow the cadence.`
+                  )
+                }
+              />
+              <DateField
+                label="Target date (optional)"
+                value={config.targetDate || (target.from === "legacy" ? target.date : "")}
+                onCommit={(v) => updateConfig({ targetDate: v, sprintsToReleaseTarget: undefined })}
+                hint={
+                  target.from === "legacy"
+                    ? `Your earlier target of ${plural(Number(config.sprintsToReleaseTarget), "sprint")} from the start.`
+                    : "The date stakeholders ask about: see the chance of making it."
+                }
+              />
+            </div>
+          </SectionCard>
+        </Fragment>
 
         {nothingYet ? (
           <EmptyState icon={Rocket} action={<LoadExampleButton onLoad={loadExample} />}>
@@ -354,10 +367,12 @@ export function ReleasePlannerClient() {
 /* -------------------------------------------------------------------------- */
 
 function ScopeCard({
+  headingRef,
   config,
   source,
   scope,
   backlog,
+  runningBefore,
   slices,
   effective,
   onSource,
@@ -365,10 +380,14 @@ function ScopeCard({
   onQuiet,
   onCommit,
 }: {
+  /** Where focus lands after Reset or the example (see the client). */
+  headingRef: Ref<HTMLSpanElement>;
   config: ReleasePlannerConfig;
   source: ScopeSource;
   scope: ReturnType<typeof resolveScope>;
   backlog: ReturnType<typeof backlogScope>;
+  /** The running sprint the forecast starts after; its stories are left out. */
+  runningBefore: Sprint | undefined;
   slices: ReturnType<typeof storyMapSlices>;
   effective: number | null;
   onSource: (v: ScopeSource) => void;
@@ -376,8 +395,19 @@ function ScopeCard({
   onQuiet: (updates: Partial<ReleasePlannerConfig>) => void;
   onCommit: (updates: Partial<ReleasePlannerConfig>) => void;
 }) {
+  const skippedNote =
+    backlog.skipped > 0 && runningBefore
+      ? `Leaves out ${plural(backlog.skipped, "open story", "open stories")} in ${runningBefore.name}, which ends before the forecast starts.`
+      : null;
   return (
-    <SectionCard title="Scope" icon={Layers}>
+    <SectionCard
+      title={
+        <span ref={headingRef} tabIndex={-1} className="outline-none">
+          Scope
+        </span>
+      }
+      icon={Layers}
+    >
       <div className="space-y-4">
         <ToggleGroup<ScopeSource>
           label="Where the scope comes from"
@@ -392,13 +422,16 @@ function ScopeCard({
 
         {source === "backlog" &&
           (backlog.stories === 0 ? (
-            <p className="text-sm text-sub">
-              No open stories yet. Add them in{" "}
-              <Link href="/sprint-planning" className={linkCls}>
-                Sprint Planning
-              </Link>
-              , or pick another source.
-            </p>
+            <div className="space-y-1 text-sm text-sub">
+              <p>
+                No open stories yet. Add them in{" "}
+                <Link href="/sprint-planning" className={linkCls}>
+                  Sprint Planning
+                </Link>
+                , or pick another source.
+              </p>
+              {skippedNote && <p>{skippedNote}</p>}
+            </div>
           ) : (
             <div className="space-y-1 text-sm text-sub">
               <p>
@@ -412,6 +445,7 @@ function ScopeCard({
                   or planned sprints.
                 </p>
               )}
+              {skippedNote && <p>{skippedNote}</p>}
             </div>
           ))}
 
@@ -484,6 +518,7 @@ function ScopeCard({
           suffix="%"
           value={config.scopeChangePct}
           placeholder="0"
+          allowNegative
           validate={validateScopeChange}
           onChange={(v) => onQuiet({ scopeChangePct: v })}
           onCommit={(v) => onCommit({ scopeChangePct: v })}

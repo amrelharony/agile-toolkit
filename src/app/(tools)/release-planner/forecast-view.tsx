@@ -18,7 +18,7 @@ import { formatDay, ITERATIONS, MAX_SPRINTS } from "./forecast";
 import { bootstrapCrossCheck, recentShift } from "./advanced";
 import { releaseNextStep } from "./next-step";
 import { sampleText } from "./describe";
-import type { ConfidenceRow, ReleasePlan } from "./plan";
+import type { ConfidenceRow, ReleasePlan, TargetAnswer } from "./plan";
 import { releaseVerdict } from "./verdict";
 
 // Recharts loads with the chart, not the page; the placeholder holds the
@@ -65,6 +65,52 @@ const CONFIDENCE_COLUMNS: DataTableColumn<ConfidenceRow>[] = [
   },
 ];
 
+/** The target date's answers: the chance of finishing (with a forecast) and the scope to promise. */
+function TargetPanel({ target, id }: { target: TargetAnswer; id: string }) {
+  return (
+    <div
+      className="rounded-lg border border-border bg-surface-deep p-4"
+      aria-labelledby={id}
+      role="group"
+    >
+      <h3 id={id} className="flex items-center gap-2 text-sm font-semibold text-text">
+        <Target className="h-4 w-4 text-accent" aria-hidden="true" />
+        By {formatDay(target.date)}
+        <span className="font-normal text-sub">
+          ({plural(target.sprints, "sprint")} from the start)
+        </span>
+      </h3>
+      {target.sprints === 0 ? (
+        <p className="mt-2 text-sm text-sub">
+          No full sprint fits before then. Pick a later date or an earlier start.
+        </p>
+      ) : (
+        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          {target.chance !== null && (
+            <div>
+              <dt className="text-xs text-sub">Probability of finishing by then</dt>
+              <dd className="font-data text-2xl text-text">{Math.round(target.chance * 100)}%</dd>
+            </div>
+          )}
+          {target.deliverable && (
+            <div>
+              <dt className="text-xs text-sub">Scope we can deliver by then</dt>
+              <dd className="text-sm text-text">
+                <span className="font-data text-2xl">
+                  {fmt(Math.floor(target.deliverable.p85), 0)}
+                </span>{" "}
+                pts to promise (P85) ·{" "}
+                <span className="font-data">{fmt(Math.floor(target.deliverable.p50), 0)}</span>{" "}
+                likely (P50)
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 /** The forecast: verdict, headline dates, the target-date answers, chart, table and extras. */
 export function ForecastView({
   plan,
@@ -104,19 +150,16 @@ export function ForecastView({
   const shift = useMemo(() => recentShift(plan.sample.points), [plan.sample.points]);
   const p50 = plan.rows.find((r) => r.pct === 50);
   const p85 = plan.rows.find((r) => r.pct === 85);
+  // "Close 2 more sprints": a completed sprint can't be closed again.
   const unit: readonly [string, string] =
-    plan.velocitySource === "sprints"
-      ? ["completed sprint", "completed sprints"]
-      : ["velocity", "velocities"];
+    plan.velocitySource === "sprints" ? ["sprint", "sprints"] : ["velocity", "velocities"];
 
   return (
     <SectionCard title={<span id={titleId}>Forecast</span>} icon={BarChart3} titleSize="lg">
       <div className="space-y-5">
-        <p className="text-sm font-medium text-text" data-testid="release-verdict">
-          {verdict}
-        </p>
-
-        {plan.blocked === "small-sample" && (
+        {/* Short of the minimum sample, NotEnoughData is the verdict: the
+            two said the same thing one above the other. */}
+        {plan.blocked === "small-sample" ? (
           <NotEnoughData
             have={plan.sample.points.length}
             need="forecast"
@@ -124,6 +167,16 @@ export function ForecastView({
             action={plan.velocitySource === "sprints" ? "Close" : "Type"}
             what="a forecast"
           />
+        ) : (
+          <p className="text-sm font-medium text-text" data-testid="release-verdict">
+            {verdict}
+          </p>
+        )}
+
+        {/* Without a forecast (no scope, or out of reach) the date's answers
+            still stand: what the team can deliver by then. */}
+        {plan.target && !showForecast && (
+          <TargetPanel target={plan.target} id={`${titleId}-target`} />
         )}
 
         {showForecast && f && (
@@ -165,53 +218,7 @@ export function ForecastView({
               />
             </div>
 
-            {plan.target && (
-              <div
-                className="rounded-lg border border-border bg-surface-deep p-4"
-                aria-labelledby={`${titleId}-target`}
-                role="group"
-              >
-                <h3
-                  id={`${titleId}-target`}
-                  className="flex items-center gap-2 text-sm font-semibold text-text"
-                >
-                  <Target className="h-4 w-4 text-accent" aria-hidden="true" />
-                  By {formatDay(plan.target.date)}
-                  <span className="font-normal text-sub">
-                    ({plural(plan.target.sprints, "sprint")} from the start)
-                  </span>
-                </h3>
-                {plan.target.sprints === 0 ? (
-                  <p className="mt-2 text-sm text-sub">
-                    No full sprint fits before then. Pick a later date or an earlier start.
-                  </p>
-                ) : (
-                  <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <dt className="text-xs text-sub">Probability of finishing by then</dt>
-                      <dd className="font-data text-2xl text-text">
-                        {Math.round(plan.target.chance * 100)}%
-                      </dd>
-                    </div>
-                    {plan.target.deliverable && (
-                      <div>
-                        <dt className="text-xs text-sub">Scope we can deliver by then</dt>
-                        <dd className="text-sm text-text">
-                          <span className="font-data text-2xl">
-                            {fmt(Math.floor(plan.target.deliverable.p85), 0)}
-                          </span>{" "}
-                          pts to promise (P85) ·{" "}
-                          <span className="font-data">
-                            {fmt(Math.floor(plan.target.deliverable.p50), 0)}
-                          </span>{" "}
-                          likely (P50)
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                )}
-              </div>
-            )}
+            {plan.target && <TargetPanel target={plan.target} id={`${titleId}-target`} />}
 
             {histogramText && (
               <ChartFigure
@@ -252,7 +259,9 @@ export function ForecastView({
               <p className="text-sub">
                 Resampling the velocities puts the 85% forecast at{" "}
                 <span className="font-data text-text">{plural(crossCheck.point, "sprint")}</span>{" "}
-                (between {crossCheck.optimistic} and {crossCheck.pessimistic})
+                {crossCheck.pessimistic === null
+                  ? `(at least ${crossCheck.optimistic}; a 0-point sprint in the sample leaves no upper bound)`
+                  : `(between ${crossCheck.optimistic} and ${crossCheck.pessimistic})`}
                 {f?.p85 && crossCheck.point !== f.p85
                   ? `; the simulation says ${plural(f.p85, "sprint")}.`
                   : ", in line with the simulation."}

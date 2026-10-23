@@ -14,7 +14,12 @@ export interface CrossCheck {
   point: number;
   /** The same with the bootstrap's fast and slow bounds. */
   optimistic: number;
-  pessimistic: number;
+  /**
+   * Null when the slow bound is 0: resamples heavy in a 0-point sprint
+   * deliver nothing, so there is no upper bound to give. (Dividing by a
+   * clamped 0.01 turned that into "scope × 100 sprints".)
+   */
+  pessimistic: number | null;
 }
 
 /**
@@ -29,8 +34,8 @@ export function bootstrapCrossCheck(scope: number, samples: readonly number[]): 
   // A higher velocity bound means fewer sprints, so the bounds swap.
   return {
     point: Math.ceil(scope / ci.point),
-    optimistic: Math.ceil(scope / Math.max(ci.upper, 0.01)),
-    pessimistic: Math.ceil(scope / Math.max(ci.lower, 0.01)),
+    optimistic: Math.ceil(scope / Math.max(ci.upper, ci.point)),
+    pessimistic: ci.lower > 0 ? Math.ceil(scope / ci.lower) : null,
   };
 }
 

@@ -66,7 +66,10 @@ export function toMarkdown(plan: ReleasePlan, now: Date = new Date()): string {
       `## By ${formatDay(t.date)} (${t.sprints} ${t.sprints === 1 ? "sprint" : "sprints"})`,
       ""
     );
-    lines.push(`- Chance of finishing the scope: ${Math.round(t.chance * 100)}%`);
+    if (t.sprints === 0) lines.push("- No full sprint fits between the start and this date.");
+    else if (t.chance !== null) {
+      lines.push(`- Chance of finishing the scope: ${Math.round(t.chance * 100)}%`);
+    }
     if (t.deliverable) {
       lines.push(
         `- Scope the team can deliver: about ${fmt(Math.floor(t.deliverable.p50), 0)} points likely (P50), ${fmt(Math.floor(t.deliverable.p85), 0)} points to promise (P85)`

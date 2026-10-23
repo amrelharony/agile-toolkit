@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { NumberCheck } from "./validate";
+import { isPartialNumber, type NumberCheck } from "./validate";
 import { validateVelocities } from "./velocity-source";
 
 export const inputCls =
@@ -14,14 +14,22 @@ export const inputCls =
  * A draft that follows the saved value: it re-syncs when the value changes
  * from outside (Reset, Undo, another tab), not when the field saved it
  * itself — re-syncing then would turn "1." into "1" mid-keystroke.
+ * `onResync` runs with each outside change, so the field can drop an error
+ * that belonged to the draft it replaced.
  */
-function useDraft(saved: string): [string, (next: string) => void, (committed: string) => void] {
+function useDraft(
+  saved: string,
+  onResync: () => void
+): [string, (next: string) => void, (committed: string) => void] {
   const [draft, setDraft] = useState(saved);
   const last = useRef(saved);
+  const resync = useRef(onResync);
+  resync.current = onResync;
   useEffect(() => {
     if (saved !== last.current) {
       last.current = saved;
       setDraft(saved);
+      resync.current();
     }
   }, [saved]);
   const markSaved = (committed: string) => {
@@ -36,6 +44,8 @@ const show = (n: number | null) => (n === null ? "" : String(n));
  * A number field that saves only valid values: each valid keystroke saves
  * quietly (so the forecast follows the typing), blur or Enter saves with a
  * history entry, and an invalid draft shows its message and saves nothing.
+ * A lone "-" or "." is a number on its way: it waits for the next
+ * keystroke and is only checked on blur.
  */
 export function NumberField({
   label,
@@ -46,6 +56,7 @@ export function NumberField({
   onCommit,
   placeholder,
   suffix,
+  allowNegative = false,
   className,
 }: {
   label: ReactNode;
@@ -59,10 +70,15 @@ export function NumberField({
   placeholder?: string;
   /** A unit after the input ("%", "days"). */
   suffix?: string;
+  /**
+   * The value may be negative. The phone keyboard is then the full one:
+   * iOS's decimal pad has no minus key, so a cut couldn't be typed.
+   */
+  allowNegative?: boolean;
   className?: string;
 }) {
-  const [draft, setDraft, markSaved] = useDraft(show(value));
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft, markSaved] = useDraft(show(value), () => setError(null));
 
   const check = (raw: string) => {
     const result = validate(raw);
@@ -77,12 +93,16 @@ export function NumberField({
           <Input
             {...props}
             type="text"
-            inputMode="decimal"
+            inputMode={allowNegative ? "text" : "decimal"}
             value={draft}
             placeholder={placeholder}
             onChange={(e) => {
               const raw = e.target.value;
               setDraft(raw);
+              if (isPartialNumber(raw)) {
+                setError(null);
+                return;
+              }
               const result = check(raw);
               if (result.ok) {
                 markSaved(show(result.values));
@@ -149,8 +169,8 @@ export function VelocityField({
   onChange: (value: string) => void;
   onCommit: (value: string) => void;
 }) {
-  const [draft, setDraft, markSaved] = useDraft(value);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft, markSaved] = useDraft(value, () => setError(null));
   const check = (raw: string) => {
     const result = validateVelocities(raw);
     setError(result.ok ? null : (result.errors.velocities ?? null));

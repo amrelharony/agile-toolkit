@@ -4,7 +4,8 @@
  *   "backlog"  the open stories (not done) outside closed sprints: the
  *              backlog plus whatever the running and planned sprints still
  *              hold. A story left behind in a completed or cancelled sprint
- *              is history, not release scope.
+ *              is history, not release scope; the running sprint's own
+ *              stories are left out too when the forecast starts after it.
  *   "slice"    one release slice of the Story Mapper's map, adding up its
  *              cards' numeric estimates. The Story Mapper's "Plan release"
  *              opens this page on it with ?slice=<id>.
@@ -48,6 +49,8 @@ export interface BacklogScope {
   unestimated: number;
   /** Of those, how many sit in a sprint that is still running or planned. */
   inOpenSprints: number;
+  /** Open stories of the running sprint the forecast starts after: left out (see `backlogScope`). */
+  skipped: number;
 }
 
 const isEstimated = (s: Pick<Story, "points">) =>
@@ -56,40 +59,56 @@ const isEstimated = (s: Pick<Story, "points">) =>
 /**
  * The open stories outside closed sprints. Example stories are left out:
  * a fake story mustn't move a real release date.
+ *
+ * `skipSprintId` is the running sprint when the forecast starts after it
+ * ends. Its open stories are that sprint's own work: counting them while
+ * the forecast's first sprint comes after it made every mid-sprint
+ * forecast late by the sprint's remaining work.
  */
-export function backlogScope(stories: readonly Story[], sprints: readonly Sprint[]): BacklogScope {
+export function backlogScope(
+  stories: readonly Story[],
+  sprints: readonly Sprint[],
+  skipSprintId?: string
+): BacklogScope {
   const status = new Map(sprints.map((s) => [s.id, s.status]));
   let points = 0;
   let count = 0;
   let unestimated = 0;
   let inOpenSprints = 0;
+  let skipped = 0;
   for (const story of stories) {
     if (story.status === "done" || isExampleId(story.id)) continue;
     const sprintStatus = story.sprintId ? status.get(story.sprintId) : undefined;
     if (sprintStatus === "completed" || sprintStatus === "cancelled") continue;
+    if (skipSprintId && story.sprintId === skipSprintId) {
+      skipped++;
+      continue;
+    }
     count++;
     if (sprintStatus === "active" || sprintStatus === "planned") inOpenSprints++;
     if (isEstimated(story)) points += story.points as number;
     else unestimated++;
   }
-  return { points: round1(points), stories: count, unestimated, inOpenSprints };
+  return { points: round1(points), stories: count, unestimated, inOpenSprints, skipped };
 }
 
 /* ── Story-map slices ────────────────────────────────────────────────── */
 
 /**
- * A card's estimate as points: "5", "3.5", "0,5", "½", "8 pts". Null for
- * anything else ("?", "XL", a coffee cup): those are unestimated here, since
- * a T-shirt size has no point value to add up.
+ * A card's estimate as points: a number of 0 or more ("5", "3.5", ".5").
+ * Null for anything else ("?", "XL", "8 pts", a coffee cup): unestimated
+ * here, since a T-shirt size has no point value to add up.
+ *
+ * The same rule as the Story Mapper's `estimatePoints`
+ * (story-mapper/estimate.ts), so the slice total its "Plan release" link
+ * shows is the total planned here. A looser reading ("8 pts", "0,5")
+ * counted cards the Story Mapper calls custom. Once both tools are on one
+ * branch, this should import that function instead of repeating it.
  */
 export function estimatePoints(estimate: string | undefined): number | null {
-  const raw = (estimate ?? "").trim();
-  if (raw === "") return null;
-  if (raw === "½") return 0.5;
-  const m = /^(\d+(?:[.,]\d+)?)\s*(?:pts?|points?|sp)?$/i.exec(raw);
-  if (!m) return null;
-  const n = Number(m[1].replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  if (typeof estimate !== "string" || estimate.trim() === "") return null;
+  const n = Number(estimate);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 export interface SliceScope {

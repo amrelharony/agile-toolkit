@@ -1,7 +1,7 @@
 import { exampleId } from "@/components/tool-frame/example-data";
 import { todayIso } from "@/lib/sprints/series";
 import { addDaysIso } from "./forecast";
-import type { ReleasePlannerConfig } from "./store";
+import { pickExampleFields, type ReleasePlannerConfig } from "./store";
 
 export const EXAMPLE_ID = exampleId("release-plan");
 
@@ -13,7 +13,8 @@ export const EXAMPLE_ID = exampleId("release-plan");
  * it to 85% (a sprint later, or about 20 points less).
  *
  * Everything is typed, so the example never reads or writes the user's
- * sprints or stories; "Clear example" empties exactly these fields.
+ * sprints or stories; "Clear example" puts these fields back as they were
+ * (see `withExample`).
  */
 export function buildExample(today: string = todayIso()): Partial<ReleasePlannerConfig> {
   return {
@@ -30,6 +31,7 @@ export function buildExample(today: string = todayIso()): Partial<ReleasePlanner
 /** The fields the example sets, back to empty ("Clear example"). */
 export const CLEARED_EXAMPLE: Partial<ReleasePlannerConfig> = {
   example: undefined,
+  beforeExample: undefined,
   scopeSource: undefined,
   backlogSize: null,
   scopeChangePct: null,
@@ -37,3 +39,21 @@ export const CLEARED_EXAMPLE: Partial<ReleasePlannerConfig> = {
   velocityInput: "",
   targetDate: "",
 };
+
+/**
+ * The example loaded over `config`, keeping what its fields held. The
+ * empty state offers the example before any scope or velocity exists, but
+ * a target date or scope change may already be set: those come back on
+ * "Clear example" instead of being lost.
+ */
+export function withExample(
+  config: ReleasePlannerConfig,
+  today: string = todayIso()
+): Partial<ReleasePlannerConfig> {
+  return { ...buildExample(today), beforeExample: pickExampleFields(config) };
+}
+
+/** "Clear example": the example's fields as they were before it loaded (empty for an older save without them). */
+export function clearedExample(config: ReleasePlannerConfig): Partial<ReleasePlannerConfig> {
+  return { ...CLEARED_EXAMPLE, ...(config.beforeExample ?? {}) };
+}

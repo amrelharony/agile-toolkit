@@ -1,7 +1,7 @@
 import { MIN_SAMPLE, needMore } from "@/lib/analytics/min-sample";
 import { fmt, plural } from "@/lib/charts/chart-text";
 import { formatDay, MAX_SPRINTS } from "./forecast";
-import type { ReleasePlan } from "./plan";
+import { signedPct, type ReleasePlan, type TargetAnswer } from "./plan";
 
 /** "an 8%", "a 64%": the article English uses before the spoken number. */
 function aPct(n: number): string {
@@ -9,11 +9,37 @@ function aPct(n: number): string {
   return `${an ? "an" : "a"} ${n}%`;
 }
 
-/** "all 132 points", or "the 132 estimated points" when some items have no estimate. */
+/**
+ * "all 132 points", or "the 132 estimated points" when some items have no
+ * estimate. With an expected change the scope the user sees in the field
+ * is named too ("all 207 points (180 with a +15% change)"), so the verdict's
+ * number can be traced back to it.
+ */
 function scopePhrase(plan: ReleasePlan): string {
   const n = plan.effective ?? 0;
-  if (plan.scope.unestimated > 0) return `the ${fmt(n)} estimated ${n === 1 ? "point" : "points"}`;
-  return `all ${plural(n, "point")}`;
+  const base =
+    plan.scope.unestimated > 0
+      ? `the ${fmt(n)} estimated ${n === 1 ? "point" : "points"}`
+      : `all ${plural(n, "point")}`;
+  const before = plan.scope.points;
+  const change = signedPct(plan.scopeChangePct);
+  return before !== null && before !== n && change !== "0%"
+    ? `${base} (${fmt(before)} with a ${change} change)`
+    : base;
+}
+
+/**
+ * The scope, in the units the user edits (before the expected change),
+ * that fits what the team can promise by the target: the P85 deliverable
+ * with the change taken back out. Null when no cut gets there (nothing is
+ * deliverable by then) or none is needed.
+ */
+function cutTo(plan: ReleasePlan, t: TargetAnswer): number | null {
+  const promise = t.deliverable ? Math.floor(t.deliverable.p85) : 0;
+  const before = plan.scope.points;
+  if (!(promise > 0) || before === null) return null;
+  const n = Math.floor(promise / (1 + (plan.scopeChangePct ?? 0) / 100));
+  return n >= 1 && n < before ? n : null;
 }
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -39,8 +65,8 @@ function blockedVerdict(plan: ReleasePlan): string {
       return "Add the release scope to get a forecast.";
     case "no-sample":
       return plan.velocitySource === "sprints"
-        ? "Close a sprint with its completed points to get a forecast."
-        : "Type the points of a few past sprints to get a forecast.";
+        ? `Close at least ${MIN_SAMPLE.forecast} sprints with their completed points to get a forecast.`
+        : `Type the points of at least ${MIN_SAMPLE.forecast} past sprints to get a forecast.`;
     case "small-sample": {
       const more = needMore(plan.sample.points.length, "forecast");
       return plan.velocitySource === "sprints"
@@ -77,19 +103,21 @@ export function releaseVerdict(plan: ReleasePlan): string {
         ? `${lead}; plan for ${formatDay(p85.date)} to be 85% sure of finishing ${what}.`
         : `${lead}.`;
     }
-    const pct = Math.round(t.chance * 100);
-    const promise = t.deliverable ? fmt(Math.floor(t.deliverable.p85), 0) : null;
-    if (t.chance >= 0.995) return `Very likely: almost every run finishes ${what} by ${by}.`;
-    if (t.chance >= 0.85) return `Likely: ${aPct(pct)} chance of finishing ${what} by ${by}.`;
+    // Branch on the percentage shown, not the raw share: 84.7% reads "85%",
+    // and "85% … to be 85% sure, plan for …" contradicted itself.
+    const pct = Math.round((t.chance ?? 0) * 100);
+    if (pct >= 100) return `Very likely: almost every run finishes ${what} by ${by}.`;
+    if (pct >= 85) return `Likely: ${aPct(pct)} chance of finishing ${what} by ${by}.`;
     // Short of 85%: the two ways to get there, a later date or less scope.
+    const cut = cutTo(plan, t);
     const options = [
       p85?.sprints ? `plan for ${formatDay(p85.date)}` : null,
-      promise && Number(promise) < (plan.effective ?? 0) ? `cut to about ${promise} points` : null,
+      cut !== null ? `cut the ${fmt(plan.scope.points ?? 0)} points to about ${fmt(cut, 0)}` : null,
     ].filter(Boolean);
     const lead =
-      t.chance >= 0.5
+      pct >= 50
         ? capitalize(`${aPct(pct)} chance of finishing ${what} by ${by}`)
-        : t.chance < 0.005
+        : pct === 0
           ? `Very unlikely: almost no run finishes ${what} by ${by}`
           : `Unlikely: ${aPct(pct)} chance of finishing ${what} by ${by}`;
     return options.length > 0 ? `${lead}; to be 85% sure, ${options.join(" or ")}.` : `${lead}.`;

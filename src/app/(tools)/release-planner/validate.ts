@@ -25,9 +25,31 @@ export const validateScopePoints: NumberCheck = (raw) => {
   return { ok: true, values: n };
 };
 
+/**
+ * The start of a number, not yet one: "-", "+", "−", ".", "-,". The field
+ * waits for the next keystroke instead of flagging it (typing "-5" used to
+ * raise an alert on the "-").
+ */
+export function isPartialNumber(raw: string): boolean {
+  return /^\s*[-+−]?\s*[.,]?\s*$/.test(raw) && raw.trim() !== "";
+}
+
+/**
+ * A percentage as typed: a comma decimal ("12,5") and the minus sign the
+ * page prints ("−5") read as 12.5 and -5. A comma before three digits
+ * ("1,000") stays a thousands separator, so it is flagged rather than
+ * read as 1%.
+ */
+function percentText(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^[−–]/, "-")
+    .replace(/^([-+]?\d*),(\d{1,2})$/, "$1.$2");
+}
+
 /** Expected scope change: −90% to +300%. */
 export const validateScopeChange: NumberCheck = (raw) => {
-  const n = parseNumber(raw);
+  const n = parseNumber(percentText(raw));
   if (n === undefined) return { ok: true, values: null };
   if (!Number.isFinite(n)) return fail("Enter a percentage, such as 10 or -5.");
   if (n < -90 || n > 300) return fail("Use a change from −90% to +300%.");

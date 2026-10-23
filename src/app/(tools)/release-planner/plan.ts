@@ -58,12 +58,18 @@ export interface ConfidenceRow {
   date: string;
 }
 
+/**
+ * The answers for the target date. "Scope we can deliver by then" needs
+ * only the velocity sample, so it is there without a scope too (a fixed
+ * date with open scope is the usual reason to ask); the chance needs the
+ * scope's forecast.
+ */
 export interface TargetAnswer {
   date: string;
   /** Whole sprints that fit between the start and the target. */
   sprints: number;
-  /** 0–1: share of runs that finish within those sprints. */
-  chance: number;
+  /** 0–1: share of runs that finish within those sprints; null without a forecast (no scope). */
+  chance: number | null;
   /** What those sprints deliver; null when no sprint fits. */
   deliverable: Deliverable | null;
 }
@@ -112,13 +118,16 @@ export function planRelease(input: ReleasePlanInput, options: SimulationOptions 
         })
       : [];
 
+  // Wherever the sample is big enough: without a scope, and when the scope
+  // is out of reach (no progress, beyond the cap), what the date delivers
+  // is still the answer to give.
   let target: TargetAnswer | null = null;
-  if (forecast && !stalled && input.targetDate) {
+  if (input.targetDate && enoughData(n, MIN_SAMPLE.forecast)) {
     const sprints = sprintsUntil(input.start.date, input.targetDate, input.lengthDays);
     target = {
       date: input.targetDate,
       sprints,
-      chance: chanceWithin(forecast, sprints),
+      chance: forecast ? chanceWithin(forecast, sprints) : null,
       deliverable: sprints >= 1 ? deliverableIn(input.sample.points, sprints, options) : null,
     };
   }

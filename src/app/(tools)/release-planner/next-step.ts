@@ -41,7 +41,16 @@ export function releaseNextStep(plan: ReleasePlan): NextStep | null {
       href: "/velocity",
     };
   }
-  if (plan.target && plan.target.sprints >= 1 && plan.target.chance < 0.5) {
+  // The rounded chance, as the page shows it: "50%" isn't a long shot. Only
+  // with a forecast: a blocked plan's verdict already says what to fix.
+  const chance = plan.target?.chance;
+  if (
+    !plan.blocked &&
+    plan.target &&
+    plan.target.sprints >= 1 &&
+    chance != null &&
+    Math.round(chance * 100) < 50
+  ) {
     return {
       id: "release-cut-scope",
       label: "Decide what to cut",
