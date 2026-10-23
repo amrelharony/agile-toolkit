@@ -358,8 +358,9 @@ describe("reveal and vote again", () => {
     voteFor_("Lee", "13");
     fireEvent.click(screen.getByRole("button", { name: /^Reveal/ }));
     expect(screen.getByText("Discussion needed")).toBeInTheDocument();
-    const accept = screen.getByText("Accept estimate:").parentElement as HTMLElement;
-    fireEvent.click(within(accept).getByRole("button", { name: "13" }));
+    const accept = screen.getByRole("radiogroup", { name: "Estimate to accept" });
+    fireEvent.click(within(accept).getByRole("radio", { name: "13" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept 13" }));
     const story = stored().stories[0];
     expect(story.finalEstimate).toBe("13");
     expect(story.rounds).toEqual([

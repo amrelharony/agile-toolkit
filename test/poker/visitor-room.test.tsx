@@ -337,7 +337,7 @@ describe("Start a live room (host, tool page)", () => {
     const deck = screen.getByRole("radiogroup", { name: "Your vote" });
     fireEvent.click(within(deck).getByRole("radio", { name: "5" }));
     fireEvent.click(screen.getByRole("button", { name: /Reveal/ }));
-    fireEvent.click(screen.getByRole("button", { name: "5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept 5" }));
     expect(h.log).not.toHaveBeenCalled();
   });
 

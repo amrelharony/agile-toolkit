@@ -302,7 +302,7 @@ describe("Planning Poker example", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "5" }));
     fireEvent.click(screen.getByRole("button", { name: /Reveal/ }));
-    fireEvent.click(screen.getByRole("button", { name: "5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept 5" }));
 
     expect(exported.markdown).toContain("| Add a digital wallet button | 5 | 5 |");
     expect(exported.markdown).toContain("**Total: 18 points** (4 of 5 stories estimated)");
