@@ -6,6 +6,7 @@ import { UndoRedoControls } from "@/components/history/undo-redo-controls";
 import { SavedChip } from "@/components/data/saved-chip";
 import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
+import { NextStepCard } from "@/components/tool-frame/next-step";
 import { PresentButton } from "@/components/presentation/presentation-mode";
 import { FavoriteButton } from "@/components/tool-frame/favorite-button";
 
@@ -90,6 +91,7 @@ export function ToolPageWrapper({
         </div>
       )}
       {children}
+      {toolId && <NextStepCard toolId={toolId} />}
       {toolId && <RelatedTools toolId={toolId} />}
     </div>
   );

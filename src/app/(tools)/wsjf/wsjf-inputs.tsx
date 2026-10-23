@@ -8,7 +8,7 @@ import {
   offScale,
   toNumber,
   type ScaleStep,
-} from "@/components/prioritization/scale-picker";
+} from "@/components/shared/scale-picker";
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
 
 /** The modified Fibonacci scale WSJF scores each component on, relative to the others. */

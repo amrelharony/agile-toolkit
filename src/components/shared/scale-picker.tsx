@@ -3,6 +3,10 @@
 import type { ReactNode } from "react";
 import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { focusFirstInvalid } from "@/lib/utils/form";
+
+// Forms import it from here next to the picker it knows how to focus.
+export { focusFirstInvalid };
 
 /** One value on a method's scale, e.g. RICE impact 3 "Massive". */
 export interface ScaleStep {
@@ -42,6 +46,11 @@ export interface ScalePickerProps {
   value: number | null;
   onValueChange: (value: number) => void;
   /**
+   * Offer "Clear" while a value is chosen, so a score can go back to "Not
+   * scored" instead of being forced to a value (contract item 2).
+   */
+  onClear?: () => void;
+  /**
    * An off-scale value the item already held. It stays on offer as
    * "Custom: …" so picking a scale value by mistake can be taken back.
    */
@@ -53,6 +62,11 @@ export interface ScalePickerProps {
   error?: string;
   size?: "sm" | "md";
   className?: string;
+  /**
+   * Layout for the options, e.g. "grid grid-cols-5 sm:inline-flex" so a
+   * 1–10 scale wraps as two even rows of five on a phone instead of 9 + 1.
+   */
+  optionsClassName?: string;
 }
 
 /**
@@ -67,12 +81,14 @@ export function ScalePicker({
   steps,
   value,
   onValueChange,
+  onClear,
   custom,
   format = String,
   hint,
   error,
   size = "md",
   className,
+  optionsClassName,
 }: ScalePickerProps) {
   const options: ToggleOption<number>[] = steps.map((s) => ({
     value: s.value,
@@ -100,13 +116,26 @@ export function ScalePicker({
       className={cn("flex min-w-0 flex-col gap-1.5", className)}
       data-scale-invalid={error ? "true" : undefined}
     >
-      {/* The radio group carries the same name; this is the visible label. */}
-      <span className="text-sm text-text" aria-hidden="true">
-        {label}
-      </span>
+      <div className="flex min-h-6 items-center justify-between gap-2">
+        {/* The radio group carries the same name; this is the visible label. */}
+        <span className="text-sm text-text" aria-hidden="true">
+          {label}
+        </span>
+        {onClear && value !== null && (
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label={`Clear ${label}`}
+            className="min-touch-coarse rounded text-xs text-sub underline-offset-2 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Clear
+          </button>
+        )}
+      </div>
       <ToggleGroup
         label={label}
         size={size}
+        className={optionsClassName}
         options={options}
         value={value}
         onValueChange={onValueChange}
@@ -131,16 +160,4 @@ export function ScaleValue({ steps, value }: { steps: readonly ScaleStep[]; valu
       {!isOnScale(steps, n) && <span className="ml-1 font-sans text-sub">custom</span>}
     </>
   );
-}
-
-/**
- * Move focus to the first invalid control under `root`: an input marked
- * aria-invalid, or the checked/first option of a scale with an error.
- */
-export function focusFirstInvalid(root: HTMLElement | null): void {
-  root
-    ?.querySelector<HTMLElement>(
-      '[aria-invalid="true"], [data-scale-invalid="true"] [role="radio"][tabindex="0"]'
-    )
-    ?.focus();
 }

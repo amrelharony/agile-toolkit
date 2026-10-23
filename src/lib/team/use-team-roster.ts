@@ -43,3 +43,26 @@ export function useWorkspaceHydrated(): boolean {
 export function nameKey(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase();
 }
+
+/** The roster member with this name (trimmed, case-insensitive), if any. */
+export function findRosterMember(
+  roster: readonly TeamMember[],
+  name: string | null | undefined
+): TeamMember | undefined {
+  const key = nameKey(name);
+  return key ? roster.find((m) => nameKey(m.name) === key) : undefined;
+}
+
+/**
+ * Add a person to the workspace roster, or return the member who already
+ * has that name. Tools call this only when the user asks for it ("Add to
+ * the team") — typing a name somewhere must never change the team.
+ */
+export function addToRoster(name: string): TeamMember {
+  const { teamMembers, upsertTeamMember } = useWorkspaceStore.getState();
+  const existing = findRosterMember(teamMembers ?? EMPTY_ROSTER, name);
+  if (existing) return existing;
+  const member: TeamMember = { id: `member_${crypto.randomUUID()}`, name: name.trim() };
+  upsertTeamMember(member);
+  return member;
+}

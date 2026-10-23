@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 
-import { dismissUndoToasts, undoable } from "@/lib/utils/undoable";
+import { dismissUndoToasts, removeWithUndo, undoable } from "@/lib/utils/undoable";
 
 beforeEach(() => {
   toastSpy.mockReset();
@@ -43,5 +43,62 @@ describe("undoable", () => {
 
     dismissUndoToasts();
     expect(toastSpy.dismiss).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("removeWithUndo", () => {
+  /** A functional setter over a plain variable, like a useState setter. */
+  function listState<T>(initial: T[]) {
+    const state = { list: initial };
+    const update = (fn: (list: readonly T[]) => T[]) => {
+      state.list = fn(state.list);
+    };
+    return { state, update };
+  }
+
+  it("removes the matching items and Undo puts them back where they were", () => {
+    const { state, update } = listState(["a", "b", "c", "d"]);
+    removeWithUndo({ label: "Deleted b and d", update, match: (x) => x === "b" || x === "d" });
+    expect(state.list).toEqual(["a", "c"]);
+
+    toastSpy.mock.calls[0][1].action.onClick();
+    expect(state.list).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("keeps an edit made to another item before Undo", () => {
+    const { state, update } = listState([
+      { id: 1, v: "x" },
+      { id: 2, v: "y" },
+      { id: 3, v: "z" },
+    ]);
+    removeWithUndo({ label: "Deleted 2", update, match: (x) => x.id === 2 });
+    // Item 3 edited while the toast is up.
+    update((list) => list.map((x) => (x.id === 3 ? { ...x, v: "edited" } : x)));
+
+    toastSpy.mock.calls[0][1].action.onClick();
+    expect(state.list).toEqual([
+      { id: 1, v: "x" },
+      { id: 2, v: "y" },
+      { id: 3, v: "edited" },
+    ]);
+  });
+
+  it("survives an updater that runs twice (React StrictMode)", () => {
+    const state = { list: ["a", "b"] };
+    const update = (fn: (list: readonly string[]) => string[]) => {
+      fn(state.list);
+      state.list = fn(state.list);
+    };
+    removeWithUndo({ label: "Deleted b", update, match: (x) => x === "b" });
+    toastSpy.mock.calls[0][1].action.onClick();
+    expect(state.list).toEqual(["a", "b"]);
+  });
+
+  it("puts a removed last item back at the end when the list has shrunk", () => {
+    const { state, update } = listState(["a", "b", "c"]);
+    removeWithUndo({ label: "Deleted c", update, match: (x) => x === "c" });
+    update(() => ["a"]);
+    toastSpy.mock.calls[0][1].action.onClick();
+    expect(state.list).toEqual(["a", "c"]);
   });
 });

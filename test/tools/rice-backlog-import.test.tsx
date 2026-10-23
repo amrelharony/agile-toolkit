@@ -46,6 +46,7 @@ import { RiceScoringClient } from "@/app/(tools)/rice-scoring/rice-scoring-clien
 import { WsjfClient } from "@/app/(tools)/wsjf/wsjf-client";
 import { MoscowClient } from "@/app/(tools)/moscow/moscow-client";
 import { IceScoreClient } from "@/app/(tools)/ice-score/ice-score-client";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ValueEffortMatrixClient } from "@/app/(tools)/value-effort-matrix/value-effort-matrix-client";
 import { KanoModelClient } from "@/app/(tools)/kano-model/kano-model-client";
 import { CostOfDelayClient } from "@/app/(tools)/cost-of-delay/cost-of-delay-client";
@@ -237,12 +238,20 @@ describe("RICE: Add to backlog", () => {
   });
 });
 
+/** The app root provides tooltips; icon buttons in the rows need one. */
+const renderTool = (Client: ComponentType) =>
+  render(
+    <TooltipProvider>
+      <Client />
+    </TooltipProvider>
+  );
+
 describe("every method tool", () => {
   const cases: {
     name: string;
     Client: ComponentType;
     path: string;
-    titleLabel: string;
+    titleLabel: string | RegExp;
     add: string | RegExp;
     framework: PrioritizationItem["framework"];
     /** Fill the inputs the backlog can't prefill but the tool requires. */
@@ -276,13 +285,15 @@ describe("every method tool", () => {
       name: "ICE",
       Client: IceScoreClient,
       path: "/ice-score",
-      titleLabel: "Title",
+      titleLabel: /Idea or experiment/,
       add: /Add & score/,
       framework: "ice",
       // The backlog holds no ICE scores, and ICE requires all three.
       fill: () => {
-        for (const label of ["Impact (1–10)", "Confidence (1–10)", "Ease (1–10)"]) {
-          fireEvent.change(screen.getByLabelText(label), { target: { value: "6" } });
+        for (const label of ["Impact", "Confidence", "Ease"]) {
+          fireEvent.click(
+            screen.getByRole("radiogroup", { name: label }).querySelectorAll("button")[5]
+          );
         }
       },
     },
@@ -320,7 +331,7 @@ describe("every method tool", () => {
     });
     useWorkspaceStore.setState({ backlogItems: [item] });
     window.history.replaceState({}, "", `${c.path}?backlogItem=b1`);
-    render(<c.Client />);
+    renderTool(c.Client);
 
     expect(screen.getByLabelText(c.titleLabel)).toHaveValue("Passkey sign-in");
     c.fill?.();
@@ -353,7 +364,7 @@ describe("every method tool", () => {
         },
       ],
     });
-    render(<c.Client />);
+    renderTool(c.Client);
     fireEvent.click(screen.getByRole("button", { name: "Add Offline mode to the backlog" }));
     const [created] = state().backlogItems ?? [];
     expect(created.name).toBe("Offline mode");
