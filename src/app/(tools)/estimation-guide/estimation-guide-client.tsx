@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useId, useRef, useCallback, useMemo } from "react";
+import Link from "next/link";
+import { ArrowRight, BookOpen, Share2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ResetButton } from "@/components/shared/reset-button";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { generateEstimationGuidePrompts } from "@/lib/ai-prompts/estimation-guide";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Story, Workspace } from "@/lib/stores/workspace-types";
+import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ESTIMATION_GUIDE_ACTIONS } from "@/lib/history/event-actions";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,9 +30,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { scales } from "@/lib/constants/scales";
+import { scales, type EstimationScale } from "@/lib/constants/scales";
 import { toast } from "@/lib/utils/toast";
-import { RotateCcw, Share2 } from "lucide-react";
+import { undoable } from "@/lib/utils/undoable";
 import {
   defaultDescription,
   entriesForScale,
@@ -32,8 +42,24 @@ import {
   readEntry,
   sameEntries,
 } from "./entries";
-
-import { useEstimationGuideStore, initialState } from "./store";
+import { hasExample, withExample, withoutExample } from "./example";
+import { toMarkdown } from "./markdown";
+import {
+  MAX_REFERENCE_STORIES,
+  hasSuggestions,
+  pinnedIds,
+  pointsOf,
+  resolveReferenceStories,
+  suggestReferenceStories,
+  withPin,
+  withoutPin,
+  type GuideEntries,
+  type ReferenceStory,
+} from "./references";
+import { ReferenceStoriesField } from "./reference-stories";
+import { isScaleAtDefaults, restoreScale, withScaleReset, type ScaleMaps } from "./scale-reset";
+import { useEstimationGuideStore } from "./store";
+import { guideCoverage, guideVerdict } from "./verdict";
 
 /**
  * Encode arbitrary JSON state as a URL-safe, UTF-8-correct base64 string.
@@ -65,12 +91,54 @@ function decodeSharedState(encoded: string): unknown {
   });
 }
 
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const NO_STORIES: Story[] = [];
+
+/** The current per-value maps, read fresh (an Undo can run long after its render). */
+function currentMaps(): ScaleMaps {
+  const s = useEstimationGuideStore.getState();
+  return {
+    descriptions: s.descriptions ?? {},
+    examples: s.examples ?? {},
+    referenceStoryIds: s.referenceStoryIds ?? {},
+  };
+}
+
+/**
+ * Reset and its Undo for one scale. Both come from the same render, so the
+ * Undo restores the snapshot its own reset took (and the scale it reset),
+ * even after another scale was reset or picked since.
+ */
+function scaleResetPair(scale: EstimationScale) {
+  let before: ScaleMaps | null = null;
+  return {
+    onReset: () => {
+      before = currentMaps();
+      useEstimationGuideStore.setState(withScaleReset(before, scale));
+    },
+    onUndo: () => {
+      if (before) useEstimationGuideStore.setState(restoreScale(currentMaps(), before, scale));
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function EstimationGuideClient() {
   const store = useEstimationGuideStore();
+  const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
+  const queued = useWorkspaceStore(
+    (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue?.length ?? 0
+  );
   const gridRef = useRef<HTMLDivElement>(null);
   const uid = useId();
   const { log } = useHistoryLogger("estimation-guide");
@@ -106,6 +174,8 @@ export function EstimationGuideClient() {
         const d = decoded as Record<string, unknown>;
         // Validate every field's type before adopting — a crafted payload
         // could otherwise set `selectedScale` to a function or array.
+        // Pinned reference stories are never shared: they are ids in the
+        // sender's workspace, which mean nothing in anyone else's.
         const patch: Partial<{
           selectedScale: string;
           descriptions: Record<string, string>;
@@ -146,6 +216,15 @@ export function EstimationGuideClient() {
     [store.selectedScale]
   );
 
+  const maps: GuideEntries = useMemo(
+    () => ({
+      descriptions: store.descriptions ?? {},
+      examples: store.examples ?? {},
+      referenceStoryIds: store.referenceStoryIds ?? {},
+    }),
+    [store.descriptions, store.examples, store.referenceStoryIds]
+  );
+
   const handleScaleChange = useCallback(
     (value: string) => {
       useEstimationGuideStore.setState({ selectedScale: value });
@@ -177,15 +256,88 @@ export function EstimationGuideClient() {
     (val: string | number) => readEntry(store.examples, activeScale.name, val),
     [store.examples, activeScale.name]
   );
+  const pinnedOf = useCallback(
+    (val: string | number) =>
+      resolveReferenceStories(pinnedIds(maps.referenceStoryIds, activeScale.name, val), stories),
+    [maps.referenceStoryIds, activeScale.name, stories]
+  );
 
-  const handleReset = useCallback(() => {
-    useEstimationGuideStore.setState({
-      ...initialState,
-      selectedScale: store.selectedScale,
+  // ─── Reference stories ───
+  const pin = (val: string | number, story: Story) => {
+    useEstimationGuideStore.setState((state) => ({
+      referenceStoryIds: withPin(state.referenceStoryIds ?? {}, activeScale.name, val, story.id),
+    }));
+    log(ESTIMATION_GUIDE_ACTIONS.EXAMPLE_ADDED, {
+      scale: activeScale.name,
+      value: String(val),
+      storyId: story.id,
     });
-    toast.success("Reset to defaults");
-    log(ESTIMATION_GUIDE_ACTIONS.GUIDE_RESET, {});
-  }, [store.selectedScale, log]);
+  };
+
+  // Undo puts the story back where it was in the card's list.
+  const unpin = (val: string | number, story: ReferenceStory) => {
+    const scale = activeScale.name;
+    const index = pinnedIds(maps.referenceStoryIds, scale, val).indexOf(story.id);
+    undoable({
+      label: `Unpinned “${shortName(story.title)}”`,
+      apply: () => {
+        useEstimationGuideStore.setState((state) => ({
+          referenceStoryIds: withoutPin(state.referenceStoryIds ?? {}, scale, val, story.id),
+        }));
+        log(ESTIMATION_GUIDE_ACTIONS.EXAMPLE_REMOVED, {
+          scale,
+          value: String(val),
+          storyId: story.id,
+        });
+      },
+      revert: () =>
+        useEstimationGuideStore.setState((state) => ({
+          referenceStoryIds: withPin(state.referenceStoryIds ?? {}, scale, val, story.id, index),
+        })),
+    });
+  };
+
+  // ─── Example ───
+  // Fills the empty cards of the scale on screen; "Clear example" removes
+  // only what still reads exactly as the example wrote it.
+  const exampleShown = hasExample(maps);
+  const loadExample = () => {
+    useEstimationGuideStore.setState((state) =>
+      withExample(
+        { examples: state.examples ?? {}, referenceStoryIds: state.referenceStoryIds ?? {} },
+        activeScale
+      )
+    );
+  };
+  const clearExample = () => {
+    useEstimationGuideStore.setState((state) =>
+      withoutExample({
+        examples: state.examples ?? {},
+        referenceStoryIds: state.referenceStoryIds ?? {},
+      })
+    );
+  };
+
+  const reset = scaleResetPair(activeScale);
+  const atDefaults = isScaleAtDefaults(maps, activeScale);
+  const coverage = useMemo(
+    () => guideCoverage(maps, activeScale, stories),
+    [maps, activeScale, stories]
+  );
+  const numericScale = activeScale.values.some((v) => pointsOf(v) !== null);
+  const canSuggest = useMemo(
+    () => numericScale && hasSuggestions(stories, activeScale.values),
+    [numericScale, stories, activeScale.values]
+  );
+
+  // The next step: stories waiting to be estimated. The queue goes straight
+  // to Poker; unsized backlog stories are queued from Sprint Planning.
+  const unsized = useMemo(
+    () =>
+      stories.filter((s) => s.status !== "done" && s.points === undefined && !isExampleId(s.id))
+        .length,
+    [stories]
+  );
 
   const handleShare = useCallback(() => {
     const payload = {
@@ -219,10 +371,12 @@ export function EstimationGuideClient() {
       if (example) {
         lines.push(`Example: ${example}`);
       }
+      const refs = pinnedOf(val);
+      if (refs.length > 0) lines.push(`Reference stories: ${refs.map((r) => r.title).join("; ")}`);
       lines.push("");
     }
     return lines.join("\n");
-  }, [activeScale, descriptionOf, exampleOf]);
+  }, [activeScale, descriptionOf, exampleOf, pinnedOf]);
 
   const jsonData = useMemo(() => {
     if (!activeScale) return { scale: "", values: [] };
@@ -232,9 +386,15 @@ export function EstimationGuideClient() {
         value: val,
         description: descriptionOf(val),
         example: exampleOf(val),
+        referenceStories: pinnedOf(val).map((r) => ({ title: r.title, points: r.points })),
       })),
     };
-  }, [activeScale, descriptionOf, exampleOf]);
+  }, [activeScale, descriptionOf, exampleOf, pinnedOf]);
+
+  const markdown = useMemo(
+    () => toMarkdown(maps, activeScale, stories),
+    [maps, activeScale, stories]
+  );
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -308,25 +468,60 @@ export function EstimationGuideClient() {
             Share
           </Button>
 
-          <Button
+          <ResetButton
+            label="Reset this scale"
+            title={`Reset the ${activeScale.name} scale?`}
+            description="Its card meanings go back to the built-in ones, and its team examples and reference stories are cleared. Other scales stay as they are."
+            confirmLabel="Reset scale"
+            doneLabel={`Reset the ${activeScale.name} scale`}
+            onReset={() => {
+              reset.onReset();
+              log(ESTIMATION_GUIDE_ACTIONS.GUIDE_RESET, { scale: activeScale.name });
+            }}
+            onUndo={reset.onUndo}
+            disabled={atDefaults}
             variant="outline"
-            size="sm"
-            onClick={handleReset}
-            className="gap-2 border-border bg-card hover:bg-cardH hover:border-accent-cyan/30 text-sub hover:text-text"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Reset to Defaults
-          </Button>
+            className="gap-2 border-border bg-card text-sub hover:text-text"
+          />
 
           <AiPromptGenerator config={promptConfig} />
           <ExportButton
             filename="estimation-guide"
             clipboardText={clipboardText}
             jsonData={jsonData}
+            markdown={markdown}
             targetRef={gridRef}
           />
         </div>
       </div>
+
+      {exampleShown && <ExampleNotice onClear={clearExample} />}
+
+      <p className="mb-4 text-sm font-medium text-text">{guideVerdict(coverage)}</p>
+
+      {coverage.calibrated === 0 && (
+        <EmptyState
+          icon={BookOpen}
+          padding="md"
+          className="mb-4"
+          action={<LoadExampleButton onLoad={loadExample} />}
+        >
+          No team examples on the {activeScale.name} scale yet. Under each card, write a story your
+          team knows{numericScale ? " or pin one it finished" : ""}, or load an example to see how a
+          calibrated guide reads.
+        </EmptyState>
+      )}
+
+      {numericScale && !canSuggest && coverage.calibrated > 0 && (
+        <p className="mb-4 text-xs text-sub">
+          Done stories with points show up under their card, ready to pin as references.
+        </p>
+      )}
+      {!numericScale && (
+        <p className="mb-4 text-xs text-sub">
+          Stories carry points, not T-shirt sizes, so this scale has no done stories to suggest.
+        </p>
+      )}
 
       {/* Cards Grid */}
       <div
@@ -335,6 +530,9 @@ export function EstimationGuideClient() {
       >
         {activeScale.values.map((val) => {
           const key = String(val);
+          const pinned = pinnedOf(val);
+          const pinnedIdsHere = pinnedIds(maps.referenceStoryIds, activeScale.name, val);
+          const suggestions = suggestReferenceStories(stories, val, pinnedIdsHere);
           return (
             <Card
               key={key}
@@ -387,11 +585,48 @@ export function EstimationGuideClient() {
                     className="resize-none border-border bg-bg text-text placeholder:text-sub text-sm focus-visible:ring-accent-cyan/50"
                   />
                 </div>
+
+                {(numericScale || pinned.length > 0) && (
+                  <ReferenceStoriesField
+                    value={key}
+                    pinned={pinned}
+                    suggestions={suggestions}
+                    full={pinnedIdsHere.length >= MAX_REFERENCE_STORIES}
+                    onPin={(story) => pin(val, story)}
+                    onUnpin={(story) => unpin(val, story)}
+                  />
+                )}
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      {(queued > 0 || unsized > 0) && (
+        <aside
+          aria-labelledby={`${uid}-next`}
+          className="mt-6 flex flex-col gap-3 rounded-lg border border-accent/30 bg-accent/5 p-4 sm:flex-row sm:items-center"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-accent">Next step</p>
+            <h2 id={`${uid}-next`} className="mt-0.5 text-sm font-semibold text-text">
+              {queued > 0 ? "Estimate the queue in Planning Poker" : "Size the unsized stories"}
+            </h2>
+            <p className="mt-0.5 text-sm text-sub">
+              {queued > 0
+                ? `${plural(queued, "story", "stories")} ${queued === 1 ? "is" : "are"} waiting in the Planning Poker queue. This guide shows under the deck for the card being discussed.`
+                : `${plural(unsized, "story", "stories")} ${unsized === 1 ? "has" : "have"} no points yet. Queue ${unsized === 1 ? "it" : "them"} for Planning Poker from Sprint Planning.`}
+            </p>
+          </div>
+          <Link
+            href={queued > 0 ? "/planning-poker" : "/sprint-planning"}
+            className="inline-flex min-h-9 shrink-0 items-center gap-1.5 self-start rounded-md border border-accent/40 bg-card px-3 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:self-center"
+          >
+            {queued > 0 ? "Open Planning Poker" : "Open Sprint Planning"}
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </aside>
+      )}
     </ToolPageWrapper>
   );
 }
