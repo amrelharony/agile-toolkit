@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
+import { SourceLink } from "@/components/handoff/source-link";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import type { Story } from "@/lib/stores/workspace-types";
 import { storyPoints } from "@/lib/sprints/plan";
@@ -187,7 +188,7 @@ function StoryRow({
               />
             </div>
           )}
-          {(meta.length > 0 || story.status !== "done") && (
+          {(meta.length > 0 || story.status !== "done" || story.sourceRef) && (
             <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-sub">
               {meta.flatMap((part, i) => [
                 ...(i > 0
@@ -200,6 +201,8 @@ function StoryRow({
                 <span key={`part-${i}`}>{part}</span>,
               ])}
               {story.status !== "done" && <ReadinessBadge story={story} />}
+              {/* Where it came from: a job, a story-map card, a review note… */}
+              <SourceLink sourceRef={story.sourceRef} />
             </p>
           )}
         </div>

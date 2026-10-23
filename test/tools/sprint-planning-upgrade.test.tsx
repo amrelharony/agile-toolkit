@@ -889,3 +889,20 @@ describe("the example plan", () => {
     });
   });
 });
+
+describe("story sources", () => {
+  it("links a story back to the tool it came from", () => {
+    useWorkspaceStore.getState().upsertStory({
+      id: "from-job",
+      title: "Pay without an account",
+      status: "backlog",
+      points: 3,
+      sourceRef: { tool: "jtbd-mapper", id: "job-1" },
+    });
+    renderPlanning();
+    const link = screen.getByRole("link", { name: "From jobs to be done" });
+    expect(link).toHaveAttribute("href", "/jtbd-mapper");
+    // Stories with no source show no link.
+    expect(screen.getAllByRole("link", { name: /^From / })).toHaveLength(1);
+  });
+});
