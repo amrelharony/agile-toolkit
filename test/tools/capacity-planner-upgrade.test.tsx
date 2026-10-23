@@ -44,16 +44,23 @@ vi.mock("@/lib/sprints/use-ceremony-cadence", async () => {
 
 import { CapacityPlannerClient } from "@/app/(tools)/capacity-planner/capacity-planner-client";
 import {
+  capacityForecast,
   capacityVerdict,
+  countedPlan,
   validateMember,
   validateNumber,
   emptyPlan,
   forecastSentence,
   hoursBreakdown,
+  interruptionLabel,
+  isExampleOnly,
+  isUntouchedConfig,
   lastPlanFor,
+  planAsIs,
   planFromSource,
   sprintLength,
   sprintLengthText,
+  usualSprintDays,
 } from "@/app/(tools)/capacity-planner/model";
 import { nameChange } from "@/app/(tools)/capacity-planner/member-row";
 import { buildExampleMembers } from "@/app/(tools)/capacity-planner/example";
@@ -298,7 +305,7 @@ describe("points forecast and typed numbers", () => {
       config: config({ ceremonyOverhead: 10 }),
     };
     expect(forecastSentence(p, 30)).toBe(
-      "Capacity is 90% of a normal sprint (everyone in, no days off), so plan about 27 points (velocity 30 × 90%)."
+      "Capacity is 90% of a normal sprint (10 working days, everyone in, no days off), so plan about 27 points (velocity 30 × 90%)."
     );
     expect(forecastSentence(p, null)).toMatch(/^Capacity is 90% .*Finish a sprint with points/);
     expect(forecastSentence({ members: [], config: config() }, 30)).toBe(
@@ -350,6 +357,93 @@ describe("points forecast and typed numbers", () => {
   });
 });
 
+describe("a normal sprint is the team's usual one", () => {
+  // Two people, everyone in: only the sprint's length differs from normal.
+  const two = (sprintDays: number) => ({
+    members: [member("a", "A"), member("b", "B")],
+    config: config({ sprintDays }),
+  });
+
+  it("is the cadence's sprint length on its working week, holidays left out", () => {
+    expect(usualSprintDays(DEFAULT_CADENCE)).toBe(10);
+    expect(usualSprintDays({ ...DEFAULT_CADENCE, sprintLengthDays: 7 })).toBe(5);
+    expect(usualSprintDays({ ...DEFAULT_CADENCE, workingDays: [1, 2, 3, 4] })).toBe(8);
+    expect(usualSprintDays({ ...DEFAULT_CADENCE, holidays: ["2026-10-12"] })).toBe(10);
+  });
+
+  it("lowers the forecast for a holiday or a short sprint", () => {
+    // Sprint 2 with a team holiday: 9 of the usual 10 days.
+    expect(capacityForecast(two(9), 30, 10)).toEqual({ ratio: 0.9, points: 27 });
+    // Measured with its own length, the holiday vanished from the ratio.
+    expect(capacityForecast(two(9), 30)).toEqual({ ratio: 1, points: 30 });
+    // A one-week sprint for a two-week team; a long one scales up.
+    expect(capacityForecast(two(5), 30, 10)).toEqual({ ratio: 0.5, points: 15 });
+    expect(capacityForecast(two(15), 30, 10)).toEqual({ ratio: 1.5, points: 45 });
+    // No usable usual length falls back to the plan's own.
+    expect(capacityForecast(two(9), 30, 0)).toEqual({ ratio: 1, points: 30 });
+    expect(capacityForecast(two(9), 30, Number.NaN)).toEqual({ ratio: 1, points: 30 });
+    expect(capacityForecast(undefined, 30, 10)).toEqual({ ratio: null, points: null });
+    expect(capacityForecast({ members: [], config: config() }, 30, 10)).toEqual({
+      ratio: null,
+      points: null,
+    });
+    expect(capacityForecast(two(9), null, 10)).toEqual({ ratio: 0.9, points: null });
+    expect(forecastSentence(two(9), 30, 10)).toBe(
+      "Capacity is 90% of a normal sprint (10 working days, everyone in, no days off), so plan about 27 points (velocity 30 × 90%)."
+    );
+  });
+
+  it("counts a blank row as nobody, and a plan of examples as no real team", () => {
+    const blank = member("default:member-1", "", 100, 0, { role: "" });
+    const withBlank = { members: [blank, member("a", "Ann")], config: config() };
+    expect(countedPlan(withBlank).members.map((m) => m.id)).toEqual(["a"]);
+    const noBlank = { members: [member("a", "Ann")], config: config() };
+    expect(countedPlan(noBlank)).toBe(noBlank);
+    expect(forecastSentence({ members: [blank], config: config() }, 30, 10)).toBe(
+      "Add the team to see how many points this sprint can take."
+    );
+    expect(isExampleOnly({ members: buildExampleMembers() })).toBe(true);
+    expect(isExampleOnly({ members: [...buildExampleMembers(), blank] })).toBe(true);
+    expect(isExampleOnly({ members: [...buildExampleMembers(), member("a", "Ann")] })).toBe(false);
+    expect(isExampleOnly({ members: [] })).toBe(false);
+  });
+
+  it("keeps the general plan as is, days off, length and commitment included", () => {
+    const general: CapacityPlan = {
+      id: GENERAL,
+      members: [
+        member("a", "Ann", 50, 3),
+        buildExampleMembers()[0],
+        member("b", "", 100, 0, { role: "" }),
+      ],
+      config: config({ sprintDays: 8, pointsCommitted: "24" }),
+    };
+    expect(planAsIs(general, "s2")).toEqual({
+      id: S2_PLAN,
+      sprintId: "s2",
+      members: [member("a", "Ann", 50, 3)],
+      config: config({ sprintDays: 8, pointsCommitted: "24" }),
+    });
+  });
+
+  it("knows settings nobody has changed yet", () => {
+    expect(isUntouchedConfig(config({ sprintDays: 9 }), 9)).toBe(true);
+    expect(isUntouchedConfig(config({ sprintDays: 9 }), 10)).toBe(false);
+    expect(isUntouchedConfig(config({ focusFactor: 0.7 }), 10)).toBe(false);
+    expect(isUntouchedConfig(config({ pointsCommitted: "20" }), 10)).toBe(false);
+  });
+
+  it("names the interruptions by what they take", () => {
+    expect(interruptionLabel(0.8)).toBe(
+      "Other interruptions (20% of what's left; focus factor 0.8)"
+    );
+    expect(interruptionLabel(0.85)).toBe(
+      "Other interruptions (15% of what's left; focus factor 0.85)"
+    );
+    expect(interruptionLabel(1)).toBe("Other interruptions (0% of what's left; focus factor 1)");
+  });
+});
+
 describe("adding a member", () => {
   it("needs a name and numbers in range, and keeps what was typed", () => {
     const draft = { name: "  Lee   Ann ", role: " QA ", availability: "60", daysOff: "2.5" };
@@ -382,8 +476,31 @@ describe("Markdown", () => {
     expect(md).toContain("days off take the most, 64 hours.");
     expect(md).toContain("**Points forecast:** Capacity is 70% of a normal sprint");
     expect(md).toContain("| Full time (5 × 10 days × 8 h) | 400 |");
-    expect(md).toContain("| Other interruptions (focus factor 0.8) | −47.9 |");
+    expect(md).toContain("| Other interruptions (20% of what's left; focus factor 0.8) | −47.9 |");
     expect(md).toContain("| **Capacity** | **191.5** |");
+  });
+
+  it("reports the sprint's commitment and the usual length, and leaves blank rows out", () => {
+    const blank = member("default:member-1", "", 100, 0, { role: "" });
+    const md = toMarkdown(
+      {
+        members: [blank, member("a", "Ann"), member("b", "Bob")],
+        config: config({ sprintDays: 9, pointsCommitted: "99" }),
+        sprintName: "Sprint 2",
+        velocity: 30,
+        usualDays: 10,
+        committed: "",
+      },
+      new Date(2026, 9, 18)
+    );
+    expect(md).toContain("**Total capacity:** 98 hours across 2 members");
+    expect(md).toContain("Capacity is 90% of a normal sprint (10 working days");
+    // The sprint has no commitment yet; the plan's own number isn't reported.
+    expect(md).not.toContain("Points committed");
+    expect(md).not.toContain("(unnamed)");
+    expect(
+      toMarkdown({ members: [member("a", "Ann")], config: config(), committed: "24" })
+    ).toContain("**Points committed:** 24");
   });
 });
 
@@ -477,6 +594,153 @@ describe("one plan per sprint", () => {
     undoLast();
     expect(planById(S2_PLAN)).toEqual(original);
   });
+
+  it("keeps the general plan one click away once sprints exist, and edits it there", () => {
+    render(<CapacityPlannerClient />);
+    // Sprint Planning falls back to it for Sprint 2, so it opens from here.
+    fireEvent.click(screen.getByRole("button", { name: "Open the general plan" }));
+    expect(screen.getByRole("button", { name: "General plan" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(
+      screen.getByText(/Sprint Planning uses it for any sprint without its own plan/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("combobox", { name: "Name" }).map((i) => (i as HTMLInputElement).value)
+    ).toEqual(["Ann", "Bob"]);
+    const hours = screen.getByLabelText("Hours per day");
+    fireEvent.change(hours, { target: { value: "7" } });
+    fireEvent.blur(hours);
+    expect(planById(GENERAL)?.config.hoursPerDay).toBe(7);
+    expect(plans().map((p) => p.id)).toEqual([GENERAL]);
+    // The general plan's own commitment is still typed here.
+    expect(screen.getByLabelText(/Points committed \(next sprint\)/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "General plan" }));
+    expect(
+      screen.getByRole("heading", { name: "Sprint 2 has no capacity plan yet" })
+    ).toBeInTheDocument();
+  });
+
+  it("offers the general plan as is for the first sprint plan, days off included", () => {
+    render(<CapacityPlannerClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Use your general plan as is" }));
+    expect(planById(S2_PLAN)).toEqual({
+      id: S2_PLAN,
+      sprintId: "s2",
+      members: [member("m1", "Ann", 80, 1), member("m2", "Bob", 100, 2)],
+      config: config(),
+    });
+    expect(lastToast()[1].description).toBe("Your general plan, as it was");
+    undoLast();
+    expect(planById(S2_PLAN)).toBeUndefined();
+  });
+
+  it("doesn't offer it once a sprint has a plan of its own, or for a closed sprint", () => {
+    useWorkspaceStore.setState({
+      capacityPlans: [
+        ...plans(),
+        {
+          id: "capacity-planner:sprint:s1",
+          sprintId: "s1",
+          members: [member("a", "Ann")],
+          config: config(),
+        },
+      ],
+    });
+    const { unmount } = render(<CapacityPlannerClient />);
+    expect(screen.getByRole("button", { name: "Start from your last plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use your general plan as is" })).toBeNull();
+    unmount();
+
+    useWorkspaceStore.setState({
+      sprints: [S1, { ...S2, status: "completed", pointsCompleted: 0 }],
+      capacityPlans: plans().filter((p) => p.id === GENERAL),
+    });
+    render(<CapacityPlannerClient />);
+    expect(screen.getByRole("button", { name: "Start from your last plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use your general plan as is" })).toBeNull();
+  });
+
+  it("clears an example that started a sprint's plan back to no plan, with Undo", () => {
+    useWorkspaceStore.setState({ capacityPlans: [] });
+    render(<CapacityPlannerClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const loaded = planById(S2_PLAN);
+    expect(loaded?.members).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(planById(S2_PLAN)).toBeUndefined();
+    expect(
+      screen.getByRole("heading", { name: "Sprint 2 has no capacity plan yet" })
+    ).toBeInTheDocument();
+    undoLast();
+    expect(planById(S2_PLAN)).toEqual(loaded);
+  });
+
+  it("keeps the sprint's plan when the user changed it before clearing the example", () => {
+    useWorkspaceStore.setState({ capacityPlans: [] });
+    render(<CapacityPlannerClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const focus = screen.getByLabelText("Focus factor");
+    fireEvent.change(focus, { target: { value: "0.7" } });
+    fireEvent.blur(focus);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(planById(S2_PLAN)).toMatchObject({ members: [], config: { focusFactor: 0.7 } });
+    expect(screen.getByText(/No team yet/)).toBeInTheDocument();
+  });
+
+  it("shows the sprint's commitment from Sprint Planning instead of typing a second one", () => {
+    useWorkspaceStore.setState({
+      capacityPlans: [
+        {
+          id: S2_PLAN,
+          sprintId: "s2",
+          members: [member("a", "Ann")],
+          config: config({ pointsCommitted: "99" }),
+        },
+      ],
+    });
+    const { container } = render(<CapacityPlannerClient />);
+    const commitment = () => container.querySelector('[data-field="commitment"]');
+    expect(commitment()?.textContent).toBe(
+      "Sprint 2 isn't committed yet. Commit in Sprint Planning"
+    );
+    expect(screen.getByRole("link", { name: "Commit in Sprint Planning" })).toHaveAttribute(
+      "href",
+      "/sprint-planning?sprint=s2"
+    );
+    expect(screen.queryByLabelText(/Points committed/)).toBeNull();
+    expect(screen.getByTestId("export-markdown").textContent).not.toContain("Points committed");
+
+    act(() =>
+      useWorkspaceStore.setState({
+        sprints: [S1, { ...S2, status: "active", pointsPlanned: 24 }],
+      })
+    );
+    expect(commitment()?.textContent).toBe(
+      "24 points committed to Sprint 2. Change it in Sprint Planning"
+    );
+    expect(screen.getByTestId("export-markdown").textContent).toContain("**Points committed:** 24");
+  });
+
+  it("forecasts fewer points for a sprint with a team holiday", () => {
+    cadence.patch = { holidays: ["2026-10-12"] };
+    useWorkspaceStore.setState({
+      capacityPlans: [
+        {
+          id: S2_PLAN,
+          sprintId: "s2",
+          members: [member("a", "Ann"), member("b", "Bob")],
+          config: config({ sprintDays: 9 }),
+        },
+      ],
+    });
+    const { container } = render(<CapacityPlannerClient />);
+    expect(container.querySelector('[data-field="forecast"]')?.textContent).toBe(
+      "Capacity is 90% of a normal sprint (10 working days, everyone in, no days off), so plan about 27 points (velocity 30 × 90%)."
+    );
+  });
 });
 
 describe("the plan in view", () => {
@@ -553,8 +817,14 @@ describe("the plan in view", () => {
     ).toBeInTheDocument();
     // 78.4 of a normal 108.8 hours is 72%; velocity 30 → 22 points.
     expect(container.querySelector('[data-field="forecast"]')?.textContent).toBe(
-      "Capacity is 72% of a normal sprint (everyone in, no days off), so plan about 22 points (velocity 30 × 72%)."
+      "Capacity is 72% of a normal sprint (10 working days, everyone in, no days off), so plan about 22 points (velocity 30 × 72%)."
     );
+    // The interruptions line names what it takes: 1 − the focus factor.
+    expect(
+      screen.getByRole("rowheader", {
+        name: "− Other interruptions (20% of what's left; focus factor 0.8)",
+      })
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Plan Sprint 2 in Sprint Planning/ })).toHaveAttribute(
       "href",
       "/sprint-planning?sprint=s2"
@@ -633,10 +903,58 @@ describe("the plan in view", () => {
       target: { value: "Cleo" },
     });
     expect(planById(S2_PLAN)?.members[1]).toMatchObject({ name: "Cleo", teamMemberId: "t1" });
-    fireEvent.change(screen.getAllByRole("combobox", { name: "Name" })[1], {
-      target: { value: "Cleopatra" },
-    });
+    const name = screen.getAllByRole("combobox", { name: "Name" })[1];
+    fireEvent.change(name, { target: { value: "Cleopatra" } });
+    // A typed name is saved on blur, like the role beside it.
+    expect(planById(S2_PLAN)?.members[1].name).toBe("Cleo");
+    fireEvent.blur(name);
+    expect(planById(S2_PLAN)?.members[1]).toMatchObject({ name: "Cleopatra" });
     expect(planById(S2_PLAN)?.members[1]).not.toHaveProperty("teamMemberId");
+  });
+
+  it("saves a retyped name on blur or Enter, and never swaps the only member for 'No team yet'", () => {
+    useWorkspaceStore.setState({
+      capacityPlans: [
+        {
+          id: S2_PLAN,
+          sprintId: "s2",
+          members: [member("a", "Ann", 80, 1, { role: "" })],
+          config: config(),
+        },
+      ],
+    });
+    render(<CapacityPlannerClient />);
+    const name = screen.getByRole("combobox", { name: "Name" });
+    fireEvent.change(name, { target: { value: "" } });
+    // Mid-retype: nothing is saved, so the hours and the row stay put.
+    expect(planById(S2_PLAN)?.members[0].name).toBe("Ann");
+    expect(screen.getByText("Sprint Total").parentElement).toHaveTextContent("39.2hours");
+    expect(screen.queryByText(/No team yet/)).toBeNull();
+    fireEvent.change(name, { target: { value: "Annie" } });
+    fireEvent.keyDown(name, { key: "Enter" });
+    expect(planById(S2_PLAN)?.members[0].name).toBe("Annie");
+
+    // Emptied on purpose, the row is nobody: not counted, but still there to
+    // fill in, with no "No team yet" above it and no example to replace it.
+    fireEvent.change(name, { target: { value: "" } });
+    fireEvent.blur(name);
+    expect(planById(S2_PLAN)?.members[0]).toMatchObject({ name: "", availability: 80 });
+    expect(screen.getByText("Sprint Total").parentElement).toHaveTextContent("0hours");
+    expect(
+      screen.getByText(/Not counted in the totals until the row has a name/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No team yet/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
+  });
+
+  it("names each row's fields by whose they are", () => {
+    render(<CapacityPlannerClient />);
+    const ann = screen.getByRole("group", { name: "Ann" });
+    expect(within(ann).getByLabelText("Availability")).toHaveValue(80);
+    expect(within(ann).getByRole("combobox", { name: "Name" })).toHaveValue("Ann");
+    expect(
+      within(screen.getByRole("group", { name: "Bob" })).getByLabelText("Days off")
+    ).toHaveValue(1);
   });
 
   it("exports the sprint's plan as Markdown", () => {
@@ -662,5 +980,28 @@ describe("legacy plans", () => {
     expect(planById(GENERAL)?.config.hoursPerDay).toBe(7.5);
     expect(planById(GENERAL)).not.toHaveProperty("sprintId");
     expect(plans()).toHaveLength(1);
+  });
+
+  it("doesn't count an older plan's blank row in the totals", () => {
+    useWorkspaceStore.setState({
+      sprints: [],
+      capacityPlans: [
+        {
+          id: GENERAL,
+          members: [member("default:member-1", "", 100, 0, { role: "" }), member("a", "Ann")],
+          config: config(),
+        },
+      ],
+    });
+    render(<CapacityPlannerClient />);
+    // Ann alone: 10 × 8 × 0.8 × 0.85 = 54.4 hours; the blank row adds nothing.
+    expect(screen.getByText("Sprint Total").parentElement).toHaveTextContent("54.4hours");
+    expect(screen.getByText("Team Size").closest("div")?.parentElement).toHaveTextContent(
+      "1member"
+    );
+    const blank = screen.getByRole("group", { name: "Unnamed member" });
+    expect(within(blank).getByText("Not counted")).toBeInTheDocument();
+    // The row is still there to fill in; with a name it counts.
+    expect(planById(GENERAL)?.members).toHaveLength(2);
   });
 });

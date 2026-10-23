@@ -28,7 +28,12 @@ import type {
   CapacityPlan,
   Sprint,
 } from "@/lib/stores/workspace-types";
-import { capacityPlanIdFor, planCapacity, pointsForecast } from "@/lib/sprints/capacity";
+import {
+  capacityPlanIdFor,
+  normalHours,
+  planCapacity,
+  type PointsForecast,
+} from "@/lib/sprints/capacity";
 import {
   countWorkingDays,
   isoDayNumber,
@@ -62,6 +67,18 @@ export function defaultConfig(sprintDays: number): CapacityConfig {
     hoursPerDay: 8,
     pointsCommitted: "",
   };
+}
+
+/** Settings nobody has changed since the plan started with `defaultConfig(sprintDays)`. */
+export function isUntouchedConfig(config: CapacityConfig, sprintDays: number): boolean {
+  const start = defaultConfig(sprintDays);
+  return (
+    config.sprintDays === start.sprintDays &&
+    config.ceremonyOverhead === start.ceremonyOverhead &&
+    config.focusFactor === start.focusFactor &&
+    config.hoursPerDay === start.hoursPerDay &&
+    String(config.pointsCommitted ?? "").trim() === ""
+  );
 }
 
 /* ── Sprint length ───────────────────────────────────────────────────── */
@@ -164,6 +181,25 @@ export function isBlankMember(m: CapacityMember): boolean {
   return !m.name.trim() && !m.role.trim() && !m.description?.trim();
 }
 
+/**
+ * The plan with only the members who count: a blank row is nobody. Older
+ * plans started with an unnamed row at 100%, which Sprint Planning counted
+ * as a person with full hours while the planner said there was no team;
+ * both tools now leave it out of the totals and the forecast. The same
+ * object when there is nothing to leave out.
+ */
+export function countedPlan<P extends Pick<CapacityPlan, "members" | "config">>(plan: P): P {
+  return plan.members.some(isBlankMember)
+    ? { ...plan, members: plan.members.filter((m) => !isBlankMember(m)) }
+    : plan;
+}
+
+/** Nobody but the example team ("Load an example"): no real people to plan a sprint with. */
+export function isExampleOnly(plan: Pick<CapacityPlan, "members">): boolean {
+  const people = plan.members.filter((m) => !isBlankMember(m));
+  return people.length > 0 && people.every((m) => isExampleId(m.id));
+}
+
 /** A plan with at least one real (not blank, not example) member. */
 const hasTeam = (plan: CapacityPlan) =>
   plan.members.some((m) => !isBlankMember(m) && !isExampleId(m.id));
@@ -217,6 +253,22 @@ export function planFromSource(
       .filter((m) => !isExampleId(m.id) && !isBlankMember(m))
       .map((m) => ({ ...m, daysOff: 0 })),
     config: { ...source.config, sprintDays, pointsCommitted: "" },
+  };
+}
+
+/**
+ * A sprint's plan that is the general plan as it stands, days off, length
+ * and commitment included. Before plans were per sprint, the general plan
+ * was the current sprint's, so a team moving over keeps the days off it
+ * already typed instead of starting them at 0. Example and blank rows stay
+ * behind, as in `planFromSource`.
+ */
+export function planAsIs(source: CapacityPlan, sprintId: string): CapacityPlan {
+  return {
+    id: capacityPlanIdFor(sprintId),
+    sprintId,
+    members: source.members.filter((m) => !isExampleId(m.id) && !isBlankMember(m)),
+    config: { ...source.config },
   };
 }
 
@@ -346,6 +398,15 @@ export function hoursBreakdown(plan: Pick<CapacityPlan, "members" | "config">): 
 }
 
 /**
+ * The interruptions line's label, named by what it takes away: with a focus
+ * factor of 0.8, 20% of the hours left after the events ("focus factor 0.8
+ * of what's left" read as if 0.8 were the deduction).
+ */
+export function interruptionLabel(focusFactor: number): string {
+  return `Other interruptions (${fmt((1 - focusFactor) * 100)}% of what's left; focus factor ${focusFactor})`;
+}
+
+/**
  * The one-sentence answer: how much of full time is left, and what takes
  * the most. "191.5 of 400 full-time hours are left for sprint work (48%);
  * days off take the most, 64 hours."
@@ -367,25 +428,77 @@ export function capacityVerdict(b: HoursBreakdown): string {
 
 /* ── Points forecast ─────────────────────────────────────────────────── */
 
-/** "Capacity is 90% of a normal sprint, so plan about 27 points (velocity 30 × 90%)." */
+/**
+ * The team's usual sprint in working days: the cadence's sprint length on
+ * its working week, with no holidays. That is what "a normal sprint" means
+ * in the forecast, since velocity was earned over sprints of that length.
+ */
+export function usualSprintDays(
+  cadence: Pick<CeremonyCadence, "sprintLengthDays" | "workingDays" | "holidays">
+): number {
+  return sprintLength(undefined, cadence).workingDays;
+}
+
+/** A normal sprint's length: the team's usual days, else the plan's own length. */
+const normalDays = (config: Pick<CapacityConfig, "sprintDays">, usualDays?: number) =>
+  typeof usualDays === "number" && Number.isFinite(usualDays) && usualDays > 0
+    ? usualDays
+    : config.sprintDays;
+
+/**
+ * How many points the plan's hours are worth: velocity scaled by the
+ * plan's hours as a share of a normal sprint, everyone in for the team's
+ * usual `usualDays` with no days off. It is `pointsForecast` from
+ * lib/sprints/capacity with one difference: that measures "normal" with
+ * the plan's own length, and a sprint's plan already has its team holidays
+ * taken off that length, so a holiday (or a one-week sprint for a two-week
+ * team) shrank both sides and still forecast full velocity. Without
+ * `usualDays` it falls back to the plan's length, as `pointsForecast` does.
+ * Same rounding: the share to two decimals, the points to whole points.
+ */
+export function capacityForecast(
+  plan: Pick<CapacityPlan, "members" | "config"> | undefined,
+  velocity: number | null | undefined,
+  usualDays?: number
+): PointsForecast {
+  if (!plan) return { ratio: null, points: null };
+  const sprintDays = normalDays(plan.config, usualDays);
+  const normal = normalHours({ members: plan.members, config: { ...plan.config, sprintDays } });
+  const ratio = normal > 0 ? planCapacity(plan).totalHours / normal : null;
+  const points =
+    ratio !== null && typeof velocity === "number" && Number.isFinite(velocity) && velocity > 0
+      ? Math.round(velocity * ratio)
+      : null;
+  return { ratio: ratio === null ? null : Math.round(ratio * 100) / 100, points };
+}
+
+/**
+ * "Capacity is 90% of a normal sprint (10 working days, everyone in, no
+ * days off), so plan about 27 points (velocity 30 × 90%)." Blank rows
+ * don't count (`countedPlan`).
+ */
 export function forecastSentence(
   plan: Pick<CapacityPlan, "members" | "config">,
-  velocity: number | null
+  velocity: number | null,
+  usualDays?: number
 ): string {
-  const { ratio, points } = pointsForecast(plan, velocity);
+  const counted = countedPlan(plan);
+  const { ratio, points } = capacityForecast(counted, velocity, usualDays);
   if (ratio === null) {
-    return plan.members.length === 0
+    return counted.members.length === 0
       ? "Add the team to see how many points this sprint can take."
       : "These settings leave no working hours: check the focus factor and the ceremony overhead.";
   }
   const pct = `${Math.round(ratio * 100)}%`;
+  const days = normalDays(plan.config, usualDays);
+  const normal = `a normal sprint (${fmt(days)} working ${days === 1 ? "day" : "days"}, everyone in, no days off)`;
   if (velocity === null) {
-    return `Capacity is ${pct} of a normal sprint (everyone in, no days off). Finish a sprint with points to turn that into a points forecast.`;
+    return `Capacity is ${pct} of ${normal}. Finish a sprint with points to turn that into a points forecast.`;
   }
   if (ratio === 0) return "Nobody is available this sprint, so there is no room to plan.";
-  return `Capacity is ${pct} of a normal sprint (everyone in, no days off), so plan about ${
-    points ?? 0
-  } ${points === 1 ? "point" : "points"} (velocity ${fmt(velocity)} × ${pct}).`;
+  return `Capacity is ${pct} of ${normal}, so plan about ${points ?? 0} ${
+    points === 1 ? "point" : "points"
+  } (velocity ${fmt(velocity)} × ${pct}).`;
 }
 
 /* ── Typed numbers ───────────────────────────────────────────────────── */

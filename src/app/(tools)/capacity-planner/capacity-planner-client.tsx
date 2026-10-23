@@ -71,15 +71,20 @@ import { MemberAddForm, MemberRow } from "./member-row";
 import {
   MAX_SPRINT_DAYS,
   capacityVerdict,
+  countedPlan,
   emptyPlan,
   fmt,
   forecastSentence,
   hoursBreakdown,
+  interruptionLabel,
   isBlankMember,
+  isUntouchedConfig,
   lastPlanFor,
+  planAsIs,
   planFromSource,
   sprintLength,
   sprintLengthText,
+  usualSprintDays,
   type SprintLength,
 } from "./model";
 import { NumberField } from "./number-field";
@@ -169,22 +174,29 @@ export function CapacityPlannerClient() {
 
 /**
  * Which plan is on screen: the selected sprint's own plan (one per sprint,
- * so days off and holidays stay with their sprint), or the general plan when
- * the team has no sprints yet. A sprint without a plan asks how to start;
- * nothing is created until the user picks.
+ * so days off and holidays stay with their sprint), or the general plan.
+ * The general plan is the only one a team without sprints has, and it stays
+ * one click away once sprints exist: Sprint Planning falls back to it for
+ * every sprint without its own plan, and agents write it
+ * (tool.capacity_planner.*), so it must be visible and editable. A sprint
+ * without a plan asks how to start; nothing is created until the user picks.
  */
 function CapacityPlanner() {
   const { sprints, selected, select } = useSelectedSprint();
   const [cadence] = useCeremonyCadence();
   const plans = useWorkspaceStore((s) => s.capacityPlans) ?? NO_PLANS;
   const [creating, setCreating] = useState(false);
+  const [showGeneral, setShowGeneral] = useState(false);
 
-  const planId = capacityPlanIdFor(selected?.id);
+  // The sprint whose plan is on screen; none for the general plan.
+  const sprint = showGeneral ? undefined : selected;
+  const planId = capacityPlanIdFor(sprint?.id);
   const stored = plans.find((p) => p.id === planId);
-  const length = useMemo(() => sprintLength(selected, cadence), [selected, cadence]);
+  const length = useMemo(() => sprintLength(sprint, cadence), [sprint, cadence]);
+  const usualDays = useMemo(() => usualSprintDays(cadence), [cadence]);
   const velocity = useMemo(
-    () => averageVelocity(completedSprints(sprints), selected?.id),
-    [sprints, selected?.id]
+    () => averageVelocity(completedSprints(sprints), sprint?.id),
+    [sprints, sprint?.id]
   );
   const general = plans.find((p) => p.id === CAPACITY_PLAN_ID);
   // Shown, not saved, until the first edit.
@@ -199,45 +211,66 @@ function CapacityPlanner() {
         <SprintPicker
           sprints={[...sprints]}
           selectedId={selected?.id}
-          onSelect={select}
+          onSelect={(id) => {
+            setShowGeneral(false);
+            select(id);
+          }}
           label="Plan for"
           allowCreate={false}
         />
+        {selected && (
+          <Button
+            type="button"
+            variant={showGeneral ? "default" : "outline"}
+            size="sm"
+            aria-pressed={showGeneral}
+            onClick={() => setShowGeneral((on) => !on)}
+          >
+            General plan
+          </Button>
+        )}
         <Button type="button" variant="outline" size="sm" onClick={() => setCreating(true)}>
           <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
           New sprint
         </Button>
         <p className="min-w-0 basis-full text-xs text-sub sm:basis-auto sm:flex-1">
-          {selected
-            ? `One plan per sprint: Sprint Planning reads ${selected.name}'s plan for its forecast.`
-            : "Your general plan, not tied to a sprint. Create a sprint to keep one plan per sprint."}
+          {sprint
+            ? `One plan per sprint: Sprint Planning reads ${sprint.name}'s plan for its forecast.`
+            : selected
+              ? "Your general plan, not tied to a sprint: Sprint Planning uses it for any sprint without its own plan, and agents update it."
+              : "Your general plan, not tied to a sprint. Create a sprint to keep one plan per sprint."}
         </p>
       </div>
 
-      {selected && !stored ? (
+      {sprint && !stored ? (
         <StartPlan
-          sprint={selected}
+          sprint={sprint}
           sprints={sprints}
           plans={plans}
           length={length}
           general={general}
+          onOpenGeneral={() => setShowGeneral(true)}
         />
       ) : (
         <PlanEditor
           // A fresh editor per plan: drafts and the reset snapshot belong to one plan.
           key={planId}
           plan={stored ?? generalDefault}
-          sprint={selected}
+          sprint={sprint}
           sprints={sprints}
           length={length}
           velocity={velocity.average}
+          usualDays={usualDays}
         />
       )}
 
       <NewSprintDialog
         open={creating}
         onOpenChange={setCreating}
-        onCreated={(sprint: Sprint) => select(sprint.id)}
+        onCreated={(created: Sprint) => {
+          setShowGeneral(false);
+          select(created.id);
+        }}
         defaultName={nextSprintName(sprints)}
         defaultLengthDays={cadence.sprintLengthDays}
       />
@@ -255,20 +288,27 @@ function StartPlan({
   plans,
   length,
   general,
+  onOpenGeneral,
 }: {
   sprint: Sprint;
   sprints: Sprint[];
   plans: CapacityPlan[];
   length: SprintLength;
   general: CapacityPlan | undefined;
+  onOpenGeneral: () => void;
 }) {
   const { log } = useHistoryLogger(TOOL_ID);
   const source = useMemo(() => lastPlanFor(plans, sprints, sprint), [plans, sprints, sprint]);
+  const counted = general ? countedPlan(general) : undefined;
   const generalHours =
-    general && general.members.some((m) => !isBlankMember(m))
-      ? planCapacity(general).totalHours
-      : null;
+    counted && counted.members.length > 0 ? planCapacity(counted).totalHours : null;
   const days = `${length.workingDays} working ${length.workingDays === 1 ? "day" : "days"}`;
+  // No sprint has a plan of its own yet, so the general plan is the one the
+  // team has been keeping for the sprint in hand: offer it unchanged, days
+  // off included, for a sprint that is running or coming up.
+  const asIs =
+    source?.plan.id === CAPACITY_PLAN_ID &&
+    (sprint.status === "active" || sprint.status === "planned");
 
   const start = (plan: CapacityPlan, how: string) => {
     undoable({
@@ -287,9 +327,20 @@ function StartPlan({
       icon={CalendarPlus}
       action={
         <div className="flex flex-wrap justify-center gap-2">
+          {source && asIs && (
+            <Button
+              type="button"
+              onClick={() =>
+                start(planAsIs(source.plan, sprint.id), "Your general plan, as it was")
+              }
+            >
+              Use your general plan as is
+            </Button>
+          )}
           {source && (
             <Button
               type="button"
+              variant={asIs ? "outline" : "default"}
               onClick={() =>
                 start(
                   planFromSource(source.plan, sprint.id, length.workingDays),
@@ -327,10 +378,19 @@ function StartPlan({
         {source
           ? `“Start from your last plan” copies ${source.label}: ${source.plan.members.filter((m) => !isBlankMember(m) && !isExampleId(m.id)).length} people, their availability and the settings. Days off start at 0, and the length comes from ${sprint.name} (${days}).`
           : `Add who's on the team, their availability and days off. The length comes from ${sprint.name} (${days}).`}
+        {asIs &&
+          ` “Use your general plan as is” keeps everything in it, days off and sprint length included.`}
       </p>
       {generalHours !== null && (
         <p className="mx-auto mt-2 max-w-prose text-xs">
-          Until then, Sprint Planning uses your general plan ({fmt(generalHours)} hours).
+          Until then, Sprint Planning uses your general plan ({fmt(generalHours)} hours).{" "}
+          <button
+            type="button"
+            onClick={onOpenGeneral}
+            className="min-touch-coarse rounded text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Open the general plan
+          </button>
         </p>
       )}
     </EmptyState>
@@ -382,6 +442,7 @@ function PlanEditor({
   sprints,
   length,
   velocity,
+  usualDays,
 }: {
   /** The stored plan, or the general plan's unsaved default. */
   plan: CapacityPlan;
@@ -389,12 +450,20 @@ function PlanEditor({
   sprints: Sprint[];
   length: SprintLength;
   velocity: number | null;
+  /** The team's usual sprint in working days: "a normal sprint" for the forecast. */
+  usualDays: number;
 }) {
   const { members, config } = plan;
   const { log } = useHistoryLogger(TOOL_ID);
   const roster = useTeamRoster();
   const exportRef = useRef<HTMLDivElement>(null);
   const resetSnapshot = useRef<CapacityPlan | null>(null);
+  // Rows that were blank when the plan opened: an older plan's starter row,
+  // which "No team yet" and the example replace. A row emptied while editing
+  // isn't one, so the prompt never appears above a row being typed in and
+  // the example never takes someone's row away.
+  const [starterIds] = useState(() => new Set(plan.members.filter(isBlankMember).map((m) => m.id)));
+  const isStarter = (m: CapacityMember) => starterIds.has(m.id) && isBlankMember(m);
 
   /** The plan as stored now; the unsaved default before the first edit. */
   const current = () => readPlan(plan.id) ?? plan;
@@ -444,21 +513,30 @@ function PlanEditor({
     log(CAPACITY_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
   };
 
-  const hasMembers =
-    members.length > 1 ||
-    members.some((m) => m.name.trim() || m.role.trim() || m.description?.trim());
+  const hasMembers = members.some((m) => !isStarter(m));
 
   const loadExample = () =>
     write((p) => ({
       ...p,
-      members: [...buildExampleMembers(), ...p.members.filter((m) => !isBlankMember(m))],
+      members: [...buildExampleMembers(), ...p.members.filter((m) => !isStarter(m))],
     }));
 
   const clearExample = () => {
     const prev = current();
+    // "Load an example" on a sprint with no plan made this plan. With nothing
+    // of the user's in it (no one else, settings as they started), clearing
+    // takes the plan away again: the sprint asks how to start, and Sprint
+    // Planning stops reading an empty plan in place of the general one.
+    const remove =
+      Boolean(prev.sprintId) &&
+      prev.members.every((m) => isExampleId(m.id)) &&
+      isUntouchedConfig(prev.config, length.workingDays);
     undoable({
       label: "Cleared the example",
-      apply: () => write((p) => ({ ...p, members: p.members.filter((m) => !isExampleId(m.id)) })),
+      apply: () =>
+        remove
+          ? useWorkspaceStore.getState().removeCapacityPlan(prev.id)
+          : write((p) => ({ ...p, members: p.members.filter((m) => !isExampleId(m.id)) })),
       revert: () => savePlan(prev),
     });
   };
@@ -492,46 +570,52 @@ function PlanEditor({
     });
   };
 
-  const summary = useMemo(() => planCapacity(plan), [plan]);
-  const breakdown = useMemo(() => hoursBreakdown(plan), [plan]);
+  // The totals, the breakdown and the forecast count only the members who
+  // count (a blank row is nobody), as Sprint Planning does.
+  const counted = useMemo(() => countedPlan(plan), [plan]);
+  const summary = useMemo(() => planCapacity(counted), [counted]);
+  const breakdown = useMemo(() => hoursBreakdown(counted), [counted]);
   const hoursById = useMemo(
     () => new Map(summary.perMember.map((m) => [m.id, m.effectiveHours])),
     [summary]
   );
+  const hoursOf = (m: CapacityMember) => hoursById.get(m.id) ?? 0;
   const fullMemberHours = effectiveHours({ availability: 100, daysOff: 0 }, config);
+  // A sprint's commitment is the one Sprint Planning records on the sprint.
+  const committed = sprint ? committedPoints(sprint) : null;
 
   /* -- Export --------------------------------------------------------------- */
 
   const csvData = useMemo(
     () => ({
       headers: ["Name", "Role", "Description", "Availability %", "Days Off", "Effective Hours"],
-      rows: members.map((m, i) => [
+      rows: counted.members.map((m) => [
         m.name || "(unnamed)",
         m.role || "(no role)",
         m.description ?? "",
         m.availability,
         m.daysOff,
-        summary.perMember[i].effectiveHours,
+        hoursById.get(m.id) ?? 0,
       ]),
     }),
-    [members, summary]
+    [counted, hoursById]
   );
 
   const jsonData = useMemo(
     () => ({
       sprintId: sprint?.id,
       sprintConfig: config,
-      members: members.map((m, i) => ({
+      members: counted.members.map((m) => ({
         name: m.name || "(unnamed)",
         role: m.role || "(no role)",
         description: m.description,
         availability: m.availability,
         daysOff: m.daysOff,
-        effectiveHours: summary.perMember[i].effectiveHours,
+        effectiveHours: hoursById.get(m.id) ?? 0,
       })),
       totalCapacityHours: summary.totalHours,
     }),
-    [sprint?.id, config, members, summary]
+    [sprint?.id, config, counted, hoursById, summary]
   );
 
   const clipboardText = useMemo(
@@ -540,19 +624,28 @@ function PlanEditor({
         sprint ? `Sprint Capacity Planner — ${sprint.name}` : "Sprint Capacity Planner",
         `Sprint: ${config.sprintDays} days | Ceremony: ${config.ceremonyOverhead}% | Focus: ${config.focusFactor} | Hours/day: ${config.hoursPerDay}`,
         "",
-        ...members.map(
-          (m, i) =>
-            `${m.name || "(unnamed)"} (${m.role || "N/A"}) - ${m.availability}% avail, ${m.daysOff} days off => ${summary.perMember[i].effectiveHours}h`
+        ...counted.members.map(
+          (m) =>
+            `${m.name || "(unnamed)"} (${m.role || "N/A"}) - ${m.availability}% avail, ${m.daysOff} days off => ${hoursById.get(m.id) ?? 0}h`
         ),
         "",
         `Total Capacity: ${summary.totalHours} hours`,
       ].join("\n"),
-    [sprint, config, members, summary]
+    [sprint, config, counted, hoursById, summary]
   );
 
   const markdown = useMemo(
-    () => toMarkdown({ members, config, sprintName: sprint?.name, velocity }),
-    [members, config, sprint?.name, velocity]
+    () =>
+      toMarkdown({
+        members,
+        config,
+        sprintName: sprint?.name,
+        velocity,
+        usualDays,
+        // A sprint's plan reports the sprint's commitment, not a second one.
+        ...(sprint ? { committed: committed === null ? "" : fmt(committed) } : {}),
+      }),
+    [members, config, sprint, velocity, usualDays, committed]
   );
 
   const promptConfig = useMemo(
@@ -574,8 +667,8 @@ function PlanEditor({
           />
           <SummaryCard
             label="Team Size"
-            value={members.length}
-            unit={members.length === 1 ? "member" : "members"}
+            value={counted.members.length}
+            unit={counted.members.length === 1 ? "member" : "members"}
             icon={Users}
           />
           <SummaryCard
@@ -594,7 +687,13 @@ function PlanEditor({
 
         <div className="grid gap-6 lg:grid-cols-2">
           <HoursBreakdownCard breakdown={breakdown} config={config} />
-          <ForecastCard plan={plan} sprint={sprint} sprints={sprints} velocity={velocity} />
+          <ForecastCard
+            plan={counted}
+            sprint={sprint}
+            sprints={sprints}
+            velocity={velocity}
+            usualDays={usualDays}
+          />
         </div>
 
         {/* ---- Sprint configuration ---- */}
@@ -659,11 +758,15 @@ function PlanEditor({
               suffix="hrs"
             />
           </div>
-          <PointsCommitted
-            value={config.pointsCommitted ?? ""}
-            label={sprint ? `Points committed to ${sprint.name}` : "Points committed (next sprint)"}
-            onChange={(pointsCommitted) => updateConfig({ pointsCommitted })}
-          />
+          {sprint ? (
+            <SprintCommitment sprint={sprint} points={committed} />
+          ) : (
+            <PointsCommitted
+              value={config.pointsCommitted ?? ""}
+              label="Points committed (next sprint)"
+              onChange={(pointsCommitted) => updateConfig({ pointsCommitted })}
+            />
+          )}
         </SectionCard>
 
         {/* ---- Team members ---- */}
@@ -718,7 +821,8 @@ function PlanEditor({
             <MemberRow
               key={m.id}
               member={m}
-              effectiveHours={hoursById.get(m.id) ?? 0}
+              effectiveHours={hoursOf(m)}
+              counted={!isBlankMember(m)}
               sprintDays={config.sprintDays}
               roster={roster}
               onUpdate={(updates) => updateMember(m.id, updates)}
@@ -749,7 +853,7 @@ function PlanEditor({
               {members
                 .filter((m) => m.name)
                 .map((m) => {
-                  const hours = hoursById.get(m.id) ?? 0;
+                  const hours = hoursOf(m);
                   // Share of what a fully available person with no days off gets.
                   const pct = fullMemberHours > 0 ? (hours / fullMemberHours) * 100 : 0;
                   return (
@@ -869,10 +973,7 @@ function HoursBreakdownCard({
       `Scrum events (${fmt(config.ceremonyOverhead)}% of the hours people are here)`,
       b.ceremonyHours,
     ],
-    [
-      `Other interruptions (focus factor ${config.focusFactor} of what's left)`,
-      b.interruptionHours,
-    ],
+    [interruptionLabel(config.focusFactor), b.interruptionHours],
   ];
   return (
     <SectionCard title="Where the hours go" icon={PieChart}>
@@ -924,11 +1025,13 @@ function ForecastCard({
   sprint,
   sprints,
   velocity,
+  usualDays,
 }: {
   plan: CapacityPlan;
   sprint: Sprint | undefined;
   sprints: Sprint[];
   velocity: number | null;
+  usualDays: number;
 }) {
   // Every finished sprint, oldest first by end date, for the checks below.
   const history = useMemo(
@@ -942,7 +1045,7 @@ function ForecastCard({
   return (
     <SectionCard title="Points forecast" icon={Target}>
       <p className="text-sm text-text" data-field="forecast">
-        {forecastSentence(plan, velocity)}
+        {forecastSentence(plan, velocity, usualDays)}
       </p>
       {shifted && (
         <p className="mt-2 text-xs text-sub">
@@ -1016,7 +1119,39 @@ function ForecastCard({
   );
 }
 
-/** The commitment typed for the sprint, with the predicted default as a ghost value. */
+/** The points committed to `sprint` in Sprint Planning; null while a planned sprint has none. */
+function committedPoints(sprint: Sprint): number | null {
+  return sprint.status === "planned" && !(sprint.pointsPlanned > 0) ? null : sprint.pointsPlanned;
+}
+
+/**
+ * A sprint's commitment, read from the sprint. Sprint Planning records it
+ * there when the team commits; a second number typed here could disagree
+ * with it while both claimed to be the commitment.
+ */
+function SprintCommitment({ sprint, points }: { sprint: Sprint; points: number | null }) {
+  return (
+    <div className="mt-5 max-w-prose space-y-1.5">
+      <p className="flex items-center gap-1.5 text-sm text-text">
+        <Target className="h-3.5 w-3.5" aria-hidden="true" />
+        Commitment
+      </p>
+      <p className="text-sm text-sub" data-field="commitment">
+        {points === null
+          ? `${sprint.name} isn't committed yet.`
+          : `${fmt(points)} ${points === 1 ? "point" : "points"} committed to ${sprint.name}.`}{" "}
+        <Link
+          href={sprintHref("/sprint-planning", sprint.id)}
+          className="text-accent underline-offset-2 hover:underline"
+        >
+          {points === null ? "Commit in Sprint Planning" : "Change it in Sprint Planning"}
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+/** The general plan's commitment, typed, with the predicted default as a ghost value. */
 function PointsCommitted({
   value,
   label,

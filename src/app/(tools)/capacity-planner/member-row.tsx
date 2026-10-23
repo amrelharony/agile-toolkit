@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { PersonPicker } from "@/components/team/person-picker";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CapacityMember, TeamMember } from "@/lib/stores/workspace-types";
 import { findRosterMember, nameKey } from "@/lib/team/use-team-roster";
 import { NumberField } from "./number-field";
@@ -42,10 +43,62 @@ export function nameChange(
   return { name };
 }
 
+/**
+ * The row's name, kept in a draft and saved on blur or Enter like the role
+ * beside it. Saving every keystroke made the row blank for a moment while a
+ * name was retyped, and a blank row is nobody: the totals dropped and came
+ * back. A name picked from the team (or just added to it) is saved at once,
+ * since the roster's "Add to the team" button goes away when it is clicked
+ * and no blur follows.
+ */
+function NameField({
+  member,
+  roster,
+  onUpdate,
+}: {
+  member: CapacityMember;
+  roster: readonly TeamMember[];
+  onUpdate: (updates: Partial<CapacityMember>) => void;
+}) {
+  const [draft, setDraft] = useState(member.name);
+  useEffect(() => setDraft(member.name), [member.name]);
+  const commit = (name: string, team: readonly TeamMember[] = roster) => {
+    if (name !== member.name) onUpdate(nameChange(member, name, team));
+  };
+  return (
+    // PersonPicker has no onBlur of its own: the wrapper hears its input's
+    // blur and Enter as they bubble. It adds no role of its own.
+    <div
+      role="presentation"
+      className="col-span-2 md:col-span-1"
+      onBlur={() => commit(draft)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && e.target instanceof HTMLInputElement) {
+          e.preventDefault();
+          commit(draft);
+        }
+      }}
+    >
+      <PersonPicker
+        label="Name"
+        value={draft}
+        onChange={(name) => {
+          setDraft(name);
+          // Read the roster now: "Add to the team" has just added this name.
+          const team = useWorkspaceStore.getState().teamMembers ?? roster;
+          if (findRosterMember(team, name)) commit(name, team);
+        }}
+        placeholder="Team member"
+      />
+    </div>
+  );
+}
+
 /** One person's row: who they are, how much of the sprint they're here, and their hours. */
 export function MemberRow({
   member,
   effectiveHours,
+  counted = true,
   sprintDays,
   roster,
   onUpdate,
@@ -53,6 +106,8 @@ export function MemberRow({
 }: {
   member: CapacityMember;
   effectiveHours: number;
+  /** False for a blank row (no name, role or description): it isn't in the totals. */
+  counted?: boolean;
   /** Days off can't exceed the sprint's working days. */
   sprintDays: number;
   roster: readonly TeamMember[];
@@ -62,15 +117,15 @@ export function MemberRow({
   const fieldId = useId();
   const who = member.name.trim() || "member";
   return (
-    <div className="flex flex-col gap-2 border-b border-border pb-4 last:border-b-0 last:pb-0">
+    // Every row has fields named "Name", "Availability", "Days off": the
+    // group's name says whose they are.
+    <div
+      role="group"
+      aria-label={member.name.trim() || "Unnamed member"}
+      className="flex flex-col gap-2 border-b border-border pb-4 last:border-b-0 last:pb-0"
+    >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_0.6fr_0.5fr_auto] md:items-start">
-        <PersonPicker
-          label="Name"
-          value={member.name}
-          onChange={(name) => onUpdate(nameChange(member, name, roster))}
-          placeholder="Team member"
-          className="col-span-2 md:col-span-1"
-        />
+        <NameField member={member} roster={roster} onUpdate={onUpdate} />
 
         <div className="col-span-2 flex flex-col gap-1.5 md:col-span-1">
           <Label htmlFor={`${fieldId}-role`} className="text-sm text-text">
@@ -104,10 +159,17 @@ export function MemberRow({
         <div className="flex flex-col gap-1.5">
           <span className="text-sm text-text">Hours</span>
           <div className="flex h-9 items-center rounded-md border border-accent/20 bg-accent/5 px-3">
-            <span className="font-data font-semibold text-accent">
-              {fmt(effectiveHours)}
-              <span className="sr-only"> effective hours</span>
-            </span>
+            {counted ? (
+              <span className="font-data font-semibold text-accent">
+                {fmt(effectiveHours)}
+                <span className="sr-only"> effective hours</span>
+              </span>
+            ) : (
+              <span className="font-data text-sub">
+                <span aria-hidden="true">—</span>
+                <span className="sr-only">Not counted</span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -126,6 +188,12 @@ export function MemberRow({
           </Button>
         </div>
       </div>
+
+      {!counted && (
+        <p className="text-xs text-sub">
+          Not counted in the totals until the row has a name or a role.
+        </p>
+      )}
 
       {/* Optional description spans the row under the inputs. */}
       <BlurTextarea
