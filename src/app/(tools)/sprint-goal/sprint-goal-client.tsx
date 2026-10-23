@@ -46,6 +46,7 @@ import {
   goalDocId,
   hasContent,
   isExampleGoal,
+  normalizeGoal,
   sprintGoalPatch,
   sprintHasOwnGoal,
   usableDraft,
@@ -54,8 +55,16 @@ import {
 import { focusSoon } from "./focus";
 import { krProgressText, okrPercent, resolveLinkedOkrs, toggleOkrLink } from "./okr-links";
 import { goalVerdict } from "./verdict";
+import {
+  GOAL_OUTCOME_LABEL,
+  outcomeMoment,
+  withOutcome,
+  withoutOutcome,
+  type OutcomeValues,
+} from "./outcome";
 import { CriteriaStep } from "./criteria-step";
 import { OkrStep } from "./okr-step";
+import { OutcomeCard } from "./outcome-card";
 import { GoalConflictBanner, GoalNextStep, GoalScope } from "./goal-scope";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -160,6 +169,13 @@ export function SprintGoalClient() {
   const showsExample = isExampleGoal(cur);
   const isEmpty = !hasContent(cur);
 
+  // "Did we meet the sprint goal?" belongs to a sprint, never the draft,
+  // and it isn't the example's: while the example is loaded the sprint's
+  // answer stays stored but out of the verdict and the exports.
+  const moment = sprint ? outcomeMoment(sprint) : null;
+  const outcome = sprint && !showsExample ? cur.outcome : undefined;
+  const reported = useMemo(() => (outcome ? cur : withoutOutcome(cur)), [cur, outcome]);
+
   // The example's OKR is shown, read-only, while any of the example is
   // loaded (unticking it mustn't make the row vanish); it is never written
   // into the workspace's OKRs.
@@ -229,7 +245,10 @@ export function SprintGoalClient() {
     const inStep =
       !cleanGoal(prevSprintGoal) ||
       (prevDoc !== undefined && cleanGoal(prevDoc.goal) === cleanGoal(prevSprintGoal));
-    const moved = draftForSprint(draft, target.id);
+    // The sprint's answer to "Did we meet the sprint goal?" is about the
+    // sprint, not the draft, so a draft replacing its goal keeps it.
+    const prevOutcome = prevDoc ? normalizeGoal(prevDoc).outcome : undefined;
+    const moved = withoutOutcome(draftForSprint(draft, target.id), prevOutcome);
     // Only the user's own goal statement reaches the sprint: a draft that
     // still holds the example keeps it on the document, behind its notice,
     // and a blank one never clears the sprint's.
@@ -313,6 +332,41 @@ export function SprintGoalClient() {
       label: `Goal set on ${target.name}`,
       apply: () => updateSprint(target.id, { goal: goal || undefined }),
       revert: () => updateSprint(target.id, { goal: before }),
+    });
+    focusVerdict();
+  }
+
+  // ── Goal met? ───────────────────────────────────────────────────────────
+
+  // The answer is written onto the sprint's goal document like any other
+  // edit (so a sprint without one gets it, goal statement included), and
+  // never onto the draft or while the example is loaded.
+  function saveOutcome(values: OutcomeValues) {
+    if (!sprint || showsExample) return;
+    const target = sprint;
+    const before = freshDoc().outcome;
+    const apply = () => updateDoc((d) => withOutcome(d, values));
+    if (!before) {
+      apply();
+      return;
+    }
+    // Changing an answer throws the earlier one (and its note) away.
+    undoable({
+      label: `Changed ${target.name}'s answer to “${GOAL_OUTCOME_LABEL[values.met]}”`,
+      apply,
+      revert: () => updateDoc((d) => withoutOutcome(d, before)),
+    });
+  }
+
+  function clearOutcome() {
+    if (!sprint) return;
+    const target = sprint;
+    const before = freshDoc().outcome;
+    if (!before) return;
+    undoable({
+      label: `Cleared ${target.name}'s answer to “Did we meet the sprint goal?”`,
+      apply: () => updateDoc((d) => withoutOutcome(d)),
+      revert: () => updateDoc((d) => withoutOutcome(d, before)),
     });
     focusVerdict();
   }
@@ -464,13 +518,18 @@ export function SprintGoalClient() {
         ...criteria.map((c, i) => `${i + 1}. ${c.text}`),
         `KEY RESULTS:`,
         ...krLines.map((kr) => `- ${kr}`),
+        ...(outcome
+          ? [
+              `GOAL MET: ${GOAL_OUTCOME_LABEL[outcome.met]}${outcome.note ? ` (${outcome.note})` : ""}`,
+            ]
+          : []),
       ].join("\n"),
-    [sprint, businessObjective, sprintGoal, criteria, krLines]
+    [sprint, businessObjective, sprintGoal, criteria, krLines, outcome]
   );
 
   const markdown = useMemo(
-    () => toMarkdown(cur, new Date(), { sprint, okrs }),
-    [cur, sprint, okrs]
+    () => toMarkdown(reported, new Date(), { sprint, okrs }),
+    [reported, sprint, okrs]
   );
 
   const jsonData = useMemo(
@@ -487,8 +546,9 @@ export function SprintGoalClient() {
         progressPct: okrPercent(o),
       })),
       keyResultNotes: notes,
+      goalOutcome: outcome ?? null,
     }),
-    [cur, sprint, businessObjective, sprintGoal, criteria, linkedOkrs, notes]
+    [cur, sprint, businessObjective, sprintGoal, criteria, linkedOkrs, notes, outcome]
   );
 
   const promptConfig = useMemo(
@@ -603,8 +663,21 @@ export function SprintGoalClient() {
         tabIndex={-1}
         className="mb-4 text-sm font-medium text-text focus:outline-none"
       >
-        {goalVerdict(cur, sprint)}
+        {goalVerdict(reported, sprint)}
       </p>
+      {sprint && !showsExample && (
+        // Keyed by sprint, so a half-made answer or a Change in progress
+        // never carries over to the next sprint picked.
+        <OutcomeCard
+          key={sprint.id}
+          sprint={sprint}
+          moment={moment}
+          hasGoal={Boolean(cleanGoal(sprintGoal))}
+          outcome={outcome}
+          onSave={saveOutcome}
+          onClear={clearOutcome}
+        />
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Wizard Panel ─────────────────────────────────────────── */}
         <div className="lg:col-span-2 min-w-0">

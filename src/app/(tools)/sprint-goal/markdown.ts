@@ -1,6 +1,7 @@
-import type { Okr, Sprint, SprintGoal } from "@/lib/stores/workspace-types";
+import type { Okr, Sprint, SprintGoal, SprintGoalOutcome } from "@/lib/stores/workspace-types";
 import { goalSmart, smartMissing, validateSmart, type SmartResult } from "./smart";
 import { krProgressText, okrPercent, resolveLinkedOkrs } from "./okr-links";
+import { GOAL_OUTCOME_LABEL, outcomeDate } from "./outcome";
 import { goalVerdict } from "./verdict";
 
 /** "18 Oct 2026" */
@@ -34,7 +35,21 @@ export interface MarkdownContext {
 }
 
 type GoalFields = Pick<SprintGoal, "businessObjective" | "goal" | "criteria" | "keyResults"> &
-  Partial<Pick<SprintGoal, "okrIds">>;
+  Partial<Pick<SprintGoal, "okrIds" | "outcome">>;
+
+/** "**Partly met** · recorded 23 Oct 2026", then the note on its own line. */
+function outcomeLines(outcome: SprintGoalOutcome): string[] {
+  const date = outcomeDate(outcome);
+  const label = `**${GOAL_OUTCOME_LABEL[outcome.met]}**`;
+  const note = oneLine(outcome.note);
+  return [
+    "",
+    "## Goal met?",
+    "",
+    date ? `${label} · recorded ${date}` : label,
+    ...(note ? ["", `Note: ${note}`] : []),
+  ];
+}
 
 /** The sprint goal with its SMART checks, criteria and linked OKRs, for a sprint page or a planning thread. */
 export function toMarkdown(
@@ -50,7 +65,15 @@ export function toMarkdown(
   const criteria = goal.criteria.filter((c) => c.text.trim());
   const notes = goal.keyResults.map(oneLine).filter(Boolean);
   const { linked } = resolveLinkedOkrs(goal.okrIds, okrs);
-  if (!objective && !text && criteria.length === 0 && notes.length === 0 && linked.length === 0) {
+  const { outcome } = goal;
+  if (
+    !objective &&
+    !text &&
+    criteria.length === 0 &&
+    notes.length === 0 &&
+    linked.length === 0 &&
+    !outcome
+  ) {
     return `${title}\n\nNo sprint goal yet.\n`;
   }
 
@@ -65,6 +88,8 @@ export function toMarkdown(
       `SMART: ${smartNote(goalSmart(goal, sprint))}`
     );
   }
+  // Right under the goal it answers: after the sprint, the result comes first.
+  if (outcome) lines.push(...outcomeLines(outcome));
   if (objective) lines.push("", "## Business objective", "", objective);
   if (criteria.length > 0) {
     lines.push(

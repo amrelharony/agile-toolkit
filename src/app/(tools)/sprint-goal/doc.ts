@@ -2,6 +2,7 @@ import type { Sprint, SprintGoal } from "@/lib/stores/workspace-types";
 import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
 import { buildExample, withoutExample } from "./example";
 import { DRAFT_GOAL_ID, goalDocId } from "@/lib/sprints/goal-doc";
+import { normalizeOutcome } from "./outcome";
 
 /**
  * Where a sprint goal lives. Each sprint has its own document, under
@@ -38,11 +39,14 @@ const text = (v: unknown) => (typeof v === "string" ? v : "");
 
 /**
  * A stored goal with every field in shape, whatever wrote it: older
- * clients (no `okrIds`), agents (empty arrays), imports (missing fields).
+ * clients (no `okrIds` or `outcome`), agents (empty arrays), imports
+ * (missing fields). An answer to "Goal met?" that can't be read is left
+ * out rather than shown with a label that doesn't exist.
  */
 export function normalizeGoal(doc: SprintGoal): SprintGoal {
-  const { okrIds, ...rest } = doc;
+  const { okrIds, outcome: rawOutcome, ...rest } = doc;
   const criteria = Array.isArray(doc.criteria) ? doc.criteria : [];
+  const outcome = normalizeOutcome(rawOutcome);
   return {
     ...rest,
     businessObjective: text(doc.businessObjective),
@@ -54,6 +58,7 @@ export function normalizeGoal(doc: SprintGoal): SprintGoal {
     ...(Array.isArray(okrIds)
       ? { okrIds: okrIds.filter((id): id is string => typeof id === "string") }
       : {}),
+    ...(outcome ? { outcome } : {}),
   };
 }
 
