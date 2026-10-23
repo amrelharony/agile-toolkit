@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
  * ICE: an empty Impact, Confidence or Ease used to become 5 without a word.
- * All three are now required, with a message naming what's missing.
+ * All three are required, and each missing one is named next to its scale.
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -25,9 +26,21 @@ import { IceScoreClient } from "@/app/(tools)/ice-score/ice-score-client";
 
 const iceRows = () =>
   (useWorkspaceStore.getState().prioritizations ?? []).filter((r) => r.framework === "ice");
-const type = (label: string, value: string) =>
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+const renderIce = () =>
+  render(
+    <TooltipProvider>
+      <IceScoreClient />
+    </TooltipProvider>
+  );
+/** Pick `value` on the scale named `label` (the add form's, the first on screen). */
+const pick = (label: string, value: number) =>
+  fireEvent.click(
+    screen
+      .getAllByRole("radiogroup", { name: label })[0]
+      .querySelector(`[role="radio"]:nth-child(${value})`)!
+  );
 const addAndScore = () => fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
+const alerts = () => screen.queryAllByRole("alert").map((a) => a.textContent);
 
 beforeEach(() => {
   useWorkspaceStore.setState({ backlogItems: [], prioritizations: [] });
@@ -38,28 +51,28 @@ afterEach(() => {
 
 describe("ICE: scores are required", () => {
   it("doesn't add an idea with an empty score, and names the empty field", () => {
-    render(<IceScoreClient />);
-    type("Title", "Onboarding email");
-    type("Impact (1–10)", "8");
-    type("Confidence (1–10)", "6");
+    renderIce();
+    fireEvent.change(screen.getByLabelText(/Idea or experiment/), {
+      target: { value: "Onboarding email" },
+    });
+    pick("Impact", 8);
+    pick("Confidence", 6);
     addAndScore();
 
     expect(iceRows()).toHaveLength(0);
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Enter Ease to score this idea. Each score runs from 1 to 10."
-    );
-    expect(screen.getByLabelText("Ease (1–10)")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Impact (1–10)")).not.toHaveAttribute("aria-invalid");
+    expect(alerts()).toEqual(["Pick an ease score."]);
   });
 
-  it("adds the idea with the typed scores once every field is filled", () => {
-    render(<IceScoreClient />);
-    type("Title", "Onboarding email");
-    type("Impact (1–10)", "8");
-    type("Confidence (1–10)", "6");
+  it("adds the idea with the picked scores once every field is filled", () => {
+    renderIce();
+    fireEvent.change(screen.getByLabelText(/Idea or experiment/), {
+      target: { value: "Onboarding email" },
+    });
+    pick("Impact", 8);
+    pick("Confidence", 6);
     addAndScore();
-    type("Ease (1–10)", "4");
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    pick("Ease", 4);
+    expect(alerts()).toEqual([]);
     addAndScore();
 
     expect(iceRows()).toHaveLength(1);
@@ -71,11 +84,14 @@ describe("ICE: scores are required", () => {
   });
 
   it("lists every missing field when nothing is filled in", () => {
-    render(<IceScoreClient />);
+    renderIce();
     addAndScore();
     expect(iceRows()).toHaveLength(0);
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Enter a title, Impact, Confidence and Ease to score this idea."
-    );
+    expect(alerts()).toEqual([
+      "Enter a title.",
+      "Pick an impact score.",
+      "Pick a confidence score.",
+      "Pick an ease score.",
+    ]);
   });
 });

@@ -1,14 +1,23 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Hash, Plus, Trash2 } from "lucide-react";
+import { Hash, Pencil, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { ScaleValue } from "@/components/shared/scale-picker";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { useStableOrder } from "@/hooks/use-stable-order";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
 import { iceScore, rank } from "@/lib/analytics/scoring-rubric";
@@ -16,26 +25,28 @@ import { generateIcePrompts } from "@/lib/ai-prompts/ice-score";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ICE_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { undoable } from "@/lib/utils/undoable";
 import {
   BacklogRowLink,
   ImportFromBacklog,
   useBacklogImport,
 } from "@/components/prioritization/backlog-link";
 import { linkNewRow } from "@/lib/prioritization/backlog-links";
+import {
+  ICE_SCALES,
+  IceAddForm,
+  IceRowEditor,
+  sameIceValues,
+  useIceAddForm,
+  withIceValues,
+  type IceValues,
+} from "./ice-inputs";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
+import { iceVerdict } from "./verdict";
 
-/** "Impact", "Impact and Ease", "Impact, Confidence and Ease". */
-function joinAnd(parts: readonly string[]): string {
-  return parts.length <= 1
-    ? parts.join("")
-    : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-}
-
-/** What's missing before an idea can be scored. */
-function missingMessage(titleMissing: boolean, missingScores: readonly string[]): string {
-  const parts = [...(titleMissing ? ["a title"] : []), ...missingScores];
-  const range = missingScores.length > 0 ? " Each score runs from 1 to 10." : "";
-  return `Enter ${joinAnd(parts)} to score this idea.${range}`;
-}
+const byScore = (a: PrioritizationItem, b: PrioritizationItem) => (b.score ?? 0) - (a.score ?? 0);
+const keyOf = (x: PrioritizationItem) => x.id;
 
 export function IceScoreClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
@@ -44,57 +55,17 @@ export function IceScoreClient() {
   const removeOne = useWorkspaceStore((s) => s.removePrioritization);
   const { log } = useHistoryLogger("ice-score");
   const exportRef = useRef<HTMLDivElement>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [title, setTitle] = useState("");
-  const [impact, setImpact] = useState("");
-  const [confidence, setConfidence] = useState("");
-  const [ease, setEase] = useState("");
-
-  // "Import from backlog" (or a "Score with ICE" link) fills the title; the
-  // next idea added links to that backlog item.
-  const backlog = useBacklogImport("ice", (picked) => setTitle(picked.name));
-
-  // An empty score used to become 5 without a word, so an idea scored on one
-  // field still ranked as if all three were rated. All three are required;
-  // after a failed Add the empty fields are flagged and a message names them.
-  const errorId = useId();
-  const [attempted, setAttempted] = useState(false);
-  const titleMissing = !title.trim();
-  const missingScores = (
-    [
-      ["Impact", impact],
-      ["Confidence", confidence],
-      ["Ease", ease],
-    ] as const
-  )
-    .filter(([, raw]) => !Number.isFinite(parseFloat(raw)))
-    .map(([label]) => label);
-  const showError = attempted && (titleMissing || missingScores.length > 0);
-  const flag = (missing: boolean) =>
-    showError && missing ? { "aria-invalid": true as const, "aria-describedby": errorId } : {};
-
-  function add() {
-    if (titleMissing || missingScores.length > 0) {
-      setAttempted(true);
-      return;
-    }
-    // BUG-T4-ice-score-1: clamp into [1, 10] HERE so the stored
-    // fields match the input's documented range. The prior code
-    // relied on `iceScore`'s internal clamp, which left the stored
-    // `fields.impact` = "100" while the score reflected `10` —
-    // confusing in the table.
-    const clampScore = (raw: string): number => Math.min(10, Math.max(1, parseFloat(raw)));
-    const i = clampScore(impact),
-      c = clampScore(confidence),
-      e = clampScore(ease);
-    const score = iceScore(i, c, e);
+  function add(values: IceValues) {
+    const score = iceScore(values.impact, values.confidence, values.ease);
     const item: PrioritizationItem = linkNewRow(
       {
         id: crypto.randomUUID(),
         framework: "ice",
-        title: title.trim(),
+        title: values.title,
         score,
-        fields: { impact: i, confidence: c, ease: e },
+        fields: withIceValues(undefined, values),
         status: "scored",
         updatedAt: new Date().toISOString(),
       },
@@ -109,27 +80,64 @@ export function IceScoreClient() {
       toolId: "ice-score",
       payload: { framework: "ice", id: item.id, score },
     });
-    setTitle("");
-    setImpact("");
-    setConfidence("");
-    setEase("");
-    setAttempted(false);
   }
 
-  const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
+  const form = useIceAddForm(add);
+  // "Import from backlog" (or a "Score with ICE" link) fills the title; the
+  // next idea added links to that backlog item.
+  const backlog = useBacklogImport("ice", (picked) => form.update({ title: picked.name }));
 
-  const ranked = useMemo(
+  function save(row: PrioritizationItem, values: IceValues) {
+    setEditingId(null);
+    if (sameIceValues(row, values)) return;
+    const score = iceScore(values.impact, values.confidence, values.ease);
+    const next: PrioritizationItem = {
+      ...row,
+      title: values.title,
+      score,
+      fields: withIceValues(row.fields, values),
+      updatedAt: new Date().toISOString(),
+    };
+    upsert(next);
+    log(ICE_ACTIONS.ITEM_UPDATED, { id: row.id, score });
+    emitSignal({
+      kind: "prioritization.scored",
+      at: next.updatedAt,
+      toolId: "ice-score",
+      payload: { framework: "ice", id: row.id, score },
+    });
+  }
+
+  function remove(row: PrioritizationItem) {
+    undoable({
+      label: `Deleted “${row.title}”`,
+      apply: () => {
+        removeOne(row.id);
+        log(ICE_ACTIONS.ITEM_REMOVED, { id: row.id });
+      },
+      revert: () => upsert(row),
+    });
+  }
+
+  const loadExample = () => {
+    buildExample().forEach(upsert);
+    // An earlier empty "Add & score" shouldn't leave errors under the example.
+    form.reset();
+  };
+  const clearExample = () => items.filter((x) => isExampleId(x.id)).forEach((x) => removeOne(x.id));
+
+  // Rank numbers follow the scores; the order on screen stays put while an
+  // idea is being edited, and "Re-sort" catches it up.
+  const ranks = useMemo(
     () =>
-      rank(
-        items.map((x) => ({
-          id: x.id,
-          title: x.title,
-          fields: x.fields ?? {},
-          score: x.score ?? 0,
-        }))
+      new Map(
+        rank(items.map((x) => ({ id: x.id, title: x.title, fields: {}, score: x.score ?? 0 }))).map(
+          (r) => [r.id, r.rank]
+        )
       ),
     [items]
   );
+  const { ordered, isStale, resort } = useStableOrder(items, keyOf, byScore);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -147,6 +155,19 @@ export function IceScoreClient() {
         prioritizations: s.prioritizations,
       })
     )
+  );
+
+  const ranked = useMemo(
+    () =>
+      rank(
+        items.map((x) => ({
+          id: x.id,
+          title: x.title,
+          fields: x.fields ?? {},
+          score: x.score ?? 0,
+        }))
+      ),
+    [items]
   );
 
   const promptConfig = useMemo(
@@ -176,65 +197,22 @@ export function IceScoreClient() {
       description="Lightweight Impact × Confidence × Ease scoring (each 1–10). Best for fast prioritisation of growth experiments and quick wins."
     >
       <div ref={exportRef} className="space-y-4">
-        <SectionCard
-          title="Add experiment / idea"
-          icon={Plus}
-          actions={<ImportFromBacklog link={backlog} />}
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-            <Input
-              className="sm:col-span-2"
-              placeholder="Title"
-              aria-label="Title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              {...flag(titleMissing)}
-            />
-            <Input
-              type="number"
-              min="1"
-              max="10"
-              placeholder="Impact 1-10"
-              aria-label="Impact (1–10)"
-              value={impact}
-              onChange={(e) => setImpact(e.target.value)}
-              {...flag(missingScores.includes("Impact"))}
-            />
-            <Input
-              type="number"
-              min="1"
-              max="10"
-              placeholder="Confidence 1-10"
-              aria-label="Confidence (1–10)"
-              value={confidence}
-              onChange={(e) => setConfidence(e.target.value)}
-              {...flag(missingScores.includes("Confidence"))}
-            />
-            <Input
-              type="number"
-              min="1"
-              max="10"
-              placeholder="Ease 1-10"
-              aria-label="Ease (1–10)"
-              value={ease}
-              onChange={(e) => setEase(e.target.value)}
-              {...flag(missingScores.includes("Ease"))}
-            />
-          </div>
-          {showError && (
-            <p id={errorId} role="alert" className="mt-2 text-xs text-danger">
-              {missingMessage(titleMissing, missingScores)}
-            </p>
-          )}
-          <Button onClick={add} className="mt-3 gap-1">
-            <Plus className="w-4 h-4" />
-            Add & score
-          </Button>
+        {hasExampleItems(items) && <ExampleNotice onClear={clearExample} />}
+
+        <SectionCard title="Add experiment / idea" icon={Plus}>
+          <IceAddForm form={form} footer={<ImportFromBacklog link={backlog} />} />
         </SectionCard>
 
-        {ranked.length > 0 && (
+        {items.length === 0 ? (
+          <EmptyState
+            icon={Hash}
+            action={<LoadExampleButton onLoad={loadExample} className="mt-4" />}
+          >
+            No ideas yet. Add one above, or load an example to see a scored list.
+          </EmptyState>
+        ) : (
           <SectionCard
-            title={`Ideas (${ranked.length}, sorted by ICE)`}
+            title={`Ideas (${items.length}, highest ICE first)`}
             icon={Hash}
             actions={
               <>
@@ -243,61 +221,100 @@ export function IceScoreClient() {
                   filename="ice-scores"
                   csvData={csvData}
                   jsonData={ranked}
+                  markdown={toMarkdown(items)}
                   targetRef={exportRef}
                 />
               </>
             }
           >
-            <div className="table-wrap-responsive">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-sub uppercase">
-                    <th className="p-2">#</th>
-                    <th className="p-2">Title</th>
-                    <th className="p-2 text-right">I</th>
-                    <th className="p-2 text-right">C</th>
-                    <th className="p-2 text-right">E</th>
-                    <th className="p-2 text-right">Score</th>
-                    <th className="p-2 w-10">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ranked.map((r) => (
-                    <tr key={r.id} className="border-t border-border">
-                      <td className="p-2 font-mono text-xs">{r.rank}</td>
-                      <td className="p-2">
-                        <span className="inline-flex flex-wrap items-center gap-2">
-                          {r.title}
-                          <BacklogRowLink row={byId.get(r.id)} />
-                        </span>
-                      </td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.impact}</td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.confidence}</td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.ease}</td>
-                      <td className="p-2 text-right font-mono">{r.score}</td>
-                      <td className="p-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            removeOne(r.id);
-                            log(ICE_ACTIONS.ITEM_REMOVED, { id: r.id });
-                          }}
-                          aria-label={`Remove ${r.title}`}
-                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <p className="mb-3 text-sm font-medium text-text">{iceVerdict(items)}</p>
+            <ResortChip isStale={isStale} onResort={resort} />
+            <ol className="divide-y divide-border" aria-label="Ideas, highest ICE first">
+              {ordered.map((row) => (
+                <li key={row.id} className="py-3">
+                  {editingId === row.id ? (
+                    <IceRowEditor
+                      row={row}
+                      onSave={(values) => save(row, values)}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  ) : (
+                    <IceRow
+                      row={row}
+                      rank={ranks.get(row.id) ?? 0}
+                      onEdit={() => setEditingId(row.id)}
+                      onRemove={() => remove(row)}
+                    />
+                  )}
+                </li>
+              ))}
+            </ol>
           </SectionCard>
         )}
       </div>
     </ToolPageWrapper>
+  );
+}
+
+/** One ranked idea: rank, title and backlog link, the three scores, ICE, actions. */
+function IceRow({
+  row,
+  rank,
+  onEdit,
+  onRemove,
+}: {
+  row: PrioritizationItem;
+  rank: number;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const f = row.fields ?? {};
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <span className="w-6 shrink-0 font-mono text-xs text-sub" aria-label={`Rank ${rank}`}>
+        {rank}
+      </span>
+      <span className="inline-flex min-w-0 flex-1 basis-48 flex-wrap items-center gap-2 text-sm text-text">
+        {row.title}
+        <BacklogRowLink row={row} />
+      </span>
+      <dl className="flex items-center gap-3 font-mono text-xs text-sub">
+        {(
+          [
+            ["I", "Impact", "impact"],
+            ["C", "Confidence", "confidence"],
+            ["E", "Ease", "ease"],
+          ] as const
+        ).map(([short, name, key]) => (
+          <div key={key} className="flex gap-1">
+            <dt title={name}>
+              <span aria-hidden="true">{short}</span>
+              <span className="sr-only">{name}</span>
+            </dt>
+            <dd className="text-text">
+              <ScaleValue steps={ICE_SCALES[key]} value={f[key]} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <span className="w-14 shrink-0 text-right font-mono text-sm text-text">
+        <span className="sr-only">ICE </span>
+        {row.score ?? 0}
+      </span>
+      <span className="flex shrink-0 items-center">
+        <IconButton
+          label={`Edit ${row.title}`}
+          icon={<Pencil className="h-4 w-4" />}
+          className="text-sub hover:text-text"
+          onClick={onEdit}
+        />
+        <IconButton
+          label={`Delete ${row.title}`}
+          icon={<Trash2 className="h-4 w-4" />}
+          className="text-sub hover:text-danger"
+          onClick={onRemove}
+        />
+      </span>
+    </div>
   );
 }
