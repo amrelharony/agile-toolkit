@@ -33,7 +33,7 @@ import {
   ImportFromBacklog,
   useBacklogImport,
 } from "@/components/prioritization/backlog-link";
-import { ScaleValue, focusFirstInvalid } from "@/components/prioritization/scale-picker";
+import { ScaleValue, focusFirstInvalid } from "@/components/shared/scale-picker";
 import { linkNewRow } from "@/lib/prioritization/backlog-links";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
