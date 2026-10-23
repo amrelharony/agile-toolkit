@@ -287,7 +287,8 @@ export const tools: ToolDefinition[] = [
     id: "planning-poker",
     code: "A1",
     name: "Planning Poker",
-    description: "Estimate stories with Fibonacci, T-shirt or custom scales, then reveal and agree",
+    description:
+      "Estimate stories with Fibonacci, T-shirt or custom decks, see how close the votes are, and keep the agreed points on the stories",
     category: "Sprint Planning & Estimation",
     path: "/planning-poker",
     icon: Target,
@@ -318,7 +319,7 @@ export const tools: ToolDefinition[] = [
     code: "A2",
     name: "Sprint Capacity Planner",
     description:
-      "Calculate actual sprint capacity from team availability, holidays, and ceremony overhead",
+      "Plan each sprint's capacity from availability, days off, team holidays and Scrum events, and turn it into a points suggestion",
     category: "Sprint Planning & Estimation",
     path: "/capacity-planner",
     icon: Calculator,
@@ -342,7 +343,8 @@ export const tools: ToolDefinition[] = [
     id: "story-mapper",
     code: "A3",
     name: "User Story Mapper",
-    description: "Drag-and-drop story mapping with journey steps and priority slices",
+    description:
+      "Map the user journey into release slices with point totals, then turn a slice into stories or a release forecast",
     category: "Sprint Planning & Estimation",
     path: "/story-mapper",
     icon: Map,
@@ -370,7 +372,8 @@ export const tools: ToolDefinition[] = [
     id: "estimation-guide",
     code: "A5",
     name: "Estimation Reference Guide",
-    description: "Interactive story point reference chart with team calibration",
+    description:
+      "Your team's story-point reference: what each card means, with real done stories pinned as examples",
     category: "Sprint Planning & Estimation",
     path: "/estimation-guide",
     icon: BookOpen,
@@ -384,7 +387,8 @@ export const tools: ToolDefinition[] = [
     id: "sprint-goal",
     code: "A6",
     name: "Sprint Goal Builder",
-    description: "Guided wizard to craft SMART sprint goals with acceptance criteria",
+    description:
+      "Write one SMART goal per sprint, with acceptance criteria and linked OKRs; it shows across the sprint tools",
     category: "Sprint Planning & Estimation",
     path: "/sprint-goal",
     icon: Crosshair,
@@ -401,7 +405,8 @@ export const tools: ToolDefinition[] = [
     id: "release-planner",
     code: "A7",
     name: "Release Planner",
-    description: "Monte Carlo simulation for release date forecasting with confidence intervals",
+    description:
+      "Monte Carlo release forecast: when the remaining work or a story-map slice ships, and the chance of hitting a target date",
     category: "Sprint Planning & Estimation",
     path: "/release-planner",
     icon: TrendingUp,
@@ -411,7 +416,6 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["monte-carlo", "forecast"],
     analyticsTier: 1,
-    predictedDefaults: [{ field: "sprintsToRelease", description: "Total scope ÷ avg velocity" }],
     crossToolSubscriptions: [
       {
         kinds: ["sprint.completed", "story.statusChanged"],
@@ -673,7 +677,8 @@ export const tools: ToolDefinition[] = [
     id: "refinement",
     code: "C5",
     name: "Refinement Checklist",
-    description: "Interactive Definition of Ready checklist with pass rate tracking",
+    description:
+      "Walk the backlog against your Definition of Ready, queue unsized stories for Planning Poker and mark the rest ready",
     category: "Ceremonies",
     path: "/refinement",
     icon: CheckSquare,
@@ -794,7 +799,7 @@ export const tools: ToolDefinition[] = [
     code: "A8",
     name: "PI Planning Board",
     description:
-      "SAFe Program Increment board with teams × iterations, dependencies, and capacity forecasting",
+      "SAFe Program Increment board: teams × iterations, PI objectives with business value, and dependencies on the Dependency Map",
     category: "Portfolio & Scaling",
     path: "/pi-planning",
     icon: CalendarRange,
@@ -802,7 +807,6 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 6,
     usesWorkspace: true,
-    analyticsFeatures: ["monte-carlo"],
     analyticsTier: 2,
     crossToolSubscriptions: [
       { kinds: ["sprint.completed"], reason: "PI commitments roll forward as sprints complete" },
@@ -812,7 +816,7 @@ export const tools: ToolDefinition[] = [
     id: "epic-roadmap",
     code: "A9",
     name: "Epic Roadmap",
-    description: "Timeline view of epics across quarters with progress bars",
+    description: "Timeline of epics across quarters, with progress rolled up from their stories",
     category: "Portfolio & Scaling",
     path: "/epic-roadmap",
     icon: Milestone,
@@ -820,7 +824,6 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 6,
     usesWorkspace: true,
-    analyticsFeatures: ["forecast"],
     analyticsTier: 2,
     crossToolSubscriptions: [
       {
@@ -833,7 +836,8 @@ export const tools: ToolDefinition[] = [
     id: "scrum-of-scrums",
     code: "C7",
     name: "Scrum of Scrums Tracker",
-    description: "Multi-team coordination — cross-team blockers, dependencies, decisions",
+    description:
+      "Cross-team meeting agenda: blockers, dependencies and decisions, with open items carried to the next meeting",
     category: "Portfolio & Scaling",
     path: "/scrum-of-scrums",
     icon: GitBranch,
@@ -1014,7 +1018,7 @@ export const tools: ToolDefinition[] = [
     code: "D8",
     name: "Dependency Map",
     description:
-      "List inter-team and inter-story dependencies, with the longest blocking chain highlighted",
+      "Map dependencies between teams and work, with status, owners and due dates, and the longest blocking chain highlighted",
     category: "Flow & Delivery",
     path: "/dependency-map",
     icon: Network,
@@ -1617,7 +1621,8 @@ export const tools: ToolDefinition[] = [
     id: "jtbd-mapper",
     code: "A13",
     name: "Job Story Mapper",
-    description: '"When ___ I want ___ so I can ___" job-story builder with nested jobs',
+    description:
+      '"When ___ I want ___ so I can ___" job stories with nested jobs, each one a source of user stories',
     category: "Sprint Planning & Estimation",
     path: "/jtbd-mapper",
     icon: User,
@@ -2208,7 +2213,7 @@ export const tools: ToolDefinition[] = [
     code: "PR11",
     name: "Walking Skeleton Builder",
     description:
-      "Define the smallest end-to-end implementation that proves the architecture works (Cockburn)",
+      "Define the smallest end-to-end path that proves the architecture works (Cockburn), step by step across the layers",
     category: "Prioritization Frameworks",
     path: "/walking-skeleton",
     icon: Boxes,
