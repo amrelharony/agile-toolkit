@@ -68,7 +68,9 @@ beforeEach(() => {
 });
 
 function openMenu(title: string) {
-  fireEvent.keyDown(screen.getByRole("button", { name: `Move ${title}` }), { key: "Enter" });
+  fireEvent.keyDown(screen.getByRole("button", { name: `Send or move ${title}` }), {
+    key: "Enter",
+  });
 }
 
 describe("Story Mapper: Estimate in Planning Poker", () => {

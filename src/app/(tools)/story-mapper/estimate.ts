@@ -21,13 +21,20 @@ export const POINT_STEPS: readonly ScaleStep[] = (
   .map((value) => ({ value, meaning: defaultDescriptions[String(value)] }));
 
 /**
- * A card's estimate as points: a finite number of zero or more, else
- * undefined (no estimate, or a "custom" one such as "XL" or "?").
+ * A card's estimate as points, else undefined (no estimate, or a "custom"
+ * one such as "XL" or "?"). Plain decimals of zero or more, read the way
+ * Release Planner sums a slice: "5", "0.5", "0,5", "½", "8 pts". Number()
+ * alone also took "0x10", "1e3" and ".5", so a card's badge and the
+ * slice total could disagree with the release plan opened from it.
  */
 export function estimatePoints(estimate: string | undefined | null): number | undefined {
-  if (typeof estimate !== "string" || estimate.trim() === "") return undefined;
-  const n = Number(estimate);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+  if (typeof estimate !== "string") return undefined;
+  const raw = estimate.trim();
+  if (raw === "½") return 0.5;
+  const m = /^(\d+(?:[.,]\d+)?)\s*(?:pts?|points?|sp)?$/i.exec(raw);
+  if (!m) return undefined;
+  const n = Number(m[1].replace(",", "."));
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** How a card is estimated: in points, with a custom value, or not at all. */
@@ -105,13 +112,17 @@ export function storyMapVerdict(map: {
   if (t.cards === 0) {
     lead = `“${first.name}” ships first but has no stories yet: give it one thin story per step.`;
   } else {
-    const missing = steps.filter((st) => (first.cards[st.id] ?? []).length === 0);
-    const reach =
-      missing.length === 0
-        ? steps.length > 1
-          ? ", one for every step"
-          : ""
-        : `, but nothing for ${listAnd(missing.map((st) => `“${st.name}”`))} yet`;
+    const count = (st: StoryMapStep) => (first.cards[st.id] ?? []).length;
+    const missing = steps.filter((st) => count(st) === 0);
+    let reach = "";
+    if (missing.length > 0) {
+      reach = `, but nothing for ${listAnd(missing.map((st) => `“${st.name}”`))} yet`;
+    } else if (steps.length > 1) {
+      // "One for every step" only when it is one each; more under a step still covers it.
+      reach = steps.every((st) => count(st) === 1)
+        ? ", one for every step"
+        : ", covering every step";
+    }
     lead = `“${first.name}” ships first: ${plural(t.cards, "story", "stories")}, ${pointsPhrase(
       t
     )}${reach}.`;

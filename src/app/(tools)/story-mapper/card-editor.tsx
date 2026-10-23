@@ -157,8 +157,9 @@ export function CardEditor({
       <ScalePicker
         label="Points"
         size="sm"
-        // Seven cards wrap as two even rows in a narrow column.
-        optionsClassName="grid grid-cols-4"
+        // The options wrap at their own width (no fixed grid): a cell is
+        // about 124 px at 375 px, too narrow for four even tracks once
+        // "13", "21" or a "Custom: 16" option is in the row.
         steps={POINT_STEPS}
         value={draft.points}
         custom={offScale(POINT_STEPS, start.points)}

@@ -25,12 +25,23 @@ function cell(v: unknown): string {
   return oneLine(v).replace(/\|/g, "\\|");
 }
 
-/** A slice's points for the table: "8", "8 (2 unestimated)", or "—" with none. */
+/**
+ * The cards left out of a slice's points, split as the board's slice
+ * summary splits them: "2 unestimated, 1 custom". Empty when none are.
+ */
+function notInPoints(t: SliceTotals): string {
+  const parts: string[] = [];
+  if (t.unestimated > 0) parts.push(`${t.unestimated} unestimated`);
+  if (t.custom > 0) parts.push(`${t.custom} custom`);
+  return parts.join(", ");
+}
+
+/** A slice's points for the table: "8", "8 (2 unestimated, 1 custom)", "— (1 custom)", or "—" with no stories. */
 function pointsCell(t: SliceTotals): string {
   if (t.cards === 0) return "—";
-  const open = t.unestimated + t.custom;
-  if (t.estimated === 0) return `— (${open} unestimated)`;
-  return open === 0 ? fmt(t.points) : `${fmt(t.points)} (${open} unestimated)`;
+  const open = notInPoints(t);
+  if (t.estimated === 0) return `— (${open})`;
+  return open ? `${fmt(t.points)} (${open})` : fmt(t.points);
 }
 
 /** " (5 points)" or " (XL, custom)" after a story's title; nothing when unsized. */
@@ -90,7 +101,7 @@ export function toMarkdown(
   slices.forEach((sl, i) => {
     const t = totals[i];
     const sized = t.estimated > 0 ? ` · ${plural(t.points, "point")}` : "";
-    const open = t.estimated > 0 && t.unestimated > 0 ? `, ${t.unestimated} unestimated` : "";
+    const open = t.estimated > 0 && notInPoints(t) ? `, ${notInPoints(t)}` : "";
     lines.push(
       "",
       `## ${i + 1}. ${oneLine(sl.name)} (${t.cards} ${t.cards === 1 ? "story" : "stories"})${sized}${open}`,

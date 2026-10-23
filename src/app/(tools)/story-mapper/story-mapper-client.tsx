@@ -621,8 +621,9 @@ function CardMoveMenu({
           type="button"
           data-card-move={card.id}
           className="min-touch-coarse p-1 rounded text-sub hover:text-accent hover:bg-accent/10 transition-colors inline-flex items-center justify-center"
-          title="Move or estimate"
-          aria-label={`Move ${card.title}`}
+          // The menu sends the card (Planning Poker, the backlog) as well as moving it.
+          title="Send or move"
+          aria-label={`Send or move ${card.title}`}
         >
           <ArrowRightLeft className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
@@ -736,12 +737,21 @@ function DraggableCard({
   const [editing, setEditing] = useState(false);
   const dragId = encodeDragId(sliceId, stepId, card.id);
 
-  const deleteCard = () =>
+  const deleteCard = () => {
+    // The card's buttons go with it: focus the next card in the cell (else
+    // the previous one), or the cell's "Add card" once it's empty.
+    const cell = currentStoryMap().slices.find((sl) => sl.id === sliceId)?.cards[stepId] ?? [];
+    const at = cell.findIndex((c) => c.id === card.id);
+    const neighbour = at >= 0 ? (cell[at + 1] ?? cell[at - 1]) : undefined;
     undoable({
       label: `Deleted “${shortName(card.title)}”`,
       apply: () => removeCard(sliceId, stepId, card.id),
       revert: () => restoreCard(sliceId, stepId, card, index),
     });
+    focusSoon(() =>
+      neighbour ? byData("card-edit", neighbour.id) : byData("inline-add", cellKey(sliceId, stepId))
+    );
+  };
 
   const save = (values: CardValues) => {
     setEditing(false);
@@ -859,14 +869,34 @@ function DraggableCard({
   );
 }
 
+/** The element whose `data-<name>` is `value`; ids go in no selector, so need no escaping. */
+function byData(name: string, value: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).find(
+    (el) => el.getAttribute(`data-${name}`) === value
+  );
+}
+
+/**
+ * Focus what `find` returns once React has re-rendered. Closing an editor,
+ * deleting a card, step or slice, or sending a slice unmounts the focused
+ * control, and focus would otherwise drop to <body>.
+ */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
 /** After the editor closes, put focus back on the card's Edit button, not <body>. */
 function focusCardEdit(cardId: string) {
-  requestAnimationFrame(() => {
-    Array.from(document.querySelectorAll<HTMLElement>("[data-card-edit]"))
-      .find((el) => el.dataset.cardEdit === cardId)
-      ?.focus();
-  });
+  focusSoon(() => byData("card-edit", cardId));
 }
+
+/** A header's first control (its name), for focus after a neighbouring step or slice goes. */
+function focusHeader(kind: "step" | "slice", id: string) {
+  focusSoon(() => byData(`${kind}-header`, id)?.querySelector<HTMLElement>("button"));
+}
+
+/** Names a cell's "Add card" button, for focus once the cell's last card is deleted. */
+const cellKey = (sliceId: string, stepId: string) => `${sliceId}::${stepId}`;
 
 /** The card's estimate and whether it's on the backlog. */
 function CardMeta({ card }: { card: StoryCard }) {
@@ -981,6 +1011,7 @@ function CellDropZone({
         triggerClassName="mt-1.5 h-8 w-full justify-start px-1.5"
         triggerLabel="Add card"
         triggerAriaLabel={`Add card to ${cellName}`}
+        triggerKey={cellKey(sliceId, stepId)}
         fieldLabel={`New story in ${cellName}`}
         placeholder="Story title, then Enter"
         requiredMessage="Type a story title first."
@@ -1039,6 +1070,9 @@ export function StoryMapperClient() {
       },
       revert: () => restoreStep(step, index, cardsBySlice),
     });
+    // Its Remove button goes with it: focus the next step's header (else the previous one's).
+    const neighbour = steps[index + 1] ?? steps[index - 1];
+    if (neighbour) focusHeader("step", neighbour.id);
   };
   const addSlice: typeof addSliceRaw = (...args) => {
     addSliceRaw(...args);
@@ -1056,6 +1090,8 @@ export function StoryMapperClient() {
       },
       revert: () => restoreSlice(slice, index),
     });
+    const neighbour = slices[index + 1] ?? slices[index - 1];
+    if (neighbour) focusHeader("slice", neighbour.id);
   };
   const moveCard: typeof moveCardRaw = (...args) => {
     moveCardRaw(...args);
@@ -1337,7 +1373,10 @@ export function StoryMapperClient() {
           <div
             role="region"
             aria-label="Story map"
-            className="relative max-h-[75vh] w-full overflow-auto overscroll-x-contain rounded-xl border border-border bg-surface snap-x snap-proximity scroll-pl-[152px] sm:scroll-pl-[184px]"
+            // scroll-pt keeps a focused card clear of the sticky step headers
+            // (WCAG 2.4.11), as scroll-pl does for the sticky slice column;
+            // the headers grow with 44 px touch targets on a coarse pointer.
+            className="relative max-h-[75vh] w-full overflow-auto overscroll-x-contain rounded-xl border border-border bg-surface snap-x snap-proximity scroll-pl-[152px] scroll-pt-12 sm:scroll-pl-[184px] [@media(pointer:coarse)]:scroll-pt-16"
           >
             <div className="w-max min-w-full p-3">
               {/* Header row: steps, stuck to the top of the board */}
@@ -1349,6 +1388,7 @@ export function StoryMapperClient() {
                 {steps.map((step) => (
                   <div
                     key={step.id}
+                    data-step-header={step.id}
                     className="group flex-shrink-0 mr-3 last:mr-0 snap-start"
                     style={{ width: colWidth }}
                   >
@@ -1393,6 +1433,7 @@ export function StoryMapperClient() {
                 <div key={slice.id} className="flex items-stretch mt-3">
                   {/* Slice label, stuck to the left of the board */}
                   <div
+                    data-slice-header={slice.id}
                     className={cn(
                       "group sticky left-0 z-10 flex shrink-0 flex-col bg-surface pr-3",
                       sliceColumn
@@ -1482,7 +1523,10 @@ export function StoryMapperClient() {
  * Under a slice's name: its point total and what's unsized, then where the
  * slice goes next. "Send to backlog" makes a story per card (with points);
  * "Plan this release" opens Release Planner on this slice, which sums its
- * numeric estimates (it reads `?slice=`, so slice ids stay stable).
+ * numeric estimates (it reads `?slice=`, so slice ids stay stable). An
+ * example slice can be planned too: the plan is a read-only forecast that
+ * Release Planner marks "(example)", and nothing reaches the backlog or a
+ * sprint, unlike a send.
  */
 function SliceFooter({ slice, steps }: { slice: Slice; steps: Step[] }) {
   const totals = sliceTotals(slice, steps);
@@ -1501,15 +1545,27 @@ function SliceFooter({ slice, steps }: { slice: Slice; steps: Step[] }) {
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => sendSliceToBacklog(slice.id)}
-          className="h-7 w-full justify-start gap-1 px-1.5 text-xs text-sub hover:bg-accent/10 hover:text-accent"
+          onClick={() => {
+            sendSliceToBacklog(slice.id);
+            // The button gives way to "All in backlog": focus that, not <body>.
+            focusSoon(() => byData("slice-sent", slice.id));
+          }}
+          // Wraps in the 140 px slice column at 375 px rather than running
+          // past its border (the base Button is nowrap).
+          className="h-auto w-full justify-start gap-1 whitespace-normal px-1.5 py-1 text-left text-xs text-sub hover:bg-accent/10 hover:text-accent md:h-auto"
         >
           <Send className="h-3.5 w-3.5" aria-hidden="true" />
-          Send {toSend} to backlog <span className="sr-only">from {slice.name}</span>
+          <span>
+            Send {toSend} to backlog <span className="sr-only">from {slice.name}</span>
+          </span>
         </Button>
       )}
       {toSend === 0 && sent > 0 && (
-        <Link href="/sprint-planning" className={cn(link, "text-success")}>
+        <Link
+          href="/sprint-planning"
+          data-slice-sent={slice.id}
+          className={cn(link, "text-success")}
+        >
           <Check className="h-3.5 w-3.5" aria-hidden="true" />
           All in backlog
           <span className="sr-only">: {slice.name}</span>

@@ -30,12 +30,14 @@ export function validateName(
  * "Add card" (or step, or slice) that opens a one-line field in place:
  * type the name, press Enter, and it's on the map; the field stays open
  * for the next one. Nothing is created until a name is typed, so the map
- * no longer fills with "New Story" placeholders to rename. Escape or Done
- * closes it and returns focus to the button.
+ * no longer fills with "New Story" placeholders to rename. Done adds a
+ * name still in the field, then closes; Escape closes without adding.
+ * Either way focus goes back to the button.
  */
 export function InlineAdd({
   triggerLabel,
   triggerAriaLabel,
+  triggerKey,
   fieldLabel,
   placeholder,
   requiredMessage,
@@ -48,6 +50,8 @@ export function InlineAdd({
   triggerLabel: string;
   /** A fuller name when the button repeats: "Add card to Discover, MVP". */
   triggerAriaLabel?: string;
+  /** Marks the button (`data-inline-add`), so focus can come back to it, e.g. after a cell's last card is deleted. */
+  triggerKey?: string;
   /** The field's accessible name: "New story in Discover, MVP". */
   fieldLabel: string;
   placeholder?: string;
@@ -81,6 +85,13 @@ export function InlineAdd({
     setOpen(false);
   };
 
+  // "Done" reads as a commit, so a typed name is added first rather than
+  // dropped; one that fails (too long) keeps the field open with its error.
+  const done = () => {
+    if (form.draft.name.trim() !== "" && !form.submit()) return;
+    close();
+  };
+
   if (!open) {
     return (
       <Button
@@ -89,6 +100,7 @@ export function InlineAdd({
         variant="ghost"
         size="sm"
         aria-label={triggerAriaLabel}
+        data-inline-add={triggerKey}
         onClick={() => setOpen(true)}
         className={cn(
           "gap-1 text-xs text-sub hover:bg-accent/5 hover:text-accent",
@@ -124,7 +136,8 @@ export function InlineAdd({
             value={form.draft.name}
             onChange={(e) => form.update({ name: e.target.value })}
             placeholder={placeholder}
-            maxLength={max}
+            // No maxLength: a pasted name that's too long gets the inline
+            // error instead of being cut short without a word.
             className="h-8 bg-card text-sm"
           />
         )}
@@ -133,7 +146,7 @@ export function InlineAdd({
         <Button type="submit" size="sm" className="h-8 px-2.5">
           Add
         </Button>
-        <Button type="button" size="sm" variant="ghost" className="h-8 px-2.5" onClick={close}>
+        <Button type="button" size="sm" variant="ghost" className="h-8 px-2.5" onClick={done}>
           Done
         </Button>
       </div>

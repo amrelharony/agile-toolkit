@@ -126,6 +126,39 @@ describe("Story Mapper inline add", () => {
     expect(titlesIn(0, "s2")).toEqual(["Buy", "Refund"]);
   });
 
+  it("adds a typed name on Done before closing; a blank Done just closes", async () => {
+    render(<StoryMapperClient />);
+    const trigger = () => screen.getByRole("button", { name: "Add card to Discover, Release 2" });
+    const fieldName = "New story in Discover, Release 2";
+    fireEvent.click(trigger());
+    fireEvent.change(screen.getByRole("textbox", { name: fieldName }), {
+      target: { value: "Search by keyword" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(titlesIn(1, "s1")).toEqual(["Search by keyword"]);
+    expect(screen.queryByRole("textbox", { name: fieldName })).toBeNull();
+    await waitFor(() => expect(trigger()).toHaveFocus());
+
+    fireEvent.click(trigger());
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(titlesIn(1, "s1")).toEqual(["Search by keyword"]);
+    expect(screen.queryByRole("textbox", { name: fieldName })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says a pasted name is too long instead of cutting it short", () => {
+    render(<StoryMapperClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Add step" }));
+    const step = screen.getByRole("textbox", { name: "New step name" });
+    expect(step).not.toHaveAttribute("maxlength");
+    fireEvent.change(step, { target: { value: "x".repeat(81) } });
+    // Done can't add it, so it stays open and says why.
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Keep it to 80 characters or fewer.");
+    expect(step).toHaveValue("x".repeat(81));
+    expect(map()?.steps).toHaveLength(2);
+  });
+
   it("adds steps and slices with the typed name, never a placeholder", () => {
     render(<StoryMapperClient />);
     fireEvent.click(screen.getByRole("button", { name: "Add step" }));
@@ -168,11 +201,14 @@ describe("Story Mapper card editor and estimates", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit Refund" }));
     const title = within(editor()).getByRole("textbox", { name: /Title/ });
     expect(title).toHaveFocus();
+    const points = within(editor()).getByRole("radiogroup", { name: "Points" });
     expect(
-      within(within(editor()).getByRole("radiogroup", { name: "Points" }))
+      within(points)
         .getAllByRole("radio")
         .map((r) => r.textContent)
     ).toEqual(["1", "2", "3", "5", "8", "13", "21"]);
+    // The options wrap at their own width: no fixed grid tracks to overflow in a narrow cell.
+    expect(points.className).not.toMatch(/grid/);
 
     fireEvent.click(within(editor()).getByRole("radio", { name: "8" }));
     fireEvent.click(within(editor()).getByRole("radio", { name: "Purple" }));
@@ -274,9 +310,13 @@ describe("Story Mapper: send a slice to the backlog", () => {
 
   const stories = () => ws().stories;
 
-  it("creates a story per card with its points, and one Undo takes them all back", () => {
+  it("creates a story per card with its points, and one Undo takes them all back", async () => {
     render(<StoryMapperClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Send 3 to backlog from Release 1" }));
+    const send = screen.getByRole("button", { name: "Send 3 to backlog from Release 1" });
+    // It wraps in the narrow slice column instead of running past its border.
+    expect(send.className).toMatch(/whitespace-normal/);
+    expect(send.className).not.toMatch(/whitespace-nowrap/);
+    fireEvent.click(send);
 
     expect(stories().map((s) => ({ title: s.title, points: s.points, status: s.status }))).toEqual([
       { title: "Browse", points: 3, status: "backlog" },
@@ -298,6 +338,10 @@ describe("Story Mapper: send a slice to the backlog", () => {
       "/sprint-planning"
     );
     expect(screen.getAllByText("In backlog")).toHaveLength(3);
+    // Focus follows to that link rather than dropping to <body>.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "All in backlog: Release 1" })).toHaveFocus()
+    );
 
     undoLast();
     expect(stories()).toEqual([]);
@@ -307,8 +351,10 @@ describe("Story Mapper: send a slice to the backlog", () => {
 
   it("skips cards already in the backlog and re-sends one whose story was deleted", () => {
     render(<StoryMapperClient />);
-    // "Browse" goes on its own from the card menu.
-    fireEvent.keyDown(screen.getByRole("button", { name: "Move Browse" }), { key: "Enter" });
+    // "Browse" goes on its own from the card menu, named for both jobs.
+    const menu = screen.getByRole("button", { name: "Send or move Browse" });
+    expect(menu).toHaveAttribute("title", "Send or move");
+    fireEvent.keyDown(menu, { key: "Enter" });
     fireEvent.click(screen.getByRole("menuitem", { name: "Add to the backlog" }));
     expect(stories()).toHaveLength(1);
     expect(stories()[0]).toMatchObject({ title: "Browse", points: 3 });
@@ -352,7 +398,7 @@ describe("Story Mapper: send a slice to the backlog", () => {
     expect(stories().map((s) => s.title)).toEqual(["Landing page"]);
 
     // An example card's menu offers Planning Poker only.
-    fireEvent.keyDown(screen.getByRole("button", { name: "Move Search by keyword" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "Send or move Search by keyword" }), {
       key: "Enter",
     });
     expect(screen.getByRole("menuitem", { name: "Estimate in Planning Poker" })).toBeTruthy();
@@ -372,6 +418,37 @@ describe("Story Mapper: send a slice to the backlog", () => {
   });
 });
 
+describe("Story Mapper focus after a delete", () => {
+  beforeEach(twoByTwo);
+
+  it("hands focus to the next card, else the previous one, else the cell's Add card", async () => {
+    render(<StoryMapperClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Refund" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit Buy" })).toHaveFocus());
+    undoLast();
+    expect(titlesIn(0, "s2")).toEqual(["Buy", "Refund"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Buy" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit Refund" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Delete Refund" }));
+    expect(titlesIn(0, "s2")).toEqual([]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Add card to Use, Release 1" })).toHaveFocus()
+    );
+  });
+
+  it("focuses a neighbouring header after a step or slice is removed", async () => {
+    render(<StoryMapperClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove step Discover" }));
+    expect(map()?.steps.map((s) => s.name)).toEqual(["Use"]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Use" })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove slice Release 2" }));
+    expect(map()?.slices.map((s) => s.name)).toEqual(["Release 1"]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Release 1" })).toHaveFocus());
+  });
+});
+
 describe("Story Mapper board and first run", () => {
   it("scrolls the board in its own snapping container, with tokens instead of hex", () => {
     twoByTwo();
@@ -379,6 +456,8 @@ describe("Story Mapper board and first run", () => {
     const board = screen.getByRole("region", { name: "Story map" });
     expect(board.className).toMatch(/overflow-auto/);
     expect(board.className).toMatch(/snap-x/);
+    // Focused cards scroll clear of the sticky step headers, not under them.
+    expect(board.className).toMatch(/scroll-pt-12/);
     // Colour is a class now; inline styles only position cards for dragging.
     expect(container.querySelector('[style*="background"]')).toBeNull();
     expect(container.querySelector('[style*="border-color"]')).toBeNull();
@@ -411,6 +490,21 @@ describe("Story Mapper logic", () => {
     expect(estimateKind("13")).toBe("points");
     expect(estimateKind(undefined)).toBe("none");
     expect(POINT_STEPS.map((s) => s.value)).toEqual([1, 2, 3, 5, 8, 13, 21]);
+  });
+
+  it("reads points as Release Planner sums a slice: plain decimals only", () => {
+    // Number() took these; Release Planner doesn't, so neither does the board.
+    for (const s of ["0x10", "0b11", "1e3", ".5", "Infinity", "1,000.5", "5 apples"]) {
+      expect(estimatePoints(s)).toBeUndefined();
+    }
+    expect(estimateKind("0x10")).toBe("custom");
+    // Values Planning Poker's decks and agents write back.
+    expect(estimatePoints("0,5")).toBe(0.5);
+    expect(estimatePoints("½")).toBe(0.5);
+    expect(estimatePoints("8 pts")).toBe(8);
+    expect(estimatePoints("3 points")).toBe(3);
+    expect(estimatePoints("13SP")).toBe(13);
+    expect(estimatePoints("9".repeat(400))).toBeUndefined();
   });
 
   it("totals a slice under today's steps only, huge and custom values included", () => {
@@ -456,6 +550,26 @@ describe("Story Mapper logic", () => {
         ],
       })
     ).toBe("“R1” ships first: 2 stories, 5 points, one for every step.");
+    // Several under a step still cover it, but aren't "one for every step".
+    expect(
+      storyMapVerdict({
+        steps,
+        slices: [
+          {
+            id: "a",
+            name: "R1",
+            cards: {
+              s1: [
+                card("1", "x", { estimate: "3" }),
+                card("2", "y", { estimate: "5" }),
+                card("3", "z", { estimate: "1" }),
+              ],
+              s2: [card("4", "w", { estimate: "1" })],
+            },
+          },
+        ],
+      })
+    ).toBe("“R1” ships first: 4 stories, 10 points, covering every step.");
     expect(
       storyMapVerdict({
         steps,
@@ -531,6 +645,31 @@ describe("Story Mapper logic", () => {
       NOW
     );
     expect(custom).toContain("- **Use:** Export (XL, custom)");
-    expect(custom).toContain("| **R1** | Export | — (1 unestimated) |");
+    // A custom estimate is counted as custom, as on the board, not as unestimated.
+    expect(custom).toContain("| **R1** | Export | — (1 custom) |");
+
+    const mixed = toMarkdown(
+      {
+        steps: [{ id: "s1", name: "Use" }],
+        slices: [
+          {
+            id: "a",
+            name: "R1",
+            cards: {
+              s1: [
+                card("1", "A", { estimate: "3" }),
+                card("2", "B", { estimate: "XL" }),
+                card("3", "C"),
+              ],
+            },
+          },
+        ],
+      },
+      NOW
+    );
+    // Table, heading and verdict agree with the board's "3 pts · 1 unestimated · 1 custom".
+    expect(mixed).toContain("| **R1** | A<br>B<br>C | 3 (1 unestimated, 1 custom) |");
+    expect(mixed).toContain("## 1. R1 (3 stories) · 3 points, 1 unestimated, 1 custom");
+    expect(mixed).toContain("1 of 3 stories still needs an estimate.");
   });
 });
