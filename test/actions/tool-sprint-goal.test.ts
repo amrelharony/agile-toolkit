@@ -118,3 +118,68 @@ describe("tool.sprint_goal.add_criterion", () => {
     expect(stored?.criteria[0].relevantChecked).toBe(false);
   });
 });
+
+describe("tool.sprint_goal per sprint", () => {
+  const sprint = {
+    id: "s1",
+    name: "Sprint 1",
+    startDate: "2026-10-19",
+    endDate: "2026-10-30",
+    pointsPlanned: 20,
+    status: "active" as const,
+  };
+  const stored = (id: string) => useWorkspaceStore.getState().sprintGoals?.find((g) => g.id === id);
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      sprintGoals: [],
+      sprints: [{ ...sprint, goal: "Ship guest checkout" }],
+    });
+  });
+
+  it("reads Sprint.goal for a sprint with no goal document yet", async () => {
+    const r = (await registry
+      .get("tool.sprint_goal.list_state")!
+      .handler({ sprintId: "s1" }, ctx())) as { exists: boolean; goal: string; sprintGoal: string };
+    expect(r).toMatchObject({
+      exists: false,
+      goal: "Ship guest checkout",
+      sprintGoal: "Ship guest checkout",
+    });
+  });
+
+  it("writes the sprint's own document and mirrors the statement to Sprint.goal", async () => {
+    await registry
+      .get("tool.sprint_goal.set_goal")!
+      .handler({ goal: "Guests can pay without an account", sprintId: "s1" }, ctx());
+    expect(stored("sprint-goal:sprint:s1")).toMatchObject({
+      sprintId: "s1",
+      goal: "Guests can pay without an account",
+    });
+    expect(stored(SG_ID)).toBeUndefined();
+    expect(useWorkspaceStore.getState().sprints[0].goal).toBe("Guests can pay without an account");
+  });
+
+  it("links and unlinks OKRs idempotently", async () => {
+    const link = registry.get("tool.sprint_goal.link_okr")!;
+    const unlink = registry.get("tool.sprint_goal.unlink_okr")!;
+    expect(await link.handler({ okrId: "o1", sprintId: "s1" }, ctx())).toEqual({ changed: true });
+    expect(await link.handler({ okrId: "o1", sprintId: "s1" }, ctx())).toEqual({ changed: false });
+    expect(stored("sprint-goal:sprint:s1")?.okrIds).toEqual(["o1"]);
+    expect(await unlink.handler({ okrId: "o1", sprintId: "s1" }, ctx())).toEqual({ changed: true });
+    expect(stored("sprint-goal:sprint:s1")?.okrIds).toEqual([]);
+  });
+
+  it("records the goal's outcome with a note", async () => {
+    await registry
+      .get("tool.sprint_goal.record_outcome")!
+      .handler({ sprintId: "s1", met: "partly", note: "  Card payments only  " }, ctx());
+    expect(stored("sprint-goal:sprint:s1")?.outcome).toMatchObject({
+      met: "partly",
+      note: "Card payments only",
+      decidedAt: expect.any(String),
+    });
+    const schema = registry.get("tool.sprint_goal.record_outcome")!.paramsSchema;
+    expect(schema.safeParse({ sprintId: "s1", met: "yes" }).success).toBe(false);
+  });
+});

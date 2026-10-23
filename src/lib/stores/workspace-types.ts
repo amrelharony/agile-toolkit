@@ -1685,6 +1685,15 @@ export interface SprintGoal {
   sprintId?: string;
   /** Linked OKR ids, instead of key results copied into the goal. */
   okrIds?: string[];
+  /** Whether the sprint met its goal, answered when it ends (Sprint Review reads it). */
+  outcome?: SprintGoalOutcome;
+}
+
+/** The team's answer to "Did we meet the sprint goal?" */
+export interface SprintGoalOutcome {
+  met: "met" | "partly" | "not-met";
+  note?: string;
+  decidedAt: ISODateString;
 }
 
 /** A Jobs-to-be-Done job story: "When <situation>, I want to <motivation>,
@@ -1696,6 +1705,8 @@ export interface JobStory {
   outcome: string;
   parentJobId?: string;
   description?: string;
+  /** The Opportunity Tree node this job serves (a node of kind "opportunity"). */
+  opportunityId?: string;
 }
 
 /** A capacity-planner team member. Distinct from the lean workspace

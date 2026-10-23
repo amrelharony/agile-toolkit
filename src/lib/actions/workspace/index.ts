@@ -1801,6 +1801,14 @@ const SprintGoalSchema = z.object({
     .optional()
     .describe("The sprint this goal is for (id sprint-goal:sprint:<sprintId>)."),
   okrIds: z.array(z.string()).optional().describe("Linked OKR ids."),
+  outcome: z
+    .object({
+      met: z.enum(["met", "partly", "not-met"]),
+      note: z.string().optional(),
+      decidedAt: z.string(),
+    })
+    .optional()
+    .describe("Whether the sprint met its goal, answered when it ends."),
 }) as unknown as z.ZodType<SprintGoal>;
 
 const JobStorySchema = z.object({
@@ -1810,6 +1818,10 @@ const JobStorySchema = z.object({
   outcome: z.string(),
   parentJobId: z.string().optional(),
   description: z.string().optional(),
+  opportunityId: z
+    .string()
+    .optional()
+    .describe("The Opportunity Tree node (kind opportunity) this job serves."),
 }) as unknown as z.ZodType<JobStory>;
 
 const CapacityPlanSchema = z.object({

@@ -1,6 +1,7 @@
 import type { Sprint, SprintGoal } from "@/lib/stores/workspace-types";
 import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
 import { buildExample, withoutExample } from "./example";
+import { DRAFT_GOAL_ID, goalDocId } from "@/lib/sprints/goal-doc";
 
 /**
  * Where a sprint goal lives. Each sprint has its own document, under
@@ -10,21 +11,16 @@ import { buildExample, withoutExample } from "./example";
  *
  * `sprint-goal:current` keeps its old meaning: the one goal, now the draft
  * for when no sprint is chosen. Goals saved before goals were per sprint
- * live there, and agents still write there (MUST match SG_ID in
- * src/lib/actions/tools/sprint-goal.ts), so the tool offers to move the
- * draft onto a sprint instead of hiding it.
+ * live there, and agents write there when they name no sprint (the
+ * tool.sprint_goal.* actions share these ids through lib/sprints/goal-doc),
+ * so the tool offers to move the draft onto a sprint instead of hiding it.
  */
 
-export const DRAFT_GOAL_ID = "sprint-goal:current";
-const SPRINT_GOAL_PREFIX = "sprint-goal:sprint:";
+// The ids live in lib so the tool.sprint_goal.* agent actions use the same ones.
+export { DRAFT_GOAL_ID, goalDocId };
 
 /** The longest goal statement the tool keeps (the old tool's limit). */
 export const GOAL_MAX_CHARS = 300;
-
-/** The document id for `sprintId`'s goal, or the draft's. */
-export function goalDocId(sprintId?: string): string {
-  return sprintId ? `${SPRINT_GOAL_PREFIX}${sprintId}` : DRAFT_GOAL_ID;
-}
 
 /** A goal with nothing in it yet. */
 export function emptyGoal(sprintId?: string): SprintGoal {
