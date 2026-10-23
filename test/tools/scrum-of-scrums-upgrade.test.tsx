@@ -32,15 +32,24 @@ import {
   carriedForward,
   entriesOn,
   meetingDates,
+  meetingDay,
   staleBlockers,
   statusOf,
 } from "@/app/(tools)/scrum-of-scrums/agenda";
 import { meetingVerdict } from "@/app/(tools)/scrum-of-scrums/verdict";
 import { toMinutes } from "@/app/(tools)/scrum-of-scrums/markdown";
 import { buildExample, withoutExampleEdges } from "@/app/(tools)/scrum-of-scrums/example";
-import { emptyEntry, validateEntry } from "@/app/(tools)/scrum-of-scrums/entry-form";
+import {
+  emptyEntry,
+  entryDraftFrom,
+  validateEntry,
+} from "@/app/(tools)/scrum-of-scrums/entry-form";
 import { edgeForEntry, syncEntryEdge } from "@/app/(tools)/scrum-of-scrums/links";
-import { DEPENDENCY_MAP_ID, linkDependency } from "@/app/(tools)/dependency-map/link";
+import {
+  DEPENDENCY_MAP_ID,
+  linkDependency,
+  setEdgeStatus,
+} from "@/app/(tools)/dependency-map/link";
 import { dayFrom } from "@/app/(tools)/dependency-map/format";
 import { PI_STORAGE_KEY } from "@/app/(tools)/pi-planning/store";
 
@@ -216,7 +225,7 @@ describe("links to the Dependency Map", () => {
       from: "Checkout",
       to: "Payments",
       sourceRef: { tool: "pi-planning", id: "p1" },
-    });
+    })!;
     expect(edgeForEntry(map(), dep)?.id).toBe(edgeId);
     expect(edgeForEntry(map(), { ...dep, kind: "blocker" })).toBeUndefined();
   });
@@ -480,5 +489,293 @@ describe("Scrum of Scrums page", () => {
 
     fireEvent.change(screen.getByLabelText(/^Show meeting/), { target: { value: "2026-09-01" } });
     expect(screen.getByText(/^Agenda — 1 Sept? 2026$/)).toBeInTheDocument();
+  });
+});
+
+/* ── Review fixes ─────────────────────────────────────────────────────── */
+
+describe("which map edge an entry shows", () => {
+  const T1 = "2026-10-16T09:00:00.000Z";
+  const dep = (extra: Partial<SosEntry> = {}) =>
+    entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments", loggedAt: T1, ...extra });
+  const pi = { tool: "pi-planning", id: "p1" };
+  const edgeOf = (e: SosEntry) => edgeForEntry(map(), e);
+
+  it("ignores a dependency between the same teams resolved before the entry was raised", () => {
+    const { edgeId } = linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi })!;
+    setEdgeStatus(edgeId, "resolved", new Date("2026-10-10T09:00:00Z"));
+    const fresh = dep();
+    expect(edgeOf(fresh)).toBeUndefined();
+    expect(statusOf(fresh, edgeOf(fresh))).toBe("open");
+  });
+
+  it("keeps an entry resolved in its own data resolved, whatever opens between the teams", () => {
+    linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi });
+    const legacy = dep({ status: "resolved" });
+    expect(edgeOf(legacy)).toBeUndefined();
+    expect(statusOf(legacy, edgeOf(legacy))).toBe("resolved");
+    const status = (e: SosEntry) => statusOf(e, edgeOf(e));
+    expect(carriedForward([legacy], D2, status)).toEqual([]);
+    // Reopening it would show that open edge.
+    expect(edgeForEntry(map(), legacy, { asOpen: true })).toBeDefined();
+  });
+
+  it("follows the dependency it waited on once resolved, not a newer one between the teams", () => {
+    const first = linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi })!;
+    setEdgeStatus(first.edgeId, "resolved", new Date("2026-10-20T09:00:00Z"));
+    const later = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "pi-planning", id: "p2" },
+    })!;
+    expect(later.edgeId).not.toBe(first.edgeId);
+    const waiting = dep();
+    expect(edgeOf(waiting)?.id).toBe(first.edgeId);
+    expect(statusOf(waiting, edgeOf(waiting))).toBe("resolved");
+  });
+
+  it("reads blocks edges in delivery order", () => {
+    linkDependency({ from: "Checkout", to: "Payments", kind: "blocks", sourceRef: pi });
+    expect(edgeOf(dep())).toBeUndefined();
+    const right = linkDependency({
+      from: "Payments",
+      to: "Checkout",
+      kind: "blocks",
+      sourceRef: { tool: "pi-planning", id: "p2" },
+    })!;
+    expect(edgeOf(dep())?.id).toBe(right.edgeId);
+  });
+
+  it("never shows an example entry a real edge", () => {
+    linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi });
+    expect(edgeOf(dep({ id: "example-sos-2" }))).toBeUndefined();
+    expect(edgeOf(dep())).toBeDefined();
+  });
+});
+
+describe("keeping an entry's own edge in step", () => {
+  const drawOwn = (e: SosEntry, extra: { owner?: string; due?: string } = {}) =>
+    linkDependency({
+      from: e.team,
+      to: e.blockedBy ?? "",
+      note: e.text,
+      ...extra,
+      sourceRef: { tool: "scrum-of-scrums", id: e.id },
+    })!;
+
+  it("leaves the edge alone on a text edit after a node was renamed on the map", () => {
+    const dep = entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments" });
+    const { edgeId } = drawOwn(dep);
+    ws().upsertDependencyMap({
+      ...map(),
+      nodes: map().nodes.map((x) => ({ ...x, label: `${x.label} team` })),
+    });
+    syncEntryEdge(dep, { ...dep, text: "Refunds v2" });
+    expect(map().nodes.map((x) => x.label)).toEqual(["Checkout team", "Payments team"]);
+    expect(map().edges.map((x) => x.id)).toEqual([edgeId]);
+  });
+
+  it("brings its owner and due date along onto an open edge it lands on", () => {
+    const dep = entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments" });
+    drawOwn(dep, { owner: "Ana", due: "2026-11-02" });
+    const theirs = linkDependency({
+      from: "Checkout",
+      to: "Platform",
+      sourceRef: { tool: "pi-planning", id: "p1" },
+    })!;
+    syncEntryEdge(dep, { ...dep, blockedBy: "Platform" });
+    expect(map().edges).toMatchObject([{ id: theirs.edgeId, owner: "Ana", due: "2026-11-02" }]);
+  });
+});
+
+describe("meeting dates saved as timestamps", () => {
+  it("belong to that day's meeting, age from it and edit as that day", () => {
+    const stamped = entry({ kind: "blocker", meetingDate: "2026-10-16T10:00:00.000Z" });
+    expect(meetingDay(stamped)).toBe(D1);
+    expect(meetingDates([stamped])).toEqual([D1]);
+    expect(entriesOn([stamped], D1)[0].entries).toEqual([stamped]);
+    expect(ageDays(stamped, D2)).toBe(7);
+    expect(carriedForward([stamped], D2, own)).toEqual([stamped]);
+    expect(entryDraftFrom(stamped).meetingDate).toBe(D1);
+  });
+
+  it("carries an open blocker with no readable date into every meeting, not out of sight", () => {
+    const lost = entry({ kind: "blocker", meetingDate: "someday" });
+    expect(meetingDay(lost)).toBe("");
+    expect(carriedForward([lost], D2, own)).toEqual([lost]);
+    expect(entryDraftFrom(lost).meetingDate).toBe("");
+  });
+});
+
+describe("Scrum of Scrums page, after review", () => {
+  const today = () => todayLocalISO();
+
+  it("offers Add dependency for a new wait even when an old one between the teams was resolved", () => {
+    const { edgeId } = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "pi-planning", id: "p1" },
+    })!;
+    setEdgeStatus(edgeId, "resolved", new Date("2020-01-01T09:00:00Z"));
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({
+          kind: "dependency",
+          text: "Refund API",
+          team: "Checkout",
+          blockedBy: "Payments",
+          meetingDate: today(),
+          loggedAt: new Date().toISOString(),
+        }),
+      ],
+    });
+    renderSos();
+    expect(
+      within(agenda()).getByRole("button", { name: /^Resolve dependency/ })
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add dependency to the map: Checkout needs Payments" })
+    );
+    expect(map().edges).toHaveLength(2);
+    expect(map().edges[1]).toMatchObject({
+      status: "open",
+      sourceRef: { tool: "scrum-of-scrums", id: "s1" },
+    });
+    expect(map().edges[0].status).toBe("resolved");
+  });
+
+  it("reopens the edge a resolved entry will show, so Reopen sticks", () => {
+    const loggedAt = new Date(Date.now() - 86_400_000).toISOString();
+    const { edgeId } = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "pi-planning", id: "p1" },
+    })!;
+    setEdgeStatus(edgeId, "resolved");
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({
+          kind: "dependency",
+          text: "Refund API",
+          team: "Checkout",
+          blockedBy: "Payments",
+          meetingDate: today(),
+          status: "resolved",
+          loggedAt,
+        }),
+      ],
+    });
+    renderSos();
+    fireEvent.click(within(agenda()).getByRole("button", { name: /^Reopen dependency/ }));
+    expect(saved("s1")?.status).toBe("open");
+    expect(map().edges[0].status).toBe("open");
+    expect(
+      within(agenda()).getByRole("button", { name: /^Resolve dependency/ })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps example entries off the user's edges, and clears what they drew", () => {
+    ws().upsertDependencyMap({
+      id: DEPENDENCY_MAP_ID,
+      nodes: [
+        { id: "c", label: "Checkout" },
+        { id: "p", label: "Payments" },
+      ],
+      edges: [{ id: "real", from: "c", to: "p", kind: "needs", status: "open" }],
+    });
+    renderSos();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const carried = () => within(agenda()).getByRole("list", { name: "Carried forward" });
+    // Checkout waits on Payments in the example too, but it isn't the user's edge.
+    fireEvent.click(within(carried()).getByRole("button", { name: /^Resolve dependency/ }));
+    expect(saved("example-sos-2")?.status).toBe("resolved");
+    expect(map().edges).toMatchObject([{ id: "real", status: "open" }]);
+    act(() => ws().upsertSosEntry({ ...saved("example-sos-2")!, status: "open" }));
+    fireEvent.click(
+      within(carried()).getByRole("button", {
+        name: "Add dependency to the map: Checkout needs Payments",
+      })
+    );
+    const drawn = map().edges.filter((x) => x.id !== "real");
+    expect(drawn).toHaveLength(1);
+    expect(
+      [drawn[0].id, drawn[0].from, drawn[0].to].every((id) => id.startsWith("example-sos-map-"))
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(map().nodes.map((x) => x.id)).toEqual(["c", "p"]);
+    expect(map().edges.map((x) => x.id)).toEqual(["real"]);
+  });
+
+  it("hands its own edge to the PI item still showing it on delete, and back on Undo", () => {
+    const dep = entry({
+      kind: "dependency",
+      text: "Refund API",
+      team: "Checkout",
+      blockedBy: "Payments",
+      meetingDate: today(),
+    });
+    const { edgeId } = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "scrum-of-scrums", id: dep.id },
+    })!;
+    localStorage.setItem(
+      PI_STORAGE_KEY,
+      JSON.stringify({
+        teams: [{ id: "t", name: "Checkout" }],
+        items: [
+          {
+            id: "d1",
+            title: "Refunds",
+            teamId: "t",
+            iteration: 0,
+            kind: "dependency",
+            dependsOn: "Payments",
+            edgeId,
+          },
+        ],
+        iterations: 3,
+      })
+    );
+    useWorkspaceStore.setState({ sosEntries: [dep] });
+    renderSos();
+    fireEvent.click(screen.getByRole("button", { name: "Delete dependency “Refund API”" }));
+    expect(ws().sosEntries).toEqual([]);
+    expect(map().edges).toMatchObject([
+      { id: edgeId, sourceRef: { tool: "pi-planning", id: "d1" } },
+    ]);
+    undoLast();
+    expect(map().edges[0].sourceRef).toEqual({ tool: "scrum-of-scrums", id: dep.id });
+    expect(saved(dep.id)).toBeDefined();
+  });
+
+  it("shows an entry saved with a timestamp for a date in that day's meeting", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({ kind: "blocker", text: "Sandbox down", meetingDate: `${today()}T08:00` }),
+      ],
+    });
+    renderSos();
+    expect(within(agenda()).getByText("Sandbox down")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit blocker “Sandbox down”" }));
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    expect(within(form).getByLabelText(/^Meeting date/)).toHaveValue(today());
+  });
+
+  it("puts focus back on the Edit button after saving or cancelling", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [entry({ kind: "update", text: "Webhooks in staging", meetingDate: today() })],
+    });
+    renderSos();
+    const edit = () => screen.getByRole("button", { name: /^Edit update/ });
+    fireEvent.click(edit());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(edit()).toHaveFocus();
+    fireEvent.click(edit());
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.change(within(form).getByLabelText(/^Details/), { target: { value: "Live" } });
+    fireEvent.submit(form);
+    expect(saved("s1")?.text).toBe("Live");
+    expect(edit()).toHaveFocus();
   });
 });

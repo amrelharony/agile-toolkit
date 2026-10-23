@@ -6,6 +6,7 @@ import {
   carriedForward,
   entriesOn,
   isTracked,
+  meetingDay,
   type TrackedStatus,
 } from "./agenda";
 import { meetingVerdict } from "./verdict";
@@ -52,7 +53,7 @@ export function toMinutes(
         const days = age !== null ? ` (${age} ${age === 1 ? "day" : "days"})` : "";
         return entryLine(e, status, {
           prefix: `${KIND_LABEL[e.kind].one} · `,
-          suffix: `, raised ${dayLabel(e.meetingDate, true)}${days}`,
+          suffix: `, raised ${dayLabel(meetingDay(e) || e.meetingDate, true)}${days}`,
         });
       })
     );

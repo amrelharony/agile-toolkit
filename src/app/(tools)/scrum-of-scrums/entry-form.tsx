@@ -10,7 +10,7 @@ import type { SosEntry } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
 import { ChoiceField, TeamField } from "../dependency-map/fields";
 import { parseDay } from "../dependency-map/format";
-import { KIND_LABEL, KIND_ORDER, isTracked, type EntryKind } from "./agenda";
+import { KIND_LABEL, KIND_ORDER, isTracked, meetingDay, type EntryKind } from "./agenda";
 
 const TEAM_MAX = 120;
 const TEXT_MAX = 2000;
@@ -39,8 +39,9 @@ export const emptyEntry = (meetingDate: string): EntryDraft => ({
   blockedBy: "",
 });
 
+/** An entry's meeting date is read as its day ("" when unreadable, so the editor asks for one). */
 export const entryDraftFrom = (e: SosEntry): EntryDraft => ({
-  meetingDate: e.meetingDate,
+  meetingDate: meetingDay(e),
   team: e.team,
   kind: e.kind,
   text: e.text,

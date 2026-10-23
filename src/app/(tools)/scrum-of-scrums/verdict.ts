@@ -1,6 +1,6 @@
 import type { ISODateString, SosEntry } from "@/lib/stores/workspace-types";
 import { listAnd } from "@/lib/charts/chart-text";
-import { STALE_DAYS, ageDays, carriedForward, type TrackedStatus } from "./agenda";
+import { STALE_DAYS, ageDays, carriedForward, meetingDay, type TrackedStatus } from "./agenda";
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -18,7 +18,7 @@ export function meetingVerdict(
   today: ISODateString,
   status: (e: SosEntry) => TrackedStatus | null
 ): string {
-  const own = entries.filter((e) => e.meetingDate === date);
+  const own = entries.filter((e) => meetingDay(e) === date);
   const agenda = [...carriedForward(entries, date, status), ...own];
   if (agenda.length === 0) return "Nothing logged for this meeting yet.";
 

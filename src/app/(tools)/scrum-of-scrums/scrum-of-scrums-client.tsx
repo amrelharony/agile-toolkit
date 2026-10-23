@@ -48,19 +48,22 @@ import { cn } from "@/lib/utils";
 import { SelectField, uniqueTeams } from "../dependency-map/fields";
 import { dayLabel, parseDay } from "../dependency-map/format";
 import {
+  currentDependencyMap,
   linkDependency,
-  restoreEdges,
+  releaseEdges,
+  restoreReleased,
   setEdgeStatus,
-  takeEdges,
   unlink,
   updateDependencyMap,
   useDependencyMap,
-  currentDependencyMap,
+  type EdgeHeir,
   type LinkResult,
-  type TakenEdges,
+  type ReleasedEdges,
 } from "../dependency-map/link";
 import { DependencyStatusChip } from "../dependency-map/status-chip";
-import { usePiTeamNames } from "../pi-planning/store";
+import { useReturnFocus, type RefFor } from "../dependency-map/use-return-focus";
+import { itemRef } from "../pi-planning/dependency-link";
+import { piTeamNames, usePiState } from "../pi-planning/store";
 import {
   KIND_LABEL,
   ageDays,
@@ -68,6 +71,7 @@ import {
   entriesOn,
   isTracked,
   meetingDates,
+  meetingDay,
   staleBlockers,
   statusOf,
   type EntryKind,
@@ -75,7 +79,14 @@ import {
 } from "./agenda";
 import { EntryAddForm, EntryEditor, type EntryValues } from "./entry-form";
 import { buildExample, withoutExampleEdges } from "./example";
-import { edgeForEntry, entryRef, impedimentLinks, ownEdgeIds, syncEntryEdge } from "./links";
+import {
+  edgeForEntry,
+  entryRef,
+  impedimentLinks,
+  ownEdgeIds,
+  scopeOf,
+  syncEntryEdge,
+} from "./links";
 import { toMinutes } from "./markdown";
 import { meetingVerdict } from "./verdict";
 
@@ -95,7 +106,8 @@ export function ScrumOfScrumsClient() {
   const upsertSosEntry = useWorkspaceStore((s) => s.upsertSosEntry);
   const removeSosEntry = useWorkspaceStore((s) => s.removeSosEntry);
   const map = useDependencyMap();
-  const piTeams = usePiTeamNames();
+  const [pi] = usePiState();
+  const piTeams = useMemo(() => piTeamNames(pi), [pi]);
   const today = todayLocalISO();
   const { log } = useHistoryLogger("scrum-of-scrums");
   const exportRef = useRef<HTMLDivElement>(null);
@@ -103,6 +115,13 @@ export function ScrumOfScrumsClient() {
   const [started, setStarted] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(today);
   const [editing, setEditing] = useState<string | null>(null);
+  const { refFor, returnTo } = useReturnFocus();
+
+  /** Close the editor and put focus back on the entry's Edit button. */
+  const closeEditor = (id: string) => {
+    setEditing(null);
+    returnTo(`edit:${id}`);
+  };
 
   const edgeOf = useMemo(
     () => new Map(entries.map((e) => [e.id, edgeForEntry(map, e)] as const)),
@@ -122,6 +141,23 @@ export function ScrumOfScrumsClient() {
   const openBlockers = entries.filter((e) => e.kind === "blocker" && status(e) === "open");
   const openDeps = entries.filter((e) => e.kind === "dependency" && status(e) === "open");
   const teams = uniqueTeams([...entries.flatMap((e) => [e.team, e.blockedBy]), ...piTeams]);
+
+  /**
+   * Who still shows an edge once entry `leavingId` lets go of it: a PI
+   * item linked to it, else another entry showing it for the same wait.
+   * That one inherits the edge, so it doesn't drop off the map under it.
+   */
+  const heirFor =
+    (leavingId: string): EdgeHeir =>
+    (edge) => {
+      const item = pi.items.find((i) => i.kind === "dependency" && i.edgeId === edge.id);
+      if (item) return itemRef(item);
+      const graph = currentDependencyMap() ?? map;
+      const other = (useWorkspaceStore.getState().sosEntries ?? []).find(
+        (e) => e.id !== leavingId && edgeForEntry(graph, e)?.id === edge.id
+      );
+      return other ? entryRef(other) : undefined;
+    };
 
   /* ── Entries ── */
 
@@ -143,7 +179,7 @@ export function ScrumOfScrumsClient() {
   };
 
   const save = (entry: SosEntry, v: EntryValues) => {
-    setEditing(null);
+    closeEditor(entry.id);
     const next: SosEntry = {
       ...entry,
       meetingDate: v.meetingDate,
@@ -153,34 +189,45 @@ export function ScrumOfScrumsClient() {
     };
     if (v.blockedBy) next.blockedBy = v.blockedBy;
     else delete next.blockedBy;
-    syncEntryEdge(entry, next);
+    syncEntryEdge(entry, next, heirFor(entry.id));
     upsertSosEntry(next);
   };
 
-  /** Delete with Undo; a dependency this entry drew on the map goes with it, and comes back. */
+  /**
+   * Delete with Undo; a dependency this entry drew on the map goes with it,
+   * and comes back, unless a PI item or another entry still shows it: then
+   * it stays on the map with that one.
+   */
   const remove = (entry: SosEntry) => {
-    let taken: TakenEdges = [];
+    let released: ReleasedEdges = { taken: [], handed: [] };
     undoable({
       label: `Deleted ${KIND_LABEL[entry.kind].one.toLowerCase()} “${short(entry.text)}”`,
       apply: () => {
-        taken = takeEdges(ownEdgeIds(currentDependencyMap() ?? map, entry));
+        released = releaseEdges(
+          ownEdgeIds(currentDependencyMap() ?? map, entry),
+          heirFor(entry.id)
+        );
         removeSosEntry(entry.id);
         log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_REMOVED, { team: entry.team, kind: entry.kind });
       },
       revert: () => {
         upsertSosEntry(entry);
-        restoreEdges(taken);
+        restoreReleased(released);
       },
     });
   };
 
-  /** Resolve or reopen a blocker or dependency; a dependency on the map changes there too. */
+  /**
+   * Resolve or reopen a blocker or dependency; a dependency on the map
+   * changes there too. Reopening also reopens the edge the entry will show
+   * once open, so it doesn't read as resolved straight away.
+   */
   const setResolved = (entry: SosEntry, resolved: boolean) => {
     const next: SosEntry = { ...entry, status: resolved ? "resolved" : "open" };
     if (resolved) next.resolvedAt = todayLocalISO();
     else delete next.resolvedAt;
     upsertSosEntry(next);
-    const edge = edgeOf.get(entry.id);
+    const edge = edgeForEntry(currentDependencyMap() ?? map, entry, { asOpen: true });
     if (edge) setEdgeStatus(edge.id, resolved ? "resolved" : "open");
     log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_ADDED, {
       team: entry.team,
@@ -195,7 +242,7 @@ export function ScrumOfScrumsClient() {
       "impediment",
       {
         title: entry.text,
-        description: `Raised at the Scrum of Scrums on ${dayLabel(entry.meetingDate, true)} by ${entry.team}${waits}.`,
+        description: `Raised at the Scrum of Scrums on ${dayLabel(meetingDay(entry) || entry.meetingDate, true)} by ${entry.team}${waits}.`,
         raisedBy: entry.team,
         sourceRef: entryRef(entry),
       },
@@ -215,13 +262,17 @@ export function ScrumOfScrumsClient() {
       label: "Added to the Dependency Map",
       description: `“${entry.team} needs ${entry.blockedBy}”`,
       apply: () => {
-        result = linkDependency({
-          from: entry.team,
-          to: entry.blockedBy as string,
-          kind: "needs",
-          note: entry.text,
-          sourceRef: entryRef(entry),
-        });
+        result = linkDependency(
+          {
+            from: entry.team,
+            to: entry.blockedBy as string,
+            kind: "needs",
+            note: entry.text,
+            sourceRef: entryRef(entry),
+          },
+          undefined,
+          scopeOf(entry)
+        );
       },
       revert: () => {
         if (result) unlink(result);
@@ -307,6 +358,8 @@ export function ScrumOfScrumsClient() {
     edgeOf,
     editing,
     setEditing,
+    refFor,
+    closeEditor,
     onSave: save,
     onRemove: remove,
     onResolved: setResolved,
@@ -378,7 +431,7 @@ export function ScrumOfScrumsClient() {
                 label="Show meeting"
                 className="w-full sm:w-64"
                 options={meetings.map((d) => {
-                  const n = entries.filter((e) => e.meetingDate === d).length;
+                  const n = entries.filter((e) => meetingDay(e) === d).length;
                   return {
                     value: d,
                     label: `${dayLabel(d, true)} (${n} ${n === 1 ? "entry" : "entries"})`,
@@ -466,6 +519,8 @@ interface RowProps {
   edgeOf: ReadonlyMap<string, DependencyEdge | undefined>;
   editing: string | null;
   setEditing: (id: string | null) => void;
+  refFor: RefFor;
+  closeEditor: (id: string) => void;
   onSave: (entry: SosEntry, v: EntryValues) => void;
   onRemove: (entry: SosEntry) => void;
   onResolved: (entry: SosEntry, resolved: boolean) => void;
@@ -498,7 +553,7 @@ function EntryGroup({
                   entry={e}
                   teams={row.teams}
                   onSave={(v) => row.onSave(e, v)}
-                  onCancel={() => row.setEditing(null)}
+                  onCancel={() => row.closeEditor(e.id)}
                 />
               </div>
             ) : (
@@ -519,6 +574,7 @@ function EntryRow({
   status,
   edgeOf,
   setEditing,
+  refFor,
   onRemove,
   onResolved,
   onRaise,
@@ -567,7 +623,8 @@ function EntryRow({
           )}
           {isTracked(entry.kind) && (
             <p className="text-xs text-sub">
-              {carried ? "Raised" : "Logged"} {dayLabel(entry.meetingDate, true)}
+              {carried ? "Raised" : "Logged"}{" "}
+              {dayLabel(meetingDay(entry) || entry.meetingDate, true)}
               {!resolved &&
                 age !== null &&
                 age > 0 &&
@@ -590,6 +647,7 @@ function EntryRow({
             </Button>
           )}
           <IconButton
+            ref={refFor(`edit:${entry.id}`)}
             label={`Edit ${name}`}
             icon={<Pencil className="h-4 w-4" />}
             className="text-sub hover:text-text"

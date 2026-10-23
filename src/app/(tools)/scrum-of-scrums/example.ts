@@ -50,14 +50,29 @@ export function buildExample(now: Date = new Date()): SosEntry[] {
   });
 }
 
-/** The map without edges drawn from example entries ("Add dependency" on one of them). */
+/**
+ * Nodes and edges that example entries put on the Dependency Map ("Add
+ * dependency" on one of them) have ids starting with this, and example
+ * entries find teams only among those nodes, never the user's own.
+ */
+export const SOS_EXAMPLE_MAP_PREFIX = exampleId("sos-map-");
+
+/**
+ * The map without what example entries drew: their edges, and their nodes
+ * unless one of the user's own edges was drawn to it since (that node stays
+ * with it, and the Dependency Map's own "Clear example" offers Undo).
+ */
 export function withoutExampleEdges(
   map: Pick<DependencyMap, "nodes" | "edges">
 ): Pick<DependencyMap, "nodes" | "edges"> {
+  const mine = (id: string) => id.startsWith(SOS_EXAMPLE_MAP_PREFIX);
+  const edges = map.edges.filter(
+    (e) => !mine(e.id) && !(e.sourceRef?.tool === "scrum-of-scrums" && isExampleId(e.sourceRef.id))
+  );
   return {
-    nodes: map.nodes,
-    edges: map.edges.filter(
-      (e) => !(e.sourceRef?.tool === "scrum-of-scrums" && isExampleId(e.sourceRef.id))
+    nodes: map.nodes.filter(
+      (n) => !mine(n.id) || edges.some((e) => e.from === n.id || e.to === n.id)
     ),
+    edges,
   };
 }
