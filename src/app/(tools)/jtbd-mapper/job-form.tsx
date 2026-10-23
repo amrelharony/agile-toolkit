@@ -121,7 +121,11 @@ export function validateJob(d: JobDraft, ctx: JobContext): Validation<JobValues,
   // another tab, or by an agent); saving it would start the job dangling.
   const opportunityId = d.opportunityId ?? "";
   if (opportunityId && ctx.opportunityIds && !ctx.opportunityIds.has(opportunityId))
-    errors.opportunityId = "That opportunity was removed from the tree. Pick another, or none.";
+    // With the tree now empty there is no "another" to pick.
+    errors.opportunityId =
+      ctx.opportunityIds.size > 0
+        ? "That opportunity was removed from the tree. Pick another, or none."
+        : "That opportunity was removed from the tree. Choose None to add the job without one.";
 
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return {
@@ -296,8 +300,14 @@ function JobFields({
 
 /**
  * "Opportunity": optional, grouped under each opportunity's outcome
- * for context. With none in the tree yet the picker is off and the hint
- * points to the Opportunity Tree.
+ * for context. With none in the tree yet the hint points to the
+ * Opportunity Tree and "None" is the only choice.
+ *
+ * The select is never disabled, like "Under job" beside it: a pick
+ * deleted from the tree while the form is open has to stay clearable (a
+ * disabled select can't be focused or changed, so the form could never be
+ * saved), and disabling it the moment None is chosen would drop the
+ * keyboard user's focus.
  */
 function OpportunityField({
   groups,
@@ -311,6 +321,9 @@ function OpportunityField({
   onChange: (opportunityId: string) => void;
 }) {
   const empty = groups.length === 0;
+  // Without an option of its own the stale id would show as "None", and
+  // choosing None would then fire no change, leaving the id in the draft.
+  const stale = value !== "" && !groups.some((g) => g.options.some((o) => o.id === value));
   return (
     <Field
       label="Opportunity"
@@ -334,10 +347,14 @@ function OpportunityField({
           {...props}
           className={SELECT_CLASS}
           value={value}
-          disabled={empty}
           onChange={(e) => onChange(e.target.value)}
         >
           <option value="">None</option>
+          {stale && (
+            <option value={value} disabled>
+              Opportunity removed
+            </option>
+          )}
           {groups.map((g) => (
             <optgroup
               key={g.outcomeId ?? "none"}

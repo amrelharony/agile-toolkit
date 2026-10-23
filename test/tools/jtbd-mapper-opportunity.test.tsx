@@ -213,9 +213,14 @@ describe("An Opportunity Tree with no opportunities yet", () => {
     arrange();
     useWorkspaceStore.setState({ jobStories: [job("j1", "a claim is late")] });
     renderJtbd();
-    // The add form's picker is off, with a pointer to the tree in its hint.
+    // The add form's picker offers only None, with a pointer to the tree in
+    // its hint. It stays enabled (like "Under job"), so a keyboard user tabs
+    // to it and hears why.
     const form = addForm();
-    expect(within(form).getByLabelText(/^Opportunity/)).toBeDisabled();
+    const select = within(form).getByLabelText(/^Opportunity/) as HTMLSelectElement;
+    expect(select).toBeEnabled();
+    expect(Array.from(select.options).map((o) => o.text)).toEqual(["None"]);
+    expect(select).toHaveAccessibleDescription(/^None yet: map them in the Opportunity Tree/);
     expect(within(form).getByRole("link", { name: "Opportunity Tree" })).toHaveAttribute(
       "href",
       "/opportunity-tree"
@@ -225,6 +230,10 @@ describe("An Opportunity Tree with no opportunities yet", () => {
     expect(screen.getByText(/No opportunities in the Opportunity Tree yet\./)).toBeInTheDocument();
     const open = screen.getByRole("menuitem", { name: "Open the Opportunity Tree" });
     expect(open).toHaveAttribute("href", "/opportunity-tree");
+    // Focus lands on the item, so the reason is its description.
+    expect(open).toHaveAccessibleDescription(
+      /^No opportunities in the Opportunity Tree yet\. Map the outcome/
+    );
     expect(screen.getAllByRole("menuitem")).toHaveLength(1);
   });
 });
@@ -285,12 +294,72 @@ describe("The add form's opportunity", () => {
       target: { value: "opp-rules" },
     });
     act(() => setTree(NODES.filter((n) => n.id !== "opp-rules")));
+    const select = within(form).getByLabelText(/^Opportunity/) as HTMLSelectElement;
+    // The stale pick shows as removed, not as a "None" that isn't true.
+    expect(select).toHaveDisplayValue("Opportunity removed");
     fireEvent.click(within(form).getByRole("button", { name: "Add job story" }));
     expect(jobs()).toEqual([]);
     expect(
       within(form).getByText("That opportunity was removed from the tree. Pick another, or none.")
     ).toBeInTheDocument();
-    expect(within(form).getByLabelText(/^Opportunity/)).toHaveFocus();
+    expect(select).toHaveFocus();
+
+    // Picking another clears the error and saves that one.
+    fireEvent.change(select, { target: { value: "opp-loose" } });
+    expect(within(form).queryByText(/That opportunity was removed/)).not.toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: "Opportunity removed" })).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "Add job story" }));
+    expect(jobs()).toHaveLength(1);
+    expect(jobs()[0]).toMatchObject({ opportunityId: "opp-loose" });
+  });
+
+  it("recovers when every opportunity is deleted while the form is open", () => {
+    renderJtbd();
+    const form = addForm();
+    fillClauses(form);
+    const select = within(form).getByLabelText(/^Opportunity/) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "opp-rules" } });
+    // The whole tree is cleared in another tab.
+    act(() => setTree(NODES.filter((n) => n.kind !== "opportunity")));
+
+    // The select still holds the pick, so it can be focused and changed.
+    expect(select).toBeEnabled();
+    expect(select).toHaveDisplayValue("Opportunity removed");
+    expect(Array.from(select.options).map((o) => [o.text, o.disabled])).toEqual([
+      ["None", false],
+      ["Opportunity removed", true],
+    ]);
+    fireEvent.click(within(form).getByRole("button", { name: "Add job story" }));
+    expect(jobs()).toEqual([]);
+    // There is no "another" to pick, so the message says what to do.
+    expect(
+      within(form).getByText(
+        "That opportunity was removed from the tree. Choose None to add the job without one."
+      )
+    ).toBeInTheDocument();
+    expect(select).toHaveFocus();
+
+    fireEvent.change(select, { target: { value: "" } });
+    expect(select).toHaveValue("");
+    expect(select).toBeEnabled();
+    expect(Array.from(select.options).map((o) => o.text)).toEqual(["None"]);
+    expect(within(form).queryByText(/That opportunity was removed/)).not.toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Add job story" }));
+    expect(jobs()).toHaveLength(1);
+    expect(jobs()[0]).toMatchObject({ situation: "I travel" });
+    expect(jobs()[0]).not.toHaveProperty("opportunityId");
+  });
+
+  it("shows a pick the tree put back (an undo there) as picked again", () => {
+    renderJtbd();
+    const form = addForm();
+    const select = within(form).getByLabelText(/^Opportunity/) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "opp-rules" } });
+    act(() => setTree(NODES.filter((n) => n.id !== "opp-rules")));
+    expect(select).toHaveDisplayValue("Opportunity removed");
+    act(() => setTree(NODES));
+    expect(select).toHaveDisplayValue("Nobody knows the limits");
+    expect(within(select).queryByRole("option", { name: "Opportunity removed" })).toBeNull();
   });
 });
 

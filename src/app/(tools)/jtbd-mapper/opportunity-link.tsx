@@ -57,11 +57,12 @@ export function LinkOpportunityMenu({
       <DropdownMenuContent align="end" className="w-72">
         {groups.length === 0 ? (
           <>
-            <DropdownMenuLabel className="text-xs font-normal text-sub">
+            <DropdownMenuLabel id={`${uid}-empty`} className="text-xs font-normal text-sub">
               No opportunities in the Opportunity Tree yet. Map the outcome and its opportunities
               there, then link this job.
             </DropdownMenuLabel>
-            <DropdownMenuItem asChild>
+            {/* Focus lands on the item, not the note, so the item carries the reason. */}
+            <DropdownMenuItem asChild aria-describedby={`${uid}-empty`}>
               <Link href={OPPORTUNITY_TREE_HREF}>
                 <Target aria-hidden="true" />
                 Open the Opportunity Tree
