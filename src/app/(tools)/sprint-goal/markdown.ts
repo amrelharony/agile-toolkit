@@ -1,5 +1,7 @@
-import type { SprintGoal } from "@/lib/stores/workspace-types";
-import { validateSmart, type SmartResult } from "./smart";
+import type { Okr, Sprint, SprintGoal } from "@/lib/stores/workspace-types";
+import { goalSmart, smartMissing, validateSmart, type SmartResult } from "./smart";
+import { krProgressText, okrPercent, resolveLinkedOkrs } from "./okr-links";
+import { goalVerdict } from "./verdict";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -18,36 +20,51 @@ function cell(v: unknown): string {
   return oneLine(v).replace(/\|/g, "\\|");
 }
 
-const SMART_LABELS: [keyof SmartResult, string][] = [
-  ["specific", "Specific"],
-  ["measurable", "Measurable"],
-  ["achievable", "Achievable"],
-  ["relevant", "Relevant"],
-  ["timeBound", "Time-bound"],
-];
-
 function smartNote(smart: SmartResult): string {
-  const missing = SMART_LABELS.filter(([k]) => !smart[k]).map(([, label]) => label);
-  const met = SMART_LABELS.length - missing.length;
+  const missing = smartMissing(smart);
+  const met = 5 - missing.length;
   return missing.length === 0 ? `${met}/5` : `${met}/5, missing ${missing.join(", ")}`;
 }
 
-/** The sprint goal with its criteria and SMART checks, for a sprint page or a planning thread. */
+export interface MarkdownContext {
+  /** The sprint the goal is for; absent for the draft. */
+  sprint?: Pick<Sprint, "id" | "name">;
+  /** OKRs the goal's `okrIds` may point at. */
+  okrs?: readonly Okr[];
+}
+
+type GoalFields = Pick<SprintGoal, "businessObjective" | "goal" | "criteria" | "keyResults"> &
+  Partial<Pick<SprintGoal, "okrIds">>;
+
+/** The sprint goal with its SMART checks, criteria and linked OKRs, for a sprint page or a planning thread. */
 export function toMarkdown(
-  goal: Pick<SprintGoal, "businessObjective" | "goal" | "criteria" | "keyResults">,
-  now: Date = new Date()
+  goal: GoalFields,
+  now: Date = new Date(),
+  { sprint, okrs = [] }: MarkdownContext = {}
 ): string {
-  const title = `# Sprint Goal — ${mdDate(now)}`;
+  const title = sprint
+    ? `# Sprint Goal — ${oneLine(sprint.name)} · ${mdDate(now)}`
+    : `# Sprint Goal — ${mdDate(now)}`;
   const objective = oneLine(goal.businessObjective);
   const text = oneLine(goal.goal);
   const criteria = goal.criteria.filter((c) => c.text.trim());
-  const keyResults = goal.keyResults.map(oneLine).filter(Boolean);
-  if (!objective && !text && criteria.length === 0 && keyResults.length === 0) {
+  const notes = goal.keyResults.map(oneLine).filter(Boolean);
+  const { linked } = resolveLinkedOkrs(goal.okrIds, okrs);
+  if (!objective && !text && criteria.length === 0 && notes.length === 0 && linked.length === 0) {
     return `${title}\n\nNo sprint goal yet.\n`;
   }
 
   const lines = [title];
-  if (text) lines.push("", "## Sprint goal", "", `> ${text}`);
+  if (text) {
+    lines.push(
+      "",
+      "## Sprint goal",
+      "",
+      `> ${text}`,
+      "",
+      `SMART: ${smartNote(goalSmart(goal, sprint))}`
+    );
+  }
   if (objective) lines.push("", "## Business objective", "", objective);
   if (criteria.length > 0) {
     lines.push(
@@ -59,8 +76,19 @@ export function toMarkdown(
       ...criteria.map((c, i) => `| ${i + 1} | ${cell(c.text)} | ${smartNote(validateSmart(c))} |`)
     );
   }
-  if (keyResults.length > 0) {
-    lines.push("", "## Key results", "", ...keyResults.map((kr) => `- ${kr}`));
+  if (linked.length > 0) {
+    lines.push("", "## Linked OKRs", "");
+    for (const okr of linked) {
+      const quarter = oneLine(okr.quarter);
+      lines.push(
+        `- **${oneLine(okr.objective)}** (${quarter ? `${quarter}, ` : ""}${okrPercent(okr)}% of the way)`,
+        ...okr.keyResults.map((kr) => `  - ${oneLine(kr.title)}: ${krProgressText(kr)}`)
+      );
+    }
   }
+  if (notes.length > 0) {
+    lines.push("", "## Key-result notes", "", ...notes.map((kr) => `- ${kr}`));
+  }
+  lines.push("", `**${goalVerdict(goal, sprint)}**`);
   return `${lines.join("\n")}\n`;
 }

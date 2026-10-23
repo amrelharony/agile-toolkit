@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
- * Sprint Goal: removing an acceptance criterion or a key result offers
+ * Sprint Goal: removing an acceptance criterion or a key-result note offers
  * Undo, and Undo puts it back at its old position.
  */
 
@@ -47,6 +48,13 @@ vi.mock("framer-motion", async () => {
 
 import { SprintGoalClient } from "@/app/(tools)/sprint-goal/sprint-goal-client";
 
+const renderGoal = () =>
+  render(
+    <TooltipProvider>
+      <SprintGoalClient />
+    </TooltipProvider>
+  );
+
 // Radix tabs switch on mouse down, not click.
 const openStep = (name: string) =>
   fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0 });
@@ -75,7 +83,7 @@ beforeEach(() => {
 
 describe("Sprint Goal deletes", () => {
   it("restores a removed acceptance criterion in place", () => {
-    render(<SprintGoalClient />);
+    renderGoal();
     openStep("Acceptance Criteria");
     fireEvent.click(screen.getByRole("button", { name: "Remove acceptance criterion 2" }));
 
@@ -87,10 +95,10 @@ describe("Sprint Goal deletes", () => {
     expect(goal().criteria[1].relevantChecked).toBe(true);
   });
 
-  it("restores a removed key result at its index", () => {
-    render(<SprintGoalClient />);
+  it("restores a removed key-result note at its index", () => {
+    renderGoal();
     openStep("Key Results");
-    fireEvent.click(screen.getByRole("button", { name: "Remove key result 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove key-result note 1" }));
 
     expect(goal().keyResults).toEqual(["Time to value under 3 min", "NPS 40"]);
     expect(undo.last!.label).toBe("Deleted “Activation 60%”");

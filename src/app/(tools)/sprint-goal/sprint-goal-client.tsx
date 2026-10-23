@@ -1,37 +1,29 @@
 "use client";
 
 import { useState, useRef, useMemo } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { updateSprint } from "@/lib/sprints/store";
-import { toast } from "@/lib/utils/toast";
-import type { SprintGoal } from "@/lib/stores/workspace-types";
+import type { Okr, SprintGoal, Story } from "@/lib/stores/workspace-types";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
 import { generateSprintGoalPrompts } from "@/lib/ai-prompts/sprint-goal";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_GOAL_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
-import {
-  ExampleNotice,
-  LoadExampleButton,
-  hasExampleItems,
-  isExampleId,
-} from "@/components/tool-frame/example-data";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Badge } from "@/components/ui/badge";
+import { BlurTextarea } from "@/components/shared/blur-fields";
 import {
-  Plus,
-  Trash2,
   ChevronRight,
   ChevronLeft,
   Target,
@@ -39,9 +31,28 @@ import {
   Lightbulb,
   BarChart3,
 } from "lucide-react";
-import { buildExample } from "./example";
+import { EXAMPLE_OKR_ID, buildExample, buildExampleOkr, withoutExample } from "./example";
 import { toMarkdown } from "./markdown";
-import { validateSmart, type AcceptanceCriterion } from "./smart";
+import { goalSmart, smartMissing, validateSmart } from "./smart";
+import { GOAL_TIPS, SmartBadges } from "./smart-badges";
+import {
+  DRAFT_GOAL_ID,
+  cleanGoal,
+  draftForSprint,
+  goalConflict,
+  goalDocId,
+  hasContent,
+  isExampleGoal,
+  normalizeGoal,
+  sprintGoalPatch,
+  usableDraft,
+  viewGoal,
+} from "./doc";
+import { krProgressText, okrPercent, resolveLinkedOkrs, toggleOkrLink } from "./okr-links";
+import { goalVerdict } from "./verdict";
+import { CriteriaStep } from "./criteria-step";
+import { OkrStep } from "./okr-step";
+import { GoalConflictBanner, GoalNextStep, GoalScope } from "./goal-scope";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -72,9 +83,9 @@ const TIPS = [
   "Avoid listing multiple unrelated goals",
 ];
 
-function genId() {
-  return crypto.randomUUID();
-}
+const NO_GOALS: SprintGoal[] = [];
+const NO_OKRS: Okr[] = [];
+const NO_STORIES: Story[] = [];
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -84,104 +95,187 @@ function shortName(name: string, max = 40): string {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-// Singleton id for the one current sprint goal. MUST match SG_ID in
-// src/lib/actions/tools/sprint-goal.ts so agent writes hit the same row.
-const SG_ID = "sprint-goal:current";
-const DEFAULT_SPRINT_GOAL: SprintGoal = {
-  id: SG_ID,
-  businessObjective: "",
-  goal: "",
-  criteria: [{ id: "criterion-1", text: "", relevantChecked: false }],
-  keyResults: [""],
-};
-
 export function SprintGoalClient() {
-  // PERSIST the wizard state. Previously these were plain useState so
-  // navigating away or refreshing wiped everything — a clear data-loss
-  // bug given every sibling tool persists. `activeStep` stays in-memory
-  // (transient UI), but the four content fields go through usePersisted
-  // so the user can pick up where they left off. usePersisted internally
-  // wraps localStorage with quota + SSR guards.
+  // `activeStep` and the draft toggle are transient UI; the goal itself is a
+  // synced workspace document per sprint (./doc.ts), so agent writes and
+  // other tabs round-trip into the wizard.
   const [activeStep, setActiveStep] = useState<Step>("objective");
-  // Sprint-goal state is now a singleton synced workspace document (was four
-  // isolated localStorage keys), so MCP-written goals round-trip into the UI.
-  const goalDoc = useWorkspaceStore(
-    useShallow((s) => (s.sprintGoals ?? []).find((g) => g.id === SG_ID))
-  );
+  const [inDraft, setInDraft] = useState(false);
+  const [confirmReplace, setConfirmReplace] = useState(false);
+
+  const docs = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
+  const workspaceOkrs = useWorkspaceStore((s) => s.okrs) ?? NO_OKRS;
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const upsertSprintGoal = useWorkspaceStore((s) => s.upsertSprintGoal);
-  const cur = goalDoc ?? DEFAULT_SPRINT_GOAL;
-  const businessObjective = cur.businessObjective;
-  const sprintGoal = cur.goal;
-  const criteria = cur.criteria;
-  const keyResults = cur.keyResults;
-  // Setters mirror the old usePersisted [value, setter] API (value or updater)
-  // so the handlers + JSX below are unchanged. Read freshest via getState().
-  function patchGoal<K extends keyof SprintGoal>(
-    key: K,
-    val: SprintGoal[K] | ((prev: SprintGoal[K]) => SprintGoal[K])
-  ) {
-    const d =
-      (useWorkspaceStore.getState().sprintGoals ?? []).find((g) => g.id === SG_ID) ??
-      DEFAULT_SPRINT_GOAL;
-    const next =
-      typeof val === "function" ? (val as (p: SprintGoal[K]) => SprintGoal[K])(d[key]) : val;
-    upsertSprintGoal({ ...d, [key]: next } as SprintGoal);
-  }
-  const setBusinessObjective = (v: string | ((p: string) => string)) =>
-    patchGoal("businessObjective", v);
-  const setSprintGoal = (v: string | ((p: string) => string)) => patchGoal("goal", v);
-  const setCriteria = (
-    v: AcceptanceCriterion[] | ((p: AcceptanceCriterion[]) => AcceptanceCriterion[])
-  ) => patchGoal("criteria", v);
-  const setKeyResults = (v: string[] | ((p: string[]) => string[])) => patchGoal("keyResults", v);
+  const removeSprintGoal = useWorkspaceStore((s) => s.removeSprintGoal);
   const { log } = useHistoryLogger("sprint-goal");
-  // The shared sprint the sprint tools are looking at, to write the goal onto.
-  const { selected: selectedSprint } = useSelectedSprint();
-  const isEmpty =
-    !businessObjective.trim() &&
-    !sprintGoal.trim() &&
-    criteria.every((c) => !c.text.trim()) &&
-    keyResults.every((kr) => !kr.trim());
-  // The goal is a singleton, so the example's criteria carry its ids.
-  const showsExample = hasExampleItems(criteria);
 
-  // Written like any edit but never logged: loading an example isn't the
-  // user's own goal.
-  const loadExample = () => {
-    const d =
-      (useWorkspaceStore.getState().sprintGoals ?? []).find((g) => g.id === SG_ID) ??
-      DEFAULT_SPRINT_GOAL;
-    upsertSprintGoal({ ...d, ...buildExample() });
+  // The shared sprint choice (Sprint Planning, the cockpit and the charts
+  // open on the same one). The goal on screen is that sprint's, unless the
+  // user opened the draft.
+  const { sprints, selected, select } = useSelectedSprint();
+  const sprint = inDraft ? undefined : selected;
+  const view = useMemo(() => viewGoal(docs, sprint), [docs, sprint]);
+  const cur = view.doc;
+  const draft = useMemo(() => usableDraft(docs), [docs]);
+  // Whether the chosen sprint already has a goal of its own (an empty
+  // document left by "Clear example" doesn't count): moving the draft onto
+  // it then asks first.
+  const selectedDoc = selected ? docs.find((d) => d.id === goalDocId(selected.id)) : undefined;
+  const selectedHasGoal = Boolean(selectedDoc && hasContent(normalizeGoal(selectedDoc)));
+  const conflict = goalConflict(view, sprint);
+
+  const { businessObjective, criteria, keyResults } = cur;
+  const sprintGoal = cur.goal;
+  const showsExample = isExampleGoal(cur);
+  const isEmpty = !hasContent(cur);
+
+  // The example's OKR is shown, read-only, only while the example links it;
+  // it is never written into the workspace's OKRs.
+  const okrs = useMemo(
+    () =>
+      (cur.okrIds ?? []).includes(EXAMPLE_OKR_ID)
+        ? [buildExampleOkr(), ...workspaceOkrs]
+        : workspaceOkrs,
+    [cur.okrIds, workspaceOkrs]
+  );
+  const linkedOkrs = useMemo(() => resolveLinkedOkrs(cur.okrIds, okrs).linked, [cur.okrIds, okrs]);
+
+  // ── Writes ──────────────────────────────────────────────────────────────
+
+  /**
+   * The goal as it stands in the store right now (or as it would start, for
+   * a sprint without a document), so two quick edits never overwrite each
+   * other with a stale render's copy.
+   */
+  function freshDoc(): SprintGoal {
+    const ws = useWorkspaceStore.getState();
+    const s = sprint ? (ws.sprints.find((x) => x.id === sprint.id) ?? sprint) : undefined;
+    return viewGoal(ws.sprintGoals ?? [], s).doc;
+  }
+
+  function updateDoc(change: (doc: SprintGoal) => SprintGoal): SprintGoal {
+    const next = change(freshDoc());
+    upsertSprintGoal(next);
+    return next;
+  }
+
+  /**
+   * Write the goal statement onto the sprint, so Sprint Planning, the
+   * cockpit and the charts show it. Never for the draft or the example.
+   */
+  function mirrorToSprint(doc: SprintGoal) {
+    if (!sprint || isExampleGoal(doc)) return;
+    const current = useWorkspaceStore.getState().sprints.find((s) => s.id === sprint.id);
+    const patch = current && sprintGoalPatch(current, doc.goal);
+    if (patch) updateSprint(sprint.id, patch);
+  }
+
+  const setBusinessObjective = (v: string) => updateDoc((d) => ({ ...d, businessObjective: v }));
+  const setGoalStatement = (v: string) =>
+    mirrorToSprint(updateDoc((d) => ({ ...d, goal: v.slice(0, GOAL_MAX_CHARS) })));
+
+  // ── Sprint vs draft ─────────────────────────────────────────────────────
+
+  const chooseSprint = (id: string) => {
+    setInDraft(false);
+    select(id);
   };
 
-  // Drop the example criteria, and the objective, goal and key results
-  // while they still read as the example's; anything the user typed stays.
-  const clearExample = () => {
-    const d =
-      (useWorkspaceStore.getState().sprintGoals ?? []).find((g) => g.id === SG_ID) ??
-      DEFAULT_SPRINT_GOAL;
-    const ex = buildExample();
-    const ownCriteria = d.criteria.filter((c) => !isExampleId(c.id));
-    const ownKeyResults = d.keyResults.filter((kr) => !ex.keyResults.includes(kr));
-    upsertSprintGoal({
-      ...d,
-      businessObjective: d.businessObjective === ex.businessObjective ? "" : d.businessObjective,
-      goal: d.goal === ex.goal ? "" : d.goal,
-      criteria: ownCriteria.length > 0 ? ownCriteria : DEFAULT_SPRINT_GOAL.criteria,
-      keyResults: ownKeyResults.length > 0 ? ownKeyResults : [""],
+  /**
+   * Move the draft onto the chosen sprint. The sprint's goal is filled in
+   * when it was empty or in step with this tool; one written elsewhere
+   * stays until the user picks (the conflict banner shows both).
+   */
+  function moveDraftToSprint() {
+    if (!selected || !draft) return;
+    const target = selected;
+    const ws = useWorkspaceStore.getState();
+    const prevDoc = (ws.sprintGoals ?? []).find((d) => d.id === goalDocId(target.id));
+    const prevSprintGoal = ws.sprints.find((s) => s.id === target.id)?.goal;
+    // Undo restores the draft exactly as it was stored, not the tidied copy.
+    const storedDraft = (ws.sprintGoals ?? []).find((d) => d.id === DRAFT_GOAL_ID) ?? draft;
+    const inStep =
+      !cleanGoal(prevSprintGoal) ||
+      (prevDoc !== undefined && cleanGoal(prevDoc.goal) === cleanGoal(prevSprintGoal));
+    const moved = draftForSprint(draft, target.id);
+    const patch = inStep ? sprintGoalPatch({ goal: prevSprintGoal }, moved.goal) : null;
+    undoable({
+      label: `Moved the draft to ${target.name}`,
+      apply: () => {
+        upsertSprintGoal(moved);
+        removeSprintGoal(DRAFT_GOAL_ID);
+        if (patch) updateSprint(target.id, patch);
+        setInDraft(false);
+      },
+      revert: () => {
+        upsertSprintGoal(storedDraft);
+        if (prevDoc) upsertSprintGoal(prevDoc);
+        else removeSprintGoal(moved.id);
+        if (patch) updateSprint(target.id, { goal: prevSprintGoal });
+      },
     });
+  }
+
+  const adoptDraft = () => {
+    // Replacing a sprint's own goal asks first; filling an empty one doesn't.
+    if (selectedHasGoal) setConfirmReplace(true);
+    else moveDraftToSprint();
   };
+
+  function discardDraft() {
+    const stored = docs.find((d) => d.id === DRAFT_GOAL_ID);
+    if (!stored) return;
+    undoable({
+      label: "Discarded the draft",
+      apply: () => {
+        removeSprintGoal(DRAFT_GOAL_ID);
+        setInDraft(false);
+      },
+      revert: () => upsertSprintGoal(stored),
+    });
+  }
+
+  // ── Conflict with Sprint.goal ───────────────────────────────────────────
+
+  function takeSprintGoal() {
+    if (!sprint) return;
+    const before = freshDoc().goal;
+    const onSprint = (sprint.goal ?? "").trim().slice(0, GOAL_MAX_CHARS);
+    undoable({
+      label: `Using ${sprint.name}'s goal`,
+      apply: () => updateDoc((d) => ({ ...d, goal: onSprint })),
+      revert: () => updateDoc((d) => ({ ...d, goal: before })),
+    });
+  }
+
+  function setGoalOnSprint() {
+    if (!sprint) return;
+    const target = sprint;
+    const before = target.goal;
+    const goal = cur.goal.trim();
+    undoable({
+      label: `Goal set on ${target.name}`,
+      apply: () => updateSprint(target.id, { goal: goal || undefined }),
+      revert: () => updateSprint(target.id, { goal: before }),
+    });
+  }
+
+  // ── Example ─────────────────────────────────────────────────────────────
+
+  // Written like any edit but never logged, and never mirrored onto the
+  // sprint: loading an example isn't the user's own goal.
+  const loadExample = () => updateDoc((d) => ({ ...d, ...buildExample() }));
+  const clearExample = () => updateDoc(withoutExample);
+
+  // ── Navigation ──────────────────────────────────────────────────────────
 
   // Track whether we've already logged a GOAL_SAVED milestone for this
   // session of edits. Reset whenever the user mutates the goal/objective so
   // saving a *changed* goal logs a fresh milestone, but ping-ponging back
   // and forth across the final step doesn't.
   const goalSavedSnapshotRef = useRef<string | null>(null);
-
   const previewRef = useRef<HTMLDivElement>(null);
-
-  // ── Navigation ──────────────────────────────────────────────────────────
-
   const currentIndex = STEPS.indexOf(activeStep);
 
   const goNext = () => {
@@ -192,10 +286,12 @@ export function SprintGoalClient() {
     // Compute a content hash so re-entering the final step without changes
     // doesn't refire the milestone.
     const contentKey = JSON.stringify({
+      id: cur.id,
       businessObjective,
       sprintGoal,
       criteria: criteria.map((c) => c.text),
       keyResults,
+      okrIds: cur.okrIds,
     });
     if (goalSavedSnapshotRef.current === contentKey || showsExample) return;
     goalSavedSnapshotRef.current = contentKey;
@@ -203,112 +299,142 @@ export function SprintGoalClient() {
       objective: businessObjective,
       goal: sprintGoal,
       criteriaCount: criteria.length,
+      sprintId: sprint?.id,
     });
   };
 
   const goPrev = () => {
-    if (currentIndex > 0) {
-      setActiveStep(STEPS[currentIndex - 1]);
-    }
+    if (currentIndex > 0) setActiveStep(STEPS[currentIndex - 1]);
   };
 
-  // ── Criteria helpers ────────────────────────────────────────────────────
+  // ── Criteria ────────────────────────────────────────────────────────────
 
-  const addCriterion = () => {
-    setCriteria((prev) => [...prev, { id: genId(), text: "", relevantChecked: false }]);
+  const addCriterion = (text: string) => {
+    updateDoc((d) => ({
+      ...d,
+      criteria: [...d.criteria, { id: crypto.randomUUID(), text, relevantChecked: false }],
+    }));
     log(SPRINT_GOAL_ACTIONS.CRITERION_ADDED, {});
   };
 
   const removeCriterion = (id: string) => {
     const index = criteria.findIndex((c) => c.id === id);
-    // The last criterion stays (its button is disabled too).
-    if (index === -1 || criteria.length <= 1) return;
+    if (index === -1) return;
     const criterion = criteria[index];
     undoable({
       label: criterion.text.trim()
         ? `Deleted “${shortName(criterion.text)}”`
         : `Deleted acceptance criterion ${index + 1}`,
       apply: () => {
-        setCriteria((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== id) : prev));
+        updateDoc((d) => ({ ...d, criteria: d.criteria.filter((c) => c.id !== id) }));
         log(SPRINT_GOAL_ACTIONS.CRITERION_REMOVED, { criterionId: id });
       },
       revert: () =>
-        setCriteria((prev) => {
-          if (prev.some((c) => c.id === id)) return prev;
-          const next = [...prev];
+        updateDoc((d) => {
+          if (d.criteria.some((c) => c.id === id)) return d;
+          const next = [...d.criteria];
           next.splice(Math.min(index, next.length), 0, criterion);
-          return next;
+          return { ...d, criteria: next };
         }),
     });
   };
 
   const updateCriterionText = (id: string, text: string) =>
-    setCriteria((prev) => prev.map((c) => (c.id === id ? { ...c, text } : c)));
+    updateDoc((d) => ({
+      ...d,
+      criteria: d.criteria.map((c) => (c.id === id ? { ...c, text } : c)),
+    }));
 
   const toggleRelevant = (id: string) =>
-    setCriteria((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, relevantChecked: !c.relevantChecked } : c))
-    );
+    updateDoc((d) => ({
+      ...d,
+      criteria: d.criteria.map((c) =>
+        c.id === id ? { ...c, relevantChecked: !c.relevantChecked } : c
+      ),
+    }));
 
-  // ── Key results helpers ─────────────────────────────────────────────────
+  // ── Key results: linked OKRs and legacy notes ───────────────────────────
 
-  const addKeyResult = () => setKeyResults((prev) => [...prev, ""]);
+  const toggleOkr = (okrId: string) =>
+    updateDoc((d) => ({ ...d, okrIds: toggleOkrLink(d.okrIds, okrId) }));
 
-  // Key results are plain strings with no id, so Undo puts the text back at
-  // the index it was removed from.
-  const removeKeyResult = (index: number) => {
-    if (keyResults.length <= 1 || index >= keyResults.length) return;
+  const unlinkOkrs = (ids: string[]) =>
+    updateDoc((d) => ({ ...d, okrIds: (d.okrIds ?? []).filter((id) => !ids.includes(id)) }));
+
+  const updateNote = (index: number, value: string) =>
+    updateDoc((d) => ({
+      ...d,
+      keyResults: d.keyResults.map((kr, i) => (i === index ? value : kr)),
+    }));
+
+  // Notes are plain strings with no id, so Undo puts the text back at the
+  // index it was removed from.
+  const removeNote = (index: number) => {
+    if (index >= keyResults.length) return;
     const kr = keyResults[index];
     undoable({
-      label: kr.trim() ? `Deleted “${shortName(kr)}”` : `Deleted key result ${index + 1}`,
+      label: kr.trim() ? `Deleted “${shortName(kr)}”` : `Deleted key-result note ${index + 1}`,
       apply: () =>
-        setKeyResults((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev)),
+        updateDoc((d) => ({ ...d, keyResults: d.keyResults.filter((_, i) => i !== index) })),
       revert: () =>
-        setKeyResults((prev) => {
-          const next = [...prev];
+        updateDoc((d) => {
+          const next = [...d.keyResults];
           next.splice(Math.min(index, next.length), 0, kr);
-          return next;
+          return { ...d, keyResults: next };
         }),
     });
   };
 
-  const updateKeyResult = (index: number, value: string) =>
-    setKeyResults((prev) => prev.map((kr, i) => (i === index ? value : kr)));
-
   // ── Export data ─────────────────────────────────────────────────────────
+
+  const notes = useMemo(() => keyResults.filter((kr) => kr.trim()), [keyResults]);
+  // What the clipboard and the AI prompts list as key results: the linked
+  // OKRs' key results as they stand, then any notes.
+  const krLines = useMemo(
+    () => [
+      ...linkedOkrs.flatMap((o) => o.keyResults.map((kr) => `${kr.title} (${krProgressText(kr)})`)),
+      ...notes,
+    ],
+    [linkedOkrs, notes]
+  );
 
   const clipboardText = useMemo(
     () =>
       [
+        ...(sprint ? [`SPRINT: ${sprint.name}`] : []),
         `BUSINESS OBJECTIVE: ${businessObjective}`,
         `SPRINT GOAL: ${sprintGoal}`,
         `ACCEPTANCE CRITERIA:`,
         ...criteria.map((c, i) => `${i + 1}. ${c.text}`),
         `KEY RESULTS:`,
-        ...keyResults.map((kr) => `- ${kr}`),
+        ...krLines.map((kr) => `- ${kr}`),
       ].join("\n"),
-    [businessObjective, sprintGoal, criteria, keyResults]
+    [sprint, businessObjective, sprintGoal, criteria, krLines]
   );
 
   const markdown = useMemo(
-    () => toMarkdown({ businessObjective, goal: sprintGoal, criteria, keyResults }),
-    [businessObjective, sprintGoal, criteria, keyResults]
+    () => toMarkdown(cur, new Date(), { sprint, okrs }),
+    [cur, sprint, okrs]
   );
 
   const jsonData = useMemo(
     () => ({
+      sprint: sprint ? { id: sprint.id, name: sprint.name } : null,
       businessObjective,
       sprintGoal,
-      acceptanceCriteria: criteria.map((c) => ({
-        text: c.text,
-        smart: validateSmart(c),
+      goalSmart: goalSmart(cur, sprint),
+      acceptanceCriteria: criteria.map((c) => ({ text: c.text, smart: validateSmart(c) })),
+      linkedOkrs: linkedOkrs.map((o) => ({
+        id: o.id,
+        objective: o.objective,
+        quarter: o.quarter,
+        progressPct: okrPercent(o),
       })),
-      keyResults,
+      keyResultNotes: notes,
     }),
-    [businessObjective, sprintGoal, criteria, keyResults]
+    [cur, sprint, businessObjective, sprintGoal, criteria, linkedOkrs, notes]
   );
 
-  // AI prompt config
   const promptConfig = useMemo(
     () => ({
       toolName: "Sprint Goal Builder",
@@ -316,10 +442,10 @@ export function SprintGoalClient() {
         businessObjective,
         sprintGoal,
         criteria: criteria.map((c) => ({ text: c.text, smartRelevant: c.relevantChecked })),
-        keyResults,
+        keyResults: krLines,
       }),
     }),
-    [businessObjective, sprintGoal, criteria, keyResults]
+    [businessObjective, sprintGoal, criteria, krLines]
   );
 
   // ── Cross-tool signal: recent sprint additions in velocity tool ─────────
@@ -334,32 +460,14 @@ export function SprintGoalClient() {
         sinceDays: 14,
         limit: 5,
       }),
+    // `events` is the trigger: selectEvents reads the history store itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [events]
   );
 
-  // ── SMART badge renderer ────────────────────────────────────────────────
-
-  const SmartBadge = ({
-    label,
-    passes,
-    tooltip,
-  }: {
-    label: string;
-    passes: boolean;
-    tooltip: string;
-  }) => (
-    <Badge
-      title={tooltip}
-      className={
-        passes
-          ? "bg-accent-green/15 text-accent-green border-accent-green/30 hover:bg-accent-green/25"
-          : "bg-danger/15 text-danger border-danger/30 hover:bg-danger/25"
-      }
-    >
-      {label}
-      <span className="sr-only">{passes ? " (met)" : " (not met)"}</span>
-    </Badge>
-  );
+  const goalCheck = goalSmart(cur, sprint);
+  const goalMissing = smartMissing(goalCheck);
+  const plannedStories = sprint ? stories.filter((s) => s.sprintId === sprint.id).length : 0;
 
   // ── Transition wrapper ──────────────────────────────────────────────────
 
@@ -387,10 +495,41 @@ export function SprintGoalClient() {
           in the last 14 days — review the latest sprint&apos;s goal performance.
         </CalloutAlert>
       )}
+      <GoalScope
+        sprints={sprints}
+        selected={selected}
+        inDraft={inDraft}
+        sprintHasGoal={selectedHasGoal}
+        draft={draft}
+        onSelect={chooseSprint}
+        onOpenDraft={() => setInDraft(true)}
+        onCloseDraft={() => setInDraft(false)}
+        onUseDraft={adoptDraft}
+        onDiscardDraft={discardDraft}
+      />
+      {sprint && conflict && (
+        <GoalConflictBanner
+          sprint={sprint}
+          conflict={conflict}
+          onUseSprintGoal={takeSprintGoal}
+          onSetOnSprint={setGoalOnSprint}
+        />
+      )}
+      {selected && (
+        <ConfirmDialog
+          open={confirmReplace}
+          onOpenChange={setConfirmReplace}
+          title={`Replace ${selected.name}'s goal with the draft?`}
+          description="Its objective, criteria and linked OKRs are replaced by the draft's. You can undo this right after."
+          confirmLabel="Replace goal"
+          onConfirm={moveDraftToSprint}
+        />
+      )}
+      <p className="mb-4 text-sm font-medium text-text">{goalVerdict(cur, sprint)}</p>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Wizard Panel ─────────────────────────────────────────── */}
-        <div className="lg:col-span-2">
-          <Card className="bg-card border-border p-6">
+        <div className="lg:col-span-2 min-w-0">
+          <Card className="bg-card border-border p-4 sm:p-6">
             <Tabs value={activeStep} onValueChange={(v) => setActiveStep(v as Step)}>
               <TabsList className="w-full bg-card border border-border mb-6">
                 {STEPS.map((step) => (
@@ -434,13 +573,14 @@ export function SprintGoalClient() {
                     <p className="text-sm text-sub mb-4">
                       Define the specific goal for this sprint. A good sprint goal is concise,
                       outcome-focused, and achievable.
+                      {sprint && ` Saved here, it is also ${sprint.name}'s goal.`}
                     </p>
                     <div className="relative">
                       <BlurTextarea
                         aria-label="Sprint goal"
                         placeholder="e.g., Deliver a self-service onboarding flow that allows new users to complete setup within 3 minutes..."
                         value={sprintGoal}
-                        onCommit={(v) => setSprintGoal(v.slice(0, GOAL_MAX_CHARS))}
+                        onCommit={setGoalStatement}
                         maxLength={GOAL_MAX_CHARS}
                         className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                       />
@@ -452,24 +592,9 @@ export function SprintGoalClient() {
                         {sprintGoal.length}/{GOAL_MAX_CHARS}
                       </span>
                     </div>
-
-                    {selectedSprint && (
-                      <div className="mt-3 flex flex-wrap items-center gap-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={!sprintGoal.trim()}
-                          onClick={() => {
-                            updateSprint(selectedSprint.id, { goal: sprintGoal.trim() });
-                            toast.success(`Goal set on ${selectedSprint.name}`);
-                          }}
-                        >
-                          Use as the goal of {selectedSprint.name}
-                        </Button>
-                        <span className="text-xs text-sub">
-                          Sprint Planning, the Sprint Cockpit and the charts show it.
-                        </span>
+                    {sprintGoal.trim() && (
+                      <div className="mt-3">
+                        <SmartBadges result={goalCheck} tips={GOAL_TIPS} />
                       </div>
                     )}
 
@@ -496,114 +621,13 @@ export function SprintGoalClient() {
               <TabsContent value="criteria">
                 <AnimatePresence mode="wait">
                   <motion.div key="criteria" {...tabMotion}>
-                    <h2 className="text-lg font-semibold text-text mb-2">Acceptance Criteria</h2>
-                    <p className="text-sm text-sub mb-4">
-                      Define measurable criteria that determine when the sprint goal is met. Each
-                      criterion is validated against SMART principles.
-                    </p>
-
-                    <div className="space-y-4">
-                      {criteria.map((criterion, criterionIdx) => {
-                        const smart = validateSmart(criterion);
-                        return (
-                          <div
-                            key={criterion.id}
-                            className="p-4 rounded-lg bg-card border border-border"
-                          >
-                            <div className="flex gap-2 mb-3">
-                              <BlurTextarea
-                                aria-label={`Acceptance criterion ${criterionIdx + 1}`}
-                                placeholder="e.g., 90% of new users complete onboarding within 3 minutes by end of sprint"
-                                value={criterion.text}
-                                onCommit={(v) => updateCriterionText(criterion.id, v)}
-                                className="flex-1 min-h-[60px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
-                              />
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeCriterion(criterion.id)}
-                                aria-label={`Remove acceptance criterion ${criterionIdx + 1}`}
-                                className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
-                                disabled={criteria.length === 1}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-
-                            {/* SMART badges */}
-                            {criterion.text.trim().length > 0 && (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-sub mr-1">SMART:</span>
-                                <SmartBadge
-                                  label="Specific"
-                                  passes={smart.specific}
-                                  tooltip={
-                                    smart.specific
-                                      ? "Contains concrete actions or nouns"
-                                      : "Avoid vague words like improve, better, good"
-                                  }
-                                />
-                                <SmartBadge
-                                  label="Measurable"
-                                  passes={smart.measurable}
-                                  tooltip={
-                                    smart.measurable
-                                      ? "Contains quantifiable terms"
-                                      : "Add numbers, percentages, or measurable metrics"
-                                  }
-                                />
-                                <SmartBadge
-                                  label="Achievable"
-                                  passes={smart.achievable}
-                                  tooltip={
-                                    smart.achievable
-                                      ? "Good length - not too vague or complex"
-                                      : "Aim for 20-300 characters for clarity"
-                                  }
-                                />
-                                <div className="flex items-center gap-1.5">
-                                  <SmartBadge
-                                    label="Relevant"
-                                    passes={smart.relevant}
-                                    tooltip={
-                                      smart.relevant
-                                        ? "Confirmed relevant by you"
-                                        : "Check the box to confirm relevance"
-                                    }
-                                  />
-                                  <input
-                                    type="checkbox"
-                                    checked={criterion.relevantChecked}
-                                    onChange={() => toggleRelevant(criterion.id)}
-                                    className="w-3.5 h-3.5 rounded border-border bg-card accent-[#00ff88] cursor-pointer"
-                                    title="Confirm this criterion is relevant to the sprint goal"
-                                  />
-                                </div>
-                                <SmartBadge
-                                  label="Time-bound"
-                                  passes={smart.timeBound}
-                                  tooltip={
-                                    smart.timeBound
-                                      ? "Contains time reference"
-                                      : 'Add a deadline like "by end of sprint" or a date'
-                                  }
-                                />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={addCriterion}
-                      className="mt-4 gap-2 border-border bg-card hover:bg-accent-cyan/10 hover:border-accent-cyan/30 text-sub hover:text-accent"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Criterion
-                    </Button>
+                    <CriteriaStep
+                      criteria={criteria}
+                      onAdd={addCriterion}
+                      onEdit={updateCriterionText}
+                      onToggleRelevant={toggleRelevant}
+                      onRemove={removeCriterion}
+                    />
                   </motion.div>
                 </AnimatePresence>
               </TabsContent>
@@ -612,45 +636,15 @@ export function SprintGoalClient() {
               <TabsContent value="results">
                 <AnimatePresence mode="wait">
                   <motion.div key="results" {...tabMotion}>
-                    <h2 className="text-lg font-semibold text-text mb-2">Key Results</h2>
-                    <p className="text-sm text-sub mb-4">
-                      Define the measurable outcomes that indicate success. These should be
-                      observable and verifiable.
-                    </p>
-
-                    <div className="space-y-3">
-                      {keyResults.map((kr, index) => (
-                        <div key={index} className="flex gap-2">
-                          <BlurInput
-                            aria-label={`Key result ${index + 1}`}
-                            placeholder={`e.g., Onboarding completion rate reaches 90%`}
-                            value={kr}
-                            onCommit={(v) => updateKeyResult(index, v)}
-                            className="flex-1 bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeKeyResult(index)}
-                            aria-label={`Remove key result ${index + 1}`}
-                            className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
-                            disabled={keyResults.length === 1}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={addKeyResult}
-                      className="mt-4 gap-2 border-border bg-card hover:bg-accent-cyan/10 hover:border-accent-cyan/30 text-sub hover:text-accent"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Key Result
-                    </Button>
+                    <OkrStep
+                      okrs={okrs}
+                      okrIds={cur.okrIds}
+                      notes={keyResults}
+                      onToggle={toggleOkr}
+                      onUnlink={unlinkOkrs}
+                      onEditNote={updateNote}
+                      onRemoveNote={removeNote}
+                    />
                   </motion.div>
                 </AnimatePresence>
               </TabsContent>
@@ -683,8 +677,8 @@ export function SprintGoalClient() {
         </div>
 
         {/* ── Preview Panel ────────────────────────────────────────── */}
-        <div className="lg:col-span-1">
-          <Card className="bg-card border-border p-6 sticky top-6">
+        <div className="lg:col-span-1 min-w-0">
+          <Card className="bg-card border-border p-4 sm:p-6 lg:sticky lg:top-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-text">Preview</h2>
               <div className="flex items-center gap-2">
@@ -699,77 +693,107 @@ export function SprintGoalClient() {
               </div>
             </div>
 
-            <div
-              ref={previewRef}
-              className="p-4 rounded-lg bg-card border border-border space-y-4 text-sm"
-            >
-              {/* Business Objective */}
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-                  Business Objective
-                </span>
-                <p className="text-text mt-1">
-                  {businessObjective || <span className="text-sub/40 italic">Not yet defined</span>}
-                </p>
-              </div>
+            {isEmpty ? (
+              <EmptyState
+                icon={Target}
+                padding="md"
+                action={<LoadExampleButton onLoad={loadExample} />}
+              >
+                {sprint ? `No goal for ${sprint.name} yet.` : "No goal yet."} Work through the four
+                steps, or load an example to see a finished one.
+              </EmptyState>
+            ) : (
+              <div
+                ref={previewRef}
+                className="p-4 rounded-lg bg-card border border-border space-y-4 text-sm break-words"
+              >
+                {sprint && (
+                  <div>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-accent">
+                      Sprint
+                    </span>
+                    <p className="text-text mt-1">{sprint.name}</p>
+                  </div>
+                )}
 
-              {/* Sprint Goal */}
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-                  Sprint Goal
-                </span>
-                <p className="text-text mt-1">
-                  {sprintGoal || <span className="text-sub/40 italic">Not yet defined</span>}
-                </p>
-              </div>
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-accent">
+                    Business Objective
+                  </span>
+                  <p className="text-text mt-1">
+                    {businessObjective || (
+                      <span className="text-sub/40 italic">Not yet defined</span>
+                    )}
+                  </p>
+                </div>
 
-              {/* Acceptance Criteria */}
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-                  Acceptance Criteria
-                </span>
-                {criteria.some((c) => c.text.trim()) ? (
-                  <ol className="list-decimal list-inside mt-1 space-y-1">
-                    {criteria
-                      .filter((c) => c.text.trim())
-                      .map((c) => (
-                        <li key={c.id} className="text-text">
-                          {c.text}
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-accent">
+                    Sprint Goal
+                  </span>
+                  <p className="text-text mt-1">
+                    {sprintGoal || <span className="text-sub/40 italic">Not yet defined</span>}
+                  </p>
+                  {sprintGoal.trim() && (
+                    <p className="mt-1 text-xs text-sub">
+                      SMART {5 - goalMissing.length}/5
+                      {goalMissing.length > 0 && `, missing ${goalMissing.join(", ")}`}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-accent">
+                    Acceptance Criteria
+                  </span>
+                  {criteria.some((c) => c.text.trim()) ? (
+                    <ol className="list-decimal list-inside mt-1 space-y-1">
+                      {criteria
+                        .filter((c) => c.text.trim())
+                        .map((c) => (
+                          <li key={c.id} className="text-text">
+                            {c.text}
+                          </li>
+                        ))}
+                    </ol>
+                  ) : (
+                    <p className="text-sub/40 italic mt-1">No criteria added</p>
+                  )}
+                </div>
+
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-accent">
+                    Key Results
+                  </span>
+                  {linkedOkrs.length === 0 && notes.length === 0 && (
+                    <p className="text-sub/40 italic mt-1">No OKRs linked</p>
+                  )}
+                  {linkedOkrs.length > 0 && (
+                    <ul className="mt-1 space-y-1">
+                      {linkedOkrs.map((o) => (
+                        <li key={o.id} className="text-text">
+                          {o.objective}{" "}
+                          <span className="text-xs text-sub">({okrPercent(o)}% of the way)</span>
                         </li>
                       ))}
-                  </ol>
-                ) : (
-                  <p className="text-sub/40 italic mt-1">No criteria added</p>
-                )}
-              </div>
-
-              {/* Key Results */}
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-                  Key Results
-                </span>
-                {keyResults.some((kr) => kr.trim()) ? (
-                  <ul className="list-disc list-inside mt-1 space-y-1">
-                    {keyResults
-                      .filter((kr) => kr.trim())
-                      .map((kr, i) => (
-                        <li key={i} className="text-text">
+                    </ul>
+                  )}
+                  {notes.length > 0 && (
+                    <ul className="list-disc list-inside mt-1 space-y-1">
+                      {notes.map((kr, i) => (
+                        <li key={i} className="text-sub">
                           {kr}
                         </li>
                       ))}
-                  </ul>
-                ) : (
-                  <p className="text-sub/40 italic mt-1">No key results added</p>
-                )}
-              </div>
-            </div>
-            {isEmpty && (
-              <div className="mt-4 flex flex-col items-start gap-2 text-sm text-sub">
-                <p>Not sure what a good sprint goal looks like?</p>
-                <LoadExampleButton onLoad={loadExample} />
+                    </ul>
+                  )}
+                </div>
               </div>
             )}
           </Card>
+          {sprint && cleanGoal(sprint.goal) && !conflict && !showsExample && (
+            <GoalNextStep sprint={sprint} plannedStories={plannedStories} />
+          )}
         </div>
       </div>
     </ToolPageWrapper>
