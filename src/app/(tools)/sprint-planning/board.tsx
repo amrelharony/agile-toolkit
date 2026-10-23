@@ -273,6 +273,11 @@ export function PlanningBoard({
       },
       revert: () => restoreStories(writer, before),
     });
+    log(SPRINT_PLANNING_ACTIONS.STORIES_CARRIED_OVER, {
+      sprintId: sprint.id,
+      fromSprintId: group.sprint.id,
+      count: before.length,
+    });
   };
 
   const sendGroupBack = (group: LeftoverGroup) => {
@@ -285,6 +290,10 @@ export function PlanningBoard({
         for (const s of before) placeStory(writer, s.id, undefined, "backlog");
       },
       revert: () => restoreStories(writer, before),
+    });
+    log(SPRINT_PLANNING_ACTIONS.STORIES_RETURNED, {
+      fromSprintId: group.sprint.id,
+      count: before.length,
     });
   };
 

@@ -122,11 +122,17 @@ export function WalkingSkeletonClient() {
 
   function saveStep(step: SkeletonStep, values: StepValues) {
     closeEditor(step);
-    if (step.text !== values.text || step.layer !== values.layer) update(step.id, values);
+    if (step.text === values.text && step.layer === values.layer) return;
+    update(step.id, values);
+    log(WALKING_SKELETON_ACTIONS.STEP_UPDATED, { id: step.id, layer: values.layer });
   }
 
   function move(step: SkeletonStep, delta: -1 | 1) {
     setSteps((list) => moveStep(list, step.id, delta));
+    log(WALKING_SKELETON_ACTIONS.STEP_MOVED, {
+      id: step.id,
+      direction: delta === -1 ? "up" : "down",
+    });
     focusMoved(step.id, delta === -1 ? "up" : "down");
   }
 

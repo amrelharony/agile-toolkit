@@ -98,6 +98,8 @@ export const CAPACITY_ACTIONS = {
   MEMBER_REMOVED: "member_removed",
   MEMBER_UPDATED: "member_updated",
   CONFIG_UPDATED: "config_updated",
+  /** A sprint's own plan started, from the last plan or empty. Payload: sprintId, started. */
+  PLAN_STARTED: "plan_started",
   CAPACITY_RESET: "capacity_reset", // milestone
 } as const;
 
@@ -298,6 +300,10 @@ export const SPRINT_PLANNING_ACTIONS = {
   STORY_ADDED: "story_added",
   STORIES_IMPORTED: "stories_imported",
   FILLED_TO_CAPACITY: "filled_to_capacity",
+  /** A closed sprint's unfinished stories moved into this sprint. */
+  STORIES_CARRIED_OVER: "stories_carried_over",
+  /** A closed sprint's unfinished stories sent back to the backlog. */
+  STORIES_RETURNED: "stories_returned",
   SPRINT_COMMITTED: "sprint_committed", // milestone
 } as const;
 
@@ -802,6 +808,8 @@ export const WALKING_SKELETON_ACTIONS = {
   STEP_ADDED: "step_added",
   STEP_REMOVED: "step_removed",
   STEP_TOGGLED: "step_toggled",
+  STEP_UPDATED: "step_updated",
+  STEP_MOVED: "step_moved",
   SKELETON_RESET: "skeleton_reset",
 } as const;
 

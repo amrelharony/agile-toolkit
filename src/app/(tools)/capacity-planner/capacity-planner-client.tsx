@@ -316,7 +316,7 @@ function StartPlan({
       description: how,
       apply: () => {
         savePlan(plan);
-        log(CAPACITY_ACTIONS.CONFIG_UPDATED, { sprintId: sprint.id, started: how });
+        log(CAPACITY_ACTIONS.PLAN_STARTED, { sprintId: sprint.id, started: how });
       },
       revert: () => useWorkspaceStore.getState().removeCapacityPlan(plan.id),
     });
