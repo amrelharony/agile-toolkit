@@ -8,11 +8,12 @@
  *     wins), and every sprint it creates has a deterministic id, so running
  *     it twice, in two tabs, or on two devices converges instead of
  *     duplicating.
- *   - `runLegacySprintMigration` is the I/O shell. Per key, crash-safe:
- *     one workspace `setState`, then a `<key>:migrated` backup, then
- *     `removeItem(key)`. A removed key is the done-marker; a key that is
- *     still there (crash, full storage) is simply planned again next load,
- *     which is a no-op for whatever already landed.
+ *   - `runLegacySprintMigration` is the I/O shell, the generic one in
+ *     lib/data/migrate-legacy-key.ts. Per key, crash-safe: one workspace
+ *     `setState`, then a `<key>:migrated` backup, then `removeItem(key)`. A
+ *     removed key is the done-marker; a key that is still there (crash,
+ *     full storage) is simply planned again next load, which is a no-op for
+ *     whatever already landed.
  *
  * The old shapes, defaults and seed rows are copied here from the tool
  * clients as they were before shared sprints (git history), never imported:
@@ -23,7 +24,11 @@
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { useStorageHealth } from "@/lib/stores/storage-health";
+import {
+  migrateLegacyKeysNow,
+  runExclusive,
+  type LegacyKeyMigrationResult,
+} from "@/lib/data/migrate-legacy-key";
 import type { Sprint, SprintDay, SprintSeries } from "@/lib/stores/workspace-types";
 import {
   LEGACY_SPRINT_KEYS,
@@ -904,16 +909,7 @@ export function migrationSummary(report: MigrationReport | null): string | null 
 /*  The I/O shell                                                              */
 /* -------------------------------------------------------------------------- */
 
-export interface MigrationRunResult {
-  /** Null when there was nothing to read (no old keys, or storage blocked). */
-  report: MigrationReport | null;
-  /** Old keys backed up and removed. */
-  removed: string[];
-  /** Old keys left in place, retried on the next load. */
-  kept: string[];
-  /** Where each removed key's backup went. */
-  backups: Record<string, string>;
-}
+export type MigrationRunResult = LegacyKeyMigrationResult<MigrationReport>;
 
 export interface RunOptions {
   /** Defaults to `window.localStorage`. */
@@ -924,14 +920,6 @@ export interface RunOptions {
   now?: () => number;
 }
 
-function defaultStorage(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 function upsertAll<T extends { id: string }>(list: readonly T[], rows: readonly T[]): T[] {
   if (rows.length === 0) return list as T[];
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -939,23 +927,6 @@ function upsertAll<T extends { id: string }>(list: readonly T[], rows: readonly 
   const seen = new Set(list.map((x) => x.id));
   for (const r of rows) if (!seen.has(r.id)) next.push(r);
   return next;
-}
-
-/** Copy `raw` to `<key>:migrated` (or a timestamped name if that's taken). False on failure. */
-function backUp(storage: Storage, key: string, raw: string, now: number): string | null {
-  try {
-    let name = `${key}:migrated`;
-    if (storage.getItem(name) !== null) {
-      let t = now;
-      name = `${key}:migrated:${t}`;
-      while (storage.getItem(name) !== null) name = `${key}:migrated:${++t}`;
-    }
-    storage.setItem(name, raw);
-    return name;
-  } catch {
-    // Full or blocked storage: keep the original so the next load retries.
-    return null;
-  }
 }
 
 /** Seed Sprint Comparison's pins, unless it already has its own. */
@@ -969,87 +940,56 @@ function seedPins(storage: Storage, pins: string[]): void {
   }
 }
 
-/** The whole move, synchronously, against the workspace as it is right now. */
+/**
+ * The whole move, synchronously, against the workspace as it is right now:
+ * the generic crash-safe shell (lib/data/migrate-legacy-key.ts) around
+ * `planMigration`.
+ */
 export function migrateLegacySprintsNow(options: RunOptions = {}): MigrationRunResult {
-  const result: MigrationRunResult = { report: null, removed: [], kept: [], backups: {} };
-  const storage = options.storage ?? defaultStorage();
-  if (!storage) return result;
-
-  const raw: LegacyRaw = {};
-  const present: LegacySprintSource[] = [];
-  try {
-    for (const source of LEGACY_SPRINT_SOURCES) {
-      const value = storage.getItem(LEGACY_SPRINT_KEYS[source]);
-      if (value === null) continue;
-      raw[source] = value;
-      present.push(source);
-    }
-  } catch {
-    return result;
-  }
-  if (present.length === 0) return result;
-
-  // Planning against a workspace that hasn't loaded would duplicate what it
-  // already holds, and writing it would overwrite the saved one.
-  if (!useWorkspaceStore.persist.hasHydrated()) {
-    result.kept = present.map((s) => LEGACY_SPRINT_KEYS[s]);
-    return result;
-  }
-
   const now = options.now ?? Date.now;
-  const ws = useWorkspaceStore.getState();
-  const plan = planMigration(
-    raw,
-    { sprints: ws.sprints, sprintSeries: ws.sprintSeries },
-    options.today ?? todayIso(),
-    { now: new Date(now()).toISOString() }
-  );
-  result.report = plan.report;
-
-  // 1. Everything in one write.
-  const wrote = plan.sprints.length > 0 || plan.series.length > 0;
-  if (wrote) {
-    useWorkspaceStore.setState((s) => ({
-      sprints: upsertAll(s.sprints, plan.sprints),
-      sprintSeries: upsertAll(s.sprintSeries ?? [], plan.series),
-    }));
-  }
-  seedPins(storage, plan.compareRatingPins);
-
-  // If the workspace couldn't be saved, it holds the moved data in memory
-  // only: keep the old keys so the next load moves them again.
-  const saved = !wrote || !useStorageHealth.getState().writeFailed;
-
-  // 2-3. Per key: back up, then remove.
-  for (const source of present) {
-    const key = LEGACY_SPRINT_KEYS[source];
-    const backup = saved ? backUp(storage, key, raw[source] as string, now()) : null;
-    if (!backup) {
-      result.kept.push(key);
-      continue;
-    }
-    try {
-      storage.removeItem(key);
-      result.removed.push(key);
-      result.backups[key] = backup;
-    } catch {
-      result.kept.push(key);
-    }
-  }
-
-  // eslint-disable-next-line no-console
-  console.info("[sprint-migration]", {
-    created: plan.report.created,
-    updated: plan.report.updated,
-    sources: plan.report.sources,
-    conflicts: plan.report.conflicts,
-    removed: result.removed,
-    kept: result.kept,
+  const result = migrateLegacyKeysNow<MigrationReport>({
+    keys: LEGACY_SPRINT_SOURCES.map((source) => LEGACY_SPRINT_KEYS[source]),
+    storage: options.storage,
+    now,
+    move: (rawByKey, storage) => {
+      const raw: LegacyRaw = {};
+      for (const source of LEGACY_SPRINT_SOURCES) {
+        const value = rawByKey[LEGACY_SPRINT_KEYS[source]];
+        if (value !== undefined) raw[source] = value;
+      }
+      const ws = useWorkspaceStore.getState();
+      const plan = planMigration(
+        raw,
+        { sprints: ws.sprints, sprintSeries: ws.sprintSeries },
+        options.today ?? todayIso(),
+        { now: new Date(now()).toISOString() }
+      );
+      // Everything in one write.
+      const wrote = plan.sprints.length > 0 || plan.series.length > 0;
+      if (wrote) {
+        useWorkspaceStore.setState((s) => ({
+          sprints: upsertAll(s.sprints, plan.sprints),
+          sprintSeries: upsertAll(s.sprintSeries ?? [], plan.series),
+        }));
+      }
+      seedPins(storage, plan.compareRatingPins);
+      return { wrote, report: plan.report };
+    },
   });
+
+  if (result.report) {
+    // eslint-disable-next-line no-console
+    console.info("[sprint-migration]", {
+      created: result.report.created,
+      updated: result.report.updated,
+      sources: result.report.sources,
+      conflicts: result.report.conflicts,
+      removed: result.removed,
+      kept: result.kept,
+    });
+  }
   return result;
 }
-
-let inFlight: Promise<MigrationRunResult> | null = null;
 
 /**
  * Run the move once, holding a cross-tab lock when the browser has
@@ -1057,15 +997,5 @@ let inFlight: Promise<MigrationRunResult> | null = null;
  * waited behind another finds them gone and does nothing.
  */
 export function runLegacySprintMigration(options: RunOptions = {}): Promise<MigrationRunResult> {
-  if (inFlight) return inFlight;
-  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
-  const run = (): MigrationRunResult => migrateLegacySprintsNow(options);
-  const task: Promise<MigrationRunResult> =
-    locks && typeof locks.request === "function"
-      ? Promise.resolve(locks.request(SPRINT_MIGRATION_LOCK, run))
-      : Promise.resolve().then(run);
-  inFlight = task.finally(() => {
-    inFlight = null;
-  });
-  return inFlight;
+  return runExclusive(SPRINT_MIGRATION_LOCK, () => migrateLegacySprintsNow(options));
 }

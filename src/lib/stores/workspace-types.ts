@@ -73,15 +73,42 @@ export interface CeremonyCadenceDoc extends CeremonyCadence {
   id: string;
 }
 
+export type StoryStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
+
+/** One change of a story's status, as `setStoryStatus` records it. */
+export interface StoryStatusChange {
+  status: StoryStatus;
+  /** The status it left (absent for a story created in `status`). */
+  from?: StoryStatus;
+  at: ISODateString;
+}
+
 export interface Story {
   id: string;
   title: string;
   points?: number;
-  status: "backlog" | "todo" | "in_progress" | "review" | "done";
+  status: StoryStatus;
   sprintId?: string;
   tags?: string[];
   priorityScore?: number;
   owner?: string;
+  /*
+   * Flow stamps, written by `setStoryStatus` (lib/sprints/store.ts) and by
+   * agents' status changes, so cycle time and flow charts can read the
+   * board. All optional: stories from before them have none.
+   */
+  /** When work started: the move into in progress, review or done (cleared
+   *  when it goes back to the backlog or to do). */
+  startedAt?: ISODateString;
+  /** When it was moved to done (cleared when it leaves done). */
+  doneAt?: ISODateString;
+  /** Flagged as blocked (cleared when it is done). */
+  blocked?: boolean;
+  /** Status changes, oldest first; only the latest
+   *  `STORY_STATUS_HISTORY_CAP` (lib/sprints/story-status.ts) are kept. */
+  statusHistory?: StoryStatusChange[];
+  /** The item this was sent from (review feedback, a tech-debt item). */
+  sourceRef?: HandoffRef;
 }
 
 export type ImpedimentSeverity = "low" | "medium" | "high" | "critical";
@@ -102,7 +129,8 @@ export interface Impediment {
 /* ── Hand-offs ─────────────────────────────────────────────────────────
  * One tool can send an item to another: a retro action becomes an
  * impediment or a Kanban card, a premortem cause becomes a risk, a story-
- * map card goes to the Planning Poker queue. The target records where it
+ * map card goes to the Planning Poker queue, review feedback becomes a
+ * backlog story, a red health check a retro topic. The target records where it
  * came from (sourceRef), the source records where it went (sentTo), so
  * both sides can link to each other and a second send is avoided. All
  * optional and additive; see lib/handoffs. */
@@ -117,7 +145,21 @@ export interface HandoffRef {
   doc?: string;
 }
 
-export type HandoffRouteId = "impediment" | "kanban" | "risk" | "poker-queue";
+/** Every hand-off route (lib/handoffs/registry.ts has one per id). */
+export const HANDOFF_ROUTE_IDS = [
+  "impediment",
+  "kanban",
+  "risk",
+  "poker-queue",
+  "backlog-story",
+  "retro-topic",
+  "retro-action",
+  "hypothesis",
+  "decision",
+  "dependency",
+] as const;
+
+export type HandoffRouteId = (typeof HANDOFF_ROUTE_IDS)[number];
 
 /** Where an item was sent. */
 export interface HandoffLink {
@@ -169,6 +211,8 @@ export interface Decision {
   alternatives?: string[];
   status: "proposed" | "accepted" | "deprecated" | "superseded";
   date: ISODateString;
+  /** The item this was sent from (a six-hats summary, a weighted decision). */
+  sourceRef?: HandoffRef;
 }
 
 export interface TechDebtItem {
@@ -918,6 +962,8 @@ export interface Hypothesis {
   status: HypothesisStatus;
   raisedAt: ISODateString;
   resolvedAt?: string;
+  /** The item this was sent from (a riskiest assumption, a Cynefin item). */
+  sourceRef?: HandoffRef;
 }
 
 export interface HypothesisTracker {
@@ -1576,6 +1622,8 @@ export interface RetroCard {
   doneAt?: ISODateString;
   /** When the action is due, YYYY-MM-DD. */
   dueDate?: ISODateString;
+  /** The item this was sent from (a red health check, a kudos). */
+  sourceRef?: HandoffRef;
 }
 
 /** A retrospective board — a singleton document (one current retro under a
@@ -1773,6 +1821,8 @@ export interface DependencyNode {
   label: string;
   description?: string;
   team?: string;
+  /** The item this was sent from (a Scrum of Scrums dependency). */
+  sourceRef?: HandoffRef;
 }
 
 /** A directed dependency edge between two nodes. */
@@ -1781,6 +1831,8 @@ export interface DependencyEdge {
   from: string;
   to: string;
   kind: "blocks" | "needs" | "informs";
+  /** The item this was sent from, when a hand-off drew the edge. */
+  sourceRef?: HandoffRef;
 }
 
 /** The dependency map — a singleton graph document (nodes + edges). */

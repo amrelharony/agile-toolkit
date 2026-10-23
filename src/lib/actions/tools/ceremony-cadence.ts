@@ -13,7 +13,9 @@
  *   2. set — patch some fields; the others keep their value (or default).
  *
  * Times are local "HH:MM"; weekdays are 0 = Sunday … 6 = Saturday; a sprint
- * is 1–60 calendar days long. A bad value is rejected, not defaulted.
+ * is 1–60 calendar days long. A bad value is rejected, not defaulted. The
+ * optional workingDays / holidays are the team's working calendar the sprint
+ * maths count with (Monday to Friday and no holidays until set).
  */
 
 import { z } from "zod";
@@ -54,7 +56,7 @@ registry.register({
   name: "get",
   category: "read",
   description:
-    "The team's ceremony cadence as the app uses it: sprintLengthDays, dailyTime and dailyWeekdays (0 = Sunday … 6 = Saturday), planningTime (day 0), reviewTime and retroTime (last day), refinement {weekday, time} or null. Times are local HH:MM. Returns {exists, cadence}; exists is false while the team still runs on the defaults.",
+    "The team's ceremony cadence as the app uses it: sprintLengthDays, dailyTime and dailyWeekdays (0 = Sunday … 6 = Saturday), planningTime (day 0), reviewTime and retroTime (last day), refinement {weekday, time} or null, and when set workingDays (weekdays the team works; absent = Monday to Friday) and holidays (YYYY-MM-DD). Times are local HH:MM. Returns {exists, cadence}; exists is false while the team still runs on the defaults.",
   paramsSchema: z.object({}),
   handler: async () => reading(browserDoc()),
   mcpHandler: async (_params, ctx) =>
@@ -69,7 +71,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set some of the team's ceremony cadence; fields left out keep their value (the default when unset). Times are local HH:MM, weekdays 0 = Sunday … 6 = Saturday, sprintLengthDays 1–60, refinement {weekday, time} or null for no fixed slot. Creates the cadence document when there is none. Returns {updated: true, exists: true, cadence}.",
+    "Set some of the team's ceremony cadence; fields left out keep their value (the default when unset). Times are local HH:MM, weekdays 0 = Sunday … 6 = Saturday, sprintLengthDays 1–60, refinement {weekday, time} or null for no fixed slot, workingDays (the weekdays the team works, at least one) and holidays (YYYY-MM-DD; [] clears them) for the working-day maths. Creates the cadence document when there is none. Returns {updated: true, exists: true, cadence}.",
   paramsSchema: CeremonyCadencePatchSchema,
   handler: async (params) => {
     const next = patched(browserDoc(), params);

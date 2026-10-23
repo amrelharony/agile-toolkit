@@ -9,6 +9,7 @@
 import type { Impediment, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
 import { toMarkdown } from "./markdown";
 import { fmt } from "./hub-view";
+import { storyProgress } from "./progress";
 
 export interface ReportStandup {
   posted: number;
@@ -79,11 +80,10 @@ export function sprintReport(input: SprintReportInput): string {
   if (stories.length === 0) {
     lines.push("No stories planned into this sprint.");
   } else {
-    const done = stories.filter((s) => s.status === "done");
-    const points = (list: readonly Story[]) => list.reduce((sum, s) => sum + (s.points ?? 0), 0);
+    const progress = storyProgress(stories, sprint.id);
     lines.push(
-      `${done.length} of ${stories.length} stories done · ${fmt(points(done))} of ${fmt(
-        points(stories)
+      `${progress.doneCount} of ${progress.count} stories done · ${fmt(progress.done)} of ${fmt(
+        progress.scope
       )} points.`,
       "",
       "| Story | Points | Status | Owner |",

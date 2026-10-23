@@ -5,10 +5,20 @@
  *
  * Times are local "HH:MM". Days are the sprint's own day numbers (day 0 is
  * the first day, see ./series.ts), so one cadence applies to every sprint.
+ *
+ * The cadence also holds the team's working week and holidays (optional;
+ * Monday to Friday and none until set), which the sprint maths count with
+ * (`cadenceCalendar`, ./calendar.ts).
  */
 
 import type { Sprint } from "@/lib/stores/workspace-types";
 import { dayDate, hasSyntheticDates, sprintLengthDays } from "./series";
+import {
+  normalizeCalendar,
+  normalizeHolidays,
+  normalizeWorkingDays,
+  type WorkingCalendar,
+} from "./calendar";
 
 export type CeremonyKind = "planning" | "daily" | "refinement" | "review" | "retro";
 
@@ -51,6 +61,10 @@ export interface CeremonyCadence {
   retroTime: string;
   /** Weekly refinement, or null when the team folds it into other sessions. */
   refinement: { weekday: number; time: string } | null;
+  /** Weekdays the team works (0 = Sunday … 6 = Saturday). Absent: Monday to Friday. */
+  workingDays?: number[];
+  /** Team holidays, "YYYY-MM-DD": no work, no Daily Scrum, no refinement. */
+  holidays?: string[];
 }
 
 export const DEFAULT_CADENCE: CeremonyCadence = {
@@ -105,7 +119,25 @@ export function normalizeCadence(raw: unknown): CeremonyCadence {
         : ref && isWeekday(ref.weekday)
           ? { weekday: ref.weekday, time: isTime(ref.time) ? ref.time : "11:00" }
           : DEFAULT_CADENCE.refinement,
+    // Kept only when set, so a cadence without them reads (and saves) as before.
+    ...optionalCalendarFields(r.workingDays, r.holidays),
   };
+}
+
+function optionalCalendarFields(
+  workingDays: unknown,
+  holidays: unknown
+): Pick<CeremonyCadence, "workingDays" | "holidays"> {
+  const days = normalizeWorkingDays(workingDays);
+  const off = normalizeHolidays(holidays);
+  return { ...(days ? { workingDays: days } : {}), ...(off.length > 0 ? { holidays: off } : {}) };
+}
+
+/** The team's working calendar from its cadence (the default week when unset). */
+export function cadenceCalendar(
+  cadence: Pick<CeremonyCadence, "workingDays" | "holidays"> | null | undefined
+): WorkingCalendar {
+  return normalizeCalendar(cadence);
 }
 
 export interface CeremonyOccurrence {
@@ -135,10 +167,11 @@ export function ceremonyDates(sprint: Sprint, cadence: CeremonyCadence): Ceremon
     if (at) out.push({ kind, at, day });
   };
   push("planning", 0, cadence.planningTime);
+  const holidays = new Set(normalizeHolidays(cadence.holidays));
   for (let day = 1; day <= length; day++) {
     const date = dayDate(sprint, day);
     const weekday = date ? localDateTime(date, "00:00")?.getDay() : undefined;
-    if (weekday === undefined) continue;
+    if (weekday === undefined || (date && holidays.has(date))) continue;
     if (cadence.dailyWeekdays.includes(weekday)) push("daily", day, cadence.dailyTime);
     if (cadence.refinement && day < length && weekday === cadence.refinement.weekday) {
       push("refinement", day, cadence.refinement.time);
