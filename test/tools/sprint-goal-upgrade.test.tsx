@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -14,7 +14,10 @@ import type { Okr, Sprint, SprintGoal } from "@/lib/stores/workspace-types";
  */
 
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn(), success: vi.fn() }));
-const exported = vi.hoisted(() => ({ markdown: undefined as string | undefined }));
+const exported = vi.hoisted(() => ({
+  markdown: undefined as string | undefined,
+  targetRef: undefined as unknown,
+}));
 const history = vi.hoisted(() => ({ log: vi.fn() }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -22,8 +25,9 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 vi.mock("@/components/shared/export-button", () => ({
-  ExportButton: ({ markdown }: { markdown?: string }) => {
+  ExportButton: ({ markdown, targetRef }: { markdown?: string; targetRef?: unknown }) => {
     exported.markdown = markdown;
+    exported.targetRef = targetRef;
     return null;
   },
 }));
@@ -65,10 +69,13 @@ import {
 } from "@/app/(tools)/sprint-goal/smart";
 import {
   DRAFT_GOAL_ID,
+  draftHome,
   goalConflict,
   goalDocId,
+  isExampleGoal,
   normalizeGoal,
   sprintGoalPatch,
+  sprintHasOwnGoal,
   usableDraft,
   viewGoal,
 } from "@/app/(tools)/sprint-goal/doc";
@@ -143,6 +150,7 @@ beforeEach(() => {
   toastSpy.mockReset();
   history.log.mockClear();
   exported.markdown = undefined;
+  exported.targetRef = undefined;
   resetSelectedSprint();
   window.localStorage.clear();
   useWorkspaceStore.setState({ sprints: [], sprintGoals: [], okrs: [], stories: [] });
@@ -216,7 +224,70 @@ describe("SMART checks match whole words", () => {
     }
   });
 
+  it("keeps decimals, fractions, '24/7' and counts as quantities", () => {
+    // A bare d.d or d/d is a date only after a word like "by" or with its
+    // year; "of 2000" and "Release 2 features" are counts, not a year or a
+    // release name.
+    for (const text of [
+      "Page load time under 2.5 seconds by end of sprint",
+      "Error budget burn stays below 0.5 per day",
+      "App store rating reaches 4.5 stars",
+      "Onboard a cohort of 2000 users",
+      "Roll out in 2000 stores",
+      "Release 2 features to beta testers",
+      "3/4 of new users finish onboarding",
+      "Provide 24/7 monitoring for checkout",
+    ]) {
+      expect(isMeasurable(text), text).toBe(true);
+    }
+    expect(isTimeBound("3/4 of new users finish onboarding")).toBe(false);
+    expect(isTimeBound("Provide 24/7 monitoring for checkout")).toBe(false);
+    expect(isTimeBound("Roll out in 2000 stores")).toBe(false);
+  });
+
+  it("still takes dates, years and names with digits for what they are", () => {
+    expect(isMeasurable("Launch on 25.10.2026")).toBe(false);
+    expect(isMeasurable("Release on 25/10/26")).toBe(false);
+    expect(isMeasurable("Ship it in Release 3")).toBe(false);
+    expect(isMeasurable("Upgrade checkout to version 2.1")).toBe(false);
+    // Digits inside a name aren't a count.
+    expect(isMeasurable("Everyone can log in with OAuth2")).toBe(false);
+    expect(isMeasurable("Ship v2 of search to the B2B portal")).toBe(false);
+    expect(isTimeBound("Launch on 25.10.2026")).toBe(true);
+    expect(isTimeBound("Release on 25/10/26")).toBe(true);
+  });
+
+  it("doesn't take quantity words in another sense for a quantity", () => {
+    expect(isMeasurable("Users can rate stories")).toBe(false);
+    expect(isMeasurable("We can count on QA for the sign-off")).toBe(false);
+    expect(isMeasurable("Support double-click to open a card")).toBe(false);
+    // The noun and the verb that sets a target still count.
+    expect(isMeasurable("Raise the conversion rate on checkout")).toBe(true);
+    expect(isMeasurable("Aim to double sign-ups from the landing page")).toBe(true);
+  });
+
+  it("needs a point in time after 'due', 'before' and 'until'", () => {
+    expect(isTimeBound("Fix crashes due to memory leaks")).toBe(false);
+    expect(isTimeBound("Errors due to timeouts drop to zero")).toBe(false);
+    expect(isTimeBound("Users see a price preview before they pay")).toBe(false);
+    expect(isTimeBound("Banner stays until further notice")).toBe(false);
+    for (const text of [
+      "Due Friday",
+      "Due 3 May",
+      "Due by the review",
+      "Ready before 5pm",
+      "Ready before launch",
+      "Hold the freeze until the end of the sprint",
+      "Answer within 1.5 days",
+    ]) {
+      expect(isTimeBound(text), text).toBe(true);
+    }
+  });
+
   it("flags 'some' but not 'something', and catches inflected vague words", () => {
+    // A hyphenated compound is one word: "fine-grained" isn't "fine".
+    expect(hasVagueWord("Ship the fine-grained permissions screen")).toBe(false);
+    expect(hasVagueWord("Make the sign-up flow better")).toBe(true);
     expect(hasVagueWord("Fix some onboarding bugs")).toBe(true);
     expect(hasVagueWord("Ask someone from QA to sign off on something")).toBe(false);
     for (const w of ["improved", "improving", "enhanced", "optimized", "optimisation", "things"]) {
@@ -281,6 +352,20 @@ describe("one goal document per sprint", () => {
     expect(viewGoal([], undefined).doc.id).toBe(DRAFT_GOAL_ID);
   });
 
+  it("starts from Sprint.goal while the stored goal statement is blank, without a conflict", () => {
+    // The objective was written first; then the goal was set in Planning.
+    const s = sprint("s2", { goal: "Ship search filters" });
+    const stored = goalDoc("sprint-goal:sprint:s2", { sprintId: "s2", businessObjective: "Grow" });
+    const view = viewGoal([stored], s);
+    expect(view.doc).toMatchObject({ goal: "Ship search filters", businessObjective: "Grow" });
+    expect(view.stored).toBe(true);
+    expect(goalConflict(view, s)).toBeNull();
+    // A goal of its own still wins, and the draft never borrows a sprint's.
+    const own = goalDoc("sprint-goal:sprint:s2", { sprintId: "s2", goal: "Mine" });
+    expect(viewGoal([own], s).doc.goal).toBe("Mine");
+    expect(viewGoal([goalDoc(DRAFT_GOAL_ID)], undefined).doc.goal).toBe("");
+  });
+
   it("loads old stored shapes", () => {
     const legacy = {
       id: DRAFT_GOAL_ID,
@@ -326,6 +411,41 @@ describe("one goal document per sprint", () => {
     expect(usableDraft([goalDoc(DRAFT_GOAL_ID, { keyResults: [""] })])).toBeNull();
     expect(usableDraft([goalDoc(DRAFT_GOAL_ID, { ...buildExample() })])).toBeNull();
     expect(usableDraft([goalDoc(DRAFT_GOAL_ID, { goal: "Mine" })])?.goal).toBe("Mine");
+    // An old example the user rewrote, without pressing "Clear example".
+    const rewritten = goalDoc(DRAFT_GOAL_ID, { ...buildExample(), goal: "Mine" });
+    expect(usableDraft([rewritten])?.criteria).toHaveLength(4);
+  });
+
+  it("treats the example's own text as the example, so its notice stays", () => {
+    const ex = buildExample();
+    expect(isExampleGoal(goalDoc("x", { goal: ex.goal }))).toBe(true);
+    expect(isExampleGoal(goalDoc("x", { businessObjective: ex.businessObjective }))).toBe(true);
+    expect(isExampleGoal(goalDoc("x", { goal: "Mine" }))).toBe(false);
+  });
+
+  it("finds the sprint a legacy draft was already copied to", () => {
+    const sprints = [sprint("s2"), sprint("s1", { goal: " Ship guided  onboarding" })];
+    expect(draftHome(goalDoc(DRAFT_GOAL_ID, { goal: "Ship guided onboarding" }), sprints)?.id).toBe(
+      "s1"
+    );
+    expect(draftHome(goalDoc(DRAFT_GOAL_ID, { goal: "Other" }), sprints)).toBeUndefined();
+    expect(
+      draftHome(goalDoc(DRAFT_GOAL_ID, { businessObjective: "Only" }), sprints)
+    ).toBeUndefined();
+    expect(draftHome(null, sprints)).toBeUndefined();
+  });
+
+  it("counts a goal only on the sprint as the sprint's own", () => {
+    const draft = goalDoc(DRAFT_GOAL_ID, { goal: "Draft goal" });
+    expect(sprintHasOwnGoal([], sprint("s2", { goal: "Planning's goal" }), draft)).toBe(true);
+    // The same goal as the draft's (the old tool copied it) isn't replaced.
+    expect(sprintHasOwnGoal([], sprint("s2", { goal: "Draft goal" }), draft)).toBe(false);
+    expect(sprintHasOwnGoal([], sprint("s2"), draft)).toBe(false);
+    // An empty document left by "Clear example" doesn't count either.
+    const empty = goalDoc(goalDocId("s2"), { sprintId: "s2" });
+    expect(sprintHasOwnGoal([empty], sprint("s2"), draft)).toBe(false);
+    const full = goalDoc(goalDocId("s2"), { sprintId: "s2", businessObjective: "Grow" });
+    expect(sprintHasOwnGoal([full], sprint("s2"), draft)).toBe(true);
   });
 
   it("clears the example, including one loaded before goals linked OKRs", () => {
@@ -378,13 +498,28 @@ describe("results", () => {
       "The goal meets all five SMART checks, but it has no acceptance criteria yet."
     );
     expect(goalVerdict({ ...goal, criteria }, sprint("s2"))).toBe(
-      "The goal meets all five SMART checks, and 1 of 2 acceptance criteria does."
+      "The goal meets all five SMART checks, and 1 of 2 acceptance criteria passes every check."
     );
     expect(goalVerdict({ ...goal, criteria: [criteria[1]] })).toBe(
-      "The goal meets 4 of 5 SMART checks (missing Time-bound), but its acceptance criterion doesn't yet."
+      "The goal meets 4 of 5 SMART checks (missing Time-bound), but its acceptance criterion doesn't pass every check yet."
     );
     expect(goalVerdict({ ...goal, criteria: [criteria[0], criteria[0]] }, sprint("s2"))).toBe(
-      "The goal meets all five SMART checks, and so do all 2 acceptance criteria."
+      "The goal meets all five SMART checks, and both acceptance criteria pass every check."
+    );
+    expect(goalVerdict({ ...goal, criteria: [criteria[1], criteria[1], criteria[1]] })).toBe(
+      "The goal meets 4 of 5 SMART checks (missing Time-bound), but none of its 3 acceptance criteria passes every check yet."
+    );
+  });
+
+  it("names the criteria's own bar when the goal misses checks but they pass", () => {
+    // The criteria pass all five checks; the goal only three.
+    const partial = goalDoc("x", { goal: "Ship the checkout page", criteria: [criteria[0]] });
+    expect(goalVerdict(partial, sprint("s2"))).toBe(
+      "The goal meets 3 of 5 SMART checks (missing Measurable and Relevant), and its acceptance criterion passes every check."
+    );
+    const three = { ...partial, criteria: [criteria[0], criteria[0], criteria[0]] };
+    expect(goalVerdict(three, sprint("s2"))).toBe(
+      "The goal meets 3 of 5 SMART checks (missing Measurable and Relevant), and all 3 acceptance criteria pass every check."
     );
   });
 
@@ -425,7 +560,7 @@ describe("results", () => {
     expect(lines).toContain("- Old note");
     expect(md).not.toContain("gone");
     expect(lines.at(-2)).toBe(
-      "**The goal meets all five SMART checks, and 1 of 2 acceptance criteria does.**"
+      "**The goal meets all five SMART checks, and 1 of 2 acceptance criteria passes every check.**"
     );
   });
 
@@ -475,8 +610,66 @@ describe("Sprint Goal on the shared sprint", () => {
     expect(docById("sprint-goal:sprint:s2")?.goal).toBe(
       "Shoppers filter search results by size in one tap"
     );
-    // The SMART checks run on the goal sentence too.
-    expect(screen.getByText("Measurable").textContent).toContain("(met)");
+    // The SMART checks run on the goal sentence too, and each badge says
+    // how to pass in its accessible text, not only in a hover title.
+    expect(screen.getByText("Measurable").textContent).toBe(
+      "Measurable (met: Contains a number or a quantity)"
+    );
+    expect(screen.getByText("Relevant").textContent).toBe(
+      "Relevant (not met: Write the business objective or link an OKR)"
+    );
+  });
+
+  it("shows the goal Planning wrote over a stored blank one, and says so everywhere", () => {
+    useWorkspaceStore.setState({
+      sprintGoals: [
+        goalDoc("sprint-goal:sprint:s2", { sprintId: "s2", businessObjective: "Grow" }),
+      ],
+    });
+    renderGoal();
+    expect(screen.queryByText(/already has a goal|doesn't match/)).toBeNull();
+    expect(screen.queryByText(/has no goal yet/)).toBeNull();
+    expect(screen.getByText("Ship search filters")).toBeInTheDocument();
+    expect(
+      screen.getByRole("complementary", { name: "Plan Sprint 2 around this goal" })
+    ).toBeInTheDocument();
+    // The next edit stores it.
+    openStep("Business Objective");
+    commit("Business objective", "Grow repeat searches");
+    expect(docById("sprint-goal:sprint:s2")?.goal).toBe("Ship search filters");
+  });
+
+  it("cuts an over-long sprint goal on both sides when it's taken, with Undo", () => {
+    const long = `Ship search filters ${"and more ".repeat(40)}`.trim();
+    useWorkspaceStore.setState({
+      sprints: [sprint("s2", { status: "active", goal: long })],
+      sprintGoals: [goalDoc("sprint-goal:sprint:s2", { sprintId: "s2", goal: "Mine" })],
+    });
+    renderGoal();
+    expect(screen.getByText(/over 300 characters/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use the sprint's goal here" }));
+    const cut = docById("sprint-goal:sprint:s2")!.goal;
+    expect(cut.length).toBeLessThanOrEqual(300);
+    expect(long.startsWith(cut)).toBe(true);
+    expect(sprintById("s2").goal).toBe(cut);
+    expect(toastSpy.mock.calls.at(-1)![0]).toBe("Using Sprint 2's goal, cut to 300 characters");
+    expect(screen.queryByText("Sprint 2's goal doesn't match this one.")).toBeNull();
+    undoLast();
+    expect(docById("sprint-goal:sprint:s2")?.goal).toBe("Mine");
+    expect(sprintById("s2").goal).toBe(long);
+  });
+
+  it("puts focus on the verdict after a banner action removes its button", async () => {
+    useWorkspaceStore.setState({
+      sprintGoals: [
+        goalDoc("sprint-goal:sprint:s2", { sprintId: "s2", goal: "Ship saved searches" }),
+      ],
+    });
+    renderGoal();
+    const button = screen.getByRole("button", { name: "Use the sprint's goal here" });
+    button.focus();
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getByText(/^The goal meets/)).toHaveFocus());
   });
 
   it("keeps each sprint's goal apart", () => {
@@ -601,15 +794,89 @@ describe("Sprint Goal draft", () => {
     expect(sprintById("s2").goal).toBeUndefined();
   });
 
-  it("doesn't overwrite a goal set in Sprint Planning when moved", () => {
+  it("asks before replacing a goal set only in Sprint Planning, and keeps it on the sprint", () => {
     useWorkspaceStore.setState({
       sprints: [sprint("s2", { status: "active", goal: "Planning's goal" })],
       sprintGoals: [legacyDraft],
     });
     renderGoal();
+    // The sprint's goal counts as its own, though it has no goal document.
+    expect(screen.getByText(/There's also a draft/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use it for Sprint 2" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open draft" }));
     fireEvent.click(screen.getByRole("button", { name: "Use it for Sprint 2" }));
+    const dialog = screen.getByRole("dialog", { name: "Replace Sprint 2's goal with the draft?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Replace goal" }));
+    expect(docById("sprint-goal:sprint:s2")?.goal).toBe("Ship guided onboarding");
     expect(sprintById("s2").goal).toBe("Planning's goal");
     expect(screen.getByText("Sprint 2's goal doesn't match this one.")).toBeInTheDocument();
+  });
+
+  it("goes back to the sprint the old tool copied its goal to", async () => {
+    // Before goals were per sprint, "Use as the goal of" set Sprint 1's goal.
+    useWorkspaceStore.setState({
+      sprints: [
+        sprint("s1", {
+          status: "completed",
+          startDate: "2026-09-28",
+          endDate: "2026-10-09",
+          goal: "Ship guided onboarding",
+        }),
+        sprint("s2", { status: "active" }),
+      ],
+      sprintGoals: [legacyDraft],
+    });
+    renderGoal();
+    expect(
+      screen.getByText(/Sprint 1's goal came from a draft that isn't tied to a sprint yet/)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use it for Sprint 2" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use it for Sprint 1" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(docById("sprint-goal:sprint:s1")).toMatchObject({
+      sprintId: "s1",
+      businessObjective: "Grow activation",
+    });
+    expect(docById("sprint-goal:sprint:s2")).toBeUndefined();
+    expect(sprintById("s2").goal).toBeUndefined();
+    // The tool follows the goal to Sprint 1.
+    openStep("Business Objective");
+    expect(screen.getByLabelText("Business objective")).toHaveValue("Grow activation");
+    undoLast();
+    expect(docById(DRAFT_GOAL_ID)).toEqual(legacyDraft);
+    expect(docById("sprint-goal:sprint:s1")).toBeUndefined();
+    expect(sprintById("s1").goal).toBe("Ship guided onboarding");
+  });
+
+  it("is offered with the example still in it, which stays behind its notice", () => {
+    const rewritten = goalDoc(DRAFT_GOAL_ID, {
+      ...buildExample(),
+      businessObjective: "Grow activation",
+      goal: "Ship guided onboarding",
+    });
+    useWorkspaceStore.setState({
+      sprints: [sprint("s2", { status: "active" })],
+      sprintGoals: [rewritten],
+    });
+    renderGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Use it for Sprint 2" }));
+    expect(docById("sprint-goal:sprint:s2")?.criteria).toHaveLength(4);
+    // The user's own goal reaches the sprint; the example's parts don't.
+    expect(sprintById("s2").goal).toBe("Ship guided onboarding");
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+  });
+
+  it("never puts the example's goal on the sprint when moving a draft", () => {
+    const halfway = goalDoc(DRAFT_GOAL_ID, { ...buildExample(), businessObjective: "Mine" });
+    useWorkspaceStore.setState({
+      sprints: [sprint("s2", { status: "active" })],
+      sprintGoals: [halfway],
+    });
+    renderGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Use it for Sprint 2" }));
+    expect(docById("sprint-goal:sprint:s2")?.goal).toBe(buildExample().goal);
+    expect(sprintById("s2").goal).toBeUndefined();
   });
 
   it("can be opened next to a sprint's own goal, and replaces it only after a confirm", () => {
@@ -652,7 +919,7 @@ describe("Sprint Goal draft", () => {
     );
   });
 
-  it("can be discarded with Undo", () => {
+  it("is discarded only after a confirm, with Undo", async () => {
     useWorkspaceStore.setState({
       sprints: [sprint("s2", { status: "active" })],
       sprintGoals: [goalDoc("sprint-goal:sprint:s2", { sprintId: "s2", goal: "G" }), legacyDraft],
@@ -660,8 +927,23 @@ describe("Sprint Goal draft", () => {
     renderGoal();
     fireEvent.click(screen.getByRole("button", { name: "Open draft" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard draft" }));
+    const dialog = screen.getByRole("dialog", { name: "Discard the draft goal?" });
+    expect(
+      within(dialog).getByText(
+        "The draft's goal statement, objective, 1 acceptance criterion and 1 key-result note are deleted. You can undo this right after."
+      )
+    ).toBeInTheDocument();
+    // Cancel keeps it.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(docById(DRAFT_GOAL_ID)).toEqual(legacyDraft);
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard draft" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Discard draft" })
+    );
     expect(docById(DRAFT_GOAL_ID)).toBeUndefined();
     expect(screen.queryByRole("button", { name: "Open draft" })).toBeNull();
+    await waitFor(() => expect(screen.getByText(/^The goal meets/)).toHaveFocus());
     undoLast();
     expect(docById(DRAFT_GOAL_ID)).toEqual(legacyDraft);
   });
@@ -697,6 +979,42 @@ describe("Sprint Goal example", () => {
       okrIds: [],
     });
     expect(screen.queryByText(/Example data\./)).toBeNull();
+  });
+
+  it("keeps its OKR listed when unticked, and its notice while any of it is left", () => {
+    useWorkspaceStore.setState({ sprints: [sprint("s2", { status: "active" })] });
+    renderGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    openStep("Key Results");
+    const box = () =>
+      within(screen.getByRole("list", { name: "OKRs to link" })).getByRole("checkbox");
+    fireEvent.click(box());
+    expect(box()).not.toBeChecked();
+    expect(docById("sprint-goal:sprint:s2")?.okrIds).toEqual([]);
+    fireEvent.click(box());
+    expect(box()).toBeChecked();
+
+    // With the criteria and the link gone, its objective and goal text are
+    // still the example's: the notice stays and nothing reaches the sprint.
+    act(() =>
+      useWorkspaceStore.getState().upsertSprintGoal({
+        ...docById("sprint-goal:sprint:s2")!,
+        criteria: [],
+        okrIds: [],
+      })
+    );
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+    expect(screen.queryByText(/doesn't show this one/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(screen.queryByText(/Example data\./)).toBeNull();
+    expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
+  });
+
+  it("offers a PNG of the preview only once there is one", () => {
+    renderGoal();
+    expect(exported.targetRef).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(exported.targetRef).toEqual({ current: expect.any(HTMLDivElement) });
   });
 });
 
@@ -756,6 +1074,43 @@ describe("Sprint Goal criteria and key results", () => {
     expect(docById("sprint-goal:sprint:s2")?.criteria).toEqual([
       { id: "c1", text: "Only one", relevantChecked: true },
     ]);
+  });
+
+  it("keeps keyboard focus in the list when a criterion is deleted", async () => {
+    useWorkspaceStore.setState({
+      sprintGoals: [
+        goalDoc("sprint-goal:sprint:s2", {
+          sprintId: "s2",
+          criteria: [
+            { id: "c1", text: "First", relevantChecked: true },
+            { id: "c2", text: "Second", relevantChecked: true },
+          ],
+        }),
+      ],
+    });
+    renderGoal();
+    openStep("Acceptance Criteria");
+    fireEvent.click(screen.getByRole("button", { name: "Remove acceptance criterion 1" }));
+    // The next criterion's button took its place.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove acceptance criterion 1" })).toHaveFocus()
+    );
+    expect(screen.getByLabelText("Acceptance criterion 1")).toHaveValue("Second");
+    fireEvent.click(screen.getByRole("button", { name: "Remove acceptance criterion 1" }));
+    await waitFor(() => expect(screen.getByLabelText("First acceptance criterion")).toHaveFocus());
+  });
+
+  it("keeps keyboard focus in the step when a note is deleted", async () => {
+    renderGoal();
+    openStep("Key Results");
+    fireEvent.click(screen.getByRole("button", { name: "Remove key-result note 2" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove key-result note 1" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove key-result note 1" }));
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: /Grow activation/ })).toHaveFocus()
+    );
   });
 
   it("links workspace OKRs instead of copying key results", () => {

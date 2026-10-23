@@ -6,21 +6,23 @@ import { SprintPicker } from "@/components/sprints/sprint-picker";
 import { Button } from "@/components/ui/button";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
 import type { Sprint, SprintGoal } from "@/lib/stores/workspace-types";
-import { goalGist, type GoalConflict } from "./doc";
+import { GOAL_MAX_CHARS, goalGist, type GoalConflict } from "./doc";
+import { withoutExample } from "./example";
 
 const BANNER = "rounded-lg border p-3 text-sm text-text flex flex-col gap-2";
 
 /**
  * Which goal is on screen: a sprint's (picked with the shared sprint
  * picker) or the draft that isn't tied to one. A draft with content is
- * never hidden: while the chosen sprint has no goal it is offered for that
- * sprint, and otherwise it can be opened.
+ * never hidden: while its sprint has no goal of its own it is offered for
+ * that sprint, and otherwise it can be opened.
  */
 export function GoalScope({
   sprints,
   selected,
   inDraft,
-  sprintHasGoal,
+  draftTarget,
+  targetHasGoal,
   draft,
   onSelect,
   onOpenDraft,
@@ -34,8 +36,13 @@ export function GoalScope({
   selected: Sprint | undefined;
   /** Showing the draft even though a sprint is chosen. */
   inDraft: boolean;
-  /** Whether the chosen sprint already has a goal of its own. */
-  sprintHasGoal: boolean;
+  /**
+   * Where "Use it for" moves the draft: the sprint whose goal already says
+   * the draft's, else the chosen one.
+   */
+  draftTarget: Sprint | undefined;
+  /** Whether that sprint has a goal of its own, so the move asks first. */
+  targetHasGoal: boolean;
   /** The draft, when it holds the user's own goal. */
   draft: SprintGoal | null;
   onSelect: (sprintId: string) => void;
@@ -45,6 +52,9 @@ export function GoalScope({
   onDiscardDraft: () => void;
 }) {
   const onSprint = Boolean(selected) && !inDraft;
+  const target = draftTarget ?? selected;
+  // The draft already is another sprint's goal (the old tool copied it).
+  const elsewhere = Boolean(target && selected && target.id !== selected.id);
   const caption = !selected
     ? "This goal isn't tied to a sprint yet. Add a sprint to keep one goal per sprint, shown in Sprint Planning and the Sprint Cockpit."
     : inDraft
@@ -63,17 +73,19 @@ export function GoalScope({
         <p className="min-w-0 flex-1 basis-64 text-sm text-sub">{caption}</p>
       </div>
 
-      {selected && inDraft && (
+      {selected && target && inDraft && (
         <div className={`${BANNER} border-info/30 bg-info/10`} role="status">
           <p>
-            {draft
-              ? `Move this draft onto ${selected.name} so Sprint Planning and the cockpit show it.`
-              : `The draft is empty. ${selected.name}'s goal is one click away.`}
+            {!draft
+              ? `The draft is empty. ${selected.name}'s goal is one click away.`
+              : elsewhere
+                ? `This draft is already ${target.name}'s goal. Move it onto ${target.name} to keep its objective and criteria with it.`
+                : `Move this draft onto ${target.name} so Sprint Planning and the cockpit show it.`}
           </p>
           <div className="flex flex-wrap gap-2">
             {draft && (
               <Button type="button" size="sm" onClick={onUseDraft}>
-                Use it for {selected.name}
+                Use it for {target.name}
               </Button>
             )}
             {draft && (
@@ -88,16 +100,18 @@ export function GoalScope({
         </div>
       )}
 
-      {selected && !inDraft && draft && (
+      {selected && target && !inDraft && draft && (
         <div className={`${BANNER} border-info/30 bg-info/10`} role="status">
           <p>
-            {sprintHasGoal ? "There's also a draft" : "You have a goal draft"} that isn&apos;t tied
-            to a sprint: <q>{goalGist(draft)}</q>
+            {elsewhere
+              ? `${target.name}'s goal came from a draft that isn't tied to a sprint yet:`
+              : `${targetHasGoal ? "There's also a draft" : "You have a goal draft"} that isn't tied to a sprint:`}{" "}
+            <q>{goalGist(withoutExample(draft))}</q>
           </p>
           <div className="flex flex-wrap gap-2">
-            {!sprintHasGoal && (
+            {!targetHasGoal && (
               <Button type="button" size="sm" onClick={onUseDraft}>
-                Use it for {selected.name}
+                Use it for {target.name}
               </Button>
             )}
             <Button type="button" size="sm" variant="outline" onClick={onOpenDraft}>
@@ -129,8 +143,11 @@ export function GoalConflictBanner({
   const heading = !onSprint
     ? `${sprint.name} has no goal yet, so Sprint Planning and the cockpit don't show this one.`
     : !here
-      ? `${sprint.name}'s goal was set in Sprint Planning.`
+      ? `${sprint.name} already has a goal.`
       : `${sprint.name}'s goal doesn't match this one.`;
+  // Agents can write a goal of any length onto the sprint; this tool keeps
+  // GOAL_MAX_CHARS, so taking it cuts it on both (with Undo).
+  const tooLong = onSprint.length > GOAL_MAX_CHARS;
 
   return (
     <div className={`${BANNER} mb-4 border-warning/40 bg-warning/5`} role="status">
@@ -153,6 +170,12 @@ export function GoalConflictBanner({
           </>
         )}
       </dl>
+      {tooLong && (
+        <p className="text-xs text-sub">
+          The sprint&apos;s goal is over {GOAL_MAX_CHARS} characters. Using it here cuts it to{" "}
+          {GOAL_MAX_CHARS}, on the sprint too.
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         {onSprint && (
           <Button type="button" size="sm" variant="outline" onClick={onUseSprintGoal}>

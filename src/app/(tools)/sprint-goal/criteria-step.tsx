@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { BlurTextarea } from "@/components/shared/blur-fields";
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import type { Validation } from "@/lib/utils/form";
 import { validateSmart, type AcceptanceCriterion } from "./smart";
 import { CRITERION_TIPS, SmartBadges } from "./smart-badges";
+import { focusAfterRemoval } from "./focus";
 
 interface CriterionDraft {
   text: string;
@@ -47,6 +49,16 @@ export function CriteriaStep({
     validate: validateCriterion,
     onSave: (values) => onAdd(values.text),
   });
+  const listRef = useRef<HTMLOListElement>(null);
+
+  // The pressed button goes with its row: land on the next row's, or on
+  // the add field once the list is empty.
+  const remove = (id: string, index: number) => {
+    onRemove(id);
+    focusAfterRemoval(listRef, "[data-remove-criterion]", index, () =>
+      form.formRef.current?.querySelector<HTMLElement>("input")
+    );
+  };
 
   return (
     <>
@@ -57,7 +69,7 @@ export function CriteriaStep({
       </p>
 
       {criteria.length > 0 && (
-        <ol className="space-y-4" aria-label="Acceptance criteria">
+        <ol ref={listRef} className="space-y-4" aria-label="Acceptance criteria">
           {criteria.map((criterion, i) => (
             <li key={criterion.id} className="p-4 rounded-lg bg-card border border-border">
               <div className="flex gap-2 mb-3">
@@ -71,7 +83,8 @@ export function CriteriaStep({
                 <IconButton
                   label={`Remove acceptance criterion ${i + 1}`}
                   icon={<Trash2 className="w-4 h-4" />}
-                  onClick={() => onRemove(criterion.id)}
+                  onClick={() => remove(criterion.id, i)}
+                  data-remove-criterion=""
                   className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                 />
               </div>

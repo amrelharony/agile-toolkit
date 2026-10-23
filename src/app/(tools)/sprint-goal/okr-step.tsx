@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import Link from "next/link";
 import { BarChart3, Link2Off, Trash2 } from "lucide-react";
 import { BlurInput } from "@/components/shared/blur-fields";
@@ -10,6 +11,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import type { Okr } from "@/lib/stores/workspace-types";
 import { krProgressText, okrPercent, resolveLinkedOkrs } from "./okr-links";
+import { focusAfterRemoval } from "./focus";
 
 /** Whether the goal has key-result notes to show: anything but the old single blank row. */
 export function hasNotes(notes: readonly string[]): boolean {
@@ -42,9 +44,24 @@ export function OkrStep({
   const linkedIds = new Set(okrIds ?? []);
   const { missing } = resolveLinkedOkrs(okrIds, okrs);
   const showNotes = hasNotes(notes);
+  const stepRef = useRef<HTMLDivElement>(null);
+  const notesRef = useRef<HTMLUListElement>(null);
+
+  // The pressed button goes with its note: land on the next note's, or on
+  // the OKR list once the last note is gone.
+  const removeNote = (index: number) => {
+    onRemoveNote(index);
+    focusAfterRemoval(notesRef, "[data-remove-note]", index, () => {
+      const step = stepRef.current;
+      return (
+        step?.querySelector<HTMLElement>('input[type="checkbox"]') ??
+        step?.querySelector<HTMLElement>("a[href]")
+      );
+    });
+  };
 
   return (
-    <>
+    <div ref={stepRef}>
       <h2 className="text-lg font-semibold text-text mb-2">Key Results</h2>
       <p className="text-sm text-sub mb-4">
         Link the OKRs this sprint moves. Their key results and progress stay in the{" "}
@@ -142,7 +159,7 @@ export function OkrStep({
             )}
             , then delete the note.
           </p>
-          <ul className="space-y-3" aria-label="Key-result notes">
+          <ul ref={notesRef} className="space-y-3" aria-label="Key-result notes">
             {notes.map((note, i) => (
               // Notes are plain strings with no id and never re-sort, so the index is stable.
               <li key={i} className="flex gap-2">
@@ -155,7 +172,8 @@ export function OkrStep({
                 <IconButton
                   label={`Remove key-result note ${i + 1}`}
                   icon={<Trash2 className="w-4 h-4" />}
-                  onClick={() => onRemoveNote(i)}
+                  onClick={() => removeNote(i)}
+                  data-remove-note=""
                   className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                 />
               </li>
@@ -163,6 +181,6 @@ export function OkrStep({
           </ul>
         </section>
       )}
-    </>
+    </div>
   );
 }

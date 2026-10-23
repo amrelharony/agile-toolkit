@@ -1,5 +1,6 @@
 import type { Sprint, SprintGoal } from "@/lib/stores/workspace-types";
 import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
+import { buildExample, withoutExample } from "./example";
 
 /**
  * Where a sprint goal lives. Each sprint has its own document, under
@@ -16,6 +17,9 @@ import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-da
 
 export const DRAFT_GOAL_ID = "sprint-goal:current";
 const SPRINT_GOAL_PREFIX = "sprint-goal:sprint:";
+
+/** The longest goal statement the tool keeps (the old tool's limit). */
+export const GOAL_MAX_CHARS = 300;
 
 /** The document id for `sprintId`'s goal, or the draft's. */
 export function goalDocId(sprintId?: string): string {
@@ -66,17 +70,23 @@ export interface GoalView {
 
 /**
  * The goal for `sprint`, or the draft without one. A sprint with no goal
- * document starts from `Sprint.goal` (Sprint Planning may have written
- * it), so the tool never shows an empty goal next to a sprint that has one.
+ * document, or one whose goal statement is still blank (the objective was
+ * written first, or "Clear example" emptied it), starts from `Sprint.goal`:
+ * Sprint Planning, the cockpit or an agent may have written it, and the
+ * tool never shows an empty goal next to a sprint that has one. Nothing is
+ * lost by that, so it isn't a conflict; the next edit stores it.
  */
 export function viewGoal(docs: readonly SprintGoal[], sprint: Sprint | undefined): GoalView {
   const id = goalDocId(sprint?.id);
   const found = docs.find((d) => d.id === id);
+  const onSprint = sprint?.goal ?? "";
   if (found) {
     const doc = normalizeGoal(found);
-    return { doc: sprint ? { ...doc, sprintId: sprint.id } : doc, stored: true };
+    if (!sprint) return { doc, stored: true };
+    const goal = cleanGoal(doc.goal) ? doc.goal : onSprint;
+    return { doc: { ...doc, goal, sprintId: sprint.id }, stored: true };
   }
-  return { doc: { ...emptyGoal(sprint?.id), goal: sprint?.goal ?? "" }, stored: false };
+  return { doc: { ...emptyGoal(sprint?.id), goal: onSprint }, stored: false };
 }
 
 /** Whether a goal holds anything the user typed or linked. */
@@ -90,9 +100,19 @@ export function hasContent(doc: SprintGoal): boolean {
   );
 }
 
-/** Whether the example is loaded into this goal (its criteria or its OKR link). */
+/**
+ * Whether the example is loaded into this goal: its criteria, its OKR
+ * link, or its objective or goal text, so the notice (and "Clear example")
+ * stays until every part of it is gone, and none of it reaches the sprint.
+ */
 export function isExampleGoal(doc: SprintGoal): boolean {
-  return hasExampleItems(doc.criteria) || (doc.okrIds ?? []).some(isExampleId);
+  const ex = buildExample();
+  return (
+    hasExampleItems(doc.criteria) ||
+    (doc.okrIds ?? []).some(isExampleId) ||
+    doc.businessObjective === ex.businessObjective ||
+    doc.goal === ex.goal
+  );
 }
 
 /** One line, single spaces: how two goal statements are compared. */
@@ -130,17 +150,52 @@ export function sprintGoalPatch(
   return { goal: next || undefined };
 }
 
-/** The draft, when it holds a goal of the user's own (not the example). */
+/**
+ * The draft, when it holds anything of the user's own. A draft that still
+ * has some of the example in it (loaded before goals were per sprint) is
+ * offered too, example and all: it is the only place that goal lives.
+ */
 export function usableDraft(docs: readonly SprintGoal[]): SprintGoal | null {
   const found = docs.find((d) => d.id === DRAFT_GOAL_ID);
   if (!found) return null;
   const draft = normalizeGoal(found);
-  return hasContent(draft) && !isExampleGoal(draft) ? draft : null;
+  return hasContent(withoutExample(draft)) ? draft : null;
 }
 
 /** The draft as `sprintId`'s goal document. */
 export function draftForSprint(draft: SprintGoal, sprintId: string): SprintGoal {
   return { ...draft, id: goalDocId(sprintId), sprintId };
+}
+
+/**
+ * The sprint the draft already belongs to. Before goals were per sprint,
+ * "Use as the goal of" copied the one goal onto a sprint's `Sprint.goal`,
+ * so the sprint whose goal says the draft's is where its objective and
+ * criteria go, not whichever sprint is chosen now.
+ */
+export function draftHome(
+  draft: SprintGoal | null,
+  sprints: readonly Sprint[]
+): Sprint | undefined {
+  const goal = cleanGoal(draft?.goal);
+  return goal ? sprints.find((s) => cleanGoal(s.goal) === goal) : undefined;
+}
+
+/**
+ * Whether `sprint` has a goal of its own that moving `draft` onto it would
+ * replace, so the move asks first: a goal document with something in it
+ * (an empty one left by "Clear example" doesn't count), or a `Sprint.goal`
+ * that says something other than the draft.
+ */
+export function sprintHasOwnGoal(
+  docs: readonly SprintGoal[],
+  sprint: Sprint,
+  draft: SprintGoal | null
+): boolean {
+  const doc = docs.find((d) => d.id === goalDocId(sprint.id));
+  if (doc && hasContent(normalizeGoal(doc))) return true;
+  const onSprint = cleanGoal(sprint.goal);
+  return Boolean(onSprint) && onSprint !== cleanGoal(draft?.goal);
 }
 
 /** What a goal says in a few words: its statement, else its objective. */

@@ -4,7 +4,9 @@ import { goalSmart, smartMissing, validateSmart } from "./smart";
 
 /**
  * The one-sentence answer above the wizard: how the goal sentence does on
- * SMART, and how many of its acceptance criteria pass every check.
+ * SMART, and how many of its acceptance criteria pass every check. The
+ * criteria clause names its own bar ("pass every check"), so it never
+ * reads as if the criteria met the goal's partial score.
  */
 export function goalVerdict(
   goal: Pick<SprintGoal, "goal" | "businessObjective" | "criteria" | "okrIds">,
@@ -25,14 +27,18 @@ export function goalVerdict(
   if (n === 0) return `${lead}, but it has no acceptance criteria yet.`;
   const passing = criteria.filter((c) => smartMissing(validateSmart(c)).length === 0).length;
   if (passing === n) {
-    return n === 1
-      ? `${lead}, and so does its acceptance criterion.`
-      : `${lead}, and so do all ${n} acceptance criteria.`;
+    const all =
+      n === 1
+        ? "its acceptance criterion passes"
+        : n === 2
+          ? "both acceptance criteria pass"
+          : `all ${n} acceptance criteria pass`;
+    return `${lead}, and ${all} every check.`;
   }
   if (passing === 0) {
     return n === 1
-      ? `${lead}, but its acceptance criterion doesn't yet.`
-      : `${lead}, but none of its ${n} acceptance criteria do yet.`;
+      ? `${lead}, but its acceptance criterion doesn't pass every check yet.`
+      : `${lead}, but none of its ${n} acceptance criteria passes every check yet.`;
   }
-  return `${lead}, and ${passing} of ${n} acceptance criteria ${passing === 1 ? "does" : "do"}.`;
+  return `${lead}, and ${passing} of ${n} acceptance criteria ${passing === 1 ? "passes" : "pass"} every check.`;
 }

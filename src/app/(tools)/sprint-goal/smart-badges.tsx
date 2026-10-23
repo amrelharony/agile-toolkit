@@ -44,6 +44,8 @@ function SmartBadge({
   passes: boolean;
   tooltip: string;
 }) {
+  // The tip is in the accessible text too: a title tooltip on a badge that
+  // can't be focused never reaches keyboard, touch or screen-reader users.
   return (
     <Badge
       title={tooltip}
@@ -54,7 +56,7 @@ function SmartBadge({
       }
     >
       {label}
-      <span className="sr-only">{passes ? " (met)" : " (not met)"}</span>
+      <span className="sr-only">{passes ? ` (met: ${tooltip})` : ` (not met: ${tooltip})`}</span>
     </Badge>
   );
 }

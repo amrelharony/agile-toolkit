@@ -31,23 +31,27 @@ import {
   Lightbulb,
   BarChart3,
 } from "lucide-react";
+import { listAnd } from "@/lib/charts/chart-text";
 import { EXAMPLE_OKR_ID, buildExample, buildExampleOkr, withoutExample } from "./example";
 import { toMarkdown } from "./markdown";
 import { goalSmart, smartMissing, validateSmart } from "./smart";
 import { GOAL_TIPS, SmartBadges } from "./smart-badges";
 import {
   DRAFT_GOAL_ID,
+  GOAL_MAX_CHARS,
   cleanGoal,
   draftForSprint,
+  draftHome,
   goalConflict,
   goalDocId,
   hasContent,
   isExampleGoal,
-  normalizeGoal,
   sprintGoalPatch,
+  sprintHasOwnGoal,
   usableDraft,
   viewGoal,
 } from "./doc";
+import { focusSoon } from "./focus";
 import { krProgressText, okrPercent, resolveLinkedOkrs, toggleOkrLink } from "./okr-links";
 import { goalVerdict } from "./verdict";
 import { CriteriaStep } from "./criteria-step";
@@ -73,8 +77,6 @@ const STEP_ICONS: Record<Step, React.ReactNode> = {
   results: <BarChart3 className="w-4 h-4" />,
 };
 
-const GOAL_MAX_CHARS = 300;
-
 const TIPS = [
   'Start with a verb: "Deliver...", "Enable...", "Validate..."',
   "Focus on the outcome, not the tasks",
@@ -93,6 +95,28 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+/**
+ * What discarding a goal throws away, for the confirm: "The draft's goal
+ * statement, objective and 2 acceptance criteria are deleted."
+ */
+function discardSummary(doc: SprintGoal): string {
+  const criteria = doc.criteria.filter((c) => c.text.trim()).length;
+  const okrs = doc.okrIds?.length ?? 0;
+  const notes = doc.keyResults.filter((kr) => kr.trim()).length;
+  const count = (n: number, one: string, many: string) =>
+    n > 0 ? `${n} ${n === 1 ? one : many}` : "";
+  const parts = [
+    doc.goal.trim() ? "goal statement" : "",
+    doc.businessObjective.trim() ? "objective" : "",
+    count(criteria, "acceptance criterion", "acceptance criteria"),
+    count(okrs, "linked OKR", "linked OKRs"),
+    count(notes, "key-result note", "key-result notes"),
+  ].filter(Boolean);
+  if (parts.length === 0) return "The draft is deleted.";
+  const plural = parts.length > 1 || [criteria, okrs, notes].some((n) => n > 1);
+  return `The draft's ${listAnd(parts)} ${plural ? "are" : "is"} deleted.`;
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function SprintGoalClient() {
@@ -102,6 +126,11 @@ export function SprintGoalClient() {
   const [activeStep, setActiveStep] = useState<Step>("objective");
   const [inDraft, setInDraft] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Where focus goes after a banner action removes the button pressed: the
+  // verdict, which says what the goal looks like now.
+  const verdictRef = useRef<HTMLParagraphElement>(null);
+  const focusVerdict = () => focusSoon(() => verdictRef.current);
 
   const docs = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
   const workspaceOkrs = useWorkspaceStore((s) => s.okrs) ?? NO_OKRS;
@@ -118,11 +147,12 @@ export function SprintGoalClient() {
   const view = useMemo(() => viewGoal(docs, sprint), [docs, sprint]);
   const cur = view.doc;
   const draft = useMemo(() => usableDraft(docs), [docs]);
-  // Whether the chosen sprint already has a goal of its own (an empty
-  // document left by "Clear example" doesn't count): moving the draft onto
-  // it then asks first.
-  const selectedDoc = selected ? docs.find((d) => d.id === goalDocId(selected.id)) : undefined;
-  const selectedHasGoal = Boolean(selectedDoc && hasContent(normalizeGoal(selectedDoc)));
+  // Where "Use it for" moves the draft: the sprint whose goal already says
+  // the draft's (the old tool copied it there), else the chosen one. When
+  // that sprint has a goal of its own, on its document or only on the
+  // sprint, the move asks first.
+  const draftTarget = (draft ? draftHome(draft, sprints) : undefined) ?? selected;
+  const targetHasGoal = Boolean(draftTarget && sprintHasOwnGoal(docs, draftTarget, draft));
   const conflict = goalConflict(view, sprint);
 
   const { businessObjective, criteria, keyResults } = cur;
@@ -130,14 +160,15 @@ export function SprintGoalClient() {
   const showsExample = isExampleGoal(cur);
   const isEmpty = !hasContent(cur);
 
-  // The example's OKR is shown, read-only, only while the example links it;
-  // it is never written into the workspace's OKRs.
+  // The example's OKR is shown, read-only, while any of the example is
+  // loaded (unticking it mustn't make the row vanish); it is never written
+  // into the workspace's OKRs.
   const okrs = useMemo(
     () =>
-      (cur.okrIds ?? []).includes(EXAMPLE_OKR_ID)
+      showsExample || (cur.okrIds ?? []).includes(EXAMPLE_OKR_ID)
         ? [buildExampleOkr(), ...workspaceOkrs]
         : workspaceOkrs,
-    [cur.okrIds, workspaceOkrs]
+    [showsExample, cur.okrIds, workspaceOkrs]
   );
   const linkedOkrs = useMemo(() => resolveLinkedOkrs(cur.okrIds, okrs).linked, [cur.okrIds, okrs]);
 
@@ -183,13 +214,13 @@ export function SprintGoalClient() {
   };
 
   /**
-   * Move the draft onto the chosen sprint. The sprint's goal is filled in
-   * when it was empty or in step with this tool; one written elsewhere
-   * stays until the user picks (the conflict banner shows both).
+   * Move the draft onto its sprint. The sprint's goal is filled in when it
+   * was empty or in step with this tool; one written elsewhere stays until
+   * the user picks (the conflict banner shows both).
    */
   function moveDraftToSprint() {
-    if (!selected || !draft) return;
-    const target = selected;
+    if (!draftTarget || !draft) return;
+    const target = draftTarget;
     const ws = useWorkspaceStore.getState();
     const prevDoc = (ws.sprintGoals ?? []).find((d) => d.id === goalDocId(target.id));
     const prevSprintGoal = ws.sprints.find((s) => s.id === target.id)?.goal;
@@ -199,7 +230,13 @@ export function SprintGoalClient() {
       !cleanGoal(prevSprintGoal) ||
       (prevDoc !== undefined && cleanGoal(prevDoc.goal) === cleanGoal(prevSprintGoal));
     const moved = draftForSprint(draft, target.id);
-    const patch = inStep ? sprintGoalPatch({ goal: prevSprintGoal }, moved.goal) : null;
+    // Only the user's own goal statement reaches the sprint: a draft that
+    // still holds the example keeps it on the document, behind its notice,
+    // and a blank one never clears the sprint's.
+    const ownGoal = withoutExample(moved).goal;
+    const patch =
+      inStep && cleanGoal(ownGoal) ? sprintGoalPatch({ goal: prevSprintGoal }, ownGoal) : null;
+    const elsewhere = target.id !== selected?.id;
     undoable({
       label: `Moved the draft to ${target.name}`,
       apply: () => {
@@ -207,6 +244,8 @@ export function SprintGoalClient() {
         removeSprintGoal(DRAFT_GOAL_ID);
         if (patch) updateSprint(target.id, patch);
         setInDraft(false);
+        // Show where it went when that isn't the sprint on screen.
+        if (elsewhere) select(target.id);
       },
       revert: () => {
         upsertSprintGoal(storedDraft);
@@ -215,11 +254,12 @@ export function SprintGoalClient() {
         if (patch) updateSprint(target.id, { goal: prevSprintGoal });
       },
     });
+    focusVerdict();
   }
 
   const adoptDraft = () => {
     // Replacing a sprint's own goal asks first; filling an empty one doesn't.
-    if (selectedHasGoal) setConfirmReplace(true);
+    if (targetHasGoal) setConfirmReplace(true);
     else moveDraftToSprint();
   };
 
@@ -234,19 +274,34 @@ export function SprintGoalClient() {
       },
       revert: () => upsertSprintGoal(stored),
     });
+    focusVerdict();
   }
 
   // ── Conflict with Sprint.goal ───────────────────────────────────────────
 
   function takeSprintGoal() {
     if (!sprint) return;
+    const target = sprint;
     const before = freshDoc().goal;
-    const onSprint = (sprint.goal ?? "").trim().slice(0, GOAL_MAX_CHARS);
+    const full = cleanGoal(target.goal);
+    const onSprint = full.slice(0, GOAL_MAX_CHARS).trimEnd();
+    // A goal over the limit (agents can write any length) is cut on the
+    // sprint too, or the two would still disagree afterwards.
+    const cut = onSprint !== full;
     undoable({
-      label: `Using ${sprint.name}'s goal`,
-      apply: () => updateDoc((d) => ({ ...d, goal: onSprint })),
-      revert: () => updateDoc((d) => ({ ...d, goal: before })),
+      label: cut
+        ? `Using ${target.name}'s goal, cut to ${GOAL_MAX_CHARS} characters`
+        : `Using ${target.name}'s goal`,
+      apply: () => {
+        updateDoc((d) => ({ ...d, goal: onSprint }));
+        if (cut) updateSprint(target.id, { goal: onSprint });
+      },
+      revert: () => {
+        updateDoc((d) => ({ ...d, goal: before }));
+        if (cut) updateSprint(target.id, { goal: target.goal });
+      },
     });
+    focusVerdict();
   }
 
   function setGoalOnSprint() {
@@ -259,6 +314,7 @@ export function SprintGoalClient() {
       apply: () => updateSprint(target.id, { goal: goal || undefined }),
       revert: () => updateSprint(target.id, { goal: before }),
     });
+    focusVerdict();
   }
 
   // ── Example ─────────────────────────────────────────────────────────────
@@ -499,13 +555,20 @@ export function SprintGoalClient() {
         sprints={sprints}
         selected={selected}
         inDraft={inDraft}
-        sprintHasGoal={selectedHasGoal}
+        draftTarget={draftTarget}
+        targetHasGoal={targetHasGoal}
         draft={draft}
         onSelect={chooseSprint}
-        onOpenDraft={() => setInDraft(true)}
-        onCloseDraft={() => setInDraft(false)}
+        onOpenDraft={() => {
+          setInDraft(true);
+          focusVerdict();
+        }}
+        onCloseDraft={() => {
+          setInDraft(false);
+          focusVerdict();
+        }}
         onUseDraft={adoptDraft}
-        onDiscardDraft={discardDraft}
+        onDiscardDraft={() => setConfirmDiscard(true)}
       />
       {sprint && conflict && (
         <GoalConflictBanner
@@ -515,17 +578,33 @@ export function SprintGoalClient() {
           onSetOnSprint={setGoalOnSprint}
         />
       )}
-      {selected && (
+      {draftTarget && (
         <ConfirmDialog
           open={confirmReplace}
           onOpenChange={setConfirmReplace}
-          title={`Replace ${selected.name}'s goal with the draft?`}
+          title={`Replace ${draftTarget.name}'s goal with the draft?`}
           description="Its objective, criteria and linked OKRs are replaced by the draft's. You can undo this right after."
           confirmLabel="Replace goal"
           onConfirm={moveDraftToSprint}
         />
       )}
-      <p className="mb-4 text-sm font-medium text-text">{goalVerdict(cur, sprint)}</p>
+      {draft && (
+        <ConfirmDialog
+          open={confirmDiscard}
+          onOpenChange={setConfirmDiscard}
+          title="Discard the draft goal?"
+          description={`${discardSummary(draft)} You can undo this right after.`}
+          confirmLabel="Discard draft"
+          onConfirm={discardDraft}
+        />
+      )}
+      <p
+        ref={verdictRef}
+        tabIndex={-1}
+        className="mb-4 text-sm font-medium text-text focus:outline-none"
+      >
+        {goalVerdict(cur, sprint)}
+      </p>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Wizard Panel ─────────────────────────────────────────── */}
         <div className="lg:col-span-2 min-w-0">
@@ -688,7 +767,9 @@ export function SprintGoalClient() {
                   clipboardText={clipboardText}
                   jsonData={jsonData}
                   markdown={markdown}
-                  targetRef={previewRef}
+                  // The preview isn't rendered while the goal is empty, so
+                  // there is no picture to export yet.
+                  targetRef={isEmpty ? undefined : previewRef}
                 />
               </div>
             </div>
