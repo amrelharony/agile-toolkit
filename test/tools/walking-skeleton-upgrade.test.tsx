@@ -99,6 +99,24 @@ describe("Walking Skeleton adding", () => {
       values: { text: "Save the order", layer: "data" },
     });
   });
+
+  it("marks the layer required to assistive tech and links its error", () => {
+    renderSkeleton();
+    const group = screen.getByRole("radiogroup", { name: "Layer" });
+    expect(group).toHaveAttribute("aria-required", "true");
+    expect(group).not.toHaveAttribute("aria-describedby");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Step" }), { target: { value: "x" } });
+    fireEvent.submit(group.closest("form")!);
+    expect(group).toHaveAccessibleDescription("Pick the layer this step touches.");
+    // Focus still lands on a radio, not on the group.
+    expect(screen.getByRole("radio", { name: "UI" })).toHaveFocus();
+
+    // Fixing it drops the message and the link to it.
+    fireEvent.click(within(group).getByRole("radio", { name: "API" }));
+    expect(group).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
 
 describe("Walking Skeleton path", () => {
@@ -171,6 +189,57 @@ describe("Walking Skeleton path", () => {
     expect(within(path()).getAllByRole("listitem")[2]).toHaveTextContent("Charge the card");
   });
 
+  it("names a row editor's fields apart from the add form's", () => {
+    renderSkeleton();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Payment sandbox" }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    expect(within(editor).getByRole("textbox", { name: "Step 3" })).toBeInTheDocument();
+    expect(within(editor).getByRole("radiogroup", { name: "Layer of step 3" })).toHaveAttribute(
+      "aria-required",
+      "true"
+    );
+    // The add form, still on screen, keeps the plain names.
+    expect(screen.getByRole("textbox", { name: "Step" })).not.toBe(
+      within(editor).getByRole("textbox", { name: "Step 3" })
+    );
+    expect(screen.getAllByRole("radiogroup", { name: "Layer" })).toHaveLength(1);
+  });
+
+  it("puts focus back on the step's Edit button after a cancel or a save", async () => {
+    renderSkeleton();
+    fireEvent.click(screen.getByRole("button", { name: "Edit POST /orders" }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.keyDown(within(editor).getByRole("textbox", { name: "Step 2" }), { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit POST /orders" })).toHaveFocus()
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit POST /orders" }));
+    const again = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.change(within(again).getByRole("textbox", { name: "Step 2" }), {
+      target: { value: "POST /orders saves it" },
+    });
+    fireEvent.submit(again);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit POST /orders saves it" })).toHaveFocus()
+    );
+  });
+
+  it("moves focus to the next step after a delete, else the previous one, else Add step", async () => {
+    renderSkeleton();
+    fireEvent.click(screen.getByRole("button", { name: "Delete POST /orders" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Done: Payment sandbox" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete Payment sandbox" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Done: Checkout page" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete Checkout page" }));
+    expect(state().steps).toEqual([]);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Step" })).toHaveFocus());
+  });
+
   it("toggles done and deletes with Undo back in place", () => {
     renderSkeleton();
     fireEvent.click(screen.getByRole("button", { name: "Done: Payment sandbox" }));
@@ -209,7 +278,7 @@ describe("Walking Skeleton: send steps to the backlog", () => {
     });
   });
 
-  it("sends the steps not done as one batch, and one Undo takes it back", () => {
+  it("sends the steps not done as one batch, and one Undo takes it back", async () => {
     renderSkeleton();
     fireEvent.click(screen.getByRole("button", { name: "Send 2 steps to backlog" }));
     const stories = useWorkspaceStore.getState().stories;
@@ -224,6 +293,12 @@ describe("Walking Skeleton: send steps to the backlog", () => {
     ]);
     expect(screen.queryByRole("button", { name: /to backlog/ })).toBeNull();
     expect(screen.getAllByRole("link", { name: "In backlog" })).toHaveLength(2);
+    // Focus lands on the link that replaced the button, not on <body>.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("link", { name: "2 steps in the backlog · Open Sprint Planning" })
+      ).toHaveFocus()
+    );
 
     undoLast();
     expect(useWorkspaceStore.getState().stories).toEqual([]);
@@ -343,6 +418,21 @@ describe("Walking Skeleton logic", () => {
       goal: "",
       steps: [{ id: "step-1", layer: "cloud", text: "", done: false }],
     });
+    // A fallback id never takes one the save holds, and a repeated id is
+    // replaced: actions find steps by id, so a shared one would hit both.
+    const ids = (steps: unknown[]) => normalizeSkeleton({ steps }).steps.map((s) => s.id);
+    expect(
+      ids([
+        { text: "a", layer: "ui" },
+        { id: "step-1", text: "b", layer: "api" },
+      ])
+    ).toEqual(["step-2", "step-1"]);
+    expect(ids([{ id: "x", text: "a" }, { id: "x", text: "b" }, { text: "c" }])).toEqual([
+      "x",
+      "step-2",
+      "step-3",
+    ]);
+    expect(ids([{ id: "step-2" }, {}, { id: "step-2" }])).toEqual(["step-2", "step-3", "step-4"]);
   });
 
   it("exports the path in order with layers and what's missing", () => {

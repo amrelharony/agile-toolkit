@@ -39,20 +39,36 @@ interface SkeletonState extends SkeletonData {
  * Steps as stored, made safe to render: a step missing its text or done
  * flag (hand-edited storage) gets an empty text and "not done" instead of
  * crashing the list. Ids, order and unknown layers are kept.
+ *
+ * A step with no id, or with an id an earlier step already has, gets the
+ * first free `step-<n>` from its position on: every action finds a step by
+ * id, so two steps sharing one would be edited, moved and deleted together.
  */
 export function normalizeSkeleton(raw: unknown): SkeletonData {
   const r = (raw ?? {}) as Partial<Record<keyof SkeletonData, unknown>>;
-  const steps = Array.isArray(r.steps) ? r.steps : [];
+  const steps = (Array.isArray(r.steps) ? r.steps : []).filter(
+    (s): s is Record<string, unknown> => Boolean(s) && typeof s === "object"
+  );
+  // Every id in the save, so a fallback never takes one a later step holds.
+  const saved = new Set(steps.map((s) => s.id).filter((id) => typeof id === "string" && id));
+  const used = new Set<string>();
   return {
     goal: typeof r.goal === "string" ? r.goal : "",
-    steps: steps
-      .filter((s): s is Record<string, unknown> => Boolean(s) && typeof s === "object")
-      .map((s, i) => ({
+    steps: steps.map((s, i) => {
+      let id = typeof s.id === "string" && s.id && !used.has(s.id) ? s.id : "";
+      if (!id) {
+        let n = i + 1;
+        while (saved.has(`step-${n}`) || used.has(`step-${n}`)) n++;
+        id = `step-${n}`;
+      }
+      used.add(id);
+      return {
         ...(s as unknown as SkeletonStep),
-        id: typeof s.id === "string" && s.id ? s.id : `step-${i + 1}`,
+        id,
         text: typeof s.text === "string" ? s.text : "",
         done: s.done === true,
-      })),
+      };
+    }),
   };
 }
 

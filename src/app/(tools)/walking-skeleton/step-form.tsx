@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Plus } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -42,28 +42,51 @@ export function validateStep(d: StepDraft): Validation<StepValues, StepField> {
  * `data-scale-invalid`, so a failed save focuses it like a ScalePicker.
  */
 function LayerPicker({
+  label,
   value,
   onChange,
   error,
 }: {
+  /** The radio group's name: "Layer", or "Layer of step 3" in a row editor. */
+  label: string;
   value: Layer | null;
   onChange: (layer: Layer) => void;
   error?: string;
 }) {
+  const errorId = useId();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // Mark the group required and link its message, as Field does for the
+  // Step input. ToggleGroup takes no ARIA props, so set them on its radio
+  // group here; React leaves attributes it doesn't render alone. Not
+  // aria-invalid: focusFirstInvalid would then pick the group itself, which
+  // can't take focus, instead of its radio.
+  useEffect(() => {
+    const group = wrapRef.current?.querySelector('[role="radiogroup"]');
+    if (!group) return;
+    group.setAttribute("aria-required", "true");
+    if (error) group.setAttribute("aria-describedby", errorId);
+    else group.removeAttribute("aria-describedby");
+  }, [error, errorId]);
+
   return (
-    <div className="flex min-w-0 flex-col gap-1.5" data-scale-invalid={error ? "true" : undefined}>
-      {/* The radio group carries the same name; this is the visible label. */}
+    <div
+      ref={wrapRef}
+      className="flex min-w-0 flex-col gap-1.5"
+      data-scale-invalid={error ? "true" : undefined}
+    >
+      {/* The radio group carries the name; this is the visible label. */}
       <span className="text-sm text-text" aria-hidden="true">
         Layer
+        <span className="ml-0.5 text-danger">*</span>
       </span>
       <ToggleGroup
-        label="Layer"
+        label={label}
         options={LAYERS.map((l) => ({ value: l.id, label: l.label, description: l.meaning }))}
         value={value}
         onValueChange={onChange}
       />
       {error && (
-        <p className="text-xs text-danger" role="alert">
+        <p id={errorId} className="text-xs text-danger" role="alert">
           {error}
         </p>
       )}
@@ -75,14 +98,21 @@ function StepFields({
   draft,
   update,
   errors,
+  position,
 }: {
   draft: StepDraft;
   update: (patch: Partial<StepDraft>) => void;
   errors: Partial<Record<StepField, string>>;
+  /**
+   * The step's place on the path, in a row editor. The add form stays on
+   * screen meanwhile, so its fields are named apart: "Step 3" and "Layer
+   * of step 3" next to "Step" and "Layer".
+   */
+  position?: number;
 }) {
   return (
     <>
-      <Field label="Step" error={errors.text} required>
+      <Field label={position ? `Step ${position}` : "Step"} error={errors.text} required>
         {(props) => (
           <Input
             {...props}
@@ -93,6 +123,7 @@ function StepFields({
         )}
       </Field>
       <LayerPicker
+        label={position ? `Layer of step ${position}` : "Layer"}
         value={draft.layer}
         onChange={(layer) => update({ layer })}
         error={errors.layer}
@@ -122,10 +153,13 @@ export function StepAddForm({ onAdd }: { onAdd: (values: StepValues) => void }) 
 /** Edit a step where it sits on the path. Enter saves, Escape cancels. */
 export function StepRowEditor({
   step,
+  position,
   onSave,
   onCancel,
 }: {
   step: SkeletonStep;
+  /** Its place on the path, from 1: names the fields apart from the add form's. */
+  position: number;
   onSave: (values: StepValues) => void;
   onCancel: () => void;
 }) {
@@ -142,7 +176,12 @@ export function StepRowEditor({
   }, [formRef]);
   return (
     <ItemForm form={form} submitLabel="Save" onCancel={onCancel}>
-      <StepFields draft={form.draft} update={form.update} errors={form.errors} />
+      <StepFields
+        draft={form.draft}
+        update={form.update}
+        errors={form.errors}
+        position={position}
+      />
     </ItemForm>
   );
 }

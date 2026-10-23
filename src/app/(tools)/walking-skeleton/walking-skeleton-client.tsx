@@ -68,13 +68,26 @@ function shortName(name: string, max = 40): string {
  */
 function focusMoved(id: string, dir: "up" | "down") {
   requestAnimationFrame(() => {
-    const find = (d: string) =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>("[data-step-move]")).find(
-        (el) => el.dataset.stepMove === `${id}:${d}`
-      );
+    const find = (d: string) => byData("step-move", `${id}:${d}`) as HTMLButtonElement | undefined;
     const el = find(dir);
     (el && !el.disabled ? el : find(dir === "up" ? "down" : "up"))?.focus();
   });
+}
+
+/** The element whose `data-<name>` is `value`; ids go in no selector, so need no escaping. */
+function byData(name: string, value: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).find(
+    (el) => el.getAttribute(`data-${name}`) === value
+  );
+}
+
+/**
+ * Focus what `find` returns once React has re-rendered. Closing an editor,
+ * deleting a step or sending the last steps unmounts the focused control,
+ * and focus would otherwise drop to <body>.
+ */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
 }
 
 export function WalkingSkeletonClient() {
@@ -85,6 +98,7 @@ export function WalkingSkeletonClient() {
   useWorkspaceStore((s) => s.stories);
   const { log } = useHistoryLogger("walking-skeleton");
   const exportRef = useRef<HTMLDivElement>(null);
+  const addRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   // What a reset cleared, for its Undo.
   const cleared = useRef<SkeletonData | null>(null);
@@ -100,8 +114,14 @@ export function WalkingSkeletonClient() {
     log(WALKING_SKELETON_ACTIONS.STEP_ADDED, { layer: values.layer });
   }
 
-  function saveStep(step: SkeletonStep, values: StepValues) {
+  // Saved or cancelled, the editor closes: focus goes back to the step's Edit button.
+  function closeEditor(step: SkeletonStep) {
     setEditingId(null);
+    focusSoon(() => byData("step-edit", step.id));
+  }
+
+  function saveStep(step: SkeletonStep, values: StepValues) {
+    closeEditor(step);
     if (step.text !== values.text || step.layer !== values.layer) update(step.id, values);
   }
 
@@ -111,12 +131,22 @@ export function WalkingSkeletonClient() {
   }
 
   function remove(step: SkeletonStep) {
+    // Focus moves on to the next step (else the previous one), or to the
+    // Add step field once the path is empty.
+    const list = useWalkingSkeletonStore.getState().steps;
+    const at = list.findIndex((s) => s.id === step.id);
+    const neighbour = at >= 0 ? (list[at + 1] ?? list[at - 1]) : undefined;
     removeWithUndo<SkeletonStep>({
       label: `Deleted “${shortName(step.text)}”`,
       update: setSteps,
       match: (s) => s.id === step.id,
     });
     log(WALKING_SKELETON_ACTIONS.STEP_REMOVED, { id: step.id });
+    focusSoon(() =>
+      neighbour
+        ? byData("step-toggle", neighbour.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
   }
 
   // The steps not done become backlog stories, as one undoable batch.
@@ -136,6 +166,8 @@ export function WalkingSkeletonClient() {
         setSteps((list) => withSentLinks(list, sent, true));
       },
     });
+    // Every step on offer went, so the button gives way to the backlog link.
+    focusSoon(() => document.querySelector<HTMLElement>("[data-step-backlog]"));
   }
 
   const hasExample = hasExampleItems(steps);
@@ -193,7 +225,9 @@ export function WalkingSkeletonClient() {
         </SectionCard>
 
         <SectionCard title="Add step" icon={Plus}>
-          <StepAddForm onAdd={addStep} />
+          <div ref={addRef}>
+            <StepAddForm onAdd={addStep} />
+          </div>
         </SectionCard>
 
         {steps.length === 0 ? (
@@ -270,8 +304,9 @@ export function WalkingSkeletonClient() {
                   {editingId === s.id ? (
                     <StepRowEditor
                       step={s}
+                      position={i + 1}
                       onSave={(values) => saveStep(s, values)}
-                      onCancel={() => setEditingId(null)}
+                      onCancel={() => closeEditor(s)}
                     />
                   ) : (
                     <StepRow
@@ -301,6 +336,7 @@ export function WalkingSkeletonClient() {
               {sentCount > 0 && (
                 <Link
                   href="/sprint-planning"
+                  data-step-backlog
                   className="text-xs text-sub underline-offset-2 hover:text-accent hover:underline"
                 >
                   {plural(sentCount, "step")} in the backlog · Open Sprint Planning
@@ -342,6 +378,7 @@ function StepRow({
       <button
         type="button"
         onClick={onToggle}
+        data-step-toggle={step.id}
         aria-pressed={step.done}
         className="flex min-w-0 flex-1 basis-48 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
@@ -390,6 +427,7 @@ function StepRow({
           label={`Edit ${name}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
+          data-step-edit={step.id}
           onClick={onEdit}
         />
         <IconButton
