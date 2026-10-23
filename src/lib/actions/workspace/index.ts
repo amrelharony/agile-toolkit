@@ -196,6 +196,15 @@ const StorySchema = z.object({
     .optional()
     .describe("Status changes, oldest first (latest 50). Appended on a status change."),
   sourceRef: HandoffRefSchema.optional(),
+  readiness: z
+    .object({
+      checked: z.array(z.string()).describe("Ids of the Definition-of-Ready criteria that passed."),
+      ready: z.boolean(),
+      updatedAt: z.string(),
+    })
+    .optional()
+    .describe("Definition-of-Ready result from the last refinement of this story."),
+  epicId: z.string().optional().describe("The Epic Roadmap epic this story belongs to."),
 }) as unknown as z.ZodType<Story>;
 
 const ImpedimentSchema = z.object({
@@ -1787,6 +1796,11 @@ const SprintGoalSchema = z.object({
   goal: z.string(),
   criteria: z.array(z.object({ id: z.string(), text: z.string(), relevantChecked: z.boolean() })),
   keyResults: z.array(z.string()),
+  sprintId: z
+    .string()
+    .optional()
+    .describe("The sprint this goal is for (id sprint-goal:sprint:<sprintId>)."),
+  okrIds: z.array(z.string()).optional().describe("Linked OKR ids."),
 }) as unknown as z.ZodType<SprintGoal>;
 
 const JobStorySchema = z.object({
@@ -1818,6 +1832,10 @@ const CapacityPlanSchema = z.object({
     hoursPerDay: z.number(),
     pointsCommitted: z.string(),
   }),
+  sprintId: z
+    .string()
+    .optional()
+    .describe("The sprint this plan is for (id capacity-planner:sprint:<sprintId>)."),
 }) as unknown as z.ZodType<CapacityPlan>;
 
 const StoryMapSchema = z.object({
