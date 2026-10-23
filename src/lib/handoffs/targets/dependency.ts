@@ -1,13 +1,14 @@
 /**
  * Hand-off target: a dependency.
  *
- * Until the one dependency model lands (a later phase makes `Dependency` a
- * workspace entity), the closest slice is the Dependency Map's graph
- * (`dependency-map:current`). The item becomes a node, labelled with its
- * title, its owner as the team. When the source names what it waits on
- * (`dependsOn`), that side is found by label, or added, and a "needs" edge
- * joins the two. The node and anything the send added keep `sourceRef`, so
- * Undo takes back exactly what this send put there.
+ * Dependencies live on the Dependency Map's graph (`dependency-map:current`,
+ * the one dependency model; see lib/dependencies/edges). This route sends a
+ * single item there: it becomes a node, labelled with its title, its owner
+ * as the team. When the source names what it waits on (`dependsOn`), that
+ * side is found by label, or added, and a "needs" edge joins the two. The
+ * node and anything the send added keep `sourceRef`, so Undo takes back
+ * exactly what this send put there. (PI Planning and Scrum of Scrums link
+ * team → team edges directly, through dependency-map/link.ts.)
  */
 
 import { nanoid } from "nanoid";

@@ -109,6 +109,11 @@ describe("withDependencyLink", () => {
     expect(again.edgeId).not.toBe(first.edgeId);
   });
 
+  it("adds nothing when both sides name the same thing", () => {
+    const out = withDependencyLink(undefined, { from: "Checkout", to: " checkout " }, makeId);
+    expect(out).toEqual({ nodes: [], edges: [], edgeId: null });
+  });
+
   it("drops edges whose ends were removed", () => {
     expect(
       validEdges({

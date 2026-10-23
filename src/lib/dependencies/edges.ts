@@ -102,13 +102,14 @@ export interface DependencyLinkInput {
  * The map with a dependency between two labelled sides, adding a node for a
  * side that isn't on the map yet. An identical open edge (same ends and
  * kind) is reused rather than duplicated. Returns the edge id too, so the
- * caller can link back to it.
+ * caller can link back to it — null, with nothing added, when both sides
+ * name the same thing.
  */
 export function withDependencyLink(
   map: Pick<DependencyMap, "nodes" | "edges"> | undefined,
   input: DependencyLinkInput,
   makeId: () => string
-): { nodes: DependencyNode[]; edges: DependencyEdge[]; edgeId: string } {
+): { nodes: DependencyNode[]; edges: DependencyEdge[]; edgeId: string | null } {
   const nodes = [...(map?.nodes ?? [])];
   const edges = [...(map?.edges ?? [])];
   const side = (label: string): DependencyNode => {
@@ -118,6 +119,11 @@ export function withDependencyLink(
     nodes.push(node);
     return node;
   };
+  // A side can't wait on itself; the map would hide the edge, so nobody
+  // could see or remove it there.
+  if (labelKey(input.from) === labelKey(input.to)) {
+    return { nodes, edges, edgeId: null };
+  }
   const from = side(input.from);
   const to = side(input.to);
   const kind = input.kind ?? "needs";

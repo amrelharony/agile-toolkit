@@ -104,6 +104,7 @@ export function linkDependency(
   const known = new Set(before.nodes.map((n) => n.id));
   const hadEdge = new Set(before.edges.map((e) => e.id));
   const next = withDependencyLink({ nodes: visible, edges: before.edges }, input, newId);
+  if (next.edgeId === null) return null;
   const added = next.nodes.filter((n) => !known.has(n.id));
   saveDependencyMap({ nodes: [...before.nodes, ...added], edges: next.edges });
   return {

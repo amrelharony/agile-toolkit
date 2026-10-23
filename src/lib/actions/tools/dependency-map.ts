@@ -27,12 +27,8 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { DependencyMap, DependencyNode, DependencyEdge } from "@/lib/stores/workspace-types";
-import {
-  DEPENDENCY_STATUSES,
-  edgeSummary,
-  validEdges,
-  withEdgeStatus,
-} from "@/lib/dependencies/edges";
+import { DEPENDENCY_STATUSES, edgeSummary, withEdgeStatus } from "@/lib/dependencies/edges";
+import { cleanEdges, detectCycles } from "@/lib/dependencies/graph";
 import { todayIso } from "@/lib/sprints/series";
 
 const KIND_DEPMAP = "workspace:dependencyMap";
@@ -49,33 +45,6 @@ function browserMap(): DependencyMap | null {
   return (ws().dependencyMaps ?? []).find((d) => d.id === DM_ID) ?? null;
 }
 
-/** Does the directed blocking graph (blocks/needs edges) contain a cycle?
- *  DFS with a recursion stack; a visited-set bounds work on shared subtrees. */
-function hasCycle(nodes: DependencyNode[], edges: DependencyEdge[]): boolean {
-  const adj = new Map<string, string[]>();
-  for (const e of edges) {
-    if (e.kind === "blocks" || e.kind === "needs") {
-      const list = adj.get(e.from) ?? [];
-      list.push(e.to);
-      adj.set(e.from, list);
-    }
-  }
-  const visited = new Set<string>();
-  const stack = new Set<string>();
-  const dfs = (id: string): boolean => {
-    if (stack.has(id)) return true;
-    if (visited.has(id)) return false;
-    visited.add(id);
-    stack.add(id);
-    for (const next of adj.get(id) ?? []) {
-      if (dfs(next)) return true;
-    }
-    stack.delete(id);
-    return false;
-  };
-  return nodes.some((n) => dfs(n.id));
-}
-
 function summarize(map: DependencyMap | null) {
   if (!map) {
     return {
@@ -87,15 +56,19 @@ function summarize(map: DependencyMap | null) {
       hasCycle: false,
     };
   }
+  // The edges the page trusts: both ends on the map, no self-edge, a known kind.
+  const edges = cleanEdges(map);
   const byKind = { blocks: 0, needs: 0, informs: 0 };
-  for (const e of map.edges) if (e.kind in byKind) byKind[e.kind] += 1;
+  for (const e of edges) byKind[e.kind] += 1;
   return {
     exists: true,
     nodeCount: map.nodes.length,
-    edgeCount: map.edges.length,
+    edgeCount: edges.length,
     byKind,
-    byStatus: edgeSummary(validEdges(map), todayIso()),
-    hasCycle: hasCycle(map.nodes, map.edges),
+    byStatus: edgeSummary(edges, todayIso()),
+    // A circular wait among unresolved blocks/needs edges, read in delivery
+    // order ("A needs B" means B delivers first), as the page finds it.
+    hasCycle: detectCycles(map.nodes, edges).length > 0,
   };
 }
 
@@ -106,7 +79,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the dependency graph. Returns {exists, nodeCount, edgeCount, byKind: {blocks, needs, informs}, byStatus: {open, atRisk, resolved, overdue}, hasCycle (blocking cycle in blocks/needs edges)}.",
+    "Summarise the dependency graph as the Dependency Map shows it (edges with both ends on the map, no self-edges). Returns {exists, nodeCount, edgeCount, byKind: {blocks, needs, informs}, byStatus: {open, atRisk, resolved, overdue}, hasCycle (a circular wait among unresolved blocks/needs edges; 'A needs B' means B delivers first)}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(browserMap()),
   mcpHandler: async (_params, ctx) => {
