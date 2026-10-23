@@ -119,3 +119,71 @@ describe("tool.capacity_planner.set_config", () => {
     expect(stored?.config.hoursPerDay).toBe(8);
   });
 });
+
+describe("tool.capacity_planner per sprint", () => {
+  const SPRINT_PLAN = "capacity-planner:sprint:s1";
+  const member = { id: "m1", name: "Alice", role: "dev", availability: 100, daysOff: 0 };
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      capacityPlans: [],
+      sprints: [
+        {
+          id: "s0",
+          name: "Sprint 0",
+          startDate: "2026-09-28",
+          endDate: "2026-10-09",
+          pointsPlanned: 20,
+          pointsCompleted: 20,
+          status: "completed",
+        },
+      ],
+    });
+  });
+
+  it("reads the sprint's own plan, else falls back to the general one", async () => {
+    const list = registry.get("tool.capacity_planner.list_state")!;
+    useWorkspaceStore.getState().upsertCapacityPlan(plan({ members: [member] }));
+    const fallback = (await list.handler({ sprintId: "s1" }, ctx())) as {
+      perSprint: boolean;
+      planId: string;
+    };
+    expect(fallback).toMatchObject({ perSprint: false, planId: CP_ID });
+
+    useWorkspaceStore
+      .getState()
+      .upsertCapacityPlan(plan({ id: SPRINT_PLAN, sprintId: "s1", members: [member] }));
+    const own = (await list.handler({ sprintId: "s1" }, ctx())) as {
+      perSprint: boolean;
+      planId: string;
+      capacityRatio: number;
+      suggestedPoints: number;
+    };
+    // Everyone fully available: a normal sprint, so the velocity of 20 stands.
+    expect(own).toMatchObject({
+      perSprint: true,
+      planId: SPRINT_PLAN,
+      capacityRatio: 1,
+      suggestedPoints: 20,
+    });
+  });
+
+  it("adds members and patches config on the sprint's plan, creating it with its sprintId", async () => {
+    await registry
+      .get("tool.capacity_planner.add_member")!
+      .handler({ name: "Dana", sprintId: "s1" }, ctx());
+    await registry
+      .get("tool.capacity_planner.set_config")!
+      .handler({ sprintDays: 9, sprintId: "s1" }, ctx());
+    const plans = useWorkspaceStore.getState().capacityPlans ?? [];
+    expect(plans.map((p) => p.id)).toEqual([SPRINT_PLAN]);
+    expect(plans[0]).toMatchObject({ sprintId: "s1", config: { sprintDays: 9 } });
+    expect(plans[0].members.map((m) => m.name)).toEqual(["Dana"]);
+  });
+
+  it("rejects a set_config with only a sprintId", () => {
+    const schema = registry.get("tool.capacity_planner.set_config")!.paramsSchema;
+    expect(schema.safeParse({ sprintId: "s1" }).success).toBe(false);
+    expect(schema.safeParse({ focusFactor: 0.7, sprintId: "s1" }).success).toBe(true);
+  });
+});
