@@ -5,9 +5,9 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CapacityConfig } from "@/lib/stores/workspace-types";
 
 /**
- * Capacity Planner: "Load an example" replaces the blank starter row with a
- * five-person team, "Clear example" removes only those members, and the plan
- * exports as Markdown.
+ * Capacity Planner: "Load an example" fills an empty plan (or replaces an
+ * older plan's blank starter row) with a five-person team, "Clear example"
+ * removes only those members, and the plan exports as Markdown.
  */
 
 vi.mock("@/lib/utils/undoable", () => ({
@@ -43,7 +43,7 @@ const CONFIG: CapacityConfig = {
 const members = () =>
   useWorkspaceStore.getState().capacityPlans?.find((p) => p.id === CP_ID)?.members ?? [];
 const names = () =>
-  screen.getAllByRole("textbox", { name: "Name" }).map((i) => (i as HTMLInputElement).value);
+  screen.getAllByRole("combobox", { name: "Name" }).map((i) => (i as HTMLInputElement).value);
 const notice = () => screen.queryByText("Example data.");
 
 beforeEach(() => {
@@ -111,9 +111,10 @@ describe("Capacity Planner example", () => {
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
 
     // The user adds a member of their own.
-    fireEvent.click(screen.getByRole("button", { name: "Add Member" }));
-    const inputs = screen.getAllByRole("textbox", { name: "Name" });
-    fireEvent.change(inputs[inputs.length - 1], { target: { value: "Lee" } });
+    fireEvent.change(screen.getByRole("combobox", { name: /New member/ }), {
+      target: { value: "Lee" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add member" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(names()).toEqual(["Lee"]);
@@ -121,13 +122,29 @@ describe("Capacity Planner example", () => {
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
   });
 
-  it("leaves a blank row, and offers the example again, when only example members were there", () => {
+  it("leaves an empty team, and offers the example again, when only example members were there", () => {
     render(<CapacityPlannerClient />);
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
 
-    expect(names()).toEqual([""]);
-    expect(members()[0].id.startsWith("example-")).toBe(false);
+    // No blank row: an unnamed row would count a full person's hours.
+    expect(screen.queryAllByRole("combobox", { name: "Name" })).toEqual([]);
+    expect(members()).toEqual([]);
     expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
+  });
+
+  it("still replaces an older plan's blank starter row", () => {
+    useWorkspaceStore.setState({
+      capacityPlans: [
+        {
+          id: CP_ID,
+          members: [{ id: "default:member-1", name: "", role: "", availability: 100, daysOff: 0 }],
+          config: CONFIG,
+        },
+      ],
+    });
+    render(<CapacityPlannerClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(names()).toEqual(["Priya", "Diego", "Mei", "Sam", "Amara"]);
   });
 });

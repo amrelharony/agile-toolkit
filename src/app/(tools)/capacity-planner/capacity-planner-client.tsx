@@ -1,186 +1,123 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect, useId } from "react";
+import { useMemo, useRef, useState, type ElementType } from "react";
 import Link from "next/link";
+import {
+  ArrowRight,
+  CalendarPlus,
+  Clock,
+  PieChart,
+  Plus,
+  RefreshCw,
+  Settings2,
+  Target,
+  UserCheck,
+  Users,
+  Zap,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { generateCapacityPrompts } from "@/lib/ai-prompts/capacity-planner";
-import { undoable } from "@/lib/utils/undoable";
-import { toast } from "@/lib/utils/toast";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { CAPACITY_ACTIONS } from "@/lib/history/event-actions";
-import { SectionCard } from "@/components/shared/section-card";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { CalloutAlert } from "@/components/shared/callout-alert";
+import { EmptyState } from "@/components/shared/empty-state";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SectionCard } from "@/components/shared/section-card";
+import { SmartInput } from "@/components/shared/smart-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import {
-  Users,
-  Plus,
-  Trash2,
-  Clock,
-  Zap,
-  UserCheck,
-  Settings2,
-  Target,
-  RefreshCw,
-} from "lucide-react";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { CapacityPlan } from "@/lib/stores/workspace-types";
-import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
-import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
-import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
-import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
-import { SmartInput } from "@/components/shared/smart-input";
+import { SprintPicker, nextSprintName } from "@/components/sprints/sprint-picker";
+import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
 import {
   ExampleNotice,
   LoadExampleButton,
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { generateCapacityPrompts } from "@/lib/ai-prompts/capacity-planner";
+import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
+import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
+import { enoughData } from "@/lib/analytics/min-sample";
+import { CAPACITY_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  CapacityMember,
+  CapacityPlan,
+  Sprint,
+  TeamMember,
+} from "@/lib/stores/workspace-types";
+import {
+  CAPACITY_PLAN_ID,
+  capacityPlanIdFor,
+  effectiveHours,
+  planCapacity,
+} from "@/lib/sprints/capacity";
+import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
+import { velocity as velocityOf } from "@/lib/sprints/metrics";
+import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
+import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
+import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
 import { buildExampleMembers } from "./example";
-import { effectiveHours } from "@/lib/sprints/capacity";
 import { toMarkdown } from "./markdown";
+import { MemberAddForm, MemberRow } from "./member-row";
+import {
+  MAX_SPRINT_DAYS,
+  capacityVerdict,
+  emptyPlan,
+  fmt,
+  forecastSentence,
+  hoursBreakdown,
+  isBlankMember,
+  lastPlanFor,
+  planFromSource,
+  sprintLength,
+  sprintLengthText,
+  type SprintLength,
+} from "./model";
+import { NumberField } from "./number-field";
 import { revertRosterSync, syncFromRoster, type RosterSyncResult } from "./roster-sync";
 
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                     */
-/* -------------------------------------------------------------------------- */
-
-interface TeamMember {
-  id: string;
-  name: string;
-  role: string;
-  description?: string;
-  availability: number; // 0-100
-  daysOff: number;
-  /** The Team page member this row is for; set by "Sync from team". */
-  teamMemberId?: string;
-}
-
-interface SprintConfig {
-  sprintDays: number;
-  ceremonyOverhead: number; // 0-100
-  focusFactor: number; // 0-1
-  hoursPerDay: number;
-  /**
-   * Optional planned commitment in story points for the next sprint. Surfaced
-   * via SmartInput with a Bayesian forecast as the default suggestion. Stored
-   * as a string so the input can be cleared without coercing to NaN/0 mid-edit.
-   */
-  pointsCommitted: string;
-}
-
-interface CapacityStore {
-  members: TeamMember[];
-  config: SprintConfig;
-  addMember: () => void;
-  removeMember: (id: string) => void;
-  updateMember: (id: string, updates: Partial<TeamMember>) => void;
-  updateConfig: (updates: Partial<SprintConfig>) => void;
-  reset: () => void;
-}
+const TOOL_ID = "capacity-planner";
+const NO_PLANS: CapacityPlan[] = [];
 
 /* -------------------------------------------------------------------------- */
-/*  Store                                                                     */
+/*  Plan documents                                                            */
 /* -------------------------------------------------------------------------- */
 
-const defaultConfig: SprintConfig = {
-  sprintDays: 10,
-  ceremonyOverhead: 15,
-  focusFactor: 0.8,
-  hoursPerDay: 8,
-  pointsCommitted: "",
-};
+// One synced CapacityPlan document per sprint (`capacityPlanIdFor`), and the
+// `capacity-planner:current` plan for a team with no sprints, which agents
+// still write (tool.capacity_planner.*). Every write reads the stored
+// document at that moment, so two tabs editing different rows don't clobber
+// each other.
 
-const createMember = (): TeamMember => ({
-  id: crypto.randomUUID(),
-  name: "",
-  role: "",
-  availability: 100,
-  daysOff: 0,
-});
-
-/** Deterministic ID for the first default member — guarantees server and
- *  client render the same DOM keys on first paint. User-added members
- *  get real UUIDs via `createMember()`. */
-const defaultFirstMember: TeamMember = {
-  id: "default:member-1",
-  name: "",
-  role: "",
-  availability: 100,
-  daysOff: 0,
-};
-
-// Capacity-planner state is now a singleton synced workspace document (was an
-// isolated localStorage store), so MCP-written plans round-trip into the UI.
-// `useCapacityStore` keeps the exact CapacityStore API the component consumes;
-// each mutator reads the freshest doc via getState() to avoid clobbering.
-// MUST match CP_ID in src/lib/actions/tools/capacity-planner.ts.
-const CP_ID = "capacity-planner:current";
-
-function defaultPlan(): CapacityPlan {
-  return { id: CP_ID, members: [defaultFirstMember], config: { ...defaultConfig } };
+function readPlan(id: string): CapacityPlan | undefined {
+  return (useWorkspaceStore.getState().capacityPlans ?? []).find((p) => p.id === id);
 }
 
-function currentPlan(): CapacityPlan {
-  return (
-    (useWorkspaceStore.getState().capacityPlans ?? []).find((p) => p.id === CP_ID) ?? defaultPlan()
-  );
-}
+const savePlan = (plan: CapacityPlan) => useWorkspaceStore.getState().upsertCapacityPlan(plan);
 
-function useCapacityStore(): CapacityStore {
-  const plan = useWorkspaceStore(
-    useShallow((s) => (s.capacityPlans ?? []).find((p) => p.id === CP_ID))
-  );
-  const upsert = useWorkspaceStore((s) => s.upsertCapacityPlan);
-  const cur = plan ?? defaultPlan();
-  return {
-    members: cur.members,
-    config: cur.config,
-    addMember: () =>
-      upsert({ ...currentPlan(), members: [...currentPlan().members, createMember()] }),
-    removeMember: (id) =>
-      upsert({ ...currentPlan(), members: currentPlan().members.filter((m) => m.id !== id) }),
-    updateMember: (id, updates) =>
-      upsert({
-        ...currentPlan(),
-        members: currentPlan().members.map((m) => (m.id === id ? { ...m, ...updates } : m)),
-      }),
-    updateConfig: (updates) =>
-      upsert({ ...currentPlan(), config: { ...currentPlan().config, ...updates } }),
-    reset: () => upsert({ id: CP_ID, members: [createMember()], config: { ...defaultConfig } }),
-  };
+/** `member` with `updates`, where an undefined value removes the field. */
+function withUpdates(member: CapacityMember, updates: Partial<CapacityMember>): CapacityMember {
+  const next = { ...member, ...updates };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) delete (next as Record<string, unknown>)[key];
+  }
+  return next;
 }
-// Non-reactive snapshot of members — used by the addMember log wrapper to read
-// the just-appended member synchronously after the upsert.
-useCapacityStore.getState = (): Pick<CapacityStore, "members"> => ({
-  members: currentPlan().members,
-});
-
-/* -- Undo helpers ---------------------------------------------------------- */
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
   const t = name.trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
-
-/** Put a removed member back at its old position; a no-op if already back. */
-function restoreMember(member: TeamMember, index: number) {
-  const plan = currentPlan();
-  if (plan.members.some((m) => m.id === member.id)) return;
-  const members = [...plan.members];
-  members.splice(Math.min(index, members.length), 0, member);
-  useWorkspaceStore.getState().upsertCapacityPlan({ ...plan, members });
-}
-
-/* -- Team roster ----------------------------------------------------------- */
 
 /** "Synced 3 people from the team", with what happened to which rows. */
 function syncToastText({ added, changed }: RosterSyncResult): {
@@ -203,50 +140,212 @@ function syncToastText({ added, changed }: RosterSyncResult): {
   };
 }
 
-/* -- Example --------------------------------------------------------------- */
-// Neither is logged: the example isn't the user's own work.
+/* -------------------------------------------------------------------------- */
+/*  Page                                                                      */
+/* -------------------------------------------------------------------------- */
 
-/** A member with nothing typed in: the blank row a fresh plan starts with. */
-function isBlankMember(m: TeamMember): boolean {
-  return !m.name.trim() && !m.role.trim() && !m.description?.trim();
+export function CapacityPlannerClient() {
+  const hydrated = useWorkspaceHydrated();
+  return (
+    <ToolPageWrapper
+      toolId={TOOL_ID}
+      title="Sprint Capacity Planner"
+      description="Calculate your team's effective sprint capacity based on availability, time off, ceremony overhead, and focus factor."
+      category="Sprint Planning & Estimation"
+    >
+      {hydrated ? (
+        <CapacityPlanner />
+      ) : (
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading the capacity plan…
+        </p>
+      )}
+    </ToolPageWrapper>
+  );
 }
 
-/** The example team, in place of the blank starter row. Settings are kept. */
-function loadExampleTeam() {
-  const plan = currentPlan();
-  useWorkspaceStore.getState().upsertCapacityPlan({
-    ...plan,
-    members: [...buildExampleMembers(), ...plan.members.filter((m) => !isBlankMember(m))],
-  });
-}
+/**
+ * Which plan is on screen: the selected sprint's own plan (one per sprint,
+ * so days off and holidays stay with their sprint), or the general plan when
+ * the team has no sprints yet. A sprint without a plan asks how to start;
+ * nothing is created until the user picks.
+ */
+function CapacityPlanner() {
+  const { sprints, selected, select } = useSelectedSprint();
+  const [cadence] = useCeremonyCadence();
+  const plans = useWorkspaceStore((s) => s.capacityPlans) ?? NO_PLANS;
+  const [creating, setCreating] = useState(false);
 
-/** The plan without its example members; an emptied plan gets a blank row, as after Reset. */
-function clearExampleTeam() {
-  const plan = currentPlan();
-  const members = plan.members.filter((m) => !isExampleId(m.id));
-  useWorkspaceStore.getState().upsertCapacityPlan({
-    ...plan,
-    members: members.length > 0 ? members : [createMember()],
-  });
+  const planId = capacityPlanIdFor(selected?.id);
+  const stored = plans.find((p) => p.id === planId);
+  const length = useMemo(() => sprintLength(selected, cadence), [selected, cadence]);
+  const velocity = useMemo(
+    () => averageVelocity(completedSprints(sprints), selected?.id),
+    [sprints, selected?.id]
+  );
+  const general = plans.find((p) => p.id === CAPACITY_PLAN_ID);
+  // Shown, not saved, until the first edit.
+  const generalDefault = useMemo(
+    () => emptyPlan(undefined, length.workingDays),
+    [length.workingDays]
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+        <SprintPicker
+          sprints={[...sprints]}
+          selectedId={selected?.id}
+          onSelect={select}
+          label="Plan for"
+          allowCreate={false}
+        />
+        <Button type="button" variant="outline" size="sm" onClick={() => setCreating(true)}>
+          <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+          New sprint
+        </Button>
+        <p className="min-w-0 basis-full text-xs text-sub sm:basis-auto sm:flex-1">
+          {selected
+            ? `One plan per sprint: Sprint Planning reads ${selected.name}'s plan for its forecast.`
+            : "Your general plan, not tied to a sprint. Create a sprint to keep one plan per sprint."}
+        </p>
+      </div>
+
+      {selected && !stored ? (
+        <StartPlan
+          sprint={selected}
+          sprints={sprints}
+          plans={plans}
+          length={length}
+          general={general}
+        />
+      ) : (
+        <PlanEditor
+          // A fresh editor per plan: drafts and the reset snapshot belong to one plan.
+          key={planId}
+          plan={stored ?? generalDefault}
+          sprint={selected}
+          sprints={sprints}
+          length={length}
+          velocity={velocity.average}
+        />
+      )}
+
+      <NewSprintDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={(sprint: Sprint) => select(sprint.id)}
+        defaultName={nextSprintName(sprints)}
+        defaultLengthDays={cadence.sprintLengthDays}
+      />
+    </div>
+  );
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Helpers                                                                   */
+/*  A sprint with no plan yet                                                 */
 /* -------------------------------------------------------------------------- */
 
-// The maths lives in ./capacity so Sprint Planning shows the same hours.
-function calcEffectiveHours(member: TeamMember, config: SprintConfig): number {
-  return effectiveHours(member, config);
+function StartPlan({
+  sprint,
+  sprints,
+  plans,
+  length,
+  general,
+}: {
+  sprint: Sprint;
+  sprints: Sprint[];
+  plans: CapacityPlan[];
+  length: SprintLength;
+  general: CapacityPlan | undefined;
+}) {
+  const { log } = useHistoryLogger(TOOL_ID);
+  const source = useMemo(() => lastPlanFor(plans, sprints, sprint), [plans, sprints, sprint]);
+  const generalHours =
+    general && general.members.some((m) => !isBlankMember(m))
+      ? planCapacity(general).totalHours
+      : null;
+  const days = `${length.workingDays} working ${length.workingDays === 1 ? "day" : "days"}`;
+
+  const start = (plan: CapacityPlan, how: string) => {
+    undoable({
+      label: `Started ${sprint.name}'s capacity plan`,
+      description: how,
+      apply: () => {
+        savePlan(plan);
+        log(CAPACITY_ACTIONS.CONFIG_UPDATED, { sprintId: sprint.id, started: how });
+      },
+      revert: () => useWorkspaceStore.getState().removeCapacityPlan(plan.id),
+    });
+  };
+
+  return (
+    <EmptyState
+      icon={CalendarPlus}
+      action={
+        <div className="flex flex-wrap justify-center gap-2">
+          {source && (
+            <Button
+              type="button"
+              onClick={() =>
+                start(
+                  planFromSource(source.plan, sprint.id, length.workingDays),
+                  `Copied from ${source.label}`
+                )
+              }
+            >
+              Start from your last plan
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant={source ? "outline" : "default"}
+            onClick={() => start(emptyPlan(sprint.id, length.workingDays), "Empty")}
+          >
+            Start empty
+          </Button>
+          {!source && (
+            <LoadExampleButton
+              onLoad={() =>
+                savePlan({
+                  ...emptyPlan(sprint.id, length.workingDays),
+                  members: buildExampleMembers(),
+                })
+              }
+            />
+          )}
+        </div>
+      }
+    >
+      <h2 className="font-display text-lg font-semibold text-text">
+        {sprint.name} has no capacity plan yet
+      </h2>
+      <p className="mx-auto mt-1 max-w-prose text-sm">
+        {source
+          ? `“Start from your last plan” copies ${source.label}: ${source.plan.members.filter((m) => !isBlankMember(m) && !isExampleId(m.id)).length} people, their availability and the settings. Days off start at 0, and the length comes from ${sprint.name} (${days}).`
+          : `Add who's on the team, their availability and days off. The length comes from ${sprint.name} (${days}).`}
+      </p>
+      {generalHours !== null && (
+        <p className="mx-auto mt-2 max-w-prose text-xs">
+          Until then, Sprint Planning uses your general plan ({fmt(generalHours)} hours).
+        </p>
+      )}
+    </EmptyState>
+  );
 }
 
-function round(value: number, decimals = 1): number {
-  const factor = Math.pow(10, decimals);
-  return Math.round(value * factor) / factor;
-}
+/* -------------------------------------------------------------------------- */
+/*  The plan                                                                  */
+/* -------------------------------------------------------------------------- */
 
-/* -------------------------------------------------------------------------- */
-/*  Sub-components                                                            */
-/* -------------------------------------------------------------------------- */
+const CONFIDENCE_TONE: Record<"high" | "medium" | "low", string> = {
+  high: "border-success/40 bg-success/10 text-success",
+  medium: "border-warning/40 bg-warning/10 text-warning",
+  low: "border-border bg-surface text-sub",
+};
 
 function SummaryCard({
   label,
@@ -257,19 +356,19 @@ function SummaryCard({
   label: string;
   value: string | number;
   unit?: string;
-  icon: React.ElementType;
+  icon: ElementType;
 }) {
   return (
-    <Card className="bg-surface border-border">
+    <Card className="border-border bg-surface">
       <CardContent className="p-5">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="p-2 rounded-lg bg-accent/10">
-            <Icon className="w-5 h-5 text-accent" />
+        <div className="mb-3 flex items-center gap-3">
+          <div className="rounded-lg bg-accent/10 p-2">
+            <Icon className="h-5 w-5 text-accent" aria-hidden="true" />
           </div>
           <span className="text-sm text-sub">{label}</span>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-3xl font-data font-bold text-text">{value}</span>
+          <span className="font-data text-3xl font-bold text-text">{value}</span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
         </div>
       </CardContent>
@@ -277,305 +376,99 @@ function SummaryCard({
   );
 }
 
-function ConfigField({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  suffix,
+function PlanEditor({
+  plan,
+  sprint,
+  sprints,
+  length,
+  velocity,
 }: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  suffix?: string;
+  /** The stored plan, or the general plan's unsaved default. */
+  plan: CapacityPlan;
+  sprint: Sprint | undefined;
+  sprints: Sprint[];
+  length: SprintLength;
+  velocity: number | null;
 }) {
-  // Lift the editing value into a local string draft and only commit on blur
-  // (or Enter). The previous handler called Number(raw) on every keystroke and
-  // a paste of "abc" — or a transient empty string while the user typed "0.5"
-  // — would coerce to 0/NaN and silently zero out the focus factor (and thus
-  // every team member's effective hours). Decimal entry like ".5" or "0.05"
-  // is also broken when each keystroke is parsed and clamped immediately.
-  const [draft, setDraft] = useState(String(value));
-  const inputId = useId();
-  useEffect(() => setDraft(String(value)), [value]);
+  const { members, config } = plan;
+  const { log } = useHistoryLogger(TOOL_ID);
+  const roster = useTeamRoster();
+  const exportRef = useRef<HTMLDivElement>(null);
+  const resetSnapshot = useRef<CapacityPlan | null>(null);
 
-  const commit = () => {
-    const n = Number(draft);
-    // `Number("")` is 0, not NaN, so an emptied field slips past the
-    // isFinite guard and commits 0 — zeroing the focus factor (and with it
-    // every member's effective hours and Total Capacity) straight into the
-    // synced workspace. Treat blank as invalid, like the burndown/burnup
-    // drafts do.
-    if (draft.trim() === "" || !Number.isFinite(n)) {
-      // Invalid input — revert the draft to the live value rather than zeroing
-      // a critical multiplier.
-      setDraft(String(value));
-      return;
-    }
-    let next = n;
-    if (typeof min === "number") next = Math.max(min, next);
-    if (typeof max === "number") next = Math.min(max, next);
-    onChange(next);
+  /** The plan as stored now; the unsaved default before the first edit. */
+  const current = () => readPlan(plan.id) ?? plan;
+  const write = (change: (p: CapacityPlan) => CapacityPlan) => savePlan(change(current()));
+
+  const addMember = (values: Omit<CapacityMember, "id">) => {
+    const member: CapacityMember = { id: crypto.randomUUID(), ...values };
+    write((p) => ({ ...p, members: [...p.members, member] }));
+    log(CAPACITY_ACTIONS.MEMBER_ADDED, { memberId: member.id, name: member.name });
   };
 
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={inputId} className="text-sub text-xs">
-        {label}
-      </Label>
-      <div className="relative">
-        <Input
-          id={inputId}
-          type="number"
-          inputMode="decimal"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-          min={min}
-          max={max}
-          step={step}
-          className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20 pr-10"
-        />
-        {suffix && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-sub pointer-events-none">
-            {suffix}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
+  /** Put a removed member back at their old position; a no-op if already back. */
+  const restoreMember = (member: CapacityMember, index: number) =>
+    write((p) => {
+      if (p.members.some((m) => m.id === member.id)) return p;
+      const next = [...p.members];
+      next.splice(Math.min(index, next.length), 0, member);
+      return { ...p, members: next };
+    });
 
-function MemberRow({
-  member,
-  effectiveHours,
-  onUpdate,
-  onRemove,
-  canRemove,
-}: {
-  member: TeamMember;
-  effectiveHours: number;
-  onUpdate: (updates: Partial<TeamMember>) => void;
-  onRemove: () => void;
-  canRemove: boolean;
-}) {
-  const fieldId = useId();
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="md:grid md:grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] md:gap-3 md:items-end">
-        <div className="grid grid-cols-2 gap-2 md:contents">
-          <div className="space-y-1.5 col-span-2">
-            <Label htmlFor={`${fieldId}-name`} className="text-sub text-xs">
-              Name
-            </Label>
-            <Input
-              id={`${fieldId}-name`}
-              placeholder="Team member"
-              value={member.name}
-              onChange={(e) => onUpdate({ name: e.target.value })}
-              className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
-            />
-          </div>
-
-          <div className="space-y-1.5 col-span-2">
-            <Label htmlFor={`${fieldId}-role`} className="text-sub text-xs">
-              Role
-            </Label>
-            <Input
-              id={`${fieldId}-role`}
-              placeholder="e.g. Developer"
-              value={member.role}
-              onChange={(e) => onUpdate({ role: e.target.value })}
-              className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor={`${fieldId}-availability`} className="text-sub text-xs">
-              Availability %
-            </Label>
-            <Input
-              id={`${fieldId}-availability`}
-              type="number"
-              min={0}
-              max={100}
-              value={member.availability}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n)) {
-                  onUpdate({ availability: Math.min(100, Math.max(0, n)) });
-                }
-              }}
-              className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor={`${fieldId}-days-off`} className="text-sub text-xs">
-              Days Off
-            </Label>
-            <Input
-              id={`${fieldId}-days-off`}
-              type="number"
-              min={0}
-              value={member.daysOff}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n)) {
-                  onUpdate({ daysOff: Math.max(0, n) });
-                }
-              }}
-              className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium leading-none text-sub">Eff. Hours</span>
-            <div className="h-9 flex items-center px-3 rounded-md bg-accent/5 border border-accent/20">
-              <span className="font-data font-semibold text-accent">{round(effectiveHours)}</span>
-            </div>
-          </div>
-
-          <div className="space-y-1.5 flex md:block flex-col items-end md:items-stretch">
-            <span className="text-xs font-medium leading-none text-sub invisible">Del</span>
-            <Button
-              variant="danger-ghost"
-              size="icon"
-              disabled={!canRemove}
-              onClick={onRemove}
-              aria-label={`Remove member ${member.name || "(unnamed)"}`}
-              className="h-9 w-9 disabled:opacity-30"
-            >
-              <Trash2 className="w-4 h-4" aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Optional description spans full row width below the inputs. */}
-      <Textarea
-        placeholder="Description (optional) — e.g. specialty, coverage notes..."
-        value={member.description ?? ""}
-        onChange={(e) =>
-          onUpdate({
-            description: e.target.value.trim() ? e.target.value : undefined,
-          })
-        }
-        rows={2}
-        className="bg-surface border-border resize-none text-xs text-text"
-        aria-label={`Description for ${member.name || "member"}`}
-      />
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Main Client Component                                                     */
-/* -------------------------------------------------------------------------- */
-
-export function CapacityPlannerClient() {
-  const {
-    members,
-    config,
-    addMember: addMemberRaw,
-    removeMember: removeMemberRaw,
-    updateMember,
-    updateConfig: updateConfigRaw,
-    reset: resetRaw,
-  } = useCapacityStore();
-  const { log } = useHistoryLogger("capacity-planner");
-
-  /* -- Velocity history (from workspace store, which the predictor also uses) */
-  const velocityHistory = useWorkspaceStore(
-    useShallow((s): number[] =>
-      s.sprints
-        .filter((sp) => sp.status === "completed" && Number.isFinite(sp.pointsCompleted))
-        .map((sp) => sp.pointsCompleted ?? 0)
-    )
-  );
-
-  const forecastConfidence = useMemo(
-    () => bayesianForecastConfidence(velocityHistory),
-    [velocityHistory]
-  );
-
-  const recentRegimeShift = useMemo(
-    () => hasRecentChangepoint(velocityHistory, 3),
-    [velocityHistory]
-  );
-
-  /* -- SmartInput predicted default for points-committed -------------------- */
-  const pointsCommittedPred = usePredictedDefault<number>("capacity-planner", "pointsCommitted", 0);
-
-  const addMember: typeof addMemberRaw = (...args) => {
-    addMemberRaw(...args);
-    const list = useCapacityStore.getState().members;
-    const created = list[list.length - 1];
-    log(CAPACITY_ACTIONS.MEMBER_ADDED, { memberId: created?.id, name: created?.name });
-  };
-  const removeMember: typeof removeMemberRaw = (id) => {
-    const index = members.findIndex((m) => m.id === id);
-    const member = members[index];
+  const removeMember = (id: string) => {
+    const list = current().members;
+    const index = list.findIndex((m) => m.id === id);
+    const member = list[index];
     if (!member) return;
     undoable({
       label: member.name.trim()
         ? `Removed “${shortName(member.name)}”`
         : "Removed an unnamed member",
       apply: () => {
-        removeMemberRaw(id);
+        write((p) => ({ ...p, members: p.members.filter((m) => m.id !== id) }));
         log(CAPACITY_ACTIONS.MEMBER_REMOVED, { memberId: id, name: member.name });
       },
       revert: () => restoreMember(member, index),
     });
   };
-  // Wrap updateConfig so config changes (sprintDays, ceremony, focus, hours)
-  // also surface in the history drawer — mirrors the burndown/burnup pattern.
-  const updateConfig: typeof updateConfigRaw = (updates) => {
-    updateConfigRaw(updates);
+
+  const updateMember = (id: string, updates: Partial<CapacityMember>) =>
+    write((p) => ({
+      ...p,
+      members: p.members.map((m) => (m.id === id ? withUpdates(m, updates) : m)),
+    }));
+
+  // Config changes (length, events, focus, hours) also go to the history drawer.
+  const updateConfig = (updates: Partial<CapacityPlan["config"]>) => {
+    write((p) => ({ ...p, config: { ...p.config, ...updates } }));
     log(CAPACITY_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
   };
-  const reset = () => {
-    const prev = currentPlan();
-    undoable({
-      label: "Reset the capacity plan",
-      apply: () => {
-        resetRaw();
-        log(CAPACITY_ACTIONS.CAPACITY_RESET, {});
-      },
-      revert: () => useWorkspaceStore.getState().upsertCapacityPlan(prev),
-    });
-  };
-  // Reset drops every member, so it asks first once anyone has been entered.
-  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+
   const hasMembers =
     members.length > 1 ||
     members.some((m) => m.name.trim() || m.role.trim() || m.description?.trim());
 
+  const loadExample = () =>
+    write((p) => ({
+      ...p,
+      members: [...buildExampleMembers(), ...p.members.filter((m) => !isBlankMember(m))],
+    }));
+
   const clearExample = () => {
-    const prev = currentPlan();
+    const prev = current();
     undoable({
       label: "Cleared the example",
-      apply: clearExampleTeam,
-      revert: () => useWorkspaceStore.getState().upsertCapacityPlan(prev),
+      apply: () => write((p) => ({ ...p, members: p.members.filter((m) => !isExampleId(m.id)) })),
+      revert: () => savePlan(prev),
     });
   };
 
   // "Sync from team": a row for everyone on the Team page that has none yet,
   // matched by teamMemberId or name. Never removes a row; a second run is a
   // no-op. One Undo takes back the whole sync (see revertRosterSync).
-  const roster = useTeamRoster();
-  const workspaceReady = useWorkspaceHydrated();
   const syncFromTeam = () => {
-    const plan = currentPlan();
-    const result = syncFromRoster(plan.members, useWorkspaceStore.getState().teamMembers ?? []);
+    const before = current();
+    const result = syncFromRoster(before.members, useWorkspaceStore.getState().teamMembers ?? []);
     if (result.added.length === 0 && result.changed.length === 0) {
       toast("Everyone on the team already has a row.");
       return;
@@ -585,7 +478,7 @@ export function CapacityPlannerClient() {
       label,
       description,
       apply: () => {
-        useWorkspaceStore.getState().upsertCapacityPlan({ ...plan, members: result.members });
+        savePlan({ ...before, members: result.members });
         for (const m of result.added) {
           log(CAPACITY_ACTIONS.MEMBER_ADDED, {
             memberId: m.id,
@@ -595,104 +488,87 @@ export function CapacityPlannerClient() {
           });
         }
       },
-      revert: () => {
-        const cur = currentPlan();
-        useWorkspaceStore
-          .getState()
-          .upsertCapacityPlan({ ...cur, members: revertRosterSync(cur.members, result) });
-      },
+      revert: () => write((p) => ({ ...p, members: revertRosterSync(p.members, result) })),
     });
   };
 
-  const exportRef = useRef<HTMLDivElement>(null);
+  const summary = useMemo(() => planCapacity(plan), [plan]);
+  const breakdown = useMemo(() => hoursBreakdown(plan), [plan]);
+  const hoursById = useMemo(
+    () => new Map(summary.perMember.map((m) => [m.id, m.effectiveHours])),
+    [summary]
+  );
+  const fullMemberHours = effectiveHours({ availability: 100, daysOff: 0 }, config);
 
-  const calculations = useMemo(() => {
-    const perMember = members.map((m) => ({
-      ...m,
-      effectiveHours: calcEffectiveHours(m, config),
-    }));
-    const totalHours = perMember.reduce((sum, m) => sum + m.effectiveHours, 0);
-    const avgAvailability =
-      members.length > 0 ? members.reduce((sum, m) => sum + m.availability, 0) / members.length : 0;
-    const totalDaysOff = members.reduce((sum, m) => sum + m.daysOff, 0);
-
-    return { perMember, totalHours, avgAvailability, totalDaysOff };
-  }, [members, config]);
-
-  /* -- Export data --------------------------------------------------------- */
+  /* -- Export --------------------------------------------------------------- */
 
   const csvData = useMemo(
     () => ({
       headers: ["Name", "Role", "Description", "Availability %", "Days Off", "Effective Hours"],
-      rows: calculations.perMember.map((m) => [
+      rows: members.map((m, i) => [
         m.name || "(unnamed)",
         m.role || "(no role)",
         m.description ?? "",
         m.availability,
         m.daysOff,
-        round(m.effectiveHours),
+        summary.perMember[i].effectiveHours,
       ]),
     }),
-    [calculations.perMember]
+    [members, summary]
   );
 
   const jsonData = useMemo(
     () => ({
+      sprintId: sprint?.id,
       sprintConfig: config,
-      members: calculations.perMember.map((m) => ({
+      members: members.map((m, i) => ({
         name: m.name || "(unnamed)",
         role: m.role || "(no role)",
         description: m.description,
         availability: m.availability,
         daysOff: m.daysOff,
-        effectiveHours: round(m.effectiveHours),
+        effectiveHours: summary.perMember[i].effectiveHours,
       })),
-      totalCapacityHours: round(calculations.totalHours),
+      totalCapacityHours: summary.totalHours,
     }),
-    [config, calculations]
+    [sprint?.id, config, members, summary]
   );
 
-  const clipboardText = useMemo(() => {
-    const lines = [
-      `Sprint Capacity Planner`,
-      `Sprint: ${config.sprintDays} days | Ceremony: ${config.ceremonyOverhead}% | Focus: ${config.focusFactor} | Hours/day: ${config.hoursPerDay}`,
-      ``,
-      ...calculations.perMember.map(
-        (m) =>
-          `${m.name || "(unnamed)"} (${m.role || "N/A"}) - ${m.availability}% avail, ${m.daysOff} days off => ${round(m.effectiveHours)}h`
-      ),
-      ``,
-      `Total Capacity: ${round(calculations.totalHours)} hours`,
-    ];
-    return lines.join("\n");
-  }, [config, calculations]);
+  const clipboardText = useMemo(
+    () =>
+      [
+        sprint ? `Sprint Capacity Planner — ${sprint.name}` : "Sprint Capacity Planner",
+        `Sprint: ${config.sprintDays} days | Ceremony: ${config.ceremonyOverhead}% | Focus: ${config.focusFactor} | Hours/day: ${config.hoursPerDay}`,
+        "",
+        ...members.map(
+          (m, i) =>
+            `${m.name || "(unnamed)"} (${m.role || "N/A"}) - ${m.availability}% avail, ${m.daysOff} days off => ${summary.perMember[i].effectiveHours}h`
+        ),
+        "",
+        `Total Capacity: ${summary.totalHours} hours`,
+      ].join("\n"),
+    [sprint, config, members, summary]
+  );
 
-  const markdown = useMemo(() => toMarkdown({ members, config }), [members, config]);
+  const markdown = useMemo(
+    () => toMarkdown({ members, config, sprintName: sprint?.name, velocity }),
+    [members, config, sprint?.name, velocity]
+  );
 
   const promptConfig = useMemo(
-    () => ({
-      toolName: "Capacity Planner",
-      prompts: generateCapacityPrompts({ members, config }),
-    }),
+    () => ({ toolName: "Capacity Planner", prompts: generateCapacityPrompts({ members, config }) }),
     [members, config]
   );
 
-  /* -- Render ------------------------------------------------------------- */
-
   return (
-    <ToolPageWrapper
-      toolId="capacity-planner"
-      title="Sprint Capacity Planner"
-      description="Calculate your team's effective sprint capacity based on availability, time off, ceremony overhead, and focus factor."
-      category="Sprint Planning & Estimation"
-    >
+    <div className="space-y-6">
       {hasExampleItems(members) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-6">
-        {/* ---- Summary Cards ---- */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* ---- Summary ---- */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard
             label="Total Capacity"
-            value={round(calculations.totalHours)}
+            value={fmt(summary.totalHours)}
             unit="hours"
             icon={Zap}
           />
@@ -704,292 +580,199 @@ export function CapacityPlannerClient() {
           />
           <SummaryCard
             label="Avg Availability"
-            value={round(calculations.avgAvailability)}
+            value={fmt(summary.avgAvailability)}
             unit="%"
             icon={UserCheck}
           />
           <SummaryCard
             label="Total Days Off"
-            value={calculations.totalDaysOff}
+            value={fmt(summary.totalDaysOff)}
             unit="days"
             icon={Clock}
           />
         </div>
 
-        {/* ---- Velocity regime-shift advisory ---- */}
-        {recentRegimeShift && velocityHistory.length >= 5 && (
-          <CalloutAlert tone="warning">
-            <div>
-              <div className="font-semibold mb-0.5 text-text">
-                Recent regime shift in velocity detected
-              </div>
-              <div className="text-sub">
-                CUSUM flagged a changepoint in the last few sprints — historical commitments may not
-                be representative. Trim the sample to the post-shift window before relying on the
-                suggested commitment.
-              </div>
-            </div>
-          </CalloutAlert>
-        )}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <HoursBreakdownCard breakdown={breakdown} config={config} />
+          <ForecastCard plan={plan} sprint={sprint} sprints={sprints} velocity={velocity} />
+        </div>
 
-        {/* ---- Sprint Configuration ---- */}
+        {/* ---- Sprint configuration ---- */}
         <SectionCard
           title="Sprint Configuration"
           icon={Settings2}
           titleSize="lg"
           headerClassName="pb-4"
         >
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <ConfigField
-              label="Sprint Length"
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <NumberField
+              label="Sprint length"
               value={config.sprintDays}
-              onChange={(v) => updateConfig({ sprintDays: v })}
-              min={1}
-              max={30}
+              onCommit={(v) => updateConfig({ sprintDays: v })}
+              rule={{
+                name: "sprint length",
+                min: 1,
+                max: MAX_SPRINT_DAYS,
+                unit: " days",
+                one: " day",
+              }}
               step={1}
               suffix="days"
+              hint={
+                <SprintLengthHint
+                  length={length}
+                  sprintName={sprint?.name}
+                  current={config.sprintDays}
+                  onUse={() => updateConfig({ sprintDays: length.workingDays })}
+                />
+              }
             />
-            <ConfigField
-              label="Ceremony Overhead"
+            <NumberField
+              label="Ceremony overhead"
               value={config.ceremonyOverhead}
-              onChange={(v) => updateConfig({ ceremonyOverhead: v })}
-              min={0}
-              max={100}
+              onCommit={(v) => updateConfig({ ceremonyOverhead: v })}
+              rule={{ name: "ceremony overhead", min: 0, max: 100, unit: "%" }}
               step={1}
               suffix="%"
+              hint="Time in the Scrum events: planning, daily, refinement, review, retro."
             />
-            <ConfigField
-              label="Focus Factor"
+            <NumberField
+              label="Focus factor"
               value={config.focusFactor}
-              onChange={(v) => updateConfig({ focusFactor: v })}
-              min={0}
-              max={1}
+              onCommit={(v) => updateConfig({ focusFactor: v })}
+              rule={{ name: "focus factor", min: 0, max: 1 }}
               step={0.05}
+              hint="The share of the hours left after the events that goes to sprint work. It covers everything else: support, other meetings, switching."
             />
-            <ConfigField
-              label="Hours per Day"
+            <NumberField
+              label="Hours per day"
               value={config.hoursPerDay}
-              onChange={(v) => updateConfig({ hoursPerDay: v })}
-              min={1}
-              max={24}
+              onCommit={(v) => updateConfig({ hoursPerDay: v })}
+              rule={{
+                name: "length of a working day",
+                min: 1,
+                max: 24,
+                unit: " hours",
+                one: " hour",
+              }}
               step={0.5}
               suffix="hrs"
             />
           </div>
-
-          {/* SmartInput — points committed (next sprint). */}
-          <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label
-                htmlFor="capacity-points-committed"
-                className="text-sub text-xs flex items-center gap-1.5"
-              >
-                <Target className="w-3.5 h-3.5" aria-hidden="true" />
-                Points Committed (next sprint)
-              </Label>
-              <SmartInput<number>
-                predicted={pointsCommittedPred}
-                onAccept={(v) => updateConfig({ pointsCommitted: String(v) })}
-                render={({ ghost, chip, accept }) => (
-                  <div>
-                    <Input
-                      id="capacity-points-committed"
-                      type="number"
-                      min={0}
-                      value={config.pointsCommitted ?? ""}
-                      placeholder={ghost ?? "e.g. 30"}
-                      onKeyDown={(e) => {
-                        if (e.key === "Tab" && (config.pointsCommitted ?? "") === "") {
-                          e.preventDefault();
-                          accept();
-                        }
-                      }}
-                      onChange={(e) => updateConfig({ pointsCommitted: e.target.value })}
-                      className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                    />
-                    {chip}
-                  </div>
-                )}
-              />
-            </div>
-
-            {/* Forecast-confidence chip — sourced from Bayesian shrinkage on the
-                velocity history. Only shown when there's a non-trivial sample. */}
-            {velocityHistory.length > 0 && (
-              <div className="space-y-1.5">
-                <span className="text-xs font-medium leading-none text-sub">
-                  Forecast confidence
-                </span>
-                <div
-                  className="h-9 inline-flex items-center px-3 rounded-md border text-xs font-mono uppercase tracking-wider"
-                  style={{
-                    color:
-                      forecastConfidence === "high"
-                        ? "#22c55e"
-                        : forecastConfidence === "medium"
-                          ? "#eab308"
-                          : "#94a3b8",
-                    borderColor:
-                      forecastConfidence === "high"
-                        ? "rgba(34,197,94,0.4)"
-                        : forecastConfidence === "medium"
-                          ? "rgba(234,179,8,0.4)"
-                          : "rgba(148,163,184,0.4)",
-                    background:
-                      forecastConfidence === "high"
-                        ? "rgba(34,197,94,0.08)"
-                        : forecastConfidence === "medium"
-                          ? "rgba(234,179,8,0.08)"
-                          : "rgba(148,163,184,0.08)",
-                  }}
-                  title={`Bayesian forecast confidence based on ${velocityHistory.length} completed sprint${velocityHistory.length === 1 ? "" : "s"}`}
-                >
-                  {forecastConfidence}
-                </div>
-              </div>
-            )}
-          </div>
+          <PointsCommitted
+            value={config.pointsCommitted ?? ""}
+            label={sprint ? `Points committed to ${sprint.name}` : "Points committed (next sprint)"}
+            onChange={(pointsCommitted) => updateConfig({ pointsCommitted })}
+          />
         </SectionCard>
 
-        {/* ---- Team Members ---- */}
+        {/* ---- Team members ---- */}
         <SectionCard
           title="Team Members"
           icon={Users}
           titleSize="lg"
           headerClassName="pb-4"
-          contentClassName="space-y-3"
+          contentClassName="space-y-4"
           actions={
             <>
               <AiPromptGenerator config={promptConfig} />
               <ExportButton
-                filename="sprint-capacity"
+                filename={sprint ? `sprint-capacity-${sprint.name}` : "sprint-capacity"}
                 clipboardText={clipboardText}
                 csvData={csvData}
                 jsonData={jsonData}
                 markdown={markdown}
                 targetRef={exportRef}
               />
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={() => (hasMembers ? setConfirmResetOpen(true) : reset())}
-              >
-                Reset
-              </Button>
-              {workspaceReady && roster.length === 0 ? (
-                // Nothing to sync yet: send them to where the team is set up.
-                <Button asChild size="sm" variant="ghost" className="gap-1.5">
-                  <Link href="/team" title="Add your team once and sync it here">
-                    <Users className="w-4 h-4" aria-hidden="true" />
-                    Set up team
-                  </Link>
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={syncFromTeam}
-                  disabled={roster.length === 0}
-                  title="Add a row for everyone on the Team page"
-                  className="gap-1.5"
-                >
-                  <RefreshCw className="w-4 h-4" aria-hidden="true" />
-                  Sync from team
-                </Button>
-              )}
-              <Button size="sm" variant="toolkit" onClick={addMember} className="gap-1.5">
-                <Plus className="w-4 h-4" />
-                Add Member
-              </Button>
             </>
           }
         >
-          {!hasMembers && (
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-sub">
-              <p className="min-w-0 flex-1">
-                No team yet. Add each member&apos;s availability and days off to see the
-                sprint&apos;s real capacity.
-              </p>
-              <LoadExampleButton onLoad={loadExampleTeam} />
-            </div>
-          )}
-
-          {/* Column headers (visible on md+) */}
-          <div className="hidden md:grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 px-1 pb-1 border-b border-border">
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">Name</span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">Role</span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Availability
-            </span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">Days Off</span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Eff. Hours
-            </span>
-            <span className="w-9" />
+          {/* In the body, not the card's header: several buttons in a row don't fit a phone. */}
+          <div className="flex flex-wrap gap-2">
+            <SyncButton roster={roster} onSync={syncFromTeam} />
+            <ResetButton
+              variant="danger-ghost"
+              title="Reset the capacity plan?"
+              description={`All ${members.length} team member${members.length === 1 ? " is" : "s are"} removed and the sprint settings go back to their defaults.`}
+              confirmLabel="Reset plan"
+              doneLabel="Reset the capacity plan"
+              onReset={() => {
+                resetSnapshot.current = current();
+                savePlan(emptyPlan(sprint?.id, length.workingDays));
+                log(CAPACITY_ACTIONS.CAPACITY_RESET, sprint ? { sprintId: sprint.id } : {});
+              }}
+              onUndo={() => {
+                if (resetSnapshot.current) savePlan(resetSnapshot.current);
+              }}
+            />
           </div>
 
-          {calculations.perMember.map((m) => (
+          {!hasMembers && (
+            <EmptyState padding="md" action={<LoadExampleButton onLoad={loadExample} />}>
+              No team yet. Add each member&apos;s availability and days off to see the sprint&apos;s
+              real capacity.
+            </EmptyState>
+          )}
+
+          {members.map((m) => (
             <MemberRow
               key={m.id}
               member={m}
-              effectiveHours={m.effectiveHours}
+              effectiveHours={hoursById.get(m.id) ?? 0}
+              sprintDays={config.sprintDays}
+              roster={roster}
               onUpdate={(updates) => updateMember(m.id, updates)}
               onRemove={() => removeMember(m.id)}
-              canRemove={members.length > 1}
             />
           ))}
 
-          {/* Total bar */}
-          <div className="mt-4 pt-4 border-t border-border flex items-center justify-between px-1">
+          <MemberAddForm sprintDays={config.sprintDays} roster={roster} onAdd={addMember} />
+
+          <div className="flex items-center justify-between border-t border-border px-1 pt-4">
             <span className="text-sm font-medium text-sub">Sprint Total</span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-data font-bold text-accent">
-                {round(calculations.totalHours)}
+              <span className="font-data text-2xl font-bold text-accent">
+                {fmt(summary.totalHours)}
               </span>
               <span className="text-sm text-sub">hours</span>
             </div>
           </div>
         </SectionCard>
 
-        {/* ---- Per-person Breakdown Cards ---- */}
-        {calculations.perMember.some((m) => m.name) && (
+        {/* ---- Per-person breakdown ---- */}
+        {members.some((m) => m.name) && (
           <div>
-            <h2 className="text-lg font-display font-semibold text-text mb-4">
+            <h2 className="mb-4 font-display text-lg font-semibold text-text">
               Per-Person Breakdown
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {calculations.perMember
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {members
                 .filter((m) => m.name)
                 .map((m) => {
-                  const maxHours =
-                    config.sprintDays *
-                    config.hoursPerDay *
-                    config.focusFactor *
-                    (1 - config.ceremonyOverhead / 100);
-                  const pct = maxHours > 0 ? (m.effectiveHours / maxHours) * 100 : 0;
-
+                  const hours = hoursById.get(m.id) ?? 0;
+                  // Share of what a fully available person with no days off gets.
+                  const pct = fullMemberHours > 0 ? (hours / fullMemberHours) * 100 : 0;
                   return (
-                    <Card key={m.id} className="bg-surface border-border">
+                    <Card key={m.id} className="border-border bg-surface">
                       <CardContent className="p-4">
-                        <div className="flex items-start justify-between mb-2 gap-2">
+                        <div className="mb-2 flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-text">{m.name}</p>
                             {m.role && <p className="text-xs text-sub">{m.role}</p>}
                             {m.description && (
-                              <p className="text-sub text-xs mt-0.5 mb-0.5 whitespace-pre-wrap break-words">
+                              <p className="mb-0.5 mt-0.5 whitespace-pre-wrap break-words text-xs text-sub">
                                 {m.description}
                               </p>
                             )}
                           </div>
-                          <span className="text-xl font-data font-bold text-accent shrink-0">
-                            {round(m.effectiveHours)}h
+                          <span className="shrink-0 font-data text-xl font-bold text-accent">
+                            {fmt(hours)}h
                           </span>
                         </div>
-                        {/* Capacity bar */}
                         <div
-                          className="w-full h-2 rounded-full bg-card overflow-hidden"
+                          className="h-2 w-full overflow-hidden rounded-full bg-card"
                           role="progressbar"
-                          aria-label={`${m.name || "Member"} capacity utilisation`}
+                          aria-label={`${m.name}: share of a full sprint`}
                           aria-valuenow={Math.round(Math.min(pct, 100))}
                           aria-valuemin={0}
                           aria-valuemax={100}
@@ -999,7 +782,7 @@ export function CapacityPlannerClient() {
                             style={{ width: `${Math.min(pct, 100)}%` }}
                           />
                         </div>
-                        <div className="flex items-center justify-between mt-1.5 text-xs text-sub">
+                        <div className="mt-1.5 flex items-center justify-between text-xs text-sub">
                           <span>{m.availability}% avail</span>
                           <span>
                             {m.daysOff} day{m.daysOff !== 1 ? "s" : ""} off
@@ -1013,15 +796,270 @@ export function CapacityPlannerClient() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
 
-      <ConfirmDialog
-        open={confirmResetOpen}
-        onOpenChange={setConfirmResetOpen}
-        title="Reset the capacity plan?"
-        description={`All ${members.length} team member${members.length === 1 ? " is" : "s are"} removed and the sprint settings go back to their defaults.`}
-        confirmLabel="Reset plan"
-        onConfirm={reset}
+/** "Sync from team", or a link to set the team up while the roster is empty. */
+function SyncButton({ roster, onSync }: { roster: readonly TeamMember[]; onSync: () => void }) {
+  if (roster.length === 0) {
+    return (
+      <Button asChild size="sm" variant="ghost" className="gap-1.5">
+        <Link href="/team" title="Add your team once and sync it here">
+          <Users className="h-4 w-4" aria-hidden="true" />
+          Set up team
+        </Link>
+      </Button>
+    );
+  }
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onSync}
+      title="Add a row for everyone on the Team page"
+      className="gap-1.5"
+    >
+      <RefreshCw className="h-4 w-4" aria-hidden="true" />
+      Sync from team
+    </Button>
+  );
+}
+
+/** Where the sprint length came from, with "Use N days" when the plan says otherwise. */
+function SprintLengthHint({
+  length,
+  sprintName,
+  current,
+  onUse,
+}: {
+  length: SprintLength;
+  sprintName?: string;
+  current: number;
+  onUse: () => void;
+}) {
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <span>{sprintLengthText(length, sprintName)}</span>
+      {current !== length.workingDays && (
+        <button
+          type="button"
+          onClick={onUse}
+          className="min-touch-coarse rounded text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Use {length.workingDays} {length.workingDays === 1 ? "day" : "days"}
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** From full time to capacity, one deduction per line, with the verdict on top. */
+function HoursBreakdownCard({
+  breakdown: b,
+  config,
+}: {
+  breakdown: ReturnType<typeof hoursBreakdown>;
+  config: CapacityPlan["config"];
+}) {
+  const rows: [string, number][] = [
+    [`Days off (${fmt(b.daysOff)} ${b.daysOff === 1 ? "day" : "days"})`, b.daysOffHours],
+    ["Time away from the team (availability)", b.availabilityHours],
+    [
+      `Scrum events (${fmt(config.ceremonyOverhead)}% of the hours people are here)`,
+      b.ceremonyHours,
+    ],
+    [
+      `Other interruptions (focus factor ${config.focusFactor} of what's left)`,
+      b.interruptionHours,
+    ],
+  ];
+  return (
+    <SectionCard title="Where the hours go" icon={PieChart}>
+      <p className="mb-3 text-sm font-medium text-text" data-field="verdict">
+        {capacityVerdict(b)}
+      </p>
+      <table className="w-full text-sm">
+        <caption className="sr-only">
+          Hours from full time down to the sprint&apos;s capacity
+        </caption>
+        <tbody className="divide-y divide-border">
+          <tr>
+            <th scope="row" className="py-1.5 pr-3 text-left font-normal text-text">
+              Full time ({b.people} × {fmt(b.sprintDays)} days × {fmt(b.hoursPerDay)} h)
+            </th>
+            <td className="py-1.5 text-right font-data text-text">{fmt(b.fullTime)}</td>
+          </tr>
+          {rows.map(([label, hours]) => (
+            <tr key={label}>
+              <th scope="row" className="py-1.5 pr-3 text-left font-normal text-sub">
+                − {label}
+              </th>
+              <td className="py-1.5 text-right font-data text-sub">
+                {hours > 0 ? `−${fmt(hours)}` : "0"}
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <th scope="row" className="py-1.5 pr-3 text-left font-semibold text-text">
+              Capacity for sprint work
+            </th>
+            <td className="py-1.5 text-right font-data font-semibold text-accent">
+              {fmt(b.capacity)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="mt-3 text-xs text-sub">
+        The focus factor applies to the hours left after the Scrum events, so the events aren&apos;t
+        counted twice.
+      </p>
+    </SectionCard>
+  );
+}
+
+/** The points this capacity suggests, the way to Sprint Planning, and the velocity checks. */
+function ForecastCard({
+  plan,
+  sprint,
+  sprints,
+  velocity,
+}: {
+  plan: CapacityPlan;
+  sprint: Sprint | undefined;
+  sprints: Sprint[];
+  velocity: number | null;
+}) {
+  // Every finished sprint, oldest first by end date, for the checks below.
+  const history = useMemo(
+    () => velocityOf(sprints, { window: Number.POSITIVE_INFINITY }).points,
+    [sprints]
+  );
+  const confident = enoughData(history.length, "forecast");
+  const confidence = confident ? bayesianForecastConfidence(history) : null;
+  const shifted = enoughData(history.length, "changePoint") && hasRecentChangepoint(history, 3);
+
+  return (
+    <SectionCard title="Points forecast" icon={Target}>
+      <p className="text-sm text-text" data-field="forecast">
+        {forecastSentence(plan, velocity)}
+      </p>
+      {shifted && (
+        <p className="mt-2 text-xs text-sub">
+          Velocity shifted in the last few sprints, so weigh the forecast with care (see the
+          velocity checks below).
+        </p>
+      )}
+      <Link
+        href={sprintHref("/sprint-planning", sprint?.id)}
+        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+      >
+        {sprint ? `Plan ${sprint.name} in Sprint Planning` : "Open Sprint Planning"}
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+      </Link>
+      <AdvancedAnalysis summary="Velocity checks" className="mt-4">
+        {confidence ? (
+          <div className="space-y-1.5">
+            <span className="text-xs font-medium text-sub">Forecast confidence</span>
+            <div
+              className={cn(
+                "inline-flex h-9 items-center rounded-md border px-3 font-mono text-xs uppercase tracking-wider",
+                CONFIDENCE_TONE[confidence]
+              )}
+              title={`Bayesian forecast confidence from ${history.length} finished sprints`}
+            >
+              {confidence}
+            </div>
+            <p className="text-xs text-sub">
+              How steady velocity has been across {history.length} finished sprints.
+            </p>
+          </div>
+        ) : (
+          <NotEnoughData
+            have={history.length}
+            need="forecast"
+            unit={["finished sprint", "finished sprints"]}
+            action="Finish"
+            what="how steady the forecast is"
+          />
+        )}
+        {enoughData(history.length, "changePoint") ? (
+          shifted ? (
+            <CalloutAlert tone="warning">
+              <div>
+                <div className="mb-0.5 font-semibold text-text">
+                  Recent regime shift in velocity detected
+                </div>
+                <div className="text-sub">
+                  CUSUM flagged a changepoint in the last few sprints, so older sprints may not be
+                  representative. Lean on the sprints since the shift before relying on the
+                  forecast.
+                </div>
+              </div>
+            </CalloutAlert>
+          ) : (
+            <p className="text-xs text-sub">
+              No recent shift in velocity: the last sprints look like the ones before.
+            </p>
+          )
+        ) : (
+          <NotEnoughData
+            have={history.length}
+            need="changePoint"
+            unit={["finished sprint", "finished sprints"]}
+            action="Finish"
+            what="whether velocity has shifted"
+          />
+        )}
+      </AdvancedAnalysis>
+    </SectionCard>
+  );
+}
+
+/** The commitment typed for the sprint, with the predicted default as a ghost value. */
+function PointsCommitted({
+  value,
+  label,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  onChange: (value: string) => void;
+}) {
+  const predicted = usePredictedDefault<number>(TOOL_ID, "pointsCommitted", 0);
+  return (
+    <div className="mt-5 max-w-sm space-y-1.5">
+      <Label
+        htmlFor="capacity-points-committed"
+        className="flex items-center gap-1.5 text-sm text-text"
+      >
+        <Target className="h-3.5 w-3.5" aria-hidden="true" />
+        {label}
+      </Label>
+      <SmartInput<number>
+        predicted={predicted}
+        onAccept={(v) => onChange(String(v))}
+        render={({ ghost, chip, accept }) => (
+          <div>
+            <Input
+              id="capacity-points-committed"
+              type="number"
+              min={0}
+              value={value}
+              placeholder={ghost ?? "e.g. 30"}
+              onKeyDown={(e) => {
+                if (e.key === "Tab" && value === "") {
+                  e.preventDefault();
+                  accept();
+                }
+              }}
+              onChange={(e) => onChange(e.target.value)}
+              className="font-data"
+            />
+            {chip}
+          </div>
+        )}
       />
-    </ToolPageWrapper>
+    </div>
   );
 }
