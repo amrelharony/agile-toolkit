@@ -6,19 +6,45 @@
  * incoming realtime state-sync payloads.
  */
 
+import { scales } from "@/lib/constants/scales";
+
+/** Part of the session payload: guests on any build validate it against these three. */
 export type ScaleType = "fibonacci" | "tshirt" | "custom";
 
+/**
+ * The Estimation Guide's scale each deck is built from, so the two tools
+ * share one list of values and Poker can show the guide's notes for a card.
+ */
+export const GUIDE_SCALE: Record<Exclude<ScaleType, "custom">, string> = {
+  fibonacci: "Fibonacci",
+  tshirt: "T-Shirt",
+};
+
+/** A guide scale's values as cards. */
+function cardsOf(name: string): string[] {
+  return (scales.find((s) => s.name === name)?.values ?? []).map(String);
+}
+
+/**
+ * The decks. Values come from `lib/constants/scales`; Poker adds its
+ * "can't estimate" cards ("?" and, on Fibonacci, "∞" for too big). The
+ * result is the same deck sessions have always used, so a stored or
+ * broadcast session (which carries its own `scale`) reads the same.
+ */
 export const SCALES: Record<ScaleType, string[]> = {
-  fibonacci: ["1", "2", "3", "5", "8", "13", "21", "?", "∞"],
-  tshirt: ["XS", "S", "M", "L", "XL", "XXL", "?"],
+  fibonacci: [...cardsOf(GUIDE_SCALE.fibonacci), "?", "∞"],
+  tshirt: [...cardsOf(GUIDE_SCALE.tshirt), "?"],
   custom: [],
 };
 
 export const SCALE_LABELS: Record<ScaleType, string> = {
-  fibonacci: "Fibonacci",
-  tshirt: "T-Shirt",
+  fibonacci: GUIDE_SCALE.fibonacci,
+  tshirt: GUIDE_SCALE.tshirt,
   custom: "Custom",
 };
+
+/** The lobby's starting custom deck: the guide's Powers of 2. */
+export const DEFAULT_CUSTOM_DECK = cardsOf("Powers of 2").join(", ");
 
 export interface Participant {
   id: string;

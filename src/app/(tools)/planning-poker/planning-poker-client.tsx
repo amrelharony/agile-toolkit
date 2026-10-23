@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ListChecks, Loader2, Radio, WifiOff } from "lucide-react";
+import { WifiOff } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generatePlanningPokerPrompts } from "@/lib/ai-prompts/planning-poker";
@@ -10,7 +10,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Story, Workspace } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
@@ -19,10 +19,6 @@ import {
   takeQueuedStories,
   writeBackPokerEstimate,
 } from "@/lib/handoffs/poker-writeback";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { SectionCard } from "@/components/shared/section-card";
 import { ExportButton } from "@/components/shared/export-button";
 import { SessionShareButton } from "@/components/collab/session-share-button";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
@@ -36,11 +32,7 @@ import {
   visitorRoomsEnabled,
   type VisitorIdentity,
 } from "@/lib/realtime/visitor-rooms";
-import {
-  ExampleNotice,
-  LoadExampleButton,
-  isExampleId,
-} from "@/components/tool-frame/example-data";
+import { ExampleNotice, isExampleId } from "@/components/tool-frame/example-data";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
 import { PokerRoomBar } from "./poker-room-bar";
@@ -49,15 +41,15 @@ import {
   adoptLocalSession,
   clearLocalSession,
   loadLocalSession,
+  loadQueuedStoryIds,
   saveLocalSession,
+  saveQueuedStoryIds,
 } from "./local-session";
-import { SCALES, SCALE_LABELS, type ScaleType, type Session } from "./types";
-import {
-  DEFAULT_DISPLAY_NAME,
-  DEFAULT_SESSION_NAME,
-  buildExample,
-  isExampleSession,
-} from "./example";
+import { SCALE_LABELS, type Session } from "./types";
+import { DEFAULT_SESSION_NAME, buildExample, isExampleSession } from "./example";
+import { LobbyScreen, type StartData } from "./lobby-screen";
+import { planBacklogSave, planSize, savedCount } from "./backlog";
+import { useCardReferences } from "./use-card-references";
 import { toMarkdown } from "./markdown";
 import { generateRoomCode } from "./room-code";
 
@@ -69,218 +61,6 @@ function shortName(name: string, max = 40): string {
 
 const ROOM_TTL_HOURS = Math.round(VISITOR_LIMITS.hardTtlMs / 3_600_000);
 const ROOM_IDLE_MINUTES = Math.round(VISITOR_LIMITS.idleMs / 60_000);
-
-// ─── Lobby ───────────────────────────────────────────────────────────
-interface StartData {
-  sessionName: string;
-  scale: string[];
-  scaleType: ScaleType;
-  displayName: string;
-  /** Open the session with the queued stories already in it. */
-  fromQueue?: boolean;
-}
-
-function LobbyScreen({
-  onStart,
-  onLoadExample,
-  isOwner,
-  queuedCount = 0,
-  onStartLive,
-  liveRoomPending = false,
-  onCancelLive,
-}: {
-  onStart: (data: StartData) => void;
-  /** Omitted until auth settles, so the example can't beat a stored
-   *  session to the restore. */
-  onLoadExample?: () => void;
-  isOwner: boolean;
-  /** Stories other tools queued for estimation (Story Mapper). */
-  queuedCount?: number;
-  /** Visitors with live rooms switched on: start a visitor live room with
-   *  this form's settings (asks for consent first). Omitted otherwise. */
-  onStartLive?: (data: StartData) => void;
-  /** A live room is opening and hasn't connected yet. */
-  liveRoomPending?: boolean;
-  onCancelLive?: () => void;
-}) {
-  const [sessionName, setSessionName] = useState(DEFAULT_SESSION_NAME);
-  const [scaleType, setScaleType] = useState<ScaleType>("fibonacci");
-  const [customInput, setCustomInput] = useState("1, 2, 4, 8, 16, 32");
-  const [displayName, setDisplayName] = useState(DEFAULT_DISPLAY_NAME);
-
-  const resolvedScale =
-    scaleType === "custom"
-      ? customInput
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : SCALES[scaleType];
-
-  const canStart = Boolean(sessionName.trim() && displayName.trim() && resolvedScale.length >= 2);
-  const formData = (fromQueue = false): StartData => ({
-    sessionName: sessionName.trim(),
-    scale: resolvedScale,
-    scaleType,
-    displayName: displayName.trim(),
-    fromQueue,
-  });
-  const handleStart = (fromQueue = false) => {
-    if (!canStart) return;
-    onStart(formData(fromQueue));
-  };
-
-  return (
-    <div className="max-w-xl mx-auto flex flex-col gap-6">
-      <SectionCard
-        title="Start a Session"
-        className="border-border bg-surface"
-        headerClassName="pb-4"
-        contentClassName="flex flex-col gap-5"
-      >
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="session-name" className="text-sub text-sm">
-            Session name
-          </Label>
-          <Input
-            id="session-name"
-            value={sessionName}
-            onChange={(e) => setSessionName(e.target.value)}
-            placeholder="e.g. Sprint 42 Planning"
-            className="bg-surface-deep border-border text-text"
-          />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span id="estimation-scale-label" className="text-sm font-medium leading-none text-sub">
-            Estimation scale
-          </span>
-          <div role="group" aria-labelledby="estimation-scale-label" className="flex gap-2">
-            {(["fibonacci", "tshirt", "custom"] as ScaleType[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setScaleType(s)}
-                aria-pressed={scaleType === s}
-                className={[
-                  "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors",
-                  scaleType === s
-                    ? "border-accent/60 bg-accent/10 text-accent"
-                    : "border-border bg-surface-deep text-sub hover:border-border hover:text-text",
-                ].join(" ")}
-              >
-                {SCALE_LABELS[s]}
-              </button>
-            ))}
-          </div>
-          {scaleType === "custom" && (
-            <Input
-              value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
-              placeholder="Comma-separated values, e.g. 1, 2, 4, 8"
-              aria-label="Custom scale values"
-              className="bg-surface-deep border-border text-text text-sm"
-            />
-          )}
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {resolvedScale.map((v) => (
-              <span
-                key={v}
-                className="rounded-md border border-border bg-surface-deep px-2 py-0.5 text-xs text-sub"
-              >
-                {v}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="display-name" className="text-sub text-sm">
-            Your display name
-          </Label>
-          <Input
-            id="display-name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="e.g. Alice"
-            className="bg-surface-deep border-border text-text"
-          />
-        </div>
-
-        <Button
-          onClick={() => handleStart()}
-          disabled={!canStart}
-          className="bg-accent text-[#0a0e1a] hover:bg-accent/80 font-semibold h-11"
-        >
-          Start Session
-        </Button>
-        {queuedCount > 0 && (
-          <div className="flex flex-col gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="flex items-center gap-2 text-sm text-text">
-              <ListChecks className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-              {queuedCount} {queuedCount === 1 ? "story" : "stories"} queued for estimation
-            </p>
-            <Button
-              type="button"
-              variant="toolkit"
-              size="sm"
-              onClick={() => handleStart(true)}
-              disabled={!canStart}
-            >
-              Start with the queue
-            </Button>
-          </div>
-        )}
-        {onLoadExample && <LoadExampleButton onLoad={onLoadExample} className="self-center" />}
-      </SectionCard>
-
-      <SectionCard
-        title={isOwner ? "Invite your squad" : "Running it with your team"}
-        className="border-border bg-surface"
-        headerClassName="pb-4"
-        contentClassName="flex flex-col gap-2"
-      >
-        <p className="text-sm text-sub">
-          {isOwner
-            ? "Guest joiners use a squad invite (Settings → Squads). Once you start a session you can invite your squad from the header."
-            : "This session runs on your screen. Share it in your meeting and add your team once it starts. Read each story aloud, record everyone's card face down or pass the screen round, then reveal together and agree the estimate."}
-        </p>
-        {onStartLive && (
-          <div className="mt-2 flex flex-col gap-2 border-t border-border pt-3">
-            <p className="text-sm text-sub">
-              Or start a live room: everyone votes from their own device through a link. Up to{" "}
-              {VISITOR_LIMITS.maxMembers} people. Nothing is stored, and the room closes when you
-              end it, or after {ROOM_TTL_HOURS} hours.
-            </p>
-            {liveRoomPending ? (
-              <div className="flex flex-wrap items-center gap-2" role="status">
-                <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden="true" />
-                <span className="text-sm text-text">Opening the live room…</span>
-                {onCancelLive && (
-                  <Button type="button" variant="ghost" size="sm" onClick={onCancelLive}>
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <Button
-                type="button"
-                variant="toolkit"
-                onClick={() => {
-                  if (canStart) onStartLive(formData());
-                }}
-                disabled={!canStart}
-                className="gap-2 self-start"
-              >
-                <Radio className="h-4 w-4" aria-hidden="true" />
-                Start a live room
-              </Button>
-            )}
-          </div>
-        )}
-      </SectionCard>
-    </div>
-  );
-}
 
 // ─── Root ─────────────────────────────────────────────────────────────
 export function PlanningPokerClient() {
@@ -300,6 +80,13 @@ export function PlanningPokerClient() {
   // broadcast carries the full initial state to any guest already in
   // the room (rare but possible — squad invite was issued in advance).
   const [pendingInitial, setPendingInitial] = useState<Session | null>(null);
+  // Session stories pulled in from the queue. Once one is estimated the
+  // queue forgets it, so this is how "Save to backlog" knows to skip it.
+  const [fromQueue, setFromQueue] = useState<ReadonlySet<string>>(() => new Set());
+  const addFromQueue = useCallback((ids: readonly string[]) => {
+    if (ids.length === 0) return;
+    setFromQueue((prev) => new Set([...Array.from(prev), ...ids]));
+  }, []);
 
   // ─── Visitor live room ───
   // Only a confirmed visitor (never the owner) with the flag on and
@@ -420,13 +207,14 @@ export function PlanningPokerClient() {
     const stored = loadLocalSession();
     if (!stored) return;
     setPendingInitial(adoptLocalSession(stored, userId));
+    addFromQueue(loadQueuedStoryIds());
     // The example never gets a room, even if this browser signs in later.
     // Nor does a session that was a visitor live room: it comes back as a
     // plain local session, never reconnected.
     setActiveRoomCode(
       isExampleId(stored.roomCode) || isVisitorRoomCode(stored.roomCode) ? null : stored.roomCode
     );
-  }, [visitor, isOwner, session, pendingInitial, userId]);
+  }, [visitor, isOwner, session, pendingInitial, userId, addFromQueue]);
 
   // Mirror every change of a local-only session into storage. A session
   // that turns out to be live (an owner who started before auth
@@ -439,6 +227,13 @@ export function PlanningPokerClient() {
     else if (isLocalOnly) saveLocalSession(session);
     else clearLocalSession();
   }, [session, isLocalOnly, visitorRoom]);
+
+  // The note of which stories came from the queue goes with a stored
+  // session (clearLocalSession above drops it for a live one).
+  useEffect(() => {
+    if (!session || !(isLocalOnly || visitorRoom)) return;
+    saveQueuedStoryIds(session.stories.map((st) => st.id).filter((id) => fromQueue.has(id)));
+  }, [session, isLocalOnly, visitorRoom, fromQueue]);
 
   // ─── Queue: stories other tools sent (Story Mapper) ───
   // It lives on the estimate log in this browser's workspace, never in the
@@ -456,7 +251,61 @@ export function PlanningPokerClient() {
     if (!session) return;
     const stories = takeQueuedStories(session.stories.map((st) => st.id));
     if (stories.length === 0) return;
+    addFromQueue(stories.map((st) => st.id));
     setSession((prev) => (prev ? { ...prev, stories: [...prev.stories, ...stories] } : prev));
+  };
+
+  // ─── Save to backlog: the stories typed into this session ───
+  // Queue stories are left out (their estimate goes back to their source):
+  // the ones this browser pulled in, and any the queue still lists.
+  const backlogStories = useWorkspaceStore((s) => s.stories);
+  const skipForBacklog = useMemo(() => {
+    const ids = new Set(fromQueue);
+    for (const q of queue ?? []) if (q.sessionStoryId) ids.add(q.sessionStoryId);
+    return ids;
+  }, [fromQueue, queue]);
+  const backlogPlan = useMemo(
+    () => (session ? planBacklogSave(session.stories, backlogStories, skipForBacklog) : null),
+    [session, backlogStories, skipForBacklog]
+  );
+  const saveToBacklog = () => {
+    if (!session) return;
+    // Planned again from the store as it is now, so a double click can't
+    // create the same stories twice.
+    const plan = planBacklogSave(
+      session.stories,
+      useWorkspaceStore.getState().stories,
+      skipForBacklog
+    );
+    const n = planSize(plan);
+    if (n === 0) return;
+    const { upsertStory, removeStory } = useWorkspaceStore.getState();
+    const notes = [
+      plan.unsized > 0 ? `${plan.unsized} without points yet` : "",
+      plan.update.length > 0
+        ? `${plan.update.length} given ${plan.update.length === 1 ? "its" : "their"} points`
+        : "",
+    ].filter(Boolean);
+    undoable({
+      label: `Saved ${n} ${n === 1 ? "story" : "stories"} to the backlog`,
+      description: notes.length > 0 ? `${notes.join(", ")}.` : undefined,
+      apply: () => {
+        for (const st of plan.create) upsertStory(st);
+        for (const { after } of plan.update) upsertStory(after);
+      },
+      revert: () => {
+        const now = useWorkspaceStore.getState().stories;
+        for (const st of plan.create) if (now.some((x) => x.id === st.id)) removeStory(st.id);
+        // Only the points go back: anything else edited since stays.
+        for (const { before } of plan.update) {
+          const cur = now.find((x) => x.id === before.id);
+          if (!cur) continue;
+          const restored: Story = { ...cur, points: before.points };
+          if (before.points === undefined) delete restored.points;
+          upsertStory(restored);
+        }
+      },
+    });
   };
 
   // The host accepted an estimate. A story pulled from this browser's queue
@@ -476,11 +325,19 @@ export function PlanningPokerClient() {
     }
   };
 
-  const handleStart = ({ sessionName, scale, scaleType, displayName, fromQueue }: StartData) => {
+  const handleStart = ({
+    sessionName,
+    scale,
+    scaleType,
+    displayName,
+    fromQueue: withQueue,
+  }: StartData) => {
     // A live room still opening gives way to the plain session.
     if (visitorRoom) clearVisitorIdentity(visitorRoom.code);
     setVisitorRoom(null);
     const code = generateRoomCode();
+    const stories = withQueue ? takeQueuedStories() : [];
+    addFromQueue(stories.map((st) => st.id));
     const initial: Session = {
       roomCode: code,
       sessionName,
@@ -489,7 +346,7 @@ export function PlanningPokerClient() {
       host: displayName,
       hostId: userId,
       participants: [{ id: userId, name: displayName, vote: null }],
-      stories: fromQueue ? takeQueuedStories() : [],
+      stories,
       currentStoryIdx: 0,
       revealed: false,
     };
@@ -565,6 +422,7 @@ export function PlanningPokerClient() {
   };
 
   const markdown = useMemo(() => toMarkdown(session), [session]);
+  const references = useCardReferences(session?.scaleType);
 
   // ─── AI prompt config (owner only, derived from current session) ───
   const workspace = useWorkspaceStore(
@@ -708,6 +566,16 @@ export function PlanningPokerClient() {
               // Nothing from a visitor room is written back to the
               // workspace or logged to history.
               onEstimateAccepted={visitorRoom ? undefined : handleEstimateAccepted}
+              references={visitorRoom ? undefined : references}
+              backlog={
+                visitorRoom || !backlogPlan
+                  ? undefined
+                  : {
+                      toSave: planSize(backlogPlan),
+                      saved: savedCount(session.stories, backlogStories),
+                      onSave: saveToBacklog,
+                    }
+              }
               recordHistory={!visitorRoom}
               onRemoveParticipant={visitorRoom ? (p) => kick(p.id) : undefined}
             />

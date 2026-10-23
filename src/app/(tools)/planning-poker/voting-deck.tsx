@@ -26,9 +26,10 @@ function CardFace({
   return faceDown ? (
     <div
       className="absolute inset-1 rounded-lg overflow-hidden"
+      // Theme variables, so the card back reads in the light theme too.
       style={{
         background:
-          "repeating-linear-gradient(45deg, #1e2540 0px, #1e2540 4px, #151a30 4px, #151a30 8px)",
+          "repeating-linear-gradient(45deg, var(--surface-hover) 0px, var(--surface-hover) 4px, var(--surface-deep) 4px, var(--surface-deep) 8px)",
       }}
     />
   ) : (
@@ -79,8 +80,8 @@ export function PlayingCard({
     faceDown
       ? "bg-surface border-border"
       : selected
-        ? "bg-surface-deep border-accent shadow-[0_0_18px_#00f0ffaa,0_0_36px_#00f0ff44]"
-        : "bg-surface-hover border-border hover:border-[#00f0ff66]",
+        ? "bg-surface-deep border-accent shadow-lg shadow-accent/40"
+        : "bg-surface-hover border-border hover:border-accent/40",
   ].join(" ");
   const face = <CardFace value={value} faceDown={faceDown} selected={selected} small={small} />;
 
