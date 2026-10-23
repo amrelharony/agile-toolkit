@@ -6,10 +6,11 @@ import type { Sprint } from "@/lib/stores/workspace-types";
 
 /**
  * Release Planner: velocities can come from the completed shared sprints or
- * from the typed list, which stays as an override. Until the user picks, the
- * sprints are used once there are three with points and the list still holds
- * the starter numbers. The start date, until set, is the day after the
- * active sprint ends.
+ * from the typed list, which stays as an override. Until the user picks,
+ * typed numbers are used when there are some and the sprints otherwise (the
+ * old starter list counts as nothing typed). A sprint that finished with 0
+ * points counts. The start date, until set, is the day after the active
+ * sprint ends.
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -38,9 +39,9 @@ beforeAll(() => {
 
 import { ReleasePlannerClient } from "@/app/(tools)/release-planner/release-planner-client";
 import {
-  DEFAULT_VELOCITY_INPUT,
+  LEGACY_STARTER_VELOCITIES,
   effectiveStartDate,
-  isDefaultVelocityInput,
+  isStarterVelocityInput,
   resolveVelocitySource,
   sprintVelocities,
 } from "@/app/(tools)/release-planner/velocity-source";
@@ -64,30 +65,20 @@ const ACTIVE: Sprint = {
 };
 
 describe("velocity source rules", () => {
-  it("uses the user's choice, else sprints once there are three and nothing typed", () => {
-    const three = [20, 22, 18];
-    expect(resolveVelocitySource({ velocityInput: DEFAULT_VELOCITY_INPUT }, three)).toBe("sprints");
-    expect(resolveVelocitySource({ velocityInput: "" }, three)).toBe("sprints");
+  it("uses the user's choice, else typed numbers, else the sprints", () => {
+    expect(resolveVelocitySource({ velocityInput: LEGACY_STARTER_VELOCITIES })).toBe("sprints");
+    expect(resolveVelocitySource({ velocityInput: "" })).toBe("sprints");
     // Typed numbers are an override.
-    expect(resolveVelocitySource({ velocityInput: "10, 12, 9" }, three)).toBe("manual");
-    // Too few sprints.
-    expect(resolveVelocitySource({ velocityInput: DEFAULT_VELOCITY_INPUT }, [20, 22])).toBe(
-      "manual"
-    );
+    expect(resolveVelocitySource({ velocityInput: "10, 12, 9" })).toBe("manual");
     // An explicit choice wins either way.
-    expect(resolveVelocitySource({ velocityInput: "10, 12", velocitySource: "sprints" }, [])).toBe(
+    expect(resolveVelocitySource({ velocityInput: "10, 12", velocitySource: "sprints" })).toBe(
       "sprints"
     );
-    expect(
-      resolveVelocitySource(
-        { velocityInput: DEFAULT_VELOCITY_INPUT, velocitySource: "manual" },
-        three
-      )
-    ).toBe("manual");
-    expect(isDefaultVelocityInput(" 18,22, 19, 25, 21, 17, 23,20 ")).toBe(true);
+    expect(resolveVelocitySource({ velocityInput: "", velocitySource: "manual" })).toBe("manual");
+    expect(isStarterVelocityInput(" 18,22, 19, 25, 21, 17, 23,20 ")).toBe(true);
   });
 
-  it("reads completed points of finished sprints, skipping sprints without any", () => {
+  it("reads completed points of finished sprints, keeping a 0 and skipping sprints without any", () => {
     expect(
       sprintVelocities([
         done(1, 20, "2026-01-01"),
@@ -95,7 +86,7 @@ describe("velocity source rules", () => {
         done(3, 0, "2026-03-01"),
         done(4, 24, "2026-04-01"),
       ])
-    ).toEqual([20, 24]);
+    ).toEqual([20, 0, 24]);
   });
 
   it("starts the day after the active sprint ends unless a date is set", () => {
@@ -118,13 +109,6 @@ describe("velocity source rules", () => {
   });
 });
 
-/** The stat card holding `label`: [label, value, subtitle]. */
-function card(label: string) {
-  const content = screen.getByText(label).parentElement!.parentElement!;
-  const [, value, sub] = Array.from(content.children).map((el) => el.textContent ?? "");
-  return { value, sub };
-}
-
 describe("Release Planner with shared sprints", () => {
   afterAll(() => {
     useWorkspaceStore.setState({ sprints: [] });
@@ -144,31 +128,34 @@ describe("Release Planner with shared sprints", () => {
 
     const fromSprints = screen.getByRole("radio", { name: "From completed sprints" });
     expect(fromSprints).toHaveAttribute("aria-checked", "true");
-    // Oldest first: 20, 22, 18, 24 → 21 on average.
+    // Oldest first by end date: 20, 22, 18, 24; the headline is the shared
+    // velocity over the last three (22, 18, 24).
     expect(screen.getByText("20, 22, 18, 24")).toBeInTheDocument();
-    expect(card("Avg Velocity")).toEqual({ value: "21 pts/sprint", sub: "4 data points" });
-    expect(screen.queryByRole("textbox", { name: /Historical velocities/ })).toBeNull();
+    expect(
+      screen.getByText("21.3 points per sprint, the average of the last 3 sprints.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Points completed per sprint/ })).toBeNull();
 
     // No start date set: the day after the active sprint ends.
-    expect(screen.getByLabelText("Start Date")).toHaveValue("2026-10-26");
+    expect(screen.getByLabelText("Start")).toHaveValue("2026-10-26");
     expect(screen.getByText("The day after Sprint 9 ends.")).toBeInTheDocument();
 
     // A sprint finished elsewhere joins the sample.
     act(() => useWorkspaceStore.getState().upsertSprint(done(5, 30, "2026-10-01")));
-    expect(card("Avg Velocity").value).toBe("22.8 pts/sprint");
+    expect(
+      screen.getByText("24 points per sprint, the average of the last 3 sprints.")
+    ).toBeInTheDocument();
 
-    // The typed list is still there as an override, and the choice is saved.
+    // The typed list is still there as an override (empty: no starter
+    // numbers), and the choice is saved.
     fireEvent.click(screen.getByRole("radio", { name: "Type them" }));
-    expect(screen.getByRole("textbox", { name: /Historical velocities/ })).toHaveValue(
-      DEFAULT_VELOCITY_INPUT
-    );
-    expect(card("Avg Velocity").value).toBe("20.6 pts/sprint");
+    expect(screen.getByRole("textbox", { name: /Points completed per sprint/ })).toHaveValue("");
     const saved = JSON.parse(localStorage.getItem("agile-toolkit:release-planner") ?? "{}");
     expect(saved.state.config.velocitySource).toBe("manual");
 
     // A date the user picks wins over the sprint's.
-    fireEvent.change(screen.getByLabelText("Start Date"), { target: { value: "2027-01-04" } });
-    expect(screen.getByLabelText("Start Date")).toHaveValue("2027-01-04");
+    fireEvent.change(screen.getByLabelText("Start"), { target: { value: "2027-01-04" } });
+    expect(screen.getByLabelText("Start")).toHaveValue("2027-01-04");
     expect(screen.queryByText("The day after Sprint 9 ends.")).toBeNull();
   });
 });

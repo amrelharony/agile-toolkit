@@ -1,7 +1,7 @@
 "use client";
 
 // Recharts lives here so the Release Planner route loads it only when the
-// chart mounts. release-planner-client.tsx imports these via next/dynamic.
+// chart mounts. forecast-view.tsx imports these via next/dynamic.
 import {
   ResponsiveContainer,
   BarChart,
@@ -34,21 +34,17 @@ function HistogramTooltip({
   const pct = total > 0 ? ((count / total) * 100).toFixed(1) : "0";
   return (
     <div style={chartTheme.tooltipStyle} className="px-3 py-2 min-w-[140px]">
-      <p className="font-semibold mb-1" style={{ color: "#e2e8f0" }}>
+      <p className="mb-1 font-semibold text-text">
         {label} Sprint{label !== 1 ? "s" : ""}
       </p>
       <div className="text-xs space-y-0.5">
         <div className="flex justify-between gap-3">
-          <span style={{ color: "#94a3b8" }}>Iterations</span>
-          <span style={{ color: "#00f0ff" }} className="font-data">
-            {count.toLocaleString()}
-          </span>
+          <span className="text-sub">Runs</span>
+          <span className="font-data text-accent">{count.toLocaleString()}</span>
         </div>
         <div className="flex justify-between gap-3">
-          <span style={{ color: "#94a3b8" }}>Frequency</span>
-          <span style={{ color: "#00f0ff" }} className="font-data">
-            {pct}%
-          </span>
+          <span className="text-sub">Share of runs</span>
+          <span className="font-data text-accent">{pct}%</span>
         </div>
       </div>
     </div>
@@ -61,16 +57,18 @@ function HistogramTooltip({
 
 interface SimulationHistogramChartProps {
   histogram: { sprints: number; count: number }[];
-  /** Total iterations, for the tooltip's frequency %. */
+  /** Total runs, for the tooltip's share. */
   total: number;
-  p50: number;
-  p85: number;
-  p95: number;
-  /** Bootstrap P85 point; null hides the line. */
-  bootstrapPoint: number | null;
-  /** User-pinned target sprint count; null hides the line. */
+  /** Percentile lines; null (that share of runs never finishes) hides one. */
+  p50: number | null;
+  p85: number | null;
+  p95: number | null;
+  /** Sprints that fit before the target date; null hides the line. */
   target: number | null;
 }
+
+// Theme variables, so the lines read on the light theme and in PNG exports.
+const { cyan, amber, red, green } = chartTheme.colors;
 
 export function SimulationHistogramChart({
   histogram,
@@ -78,9 +76,13 @@ export function SimulationHistogramChart({
   p50,
   p85,
   p95,
-  bootstrapPoint,
   target,
 }: SimulationHistogramChartProps) {
+  const percentiles = [
+    { x: p50, name: "P50", colour: cyan },
+    { x: p85, name: "P85", colour: amber },
+    { x: p95, name: "P95", colour: red },
+  ];
   return (
     <ResponsiveContainer width="100%" height={350}>
       <BarChart
@@ -94,7 +96,7 @@ export function SimulationHistogramChart({
         <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
         <XAxis
           dataKey="sprints"
-          tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
           axisLine={{ stroke: chartTheme.gridColor }}
           tickLine={false}
           label={{
@@ -102,100 +104,54 @@ export function SimulationHistogramChart({
             position: "insideBottomRight",
             offset: -10,
             fill: chartTheme.axisColor,
-            fontSize: 11,
+            fontSize: 12,
           }}
         />
         <YAxis
-          tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           label={{
-            value: "Frequency",
+            value: "Runs",
             angle: -90,
             position: "insideLeft",
             fill: chartTheme.axisColor,
-            fontSize: 11,
+            fontSize: 12,
             offset: 10,
           }}
         />
         <Tooltip content={<HistogramTooltip total={total} />} />
 
-        {/* Percentile reference lines */}
-        <ReferenceLine
-          x={p50}
-          stroke="#00f0ff"
-          strokeWidth={2}
-          strokeDasharray="5 3"
-          label={{
-            value: "P50",
-            position: "top",
-            fill: "#00f0ff",
-            fontSize: 10,
-            fontWeight: 600,
-          }}
-        />
-        <ReferenceLine
-          x={p85}
-          stroke="#ffaa00"
-          strokeWidth={2}
-          strokeDasharray="5 3"
-          label={{
-            value: "P85",
-            position: "top",
-            fill: "#ffaa00",
-            fontSize: 10,
-            fontWeight: 600,
-          }}
-        />
-        <ReferenceLine
-          x={p95}
-          stroke="#ef4444"
-          strokeWidth={2}
-          strokeDasharray="5 3"
-          label={{
-            value: "P95",
-            position: "top",
-            fill: "#ef4444",
-            fontSize: 10,
-            fontWeight: 600,
-          }}
-        />
-
-        {/* Bootstrap P85 reference — non-parametric companion. */}
-        {bootstrapPoint !== null && (
-          <ReferenceLine
-            x={bootstrapPoint}
-            stroke="#a78bfa"
-            strokeWidth={2}
-            strokeDasharray="2 4"
-            label={{
-              value: "Boot",
-              position: "insideTop",
-              fill: "#a78bfa",
-              fontSize: 10,
-              fontWeight: 600,
-            }}
-          />
+        {percentiles.map(({ x, name, colour }) =>
+          x === null ? null : (
+            <ReferenceLine
+              key={name}
+              x={x}
+              stroke={colour}
+              strokeWidth={2}
+              strokeDasharray="5 3"
+              label={{ value: name, position: "top", fill: colour, fontSize: 12, fontWeight: 600 }}
+            />
+          )
         )}
 
-        {/* User-pinned target line — only shown when the user
-            enters a positive integer in the SmartInput field. */}
+        {/* The sprints that fit before the target date, when one is set. */}
         {target !== null && (
           <ReferenceLine
             x={target}
-            stroke="#22c55e"
+            stroke={green}
             strokeWidth={2}
             label={{
               value: "Target",
               position: "insideTop",
-              fill: "#22c55e",
-              fontSize: 10,
+              fill: green,
+              fontSize: 12,
               fontWeight: 600,
             }}
           />
         )}
 
-        <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.7} radius={[2, 2, 0, 0]} />
+        <Bar dataKey="count" fill={cyan} fillOpacity={0.7} radius={[2, 2, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

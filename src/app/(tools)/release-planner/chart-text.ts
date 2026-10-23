@@ -4,6 +4,7 @@
  */
 
 import { fmt, plural, type ChartText } from "@/lib/charts/chart-text";
+import { MAX_SPRINTS } from "./forecast";
 
 export interface SimulationText {
   /** One bar per sprint count: how many runs finished in that many sprints. */
@@ -11,9 +12,10 @@ export interface SimulationText {
   /** Total runs. */
   total: number;
   p50: number;
-  p85: number;
-  p95: number;
-  /** The user's target sprint count, or null. */
+  /** Null when more than 15% (P85) or 5% (P95) of runs never finish. */
+  p85: number | null;
+  p95: number | null;
+  /** The sprints that fit before the target date, or null. */
   target: number | null;
 }
 
@@ -42,17 +44,32 @@ export function simulationHistogramText({
     }
     // A percentile equal to a higher one says nothing the higher one doesn't.
     const sprints = (n: number) => plural(n, "sprint");
-    const spread =
-      histogram.length === 1
-        ? `every run finishes in ${sprints(histogram[0].sprints)}`
-        : p50 === p95
-          ? `95% finish within ${sprints(p95)}`
-          : p50 === p85
-            ? `85% finish within ${sprints(p85)} and 95% within ${fmt(p95)}`
-            : p85 === p95
-              ? `half finish within ${sprints(p50)} and 95% within ${fmt(p95)}`
-              : `half finish within ${sprints(p50)}, 85% within ${fmt(p85)} and 95% within ${fmt(p95)}`;
-    summary = `In ${runs} simulated runs, ${spread}${targetClause}.`;
+    const finished = histogram.reduce((s, h) => s + h.count, 0);
+    let spread: string;
+    if (p85 === null) {
+      spread = `half finish within ${sprints(p50)}`;
+    } else if (p95 === null) {
+      spread =
+        p50 === p85
+          ? `85% finish within ${sprints(p85)}`
+          : `half finish within ${sprints(p50)} and 85% within ${fmt(p85)}`;
+    } else {
+      spread =
+        histogram.length === 1 && finished === total
+          ? `every run finishes in ${sprints(histogram[0].sprints)}`
+          : p50 === p95
+            ? `95% finish within ${sprints(p95)}`
+            : p50 === p85
+              ? `85% finish within ${sprints(p85)} and 95% within ${fmt(p95)}`
+              : p85 === p95
+                ? `half finish within ${sprints(p50)} and 95% within ${fmt(p95)}`
+                : `half finish within ${sprints(p50)}, 85% within ${fmt(p85)} and 95% within ${fmt(p95)}`;
+    }
+    const unfinished =
+      finished < total
+        ? `; ${fmt(share(total - finished, total))}% don't finish within ${MAX_SPRINTS} sprints`
+        : "";
+    summary = `In ${runs} simulated runs, ${spread}${unfinished}${targetClause}.`;
   }
 
   return {
