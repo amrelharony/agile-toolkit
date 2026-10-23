@@ -1,7 +1,14 @@
 "use client";
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useId, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+export type SortDirection = "asc" | "desc";
+export interface DataTableSort {
+  key: string;
+  dir: SortDirection;
+}
 
 export interface DataTableColumn<Row> {
   key: string;
@@ -17,6 +24,13 @@ export interface DataTableColumn<Row> {
   primary?: boolean;
   /** Hide this column entirely in card view. */
   cardHidden?: boolean;
+  /**
+   * Makes the column sortable: the value to sort by. Blank values
+   * (null, undefined, NaN, "") always sort last, whichever the direction.
+   */
+  sortValue?: (row: Row) => number | string | null | undefined;
+  /** Plain-text name for the sort control when `header` isn't a string. */
+  sortLabel?: string;
 }
 
 interface DataTableProps<Row> {
@@ -34,7 +48,35 @@ interface DataTableProps<Row> {
    * the list item.
    */
   onRowClick?: (row: Row, index: number) => void;
+  /** The sort before the user picks one; rows keep their given order without it. */
+  defaultSort?: DataTableSort;
 }
+
+type SortValue = number | string | null | undefined;
+
+const isBlankSortValue = (v: SortValue) =>
+  v === null || v === undefined || v === "" || (typeof v === "number" && Number.isNaN(v));
+
+/** Rows sorted by one column; stable, with blanks last. Exported for tests. */
+export function sortRows<Row>(
+  rows: readonly Row[],
+  sortValue: (row: Row) => SortValue,
+  dir: SortDirection
+): Row[] {
+  const sign = dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = sortValue(a);
+    const vb = sortValue(b);
+    const ba = isBlankSortValue(va);
+    const bb = isBlankSortValue(vb);
+    if (ba || bb) return ba === bb ? 0 : ba ? 1 : -1;
+    if (typeof va === "number" && typeof vb === "number") return (va - vb) * sign;
+    return String(va).localeCompare(String(vb), undefined, { numeric: true }) * sign;
+  });
+}
+
+const ariaSort = (active: boolean, dir: SortDirection) =>
+  active ? (dir === "asc" ? "ascending" : "descending") : undefined;
 
 const HIDDEN_CLASS: Record<NonNullable<DataTableColumn<unknown>["hiddenBelow"]>, string> = {
   sm: "hidden sm:table-cell",
@@ -61,7 +103,21 @@ export function DataTable<Row>({
   emptyState,
   className,
   onRowClick,
+  defaultSort,
 }: DataTableProps<Row>) {
+  const [sort, setSort] = useState<DataTableSort | undefined>(defaultSort);
+  const sortSelectId = useId();
+  const sortable = columns.filter((c) => c.sortValue);
+  const sortColumn = sort && columns.find((c) => c.key === sort.key && c.sortValue);
+  const shown =
+    sort && sortColumn?.sortValue ? sortRows(rows, sortColumn.sortValue, sort.dir) : rows;
+  const toggleSort = (key: string) =>
+    setSort((cur) =>
+      cur?.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }
+    );
+  const nameOf = (col: DataTableColumn<Row>) =>
+    col.sortLabel ?? (typeof col.header === "string" ? col.header : col.key);
+
   if (rows.length === 0 && emptyState !== undefined) {
     return <div className={cn("py-8 text-center text-sm text-sub", className)}>{emptyState}</div>;
   }
@@ -74,23 +130,44 @@ export function DataTable<Row>({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-sub">
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    className={cn(
-                      "px-3 py-2 font-medium",
-                      col.hiddenBelow ? HIDDEN_CLASS[col.hiddenBelow] : undefined,
-                      col.align ? ALIGN_CLASS[col.align] : "text-left"
-                    )}
-                    style={col.width ? { width: col.width } : undefined}
-                  >
-                    {col.header}
-                  </th>
-                ))}
+                {columns.map((col) => {
+                  const active = sort?.key === col.key;
+                  const Icon =
+                    !active || !sort ? ArrowUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+                  return (
+                    <th
+                      key={col.key}
+                      aria-sort={col.sortValue && sort ? ariaSort(active, sort.dir) : undefined}
+                      className={cn(
+                        "px-3 py-2 font-medium",
+                        col.hiddenBelow ? HIDDEN_CLASS[col.hiddenBelow] : undefined,
+                        col.align ? ALIGN_CLASS[col.align] : "text-left"
+                      )}
+                      style={col.width ? { width: col.width } : undefined}
+                    >
+                      {col.sortValue ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(col.key)}
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded uppercase tracking-wide hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                            active && "text-text"
+                          )}
+                        >
+                          {col.header}
+                          <Icon className="h-3 w-3" aria-hidden="true" />
+                          <span className="sr-only">, sort</span>
+                        </button>
+                      ) : (
+                        col.header
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => (
+              {shown.map((row, i) => (
                 // A clickable row stays a row: role="button" on a <tr> would
                 // strip the table semantics (cells lose their headers). The
                 // row is focusable and Enter / Space activate it instead.
@@ -135,9 +212,35 @@ export function DataTable<Row>({
         </div>
       </div>
 
-      {/* Mobile: stacked cards */}
+      {/* Mobile: stacked cards, with the sort as a select (no headers to click) */}
+      {sortable.length > 0 && (
+        <div className="mb-2 flex items-center gap-2 md:hidden">
+          <label htmlFor={sortSelectId} className="text-xs text-sub">
+            Sort by
+          </label>
+          <select
+            id={sortSelectId}
+            value={sort ? `${sort.key}:${sort.dir}` : ""}
+            onChange={(e) => {
+              const [key, dir] = e.target.value.split(":");
+              setSort(key ? { key, dir: dir as SortDirection } : undefined);
+            }}
+            className="h-11 rounded border border-border bg-surface-deep px-2 text-base text-text focus:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {!defaultSort && <option value="">As listed</option>}
+            {sortable.flatMap((col) => [
+              <option key={`${col.key}:desc`} value={`${col.key}:desc`}>
+                {nameOf(col)}, high to low
+              </option>,
+              <option key={`${col.key}:asc`} value={`${col.key}:asc`}>
+                {nameOf(col)}, low to high
+              </option>,
+            ])}
+          </select>
+        </div>
+      )}
       <ul className="md:hidden space-y-2">
-        {rows.map((row, i) => {
+        {shown.map((row, i) => {
           const cardClass = "rounded-lg border border-border bg-card p-3";
           const body = renderCard ? (
             renderCard(row, i)
