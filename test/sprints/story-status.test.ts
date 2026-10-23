@@ -21,7 +21,9 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
       rows.set(`${kind}/${entity.id}`, entity);
     }),
     serverListEntities: vi.fn(async (_u: string, kind: string) =>
-      [...rows.entries()].filter(([k]) => k.startsWith(`${kind}/`)).map(([, v]) => v)
+      Array.from(rows.entries())
+        .filter(([k]) => k.startsWith(`${kind}/`))
+        .map(([, v]) => v)
     ),
   };
 });

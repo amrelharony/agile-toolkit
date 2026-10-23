@@ -24,7 +24,7 @@ export const STORY_STATUSES: readonly StoryStatus[] = [
 ];
 
 /** Statuses that mean work on the story has started. */
-const STARTED: ReadonlySet<StoryStatus> = new Set(["in_progress", "review", "done"]);
+const STARTED: ReadonlySet<StoryStatus> = new Set<StoryStatus>(["in_progress", "review", "done"]);
 
 export function isStoryStatus(value: unknown): value is StoryStatus {
   return typeof value === "string" && (STORY_STATUSES as readonly string[]).includes(value);
