@@ -36,6 +36,7 @@ import {
 } from "@/app/(tools)/jtbd-mapper/job-form";
 import {
   descendantIds,
+  isCompleteJob,
   jobTree,
   jobsInTreeOrder,
   storiesByJob,
@@ -83,7 +84,7 @@ describe("Job Story Mapper first run", () => {
     expect(jobs()).toHaveLength(5);
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     expect(
-      screen.getByText("5 job stories under 2 top-level jobs; none is on the backlog yet.")
+      screen.getByText("5 job stories, 2 at the top level; none has a story yet.")
     ).toBeInTheDocument();
     // No KPI cards any more.
     expect(screen.queryByText("Max depth")).not.toBeInTheDocument();
@@ -103,9 +104,14 @@ describe("Job Story Mapper first run", () => {
   it("won't make backlog stories from example jobs", () => {
     renderJtbd();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
-    expect(
-      screen.getByRole("button", { name: "Create story: when I get back from a work trip" })
-    ).toBeDisabled();
+    const create = screen.getByRole("button", {
+      name: "Create story: when I get back from a work trip",
+    });
+    expect(create).toBeDisabled();
+    // The reason is on screen, not in a tooltip a disabled button never shows.
+    const note = screen.getByText(/Example jobs can’t become backlog stories\./);
+    expect(create).toHaveAttribute("aria-describedby", note.id);
+    expect(create).not.toHaveAttribute("title");
     expect(stories()).toEqual([]);
   });
 });
@@ -265,7 +271,7 @@ describe("Job Story Mapper → backlog story", () => {
 
   it("creates a backlog story titled from the job that links back, with Undo", () => {
     renderJtbd();
-    expect(screen.getByText(/1 job story; none is on the backlog yet\./)).toBeInTheDocument();
+    expect(screen.getByText(/1 job story; none has a story yet\./)).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", {
         name: "Create story: when a customer asks where their order is",
@@ -285,11 +291,46 @@ describe("Job Story Mapper → backlog story", () => {
       "/sprint-planning"
     );
     expect(screen.queryByRole("button", { name: /^Create story/ })).not.toBeInTheDocument();
-    expect(screen.getByText("1 job story; it is on the backlog.")).toBeInTheDocument();
+    expect(screen.getByText("1 job story; it has a story.")).toBeInTheDocument();
 
     undoLast();
     expect(stories()).toEqual([]);
     expect(screen.getByRole("button", { name: /^Create story/ })).toBeInTheDocument();
+  });
+
+  it("a legacy job with a blank clause can't make a story; it offers to be completed", () => {
+    useWorkspaceStore.setState({
+      jobStories: [{ id: "old", situation: "I pay", motivation: "", outcome: "  " }],
+    });
+    renderJtbd();
+    expect(screen.queryByRole("button", { name: /^Create story/ })).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Complete the job to make a story: when I pay" })
+    );
+    // It opens the editor on the job, and nothing reached the backlog.
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    expect(within(editor).getByLabelText(/^When/)).toHaveFocus();
+    expect(stories()).toEqual([]);
+
+    fireEvent.change(within(editor).getByLabelText(/^I want to/), {
+      target: { value: "split the bill" },
+    });
+    fireEvent.change(within(editor).getByLabelText(/^So I can/), {
+      target: { value: "get paid back" },
+    });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create story: when I pay" }));
+    expect(stories()[0].title).toBe(
+      "When I pay, I want to split the bill, so I can get paid back."
+    );
+  });
+
+  it("isCompleteJob needs every clause, blanks and whitespace counting as missing", () => {
+    expect(isCompleteJob({ situation: "s", motivation: "m", outcome: "o" })).toBe(true);
+    expect(isCompleteJob({ situation: "s", motivation: " ", outcome: "o" })).toBe(false);
+    expect(isCompleteJob({ situation: "s", motivation: "m", outcome: "" })).toBe(false);
+    // Hand-edited stored data may lack a clause altogether.
+    expect(isCompleteJob({ situation: "s", motivation: "m" } as JobStory)).toBe(false);
   });
 
   it("a story deleted in Sprint Planning frees the job to make a new one", () => {
@@ -406,15 +447,37 @@ describe("Job Story Mapper logic", () => {
   it("summarises the map in one line", () => {
     expect(jtbdSummary([], [])).toBe("No job stories yet.");
     const all = [job("a", "a"), job("b", "b", "a"), job("c", "c")];
-    expect(jtbdSummary(all, [])).toBe(
-      "3 job stories under 2 top-level jobs; none is on the backlog yet."
-    );
+    // The total includes the top-level jobs, and says so.
+    expect(jtbdSummary(all, [])).toBe("3 job stories, 2 at the top level; none has a story yet.");
     expect(jtbdSummary(all, [story("s", "b")])).toBe(
-      "3 job stories under 2 top-level jobs; 1 is on the backlog as a story."
+      "3 job stories, 2 at the top level; 1 has a story."
     );
     expect(jtbdSummary([job("a", "a"), job("c", "c")], [story("s", "a"), story("t", "c")])).toBe(
-      "2 job stories; all are on the backlog."
+      "2 job stories; all have stories."
     );
+  });
+
+  it("counts a job's story wherever it now is, not as “on the backlog”", () => {
+    const two = [job("a", "a"), job("c", "c")];
+    expect(jtbdSummary(two, [story("s", "a", "done"), story("t", "c", "in_progress")])).toBe(
+      "2 job stories; all have stories (1 done)."
+    );
+    expect(jtbdSummary(two, [story("s", "a", "done"), story("t", "c", "done")])).toBe(
+      "2 job stories; all have stories (all done)."
+    );
+    expect(jtbdSummary(two, [story("s", "a", "done")])).toBe(
+      "2 job stories; 1 has a story (done)."
+    );
+    expect(jtbdSummary([job("a", "a")], [story("s", "a", "review")])).toBe(
+      "1 job story; it has a story."
+    );
+    // A story from another tool, or for a job that's gone, counts for nothing.
+    expect(
+      jtbdSummary(two, [
+        { id: "x", title: "x", status: "done", sourceRef: { tool: "retro", id: "a" } },
+        story("y", "gone", "done"),
+      ])
+    ).toBe("2 job stories; none has a story yet.");
   });
 
   it("exports a nested Markdown list with each job's story and notes", () => {
@@ -432,12 +495,71 @@ describe("Job Story Mapper logic", () => {
       "  - When I pay for something on the road, I want to capture the receipt in a few seconds, so I can stop losing paper receipts before I claim. _(story done)_"
     );
     expect(md).toContain("  line one line two");
-    expect(md).toContain(
-      "**6 job stories under 3 top-level jobs; 1 is on the backlog as a story.**"
-    );
+    expect(md).toContain("**6 job stories, 3 at the top level; 1 has a story (done).**");
     expect(
       jtbdSummary([job("a", "a"), job("b", "b"), job("c", "c")], [story("s", "a"), story("t", "b")])
-    ).toBe("3 job stories; 2 are on the backlog as stories.");
+    ).toBe("3 job stories; 2 have stories.");
     expect(toMarkdown([], [])).toContain("No job stories yet.");
+  });
+});
+
+describe("Job Story Mapper keyboard focus", () => {
+  beforeEach(() =>
+    useWorkspaceStore.setState({
+      jobStories: [
+        { ...job("a", "onboarding"), motivation: "set up", outcome: "start" },
+        job("b", "first login", "a"),
+        job("c", "invoicing"),
+      ],
+    })
+  );
+  const editButton = (situation: string) =>
+    screen.getByRole("button", { name: `Edit job story: when ${situation}` });
+
+  it("returns to the row's Edit button after Save or Cancel", () => {
+    renderJtbd();
+    fireEvent.click(editButton("invoicing"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(editButton("invoicing")).toHaveFocus();
+
+    fireEvent.click(editButton("onboarding"));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.keyDown(within(editor).getByLabelText(/^I want to/), { key: "Escape" });
+    expect(editButton("onboarding")).toHaveFocus();
+  });
+
+  it("lands on the new story link after Create story", () => {
+    renderJtbd();
+    fireEvent.click(screen.getByRole("button", { name: "Create story: when invoicing" }));
+    expect(screen.getByRole("link", { name: /Story on the backlog/ })).toHaveFocus();
+  });
+
+  it("moves to the next row after a remove, else the previous, else the add form", () => {
+    renderJtbd();
+    // A job with a sub-job, all removed: the next row standing is "invoicing".
+    fireEvent.click(screen.getByRole("button", { name: "Remove job story: when onboarding" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove 2 job stories" }));
+    expect(editButton("invoicing")).toHaveFocus();
+
+    act(() => useWorkspaceStore.setState({ jobStories: [job("x", "first"), job("y", "last")] }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove job story: when last" }));
+    expect(editButton("first")).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove job story: when first" }));
+    expect(within(addForm()).getByLabelText(/^When/)).toHaveFocus();
+  });
+
+  it("keeps a removed job's sub-jobs in reach: focus goes to the first of them", () => {
+    renderJtbd();
+    fireEvent.click(screen.getByRole("button", { name: "Remove job story: when onboarding" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep nested, remove this one" }));
+    expect(editButton("first login")).toHaveFocus();
+  });
+
+  it("lets a nested row's actions wrap on a narrow screen", () => {
+    renderJtbd();
+    const actions = editButton("first login").parentElement!;
+    expect(actions).toHaveClass("min-w-0", "flex-wrap");
+    expect(actions).not.toHaveClass("shrink-0");
   });
 });

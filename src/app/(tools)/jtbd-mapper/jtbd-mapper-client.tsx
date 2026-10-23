@@ -38,14 +38,17 @@ import type { JobValues } from "./job-form";
 import {
   JOB_TOOL,
   descendantIds,
+  isCompleteJob,
   jobLinks,
   jobSentence,
   jobTree,
+  jobsInTreeOrder,
   storiesByJob,
   storyTitleFor,
 } from "./jobs";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
+import { useFocusAfter } from "./use-focus-after";
 import { jtbdSummary } from "./verdict";
 
 /** How a job's backlog story stands, as the row's link names it. */
@@ -56,6 +59,9 @@ const STORY_STATE: Record<Story["status"], string> = {
   review: "in review",
   done: "done",
 };
+
+/** The note saying why example jobs can't become stories; their disabled buttons point to it. */
+const EXAMPLE_NOTE_ID = "jtbd-example-story-note";
 
 /** Deep enough for any real job map; stops a hand-edited chain from blowing the stack. */
 const MAX_DEPTH = 30;
@@ -74,6 +80,7 @@ export function JtbdMapperClient() {
   const { log } = useHistoryLogger("jtbd-mapper");
   const exportRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const focusAfter = useFocusAfter(exportRef);
 
   function add(v: JobValues) {
     const job: JobStory = { id: crypto.randomUUID(), ...v };
@@ -89,8 +96,14 @@ export function JtbdMapperClient() {
   }
   const form = useJobAddForm(add, jobs);
 
-  function save(job: JobStory, v: JobValues) {
+  /** Close the editor, back on the row's Edit button. */
+  function closeEditor(id: string) {
     setEditingId(null);
+    focusAfter(`edit:${id}`);
+  }
+
+  function save(job: JobStory, v: JobValues) {
+    closeEditor(job.id);
     if (sameJob(job, v)) return;
     setJobs((s) => s.map((j) => (j.id === job.id ? withJobValues(j, v) : j)));
     log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: job.id, patch: v });
@@ -119,6 +132,18 @@ export function JtbdMapperClient() {
     const current = useWorkspaceStore.getState().jobStories ?? [];
     const job = current.find((j) => j.id === id);
     if (!job) return;
+    // Focus moves to the next row still standing (else the one before, else
+    // the add form) instead of dropping to the top of the page.
+    const gone = nested === "keep" ? new Set([id]) : descendantIds(current, id).add(id);
+    const order = jobsInTreeOrder(current).map((row) => row.job.id);
+    const at = order.indexOf(id);
+    const neighbour =
+      order.slice(at + 1).find((j) => !gone.has(j)) ??
+      order
+        .slice(0, Math.max(0, at))
+        .reverse()
+        .find((j) => !gone.has(j));
+    focusAfter(...(neighbour ? [`edit:${neighbour}`] : []), "add");
     const logRemoved = () =>
       log(JTBD_ACTIONS.JOB_STORY_REMOVED, {
         jobId: id,
@@ -196,9 +221,13 @@ export function JtbdMapperClient() {
     });
   }
 
-  /** "Create story": a backlog story titled from the job, which links back to it. */
+  /**
+   * "Create story": a backlog story titled from the job, which links back to
+   * it. Only a complete job; focus then moves to the new "Story …" link.
+   */
   function createStory(job: JobStory) {
-    sendHandoff(
+    if (!isCompleteJob(job)) return;
+    const sent = sendHandoff(
       "backlog-story",
       { title: storyTitleFor(job), sourceRef: { tool: JOB_TOOL, id: job.id } },
       {
@@ -208,6 +237,7 @@ export function JtbdMapperClient() {
         setLinks: () => {},
       }
     );
+    if (sent) focusAfter(`story:${job.id}`);
   }
 
   const loadExample = () => {
@@ -292,7 +322,7 @@ export function JtbdMapperClient() {
               job={job}
               jobs={jobs}
               onSave={(v) => save(job, v)}
-              onCancel={() => setEditingId(null)}
+              onCancel={() => closeEditor(job.id)}
             />
           ) : (
             <JobRow
@@ -328,7 +358,9 @@ export function JtbdMapperClient() {
         {hasExampleItems(jobs) && <ExampleNotice onClear={clearExample} />}
 
         <SectionCard title="Add a job story" icon={Plus}>
-          <JobAddForm form={form} jobs={jobs} />
+          <div data-focus-key="add">
+            <JobAddForm form={form} jobs={jobs} />
+          </div>
         </SectionCard>
 
         {jobs.length === 0 ? (
@@ -354,6 +386,12 @@ export function JtbdMapperClient() {
             }
           >
             <p className="mb-3 text-sm font-medium text-text">{summary}</p>
+            {hasExampleItems(jobs) && (
+              <p id={EXAMPLE_NOTE_ID} className="mb-3 text-xs text-sub">
+                Example jobs can’t become backlog stories. Clear the example to make stories from
+                your own jobs.
+              </p>
+            )}
             <ul className="space-y-2" aria-label="Job stories">
               {tree.roots.map((j) => renderRow(j, 0, new Set()))}
             </ul>
@@ -374,7 +412,11 @@ export function JtbdMapperClient() {
   );
 }
 
-/** One job: the sentence, its notes, its backlog story, and the actions. */
+/**
+ * One job: the sentence, its notes, its backlog story, and the actions. A
+ * job with a blank clause (the old form saved those) offers to be completed
+ * instead of making a story titled "…I want to (motivation)…".
+ */
 function JobRow({
   job,
   story,
@@ -392,6 +434,7 @@ function JobRow({
 }) {
   const when = `when ${job.situation || "(situation)"}`;
   const example = isExampleId(job.id);
+  const complete = isCompleteJob(job);
   const route = getHandoffRoute("backlog-story");
   return (
     <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
@@ -410,16 +453,31 @@ function JobRow({
           <p className="whitespace-pre-wrap break-words text-xs text-sub">{job.description}</p>
         )}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1">
+      {/* Free to shrink, so on a phone a nested row's actions wrap instead of
+          pushing the page sideways. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
         {story ? (
           <Link
             href={route.targetHref(story.id)}
+            data-focus-key={`story:${job.id}`}
             className="min-touch-coarse inline-flex h-7 items-center gap-1 rounded px-2 text-xs text-success underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <Check className="h-3.5 w-3.5" aria-hidden="true" />
             Story {STORY_STATE[story.status] ?? story.status}
             <span className="sr-only"> (open in Sprint Planning)</span>
           </Link>
+        ) : !complete && !example ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onEdit}
+            aria-label={`Complete the job to make a story: ${when}`}
+            className="min-touch-coarse h-7 gap-1.5 px-2 text-xs text-warning hover:text-accent"
+          >
+            <Pencil aria-hidden="true" />
+            Complete the job
+          </Button>
         ) : (
           <Button
             type="button"
@@ -427,7 +485,7 @@ function JobRow({
             size="sm"
             onClick={onCreateStory}
             disabled={example}
-            title={example ? "Clear the example to make stories from your own jobs." : undefined}
+            aria-describedby={example ? EXAMPLE_NOTE_ID : undefined}
             aria-label={`Create story: ${when}`}
             className="min-touch-coarse h-7 gap-1.5 px-2 text-xs text-sub hover:text-accent"
           >
@@ -443,6 +501,7 @@ function JobRow({
         />
         <IconButton
           label={`Edit job story: ${when}`}
+          data-focus-key={`edit:${job.id}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
           onClick={onEdit}

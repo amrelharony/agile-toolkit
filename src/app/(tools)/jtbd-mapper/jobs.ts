@@ -9,6 +9,15 @@ export function jobSentence(j: Pick<JobStory, "situation" | "motivation" | "outc
   return `When ${j.situation || "(situation)"}, I want to ${j.motivation || "(motivation)"}, so I can ${j.outcome || "(outcome)"}.`;
 }
 
+/**
+ * Whether all three clauses are filled in. The old form saved jobs with
+ * one clause, and such a row must not become a backlog story titled
+ * "…I want to (motivation), so I can (outcome)."
+ */
+export function isCompleteJob(j: Pick<JobStory, "situation" | "motivation" | "outcome">): boolean {
+  return [j.situation, j.motivation, j.outcome].every((c) => (c ?? "").trim() !== "");
+}
+
 /** The job's parent, when it is set and still exists. */
 function parentOf(job: JobStory, byId: ReadonlyMap<string, JobStory>): JobStory | undefined {
   return job.parentJobId && job.parentJobId !== job.id ? byId.get(job.parentJobId) : undefined;
