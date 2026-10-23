@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -30,7 +32,12 @@ import { EpicRoadmapClient } from "@/app/(tools)/epic-roadmap/epic-roadmap-clien
 import { EXAMPLE_STORIES, buildExample } from "@/app/(tools)/epic-roadmap/example";
 import { toMarkdown } from "@/app/(tools)/epic-roadmap/markdown";
 import { newEpicDraft, validateEpic } from "@/app/(tools)/epic-roadmap/epic-form";
-import { epicColorKey, nextColor } from "@/app/(tools)/epic-roadmap/palette";
+import {
+  EPIC_COLORS,
+  colorName,
+  epicColorKey,
+  nextColor,
+} from "@/app/(tools)/epic-roadmap/palette";
 import {
   MAX_QUARTERS_SPAN,
   currentQuarter,
@@ -41,9 +48,21 @@ import {
   quartersBetween,
   shiftQuarter,
 } from "@/app/(tools)/epic-roadmap/quarters";
-import { epicRollup, epicSchedule, typedProgress } from "@/app/(tools)/epic-roadmap/rollup";
+import {
+  epicRollup,
+  epicSchedule,
+  rollupLabel,
+  typedProgress,
+} from "@/app/(tools)/epic-roadmap/rollup";
 import { barGeometry } from "@/app/(tools)/epic-roadmap/timeline";
-import { epicViews, fitRange, roadmapVerdict } from "@/app/(tools)/epic-roadmap/view";
+import {
+  epicName,
+  epicViews,
+  fitRange,
+  placementCounts,
+  roadmapVerdict,
+} from "@/app/(tools)/epic-roadmap/view";
+import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 
 const NOW = new Date("2026-10-23T12:00:00Z");
 const ER_ID = "epicRoadmap:current";
@@ -89,7 +108,12 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   toastSpy.mockReset();
-  useWorkspaceStore.setState({ epicRoadmaps: [], stories: [], teamMembers: [] });
+  useWorkspaceStore.setState({
+    epicRoadmaps: [],
+    stories: [],
+    teamMembers: [],
+    pokerEstimationLogs: [],
+  });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -301,19 +325,61 @@ describe("Epic Roadmap stories", () => {
     expect(screen.getByText("3 of 8 points done")).toBeInTheDocument();
     expect(screen.getByText("38%", { selector: "p" })).toBeInTheDocument();
 
-    // An unestimated story switches the roll-up to story count and points to Poker.
+    // An unestimated story switches the roll-up to story count.
     link("s3");
     expect(screen.getByText("1 of 3 stories done")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Size them in Planning Poker" })).toHaveAttribute(
-      "href",
-      "/planning-poker"
-    );
 
     fireEvent.click(screen.getByRole("button", { name: "Unlink Story s3" }));
     expect(stories().find((s) => s.id === "s3")).not.toHaveProperty("epicId");
     expect(lastToast()[0]).toBe("Unlinked “Story s3”");
     undoLast();
     expect(stories().find((s) => s.id === "s3")?.epicId).toBe("e1");
+  });
+
+  it("queues the epic's unestimated stories for Planning Poker, with Undo", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        story("s1", "done", 3, "e1"),
+        story("s3", "backlog", undefined, "e1"),
+        story("s4", "todo", undefined, "e1"),
+        // Another epic's unsized story stays out of it.
+        story("s5", "todo", undefined, "e9"),
+      ],
+      // s4 is already waiting from Sprint Planning.
+      pokerEstimationLogs: [
+        {
+          id: POKER_LOG_ID,
+          estimates: [],
+          queue: [
+            { id: "q0", title: "Story s4", sourceRef: { tool: "story", id: "s4" }, queuedAt: "" },
+          ],
+        },
+      ],
+    });
+    const queue = () =>
+      (useWorkspaceStore.getState().pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)
+        ?.queue ?? [];
+    renderRoadmap();
+    fireEvent.click(screen.getByRole("button", { name: /^Stories \(3\) in Onboarding/ }));
+    expect(screen.getByText("1 queued.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Queue 1 for Planning Poker" }));
+
+    // Only the waiting story goes, as a story the accepted estimate writes back to.
+    expect(queue().map((q) => q.sourceRef)).toEqual([
+      { tool: "story", id: "s4" },
+      { tool: "story", id: "s3" },
+    ]);
+    expect(queue()[1].title).toBe("Story s3");
+    expect(lastToast()[0]).toBe("1 story queued for Planning Poker");
+    expect(screen.queryByRole("button", { name: /^Queue \d+ for Planning Poker/ })).toBeNull();
+    const open = screen.getByRole("link", { name: "Open Planning Poker" });
+    expect(open).toHaveAttribute("href", "/planning-poker");
+    expect(open).toHaveFocus();
+    expect(screen.getByText(/All queued for estimation\./)).toBeInTheDocument();
+
+    undoLast();
+    expect(queue().map((q) => q.id)).toEqual(["q0"]);
+    expect(screen.getByRole("button", { name: "Queue 1 for Planning Poker" })).toBeInTheDocument();
   });
 
   it("deletes an epic with Undo, unlinking its stories and relinking them on Undo", () => {
@@ -434,14 +500,53 @@ describe("Epic Roadmap logic", () => {
     ).toMatchObject({ basis: "points", pct: 100 });
   });
 
+  it("reads Done only when the work is done, never from a rounded 100%", () => {
+    // 199 of 200 points rounds to 100%; it shows 99% and stays open.
+    const nearly = epicRollup({ progress: 0 }, [story("a", "done", 199), story("b", "todo", 1)]);
+    expect(nearly).toMatchObject({ basis: "points", pct: 99, done: false });
+    // An open 0-point chore leaves the points at 100%, but a story is still open.
+    const chore = epicRollup({ progress: 0 }, [
+      story("a", "done", 5),
+      story("b", "done", 3),
+      story("c", "todo", 0),
+    ]);
+    expect(chore).toMatchObject({ basis: "points", pct: 99, done: false });
+    expect(rollupLabel(chore)).toBe("8 of 8 points done, 1 story still open");
+    // By count, 199 of 200 stories also rounds up without being done.
+    const many = [
+      ...Array.from({ length: 199 }, (_, i) => story(`d${i}`, "done")),
+      story("open", "todo"),
+    ];
+    expect(epicRollup({ progress: 0 }, many)).toMatchObject({ pct: 99, done: false });
+    // Typed: the unrounded value decides.
+    expect(epicRollup({ progress: 99.6 }, [])).toMatchObject({ pct: 99, done: false });
+    expect(epicRollup({ progress: 100 }, [])).toMatchObject({ pct: 100, done: true });
+    expect(epicRollup({ progress: "junk" as unknown as number }, [])).toMatchObject({
+      pct: 0,
+      done: false,
+    });
+    expect(epicRollup({ progress: 0 }, [story("a", "done", 2), story("b", "done")])).toMatchObject({
+      pct: 100,
+      done: true,
+    });
+
+    const views = epicViews(
+      [epic("a", "A", "2026 Q1", "2026 Q2")],
+      [story("s", "done", 5, "a"), story("t", "done", 3, "a"), story("u", "todo", 0, "a")],
+      NOW
+    );
+    expect(views[0].schedule).toBe("overdue");
+    expect(roadmapVerdict(views)).toBe("“A” is past its end quarter (2026 Q2) at 99%.");
+  });
+
   it("knows where each epic stands against its quarters", () => {
     const e = (s: string, f: string) => ({ startQuarter: s, endQuarter: f });
-    expect(epicSchedule(e("2026 Q1", "2026 Q3"), 50, NOW)).toBe("overdue");
-    expect(epicSchedule(e("2026 Q1", "2026 Q3"), 100, NOW)).toBe("done");
-    expect(epicSchedule(e("2026 Q3", "2026 Q4"), 50, NOW)).toBe("ending");
-    expect(epicSchedule(e("2026 Q4", "2027 Q1"), 50, NOW)).toBe("in-progress");
-    expect(epicSchedule(e("2027 Q1", "2027 Q2"), 0, NOW)).toBe("upcoming");
-    expect(epicSchedule(e("soon", "2027 Q2"), 0, NOW)).toBe("unscheduled");
+    expect(epicSchedule(e("2026 Q1", "2026 Q3"), false, NOW)).toBe("overdue");
+    expect(epicSchedule(e("2026 Q1", "2026 Q3"), true, NOW)).toBe("done");
+    expect(epicSchedule(e("2026 Q3", "2026 Q4"), false, NOW)).toBe("ending");
+    expect(epicSchedule(e("2026 Q4", "2027 Q1"), false, NOW)).toBe("in-progress");
+    expect(epicSchedule(e("2027 Q1", "2027 Q2"), false, NOW)).toBe("upcoming");
+    expect(epicSchedule(e("soon", "2027 Q2"), false, NOW)).toBe("unscheduled");
   });
 
   it("gives a one-sentence verdict", () => {
@@ -524,5 +629,140 @@ describe("Epic Roadmap logic", () => {
     expect(md).toContain("**“Audit log for admins” is past its end quarter (2026 Q3) at 80%.**");
     expect(toMarkdown([], NOW)).toContain("No epics on the roadmap yet.");
     expect(EXAMPLE_STORIES.every((s) => s.id.startsWith("example-"))).toBe(true);
+  });
+
+  it("counts epics without valid quarters from the quarters, even when they are done", () => {
+    const views = epicViews(
+      [
+        epic("old", "Old", "next spring", "later", { progress: 100 }),
+        epic("late", "Late", "2025 Q1", "2025 Q2"),
+        epic("now", "Now", "2026 Q4", "2026 Q4"),
+      ],
+      [],
+      NOW
+    );
+    expect(views[0].schedule).toBe("done");
+    expect(placementCounts(views, "2026 Q1", "2026 Q4")).toEqual({ outside: 1, unplaced: 1 });
+    expect(placementCounts([], "2026 Q1", "2026 Q4")).toEqual({ outside: 0, unplaced: 0 });
+  });
+});
+
+describe("Epic Roadmap legacy and edge cases on the page", () => {
+  it("tells a finished epic with unreadable quarters to get quarters, not to change the view", () => {
+    setEpics([
+      epic("old", "Old", "next spring", "later", { progress: 100 }),
+      epic("a", "Alpha", "2026 Q4", "2026 Q4"),
+    ]);
+    renderRoadmap();
+    expect(screen.getByText("1 epic has no valid quarters: edit to place it.")).toBeInTheDocument();
+    expect(screen.queryByText(/outside this view/)).not.toBeInTheDocument();
+  });
+
+  it("names an epic with a blank title everywhere it is shown or announced", () => {
+    setEpics([epic("u", "   ", "2026 Q4", "2026 Q4")]);
+    renderRoadmap();
+    expect(screen.getByRole("button", { name: /^Stories \(0\) in Untitled epic/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Edit Untitled epic" })).toBeVisible();
+    // The list row and the timeline row.
+    expect(screen.getAllByText("Untitled epic")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Untitled epic" }));
+    expect(lastToast()[0]).toBe("Deleted “Untitled epic”");
+
+    const md = toMarkdown(epicViews([epic("u", "", "2026 Q4", "2026 Q4")], [], NOW), NOW);
+    expect(md).toContain("| Untitled epic | 2026 Q4 | 2026 Q4 |");
+    expect(md).toContain("**“Untitled epic” ends this quarter at 0%.**");
+    expect(epicName({ title: "  Billing  " })).toBe("Billing");
+  });
+
+  it("keeps bar labels under the pinned names when the timeline scrolls sideways", () => {
+    setEpics([epic("a", "Alpha", "2026 Q4", "2027 Q1")]);
+    renderRoadmap();
+    const label = screen.getByText("0%", { selector: "span" });
+    // The bar is its own stacking context, so the label's z-10 can't rise above the names.
+    const bar = label.closest(".isolate");
+    expect(bar).toHaveClass("relative", "overflow-hidden");
+    const name = screen.getAllByText("Alpha").find((el) => el.closest(".sticky"));
+    expect(name?.closest(".sticky")).toHaveClass("z-10");
+  });
+});
+
+describe("Epic Roadmap colours", () => {
+  // The theme blocks of globals.css: dark is :root, light and high contrast override it.
+  const css = readFileSync(path.resolve(__dirname, "../../src/app/globals.css"), "utf8");
+  const block = (selector: string): Record<string, string> => {
+    const at = css.indexOf(`${selector} {`);
+    const body = css.slice(at, css.indexOf("}", at));
+    return Object.fromEntries(
+      Array.from(body.matchAll(/--([\w-]+):\s*([^;]+);/g), (m) => [m[1], m[2].trim()])
+    );
+  };
+  const dark = block(":root");
+  const themes = {
+    dark,
+    light: { ...dark, ...block('[data-theme="light"]') },
+    hc: { ...dark, ...block('[data-theme="hc"]') },
+  };
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const distance = (a: string, b: string) => Math.hypot(...rgb(a).map((v, i) => v - rgb(b)[i]));
+
+  it.each(Object.entries(themes))("keeps every swatch distinct in the %s theme", (_, vars) => {
+    const values = EPIC_COLORS.map((c) => vars[c.key]);
+    values.forEach((v) => expect(v).toMatch(/^#[0-9a-f]{6}$/i));
+    // A plain RGB distance: the old "Indigo" (accent2) sat 34 from chart-3's
+    // green in high contrast, and 41 from chart-5's violet in dark.
+    for (let i = 0; i < values.length; i++)
+      for (let j = i + 1; j < values.length; j++)
+        expect(distance(values[i], values[j])).toBeGreaterThan(50);
+  });
+
+  it("maps the old indigo (and its brief accent2 key) to a colour of its own", () => {
+    expect(EPIC_COLORS.map((c) => c.key)).not.toContain("accent2");
+    expect(epicColorKey({ color: "#6366F1" }, 0)).toBe("sub");
+    expect(epicColorKey({ color: "accent2" }, 0)).toBe("sub");
+    expect(colorName("sub")).toBe("Grey");
+  });
+});
+
+describe("Epic Roadmap keyboard focus", () => {
+  const editButton = (name: string) => screen.getByRole("button", { name: `Edit ${name}` });
+
+  it("returns to the row's Edit button after Save or Cancel", () => {
+    setEpics([epic("a", "Alpha", "2026 Q1", "2026 Q1"), epic("b", "Beta", "2026 Q2", "2026 Q2")]);
+    renderRoadmap();
+    fireEvent.click(editButton("Alpha"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(editButton("Alpha")).toHaveFocus();
+
+    fireEvent.click(editButton("Beta"));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.keyDown(within(editor).getByLabelText(/^Epic/), { key: "Escape" });
+    expect(editButton("Beta")).toHaveFocus();
+  });
+
+  it("moves to the next epic after a delete, else the add form", () => {
+    setEpics([epic("a", "Alpha", "2026 Q1", "2026 Q1"), epic("b", "Beta", "2026 Q2", "2026 Q2")]);
+    renderRoadmap();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Alpha" }));
+    expect(editButton("Beta")).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Beta" }));
+    expect(within(addForm()).getByLabelText(/^Epic/)).toHaveFocus();
+  });
+
+  it("after Unlink lands on the next story's Unlink, else the story picker; Link stays on it", () => {
+    setEpics([epic("e1", "Onboarding", "2026 Q4", "2027 Q1")]);
+    useWorkspaceStore.setState({
+      stories: [story("s1", "done", 3, "e1"), story("s2", "todo", 5, "e1"), story("s3", "todo")],
+    });
+    renderRoadmap();
+    fireEvent.click(screen.getByRole("button", { name: /^Stories \(2\) in Onboarding/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlink Story s1" }));
+    expect(screen.getByRole("button", { name: "Unlink Story s2" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Unlink Story s2" }));
+    expect(screen.getByLabelText(/^Link a story/)).toHaveFocus();
+
+    fireEvent.change(screen.getByLabelText(/^Link a story/), { target: { value: "s3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Link story" }));
+    expect(stories().find((s) => s.id === "s3")?.epicId).toBe("e1");
+    expect(screen.getByLabelText(/^Link a story/)).toHaveFocus();
   });
 });

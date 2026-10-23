@@ -12,6 +12,22 @@ import {
   type EpicSchedule,
 } from "./rollup";
 
+/**
+ * The epic's name as the page shows and announces it. The old blur editor
+ * saved a blank title, which left rows, bars and button names ("Edit ")
+ * with nothing to say.
+ */
+export function epicName(epic: Pick<Epic, "title">): string {
+  return (epic.title ?? "").trim() || "Untitled epic";
+}
+
+/** Whether the epic's quarters can be read and run forwards, so it can be drawn. */
+export function hasValidQuarters(epic: Pick<Epic, "startQuarter" | "endQuarter">): boolean {
+  const s = quarterIndex(epic.startQuarter);
+  const e = quarterIndex(epic.endQuarter);
+  return s !== 0 && e !== 0 && e >= s;
+}
+
 /** An epic with everything the page shows about it. */
 export interface EpicView {
   epic: Epic;
@@ -34,7 +50,7 @@ export function epicViews(
       epic,
       linked,
       rollup,
-      schedule: epicSchedule(epic, rollup.pct, now),
+      schedule: epicSchedule(epic, rollup.done, now),
       color: epicColorKey(epic, i),
     };
   });
@@ -60,11 +76,9 @@ export function fitRange(
   let start = Infinity;
   let end = -Infinity;
   for (const e of epics) {
-    const s = quarterIndex(e.startQuarter);
-    const f = quarterIndex(e.endQuarter);
-    if (s === 0 || f === 0 || f < s) continue;
-    start = Math.min(start, s);
-    end = Math.max(end, f);
+    if (!hasValidQuarters(e)) continue;
+    start = Math.min(start, quarterIndex(e.startQuarter));
+    end = Math.max(end, quarterIndex(e.endQuarter));
   }
   if (!Number.isFinite(start)) {
     const year = now.getFullYear();
@@ -75,14 +89,33 @@ export function fitRange(
 
 /** Whether any of the epic's quarters fall inside `from`–`to`. */
 export function inView(epic: Epic, from: string, to: string): boolean {
-  const s = quarterIndex(epic.startQuarter);
-  const e = quarterIndex(epic.endQuarter);
   const vs = quarterIndex(from);
   const ve = quarterIndex(to);
-  return s !== 0 && e !== 0 && e >= s && e >= vs && s <= ve;
+  return (
+    hasValidQuarters(epic) &&
+    quarterIndex(epic.endQuarter) >= vs &&
+    quarterIndex(epic.startQuarter) <= ve
+  );
 }
 
-const named = (v: EpicView) => `“${v.epic.title}”`;
+/**
+ * The notes under the view picker: epics with valid quarters that fall
+ * outside the view, and epics with no valid quarters at all. Counted from
+ * the quarters, not the schedule, which says "Done" before it looks at
+ * them: a finished epic dated "next spring" was told it fell outside the
+ * view, which no view could fix.
+ */
+export function placementCounts(
+  views: readonly EpicView[],
+  from: string,
+  to: string
+): { outside: number; unplaced: number } {
+  const unplaced = views.filter((v) => !hasValidQuarters(v.epic)).length;
+  const outside = views.filter((v) => hasValidQuarters(v.epic) && !inView(v.epic, from, to)).length;
+  return { outside, unplaced };
+}
+
+const named = (v: EpicView) => `“${epicName(v.epic)}”`;
 
 /**
  * The one sentence above the roadmap: what is late, else what ends this

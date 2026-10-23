@@ -21,8 +21,10 @@ import {
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { generateEpicRoadmapPrompts } from "@/lib/ai-prompts/epic-roadmap";
 import { plural } from "@/lib/charts/chart-text";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
+import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Epic, Story } from "@/lib/stores/workspace-types";
+import type { Epic, PokerQueueItem, Story } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
@@ -46,11 +48,13 @@ import { QuarterPicker } from "./pickers";
 import { MAX_QUARTERS_SPAN, normalizeQuarter, quartersBetween, requestedSpan } from "./quarters";
 import { SCHEDULE_LABEL, rollupLabel, type EpicSchedule } from "./rollup";
 import { RoadmapTimeline } from "./timeline";
+import { useFocusAfter } from "./use-focus-after";
 import {
   byStart,
+  epicName,
   epicViews,
   fitRange,
-  inView,
+  placementCounts,
   roadmapVerdict,
   timelineSummary,
   type EpicView,
@@ -87,8 +91,23 @@ function setStoryEpic(storyId: string, epicId: string | undefined) {
   ws.upsertStory(next);
 }
 
+/** Ids of the workspace stories already waiting in the Planning Poker queue. */
+function queuedStoryIds(queue: readonly PokerQueueItem[] | undefined): Set<string> {
+  return new Set(
+    (queue ?? []).filter((q) => q.sourceRef.tool === "story").map((q) => q.sourceRef.id)
+  );
+}
+const EMPTY_QUEUE: PokerQueueItem[] = [];
+
 const short = (s: string, max = 40) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 const keyOf = (v: EpicView) => v.epic.id;
+
+/** The id after `id` in `ids` (else the one before), for where focus goes after a removal. */
+function neighbourOf(ids: readonly string[], id: string): string | undefined {
+  const at = ids.indexOf(id);
+  if (at < 0) return undefined;
+  return ids[at + 1] ?? ids[at - 1];
+}
 
 const SCHEDULE_TONE: Record<EpicSchedule, string> = {
   unscheduled: "text-warning",
@@ -102,8 +121,13 @@ const SCHEDULE_TONE: Record<EpicSchedule, string> = {
 export function EpicRoadmapClient() {
   const [epics, setEpics] = useEpics();
   const stories = useWorkspaceStore((s) => s.stories);
+  const pokerQueue = useWorkspaceStore(
+    (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue ?? EMPTY_QUEUE
+  );
+  const queued = useMemo(() => queuedStoryIds(pokerQueue), [pokerQueue]);
   const { log } = useHistoryLogger("epic-roadmap");
   const exportRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useFocusAfter(exportRef);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [openStories, setOpenStories] = useState<ReadonlySet<string>>(new Set());
   // The view range: fitted to the epics until the user picks quarters.
@@ -140,8 +164,14 @@ export function EpicRoadmapClient() {
   }
   const form = useEpicAddForm(() => newEpicDraft(nextColor(epics), now), add);
 
-  function save(epic: Epic, v: EpicValues) {
+  /** Close the editor, back on the row's Edit button. */
+  function closeEditor(id: string) {
     setEditingId(null);
+    focusAfter(`edit:${id}`);
+  }
+
+  function save(epic: Epic, v: EpicValues) {
+    closeEditor(epic.id);
     const fields = changedFields(epic, withEpicValues(epic, v));
     if (fields.length === 0) return;
     setEpics((s) => s.map((e) => (e.id === epic.id ? withEpicValues(e, v) : e)));
@@ -161,8 +191,14 @@ export function EpicRoadmapClient() {
       .getState()
       .stories.filter((s) => s.epicId === epic.id)
       .map((s) => s.id);
+    // Focus goes to the next epic in the list (else the one before, else the add form).
+    const next = neighbourOf(
+      ordered.map((v) => v.epic.id),
+      epic.id
+    );
+    focusAfter(...(next ? [`edit:${next}`] : []), "add");
     undoable({
-      label: `Deleted “${short(epic.title)}”`,
+      label: `Deleted “${short(epicName(epic))}”`,
       description:
         storyIds.length > 0
           ? `${plural(storyIds.length, "linked story", "linked stories")} unlinked; ${
@@ -188,8 +224,10 @@ export function EpicRoadmapClient() {
 
   function link(epic: Epic, story: Story) {
     const previous = story.epicId;
+    // Back on the picker, ready for the next story (or on the note that none are left).
+    focusAfter(`link:${epic.id}`);
     undoable({
-      label: `Linked “${short(story.title)}” to “${short(epic.title)}”`,
+      label: `Linked “${short(story.title)}” to “${short(epicName(epic))}”`,
       apply: () => {
         setStoryEpic(story.id, epic.id);
         log(EPIC_ROADMAP_ACTIONS.EPIC_UPDATED, { epicId: epic.id, fields: ["stories"] });
@@ -198,7 +236,12 @@ export function EpicRoadmapClient() {
     });
   }
 
-  function unlink(epic: Epic, story: Story) {
+  function unlink(epic: Epic, story: Story, linked: readonly Story[]) {
+    const next = neighbourOf(
+      linked.map((s) => s.id),
+      story.id
+    );
+    focusAfter(...(next ? [`unlink:${next}`] : []), `link:${epic.id}`);
     undoable({
       label: `Unlinked “${short(story.title)}”`,
       apply: () => {
@@ -206,6 +249,34 @@ export function EpicRoadmapClient() {
         log(EPIC_ROADMAP_ACTIONS.EPIC_UPDATED, { epicId: epic.id, fields: ["stories"] });
       },
       revert: () => setStoryEpic(story.id, epic.id),
+    });
+  }
+
+  /**
+   * Queue the epic's unestimated stories for Planning Poker, where the host
+   * pulls them into a session and an accepted estimate is written back to
+   * each story's points. Stories already in the queue are skipped; Undo
+   * takes these ones off it again.
+   */
+  function queueForPoker(epic: Epic, unsized: readonly Story[]) {
+    const route = getHandoffRoute("poker-queue");
+    const fresh = queuedStoryIds(
+      (useWorkspaceStore.getState().pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)
+        ?.queue
+    );
+    const toQueue = unsized.filter((s) => !fresh.has(s.id));
+    if (toQueue.length === 0) return;
+    let itemIds: string[] = [];
+    focusAfter(`poker:${epic.id}`);
+    undoable({
+      label: `${plural(toQueue.length, "story", "stories")} queued for Planning Poker`,
+      description: `From “${short(epicName(epic))}”`,
+      apply: () => {
+        itemIds = toQueue.map((s) =>
+          route.send({ title: s.title, sourceRef: { tool: "story", id: s.id } })
+        );
+      },
+      revert: () => itemIds.forEach((id) => route.remove(id)),
     });
   }
 
@@ -232,10 +303,7 @@ export function EpicRoadmapClient() {
   const columns = useMemo(() => quartersBetween(from, to), [from, to]);
   const span = requestedSpan(from, to);
   const viewEnd = columns[columns.length - 1] ?? to;
-  const unscheduled = views.filter((v) => v.schedule === "unscheduled").length;
-  const outside = views.filter(
-    (v) => v.schedule !== "unscheduled" && !inView(v.epic, from, viewEnd)
-  ).length;
+  const { outside, unplaced: unscheduled } = placementCounts(views, from, viewEnd);
 
   const verdict = roadmapVerdict(views);
 
@@ -390,7 +458,7 @@ export function EpicRoadmapClient() {
                         also={allQuarters}
                         now={now}
                         onSave={(values) => save(v.epic, values)}
-                        onCancel={() => setEditingId(null)}
+                        onCancel={() => closeEditor(v.epic.id)}
                       />
                     ) : (
                       <EpicRow
@@ -408,8 +476,10 @@ export function EpicRoadmapClient() {
                         view={v}
                         stories={stories}
                         epics={epics}
+                        queued={queued}
                         onLink={(s) => link(v.epic, s)}
-                        onUnlink={(s) => unlink(v.epic, s)}
+                        onUnlink={(s) => unlink(v.epic, s, v.linked)}
+                        onQueue={(unsized) => queueForPoker(v.epic, unsized)}
                       />
                     )}
                   </li>
@@ -420,7 +490,9 @@ export function EpicRoadmapClient() {
         )}
 
         <SectionCard title="Add an epic" icon={Plus}>
-          <EpicAddForm form={form} also={allQuarters} now={now} />
+          <div data-focus-key="add">
+            <EpicAddForm form={form} also={allQuarters} now={now} />
+          </div>
         </SectionCard>
       </div>
     </ToolPageWrapper>
@@ -445,6 +517,7 @@ function EpicRow({
   onRemove: () => void;
 }) {
   const { epic, rollup, schedule, color, linked } = view;
+  const name = epicName(epic);
   const start = normalizeQuarter(epic.startQuarter);
   const end = normalizeQuarter(epic.endQuarter);
   const quarters =
@@ -457,7 +530,7 @@ function EpicRow({
         style={{ background: colorVar(color) }}
       />
       <div className="min-w-0 flex-1 basis-56 space-y-1">
-        <p className="break-words text-sm font-medium text-text">{epic.title}</p>
+        <p className="break-words text-sm font-medium text-text">{name}</p>
         <p className="text-xs text-sub">
           <span className="font-data">{quarters}</span>
           {" · "}
@@ -482,7 +555,7 @@ function EpicRow({
           size="sm"
           aria-expanded={storiesOpen}
           aria-controls={storiesOpen ? panelId : undefined}
-          aria-label={`Stories (${linked.length}) in ${epic.title}`}
+          aria-label={`Stories (${linked.length}) in ${name}`}
           onClick={onToggleStories}
           className="min-touch-coarse h-7 gap-1.5 px-2 text-xs text-sub hover:text-accent"
         >
@@ -490,13 +563,14 @@ function EpicRow({
           Stories ({linked.length})
         </Button>
         <IconButton
-          label={`Edit ${epic.title}`}
+          label={`Edit ${name}`}
+          data-focus-key={`edit:${epic.id}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
           onClick={onEdit}
         />
         <IconButton
-          label={`Delete ${epic.title}`}
+          label={`Delete ${name}`}
           icon={<Trash2 className="h-4 w-4" />}
           className="text-sub hover:text-danger"
           onClick={onRemove}

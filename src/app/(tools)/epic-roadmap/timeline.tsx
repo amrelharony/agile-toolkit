@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { colorTint, colorVar } from "./palette";
 import { currentQuarterIndex, normalizeQuarter, quarterIndex } from "./quarters";
 import { rollupLabel } from "./rollup";
-import { inView, type EpicView } from "./view";
+import { epicName, inView, type EpicView } from "./view";
 
 /** Column widths in rem: the sticky name column, then each quarter. */
 const NAME_REM = 9;
@@ -53,7 +53,7 @@ export function timelineTable(views: readonly EpicView[]): ChartTable {
     caption: "Epics on the roadmap",
     columns: ["Epic", "Start", "End", "Owner", "Progress", "From"],
     rows: views.map((v) => [
-      v.epic.title,
+      epicName(v.epic),
       normalizeQuarter(v.epic.startQuarter) || "—",
       normalizeQuarter(v.epic.endQuarter) || "—",
       v.epic.owner || "—",
@@ -134,11 +134,14 @@ export function RoadmapTimeline({
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ background: colorVar(color) }}
                   />
-                  <span className="truncate">{v.epic.title}</span>
+                  <span className="truncate">{epicName(v.epic)}</span>
                 </div>
                 <div
+                  // `isolate` keeps the label's z-index inside the bar, so
+                  // scrolled sideways on a phone the percentage slides under
+                  // the pinned names (both were z-10, and the label won).
                   className={cn(
-                    "relative mx-0.5 flex h-7 items-center overflow-hidden",
+                    "relative isolate mx-0.5 flex h-7 items-center overflow-hidden",
                     !bar.clippedStart && "rounded-l-md",
                     !bar.clippedEnd && "rounded-r-md"
                   )}

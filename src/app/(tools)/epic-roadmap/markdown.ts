@@ -1,6 +1,6 @@
 import { normalizeQuarter } from "./quarters";
 import { SCHEDULE_LABEL, rollupLabel } from "./rollup";
-import { byStart, roadmapVerdict, type EpicView } from "./view";
+import { byStart, epicName, roadmapVerdict, type EpicView } from "./view";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -33,7 +33,7 @@ export function toMarkdown(views: readonly EpicView[], now: Date = new Date()): 
       .sort(byStart)
       .map(
         (v) =>
-          `| ${md(v.epic.title)} | ${orDash(normalizeQuarter(v.epic.startQuarter))} | ${orDash(
+          `| ${md(epicName(v.epic))} | ${orDash(normalizeQuarter(v.epic.startQuarter))} | ${orDash(
             normalizeQuarter(v.epic.endQuarter)
           )} | ${orDash(v.epic.owner)} | ${v.rollup.pct}% | ${md(rollupLabel(v.rollup))} | ${
             SCHEDULE_LABEL[v.schedule]

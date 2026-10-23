@@ -14,8 +14,10 @@ export const STORY_STATUS_LABEL: Record<Story["status"], string> = {
 export interface EpicRollup {
   /** "stories" when any story is linked; "typed" falls back to `Epic.progress`. */
   source: "stories" | "typed";
-  /** 0–100, whole numbers. */
+  /** 0–100, whole numbers; 100 only when `done`, so rounding never reads as finished. */
   pct: number;
+  /** Every linked story is done, or (typed) the unrounded progress is 100. */
+  done: boolean;
   /** For stories: done points over total points, or done stories over stories. */
   basis: "points" | "count" | null;
   count: number;
@@ -26,8 +28,16 @@ export interface EpicRollup {
   unestimated: number;
 }
 
-const estimated = (s: Story) => typeof s.points === "number" && Number.isFinite(s.points);
+/** Whether the story has an estimate (0 counts: a spike or chore can be sized at nothing). */
+export const isEstimated = (s: Story) => typeof s.points === "number" && Number.isFinite(s.points);
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * A whole-number percentage that reads 100 only when the work is done:
+ * 199 of 200 points rounds to 100, and an open 0-point story leaves the
+ * points at 100%, yet the epic isn't finished.
+ */
+const shownPct = (pct: number, done: boolean) => (done ? 100 : Math.min(99, pct));
 
 /** The stories linked to the epic (`Story.epicId`), in stored order. */
 export function linkedStories(epicId: string, stories: readonly Story[]): Story[] {
@@ -51,9 +61,11 @@ export function typedProgress(progress: unknown): number {
  */
 export function epicRollup(epic: Pick<Epic, "progress">, linked: readonly Story[]): EpicRollup {
   if (linked.length === 0) {
+    const done = Number(epic.progress) >= 100;
     return {
       source: "typed",
-      pct: typedProgress(epic.progress),
+      pct: shownPct(typedProgress(epic.progress), done),
+      done,
       basis: null,
       count: 0,
       doneCount: 0,
@@ -69,7 +81,7 @@ export function epicRollup(epic: Pick<Epic, "progress">, linked: readonly Story[
   for (const s of linked) {
     const done = s.status === "done";
     if (done) doneCount++;
-    if (!estimated(s)) {
+    if (!isEstimated(s)) {
       unestimated++;
       continue;
     }
@@ -77,11 +89,14 @@ export function epicRollup(epic: Pick<Epic, "progress">, linked: readonly Story[
     if (done) donePoints += s.points as number;
   }
   const byPoints = unestimated === 0 && points > 0;
+  const done = doneCount === linked.length;
+  const pct = byPoints
+    ? (completionPct(donePoints, points) ?? 0)
+    : (completionPct(doneCount, linked.length) ?? 0);
   return {
     source: "stories",
-    pct: byPoints
-      ? (completionPct(donePoints, points) ?? 0)
-      : (completionPct(doneCount, linked.length) ?? 0),
+    pct: shownPct(pct, done),
+    done,
     basis: byPoints ? "points" : "count",
     count: linked.length,
     doneCount,
@@ -91,10 +106,19 @@ export function epicRollup(epic: Pick<Epic, "progress">, linked: readonly Story[
   };
 }
 
-/** "18 of 30 points done", "2 of 6 stories done", "Typed". */
+/**
+ * "18 of 30 points done", "2 of 6 stories done", "Typed". When every point
+ * is done but 0-point stories are still open, it says so, beside the 99%.
+ */
 export function rollupLabel(r: EpicRollup): string {
   if (r.source === "typed") return "Typed";
-  if (r.basis === "points") return `${r.donePoints} of ${r.points} points done`;
+  if (r.basis === "points") {
+    const label = `${r.donePoints} of ${r.points} points done`;
+    const open = r.count - r.doneCount;
+    return !r.done && r.donePoints >= r.points
+      ? `${label}, ${open} ${open === 1 ? "story" : "stories"} still open`
+      : label;
+  }
   return `${r.doneCount} of ${r.count} ${r.count === 1 ? "story" : "stories"} done`;
 }
 
@@ -107,15 +131,16 @@ export type EpicSchedule =
   | "done";
 
 /**
- * Where the epic stands against its quarters today: done at 100%; overdue
- * once its end quarter has passed; "ending" during its last quarter.
+ * Where the epic stands against its quarters today: done once its roll-up
+ * says so (`EpicRollup.done`, never a rounded 100%); overdue once its end
+ * quarter has passed; "ending" during its last quarter.
  */
 export function epicSchedule(
   epic: Pick<Epic, "startQuarter" | "endQuarter">,
-  pct: number,
+  done: boolean,
   now: Date = new Date()
 ): EpicSchedule {
-  if (pct >= 100) return "done";
+  if (done) return "done";
   const start = quarterIndex(epic.startQuarter);
   const end = quarterIndex(epic.endQuarter);
   if (start === 0 || end === 0 || end < start) return "unscheduled";

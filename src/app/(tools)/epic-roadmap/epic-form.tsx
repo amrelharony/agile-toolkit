@@ -226,7 +226,7 @@ function EpicFields({
           error={errors.progress}
           hint={
             rollup.source === "stories"
-              ? `Not used while stories are linked: ${rollupLabel(rollup).toLowerCase()} gives ${rollup.pct}%.`
+              ? `Not used while stories are linked: ${rollup.pct}% from ${rollupLabel(rollup).toLowerCase()}.`
               : "Used while no stories are linked. Link stories to roll it up instead."
           }
           className="sm:max-w-[16rem]"

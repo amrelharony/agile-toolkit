@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Link2, Unlink } from "lucide-react";
+import { Dices, Link2, Unlink } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import type { Epic, Story } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
-import { STORY_STATUS_LABEL } from "./rollup";
-import type { EpicView } from "./view";
+import { STORY_STATUS_LABEL, isEstimated } from "./rollup";
+import { epicName, type EpicView } from "./view";
+
+const LINK_CLASS =
+  "text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 const SELECT_CLASS =
   "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm";
@@ -32,16 +36,19 @@ export function validateLink(
 
 /**
  * The stories behind an epic's progress: link backlog or sprint stories
- * (`Story.epicId`), unlink them, and see which still need an estimate.
- * An example epic shows its preview stories read-only.
+ * (`Story.epicId`), unlink them, and queue the unestimated ones for
+ * Planning Poker (a link there used to arrive with nothing to size). An
+ * example epic shows its preview stories read-only.
  */
 export function EpicStories({
   id,
   view,
   stories,
   epics,
+  queued = new Set(),
   onLink,
   onUnlink,
+  onQueue,
 }: {
   /** The panel's id, for the "Stories" button's aria-controls. */
   id?: string;
@@ -50,12 +57,20 @@ export function EpicStories({
   stories: readonly Story[];
   /** Every epic, to name the one a story would move from. */
   epics: readonly Epic[];
+  /** Ids of stories already in the Planning Poker queue. */
+  queued?: ReadonlySet<string>;
   onLink: (story: Story) => void;
   onUnlink: (story: Story) => void;
+  /** Queue these unestimated stories for Planning Poker. */
+  onQueue?: (stories: Story[]) => void;
 }) {
   const { epic, linked, rollup } = view;
+  const name = epicName(epic);
   const example = isExampleId(epic.id);
-  const epicTitle = new Map(epics.map((e) => [e.id, e.title]));
+  const epicTitle = new Map(epics.map((e) => [e.id, epicName(e)]));
+  const unsized = linked.filter((s) => !isEstimated(s));
+  const waiting = unsized.filter((s) => !queued.has(s.id));
+  const inQueue = unsized.length - waiting.length;
   // A story already in another epic can move here; its old epic is named.
   const candidates = example
     ? []
@@ -82,7 +97,7 @@ export function EpicStories({
           No stories linked. Progress is typed until you link the stories that deliver this epic.
         </p>
       ) : (
-        <ul className="divide-y divide-border" aria-label={`Stories in ${epic.title}`}>
+        <ul className="divide-y divide-border" aria-label={`Stories in ${name}`}>
           {linked.map((s) => (
             <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5">
               <span className="min-w-0 flex-1 basis-40 break-words text-sm text-text">
@@ -93,6 +108,7 @@ export function EpicStories({
               {!example && (
                 <IconButton
                   label={`Unlink ${s.title}`}
+                  data-focus-key={`unlink:${s.id}`}
                   icon={<Unlink className="h-4 w-4" />}
                   className="text-sub hover:text-danger"
                   onClick={() => onUnlink(s)}
@@ -103,66 +119,84 @@ export function EpicStories({
         </ul>
       )}
       {rollup.unestimated > 0 && (
-        <p className="text-xs text-sub">
-          {rollup.unestimated === 1
-            ? "1 story isn’t estimated, so progress counts stories, not points."
-            : `${rollup.unestimated} stories aren’t estimated, so progress counts stories, not points.`}{" "}
-          {!example && (
-            <Link
-              href="/planning-poker"
-              className="text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              Size them in Planning Poker
-            </Link>
-          )}
-        </p>
-      )}
-      {!example &&
-        (candidates.length === 0 ? (
-          <p className="text-xs text-sub">
-            No other stories to link.{" "}
-            <Link
-              href="/sprint-planning"
-              className="text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              Add stories in Sprint Planning
-            </Link>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-sub">
+          <p className="min-w-0 flex-1 basis-56">
+            {rollup.unestimated === 1
+              ? "1 story isn’t estimated, so progress counts stories, not points."
+              : `${rollup.unestimated} stories aren’t estimated, so progress counts stories, not points.`}
           </p>
-        ) : (
-          <ItemForm
-            form={form}
-            submitLabel="Link story"
-            submitIcon={<Link2 className="h-4 w-4" aria-hidden="true" />}
-          >
-            <Field label="Link a story" error={form.errors.storyId}>
-              {(props) => (
-                <select
-                  {...props}
-                  className={SELECT_CLASS}
-                  value={form.draft.storyId}
-                  onChange={(e) => form.update({ storyId: e.target.value })}
-                >
-                  <option value="">Pick a story</option>
-                  {candidates.map((s) => {
-                    const other = s.epicId ? epicTitle.get(s.epicId) : undefined;
-                    return (
-                      <option key={s.id} value={s.id}>
-                        {[
-                          short(s.title),
-                          STORY_STATUS_LABEL[s.status] ?? s.status,
-                          pointsText(s),
-                          other ? `in “${short(other, 30)}”` : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </option>
-                    );
-                  })}
-                </select>
-              )}
-            </Field>
-          </ItemForm>
-        ))}
+          {!example && waiting.length > 0 && onQueue && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onQueue(waiting)}
+              className="min-touch-coarse"
+            >
+              <Dices className="h-4 w-4" aria-hidden="true" />
+              Queue {waiting.length} for Planning Poker
+            </Button>
+          )}
+          {!example && inQueue > 0 && (
+            <span data-focus-key={`poker:${epic.id}`}>
+              {waiting.length > 0
+                ? `${inQueue} queued.`
+                : inQueue === 1
+                  ? "Queued for estimation."
+                  : "All queued for estimation."}{" "}
+              <Link href="/planning-poker" className={LINK_CLASS}>
+                Open Planning Poker
+              </Link>
+            </span>
+          )}
+        </div>
+      )}
+      {!example && (
+        <div data-focus-key={`link:${epic.id}`}>
+          {candidates.length === 0 ? (
+            <p className="text-xs text-sub">
+              No other stories to link.{" "}
+              <Link href="/sprint-planning" className={LINK_CLASS}>
+                Add stories in Sprint Planning
+              </Link>
+            </p>
+          ) : (
+            <ItemForm
+              form={form}
+              submitLabel="Link story"
+              submitIcon={<Link2 className="h-4 w-4" aria-hidden="true" />}
+            >
+              <Field label="Link a story" error={form.errors.storyId}>
+                {(props) => (
+                  <select
+                    {...props}
+                    className={SELECT_CLASS}
+                    value={form.draft.storyId}
+                    onChange={(e) => form.update({ storyId: e.target.value })}
+                  >
+                    <option value="">Pick a story</option>
+                    {candidates.map((s) => {
+                      const other = s.epicId ? epicTitle.get(s.epicId) : undefined;
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {[
+                            short(s.title),
+                            STORY_STATUS_LABEL[s.status] ?? s.status,
+                            pointsText(s),
+                            other ? `in “${short(other, 30)}”` : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+              </Field>
+            </ItemForm>
+          )}
+        </div>
+      )}
     </div>
   );
 }
