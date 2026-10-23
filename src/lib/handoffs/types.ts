@@ -6,6 +6,10 @@
  *   premortem cause   → risk
  *   story-map card    → Planning Poker queue
  *
+ * and, for the tools later phases upgrade, a backlog story, a retro topic
+ * or action on the current retro board, a hypothesis, a proposed decision,
+ * or a node (and edge) on the dependency map.
+ *
  * The target records where the item came from (`sourceRef`), and the source
  * records where it went (`sentTo`, a list of HandoffLink). Both sides can then
  * link to each other, and a second send of the same item to the same place
@@ -31,6 +35,13 @@ export interface HandoffSource {
   impact?: number;
   /** A premortem cause's preventive action becomes the risk's mitigation. */
   mitigation?: string;
+  /** An estimate a backlog story keeps (a Planning Poker result). */
+  points?: number;
+  /** Which kind of retro column a topic belongs in: a concern (the
+   *  default, e.g. a red health check) or an appreciation (a kudos). */
+  tone?: "concern" | "appreciation";
+  /** A dependency's other side: the team or deliverable it waits on. */
+  dependsOn?: string;
   /** Where the item lives, so the target can link back to it. */
   sourceRef: HandoffRef;
 }

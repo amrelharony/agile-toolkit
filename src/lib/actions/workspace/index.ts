@@ -15,7 +15,7 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { defineCrudActions } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { CEREMONY_CADENCE_ID } from "@/lib/stores/workspace-types";
+import { CEREMONY_CADENCE_ID, HANDOFF_ROUTE_IDS } from "@/lib/stores/workspace-types";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import {
   STORY_STATUSES,
@@ -153,6 +153,20 @@ const SprintSeriesSchema = z.object({
   updatedAt: z.string().optional(),
 }) as unknown as z.ZodType<SprintSeries>;
 
+// Hand-off links (workspace-types HandoffRef / HandoffLink). Every schema
+// that holds them must list them: updates write the parsed object, and
+// z.object drops keys it doesn't know.
+const HandoffRefSchema = z.object({
+  tool: z.string(),
+  id: z.string(),
+  doc: z.string().optional(),
+});
+const HandoffLinkSchema = z.object({
+  route: z.enum(HANDOFF_ROUTE_IDS),
+  targetId: z.string(),
+  at: z.string(),
+});
+
 const StoryStatusSchema = z.enum(STORY_STATUSES as [Story["status"], ...Story["status"][]]);
 
 // The flow stamps are listed so an update keeps them (z.object drops keys it
@@ -181,21 +195,8 @@ const StorySchema = z.object({
     .max(STORY_STATUS_HISTORY_CAP)
     .optional()
     .describe("Status changes, oldest first (latest 50). Appended on a status change."),
+  sourceRef: HandoffRefSchema.optional(),
 }) as unknown as z.ZodType<Story>;
-
-// Hand-off links (workspace-types HandoffRef / HandoffLink). Every schema
-// that holds them must list them: updates write the parsed object, and
-// z.object drops keys it doesn't know.
-const HandoffRefSchema = z.object({
-  tool: z.string(),
-  id: z.string(),
-  doc: z.string().optional(),
-});
-const HandoffLinkSchema = z.object({
-  route: z.enum(["impediment", "kanban", "risk", "poker-queue"]),
-  targetId: z.string(),
-  at: z.string(),
-});
 
 const ImpedimentSchema = z.object({
   id: z.string(),
@@ -250,6 +251,7 @@ const DecisionSchema = z.object({
   alternatives: z.array(z.string()).optional(),
   status: z.enum(["proposed", "accepted", "deprecated", "superseded"]),
   date: z.string(),
+  sourceRef: HandoffRefSchema.optional(),
 }) as unknown as z.ZodType<Decision>;
 
 const TechDebtSchema = z.object({
@@ -1230,6 +1232,7 @@ const HypothesisSchema = z.object({
   status: z.enum(["drafted", "running", "validated", "invalidated", "inconclusive"]),
   raisedAt: z.string(),
   resolvedAt: z.string().optional(),
+  sourceRef: HandoffRefSchema.optional(),
 });
 
 const HypothesisTrackerSchema = z.object({

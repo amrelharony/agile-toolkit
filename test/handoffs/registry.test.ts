@@ -29,6 +29,10 @@ import { sendHandoff } from "@/lib/handoffs/send";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import { RISK_REGISTER_KEY } from "@/lib/handoffs/targets/risk";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
+import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
+import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
+import { DECISION_LOG_KEY } from "@/lib/handoffs/targets/decision";
+import { DEPENDENCY_MAP_ID } from "@/lib/handoffs/targets/dependency";
 
 const ROUTES = Object.keys(HANDOFF_ROUTES) as HandoffRouteId[];
 
@@ -62,6 +66,12 @@ const ws = () => useWorkspaceStore.getState();
 const kanbanCards = () => ws().kanbanBoards?.find((b) => b.id === "kanban:current")?.cards ?? [];
 const riskBlob = (): Risk[] => JSON.parse(localStorage.getItem(RISK_REGISTER_KEY) ?? "[]");
 const pokerQueue = () => ws().pokerEstimationLogs?.find((d) => d.id === POKER_LOG_ID)?.queue ?? [];
+const retroCards = () => ws().retroBoards?.find((b) => b.id === RETRO_BOARD_ID)?.cards ?? [];
+const hypotheses = () =>
+  ws().hypothesisTrackers?.find((d) => d.id === HYPOTHESIS_TRACKER_ID)?.hypotheses ?? [];
+const decisionBlob = (): { id: string }[] =>
+  JSON.parse(localStorage.getItem(DECISION_LOG_KEY) ?? "[]");
+const depNodes = () => ws().dependencyMaps?.find((d) => d.id === DEPENDENCY_MAP_ID)?.nodes ?? [];
 
 /** Every place a route's target can live, for "it's gone" checks. */
 function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
@@ -77,6 +87,17 @@ function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
       return [riskBlob().some((r) => r.id === id), ws().risks.some((r) => r.id === id)];
     case "poker-queue":
       return [pokerQueue().some((q) => q.id === id)];
+    case "backlog-story":
+      return [ws().stories.some((s) => s.id === id)];
+    case "retro-topic":
+    case "retro-action":
+      return [retroCards().some((c) => c.id === id)];
+    case "hypothesis":
+      return [hypotheses().some((h) => h.id === id)];
+    case "decision":
+      return [decisionBlob().some((d) => d.id === id), ws().decisions.some((d) => d.id === id)];
+    case "dependency":
+      return [depNodes().some((n) => n.id === id)];
   }
 }
 
@@ -89,6 +110,11 @@ beforeEach(() => {
     risks: [],
     kanbanBoards: [],
     pokerEstimationLogs: [],
+    stories: [],
+    retroBoards: [],
+    hypothesisTrackers: [],
+    decisions: [],
+    dependencyMaps: [],
   });
 });
 
@@ -263,5 +289,23 @@ describe("source back-links", () => {
     expect(sourceHref({ tool: "standup", id: "x" })).toBe("/standup");
     expect(sourceHref({ tool: "story-mapper", id: "x" })).toBe("/story-mapper");
     expect(sourceHref({ tool: "nope", id: "x" })).toBeNull();
+  });
+
+  it("covers every route", () => {
+    expect([...ROUTES].sort()).toEqual(
+      [
+        "backlog-story",
+        "decision",
+        "dependency",
+        "hypothesis",
+        "impediment",
+        "kanban",
+        "poker-queue",
+        "retro-action",
+        "retro-topic",
+        "risk",
+      ].sort()
+    );
+    for (const route of ROUTES) expect(getHandoffRoute(route).id).toBe(route);
   });
 });
