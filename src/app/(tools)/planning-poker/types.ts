@@ -6,19 +6,15 @@
  * incoming realtime state-sync payloads.
  */
 
-export type ScaleType = "fibonacci" | "tshirt" | "custom";
-
-export const SCALES: Record<ScaleType, string[]> = {
-  fibonacci: ["1", "2", "3", "5", "8", "13", "21", "?", "∞"],
-  tshirt: ["XS", "S", "M", "L", "XL", "XXL", "?"],
-  custom: [],
-};
-
-export const SCALE_LABELS: Record<ScaleType, string> = {
-  fibonacci: "Fibonacci",
-  tshirt: "T-Shirt",
-  custom: "Custom",
-};
+// The decks live in lib so the tool.planning_poker.* agent actions use the same ones.
+export {
+  DEFAULT_CUSTOM_DECK,
+  GUIDE_SCALE,
+  SCALE_LABELS,
+  SCALES,
+  type ScaleType,
+} from "@/lib/estimation/decks";
+import type { ScaleType } from "@/lib/estimation/decks";
 
 export interface Participant {
   id: string;

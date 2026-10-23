@@ -27,30 +27,36 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "planning-poker",
     summary:
-      "Planning Poker gets the team to estimate a story together. Everyone picks a card privately and reveals at once, so the first voice doesn't anchor the rest.",
+      "Planning Poker gets the team to estimate a story together. Everyone picks a card privately and reveals at once, so the first voice doesn't anchor the rest, and the agreed points go back to the story.",
     whenToUse: [
       "During refinement or sprint planning, for stories the team understands well enough to size.",
       "When estimates swing widely and you want the reasons to come out.",
+      "When Refinement, Sprint Planning or the Story Mapper queued unsized stories.",
     ],
     steps: [
-      "Read the story and its acceptance criteria aloud; answer questions.",
-      "Everyone picks a card without showing it.",
-      "Reveal together.",
-      "If votes differ, the highest and lowest explain their thinking, then vote again.",
-      "Accept the agreed estimate and move to the next story.",
+      "Under Start a Session, name it, pick the Estimation scale (Fibonacci, T-Shirt or Custom card values) and your display name, then click Start Session. Start with the queue brings in the stories other tools queued; Start a live room lets everyone vote from their own device.",
+      "Add stories in the Story Queue (or Add queued stories), then read the current one and its acceptance criteria aloud and answer questions.",
+      "Everyone picks a card without showing it: under Your vote, or record each person's card under Votes, or click Next voter to pass the screen round.",
+      "Click Reveal. The verdict says how close the votes are, with Average, Median, Mode and Cards apart.",
+      "If votes differ, the highest and lowest explain their thinking, then click Vote Again.",
+      "Pick the agreed card under Accept estimate and click Accept. Queued stories get their points back where they came from; Save to backlog adds the stories you typed here.",
     ],
     tips: [
       "Estimate relative size and uncertainty, not hours.",
       "If a story needs more than two rounds, it probably needs splitting or more refinement.",
       "“?” means “I need more information”, and is a useful signal.",
+      "Under the deck, the Estimation Guide shows what the picked card means and its reference stories.",
     ],
     scales: [
       {
-        name: "Fibonacci",
+        name: "Consensus",
         values: [
-          { value: "1–3", meaning: "small and well understood" },
-          { value: "5–8", meaning: "medium, some unknowns" },
-          { value: "13+", meaning: "large or risky — consider splitting" },
+          { value: "Full consensus", meaning: "everyone picked the same card" },
+          { value: "Near consensus", meaning: "the votes are on neighbouring cards" },
+          {
+            value: "Discussion needed",
+            meaning: "the votes are two or more cards apart: talk, then vote again",
+          },
         ],
       },
     ],
@@ -96,13 +102,16 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "sprint-goal",
     summary:
-      "A sprint goal is one sentence that says why the sprint matters. It gives the team focus and a way to decide what to drop when things change.",
+      "A sprint goal is one sentence that says why the sprint matters. It gives the team focus and a way to decide what to drop when things change. The goal is saved on the sprint, so Sprint Planning and the Sprint Cockpit show it.",
     whenToUse: ["During sprint planning.", "When a sprint feels like a list of unrelated tickets."],
     steps: [
-      "Start from the outcome you want for users or the business, not a list of tasks.",
-      "Make it specific and testable: how will you know you achieved it?",
-      "Check that the selected backlog items support the goal.",
-      "Share it where the team sees it every day.",
+      "Pick the sprint under Goal for. One goal per sprint.",
+      "Business Objective: write the outcome you want for users or the business, not a list of tasks.",
+      "Sprint Goal: write the one sentence. The SMART badges show whether it reads as Specific, Measurable, Achievable, Relevant and Time-bound.",
+      "Acceptance Criteria: click Add criterion for each thing you'll check at the review, and tick the ones that serve the goal.",
+      "Key Results: link the OKRs this sprint moves forward, or set them up in the OKR Tracker first.",
+      "Check the Preview, then plan the sprint around the goal in Sprint Planning.",
+      "On the sprint's last day, or once it's over, answer Did we meet the sprint goal? (Met, Partly met or Not met) with a note. The answer goes in the export, for the Sprint Review.",
     ],
     tips: ["One goal. If you have three, you have none.", "Review it at every standup."],
   },
@@ -191,20 +200,23 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "story-mapper",
     summary:
-      "A user story map lays out the user's journey as steps, with stories under each step, so you can slice releases that deliver value end to end.",
+      "A user story map lays out the user's journey as steps, with stories under each step, so you can slice releases that deliver value end to end. Each slice totals its points and can go to the backlog or the Release Planner.",
     whenToUse: [
       "Planning a new product or a big feature.",
       "When the backlog is a flat list and the big picture is lost.",
     ],
     steps: [
-      "Write the user's journey left to right as steps (the backbone).",
-      "Under each step, add the stories that make it possible, most important at the top.",
-      "Draw slices across the map: the first slice is the smallest version that works end to end.",
-      "Plan releases from the slices.",
+      "Along the top, click Add step for each step of the user's journey, left to right (the backbone), and press Enter after each name.",
+      "Down the side, click Add slice for each release. The first slice is the smallest version that works end to end.",
+      "In each cell, click Add card, type the story and press Enter. Edit a card to add a description, its Points and a colour; drag cards to reorder or move them.",
+      "Use a card's Send or move menu to move it to another slice, Estimate in Planning Poker, or Add to the backlog.",
+      "Read each slice's total at its foot. Send N to backlog makes a backlog story per card, with its points.",
+      "Click Plan this release to open the Release Planner on that slice and see when it can ship.",
     ],
     tips: [
       "Map with the people who know the users, not alone.",
       "The first slice is your walking skeleton.",
+      "Cards without points are left out of the slice total and the release forecast, so size them first.",
     ],
   },
   {
@@ -260,18 +272,22 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "capacity-planner",
     summary:
-      "The capacity planner works out how many hours the team really has in a sprint once time off, meetings and interruptions are taken out.",
+      "The capacity planner works out how many hours the team really has in a sprint once days off, team holidays, Scrum events and other work are taken out, and turns that into a points suggestion for Sprint Planning.",
     whenToUse: [
-      "Sprint planning, before committing to work.",
-      "Sprints with holidays or part-time people.",
+      "Before Sprint Planning, to know what the team can take on.",
+      "Sprints with holidays, days off or part-time people.",
     ],
     steps: [
-      "Set sprint length, hours per day and ceremony overhead.",
-      "Add each team member with their availability and days off.",
-      "Use the focus factor (typically 0.6–0.8) to allow for interruptions.",
-      "Commit to work that fits the capacity, ideally checked against past velocity.",
+      "Pick the sprint under Plan for, or click New sprint. Each sprint keeps its own plan; General plan is the fallback for sprints without one.",
+      "For a sprint with no plan yet, click Start from your last plan (people and settings copied, days off back to 0), Use your general plan as is when offered, or Start empty.",
+      "Under Sprint Configuration, check the Sprint length (from the sprint's dates and team holidays), Ceremony overhead, Focus factor and Hours per day.",
+      "Under Team Members, click Sync from team to add everyone on the Team page, or Add member, and set each person's Availability and Days off.",
+      "Read Where the hours go and the Points forecast, then click Plan [sprint] in Sprint Planning to use it there.",
     ],
-    tips: ["Plan to about 80% of capacity to leave room for the unexpected."],
+    tips: [
+      "Ceremony overhead is time in the Scrum events; the focus factor is the share of what's left that goes to sprint work. A focus factor of 0.6–0.8 is typical.",
+      "Reset asks first and can be undone.",
+    ],
   },
   {
     toolId: "health-check",

@@ -67,3 +67,74 @@ describe("tool.epic_roadmap.add_epic + set_progress + list_state", () => {
     expect(bad.updated).toBe(false);
   });
 });
+
+describe("tool.epic_roadmap rolls progress up from stories", () => {
+  const story = (id: string, points: number, status: "done" | "todo", epicId?: string) => ({
+    id,
+    title: id,
+    points,
+    status,
+    ...(epicId ? { epicId } : {}),
+  });
+
+  beforeEach(() =>
+    useWorkspaceStore.setState({
+      epicRoadmaps: [
+        {
+          id: "epicRoadmap:current",
+          epics: [
+            {
+              id: "e1",
+              title: "Checkout",
+              startQuarter: "2026 Q4",
+              endQuarter: "2026 Q4",
+              progress: 90,
+            },
+          ],
+        },
+      ],
+      stories: [story("a", 3, "done", "e1"), story("b", 5, "todo", "e1"), story("c", 8, "todo")],
+    })
+  );
+
+  it("reports the page's rolled-up progress, not the typed figure", async () => {
+    const r = (await registry.get("tool.epic_roadmap.list_state")!.handler({}, ctx())) as {
+      avgProgress: number;
+      epics: { progress: number; rollup: { pct: number; source: string; basis: string } }[];
+    };
+    expect(r.epics[0].progress).toBe(90);
+    expect(r.epics[0].rollup).toMatchObject({ pct: 38, source: "stories", basis: "points" });
+    expect(r.avgProgress).toBe(38);
+  });
+
+  it("links and unlinks stories, refusing unknown epics and repeats", async () => {
+    const link = registry.get("tool.epic_roadmap.link_story")!;
+    const unlink = registry.get("tool.epic_roadmap.unlink_story")!;
+    expect(await link.handler({ storyId: "c", epicId: "nope" }, ctx())).toEqual({ changed: false });
+    expect(await link.handler({ storyId: "c", epicId: "e1" }, ctx())).toEqual({ changed: true });
+    expect(await link.handler({ storyId: "c", epicId: "e1" }, ctx())).toEqual({ changed: false });
+    const c = () => useWorkspaceStore.getState().stories.find((s) => s.id === "c");
+    expect(c()?.epicId).toBe("e1");
+    expect(await unlink.handler({ storyId: "c", epicId: "e1" }, ctx())).toEqual({ changed: true });
+    expect(c() && "epicId" in c()!).toBe(false);
+  });
+
+  it("normalises quarters and rejects a reversed range or an unknown colour", async () => {
+    const schema = registry.get("tool.epic_roadmap.add_epic")!.paramsSchema;
+    expect(
+      schema.safeParse({ title: "x", startQuarter: "2027 Q2", endQuarter: "2027 Q1" }).success
+    ).toBe(false);
+    expect(
+      schema.safeParse({ title: "x", startQuarter: "Spring", endQuarter: "2027 Q1" }).success
+    ).toBe(false);
+    const r = (await registry
+      .get("tool.epic_roadmap.add_epic")!
+      .handler(
+        { title: "Search", startQuarter: "2027q1", endQuarter: "2027 q2", color: "#ff0000" },
+        ctx()
+      )) as { id: string };
+    const epic = useWorkspaceStore.getState().epicRoadmaps?.[0].epics.find((e) => e.id === r.id);
+    expect(epic).toMatchObject({ startQuarter: "2027 Q1", endQuarter: "2027 Q2" });
+    expect(epic && "color" in epic).toBe(false);
+  });
+});

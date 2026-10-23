@@ -89,7 +89,8 @@ describe("Capacity Planner undo", () => {
     expect(dialog).toHaveTextContent("Reset the capacity plan?");
     expect(dialog).toHaveTextContent("All 3 team members are removed");
     fireEvent.click(within(dialog).getByRole("button", { name: "Reset plan" }));
-    expect(names()).toEqual([""]);
+    // An empty team, not a blank row that would count a full person's hours.
+    expect(names()).toEqual([]);
 
     act(() => undo.last!.revert());
     expect(names()).toEqual(["Ana", "Ben", "Cal"]);

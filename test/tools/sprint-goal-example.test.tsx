@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { SprintGoal } from "@/lib/stores/workspace-types";
 
 /**
  * Sprint Goal: "Load an example" fills an empty goal, "Clear example"
  * takes back only the example's parts, and the Markdown export carries
- * the goal, its criteria with SMART checks, and the key results.
+ * the goal, its criteria with SMART checks, and the key-result notes.
  */
 
 const exported = vi.hoisted(() => ({ markdown: undefined as string | undefined }));
@@ -52,6 +53,13 @@ const SG_ID = "sprint-goal:current";
 
 const goal = () => (useWorkspaceStore.getState().sprintGoals ?? []).find((g) => g.id === SG_ID)!;
 
+const renderGoal = () =>
+  render(
+    <TooltipProvider>
+      <SprintGoalClient />
+    </TooltipProvider>
+  );
+
 // Radix tabs switch on mouse down, not click.
 const openStep = (name: string) =>
   fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0 });
@@ -63,7 +71,7 @@ beforeEach(() => {
 });
 
 describe("Sprint Goal toMarkdown", () => {
-  it("puts the goal first, then the objective, the criteria with SMART checks, and key results", () => {
+  it("puts the goal first, then the objective, the criteria with SMART checks, and notes", () => {
     const md = toMarkdown(
       {
         businessObjective: "Grow repeat orders",
@@ -91,7 +99,7 @@ describe("Sprint Goal toMarkdown", () => {
     expect(lines).toContain(
       "| 2 | Make it better | 0/5, missing Specific, Measurable, Achievable, Relevant, Time-bound |"
     );
-    expect(lines).toContain("## Key results");
+    expect(lines).toContain("## Key-result notes");
     expect(lines).toContain("- 10% of orders are reorders");
     expect(md).not.toContain("- \n");
   });
@@ -132,7 +140,7 @@ describe("Sprint Goal example", () => {
   });
 
   it("loads into an empty goal, then clears only the example's parts", () => {
-    render(<SprintGoalClient />);
+    renderGoal();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
@@ -143,14 +151,12 @@ describe("Sprint Goal example", () => {
 
     // The user adds a criterion of their own and edits the goal.
     openStep("Acceptance Criteria");
-    fireEvent.click(screen.getByRole("button", { name: /Add Criterion/ }));
-    const mine = goal().criteria.at(-1)!;
+    const field = screen.getByLabelText("Another acceptance criterion");
+    fireEvent.change(field, { target: { value: "Beta group of 200 by Friday" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add criterion" }));
     useWorkspaceStore.getState().upsertSprintGoal({
       ...goal(),
       goal: "Ship saved cards to beta testers",
-      criteria: goal().criteria.map((c) =>
-        c.id === mine.id ? { ...c, text: "Beta group of 200 by Friday" } : c
-      ),
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
@@ -158,19 +164,19 @@ describe("Sprint Goal example", () => {
     expect(left.criteria.map((c) => c.text)).toEqual(["Beta group of 200 by Friday"]);
     expect(left.goal).toBe("Ship saved cards to beta testers");
     expect(left.businessObjective).toBe("");
-    expect(left.keyResults).toEqual([""]);
+    expect(left.keyResults).toEqual([]);
+    expect(left.okrIds).toEqual([]);
     expect(screen.queryByText(/Example data\./)).toBeNull();
   });
 
   it("clears an untouched example back to an empty goal", () => {
-    render(<SprintGoalClient />);
+    renderGoal();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
 
     const left: SprintGoal = goal();
     expect(left.goal).toBe("");
-    expect(left.criteria).toHaveLength(1);
-    expect(left.criteria[0].text).toBe("");
+    expect(left.criteria).toEqual([]);
     expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
   });
 
@@ -186,7 +192,7 @@ describe("Sprint Goal example", () => {
         },
       ],
     });
-    render(<SprintGoalClient />);
+    renderGoal();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(screen.queryByText(/Example data\./)).toBeNull();
   });

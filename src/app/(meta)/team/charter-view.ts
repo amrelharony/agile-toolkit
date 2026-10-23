@@ -3,22 +3,41 @@
  * status line per card, and the whole charter as Markdown. Pure.
  */
 
-import type { TeamMember, WorkingAgreement } from "@/lib/stores/workspace-types";
+import type { Story, TeamMember, WorkingAgreement } from "@/lib/stores/workspace-types";
 import { CEREMONY_LABEL, WEEKDAY_LABEL, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { scales } from "@/lib/constants/scales";
-import { defaultDescription, readEntry } from "@/app/(tools)/estimation-guide/entries";
+import { isExampleId } from "@/components/tool-frame/example-data";
+import { defaultDescription, entryKey, readEntry } from "@/app/(tools)/estimation-guide/entries";
+import { isExampleNote } from "@/app/(tools)/estimation-guide/example";
+import {
+  pinDrift,
+  pinnedIds,
+  resolveReferenceStories,
+} from "@/app/(tools)/estimation-guide/references";
+import { dorCheckHistory } from "@/app/(tools)/refinement/session";
+import type { StorySave } from "@/app/(tools)/refinement/store";
 import type { DodDoc } from "@/app/(tools)/dod-builder/summary";
 
 export interface DorDoc {
   criteria: { id: string; label: string; description?: string }[];
-  /** Saved checks, newest first. */
-  history: { passRate: number; date: string; storyName: string }[];
+  /**
+   * Checks saved by name, newest first: how stories were checked before the
+   * refinement session read the backlog, and still the way to check one
+   * that isn't in it. The session's checks live on the stories.
+   */
+  history: readonly StorySave[];
 }
 
 export interface EstimationDoc {
   selectedScale: string;
   descriptions: Record<string, string>;
   examples: Record<string, string>;
+  /**
+   * Done stories pinned as each card's reference ("Fibonacci:8" → story
+   * ids, see estimation-guide/references). Optional: guides saved before
+   * pins existed have none.
+   */
+  referenceStoryIds?: Record<string, string[]>;
 }
 
 export interface CharterDocs {
@@ -28,6 +47,20 @@ export interface CharterDocs {
   dod: DodDoc;
   dor: DorDoc;
   estimation: EstimationDoc;
+  /**
+   * The workspace's stories: the Definition of Ready checks on them
+   * (`Story.readiness`) and the titles of the guide's pinned reference
+   * stories. Without them, only the checks saved by name count.
+   */
+  stories?: readonly Story[];
+}
+
+/** One card of the estimation scale and the team's reference stories pinned on it. */
+export interface BaselineReferences {
+  /** The card, e.g. "8". */
+  value: string;
+  /** In pin order. `drift` says why a pin no longer reads as the card ("now 5 pts"). */
+  stories: { id: string; title: string; drift: string | null }[];
 }
 
 export type CharterCardId = "agreement" | "dod" | "dor" | "estimation";
@@ -42,33 +75,119 @@ export interface CharterCard {
   status: string;
   /** A second line, when there is more to say. */
   detail?: string;
+  /** The estimation baseline's pinned reference stories, card by card (none: absent). */
+  references?: BaselineReferences[];
   /** Nothing agreed yet. */
   empty: boolean;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+const scaleOf = (doc: EstimationDoc) =>
+  scales.find((s) => s.name === doc.selectedScale) ?? scales[0];
+
+/**
+ * The team example on a card, or "" when there is none or it still reads
+ * exactly as the guide's example wrote it: that text is the example's, not
+ * the team's, and the charter only holds what the team agreed.
+ */
+function teamExample(doc: EstimationDoc, scale: string, value: string | number): string {
+  const text = readEntry(doc.examples ?? {}, scale, value);
+  return isExampleNote(entryKey(scale, value), text) ? "" : text;
+}
+
+/**
+ * The team's reference stories on each card of the scale, in scale order;
+ * cards without one are left out. Example pins ("example-" ids, from the
+ * guide's example) aren't the team's, and a pin whose story isn't in the
+ * workspace (deleted, or not loaded yet) has no title to show, so neither
+ * is listed; the guide keeps both pins as they are.
+ */
+export function baselineReferences(
+  doc: EstimationDoc,
+  stories: readonly Story[] = []
+): BaselineReferences[] {
+  const scale = scaleOf(doc);
+  const out: BaselineReferences[] = [];
+  for (const v of scale.values) {
+    const ids = pinnedIds(doc.referenceStoryIds, scale.name, v).filter((id) => !isExampleId(id));
+    const pinned = resolveReferenceStories(ids, stories);
+    if (pinned.length === 0) continue;
+    out.push({
+      value: String(v),
+      stories: pinned.map((s) => ({ id: s.id, title: s.title, drift: pinDrift(s, v) })),
+    });
+  }
+  return out;
+}
+
 /** The scale the baseline is on, with how many values the team described in its own words
- *  (the built-in meanings don't count) and how many have a reference story. */
-export function estimationCoverage(doc: EstimationDoc): {
+ *  (the built-in meanings don't count), how many have a team example, and the reference
+ *  stories pinned on them (see `baselineReferences`). */
+export function estimationCoverage(
+  doc: EstimationDoc,
+  stories: readonly Story[] = []
+): {
   scale: string;
   values: number;
   described: number;
   examples: number;
+  /** Reference stories pinned, across `pinnedCards` cards. */
+  references: number;
+  pinnedCards: number;
 } {
-  const scale = scales.find((s) => s.name === doc.selectedScale) ?? scales[0];
+  const scale = scaleOf(doc);
   let described = 0;
   let examples = 0;
   for (const v of scale.values) {
     const d = readEntry(doc.descriptions ?? {}, scale.name, v).trim();
     if (d && d !== defaultDescription(v).trim()) described++;
-    if (readEntry(doc.examples ?? {}, scale.name, v).trim()) examples++;
+    if (teamExample(doc, scale.name, v).trim()) examples++;
   }
-  return { scale: scale.name, values: scale.values.length, described, examples };
+  const pinned = baselineReferences(doc, stories);
+  return {
+    scale: scale.name,
+    values: scale.values.length,
+    described,
+    examples,
+    references: pinned.reduce((n, card) => n + card.stories.length, 0),
+    pinnedCards: pinned.length,
+  };
 }
 
-/** Mean pass rate of the latest `n` saved checks, or null. */
-export function recentPassRate(history: DorDoc["history"], n = 10): number | null {
+/** How many of the latest checks the Definition of Ready card averages. */
+export const DOR_RECENT_CHECKS = 10;
+
+/**
+ * The Definition of Ready pass rate over the latest `n` checks, from the
+ * same records the Refinement page charts (refinement/session.ts
+ * `passRateRecords`): each workspace story's latest readiness, newest by
+ * its `updatedAt` and counted against today's criteria, and the checks
+ * saved by name. A check sent to the backlog counts once, as its story.
+ * Example stories and checks ("example-" ids) are the tool's sample
+ * session, not the team's, so they never count. Null with no checks.
+ */
+export function dorPassRate(
+  dor: DorDoc,
+  stories: readonly Story[] = [],
+  n = DOR_RECENT_CHECKS
+): { rate: number; checks: number } | null {
+  const recent = dorCheckHistory(
+    stories.filter((s) => !isExampleId(s.id)),
+    dor.history.filter((h) => !isExampleId(h.id)),
+    dor.criteria
+  )
+    .filter((h) => Number.isFinite(h.passRate))
+    .slice(0, n);
+  const rate = recentPassRate(recent, n);
+  return rate === null ? null : { rate, checks: recent.length };
+}
+
+/** Mean pass rate of the latest `n` checks (newest first), or null. */
+export function recentPassRate(
+  history: readonly { passRate: number }[],
+  n = DOR_RECENT_CHECKS
+): number | null {
   const recent = history
     .slice(0, n)
     .map((h) => h.passRate)
@@ -116,7 +235,7 @@ export function charterCards(docs: CharterDocs): CharterCard[] {
   };
 
   const criteria = docs.dor.criteria;
-  const rate = recentPassRate(docs.dor.history);
+  const pass = dorPassRate(docs.dor, docs.stories);
   const dor: CharterCard = {
     id: "dor",
     title: "Definition of Ready",
@@ -125,26 +244,33 @@ export function charterCards(docs: CharterDocs): CharterCard[] {
     empty: criteria.length === 0,
     status: criteria.length === 0 ? "No checks yet" : plural(criteria.length, "check"),
     detail:
-      rate === null
+      pass === null
         ? undefined
-        : `${rate}% pass rate over the last ${plural(Math.min(10, docs.dor.history.length), "story", "stories")}`,
+        : `${pass.rate}% pass rate over the last ${plural(pass.checks, "story", "stories")}`,
   };
 
-  const cov = estimationCoverage(docs.estimation);
+  const cov = estimationCoverage(docs.estimation, docs.stories);
+  const references = baselineReferences(docs.estimation, docs.stories);
+  // The guide keeps a team example (free text) and pinned done stories
+  // apart, so the card names them apart too.
+  const baseline = [
+    cov.examples > 0 ? plural(cov.examples, "team example") : "",
+    cov.references > 0
+      ? `${plural(cov.references, "reference story", "reference stories")} on ${plural(cov.pinnedCards, "card")}`
+      : "",
+  ].filter(Boolean);
   const estimation: CharterCard = {
     id: "estimation",
     title: "Estimation baseline",
     toolId: "estimation-guide",
     href: "/estimation-guide",
-    empty: cov.described === 0 && cov.examples === 0,
+    empty: cov.described === 0 && cov.examples === 0 && cov.references === 0,
     status:
       cov.described === 0
         ? `${cov.scale} · built-in meanings only`
         : `${cov.scale} · ${cov.described} of ${cov.values} values in the team's words`,
-    detail:
-      cov.examples > 0
-        ? `${plural(cov.examples, "reference story", "reference stories")}`
-        : undefined,
+    detail: baseline.length > 0 ? baseline.join(" · ") : undefined,
+    references: references.length > 0 ? references : undefined,
   };
 
   return [agreement, dod, dor, estimation];
@@ -233,15 +359,24 @@ export function charterMarkdown(docs: CharterDocs, today: string): string {
   }
 
   lines.push("", "## Estimation baseline", "");
-  const cov = estimationCoverage(docs.estimation);
-  const scale = scales.find((s) => s.name === cov.scale) ?? scales[0];
-  lines.push(`Scale: ${scale.name}`, "", "| Value | Means | Reference story |", "|---|---|---|");
+  const scale = scaleOf(docs.estimation);
+  const pinned = new Map(
+    baselineReferences(docs.estimation, docs.stories).map((card) => [card.value, card.stories])
+  );
+  const cell = (s: string) => oneLine(s).replace(/\|/g, "\\|");
+  lines.push(
+    `Scale: ${scale.name}`,
+    "",
+    "| Value | Means | Team example | Reference stories |",
+    "|---|---|---|---|"
+  );
   for (const v of scale.values) {
     const d = readEntry(docs.estimation.descriptions ?? {}, scale.name, v);
-    const e = readEntry(docs.estimation.examples ?? {}, scale.name, v);
-    lines.push(
-      `| ${v} | ${oneLine(d).replace(/\|/g, "\\|")} | ${oneLine(e).replace(/\|/g, "\\|")} |`
-    );
+    const e = teamExample(docs.estimation, scale.name, v);
+    const refs = (pinned.get(String(v)) ?? [])
+      .map((s) => `${s.title}${s.drift ? ` (${s.drift})` : ""}`)
+      .join("; ");
+    lines.push(`| ${v} | ${cell(d)} | ${cell(e)} | ${cell(refs)} |`);
   }
 
   return `${lines.join("\n")}\n`;

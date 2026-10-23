@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 
 /**
- * Sprint Goal Builder: the goal it drafts can be written onto the shared
- * sprint the sprint tools are looking at, so Sprint Planning, the cockpit
- * and the charts show it.
+ * Sprint Goal Builder: the goal saved for the shared sprint the sprint
+ * tools are looking at is written onto that sprint, so Sprint Planning,
+ * the cockpit and the charts show it.
  */
 
 vi.mock("@/lib/utils/undoable", () => ({
@@ -46,6 +47,13 @@ vi.stubGlobal(
 
 import { SprintGoalClient } from "@/app/(tools)/sprint-goal/sprint-goal-client";
 
+const renderGoal = () =>
+  render(
+    <TooltipProvider>
+      <SprintGoalClient />
+    </TooltipProvider>
+  );
+
 beforeEach(() => {
   resetSelectedSprint();
   window.localStorage.clear();
@@ -69,22 +77,27 @@ afterEach(() => {
 });
 
 describe("Sprint Goal Builder → shared sprint", () => {
-  it("writes the drafted goal onto the selected sprint", () => {
-    render(<SprintGoalClient />);
+  it("writes the saved goal onto the selected sprint", () => {
+    renderGoal();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Sprint Goal" }), { button: 0 });
     const field = screen.getByLabelText("Sprint goal");
     fireEvent.change(field, { target: { value: "Customers can pay with a saved card" } });
     fireEvent.blur(field);
-    fireEvent.click(screen.getByRole("button", { name: "Use as the goal of Sprint 2" }));
     expect(useWorkspaceStore.getState().sprints[0].goal).toBe(
       "Customers can pay with a saved card"
     );
   });
 
-  it("offers nothing to write to when there is no sprint", () => {
+  it("keeps the goal as a draft, on no sprint, when there is none", () => {
     useWorkspaceStore.setState({ sprints: [] });
-    render(<SprintGoalClient />);
+    renderGoal();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Sprint Goal" }), { button: 0 });
-    expect(screen.queryByRole("button", { name: /Use as the goal of/ })).toBeNull();
+    const field = screen.getByLabelText("Sprint goal");
+    fireEvent.change(field, { target: { value: "Customers can pay with a saved card" } });
+    fireEvent.blur(field);
+    expect(useWorkspaceStore.getState().sprintGoals?.map((g) => g.id)).toEqual([
+      "sprint-goal:current",
+    ]);
+    expect(screen.queryByRole("button", { name: /Set this goal on/ })).toBeNull();
   });
 });

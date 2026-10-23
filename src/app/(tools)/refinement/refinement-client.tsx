@@ -1,272 +1,283 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
-import dynamic from "next/dynamic";
+import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useShallow } from "zustand/react/shallow";
+import { ArrowRight, CheckCircle2, ClipboardCheck, Dices, History, ListChecks } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { CalloutAlert } from "@/components/shared/callout-alert";
-import { ChartCard } from "@/components/shared/chart-card";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { ResetButton } from "@/components/shared/reset-button";
 import { SectionCard } from "@/components/shared/section-card";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { undoable } from "@/lib/utils/undoable";
-import { generateRefinementPrompts } from "@/lib/ai-prompts/refinement";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
-import { pChartLimits, westernElectricRules } from "@/lib/analytics/control-chart";
-import { mannKendall } from "@/lib/analytics/trend-test";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
-  CheckSquare,
-  Plus,
-  Trash2,
-  History,
-  TrendingUp,
-  Save,
-  Pencil,
-  Check,
-  X,
-} from "lucide-react";
+  ExampleNotice,
+  LoadExampleButton,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { generateRefinementPrompts } from "@/lib/ai-prompts/refinement";
+import { liveLink } from "@/lib/handoffs/registry";
+import { sendHandoff } from "@/lib/handoffs/send";
+import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
+import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Story } from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { PassRateAdvanced } from "./advanced";
+import { CriteriaList } from "./criteria-list";
+import { EarlierChecks, type BacklogMatch } from "./earlier-checks";
+import { buildExample } from "./example";
+import { STATE_LABEL, toMarkdown } from "./markdown";
+import { queueAllForPoker, queueForPoker, queuedStoryIds } from "./poker";
+import {
+  isBacklogUnsized,
+  isReady,
+  isRefinementCandidate,
+  isUnsized,
+  keepsReady,
+  localDateOf,
+  metCriteria,
+  passRateRecords,
+  readinessFromCheck,
+  readinessState,
+  refinementSession,
+  titleKey,
+  withReadiness,
+} from "./session";
+import { ReadyList, StoryCheckPanel, StoryQueue } from "./session-panel";
+import {
+  DEFAULT_CRITERIA,
+  checkCounts,
+  useRefinementStore,
+  type CheckValues,
+  type Criterion,
+  type RefinementStore,
+  type StorySave,
+} from "./store";
+import { refinementVerdict } from "./verdict";
 
-// Recharts loads with the chart, not the page; ChartCard's fixed-height box
-// reserves the space while it does.
-const PassRateTrendChart = dynamic(() => import("./charts").then((m) => m.PassRateTrendChart), {
-  ssr: false,
-});
+type ResetSnapshot = Pick<
+  RefinementStore,
+  "criteria" | "history" | "storyName" | "storyDescription" | "currentChecks"
+>;
 
-import { useRefinementStore, type Criterion } from "./store";
-
-/* -------------------------------------------------------------------------- */
-/*  Helpers                                                                   */
-/* -------------------------------------------------------------------------- */
-
-function ReadinessIndicator({ pct }: { pct: number }) {
-  if (pct === 100)
-    return (
-      <Badge className="bg-accent-green/10 text-accent-green border border-accent-green/20">
-        Ready
-      </Badge>
-    );
-  if (pct > 0)
-    return (
-      <Badge className="bg-accent-amber/10 text-accent-amber border border-accent-amber/20">
-        Partial
-      </Badge>
-    );
-  return <Badge className="bg-danger/10 text-danger border border-danger/20">Not Ready</Badge>;
+/** A story as it is now: example stories live in this tool's store, the rest in the workspace. */
+function findStory(id: string): Story | undefined {
+  return isExampleId(id)
+    ? useRefinementStore.getState().exampleStories.find((s) => s.id === id)
+    : useWorkspaceStore.getState().stories.find((s) => s.id === id);
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Editable Criterion Row                                                    */
-/* -------------------------------------------------------------------------- */
-
-function CriterionRow({
-  criterion,
-  checked,
-  onToggle,
-  onLabelChange,
-  onDescriptionChange,
-  onRemove,
-  showCheckbox,
-}: {
-  criterion: Criterion;
-  checked: boolean;
-  onToggle?: () => void;
-  onLabelChange: (label: string) => void;
-  onDescriptionChange: (description: string) => void;
-  onRemove: () => void;
-  showCheckbox: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(criterion.label);
-  const [descDraft, setDescDraft] = useState(criterion.description ?? "");
-
-  // Keep local draft state in sync when the criterion is updated elsewhere
-  // (e.g. another row reset, store rehydration). Skip while the user is mid-edit
-  // so we don't clobber their typing.
-  useEffect(() => {
-    if (!editing) {
-      setDraft(criterion.label);
-      setDescDraft(criterion.description ?? "");
-    }
-  }, [criterion.label, criterion.description, editing]);
-
-  const commitEdit = () => {
-    onLabelChange(draft.trim() || criterion.label);
-    onDescriptionChange(descDraft);
-    setEditing(false);
-  };
-
-  return (
-    <div className="flex items-start gap-3 p-3 rounded-lg border border-border bg-surface-deep/40 group hover:bg-surface-deep/70 transition-colors">
-      {showCheckbox && (
-        <button
-          onClick={onToggle}
-          role="checkbox"
-          aria-checked={checked}
-          aria-label={criterion.label}
-          className={`flex-shrink-0 w-5 h-5 mt-0.5 rounded border transition-all ${
-            checked ? "bg-accent border-accent" : "border-border hover:border-accent/50"
-          }`}
-        >
-          {checked && (
-            <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
-              <path
-                d="M5 10l4 4 6-6"
-                stroke="#0a0e1a"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
-        </button>
-      )}
-
-      {editing ? (
-        <div className="flex-1 flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <Input
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitEdit();
-                if (e.key === "Escape") setEditing(false);
-              }}
-              className="flex-1 bg-surface-deep border-border text-text text-sm focus:border-accent/50 h-8"
-              aria-label="Criterion"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={commitEdit}
-              aria-label="Save criterion"
-              className="min-touch-coarse h-7 w-7 text-accent-green hover:bg-accent-green/10"
-            >
-              <Check className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setEditing(false)}
-              aria-label="Cancel editing"
-              className="min-touch-coarse h-7 w-7 text-sub hover:bg-cardH"
-            >
-              <X className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-          {/* Optional description; Cmd/Ctrl+Enter commits both. */}
-          <Textarea
-            value={descDraft}
-            onChange={(e) => setDescDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commitEdit();
-              if (e.key === "Escape") setEditing(false);
-            }}
-            placeholder="Description (optional)..."
-            rows={2}
-            className="bg-surface-deep border-border resize-none text-xs"
-            aria-label="Criterion description"
-          />
-        </div>
-      ) : (
-        <div className="flex-1 min-w-0">
-          <span
-            className={`block text-sm ${
-              showCheckbox && checked ? "line-through text-sub" : "text-text"
-            }`}
-          >
-            {criterion.label}
-          </span>
-          {criterion.description && (
-            <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
-              {criterion.description}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!editing && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setDraft(criterion.label);
-              setDescDraft(criterion.description ?? "");
-              setEditing(true);
-            }}
-            aria-label={`Edit ${criterion.label}`}
-            className="min-touch-coarse h-7 w-7 text-sub hover:text-accent hover:bg-accent/10"
-          >
-            <Pencil className="w-3 h-3" />
-          </Button>
-          <Button
-            variant="danger-ghost"
-            size="icon"
-            onClick={onRemove}
-            aria-label={`Remove ${criterion.label}`}
-            className="min-touch-coarse h-7 w-7"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      )}
-    </div>
-  );
+function putStory(story: Story): void {
+  if (isExampleId(story.id)) useRefinementStore.getState().putExampleStory(story);
+  else useWorkspaceStore.getState().upsertStory(story);
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Main component                                                            */
-/* -------------------------------------------------------------------------- */
+/**
+ * Which stories the walk lists. "In the backlog, no points" is the set the
+ * cockpit counts behind "Refine the backlog"; "Needs points" adds the
+ * unsized stories already planned into a sprint.
+ */
+type Show = "all" | "unsized" | "backlog-unsized";
 
 export function RefinementClient() {
-  const {
-    criteria,
-    storyName,
-    storyDescription,
-    currentChecks,
-    history,
-    setCriterion,
-    setCriterionDescription,
-    addCriterion,
-    removeCriterion,
-    setStoryName,
-    setStoryDescription,
-    toggleCheck,
-    saveStory: saveStoryRaw,
-    removeHistory,
-    clearHistory,
-    resetCurrent,
-    reset: resetRaw,
-  } = useRefinementStore();
+  const hydrated = useWorkspaceHydrated();
+  const stories = useWorkspaceStore((s) => s.stories);
+  const sprints = useWorkspaceStore((s) => s.sprints);
+  const pokerLogs = useWorkspaceStore((s) => s.pokerEstimationLogs);
+  const { criteria, history, exampleStories } = useRefinementStore(
+    useShallow((s) => ({
+      criteria: s.criteria,
+      history: s.history,
+      exampleStories: s.exampleStories,
+    }))
+  );
   const { log } = useHistoryLogger("refinement");
+  const exportRef = useRef<HTMLDivElement>(null);
 
-  const saveStory: typeof saveStoryRaw = (...args) => {
-    saveStoryRaw(...args);
-    log(REFINEMENT_ACTIONS.STORY_ADDED, { storyName });
+  const all = useMemo(() => [...stories, ...exampleStories], [stories, exampleStories]);
+  const session = useMemo(() => refinementSession(all), [all]);
+  const queued = useMemo(
+    () => queuedStoryIds((pokerLogs ?? []).find((d) => d.id === POKER_LOG_ID)),
+    [pokerLogs]
+  );
+  const sprintNames = useMemo(() => new Map(sprints.map((s) => [s.id, s.name])), [sprints]);
+  const records = useMemo(() => passRateRecords(all, history, criteria), [all, history, criteria]);
+
+  /* ── The walk ─────────────────────────────────────────────────────── */
+
+  const [filter, setFilter] = useState<Show>("all");
+  // The backlog filter shows only while it lists fewer stories than "Needs
+  // points" (otherwise they're the same list); a filter with nothing left
+  // to list (the last story got its points) falls back, and its toggle goes.
+  const backlogFilter = session.backlogUnsized > 0 && session.backlogUnsized < session.unsized;
+  let show = filter;
+  if (show === "backlog-unsized" && !backlogFilter) {
+    show = session.backlogUnsized > 0 ? "unsized" : "all";
+  }
+  if (show === "unsized" && session.unsized === 0) show = "all";
+  const filters: [Show, string][] = [
+    ["all", `All to refine (${session.toRefine.length})`],
+    ["unsized", `Needs points (${session.unsized})`],
+  ];
+  if (backlogFilter) {
+    filters.push(["backlog-unsized", `In the backlog, no points (${session.backlogUnsized})`]);
+  }
+  const walk = useMemo(
+    () =>
+      show === "unsized"
+        ? session.toRefine.filter(isUnsized)
+        : show === "backlog-unsized"
+          ? session.toRefine.filter(isBacklogUnsized)
+          : session.toRefine,
+    [show, session.toRefine]
+  );
+  const [focusId, setFocusId] = useState<string | null>(null);
+  // The story whose panel takes focus when it mounts, so a keyboard user
+  // who moves on lands on the next story's name, not back at the top. One
+  // shot: cleared once used, so a remount nobody asked for (a filter, the
+  // example cleared) leaves focus where it is.
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const picked = focusId ? all.find((s) => s.id === focusId) : undefined;
+  const focused =
+    picked &&
+    isRefinementCandidate(picked) &&
+    (walk.some((s) => s.id === picked.id) || isReady(picked))
+      ? picked
+      : (walk[0] ?? null);
+  const index = focused ? walk.findIndex((s) => s.id === focused.id) : -1;
+
+  const go = (id: string | null) => {
+    // Picking the story already open doesn't remount the panel: nothing to move.
+    setFocusTarget(id !== focused?.id ? id : null);
+    setFocusId(id);
   };
-  const reset = () => {
-    resetRaw();
-    log(REFINEMENT_ACTIONS.REFINEMENT_RESET, {});
+  /** Back to the top of the list without moving focus (a filter, the example). */
+  const restart = () => {
+    setFocusTarget(null);
+    setFocusId(null);
+  };
+  /** Open a story from an earlier check: a points filter mustn't hide it. */
+  const openStory = (id: string) => {
+    setFilter("all");
+    go(id);
   };
 
-  // Clearing Story History asks first (with the count), then offers Undo.
-  // Undo puts the cleared saves back below any saved since.
-  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
-  const historyCount = history.length;
-  const storiesLabel = `${historyCount} saved ${historyCount === 1 ? "story" : "stories"}`;
-  const confirmClearHistory = () => {
+  /** Write a story's readiness, with Undo back to what it had before. */
+  function saveReadiness(story: Story, checked: string[], ready: boolean) {
+    const current = findStory(story.id);
+    if (!current) return;
+    const before = current.readiness;
+    const wasReady = before?.ready === true;
+    const { metCount, totalCriteria } = checkCounts(checked, criteria);
+    undoable({
+      label:
+        ready && !wasReady
+          ? `Marked “${current.title}” ready`
+          : !ready && wasReady
+            ? `“${current.title}” is no longer ready`
+            : `Saved the checks on “${current.title}”`,
+      description: `${metCount} of ${totalCriteria} criteria met`,
+      apply: () => putStory(withReadiness(current, checked, ready)),
+      // Only the readiness goes back: points estimated meanwhile stay.
+      revert: () => {
+        const now = findStory(current.id);
+        if (!now) return;
+        const restored: Story = { ...now };
+        if (before) restored.readiness = before;
+        else delete restored.readiness;
+        putStory(restored);
+      },
+    });
+    if (!isExampleId(current.id)) {
+      log(REFINEMENT_ACTIONS.STORY_UPDATED, {
+        storyId: current.id,
+        ready,
+        metCount,
+        totalCriteria,
+      });
+    }
+  }
+
+  function markReady(story: Story, checked: string[]) {
+    const i = walk.findIndex((s) => s.id === story.id);
+    // It leaves the list: go on to the one after it (or before, at the end).
+    const next = i >= 0 ? (walk[i + 1] ?? walk[i - 1] ?? null) : null;
+    saveReadiness(story, checked, true);
+    go(next?.id ?? null);
+  }
+
+  function saveChecks(story: Story, checked: string[]) {
+    const i = walk.findIndex((s) => s.id === story.id);
+    // A ready story re-checked with every box still ticked stays ready.
+    saveReadiness(story, checked, keepsReady(findStory(story.id) ?? story, checked, criteria));
+    const next = i >= 0 ? walk[i + 1] : undefined;
+    if (next) go(next.id);
+  }
+
+  function queue(story: Story) {
+    if (isExampleId(story.id)) return;
+    if (queueForPoker(story))
+      log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: story.id, queued: true });
+  }
+
+  const unsizedToQueue = session.toRefine.filter(
+    (s) => isUnsized(s) && !isExampleId(s.id) && !queued.has(s.id)
+  );
+  const queuedHere = session.toRefine.filter((s) => queued.has(s.id)).length;
+  const readyOwn = session.ready.filter((s) => !isExampleId(s.id)).length;
+
+  /* ── Criteria ─────────────────────────────────────────────────────── */
+
+  const addCriterion = (label: string, description?: string) =>
+    useRefinementStore.getState().addCriterion(label, description);
+
+  const editCriterion = (id: string, label: string, description: string) => {
+    const s = useRefinementStore.getState();
+    s.setCriterion(id, label);
+    s.setCriterionDescription(id, description);
+  };
+
+  const removeCriterion = (c: Criterion) =>
+    removeWithUndo<Criterion>({
+      label: `Deleted “${c.label}”`,
+      description: "Stories checked against it keep their ticks.",
+      update: useRefinementStore.getState().updateCriteria,
+      match: (x) => x.id === c.id,
+    });
+
+  /* ── Checks by name ───────────────────────────────────────────────── */
+
+  const addCheck = (values: CheckValues) => {
+    const save = useRefinementStore.getState().addCheck(values);
+    log(REFINEMENT_ACTIONS.STORY_ADDED, { storyName: save.storyName });
+  };
+
+  const editCheck = (id: string, values: Pick<StorySave, "storyName" | "description" | "date">) => {
+    useRefinementStore.getState().editCheck(id, values);
+    log(REFINEMENT_ACTIONS.STORY_UPDATED, { checkId: id });
+  };
+
+  const removeCheck = (h: StorySave) => {
+    removeWithUndo<StorySave>({
+      label: `Deleted the check on “${h.storyName}”`,
+      update: useRefinementStore.getState().updateHistory,
+      match: (x) => x.id === h.id,
+    });
+    log(REFINEMENT_ACTIONS.STORY_REMOVED, { checkId: h.id });
+  };
+
+  // Undo puts the cleared checks back below any saved since.
+  const clearChecks = () => {
     const cleared = useRefinementStore.getState().history;
     if (cleared.length === 0) return;
     undoable({
-      label: `Cleared ${cleared.length} saved ${cleared.length === 1 ? "story" : "stories"}`,
-      apply: clearHistory,
+      label: `Cleared ${cleared.length} earlier ${cleared.length === 1 ? "check" : "checks"}`,
+      apply: useRefinementStore.getState().clearHistory,
       revert: () =>
         useRefinementStore.setState((s) => {
           const kept = new Set(s.history.map((h) => h.id));
@@ -275,398 +286,350 @@ export function RefinementClient() {
     });
   };
 
-  const metCount = criteria.filter((c) => currentChecks[c.id]).length;
-  const pct = criteria.length > 0 ? Math.round((metCount / criteria.length) * 100) : 0;
+  const addToBacklog = (h: StorySave) => {
+    const link = sendHandoff(
+      "backlog-story",
+      {
+        title: h.storyName,
+        description: h.description,
+        sourceRef: { tool: "refinement", id: h.id },
+      },
+      {
+        getLinks: () => useRefinementStore.getState().history.find((x) => x.id === h.id)?.sentTo,
+        setLinks: (update) => useRefinementStore.getState().setCheckLinks(h.id, update),
+      }
+    );
+    // The new story starts from the check's ticks rather than "Not checked".
+    // Undo of the hand-off removes the story, ticks and all.
+    const created = link ? findStory(link.targetId) : undefined;
+    if (created) putStory({ ...created, readiness: readinessFromCheck(h) });
+  };
 
-  // Chart data — last 20 saves in chronological order. We label each point with
-  // the actual story name so the x-axis stays stable across renders (sequential
-  // #1..#N labels rebase whenever the window slides).
-  const chartData = useMemo(() => {
-    return [...history]
-      .reverse()
-      .slice(-20)
-      .map((h) => ({
-        name: h.storyName,
-        passRate: h.passRate,
-        story: h.storyName,
-      }));
-  }, [history]);
+  // The workspace's own stories by title, so a check naming one that's
+  // already there links to it instead of offering to add a second copy.
+  const byTitle = useMemo(() => {
+    const map = new Map<string, Story>();
+    for (const s of stories) {
+      if (s.status === "done") continue;
+      const key = titleKey(s.title);
+      if (key && !map.has(key)) map.set(key, s);
+    }
+    return map;
+  }, [stories]);
+  const backlogStory = (id: string | undefined): BacklogMatch | null => {
+    const s = id ? stories.find((x) => x.id === id) : undefined;
+    return s ? { id: s.id, title: s.title, inSession: isRefinementCandidate(s) } : null;
+  };
+  const backlogStoryOf = (h: StorySave) =>
+    backlogStory(
+      liveLink(h.sentTo, "backlog-story")?.targetId ?? byTitle.get(titleKey(h.storyName))?.id
+    );
+  const backlogStoryNamed = (name: string) => backlogStory(byTitle.get(titleKey(name))?.id);
 
-  // p-chart limits on per-story DoR pass rate. Each save is a "trial" with
-  // `metCount` successes out of `totalCriteria` criteria. Limits expressed
-  // as percentages so they overlay the existing 0-100 chart axis.
-  // Returns null when the chart window is too small (< 4 points) to keep
-  // limits stable.
-  const passRateControl = useMemo(() => {
-    if (chartData.length < 4) return null;
-    const window = [...history].reverse().slice(-20);
-    const successes = window.map((h) => h.metCount);
-    const trials = window.map((h) => h.totalCriteria);
-    const limits = pChartLimits(successes, trials);
+  /* ── Reset and example ────────────────────────────────────────────── */
+
+  const snapshot = useRef<ResetSnapshot | null>(null);
+  const pristine =
+    history.length === 0 && JSON.stringify(criteria) === JSON.stringify(DEFAULT_CRITERIA);
+
+  const loadExample = () => {
+    useRefinementStore.getState().setExampleStories(buildExample(criteria));
+    restart();
+  };
+  const clearExample = () => {
+    useRefinementStore.getState().setExampleStories([]);
+    restart();
+  };
+
+  /* ── Exports ──────────────────────────────────────────────────────── */
+
+  const markdown = useMemo(
+    () => toMarkdown(session, criteria, history),
+    [session, criteria, history]
+  );
+
+  const csvData = useMemo(() => {
+    const storyRows = [...session.toRefine, ...session.ready].map((s) => {
+      const met = s.readiness ? metCriteria(s.readiness.checked, criteria).length : 0;
+      const pct =
+        criteria.length > 0 && s.readiness ? Math.round((met / criteria.length) * 100) : "";
+      return [
+        s.title,
+        // An example left loaded is marked, so it can't pass for the team's own.
+        isExampleId(s.id) ? "Example" : "Backlog",
+        isUnsized(s) ? "" : (s.points ?? ""),
+        s.readiness ? met : "",
+        criteria.length,
+        pct,
+        STATE_LABEL[readinessState(s, criteria)],
+        // The local day, as on the page and in the pass-rate trend (not UTC).
+        localDateOf(s.readiness?.updatedAt),
+      ];
+    });
+    const checkRows = history.map((h) => [
+      h.storyName,
+      "Checked by name",
+      "",
+      h.metCount,
+      h.totalCriteria,
+      h.passRate,
+      h.passRate === 100 ? "Ready" : h.passRate > 0 ? "Partial" : "Not ready",
+      h.date,
+    ]);
     return {
-      centerLinePct: limits.centerLine * 100,
-      uclPct: limits.ucl * 100,
-      lclPct: limits.lcl * 100,
-      // Series scaled to 0-1 for Western Electric — limits are in fractions.
-      ratioSeries: window.map((h) => (h.totalCriteria > 0 ? h.metCount / h.totalCriteria : 0)),
-      rawLimits: limits,
-      lastStoryName: window[window.length - 1]?.storyName,
+      headers: [
+        "Story",
+        "Source",
+        "Points",
+        "Criteria met",
+        "Total criteria",
+        "% ready",
+        "Status",
+        "Checked on",
+      ],
+      rows: [...storyRows, ...checkRows],
     };
-  }, [chartData.length, history]);
+  }, [session, criteria, history]);
 
-  // Western Electric Rule 2 detection ("9 consecutive points on same side of
-  // center line"). Surfaces a CalloutAlert when the most recent point trips
-  // the rule so a sustained drift is hard to miss.
-  const rule2Signal = useMemo(() => {
-    if (!passRateControl) return null;
-    const signals = westernElectricRules(passRateControl.ratioSeries, passRateControl.rawLimits);
-    const lastIndex = passRateControl.ratioSeries.length - 1;
-    return signals.find((s) => s.rule === "rule-2" && s.index === lastIndex) ?? null;
-  }, [passRateControl]);
-
-  // Mann-Kendall trend test on the rolling pass-rate series.
-  const passRateTrend = useMemo(() => {
-    if (chartData.length < 5) return null;
-    return mannKendall(chartData.map((c) => c.passRate));
-  }, [chartData]);
-
-  // CSV export
-  const csvData = useMemo(
-    () => ({
-      headers: ["Story", "Description", "Date", "% Ready", "Criteria Met", "Total Criteria"],
-      rows: history.map((h) => [
-        h.storyName,
-        h.description ?? "",
-        h.date,
-        h.passRate,
-        h.metCount,
-        h.totalCriteria,
-      ]),
-    }),
-    [history]
-  );
-
-  const promptConfig = useMemo(
-    () => ({
+  const promptConfig = useMemo(() => {
+    const byName = history.map((h) => ({
+      storyName: h.storyName,
+      passRate: h.passRate,
+      checks: Object.fromEntries((h.checks ?? []).map((c) => [c.criterionId, c.checked])),
+    }));
+    const byStory = all
+      .filter((s) => s.readiness)
+      .map((s) => {
+        const checked = s.readiness?.checked ?? [];
+        const ticked = new Set(checked);
+        return {
+          storyName: s.title,
+          passRate: checkCounts(checked, criteria).passRate,
+          checks: Object.fromEntries(criteria.map((c) => [c.id, ticked.has(c.id)])),
+        };
+      });
+    return {
       toolName: "Refinement Checklist",
-      prompts: generateRefinementPrompts({
-        criteria,
-        history: history.map((h) => ({
-          storyName: h.storyName,
-          passRate: h.passRate,
-          checks: Object.fromEntries(h.checks.map((c) => [c.criterionId, c.checked])),
-        })),
-      }),
-    }),
-    [criteria, history]
-  );
+      prompts: generateRefinementPrompts({ criteria, history: [...byStory, ...byName] }),
+    };
+  }, [all, criteria, history]);
+
+  /* ── Page ─────────────────────────────────────────────────────────── */
 
   return (
     <ToolPageWrapper
       toolId="refinement"
       title="Refinement Checklist"
-      description="Track Definition of Ready compliance per story and monitor your team's refinement pass rate over time."
+      description="Walk the backlog stories that aren't ready yet: tick the Definition of Ready, queue unsized ones for Planning Poker, and mark them ready for Sprint Planning."
       category="Ceremonies"
     >
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-sub">{criteria.length} criteria defined</span>
-            {history.length > 0 && (
-              <Badge className="bg-accent/10 text-accent border border-accent/20 text-xs">
-                {history.length} stories saved
-              </Badge>
-            )}
-          </div>
-          <Button variant="danger-ghost" size="sm" onClick={reset}>
-            Reset All
-          </Button>
-        </div>
+      <div ref={exportRef} className="space-y-6">
+        {exampleStories.length > 0 && <ExampleNotice onClear={clearExample} />}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6">
-          {/* Left — DoR criteria + per-story check */}
-          <div className="space-y-4">
-            {/* Criteria management */}
-            <SectionCard
-              title="Definition of Ready"
-              icon={CheckSquare}
-              actions={
+        <SectionCard
+          title="Backlog readiness"
+          icon={ClipboardCheck}
+          actions={
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="refinement-session"
+                csvData={csvData}
+                markdown={markdown}
+                targetRef={exportRef}
+              />
+              <ResetButton
+                label="Reset checklist"
+                title="Reset the refinement checklist?"
+                description={`The ${criteria.length} criteria go back to the ${DEFAULT_CRITERIA.length} defaults and ${history.length} earlier ${history.length === 1 ? "check is" : "checks are"} removed. Readiness saved on backlog stories stays.`}
+                confirmLabel="Reset checklist"
+                doneLabel="Reset the refinement checklist"
+                disabled={pristine}
+                onReset={() => {
+                  const s = useRefinementStore.getState();
+                  snapshot.current = {
+                    criteria: s.criteria,
+                    history: s.history,
+                    storyName: s.storyName,
+                    storyDescription: s.storyDescription,
+                    currentChecks: s.currentChecks,
+                  };
+                  s.reset();
+                  log(REFINEMENT_ACTIONS.REFINEMENT_RESET, {});
+                }}
+                onUndo={() => {
+                  if (snapshot.current) useRefinementStore.setState(snapshot.current);
+                }}
+              />
+            </>
+          }
+        >
+          {hydrated || session.total > 0 ? (
+            <p className="text-sm font-medium text-text">{refinementVerdict(session)}</p>
+          ) : (
+            <p className="text-sm text-sub">Loading the backlog…</p>
+          )}
+          {(unsizedToQueue.length > 0 || queuedHere > 0 || readyOwn > 0) && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              {unsizedToQueue.length > 0 && (
                 <Button
+                  type="button"
+                  variant="outline"
                   size="sm"
-                  variant="toolkit"
-                  onClick={addCriterion}
-                  aria-label="Add criterion"
                   className="gap-1.5"
+                  onClick={() => queueAllForPoker(unsizedToQueue)}
                 >
-                  <Plus className="w-4 h-4" />
-                  Add
+                  <Dices aria-hidden="true" />
+                  Queue {unsizedToQueue.length} unsized for Planning Poker
                 </Button>
-              }
-              contentClassName="space-y-2"
-            >
-              {criteria.map((c) => (
-                <CriterionRow
-                  key={c.id}
-                  criterion={c}
-                  checked={false}
-                  onLabelChange={(label) => setCriterion(c.id, label)}
-                  onDescriptionChange={(desc) => setCriterionDescription(c.id, desc)}
-                  onRemove={() => removeCriterion(c.id)}
-                  showCheckbox={false}
-                />
-              ))}
-              {criteria.length === 0 && (
-                <p className="text-sm text-sub text-center py-4">
-                  No criteria yet. Add some above.
-                </p>
               )}
-            </SectionCard>
+              {queuedHere > 0 && (
+                <Link href="/planning-poker" className={LINK}>
+                  Open Planning Poker ({queuedHere} queued)
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              )}
+              {readyOwn > 0 && (
+                <Link href="/sprint-planning" className={LINK}>
+                  Plan the sprint with the ready stories
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              )}
+            </div>
+          )}
+        </SectionCard>
 
-            {/* Per-story checklist */}
-            <SectionCard
-              title="Check Story"
-              actions={<ReadinessIndicator pct={pct} />}
-              contentClassName="space-y-4"
-            >
-              <div className="space-y-1.5">
-                <Label htmlFor="refinement-story-name" className="text-sub text-xs">
-                  Story Name / ID
-                </Label>
-                <Input
-                  id="refinement-story-name"
-                  value={storyName}
-                  onChange={(e) => setStoryName(e.target.value)}
-                  placeholder="e.g. USER-42 — Add dark mode toggle"
-                  className="input-toolkit"
-                />
-                {/* Optional description for the saved story snapshot;
-                      empty trims to undefined when committed via saveStory. */}
-                <Textarea
-                  value={storyDescription}
-                  onChange={(e) => setStoryDescription(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveStory();
-                  }}
-                  placeholder="Description (optional)..."
-                  rows={2}
-                  className="bg-surface border-border resize-none text-xs"
-                  aria-label="Story description"
-                />
-              </div>
-
-              <div className="space-y-2">
-                {criteria.map((c) => (
-                  <CriterionRow
-                    key={c.id}
-                    criterion={c}
-                    checked={!!currentChecks[c.id]}
-                    onToggle={() => toggleCheck(c.id)}
-                    onLabelChange={(label) => setCriterion(c.id, label)}
-                    onDescriptionChange={(desc) => setCriterionDescription(c.id, desc)}
-                    onRemove={() => removeCriterion(c.id)}
-                    showCheckbox={true}
-                  />
-                ))}
-              </div>
-
-              {criteria.length > 0 && (
-                <div className="pt-2 border-t border-border">
-                  <div className="flex items-center justify-between text-xs text-sub mb-2">
-                    <span>
-                      {metCount} / {criteria.length} criteria met
-                    </span>
-                    <span
-                      className="font-data font-bold"
-                      style={{
-                        color: pct === 100 ? "#00ff88" : pct > 0 ? "#ffaa00" : "#ef4444",
-                      }}
-                    >
-                      {pct}%
-                    </span>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="min-w-0 space-y-6">
+            {session.total === 0 ? (
+              hydrated && (
+                <EmptyState icon={ListChecks} action={<LoadExampleButton onLoad={loadExample} />}>
+                  The session lists the backlog stories that aren&rsquo;t ready. Add stories in
+                  Sprint Planning or send them to the backlog from another tool, or load an example
+                  to see one.
+                </EmptyState>
+              )
+            ) : (
+              <SectionCard
+                title="Refinement session"
+                icon={ListChecks}
+                titleSuffix={`(${session.toRefine.length} to refine)`}
+                contentClassName="space-y-4"
+              >
+                {session.unsized > 0 && (
+                  <div role="group" aria-label="Which stories" className="flex flex-wrap gap-2">
+                    {filters.map(([value, text]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={show === value ? "toolkit" : "outline"}
+                        aria-pressed={show === value}
+                        onClick={() => {
+                          setFilter(value);
+                          restart();
+                        }}
+                      >
+                        {text}
+                      </Button>
+                    ))}
                   </div>
-                  <div className="w-full h-2 bg-card rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{
-                        width: `${pct}%`,
-                        background: pct === 100 ? "#00ff88" : pct > 0 ? "#ffaa00" : "#ef4444",
-                      }}
+                )}
+
+                {focused ? (
+                  <StoryCheckPanel
+                    key={focused.id}
+                    story={focused}
+                    criteria={criteria}
+                    position={index >= 0 ? { index, count: walk.length } : null}
+                    sprintName={focused.sprintId ? sprintNames.get(focused.sprintId) : undefined}
+                    queued={queued.has(focused.id)}
+                    example={isExampleId(focused.id)}
+                    autoFocus={focusTarget === focused.id}
+                    onAutoFocused={() => setFocusTarget(null)}
+                    onSaveChecks={(checked) => saveChecks(focused, checked)}
+                    onMarkReady={(checked) => markReady(focused, checked)}
+                    onQueue={() => queue(focused)}
+                    onPrevious={() => index > 0 && go(walk[index - 1].id)}
+                    onNext={() => index < walk.length - 1 && go(walk[index + 1].id)}
+                  />
+                ) : (
+                  <p className="text-sm text-sub">
+                    Every backlog story is ready. Re-check one below, or plan the sprint with them.
+                  </p>
+                )}
+
+                {walk.length > 0 && (
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium text-text">
+                      {show === "unsized"
+                        ? "Stories that need points"
+                        : show === "backlog-unsized"
+                          ? "Backlog stories that need points"
+                          : "Stories to refine"}
+                    </h3>
+                    <StoryQueue
+                      stories={walk}
+                      criteria={criteria}
+                      focusId={focused?.id ?? null}
+                      queued={queued}
+                      sprintNames={sprintNames}
+                      onSelect={go}
                     />
                   </div>
-                </div>
-              )}
+                )}
+              </SectionCard>
+            )}
 
-              <div className="flex gap-2 pt-1">
-                <Button
-                  variant="toolkit"
-                  onClick={saveStory}
-                  disabled={!storyName.trim()}
-                  className="flex-1 gap-2"
-                >
-                  <Save className="w-4 h-4" />
-                  Save to History
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={resetCurrent}
-                  className="text-sub hover:text-text hover:bg-cardH"
-                >
-                  Clear
-                </Button>
-              </div>
-            </SectionCard>
+            {session.ready.length > 0 && (
+              <SectionCard
+                title="Ready"
+                icon={CheckCircle2}
+                iconClassName="text-accent-green"
+                titleSuffix={`(${session.ready.length})`}
+              >
+                <ReadyList stories={session.ready} criteria={criteria} onRecheck={go} />
+              </SectionCard>
+            )}
           </div>
 
-          {/* Right — history + chart */}
-          <div className="space-y-4">
-            {/* Western Electric Rule 2 alert: 9 consecutive saves on same side
-                of the p-chart center line — sustained drift in DoR adherence. */}
-            {rule2Signal && passRateControl && (
-              <CalloutAlert tone="warning">
-                <strong className="font-semibold">DoR adherence drift:</strong> The last 9 saved
-                stories sit on one side of the long-run pass-rate baseline (
-                {passRateControl.centerLinePct.toFixed(0)}%). Investigate before it shifts the team
-                baseline.
-              </CalloutAlert>
-            )}
-
-            {/* Pass rate chart */}
-            {chartData.length > 1 && (
-              <ChartCard title="Pass Rate Trend" icon={TrendingUp} height={200}>
-                <PassRateTrendChart data={chartData} control={passRateControl} />
-              </ChartCard>
-            )}
-
-            {/* Mann-Kendall trend chip on the rolling pass-rate series. */}
-            {passRateTrend?.significant && (
-              <div className="flex items-center justify-end -mt-2">
-                <span
-                  className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
-                    passRateTrend.trend === "up"
-                      ? "bg-accent/15 text-accent border-accent/40"
-                      : "bg-destructive/15 text-destructive border-destructive/40"
-                  }`}
-                  title={`Mann-Kendall p=${passRateTrend.pValue.toFixed(3)}`}
-                >
-                  <span>{passRateTrend.trend === "up" ? "↗" : "↘"} pass-rate trend</span>
-                  <span className="opacity-60">p={passRateTrend.pValue.toFixed(2)}</span>
-                </span>
-              </div>
-            )}
-
-            {/* History table */}
+          <div className="min-w-0 space-y-6">
+            <SectionCard title="Definition of Ready" icon={ListChecks}>
+              <CriteriaList
+                criteria={criteria}
+                onAdd={addCriterion}
+                onEdit={editCriterion}
+                onRemove={removeCriterion}
+              />
+            </SectionCard>
             <SectionCard
-              title="Story History"
+              title="Earlier checks"
               icon={History}
               titleSuffix={history.length > 0 ? `(${history.length})` : undefined}
-              actions={
-                history.length > 0 ? (
-                  <>
-                    <AiPromptGenerator config={promptConfig} />
-                    <ExportButton filename="refinement-history" csvData={csvData} />
-                    <Button
-                      variant="danger-ghost"
-                      size="sm"
-                      onClick={() => setConfirmClearOpen(true)}
-                      aria-label="Clear story history"
-                      className="text-xs"
-                    >
-                      Clear
-                    </Button>
-                  </>
-                ) : undefined
-              }
             >
-              {history.length === 0 ? (
-                <p className="text-sm text-sub text-center py-8">
-                  No stories saved yet. Check a story above and click &ldquo;Save to History&rdquo;.
-                </p>
-              ) : (
-                <div className="table-wrap-responsive">
-                  <table className="min-w-full md:min-w-[560px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                          Story
-                        </th>
-                        <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                          Date
-                        </th>
-                        <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                          % Ready
-                        </th>
-                        <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                          Met
-                        </th>
-                        <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2">
-                          Status
-                        </th>
-                        <th className="w-8" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {history.map((h) => (
-                        <tr key={h.id} className="group">
-                          <td className="py-2.5 pr-4 max-w-[200px]">
-                            <div className="text-text font-medium truncate">{h.storyName}</div>
-                            {h.description && (
-                              <div className="text-sub text-xs mt-0.5 whitespace-pre-wrap break-words">
-                                {h.description}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-2.5 pr-4 text-sub text-xs">{h.date}</td>
-                          <td className="py-2.5 pr-4 text-right font-data font-semibold">
-                            <span
-                              style={{
-                                color:
-                                  h.passRate === 100
-                                    ? "#00ff88"
-                                    : h.passRate > 0
-                                      ? "#ffaa00"
-                                      : "#ef4444",
-                              }}
-                            >
-                              {h.passRate}%
-                            </span>
-                          </td>
-                          <td className="py-2.5 pr-4 text-right text-sub text-xs font-data">
-                            {h.metCount}/{h.totalCriteria}
-                          </td>
-                          <td className="py-2.5 pr-4 text-right">
-                            <ReadinessIndicator pct={h.passRate} />
-                          </td>
-                          <td className="py-2.5">
-                            <Button
-                              variant="danger-ghost"
-                              size="icon"
-                              onClick={() => removeHistory(h.id)}
-                              aria-label={`Remove ${h.storyName} from history`}
-                              className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <EarlierChecks
+                history={history}
+                criteria={criteria}
+                onAdd={addCheck}
+                onEdit={editCheck}
+                onRemove={removeCheck}
+                onClear={clearChecks}
+                onAddToBacklog={addToBacklog}
+                backlogStoryOf={backlogStoryOf}
+                backlogStoryNamed={backlogStoryNamed}
+                onOpenStory={openStory}
+              />
             </SectionCard>
           </div>
         </div>
-      </div>
 
-      <ConfirmDialog
-        open={confirmClearOpen}
-        onOpenChange={setConfirmClearOpen}
-        title="Clear story history?"
-        description={`All ${storiesLabel} will be removed, and the pass-rate chart with them.`}
-        confirmLabel="Clear history"
-        onConfirm={confirmClearHistory}
-      />
+        <PassRateAdvanced records={records} />
+      </div>
     </ToolPageWrapper>
   );
 }
+
+const LINK = cn(
+  "inline-flex min-h-9 items-center gap-1.5 text-sm font-medium text-accent",
+  "underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+);

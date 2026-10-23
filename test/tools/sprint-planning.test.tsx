@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
 import { BACKLOG_DEFAULTS } from "@/lib/prioritization/frameworks";
@@ -40,6 +41,13 @@ vi.mock("@/lib/sprints/use-ceremony-cadence", async () => {
 });
 
 import { SprintPlanning } from "@/app/(tools)/sprint-planning/planning";
+
+const renderPlanning = () =>
+  render(
+    <TooltipProvider>
+      <SprintPlanning />
+    </TooltipProvider>
+  );
 
 const S1: Sprint = {
   id: "s1",
@@ -122,18 +130,19 @@ afterEach(() => {
 
 describe("Sprint Planning", () => {
   it("opens on the newest sprint with capacity, velocity and the current plan", () => {
-    const { container } = render(<SprintPlanning />);
+    const { container } = renderPlanning();
     expect(container.querySelector('[data-field="capacity-hours"]')?.textContent).toBe("93.6 h");
     expect(container.querySelector('[data-field="velocity"]')?.textContent).toBe("26 pts");
+    // 93.6 of a normal 108.8 hours (86%) scales the velocity of 26 to 22.
     expect(container.querySelector('[data-field="commitment"]')?.textContent).toContain(
-      "1 story · 8 points against 26 points of capacity (31%)"
+      "1 story · 8 points against 22 points of capacity (36%)"
     );
     expect(screen.getByRole("list", { name: "Things to check" })).toHaveTextContent("no goal yet");
     expect(screen.getByRole("button", { name: "Start the sprint" })).toBeInTheDocument();
   });
 
   it("saves the goal on blur", () => {
-    render(<SprintPlanning />);
+    renderPlanning();
     const goal = screen.getByLabelText("Sprint goal");
     fireEvent.change(goal, { target: { value: "Customers can pay with a saved card" } });
     fireEvent.blur(goal);
@@ -143,7 +152,7 @@ describe("Sprint Planning", () => {
   });
 
   it("moves stories in and out of the sprint", () => {
-    render(<SprintPlanning />);
+    renderPlanning();
     fireEvent.click(screen.getByLabelText("Add to sprint: Remove a saved card"));
     expect(story("b1")).toMatchObject({ sprintId: "s2", status: "todo" });
     fireEvent.click(screen.getByLabelText("Remove from sprint: Pay with a saved card"));
@@ -152,7 +161,7 @@ describe("Sprint Planning", () => {
   });
 
   it("adds a typed story to the sprint", () => {
-    render(<SprintPlanning />);
+    renderPlanning();
     fireEvent.change(screen.getByLabelText("New story"), {
       target: { value: "Receipts by email" },
     });
@@ -164,8 +173,9 @@ describe("Sprint Planning", () => {
   });
 
   it("fills to capacity from the backlog by priority, with Undo", () => {
-    render(<SprintPlanning />);
-    // 26 (velocity) − 8 planned = 18 points of room: b1 (5) and b2 (3) fit; b3 has no points.
+    renderPlanning();
+    // 22 (the capacity forecast) − 8 planned = 14 points of room: b1 (5) and b2 (3) fit;
+    // b3 has no points.
     fireEvent.click(screen.getByRole("button", { name: "Fill to capacity" }));
     expect(story("b1")?.sprintId).toBe("s2");
     expect(story("b2")?.sprintId).toBe("s2");
@@ -177,7 +187,7 @@ describe("Sprint Planning", () => {
   });
 
   it("imports only the backlog items that aren't stories yet", () => {
-    render(<SprintPlanning />);
+    renderPlanning();
     fireEvent.click(screen.getByRole("button", { name: "Import from the backlog (1)" }));
     const imported = state().stories.filter((s) => s.title === "Refund flow");
     expect(imported).toHaveLength(1);
@@ -186,7 +196,7 @@ describe("Sprint Planning", () => {
   });
 
   it("queues the unsized sprint stories for Planning Poker", () => {
-    fireEvent.click(render(<SprintPlanning />).getByLabelText("Add to sprint: Fraud checks"));
+    fireEvent.click(renderPlanning().getByLabelText("Add to sprint: Fraud checks"));
     fireEvent.click(screen.getByRole("button", { name: "Estimate 1 in Planning Poker" }));
     const queue = state().pokerEstimationLogs?.find((l) => l.id === POKER_LOG_ID)?.queue ?? [];
     expect(queue).toHaveLength(1);
@@ -200,7 +210,7 @@ describe("Sprint Planning", () => {
   });
 
   it("starts the sprint with the planned points and opens the cockpit", () => {
-    render(<SprintPlanning />);
+    renderPlanning();
     fireEvent.click(screen.getByLabelText("Add to sprint: Remove a saved card"));
     fireEvent.click(screen.getByRole("button", { name: "Start the sprint" }));
     expect(state().sprints.find((s) => s.id === "s2")).toMatchObject({
@@ -217,16 +227,16 @@ describe("Sprint Planning", () => {
   });
 
   it("exports the plan as Markdown", () => {
-    render(<SprintPlanning />);
+    renderPlanning();
     const md = screen.getByTestId("export-markdown").textContent ?? "";
     expect(md).toContain("# Sprint 2 — plan");
-    expect(md).toContain("**Commitment:** 8 points in 1 story (target 26)");
+    expect(md).toContain("**Commitment:** 8 points in 1 story (target 22)");
     expect(md).toContain("| Pay with a saved card | 8 | todo |  |");
   });
 
   it("asks for a sprint first when there is none", () => {
     useWorkspaceStore.setState({ sprints: [] });
-    render(<SprintPlanning />);
+    renderPlanning();
     expect(screen.getByRole("heading", { name: "No sprint to plan yet" })).toBeInTheDocument();
     expect(
       within(screen.getByRole("button", { name: "Create the sprint" })).getByText(

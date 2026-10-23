@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Job Story Mapper: removing a job also removes everything nested under it,
  * with no warning and no way back. A job with children now asks first (with
  * the count), and every removal offers Undo that puts the stories back in
- * place.
+ * place. (Keeping the nested jobs instead is covered in
+ * jtbd-mapper-upgrade.test.tsx.)
  */
 
 const undo = vi.hoisted(() => ({
@@ -48,6 +50,12 @@ const JOBS = [
   job("d", "paying an invoice"),
 ];
 
+const renderJtbd = () =>
+  render(
+    <TooltipProvider>
+      <JtbdMapperClient />
+    </TooltipProvider>
+  );
 const ids = () => (useWorkspaceStore.getState().jobStories ?? []).map((j) => j.id);
 const removeButton = (situation: string) =>
   screen.getByRole("button", { name: `Remove job story: when ${situation}` });
@@ -59,7 +67,7 @@ beforeEach(() => {
 
 describe("Job Story Mapper remove", () => {
   it("removes a job without children straight away, with Undo", () => {
-    render(<JtbdMapperClient />);
+    renderJtbd();
     fireEvent.click(removeButton("paying an invoice"));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(ids()).toEqual(["a", "b", "c"]);
@@ -70,13 +78,13 @@ describe("Job Story Mapper remove", () => {
   });
 
   it("asks before removing a job with nested stories, and Undo restores them in place", () => {
-    render(<JtbdMapperClient />);
+    renderJtbd();
 
     // Cancel removes nothing.
     fireEvent.click(removeButton("onboarding"));
     let dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("Remove this job and everything under it?");
-    expect(dialog).toHaveTextContent("and the 2 job stories nested under it will be removed.");
+    expect(dialog).toHaveTextContent("Remove a job with 2 nested job stories?");
+    expect(dialog).toHaveTextContent("has 2 job stories under it.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(ids()).toEqual(["a", "b", "c", "d"]);
     expect(undo.last).toBeNull();

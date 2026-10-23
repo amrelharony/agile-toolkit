@@ -7,6 +7,7 @@
  * the whole session.
  */
 
+import type { Validation } from "@/lib/utils/form";
 import type { Session, Story } from "./types";
 
 /** Longest story title `isValidSession` accepts. */
@@ -15,6 +16,28 @@ export const STORY_TITLE_MAX = 500;
 export const STORY_DESCRIPTION_MAX = 5000;
 /** Most stories `isValidSession` accepts. */
 export const MAX_STORIES = 500;
+
+export const QUEUE_FULL = `The story queue is full (${MAX_STORIES} stories).`;
+
+/** The host's add-story form, as typed. */
+export interface StoryDraft {
+  title: string;
+  description: string;
+}
+
+export const EMPTY_STORY_DRAFT: StoryDraft = { title: "", description: "" };
+
+/**
+ * Check a new story. Enter on an empty title used to do nothing at all;
+ * now it says so, and so does a full queue (that was a toast, away from
+ * the box being typed in).
+ */
+export function validateStory(d: StoryDraft, storyCount: number): Validation<StoryDraft, "title"> {
+  const title = d.title.trim();
+  if (!title) return { ok: false, errors: { title: "Enter a story title." } };
+  if (storyCount >= MAX_STORIES) return { ok: false, errors: { title: QUEUE_FULL } };
+  return { ok: true, values: { title, description: d.description.trim() } };
+}
 
 /** A story with no estimate yet. Title and description are trimmed and capped. */
 export function newStory(title: string, description?: string): Story {

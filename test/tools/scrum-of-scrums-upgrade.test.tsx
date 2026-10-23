@@ -1,0 +1,781 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { DependencyEdge, DependencyMap, SosEntry } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { useImpedimentStore } from "@/app/(tools)/impediments/use-impediment-store";
+
+/**
+ * Scrum of Scrums as a per-meeting agenda: open blockers and dependencies
+ * carry forward by reference, only they can be resolved, a blocker can be
+ * raised as an impediment and a dependency put on the Dependency Map (and
+ * resolved from either side), entries are edited in place and deleted
+ * with Undo, and team names come from the teams already in use.
+ */
+
+const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
+vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
+vi.mock("@/components/layout/tool-page-wrapper", () => ({
+  ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
+vi.mock("@/lib/history/use-history-logger", () => ({
+  useHistoryLogger: () => ({ log: () => {} }),
+}));
+
+import { ScrumOfScrumsClient } from "@/app/(tools)/scrum-of-scrums/scrum-of-scrums-client";
+import {
+  ageDays,
+  carriedForward,
+  entriesOn,
+  meetingDates,
+  meetingDay,
+  staleBlockers,
+  statusOf,
+} from "@/app/(tools)/scrum-of-scrums/agenda";
+import { meetingVerdict } from "@/app/(tools)/scrum-of-scrums/verdict";
+import { toMinutes } from "@/app/(tools)/scrum-of-scrums/markdown";
+import { buildExample, withoutExampleEdges } from "@/app/(tools)/scrum-of-scrums/example";
+import {
+  emptyEntry,
+  entryDraftFrom,
+  validateEntry,
+} from "@/app/(tools)/scrum-of-scrums/entry-form";
+import { edgeForEntry, syncEntryEdge } from "@/app/(tools)/scrum-of-scrums/links";
+import {
+  DEPENDENCY_MAP_ID,
+  linkDependency,
+  setEdgeStatus,
+} from "@/app/(tools)/dependency-map/link";
+import { dayFrom } from "@/app/(tools)/dependency-map/format";
+import { PI_STORAGE_KEY } from "@/app/(tools)/pi-planning/store";
+
+const D1 = "2026-10-16";
+const D2 = "2026-10-23";
+
+let n = 0;
+const entry = (extra: Partial<SosEntry> = {}): SosEntry => ({
+  id: `s${++n}`,
+  meetingDate: D1,
+  team: "Mobile",
+  kind: "update",
+  text: `entry ${n}`,
+  status: "open",
+  loggedAt: `2026-10-16T09:00:${String(n % 60).padStart(2, "0")}.000Z`,
+  ...extra,
+});
+const own = (e: SosEntry) => statusOf(e);
+
+const ws = () => useWorkspaceStore.getState();
+const map = (): DependencyMap =>
+  (ws().dependencyMaps ?? []).find((d) => d.id === DEPENDENCY_MAP_ID) ?? {
+    id: DEPENDENCY_MAP_ID,
+    nodes: [],
+    edges: [],
+  };
+const saved = (id: string) => (ws().sosEntries ?? []).find((e) => e.id === id);
+
+const renderSos = () =>
+  render(
+    <TooltipProvider>
+      <ScrumOfScrumsClient />
+    </TooltipProvider>
+  );
+const lastToast = () => toastSpy.mock.calls[toastSpy.mock.calls.length - 1];
+const undoLast = () => act(() => lastToast()[1].action.onClick());
+const agenda = () => screen.getByText(/^Agenda — /).closest(".rounded-xl") as HTMLElement;
+
+beforeEach(() => {
+  n = 0;
+  toastSpy.mockReset();
+  localStorage.clear();
+  useImpedimentStore.setState({ impediments: [] });
+  useWorkspaceStore.setState({
+    sosEntries: [],
+    dependencyMaps: [],
+    impediments: [],
+    teamMembers: [],
+  });
+});
+
+/* ── Agenda logic ─────────────────────────────────────────────────────── */
+
+describe("tracked and untracked entries", () => {
+  it("gives only blockers and dependencies a status; old open updates aren't open items", () => {
+    expect(statusOf(entry({ kind: "update", status: "open" }))).toBeNull();
+    expect(statusOf(entry({ kind: "decision", status: "resolved" }))).toBeNull();
+    expect(statusOf(entry({ kind: "blocker" }))).toBe("open");
+    expect(statusOf(entry({ kind: "blocker", status: "resolved" }))).toBe("resolved");
+  });
+
+  it("lets a dependency on the map follow its edge", () => {
+    const dep = entry({ kind: "dependency", status: "open" });
+    const edge = {
+      id: "e",
+      from: "a",
+      to: "b",
+      kind: "needs",
+      status: "resolved",
+    } as DependencyEdge;
+    expect(statusOf(dep, edge)).toBe("resolved");
+    expect(statusOf({ ...dep, status: "resolved" }, { ...edge, status: "at-risk" })).toBe("open");
+  });
+});
+
+describe("meetings and carry-forward", () => {
+  const blocker = entry({ kind: "blocker", meetingDate: D1 });
+  const fixed = entry({ kind: "blocker", meetingDate: D1, status: "resolved" });
+  const update = entry({ kind: "update", meetingDate: D1 });
+  const dep = entry({ kind: "dependency", meetingDate: D1, blockedBy: "Payments" });
+  const today = entry({ kind: "decision", meetingDate: D2 });
+  const all = [today, update, blocker, fixed, dep];
+
+  it("lists meetings newest first, with started ones and without malformed dates", () => {
+    expect(meetingDates([...all, entry({ meetingDate: "garbage" })], ["2026-10-30", D2])).toEqual([
+      "2026-10-30",
+      D2,
+      D1,
+    ]);
+  });
+
+  it("groups a meeting in agenda order, oldest logged first", () => {
+    expect(entriesOn(all, D1).map((g) => [g.kind, g.entries.map((e) => e.id)])).toEqual([
+      ["blocker", [blocker.id, fixed.id]],
+      ["dependency", [dep.id]],
+      ["update", [update.id]],
+    ]);
+    expect(entriesOn(all, "2026-01-01")).toEqual([]);
+  });
+
+  it("carries open blockers and dependencies forward as the same entries", () => {
+    const carried = carriedForward(all, D2, own);
+    expect(carried).toEqual([blocker, dep]);
+    expect(carried[0]).toBe(blocker); // a reference, not a copy
+    expect(carriedForward(all, D1, own)).toEqual([]);
+  });
+
+  it("ages from the day raised and calls 3 days stale", () => {
+    expect(ageDays(blocker, D2)).toBe(7);
+    expect(ageDays(entry({ meetingDate: "2026-10-30" }), D2)).toBe(0);
+    expect(ageDays(entry({ meetingDate: "nope" }), D2)).toBeNull();
+    expect(staleBlockers(all, D2, own)).toEqual([blocker]);
+    expect(staleBlockers(all, "2026-10-18", own)).toEqual([]);
+  });
+});
+
+describe("verdict and minutes", () => {
+  it("sums up what's open on the agenda and what the meeting recorded", () => {
+    expect(meetingVerdict([], D2, D2, own)).toBe("Nothing logged for this meeting yet.");
+    const ex = buildExample(new Date(2026, 9, 23));
+    expect(meetingVerdict(ex, D2, D2, own)).toBe(
+      "2 open blockers (1 raised 3 or more days ago) and 2 open dependencies on the agenda; 1 decision and 1 update recorded."
+    );
+    expect(meetingVerdict([entry({ kind: "decision", meetingDate: D2 })], D2, D2, own)).toBe(
+      "No open blockers or dependencies; 1 decision recorded."
+    );
+  });
+
+  it("writes minutes with carried-forward items first", () => {
+    const md = toMinutes(buildExample(new Date(2026, 9, 23)), D2, D2, own);
+    expect(md).toContain("# Scrum of Scrums — 23 Oct 2026");
+    expect(md).toContain(
+      "- Blocker · **Mobile**: Waiting on the push-notification certificates (blocked by Platform) — Open, raised 16 Oct 2026 (7 days)"
+    );
+    expect(md).not.toContain("Warehouse credentials expired");
+    expect(md).toContain("## Decisions\n\n- **Mobile**: Ship the iOS release without saved cards");
+    expect(md.indexOf("## Carried forward")).toBeLessThan(md.indexOf("## Blockers"));
+  });
+});
+
+describe("validation", () => {
+  it("needs a date, team, kind and text, and a dependency names who it waits on", () => {
+    expect(validateEntry(emptyEntry(""))).toEqual({
+      ok: false,
+      errors: {
+        meetingDate: "Pick the meeting date.",
+        team: "Name the team.",
+        kind: "Pick what kind of entry it is.",
+        text: "Say what it is.",
+      },
+    });
+    const base = { ...emptyEntry(D2), team: "Mobile", text: "x" };
+    expect(validateEntry({ ...base, kind: "dependency" })).toMatchObject({
+      errors: { blockedBy: "Name the team it waits on." },
+    });
+    expect(validateEntry({ ...base, kind: "blocker", blockedBy: " mobile " })).toMatchObject({
+      errors: { blockedBy: "Pick another team: a team can't wait on itself." },
+    });
+    // A blocker's "blocked by" is optional; an update never keeps one.
+    expect(validateEntry({ ...base, kind: "blocker" })).toMatchObject({ ok: true });
+    expect(validateEntry({ ...base, kind: "update", blockedBy: "Payments" })).toEqual({
+      ok: true,
+      values: { meetingDate: D2, team: "Mobile", kind: "update", text: "x" },
+    });
+  });
+});
+
+describe("links to the Dependency Map", () => {
+  it("finds the entry's own edge, or one another tool drew between the same teams", () => {
+    const dep = entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments" });
+    expect(edgeForEntry(map(), dep)).toBeUndefined();
+    const { edgeId } = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "pi-planning", id: "p1" },
+    })!;
+    expect(edgeForEntry(map(), dep)?.id).toBe(edgeId);
+    expect(edgeForEntry(map(), { ...dep, kind: "blocker" })).toBeUndefined();
+  });
+
+  it("moves its own edge when the teams change, and drops it when it stops being a dependency", () => {
+    const dep = entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments" });
+    linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      note: "x",
+      sourceRef: { tool: "scrum-of-scrums", id: dep.id },
+    });
+    const moved = { ...dep, blockedBy: "Platform" };
+    syncEntryEdge(dep, moved);
+    expect(map().edges).toHaveLength(1);
+    expect(edgeForEntry(map(), moved)?.note).toBe("x");
+    const label = (id: string) => map().nodes.find((x) => x.id === id)?.label;
+    expect(label(map().edges[0].to)).toBe("Platform");
+    syncEntryEdge(moved, { ...moved, kind: "update" });
+    expect(map().edges).toEqual([]);
+  });
+
+  it("clears only edges drawn from example entries", () => {
+    const graph = {
+      nodes: [],
+      edges: [
+        {
+          id: "1",
+          from: "a",
+          to: "b",
+          kind: "needs",
+          sourceRef: { tool: "scrum-of-scrums", id: "example-sos-2" },
+        },
+        {
+          id: "2",
+          from: "a",
+          to: "b",
+          kind: "needs",
+          sourceRef: { tool: "scrum-of-scrums", id: "mine" },
+        },
+        { id: "3", from: "a", to: "b", kind: "needs" },
+      ] as DependencyEdge[],
+    };
+    expect(withoutExampleEdges(graph).edges.map((e) => e.id)).toEqual(["2", "3"]);
+  });
+});
+
+/* ── The page ─────────────────────────────────────────────────────────── */
+
+describe("Scrum of Scrums page", () => {
+  const today = () => todayLocalISO();
+
+  it("loads the example, carries last week's open items into today's agenda, and clears it", () => {
+    renderSos();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(ws().sosEntries).toHaveLength(9);
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+    const carried = within(agenda()).getByRole("list", { name: "Carried forward" });
+    expect(within(carried).getAllByRole("listitem")).toHaveLength(2);
+    expect(carried).toHaveTextContent("Waiting on the push-notification certificates");
+    expect(carried).not.toHaveTextContent("Warehouse credentials expired");
+    expect(
+      within(agenda()).getByText(
+        "2 open blockers (1 raised 3 or more days ago) and 2 open dependencies on the agenda; 1 decision and 1 update recorded."
+      )
+    ).toBeInTheDocument();
+
+    ws().upsertSosEntry(entry({ id: "mine", meetingDate: today() }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect((ws().sosEntries ?? []).map((e) => e.id)).toEqual(["mine"]);
+  });
+
+  it("logs an entry only once it's complete, with teams from SoS and PI Planning suggested", () => {
+    localStorage.setItem(
+      PI_STORAGE_KEY,
+      JSON.stringify({
+        teams: [{ id: "t", name: "Platform", velocity: 10 }],
+        items: [],
+        iterations: 3,
+      })
+    );
+    useWorkspaceStore.setState({ sosEntries: [entry({ team: "Checkout", meetingDate: today() })] });
+    renderSos();
+    const form = screen.getByRole("button", { name: "Log entry" }).closest("form")!;
+    const team = within(form).getByLabelText(/^Team/);
+    const options = Array.from(document.getElementById(team.getAttribute("list")!)!.children).map(
+      (o) => (o as HTMLOptionElement).value
+    );
+    expect(options).toEqual(["Checkout", "Platform"]);
+
+    fireEvent.change(team, { target: { value: "Mobile" } });
+    fireEvent.change(within(form).getByLabelText(/^Details/), { target: { value: "Push certs" } });
+    fireEvent.submit(form);
+    expect(within(form).getByText("Pick what kind of entry it is.")).toBeInTheDocument();
+    expect(ws().sosEntries).toHaveLength(1);
+    fireEvent.click(within(form).getByRole("radio", { name: "Dependency" }));
+    fireEvent.submit(form);
+    expect(within(form).getByText("Name the team it waits on.")).toBeInTheDocument();
+    fireEvent.change(within(form).getByLabelText(/^Waits on/), { target: { value: "Platform" } });
+    fireEvent.submit(form);
+    expect(ws().sosEntries).toHaveLength(2);
+    expect(ws().sosEntries![1]).toMatchObject({
+      meetingDate: today(),
+      team: "Mobile",
+      kind: "dependency",
+      text: "Push certs",
+      blockedBy: "Platform",
+      status: "open",
+    });
+  });
+
+  it("offers Resolve only on blockers and dependencies", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({ kind: "decision", text: "Freeze on Thursdays", meetingDate: today() }),
+        entry({ kind: "update", text: "Webhooks in staging", meetingDate: today() }),
+        entry({ kind: "blocker", text: "Sandbox down", meetingDate: today() }),
+      ],
+    });
+    renderSos();
+    const resolves = within(agenda()).getAllByRole("button", { name: /^Resolve / });
+    expect(resolves).toHaveLength(1);
+    fireEvent.click(resolves[0]);
+    expect(saved("s3")).toMatchObject({ status: "resolved", resolvedAt: today() });
+    fireEvent.click(within(agenda()).getByRole("button", { name: /^Reopen blocker/ }));
+    expect(saved("s3")?.status).toBe("open");
+    expect(saved("s3")?.resolvedAt).toBeUndefined();
+  });
+
+  it("resolves a carried-forward blocker once, from the later meeting", () => {
+    const old = dayFrom(new Date(), -7);
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({ kind: "blocker", text: "Push certs", meetingDate: old }),
+        entry({ kind: "update", text: "Today", meetingDate: today() }),
+      ],
+    });
+    renderSos();
+    const carried = within(agenda()).getByRole("list", { name: "Carried forward" });
+    expect(carried).toHaveTextContent("open 7 days");
+    fireEvent.click(within(carried).getByRole("button", { name: /^Resolve blocker/ }));
+    expect(saved("s1")?.status).toBe("resolved");
+    expect(
+      within(agenda()).queryByRole("list", { name: "Carried forward" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("raises a blocker as an impediment that links back, with Undo", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({ kind: "blocker", text: "Sandbox down", team: "Payments", meetingDate: today() }),
+      ],
+    });
+    renderSos();
+    fireEvent.click(screen.getByRole("button", { name: "Raise impediment: Sandbox down" }));
+    expect(ws().impediments).toMatchObject([
+      { title: "Sandbox down", sourceRef: { tool: "scrum-of-scrums", id: "s1" } },
+    ]);
+    expect(
+      screen.getByRole("link", { name: "Raised as an impediment · open" })
+    ).toBeInTheDocument();
+    undoLast();
+    expect(ws().impediments).toEqual([]);
+    expect(
+      screen.getByRole("button", { name: "Raise impediment: Sandbox down" })
+    ).toBeInTheDocument();
+  });
+
+  it("adds a dependency to the map and resolves it from either side", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({
+          kind: "dependency",
+          text: "Refund API",
+          team: "Checkout",
+          blockedBy: "Payments",
+          meetingDate: today(),
+        }),
+      ],
+    });
+    renderSos();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add dependency to the map: Checkout needs Payments" })
+    );
+    expect(map().edges).toMatchObject([
+      {
+        kind: "needs",
+        status: "open",
+        note: "Refund API",
+        sourceRef: { tool: "scrum-of-scrums", id: "s1" },
+      },
+    ]);
+    expect(screen.getByRole("link", { name: "On the Dependency Map" })).toBeInTheDocument();
+
+    // Resolved on the map: the agenda shows it resolved.
+    act(() =>
+      ws().upsertDependencyMap({
+        ...map(),
+        edges: map().edges.map((e) => ({ ...e, status: "resolved" as const })),
+      })
+    );
+    expect(
+      within(agenda()).getByRole("button", { name: /^Reopen dependency/ })
+    ).toBeInTheDocument();
+    // Reopened here: the map edge reopens too.
+    fireEvent.click(within(agenda()).getByRole("button", { name: /^Reopen dependency/ }));
+    expect(map().edges[0].status).toBe("open");
+    expect(saved("s1")?.status).toBe("open");
+  });
+
+  it("edits an entry in place and deletes it with Undo, its own edge too", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({
+          kind: "dependency",
+          text: "Refund API",
+          team: "Checkout",
+          blockedBy: "Payments",
+          meetingDate: today(),
+        }),
+      ],
+    });
+    renderSos();
+    fireEvent.click(screen.getByRole("button", { name: /^Add dependency to the map/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit dependency “Refund API”" }));
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    const details = within(form).getByLabelText(/^Details/);
+    expect(details).toHaveFocus();
+    fireEvent.change(details, { target: { value: "Refund API v2" } });
+    fireEvent.submit(form);
+    expect(saved("s1")?.text).toBe("Refund API v2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete dependency “Refund API v2”" }));
+    expect(ws().sosEntries).toEqual([]);
+    expect(map().edges).toEqual([]);
+    expect(lastToast()[0]).toBe("Deleted dependency “Refund API v2”");
+    undoLast();
+    expect(saved("s1")?.text).toBe("Refund API v2");
+    expect(map().edges).toHaveLength(1);
+  });
+
+  it("starts a backdated meeting that carries open items forward to it", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({ kind: "blocker", text: "Push certs", meetingDate: "2026-09-01" }),
+        entry({ kind: "update", text: "Later news", meetingDate: today() }),
+      ],
+    });
+    renderSos();
+    fireEvent.change(screen.getByLabelText(/^New meeting on/), { target: { value: "2026-09-08" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start a meeting" }));
+    // ICU spells September "Sep" or "Sept" depending on its version.
+    expect(screen.getByText(/^Agenda — 8 Sept? 2026$/)).toBeInTheDocument();
+    expect(within(agenda()).getByRole("list", { name: "Carried forward" })).toHaveTextContent(
+      "Push certs"
+    );
+    expect(agenda()).not.toHaveTextContent("Later news");
+    // The add form now logs to that meeting.
+    const form = screen.getByRole("button", { name: "Log entry" }).closest("form")!;
+    expect(within(form).getByLabelText(/^Meeting date/)).toHaveValue("2026-09-08");
+
+    fireEvent.change(screen.getByLabelText(/^Show meeting/), { target: { value: "2026-09-01" } });
+    expect(screen.getByText(/^Agenda — 1 Sept? 2026$/)).toBeInTheDocument();
+  });
+});
+
+/* ── Review fixes ─────────────────────────────────────────────────────── */
+
+describe("which map edge an entry shows", () => {
+  const T1 = "2026-10-16T09:00:00.000Z";
+  const dep = (extra: Partial<SosEntry> = {}) =>
+    entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments", loggedAt: T1, ...extra });
+  const pi = { tool: "pi-planning", id: "p1" };
+  const edgeOf = (e: SosEntry) => edgeForEntry(map(), e);
+
+  it("ignores a dependency between the same teams resolved before the entry was raised", () => {
+    const { edgeId } = linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi })!;
+    setEdgeStatus(edgeId, "resolved", new Date("2026-10-10T09:00:00Z"));
+    const fresh = dep();
+    expect(edgeOf(fresh)).toBeUndefined();
+    expect(statusOf(fresh, edgeOf(fresh))).toBe("open");
+  });
+
+  it("keeps an entry resolved in its own data resolved, whatever opens between the teams", () => {
+    linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi });
+    const legacy = dep({ status: "resolved" });
+    expect(edgeOf(legacy)).toBeUndefined();
+    expect(statusOf(legacy, edgeOf(legacy))).toBe("resolved");
+    const status = (e: SosEntry) => statusOf(e, edgeOf(e));
+    expect(carriedForward([legacy], D2, status)).toEqual([]);
+    // Reopening it would show that open edge.
+    expect(edgeForEntry(map(), legacy, { asOpen: true })).toBeDefined();
+  });
+
+  it("follows the dependency it waited on once resolved, not a newer one between the teams", () => {
+    const first = linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi })!;
+    setEdgeStatus(first.edgeId, "resolved", new Date("2026-10-20T09:00:00Z"));
+    const later = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "pi-planning", id: "p2" },
+    })!;
+    expect(later.edgeId).not.toBe(first.edgeId);
+    const waiting = dep();
+    expect(edgeOf(waiting)?.id).toBe(first.edgeId);
+    expect(statusOf(waiting, edgeOf(waiting))).toBe("resolved");
+  });
+
+  it("reads blocks edges in delivery order", () => {
+    linkDependency({ from: "Checkout", to: "Payments", kind: "blocks", sourceRef: pi });
+    expect(edgeOf(dep())).toBeUndefined();
+    const right = linkDependency({
+      from: "Payments",
+      to: "Checkout",
+      kind: "blocks",
+      sourceRef: { tool: "pi-planning", id: "p2" },
+    })!;
+    expect(edgeOf(dep())?.id).toBe(right.edgeId);
+  });
+
+  it("never shows an example entry a real edge", () => {
+    linkDependency({ from: "Checkout", to: "Payments", sourceRef: pi });
+    expect(edgeOf(dep({ id: "example-sos-2" }))).toBeUndefined();
+    expect(edgeOf(dep())).toBeDefined();
+  });
+});
+
+describe("keeping an entry's own edge in step", () => {
+  const drawOwn = (e: SosEntry, extra: { owner?: string; due?: string } = {}) =>
+    linkDependency({
+      from: e.team,
+      to: e.blockedBy ?? "",
+      note: e.text,
+      ...extra,
+      sourceRef: { tool: "scrum-of-scrums", id: e.id },
+    })!;
+
+  it("leaves the edge alone on a text edit after a node was renamed on the map", () => {
+    const dep = entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments" });
+    const { edgeId } = drawOwn(dep);
+    ws().upsertDependencyMap({
+      ...map(),
+      nodes: map().nodes.map((x) => ({ ...x, label: `${x.label} team` })),
+    });
+    syncEntryEdge(dep, { ...dep, text: "Refunds v2" });
+    expect(map().nodes.map((x) => x.label)).toEqual(["Checkout team", "Payments team"]);
+    expect(map().edges.map((x) => x.id)).toEqual([edgeId]);
+  });
+
+  it("brings its owner and due date along onto an open edge it lands on", () => {
+    const dep = entry({ kind: "dependency", team: "Checkout", blockedBy: "Payments" });
+    drawOwn(dep, { owner: "Ana", due: "2026-11-02" });
+    const theirs = linkDependency({
+      from: "Checkout",
+      to: "Platform",
+      sourceRef: { tool: "pi-planning", id: "p1" },
+    })!;
+    syncEntryEdge(dep, { ...dep, blockedBy: "Platform" });
+    expect(map().edges).toMatchObject([{ id: theirs.edgeId, owner: "Ana", due: "2026-11-02" }]);
+  });
+});
+
+describe("meeting dates saved as timestamps", () => {
+  it("belong to that day's meeting, age from it and edit as that day", () => {
+    const stamped = entry({ kind: "blocker", meetingDate: "2026-10-16T10:00:00.000Z" });
+    expect(meetingDay(stamped)).toBe(D1);
+    expect(meetingDates([stamped])).toEqual([D1]);
+    expect(entriesOn([stamped], D1)[0].entries).toEqual([stamped]);
+    expect(ageDays(stamped, D2)).toBe(7);
+    expect(carriedForward([stamped], D2, own)).toEqual([stamped]);
+    expect(entryDraftFrom(stamped).meetingDate).toBe(D1);
+  });
+
+  it("carries an open blocker with no readable date into every meeting, not out of sight", () => {
+    const lost = entry({ kind: "blocker", meetingDate: "someday" });
+    expect(meetingDay(lost)).toBe("");
+    expect(carriedForward([lost], D2, own)).toEqual([lost]);
+    expect(entryDraftFrom(lost).meetingDate).toBe("");
+  });
+});
+
+describe("Scrum of Scrums page, after review", () => {
+  const today = () => todayLocalISO();
+
+  it("offers Add dependency for a new wait even when an old one between the teams was resolved", () => {
+    const { edgeId } = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "pi-planning", id: "p1" },
+    })!;
+    setEdgeStatus(edgeId, "resolved", new Date("2020-01-01T09:00:00Z"));
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({
+          kind: "dependency",
+          text: "Refund API",
+          team: "Checkout",
+          blockedBy: "Payments",
+          meetingDate: today(),
+          loggedAt: new Date().toISOString(),
+        }),
+      ],
+    });
+    renderSos();
+    expect(
+      within(agenda()).getByRole("button", { name: /^Resolve dependency/ })
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add dependency to the map: Checkout needs Payments" })
+    );
+    expect(map().edges).toHaveLength(2);
+    expect(map().edges[1]).toMatchObject({
+      status: "open",
+      sourceRef: { tool: "scrum-of-scrums", id: "s1" },
+    });
+    expect(map().edges[0].status).toBe("resolved");
+  });
+
+  it("reopens the edge a resolved entry will show, so Reopen sticks", () => {
+    const loggedAt = new Date(Date.now() - 86_400_000).toISOString();
+    const { edgeId } = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "pi-planning", id: "p1" },
+    })!;
+    setEdgeStatus(edgeId, "resolved");
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({
+          kind: "dependency",
+          text: "Refund API",
+          team: "Checkout",
+          blockedBy: "Payments",
+          meetingDate: today(),
+          status: "resolved",
+          loggedAt,
+        }),
+      ],
+    });
+    renderSos();
+    fireEvent.click(within(agenda()).getByRole("button", { name: /^Reopen dependency/ }));
+    expect(saved("s1")?.status).toBe("open");
+    expect(map().edges[0].status).toBe("open");
+    expect(
+      within(agenda()).getByRole("button", { name: /^Resolve dependency/ })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps example entries off the user's edges, and clears what they drew", () => {
+    ws().upsertDependencyMap({
+      id: DEPENDENCY_MAP_ID,
+      nodes: [
+        { id: "c", label: "Checkout" },
+        { id: "p", label: "Payments" },
+      ],
+      edges: [{ id: "real", from: "c", to: "p", kind: "needs", status: "open" }],
+    });
+    renderSos();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const carried = () => within(agenda()).getByRole("list", { name: "Carried forward" });
+    // Checkout waits on Payments in the example too, but it isn't the user's edge.
+    fireEvent.click(within(carried()).getByRole("button", { name: /^Resolve dependency/ }));
+    expect(saved("example-sos-2")?.status).toBe("resolved");
+    expect(map().edges).toMatchObject([{ id: "real", status: "open" }]);
+    act(() => ws().upsertSosEntry({ ...saved("example-sos-2")!, status: "open" }));
+    fireEvent.click(
+      within(carried()).getByRole("button", {
+        name: "Add dependency to the map: Checkout needs Payments",
+      })
+    );
+    const drawn = map().edges.filter((x) => x.id !== "real");
+    expect(drawn).toHaveLength(1);
+    expect(
+      [drawn[0].id, drawn[0].from, drawn[0].to].every((id) => id.startsWith("example-sos-map-"))
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(map().nodes.map((x) => x.id)).toEqual(["c", "p"]);
+    expect(map().edges.map((x) => x.id)).toEqual(["real"]);
+  });
+
+  it("hands its own edge to the PI item still showing it on delete, and back on Undo", () => {
+    const dep = entry({
+      kind: "dependency",
+      text: "Refund API",
+      team: "Checkout",
+      blockedBy: "Payments",
+      meetingDate: today(),
+    });
+    const { edgeId } = linkDependency({
+      from: "Checkout",
+      to: "Payments",
+      sourceRef: { tool: "scrum-of-scrums", id: dep.id },
+    })!;
+    localStorage.setItem(
+      PI_STORAGE_KEY,
+      JSON.stringify({
+        teams: [{ id: "t", name: "Checkout" }],
+        items: [
+          {
+            id: "d1",
+            title: "Refunds",
+            teamId: "t",
+            iteration: 0,
+            kind: "dependency",
+            dependsOn: "Payments",
+            edgeId,
+          },
+        ],
+        iterations: 3,
+      })
+    );
+    useWorkspaceStore.setState({ sosEntries: [dep] });
+    renderSos();
+    fireEvent.click(screen.getByRole("button", { name: "Delete dependency “Refund API”" }));
+    expect(ws().sosEntries).toEqual([]);
+    expect(map().edges).toMatchObject([
+      { id: edgeId, sourceRef: { tool: "pi-planning", id: "d1" } },
+    ]);
+    undoLast();
+    expect(map().edges[0].sourceRef).toEqual({ tool: "scrum-of-scrums", id: dep.id });
+    expect(saved(dep.id)).toBeDefined();
+  });
+
+  it("shows an entry saved with a timestamp for a date in that day's meeting", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [
+        entry({ kind: "blocker", text: "Sandbox down", meetingDate: `${today()}T08:00` }),
+      ],
+    });
+    renderSos();
+    expect(within(agenda()).getByText("Sandbox down")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit blocker “Sandbox down”" }));
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    expect(within(form).getByLabelText(/^Meeting date/)).toHaveValue(today());
+  });
+
+  it("puts focus back on the Edit button after saving or cancelling", () => {
+    useWorkspaceStore.setState({
+      sosEntries: [entry({ kind: "update", text: "Webhooks in staging", meetingDate: today() })],
+    });
+    renderSos();
+    const edit = () => screen.getByRole("button", { name: /^Edit update/ });
+    fireEvent.click(edit());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(edit()).toHaveFocus();
+    fireEvent.click(edit());
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.change(within(form).getByLabelText(/^Details/), { target: { value: "Live" } });
+    fireEvent.submit(form);
+    expect(saved("s1")?.text).toBe("Live");
+    expect(edit()).toHaveFocus();
+  });
+});

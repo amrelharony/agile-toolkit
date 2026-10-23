@@ -123,8 +123,8 @@ function voteRevealAccept(value: string) {
     })
   );
   fireEvent.click(screen.getByRole("button", { name: /^Reveal/ }));
-  const label = screen.getByText("Accept estimate:");
-  fireEvent.click(within(label.parentElement as HTMLElement).getByRole("button", { name: value }));
+  // The only vote is the suggested card, so Accept starts on it.
+  fireEvent.click(screen.getByRole("button", { name: `Accept ${value}` }));
 }
 
 describe("Planning Poker lobby queue", () => {

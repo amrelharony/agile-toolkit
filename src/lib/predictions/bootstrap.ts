@@ -167,24 +167,6 @@ export function bootstrapPredictions(): void {
     };
   });
 
-  // ── release-planner ──────────────────────────────────────────────────
-  registerPredictor<number>("release-planner", "sprintsToRelease", (ctx) => {
-    const completed = ctx.workspace.sprints.filter(
-      (s) => s.status === "completed" && Number.isFinite(s.pointsCompleted)
-    );
-    if (completed.length === 0) return { value: 4, confidence: "none" };
-    const v = mean(completed.map((s) => s.pointsCompleted ?? 0));
-    if (v <= 0) return { value: 4, confidence: "low", source: "fallback" };
-    const totalScope = ctx.workspace.stories
-      .filter((s) => s.status !== "done")
-      .reduce((a, s) => a + (s.points ?? 0), 0);
-    return {
-      value: Math.max(1, Math.ceil(totalScope / v)),
-      confidence: completed.length >= 4 ? "medium" : "low",
-      source: `${totalScope}pt remaining ÷ avg velocity ${Math.round(v)}`,
-    };
-  });
-
   // ── slo-builder ──────────────────────────────────────────────────────
   registerPredictor<number>("slo-builder", "errorBudgetMinutes", () => {
     // Default for a 99.9% SLO over a 30-day window: 43.2 minutes/month.

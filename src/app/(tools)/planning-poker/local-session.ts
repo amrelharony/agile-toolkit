@@ -42,8 +42,44 @@ export function saveLocalSession(session: Session): void {
 export function clearLocalSession(): void {
   try {
     window.localStorage.removeItem(LOCAL_SESSION_KEY);
+    window.localStorage.removeItem(QUEUED_IDS_KEY);
   } catch {
     /* storage unavailable */
+  }
+}
+
+/**
+ * Which of the stored session's stories came from the queue. They aren't
+ * saved to the backlog (their estimate goes back to their source), and
+ * once one is estimated the queue no longer lists it, so the session keeps
+ * its own note. Kept beside the session rather than in it: the session is
+ * the room's payload, and its shape is shared with every guest's build.
+ */
+export const QUEUED_IDS_KEY = "agile-toolkit:planning-poker:queued-story-ids";
+
+/** More ids than a session holds stories is corrupt. */
+const MAX_QUEUED_IDS = 500;
+
+export function loadQueuedStoryIds(): string[] {
+  try {
+    const raw = window.localStorage.getItem(QUEUED_IDS_KEY);
+    if (!raw || raw.length > 64 * MAX_QUEUED_IDS) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 64)
+      .slice(0, MAX_QUEUED_IDS);
+  } catch {
+    return [];
+  }
+}
+
+export function saveQueuedStoryIds(ids: readonly string[]): void {
+  try {
+    if (ids.length === 0) window.localStorage.removeItem(QUEUED_IDS_KEY);
+    else window.localStorage.setItem(QUEUED_IDS_KEY, JSON.stringify(ids.slice(0, MAX_QUEUED_IDS)));
+  } catch {
+    /* storage full or unavailable — the note lives in memory */
   }
 }
 

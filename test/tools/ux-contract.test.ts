@@ -16,10 +16,35 @@ import { toolsWithNextSteps } from "@/lib/tools/next-steps";
  */
 
 /** Tools that meet the contract. Grows phase by phase. */
-const UPGRADED_TOOLS = ["ice-score"];
+const UPGRADED_TOOLS = [
+  "ice-score",
+  // Phase 2: Plan the sprint. Planning Poker joins once its local session
+  // stops reading localStorage directly.
+  "sprint-goal",
+  "estimation-guide",
+  "refinement",
+  "story-mapper",
+  "walking-skeleton",
+  "release-planner",
+  "jtbd-mapper",
+  "epic-roadmap",
+  "sprint-planning",
+  "capacity-planner",
+  "pi-planning",
+  "scrum-of-scrums",
+  "dependency-map",
+];
 
-/** Main tools still calling the browser's confirm(); Phases 2 and 5 replace them. */
-const CONFIRM_OFFENDERS = ["pi-planning", "release-readiness"];
+/**
+ * Upgraded tools with no add form, so there is no draft to validate. The
+ * reason is the exemption, and it has to stay true.
+ */
+const CREATES_NOTHING: Record<string, string> = {
+  "estimation-guide": "edits the notes of a fixed set of cards in place; nothing is created",
+};
+
+/** Main tools still calling the browser's confirm(); Phase 5 replaces the last one. */
+const CONFIRM_OFFENDERS = ["release-readiness"];
 
 /** Main tools reading localStorage directly instead of a persisted store. */
 const LOCAL_STORAGE_OFFENDERS = [
@@ -98,6 +123,7 @@ describe("tool UX contract", () => {
     });
 
     it("validates before saving instead of defaulting", () => {
+      if (id in CREATES_NOTHING) return;
       expect(src).toMatch(/\b(useItemForm|validate\w*)\b/);
     });
 

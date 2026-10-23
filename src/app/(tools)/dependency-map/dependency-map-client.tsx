@@ -1,214 +1,206 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  GitBranch,
+  Network,
+  Pencil,
+  RotateCcw,
+  Route,
+  Trash2,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ActionRow } from "@/components/shared/action-row";
+import { CalloutAlert } from "@/components/shared/callout-alert";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import { SourceLink } from "@/components/handoff/source-link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { IconButton } from "@/components/ui/icon-button";
+import { ToggleGroup } from "@/components/ui/toggle-group";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Trash2, Network, AlertTriangle, GitBranch } from "lucide-react";
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { generateDependencyMapPrompts } from "@/lib/ai-prompts/dependency-map";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEPENDENCY_MAP_ACTIONS } from "@/lib/history/event-actions";
-import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
-import { CalloutAlert } from "@/components/shared/callout-alert";
+import type {
+  DependencyEdge,
+  DependencyNode,
+  DependencyStatus,
+} from "@/lib/stores/workspace-types";
+import {
+  DEPENDENCY_STATUS_LABEL,
+  edgeStatus,
+  isOverdue,
+  withEdgeStatus,
+} from "@/lib/dependencies/edges";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { undoable } from "@/lib/utils/undoable";
+import { cn } from "@/lib/utils";
+import { withExample, withoutExample } from "./example";
+import { dayLabel } from "./format";
+import {
+  EdgeAddForm,
+  EdgeEditor,
+  NodeAddForm,
+  NodeEditor,
+  type EdgeValues,
+  type NodeValues,
+} from "./forms";
+import { cleanEdges, criticalPath, detectCycles, type CriticalPath } from "./graph";
+import { DependencyGraph } from "./graph-view";
+import {
+  currentDependencyMap,
+  edgeSides,
+  saveDependencyMap,
+  setEdgeStatus,
+  updateDependencyMap,
+  useDependencyMap,
+  type MapGraph,
+} from "./link";
+import { toMarkdown } from "./markdown";
+import { DependencyStatusChip } from "./status-chip";
+import { useReturnFocus, type RefFor } from "./use-return-focus";
+import { dependencyVerdict } from "./verdict";
 
-interface Node {
-  id: string;
-  label: string;
-  description?: string;
-  team?: string;
+type StatusFilter = "all" | DependencyStatus;
+
+const FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open" },
+  { value: "at-risk", label: "At risk" },
+  { value: "resolved", label: "Resolved" },
+];
+
+const touches = (e: DependencyEdge, id: string) => e.from === id || e.to === id;
+
+/** The list with `items` put back at their old positions (clamped to the list as it is now). */
+function insertAt<T>(list: readonly T[], items: readonly { item: T; index: number }[]): T[] {
+  const next = [...list];
+  for (const { item, index } of items) next.splice(Math.min(index, next.length), 0, item);
+  return next;
 }
 
-interface Edge {
-  id: string;
-  from: string;
-  to: string;
-  kind: "blocks" | "needs" | "informs";
-}
-
-interface State {
-  nodes: Node[];
-  edges: Edge[];
-}
-
-const DEFAULT_STATE: State = { nodes: [], edges: [] };
-
-// Singleton id for the one dependency map. MUST match DM_ID in
-// src/lib/actions/tools/dependency-map.ts so agent writes hit the same row.
-const DM_ID = "dependency-map:current";
-
-function detectCycles(nodes: Node[], edges: Edge[]): string[][] {
-  const adj = new Map<string, string[]>();
-  for (const e of edges) {
-    if (e.kind === "blocks" || e.kind === "needs") {
-      const src = e.kind === "needs" ? e.to : e.from;
-      const dst = e.kind === "needs" ? e.from : e.to;
-      const list = adj.get(src) ?? [];
-      list.push(dst);
-      adj.set(src, list);
-    }
-  }
-  const cycles: string[][] = [];
-  const visiting = new Set<string>();
-  const done = new Set<string>();
-  const dfs = (u: string, stack: string[]) => {
-    if (visiting.has(u)) {
-      const idx = stack.indexOf(u);
-      if (idx >= 0) cycles.push(stack.slice(idx).concat(u));
-      return;
-    }
-    if (done.has(u)) return;
-    visiting.add(u);
-    for (const v of adj.get(u) ?? []) dfs(v, stack.concat(u));
-    visiting.delete(u);
-    done.add(u);
-  };
-  for (const n of nodes) dfs(n.id, []);
-  // Canonicalize each cycle by rotating to start with its lexicographically
-  // smallest node, then dedupe — DFS from every node otherwise reports the
-  // same 3-cycle three times in the UI.
-  const seen = new Set<string>();
-  const unique: string[][] = [];
-  for (const c of cycles) {
-    if (c.length < 2) continue;
-    // The cycle path comes back as `[start, ..., start]`. Drop the trailing
-    // duplicate before canonicalizing so rotations are clean.
-    const ring = c[0] === c[c.length - 1] ? c.slice(0, -1) : c.slice();
-    let pivot = 0;
-    for (let i = 1; i < ring.length; i++) {
-      if (ring[i] < ring[pivot]) pivot = i;
-    }
-    const rotated = [...ring.slice(pivot), ...ring.slice(0, pivot)];
-    const key = rotated.join(">");
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push([...rotated, rotated[0]]);
-    }
-  }
-  return unique;
-}
-
-function computeCriticalPath(nodes: Node[], edges: Edge[]): string[] {
-  // Longest-path is well-defined only on a DAG. When a cycle exists, the
-  // memoization here returns `{ len: 0, path: [] }` for cycle entrants,
-  // which then poisons every parent path that reaches into the cycle and
-  // produces non-deterministic, often-wrong "critical paths". The caller
-  // already has cycles available from `detectCycles`; bail out early at the
-  // call site (see CalloutAlert near the cycles list) so the user sees an
-  // explicit "Critical path unavailable while cycles exist" message instead
-  // of a misleading half-result.
-  if (detectCycles(nodes, edges).length > 0) return [];
-  const adj = new Map<string, string[]>();
-  for (const e of edges.filter((x) => x.kind === "blocks" || x.kind === "needs")) {
-    const src = e.kind === "needs" ? e.to : e.from;
-    const dst = e.kind === "needs" ? e.from : e.to;
-    const list = adj.get(src) ?? [];
-    list.push(dst);
-    adj.set(src, list);
-  }
-  const memo = new Map<string, { len: number; path: string[] }>();
-  const visiting = new Set<string>();
-  const visit = (u: string): { len: number; path: string[] } => {
-    if (memo.has(u)) return memo.get(u)!;
-    if (visiting.has(u)) return { len: 0, path: [] };
-    visiting.add(u);
-    const neighbors = adj.get(u) ?? [];
-    let best: { len: number; path: string[] } = { len: 1, path: [u] };
-    for (const v of neighbors) {
-      const sub = visit(v);
-      if (sub.len + 1 > best.len) best = { len: sub.len + 1, path: [u, ...sub.path] };
-    }
-    visiting.delete(u);
-    memo.set(u, best);
-    return best;
-  };
-  let overall: { len: number; path: string[] } = { len: 0, path: [] };
-  for (const n of nodes) {
-    const r = visit(n.id);
-    if (r.len > overall.len) overall = r;
-  }
-  return overall.path;
+/** `{...obj, key: value}`, or `obj` without `key` when the value is empty. */
+function setOptional<T extends object, K extends keyof T>(obj: T, key: K, value: T[K] | undefined) {
+  const next = { ...obj };
+  if (value === undefined || value === "") delete next[key];
+  else next[key] = value;
+  return next;
 }
 
 export function DependencyMapClient() {
-  // Synced workspace singleton (was isolated localStorage), so MCP graph
-  // writes round-trip into the UI. [state, setState] mirrors the old API.
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.dependencyMaps ?? []).find((d) => d.id === DM_ID))
-  );
-  const upsertDependencyMap = useWorkspaceStore((s) => s.upsertDependencyMap);
-  const state: State = doc ?? DEFAULT_STATE;
-  const setState = (updater: State | ((prev: State) => State)) => {
-    const cur = (useWorkspaceStore.getState().dependencyMaps ?? []).find((d) => d.id === DM_ID) ?? {
-      id: DM_ID,
-      ...DEFAULT_STATE,
-    };
-    const next = typeof updater === "function" ? updater(cur) : updater;
-    upsertDependencyMap({ ...next, id: DM_ID });
-  };
-  const [newNode, setNewNode] = useState({ label: "", team: "", description: "" });
-  const [newEdge, setNewEdge] = useState<{ from: string; to: string; kind: Edge["kind"] }>({
-    from: "",
-    to: "",
-    kind: "blocks",
-  });
+  // Synced workspace singleton (dependency-map:current), shared with PI
+  // Planning, Scrum of Scrums and the tool.dependency_map.* agent actions.
+  const map = useDependencyMap();
+  const today = todayLocalISO();
   const { log } = useHistoryLogger("dependency-map");
+  const exportRef = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [confirmNode, setConfirmNode] = useState<DependencyNode | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const { refFor, returnTo } = useReturnFocus();
 
-  const addNode = () => {
-    const label = newNode.label.trim().slice(0, 240);
-    if (!label) return;
-    // Cap free-text fields: dependency graphs typically have 10s-100s of
-    // nodes, but a paste-bomb description would blow past localStorage's
-    // 5 MB quota and silently lose state on the next write.
-    const description = newNode.description.trim().slice(0, 2000) || undefined;
-    // Trim the team field — without it, a stray space (a common typo when
-    // tabbing between fields) was stored as a non-empty truthy string and
-    // rendered as an empty <span> next to the node label.
-    const team = newNode.team.trim().slice(0, 120) || undefined;
-    const node: Node = { id: nanoid(6), label, team, description };
-    setState((s) => ({ ...s, nodes: [...s.nodes, node] }));
-    log(DEPENDENCY_MAP_ACTIONS.NODE_ADDED, { nodeId: node.id, label: node.label, description });
-    setNewNode({ label: "", team: "", description: "" });
+  /** Close the editor and put focus back on the row's Edit button. */
+  const closeEditor = (id: string) => {
+    setEditing(null);
+    returnTo(`edit:${id}`);
   };
-  const removeNode = (id: string) => {
-    const node = state.nodes.find((n) => n.id === id);
-    setState((s) => ({
-      nodes: s.nodes.filter((n) => n.id !== id),
-      edges: s.edges.filter((e) => e.from !== id && e.to !== id),
+
+  const edges = useMemo(() => cleanEdges(map), [map]);
+  const cycles = useMemo(() => detectCycles(map.nodes, edges), [map.nodes, edges]);
+  const path: CriticalPath = useMemo(
+    () => criticalPath(map.nodes, edges, today),
+    [map.nodes, edges, today]
+  );
+  const onPath = useMemo(() => new Set(path.nodes), [path]);
+  const label = (id: string) => map.nodes.find((n) => n.id === id)?.label ?? id;
+  const open = edges.filter((e) => edgeStatus(e) !== "resolved");
+  const overdue = open.filter((e) => isOverdue(e, today));
+
+  /* ── Nodes ── */
+
+  const addNode = (v: NodeValues) => {
+    const node: DependencyNode = { id: nanoid(6), ...v };
+    updateDependencyMap((m) => ({ ...m, nodes: [...m.nodes, node] }));
+    log(DEPENDENCY_MAP_ACTIONS.NODE_ADDED, {
+      nodeId: node.id,
+      label: node.label,
+      description: node.description,
+    });
+  };
+
+  const saveNode = (node: DependencyNode, v: NodeValues) => {
+    closeEditor(node.id);
+    updateDependencyMap((m) => ({
+      ...m,
+      nodes: m.nodes.map((n) => {
+        if (n.id !== node.id) return n;
+        const next = setOptional({ ...n, label: v.label }, "team", v.team);
+        return setOptional(next, "description", v.description);
+      }),
     }));
-    log(DEPENDENCY_MAP_ACTIONS.NODE_REMOVED, { nodeId: id, label: node?.label });
   };
-  const addEdge = () => {
-    if (!newEdge.from || !newEdge.to || newEdge.from === newEdge.to) return;
-    // BUG-T2-dependency-map-1: skip exact-duplicate (from, to, kind)
-    // triples. Without this, clicking Add twice produced two edges
-    // with the same endpoints + kind; cycle detection traversed both
-    // and inflated the longest-path computation.
-    if (
-      state.edges.some(
-        (e) => e.from === newEdge.from && e.to === newEdge.to && e.kind === newEdge.kind
-      )
-    ) {
-      return;
-    }
-    const edge = { id: nanoid(6), ...newEdge };
-    setState((s) => ({ ...s, edges: [...s.edges, edge] }));
+
+  /** Remove a node and every edge on it, with Undo for both. */
+  const removeNode = (node: DependencyNode) => {
+    let taken: {
+      node: { item: DependencyNode; index: number }[];
+      edges: { item: DependencyEdge; index: number }[];
+    } = { node: [], edges: [] };
+    const count = (currentDependencyMap()?.edges ?? []).filter((e) => touches(e, node.id)).length;
+    undoable({
+      label: `Removed “${node.label}”`,
+      description:
+        count > 0 ? `and its ${count} ${count === 1 ? "dependency" : "dependencies"}` : undefined,
+      apply: () => {
+        updateDependencyMap((m) => {
+          taken = {
+            node: m.nodes.flatMap((item, index) => (item.id === node.id ? [{ item, index }] : [])),
+            edges: m.edges.flatMap((item, index) =>
+              touches(item, node.id) ? [{ item, index }] : []
+            ),
+          };
+          return {
+            nodes: m.nodes.filter((n) => n.id !== node.id),
+            edges: m.edges.filter((e) => !touches(e, node.id)),
+          };
+        });
+        log(DEPENDENCY_MAP_ACTIONS.NODE_REMOVED, { nodeId: node.id, label: node.label });
+      },
+      revert: () =>
+        updateDependencyMap((m) => ({
+          nodes: insertAt(m.nodes, taken.node),
+          edges: insertAt(m.edges, taken.edges),
+        })),
+    });
+  };
+
+  /** A node with dependencies asks first: removing it takes them too. */
+  const requestRemoveNode = (node: DependencyNode) => {
+    if (map.edges.some((e) => touches(e, node.id))) setConfirmNode(node);
+    else removeNode(node);
+  };
+
+  /* ── Edges ── */
+
+  const addEdge = (v: EdgeValues) => {
+    const edge: DependencyEdge = { id: nanoid(6), ...v };
+    updateDependencyMap((m) => ({ ...m, edges: [...m.edges, edge] }));
     log(DEPENDENCY_MAP_ACTIONS.EDGE_ADDED, {
       edgeId: edge.id,
       from: edge.from,
@@ -216,69 +208,171 @@ export function DependencyMapClient() {
       kind: edge.kind,
     });
   };
-  const removeEdge = (id: string) => {
-    setState((s) => ({ ...s, edges: s.edges.filter((e) => e.id !== id) }));
-    log(DEPENDENCY_MAP_ACTIONS.EDGE_REMOVED, { edgeId: id });
+
+  const saveEdge = (edge: DependencyEdge, v: EdgeValues) => {
+    closeEditor(edge.id);
+    updateDependencyMap((m) => ({
+      ...m,
+      edges: m.edges.map((e) => {
+        if (e.id !== edge.id) return e;
+        // A status change goes through withEdgeStatus, which stamps or clears resolvedAt.
+        let next: DependencyEdge =
+          v.status === edgeStatus(e) ? { ...e } : withEdgeStatus(e, v.status);
+        next.kind = v.kind;
+        next = setOptional(next, "owner", v.owner);
+        next = setOptional(next, "due", v.due);
+        return setOptional(next, "note", v.note);
+      }),
+    }));
   };
 
-  // Drop edges that reference a deleted (or never-existed) endpoint before
-  // running graph analyses or rendering. removeNode already filters edges in
-  // the same setState call, but persisted state from older builds — or a
-  // hand-edited localStorage payload — may contain orphans that crash
-  // detectCycles / computeCriticalPath via undefined adjacency lookups.
-  // Also drop edges whose `kind` isn't in the known union: detectCycles uses
-  // it to decide direction, and an unknown kind would silently be excluded
-  // from cycle detection while still rendering in the UI — a confusing
-  // partial state.
-  const validEdges = useMemo(() => {
-    const ids = new Set(state.nodes.map((n) => n.id));
-    const knownKinds = new Set<Edge["kind"]>(["blocks", "needs", "informs"]);
-    return state.edges.filter(
-      // BUG-T2-dependency-map-2: also drop self-edges (from === to).
-      // The UI blocks creating one, but a hand-edited or pre-fix
-      // persisted state can still contain one — detectCycles then
-      // reports a meaningless "A → A" cycle.
-      (e) => ids.has(e.from) && ids.has(e.to) && e.from !== e.to && knownKinds.has(e.kind)
-    );
-  }, [state.nodes, state.edges]);
-  const cycles = useMemo(() => detectCycles(state.nodes, validEdges), [state.nodes, validEdges]);
-  const criticalPath = useMemo(
-    () => computeCriticalPath(state.nodes, validEdges),
-    [state.nodes, validEdges]
+  const removeEdge = (edge: DependencyEdge) => {
+    let index = -1;
+    undoable({
+      label: `Removed “${label(edge.from)} ${edge.kind} ${label(edge.to)}”`,
+      apply: () => {
+        updateDependencyMap((m) => {
+          index = m.edges.findIndex((e) => e.id === edge.id);
+          return { ...m, edges: m.edges.filter((e) => e.id !== edge.id) };
+        });
+        log(DEPENDENCY_MAP_ACTIONS.EDGE_REMOVED, { edgeId: edge.id });
+      },
+      revert: () =>
+        updateDependencyMap((m) => ({
+          ...m,
+          edges: index < 0 ? m.edges : insertAt(m.edges, [{ item: edge, index }]),
+        })),
+    });
+  };
+
+  /* ── Example ── */
+
+  const loadExample = () => saveDependencyMap(withExample(currentDependencyMap() ?? map));
+
+  /**
+   * Remove the example. Dependencies of the user's own drawn to an example
+   * node can't stay (they'd dangle), so when there are any, say how many go
+   * and offer Undo, which puts the whole example back with them.
+   */
+  const clearExample = () => {
+    const before = currentDependencyMap() ?? map;
+    const kept = new Set(withoutExample(before).edges.map((e) => e.id));
+    const mine = before.edges.filter((e) => !kept.has(e.id) && !isExampleId(e.id)).length;
+    if (mine === 0) {
+      saveDependencyMap(withoutExample(before));
+      return;
+    }
+    let taken: {
+      nodes: { item: DependencyNode; index: number }[];
+      edges: { item: DependencyEdge; index: number }[];
+    } = { nodes: [], edges: [] };
+    undoable({
+      label: "Cleared the example",
+      description: `and ${mine} ${mine === 1 ? "dependency" : "dependencies"} of yours drawn to it`,
+      apply: () =>
+        updateDependencyMap((m) => {
+          const next = withoutExample(m);
+          const nodeIds = new Set(next.nodes.map((x) => x.id));
+          const edgeIds = new Set(next.edges.map((x) => x.id));
+          taken = {
+            nodes: m.nodes.flatMap((item, index) =>
+              nodeIds.has(item.id) ? [] : [{ item, index }]
+            ),
+            edges: m.edges.flatMap((item, index) =>
+              edgeIds.has(item.id) ? [] : [{ item, index }]
+            ),
+          };
+          return next;
+        }),
+      revert: () =>
+        updateDependencyMap((m) => ({
+          nodes: insertAt(m.nodes, taken.nodes),
+          edges: insertAt(m.edges, taken.edges),
+        })),
+    });
+  };
+
+  /* ── Derived views ── */
+
+  const shown = edges.filter(
+    (e) =>
+      (statusFilter === "all" || edgeStatus(e) === statusFilter) &&
+      (!overdueOnly || isOverdue(e, today))
   );
-  const nodeLabel = (id: string) => state.nodes.find((n) => n.id === id)?.label ?? id;
+  const filtered = statusFilter !== "all" || overdueOnly;
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Dependency Map",
-      // Pass the cleaned `validEdges` set so the AI prompt doesn't include
-      // dangling edges referencing deleted nodes (would otherwise produce
-      // confusing "From: undefined → To: foo" lines in the generated brief).
+      // The cleaned edges, so the brief never names a deleted node.
       prompts: generateDependencyMapPrompts({
-        nodes: state.nodes,
-        edges: validEdges,
+        nodes: map.nodes,
+        edges,
         cycles,
-        criticalPath,
+        criticalPath: path.nodes,
       }),
     }),
-    [state.nodes, validEdges, cycles, criticalPath]
+    [map.nodes, edges, cycles, path.nodes]
   );
 
-  // ── Cross-tool signal: recent blockers in impediments tool ──────────────
-  // Surface a callout when several blockers were raised in the last 14 days —
-  // dependencies often co-occur with blockers, so the user should review
-  // whether new impediments map to known dependency edges.
+  // Cross-tool signal: several blockers raised lately often map to known
+  // dependencies, so ask the user to check.
   const events = useHistoryStore((s) => s.events);
-  const recentBlockers = useMemo(
-    () =>
-      selectEvents({
-        toolId: "impediments",
-        action: "impediment_raised",
-        sinceDays: 14,
-        limit: 50,
-      }),
-    [events]
-  );
+  const recentBlockers = useMemo(() => {
+    const since = Date.now() - 14 * 86_400_000;
+    return events.filter(
+      (e) =>
+        e.toolId === "impediments" &&
+        e.action === "impediment_raised" &&
+        new Date(e.occurredAt).getTime() >= since
+    ).length;
+  }, [events]);
+
+  const csvData = {
+    headers: [
+      "Type",
+      "ID",
+      "Label/Kind",
+      "Description",
+      "From",
+      "To",
+      "Team",
+      "Status",
+      "Owner",
+      "Due",
+      "Note",
+    ],
+    rows: [
+      ...map.nodes.map((n): (string | number)[] => [
+        "node",
+        n.id,
+        n.label,
+        n.description ?? "",
+        "",
+        "",
+        n.team ?? "",
+        "",
+        "",
+        "",
+        "",
+      ]),
+      ...edges.map((e): (string | number)[] => [
+        "edge",
+        e.id,
+        e.kind,
+        "",
+        label(e.from),
+        label(e.to),
+        "",
+        DEPENDENCY_STATUS_LABEL[edgeStatus(e)],
+        e.owner ?? "",
+        e.due ?? "",
+        e.note ?? "",
+      ]),
+    ],
+  };
+
+  const confirmCount = confirmNode ? map.edges.filter((e) => touches(e, confirmNode.id)).length : 0;
 
   return (
     <ToolPageWrapper
@@ -287,248 +381,414 @@ export function DependencyMapClient() {
       description="Model inter-team/inter-story dependencies. Auto-detects cycles and the longest critical path."
       category="Flow & Delivery"
     >
-      <div className="flex flex-wrap items-center justify-end gap-2 mb-4">
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="dependency-map"
-          csvData={{
-            headers: ["Type", "ID", "Label/Kind", "Description", "From", "To", "Team"],
-            rows: [
-              ...state.nodes.map(
-                (n) =>
-                  ["node", n.id, n.label, n.description ?? "", "", "", n.team ?? ""] as (
-                    | string
-                    | number
-                  )[]
-              ),
-              ...state.edges.map(
-                (e) =>
-                  ["edge", e.id, e.kind, "", nodeLabel(e.from), nodeLabel(e.to), ""] as (
-                    | string
-                    | number
-                  )[]
-              ),
-            ],
-          }}
-          jsonData={state}
-        />
-      </div>
+      <div ref={exportRef} className="space-y-4">
+        {/* Edges too: an example's edge is example data whichever nodes it joins. */}
+        {(hasExampleItems(map.nodes) || hasExampleItems(map.edges)) && (
+          <ExampleNotice onClear={clearExample} />
+        )}
 
-      <KpiGrid cols={3} gap="lg">
-        <StatCard
-          variant="compact"
-          icon={Network}
-          label="Nodes"
-          value={state.nodes.length}
-          valueClassName="text-accent"
-        />
-        <StatCard variant="compact" icon={GitBranch} label="Edges" value={state.edges.length} />
-        <StatCard
-          variant="compact"
-          icon={AlertTriangle}
-          label="Cycles"
-          value={cycles.length}
-          tone={cycles.length > 0 ? "danger" : "default"}
-        />
-      </KpiGrid>
-
-      {recentBlockers.length >= 3 && (
-        <CalloutAlert tone="info" className="mb-3">
-          {recentBlockers.length} blockers raised in last 14 days &mdash; review whether they map to
-          known dependencies.
-        </CalloutAlert>
-      )}
-
-      {cycles.length > 0 && (
-        <CalloutAlert tone="danger" className="mb-4">
-          <strong>
-            Circular dependencies detected — critical path unavailable while cycles exist.
-          </strong>
-          <ul className="mt-1 space-y-0.5">
-            {cycles.slice(0, 3).map((c) => (
-              // Use the cycle's canonicalized id sequence as the key — index
-              // keys reordered the list when cycles were added/resolved,
-              // which lost focus and re-played any list-entry transitions.
-              <li key={c.join(">")}>{c.map(nodeLabel).join(" → ")}</li>
-            ))}
-          </ul>
-        </CalloutAlert>
-      )}
-
-      {criticalPath.length > 1 && (
-        <CalloutAlert tone="warning" className="mb-4">
-          <strong>Critical path ({criticalPath.length} nodes):</strong>{" "}
-          {criticalPath.map(nodeLabel).join(" → ")}
-        </CalloutAlert>
-      )}
-
-      <Card className="bg-surface border-border mb-6">
-        <CardContent className="p-4 space-y-3">
-          <div className="text-sm font-semibold text-text flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            Add node
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-2">
-            <Input
-              value={newNode.label}
-              onChange={(e) => setNewNode((n) => ({ ...n, label: e.target.value }))}
-              placeholder="Story / epic / service / team..."
-              aria-label="New node label"
-              className="bg-bg border-border"
-            />
-            <Input
-              value={newNode.team}
-              onChange={(e) => setNewNode((n) => ({ ...n, team: e.target.value }))}
-              placeholder="Team (optional)"
-              aria-label="New node team (optional)"
-              className="bg-bg border-border"
-            />
-            <Button
-              onClick={addNode}
-              aria-label="Add node"
-              className="gap-2 bg-accent text-bg hover:bg-accent/90"
-            >
-              <Plus className="w-4 h-4" />
-              Add
-            </Button>
-          </div>
-          <Textarea
-            value={newNode.description}
-            onChange={(e) => setNewNode((n) => ({ ...n, description: e.target.value }))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addNode();
-            }}
-            placeholder="Description (optional)..."
-            rows={2}
-            className="bg-bg border-border resize-none text-xs"
-            aria-label="New node description"
+        <ActionRow>
+          <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename="dependency-map"
+            csvData={csvData}
+            jsonData={map}
+            markdown={toMarkdown(map, today)}
+            targetRef={exportRef}
           />
-        </CardContent>
-      </Card>
+        </ActionRow>
 
-      <Card className="bg-surface border-border mb-6">
-        <CardContent className="p-4 space-y-3">
-          <div className="text-sm font-semibold text-text flex items-center gap-2">
-            <GitBranch className="w-4 h-4" />
-            Add dependency
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_140px_1fr_auto] gap-2">
-            <Select
-              value={newEdge.from}
-              onValueChange={(v) => setNewEdge((e) => ({ ...e, from: v }))}
-            >
-              <SelectTrigger className="bg-bg border-border" aria-label="Dependency from">
-                <SelectValue placeholder="From..." />
-              </SelectTrigger>
-              <SelectContent>
-                {state.nodes.map((n) => (
-                  <SelectItem key={n.id} value={n.id}>
-                    {n.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={newEdge.kind}
-              onValueChange={(v) => setNewEdge((e) => ({ ...e, kind: v as Edge["kind"] }))}
-            >
-              <SelectTrigger className="bg-bg border-border" aria-label="Dependency type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="blocks">blocks</SelectItem>
-                <SelectItem value="needs">needs</SelectItem>
-                <SelectItem value="informs">informs</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={newEdge.to} onValueChange={(v) => setNewEdge((e) => ({ ...e, to: v }))}>
-              <SelectTrigger className="bg-bg border-border" aria-label="Dependency to">
-                <SelectValue placeholder="To..." />
-              </SelectTrigger>
-              <SelectContent>
-                {state.nodes.map((n) => (
-                  <SelectItem key={n.id} value={n.id}>
-                    {n.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={addEdge}
-              aria-label="Add dependency"
-              className="gap-2 bg-accent text-bg hover:bg-accent/90"
-            >
-              <Plus className="w-4 h-4" />
-              Add
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        <KpiGrid cols={4} gap="lg" marginBottom="none">
+          <StatCard
+            variant="compact"
+            icon={Network}
+            label="Nodes"
+            value={map.nodes.length}
+            valueClassName="text-accent"
+          />
+          <StatCard
+            variant="compact"
+            icon={GitBranch}
+            label="Dependencies"
+            value={edges.length}
+            hint={`${open.length} open`}
+          />
+          <StatCard
+            variant="compact"
+            icon={AlertTriangle}
+            label="Overdue"
+            value={overdue.length}
+            tone={overdue.length > 0 ? "danger" : "default"}
+          />
+          <StatCard
+            variant="compact"
+            icon={RotateCcw}
+            label="Circular waits"
+            value={cycles.length}
+            tone={cycles.length > 0 ? "danger" : "default"}
+          />
+        </KpiGrid>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <div className="text-sm font-semibold text-text mb-2">Nodes</div>
-          <div className="space-y-2">
-            {state.nodes.map((n) => {
-              const onCritical = criticalPath.includes(n.id);
-              return (
-                <div
-                  key={n.id}
-                  className={`flex items-start gap-2 rounded-lg border p-2 ${onCritical ? "border-warning/40 bg-warning/5" : "border-border bg-surface"}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-text truncate">
-                      {n.label}
-                      {onCritical && <span className="sr-only"> (on critical path)</span>}
-                    </div>
-                    {n.description && (
-                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
-                        {n.description}
-                      </div>
+        {recentBlockers >= 3 && (
+          <CalloutAlert tone="info">
+            {recentBlockers} blockers raised in the last 14 days. Check whether they map to
+            dependencies on this map.
+          </CalloutAlert>
+        )}
+
+        {map.nodes.length === 0 ? (
+          <EmptyState icon={Network} action={<LoadExampleButton onLoad={loadExample} />}>
+            Nothing on the map yet. Add the teams, services or deliverables below, then draw who
+            waits on whom, or load an example to see a release mapped.
+          </EmptyState>
+        ) : (
+          <SectionCard title="Map" icon={Network}>
+            <p className="mb-3 text-sm font-medium text-text">{dependencyVerdict(map, today)}</p>
+            <DependencyGraph nodes={map.nodes} edges={edges} today={today} critical={onPath} />
+          </SectionCard>
+        )}
+
+        {cycles.length > 0 && (
+          <CalloutAlert tone="danger">
+            <strong>Circular wait: no critical path until one of these links is resolved.</strong>
+            <ul className="mt-1 space-y-0.5">
+              {cycles.slice(0, 3).map((c) => (
+                // The canonical id ring is a stable key as cycles come and go.
+                <li key={c.join(">")}>{c.map(label).join(" → ")}</li>
+              ))}
+            </ul>
+          </CalloutAlert>
+        )}
+
+        {cycles.length === 0 && edges.length > 0 && <CriticalPathCard path={path} label={label} />}
+
+        <SectionCard title={`Nodes (${map.nodes.length})`} icon={Network}>
+          <div className="space-y-4">
+            <NodeAddForm nodes={map.nodes} onAdd={addNode} />
+            {map.nodes.length > 0 && (
+              <ul className="divide-y divide-border" aria-label="Nodes">
+                {map.nodes.map((n) => (
+                  <li key={n.id} className="py-3">
+                    {editing === n.id ? (
+                      <NodeEditor
+                        node={n}
+                        nodes={map.nodes}
+                        onSave={(v) => saveNode(n, v)}
+                        onCancel={() => closeEditor(n.id)}
+                      />
+                    ) : (
+                      <NodeRow
+                        node={n}
+                        links={edges.filter((e) => touches(e, n.id)).length}
+                        onPath={onPath.has(n.id)}
+                        refFor={refFor}
+                        onEdit={() => setEditing(n.id)}
+                        onRemove={() => requestRemoveNode(n)}
+                      />
                     )}
-                  </div>
-                  {n.team && <span className="text-xs text-sub font-mono mt-0.5">{n.team}</span>}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeNode(n.id)}
-                    className="text-sub hover:text-danger flex-shrink-0"
-                    aria-label={`Remove node ${n.label}`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard title={`Dependencies (${edges.length})`} icon={GitBranch}>
+          <div className="space-y-4">
+            {map.nodes.length < 2 ? (
+              <p className="text-sm text-sub">Add at least two nodes to draw a dependency.</p>
+            ) : (
+              <EdgeAddForm nodes={map.nodes} edges={map.edges} onAdd={addEdge} />
+            )}
+            {edges.length > 0 && (
+              <>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-4">
+                  <ToggleGroup
+                    label="Show dependencies"
+                    size="sm"
+                    options={FILTER_OPTIONS}
+                    value={statusFilter}
+                    onValueChange={setStatusFilter}
+                  />
+                  <label className="inline-flex min-h-8 items-center gap-2 text-sm text-text">
+                    <input
+                      type="checkbox"
+                      checked={overdueOnly}
+                      onChange={(e) => setOverdueOnly(e.target.checked)}
+                      className="h-4 w-4 accent-[var(--accent)]"
+                    />
+                    Overdue only
+                  </label>
+                  {filtered && (
+                    <span className="text-xs text-sub" role="status">
+                      Showing {shown.length} of {edges.length}
+                    </span>
+                  )}
                 </div>
-              );
-            })}
+                {shown.length === 0 ? (
+                  <p className="text-sm text-sub">
+                    No dependencies match these filters.{" "}
+                    <button
+                      type="button"
+                      className="text-accent underline-offset-2 hover:underline"
+                      onClick={() => {
+                        setStatusFilter("all");
+                        setOverdueOnly(false);
+                      }}
+                    >
+                      Show all
+                    </button>
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border" aria-label="Dependencies">
+                    {shown.map((e) => (
+                      <li key={e.id} className="py-3">
+                        {editing === e.id ? (
+                          <EdgeEditor
+                            edge={e}
+                            edges={map.edges}
+                            sides={edgeSides(map, e)}
+                            onSave={(v) => saveEdge(e, v)}
+                            onCancel={() => closeEditor(e.id)}
+                          />
+                        ) : (
+                          <EdgeRow
+                            edge={e}
+                            map={map}
+                            today={today}
+                            refFor={refFor}
+                            onStatus={(s) => setEdgeStatus(e.id, s)}
+                            onEdit={() => setEditing(e.id)}
+                            onRemove={() => removeEdge(e)}
+                          />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </div>
-        </div>
-        <div>
-          <div className="text-sm font-semibold text-text mb-2">Dependencies</div>
-          <div className="space-y-2">
-            {/* Render the cleaned edge list — orphan edges (referencing
-                deleted nodes) are filtered upstream and shown nowhere. */}
-            {validEdges.map((e) => (
-              <div
-                key={e.id}
-                className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 text-xs"
-              >
-                <span className="truncate text-text min-w-0">{nodeLabel(e.from)}</span>
-                <span className="text-accent uppercase flex-shrink-0">{e.kind}</span>
-                <span className="truncate text-text flex-1 min-w-0">{nodeLabel(e.to)}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeEdge(e.id)}
-                  className="text-sub hover:text-danger flex-shrink-0"
-                  aria-label={`Remove dependency: ${nodeLabel(e.from)} ${e.kind} ${nodeLabel(e.to)}`}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
+        </SectionCard>
       </div>
+
+      <ConfirmDialog
+        open={confirmNode !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmNode(null);
+        }}
+        title={`Remove “${confirmNode?.label ?? ""}”?`}
+        description={`Its ${confirmCount} ${
+          confirmCount === 1 ? "dependency goes" : "dependencies go"
+        } with it. PI Planning and Scrum of Scrums items linked to ${
+          confirmCount === 1 ? "it" : "them"
+        } will show they're no longer on the map.`}
+        confirmLabel="Remove node"
+        onConfirm={() => {
+          if (confirmNode) removeNode(confirmNode);
+        }}
+      />
     </ToolPageWrapper>
+  );
+}
+
+function NodeRow({
+  node,
+  links,
+  onPath,
+  refFor,
+  onEdit,
+  onRemove,
+}: {
+  node: DependencyNode;
+  links: number;
+  onPath: boolean;
+  refFor: RefFor;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+      <div className="min-w-0 flex-1 basis-56 space-y-0.5">
+        <p className="flex flex-wrap items-center gap-x-2 text-sm text-text">
+          <span className="font-medium break-words">{node.label}</span>
+          {node.team && <span className="font-mono text-xs text-sub">{node.team}</span>}
+          {onPath && (
+            <span className="rounded-full border border-warning/40 px-2 py-0.5 text-xs text-warning">
+              On the critical path
+            </span>
+          )}
+        </p>
+        {node.description && (
+          <p className="whitespace-pre-wrap break-words text-xs text-sub">{node.description}</p>
+        )}
+        <p className="flex flex-wrap items-center gap-x-3 text-xs text-sub">
+          <span>
+            {links === 0
+              ? "No dependencies"
+              : `${links} ${links === 1 ? "dependency" : "dependencies"}`}
+          </span>
+          <SourceLink sourceRef={node.sourceRef} />
+        </p>
+      </div>
+      <span className="flex shrink-0 items-center">
+        <IconButton
+          ref={refFor(`edit:${node.id}`)}
+          label={`Edit ${node.label}`}
+          icon={<Pencil className="h-4 w-4" />}
+          className="text-sub hover:text-text"
+          onClick={onEdit}
+        />
+        <IconButton
+          label={`Remove node ${node.label}`}
+          icon={<Trash2 className="h-4 w-4" />}
+          className="text-sub hover:text-danger"
+          onClick={onRemove}
+        />
+      </span>
+    </div>
+  );
+}
+
+function EdgeRow({
+  edge,
+  map,
+  today,
+  refFor,
+  onStatus,
+  onEdit,
+  onRemove,
+}: {
+  edge: DependencyEdge;
+  map: MapGraph;
+  today: string;
+  refFor: RefFor;
+  onStatus: (status: DependencyStatus) => void;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const sides = edgeSides(map, edge);
+  const status = edgeStatus(edge);
+  const late = isOverdue(edge, today);
+  const name = `${sides.from} ${edge.kind} ${sides.to}`;
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-start gap-x-3 gap-y-1",
+        status === "resolved" && "opacity-70"
+      )}
+    >
+      <div className="min-w-0 flex-1 basis-56 space-y-1">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text">
+          <span className="break-words">{sides.from}</span>
+          <span className="text-xs font-medium uppercase text-accent">{edge.kind}</span>
+          <span className="break-words">{sides.to}</span>
+          <DependencyStatusChip status={status} overdue={late} />
+        </p>
+        <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-sub">
+          {edge.owner && <span>Owner: {edge.owner}</span>}
+          {edge.due && (
+            <span className={late ? "text-danger" : undefined}>Due {dayLabel(edge.due, true)}</span>
+          )}
+          {edge.resolvedAt && status === "resolved" && (
+            <span>Resolved {dayLabel(edge.resolvedAt.slice(0, 10), true)}</span>
+          )}
+          <SourceLink sourceRef={edge.sourceRef} />
+        </p>
+        {edge.note && (
+          <p className="whitespace-pre-wrap break-words text-xs text-sub">{edge.note}</p>
+        )}
+      </div>
+      <span className="ml-auto flex shrink-0 items-center">
+        {status === "resolved" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="min-touch-coarse gap-1 text-sub"
+            aria-label={`Reopen ${name}`}
+            onClick={() => onStatus("open")}
+          >
+            <RotateCcw aria-hidden="true" />
+            Reopen
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="min-touch-coarse gap-1 text-success"
+            aria-label={`Resolve ${name}`}
+            onClick={() => onStatus("resolved")}
+          >
+            <CheckCircle2 aria-hidden="true" />
+            Resolve
+          </Button>
+        )}
+        <IconButton
+          ref={refFor(`edit:${edge.id}`)}
+          label={`Edit ${name}`}
+          icon={<Pencil className="h-4 w-4" />}
+          className="text-sub hover:text-text"
+          onClick={onEdit}
+        />
+        <IconButton
+          label={`Remove dependency ${name}`}
+          icon={<Trash2 className="h-4 w-4" />}
+          className="text-sub hover:text-danger"
+          onClick={onRemove}
+        />
+      </span>
+    </div>
+  );
+}
+
+/** The longest chain still blocking, in delivery order, with each link's due date. */
+function CriticalPathCard({ path, label }: { path: CriticalPath; label: (id: string) => string }) {
+  if (path.steps.length === 0) {
+    return (
+      <SectionCard title="Critical path" icon={Route}>
+        <p className="text-sm text-sub">Nothing is blocking: no open blocks or needs links.</p>
+      </SectionCard>
+    );
+  }
+  const n = path.steps.length;
+  return (
+    <SectionCard title={`Critical path (${n} ${n === 1 ? "link" : "links"})`} icon={Route}>
+      <p className="mb-3 text-xs text-sub">
+        The longest chain of open blocking links, from what has to be delivered first to the work
+        that waits at the end. Each link&rsquo;s due date should come after the one before it.
+      </p>
+      <ol className="space-y-2" aria-label="Critical path">
+        {path.steps.map((s, i) => (
+          <li key={s.edge.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="w-5 shrink-0 font-mono text-xs text-sub">{i + 1}.</span>
+            <span className="text-text">
+              {label(s.provider)} → {label(s.consumer)}
+            </span>
+            <span className={s.overdue ? "text-xs text-danger" : "text-xs text-sub"}>
+              {s.edge.due ? `due ${dayLabel(s.edge.due, true)}` : "no due date"}
+            </span>
+            {s.overdue && <Flag tone="danger">Overdue</Flag>}
+            {s.atRisk && <Flag tone="warning">At risk</Flag>}
+            {s.dueBeforeUpstream && <Flag tone="warning">Due before the link it waits on</Flag>}
+          </li>
+        ))}
+      </ol>
+    </SectionCard>
+  );
+}
+
+function Flag({ tone, children }: { tone: "danger" | "warning"; children: string }) {
+  return (
+    <span
+      className={
+        tone === "danger"
+          ? "rounded-full border border-danger/40 px-2 py-0.5 text-xs text-danger"
+          : "rounded-full border border-warning/40 px-2 py-0.5 text-xs text-warning"
+      }
+    >
+      {children}
+    </span>
   );
 }

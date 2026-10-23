@@ -4,7 +4,7 @@ import { RefinementClient } from "./refinement-client";
 export const metadata: Metadata = {
   title: "Refinement Checklist",
   description:
-    "Interactive Definition of Ready checklist with per-story tracking, history table, and pass-rate trend chart.",
+    "Backlog refinement session: check unready stories against your Definition of Ready, queue unsized ones for Planning Poker, and mark them ready.",
 };
 
 export default function RefinementPage() {

@@ -109,6 +109,21 @@ export interface Story {
   statusHistory?: StoryStatusChange[];
   /** The item this was sent from (review feedback, a tech-debt item). */
   sourceRef?: HandoffRef;
+  /** Definition-of-Ready checks from a refinement session. */
+  readiness?: StoryReadiness;
+  /** The roadmap epic this story belongs to (Epic Roadmap rolls progress up from it). */
+  epicId?: string;
+}
+
+/**
+ * Where a story stands against the team's Definition of Ready, as last
+ * checked in Refinement. `checked` holds the ids of the DoR criteria that
+ * passed; `ready` is the team's call (usually: every criterion checked).
+ */
+export interface StoryReadiness {
+  checked: string[];
+  ready: boolean;
+  updatedAt: ISODateString;
 }
 
 export type ImpedimentSeverity = "low" | "medium" | "high" | "critical";
@@ -1665,6 +1680,20 @@ export interface SprintGoal {
   goal: string;
   criteria: AcceptanceCriterion[];
   keyResults: string[];
+  /** The sprint this goal is for; its `goal` is mirrored to `Sprint.goal`.
+   *  Absent on the `sprint-goal:current` draft. */
+  sprintId?: string;
+  /** Linked OKR ids, instead of key results copied into the goal. */
+  okrIds?: string[];
+  /** Whether the sprint met its goal, answered when it ends (Sprint Review reads it). */
+  outcome?: SprintGoalOutcome;
+}
+
+/** The team's answer to "Did we meet the sprint goal?" */
+export interface SprintGoalOutcome {
+  met: "met" | "partly" | "not-met";
+  note?: string;
+  decidedAt: ISODateString;
 }
 
 /** A Jobs-to-be-Done job story: "When <situation>, I want to <motivation>,
@@ -1676,6 +1705,8 @@ export interface JobStory {
   outcome: string;
   parentJobId?: string;
   description?: string;
+  /** The Opportunity Tree node this job serves (a node of kind "opportunity"). */
+  opportunityId?: string;
 }
 
 /** A capacity-planner team member. Distinct from the lean workspace
@@ -1711,6 +1742,9 @@ export interface CapacityPlan {
   id: string;
   members: CapacityMember[];
   config: CapacityConfig;
+  /** The sprint this plan is for. Absent on the `capacity-planner:current`
+   *  fallback plan (lib/sprints/capacity: capacityPlanIdFor). */
+  sprintId?: string;
 }
 
 /** A card on the story map. */
@@ -1825,7 +1859,14 @@ export interface DependencyNode {
   sourceRef?: HandoffRef;
 }
 
-/** A directed dependency edge between two nodes. */
+/** Where a dependency stands. Absent on edges drawn before it existed: read as "open". */
+export type DependencyStatus = "open" | "at-risk" | "resolved";
+
+/**
+ * A directed dependency edge between two nodes — the one dependency model:
+ * Dependency Map draws it, PI Planning and Scrum of Scrums create and
+ * resolve it (they used to keep their own dependency items).
+ */
 export interface DependencyEdge {
   id: string;
   from: string;
@@ -1833,6 +1874,13 @@ export interface DependencyEdge {
   kind: "blocks" | "needs" | "informs";
   /** The item this was sent from, when a hand-off drew the edge. */
   sourceRef?: HandoffRef;
+  status?: DependencyStatus;
+  /** Who chases it (a roster name). */
+  owner?: string;
+  /** When it must be resolved by (YYYY-MM-DD). */
+  due?: ISODateString;
+  note?: string;
+  resolvedAt?: ISODateString;
 }
 
 /** The dependency map — a singleton graph document (nodes + edges). */

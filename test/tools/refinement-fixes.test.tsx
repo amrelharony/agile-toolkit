@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Refinement: Story History "Clear" wiped every saved story at once with no
- * confirmation. It now asks first, with the count, and offers Undo.
+ * confirmation. It now asks first, with the count, and offers Undo. (The
+ * history is "Earlier checks" since the backlog-driven session.)
  */
 
 // Three saved stories, in the tool's persisted store (read at import).
@@ -68,30 +70,34 @@ beforeEach(() => {
 });
 
 const historyNames = () =>
-  Array.from(document.querySelectorAll("tbody tr td:first-child")).map((td) =>
-    td.textContent?.trim()
-  );
+  within(screen.getByRole("list", { name: "Earlier checks" }))
+    .getAllByRole("listitem")
+    .map((li) => li.querySelector("p")?.textContent?.trim());
 
-describe("Refinement Story History clear", () => {
-  it("asks with the count, clears on confirm, and Undo restores every story", async () => {
-    render(<RefinementClient />);
+describe("Refinement earlier checks clear", () => {
+  it("asks with the count, clears on confirm, and Undo restores every check", async () => {
+    render(
+      <TooltipProvider>
+        <RefinementClient />
+      </TooltipProvider>
+    );
     expect(await screen.findByText("Login with SSO")).toBeInTheDocument();
 
     // Cancel keeps everything.
-    fireEvent.click(screen.getByRole("button", { name: "Clear story history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear earlier checks" }));
     let dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("Clear story history?");
-    expect(dialog).toHaveTextContent("All 3 saved stories will be removed");
+    expect(dialog).toHaveTextContent("Clear the earlier checks?");
+    expect(dialog).toHaveTextContent("All 3 earlier checks will be removed");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(historyNames()).toEqual(["Login with SSO", "Export CSV", "Dark mode"]);
     expect(undo.last).toBeNull();
 
     // Confirm clears, with Undo.
-    fireEvent.click(screen.getByRole("button", { name: "Clear story history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear earlier checks" }));
     dialog = screen.getByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Clear history" }));
-    expect(screen.getByText(/No stories saved yet/)).toBeInTheDocument();
-    expect(undo.last?.label).toBe("Cleared 3 saved stories");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Clear checks" }));
+    expect(screen.getByText(/No earlier checks\./)).toBeInTheDocument();
+    expect(undo.last?.label).toBe("Cleared 3 earlier checks");
 
     act(() => undo.last!.revert());
     expect(historyNames()).toEqual(["Login with SSO", "Export CSV", "Dark mode"]);

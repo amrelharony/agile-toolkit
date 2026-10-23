@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveHours, planCapacity } from "@/app/(tools)/capacity-planner/capacity";
+import { effectiveHours, planCapacity } from "@/lib/sprints/capacity";
 
 const config = { sprintDays: 10, hoursPerDay: 8, focusFactor: 0.8, ceremonyOverhead: 15 };
 

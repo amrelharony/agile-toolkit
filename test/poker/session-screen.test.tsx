@@ -4,10 +4,10 @@ import { useState, type ReactNode } from "react";
 import type { Session } from "@/app/(tools)/planning-poker/types";
 
 /**
- * SessionScreen behaviour shared by the owner and guest clients: any voted
- * value can be accepted as the estimate (not just numbers), leaving a
- * session with stories asks first, and the voting deck is a keyboard-
- * operable radiogroup.
+ * SessionScreen behaviour shared by the owner and guest clients: any card
+ * on the deck can be accepted as the estimate (not just numbers, and not
+ * only the ones voted), leaving a session with stories asks first, and the
+ * voting deck is a keyboard-operable radiogroup.
  */
 
 vi.mock("@/lib/history/use-history-logger", () => ({
@@ -89,11 +89,14 @@ function Harness({
   );
 }
 
-function acceptButtons(): string[] {
-  const label = screen.getByText("Accept estimate:");
-  return within(label.parentElement as HTMLElement)
-    .getAllByRole("button")
-    .map((b) => b.textContent ?? "");
+/** The cards on offer to accept, and the one picked. */
+function acceptOptions(): { cards: string[]; picked: string | null } {
+  const group = screen.getByRole("radiogroup", { name: "Estimate to accept" });
+  const radios = within(group).getAllByRole("radio");
+  return {
+    cards: radios.map((r) => r.textContent ?? ""),
+    picked: radios.find((r) => r.getAttribute("aria-checked") === "true")?.textContent ?? null,
+  };
 }
 
 describe("accepting an estimate", () => {
@@ -113,10 +116,11 @@ describe("accepting an estimate", () => {
       />
     );
 
-    // Scale order, never the "?" card.
-    expect(acceptButtons()).toEqual(["S", "M"]);
+    // Every size on the deck in scale order, never the "?" card; the
+    // middle of S and M (the higher one) is picked to start with.
+    expect(acceptOptions()).toEqual({ cards: ["XS", "S", "M", "L", "XL", "XXL"], picked: "M" });
 
-    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept M" }));
 
     expect(screen.getByText(/Final estimate/).textContent).toContain("M");
     // The queue row (not its Edit / Delete buttons) shows the estimate.
@@ -139,7 +143,11 @@ describe("accepting an estimate", () => {
         })}
       />
     );
-    expect(acceptButtons()).toEqual(["3", "8", "13"]);
+    // Deck order, without "?" and "∞"; 3, 8, 8, 13 suggest 8.
+    expect(acceptOptions()).toEqual({
+      cards: ["1", "2", "3", "5", "8", "13", "21"],
+      picked: "8",
+    });
   });
 });
 

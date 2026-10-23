@@ -51,7 +51,9 @@ beforeEach(() => {
 const cells = () => useWorkspaceStore.getState().storyMaps?.find((m) => m.id === SM_ID)?.slices;
 
 function openMoveMenu(title: string) {
-  fireEvent.keyDown(screen.getByRole("button", { name: `Move ${title}` }), { key: "Enter" });
+  fireEvent.keyDown(screen.getByRole("button", { name: `Send or move ${title}` }), {
+    key: "Enter",
+  });
 }
 
 describe("Story Mapper card moves", () => {
@@ -83,7 +85,9 @@ describe("Story Mapper card moves", () => {
     expect(cells()?.[0].cards.s1.map((c) => c.title)).toEqual(["Browse"]);
     expect(cells()?.[1].cards.s2.map((c) => c.title)).toEqual(["Search"]);
     await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Move Search" }))
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Send or move Search" })
+      )
     );
   });
 });

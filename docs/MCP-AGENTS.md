@@ -149,6 +149,26 @@ The team's ceremony cadence (sprint length, Daily Scrum time and weekdays, Plann
 
 A story's status is `workspace.story` with one of `backlog`, `todo`, `in_progress`, `review`, `done`. Changing it through `workspace.story.update` (or creating a story already in progress) stamps the flow fields the app's sprint board writes: `startedAt` (moved into in progress, review or done; cleared when it goes back to the backlog or to do), `doneAt` (moved to done; cleared when it leaves), `statusHistory` (`{status, from, at}`, the latest 50) and clears `blocked` on done. Send those fields only to backfill: a value you set in the same patch is kept as you wrote it.
 
+### Plan a sprint with the Plan tools
+
+The Plan tools read and write the same data as their pages:
+
+- **Capacity and goals are per sprint.** `tool.capacity_planner.*` and `tool.sprint_goal.*` take an optional `sprintId`. A sprint's plan is `capacity-planner:sprint:<sprintId>` and its goal `sprint-goal:sprint:<sprintId>`; without `sprintId` they use the general `:current` documents, which also stand in for a sprint that has none. `capacity_planner.list_state` returns `capacityRatio` (this sprint's share of a normal one) and `suggestedPoints` (recent velocity × that share). `sprint_goal.set_goal` with a `sprintId` also writes `Sprint.goal`; `link_okr` / `unlink_okr` link workspace OKRs, and `record_outcome` answers "Did we meet the goal?" (`met` | `partly` | `not-met`).
+- **Stories carry refinement and epics.** `Story.readiness` (`{checked, ready, updatedAt}`, the Definition-of-Ready result) and `Story.epicId`. `tool.epic_roadmap.link_story` / `unlink_story` set the epic, and `list_state` reports each epic's progress rolled up from its stories.
+- **Dependencies live on the Dependency Map's edges**: `status` (`open` | `at-risk` | `resolved`), `owner`, `due` (`YYYY-MM-DD`), `note`. `tool.dependency_map.add_edge` takes them, `update_edge` changes them (resolving stamps `resolvedAt`), and `list_state` counts them by status with the overdue ones. PI Planning and Scrum of Scrums create their dependencies there too.
+- **Estimates and forecasts match the screens.** `tool.planning_poker.compute_consensus` counts card positions on the deck (pass `scale` or `deck`); `tool.release_planner.forecast` keeps 0-point sprints and, with `startDate`, `sprintLengthDays` and `targetDate`, returns the chance of finishing by that date and the scope deliverable by then.
+
+```jsonc
+// Capacity for sprint_x, then commit the suggested points
+{"method":"tools/call","params":{"name":"tool.capacity_planner.list_state","arguments":{"sprintId":"sprint_x"}}}
+// → {"perSprint": true, "capacityRatio": 0.9, "suggestedPoints": 27, ...}
+
+// Resolve a dependency
+{"method":"tools/call","params":{"name":"tool.dependency_map.update_edge","arguments":{
+  "id":"edge_1", "status":"resolved", "note":"Sandbox keys arrived"
+}}}
+```
+
 ### Run a retro for a sprint (composed intent)
 
 ```jsonc

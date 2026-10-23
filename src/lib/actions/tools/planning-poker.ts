@@ -16,9 +16,11 @@
  *                          of stories other tools sent for estimation.
  *   2. record_estimate   — append a committed estimate.
  *   3. remove_estimate   — drop a logged estimate by id.
- *   4. compute_consensus — PURE: average/median/mode/spread + consensus band
- *                          for a set of votes (mirrors session-screen.tsx).
- *   5. list_scales       — PURE: the fibonacci / t-shirt scale reference.
+ *   4. compute_consensus — PURE: how close a round is, counted in card
+ *                          positions on the deck (lib/estimation/consensus,
+ *                          the same verdict the session screen shows), plus
+ *                          the numeric average/median/mode/spread.
+ *   5. list_scales       — PURE: the decks (lib/estimation/decks).
  *
  * The log is agent-managed: the realtime client deliberately does NOT write to
  * it (session-screen renders for guests/promoted-hosts too, whose workspace
@@ -32,25 +34,20 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { PokerEstimationLog, PokerEstimate, PokerRound } from "@/lib/stores/workspace-types";
+import { SCALES, SCALE_LABELS, type ScaleType } from "@/lib/estimation/decks";
+import {
+  consensusLabel,
+  consensusOf,
+  consensusVerdict,
+  estimateCards,
+  isEstimateCard,
+} from "@/lib/estimation/consensus";
 
 const KIND_PE = "workspace:pokerEstimationLog";
 // MUST match PE_ID in planning-poker-client.tsx.
 const PE_ID = "pokerEstimationLog:current";
 const KIND_PR = "workspace:pokerRound";
 const PR_ID = "pokerRound:current";
-
-// Mirrors types.ts SCALES/SCALE_LABELS (kept local so this server action stays
-// self-contained — the tool's types.ts is a client-tree module).
-const SCALES: Record<string, string[]> = {
-  fibonacci: ["1", "2", "3", "5", "8", "13", "21", "?", "∞"],
-  tshirt: ["XS", "S", "M", "L", "XL", "XXL", "?"],
-  custom: [],
-};
-const SCALE_LABELS: Record<string, string> = {
-  fibonacci: "Fibonacci",
-  tshirt: "T-Shirt",
-  custom: "Custom",
-};
 
 const ws = () => useWorkspaceStore.getState();
 const now = () => new Date().toISOString();
@@ -89,7 +86,23 @@ function newEstimate(params: {
   };
 }
 
-/* ---- consensus math (mirrors session-screen.tsx calcStats/consensusLevel) -- */
+/* ---- consensus -------------------------------------------------------- */
+
+/**
+ * The deck a round was played on: an explicit deck, else a named scale,
+ * else the built-in deck that holds every estimate played (Fibonacci, then
+ * T-shirt), else the votes' own distinct estimate cards in numeric order.
+ */
+export function deckFor(votes: readonly string[], scale?: ScaleType, deck?: readonly string[]) {
+  if (deck && deck.length > 0) return [...deck];
+  if (scale && SCALES[scale].length > 0) return SCALES[scale];
+  const played = votes.map((v) => v.trim()).filter(isEstimateCard);
+  for (const known of [SCALES.fibonacci, SCALES.tshirt]) {
+    if (played.every((v) => known.includes(v))) return known;
+  }
+  const own = estimateCards(played);
+  return own.every(isNumericVote) ? own.sort((a, b) => Number(a) - Number(b)) : own;
+}
 
 function isNumericVote(v: string): boolean {
   if (v === "?" || v === "∞" || v.trim() === "") return false;
@@ -97,7 +110,7 @@ function isNumericVote(v: string): boolean {
   return !isNaN(Number(v));
 }
 
-function computeConsensus(votes: string[]) {
+function computeConsensus(votes: string[], scale?: ScaleType, deck?: string[]) {
   const nums = votes.filter(isNumericVote).map(Number);
   const freq: Record<string, number> = {};
   for (const v of votes) freq[v] = (freq[v] ?? 0) + 1;
@@ -115,24 +128,29 @@ function computeConsensus(votes: string[]) {
     }
   }
 
+  const c = consensusOf(votes, deckFor(votes, scale, deck));
+  const positions = {
+    // Agreement by card position, as the session screen shows it: the same
+    // card is agree, neighbouring cards are close, further apart is spread.
+    consensus: c.level ?? "agree",
+    level: c.level,
+    label: consensusLabel(c)?.label ?? null,
+    verdict: consensusVerdict(c),
+    low: c.low,
+    high: c.high,
+    cardsApart: c.estimates > 0 ? c.apart : null,
+    abstained: c.abstained,
+    suggestion: c.suggested ?? mode,
+  };
   if (nums.length === 0) {
-    return {
-      average: null,
-      median: null,
-      mode,
-      spread: null,
-      consensus: "agree",
-      suggestion: mode,
-    };
+    return { average: null, median: null, mode, spread: null, ...positions };
   }
   const sorted = [...nums].sort((a, b) => a - b);
   const average = nums.reduce((a, b) => a + b, 0) / nums.length;
   const mid = Math.floor(sorted.length / 2);
   const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
   const spread = sorted[sorted.length - 1] - sorted[0];
-  // consensusLevel: <2 numeric votes => agree; spread 0 => agree; <=2 => close; else spread.
-  const consensus = nums.length < 2 || spread === 0 ? "agree" : spread <= 2 ? "close" : "spread";
-  return { average, median, mode, spread, consensus, suggestion: mode };
+  return { average, median, mode, spread, ...positions };
 }
 
 // ──────── tool.planning_poker.list_state ────────
@@ -224,9 +242,13 @@ registry.register({
   name: "compute_consensus",
   category: "read",
   description:
-    "Compute estimation consensus for a set of votes (non-numeric cards like '?'/'∞' are ignored for the numeric stats). Returns {average, median, mode, spread, consensus ('agree'|'close'|'spread'), suggestion (the mode)}. Pure — no session state.",
-  paramsSchema: z.object({ votes: z.array(z.string().max(32)).max(100) }),
-  handler: async (params) => computeConsensus(params.votes),
+    "Compute estimation consensus for a set of votes, counted in card positions on the deck as the session screen does: the same card is 'agree', neighbouring cards 'close', further apart 'spread' (works for T-shirt decks too). Give the deck as scale (fibonacci | tshirt) or deck (the cards in order); otherwise it is inferred from the votes. '?', '∞' and coffee cards count as abstained. Returns {consensus, level (null when nobody estimated), label, verdict (one sentence), low, high, cardsApart, abstained, suggestion (the middle card), average, median, mode, spread (numeric votes only)}. Pure — no session state.",
+  paramsSchema: z.object({
+    votes: z.array(z.string().max(32)).max(100),
+    scale: z.enum(["fibonacci", "tshirt", "custom"]).optional(),
+    deck: z.array(z.string().max(32)).max(100).optional().describe("The cards in deck order."),
+  }),
+  handler: async (params) => computeConsensus(params.votes, params.scale, params.deck),
 });
 
 // ──────── tool.planning_poker.list_scales (pure) ────────

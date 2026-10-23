@@ -1,546 +1,586 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { nanoid } from "nanoid";
+import { useShallow } from "zustand/react/shallow";
+import { ChartGantt, ListTree, Milestone, Pencil, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Milestone, Plus, Trash2 } from "lucide-react";
-import { forecastLinear } from "@/lib/analytics/forecasting";
-import { generateEpicRoadmapPrompts } from "@/lib/ai-prompts/epic-roadmap";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
 import { CalloutAlert } from "@/components/shared/callout-alert";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { SectionCard } from "@/components/shared/section-card";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import { generateEpicRoadmapPrompts } from "@/lib/ai-prompts/epic-roadmap";
+import { plural } from "@/lib/charts/chart-text";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
+import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Epic, PokerQueueItem, Story } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
-import { SAFE_CSS_COLOR_RE } from "@/lib/whiteboard/object-validator";
+import { undoable } from "@/lib/utils/undoable";
+import { cn } from "@/lib/utils";
+import {
+  EpicAddForm,
+  EpicEditor,
+  changedFields,
+  newEpicDraft,
+  useEpicAddForm,
+  withEpicValues,
+  type EpicValues,
+} from "./epic-form";
+import { EpicStories } from "./epic-stories";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
+import { colorVar, nextColor } from "@/lib/roadmap/palette";
+import { QuarterPicker } from "./pickers";
+import {
+  MAX_QUARTERS_SPAN,
+  normalizeQuarter,
+  quartersBetween,
+  requestedSpan,
+} from "@/lib/roadmap/quarters";
+import { SCHEDULE_LABEL, rollupLabel, type EpicSchedule } from "@/lib/roadmap/rollup";
+import { RoadmapTimeline } from "./timeline";
+import { useFocusAfter } from "./use-focus-after";
+import {
+  byStart,
+  epicName,
+  epicViews,
+  fitRange,
+  placementCounts,
+  roadmapVerdict,
+  timelineSummary,
+  type EpicView,
+} from "./view";
 
-/** Hardened color picker — falls back to the default accent color if the
- * persisted color value doesn't match the strict whitelist (e.g. a
- * hand-edited localStorage payload that smuggled `;background:url(...)` into
- * an inline style). Mirrors the same guard used by the whiteboard renderer. */
-function safeColor(c: string | undefined): string {
-  if (typeof c !== "string" || c.length === 0 || c.length > 64) return "#00f0ff";
-  return SAFE_CSS_COLOR_RE.test(c.trim()) ? c : "#00f0ff";
-}
-
-interface Epic {
-  id: string;
-  title: string;
-  description?: string;
-  startQuarter: string;
-  endQuarter: string;
-  progress: number;
-  owner?: string;
-  color?: string;
-}
-
-const COLORS = ["#00f0ff", "#a855f7", "#34d399", "#f59e0b", "#ef4444", "#6366f1", "#f472b6"];
-
-// Use a 0-indexed quarter so encode/decode round-trip cleanly. The previous
-// scheme `year*4 + q` (q in 1..4) decoded year as floor(i/4), which mapped
-// year=2026 Q4 (i=8108) to year=2027 because 8108/4 == 2027 exactly — every
-// Q4 was attributed to the following year in the timeline header.
-//   Sentinel: 0 means "unparsable", real years map to year*4+1..year*4+4.
-function quarterIndex(q: string): number {
-  const m = q.match(/(\d{4})\s*Q([1-4])/i);
-  if (!m) return 0;
-  const year = parseInt(m[1], 10);
-  // R5: require year >= 1900 — without this, a hand-edited or migrated
-  // epic carrying `"0 Q1"` produced index 1 (non-zero, passes the
-  // sentinel check) and the timeline header rendered literal "0 Q1".
-  if (year < 1900 || year > 2200) return 0;
-  const qNum = parseInt(m[2], 10); // 1..4
-  return year * 4 + qNum; // sentinel-safe: year*4+1..+4
-}
-
-// R5: cap grid columns. A pasted "9999 Q1" through "9999 Q4" produced
-// ~40k iterations and DOM nodes, freezing the tab. 40 quarters = 10
-// years which is well past any reasonable roadmap horizon.
-const MAX_QUARTERS_SPAN = 40;
-
-function quartersBetween(from: string, to: string): string[] {
-  const start = quarterIndex(from);
-  const end = quarterIndex(to);
-  if (start === 0 || end === 0 || end < start) return [];
-  const out: string[] = [];
-  const span = Math.min(end - start + 1, MAX_QUARTERS_SPAN);
-  const stop = start + span - 1;
-  for (let i = start; i <= stop; i++) {
-    // Subtract 1 before the divmod so q=4 stays in its own year. e.g.
-    // i=8108 (2026 Q4) → (i-1)=8107 → year=2026, q=(8107%4)+1=4.
-    const zero = i - 1;
-    const year = Math.floor(zero / 4);
-    const q = (zero % 4) + 1;
-    out.push(`${year} Q${q}`);
-  }
-  return out;
-}
-
-function EpicRowEditor({
-  epic,
-  update,
-  logUpdate,
-  remove,
-}: {
-  epic: Epic;
-  update: (id: string, patch: Partial<Epic>) => void;
-  logUpdate: (id: string, fields: string[]) => void;
-  remove: (id: string) => void;
-}) {
-  const [titleDraft, setTitleDraft] = useState(epic.title);
-  const [descDraft, setDescDraft] = useState(epic.description ?? "");
-  const lastTitleRef = useRef(epic.title);
-  const lastDescRef = useRef(epic.description ?? "");
-
-  useEffect(() => {
-    setTitleDraft(epic.title);
-    lastTitleRef.current = epic.title;
-  }, [epic.title]);
-
-  useEffect(() => {
-    setDescDraft(epic.description ?? "");
-    lastDescRef.current = epic.description ?? "";
-  }, [epic.description]);
-
-  const commitTitle = () => {
-    if (titleDraft !== epic.title) {
-      update(epic.id, { title: titleDraft });
-    }
-    if (titleDraft !== lastTitleRef.current) {
-      lastTitleRef.current = titleDraft;
-      logUpdate(epic.id, ["title"]);
-    }
-  };
-
-  const commitDesc = () => {
-    const normalized = descDraft.trim() ? descDraft : undefined;
-    if (normalized !== epic.description) {
-      update(epic.id, { description: normalized });
-    }
-    const normalizedForRef = normalized ?? "";
-    if (normalizedForRef !== lastDescRef.current) {
-      lastDescRef.current = normalizedForRef;
-      logUpdate(epic.id, ["description"]);
-    }
-  };
-
-  return (
-    <div className="py-2 pr-2 flex flex-col gap-1.5">
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full" style={{ background: safeColor(epic.color) }} />
-        <Input
-          value={titleDraft}
-          onChange={(ev) => setTitleDraft(ev.target.value)}
-          onBlur={commitTitle}
-          className="bg-bg border-border text-sm h-7 flex-1"
-          aria-label="Epic title"
-        />
-        <ProgressCell
-          label={`Progress % for ${epic.title || "epic"}`}
-          value={epic.progress}
-          onChange={(n) => {
-            update(epic.id, { progress: n });
-            logUpdate(epic.id, ["progress"]);
-          }}
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => remove(epic.id)}
-          className="h-7 text-sub hover:text-danger"
-          aria-label={`Remove ${epic.title || "epic"}`}
-        >
-          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-        </Button>
-      </div>
-      <Textarea
-        value={descDraft}
-        onChange={(ev) => setDescDraft(ev.target.value)}
-        onBlur={commitDesc}
-        placeholder="Description (optional)..."
-        rows={2}
-        className="bg-bg border-border resize-none text-xs"
-        aria-label="Epic description"
-      />
-    </div>
-  );
-}
-
-function ProgressCell({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (n: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const commit = () => {
-    const n = Number(draft);
-    if (Number.isFinite(n)) {
-      const clamped = Math.max(0, Math.min(100, n));
-      if (clamped !== value) onChange(clamped);
-      else setDraft(String(value));
-    } else {
-      setDraft(String(value));
-    }
-  };
-  return (
-    <Input
-      type="number"
-      value={draft}
-      onChange={(ev) => setDraft(ev.target.value)}
-      onBlur={commit}
-      onKeyDown={(ev) => {
-        if (ev.key === "Enter") ev.currentTarget.blur();
-      }}
-      className="bg-bg border-border font-data h-7 w-14"
-      aria-label={label}
-    />
-  );
-}
-
-const ER_ID = "epicRoadmap:current"; // MUST match ER_ID in epic-roadmap.ts.
+const ER_ID = "epicRoadmap:current"; // MUST match ER_ID in lib/actions/tools/epic-roadmap.ts.
 const EMPTY_EPICS: Epic[] = [];
 
-// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
-// the epics[] array. Drop-in [state, setState] (structural types).
-function useEpics(): [Epic[], (u: Epic[] | ((p: Epic[]) => Epic[])) => void] {
+// The synced workspace singleton wrapping the epics[] array. Writes read
+// the store at the moment they run, so an agent's add between two clicks
+// isn't overwritten.
+function useEpics(): [Epic[], (u: (p: Epic[]) => Epic[]) => void] {
   const doc = useWorkspaceStore(
     useShallow((s) => (s.epicRoadmaps ?? []).find((d) => d.id === ER_ID))
   );
   const upsert = useWorkspaceStore((s) => s.upsertEpicRoadmap);
   const epics = doc?.epics ?? EMPTY_EPICS;
-  const setEpics = (u: Epic[] | ((p: Epic[]) => Epic[])) => {
+  const setEpics = (u: (p: Epic[]) => Epic[]) => {
     const cur =
       (useWorkspaceStore.getState().epicRoadmaps ?? []).find((d) => d.id === ER_ID)?.epics ?? [];
-    const next = typeof u === "function" ? u(cur) : u;
-    upsert({ id: ER_ID, epics: next });
+    upsert({ id: ER_ID, epics: u(cur) });
   };
   return [epics, setEpics];
 }
 
+/** Link a story to an epic, or unlink it (`epicId` undefined), as stored now. */
+function setStoryEpic(storyId: string, epicId: string | undefined) {
+  const ws = useWorkspaceStore.getState();
+  const story = ws.stories.find((s) => s.id === storyId);
+  if (!story || story.epicId === epicId) return;
+  const next: Story = { ...story };
+  if (epicId) next.epicId = epicId;
+  else delete next.epicId;
+  ws.upsertStory(next);
+}
+
+/** Ids of the workspace stories already waiting in the Planning Poker queue. */
+function queuedStoryIds(queue: readonly PokerQueueItem[] | undefined): Set<string> {
+  return new Set(
+    (queue ?? []).filter((q) => q.sourceRef.tool === "story").map((q) => q.sourceRef.id)
+  );
+}
+const EMPTY_QUEUE: PokerQueueItem[] = [];
+
+const short = (s: string, max = 40) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
+const keyOf = (v: EpicView) => v.epic.id;
+
+/** The id after `id` in `ids` (else the one before), for where focus goes after a removal. */
+function neighbourOf(ids: readonly string[], id: string): string | undefined {
+  const at = ids.indexOf(id);
+  if (at < 0) return undefined;
+  return ids[at + 1] ?? ids[at - 1];
+}
+
+const SCHEDULE_TONE: Record<EpicSchedule, string> = {
+  unscheduled: "text-warning",
+  upcoming: "text-sub",
+  "in-progress": "text-sub",
+  ending: "text-warning",
+  overdue: "text-danger",
+  done: "text-success",
+};
+
 export function EpicRoadmapClient() {
   const [epics, setEpics] = useEpics();
-  const thisYear = new Date().getFullYear();
-  const [from, setFrom] = useState(`${thisYear} Q1`);
-  const [to, setTo] = useState(`${thisYear} Q4`);
+  const stories = useWorkspaceStore((s) => s.stories);
+  const pokerQueue = useWorkspaceStore(
+    (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue ?? EMPTY_QUEUE
+  );
+  const queued = useMemo(() => queuedStoryIds(pokerQueue), [pokerQueue]);
   const { log } = useHistoryLogger("epic-roadmap");
+  const exportRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useFocusAfter(exportRef);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [openStories, setOpenStories] = useState<ReadonlySet<string>>(new Set());
+  // The view range: fitted to the epics until the user picks quarters.
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null);
 
-  const add = () => {
-    const epic = {
-      id: nanoid(6),
-      title: "New epic",
-      startQuarter: from,
-      endQuarter: to,
+  // "Now" moves on hourly, so a tab left open past a quarter's end (or the
+  // 14-day window below) catches up without a reload.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const views = useMemo(() => epicViews(epics, stories, now), [epics, stories, now]);
+  // Earliest start first; the order on screen stays put while dates are
+  // edited, and "Re-sort" catches it up.
+  const { ordered, isStale, resort } = useStableOrder(views, keyOf, byStart);
+  const allQuarters = useMemo(() => epics.flatMap((e) => [e.startQuarter, e.endQuarter]), [epics]);
+
+  function add(v: EpicValues) {
+    const epic: Epic = {
+      id: crypto.randomUUID(),
+      title: v.title,
+      startQuarter: v.startQuarter,
+      endQuarter: v.endQuarter,
       progress: 0,
-      color: COLORS[epics.length % COLORS.length],
+      color: v.color,
+      ...(v.owner ? { owner: v.owner } : {}),
+      ...(v.description ? { description: v.description } : {}),
     };
     setEpics((s) => [...s, epic]);
-    log(EPIC_ROADMAP_ACTIONS.EPIC_ADDED, {
-      epicId: epic.id,
-      title: epic.title,
-    });
-  };
-  const update = (id: string, patch: Partial<Epic>) => {
-    setEpics((s) => s.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-  };
-  const logUpdate = (id: string, fields: string[]) => {
-    log(EPIC_ROADMAP_ACTIONS.EPIC_UPDATED, {
-      epicId: id,
-      fields,
-    });
-  };
-  const remove = (id: string) => {
-    const epic = epics.find((e) => e.id === id);
-    setEpics((s) => s.filter((e) => e.id !== id));
-    log(EPIC_ROADMAP_ACTIONS.EPIC_REMOVED, { epicId: id, title: epic?.title });
-  };
+    log(EPIC_ROADMAP_ACTIONS.EPIC_ADDED, { epicId: epic.id, title: epic.title });
+    form.reset(newEpicDraft(nextColor([...epics, epic]), now));
+  }
+  const form = useEpicAddForm(() => newEpicDraft(nextColor(epics), now), add);
 
+  /** Close the editor, back on the row's Edit button. */
+  function closeEditor(id: string) {
+    setEditingId(null);
+    focusAfter(`edit:${id}`);
+  }
+
+  function save(epic: Epic, v: EpicValues) {
+    closeEditor(epic.id);
+    const fields = changedFields(epic, withEpicValues(epic, v));
+    if (fields.length === 0) return;
+    setEpics((s) => s.map((e) => (e.id === epic.id ? withEpicValues(e, v) : e)));
+    log(EPIC_ROADMAP_ACTIONS.EPIC_UPDATED, { epicId: epic.id, fields });
+  }
+
+  // Removing an epic unlinks its stories (they stay where they are); Undo
+  // brings the epic back and relinks the ones nobody has moved since.
+  function remove(epic: Epic) {
+    const current =
+      (useWorkspaceStore.getState().epicRoadmaps ?? []).find((d) => d.id === ER_ID)?.epics ?? [];
+    const index = Math.max(
+      0,
+      current.findIndex((e) => e.id === epic.id)
+    );
+    const storyIds = useWorkspaceStore
+      .getState()
+      .stories.filter((s) => s.epicId === epic.id)
+      .map((s) => s.id);
+    // Focus goes to the next epic in the list (else the one before, else the add form).
+    const next = neighbourOf(
+      ordered.map((v) => v.epic.id),
+      epic.id
+    );
+    focusAfter(...(next ? [`edit:${next}`] : []), "add");
+    undoable({
+      label: `Deleted “${short(epicName(epic))}”`,
+      description:
+        storyIds.length > 0
+          ? `${plural(storyIds.length, "linked story", "linked stories")} unlinked; ${
+              storyIds.length === 1 ? "it stays" : "they stay"
+            } where ${storyIds.length === 1 ? "it is" : "they are"}.`
+          : undefined,
+      apply: () => {
+        setEpics((s) => s.filter((e) => e.id !== epic.id));
+        storyIds.forEach((id) => setStoryEpic(id, undefined));
+        log(EPIC_ROADMAP_ACTIONS.EPIC_REMOVED, { epicId: epic.id, title: epic.title });
+      },
+      revert: () => {
+        setEpics((s) =>
+          s.some((e) => e.id === epic.id) ? s : [...s.slice(0, index), epic, ...s.slice(index)]
+        );
+        for (const id of storyIds) {
+          const story = useWorkspaceStore.getState().stories.find((s) => s.id === id);
+          if (story && !story.epicId) setStoryEpic(id, epic.id);
+        }
+      },
+    });
+  }
+
+  function link(epic: Epic, story: Story) {
+    const previous = story.epicId;
+    // Back on the picker, ready for the next story (or on the note that none are left).
+    focusAfter(`link:${epic.id}`);
+    undoable({
+      label: `Linked “${short(story.title)}” to “${short(epicName(epic))}”`,
+      apply: () => {
+        setStoryEpic(story.id, epic.id);
+        log(EPIC_ROADMAP_ACTIONS.EPIC_UPDATED, { epicId: epic.id, fields: ["stories"] });
+      },
+      revert: () => setStoryEpic(story.id, previous),
+    });
+  }
+
+  function unlink(epic: Epic, story: Story, linked: readonly Story[]) {
+    const next = neighbourOf(
+      linked.map((s) => s.id),
+      story.id
+    );
+    focusAfter(...(next ? [`unlink:${next}`] : []), `link:${epic.id}`);
+    undoable({
+      label: `Unlinked “${short(story.title)}”`,
+      apply: () => {
+        setStoryEpic(story.id, undefined);
+        log(EPIC_ROADMAP_ACTIONS.EPIC_UPDATED, { epicId: epic.id, fields: ["stories"] });
+      },
+      revert: () => setStoryEpic(story.id, epic.id),
+    });
+  }
+
+  /**
+   * Queue the epic's unestimated stories for Planning Poker, where the host
+   * pulls them into a session and an accepted estimate is written back to
+   * each story's points. Stories already in the queue are skipped; Undo
+   * takes these ones off it again.
+   */
+  function queueForPoker(epic: Epic, unsized: readonly Story[]) {
+    const route = getHandoffRoute("poker-queue");
+    const fresh = queuedStoryIds(
+      (useWorkspaceStore.getState().pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)
+        ?.queue
+    );
+    const toQueue = unsized.filter((s) => !fresh.has(s.id));
+    if (toQueue.length === 0) return;
+    let itemIds: string[] = [];
+    focusAfter(`poker:${epic.id}`);
+    undoable({
+      label: `${plural(toQueue.length, "story", "stories")} queued for Planning Poker`,
+      description: `From “${short(epicName(epic))}”`,
+      apply: () => {
+        itemIds = toQueue.map((s) =>
+          route.send({ title: s.title, sourceRef: { tool: "story", id: s.id } })
+        );
+      },
+      revert: () => itemIds.forEach((id) => route.remove(id)),
+    });
+  }
+
+  const toggleStories = (id: string) =>
+    setOpenStories((open) => {
+      const next = new Set(open);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const loadExample = () => {
+    const example = buildExample(now);
+    const ids = new Set(example.map((e) => e.id));
+    setEpics((s) => [...s.filter((e) => !ids.has(e.id)), ...example]);
+    setRange(null);
+    form.reset(newEpicDraft(nextColor([...epics, ...example]), now));
+  };
+  const clearExample = () => setEpics((s) => s.filter((e) => !isExampleId(e.id)));
+
+  const fitted = fitRange(epics, now);
+  const from = range?.from ?? fitted.from;
+  const to = range?.to ?? fitted.to;
   const columns = useMemo(() => quartersBetween(from, to), [from, to]);
-  // BUG-T3-epic-roadmap-1: detect span truncation so we can surface a
-  // notice. The user requested `to - from + 1` quarters but we capped
-  // at MAX_QUARTERS_SPAN; epics beyond the cap render with incorrect
-  // bar positions otherwise.
-  const requestedSpan = useMemo(() => {
-    const a = quarterIndex(from);
-    const b = quarterIndex(to);
-    if (a === 0 || b === 0 || b < a) return 0;
-    return b - a + 1;
-  }, [from, to]);
-  const truncatedSpan = requestedSpan > MAX_QUARTERS_SPAN;
+  const span = requestedSpan(from, to);
+  const viewEnd = columns[columns.length - 1] ?? to;
+  const { outside, unplaced: unscheduled } = placementCounts(views, from, viewEnd);
 
-  // BUG-T3-epic-roadmap-3: x-coord is now `e.startQuarter` index, not
-  // insertion order, so the projection is at least time-anchored instead
-  // of being a meaningless regression against the order epics were added.
-  const progressSeries = useMemo(
-    () =>
-      epics
-        .map((e) => ({ x: quarterIndex(e.startQuarter), y: e.progress }))
-        .filter((p) => p.x > 0)
-        .sort((a, b) => a.x - b.x),
-    [epics]
-  );
-  // The horizon must be expressed on the SAME axis as the points, because
-  // `forecastLinear` evaluates `slope * x + intercept` at each horizon
-  // literally. `progressSeries.length` (2, 3, …) is an insertion count, but
-  // x is now `quarterIndex` (year*4+q ≈ 8105 for 2026 Q1), so the line was
-  // extrapolated ~8100 units outside its own domain: two epics at 70% and
-  // 50% one quarter apart projected 81100%. Evaluate one quarter past the
-  // last observed point instead, and clamp — progress is a percentage.
-  const projectedNext = useMemo(() => {
-    if (progressSeries.length < 2) return [];
-    const nextX = progressSeries[progressSeries.length - 1].x + 1;
-    return forecastLinear(progressSeries, [nextX]).map((p) => ({
-      ...p,
-      yHat: Math.min(100, Math.max(0, p.yHat)),
-    }));
-  }, [progressSeries]);
+  const verdict = roadmapVerdict(views);
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Epic Roadmap",
-      prompts: generateEpicRoadmapPrompts({ epics, columns }),
+      // The rolled-up progress, so the prompt sees what the page shows.
+      prompts: generateEpicRoadmapPrompts({
+        epics: views.map((v) => ({ ...v.epic, progress: v.rollup.pct })),
+        columns,
+      }),
     }),
-    [epics, columns]
+    [views, columns]
   );
 
   // ── Cross-tool signals: recent sprint completions + OKR updates ─────────
   // Epic timelines depend on both sprint outcomes (capacity to deliver) and
   // OKR shifts (whether the epic still maps to current objectives). When
   // either has changed in the last 14 days, prompt the user to revisit the
-  // roadmap and update progress / dates.
+  // roadmap. `selectEvents` reads the clock itself, so the memos also
+  // re-run when `now` ticks over.
   const events = useHistoryStore((s) => s.events);
-  // BUG-RD3-epic-roadmap-1: `selectEvents({ sinceDays: 14 })` calls
-  // Date.now() internally. With deps=[events] only, a tab left open
-  // past midnight kept reporting events as "recent" relative to the
-  // last events-change timestamp. Add a per-hour ticker so the memo
-  // re-evaluates the cutoff at least hourly (sufficient granularity
-  // for "last 14 days").
-  const [hourTick, setHourTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setHourTick((n) => n + 1), 60 * 60 * 1000);
-    return () => clearInterval(id);
-  }, []);
   const recentSprintAdds = useMemo(
-    () =>
-      selectEvents({
-        toolId: "velocity",
-        action: "sprint_added",
-        sinceDays: 14,
-        limit: 50,
-      }),
+    () => selectEvents({ toolId: "velocity", action: "sprint_added", sinceDays: 14, limit: 50 }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [events, hourTick]
+    [events, now]
   );
   const recentOkrUpdates = useMemo(
-    () =>
-      selectEvents({
-        toolId: "okrs",
-        action: "progress_updated",
-        sinceDays: 14,
-        limit: 50,
-      }),
+    () => selectEvents({ toolId: "okrs", action: "progress_updated", sinceDays: 14, limit: 50 }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [events, hourTick]
+    [events, now]
   );
+
+  const csvData = {
+    headers: ["Epic", "Description", "Start Q", "End Q", "Progress", "Progress from", "Owner"],
+    rows: views.map((v) => [
+      v.epic.title,
+      v.epic.description ?? "",
+      v.epic.startQuarter,
+      v.epic.endQuarter,
+      `${v.rollup.pct}%`,
+      rollupLabel(v.rollup),
+      v.epic.owner ?? "",
+    ]),
+  };
 
   return (
     <ToolPageWrapper
       toolId="epic-roadmap"
       title="Epic Roadmap"
-      description="Timeline view of epics across quarters with progress tracking and completion forecasting."
+      description="Timeline view of epics across quarters, with progress rolled up from their stories."
       category="Portfolio & Scaling"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="epic-roadmap"
-          csvData={{
-            headers: ["Epic", "Description", "Start Q", "End Q", "Progress", "Owner"],
-            rows: epics.map((e) => [
-              e.title,
-              e.description ?? "",
-              e.startQuarter,
-              e.endQuarter,
-              `${e.progress}%`,
-              e.owner ?? "",
-            ]),
-          }}
-          jsonData={epics}
-        />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          Add Epic
-        </Button>
-      </ActionRow>
+      <div ref={exportRef} className="space-y-4">
+        {hasExampleItems(epics) && <ExampleNotice onClear={clearExample} />}
 
-      {(recentSprintAdds.length > 0 || recentOkrUpdates.length > 0) && (
-        <CalloutAlert tone="info" className="mb-3">
-          {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? "" : "s"} added,{" "}
-          {recentOkrUpdates.length} OKR update{recentOkrUpdates.length === 1 ? "" : "s"} in last 14
-          days &mdash; review epic timelines.
-        </CalloutAlert>
-      )}
+        {(recentSprintAdds.length > 0 || recentOkrUpdates.length > 0) && (
+          <CalloutAlert tone="info">
+            {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? "" : "s"} added,{" "}
+            {recentOkrUpdates.length} OKR update{recentOkrUpdates.length === 1 ? "" : "s"} in last
+            14 days &mdash; review epic timelines.
+          </CalloutAlert>
+        )}
 
-      <Card className="bg-surface border-border mb-4">
-        <CardContent className="p-3 flex flex-wrap items-end gap-2">
-          <div>
-            <label htmlFor="er-view-from" className="block text-xs text-sub">
-              View from
-            </label>
-            <Input
-              id="er-view-from"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="bg-bg border-border font-data w-32"
-            />
-          </div>
-          <div>
-            <label htmlFor="er-view-to" className="block text-xs text-sub">
-              <span className="sr-only">View </span>to
-            </label>
-            <Input
-              id="er-view-to"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="bg-bg border-border font-data w-32"
-            />
-          </div>
-          {projectedNext[0] !== undefined && (
-            <div className="ml-auto text-xs text-sub">
-              Projected progress of next epic:{" "}
-              <span className="text-accent font-data">
-                {Math.max(0, Math.round(projectedNext[0].yHat))}%
-              </span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {columns.length === 0 ? (
-        <EmptyState>Set a valid quarter range (e.g. 2026 Q1 → 2026 Q4).</EmptyState>
-      ) : (
-        <Card className="bg-surface border-border">
-          {truncatedSpan && (
-            <div className="px-4 pt-3 text-xs text-warning">
-              Showing the first {MAX_QUARTERS_SPAN} quarters of {requestedSpan} requested. Narrow
-              your “to” quarter to see every epic.
-            </div>
-          )}
-          <CardContent className="p-4">
-            <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
-              <div
-                className="grid gap-1 min-w-[600px]"
-                style={{
-                  gridTemplateColumns: `clamp(140px, 35vw, 260px) repeat(${columns.length}, minmax(80px, 1fr))`,
-                }}
-              >
-                <div />
-                {columns.map((c) => (
-                  <div
-                    key={c}
-                    className="text-center text-xs font-data text-sub uppercase tracking-wider"
+        {epics.length === 0 ? (
+          <EmptyState icon={Milestone} action={<LoadExampleButton onLoad={loadExample} />}>
+            No epics yet. Add one below (it starts in this quarter), or load an example roadmap.
+          </EmptyState>
+        ) : (
+          <>
+            <SectionCard
+              title="Roadmap"
+              icon={ChartGantt}
+              actions={
+                <>
+                  <AiPromptGenerator config={promptConfig} />
+                  <ExportButton
+                    filename="epic-roadmap"
+                    csvData={csvData}
+                    jsonData={epics}
+                    markdown={toMarkdown(views, now)}
+                    targetRef={exportRef}
+                  />
+                </>
+              }
+            >
+              <p className="mb-3 text-sm font-medium text-text">{verdict}</p>
+              <div className="mb-3 flex flex-wrap items-start gap-3">
+                <QuarterPicker
+                  label="View from"
+                  value={normalizeQuarter(from)}
+                  onChange={(q) => setRange({ from: q, to })}
+                  now={now}
+                  also={allQuarters}
+                  className="w-full sm:w-44"
+                />
+                <QuarterPicker
+                  label="View to"
+                  value={normalizeQuarter(to)}
+                  onChange={(q) => setRange({ from, to: q })}
+                  now={now}
+                  also={allQuarters}
+                  error={span === 0 ? "End the view on or after its start." : undefined}
+                  className="w-full sm:w-44"
+                />
+                {range && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="self-end"
+                    onClick={() => setRange(null)}
                   >
-                    {c}
-                  </div>
-                ))}
-                {epics.map((e) => {
-                  const viewStartQ = quarterIndex(from);
-                  const viewEndQ = quarterIndex(to);
-                  const epicStartQ = quarterIndex(e.startQuarter);
-                  const epicEndQ = quarterIndex(e.endQuarter);
-                  const outOfView =
-                    epicStartQ === 0 ||
-                    epicEndQ === 0 ||
-                    epicEndQ < viewStartQ ||
-                    epicStartQ > viewEndQ;
-                  const start = Math.max(0, epicStartQ - viewStartQ);
-                  const end = Math.min(columns.length - 1, epicEndQ - viewStartQ);
-                  const span = Math.max(1, end - start + 1);
-                  return (
-                    <div key={e.id} style={{ display: "contents" }}>
-                      <EpicRowEditor
-                        epic={e}
-                        update={update}
-                        logUpdate={logUpdate}
-                        remove={remove}
-                      />
-                      {columns.map((_, idx) => {
-                        if (outOfView || idx < start || idx > end) return <div key={idx} />;
-                        const isStart = idx === start;
-                        const isEnd = idx === end;
-                        const cellStartPct = (idx - start) / span;
-                        const cellEndPct = (idx - start + 1) / span;
-                        const prog = e.progress / 100;
-                        let cellFillPct = 0;
-                        if (prog >= cellEndPct) cellFillPct = 100;
-                        else if (prog > cellStartPct) {
-                          cellFillPct = ((prog - cellStartPct) / (cellEndPct - cellStartPct)) * 100;
-                        }
-                        const color = safeColor(e.color);
-                        return (
-                          <div key={idx} className="py-3">
-                            <div
-                              className="h-4 relative overflow-hidden"
-                              style={{
-                                background: `${color}22`,
-                                borderLeft: isStart ? `3px solid ${color}` : undefined,
-                                borderRight: isEnd ? `3px solid ${color}` : undefined,
-                                borderTopLeftRadius: isStart ? 4 : 0,
-                                borderBottomLeftRadius: isStart ? 4 : 0,
-                                borderTopRightRadius: isEnd ? 4 : 0,
-                                borderBottomRightRadius: isEnd ? 4 : 0,
-                              }}
-                            >
-                              <div
-                                className="h-full absolute left-0 top-0"
-                                style={{
-                                  background: color,
-                                  width: `${cellFillPct}%`,
-                                  opacity: 0.45,
-                                }}
-                              />
-                              {idx === Math.floor((start + end) / 2) && (
-                                <div
-                                  className="absolute inset-0 flex items-center justify-center text-xs font-data"
-                                  style={{ color }}
-                                >
-                                  {e.progress}%
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-                {epics.length === 0 && (
-                  <div
-                    className="col-span-full text-center py-8 text-sub"
-                    style={{ gridColumn: `1 / span ${columns.length + 1}` }}
-                  >
-                    <Milestone className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    Add epics to populate the roadmap.
-                  </div>
+                    Fit to epics
+                  </Button>
                 )}
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              {span > MAX_QUARTERS_SPAN && (
+                <p className="mb-3 text-xs text-warning">
+                  Showing the first {MAX_QUARTERS_SPAN} quarters of {span}. Narrow the view to see
+                  every epic.
+                </p>
+              )}
+              {(outside > 0 || unscheduled > 0) && (
+                <p className="mb-3 text-xs text-sub">
+                  {outside > 0 &&
+                    `${plural(outside, "epic")} ${outside === 1 ? "falls" : "fall"} outside this view. `}
+                  {unscheduled > 0 &&
+                    `${plural(unscheduled, "epic")} ${unscheduled === 1 ? "has" : "have"} no valid quarters: edit to place ${unscheduled === 1 ? "it" : "them"}.`}
+                </p>
+              )}
+              {columns.length > 0 && (
+                <RoadmapTimeline
+                  views={ordered}
+                  columns={columns}
+                  summary={timelineSummary(views, from, viewEnd, now)}
+                  now={now}
+                />
+              )}
+            </SectionCard>
+
+            <SectionCard title={`Epics (${epics.length})`} icon={Milestone}>
+              <ResortChip isStale={isStale} onResort={resort} what="Dates" />
+              <ul className="divide-y divide-border" aria-label="Epics, earliest start first">
+                {ordered.map((v) => (
+                  <li key={v.epic.id} className="space-y-3 py-3">
+                    {editingId === v.epic.id ? (
+                      <EpicEditor
+                        epic={v.epic}
+                        color={v.color}
+                        rollup={v.rollup}
+                        also={allQuarters}
+                        now={now}
+                        onSave={(values) => save(v.epic, values)}
+                        onCancel={() => closeEditor(v.epic.id)}
+                      />
+                    ) : (
+                      <EpicRow
+                        view={v}
+                        panelId={`epic-stories-${v.epic.id}`}
+                        storiesOpen={openStories.has(v.epic.id)}
+                        onToggleStories={() => toggleStories(v.epic.id)}
+                        onEdit={() => setEditingId(v.epic.id)}
+                        onRemove={() => remove(v.epic)}
+                      />
+                    )}
+                    {openStories.has(v.epic.id) && (
+                      <EpicStories
+                        id={`epic-stories-${v.epic.id}`}
+                        view={v}
+                        stories={stories}
+                        epics={epics}
+                        queued={queued}
+                        onLink={(s) => link(v.epic, s)}
+                        onUnlink={(s) => unlink(v.epic, s, v.linked)}
+                        onQueue={(unsized) => queueForPoker(v.epic, unsized)}
+                      />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </SectionCard>
+          </>
+        )}
+
+        <SectionCard title="Add an epic" icon={Plus}>
+          <div data-focus-key="add">
+            <EpicAddForm form={form} also={allQuarters} now={now} />
+          </div>
+        </SectionCard>
+      </div>
     </ToolPageWrapper>
+  );
+}
+
+/** One epic: colour, name, quarters, owner, schedule, progress and its source, actions. */
+function EpicRow({
+  view,
+  panelId,
+  storiesOpen,
+  onToggleStories,
+  onEdit,
+  onRemove,
+}: {
+  view: EpicView;
+  /** The id of the stories panel the "Stories" button opens. */
+  panelId: string;
+  storiesOpen: boolean;
+  onToggleStories: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const { epic, rollup, schedule, color, linked } = view;
+  const name = epicName(epic);
+  const start = normalizeQuarter(epic.startQuarter);
+  const end = normalizeQuarter(epic.endQuarter);
+  const quarters =
+    !start || !end ? "No valid quarters" : start === end ? start : `${start} → ${end}`;
+  return (
+    <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+      <span
+        aria-hidden="true"
+        className="mt-1.5 h-3 w-3 shrink-0 rounded-full"
+        style={{ background: colorVar(color) }}
+      />
+      <div className="min-w-0 flex-1 basis-56 space-y-1">
+        <p className="break-words text-sm font-medium text-text">{name}</p>
+        <p className="text-xs text-sub">
+          <span className="font-data">{quarters}</span>
+          {" · "}
+          {epic.owner ? `Owner: ${epic.owner}` : "No owner"}
+          {" · "}
+          <span className={SCHEDULE_TONE[schedule]}>{SCHEDULE_LABEL[schedule]}</span>
+        </p>
+        {epic.description && (
+          <p className="whitespace-pre-wrap break-words text-xs text-sub">{epic.description}</p>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="font-data text-lg leading-tight text-text">{rollup.pct}%</p>
+        <p className={cn("text-xs", rollup.source === "typed" ? "text-warning" : "text-sub")}>
+          {rollup.source === "typed" ? "Typed: no stories linked" : rollupLabel(rollup)}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-expanded={storiesOpen}
+          aria-controls={storiesOpen ? panelId : undefined}
+          aria-label={`Stories (${linked.length}) in ${name}`}
+          onClick={onToggleStories}
+          className="min-touch-coarse h-7 gap-1.5 px-2 text-xs text-sub hover:text-accent"
+        >
+          <ListTree aria-hidden="true" />
+          Stories ({linked.length})
+        </Button>
+        <IconButton
+          label={`Edit ${name}`}
+          data-focus-key={`edit:${epic.id}`}
+          icon={<Pencil className="h-4 w-4" />}
+          className="text-sub hover:text-text"
+          onClick={onEdit}
+        />
+        <IconButton
+          label={`Delete ${name}`}
+          icon={<Trash2 className="h-4 w-4" />}
+          className="text-sub hover:text-danger"
+          onClick={onRemove}
+        />
+      </div>
+    </div>
   );
 }

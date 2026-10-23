@@ -56,7 +56,9 @@ describe("tool.dependency_map.list_state", () => {
         ],
         edges: [
           { id: "e1", from: "a", to: "b", kind: "blocks" },
-          { id: "e2", from: "b", to: "a", kind: "needs" }, // a→b→a cycle
+          // "A needs B": B delivers first, so B → A. With "A blocks B" (A → B)
+          // that is a circular wait, read in delivery order as the page does.
+          { id: "e2", from: "a", to: "b", kind: "needs" }, // a→b→a cycle
           { id: "e3", from: "a", to: "b", kind: "informs" },
         ],
       })
@@ -71,6 +73,47 @@ describe("tool.dependency_map.list_state", () => {
     expect(r.edgeCount).toBe(3);
     expect(r.byKind).toEqual({ blocks: 1, needs: 1, informs: 1 });
     expect(r.hasCycle).toBe(true);
+  });
+
+  it("reads 'needs' in delivery order: 'A blocks B' and 'B needs A' are one direction, not a cycle", async () => {
+    useWorkspaceStore.getState().upsertDependencyMap(
+      map({
+        nodes: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ],
+        edges: [
+          { id: "e1", from: "a", to: "b", kind: "blocks" },
+          { id: "e2", from: "b", to: "a", kind: "needs" },
+        ],
+      })
+    );
+    const r = (await registry.get("tool.dependency_map.list_state")!.handler({}, ctx())) as {
+      hasCycle: boolean;
+    };
+    expect(r.hasCycle).toBe(false);
+  });
+
+  it("ignores resolved, self and dangling edges, as the page does", async () => {
+    useWorkspaceStore.getState().upsertDependencyMap(
+      map({
+        nodes: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ],
+        edges: [
+          { id: "e1", from: "a", to: "b", kind: "blocks" },
+          { id: "e2", from: "b", to: "a", kind: "blocks", status: "resolved" },
+          { id: "e3", from: "a", to: "a", kind: "blocks" },
+          { id: "e4", from: "a", to: "gone", kind: "needs" },
+        ],
+      })
+    );
+    const r = (await registry.get("tool.dependency_map.list_state")!.handler({}, ctx())) as {
+      hasCycle: boolean;
+      edgeCount: number;
+    };
+    expect(r).toMatchObject({ hasCycle: false, edgeCount: 2 });
   });
 
   it("reports no cycle for an acyclic blocking graph", async () => {

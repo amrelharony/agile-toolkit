@@ -4,10 +4,12 @@ import type { ReactNode } from "react";
 
 /**
  * Release Planner:
- *   - With 3+ velocities the 85% Confidence card read "MC x · Boot y sprints"
- *     with no date. It now reads like the 50% card: sprints, then the date.
- *   - The Effective Backlog subtitle names the Scope Sensitivity adjustment
- *     that feeds the number.
+ *   - With 3+ velocities the 85% card read "MC x · Boot y sprints" with no
+ *     date. It now reads like the 50% card: the date, then the sprints (the
+ *     bootstrap cross-check lives under Advanced analysis).
+ *   - The scope line names every input to the number. A version-0 config's
+ *     buffer and Scope Sensitivity adjustment load as one expected change
+ *     (100 × 1.10 × 1.20 = 132), so its forecast doesn't move.
  */
 
 vi.hoisted(() => {
@@ -55,32 +57,33 @@ beforeAll(() => {
 
 import { ReleasePlannerClient } from "@/app/(tools)/release-planner/release-planner-client";
 
-/** The stat card holding `label`: [label, value, subtitle]. */
+/** The stat card holding `label`: [label, value, hint]. */
 function card(label: string) {
   const content = screen.getByText(label).parentElement!.parentElement!;
   const [, value, sub] = Array.from(content.children).map((el) => el.textContent ?? "");
   return { value, sub };
 }
 
-const DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}/; // "Jun 7, 2027"
+const DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}$/; // "Jun 7, 2027"
 
 describe("Release Planner stat cards", () => {
-  it("shows the 85% forecast as sprints and a date, like the 50% card", () => {
+  it("shows the 85% forecast as a date and sprints, like the 50% card", () => {
     render(<ReleasePlannerClient />);
-    const p50 = card("50% Confidence");
-    const p85 = card("85% Confidence");
-    expect(p50.value).toMatch(/^\d+ sprints$/);
-    expect(p85.value).toMatch(/^\d+ sprints$/);
-    expect(p85.sub).toMatch(DATE);
+    const p50 = card("Coin flip (P50)");
+    const p85 = card("To commit (P85)");
+    expect(p50.value).toMatch(DATE);
+    expect(p85.value).toMatch(DATE);
+    expect(p50.sub).toMatch(/^\d+ sprints?$/);
+    expect(p85.sub).toMatch(/^\d+ sprints?$/);
     expect(`${p85.value} ${p85.sub}`).not.toMatch(/MC|Boot|P85/);
   });
 
-  it("names the scope adjustment in the Effective Backlog subtitle", () => {
+  it("loads an old buffer and adjustment as one expected scope change", () => {
     render(<ReleasePlannerClient />);
-    // 100 × 1.10 × 1.20 = 132.
-    expect(card("Effective Backlog")).toEqual({
-      value: "132 pts",
-      sub: "100 pts + 10% buffer, +20% scope adjustment",
-    });
+    expect(card("Scope to forecast").value).toBe("132 pts");
+    expect(screen.getByLabelText("Expected scope change")).toHaveValue("32");
+    expect(screen.getByText(/^Scope to forecast:/).textContent).toBe(
+      "Scope to forecast: 132 points (100 with a +32% change)."
+    );
   });
 });

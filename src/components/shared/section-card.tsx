@@ -117,7 +117,14 @@ export function SectionCard({
               <span className="text-sm text-sub font-normal ml-1 shrink-0">{titleSuffix}</span>
             )}
           </CardTitle>
-          {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
+          {actions && (
+            // `max-w-full`: once the cluster wraps below the title it sizes to
+            // its content, so four or five buttons ran past the card at 375 px.
+            // Capped at the card's width, the buttons wrap inside it instead.
+            <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center gap-2">
+              {actions}
+            </div>
+          )}
         </div>
       </CardHeader>
       {bareContent ? children : <CardContent className={contentClassName}>{children}</CardContent>}

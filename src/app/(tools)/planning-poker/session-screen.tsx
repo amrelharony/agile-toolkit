@@ -14,8 +14,10 @@
 
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import {
-  Plus,
+  ArrowRight,
+  BookmarkPlus,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -29,8 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { IconButton } from "@/components/ui/icon-button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -44,7 +45,17 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
 import { REDACTED_VOTE } from "./merge";
-import { castVotes, isNumeric, sortVotes, withRound } from "./rounds";
+import { castVotes, isNumeric, withRound } from "./rounds";
+import {
+  consensusLabel,
+  consensusOf,
+  consensusVerdict,
+  type ConsensusLevel,
+} from "@/lib/estimation/consensus";
+import { AcceptEstimate } from "./accept-estimate";
+import { AddStoryForm } from "./add-story-form";
+import { CardReferencePanel } from "./card-reference";
+import type { CardReferenceLookup } from "./use-card-references";
 import { PlayingCard, VotingDeck } from "./voting-deck";
 import {
   addPlayers,
@@ -58,13 +69,13 @@ import {
 import { AddPlayers, PassScreen, PlayerDeck, VotedMark } from "./facilitator-controls";
 import {
   MAX_STORIES,
-  STORY_DESCRIPTION_MAX,
-  STORY_TITLE_MAX,
+  QUEUE_FULL,
   appendStories,
   editStory,
   newStory as makeStory,
   removeStory,
   restoreStory,
+  type StoryDraft,
 } from "./stories";
 import { StoryQueueItem } from "./story-queue-item";
 
@@ -108,6 +119,18 @@ interface Props {
   /** Log votes, reveals and estimates to this browser's history. Off in
    *  a visitor live room: nothing from the room is kept. */
   recordHistory?: boolean;
+  /** The Estimation Guide's notes for a card, shown under the deck. Owner
+   *  side only; guests and visitor rooms pass nothing. */
+  references?: CardReferenceLookup;
+  /** "Save to backlog" for the stories typed into this session. Owner side
+   *  only, and never in a visitor room (nothing from it is kept). */
+  backlog?: {
+    /** Stories a save would add or give points to. */
+    toSave: number;
+    /** Stories of this session already in the backlog. */
+    saved: number;
+    onSave: () => void;
+  };
 }
 
 const NO_LOG = () => {};
@@ -117,8 +140,6 @@ function shortName(name: string, max = 40): string {
   const t = name.trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
-
-const QUEUE_FULL = `The story queue is full (${MAX_STORIES} stories).`;
 
 // ─── helpers (duplicated minimal subset; original copies remain in
 // planning-poker-client.tsx for the lobby tour-of-features) ────────
@@ -138,50 +159,37 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-const AVATAR_COLORS = [
-  "#00f0ff",
-  "#a78bfa",
-  "#34d399",
-  "#f59e0b",
-  "#f87171",
-  "#60a5fa",
-  "#fb923c",
-  "#e879f9",
+// Theme tokens, so an avatar reads in the light and high-contrast themes
+// too (the fixed hex set was tuned for the dark one only).
+const AVATAR_TONES = [
+  "border-accent/40 bg-accent/20 text-accent",
+  "border-accent-3/40 bg-accent-3/20 text-accent-3",
+  "border-success/40 bg-success/20 text-success",
+  "border-warning/40 bg-warning/20 text-warning",
+  "border-danger/40 bg-danger/20 text-danger",
+  "border-info/40 bg-info/20 text-info",
+  "border-accent-amber/40 bg-accent-amber/20 text-accent-amber",
+  "border-accent-magenta/40 bg-accent-magenta/20 text-accent-magenta",
 ];
-function avatarColor(name: string): string {
+function avatarTone(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + hash * 31;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length];
 }
 
-/**
- * The values the host can commit as a story's estimate: every distinct
- * vote except the "no estimate" cards ("?" / "∞") and the pre-reveal
- * redaction sentinel. Numbers sort ascending; anything else (T-shirt
- * sizes, custom labels) follows in scale order, so XS…XXL reads naturally.
- */
-function acceptableEstimates(votes: string[], scale: string[]): string[] {
-  return sortVotes(
-    Array.from(new Set(votes)).filter(
-      (v) => v.trim() !== "" && v !== "?" && v !== "∞" && v !== REDACTED_VOTE
-    ),
-    scale
-  );
-}
-
+/** Average, median and mode of the numeric votes; how far apart they are
+ *  is counted in cards (./consensus), which works for every deck. */
 function calcStats(votes: string[]): {
   average: number | null;
   median: number | null;
   mode: string | null;
-  spread: number | null;
 } {
   const nums = votes.filter(isNumeric).map(Number);
-  if (nums.length === 0) return { average: null, median: null, mode: null, spread: null };
+  if (nums.length === 0) return { average: null, median: null, mode: null };
   const sorted = [...nums].sort((a, b) => a - b);
   const average = nums.reduce((a, b) => a + b, 0) / nums.length;
   const mid = Math.floor(sorted.length / 2);
   const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-  const spread = sorted[sorted.length - 1] - sorted[0];
   const freq: Record<string, number> = {};
   for (const v of votes) freq[v] = (freq[v] ?? 0) + 1;
   let topCount = 0;
@@ -197,48 +205,22 @@ function calcStats(votes: string[]): {
       if (Number(val) < Number(modeVal)) modeVal = val;
     }
   }
-  return { average, median, mode: modeVal, spread };
+  return { average, median, mode: modeVal };
 }
 
-type Consensus = "agree" | "close" | "spread";
-function consensusLevel(votes: string[]): Consensus | null {
-  const nums = votes.filter(isNumeric).map(Number);
-  // No numeric votes at all (everyone played "?" / "∞"): there is no
-  // basis for a consensus verdict. Returning null suppresses the banner
-  // — the old `< 2 → "agree"` path proclaimed "Full consensus" over a
-  // round where nobody could estimate, the opposite of what it means.
-  if (nums.length === 0) return null;
-  if (nums.length < 2) return "agree";
-  const spread = Math.max(...nums) - Math.min(...nums);
-  if (spread === 0) return "agree";
-  if (spread <= 2) return "close";
-  return "spread";
-}
-
-const CONSENSUS_COLORS: Record<Consensus, string> = {
-  agree: "#34d399",
-  close: "#f59e0b",
-  spread: "#f87171",
-};
-const CONSENSUS_LABELS: Record<Consensus, string> = {
-  agree: "Full consensus",
-  close: "Near consensus",
-  spread: "Discussion needed",
+const CONSENSUS_TONES: Record<ConsensusLevel, { box: string; dot: string; text: string }> = {
+  agree: { box: "border-success/30 bg-success/10", dot: "bg-success", text: "text-success" },
+  close: { box: "border-warning/30 bg-warning/10", dot: "bg-warning", text: "text-warning" },
+  spread: { box: "border-danger/30 bg-danger/10", dot: "bg-danger", text: "text-danger" },
 };
 
 function Avatar({ name, size = 36 }: { name: string; size?: number }) {
-  const color = avatarColor(name);
   return (
     <div
-      style={{
-        width: size,
-        height: size,
-        backgroundColor: color + "33",
-        borderColor: color + "66",
-      }}
-      className="rounded-full border-2 flex items-center justify-center shrink-0"
+      style={{ width: size, height: size }}
+      className={`rounded-full border-2 flex items-center justify-center shrink-0 ${avatarTone(name)}`}
     >
-      <span style={{ color, fontSize: size * 0.36 }} className="font-bold leading-none">
+      <span style={{ fontSize: size * 0.36 }} className="font-bold leading-none">
         {getInitials(name)}
       </span>
     </div>
@@ -262,12 +244,11 @@ export function SessionScreen({
   facilitator = false,
   onRemoveParticipant,
   recordHistory = true,
+  references,
+  backlog,
 }: Props) {
-  const [newStory, setNewStory] = useState("");
-  const [newDescription, setNewDescription] = useState("");
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Participant | null>(null);
-  const newStoryRef = useRef<HTMLInputElement>(null);
   const { log: historyLog } = useHistoryLogger("planning-poker");
   const log = recordHistory ? historyLog : NO_LOG;
   const announce = useAnnounce();
@@ -307,6 +288,16 @@ export function SessionScreen({
     if (id === null || deckFor !== null) return;
     returnFocusTo.current = null;
     voteForRefs.current.get(id)?.focus();
+  });
+
+  // Accepting an estimate takes the Accept block away with the round; focus
+  // goes to the story the session moved on to rather than the page.
+  const storyHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusStoryNext = useRef(false);
+  useEffect(() => {
+    if (!focusStoryNext.current) return;
+    focusStoryNext.current = false;
+    storyHeadingRef.current?.focus();
   });
 
   const allIn = facilitating && allVotesIn(session);
@@ -383,18 +374,11 @@ export function SessionScreen({
     setPassing({ lastId: player.id, lastName: player.name, voted: false });
   };
 
-  const addStory = () => {
+  // The form has checked the title and the queue's room (./add-story-form).
+  const addStory = (draft: StoryDraft) => {
     if (!isHost) return;
-    if (!newStory.trim()) return;
-    if (session.stories.length >= MAX_STORIES) {
-      toast.error(QUEUE_FULL);
-      return;
-    }
-    const story = makeStory(newStory, newDescription);
+    const story = makeStory(draft.title, draft.description);
     onUpdateSession((s) => appendStories(s, [story]));
-    setNewStory("");
-    setNewDescription("");
-    newStoryRef.current?.focus();
   };
 
   // Several lines pasted into "Story title": one story per line, as many as
@@ -562,6 +546,7 @@ export function SessionScreen({
         currentStoryIdx: nextUnestimated !== -1 ? nextUnestimated : s.currentStoryIdx,
       };
     });
+    focusStoryNext.current = true;
     if (!skipped && story) {
       log(PLANNING_POKER_ACTIONS.ESTIMATE_COMMITTED, {
         storyId: story.id,
@@ -589,7 +574,20 @@ export function SessionScreen({
     : [];
 
   const stats = session.revealed ? calcStats(votes) : null;
-  const consensus = session.revealed && votes.length > 0 ? consensusLevel(votes) : null;
+  // Counted in cards on this session's deck, so T-shirt decks get a verdict too.
+  const consensus = session.revealed && votes.length > 0 ? consensusOf(votes, session.scale) : null;
+  // Neutral, not "Full consensus", for one estimate or a table of "?".
+  const consensusTag = consensus ? consensusLabel(consensus) : null;
+  const tone = consensusTag?.tone ?? null;
+  const estimatedAt = currentStory?.finalEstimate ?? null;
+  // A T-shirt (or other word) deck's sizes can't become story points, so
+  // "Save to backlog" says they go in without them.
+  const sizesArePoints = session.scale.some(isNumeric);
+  // A new round (or a late vote changing the suggestion) starts the
+  // accept picker over on the new suggestion.
+  const acceptKey = `${currentStory?.id ?? ""}:${currentStory?.rounds?.length ?? 0}:${
+    consensus?.suggested ?? ""
+  }`;
 
   const myVote = localParticipant?.vote ?? null;
   const votedCount = session.participants.filter((p) => p.vote !== null).length;
@@ -607,8 +605,9 @@ export function SessionScreen({
   return (
     <div className="flex flex-col gap-6">
       {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-5 py-3">
-        <div className="flex items-center gap-3">
+      {/* Both groups wrap: at 375 px the owner's four header buttons don't fit one row. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3 py-3 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-text">{session.sessionName}</span>
             {showRoomCode && (
@@ -627,7 +626,7 @@ export function SessionScreen({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {extraHeaderActions}
           <Button
             variant="ghost"
@@ -671,9 +670,9 @@ export function SessionScreen({
 
       <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
         <div className="flex flex-col gap-5">
-          <Card className="border-border bg-surface">
-            <CardContent className="pt-5 pb-5">
-              {currentStory ? (
+          {currentStory ? (
+            <Card className="border-border bg-surface">
+              <CardContent className="pt-5 pb-5">
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
@@ -707,7 +706,7 @@ export function SessionScreen({
                           size="sm"
                           onClick={revealVotes}
                           disabled={!isHost || votedCount === 0}
-                          className="bg-accent text-[#0a0e1a] hover:bg-accent/80 font-semibold h-8 px-4 text-xs"
+                          className="font-semibold h-8 px-4 text-xs"
                         >
                           <Eye className="h-3.5 w-3.5 mr-1.5" />
                           Reveal ({votedCount}/{session.participants.length})
@@ -727,7 +726,11 @@ export function SessionScreen({
                     </div>
                   </div>
 
-                  <h2 className="text-xl sm:text-2xl font-display font-bold text-text text-glow-cyan px-1 break-words">
+                  <h2
+                    ref={storyHeadingRef}
+                    tabIndex={-1}
+                    className="text-xl sm:text-2xl font-display font-bold text-text text-glow-cyan px-1 break-words outline-none"
+                  >
                     {currentStory.title}
                   </h2>
 
@@ -756,15 +759,15 @@ export function SessionScreen({
                     </ol>
                   )}
                 </div>
-              ) : (
-                <p className="text-sub text-sm text-center py-4">
-                  {isHost
-                    ? "Add a story to begin estimating."
-                    : "Waiting for the host to add a story."}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : (
+            <EmptyState icon={ListPlus} padding="md" className="border-border">
+              {isHost
+                ? "Add a story to begin estimating: type it in the queue, or paste a list."
+                : "Waiting for the host to add a story."}
+            </EmptyState>
+          )}
 
           {session.stories.length > 0 && (
             <SectionCard
@@ -836,25 +839,26 @@ export function SessionScreen({
                   >
                     {consensus && (
                       <div
-                        className="flex items-center gap-3 rounded-lg border px-4 py-3"
-                        style={{
-                          borderColor: CONSENSUS_COLORS[consensus] + "44",
-                          backgroundColor: CONSENSUS_COLORS[consensus] + "11",
-                        }}
+                        className={`flex items-start gap-3 rounded-lg border px-4 py-3 ${
+                          tone ? CONSENSUS_TONES[tone].box : "border-border bg-surface-deep"
+                        }`}
                       >
-                        <div
-                          className="h-3 w-3 rounded-full shrink-0"
-                          style={{
-                            backgroundColor: CONSENSUS_COLORS[consensus],
-                            boxShadow: `0 0 8px ${CONSENSUS_COLORS[consensus]}`,
-                          }}
-                        />
                         <span
-                          className="text-sm font-medium"
-                          style={{ color: CONSENSUS_COLORS[consensus] }}
-                        >
-                          {CONSENSUS_LABELS[consensus]}
-                        </span>
+                          aria-hidden="true"
+                          className={`mt-1.5 h-3 w-3 rounded-full shrink-0 ${
+                            tone ? CONSENSUS_TONES[tone].dot : "bg-sub"
+                          }`}
+                        />
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                          {consensusTag && (
+                            <span
+                              className={`text-sm font-medium ${tone ? CONSENSUS_TONES[tone].text : "text-text"}`}
+                            >
+                              {consensusTag.label}
+                            </span>
+                          )}
+                          <span className="text-sm text-text">{consensusVerdict(consensus)}</span>
+                        </div>
                       </div>
                     )}
 
@@ -883,31 +887,42 @@ export function SessionScreen({
                           </span>
                         </div>
                       )}
-                      {stats.spread !== null && (
+                      {consensus?.apart !== null && consensus?.apart !== undefined && (
                         <div className="flex flex-col items-center gap-1">
-                          <span className="text-xs text-sub">Spread</span>
+                          <span className="text-xs text-sub">Cards apart</span>
                           <span className="font-data text-xl font-bold text-text">
-                            {stats.spread}
+                            {consensus.apart}
                           </span>
                         </div>
                       )}
                     </div>
 
-                    {isHost && (
-                      <div className="flex flex-wrap gap-2">
-                        <span className="text-xs text-sub self-center">Accept estimate:</span>
-                        {acceptableEstimates(votes, session.scale).map((v) => (
-                          <Button
-                            key={v}
-                            size="sm"
-                            variant="outline"
-                            onClick={() => saveEstimate(v)}
-                            className="h-8 px-3 text-xs border-border text-sub hover:border-accent/60 hover:text-accent"
-                          >
-                            {v}
-                          </Button>
-                        ))}
-                      </div>
+                    {/* An estimated story keeps its estimate (saveEstimate
+                        skips it), so it gets no Accept that would do nothing. */}
+                    {isHost && estimatedAt !== null && (
+                      <p className="text-sm text-sub">
+                        Already estimated at{" "}
+                        <span className="font-data font-bold text-text">{estimatedAt}</span>: this
+                        round is for comparison only.
+                      </p>
+                    )}
+                    {isHost && estimatedAt === null && (
+                      <AcceptEstimate
+                        key={acceptKey}
+                        deck={session.scale}
+                        suggested={consensus?.suggested ?? null}
+                        onAccept={saveEstimate}
+                      >
+                        {(pick) =>
+                          references && (
+                            <CardReferencePanel
+                              card={pick}
+                              reference={pick === null ? null : references(pick)}
+                              prompt="Pick a card to see what it means in your Estimation Guide."
+                            />
+                          )
+                        }
+                      </AcceptEstimate>
                     )}
                   </motion.div>
                 )}
@@ -969,6 +984,13 @@ export function SessionScreen({
                     You voted <span className="font-data font-bold">{myVote}</span>
                   </p>
                 )}
+                {references && (
+                  <CardReferencePanel
+                    card={myVote}
+                    reference={myVote === null ? null : references(myVote)}
+                    prompt="Pick a card to compare it with your Estimation Guide's reference stories."
+                  />
+                )}
               </SectionCard>
             )
           )}
@@ -984,54 +1006,26 @@ export function SessionScreen({
             contentClassName="flex flex-col gap-3"
           >
             {isHost && (
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <Input
-                    ref={newStoryRef}
-                    value={newStory}
-                    onChange={(e) => setNewStory(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addStory()}
-                    onPaste={pasteStories}
-                    maxLength={STORY_TITLE_MAX}
-                    placeholder="Story title…"
-                    aria-label="New story title"
-                    className="h-9 text-sm bg-surface-deep border-border text-text"
-                  />
-                  <Button
-                    size="icon"
-                    onClick={addStory}
-                    disabled={!newStory.trim()}
-                    aria-label="Add story"
-                    className="h-9 w-9 shrink-0 bg-accent text-[#0a0e1a] hover:bg-accent/80"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Textarea
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addStory();
-                  }}
-                  placeholder="Description (optional)..."
-                  rows={2}
-                  maxLength={STORY_DESCRIPTION_MAX}
-                  className="bg-surface-deep border-border resize-none text-xs text-text"
-                  aria-label="New story description"
-                />
-                {onAddQueued && queuedCount > 0 && (
-                  <Button
-                    type="button"
-                    variant="toolkit"
-                    size="sm"
-                    onClick={onAddQueued}
-                    className="h-8 justify-start gap-1.5 text-xs"
-                  >
-                    <ListPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                    Add queued stories ({queuedCount})
-                  </Button>
-                )}
-              </div>
+              <AddStoryForm
+                storyCount={session.stories.length}
+                onAdd={addStory}
+                onPaste={pasteStories}
+                footer={
+                  onAddQueued &&
+                  queuedCount > 0 && (
+                    <Button
+                      type="button"
+                      variant="toolkit"
+                      size="sm"
+                      onClick={onAddQueued}
+                      className="gap-1.5 text-xs"
+                    >
+                      <ListPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                      Add queued stories ({queuedCount})
+                    </Button>
+                  )
+                }
+              />
             )}
 
             {session.stories.length === 0 ? (
@@ -1051,6 +1045,43 @@ export function SessionScreen({
                     onDelete={() => deleteStory(story.id)}
                   />
                 ))}
+              </div>
+            )}
+
+            {/* Hidden while nothing here can go to the backlog: the example's
+                stories, and the queue's (their estimate goes to their source). */}
+            {isHost && backlog && (backlog.toSave > 0 || backlog.saved > 0) && (
+              <div className="flex flex-col gap-2 border-t border-border pt-3">
+                {/* aria-disabled, not disabled: the button keeps focus after
+                    the save that empties it (onSave does nothing then). */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={backlog.onSave}
+                  aria-disabled={backlog.toSave === 0}
+                  className="justify-start gap-1.5 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                >
+                  <BookmarkPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                  {backlog.toSave > 0
+                    ? `Save to backlog (${backlog.toSave})`
+                    : "All saved to the backlog"}
+                </Button>
+                {backlog.saved > 0 ? (
+                  <Link
+                    href="/sprint-planning"
+                    className="inline-flex items-center gap-1 text-xs text-accent underline-offset-4 hover:underline"
+                  >
+                    {backlog.saved} in the backlog: plan the sprint
+                    <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                  </Link>
+                ) : (
+                  <p className="text-xs text-sub">
+                    {sizesArePoints
+                      ? "Stories you typed here become backlog stories, with their points."
+                      : "Stories you typed here become backlog stories. Sizes on this deck aren't story points, so they go in without points."}
+                  </p>
+                )}
               </div>
             )}
           </SectionCard>

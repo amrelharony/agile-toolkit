@@ -177,7 +177,7 @@ describe("Capacity Planner — Sync from team", () => {
     for (const m of original) expect(synced.some((s) => s.id === m.id)).toBe(true);
     expect(undo.calls).toHaveLength(1);
     expect(undo.calls[0].label).toBe("Synced 3 people from the team");
-    expect(screen.getAllByRole("textbox", { name: "Name" })).toHaveLength(4);
+    expect(screen.getAllByRole("combobox", { name: "Name" })).toHaveLength(4);
 
     const planAfterFirst = plan();
     fireEvent.click(screen.getByRole("button", { name: /Sync from team/ }));
@@ -195,6 +195,6 @@ describe("Capacity Planner — Sync from team", () => {
 
     act(() => undo.calls[0].revert());
     expect(plan()!.members).toEqual(original);
-    expect(screen.getAllByRole("textbox", { name: "Name" })).toHaveLength(2);
+    expect(screen.getAllByRole("combobox", { name: "Name" })).toHaveLength(2);
   });
 });

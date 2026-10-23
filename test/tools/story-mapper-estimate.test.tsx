@@ -68,7 +68,9 @@ beforeEach(() => {
 });
 
 function openMenu(title: string) {
-  fireEvent.keyDown(screen.getByRole("button", { name: `Move ${title}` }), { key: "Enter" });
+  fireEvent.keyDown(screen.getByRole("button", { name: `Send or move ${title}` }), {
+    key: "Enter",
+  });
 }
 
 describe("Story Mapper: Estimate in Planning Poker", () => {
@@ -106,7 +108,9 @@ describe("Story Mapper: Estimate in Planning Poker", () => {
 
   it("shows a written-back estimate on the card", () => {
     render(<StoryMapperClient />);
-    expect(screen.getByTitle("Estimate from Planning Poker")).toHaveTextContent("Estimate: 5");
-    expect(screen.getAllByTitle("Estimate from Planning Poker")).toHaveLength(1);
+    // Estimates can now be set on the card too, so the badge says what it is
+    // (story points), not where it came from.
+    expect(screen.getByTitle("Estimate in story points")).toHaveTextContent("Estimate: 5 pts");
+    expect(screen.getAllByTitle("Estimate in story points")).toHaveLength(1);
   });
 });
