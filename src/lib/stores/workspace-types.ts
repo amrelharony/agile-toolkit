@@ -73,15 +73,40 @@ export interface CeremonyCadenceDoc extends CeremonyCadence {
   id: string;
 }
 
+export type StoryStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
+
+/** One change of a story's status, as `setStoryStatus` records it. */
+export interface StoryStatusChange {
+  status: StoryStatus;
+  /** The status it left (absent for a story created in `status`). */
+  from?: StoryStatus;
+  at: ISODateString;
+}
+
 export interface Story {
   id: string;
   title: string;
   points?: number;
-  status: "backlog" | "todo" | "in_progress" | "review" | "done";
+  status: StoryStatus;
   sprintId?: string;
   tags?: string[];
   priorityScore?: number;
   owner?: string;
+  /*
+   * Flow stamps, written by `setStoryStatus` (lib/sprints/store.ts) and by
+   * agents' status changes, so cycle time and flow charts can read the
+   * board. All optional: stories from before them have none.
+   */
+  /** When work started: the move into in progress, review or done (cleared
+   *  when it goes back to the backlog or to do). */
+  startedAt?: ISODateString;
+  /** When it was moved to done (cleared when it leaves done). */
+  doneAt?: ISODateString;
+  /** Flagged as blocked (cleared when it is done). */
+  blocked?: boolean;
+  /** Status changes, oldest first; only the latest
+   *  `STORY_STATUS_HISTORY_CAP` (lib/sprints/story-status.ts) are kept. */
+  statusHistory?: StoryStatusChange[];
 }
 
 export type ImpedimentSeverity = "low" | "medium" | "high" | "critical";

@@ -70,10 +70,19 @@ interface CrudOptions<T extends { id: string }> {
    * blind write — fine for entities without a version field.
    */
   versioned?: boolean;
+  /**
+   * Last step before `create` or `update` writes, on both transports: gets
+   * the validated record and the stored one (undefined on create) and
+   * returns what to save. Stories use it to stamp a status change the way
+   * the app's `setStoryStatus` does, so an agent moving a story to done
+   * leaves the same trail.
+   */
+  prepare?: (next: T, current: T | undefined) => T;
 }
 
 export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>): void {
   const { toolId, schema, entityName, selectAll, upsert, remove } = opts;
+  const prepare = opts.prepare ?? ((next: T) => next);
   // C1: server-side counterpart key for MCP. e.g. "workspace.sprint"
   // → "workspace:sprint" in user_entities. An explicit `serverKind`
   // overrides the derived value for collections whose registered sync
@@ -138,7 +147,7 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
           `${entityName} with id "${entity.id}" already exists — use update to modify it.`
         );
       }
-      upsert(entity);
+      upsert(prepare(entity, undefined));
       return { id: entity.id };
     },
     mcpHandler: async (params: { entity: T }, ctx) => {
@@ -160,7 +169,7 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
           );
         }
       }
-      await serverUpsertEntity<T>(ctx.userId, serverKind, entity);
+      await serverUpsertEntity<T>(ctx.userId, serverKind, prepare(entity, undefined));
       return { id: entity.id };
     },
   });
@@ -210,7 +219,7 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
           `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
         );
       }
-      upsert(parsed.data as T);
+      upsert(prepare(parsed.data as T, current));
       return { updated: true };
     },
     mcpHandler: async (params, ctx) => {
@@ -225,7 +234,7 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
             `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
           );
         }
-        return parsed.data as T;
+        return prepare(parsed.data as T, current);
       };
       if (opts.versioned) {
         // Compare-and-set: re-reads + re-applies on a lost race and bumps

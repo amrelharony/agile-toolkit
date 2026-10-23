@@ -17,6 +17,11 @@ import { defineCrudActions } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { CEREMONY_CADENCE_ID } from "@/lib/stores/workspace-types";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
+import {
+  STORY_STATUSES,
+  STORY_STATUS_HISTORY_CAP,
+  stampStoryWrite,
+} from "@/lib/sprints/story-status";
 import type {
   Sprint,
   SprintSeries,
@@ -148,15 +153,34 @@ const SprintSeriesSchema = z.object({
   updatedAt: z.string().optional(),
 }) as unknown as z.ZodType<SprintSeries>;
 
+const StoryStatusSchema = z.enum(STORY_STATUSES as [Story["status"], ...Story["status"][]]);
+
+// The flow stamps are listed so an update keeps them (z.object drops keys it
+// doesn't know). A status change through create/update stamps them itself
+// (`stampStoryWrite`, as the app's setStoryStatus does); send them only to
+// backfill.
 const StorySchema = z.object({
   id: z.string(),
   title: z.string(),
   points: z.number().optional(),
-  status: z.enum(["backlog", "todo", "in_progress", "review", "done"]),
+  status: StoryStatusSchema,
   sprintId: z.string().optional(),
   tags: z.array(z.string()).optional(),
   priorityScore: z.number().optional(),
   owner: z.string().optional(),
+  startedAt: z.string().optional().describe("When work started (ISO). Stamped on a status change."),
+  doneAt: z
+    .string()
+    .optional()
+    .describe("When it was moved to done (ISO). Stamped on a status change."),
+  blocked: z.boolean().optional().describe("Flagged as blocked; cleared when it is done."),
+  statusHistory: z
+    .array(
+      z.object({ status: StoryStatusSchema, from: StoryStatusSchema.optional(), at: z.string() })
+    )
+    .max(STORY_STATUS_HISTORY_CAP)
+    .optional()
+    .describe("Status changes, oldest first (latest 50). Appended on a status change."),
 }) as unknown as z.ZodType<Story>;
 
 // Hand-off links (workspace-types HandoffRef / HandoffLink). Every schema
@@ -297,6 +321,7 @@ defineCrudActions<Story>({
   upsert: (s) => ws().upsertStory(s),
   remove: (id) => ws().removeStory(id),
   generateId: () => `story_${nanoid(8)}`,
+  prepare: (next, current) => stampStoryWrite(next, current),
 });
 
 defineCrudActions<Impediment>({

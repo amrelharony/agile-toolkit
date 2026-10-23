@@ -147,6 +147,8 @@ Deleting a sprint in the app also deletes its series. `workspace.sprint.delete` 
 
 The team's ceremony cadence (sprint length, Daily Scrum time and weekdays, Planning, Review and Retro times, the weekly refinement slot) is one document, `workspace.ceremony_cadence` with id `ceremony-cadence:current`: `tool.ceremony_cadence.get` returns it normalised (the defaults while unset) and `tool.ceremony_cadence.set` patches the fields you pass (times are local `HH:MM`, weekdays 0 = Sunday … 6 = Saturday, a bad value is rejected). It also holds the team's working calendar, both optional: `workingDays` (the weekdays the team works; Monday to Friday while unset) and `holidays` (`YYYY-MM-DD`; `[]` clears them). The sprint maths count working days with it (`lib/sprints/calendar.ts`), and there is no Daily Scrum or refinement on a holiday.
 
+A story's status is `workspace.story` with one of `backlog`, `todo`, `in_progress`, `review`, `done`. Changing it through `workspace.story.update` (or creating a story already in progress) stamps the flow fields the app's sprint board writes: `startedAt` (moved into in progress, review or done; cleared when it goes back to the backlog or to do), `doneAt` (moved to done; cleared when it leaves), `statusHistory` (`{status, from, at}`, the latest 50) and clears `blocked` on done. Send those fields only to backfill: a value you set in the same patch is kept as you wrote it.
+
 ### Run a retro for a sprint (composed intent)
 
 ```jsonc

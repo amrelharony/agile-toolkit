@@ -25,7 +25,8 @@ import { wbId } from "@/lib/whiteboard/clipboard";
 import { claimNextZ } from "@/lib/whiteboard/z-order";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { setStoryStatus } from "@/lib/sprints/store";
+import { isStoryStatus } from "@/lib/sprints/story-status";
 import { useCanvasStore } from "../use-canvas-store";
 import { STICKY_DEFAULT, SHAPE_DEFAULT, TEXT_DEFAULT } from "../constants";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
@@ -1175,17 +1176,15 @@ export function useCanvasPointerMachine(params: {
             // does NOT loop: the signal-bridge fires `story.statusChanged`
             // off the upsert; canvas-client's listener calls upsertCard
             // with status that matches what we just wrote (no-op due to
-            // version-equal LWW).
-            const ws = useWorkspaceStore.getState();
+            // version-equal LWW). Through setStoryStatus, so the story
+            // gets its start/done stamps; a custom column that isn't a
+            // story status leaves the story as it is.
             for (const updated of cardUpdates) {
               if (updated.type !== "card") continue;
               const ref = updated.sourceRef;
-              if (!ref?.entityId || !updated.status) continue;
+              if (!ref?.entityId || !isStoryStatus(updated.status)) continue;
               if (ref.tool === "story" || ref.tool === "backlog") {
-                const story = ws.stories?.find((s) => s.id === ref.entityId);
-                if (story && story.status !== updated.status) {
-                  ws.upsertStory({ ...story, status: updated.status as typeof story.status });
-                }
+                setStoryStatus(ref.entityId, updated.status);
               }
             }
           }

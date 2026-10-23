@@ -4,6 +4,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
 import type { Sprint, Story } from "@/lib/stores/workspace-types";
 import { selectStoriesForCapacity } from "@/lib/sprints/plan";
+import { withStoryStatus } from "@/lib/sprints/story-status";
 
 /**
  * Compose-action: capacity-based sprint planner.
@@ -38,10 +39,10 @@ registry.register({
 
     if (params.commit) {
       for (const story of selected) {
+        // Stamped like the app's setStoryStatus: backlog → to do is logged.
         useWorkspaceStore.getState().upsertStory({
-          ...story,
+          ...withStoryStatus(story, "todo"),
           sprintId: params.sprintId,
-          status: "todo",
         });
       }
     }
@@ -64,9 +65,8 @@ registry.register({
     if (params.commit) {
       for (const story of selected) {
         await serverUpsertEntity<Story>(ctx.userId, "workspace:story", {
-          ...story,
+          ...withStoryStatus(story, "todo"),
           sprintId: params.sprintId,
-          status: "todo",
         });
       }
     }

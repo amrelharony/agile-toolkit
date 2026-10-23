@@ -1,13 +1,45 @@
 /**
- * Writes to the shared sprints and their series. Each helper reads the
- * workspace at the moment it writes (never a React copy that may be stale),
- * so two tools open in the same tab can't overwrite each other's day.
+ * Writes to the shared sprints, their series and their stories' status. Each
+ * helper reads the workspace at the moment it writes (never a React copy
+ * that may be stale), so two tools open in the same tab can't overwrite each
+ * other's day.
  */
 
 import { nanoid } from "nanoid";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
+import type { Sprint, SprintSeries, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { seriesFor } from "./series";
+import { withStoryBlocked, withStoryStatus } from "./story-status";
+
+/**
+ * Move a story to `status`, stamping when work started, when it was done and
+ * the change history (./story-status.ts). The one writer of a story's status
+ * in the app, so cycle time and flow charts can trust the stamps. Returns
+ * the story as saved, or null if it doesn't exist; no write when the status
+ * is unchanged.
+ */
+export function setStoryStatus(
+  id: string,
+  status: StoryStatus,
+  at: string = new Date().toISOString()
+): Story | null {
+  const ws = useWorkspaceStore.getState();
+  const current = ws.stories.find((s) => s.id === id);
+  if (!current) return null;
+  const next = withStoryStatus(current, status, at);
+  if (next !== current) ws.upsertStory(next);
+  return next;
+}
+
+/** Flag a story as blocked, or clear the flag. Returns the story as saved, or null. */
+export function setStoryBlocked(id: string, blocked: boolean): Story | null {
+  const ws = useWorkspaceStore.getState();
+  const current = ws.stories.find((s) => s.id === id);
+  if (!current) return null;
+  const next = withStoryBlocked(current, blocked);
+  if (next !== current) ws.upsertStory(next);
+  return next;
+}
 
 /** Apply `update` to the stored series for `sprintId` (or an empty one) and save it. */
 export function updateSeries(
