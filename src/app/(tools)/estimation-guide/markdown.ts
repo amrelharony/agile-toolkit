@@ -1,7 +1,8 @@
 import type { Story } from "@/lib/stores/workspace-types";
 import type { EstimationScale } from "@/lib/constants/scales";
-import { defaultDescription, readEntry } from "./entries";
-import { pinnedIds, resolveReferenceStories, type GuideEntries } from "./references";
+import { defaultDescription, entryKey, readEntry } from "./entries";
+import { isExampleNote } from "./example";
+import { pinDrift, pinnedIds, resolveReferenceStories, type GuideEntries } from "./references";
 import { guideCoverage, guideVerdict } from "./verdict";
 
 /** "18 Oct 2026" */
@@ -18,12 +19,15 @@ function md(v: unknown): string {
 }
 
 const NONE = "—";
+const EXAMPLE = " (example)";
 const pts = (n: number | undefined) => (n === undefined ? "" : ` (${n} ${n === 1 ? "pt" : "pts"})`);
 
 /**
  * The scale on screen as a Markdown table, for the team's wiki or a
  * refinement thread: what each card means, the team's example, and the
- * reference stories pinned on it.
+ * reference stories pinned on it. Example data is marked "(example)", so a
+ * page made while the example is loaded never passes it off as the team's;
+ * a pin whose story has moved off the card says so.
  */
 export function toMarkdown(
   maps: GuideEntries,
@@ -41,11 +45,17 @@ export function toMarkdown(
     ...scale.values.map((v) => {
       const meaning = readEntry(maps.descriptions ?? {}, scale.name, v, defaultDescription(v));
       const example = readEntry(maps.examples ?? {}, scale.name, v);
+      const exampleCell = md(example)
+        ? `${md(example)}${isExampleNote(entryKey(scale.name, v), example) ? EXAMPLE : ""}`
+        : NONE;
       const refs = resolveReferenceStories(
         pinnedIds(maps.referenceStoryIds, scale.name, v),
         stories
-      ).map((s) => `“${md(s.title)}”${pts(s.points)}`);
-      return `| ${md(v)} | ${md(meaning) || NONE} | ${md(example) || NONE} | ${
+      ).map((s) => {
+        const drift = pinDrift(s, v);
+        return `“${md(s.title)}”${pts(s.points)}${s.example ? EXAMPLE : ""}${drift ? `, ${drift}` : ""}`;
+      });
+      return `| ${md(v)} | ${md(meaning) || NONE} | ${exampleCell} | ${
         refs.length > 0 ? refs.join("; ") : NONE
       } |`;
     }),

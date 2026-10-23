@@ -42,11 +42,12 @@ import {
   readEntry,
   sameEntries,
 } from "./entries";
-import { hasExample, withExample, withoutExample } from "./example";
+import { hasExample, isExampleNote, withExample, withoutExample } from "./example";
 import { toMarkdown } from "./markdown";
 import {
   MAX_REFERENCE_STORIES,
   hasSuggestions,
+  pinResolver,
   pinnedIds,
   pointsOf,
   resolveReferenceStories,
@@ -140,6 +141,7 @@ export function EstimationGuideClient() {
     (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue?.length ?? 0
   );
   const gridRef = useRef<HTMLDivElement>(null);
+  const scaleRef = useRef<HTMLButtonElement>(null);
   const uid = useId();
   const { log } = useHistoryLogger("estimation-guide");
 
@@ -256,6 +258,10 @@ export function EstimationGuideClient() {
     (val: string | number) => readEntry(store.examples, activeScale.name, val),
     [store.examples, activeScale.name]
   );
+  const isExampleNoteOf = useCallback(
+    (val: string | number) => isExampleNote(entryKey(activeScale.name, val), exampleOf(val)),
+    [activeScale.name, exampleOf]
+  );
   const pinnedOf = useCallback(
     (val: string | number) =>
       resolveReferenceStories(pinnedIds(maps.referenceStoryIds, activeScale.name, val), stories),
@@ -263,9 +269,20 @@ export function EstimationGuideClient() {
   );
 
   // ─── Reference stories ───
+  // A pin whose story was deleted shows nowhere, so it mustn't hold a slot:
+  // only pins that still resolve count toward the cap, and pinning a new
+  // story drops the ones that don't (./references withPin).
+  const resolves = useMemo(() => pinResolver(stories), [stories]);
   const pin = (val: string | number, story: Story) => {
     useEstimationGuideStore.setState((state) => ({
-      referenceStoryIds: withPin(state.referenceStoryIds ?? {}, activeScale.name, val, story.id),
+      referenceStoryIds: withPin(
+        state.referenceStoryIds ?? {},
+        activeScale.name,
+        val,
+        story.id,
+        undefined,
+        resolves
+      ),
     }));
     log(ESTIMATION_GUIDE_ACTIONS.EXAMPLE_ADDED, {
       scale: activeScale.name,
@@ -299,8 +316,10 @@ export function EstimationGuideClient() {
 
   // ─── Example ───
   // Fills the empty cards of the scale on screen; "Clear example" removes
-  // only what still reads exactly as the example wrote it.
-  const exampleShown = hasExample(maps);
+  // only what still reads exactly as the example wrote it. The notice
+  // speaks for the scale on screen: another scale's example doesn't make
+  // this one example data.
+  const exampleShown = hasExample(maps, activeScale);
   const loadExample = () => {
     useEstimationGuideStore.setState((state) =>
       withExample(
@@ -369,15 +388,21 @@ export function EstimationGuideClient() {
       lines.push(`Description: ${descriptionOf(val)}`);
       const example = exampleOf(val);
       if (example) {
-        lines.push(`Example: ${example}`);
+        lines.push(`Example: ${example}${isExampleNoteOf(val) ? " (example)" : ""}`);
       }
       const refs = pinnedOf(val);
-      if (refs.length > 0) lines.push(`Reference stories: ${refs.map((r) => r.title).join("; ")}`);
+      if (refs.length > 0) {
+        lines.push(
+          `Reference stories: ${refs.map((r) => `${r.title}${r.example ? " (example)" : ""}`).join("; ")}`
+        );
+      }
       lines.push("");
     }
     return lines.join("\n");
-  }, [activeScale, descriptionOf, exampleOf, pinnedOf]);
+  }, [activeScale, descriptionOf, exampleOf, isExampleNoteOf, pinnedOf]);
 
+  // Example data carries a flag, so an export made while it's loaded never
+  // passes it off as the team's.
   const jsonData = useMemo(() => {
     if (!activeScale) return { scale: "", values: [] };
     return {
@@ -386,10 +411,15 @@ export function EstimationGuideClient() {
         value: val,
         description: descriptionOf(val),
         example: exampleOf(val),
-        referenceStories: pinnedOf(val).map((r) => ({ title: r.title, points: r.points })),
+        exampleIsExample: isExampleNoteOf(val),
+        referenceStories: pinnedOf(val).map((r) => ({
+          title: r.title,
+          points: r.points,
+          example: r.example,
+        })),
       })),
     };
-  }, [activeScale, descriptionOf, exampleOf, pinnedOf]);
+  }, [activeScale, descriptionOf, exampleOf, isExampleNoteOf, pinnedOf]);
 
   const markdown = useMemo(
     () => toMarkdown(maps, activeScale, stories),
@@ -443,6 +473,7 @@ export function EstimationGuideClient() {
       <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-3 mb-6">
         <Select value={store.selectedScale} onValueChange={handleScaleChange}>
           <SelectTrigger
+            ref={scaleRef}
             aria-label="Estimation scale"
             className="w-[200px] border-border bg-card text-text hover:border-accent-cyan/30"
           >
@@ -477,6 +508,11 @@ export function EstimationGuideClient() {
             onReset={() => {
               reset.onReset();
               log(ESTIMATION_GUIDE_ACTIONS.GUIDE_RESET, { scale: activeScale.name });
+              // The dialog has no trigger to hand focus back to, and the
+              // Reset button is disabled now the scale is at its defaults:
+              // land on the scale picker beside it, not the page. After
+              // this tick, once the dialog has started closing.
+              setTimeout(() => scaleRef.current?.focus(), 0);
             }}
             onUndo={reset.onUndo}
             disabled={atDefaults}
@@ -591,7 +627,7 @@ export function EstimationGuideClient() {
                     value={key}
                     pinned={pinned}
                     suggestions={suggestions}
-                    full={pinnedIdsHere.length >= MAX_REFERENCE_STORIES}
+                    full={pinned.length >= MAX_REFERENCE_STORIES}
                     onPin={(story) => pin(val, story)}
                     onUnpin={(story) => unpin(val, story)}
                   />

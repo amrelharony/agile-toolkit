@@ -11,14 +11,15 @@
  * Pins are ids, not copies, so a story renamed in Sprint Planning shows its
  * new title here. One that can't be found is skipped rather than pruned:
  * the guide's store can load before the workspace does, and pruning then
- * would drop every pin.
+ * would drop every pin. It holds no slot, though, and goes when the user
+ * pins another story on that card (withPin).
  */
 
 import type { Story } from "@/lib/stores/workspace-types";
 import { scales } from "@/lib/constants/scales";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import { defaultDescription, entryKey, readEntry } from "./entries";
-import { exampleReferenceStory } from "./example";
+import { exampleReferenceStory, isExampleNote } from "./example";
 import type { EstimationGuideState } from "./store";
 
 /** Pins per value: a reference, not a list of everything that size. */
@@ -34,6 +35,8 @@ export interface ReferenceStory {
   points?: number;
   /** One of the example's stories (not in the workspace). */
   example: boolean;
+  /** Still done (the example's always are); a reopened story no longer shows what a card took. */
+  done: boolean;
 }
 
 /** The ids pinned on a value; [] for none or a malformed stored entry. */
@@ -45,18 +48,37 @@ export function pinnedIds(map: unknown, scale: string, value: string | number): 
 }
 
 /**
+ * Whether a pinned id still points at something to show: a workspace story,
+ * or one of the example's.
+ */
+export function pinResolver(stories: readonly Story[]): (id: string) => boolean {
+  const ids = new Set(stories.map((s) => s.id));
+  return (id) => ids.has(id) || (isExampleId(id) && exampleReferenceStory(id) !== undefined);
+}
+
+/**
  * `map` with `id` pinned on a value, last or at `at` (Undo puts an unpinned
  * story back in its place). Unchanged when it's there already or the value
  * is full.
+ *
+ * With `resolves`, only pins that still point at a story count toward the
+ * cap, and the ones that don't are dropped as the new one goes in: a story
+ * deleted from the workspace would otherwise hold its slot for good, with
+ * no row to unpin it from. The user is pinning a story the loaded
+ * workspace suggested, so those really are gone (unlike on load, when the
+ * workspace may not be in yet).
  */
 export function withPin(
   map: Pins,
   scale: string,
   value: string | number,
   id: string,
-  at?: number
+  at?: number,
+  resolves?: (id: string) => boolean
 ): Pins {
-  const ids = pinnedIds(map, scale, value);
+  const ids = resolves
+    ? pinnedIds(map, scale, value).filter(resolves)
+    : pinnedIds(map, scale, value);
   if (!id || ids.includes(id) || ids.length >= MAX_REFERENCE_STORIES) return map;
   const next = [...ids];
   next.splice(at === undefined || at < 0 ? next.length : Math.min(at, next.length), 0, id);
@@ -125,13 +147,33 @@ export function resolveReferenceStories(
   for (const id of ids) {
     const story = byId.get(id);
     if (story) {
-      out.push({ id, title: story.title, points: story.points, example: false });
+      out.push({
+        id,
+        title: story.title,
+        points: story.points,
+        example: false,
+        done: story.status === "done",
+      });
       continue;
     }
     const ex = isExampleId(id) ? exampleReferenceStory(id) : undefined;
-    if (ex) out.push({ id, title: ex.title, points: ex.points, example: true });
+    if (ex) out.push({ id, title: ex.title, points: ex.points, example: true, done: true });
   }
   return out;
+}
+
+/**
+ * Why a pin no longer reads as `value`, or null while it still does: the
+ * story was re-pointed since ("now 5 pts") or reopened. Pins are ids, so
+ * they follow the story; this says when the story has moved off the card.
+ */
+export function pinDrift(story: ReferenceStory, value: string | number): string | null {
+  if (!story.done) return "not done now";
+  const points = pointsOf(value);
+  if (points === null || story.points === points) return null;
+  return story.points === undefined
+    ? "no points now"
+    : `now ${story.points} ${story.points === 1 ? "pt" : "pts"}`;
 }
 
 /** Whether the workspace has a done story worth suggesting on any value of the scale. */
@@ -160,6 +202,11 @@ export interface CardReference {
   value: string;
   description: string;
   example: string;
+  /**
+   * `example` is still the guide's loaded example, word for word, not the
+   * team's own: Poker marks it so example data never reads as the team's.
+   */
+  exampleIsExample: boolean;
   stories: ReferenceStory[];
 }
 
@@ -174,6 +221,7 @@ export function cardReference(
   value: string | number,
   stories: readonly Story[]
 ): CardReference {
+  const example = readEntry(guide.examples ?? {}, scale, value);
   return {
     scale,
     value: String(value),
@@ -183,7 +231,8 @@ export function cardReference(
       value,
       defaultDescription(value)
     ).trim(),
-    example: readEntry(guide.examples ?? {}, scale, value).trim(),
+    example: example.trim(),
+    exampleIsExample: isExampleNote(entryKey(scale, value), example),
     stories: resolveReferenceStories(pinnedIds(guide.referenceStoryIds, scale, value), stories),
   };
 }

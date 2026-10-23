@@ -16,6 +16,7 @@ import type { Story } from "@/lib/stores/workspace-types";
 
 const h = vi.hoisted(() => ({
   markdown: undefined as string | undefined,
+  json: undefined as unknown,
   undo: null as null | { label: string; revert: () => void },
 }));
 const toastSpy = vi.hoisted(() =>
@@ -27,8 +28,9 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 vi.mock("@/components/shared/export-button", () => ({
-  ExportButton: ({ markdown }: { markdown?: string }) => {
+  ExportButton: ({ markdown, jsonData }: { markdown?: string; jsonData?: unknown }) => {
     h.markdown = markdown;
+    h.json = jsonData;
     return null;
   },
 }));
@@ -49,6 +51,8 @@ import {
   MAX_REFERENCE_STORIES,
   cardReference,
   guideScaleFor,
+  pinDrift,
+  pinResolver,
   pinnedIds,
   pointsOf,
   resolveReferenceStories,
@@ -65,6 +69,7 @@ import {
   EXAMPLE_NOTES,
   EXAMPLE_REFERENCE_STORIES,
   hasExample,
+  isExampleNote,
   withExample,
   withoutExample,
 } from "@/app/(tools)/estimation-guide/example";
@@ -161,12 +166,13 @@ describe("reference stories", () => {
     const stories = [done("a", 3, undefined, "Saved cards")];
     const exampleId = EXAMPLE_REFERENCE_STORIES[0].id;
     expect(resolveReferenceStories(["gone", "a", exampleId], stories)).toEqual([
-      { id: "a", title: "Saved cards", points: 3, example: false },
+      { id: "a", title: "Saved cards", points: 3, example: false, done: true },
       {
         id: exampleId,
         title: EXAMPLE_REFERENCE_STORIES[0].title,
         points: EXAMPLE_REFERENCE_STORIES[0].points,
         example: true,
+        done: true,
       },
     ]);
   });
@@ -192,6 +198,7 @@ describe("reference stories", () => {
       value: "8",
       description: defaultDescriptions["8"],
       example: "Legacy example",
+      exampleIsExample: false,
       stories: [],
     });
   });
@@ -466,5 +473,180 @@ describe("the Estimation Guide page", () => {
       "href",
       "/planning-poker"
     );
+  });
+});
+
+// ─── Review fixes ────────────────────────────────────────────────────────
+
+describe("pins whose story is gone", () => {
+  it("don't hold a slot: only pins that resolve count, and pinning drops the rest", () => {
+    const resolves = pinResolver([done("s8", 8), done("t8", 8)]);
+    expect(resolves("s8")).toBe(true);
+    expect(resolves("gone")).toBe(false);
+    expect(resolves(EXAMPLE_REFERENCE_STORIES[0].id)).toBe(true);
+    expect(resolves("example-not-in-the-example")).toBe(false);
+
+    const stale = { "Fibonacci:8": ["gone1", "gone2", "gone3"] };
+    // Without a resolver (Undo's path) the raw ids still fill the card.
+    expect(withPin(stale, "Fibonacci", 8, "s8")).toBe(stale);
+    const pinned = withPin(stale, "Fibonacci", 8, "s8", undefined, resolves);
+    expect(pinnedIds(pinned, "Fibonacci", 8)).toEqual(["s8"]);
+    // Pins that resolve still cap the card, the example's among them.
+    const live = { "Fibonacci:8": ["s8", "t8", EXAMPLE_REFERENCE_STORIES[4].id, "gone"] };
+    expect(withPin(live, "Fibonacci", 8, "u8", undefined, resolves)).toBe(live);
+  });
+
+  it("free their card on the page: the suggestion comes back and takes the slot", async () => {
+    useWorkspaceStore.setState({
+      stories: [done("s8", 8, "2026-10-01T00:00:00Z", "Checkout rewrite")],
+    });
+    useEstimationGuideStore.setState({
+      referenceStoryIds: { "Fibonacci:8": ["gone1", "gone2", "gone3"] },
+    });
+    render(<EstimationGuideClient />);
+    const pin = await screen.findByRole("button", {
+      name: "Pin “Checkout rewrite” as a reference for 8",
+    });
+    expect(screen.queryByText("No done 8-point stories to pin yet.")).toBeNull();
+    fireEvent.click(pin);
+    expect(guide().referenceStoryIds).toEqual({ "Fibonacci:8": ["s8"] });
+  });
+});
+
+describe("focus after pinning, unpinning and resetting", () => {
+  it("goes to the new pin, then the next pin, then the card's label", async () => {
+    useWorkspaceStore.setState({
+      stories: [
+        done("a8", 8, "2026-10-02T00:00:00Z", "Alpha"),
+        done("b8", 8, "2026-10-01T00:00:00Z", "Beta"),
+      ],
+    });
+    render(<EstimationGuideClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Pin “Alpha” as a reference for 8" })
+    );
+    expect(screen.getByRole("button", { name: "Unpin Alpha" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Pin “Beta” as a reference for 8" }));
+    expect(screen.getByRole("button", { name: "Unpin Beta" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unpin Alpha" }));
+    expect(screen.getByRole("button", { name: "Unpin Beta" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Unpin Beta" }));
+    const label = document.activeElement as HTMLElement;
+    expect(label).toHaveTextContent("Reference stories");
+    expect(label.parentElement).toHaveTextContent("Done at 8 points");
+  });
+
+  it("lands on the scale picker after a reset, not the page", async () => {
+    useEstimationGuideStore.setState({ examples: { "Fibonacci:8": "Our 8" } });
+    render(<EstimationGuideClient />);
+    await waitFor(() => expect(exampleBoxes()[4]).toHaveValue("Our 8"));
+    fireEvent.click(screen.getByRole("button", { name: "Reset this scale" }));
+    const dialog = screen.getByRole("dialog", { name: "Reset the Fibonacci scale?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset scale" }));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Estimation scale" })).toHaveFocus()
+    );
+  });
+});
+
+describe("example data, told apart from the team's", () => {
+  it("is recognised per card, so Poker and the charter can mark it", () => {
+    const loaded = withExample({ examples: {}, referenceStoryIds: {} }, FIB);
+    expect(isExampleNote("Fibonacci:8", EXAMPLE_NOTES["8"])).toBe(true);
+    expect(isExampleNote("Linear:8", EXAMPLE_NOTES["8"])).toBe(true);
+    // The example's 5 written on the 8 isn't the example's 8.
+    expect(isExampleNote("Fibonacci:8", EXAMPLE_NOTES["5"])).toBe(false);
+    expect(isExampleNote("8", EXAMPLE_NOTES["8"])).toBe(false);
+    expect(
+      cardReference({ descriptions: {}, ...loaded }, "Fibonacci", "8", []).exampleIsExample
+    ).toBe(true);
+    expect(
+      cardReference(
+        { descriptions: {}, examples: { "Fibonacci:8": "Ours" }, referenceStoryIds: {} },
+        "Fibonacci",
+        8,
+        []
+      ).exampleIsExample
+    ).toBe(false);
+  });
+
+  it("only shows the example notice on the scale that holds the example", async () => {
+    const loaded = withExample({ examples: {}, referenceStoryIds: {} }, FIB);
+    expect(hasExample(loaded, FIB)).toBe(true);
+    expect(hasExample(loaded, POW2)).toBe(false);
+    expect(hasExample(loaded)).toBe(true);
+
+    render(<EstimationGuideClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load an example" }));
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+    chooseScale("Powers of 2");
+    await waitFor(() => expect(descriptionBoxes()).toHaveLength(6));
+    expect(screen.queryByText(/Example data\./)).toBeNull();
+    expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
+  });
+
+  it("is marked in the exports, and a pin that moved off its card says so", async () => {
+    const stories: Story[] = [
+      done("s5", 3, undefined, "Was a five"),
+      { id: "r2", title: "Reopened", points: 2, status: "todo" },
+    ];
+    const loaded = withExample(
+      {
+        examples: { "Fibonacci:1": "Our own 1" },
+        referenceStoryIds: { "Fibonacci:5": ["s5"], "Fibonacci:2": ["r2"] },
+      },
+      FIB
+    );
+    const md = toMarkdown(
+      { ...initialState, ...loaded },
+      FIB,
+      stories,
+      new Date("2026-10-23T12:00:00Z")
+    );
+    const [ex1, ex3] = [EXAMPLE_REFERENCE_STORIES[0], EXAMPLE_REFERENCE_STORIES[2]];
+    expect(md).toContain(
+      `| 1 | ${defaultDescriptions["1"]} | Our own 1 | “${ex1.title}” (1 pt) (example) |`
+    );
+    expect(md).toContain(
+      `| 3 | ${defaultDescriptions["3"]} | ${EXAMPLE_NOTES["3"]} (example) | “${ex3.title}” (3 pts) (example) |`
+    );
+    expect(md).toContain(`| “Was a five” (3 pts), now 3 pts |`);
+    expect(md).toContain(`| “Reopened” (2 pts), not done now |`);
+
+    const story = (over: Partial<Parameters<typeof pinDrift>[0]>) => ({
+      id: "a",
+      title: "a",
+      points: 8,
+      example: false,
+      done: true,
+      ...over,
+    });
+    expect(pinDrift(story({}), "8")).toBeNull();
+    expect(pinDrift(story({ points: 1 }), 8)).toBe("now 1 pt");
+    expect(pinDrift(story({ points: undefined }), 8)).toBe("no points now");
+    expect(pinDrift(story({ points: 5 }), "M")).toBeNull();
+
+    // The page: the JSON export flags it, and the card shows the drift.
+    useWorkspaceStore.setState({ stories });
+    useEstimationGuideStore.setState(loaded);
+    render(<EstimationGuideClient />);
+    expect(await screen.findByText("(now 3 pts)")).toBeInTheDocument();
+    expect(screen.getByText("(not done now)")).toBeInTheDocument();
+    const json = h.json as {
+      values: {
+        value: number;
+        exampleIsExample: boolean;
+        referenceStories: { title: string; example: boolean }[];
+      }[];
+    };
+    expect(json.values[0]).toMatchObject({
+      exampleIsExample: false,
+      referenceStories: [{ title: ex1.title, example: true }],
+    });
+    expect(json.values[2]).toMatchObject({ exampleIsExample: true });
+    expect(json.values[3].referenceStories).toEqual([
+      { title: "Was a five", points: 3, example: false },
+    ]);
   });
 });

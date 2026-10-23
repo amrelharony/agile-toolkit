@@ -102,18 +102,29 @@ function valueOfKey(key: string): string | null {
   return i === -1 ? null : key.slice(i + 1);
 }
 
-/** An entry that still reads exactly as the example wrote it. */
-function isExampleEntry(key: string, text: string): boolean {
+/**
+ * A team example (per-scale key, "Fibonacci:8") that still reads exactly as
+ * the example wrote it. Exported so whatever else reads the guide's
+ * examples (Planning Poker, the Team charter) can tell example data from
+ * the team's own words.
+ */
+export function isExampleNote(key: string, text: string): boolean {
   const v = valueOfKey(key);
   return v !== null && exampleNote(v) === text;
 }
 
-/** Whether any scale still holds example text or an example pin. */
-export function hasExample(maps: ExampleMaps): boolean {
+/**
+ * Whether example text or an example pin is still there: on `scale` when
+ * given (the notice above the cards speaks for the scale on screen), else
+ * on any scale.
+ */
+export function hasExample(maps: ExampleMaps, scale?: EstimationScale): boolean {
+  const keys = scale ? new Set(scale.values.map((v) => entryKey(scale.name, v))) : null;
+  const inScope = (key: string) => keys === null || keys.has(key);
   return (
-    Object.entries(maps.examples ?? {}).some(([k, t]) => isExampleEntry(k, t)) ||
-    Object.values(maps.referenceStoryIds ?? {}).some(
-      (ids) => Array.isArray(ids) && ids.some((id) => isExampleId(id))
+    Object.entries(maps.examples ?? {}).some(([k, t]) => inScope(k) && isExampleNote(k, t)) ||
+    Object.entries(maps.referenceStoryIds ?? {}).some(
+      ([k, ids]) => inScope(k) && Array.isArray(ids) && ids.some((id) => isExampleId(id))
     )
   );
 }
@@ -122,7 +133,7 @@ export function hasExample(maps: ExampleMaps): boolean {
 export function withoutExample(maps: ExampleMaps): ExampleMaps {
   const examples: Entries = {};
   for (const [k, t] of Object.entries(maps.examples ?? {})) {
-    if (!isExampleEntry(k, t)) examples[k] = t;
+    if (!isExampleNote(k, t)) examples[k] = t;
   }
   const referenceStoryIds: Pins = {};
   for (const [k, ids] of Object.entries(maps.referenceStoryIds ?? {})) {
