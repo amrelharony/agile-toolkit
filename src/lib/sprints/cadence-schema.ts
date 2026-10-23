@@ -7,11 +7,18 @@
 
 import { z } from "zod";
 import { MAX_SPRINT_LENGTH_DAYS, TIME_PATTERN } from "./cadence";
+import { MAX_HOLIDAYS, isIsoDate } from "./calendar";
 
 export const TimeSchema = z.string().regex(TIME_PATTERN, 'a local time as "HH:MM" (24-hour)');
 
 /** 0 = Sunday … 6 = Saturday. */
 export const WeekdaySchema = z.number().int().min(0).max(6);
+
+/** A calendar date, "YYYY-MM-DD", that exists. */
+export const IsoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'a date as "YYYY-MM-DD"')
+  .refine((v) => isIsoDate(v), "a real calendar date");
 
 export const CeremonyCadenceFields = {
   sprintLengthDays: z
@@ -32,6 +39,20 @@ export const CeremonyCadenceFields = {
     .object({ weekday: WeekdaySchema, time: TimeSchema })
     .nullable()
     .describe("Weekly Backlog Refinement slot, or null when the team has no fixed one."),
+  workingDays: z
+    .array(WeekdaySchema)
+    .min(1)
+    .optional()
+    .describe(
+      "Weekdays the team works, 0 = Sunday … 6 = Saturday (default Monday to Friday). Ideal lines and day counts skip the others."
+    ),
+  holidays: z
+    .array(IsoDateSchema)
+    .max(MAX_HOLIDAYS)
+    .optional()
+    .describe(
+      'Team holidays as "YYYY-MM-DD": not counted as working days, and no Daily Scrum or refinement on them. [] clears them.'
+    ),
 };
 
 /** A whole cadence. */

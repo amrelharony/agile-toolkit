@@ -6,9 +6,21 @@
  * Burnup records `completed` and `scope`. Whatever was typed is kept as is;
  * the other number is derived here, so the two tools agree without one
  * overwriting the other.
+ *
+ * Stored day numbers are always calendar days. The ideal line can instead
+ * run on working days (`workingDayAxis`, `idealRemainingAt` with a
+ * `WorkingCalendar` from ./calendar.ts): it then stays flat over weekends
+ * and holidays and still reaches 0 on the last day.
  */
 
 import type { Sprint, SprintDay, SprintSeries } from "@/lib/stores/workspace-types";
+import {
+  addWorkingDays,
+  countWorkingDays,
+  isoDayNumber,
+  isoFromDayNumber,
+  type WorkingCalendar,
+} from "./calendar";
 
 /** Sprint length used when a sprint has no usable dates. */
 export const DEFAULT_SPRINT_DAYS = 10;
@@ -24,20 +36,10 @@ export const SPRINT_RATING_DIMENSIONS = [
 ] as const;
 export type SprintRatingDimension = (typeof SPRINT_RATING_DIMENSIONS)[number];
 
-const DAY_MS = 86_400_000;
 const NO_DAYS: SprintDay[] = [];
 
-/** "YYYY-MM-DD..." to a UTC day number, or null when it isn't a date. */
-function utcDay(iso: string | undefined): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
-  if (!m) return null;
-  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return Number.isFinite(t) ? Math.round(t / DAY_MS) : null;
-}
-
-function fromUtcDay(n: number): string {
-  return new Date(n * DAY_MS).toISOString().slice(0, 10);
-}
+const utcDay = isoDayNumber;
+const fromUtcDay = isoFromDayNumber;
 
 /** Today as YYYY-MM-DD in local time. */
 export function todayIso(now: Date = new Date()): string {
@@ -61,11 +63,33 @@ export function dayDate(sprint: Pick<Sprint, "startDate">, day: number): string 
   return start === null ? null : fromUtcDay(start + day);
 }
 
-/** Which day of the sprint `date` is (may be negative or past the end), or null. */
+/**
+ * Which day of the sprint `date` is (may be negative or past the end), or
+ * null. This is the calendar day, the index the daily log is stored under;
+ * `workingDayForDate` counts working days instead.
+ */
 export function dayForDate(sprint: Pick<Sprint, "startDate">, date: string): number | null {
   const start = utcDay(sprint.startDate);
   const at = utcDay(date);
   return start === null || at === null ? null : at - start;
+}
+
+/**
+ * Working days done by the morning of `date`: the working dates from the
+ * start date up to, but not including, `date` (negative before the start).
+ * 0 on the first day, flat over weekends and holidays. Null without dates.
+ */
+export function workingDayForDate(
+  sprint: Pick<Sprint, "startDate">,
+  date: string,
+  calendar: WorkingCalendar
+): number | null {
+  const start = utcDay(sprint.startDate);
+  const at = utcDay(date);
+  if (start === null || at === null) return null;
+  return at >= start
+    ? countWorkingDays(start, at, calendar)
+    : -countWorkingDays(at, start, calendar);
 }
 
 /** End date for a sprint that starts on `startDate` and lasts `days` days. */
@@ -82,6 +106,103 @@ export function endDateFor(startDate: string, days: number): string {
 export function hasSyntheticDates(sprint: Pick<Sprint, "startDate" | "endDate">): boolean {
   if (utcDay(sprint.startDate) === null || utcDay(sprint.endDate) === null) return true;
   return sprint.startDate.startsWith("2020-01-") && sprint.startDate.slice(0, 10) <= "2020-01-31";
+}
+
+/**
+ * Whether the ideal line can run on `calendar`'s working days for this
+ * sprint: a calendar was given, the dates are real, and the sprint holds at
+ * least one working day. Otherwise the calendar-day convention applies.
+ */
+function usesWorkingDays(
+  sprint: Pick<Sprint, "startDate" | "endDate">,
+  calendar: WorkingCalendar | undefined
+): calendar is WorkingCalendar {
+  if (!calendar || hasSyntheticDates(sprint)) return false;
+  const start = utcDay(sprint.startDate) as number;
+  return countWorkingDays(start, start + sprintLengthDays(sprint), calendar) > 0;
+}
+
+/**
+ * Where calendar day `day` (0 or later) sits on the ideal line's x-axis: the
+ * working days done by its morning, or `day` itself under the calendar-day
+ * convention (no calendar, placeholder dates, or no working day at all).
+ */
+export function elapsedWorkingDays(
+  sprint: Pick<Sprint, "startDate" | "endDate">,
+  day: number,
+  calendar?: WorkingCalendar
+): number {
+  const d = Math.max(0, day);
+  if (!usesWorkingDays(sprint, calendar)) return d;
+  const start = utcDay(sprint.startDate) as number;
+  return countWorkingDays(start, start + Math.floor(d), calendar);
+}
+
+/** Working days in the whole sprint (its x-axis length); the calendar length without one. */
+export function sprintWorkingDays(
+  sprint: Pick<Sprint, "startDate" | "endDate">,
+  calendar?: WorkingCalendar
+): number {
+  return elapsedWorkingDays(sprint, sprintLengthDays(sprint), calendar);
+}
+
+/** `elapsedWorkingDays` for each day 0 … sprintLengthDays. */
+export function workingDayAxis(
+  sprint: Pick<Sprint, "startDate" | "endDate">,
+  calendar?: WorkingCalendar
+): number[] {
+  const length = sprintLengthDays(sprint);
+  if (!usesWorkingDays(sprint, calendar)) return Array.from({ length: length + 1 }, (_, d) => d);
+  const start = utcDay(sprint.startDate) as number;
+  const axis = [0];
+  for (let d = 1; d <= length; d++) {
+    axis.push(axis[d - 1] + countWorkingDays(start + d - 1, start + d, calendar));
+  }
+  return axis;
+}
+
+/**
+ * The ideal remaining points on day `day`: `committed` on day 0, 0 on the
+ * last day, burning only on working days when a calendar is given. Days
+ * before the start read as day 0, days after the end as the last day.
+ */
+export function idealRemainingAt(
+  sprint: Pick<Sprint, "startDate" | "endDate">,
+  committed: number,
+  day: number,
+  calendar?: WorkingCalendar
+): number {
+  const length = sprintLengthDays(sprint);
+  const total = sprintWorkingDays(sprint, calendar);
+  if (total <= 0) return 0;
+  const done = elapsedWorkingDays(sprint, Math.min(Math.max(0, day), length), calendar);
+  return committed * (1 - done / total);
+}
+
+/** The ideal line for days 0 … sprintLengthDays. */
+export function idealLine(
+  sprint: Pick<Sprint, "startDate" | "endDate">,
+  committed: number,
+  calendar?: WorkingCalendar
+): number[] {
+  const axis = workingDayAxis(sprint, calendar);
+  const total = axis[axis.length - 1];
+  return axis.map((done) => (total > 0 ? committed * (1 - done / total) : 0));
+}
+
+/**
+ * The calendar day by whose morning `workingDays` working days are done (the
+ * inverse of `elapsedWorkingDays`, rounding up), possibly past the end.
+ * Under the calendar-day convention it is `workingDays` itself.
+ */
+export function dayForWorkingDay(
+  sprint: Pick<Sprint, "startDate" | "endDate">,
+  workingDays: number,
+  calendar?: WorkingCalendar
+): number {
+  if (!usesWorkingDays(sprint, calendar)) return workingDays;
+  const date = addWorkingDays(sprint.startDate, workingDays, calendar);
+  return (date === null ? null : dayForDate(sprint, date)) ?? workingDays;
 }
 
 /** Status a sprint should have on `today`, from its dates. */
