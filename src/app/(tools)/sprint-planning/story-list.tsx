@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import type { Story } from "@/lib/stores/workspace-types";
 import { storyPoints } from "@/lib/sprints/plan";
-import { isReady } from "./view";
+import { checkStoryPoints, isReady } from "./view";
 
 const STATUS_LABEL: Record<Story["status"], string> = {
   backlog: "Backlog",
@@ -18,23 +18,46 @@ const STATUS_LABEL: Record<Story["status"], string> = {
   done: "Done",
 };
 
-/** A story's points, edited in a draft and saved on blur or Enter. */
-function PointsCell({ story, onChange }: { story: Story; onChange: (points?: number) => void }) {
+/**
+ * A story's points, edited in a draft and saved on blur or Enter. A value
+ * that can't be saved stays in the field with the reason under the row
+ * (`error`), instead of being reverted without a word; and a malformed
+ * entry ("3e", "-"), which a number field reports as blank, no longer
+ * clears the points.
+ */
+function PointsCell({
+  story,
+  onChange,
+  errorId,
+  error,
+  onError,
+}: {
+  story: Story;
+  onChange: (points?: number) => void;
+  errorId: string;
+  error: string | undefined;
+  onError: (error: string | undefined) => void;
+}) {
   const shown = storyPoints(story) > 0 ? String(story.points) : "";
   const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
+  const badInput = useRef(false);
+  // A new saved value replaces the draft and whatever was wrong with it.
+  useEffect(() => {
+    setDraft(shown);
+    onError(undefined);
+  }, [shown, onError]);
   const commit = () => {
-    const t = draft.trim();
-    if (t === "") {
+    const checked = checkStoryPoints(draft, storyPoints(story), badInput.current);
+    if (!checked.ok) {
+      onError(checked.error);
+      return;
+    }
+    onError(undefined);
+    if (checked.points === undefined) {
       if (storyPoints(story) > 0) onChange(undefined);
       return;
     }
-    const n = Number(t);
-    if (!Number.isFinite(n) || n < 0) {
-      setDraft(shown);
-      return;
-    }
-    if (n !== story.points) onChange(n);
+    if (checked.points !== story.points) onChange(checked.points);
   };
   return (
     <Input
@@ -43,10 +66,15 @@ function PointsCell({ story, onChange }: { story: Story; onChange: (points?: num
       min={0}
       step="any"
       aria-label={`Points for ${story.title}`}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error ? errorId : undefined}
       className="h-8 w-20 shrink-0 text-right"
       value={draft}
       placeholder="—"
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        badInput.current = e.currentTarget.validity?.badInput === true;
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
@@ -90,6 +118,7 @@ function StoryRow({
   onRename,
   showStatus,
   showPriority,
+  cantAdd,
 }: {
   story: Story;
   checked: boolean;
@@ -98,11 +127,17 @@ function StoryRow({
   onRename: (story: Story, title: string) => void;
   showStatus?: boolean;
   showPriority?: boolean;
+  /** Why the box can't tick the story into the sprint (a closed sprint), if it can't. */
+  cantAdd?: string;
 }) {
   const edit = useInlineEdit();
+  const errorId = useId();
+  const [pointsError, setPointsError] = useState<string | undefined>();
   // A done story stays in its sprint: moving it out would hide finished
   // work (it isn't backlog any more), so its box can't be unticked.
-  const locked = checked && story.status === "done";
+  const done = checked && story.status === "done";
+  const blocked = !checked && cantAdd !== undefined;
+  const locked = done || blocked;
   const meta: string[] = [];
   if (showStatus) meta.push(STATUS_LABEL[story.status] ?? story.status);
   if (story.owner?.trim()) meta.push(story.owner.trim());
@@ -113,61 +148,74 @@ function StoryRow({
   }
 
   return (
-    <li className="flex items-start gap-3 px-3 py-2">
-      <input
-        type="checkbox"
-        className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)] disabled:opacity-60"
-        checked={checked}
-        disabled={locked}
-        title={locked ? "Done: stays in the sprint" : undefined}
-        aria-label={
-          locked
-            ? `Done, stays in the sprint: ${story.title}`
-            : `${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`
-        }
-        onChange={() => onToggle(story)}
-      />
-      <div className="min-w-0 flex-1">
-        {edit.editing ? (
-          <InlineItemEditor
-            label={`Edit ${story.title}`}
-            title={story.title}
-            titleLabel="Story title"
-            titleMaxLength={200}
-            onDone={(next, opts) => {
-              if (next) onRename(story, next.title);
-              edit.stop(opts);
-            }}
-          />
-        ) : (
-          <div className="flex items-start gap-1">
-            <span className="min-w-0 break-words pt-0.5 text-sm text-text">{story.title}</span>
-            <IconButton
-              ref={edit.triggerRef}
+    <li className="px-3 py-2">
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)] disabled:opacity-60"
+          checked={checked}
+          disabled={locked}
+          title={done ? "Done: stays in the sprint" : blocked ? cantAdd : undefined}
+          aria-label={
+            done
+              ? `Done, stays in the sprint: ${story.title}`
+              : `${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`
+          }
+          onChange={() => onToggle(story)}
+        />
+        <div className="min-w-0 flex-1">
+          {edit.editing ? (
+            <InlineItemEditor
               label={`Edit ${story.title}`}
-              icon={<Pencil className="h-3.5 w-3.5" />}
-              className="h-7 w-7 shrink-0 text-sub hover:text-text"
-              onClick={edit.start}
+              title={story.title}
+              titleLabel="Story title"
+              titleMaxLength={200}
+              onDone={(next, opts) => {
+                if (next) onRename(story, next.title);
+                edit.stop(opts);
+              }}
             />
-          </div>
-        )}
-        {(meta.length > 0 || story.status !== "done") && (
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-sub">
-            {meta.flatMap((part, i) => [
-              ...(i > 0
-                ? [
-                    <span key={`sep-${i}`} aria-hidden="true">
-                      ·
-                    </span>,
-                  ]
-                : []),
-              <span key={`part-${i}`}>{part}</span>,
-            ])}
-            {story.status !== "done" && <ReadinessBadge story={story} />}
-          </p>
-        )}
+          ) : (
+            <div className="flex items-start gap-1">
+              <span className="min-w-0 break-words pt-0.5 text-sm text-text">{story.title}</span>
+              <IconButton
+                ref={edit.triggerRef}
+                label={`Edit ${story.title}`}
+                icon={<Pencil className="h-3.5 w-3.5" />}
+                className="h-7 w-7 shrink-0 text-sub hover:text-text"
+                onClick={edit.start}
+              />
+            </div>
+          )}
+          {(meta.length > 0 || story.status !== "done") && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-sub">
+              {meta.flatMap((part, i) => [
+                ...(i > 0
+                  ? [
+                      <span key={`sep-${i}`} aria-hidden="true">
+                        ·
+                      </span>,
+                    ]
+                  : []),
+                <span key={`part-${i}`}>{part}</span>,
+              ])}
+              {story.status !== "done" && <ReadinessBadge story={story} />}
+            </p>
+          )}
+        </div>
+        <PointsCell
+          story={story}
+          onChange={(points) => onPoints(story, points)}
+          errorId={errorId}
+          error={pointsError}
+          onError={setPointsError}
+        />
       </div>
-      <PointsCell story={story} onChange={(points) => onPoints(story, points)} />
+      {pointsError && (
+        <p id={errorId} role="alert" className="mt-1 text-right text-xs text-danger">
+          {pointsError}
+        </p>
+      )}
     </li>
   );
 }
@@ -182,31 +230,70 @@ export function StoryList({
   showStatus,
   showPriority,
   label,
+  listKey,
+  cantAdd,
 }: {
   stories: readonly Story[];
   checked: boolean;
-  onToggle: (story: Story) => void;
+  /** `index` is the story's place in this list, for where focus goes after it moves. */
+  onToggle: (story: Story, index: number) => void;
   onPoints: (story: Story, points: number | undefined) => void;
   onRename: (story: Story, title: string) => void;
   showStatus?: boolean;
   showPriority?: boolean;
   /** The list's accessible name. */
   label: string;
+  /** Names the list for `focusAfterMove`. */
+  listKey: string;
+  /** Why unticked stories can't be ticked into the sprint (it is closed), if they can't. */
+  cantAdd?: string;
 }) {
   return (
-    <ul aria-label={label} className="divide-y divide-border rounded-lg border border-border">
-      {stories.map((story) => (
+    <ul
+      aria-label={label}
+      data-story-list={listKey}
+      className="divide-y divide-border rounded-lg border border-border"
+    >
+      {stories.map((story, index) => (
         <StoryRow
           key={story.id}
           story={story}
           checked={checked}
-          onToggle={onToggle}
+          onToggle={(s) => onToggle(s, index)}
           onPoints={onPoints}
           onRename={onRename}
           showStatus={showStatus}
           showPriority={showPriority}
+          cantAdd={cantAdd}
         />
       ))}
     </ul>
   );
+}
+
+/** Where focus goes once a story has moved: a list's place, else a heading's id. */
+export interface FocusTarget {
+  listKey?: string;
+  index?: number;
+  /** The id of an element that stays (a section's heading, with tabIndex -1). */
+  fallbackId: string;
+}
+
+/**
+ * Put focus back after a move. Ticking a story moves its row to another
+ * list, so the focused box unmounts and focus fell to the page body;
+ * keyboard and screen-reader users lost their place after every tick. The
+ * story now in `index`'s place in the same list takes focus (the last one
+ * when the list got shorter), else the fallback heading when the list is
+ * gone.
+ */
+export function focusAfterMove(root: HTMLElement | null, target: FocusTarget): void {
+  if (!root) return;
+  const list = target.listKey ? root.querySelector(`[data-story-list="${target.listKey}"]`) : null;
+  const boxes = list
+    ? Array.from(list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:not(:disabled)'))
+    : [];
+  const box = boxes[Math.min(target.index ?? 0, boxes.length - 1)];
+  const next = box ?? root.ownerDocument.getElementById(target.fallbackId);
+  next?.focus();
 }

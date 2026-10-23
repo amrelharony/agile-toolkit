@@ -17,6 +17,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { sprintsNewestFirst } from "@/lib/sprints/series";
+import { usualSprintDays } from "@/app/(tools)/capacity-planner/model";
 import { PlanningBoard } from "./board";
 import { buildExample, type PlanningExample } from "./example";
 import { createExampleStore, exampleWriter, liveWriter } from "./writer";
@@ -43,6 +44,8 @@ export function SprintPlanning() {
   const backlogItems = useWorkspaceStore((s) => s.backlogItems) ?? NO_ITEMS;
   const capacityPlans = useWorkspaceStore((s) => s.capacityPlans) ?? NO_PLANS;
   const [cadence] = useCeremonyCadence();
+  // "A normal sprint" for the capacity forecast: the team's usual length.
+  const usualDays = useMemo(() => usualSprintDays(cadence), [cadence]);
   const { log } = useHistoryLogger(TOOL_ID);
   const router = useRouter();
   const [creating, setCreating] = useState(false);
@@ -68,6 +71,7 @@ export function SprintPlanning() {
       <>
         <ExamplePlan
           example={example}
+          usualDays={usualDays}
           onExit={() => setExample(null)}
           onStart={() => setCreating(true)}
         />
@@ -110,7 +114,7 @@ export function SprintPlanning() {
       <PlanningBoard
         // A typed target belongs to one sprint: switching starts afresh.
         key={selected.id}
-        data={{ sprints, sprint: selected, stories, backlogItems, capacityPlans }}
+        data={{ sprints, sprint: selected, stories, backlogItems, capacityPlans, usualDays }}
         writer={liveWriter}
         onSelect={select}
         onNewSprint={() => setCreating(true)}
@@ -129,10 +133,12 @@ export function SprintPlanning() {
  */
 function ExamplePlan({
   example,
+  usualDays,
   onExit,
   onStart,
 }: {
   example: PlanningExample;
+  usualDays: number;
   onExit: () => void;
   onStart: () => void;
 }) {
@@ -158,6 +164,7 @@ function ExamplePlan({
           stories,
           backlogItems: NO_ITEMS,
           capacityPlans: example.capacityPlans,
+          usualDays,
         }}
         writer={writer}
         example

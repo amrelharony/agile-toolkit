@@ -47,7 +47,9 @@ import { SprintPlanning } from "@/app/(tools)/sprint-planning/planning";
 import {
   EMPTY_STORY_DRAFT,
   carryOverLabel,
+  checkStoryPoints,
   forecastText,
+  targetError,
   leftoverGroups,
   planFill,
   planWarnings,
@@ -291,10 +293,103 @@ describe("capacity forecast", () => {
   });
 
   it("flags a plan that still holds example members", () => {
-    const ex = plan("capacity-planner:current", [{ availability: 100, daysOff: 0 }]);
+    const ex = plan("capacity-planner:current", [
+      { availability: 100, daysOff: 0 },
+      { availability: 100, daysOff: 0 },
+    ]);
     ex.members[0].id = "example-member-1";
     expect(readCapacity([ex], "s2", 10).example).toBe(true);
     expect(readCapacity(plans, "s2", 10).example).toBe(false);
+  });
+
+  it("passes over a plan of example members for a real sprint", () => {
+    const exampleOnly = plan(
+      "capacity-planner:sprint:s2",
+      [
+        { availability: 100, daysOff: 5 },
+        { availability: 100, daysOff: 5 },
+      ],
+      "s2"
+    );
+    exampleOnly.members.forEach((m, i) => (m.id = `example-member-${i}`));
+    // Sprint 2's own plan is only the example: the general plan is used.
+    expect(readCapacity([plans[0], exampleOnly], "s2", 30)).toMatchObject({
+      perSprint: false,
+      people: 1,
+      ratio: 1,
+      points: 30,
+      example: false,
+    });
+    expect(readCapacity([exampleOnly], "s2", 30)).toMatchObject({ plan: undefined, points: null });
+    // The example plan's own sprint still uses it.
+    const exSprintPlan = { ...exampleOnly, id: "capacity-planner:sprint:example-s5" };
+    expect(readCapacity([exSprintPlan], "example-s5", 30)).toMatchObject({
+      perSprint: true,
+      people: 2,
+      example: true,
+    });
+  });
+
+  it("measures a normal sprint by the team's usual length, so a holiday lowers the points", () => {
+    // Sprint 2's plan with a holiday taken off: 9 working days, everyone in.
+    const holiday = plan(
+      "capacity-planner:sprint:s2",
+      [
+        { availability: 100, daysOff: 0 },
+        { availability: 100, daysOff: 0 },
+      ],
+      "s2"
+    );
+    holiday.config.sprintDays = 9;
+    expect(readCapacity([holiday], "s2", 30, 10)).toMatchObject({ ratio: 0.9, points: 27 });
+    // Measured with its own 9 days, the holiday dropped out.
+    expect(readCapacity([holiday], "s2", 30)).toMatchObject({ ratio: 1, points: 30 });
+  });
+
+  it("counts a blank row as nobody", () => {
+    const legacy = plan("capacity-planner:current", [{ availability: 100, daysOff: 0 }]);
+    legacy.members[0] = {
+      id: "default:member-1",
+      name: "",
+      role: "",
+      availability: 100,
+      daysOff: 0,
+    };
+    const read = readCapacity([legacy], "s2", 30, 10);
+    expect(read).toMatchObject({ people: 0, hours: null, ratio: null, points: null });
+    expect(forecastText(read, 30)).toMatch(/^The capacity plan has nobody in it yet/);
+    legacy.members.push({ id: "m1", name: "Ann", role: "Dev", availability: 100, daysOff: 0 });
+    expect(readCapacity([legacy], "s2", 30, 10)).toMatchObject({ people: 1, hours: 57.6 });
+  });
+});
+
+describe("typed points", () => {
+  it("explains a Commit to value it can't use", () => {
+    expect(targetError("")).toBeUndefined();
+    expect(targetError("0")).toBeUndefined();
+    expect(targetError("27.5")).toBeUndefined();
+    expect(targetError("-5")).toBe("Points are 0 or more. Leave it blank to use the suggestion.");
+    expect(targetError("", true)).toBe(
+      "Points are a number. Leave it blank to use the suggestion."
+    );
+  });
+
+  it("keeps a story's points on a bad entry and names what still counts", () => {
+    expect(checkStoryPoints("", 5)).toEqual({ ok: true, points: undefined });
+    expect(checkStoryPoints(" 8 ", 5)).toEqual({ ok: true, points: 8 });
+    expect(checkStoryPoints("0", 5)).toEqual({ ok: true, points: 0 });
+    expect(checkStoryPoints("-3", 5)).toEqual({
+      ok: false,
+      error: "Points are 0 or more. Still counting 5 points.",
+    });
+    expect(checkStoryPoints("", 5, true)).toEqual({
+      ok: false,
+      error: "Points are a number. Still counting 5 points.",
+    });
+    expect(checkStoryPoints("-1", 0)).toEqual({
+      ok: false,
+      error: "Points are 0 or more. Still not sized.",
+    });
   });
 });
 
@@ -458,10 +553,165 @@ describe("Sprint Planning page", () => {
   it("doesn't offer to carry into a closed sprint, only back to the backlog", () => {
     const closed = { ...S2, status: "completed" as const, pointsCompleted: 0 };
     useWorkspaceStore.setState({ sprints: [S1, closed] });
-    renderPlanning();
+    const { container } = renderPlanning();
     const left = screen.getByRole("region", { name: "Left over from Sprint 1" });
     expect(within(left).queryByRole("button", { name: /Carry over/ })).toBeNull();
     expect(within(left).getByRole("button", { name: "Back to the backlog" })).toBeInTheDocument();
+
+    // Not one story at a time either, from the left-overs or the backlog.
+    const leftBox = screen.getByLabelText("Add to sprint: Card expiry reminders");
+    const backlogBox = screen.getByLabelText("Add to sprint: Remove a saved card");
+    expect(leftBox).toBeDisabled();
+    expect(leftBox).toHaveAttribute("title", "Sprint 2 is closed");
+    expect(backlogBox).toBeDisabled();
+    fireEvent.click(leftBox);
+    fireEvent.click(backlogBox);
+    expect(story("left-2")?.sprintId).toBe("s1");
+    expect(story("b1")?.sprintId).toBeUndefined();
+    expect(screen.getByRole("button", { name: "Fill to capacity" })).toBeDisabled();
+    expect(screen.queryByLabelText("New story")).toBeNull();
+    expect(container.querySelector('[data-field="closed"]')?.textContent).toBe(
+      "Sprint 2 is completed, so nothing more can be planned into it. Pick a sprint that is still open, or start a new one."
+    );
+
+    // A closed sprint isn't started again: that would drop it from velocity.
+    expect(screen.queryByRole("button", { name: "Start the sprint" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update the commitment" })).toBeNull();
+    expect(container.querySelector('[data-field="closed-commit"]')?.textContent).toBe(
+      "Sprint 2 is closed, so it can't be started again: its commitment stays at 0 points."
+    );
+    expect(state().sprints.find((s) => s.id === "s2")?.status).toBe("completed");
+
+    // Its own unfinished work can still go back to the backlog.
+    fireEvent.click(screen.getByLabelText("Remove from sprint: Pay with a saved card"));
+    expect(story("in-1")?.sprintId).toBeUndefined();
+  });
+
+  it("puts focus on the next story after a tick, and says where the story went", () => {
+    renderPlanning();
+    const status = () => screen.getByText(/^(Added|Moved) /, { selector: "[role=status]" });
+    fireEvent.click(screen.getByLabelText("Add to sprint: Remove a saved card"));
+    // "Apple Pay" moved up into its place in the backlog.
+    expect(screen.getByLabelText("Add to sprint: Apple Pay")).toHaveFocus();
+    expect(status()).toHaveTextContent("Added “Remove a saved card” to Sprint 2.");
+
+    // The last one in a list: focus goes to the one before it.
+    fireEvent.click(screen.getByLabelText("Add to sprint: Fraud checks"));
+    expect(screen.getByLabelText("Add to sprint: Apple Pay")).toHaveFocus();
+
+    fireEvent.click(screen.getByLabelText("Remove from sprint: Pay with a saved card"));
+    expect(status()).toHaveTextContent("Moved “Pay with a saved card” back to the backlog.");
+    expect(document.activeElement).toHaveAttribute("type", "checkbox");
+    expect(document.activeElement?.closest("[data-story-list]")).toHaveAttribute(
+      "data-story-list",
+      "sprint"
+    );
+  });
+
+  it("moves focus to the sprint's heading when a list empties or a group is carried over", () => {
+    renderPlanning();
+    fireEvent.click(screen.getByLabelText("Add to sprint: Card expiry reminders"));
+    // One left over still: it takes focus.
+    expect(screen.getByLabelText("Add to sprint: Refund flow")).toHaveFocus();
+    fireEvent.click(screen.getByLabelText("Add to sprint: Refund flow"));
+    // The section is gone; focus lands where the stories went.
+    expect(screen.queryByRole("region", { name: "Left over from Sprint 1" })).toBeNull();
+    expect(screen.getByRole("heading", { name: /^In Sprint 2/ })).toHaveFocus();
+
+    const reset = () =>
+      act(() => useWorkspaceStore.setState({ stories: STORIES.map((s) => ({ ...s })) }));
+    reset();
+    fireEvent.click(screen.getByRole("button", { name: "Carry over 2 stories (8 points)" }));
+    expect(screen.getByRole("heading", { name: /^In Sprint 2/ })).toHaveFocus();
+
+    reset();
+    fireEvent.click(screen.getByRole("button", { name: "Back to the backlog" }));
+    expect(screen.getByRole("heading", { name: /^Backlog/ })).toHaveFocus();
+  });
+
+  it("says why a Commit to value isn't used", () => {
+    const { container } = renderPlanning();
+    const field = screen.getByLabelText("Commit to");
+    fireEvent.change(field, { target: { value: "-5" } });
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(
+      screen.getByText("Points are 0 or more. Leave it blank to use the suggestion.")
+    ).toBeInTheDocument();
+    expect(container.querySelector('[data-field="commitment"]')?.textContent).not.toContain(
+      "against"
+    );
+    // A malformed entry the field reports as blank isn't taken for "use the suggestion".
+    Object.defineProperty(field, "validity", { value: { badInput: true }, configurable: true });
+    fireEvent.change(field, { target: { value: "" } });
+    expect(
+      screen.getByText("Points are a number. Leave it blank to use the suggestion.")
+    ).toBeInTheDocument();
+    Object.defineProperty(field, "validity", { value: { badInput: false }, configurable: true });
+    fireEvent.change(field, { target: { value: "20" } });
+    expect(screen.queryByText(/Leave it blank to use the suggestion\./)).toBeNull();
+    expect(container.querySelector('[data-field="commitment"]')?.textContent).toContain(
+      "against 20 points of capacity"
+    );
+  });
+
+  it("keeps a story's points on a bad entry and says why", () => {
+    renderPlanning();
+    const input = screen.getByLabelText("Points for Remove a saved card");
+    fireEvent.change(input, { target: { value: "-3" } });
+    fireEvent.blur(input);
+    expect(story("b1")?.points).toBe(5);
+    expect(input).toHaveValue(-3);
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Points are 0 or more. Still counting 5 points."
+    );
+
+    // "3e" reads as blank in a number field: it must not clear the points.
+    Object.defineProperty(input, "validity", { value: { badInput: true }, configurable: true });
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect(story("b1")?.points).toBe(5);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Points are a number. Still counting 5 points."
+    );
+
+    Object.defineProperty(input, "validity", { value: { badInput: false }, configurable: true });
+    fireEvent.change(input, { target: { value: "8" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(story("b1")?.points).toBe(8);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("doesn't count a blank row of an older general plan as a person", () => {
+    useWorkspaceStore.setState({
+      capacityPlans: [
+        {
+          ...plan("capacity-planner:current", []),
+          members: [{ id: "default:member-1", name: "", role: "", availability: 100, daysOff: 0 }],
+        },
+      ],
+    });
+    const { container } = renderPlanning();
+    expect(container.querySelector('[data-field="capacity-hours"]')?.textContent).toBe("—");
+    expect(screen.getByText(/Nobody in the capacity plan yet/)).toBeInTheDocument();
+  });
+
+  it("lowers the suggestion for a sprint whose plan has a holiday taken off", () => {
+    const own = plan(
+      "capacity-planner:sprint:s2",
+      [
+        { availability: 100, daysOff: 0 },
+        { availability: 100, daysOff: 0 },
+      ],
+      "s2"
+    );
+    own.config.sprintDays = 9;
+    useWorkspaceStore.setState({ capacityPlans: [own] });
+    const { container } = renderPlanning();
+    // The cadence's usual sprint is 10 working days.
+    expect(container.querySelector('[data-field="forecast"]')?.textContent).toBe(
+      "Capacity is 90% of a normal sprint, so plan about 27 points (velocity 30 × 90%)."
+    );
   });
 
   it("stamps a story ticked in from the backlog", () => {

@@ -15,8 +15,9 @@ import {
 } from "@/lib/sprints/plan";
 import { carryOver } from "@/lib/sprints/progress";
 import { sprintsNewestFirst } from "@/lib/sprints/series";
-import { findCapacityPlan, planCapacity, pointsForecast } from "@/lib/sprints/capacity";
-import { hasExampleItems } from "@/components/tool-frame/example-data";
+import { findCapacityPlan, planCapacity } from "@/lib/sprints/capacity";
+import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
+import { capacityForecast, countedPlan, isExampleOnly } from "@/app/(tools)/capacity-planner/model";
 import { listAnd } from "@/lib/charts/chart-text";
 import { parseNumber, type Validation } from "@/lib/utils/form";
 
@@ -175,21 +176,29 @@ export interface CapacityRead {
  * The capacity side of the plan: the sprint's capacity plan (or the general
  * one every team had before plans were per sprint) and the points it
  * suggests, recent velocity scaled by how much of a normal sprint the team
- * has (`pointsForecast`).
+ * has (the Capacity Planner's `capacityForecast`, so both tools say the
+ * same). A normal sprint is the team's usual `usualDays`, so a holiday or a
+ * short sprint lowers the suggestion. The counting is the planner's too: a
+ * blank row is nobody, and a plan holding only the example team ("Load an
+ * example") doesn't plan a real sprint: a sprint's own is passed over for
+ * the general plan, and an example-only general plan counts as none.
  */
 export function readCapacity(
   plans: readonly CapacityPlan[] | undefined,
   sprintId: string,
-  velocity: number | null
+  velocity: number | null,
+  usualDays?: number
 ): CapacityRead {
-  const found = findCapacityPlan(plans, sprintId);
+  const usable = isExampleId(sprintId) ? plans : plans?.filter((p) => !isExampleOnly(p));
+  const found = findCapacityPlan(usable, sprintId);
   const plan = found?.plan;
-  const people = plan?.members.length ?? 0;
-  const forecast = pointsForecast(plan, velocity);
+  const counted = plan ? countedPlan(plan) : undefined;
+  const people = counted?.members.length ?? 0;
+  const forecast = capacityForecast(counted, velocity, usualDays);
   return {
     plan,
     perSprint: found?.perSprint ?? false,
-    hours: plan && people > 0 ? planCapacity(plan).totalHours : null,
+    hours: counted && people > 0 ? planCapacity(counted).totalHours : null,
     people,
     ratio: forecast.ratio,
     points: forecast.points,
@@ -229,6 +238,41 @@ export function forecastText(read: CapacityRead, velocity: number | null): strin
   return `Capacity is ${pct(read.ratio)} of a normal sprint, so plan about ${pointsCount(
     read.points ?? 0
   )} (velocity ${fmt(velocity)} × ${pct(read.ratio)}).`;
+}
+
+/* ── Typed points ────────────────────────────────────────────────────── */
+
+/**
+ * Why a typed "Commit to" can't be used, or undefined. Blank is fine (the
+ * suggestion is used); anything else must be a number, 0 or more, and says
+ * so instead of quietly dropping the comparison. `badInput` is the field's
+ * own verdict: a number field reports "3e" or "-" as blank.
+ */
+export function targetError(raw: string, badInput = false): string | undefined {
+  const fix = "Leave it blank to use the suggestion.";
+  if (badInput) return `Points are a number. ${fix}`;
+  if (raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? undefined : `Points are 0 or more. ${fix}`;
+}
+
+/**
+ * A story's points as typed in its row: blank clears them (not sized yet),
+ * a number 0 or more is kept, and anything else is an error that names what
+ * still counts, never a silent revert or a silent clear.
+ */
+export function checkStoryPoints(
+  raw: string,
+  saved: number,
+  badInput = false
+): { ok: true; points: number | undefined } | { ok: false; error: string } {
+  const still = saved > 0 ? `Still counting ${pointsCount(saved)}.` : "Still not sized.";
+  if (badInput) return { ok: false, error: `Points are a number. ${still}` };
+  const t = raw.trim();
+  if (t === "") return { ok: true, points: undefined };
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, error: `Points are 0 or more. ${still}` };
+  return { ok: true, points: n };
 }
 
 /* ── Readiness ───────────────────────────────────────────────────────── */
