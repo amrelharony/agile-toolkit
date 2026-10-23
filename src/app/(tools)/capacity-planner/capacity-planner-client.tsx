@@ -44,7 +44,7 @@ import {
   isExampleId,
 } from "@/components/tool-frame/example-data";
 import { buildExampleMembers } from "./example";
-import { effectiveHours } from "./capacity";
+import { effectiveHours } from "@/lib/sprints/capacity";
 import { toMarkdown } from "./markdown";
 import { revertRosterSync, syncFromRoster, type RosterSyncResult } from "./roster-sync";
 

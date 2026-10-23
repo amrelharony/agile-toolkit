@@ -33,7 +33,7 @@ import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { updateSprint } from "@/lib/sprints/store";
 import { averageVelocity, completedSprints, fmt } from "@/lib/sprints/hub-view";
 import { selectStoriesForCapacity, storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
-import { CAPACITY_PLAN_ID, planCapacity } from "@/app/(tools)/capacity-planner/capacity";
+import { CAPACITY_PLAN_ID, planCapacity } from "@/lib/sprints/capacity";
 import { currentPokerLog, pokerQueueRoute } from "@/lib/handoffs/targets/poker-queue";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
