@@ -30,6 +30,7 @@ import {
   ExampleNotice,
   LoadExampleButton,
   hasExampleItems,
+  isExampleId,
 } from "@/components/tool-frame/example-data";
 import { generateDependencyMapPrompts } from "@/lib/ai-prompts/dependency-map";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -72,6 +73,7 @@ import {
 } from "./link";
 import { toMarkdown } from "./markdown";
 import { DependencyStatusChip } from "./status-chip";
+import { useReturnFocus, type RefFor } from "./use-return-focus";
 import { dependencyVerdict } from "./verdict";
 
 type StatusFilter = "all" | DependencyStatus;
@@ -111,6 +113,13 @@ export function DependencyMapClient() {
   const [confirmNode, setConfirmNode] = useState<DependencyNode | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const { refFor, returnTo } = useReturnFocus();
+
+  /** Close the editor and put focus back on the row's Edit button. */
+  const closeEditor = (id: string) => {
+    setEditing(null);
+    returnTo(`edit:${id}`);
+  };
 
   const edges = useMemo(() => cleanEdges(map), [map]);
   const cycles = useMemo(() => detectCycles(map.nodes, edges), [map.nodes, edges]);
@@ -136,7 +145,7 @@ export function DependencyMapClient() {
   };
 
   const saveNode = (node: DependencyNode, v: NodeValues) => {
-    setEditing(null);
+    closeEditor(node.id);
     updateDependencyMap((m) => ({
       ...m,
       nodes: m.nodes.map((n) => {
@@ -201,7 +210,7 @@ export function DependencyMapClient() {
   };
 
   const saveEdge = (edge: DependencyEdge, v: EdgeValues) => {
-    setEditing(null);
+    closeEditor(edge.id);
     updateDependencyMap((m) => ({
       ...m,
       edges: m.edges.map((e) => {
@@ -239,7 +248,49 @@ export function DependencyMapClient() {
   /* ── Example ── */
 
   const loadExample = () => saveDependencyMap(withExample(currentDependencyMap() ?? map));
-  const clearExample = () => saveDependencyMap(withoutExample(currentDependencyMap() ?? map));
+
+  /**
+   * Remove the example. Dependencies of the user's own drawn to an example
+   * node can't stay (they'd dangle), so when there are any, say how many go
+   * and offer Undo, which puts the whole example back with them.
+   */
+  const clearExample = () => {
+    const before = currentDependencyMap() ?? map;
+    const kept = new Set(withoutExample(before).edges.map((e) => e.id));
+    const mine = before.edges.filter((e) => !kept.has(e.id) && !isExampleId(e.id)).length;
+    if (mine === 0) {
+      saveDependencyMap(withoutExample(before));
+      return;
+    }
+    let taken: {
+      nodes: { item: DependencyNode; index: number }[];
+      edges: { item: DependencyEdge; index: number }[];
+    } = { nodes: [], edges: [] };
+    undoable({
+      label: "Cleared the example",
+      description: `and ${mine} ${mine === 1 ? "dependency" : "dependencies"} of yours drawn to it`,
+      apply: () =>
+        updateDependencyMap((m) => {
+          const next = withoutExample(m);
+          const nodeIds = new Set(next.nodes.map((x) => x.id));
+          const edgeIds = new Set(next.edges.map((x) => x.id));
+          taken = {
+            nodes: m.nodes.flatMap((item, index) =>
+              nodeIds.has(item.id) ? [] : [{ item, index }]
+            ),
+            edges: m.edges.flatMap((item, index) =>
+              edgeIds.has(item.id) ? [] : [{ item, index }]
+            ),
+          };
+          return next;
+        }),
+      revert: () =>
+        updateDependencyMap((m) => ({
+          nodes: insertAt(m.nodes, taken.nodes),
+          edges: insertAt(m.edges, taken.edges),
+        })),
+    });
+  };
 
   /* ── Derived views ── */
 
@@ -331,7 +382,10 @@ export function DependencyMapClient() {
       category="Flow & Delivery"
     >
       <div ref={exportRef} className="space-y-4">
-        {hasExampleItems(map.nodes) && <ExampleNotice onClear={clearExample} />}
+        {/* Edges too: an example's edge is example data whichever nodes it joins. */}
+        {(hasExampleItems(map.nodes) || hasExampleItems(map.edges)) && (
+          <ExampleNotice onClear={clearExample} />
+        )}
 
         <ActionRow>
           <AiPromptGenerator config={promptConfig} />
@@ -420,13 +474,14 @@ export function DependencyMapClient() {
                         node={n}
                         nodes={map.nodes}
                         onSave={(v) => saveNode(n, v)}
-                        onCancel={() => setEditing(null)}
+                        onCancel={() => closeEditor(n.id)}
                       />
                     ) : (
                       <NodeRow
                         node={n}
                         links={edges.filter((e) => touches(e, n.id)).length}
                         onPath={onPath.has(n.id)}
+                        refFor={refFor}
                         onEdit={() => setEditing(n.id)}
                         onRemove={() => requestRemoveNode(n)}
                       />
@@ -494,13 +549,14 @@ export function DependencyMapClient() {
                             edges={map.edges}
                             sides={edgeSides(map, e)}
                             onSave={(v) => saveEdge(e, v)}
-                            onCancel={() => setEditing(null)}
+                            onCancel={() => closeEditor(e.id)}
                           />
                         ) : (
                           <EdgeRow
                             edge={e}
                             map={map}
                             today={today}
+                            refFor={refFor}
                             onStatus={(s) => setEdgeStatus(e.id, s)}
                             onEdit={() => setEditing(e.id)}
                             onRemove={() => removeEdge(e)}
@@ -540,12 +596,14 @@ function NodeRow({
   node,
   links,
   onPath,
+  refFor,
   onEdit,
   onRemove,
 }: {
   node: DependencyNode;
   links: number;
   onPath: boolean;
+  refFor: RefFor;
   onEdit: () => void;
   onRemove: () => void;
 }) {
@@ -575,6 +633,7 @@ function NodeRow({
       </div>
       <span className="flex shrink-0 items-center">
         <IconButton
+          ref={refFor(`edit:${node.id}`)}
           label={`Edit ${node.label}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
@@ -595,6 +654,7 @@ function EdgeRow({
   edge,
   map,
   today,
+  refFor,
   onStatus,
   onEdit,
   onRemove,
@@ -602,6 +662,7 @@ function EdgeRow({
   edge: DependencyEdge;
   map: MapGraph;
   today: string;
+  refFor: RefFor;
   onStatus: (status: DependencyStatus) => void;
   onEdit: () => void;
   onRemove: () => void;
@@ -665,6 +726,7 @@ function EdgeRow({
           </Button>
         )}
         <IconButton
+          ref={refFor(`edit:${edge.id}`)}
           label={`Edit ${name}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -44,6 +44,9 @@ import {
   DEPENDENCY_MAP_ID,
   findLinkedEdge,
   linkDependency,
+  patchEdge,
+  releaseEdges,
+  restoreReleased,
   setEdgeStatus,
   unlink,
 } from "@/app/(tools)/dependency-map/link";
@@ -343,7 +346,7 @@ describe("linking from other tools", () => {
 
   it("adds both sides and the edge, and Undo takes back only what it added", () => {
     seed([n("keep", "Payments")], [e("x", "keep", "keep2")]);
-    const result = linkDependency({ from: "Checkout", to: "payments", sourceRef: ref }, makeId);
+    const result = linkDependency({ from: "Checkout", to: "payments", sourceRef: ref }, makeId)!;
     expect(result.addedEdge).toBe(true);
     expect(result.addedNodes).toHaveLength(1); // "payments" matched the existing node
     expect(map().edges.find((x) => x.id === result.edgeId)).toMatchObject({
@@ -360,7 +363,7 @@ describe("linking from other tools", () => {
 
   it("reuses an identical open edge, finds it by its sides, and Undo leaves it alone", () => {
     seed([n("c", "Checkout"), n("p", "Payments")], [e("old", "c", "p")]);
-    const result = linkDependency({ from: "Checkout", to: "Payments", sourceRef: ref }, makeId);
+    const result = linkDependency({ from: "Checkout", to: "Payments", sourceRef: ref }, makeId)!;
     expect(result).toEqual({ edgeId: "old", addedEdge: false, addedNodes: [] });
     expect(
       findLinkedEdge(
@@ -570,5 +573,173 @@ describe("Dependency Map page", () => {
     fireEvent.change(name, { target: { value: "Web checkout" } });
     fireEvent.submit(editor);
     expect(map().nodes.map((x) => x.label)).toEqual(["Web checkout", "Payments"]);
+  });
+});
+
+/* ── Review fixes ─────────────────────────────────────────────────────── */
+
+describe("links never cross between the user's map and an example", () => {
+  const ref = { tool: "pi-planning", id: "item-1" };
+
+  it("never lands a real link on an example node, and keeps an example's links among its own", () => {
+    seed(
+      [n("example-dm-checkout", "Checkout"), n("example-dm-pay", "Payments")],
+      [e("example-dm-e1", "example-dm-checkout", "example-dm-pay")]
+    );
+    const real = linkDependency({ from: "Checkout", to: "Payments", sourceRef: ref })!;
+    expect(real.addedEdge).toBe(true);
+    expect(real.addedNodes).toHaveLength(2);
+    const edge = map().edges.find((x) => x.id === real.edgeId)!;
+    expect([edge.from, edge.to].some((id) => id.startsWith("example-"))).toBe(false);
+
+    const ex = linkDependency(
+      { from: "Checkout", to: "Payments", sourceRef: { tool: "pi-planning", id: "example-pi-c5" } },
+      undefined,
+      "example-pi-map-"
+    )!;
+    // Neither the user's nodes nor the Dependency Map example's: its own, with its prefix.
+    expect(ex.edgeId).toMatch(/^example-pi-map-/);
+    expect(ex.addedNodes.every((id) => id.startsWith("example-pi-map-"))).toBe(true);
+    expect(map().nodes).toHaveLength(6);
+  });
+
+  it("refuses a self-wait and writes nothing", () => {
+    expect(linkDependency({ from: "Checkout", to: " checkout " })).toBeNull();
+    expect(linkDependency({ from: "", to: "Payments" })).toBeNull();
+    expect(map().nodes).toEqual([]);
+  });
+});
+
+describe("finding the edge for a wait someone else drew", () => {
+  const ref = { tool: "scrum-of-scrums", id: "s1" };
+  const nodes = [n("c", "Checkout"), n("p", "Payments")];
+  const sides = { from: "Checkout", to: "Payments" };
+
+  it("reads blocks edges in delivery order", () => {
+    // "Checkout blocks Payments": Payments waits, so it isn't Checkout's wait.
+    expect(findLinkedEdge({ nodes, edges: [e("x", "c", "p", "blocks")] }, ref, sides)).toBe(
+      undefined
+    );
+    expect(findLinkedEdge({ nodes, edges: [e("y", "p", "c", "blocks")] }, ref, sides)?.id).toBe(
+      "y"
+    );
+  });
+
+  it("ignores a dependency resolved before the item was raised; one resolved since wins", () => {
+    const since = "2026-10-16T09:00:00.000Z";
+    const old = e("old", "c", "p", "needs", {
+      status: "resolved",
+      resolvedAt: "2026-10-01T09:00:00.000Z",
+    });
+    expect(findLinkedEdge({ nodes, edges: [old] }, ref, { ...sides, since })).toBeUndefined();
+    // With no `since`, a resolved edge never counts.
+    expect(findLinkedEdge({ nodes, edges: [old] }, ref, sides)).toBeUndefined();
+    const delivered = { ...old, id: "done", resolvedAt: "2026-10-20T09:00:00.000Z" };
+    const newer = e("newer", "c", "p");
+    expect(findLinkedEdge({ nodes, edges: [newer, delivered] }, ref, { ...sides, since })?.id).toBe(
+      "done"
+    );
+    // A resolved edge with no date can't be placed.
+    const undated = e("undated", "c", "p", "needs", { status: "resolved" });
+    expect(findLinkedEdge({ nodes, edges: [undated] }, ref, { ...sides, since })).toBeUndefined();
+  });
+
+  it("only looks among the example's own nodes for an example item", () => {
+    const graph = {
+      nodes: [...nodes, n("example-sos-map-c", "Checkout"), n("example-sos-map-p", "Payments")],
+      edges: [
+        e("real", "c", "p"),
+        e("example-sos-map-e", "example-sos-map-c", "example-sos-map-p"),
+      ],
+    };
+    expect(findLinkedEdge(graph, ref, sides)?.id).toBe("real");
+    expect(findLinkedEdge(graph, ref, sides, "example-sos-map-")?.id).toBe("example-sos-map-e");
+  });
+});
+
+describe("releasing an edge another item still shows", () => {
+  it("hands it to the heir instead of deleting it, and Undo hands it back", () => {
+    const mine = { tool: "pi-planning", id: "d1" };
+    const heir = { tool: "pi-planning", id: "d2" };
+    seed(
+      [n("c", "Checkout"), n("p", "Payments")],
+      [e("shared", "c", "p", "needs", { sourceRef: mine }), e("alone", "p", "c", "informs")]
+    );
+    const released = releaseEdges(["shared", "alone"], (edge) =>
+      edge.id === "shared" ? heir : undefined
+    );
+    expect(map().edges.map((x) => [x.id, x.sourceRef])).toEqual([["shared", heir]]);
+    restoreReleased(released);
+    expect(map().edges.map((x) => [x.id, x.sourceRef])).toEqual([
+      ["shared", mine],
+      ["alone", undefined],
+    ]);
+  });
+
+  it("patches gaps on an edge, and replaces only the fields asked for", () => {
+    seed([n("c"), n("p")], [e("1", "c", "p", "needs", { owner: "Ana", due: "2026-11-01" })]);
+    patchEdge("1", { owner: "Sam", due: "2026-12-01", note: "Refunds" });
+    expect(map().edges[0]).toMatchObject({ owner: "Ana", due: "2026-11-01", note: "Refunds" });
+    patchEdge("1", { due: "2026-12-01" }, ["due"]);
+    expect(map().edges[0].due).toBe("2026-12-01");
+  });
+});
+
+describe("Dependency Map page, after review", () => {
+  it("shows the example notice for example edges between the user's own nodes", () => {
+    seed([n("a", "A"), n("b", "B")], [e("example-pi-map-9", "a", "b")]);
+    renderMap();
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+  });
+
+  it("clears the example with Undo when it takes dependencies of the user's own", () => {
+    renderMap();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const exampleNode = map().nodes[0].id;
+    act(() =>
+      ws().upsertDependencyMap({
+        ...map(),
+        nodes: [...map().nodes, n("mine", "Mine")],
+        edges: [...map().edges, e("m1", "mine", exampleNode)],
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(map().nodes.map((x) => x.id)).toEqual(["mine"]);
+    expect(map().edges).toEqual([]);
+    expect(lastToast()[0]).toBe("Cleared the example");
+    expect(lastToast()[1].description).toBe("and 1 dependency of yours drawn to it");
+    act(() => undoLast());
+    expect(map().nodes).toHaveLength(7);
+    expect(map().edges.map((x) => x.id)).toContain("m1");
+
+    // Nothing of the user's at stake: it just goes, with no toast.
+    toastSpy.mockReset();
+    act(() =>
+      ws().upsertDependencyMap({ ...map(), edges: map().edges.filter((x) => x.id !== "m1") })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(map().nodes.map((x) => x.id)).toEqual(["mine"]);
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it("puts focus back on the Edit button after saving or cancelling an edit", () => {
+    seed([n("a", "Checkout"), n("b", "Payments")], [e("1", "a", "b")]);
+    renderMap();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Checkout" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Save" }).closest("form")!, {
+      key: "Escape",
+    });
+    expect(screen.getByRole("button", { name: "Edit Checkout" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Checkout needs Payments" }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.change(within(editor).getByLabelText(/^Note/), { target: { value: "Keys" } });
+    fireEvent.submit(editor);
+    expect(map().edges[0].note).toBe("Keys");
+    expect(screen.getByRole("button", { name: "Edit Checkout needs Payments" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Payments" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Edit Payments" })).toHaveFocus();
   });
 });
