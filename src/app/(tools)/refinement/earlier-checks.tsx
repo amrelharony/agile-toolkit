@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type Ref } from "react";
 import Link from "next/link";
-import { ListPlus, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ListChecks, ListPlus, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { useInlineEdit } from "@/components/shared/inline-item-editor";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -20,7 +21,13 @@ import {
   type CheckEditValues,
   type CheckField,
 } from "./session";
-import { useRefinementStore, type CheckValues, type Criterion, type StorySave } from "./store";
+import {
+  useRefinementStore,
+  type CheckValues,
+  type Criterion,
+  type RefinementStore,
+  type StorySave,
+} from "./store";
 
 const emptyDraft = (today: string): CheckDraft => ({
   storyName: "",
@@ -33,11 +40,20 @@ function pctClass(passRate: number): string {
   return passRate === 100 ? "text-accent-green" : passRate > 0 ? "text-warning" : "text-danger";
 }
 
+/** A workspace story a check by name stands for: the one it was sent to, or one with its title. */
+export interface BacklogMatch {
+  id: string;
+  title: string;
+  /** Not started yet, so the session lists it. */
+  inSession: boolean;
+}
+
 /**
  * Checks saved by name: how stories were checked before the session read
  * the backlog, and still the way to check one that isn't in it (another
  * team's story, a ticket from elsewhere). "Add to backlog" turns one into a
- * backlog story, which the session then picks up.
+ * backlog story, ticks included, which the session then picks up; a check
+ * naming a story the backlog already has links to it instead.
  */
 export function EarlierChecks({
   history,
@@ -48,6 +64,8 @@ export function EarlierChecks({
   onClear,
   onAddToBacklog,
   backlogStoryOf,
+  backlogStoryNamed,
+  onOpenStory,
 }: {
   history: readonly StorySave[];
   criteria: readonly Criterion[];
@@ -56,12 +74,15 @@ export function EarlierChecks({
   onRemove: (check: StorySave) => void;
   onClear: () => void;
   onAddToBacklog: (check: StorySave) => void;
-  /** The backlog story a check was sent to, while it still exists. */
-  backlogStoryOf: (check: StorySave) => string | null;
+  /** The backlog story a check was sent to (while it exists), or one with its name. */
+  backlogStoryOf: (check: StorySave) => BacklogMatch | null;
+  /** A backlog story with this name, if there is one. */
+  backlogStoryNamed: (name: string) => BacklogMatch | null;
+  /** Open a story in the session panel. */
+  onOpenStory: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const formId = useId();
   const count = history.length;
   const label = `${count} earlier ${count === 1 ? "check" : "checks"}`;
@@ -100,6 +121,8 @@ export function EarlierChecks({
           onOpen={() => setOpen(true)}
           onClose={() => setOpen(false)}
           onAdd={onAdd}
+          backlogStoryNamed={backlogStoryNamed}
+          onOpenStory={onOpenStory}
         />
       </div>
 
@@ -111,26 +134,15 @@ export function EarlierChecks({
       ) : (
         <ol aria-label="Earlier checks" className="divide-y divide-border">
           {history.map((h) => (
-            <li key={h.id} className="py-3">
-              {editingId === h.id ? (
-                <CheckEditor
-                  check={h}
-                  onSave={(values) => {
-                    setEditingId(null);
-                    onEdit(h.id, values);
-                  }}
-                  onCancel={() => setEditingId(null)}
-                />
-              ) : (
-                <CheckRow
-                  check={h}
-                  backlogStoryId={backlogStoryOf(h)}
-                  onEdit={() => setEditingId(h.id)}
-                  onRemove={() => onRemove(h)}
-                  onAddToBacklog={() => onAddToBacklog(h)}
-                />
-              )}
-            </li>
+            <CheckItem
+              key={h.id}
+              check={h}
+              backlogStory={backlogStoryOf(h)}
+              onEdit={(values) => onEdit(h.id, values)}
+              onRemove={() => onRemove(h)}
+              onAddToBacklog={() => onAddToBacklog(h)}
+              onOpenStory={onOpenStory}
+            />
           ))}
         </ol>
       )}
@@ -147,18 +159,68 @@ export function EarlierChecks({
   );
 }
 
-function CheckRow({
+/**
+ * One earlier check, edited in place. Save, Cancel or Escape puts focus
+ * back on its Edit button, as the criteria list does.
+ */
+function CheckItem({
   check,
-  backlogStoryId,
+  backlogStory,
   onEdit,
   onRemove,
   onAddToBacklog,
+  onOpenStory,
 }: {
   check: StorySave;
-  backlogStoryId: string | null;
+  backlogStory: BacklogMatch | null;
+  onEdit: (values: CheckEditValues) => void;
+  onRemove: () => void;
+  onAddToBacklog: () => void;
+  onOpenStory: (id: string) => void;
+}) {
+  const edit = useInlineEdit();
+  return (
+    <li className="py-3">
+      {edit.editing ? (
+        <CheckEditor
+          check={check}
+          onSave={(values) => {
+            edit.stop({ refocus: true });
+            onEdit(values);
+          }}
+          onCancel={() => edit.stop({ refocus: true })}
+        />
+      ) : (
+        <CheckRow
+          check={check}
+          backlogStory={backlogStory}
+          editRef={edit.triggerRef}
+          onEdit={edit.start}
+          onRemove={onRemove}
+          onAddToBacklog={onAddToBacklog}
+          onOpenStory={onOpenStory}
+        />
+      )}
+    </li>
+  );
+}
+
+function CheckRow({
+  check,
+  backlogStory,
+  editRef,
+  onEdit,
+  onRemove,
+  onAddToBacklog,
+  onOpenStory,
+}: {
+  check: StorySave;
+  backlogStory: BacklogMatch | null;
+  editRef: Ref<HTMLButtonElement>;
   onEdit: () => void;
   onRemove: () => void;
   onAddToBacklog: () => void;
+  onOpenStory: (id: string) => void;
 }) {
   return (
     <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
@@ -177,7 +239,19 @@ function CheckRow({
         {check.passRate}%
       </span>
       <span className="flex shrink-0 items-center gap-1">
-        {backlogStoryId ? (
+        {backlogStory?.inSession ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="gap-1 text-xs"
+            aria-label={`Open in session: ${backlogStory.title}`}
+            onClick={() => onOpenStory(backlogStory.id)}
+          >
+            <ListChecks aria-hidden="true" />
+            Open in session
+          </Button>
+        ) : backlogStory ? (
           <Link
             href="/sprint-planning"
             className="px-2 text-xs text-accent underline-offset-2 hover:underline"
@@ -198,6 +272,7 @@ function CheckRow({
           </Button>
         )}
         <IconButton
+          ref={editRef}
           label={`Edit ${check.storyName}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
@@ -224,14 +299,16 @@ function CheckEditor({
   onSave: (values: CheckEditValues) => void;
   onCancel: () => void;
 }) {
-  const [today] = useState(() => todayLocalISO());
+  // Read on every render, not once: a page left open past midnight still
+  // accepts today's date.
+  const today = todayLocalISO();
   const form = useItemForm<CheckEditDraft, CheckEditValues, CheckField>({
     initial: {
       storyName: check.storyName,
       description: check.description ?? "",
       date: check.date,
     },
-    validate: (d) => validateCheckEdit(d, today),
+    validate: (d) => validateCheckEdit(d, todayLocalISO()),
     onSave,
     resetOnSave: false,
   });
@@ -278,55 +355,104 @@ function CheckEditor({
   );
 }
 
+type StoredDraft = Pick<RefinementStore, "storyName" | "storyDescription" | "currentChecks">;
+
+const tickedIds = (checks: Record<string, boolean>) =>
+  Object.keys(checks).filter((id) => checks[id]);
+
+/** The stored draft compared by value: what was typed and ticked. */
+const draftKey = (d: StoredDraft) =>
+  JSON.stringify([d.storyName, d.storyDescription, tickedIds(d.currentChecks).sort()]);
+
 /**
  * The check-by-name form. Its draft is mirrored into the store, as the
- * page always did, so a half-filled check survives a reload.
+ * page always did, so a half-filled check survives a reload. A change to
+ * the stored draft from elsewhere (Reset clearing it, its Undo putting it
+ * back) is read back into the form, so the two never disagree.
  */
 function CheckByNameForm({
   criteria,
   onOpen,
   onClose,
   onAdd,
+  backlogStoryNamed,
+  onOpenStory,
 }: {
   criteria: readonly Criterion[];
   onOpen: () => void;
   onClose: () => void;
   onAdd: (values: CheckValues) => void;
+  backlogStoryNamed: (name: string) => BacklogMatch | null;
+  onOpenStory: (id: string) => void;
 }) {
-  const [today] = useState(() => todayLocalISO());
+  // Read on every render, not once: a page left open past midnight still
+  // accepts today's date, and a new check starts on it.
+  const today = todayLocalISO();
   const setDraft = useRefinementStore((s) => s.setDraft);
   const form = useItemForm<CheckDraft, CheckValues, CheckField>({
-    initial: () => emptyDraft(today),
-    validate: (d) => validateCheck(d, criteria, today),
+    initial: () => emptyDraft(todayLocalISO()),
+    validate: (d) => validateCheck(d, criteria, todayLocalISO()),
     onSave: onAdd,
   });
   const { draft, reset } = form;
   const restored = useRef(false);
+  // The stored draft as this form last wrote it.
+  const mirrored = useRef<string | null>(null);
 
   // Mirror before restoring: the first run (with the empty draft) is skipped,
   // so it can't overwrite the saved draft before it's read.
   useEffect(() => {
     if (!restored.current) return;
-    setDraft({
+    const next: StoredDraft = {
       storyName: draft.storyName,
       storyDescription: draft.description,
       currentChecks: Object.fromEntries(draft.checked.map((id) => [id, true])),
-    });
+    };
+    mirrored.current = draftKey(next);
+    setDraft(next);
   }, [draft, setDraft]);
 
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
     const s = useRefinementStore.getState();
-    const checked = Object.keys(s.currentChecks).filter((id) => s.currentChecks[id]);
+    const checked = tickedIds(s.currentChecks);
     if (s.storyName.trim() || s.storyDescription.trim() || checked.length > 0) {
       reset({ storyName: s.storyName, description: s.storyDescription, date: today, checked });
       onOpen();
     }
   }, [reset, today, onOpen]);
 
+  // Anything other than this form's own mirror is an outside change.
+  useEffect(
+    () =>
+      useRefinementStore.subscribe((s, prev) => {
+        if (
+          s.storyName === prev.storyName &&
+          s.storyDescription === prev.storyDescription &&
+          s.currentChecks === prev.currentChecks
+        ) {
+          return;
+        }
+        const key = draftKey(s);
+        if (!restored.current || key === mirrored.current) return;
+        mirrored.current = key;
+        reset({
+          storyName: s.storyName,
+          description: s.storyDescription,
+          date: todayLocalISO(),
+          checked: tickedIds(s.currentChecks),
+        });
+      }),
+    [reset]
+  );
+
   const ticked = new Set(draft.checked);
   const met = criteria.filter((c) => ticked.has(c.id)).length;
+  // Checking a story the session lists by name would leave its readiness
+  // unset (and count the check twice): point to the session instead.
+  const named = draft.storyName.trim() ? backlogStoryNamed(draft.storyName) : null;
+  const match = named?.inSession ? named : null;
 
   return (
     <ItemForm
@@ -347,6 +473,24 @@ function CheckByNameForm({
           />
         )}
       </Field>
+      {match && (
+        <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-sub">
+          <span className="min-w-0 break-words">
+            &ldquo;{match.title}&rdquo; is already in the backlog. Check it in the session, so its
+            readiness is saved on the story.
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => onOpenStory(match.id)}
+          >
+            <ListChecks aria-hidden="true" />
+            Open it in the session
+          </Button>
+        </div>
+      )}
       <Field label="Description">
         {(props) => (
           <Textarea

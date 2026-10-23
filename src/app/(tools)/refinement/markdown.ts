@@ -1,3 +1,4 @@
+import { isExampleId } from "@/components/tool-frame/example-data";
 import type { Story } from "@/lib/stores/workspace-types";
 import { metCriteria, readinessState, type RefinementSession } from "./session";
 import type { Criterion, StorySave } from "./store";
@@ -19,8 +20,10 @@ function md(v: unknown): string {
 const points = (s: Story) =>
   typeof s.points === "number" && s.points > 0 ? String(s.points) : "Unsized";
 
-const STATE_LABEL = {
+/** The readiness badge's words, shared by the CSV and the Markdown. */
+export const STATE_LABEL = {
   ready: "Ready",
+  "needs-points": "Ready once sized",
   partial: "Partial",
   "not-ready": "Not ready",
   unchecked: "Not checked",
@@ -37,7 +40,7 @@ function storyTable(stories: readonly Story[], criteria: readonly Criterion[]): 
     "|---|---:|---:|---|",
     ...stories.map(
       (s) =>
-        `| ${md(s.title)} | ${points(s)} | ${met(s, criteria)} | ${
+        `| ${md(s.title)}${isExampleId(s.id) ? " (example)" : ""} | ${points(s)} | ${met(s, criteria)} | ${
           STATE_LABEL[readinessState(s, criteria)]
         } |`
     ),
@@ -56,6 +59,10 @@ export function toMarkdown(
   now: Date = new Date()
 ): string {
   const lines = [`# Backlog refinement — ${mdDate(now)}`, "", `**${refinementVerdict(session)}**`];
+  // An example left loaded beside the team's own stories mustn't read as their notes.
+  if ([...session.toRefine, ...session.ready].some((s) => isExampleId(s.id))) {
+    lines.push("", "_Includes example stories, marked (example)._");
+  }
 
   lines.push("", "## Definition of Ready", "");
   if (criteria.length === 0) lines.push("No criteria yet.");

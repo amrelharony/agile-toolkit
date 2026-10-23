@@ -8,6 +8,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Validation } from "@/lib/utils/form";
+import { toast } from "@/lib/utils/toast";
 import type { Criterion } from "./store";
 
 interface CriterionDraft {
@@ -71,7 +72,21 @@ export function CriteriaList({
               key={c.id}
               criterion={c}
               index={i}
-              onEdit={(label, description) => onEdit(c.id, label, description)}
+              onEdit={(label, description) => {
+                // A rename meets the add form's rule: no two criteria alike.
+                // The editor closes on save, so a clash keeps the old name and says why.
+                const check = validateCriterion(
+                  { label, description },
+                  criteria.filter((x) => x.id !== c.id)
+                );
+                if (!check.ok) {
+                  toast.error(`“${label.trim()}” is already on the list.`, {
+                    description: `The criterion keeps its name, “${c.label}”.`,
+                  });
+                  return;
+                }
+                onEdit(c.id, check.values.label, check.values.description ?? "");
+              }}
               onRemove={() => onRemove(c)}
             />
           ))}

@@ -28,9 +28,18 @@ export function isUnsized(story: Pick<Story, "points">): boolean {
   return !(typeof story.points === "number" && story.points > 0);
 }
 
+/**
+ * In the backlog proper: no sprint yet. The rest of the stories not started
+ * are planned into a sprint (to do there), and the cockpit counts those
+ * separately ("sprint stories without points").
+ */
+export function isInBacklog(story: Pick<Story, "status" | "sprintId">): boolean {
+  return !story.sprintId && story.status === "backlog";
+}
+
 /** What the cockpit counts behind "Refine the backlog": no sprint, in the backlog, no points. */
 export function isBacklogUnsized(story: Story): boolean {
-  return !story.sprintId && story.status === "backlog" && isUnsized(story);
+  return isInBacklog(story) && isUnsized(story);
 }
 
 /**
@@ -54,9 +63,15 @@ export interface RefinementSession {
   ready: Story[];
   /** Every story not started yet (to refine + ready). */
   total: number;
+  /** Those still in the backlog, with no sprint; the rest are planned into one. */
+  backlog: number;
   /** Unsized stories among them. */
   unsized: number;
-  /** The cockpit's count: unsized backlog stories with no sprint (all in `toRefine`). */
+  /**
+   * The cockpit's count: unsized backlog stories with no sprint (all in
+   * `toRefine`). The page shows it as is, so the number on the card that
+   * led here is on the page too.
+   */
   backlogUnsized: number;
 }
 
@@ -68,9 +83,15 @@ export function refinementSession(stories: readonly Story[]): RefinementSession 
     toRefine,
     ready: candidates.filter(isReady),
     total: candidates.length,
+    backlog: candidates.filter(isInBacklog).length,
     unsized: candidates.filter(isUnsized).length,
     backlogUnsized: candidates.filter(isBacklogUnsized).length,
   };
+}
+
+/** A story title compared loosely: case and runs of spaces don't count. */
+export function titleKey(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -90,13 +111,21 @@ export function metCriteria(
   return criteria.filter((c) => ticked.has(c.id)).map((c) => c.id);
 }
 
-export type ReadinessState = "ready" | "partial" | "not-ready" | "unchecked";
+export type ReadinessState = "ready" | "needs-points" | "partial" | "not-ready" | "unchecked";
 
-/** The badge on a story: never checked, none met, some met, or ready. */
+/**
+ * The badge on a story: never checked, none met, some met, ready, or ready
+ * but for its points. A story marked ready (by an agent, or before its
+ * estimate was cleared) or with every criterion met, but unsized, isn't
+ * "Partial": the estimate is all it lacks, and the badge says so.
+ */
 export function readinessState(story: Story, criteria: readonly Criterion[]): ReadinessState {
   if (!story.readiness) return "unchecked";
   if (isReady(story)) return "ready";
-  return metCriteria(story.readiness.checked, criteria).length > 0 ? "partial" : "not-ready";
+  const met = metCriteria(story.readiness.checked, criteria).length;
+  const allMet = criteria.length > 0 && met === criteria.length;
+  if (isUnsized(story) && (story.readiness.ready || allMet)) return "needs-points";
+  return met > 0 ? "partial" : "not-ready";
 }
 
 export interface ReadyDraft {
@@ -121,9 +150,12 @@ export function validateReady(
     errors.criteria = "Add a Definition of Ready criterion first.";
   } else if (met.length < criteria.length) {
     const open = criteria.length - met.length;
+    // The noun follows the list ("1 of 2 criteria"), the verb the open count.
     errors.criteria = `${open} of ${criteria.length} ${
-      criteria.length === 1 ? "criterion isn't" : "criteria aren't"
-    } ticked yet. Tick ${open === 1 ? "it" : "them"}, or save the checks and come back to it.`;
+      criteria.length === 1 ? "criterion" : "criteria"
+    } ${open === 1 ? "isn't" : "aren't"} ticked yet. Tick ${
+      open === 1 ? "it" : "them"
+    }, or save the checks and come back to it.`;
   }
   if (isUnsized(story)) {
     errors.points = "It has no points yet. Queue it for Planning Poker, then mark it ready.";
@@ -140,6 +172,24 @@ export function withReadiness(
   at: string = new Date().toISOString()
 ): Story {
   return { ...story, readiness: { checked: [...checked], ready, updatedAt: at } };
+}
+
+/**
+ * "Save checks" keeps the team's call while it still holds: a ready story
+ * re-checked with every criterion still ticked stays ready. Unticking one
+ * takes it out of Ready (and out of Sprint Planning's ready set), and the
+ * page says so.
+ */
+export function keepsReady(
+  story: Pick<Story, "readiness">,
+  checked: readonly string[],
+  criteria: readonly Criterion[]
+): boolean {
+  return (
+    story.readiness?.ready === true &&
+    criteria.length > 0 &&
+    metCriteria(checked, criteria).length === criteria.length
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -195,6 +245,29 @@ export function validateCheck(
   };
 }
 
+/**
+ * The readiness a check by name hands to the backlog story "Add to backlog"
+ * makes from it: the criteria it ticked, not the team's call (ready is made
+ * in the session), dated the day of the check, so the session shows where
+ * the story stood instead of "Not checked".
+ */
+export function readinessFromCheck(
+  check: Pick<StorySave, "checks" | "date">,
+  now: Date = new Date()
+): NonNullable<Story["readiness"]> {
+  const checked = (check.checks ?? []).filter((c) => c.checked).map((c) => c.criterionId);
+  // Noon, local: the stamp reads back as the same day in this time zone.
+  const at = isIsoDate(check.date) ? new Date(`${check.date}T12:00:00`) : now;
+  return { checked, ready: false, updatedAt: (at > now ? now : at).toISOString() };
+}
+
+/** The local "YYYY-MM-DD" of a readiness stamp, or "" when it isn't a date. */
+export function localDateOf(iso: string | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : todayLocalISO(d);
+}
+
 export interface CheckEditDraft {
   storyName: string;
   description: string;
@@ -241,7 +314,9 @@ export interface PassRecord {
  * Every check on record, oldest first: each story's latest readiness (one
  * per story — re-checking replaces it) and the checks saved by name. A
  * story's checks are counted against today's criteria; a saved check keeps
- * the counts it was saved with.
+ * the counts it was saved with. A check added to the backlog carried its
+ * ticks to the story, so once that story has a readiness of its own the
+ * check isn't counted again beside it.
  */
 export function passRateRecords(
   stories: readonly Story[],
@@ -249,9 +324,14 @@ export function passRateRecords(
   criteria: readonly Criterion[]
 ): PassRecord[] {
   const records: PassRecord[] = [];
+  const promoted = new Set(
+    stories.flatMap((s) =>
+      s.readiness && s.sourceRef?.tool === "refinement" ? [s.sourceRef.id] : []
+    )
+  );
   // History is stored newest first.
   for (const h of [...history].reverse()) {
-    if (!(h.totalCriteria > 0) || !ISO_DATE.test(h.date)) continue;
+    if (!(h.totalCriteria > 0) || !ISO_DATE.test(h.date) || promoted.has(h.id)) continue;
     records.push({
       id: h.id,
       name: h.storyName,
@@ -280,4 +360,20 @@ export function passRateRecords(
   }
   // Stable: same-day records keep checks-by-name first, then stories.
   return records.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+/**
+ * The same checks, newest first, in the shape the Team charter's Definition
+ * of Ready card reads (`DorDoc.history` in team/charter-view.ts). Its pass
+ * rate should come from here rather than from the store's checks by name
+ * alone, which since the session hold only the legacy and outside checks.
+ */
+export function dorCheckHistory(
+  stories: readonly Story[],
+  history: readonly StorySave[],
+  criteria: readonly Criterion[]
+): { passRate: number; date: string; storyName: string }[] {
+  return passRateRecords(stories, history, criteria)
+    .reverse()
+    .map((r) => ({ passRate: r.passRate, date: r.date, storyName: r.name }));
 }

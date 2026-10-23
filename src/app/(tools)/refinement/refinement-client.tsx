@@ -29,18 +29,23 @@ import { cn } from "@/lib/utils";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { PassRateAdvanced } from "./advanced";
 import { CriteriaList } from "./criteria-list";
-import { EarlierChecks } from "./earlier-checks";
+import { EarlierChecks, type BacklogMatch } from "./earlier-checks";
 import { buildExample } from "./example";
-import { toMarkdown } from "./markdown";
+import { STATE_LABEL, toMarkdown } from "./markdown";
 import { queueAllForPoker, queueForPoker, queuedStoryIds } from "./poker";
 import {
+  isBacklogUnsized,
   isReady,
   isRefinementCandidate,
   isUnsized,
+  keepsReady,
+  localDateOf,
   metCriteria,
   passRateRecords,
+  readinessFromCheck,
   readinessState,
   refinementSession,
+  titleKey,
   withReadiness,
 } from "./session";
 import { ReadyList, StoryCheckPanel, StoryQueue } from "./session-panel";
@@ -72,12 +77,12 @@ function putStory(story: Story): void {
   else useWorkspaceStore.getState().upsertStory(story);
 }
 
-const STATUS_LABEL = {
-  ready: "Ready",
-  partial: "Partial",
-  "not-ready": "Not ready",
-  unchecked: "Not checked",
-} as const;
+/**
+ * Which stories the walk lists. "In the backlog, no points" is the set the
+ * cockpit counts behind "Refine the backlog"; "Needs points" adds the
+ * unsized stories already planned into a sprint.
+ */
+type Show = "all" | "unsized" | "backlog-unsized";
 
 export function RefinementClient() {
   const hydrated = useWorkspaceHydrated();
@@ -105,17 +110,38 @@ export function RefinementClient() {
 
   /* ── The walk ─────────────────────────────────────────────────────── */
 
-  const [unsizedFilter, setUnsizedFilter] = useState(false);
-  // Once the last unsized story has points the filter (and its toggle) goes.
-  const onlyUnsized = unsizedFilter && session.unsized > 0;
+  const [filter, setFilter] = useState<Show>("all");
+  // The backlog filter shows only while it lists fewer stories than "Needs
+  // points" (otherwise they're the same list); a filter with nothing left
+  // to list (the last story got its points) falls back, and its toggle goes.
+  const backlogFilter = session.backlogUnsized > 0 && session.backlogUnsized < session.unsized;
+  let show = filter;
+  if (show === "backlog-unsized" && !backlogFilter) {
+    show = session.backlogUnsized > 0 ? "unsized" : "all";
+  }
+  if (show === "unsized" && session.unsized === 0) show = "all";
+  const filters: [Show, string][] = [
+    ["all", `All to refine (${session.toRefine.length})`],
+    ["unsized", `Needs points (${session.unsized})`],
+  ];
+  if (backlogFilter) {
+    filters.push(["backlog-unsized", `In the backlog, no points (${session.backlogUnsized})`]);
+  }
   const walk = useMemo(
-    () => (onlyUnsized ? session.toRefine.filter(isUnsized) : session.toRefine),
-    [onlyUnsized, session.toRefine]
+    () =>
+      show === "unsized"
+        ? session.toRefine.filter(isUnsized)
+        : show === "backlog-unsized"
+          ? session.toRefine.filter(isBacklogUnsized)
+          : session.toRefine,
+    [show, session.toRefine]
   );
   const [focusId, setFocusId] = useState<string | null>(null);
-  // After the first move the panel takes focus when it changes story, so a
-  // keyboard user lands on the next story's name, not back at the top.
-  const [walking, setWalking] = useState(false);
+  // The story whose panel takes focus when it mounts, so a keyboard user
+  // who moves on lands on the next story's name, not back at the top. One
+  // shot: cleared once used, so a remount nobody asked for (a filter, the
+  // example cleared) leaves focus where it is.
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const picked = focusId ? all.find((s) => s.id === focusId) : undefined;
   const focused =
     picked &&
@@ -126,8 +152,19 @@ export function RefinementClient() {
   const index = focused ? walk.findIndex((s) => s.id === focused.id) : -1;
 
   const go = (id: string | null) => {
-    setWalking(true);
+    // Picking the story already open doesn't remount the panel: nothing to move.
+    setFocusTarget(id !== focused?.id ? id : null);
     setFocusId(id);
+  };
+  /** Back to the top of the list without moving focus (a filter, the example). */
+  const restart = () => {
+    setFocusTarget(null);
+    setFocusId(null);
+  };
+  /** Open a story from an earlier check: a points filter mustn't hide it. */
+  const openStory = (id: string) => {
+    setFilter("all");
+    go(id);
   };
 
   /** Write a story's readiness, with Undo back to what it had before. */
@@ -135,9 +172,15 @@ export function RefinementClient() {
     const current = findStory(story.id);
     if (!current) return;
     const before = current.readiness;
+    const wasReady = before?.ready === true;
     const { metCount, totalCriteria } = checkCounts(checked, criteria);
     undoable({
-      label: ready ? `Marked “${current.title}” ready` : `Saved the checks on “${current.title}”`,
+      label:
+        ready && !wasReady
+          ? `Marked “${current.title}” ready`
+          : !ready && wasReady
+            ? `“${current.title}” is no longer ready`
+            : `Saved the checks on “${current.title}”`,
       description: `${metCount} of ${totalCriteria} criteria met`,
       apply: () => putStory(withReadiness(current, checked, ready)),
       // Only the readiness goes back: points estimated meanwhile stay.
@@ -170,7 +213,8 @@ export function RefinementClient() {
 
   function saveChecks(story: Story, checked: string[]) {
     const i = walk.findIndex((s) => s.id === story.id);
-    saveReadiness(story, checked, false);
+    // A ready story re-checked with every box still ticked stays ready.
+    saveReadiness(story, checked, keepsReady(findStory(story.id) ?? story, checked, criteria));
     const next = i >= 0 ? walk[i + 1] : undefined;
     if (next) go(next.id);
   }
@@ -242,8 +286,8 @@ export function RefinementClient() {
     });
   };
 
-  const addToBacklog = (h: StorySave) =>
-    sendHandoff(
+  const addToBacklog = (h: StorySave) => {
+    const link = sendHandoff(
       "backlog-story",
       {
         title: h.storyName,
@@ -255,8 +299,32 @@ export function RefinementClient() {
         setLinks: (update) => useRefinementStore.getState().setCheckLinks(h.id, update),
       }
     );
+    // The new story starts from the check's ticks rather than "Not checked".
+    // Undo of the hand-off removes the story, ticks and all.
+    const created = link ? findStory(link.targetId) : undefined;
+    if (created) putStory({ ...created, readiness: readinessFromCheck(h) });
+  };
 
-  const backlogStoryOf = (h: StorySave) => liveLink(h.sentTo, "backlog-story")?.targetId ?? null;
+  // The workspace's own stories by title, so a check naming one that's
+  // already there links to it instead of offering to add a second copy.
+  const byTitle = useMemo(() => {
+    const map = new Map<string, Story>();
+    for (const s of stories) {
+      if (s.status === "done") continue;
+      const key = titleKey(s.title);
+      if (key && !map.has(key)) map.set(key, s);
+    }
+    return map;
+  }, [stories]);
+  const backlogStory = (id: string | undefined): BacklogMatch | null => {
+    const s = id ? stories.find((x) => x.id === id) : undefined;
+    return s ? { id: s.id, title: s.title, inSession: isRefinementCandidate(s) } : null;
+  };
+  const backlogStoryOf = (h: StorySave) =>
+    backlogStory(
+      liveLink(h.sentTo, "backlog-story")?.targetId ?? byTitle.get(titleKey(h.storyName))?.id
+    );
+  const backlogStoryNamed = (name: string) => backlogStory(byTitle.get(titleKey(name))?.id);
 
   /* ── Reset and example ────────────────────────────────────────────── */
 
@@ -266,11 +334,11 @@ export function RefinementClient() {
 
   const loadExample = () => {
     useRefinementStore.getState().setExampleStories(buildExample(criteria));
-    setFocusId(null);
+    restart();
   };
   const clearExample = () => {
     useRefinementStore.getState().setExampleStories([]);
-    setFocusId(null);
+    restart();
   };
 
   /* ── Exports ──────────────────────────────────────────────────────── */
@@ -287,13 +355,15 @@ export function RefinementClient() {
         criteria.length > 0 && s.readiness ? Math.round((met / criteria.length) * 100) : "";
       return [
         s.title,
-        "Backlog",
+        // An example left loaded is marked, so it can't pass for the team's own.
+        isExampleId(s.id) ? "Example" : "Backlog",
         isUnsized(s) ? "" : (s.points ?? ""),
         s.readiness ? met : "",
         criteria.length,
         pct,
-        STATUS_LABEL[readinessState(s, criteria)],
-        s.readiness?.updatedAt.slice(0, 10) ?? "",
+        STATE_LABEL[readinessState(s, criteria)],
+        // The local day, as on the page and in the pass-rate trend (not UTC).
+        localDateOf(s.readiness?.updatedAt),
       ];
     });
     const checkRows = history.map((h) => [
@@ -448,30 +518,21 @@ export function RefinementClient() {
               >
                 {session.unsized > 0 && (
                   <div role="group" aria-label="Which stories" className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={onlyUnsized ? "outline" : "toolkit"}
-                      aria-pressed={!onlyUnsized}
-                      onClick={() => {
-                        setUnsizedFilter(false);
-                        setFocusId(null);
-                      }}
-                    >
-                      All to refine ({session.toRefine.length})
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={onlyUnsized ? "toolkit" : "outline"}
-                      aria-pressed={onlyUnsized}
-                      onClick={() => {
-                        setUnsizedFilter(true);
-                        setFocusId(null);
-                      }}
-                    >
-                      Needs points ({session.unsized})
-                    </Button>
+                    {filters.map(([value, text]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={show === value ? "toolkit" : "outline"}
+                        aria-pressed={show === value}
+                        onClick={() => {
+                          setFilter(value);
+                          restart();
+                        }}
+                      >
+                        {text}
+                      </Button>
+                    ))}
                   </div>
                 )}
 
@@ -484,7 +545,8 @@ export function RefinementClient() {
                     sprintName={focused.sprintId ? sprintNames.get(focused.sprintId) : undefined}
                     queued={queued.has(focused.id)}
                     example={isExampleId(focused.id)}
-                    autoFocus={walking}
+                    autoFocus={focusTarget === focused.id}
+                    onAutoFocused={() => setFocusTarget(null)}
                     onSaveChecks={(checked) => saveChecks(focused, checked)}
                     onMarkReady={(checked) => markReady(focused, checked)}
                     onQueue={() => queue(focused)}
@@ -500,7 +562,11 @@ export function RefinementClient() {
                 {walk.length > 0 && (
                   <div>
                     <h3 className="mb-2 text-sm font-medium text-text">
-                      {onlyUnsized ? "Stories that need points" : "Stories to refine"}
+                      {show === "unsized"
+                        ? "Stories that need points"
+                        : show === "backlog-unsized"
+                          ? "Backlog stories that need points"
+                          : "Stories to refine"}
                     </h3>
                     <StoryQueue
                       stories={walk}
@@ -550,6 +616,8 @@ export function RefinementClient() {
                 onClear={clearChecks}
                 onAddToBacklog={addToBacklog}
                 backlogStoryOf={backlogStoryOf}
+                backlogStoryNamed={backlogStoryNamed}
+                onOpenStory={openStory}
               />
             </SectionCard>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Dices, RotateCcw } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
@@ -28,6 +28,10 @@ const STATE: Record<ReadinessState, { label: string; className: string }> = {
   ready: {
     label: "Ready",
     className: "border-accent-green/20 bg-accent-green/10 text-accent-green",
+  },
+  "needs-points": {
+    label: "Ready once sized",
+    className: "border-info/20 bg-info/10 text-info",
   },
   partial: { label: "Partial", className: "border-warning/20 bg-warning/10 text-warning" },
   "not-ready": { label: "Not ready", className: "border-danger/20 bg-danger/10 text-danger" },
@@ -73,8 +77,10 @@ export interface StoryCheckPanelProps {
   queued: boolean;
   /** An example story: its checks stay in the example, nothing is queued. */
   example: boolean;
-  /** Move focus to the heading on mount (after the walk moved on). */
+  /** Move focus to the heading on mount (the walk moved on to this story). */
   autoFocus: boolean;
+  /** Called once focus has moved, so a later remount doesn't take it again. */
+  onAutoFocused?: () => void;
   onSaveChecks: (checked: string[]) => void;
   onMarkReady: (checked: string[]) => void;
   onQueue: () => void;
@@ -96,6 +102,7 @@ export function StoryCheckPanel({
   queued,
   example,
   autoFocus,
+  onAutoFocused,
   onSaveChecks,
   onMarkReady,
   onQueue,
@@ -103,7 +110,9 @@ export function StoryCheckPanel({
   onNext,
 }: StoryCheckPanelProps) {
   const headingId = useId();
+  const errorId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const pointsErrorRef = useRef<HTMLParagraphElement>(null);
   const form = useItemForm<ReadyDraft, ReadyDraft, ReadyField>({
     initial: () => ({ checked: metCriteria(story.readiness?.checked, criteria) }),
     validate: (d) => validateReady(d, criteria, story),
@@ -112,16 +121,36 @@ export function StoryCheckPanel({
   });
 
   useEffect(() => {
-    if (autoFocus) headingRef.current?.focus();
+    if (!autoFocus) return;
+    headingRef.current?.focus();
+    onAutoFocused?.();
     // Only on mount: the panel is keyed by story, so a new story remounts it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // With every box ticked and only the points missing, nothing is
+  // aria-invalid for the form to focus: the message takes focus instead.
+  const [pointsRefused, setPointsRefused] = useState(0);
+  useEffect(() => {
+    if (pointsRefused > 0) pointsErrorRef.current?.focus();
+  }, [pointsRefused]);
+  const submit = (e?: FormEvent) => {
+    const saved = form.submit(e);
+    const result = validateReady(form.draft, criteria, story);
+    if (!saved && !result.ok && !result.errors.criteria) setPointsRefused((n) => n + 1);
+    return saved;
+  };
 
   const ticked = new Set(form.draft.checked);
   const met = criteria.filter((c) => ticked.has(c.id)).length;
   const pct = criteria.length > 0 ? Math.round((met / criteria.length) * 100) : 0;
   const firstOpen = criteria.find((c) => !ticked.has(c.id))?.id;
   const unsized = isUnsized(story);
+  // Saving a ready story with a box unticked takes it out of Ready: the
+  // button says so before it's pressed.
+  const unreadies = story.readiness?.ready === true && met < criteria.length;
+  const criteriaErrorId = form.errors.criteria ? `${errorId}-criteria` : undefined;
+  const pointsErrorId = form.errors.points ? `${errorId}-points` : undefined;
   const toggle = (id: string, on: boolean) =>
     form.update({
       checked: on
@@ -178,7 +207,7 @@ export function StoryCheckPanel({
       </div>
 
       <ItemForm
-        form={form}
+        form={{ ...form, submit }}
         submitLabel="Mark ready"
         submitIcon={<CheckCircle2 className="h-4 w-4" aria-hidden="true" />}
         footer={
@@ -189,9 +218,16 @@ export function StoryCheckPanel({
               disabled={criteria.length === 0}
               onClick={() => onSaveChecks(metCriteria(form.draft.checked, criteria))}
             >
-              Save checks
+              {unreadies ? "Save as not ready" : "Save checks"}
             </Button>
-            {unsized && <QueueButton queued={queued} example={example} onQueue={onQueue} />}
+            {unsized && (
+              <QueueButton
+                queued={queued}
+                example={example}
+                describedBy={pointsErrorId}
+                onQueue={onQueue}
+              />
+            )}
           </>
         }
       >
@@ -200,7 +236,7 @@ export function StoryCheckPanel({
             No criteria yet. Add your Definition of Ready to check stories against it.
           </p>
         ) : (
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2" aria-describedby={criteriaErrorId}>
             <legend className="mb-2 text-sm font-medium text-text">Definition of Ready</legend>
             <ul className="space-y-2">
               {criteria.map((c) => (
@@ -213,6 +249,7 @@ export function StoryCheckPanel({
                       onChange={(e) => toggle(c.id, e.target.checked)}
                       // The first unticked box takes focus after a refused "Mark ready".
                       aria-invalid={form.errors.criteria && c.id === firstOpen ? true : undefined}
+                      aria-describedby={c.id === firstOpen ? criteriaErrorId : undefined}
                     />
                     <span className="min-w-0">
                       <span className="block break-words text-sm text-text">{c.label}</span>
@@ -251,8 +288,21 @@ export function StoryCheckPanel({
 
         {(form.errors.criteria || form.errors.points) && (
           <div className="space-y-1" role="alert">
-            {form.errors.criteria && <p className="text-xs text-danger">{form.errors.criteria}</p>}
-            {form.errors.points && <p className="text-xs text-danger">{form.errors.points}</p>}
+            {form.errors.criteria && (
+              <p id={criteriaErrorId} className="text-xs text-danger">
+                {form.errors.criteria}
+              </p>
+            )}
+            {form.errors.points && (
+              <p
+                id={pointsErrorId}
+                ref={pointsErrorRef}
+                tabIndex={-1}
+                className="text-xs text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {form.errors.points}
+              </p>
+            )}
           </div>
         )}
       </ItemForm>
@@ -263,10 +313,13 @@ export function StoryCheckPanel({
 function QueueButton({
   queued,
   example,
+  describedBy,
   onQueue,
 }: {
   queued: boolean;
   example: boolean;
+  /** The refused "Mark ready" message about points, while it shows. */
+  describedBy?: string;
   onQueue: () => void;
 }) {
   if (example) {
@@ -288,7 +341,13 @@ function QueueButton({
     );
   }
   return (
-    <Button type="button" variant="outline" className="gap-1.5" onClick={onQueue}>
+    <Button
+      type="button"
+      variant="outline"
+      className="gap-1.5"
+      aria-describedby={describedBy}
+      onClick={onQueue}
+    >
       <Dices className="h-4 w-4" aria-hidden="true" />
       Queue for Poker
     </Button>

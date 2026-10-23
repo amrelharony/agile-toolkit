@@ -16,14 +16,22 @@ import { gatherCockpitData } from "@/app/(tools)/sprint/view";
  */
 
 const toastSpy = vi.hoisted(() =>
-  Object.assign(vi.fn(), { dismiss: vi.fn(), success: vi.fn(), info: vi.fn() })
+  Object.assign(vi.fn(), { dismiss: vi.fn(), success: vi.fn(), info: vi.fn(), error: vi.fn() })
 );
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
-vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
+// The export's CSV and Markdown, as the page last handed them over.
+type ExportProps = { csvData: { headers: string[]; rows: unknown[][] }; markdown: string };
+const exported = vi.hoisted(() => ({ props: null as null | ExportProps }));
+vi.mock("@/components/shared/export-button", () => ({
+  ExportButton: (p: ExportProps) => {
+    exported.props = p;
+    return null;
+  },
+}));
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
@@ -47,11 +55,16 @@ import {
   type StorySave,
 } from "@/app/(tools)/refinement/store";
 import {
+  dorCheckHistory,
   isUnsized,
+  keepsReady,
+  localDateOf,
   metCriteria,
   passRateRecords,
+  readinessFromCheck,
   readinessState,
   refinementSession,
+  titleKey,
   validateCheck,
   validateReady,
 } from "@/app/(tools)/refinement/session";
@@ -113,6 +126,8 @@ const toRefine = () =>
 
 beforeEach(() => {
   toastSpy.mockReset();
+  toastSpy.error.mockReset();
+  exported.props = null;
   window.localStorage.clear();
   // The workspace store skips hydration in tests; the page waits for it.
   vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(true);
@@ -158,6 +173,9 @@ describe("which stories the session walks", () => {
     expect(s.ready.map((x) => x.id)).toEqual(["ready"]);
     expect(s.total).toBe(7);
     expect(s.unsized).toBe(4);
+    // Two of the seven are planned into a sprint; one unsized story is.
+    expect(s.backlog).toBe(5);
+    expect(s.backlogUnsized).toBe(3);
   });
 
   it("includes every story the cockpit counts behind “Refine the backlog”", () => {
@@ -213,6 +231,23 @@ describe("readiness of a story", () => {
     ).toBe("ready");
   });
 
+  it("calls a story ready but for its points “Ready once sized”, not “Partial”", () => {
+    // Marked ready (by an agent, or its estimate was cleared) with no points.
+    expect(readinessState(story("a", { readiness: readiness(["c1", "c2"], true) }), C)).toBe(
+      "needs-points"
+    );
+    expect(readinessState(story("a", { points: 0, readiness: readiness([], true) }), C)).toBe(
+      "needs-points"
+    );
+    // Every criterion met, not marked yet, no points.
+    expect(readinessState(story("a", { readiness: readiness(["c1", "c2"], false) }), C)).toBe(
+      "needs-points"
+    );
+    // Criteria missing too: still partial. Without criteria nothing is "all met".
+    expect(readinessState(story("a", { readiness: readiness(["c1"], false) }), C)).toBe("partial");
+    expect(readinessState(story("a", { readiness: readiness([], false) }), [])).toBe("not-ready");
+  });
+
   it("asks for every criterion and some points before “Mark ready”", () => {
     expect(validateReady({ checked: [] }, [], { points: 3 })).toEqual({
       ok: false,
@@ -222,9 +257,18 @@ describe("readiness of a story", () => {
       ok: false,
       errors: {
         criteria:
-          "1 of 2 criteria aren't ticked yet. Tick it, or save the checks and come back to it.",
+          "1 of 2 criteria isn't ticked yet. Tick it, or save the checks and come back to it.",
         points: "It has no points yet. Queue it for Planning Poker, then mark it ready.",
       },
+    });
+    // The verb follows the open count, the noun the list.
+    expect(validateReady({ checked: [] }, C, { points: 1 })).toMatchObject({
+      errors: {
+        criteria: expect.stringMatching(/^2 of 2 criteria aren't ticked yet\. Tick them,/),
+      },
+    });
+    expect(validateReady({ checked: [] }, [C[0]], { points: 1 })).toMatchObject({
+      errors: { criteria: expect.stringMatching(/^1 of 1 criterion isn't ticked yet\. Tick it,/) },
     });
     expect(validateReady({ checked: ["gone", "c2", "c1"] }, C, { points: 8 })).toEqual({
       ok: true,
@@ -276,28 +320,41 @@ describe("readiness of a story", () => {
 
 describe("the verdict", () => {
   const ready = (n: number) => Array.from({ length: n }, (_, i) => story(`r${i}`));
+  /** A session with nothing planned into a sprint unless `planned` says so. */
+  const v = (r: number, total: number, unsized: number, planned = 0, plannedUnsized = 0) =>
+    refinementVerdict({
+      ready: ready(r),
+      total,
+      unsized,
+      backlog: total - planned,
+      backlogUnsized: unsized - plannedUnsized,
+    });
+
   it("says how much of the backlog is ready, in a sentence", () => {
-    expect(refinementVerdict({ ready: [], total: 0, unsized: 0 })).toBe(
-      "No backlog stories to refine yet."
+    expect(v(0, 0, 0)).toBe("No backlog stories to refine yet.");
+    expect(v(7, 12, 3)).toBe("7 of 12 backlog stories are ready. 3 still need points.");
+    expect(v(1, 12, 1)).toBe("1 of 12 backlog stories is ready. 1 still needs points.");
+    expect(v(0, 4, 0)).toBe("None of the 4 backlog stories are ready yet.");
+    expect(v(5, 5, 0)).toBe("All 5 backlog stories are ready.");
+    expect(v(1, 1, 0)).toBe("The backlog story is ready.");
+    expect(v(0, 1, 1)).toBe("The backlog story isn't ready yet. It still needs points.");
+  });
+
+  it("names the backlog's unsized stories apart from planned ones, as the cockpit counts", () => {
+    expect(v(7, 12, 5, 4, 2)).toBe(
+      "7 of 12 stories are ready. 3 backlog stories and 2 planned ones still need points."
     );
-    expect(refinementVerdict({ ready: ready(7), total: 12, unsized: 3 })).toBe(
-      "7 of 12 backlog stories are ready. 3 still need points."
+    expect(v(7, 12, 4, 4, 1)).toBe(
+      "7 of 12 stories are ready. 3 backlog stories and 1 planned one still need points."
     );
-    expect(refinementVerdict({ ready: ready(1), total: 12, unsized: 1 })).toBe(
-      "1 of 12 backlog stories is ready. 1 still needs points."
+    expect(v(7, 12, 1, 4, 0)).toBe(
+      "7 of 12 stories are ready. 1 backlog story still needs points."
     );
-    expect(refinementVerdict({ ready: ready(0), total: 4, unsized: 0 })).toBe(
-      "None of the 4 backlog stories are ready yet."
+    expect(v(0, 3, 2, 3, 2)).toBe(
+      "None of the 3 stories are ready yet. 2 planned stories still need points."
     );
-    expect(refinementVerdict({ ready: ready(5), total: 5, unsized: 0 })).toBe(
-      "All 5 backlog stories are ready."
-    );
-    expect(refinementVerdict({ ready: ready(1), total: 1, unsized: 0 })).toBe(
-      "The backlog story is ready."
-    );
-    expect(refinementVerdict({ ready: ready(0), total: 1, unsized: 1 })).toBe(
-      "The backlog story isn't ready yet. It still needs points."
-    );
+    expect(v(3, 3, 0, 1, 0)).toBe("All 3 stories are ready.");
+    expect(v(0, 1, 1, 1, 1)).toBe("The planned story isn't ready yet. It still needs points.");
   });
 });
 
@@ -536,13 +593,33 @@ describe("walking the backlog", () => {
     fireEvent.click(within(ready).getByRole("button", { name: "Re-check Partly checked" }));
     expect(within(panel()).getByText("Re-checking a ready story")).toBeInTheDocument();
     fireEvent.click(within(panel()).getByRole("checkbox", { name: C[1].label }));
-    fireEvent.click(within(panel()).getByRole("button", { name: "Save checks" }));
+    // Unticking a box on a ready story: the button says what saving does.
+    expect(within(panel()).queryByRole("button", { name: "Save checks" })).toBeNull();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Save as not ready" }));
 
     expect(useWorkspaceStore.getState().stories.filter((s) => s.id === "b")).toHaveLength(1);
     expect(wsStory("b")?.readiness).toMatchObject({ checked: ["c1"], ready: false });
     expect(useRefinementStore.getState().history).toEqual([]);
-    expect(lastUndo().label).toBe("Saved the checks on “Partly checked”");
+    expect(lastUndo().label).toBe("“Partly checked” is no longer ready");
     expect(toRefine().join()).toContain("Partly checked");
+  });
+
+  it("re-checking a ready story with every box still ticked keeps it ready", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        story("b", { title: "Ready one", points: 3, readiness: readiness(["c1", "c2"], true) }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Re-check Ready one" }));
+    fireEvent.click(within(panel()).getByRole("button", { name: "Save checks" }));
+
+    expect(wsStory("b")?.readiness).toMatchObject({ checked: ["c1", "c2"], ready: true });
+    expect(wsStory("b")?.readiness?.updatedAt).not.toBe("2026-10-20T10:00:00.000Z");
+    expect(lastUndo().label).toBe("Saved the checks on “Ready one”");
+    expect(
+      within(screen.getByRole("list", { name: "Ready stories" })).getByText("Ready one")
+    ).toBeInTheDocument();
   });
 
   it("saves checks without the call and walks on", () => {
@@ -739,8 +816,22 @@ describe("earlier checks", () => {
     expect(useRefinementStore.getState().storyName).toBe("");
   });
 
-  it("adds a check to the backlog, where the session picks it up", () => {
-    useRefinementStore.setState({ history: [save("h1", { storyName: "Partner refunds" })] });
+  it("adds a check to the backlog, ticks included, where the session picks it up", () => {
+    useRefinementStore.setState({
+      history: [
+        save("h1", {
+          storyName: "Partner refunds",
+          date: "2026-10-10",
+          checks: [
+            { criterionId: "c1", checked: true },
+            { criterionId: "c2", checked: false },
+          ],
+          metCount: 1,
+          totalCriteria: 2,
+          passRate: 50,
+        }),
+      ],
+    });
     renderPage();
     fireEvent.click(
       within(checks()).getByRole("button", { name: "Add to backlog: Partner refunds" })
@@ -751,10 +842,89 @@ describe("earlier checks", () => {
         title: "Partner refunds",
         status: "backlog",
         sourceRef: { tool: "refinement", id: "h1" },
+        // Where it stood when checked, not "Not checked"; the call is made in the session.
+        readiness: expect.objectContaining({ checked: ["c1"], ready: false }),
       }),
     ]);
-    expect(within(checks()).getByRole("link", { name: "In the backlog" })).toBeInTheDocument();
+    expect(localDateOf(created[0].readiness?.updatedAt)).toBe("2026-10-10");
+    // It's in the session now, so the check opens it there instead of adding a copy.
+    expect(
+      within(checks()).getByRole("button", { name: "Open in session: Partner refunds" })
+    ).toBeInTheDocument();
     expect(toRefine()).toEqual([expect.stringContaining("Partner refunds")]);
+    expect(toRefine()[0]).toContain("1/2");
+    expect(within(panel()).getByText("Partial")).toBeInTheDocument();
+    // The check and the story it became are one check in the trend, not two.
+    expect(
+      screen.getByText("Check 5 more stories to see the pass-rate trend.")
+    ).toBeInTheDocument();
+
+    // Undo of the hand-off removes the story, ticks and all.
+    lastUndo().undo();
+    expect(useWorkspaceStore.getState().stories).toEqual([]);
+    expect(
+      within(checks()).getByRole("button", { name: "Add to backlog: Partner refunds" })
+    ).toBeInTheDocument();
+  });
+
+  it("links a check naming a story the backlog has instead of adding a copy", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        story("w", { title: "Top of the list", points: 1, priorityScore: 99 }),
+        story("x", { title: "Partner Refunds", points: 3 }),
+        story("y", { title: "Shipped one", status: "in_progress" }),
+        story("z", { title: "Finished", status: "done" }),
+      ],
+    });
+    useRefinementStore.setState({
+      history: [
+        // Case and spacing don't make it a different story.
+        save("h1", { storyName: " partner  refunds" }),
+        save("h2", { storyName: "Shipped one" }),
+        save("h3", { storyName: "Finished" }),
+      ],
+    });
+    renderPage();
+    // Not started: opens it in the session, focus on its name.
+    fireEvent.click(
+      within(checks()).getByRole("button", { name: "Open in session: Partner Refunds" })
+    );
+    expect(within(panel()).getByRole("heading", { name: "Partner Refunds" })).toHaveFocus();
+    // Started: in the backlog already, nothing to add.
+    expect(within(checks()).getByRole("link", { name: "In the backlog" })).toBeInTheDocument();
+    // A done story doesn't count: adding it again is a new story.
+    expect(
+      within(checks()).getByRole("button", { name: "Add to backlog: Finished" })
+    ).toBeInTheDocument();
+    expect(within(checks()).queryByRole("button", { name: /Add to backlog: partner/ })).toBeNull();
+  });
+
+  it("warns when a check by name names a backlog story, and opens it in the session", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        story("a", { title: "Login with SSO", points: 3, priorityScore: 1 }),
+        story("b", { title: "First", priorityScore: 9 }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Needs points (1)" }));
+    expect(toRefine()).toEqual([expect.stringContaining("First")]);
+    fireEvent.click(screen.getByRole("button", { name: "Check a story by name" }));
+    const form = screen.getByRole("button", { name: "Save check" }).closest("form")!;
+    fireEvent.change(within(form).getByLabelText(/Story name or ID/), {
+      target: { value: "  login WITH sso " },
+    });
+    expect(within(form).getByRole("status")).toHaveTextContent(
+      "“Login with SSO” is already in the backlog. Check it in the session"
+    );
+    // Narrowed to the stories that need points, the session still opens it.
+    fireEvent.click(within(form).getByRole("button", { name: "Open it in the session" }));
+    expect(within(panel()).getByRole("heading", { name: "Login with SSO" })).toHaveFocus();
+
+    fireEvent.change(within(form).getByLabelText(/Story name or ID/), {
+      target: { value: "Another team's story" },
+    });
+    expect(within(form).queryByRole("status")).toBeNull();
   });
 
   it("clears every earlier check after confirming, with Undo", () => {
@@ -774,8 +944,24 @@ describe("advanced analysis", () => {
   it("asks for more checks before showing a trend", () => {
     useRefinementStore.setState({ history: [save("h1"), save("h2")] });
     renderPage();
+    // Counted in stories: re-checking one replaces its record.
     expect(
-      screen.getByText("Record 4 more story checks to see the pass-rate trend.")
+      screen.getByText("Check 4 more stories to see the pass-rate trend.")
+    ).toBeInTheDocument();
+  });
+
+  it("doesn't count a re-checked story twice towards the sample", () => {
+    useWorkspaceStore.setState({
+      stories: [story("b", { title: "Rechecked", points: 3, readiness: readiness(["c1"], false) })],
+    });
+    renderPage();
+    expect(
+      screen.getByText("Check 5 more stories to see the pass-rate trend.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Rechecked/ }));
+    fireEvent.click(within(panel()).getByRole("button", { name: "Save checks" }));
+    expect(
+      screen.getByText("Check 5 more stories to see the pass-rate trend.")
     ).toBeInTheDocument();
   });
 
@@ -789,9 +975,347 @@ describe("advanced analysis", () => {
     expect(
       screen.getByText("Pass rate stayed at 50% over the last 6 checks; the average is 50%.")
     ).toBeInTheDocument();
-    expect(screen.getByText("Record 4 more story checks to see a trend test.")).toBeInTheDocument();
+    expect(screen.getByText("Check 4 more stories to see a trend test.")).toBeInTheDocument();
+    expect(screen.getByText("Check 2 more stories to see control limits.")).toBeInTheDocument();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Review fixes                                                              */
+/* -------------------------------------------------------------------------- */
+
+describe("the cockpit's count on the page", () => {
+  const stories: Story[] = [
+    // What the cockpit counts behind "Refine the backlog": no sprint, backlog, no points.
+    story("u1", { title: "Backlog A", priorityScore: 50 }),
+    story("u2", { title: "Backlog B", priorityScore: 40 }),
+    story("u3", { title: "Backlog C", points: 0, priorityScore: 30 }),
+    story("sized", { title: "Sized one", points: 5, priorityScore: 20 }),
+    // Planned into sprints and unsized: on the page, not on that card.
+    story("p1", { title: "Planned A", status: "todo", sprintId: "s1", priorityScore: 10 }),
+    story("p2", { title: "Planned B", sprintId: "s2", priorityScore: 5 }),
+  ];
+  const sprint: Sprint = {
+    id: "s1",
+    name: "Sprint 1",
+    startDate: "2026-10-12",
+    endDate: "2026-10-23",
+    pointsPlanned: 10,
+    status: "active",
+  };
+
+  it("shows the number the cockpit links with, and filters to exactly those stories", () => {
+    const cockpit = gatherCockpitData({
+      sprint,
+      series: undefined,
+      stories,
+      impediments: [],
+      standupEntries: [],
+      teamMembers: [],
+      retroBoards: [],
+      reviews: [],
+      today: "2026-10-23",
+    });
+    expect(cockpit.backlogUnestimated).toBe(3);
+    useWorkspaceStore.setState({ stories });
+    renderPage();
     expect(
-      screen.getByText("Record 2 more story checks to see control limits.")
+      screen.getByText(
+        "None of the 6 stories are ready yet. 3 backlog stories and 2 planned ones still need points."
+      )
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Needs points (5)" })).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `In the backlog, no points (${cockpit.backlogUnestimated})`,
+      })
+    );
+    expect(toRefine()).toEqual([
+      expect.stringContaining("Backlog A"),
+      expect.stringContaining("Backlog B"),
+      expect.stringContaining("Backlog C"),
+    ]);
+    expect(screen.getByText("Backlog stories that need points")).toBeInTheDocument();
+
+    // Once the planned ones have points the two filters are one list, and one button.
+    act(() => {
+      const ws = useWorkspaceStore.getState();
+      ws.upsertStory({ ...stories[4], points: 2 });
+      ws.upsertStory({ ...stories[5], points: 3 });
+    });
+    expect(screen.queryByRole("button", { name: /In the backlog, no points/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Needs points (3)" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(toRefine()).toHaveLength(3);
+  });
+
+  it("has no separate backlog filter while every unsized story is in the backlog", () => {
+    useWorkspaceStore.setState({ stories: stories.slice(0, 4) });
+    renderPage();
+    expect(
+      screen.getByText("None of the 4 backlog stories are ready yet. 3 still need points.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Needs points (3)" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /In the backlog, no points/ })).toBeNull();
+  });
+});
+
+describe("review fixes: logic", () => {
+  it("keeps a ready story ready only while every criterion is still ticked", () => {
+    const r = story("r", { points: 3, readiness: readiness(["c1", "c2"], true) });
+    expect(keepsReady(r, ["c1", "c2"], C)).toBe(true);
+    expect(keepsReady(r, ["c1", "gone"], C)).toBe(false);
+    expect(keepsReady(r, ["c1", "c2"], [])).toBe(false);
+    const notReady = story("n", { points: 3, readiness: readiness(["c1", "c2"], false) });
+    expect(keepsReady(notReady, ["c1", "c2"], C)).toBe(false);
+    expect(keepsReady(story("u"), ["c1", "c2"], C)).toBe(false);
+  });
+
+  it("turns a check's ticks into a story's readiness, dated the day of the check", () => {
+    const now = new Date(2026, 9, 23, 9, 0);
+    const ticks = [
+      { criterionId: "c1", checked: true },
+      { criterionId: "c2", checked: false },
+    ];
+    const r = readinessFromCheck({ date: "2026-10-10", checks: ticks }, now);
+    expect(r).toMatchObject({ checked: ["c1"], ready: false });
+    expect(localDateOf(r.updatedAt)).toBe("2026-10-10");
+    // Today's check isn't stamped later than now; a bad date or an old shape still works.
+    expect(readinessFromCheck({ date: "2026-10-23", checks: [] }, now).updatedAt).toBe(
+      now.toISOString()
+    );
+    expect(readinessFromCheck({ date: "soon", checks: undefined as unknown as [] }, now)).toEqual({
+      checked: [],
+      ready: false,
+      updatedAt: now.toISOString(),
+    });
+  });
+
+  it("reads a readiness stamp as the local day, and compares titles loosely", () => {
+    expect(localDateOf(new Date(2026, 9, 20, 0, 30).toISOString())).toBe("2026-10-20");
+    expect(localDateOf(new Date(2026, 9, 20, 23, 30).toISOString())).toBe("2026-10-20");
+    expect(localDateOf("garbage")).toBe("");
+    expect(localDateOf(undefined)).toBe("");
+    expect(titleKey("  Login  WITH\tsso ")).toBe("login with sso");
+  });
+
+  it("counts a check added to the backlog once, by the story it became", () => {
+    const history = [
+      save("h2", { date: "2026-10-02", storyName: "Sent earlier" }),
+      save("h1", { date: "2026-10-01", storyName: "Sent" }),
+    ];
+    const stories = [
+      story("s1", {
+        title: "Sent",
+        sourceRef: { tool: "refinement", id: "h1" },
+        readiness: readiness(["c1"], false, "2026-10-05T09:00:00.000Z"),
+      }),
+      // Sent before the ticks were carried over: no readiness, so its check still counts.
+      story("s2", { title: "Sent earlier", sourceRef: { tool: "refinement", id: "h2" } }),
+      // Another tool's item with the same id is a different thing.
+      story("s3", {
+        sourceRef: { tool: "retro", id: "h2" },
+        readiness: readiness(["c1", "c2"], true, "2026-10-06T09:00:00.000Z"),
+      }),
+    ];
+    expect(passRateRecords(stories, history, C).map((r) => r.id)).toEqual(["h2", "s1", "s3"]);
+    // The Team charter's Definition of Ready card can read the same series, newest first.
+    expect(dorCheckHistory(stories, history, C)).toEqual([
+      { passRate: 100, date: "2026-10-06", storyName: "Story s3" },
+      { passRate: 50, date: "2026-10-05", storyName: "Sent" },
+      { passRate: 75, date: "2026-10-02", storyName: "Sent earlier" },
+    ]);
+    expect(dorCheckHistory([], [], C)).toEqual([]);
+  });
+
+  it("marks example stories in the Markdown and names the ready-but-unsized badge", () => {
+    const stories = [
+      story("example-1", { title: "Sample", readiness: readiness(["c1", "c2"], true) }),
+      story("own", { title: "Own" }),
+    ];
+    const md = toMarkdown(refinementSession(stories), C, [], new Date("2026-10-23T12:00:00Z"));
+    expect(md).toContain("_Includes example stories, marked (example)._");
+    expect(md).toContain("| Sample (example) | Unsized | 2/2 | Ready once sized |");
+    expect(md).toContain("| Own | Unsized | — | Not checked |");
+    expect(toMarkdown(refinementSession([story("own")]), C, [])).not.toContain("example");
+  });
+});
+
+describe("review fixes: the page", () => {
+  it("marks example rows in the CSV and dates each check by its local day", () => {
+    const at = new Date(2026, 9, 20, 0, 30).toISOString();
+    useWorkspaceStore.setState({
+      stories: [
+        story("own", {
+          title: "Own story",
+          points: 2,
+          readiness: readiness(
+            C.map((c) => c.id),
+            true,
+            at
+          ),
+        }),
+      ],
+    });
+    useRefinementStore.setState({ exampleStories: buildExample(C, new Date(2026, 9, 23, 12)) });
+    renderPage();
+    const { csvData, markdown } = exported.props!;
+    const row = (title: string) => csvData.rows.find((r) => r[0] === title)!;
+    expect(row("Own story")[1]).toBe("Backlog");
+    expect(row("Own story")[7]).toBe("2026-10-20");
+    expect(row("Freeze a lost card from the app")[1]).toBe("Example");
+    // Every criterion met, no points: ready but for the estimate.
+    expect(row("Split a bill with contacts")[6]).toBe("Ready once sized");
+    expect(markdown).toContain("| Freeze a lost card from the app (example) |");
+    expect(markdown).toContain("| Own story | 2 |");
+  });
+
+  it("accepts today's date after the page stayed open past midnight", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 23, 23, 58));
+      renderPage();
+      fireEvent.click(screen.getByRole("button", { name: "Check a story by name" }));
+      const form = screen.getByRole("button", { name: "Save check" }).closest("form")!;
+      fireEvent.change(within(form).getByLabelText(/Story name or ID/), {
+        target: { value: "Late one" },
+      });
+      vi.setSystemTime(new Date(2026, 9, 24, 0, 5));
+      fireEvent.change(within(form).getByLabelText(/Checked on/), {
+        target: { value: "2026-10-24" },
+      });
+      fireEvent.click(within(form).getByRole("button", { name: "Save check" }));
+      expect(useRefinementStore.getState().history[0]).toMatchObject({
+        storyName: "Late one",
+        date: "2026-10-24",
+      });
+      // The next check starts on the new day.
+      expect(within(form).getByLabelText(/Checked on/)).toHaveValue("2026-10-24");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Reset clears the check-by-name form on screen, and its Undo brings the draft back", () => {
+    useRefinementStore.setState({ history: [save("h1")] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Check a story by name" }));
+    const form = () => screen.getByRole("button", { name: "Save check" }).closest("form")!;
+    fireEvent.change(within(form()).getByLabelText(/Story name or ID/), {
+      target: { value: "Half typed" },
+    });
+    fireEvent.click(within(form()).getByRole("checkbox", { name: C[0].label }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset checklist" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Reset checklist" })
+    );
+    expect(within(form()).getByLabelText(/Story name or ID/)).toHaveValue("");
+    expect(useRefinementStore.getState()).toMatchObject({ storyName: "", currentChecks: {} });
+    // A later keystroke doesn't write the old draft back.
+    fireEvent.change(within(form()).getByLabelText(/Description/), { target: { value: "x" } });
+    expect(useRefinementStore.getState().storyName).toBe("");
+
+    lastUndo().undo();
+    expect(within(form()).getByLabelText(/Story name or ID/)).toHaveValue("Half typed");
+    expect(within(form()).getByRole("checkbox", { name: C[0].label })).toBeChecked();
+    expect(useRefinementStore.getState().storyName).toBe("Half typed");
+  });
+
+  it("puts focus back on Edit after editing an earlier check in place", () => {
+    useRefinementStore.setState({ history: [save("h1", { storyName: "Login with SSO" })] });
+    renderPage();
+    const checks = () => screen.getByRole("list", { name: "Earlier checks" });
+    fireEvent.click(within(checks()).getByRole("button", { name: "Edit Login with SSO" }));
+    const name = within(checks()).getByLabelText(/Story name or ID/);
+    fireEvent.change(name, { target: { value: "SSO login" } });
+    fireEvent.click(within(checks()).getByRole("button", { name: "Save" }));
+    expect(within(checks()).getByRole("button", { name: "Edit SSO login" })).toHaveFocus();
+
+    fireEvent.click(within(checks()).getByRole("button", { name: "Edit SSO login" }));
+    fireEvent.keyDown(within(checks()).getByLabelText(/Story name or ID/), { key: "Escape" });
+    expect(within(checks()).getByRole("button", { name: "Edit SSO login" })).toHaveFocus();
+
+    fireEvent.click(within(checks()).getByRole("button", { name: "Edit SSO login" }));
+    fireEvent.click(within(checks()).getByRole("button", { name: "Cancel" }));
+    expect(within(checks()).getByRole("button", { name: "Edit SSO login" })).toHaveFocus();
+  });
+
+  it("moves focus to the next story once, not on every later remount", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        story("a", { title: "First unsized", priorityScore: 90 }),
+        story("b", { title: "Sized", points: 3, priorityScore: 80 }),
+        story("c", { title: "Second unsized", priorityScore: 70 }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Save checks" }));
+    expect(within(panel()).getByRole("heading", { name: "Sized" })).toHaveFocus();
+
+    // A filter remounts the panel on another story; focus stays on the filter.
+    const filter = screen.getByRole("button", { name: "Needs points (2)" });
+    filter.focus();
+    fireEvent.click(filter);
+    expect(within(panel()).getByRole("heading", { name: "First unsized" })).not.toHaveFocus();
+    expect(filter).toHaveFocus();
+    const all = screen.getByRole("button", { name: "All to refine (3)" });
+    all.focus();
+    fireEvent.click(all);
+    expect(all).toHaveFocus();
+  });
+
+  it("ties a refused Mark ready to the controls, and focuses the points message", () => {
+    useWorkspaceStore.setState({ stories: [story("a", { title: "Unsized story" })] });
+    renderPage();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Mark ready" }));
+    const first = within(panel()).getByRole("checkbox", { name: C[0].label });
+    expect(first).toHaveFocus();
+    expect(first).toHaveAccessibleDescription(/^2 of 2 criteria aren't ticked yet/);
+    expect(
+      within(panel()).getByRole("group", { name: "Definition of Ready" })
+    ).toHaveAccessibleDescription(/^2 of 2 criteria aren't ticked yet/);
+    expect(
+      within(panel()).getByRole("button", { name: "Queue for Poker" })
+    ).toHaveAccessibleDescription(
+      "It has no points yet. Queue it for Planning Poker, then mark it ready."
+    );
+
+    // Every box ticked, only the points missing: the message takes focus, every time.
+    fireEvent.click(first);
+    fireEvent.click(within(panel()).getByRole("checkbox", { name: C[1].label }));
+    fireEvent.click(within(panel()).getByRole("button", { name: "Mark ready" }));
+    const message = within(panel()).getByText(/^It has no points yet/);
+    expect(message).toHaveFocus();
+    first.focus();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Mark ready" }));
+    expect(message).toHaveFocus();
+    expect(wsStory("a")?.readiness).toBeUndefined();
+  });
+
+  it("refuses renaming a criterion to one the list already has", () => {
+    renderPage();
+    const list = () => screen.getByRole("list", { name: "Definition of Ready criteria" });
+    fireEvent.click(within(list()).getByRole("button", { name: `Edit ${C[1].label}` }));
+    let title = screen.getByRole("textbox", { name: "Criterion" });
+    fireEvent.change(title, { target: { value: "acceptance CRITERIA defined" } });
+    fireEvent.keyDown(title, { key: "Enter" });
+    expect(useRefinementStore.getState().criteria.map((c) => c.label)).toEqual([
+      C[0].label,
+      C[1].label,
+    ]);
+    expect(toastSpy.error).toHaveBeenCalledWith(
+      "“acceptance CRITERIA defined” is already on the list.",
+      { description: `The criterion keeps its name, “${C[1].label}”.` }
+    );
+
+    // Its own name in other case is fine.
+    fireEvent.click(within(list()).getByRole("button", { name: `Edit ${C[1].label}` }));
+    title = screen.getByRole("textbox", { name: "Criterion" });
+    fireEvent.change(title, { target: { value: "Fits in a Sprint" } });
+    fireEvent.keyDown(title, { key: "Enter" });
+    expect(useRefinementStore.getState().criteria[1].label).toBe("Fits in a Sprint");
   });
 });

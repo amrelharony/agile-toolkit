@@ -17,7 +17,9 @@ const PassRateTrendChart = dynamic(() => import("./charts").then((m) => m.PassRa
   ssr: false,
 });
 
-const CHECKS = ["story check", "story checks"] as const;
+// Counted in stories: re-checking one replaces its record rather than
+// adding another, so "record more checks" would never get there.
+const STORIES = ["story", "stories"] as const;
 
 /**
  * The Definition of Ready pass rate over time, its trend test and control
@@ -39,8 +41,8 @@ export function PassRateAdvanced({ records }: { records: readonly PassRecord[] }
         <NotEnoughData
           have={n}
           need="trend"
-          unit={CHECKS}
-          action="Record"
+          unit={STORIES}
+          action="Check"
           what="the pass-rate trend"
         />
       ) : (
@@ -63,8 +65,8 @@ export function PassRateAdvanced({ records }: { records: readonly PassRecord[] }
             <NotEnoughData
               have={n}
               need={TREND_TEST_MIN}
-              unit={CHECKS}
-              action="Record"
+              unit={STORIES}
+              action="Check"
               what="a trend test"
             />
           )}
@@ -78,8 +80,8 @@ export function PassRateAdvanced({ records }: { records: readonly PassRecord[] }
             <NotEnoughData
               have={n}
               need={MIN_SAMPLE.changePoint}
-              unit={CHECKS}
-              action="Record"
+              unit={STORIES}
+              action="Check"
               what="control limits"
             />
           )}
