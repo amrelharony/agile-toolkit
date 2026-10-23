@@ -95,6 +95,22 @@ export const CONSENSUS_LABELS: Record<ConsensusLevel, string> = {
   spread: "Discussion needed",
 };
 
+/**
+ * The label over the verdict, and its tone (null for neutral). A level is
+ * only measured from the cards played, so on its own it overclaims: one
+ * estimate is always "the same card", and two 5s with three "?" aren't a
+ * table in agreement. Too few estimates to agree on, or as many people
+ * unsure as estimating, get a neutral label instead.
+ */
+export function consensusLabel(
+  c: Consensus
+): { label: string; tone: ConsensusLevel | null } | null {
+  if (c.level === null) return null;
+  if (c.estimates < 2) return { label: "One estimate", tone: null };
+  if (c.abstained >= c.estimates) return { label: "Many unsure", tone: null };
+  return { label: CONSENSUS_LABELS[c.level], tone: c.level };
+}
+
 const cardsApart = (n: number) => (n === 1 ? "one card" : `${n} cards`);
 
 /** "1 person" / "2 people", for the non-estimate cards. */

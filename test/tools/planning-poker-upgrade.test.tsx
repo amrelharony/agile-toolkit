@@ -78,17 +78,26 @@ vi.mock("framer-motion", async () => {
 import { PlanningPokerClient } from "@/app/(tools)/planning-poker/planning-poker-client";
 import { SessionScreen } from "@/app/(tools)/planning-poker/session-screen";
 import {
+  consensusLabel,
   consensusOf,
   consensusVerdict,
   estimateCards,
   isEstimateCard,
 } from "@/app/(tools)/planning-poker/consensus";
 import {
+  loggedQueueStoryIds,
   planBacklogSave,
   planSize,
   pointsFromEstimate,
   savedCount,
 } from "@/app/(tools)/planning-poker/backlog";
+import { deckGuideScale } from "@/app/(tools)/planning-poker/use-card-references";
+import {
+  EXAMPLE_NOTES,
+  EXAMPLE_REFERENCE_STORIES,
+  withExample,
+} from "@/app/(tools)/estimation-guide/example";
+import { scales } from "@/lib/constants/scales";
 import {
   INITIAL_LOBBY,
   customDeckError,
@@ -389,9 +398,12 @@ describe("saving session stories to the backlog (logic)", () => {
       ["Login page", 5, "backlog", { tool: "planning-poker", id: "a" }],
       ["Search", undefined, "backlog", { tool: "planning-poker", id: "b" }],
       ["Profile", undefined, "backlog", { tool: "planning-poker", id: "c" }],
-      ["Settings", undefined, "backlog", { tool: "planning-poker", id: "d" }],
+      // 0 is an estimate the team agreed on, as the queue's write-back keeps it.
+      ["Settings", 0, "backlog", { tool: "planning-poker", id: "d" }],
     ]);
-    expect(plan.unsized).toBe(3);
+    expect(plan.unsized).toBe(2);
+    // Profile was sized M: estimated, just not in points.
+    expect(plan.notPoints).toBe(1);
     expect(new Set(plan.create.map((s) => s.id)).size).toBe(4);
   });
 
@@ -421,10 +433,11 @@ describe("saving session stories to the backlog (logic)", () => {
     expect(planSize(planBacklogSave(later, edited))).toBe(0);
   });
 
-  it("reads only positive numbers as points", () => {
+  it("reads zero and positive numbers as points", () => {
     expect(pointsFromEstimate("8")).toBe(8);
     expect(pointsFromEstimate(" 0.5 ")).toBe(0.5);
-    for (const v of ["0", "-3", "M", "?", "", null, undefined]) {
+    expect(pointsFromEstimate("0")).toBe(0);
+    for (const v of ["-3", "M", "?", "", null, undefined]) {
       expect(pointsFromEstimate(v), String(v)).toBeUndefined();
     }
   });
@@ -463,7 +476,12 @@ describe("saving session stories to the backlog (UI)", () => {
     ]);
     expect(h.undo?.label).toBe("Saved 2 stories to the backlog");
     expect(h.undo?.description).toBe("1 without points yet.");
-    expect(screen.getByRole("button", { name: "All saved to the backlog" })).toBeDisabled();
+    // Dimmed but still focusable, so the save doesn't drop keyboard focus.
+    const saved = screen.getByRole("button", { name: "All saved to the backlog" });
+    expect(saved).toHaveAttribute("aria-disabled", "true");
+    expect(saved).not.toBeDisabled();
+    fireEvent.click(saved);
+    expect(pokerStories()).toHaveLength(2);
     expect(screen.getByRole("link", { name: /2 in the backlog: plan the sprint/ })).toHaveAttribute(
       "href",
       "/sprint-planning"
@@ -649,5 +667,206 @@ describe("the note of queue stories in storage", () => {
     expect(window.localStorage.getItem(QUEUED_IDS_KEY)).toBeNull();
     saveQueuedStoryIds([]);
     expect(window.localStorage.getItem(QUEUED_IDS_KEY)).toBeNull();
+  });
+});
+
+// ─── Review fixes ────────────────────────────────────────────────────────
+
+function vote(value: string) {
+  fireEvent.click(
+    within(screen.getByRole("radiogroup", { name: "Your vote" })).getByRole("radio", {
+      name: value,
+    })
+  );
+}
+function startWith(scale: "T-Shirt" | "Custom") {
+  render(<PlanningPokerClient />);
+  fireEvent.click(screen.getByRole("button", { name: scale }));
+  fireEvent.click(screen.getByRole("button", { name: "Start Session" }));
+}
+
+describe("the consensus label", () => {
+  it("stays neutral for one estimate, or as many unsure as estimating", () => {
+    expect(consensusLabel(consensusOf(["5", "5", "?"], FIB))).toEqual({
+      label: "Full consensus",
+      tone: "agree",
+    });
+    expect(consensusLabel(consensusOf(["5"], FIB))).toEqual({ label: "One estimate", tone: null });
+    expect(consensusLabel(consensusOf(["5", "?", "?"], FIB))).toEqual({
+      label: "One estimate",
+      tone: null,
+    });
+    expect(consensusLabel(consensusOf(["5", "5", "?", "☕"], FIB))).toEqual({
+      label: "Many unsure",
+      tone: null,
+    });
+    expect(consensusLabel(consensusOf(["13", "21", "?"], FIB))).toEqual({
+      label: "Near consensus",
+      tone: "close",
+    });
+    expect(consensusLabel(consensusOf(["?", "?"], FIB))).toBeNull();
+  });
+
+  it("never says Full consensus over a single vote", () => {
+    render(<Harness initial={makeSession({ revealed: true, participants: seats("5") })} />);
+    expect(screen.getByText("One estimate")).toBeInTheDocument();
+    expect(screen.queryByText("Full consensus")).toBeNull();
+    expect(screen.getByText("Only one estimate: 5.")).toBeInTheDocument();
+  });
+});
+
+describe("accepting, on an estimated story and after", () => {
+  it("offers no Accept on a story that already has an estimate, and says what it is", () => {
+    render(
+      <Harness
+        initial={makeSession({
+          revealed: true,
+          participants: seats("8", "8"),
+          stories: [sessionStory("s1", "Login page", "5")],
+        })}
+      />
+    );
+    expect(screen.queryByRole("button", { name: /^Accept/ })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Estimate to accept" })).toBeNull();
+    expect(screen.getByText(/Already estimated at/)).toHaveTextContent(
+      "Already estimated at 5: this round is for comparison only."
+    );
+  });
+
+  it("moves focus to the story the session moved on to", () => {
+    render(
+      <Harness
+        initial={makeSession({
+          revealed: true,
+          participants: seats("3"),
+          stories: [sessionStory("s1", "Login page"), sessionStory("s2", "Search")],
+        })}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept 3" }));
+    expect(latest.currentStoryIdx).toBe(1);
+    expect(screen.getByRole("heading", { name: "Search" })).toHaveFocus();
+  });
+});
+
+describe("the session header at 375 px", () => {
+  it("lets its buttons wrap instead of running off the screen", () => {
+    render(<Harness initial={makeSession()} />);
+    const actions = screen.getByRole("button", { name: "Leave Session" }).parentElement!;
+    expect(actions).toHaveClass("flex-wrap", "min-w-0");
+  });
+});
+
+describe("a session stored before the note of queue stories", () => {
+  const logged = (storyTitle: string, finalEstimate: string, tool = "story") => ({
+    id: `q-${storyTitle}`,
+    storyTitle,
+    finalEstimate,
+    scaleType: "fibonacci",
+    decidedAt: "2026-10-20T00:00:00Z",
+    sourceRef: { tool, id: "x" },
+  });
+
+  it("knows the queue's stories by the title and estimate the write-back logged", () => {
+    const stories = [
+      sessionStory("a", "Planned story", "8"),
+      sessionStory("b", "Typed here", "3"),
+      sessionStory("c", "Not estimated", null),
+      sessionStory("d", "Mapped", "5"),
+    ];
+    const log = [
+      logged("Planned story", "8"),
+      logged("Not estimated", "5"),
+      logged(" Mapped ", "5", "story-mapper"),
+      // Only the queue's sources write back; any other log entry is ignored.
+      logged("Typed here", "3", "retro"),
+    ];
+    expect(loggedQueueStoryIds(stories, log)).toEqual(["a", "d"]);
+    expect(loggedQueueStoryIds(stories, undefined)).toEqual([]);
+    // Another estimate is another decision.
+    expect(loggedQueueStoryIds(stories, [logged("Planned story", "5")])).toEqual([]);
+  });
+
+  it("doesn't offer them for the backlog after the upgrade", () => {
+    window.localStorage.setItem(
+      LOCAL_SESSION_KEY,
+      JSON.stringify(
+        makeSession({
+          stories: [sessionStory("a", "Planned story", "8"), sessionStory("b", "Typed here", "3")],
+        })
+      )
+    );
+    useWorkspaceStore.setState({
+      stories: [story({ id: "sp-1", title: "Planned story", points: 8 })],
+      pokerEstimationLogs: [
+        { id: POKER_LOG_ID, estimates: [logged("Planned story", "8")], queue: [] },
+      ],
+    });
+    render(<PlanningPokerClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Save to backlog (1)" }));
+    expect(pokerStories().map((s) => s.title)).toEqual(["Typed here"]);
+  });
+});
+
+describe("saving sizes that aren't points", () => {
+  it("says so before and after the save, instead of 'without points yet'", () => {
+    startWith("T-Shirt");
+    addStory("Profile");
+    expect(
+      screen.getByText(/Sizes on this deck aren't story points, so they go in without points/)
+    ).toBeInTheDocument();
+    estimate("M");
+    fireEvent.click(screen.getByRole("button", { name: "Save to backlog (1)" }));
+    expect(pokerStories().map((s) => [s.title, s.points])).toEqual([["Profile", undefined]]);
+    expect(h.undo?.description).toBe("1 without points, since its size isn't story points.");
+  });
+});
+
+describe("the Estimation Guide under the deck, reviewed", () => {
+  it("reads a custom deck as the guide scale it matches", () => {
+    expect(deckGuideScale(["1", "2", "4", "8", "16", "32", "?"])).toBe("Powers of 2");
+    expect(deckGuideScale(["1", "2", "3"], ["Linear"])).toBe("Linear");
+    expect(deckGuideScale(["1", "2", "3"])).toBe("Fibonacci");
+    expect(deckGuideScale(["1", "4"], ["Fibonacci"])).toBe("Powers of 2");
+    expect(deckGuideScale(["tiny", "huge"], ["Fibonacci"])).toBeNull();
+    expect(deckGuideScale(["?"])).toBeNull();
+  });
+
+  it("shows one scale's notes for every card of the default custom deck", () => {
+    useEstimationGuideStore.setState({
+      selectedScale: "Fibonacci",
+      examples: { "Fibonacci:1": "Fib one", "Powers of 2:1": "P2 one", "Powers of 2:4": "P2 four" },
+    });
+    startWith("Custom");
+    addStory("Refund flow");
+    vote("1");
+    expect(screen.getByRole("region", { name: "Estimation Guide for 1" })).toHaveTextContent(
+      "Team example: P2 one"
+    );
+    vote("4");
+    expect(screen.getByRole("region", { name: "Estimation Guide for 4" })).toHaveTextContent(
+      "Team example: P2 four"
+    );
+  });
+
+  it("marks the guide's loaded example as the example, not the team's", () => {
+    const fib = scales.find((s) => s.name === "Fibonacci")!;
+    useEstimationGuideStore.setState(withExample({ examples: {}, referenceStoryIds: {} }, fib));
+    startSession();
+    addStory("Refund flow");
+    vote("8");
+    const panel = screen.getByRole("region", { name: "Estimation Guide for 8" });
+    expect(panel).toHaveTextContent(`Example: ${EXAMPLE_NOTES["8"]} (example)`);
+    expect(panel).not.toHaveTextContent("Team example");
+    expect(panel).toHaveTextContent(`${EXAMPLE_REFERENCE_STORIES[4].title} · 8 points (example)`);
+  });
+
+  it("points a T-shirt card to a team example, since sizes can't have stories pinned", () => {
+    startWith("T-Shirt");
+    addStory("Profile");
+    vote("M");
+    expect(screen.getByRole("region", { name: "Estimation Guide for M" })).toHaveTextContent(
+      "No team example for this card yet: add one in the Estimation Guide."
+    );
   });
 });

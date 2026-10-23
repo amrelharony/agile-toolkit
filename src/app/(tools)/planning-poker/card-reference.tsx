@@ -7,7 +7,7 @@
  */
 
 import Link from "next/link";
-import type { CardReference } from "@/app/(tools)/estimation-guide/references";
+import { pointsOf, type CardReference } from "@/app/(tools)/estimation-guide/references";
 
 export function CardReferencePanel({
   card,
@@ -44,9 +44,15 @@ export function CardReferencePanel({
         </Link>
       </div>
       {reference.description && <p className="mt-1 text-text">{reference.description}</p>}
+      {/* The guide's loaded example is marked, so example data never reads
+          as the team's in a real session. */}
       {reference.example && (
         <p className="mt-1 text-sub">
-          <span className="font-medium text-text">Team example:</span> {reference.example}
+          <span className="font-medium text-text">
+            {reference.exampleIsExample ? "Example:" : "Team example:"}
+          </span>{" "}
+          {reference.example}
+          {reference.exampleIsExample && <span className="text-sub"> (example)</span>}
         </p>
       )}
       {reference.stories.length > 0 && (
@@ -65,9 +71,12 @@ export function CardReferencePanel({
           </ul>
         </>
       )}
+      {/* Only a card with points can have a done story pinned on it. */}
       {!calibrated && (
         <p className="mt-1 text-xs text-sub">
-          No team example or reference story for this card yet: pin one in the Estimation Guide.
+          {pointsOf(card) === null
+            ? "No team example for this card yet: add one in the Estimation Guide."
+            : "No team example or reference story for this card yet: pin one in the Estimation Guide."}
         </p>
       )}
     </section>

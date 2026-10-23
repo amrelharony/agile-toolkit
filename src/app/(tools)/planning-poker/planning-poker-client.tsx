@@ -48,7 +48,7 @@ import {
 import { SCALE_LABELS, type Session } from "./types";
 import { DEFAULT_SESSION_NAME, buildExample, isExampleSession } from "./example";
 import { LobbyScreen, type StartData } from "./lobby-screen";
-import { planBacklogSave, planSize, savedCount } from "./backlog";
+import { loggedQueueStoryIds, planBacklogSave, planSize, savedCount } from "./backlog";
 import { useCardReferences } from "./use-card-references";
 import { toMarkdown } from "./markdown";
 import { generateRoomCode } from "./room-code";
@@ -257,13 +257,19 @@ export function PlanningPokerClient() {
 
   // ─── Save to backlog: the stories typed into this session ───
   // Queue stories are left out (their estimate goes back to their source):
-  // the ones this browser pulled in, and any the queue still lists.
+  // the ones this browser pulled in, any the queue still lists, and, for a
+  // session stored before the note of queue stories, the ones whose
+  // estimate the write-back logged.
   const backlogStories = useWorkspaceStore((s) => s.stories);
+  const loggedEstimates = useWorkspaceStore(
+    (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.estimates
+  );
   const skipForBacklog = useMemo(() => {
     const ids = new Set(fromQueue);
     for (const q of queue ?? []) if (q.sessionStoryId) ids.add(q.sessionStoryId);
+    for (const id of loggedQueueStoryIds(session?.stories ?? [], loggedEstimates)) ids.add(id);
     return ids;
-  }, [fromQueue, queue]);
+  }, [fromQueue, queue, session?.stories, loggedEstimates]);
   const backlogPlan = useMemo(
     () => (session ? planBacklogSave(session.stories, backlogStories, skipForBacklog) : null),
     [session, backlogStories, skipForBacklog]
@@ -280,8 +286,16 @@ export function PlanningPokerClient() {
     const n = planSize(plan);
     if (n === 0) return;
     const { upsertStory, removeStory } = useWorkspaceStore.getState();
+    // A T-shirt size isn't story points: say so, rather than let a sized
+    // story read as one nobody estimated.
+    const unestimated = plan.unsized - plan.notPoints;
     const notes = [
-      plan.unsized > 0 ? `${plan.unsized} without points yet` : "",
+      unestimated > 0 ? `${unestimated} without points yet` : "",
+      plan.notPoints > 0
+        ? `${plan.notPoints} without points, since ${
+            plan.notPoints === 1 ? "its size isn't" : "their sizes aren't"
+          } story points`
+        : "",
       plan.update.length > 0
         ? `${plan.update.length} given ${plan.update.length === 1 ? "its" : "their"} points`
         : "",
@@ -422,7 +436,7 @@ export function PlanningPokerClient() {
   };
 
   const markdown = useMemo(() => toMarkdown(session), [session]);
-  const references = useCardReferences(session?.scaleType);
+  const references = useCardReferences(session?.scaleType, session?.scale);
 
   // ─── AI prompt config (owner only, derived from current session) ───
   const workspace = useWorkspaceStore(

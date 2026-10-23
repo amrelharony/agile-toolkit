@@ -46,7 +46,7 @@ import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
 import { REDACTED_VOTE } from "./merge";
 import { castVotes, isNumeric, withRound } from "./rounds";
-import { CONSENSUS_LABELS, consensusOf, consensusVerdict, type ConsensusLevel } from "./consensus";
+import { consensusLabel, consensusOf, consensusVerdict, type ConsensusLevel } from "./consensus";
 import { AcceptEstimate } from "./accept-estimate";
 import { AddStoryForm } from "./add-story-form";
 import { CardReferencePanel } from "./card-reference";
@@ -283,6 +283,16 @@ export function SessionScreen({
     if (id === null || deckFor !== null) return;
     returnFocusTo.current = null;
     voteForRefs.current.get(id)?.focus();
+  });
+
+  // Accepting an estimate takes the Accept block away with the round; focus
+  // goes to the story the session moved on to rather than the page.
+  const storyHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusStoryNext = useRef(false);
+  useEffect(() => {
+    if (!focusStoryNext.current) return;
+    focusStoryNext.current = false;
+    storyHeadingRef.current?.focus();
   });
 
   const allIn = facilitating && allVotesIn(session);
@@ -531,6 +541,7 @@ export function SessionScreen({
         currentStoryIdx: nextUnestimated !== -1 ? nextUnestimated : s.currentStoryIdx,
       };
     });
+    focusStoryNext.current = true;
     if (!skipped && story) {
       log(PLANNING_POKER_ACTIONS.ESTIMATE_COMMITTED, {
         storyId: story.id,
@@ -560,6 +571,13 @@ export function SessionScreen({
   const stats = session.revealed ? calcStats(votes) : null;
   // Counted in cards on this session's deck, so T-shirt decks get a verdict too.
   const consensus = session.revealed && votes.length > 0 ? consensusOf(votes, session.scale) : null;
+  // Neutral, not "Full consensus", for one estimate or a table of "?".
+  const consensusTag = consensus ? consensusLabel(consensus) : null;
+  const tone = consensusTag?.tone ?? null;
+  const estimatedAt = currentStory?.finalEstimate ?? null;
+  // A T-shirt (or other word) deck's sizes can't become story points, so
+  // "Save to backlog" says they go in without them.
+  const sizesArePoints = session.scale.some(isNumeric);
   // A new round (or a late vote changing the suggestion) starts the
   // accept picker over on the new suggestion.
   const acceptKey = `${currentStory?.id ?? ""}:${currentStory?.rounds?.length ?? 0}:${
@@ -582,8 +600,9 @@ export function SessionScreen({
   return (
     <div className="flex flex-col gap-6">
       {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-5 py-3">
-        <div className="flex items-center gap-3">
+      {/* Both groups wrap: at 375 px the owner's four header buttons don't fit one row. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3 py-3 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-text">{session.sessionName}</span>
             {showRoomCode && (
@@ -602,7 +621,7 @@ export function SessionScreen({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {extraHeaderActions}
           <Button
             variant="ghost"
@@ -702,7 +721,11 @@ export function SessionScreen({
                     </div>
                   </div>
 
-                  <h2 className="text-xl sm:text-2xl font-display font-bold text-text text-glow-cyan px-1 break-words">
+                  <h2
+                    ref={storyHeadingRef}
+                    tabIndex={-1}
+                    className="text-xl sm:text-2xl font-display font-bold text-text text-glow-cyan px-1 break-words outline-none"
+                  >
                     {currentStory.title}
                   </h2>
 
@@ -812,23 +835,21 @@ export function SessionScreen({
                     {consensus && (
                       <div
                         className={`flex items-start gap-3 rounded-lg border px-4 py-3 ${
-                          consensus.level
-                            ? CONSENSUS_TONES[consensus.level].box
-                            : "border-border bg-surface-deep"
+                          tone ? CONSENSUS_TONES[tone].box : "border-border bg-surface-deep"
                         }`}
                       >
                         <span
                           aria-hidden="true"
                           className={`mt-1.5 h-3 w-3 rounded-full shrink-0 ${
-                            consensus.level ? CONSENSUS_TONES[consensus.level].dot : "bg-sub"
+                            tone ? CONSENSUS_TONES[tone].dot : "bg-sub"
                           }`}
                         />
                         <div className="flex min-w-0 flex-col gap-0.5">
-                          {consensus.level && (
+                          {consensusTag && (
                             <span
-                              className={`text-sm font-medium ${CONSENSUS_TONES[consensus.level].text}`}
+                              className={`text-sm font-medium ${tone ? CONSENSUS_TONES[tone].text : "text-text"}`}
                             >
-                              {CONSENSUS_LABELS[consensus.level]}
+                              {consensusTag.label}
                             </span>
                           )}
                           <span className="text-sm text-text">{consensusVerdict(consensus)}</span>
@@ -871,7 +892,16 @@ export function SessionScreen({
                       )}
                     </div>
 
-                    {isHost && (
+                    {/* An estimated story keeps its estimate (saveEstimate
+                        skips it), so it gets no Accept that would do nothing. */}
+                    {isHost && estimatedAt !== null && (
+                      <p className="text-sm text-sub">
+                        Already estimated at{" "}
+                        <span className="font-data font-bold text-text">{estimatedAt}</span>: this
+                        round is for comparison only.
+                      </p>
+                    )}
+                    {isHost && estimatedAt === null && (
                       <AcceptEstimate
                         key={acceptKey}
                         deck={session.scale}
@@ -1017,13 +1047,15 @@ export function SessionScreen({
                 stories, and the queue's (their estimate goes to their source). */}
             {isHost && backlog && (backlog.toSave > 0 || backlog.saved > 0) && (
               <div className="flex flex-col gap-2 border-t border-border pt-3">
+                {/* aria-disabled, not disabled: the button keeps focus after
+                    the save that empties it (onSave does nothing then). */}
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={backlog.onSave}
-                  disabled={backlog.toSave === 0}
-                  className="justify-start gap-1.5"
+                  aria-disabled={backlog.toSave === 0}
+                  className="justify-start gap-1.5 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                 >
                   <BookmarkPlus className="h-3.5 w-3.5" aria-hidden="true" />
                   {backlog.toSave > 0
@@ -1040,7 +1072,9 @@ export function SessionScreen({
                   </Link>
                 ) : (
                   <p className="text-xs text-sub">
-                    Stories you typed here become backlog stories, with their points.
+                    {sizesArePoints
+                      ? "Stories you typed here become backlog stories, with their points."
+                      : "Stories you typed here become backlog stories. Sizes on this deck aren't story points, so they go in without points."}
                   </p>
                 )}
               </div>
