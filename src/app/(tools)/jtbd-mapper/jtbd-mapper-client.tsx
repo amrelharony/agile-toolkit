@@ -1,243 +1,187 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useShallow } from "zustand/react/shallow";
+import { BookPlus, Check, CornerDownRight, Pencil, Plus, Trash2, User } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ActionRow } from "@/components/shared/action-row";
-import { KpiGrid } from "@/components/shared/kpi-grid";
-import { StatCard } from "@/components/shared/stat-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { undoable } from "@/lib/utils/undoable";
+import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { IconButton } from "@/components/ui/icon-button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Trash2, User, Layers, GitBranch, AlertCircle } from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { undoable } from "@/lib/utils/undoable";
+import { sendHandoff } from "@/lib/handoffs/send";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { JTBD_ACTIONS } from "@/lib/history/event-actions";
 import { generateJtbdPrompts } from "@/lib/ai-prompts/jtbd-mapper";
-import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { JobStory, Story, Workspace } from "@/lib/stores/workspace-types";
+import { JobAddForm, JobRowEditor, sameJob, useJobAddForm, withJobValues } from "./job-form";
+import type { JobValues } from "./job-form";
+import {
+  JOB_TOOL,
+  descendantIds,
+  jobLinks,
+  jobSentence,
+  jobTree,
+  storiesByJob,
+  storyTitleFor,
+} from "./jobs";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
+import { jtbdSummary } from "./verdict";
 
-interface JobStory {
-  id: string;
-  situation: string;
-  motivation: string;
-  outcome: string;
-  parentJobId?: string;
-  description?: string;
-}
+/** How a job's backlog story stands, as the row's link names it. */
+const STORY_STATE: Record<Story["status"], string> = {
+  backlog: "on the backlog",
+  todo: "to do",
+  in_progress: "in progress",
+  review: "in review",
+  done: "done",
+};
 
-function renderJobLabel(j: JobStory): string {
-  return `When ${j.situation || "(situation)"}, I want to ${j.motivation || "(motivation)"}, so I can ${j.outcome || "(outcome)"}.`;
-}
+/** Deep enough for any real job map; stops a hand-edited chain from blowing the stack. */
+const MAX_DEPTH = 30;
 
-/**
- * Ids of every job nested under `id` (children, grandchildren, ...), not
- * including `id`. Stops on cycles.
- */
-function descendantIds(jobs: JobStory[], id: string): Set<string> {
-  const found = new Set<string>([id]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const j of jobs) {
-      if (j.parentJobId && found.has(j.parentJobId) && !found.has(j.id)) {
-        found.add(j.id);
-        grew = true;
-      }
-    }
-  }
-  found.delete(id);
-  return found;
-}
-
-/**
- * Compute the deepest descendant chain. Uses a visited set so a corrupted
- * import with cyclic parentJobId doesn't loop forever.
- */
-function computeMaxDepth(jobs: JobStory[]): number {
-  const childrenByParent = new Map<string, JobStory[]>();
-  for (const j of jobs) {
-    if (j.parentJobId) {
-      const list = childrenByParent.get(j.parentJobId) ?? [];
-      list.push(j);
-      childrenByParent.set(j.parentJobId, list);
-    }
-  }
-  const roots = jobs.filter((j) => !j.parentJobId);
-  let maxDepth = roots.length === 0 ? 0 : 1;
-
-  const walk = (id: string, depth: number, visited: Set<string>) => {
-    if (visited.has(id)) return;
-    visited.add(id);
-    if (depth > maxDepth) maxDepth = depth;
-    for (const c of childrenByParent.get(id) ?? []) {
-      walk(c.id, depth + 1, visited);
-    }
-  };
-  for (const r of roots) walk(r.id, 1, new Set());
-  return maxDepth;
-}
+const EMPTY_JOBS: JobStory[] = [];
 
 export function JtbdMapperClient() {
-  const jobs = useWorkspaceStore(useShallow((s) => s.jobStories ?? []));
-  // Mirrors the old usePersisted [value, setter] over the synced collection
-  // (whole-array replace), so every setJobs(...) call site below is unchanged.
-  const setJobs = (updater: JobStory[] | ((prev: JobStory[]) => JobStory[])) => {
+  const jobs = useWorkspaceStore((s) => s.jobStories ?? EMPTY_JOBS);
+  const stories = useWorkspaceStore((s) => s.stories);
+  // A whole-array replace over the synced collection, reading the store at
+  // the moment it writes so two quick edits can't overwrite each other.
+  const setJobs = (update: (prev: JobStory[]) => JobStory[]) => {
     const cur = useWorkspaceStore.getState().jobStories ?? [];
-    const next = typeof updater === "function" ? updater(cur) : updater;
-    useWorkspaceStore.setState({ jobStories: next });
+    useWorkspaceStore.setState({ jobStories: update(cur) });
   };
   const { log } = useHistoryLogger("jtbd-mapper");
-
-  // Form state for adding a new story.
-  const [situation, setSituation] = useState("");
-  const [motivation, setMotivation] = useState("");
-  const [outcome, setOutcome] = useState("");
-  const [description, setDescription] = useState("");
-  const [parentJobId, setParentJobId] = useState<string>("__none__");
-
-  // Editing state — track which job is being edited.
+  const exportRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const childrenByParent = useMemo(() => {
-    const map = new Map<string, JobStory[]>();
-    for (const j of jobs) {
-      if (j.parentJobId) {
-        const list = map.get(j.parentJobId) ?? [];
-        list.push(j);
-        map.set(j.parentJobId, list);
-      }
-    }
-    return map;
-  }, [jobs]);
-
-  const rootJobs = useMemo(() => jobs.filter((j) => !j.parentJobId), [jobs]);
-  const maxDepth = useMemo(() => computeMaxDepth(jobs), [jobs]);
-  const jobsWithoutChildren = useMemo(
-    () => jobs.filter((j) => !childrenByParent.has(j.id)).length,
-    [jobs, childrenByParent]
-  );
-
-  const addJob = () => {
-    if (!situation.trim() && !motivation.trim() && !outcome.trim()) return;
-    const id = crypto.randomUUID();
-    // Bound each clause of the job-story sentence. The renderer line-clamps
-    // these on display but stored values were unbounded — a paste could
-    // bloat the export CSV beyond what Excel/Sheets handles cleanly.
-    const desc = description.trim().slice(0, 4000);
-    // Validate parentJobId against the existing job set so a stale
-    // persisted value can't orphan-link a new story to a deleted parent.
-    const validParent =
-      parentJobId === "__none__" || !parentJobId
-        ? undefined
-        : jobs.some((j) => j.id === parentJobId)
-          ? parentJobId
-          : undefined;
-    const job: JobStory = {
-      id,
-      situation: situation.trim().slice(0, 500),
-      motivation: motivation.trim().slice(0, 500),
-      outcome: outcome.trim().slice(0, 500),
-      parentJobId: validParent,
-      description: desc.length > 0 ? desc : undefined,
-    };
+  function add(v: JobValues) {
+    const job: JobStory = { id: crypto.randomUUID(), ...v };
     setJobs((s) => [...s, job]);
     log(JTBD_ACTIONS.JOB_STORY_ADDED, {
-      jobId: id,
+      jobId: job.id,
       situation: job.situation,
       motivation: job.motivation,
       outcome: job.outcome,
       parentJobId: job.parentJobId,
       description: job.description,
     });
-    setSituation("");
-    setMotivation("");
-    setOutcome("");
-    setDescription("");
-    setParentJobId("__none__");
-  };
+  }
+  const form = useJobAddForm(add, jobs);
 
-  const updateJob = (id: string, patch: Partial<JobStory>) => {
-    // BUG-T4-jtbd-mapper-1: if the patch reparents this job, walk the
-    // proposed parent's ancestry to ensure assigning `patch.parentJobId`
-    // wouldn't create a cycle. Reject silently (preserve current parent)
-    // when a cycle would result. Bare equality check covers the
-    // self-parent case.
-    if (patch.parentJobId !== undefined && patch.parentJobId !== null) {
-      const newParent = patch.parentJobId;
-      if (newParent === id) {
-        // self-parent: drop the patch.parentJobId field.
-        patch = { ...patch };
-        delete patch.parentJobId;
-      } else {
-        const byId = new Map(jobs.map((j) => [j.id, j]));
-        const seen = new Set<string>([id]);
-        let cursor: string | undefined | null = newParent;
-        let cycle = false;
-        while (cursor) {
-          if (seen.has(cursor)) {
-            cycle = true;
-            break;
-          }
-          seen.add(cursor);
-          cursor = byId.get(cursor)?.parentJobId;
-        }
-        if (cycle) {
-          patch = { ...patch };
-          delete patch.parentJobId;
-        }
-      }
-    }
-    setJobs((s) => s.map((j) => (j.id === id ? { ...j, ...patch } : j)));
-    log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: id, patch });
-  };
+  function save(job: JobStory, v: JobValues) {
+    setEditingId(null);
+    if (sameJob(job, v)) return;
+    setJobs((s) => s.map((j) => (j.id === job.id ? withJobValues(j, v) : j)));
+    log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: job.id, patch: v });
+  }
 
-  // Removing a job also removes everything nested under it, so a job with
-  // children asks first (with the count). Either way Undo puts the removed
-  // stories back where they were.
+  /** "Add a job under this": the add form takes the parent and gets focus. */
+  function addUnder(job: JobStory) {
+    form.update({ parentJobId: job.id });
+    const first = form.formRef.current?.querySelector<HTMLElement>("input");
+    first?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    first?.focus();
+  }
+
+  // A job with sub-jobs asks what happens to them: removed with it, or
+  // kept and moved up a level. Either way Undo puts everything back.
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const pendingJob = pendingRemoveId ? jobs.find((j) => j.id === pendingRemoveId) : undefined;
   const pendingNested = pendingRemoveId ? descendantIds(jobs, pendingRemoveId).size : 0;
 
-  const requestRemoveJob = (id: string) => {
+  const requestRemove = (id: string) => {
     if (descendantIds(jobs, id).size > 0) setPendingRemoveId(id);
-    else removeJob(id);
+    else removeJob(id, "all");
   };
 
-  const removeJob = (id: string) => {
+  function removeJob(id: string, nested: "all" | "keep") {
     const current = useWorkspaceStore.getState().jobStories ?? [];
     const job = current.find((j) => j.id === id);
     if (!job) return;
+    const logRemoved = () =>
+      log(JTBD_ACTIONS.JOB_STORY_REMOVED, {
+        jobId: id,
+        situation: job.situation,
+        motivation: job.motivation,
+        outcome: job.outcome,
+      });
+
+    if (nested === "keep") {
+      const index = current.indexOf(job);
+      const children = current.filter((j) => j.parentJobId === id).map((j) => j.id);
+      // The children move to the removed job's own parent (or the top level).
+      const newParent =
+        job.parentJobId && current.some((j) => j.id === job.parentJobId)
+          ? job.parentJobId
+          : undefined;
+      const moved = new Set(children);
+      undoable({
+        label: `Removed a job story; ${children.length} nested ${children.length === 1 ? "story" : "stories"} moved up a level`,
+        description: jobSentence(job),
+        apply: () => {
+          setJobs((s) =>
+            s
+              .filter((j) => j.id !== id)
+              .map((j) => {
+                if (!moved.has(j.id)) return j;
+                const next = { ...j };
+                if (newParent) next.parentJobId = newParent;
+                else delete next.parentJobId;
+                return next;
+              })
+          );
+          logRemoved();
+        },
+        revert: () =>
+          setJobs((s) => {
+            const out = s.map((j) =>
+              // Only the children still where the removal put them go back.
+              moved.has(j.id) && (j.parentJobId ?? undefined) === newParent
+                ? { ...j, parentJobId: id }
+                : j
+            );
+            if (!out.some((j) => j.id === id)) out.splice(Math.min(index, out.length), 0, job);
+            return out;
+          }),
+      });
+      return;
+    }
+
     const toDelete = descendantIds(current, id);
     toDelete.add(id);
     // Remember each removed story's position for Undo.
     const removed = current.flatMap((j, index) => (toDelete.has(j.id) ? [{ job: j, index }] : []));
-    const nested = removed.length - 1;
+    const count = removed.length - 1;
     undoable({
       label:
-        nested > 0
-          ? `Removed a job story and ${nested} nested ${nested === 1 ? "story" : "stories"}`
+        count > 0
+          ? `Removed a job story and ${count} nested ${count === 1 ? "story" : "stories"}`
           : "Removed a job story",
-      description: renderJobLabel(job),
+      description: jobSentence(job),
       apply: () => {
         setJobs((s) => s.filter((j) => !toDelete.has(j.id)));
-        log(JTBD_ACTIONS.JOB_STORY_REMOVED, {
-          jobId: id,
-          situation: job.situation,
-          motivation: job.motivation,
-          outcome: job.outcome,
-        });
+        logRemoved();
       },
       revert: () =>
         setJobs((s) => {
@@ -250,7 +194,46 @@ export function JtbdMapperClient() {
           return out;
         }),
     });
+  }
+
+  /** "Create story": a backlog story titled from the job, which links back to it. */
+  function createStory(job: JobStory) {
+    sendHandoff(
+      "backlog-story",
+      { title: storyTitleFor(job), sourceRef: { tool: JOB_TOOL, id: job.id } },
+      {
+        // The story's sourceRef is the link (see storiesByJob), so there is
+        // nothing to record on the job.
+        getLinks: () => jobLinks(job.id, useWorkspaceStore.getState().stories),
+        setLinks: () => {},
+      }
+    );
+  }
+
+  const loadExample = () => {
+    const example = buildExample();
+    const ids = new Set(example.map((j) => j.id));
+    setJobs((s) => [...s.filter((j) => !ids.has(j.id)), ...example]);
+    // An earlier empty "Add" shouldn't leave errors under the example.
+    form.reset();
   };
+  // Only the example's jobs go; a job of the user's filed under one of them
+  // moves to the top level instead of dangling.
+  const clearExample = () =>
+    setJobs((s) =>
+      s
+        .filter((j) => !isExampleId(j.id))
+        .map((j) => {
+          if (!isExampleId(j.parentJobId)) return j;
+          const next = { ...j };
+          delete next.parentJobId;
+          return next;
+        })
+    );
+
+  const tree = useMemo(() => jobTree(jobs), [jobs]);
+  const byJob = useMemo(() => storiesByJob(stories), [stories]);
+  const summary = jtbdSummary(jobs, stories);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -279,91 +262,58 @@ export function JtbdMapperClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: ["Situation", "Motivation", "Outcome", "Parent", "Description"],
+      headers: ["Situation", "Motivation", "Outcome", "Parent", "Description", "Backlog story"],
       rows: jobs.map((j) => {
         const parent = j.parentJobId ? jobs.find((p) => p.id === j.parentJobId) : undefined;
+        const story = byJob.get(j.id);
         return [
           j.situation,
           j.motivation,
           j.outcome,
-          parent ? renderJobLabel(parent) : "",
+          parent ? jobSentence(parent) : "",
           j.description ?? "",
+          story ? (STORY_STATE[story.status] ?? story.status) : "",
         ];
       }),
     }),
-    [jobs]
+    [jobs, byJob]
   );
 
-  const renderRow = (
-    job: JobStory,
-    depth: number,
-    seen: Set<string> = new Set()
-  ): React.ReactNode => {
-    // Cycle guard: a hand-edited localStorage payload could carry a
-    // `parentJobId` cycle (A → B → A). Without this, renderRow would
-    // recurse forever and crash the tab. computeMaxDepth uses a
-    // visited set; the render path needs the same protection.
-    if (seen.has(job.id) || depth > 30) return null;
-    const nextSeen = new Set(seen);
-    nextSeen.add(job.id);
-    const isEditing = editingId === job.id;
-    const children = childrenByParent.get(job.id) ?? [];
+  const renderRow = (job: JobStory, depth: number, seen: ReadonlySet<string>): React.ReactNode => {
+    // jobTree already breaks cycles; this guards the recursion regardless.
+    if (seen.has(job.id) || depth > MAX_DEPTH) return null;
+    const nextSeen = new Set(seen).add(job.id);
+    const children = tree.children.get(job.id) ?? [];
     return (
-      <div key={job.id} className="space-y-2">
-        <div
-          className="rounded-lg border border-border bg-bg p-3"
-          style={{ borderLeftColor: "var(--accent3)", borderLeftWidth: 3 }}
-        >
-          {isEditing ? (
-            <JobRowEditor job={job} onCommit={updateJob} onDone={() => setEditingId(null)} />
+      <li key={job.id} className="space-y-2">
+        <div className="rounded-lg border border-l-[3px] border-border border-l-accent-3 bg-bg p-3">
+          {editingId === job.id ? (
+            <JobRowEditor
+              job={job}
+              jobs={jobs}
+              onSave={(v) => save(job, v)}
+              onCancel={() => setEditingId(null)}
+            />
           ) : (
-            <div className="flex items-start gap-2">
-              <User className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--accent3)" }} />
-              <div className="flex-1 min-w-0 space-y-1">
-                <p className="text-sm text-text break-words">
-                  <span className="text-sub">When </span>
-                  <span className="font-medium">{job.situation || "(situation)"}</span>
-                  <span className="text-sub">, I want to </span>
-                  <span className="font-medium">{job.motivation || "(motivation)"}</span>
-                  <span className="text-sub">, so I can </span>
-                  <span className="font-medium">{job.outcome || "(outcome)"}</span>
-                  <span className="text-sub">.</span>
-                </p>
-                {job.description && (
-                  <p className="text-xs text-sub whitespace-pre-wrap break-words">
-                    {job.description}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setEditingId(job.id)}
-                  className="h-7 px-2 text-xs text-sub hover:text-accent"
-                  aria-label={`Edit job story: when ${job.situation || "(situation)"}`}
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => requestRemoveJob(job.id)}
-                  className="h-7 w-7 p-0 text-sub hover:text-danger"
-                  aria-label={`Remove job story: when ${job.situation || "(situation)"}`}
-                >
-                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                </Button>
-              </div>
-            </div>
+            <JobRow
+              job={job}
+              story={byJob.get(job.id)}
+              onCreateStory={() => createStory(job)}
+              onAddUnder={() => addUnder(job)}
+              onEdit={() => setEditingId(job.id)}
+              onRemove={() => requestRemove(job.id)}
+            />
           )}
         </div>
         {children.length > 0 && (
-          <div className="pl-6 space-y-2 border-l border-border ml-2">
+          <ul
+            className="ml-2 space-y-2 border-l border-border pl-3 sm:pl-6"
+            aria-label={`Under: when ${job.situation || "(situation)"}`}
+          >
             {children.map((c) => renderRow(c, depth + 1, nextSeen))}
-          </div>
+          </ul>
         )}
-      </div>
+      </li>
     );
   };
 
@@ -371,257 +321,184 @@ export function JtbdMapperClient() {
     <ToolPageWrapper
       toolId="jtbd-mapper"
       title="Job Story Mapper"
-      description='"When ___ I want to ___ so I can ___" job-story builder linked to opportunities.'
+      description='"When ___, I want to ___, so I can ___" job stories: map the jobs, then turn them into backlog stories.'
       category="Sprint Planning & Estimation"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton filename="jtbd-mapper" csvData={csvData} jsonData={jobs} />
-      </ActionRow>
+      <div ref={exportRef} className="space-y-4">
+        {hasExampleItems(jobs) && <ExampleNotice onClear={clearExample} />}
 
-      <KpiGrid cols={4} gap="lg">
-        <StatCard
-          variant="compact"
-          icon={User}
-          label="Job stories"
-          value={jobs.length}
-          valueClassName="text-accent"
-        />
-        <StatCard variant="compact" icon={GitBranch} label="Top-level" value={rootJobs.length} />
-        <StatCard variant="compact" icon={Layers} label="Max depth" value={maxDepth} />
-        <StatCard
-          variant="compact"
-          icon={AlertCircle}
-          label="Without children"
-          value={jobsWithoutChildren}
-          hint="leaf jobs"
-        />
-      </KpiGrid>
+        <SectionCard title="Add a job story" icon={Plus}>
+          <JobAddForm form={form} jobs={jobs} />
+        </SectionCard>
 
-      <div className="rounded-lg border border-border bg-surface p-4 mb-4">
-        <div className="text-xs uppercase tracking-wider text-sub mb-3">Add job story</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
-          <Input
-            value={situation}
-            onChange={(e) => setSituation(e.target.value)}
-            placeholder="When... (situation)"
-            className="bg-bg border-border text-sm"
-            aria-label="When (situation)"
-          />
-          <Input
-            value={motivation}
-            onChange={(e) => setMotivation(e.target.value)}
-            placeholder="I want to... (motivation)"
-            className="bg-bg border-border text-sm"
-            aria-label="I want to (motivation)"
-          />
-          <Input
-            value={outcome}
-            onChange={(e) => setOutcome(e.target.value)}
-            placeholder="So I can... (outcome)"
-            className="bg-bg border-border text-sm"
-            aria-label="So I can (outcome)"
-          />
-        </div>
-        <Textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Description (optional)..."
-          rows={2}
-          className="bg-bg border-border text-sm resize-none mb-2"
-          aria-label="Description"
-        />
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Select value={parentJobId} onValueChange={setParentJobId}>
-            <SelectTrigger
-              className="bg-bg border-border text-sm sm:flex-1"
-              aria-label="Parent job (optional)"
-            >
-              <SelectValue placeholder="Parent job (optional)" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">No parent (top-level)</SelectItem>
-              {jobs.map((j) => (
-                <SelectItem key={j.id} value={j.id} className="text-xs">
-                  {renderJobLabel(j).slice(0, 80)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            onClick={addJob}
-            className="gap-2 bg-accent text-bg hover:bg-accent/90 sm:w-auto w-full"
+        {jobs.length === 0 ? (
+          <EmptyState icon={User} action={<LoadExampleButton onLoad={loadExample} />}>
+            No job stories yet. Write the first one above: when it happens, what they want to do,
+            and what that lets them do. Or load an example to see a job map.
+          </EmptyState>
+        ) : (
+          <SectionCard
+            title={`Job stories (${jobs.length})`}
+            icon={User}
+            actions={
+              <>
+                <AiPromptGenerator config={promptConfig} />
+                <ExportButton
+                  filename="jtbd-mapper"
+                  csvData={csvData}
+                  jsonData={jobs}
+                  markdown={toMarkdown(jobs, stories)}
+                  targetRef={exportRef}
+                />
+              </>
+            }
           >
-            <Plus className="w-4 h-4" aria-hidden="true" />
-            Add
-          </Button>
-        </div>
+            <p className="mb-3 text-sm font-medium text-text">{summary}</p>
+            <ul className="space-y-2" aria-label="Job stories">
+              {tree.roots.map((j) => renderRow(j, 0, new Set()))}
+            </ul>
+          </SectionCard>
+        )}
       </div>
 
-      {jobs.length === 0 ? (
-        <EmptyState icon={User}>
-          No job stories yet. Capture your first one above using the when/want/so format.
-        </EmptyState>
-      ) : (
-        <div className="space-y-2">{rootJobs.map((j) => renderRow(j, 0))}</div>
-      )}
-
-      <ConfirmDialog
-        open={pendingRemoveId !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingRemoveId(null);
-        }}
-        title="Remove this job and everything under it?"
-        description={
-          pendingJob
-            ? `“${renderJobLabel(pendingJob)}” and the ${pendingNested} job ${pendingNested === 1 ? "story" : "stories"} nested under it will be removed.`
-            : undefined
-        }
-        confirmLabel={`Remove ${pendingNested + 1} job ${pendingNested === 0 ? "story" : "stories"}`}
-        onConfirm={() => {
-          if (pendingRemoveId) removeJob(pendingRemoveId);
+      <RemoveJobDialog
+        job={pendingJob}
+        nested={pendingNested}
+        onClose={() => setPendingRemoveId(null)}
+        onRemove={(nested) => {
+          if (pendingRemoveId) removeJob(pendingRemoveId, nested);
+          setPendingRemoveId(null);
         }}
       />
     </ToolPageWrapper>
   );
 }
 
-/**
- * Local-draft inline editor for a job story. Holds keystrokes in component
- * state and only commits to the parent (which writes localStorage and logs
- * a history entry) on blur or "Done", avoiding the per-keystroke storage
- * write + log-flood and the cursor-jump that came with `value={job.x}`.
- */
-function JobRowEditor({
+/** One job: the sentence, its notes, its backlog story, and the actions. */
+function JobRow({
   job,
-  onCommit,
-  onDone,
+  story,
+  onCreateStory,
+  onAddUnder,
+  onEdit,
+  onRemove,
 }: {
   job: JobStory;
-  onCommit: (id: string, patch: Partial<JobStory>) => void;
-  onDone: () => void;
+  story: Story | undefined;
+  onCreateStory: () => void;
+  onAddUnder: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
 }) {
-  const [situation, setSituation] = useState(job.situation);
-  const [motivation, setMotivation] = useState(job.motivation);
-  const [outcome, setOutcome] = useState(job.outcome);
-  // Description: store raw value, trim only when committing on blur.
-  const [description, setDescription] = useState(job.description ?? "");
-
-  // Sync external changes (e.g. another tab) into local draft when the
-  // corresponding input isn't focused — otherwise we'd wipe mid-edit typing.
-  const sitRef = useRef<HTMLInputElement>(null);
-  const motRef = useRef<HTMLInputElement>(null);
-  const outRef = useRef<HTMLInputElement>(null);
-  const descRef = useRef<HTMLInputElement>(null);
-  const lastSitRef = useRef(job.situation);
-  const lastMotRef = useRef(job.motivation);
-  const lastOutRef = useRef(job.outcome);
-  const lastDescRef = useRef(job.description ?? "");
-  useEffect(() => {
-    if (document.activeElement === sitRef.current) return;
-    if (job.situation === lastSitRef.current) return;
-    setSituation(job.situation);
-    lastSitRef.current = job.situation;
-  }, [job.situation]);
-  useEffect(() => {
-    if (document.activeElement === motRef.current) return;
-    if (job.motivation === lastMotRef.current) return;
-    setMotivation(job.motivation);
-    lastMotRef.current = job.motivation;
-  }, [job.motivation]);
-  useEffect(() => {
-    if (document.activeElement === outRef.current) return;
-    if (job.outcome === lastOutRef.current) return;
-    setOutcome(job.outcome);
-    lastOutRef.current = job.outcome;
-  }, [job.outcome]);
-  useEffect(() => {
-    const next = job.description ?? "";
-    if (document.activeElement === descRef.current) return;
-    if (next === lastDescRef.current) return;
-    setDescription(next);
-    lastDescRef.current = next;
-  }, [job.description]);
-
-  const commitField = <K extends keyof JobStory>(key: K, value: JobStory[K]) => {
-    if (job[key] === value) return;
-    onCommit(job.id, { [key]: value } as Partial<JobStory>);
-  };
-
-  const commitDescription = () => {
-    const trimmed = description.trim();
-    const next = trimmed.length > 0 ? trimmed : undefined;
-    if (next === (job.description ?? undefined)) return;
-    onCommit(job.id, { description: next });
-    lastDescRef.current = trimmed;
-  };
-
+  const when = `when ${job.situation || "(situation)"}`;
+  const example = isExampleId(job.id);
+  const route = getHandoffRoute("backlog-story");
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <Input
-          ref={sitRef}
-          value={situation}
-          onChange={(e) => setSituation(e.target.value)}
-          onBlur={() => {
-            commitField("situation", situation);
-            lastSitRef.current = situation;
-          }}
-          placeholder="When..."
-          className="bg-surface border-border text-xs"
-          aria-label="When (situation)"
-        />
-        <Input
-          ref={motRef}
-          value={motivation}
-          onChange={(e) => setMotivation(e.target.value)}
-          onBlur={() => {
-            commitField("motivation", motivation);
-            lastMotRef.current = motivation;
-          }}
-          placeholder="I want to..."
-          className="bg-surface border-border text-xs"
-          aria-label="I want to (motivation)"
-        />
-        <Input
-          ref={outRef}
-          value={outcome}
-          onChange={(e) => setOutcome(e.target.value)}
-          onBlur={() => {
-            commitField("outcome", outcome);
-            lastOutRef.current = outcome;
-          }}
-          placeholder="So I can..."
-          className="bg-surface border-border text-xs"
-          aria-label="So I can (outcome)"
-        />
+    <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
+      <User className="mt-0.5 h-4 w-4 shrink-0 text-accent-3" aria-hidden="true" />
+      <div className="min-w-0 flex-1 basis-48 space-y-1">
+        <p className="break-words text-sm text-text">
+          <span className="text-sub">When </span>
+          <span className="font-medium">{job.situation || "(situation)"}</span>
+          <span className="text-sub">, I want to </span>
+          <span className="font-medium">{job.motivation || "(motivation)"}</span>
+          <span className="text-sub">, so I can </span>
+          <span className="font-medium">{job.outcome || "(outcome)"}</span>
+          <span className="text-sub">.</span>
+        </p>
+        {job.description && (
+          <p className="whitespace-pre-wrap break-words text-xs text-sub">{job.description}</p>
+        )}
       </div>
-      <Input
-        ref={descRef}
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        onBlur={commitDescription}
-        placeholder="Description (optional)"
-        className="bg-surface border-border text-xs"
-        aria-label="Description"
-      />
-      <div className="flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            // Flush any pending edits before collapsing the editor.
-            commitField("situation", situation);
-            commitField("motivation", motivation);
-            commitField("outcome", outcome);
-            commitDescription();
-            onDone();
-          }}
-          className="text-sub"
-        >
-          Done
-        </Button>
+      <div className="flex shrink-0 flex-wrap items-center gap-1">
+        {story ? (
+          <Link
+            href={route.targetHref(story.id)}
+            className="min-touch-coarse inline-flex h-7 items-center gap-1 rounded px-2 text-xs text-success underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <Check className="h-3.5 w-3.5" aria-hidden="true" />
+            Story {STORY_STATE[story.status] ?? story.status}
+            <span className="sr-only"> (open in Sprint Planning)</span>
+          </Link>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onCreateStory}
+            disabled={example}
+            title={example ? "Clear the example to make stories from your own jobs." : undefined}
+            aria-label={`Create story: ${when}`}
+            className="min-touch-coarse h-7 gap-1.5 px-2 text-xs text-sub hover:text-accent"
+          >
+            <BookPlus aria-hidden="true" />
+            Create story
+          </Button>
+        )}
+        <IconButton
+          label={`Add a job under: ${when}`}
+          icon={<CornerDownRight className="h-4 w-4" />}
+          className="text-sub hover:text-accent"
+          onClick={onAddUnder}
+        />
+        <IconButton
+          label={`Edit job story: ${when}`}
+          icon={<Pencil className="h-4 w-4" />}
+          className="text-sub hover:text-text"
+          onClick={onEdit}
+        />
+        <IconButton
+          label={`Remove job story: ${when}`}
+          icon={<Trash2 className="h-4 w-4" />}
+          className="text-sub hover:text-danger"
+          onClick={onRemove}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * Removing a job that has sub-jobs: take them with it, or keep them and
+ * move them up a level. Cancel has focus, so Enter never removes anything.
+ */
+function RemoveJobDialog({
+  job,
+  nested,
+  onClose,
+  onRemove,
+}: {
+  job: JobStory | undefined;
+  nested: number;
+  onClose: () => void;
+  onRemove: (nested: "all" | "keep") => void;
+}) {
+  const stories = nested === 1 ? "story" : "stories";
+  return (
+    <Dialog open={Boolean(job)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            Remove a job with {nested} nested job {stories}?
+          </DialogTitle>
+          <DialogDescription>
+            {job ? `“${jobSentence(job)}” ` : ""}has {nested} job {stories} under it. Remove{" "}
+            {nested === 1 ? "it" : "them"} too, or keep {nested === 1 ? "it" : "them"} and move up a
+            level.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={onClose} autoFocus>
+            Cancel
+          </Button>
+          <Button type="button" variant="outline" onClick={() => onRemove("keep")}>
+            Keep nested, remove this one
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => onRemove("all")}>
+            Remove {nested + 1} job stories
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
