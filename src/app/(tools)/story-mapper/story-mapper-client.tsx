@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect, useId } from "react";
+import { useState, useMemo, useId } from "react";
+import Link from "next/link";
 import {
   DragOverlay,
   PointerSensor,
@@ -26,24 +27,24 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
 import { generateStoryMapperPrompts } from "@/lib/ai-prompts/story-mapper";
 import { undoable } from "@/lib/utils/undoable";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace, StoryMap, HandoffLink } from "@/lib/stores/workspace-types";
+import type {
+  Workspace,
+  StoryMap,
+  HandoffLink,
+  HandoffRouteId,
+} from "@/lib/stores/workspace-types";
 import { SendToMenuItems } from "@/components/handoff/send-to-menu";
 import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STORY_MAPPER_ACTIONS } from "@/lib/history/event-actions";
+import { plural } from "@/lib/charts/chart-text";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,15 +55,45 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   ExampleNotice,
   LoadExampleButton,
   isExampleId,
 } from "@/components/tool-frame/example-data";
-import { Plus, Trash2, GripVertical, Pencil, Map, ArrowRightLeft } from "lucide-react";
+import {
+  Trash2,
+  GripVertical,
+  Pencil,
+  Map as MapIcon,
+  ArrowRightLeft,
+  Check,
+  Send,
+  CalendarRange,
+} from "lucide-react";
 import { buildExampleSlices, buildExampleSteps } from "./example";
 import { toMarkdown } from "./markdown";
+import { CardEditor, sameCardValues, withCardValues, type CardValues } from "./card-editor";
+import { DEFAULT_CARD_COLOR, cardColor } from "./card-colors";
+import { InlineAdd } from "./inline-add";
+import {
+  estimateKind,
+  estimatePoints,
+  sliceCards,
+  sliceSummary,
+  sliceTotals,
+  storyMapVerdict,
+} from "./estimate";
+import {
+  SM_ID,
+  backlogSource,
+  cardsToSend,
+  inBacklog,
+  linksAfterSend,
+  linksAfterUnsend,
+  sendCards,
+  unsendCards,
+  type SentCard,
+} from "./backlog";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -72,10 +103,14 @@ interface StoryCard {
   id: string;
   title: string;
   description: string;
+  /** A stored colour id (see ./card-colors), drawn with a theme token. */
   color: string;
-  /** Planning Poker's estimate, written back when the story is estimated. */
+  /**
+   * Story points as a string (Planning Poker writes back whatever card was
+   * agreed). Only numeric values count toward totals; see ./estimate.
+   */
   estimate?: string;
-  /** Where the card was sent (queued for Planning Poker). */
+  /** Where the card was sent (Planning Poker's queue, the backlog). */
   sentTo?: HandoffLink[];
 }
 
@@ -96,13 +131,13 @@ interface Step {
 interface StoryMapState {
   steps: Step[];
   slices: Slice[];
-  addStep: () => void;
+  addStep: (name: string) => void;
   removeStep: (stepId: string) => void;
   renameStep: (stepId: string, name: string) => void;
-  addSlice: () => void;
+  addSlice: (name: string) => void;
   removeSlice: (sliceId: string) => void;
   renameSlice: (sliceId: string, name: string) => void;
-  addCard: (sliceId: string, stepId: string) => void;
+  addCard: (sliceId: string, stepId: string, title: string) => void;
   updateCard: (sliceId: string, stepId: string, card: StoryCard) => void;
   removeCard: (sliceId: string, stepId: string, cardId: string) => void;
   moveCard: (
@@ -119,14 +154,6 @@ interface StoryMapState {
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                  */
 /* -------------------------------------------------------------------------- */
-
-const CARD_COLORS = [
-  { value: "#00f0ff", label: "Cyan" },
-  { value: "#a78bfa", label: "Purple" },
-  { value: "#34d399", label: "Green" },
-  { value: "#fb923c", label: "Orange" },
-  { value: "#f472b6", label: "Pink" },
-];
 
 function makeId() {
   return crypto.randomUUID();
@@ -148,9 +175,9 @@ const buildDefaultSlices: (steps: Step[]) => Slice[] = buildExampleSlices;
 // localStorage zustand store), so MCP-written maps round-trip into the UI.
 // `useStoryMapStore` preserves the prior store's API — including selector
 // access (e.g. useStoryMapStore((s) => s.addCard)) — and the mutator bodies
-// below are byte-for-byte unchanged: `set` is a shim that merges a partial
-// onto the synced doc. MUST match SM_ID in src/lib/actions/tools/story-mapper.ts.
-const SM_ID = "story-mapper:current";
+// below keep the original store's shape: `set` is a shim that merges a partial
+// onto the synced doc. SM_ID (./backlog) MUST match the one in
+// src/lib/actions/tools/story-mapper.ts.
 
 function defaultStoryMap(): StoryMap {
   const steps = buildDefaultSteps();
@@ -173,10 +200,12 @@ function set(updater: Partial<StoryMap> | ((s: StoryMap) => Partial<StoryMap>)):
   useWorkspaceStore.getState().upsertStoryMap({ ...cur, ...partial });
 }
 
+// Steps, slices and cards are created with the name the user typed (see
+// ./inline-add): the map no longer fills with "New Step" placeholders.
 const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
-  addStep: () =>
+  addStep: (name) =>
     set((s) => {
-      const newStep: Step = { id: makeId(), name: "New Step" };
+      const newStep: Step = { id: makeId(), name };
       return {
         steps: [...s.steps, newStep],
         slices: s.slices.map((sl) => ({
@@ -204,12 +233,12 @@ const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
       steps: s.steps.map((st) => (st.id === stepId ? { ...st, name } : st)),
     })),
 
-  addSlice: () =>
+  addSlice: (name) =>
     set((s) => {
       const emptyCards: StepCards = {};
       for (const st of s.steps) emptyCards[st.id] = [];
       return {
-        slices: [...s.slices, { id: makeId(), name: "New Slice", cards: emptyCards }],
+        slices: [...s.slices, { id: makeId(), name, cards: emptyCards }],
       };
     }),
 
@@ -224,16 +253,16 @@ const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
       slices: s.slices.map((sl) => (sl.id === sliceId ? { ...sl, name } : sl)),
     })),
 
-  addCard: (sliceId, stepId) =>
+  addCard: (sliceId, stepId, title) =>
     set((s) => ({
       slices: s.slices.map((sl) => {
         if (sl.id !== sliceId) return sl;
         const existing = sl.cards[stepId] ?? [];
         const newCard: StoryCard = {
           id: makeId(),
-          title: "New Story",
+          title,
           description: "",
-          color: CARD_COLORS[0].value,
+          color: DEFAULT_CARD_COLOR,
         };
         return {
           ...sl,
@@ -342,9 +371,67 @@ function setCardLinks(
   }));
 }
 
-/** A story-map card can be queued for Planning Poker. */
-const CARD_ROUTES = ["poker-queue"] as const;
-const CARD_ROUTE_LABELS = { "poker-queue": "Estimate in Planning Poker" } as const;
+/**
+ * Record several cards' sends (or their Undo) in one write, so a slice sent
+ * to the backlog is one map update and one Undo.
+ */
+function setLinksFor(
+  sent: ReadonlyMap<string, SentCard>,
+  next: (card: StoryCard, s: SentCard) => HandoffLink[]
+): void {
+  set((s) => ({
+    slices: s.slices.map((sl) => ({
+      ...sl,
+      cards: Object.fromEntries(
+        Object.entries(sl.cards).map(([stepId, cards]) => [
+          stepId,
+          cards.map((c) => {
+            const done = sent.get(c.id);
+            return done ? { ...c, sentTo: next(c, done) } : c;
+          }),
+        ])
+      ),
+    })),
+  }));
+}
+
+/**
+ * "Send to backlog" for a whole slice: a backlog story per card, with its
+ * points, skipping cards already there and example cards. One Undo takes
+ * every story back off the backlog and drops the links.
+ */
+function sendSliceToBacklog(sliceId: string): void {
+  const cur = currentStoryMap();
+  const slice = cur.slices.find((sl) => sl.id === sliceId);
+  if (!slice) return;
+  const cards = cardsToSend(slice, cur.steps);
+  if (cards.length === 0) return;
+  let sent: Map<string, SentCard> = new Map();
+  undoable({
+    label: `Added ${plural(cards.length, "story", "stories")} to the backlog`,
+    description: `From “${shortName(slice.name)}”`,
+    apply: () => {
+      sent = sendCards(cards, new Date().toISOString());
+      setLinksFor(sent, linksAfterSend);
+    },
+    revert: () => {
+      unsendCards(sent);
+      setLinksFor(sent, linksAfterUnsend);
+    },
+  });
+}
+
+/**
+ * A card can be queued for Planning Poker or put on the backlog on its own.
+ * Example cards only go to the Poker queue: the backlog is real work, and
+ * "Clear example" couldn't take the stories back.
+ */
+const CARD_ROUTES: readonly HandoffRouteId[] = ["poker-queue", "backlog-story"];
+const EXAMPLE_CARD_ROUTES: readonly HandoffRouteId[] = ["poker-queue"];
+const CARD_ROUTE_LABELS = {
+  "poker-queue": "Estimate in Planning Poker",
+  "backlog-story": "Add to the backlog",
+} as const;
 
 /* -- Undo helpers ---------------------------------------------------------- */
 // Put a removed card, step or slice back where it was. Each reads the freshest
@@ -477,145 +564,9 @@ function useStoryMapStore<T>(selector?: (s: StoryMapState) => T): T | StoryMapSt
 }
 
 /* -------------------------------------------------------------------------- */
-/*  EditableName moved to @/components/shared/editable-name                     */
+/*  EditableName moved to @/components/shared/editable-name; the card editor  */
+/*  (edit in place, was a dialog) lives in ./card-editor                       */
 /* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
-/*  CardEditDialog                                                             */
-/* -------------------------------------------------------------------------- */
-
-function CardEditDialog({
-  card,
-  sliceId,
-  stepId,
-  trigger,
-}: {
-  card: StoryCard;
-  sliceId: string;
-  stepId: string;
-  trigger: React.ReactNode;
-}) {
-  // BUG-RD3-story-mapper-1: scope the hook to a single action so the
-  // dialog doesn't re-render every time ANY card, step, or slice
-  // anywhere in the map changes — that re-render was blurring open
-  // EditableName inputs mid-edit when a sibling card got dragged.
-  const updateCard = useStoryMapStore((s) => s.updateCard);
-  const uid = useId();
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState(card.title);
-  const [description, setDescription] = useState(card.description);
-  const [color, setColor] = useState(card.color);
-
-  useEffect(() => {
-    if (open) {
-      setTitle(card.title);
-      setDescription(card.description);
-      setColor(card.color);
-    }
-  }, [open, card]);
-
-  const save = () => {
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) return;
-    updateCard(sliceId, stepId, {
-      ...card,
-      title: trimmedTitle,
-      description: description.trim(),
-      color,
-    });
-    setOpen(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="bg-surface border-border max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-text font-display">Edit Story Card</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="space-y-1.5">
-            <label
-              htmlFor={`${uid}-title`}
-              className="text-xs text-sub font-medium uppercase tracking-wider"
-            >
-              Title
-            </label>
-            <Input
-              id={`${uid}-title`}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Story title…"
-              className="bg-card border-border text-text focus:border-accent/50"
-              onKeyDown={(e) => e.key === "Enter" && save()}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label
-              htmlFor={`${uid}-description`}
-              className="text-xs text-sub font-medium uppercase tracking-wider"
-            >
-              Description
-            </label>
-            <textarea
-              id={`${uid}-description`}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="As a user, I want to…"
-              rows={3}
-              className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-text placeholder:text-sub/50 focus:outline-none focus:ring-1 focus:ring-accent/50 focus:border-accent/50 resize-none"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <p
-              id={`${uid}-color`}
-              className="text-xs text-sub font-medium uppercase tracking-wider"
-            >
-              Color
-            </p>
-            <div role="group" aria-labelledby={`${uid}-color`} className="flex gap-2">
-              {CARD_COLORS.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  title={c.label}
-                  aria-label={c.label}
-                  aria-pressed={color === c.value}
-                  onClick={() => setColor(c.value)}
-                  className="min-touch-coarse w-7 h-7 rounded-full transition-transform hover:scale-110"
-                  style={{
-                    backgroundColor: c.value,
-                    outline: color === c.value ? `2px solid ${c.value}` : "none",
-                    outlineOffset: 2,
-                    opacity: color === c.value ? 1 : 0.45,
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setOpen(false)}
-              className="text-sub hover:text-text"
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={save}
-              disabled={!title.trim()}
-              className="bg-accent/20 text-accent border border-accent/30 hover:bg-accent/30"
-            >
-              Save
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 /* -------------------------------------------------------------------------- */
 /*  DraggableCard                                                              */
@@ -724,13 +675,10 @@ function CardMoveMenuItems({
   return (
     <>
       <SendToMenuItems
-        routes={CARD_ROUTES}
+        routes={isExampleId(card.id) ? EXAMPLE_CARD_ROUTES : CARD_ROUTES}
         itemLabels={CARD_ROUTE_LABELS}
-        item={{
-          title: card.title,
-          description: card.description || undefined,
-          sourceRef: { tool: "story-mapper", id: card.id, doc: SM_ID },
-        }}
+        // The backlog keeps the card's points; Poker's queue ignores them.
+        item={backlogSource(card)}
         sentTo={card.sentTo}
         onLinksChange={(update) => setCardLinks(card.id, update)}
       />
@@ -780,8 +728,12 @@ function DraggableCard({
   count: number;
   onMove: MoveCardFn;
 }) {
-  // BUG-RD3-story-mapper-1: scope selector — see CardEditDialog above.
+  // BUG-RD3-story-mapper-1: scope each selector to a single action, so a
+  // card doesn't re-render whenever ANY card, step or slice changes (that
+  // re-render blurred open EditableName inputs when a sibling was dragged).
   const removeCard = useStoryMapStore((s) => s.removeCard);
+  const updateCard = useStoryMapStore((s) => s.updateCard);
+  const [editing, setEditing] = useState(false);
   const dragId = encodeDragId(sliceId, stepId, card.id);
 
   const deleteCard = () =>
@@ -790,6 +742,16 @@ function DraggableCard({
       apply: () => removeCard(sliceId, stepId, card.id),
       revert: () => restoreCard(sliceId, stepId, card, index),
     });
+
+  const save = (values: CardValues) => {
+    setEditing(false);
+    if (!sameCardValues(card, values)) updateCard(sliceId, stepId, withCardValues(card, values));
+    focusCardEdit(card.id);
+  };
+  const cancel = () => {
+    setEditing(false);
+    focusCardEdit(card.id);
+  };
 
   const {
     attributes,
@@ -801,19 +763,34 @@ function DraggableCard({
     isDragging,
   } = useSortable({
     id: dragId,
+    // The editor's fields take the keyboard; the card can't be picked up meanwhile.
+    disabled: editing,
   });
 
+  // Position only: colour comes from theme tokens (./card-colors).
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
   };
+  const color = cardColor(card.color);
+
+  if (editing) {
+    return (
+      <div ref={setNodeRef} style={style}>
+        <CardEditor card={card} onSave={save} onCancel={cancel} />
+      </div>
+    );
+  }
 
   return (
     <div
       ref={setNodeRef}
-      style={{ ...style, borderColor: `${card.color}40` }}
-      className="group relative rounded-md border text-sm p-2.5 bg-surface-deep hover:bg-surface transition-colors cursor-default"
+      style={style}
+      className={cn(
+        "group relative rounded-md border text-sm p-2.5 bg-surface-deep hover:bg-surface transition-colors cursor-default",
+        color.border
+      )}
     >
       {/* Drag handle — stays visible on touch devices since hover doesn't exist.
           It is the drag activator: focusable, and it gets both the sortable
@@ -837,35 +814,29 @@ function DraggableCard({
         {/* Color dot + title */}
         <div className="flex items-start gap-1.5">
           <span
-            className="mt-1 flex-shrink-0 w-2 h-2 rounded-full"
-            style={{ backgroundColor: card.color }}
+            className={cn("mt-1 flex-shrink-0 w-2 h-2 rounded-full", color.dot)}
+            aria-hidden="true"
           />
           <span className="font-medium text-text leading-snug line-clamp-2">{card.title}</span>
         </div>
         {card.description && (
           <p className="mt-1 text-xs text-sub line-clamp-2 pl-3.5">{card.description}</p>
         )}
-        {card.estimate && <EstimateBadge estimate={card.estimate} />}
+        <CardMeta card={card} />
       </div>
 
       {/* Action buttons (top-right) — always visible on coarse pointers. */}
       <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity">
-        <CardEditDialog
-          card={card}
-          sliceId={sliceId}
-          stepId={stepId}
-          trigger={
-            <button
-              type="button"
-              className="min-touch-coarse p-1 rounded text-sub hover:text-accent hover:bg-accent/10 transition-colors inline-flex items-center justify-center"
-              title="Edit"
-              onClick={(e) => e.stopPropagation()}
-              aria-label={`Edit ${card.title}`}
-            >
-              <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-            </button>
-          }
-        />
+        <button
+          type="button"
+          data-card-edit={card.id}
+          className="min-touch-coarse p-1 rounded text-sub hover:text-accent hover:bg-accent/10 transition-colors inline-flex items-center justify-center"
+          title="Edit"
+          onClick={() => setEditing(true)}
+          aria-label={`Edit ${card.title}`}
+        >
+          <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+        </button>
         <CardMoveMenu
           card={card}
           sliceId={sliceId}
@@ -888,17 +859,47 @@ function DraggableCard({
   );
 }
 
-/** Planning Poker's estimate on a card. */
-function EstimateBadge({ estimate }: { estimate: string }) {
+/** After the editor closes, put focus back on the card's Edit button, not <body>. */
+function focusCardEdit(cardId: string) {
+  requestAnimationFrame(() => {
+    Array.from(document.querySelectorAll<HTMLElement>("[data-card-edit]"))
+      .find((el) => el.dataset.cardEdit === cardId)
+      ?.focus();
+  });
+}
+
+/** The card's estimate and whether it's on the backlog. */
+function CardMeta({ card }: { card: StoryCard }) {
+  const kind = estimateKind(card.estimate);
+  const backlog = inBacklog(card);
+  if (kind === "none" && !backlog) return null;
   return (
-    <p className="mt-1.5 pl-3.5">
-      <span
-        className="inline-flex items-center rounded border border-accent/30 bg-accent/10 px-1.5 text-xs font-data text-accent"
-        title="Estimate from Planning Poker"
-      >
-        <span className="sr-only">Estimate: </span>
-        {estimate}
-      </span>
+    <p className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-3.5">
+      {kind !== "none" && (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded border px-1.5 text-xs font-data",
+            kind === "points"
+              ? "border-accent/30 bg-accent/10 text-accent"
+              : "border-border bg-surface text-sub"
+          )}
+          title={
+            kind === "points"
+              ? "Estimate in story points"
+              : "Custom estimate, not in points: kept, not counted in the slice total"
+          }
+        >
+          <span className="sr-only">Estimate: </span>
+          {kind === "points" ? `${estimatePoints(card.estimate)} pts` : card.estimate}
+          {kind === "custom" && <span className="font-sans">custom</span>}
+        </span>
+      )}
+      {backlog && (
+        <span className="inline-flex items-center gap-0.5 text-xs text-success">
+          <Check className="h-3 w-3" aria-hidden="true" />
+          In backlog
+        </span>
+      )}
     </p>
   );
 }
@@ -908,15 +909,13 @@ function EstimateBadge({ estimate }: { estimate: string }) {
 /* -------------------------------------------------------------------------- */
 
 function StaticCard({ card }: { card: StoryCard }) {
+  const color = cardColor(card.color);
   return (
-    <div
-      className="rounded-md border text-sm p-2.5 bg-surface-deep shadow-xl"
-      style={{ borderColor: `${card.color}40` }}
-    >
+    <div className={cn("rounded-md border text-sm p-2.5 bg-surface-deep shadow-xl", color.border)}>
       <div className="flex items-start gap-1.5">
         <span
-          className="mt-1 flex-shrink-0 w-2 h-2 rounded-full"
-          style={{ backgroundColor: card.color }}
+          className={cn("mt-1 flex-shrink-0 w-2 h-2 rounded-full", color.dot)}
+          aria-hidden="true"
         />
         <span className="font-medium text-text leading-snug">{card.title}</span>
       </div>
@@ -932,16 +931,19 @@ function StaticCard({ card }: { card: StoryCard }) {
 function CellDropZone({
   sliceId,
   stepId,
+  cellName,
   cards,
   onMove,
+  onAdd,
 }: {
   sliceId: string;
   stepId: string;
+  /** "Discover, MVP": names the cell's add field for screen readers. */
+  cellName: string;
   cards: StoryCard[];
   onMove: MoveCardFn;
+  onAdd: (title: string) => void;
 }) {
-  // BUG-RD3-story-mapper-1: scope selector — see CardEditDialog above.
-  const addCard = useStoryMapStore((s) => s.addCard);
   // Memoize: SortableContext reinitializes on identity change of items.
   const sortableIds = useMemo(
     () => cards.map((c) => encodeDragId(sliceId, stepId, c.id)),
@@ -974,14 +976,16 @@ function CellDropZone({
           />
         ))}
       </div>
-      <button
-        type="button"
-        onClick={() => addCard(sliceId, stepId)}
-        className="mt-1.5 w-full flex items-center gap-1 text-xs text-sub/50 hover:text-accent hover:bg-accent/5 rounded px-1.5 py-1 transition-colors group"
-      >
-        <Plus className="w-3 h-3 flex-shrink-0 group-hover:text-accent" aria-hidden="true" />
-        <span>Add card</span>
-      </button>
+      <InlineAdd
+        className="mt-1.5"
+        triggerClassName="mt-1.5 h-8 w-full justify-start px-1.5"
+        triggerLabel="Add card"
+        triggerAriaLabel={`Add card to ${cellName}`}
+        fieldLabel={`New story in ${cellName}`}
+        placeholder="Story title, then Enter"
+        requiredMessage="Type a story title first."
+        onAdd={onAdd}
+      />
     </SortableContext>
   );
 }
@@ -1000,14 +1004,22 @@ export function StoryMapperClient() {
     addSlice: addSliceRaw,
     removeSlice: removeSliceRaw,
     renameSlice,
+    addCard: addCardRaw,
     moveCard: moveCardRaw,
     reset: resetRaw,
   } = useStoryMapStore();
   const { log } = useHistoryLogger("story-mapper");
+  // Subscribed so "In backlog" marks and the slices' send counts follow a
+  // story deleted from the backlog elsewhere (the links read stories fresh).
+  useWorkspaceStore((s) => s.stories);
 
   const addStep: typeof addStepRaw = (...args) => {
     addStepRaw(...args);
     log(STORY_MAPPER_ACTIONS.STEP_ADDED, {});
+  };
+  const addCard: typeof addCardRaw = (...args) => {
+    addCardRaw(...args);
+    log(STORY_MAPPER_ACTIONS.CARD_ADDED, {});
   };
   // Removing a step takes its cards in every slice with it; Undo puts the
   // step back at its position with those cards.
@@ -1093,6 +1105,7 @@ export function StoryMapperClient() {
   };
 
   const markdown = useMemo(() => toMarkdown({ steps, slices }), [steps, slices]);
+  const verdict = useMemo(() => storyMapVerdict({ steps, slices }), [steps, slices]);
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -1187,8 +1200,8 @@ export function StoryMapperClient() {
 
   /* -- Export data ---- */
   // Emit an ordered array keyed by step position, NOT an object keyed by
-  // step name. The board is keyed by step ID and `addStep` hardcodes the
-  // name "New Step" with no uniqueness check, so `Object.fromEntries` used
+  // step name. The board is keyed by step ID and step names aren't unique
+  // (two columns can share a name), so `Object.fromEntries` used
   // to collapse two same-named columns into one key and silently drop an
   // entire column's cards — disagreeing with the clipboard export, which
   // iterates `steps` directly. Nothing imports this JSON back.
@@ -1202,6 +1215,7 @@ export function StoryMapperClient() {
           cards: (sl.cards[st.id] ?? []).map((c) => ({
             title: c.title,
             description: c.description,
+            ...(c.estimate ? { estimate: c.estimate } : {}),
           })),
         })),
       })),
@@ -1252,8 +1266,15 @@ export function StoryMapperClient() {
     return lines.join("\n");
   }, [steps, slices]);
 
-  /* -- Column width heuristic ---- */
-  const colWidth = Math.max(160, Math.min(260, Math.floor(960 / steps.length)));
+  /* -- Board geometry ---- */
+  // Step columns share ~960 px, 160 to 260 px each. The slice column sticks
+  // to the left edge and the step headers to the top, so on a phone one
+  // step sits beside its slice labels and the board snaps column by column
+  // inside its own scroller; the page never scrolls sideways. The scroll
+  // padding is the sticky column's width (plus the board's padding), so a
+  // snapped column lands just right of it instead of under it.
+  const colWidth = Math.max(160, Math.min(260, Math.floor(960 / Math.max(steps.length, 1))));
+  const sliceColumn = "w-[140px] sm:w-[172px]";
 
   return (
     <ToolPageWrapper
@@ -1274,12 +1295,13 @@ export function StoryMapperClient() {
           {/* ---- Toolbar ---- */}
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2 text-sub text-sm">
-              <Map className="w-4 h-4 text-accent" />
+              <MapIcon className="w-4 h-4 text-accent" aria-hidden="true" />
               <span>
-                {steps.length} steps · {slices.length} slices · {storyCount} stories
+                {plural(steps.length, "step")} · {plural(slices.length, "slice")} ·{" "}
+                {plural(storyCount, "story", "stories")}
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <AiPromptGenerator config={promptConfig} />
               <ExportButton
                 filename="story-map"
@@ -1298,29 +1320,36 @@ export function StoryMapperClient() {
             </div>
           </div>
 
-          {storyCount === 0 && (
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-sub">
-              <p className="min-w-0 flex-1">
-                No stories yet. Add the steps of the user&apos;s journey along the top, release
-                slices down the side, then fill the cells with story cards.
-              </p>
-              <LoadExampleButton onLoad={loadExampleMap} />
-            </div>
+          {storyCount === 0 ? (
+            <EmptyState
+              icon={MapIcon}
+              padding="md"
+              action={<LoadExampleButton onLoad={loadExampleMap} />}
+            >
+              No stories yet. Add the steps of the user&apos;s journey along the top, release slices
+              down the side, then type stories into the cells.
+            </EmptyState>
+          ) : (
+            <p className="text-sm font-medium text-text">{verdict}</p>
           )}
 
           {/* ---- Board ---- */}
-          <ScrollArea className="w-full rounded-xl border border-border bg-surface">
-            <div className="p-4" style={{ minWidth: steps.length * (colWidth + 12) + 180 }}>
-              {/* Header row: Steps */}
-              <div className="flex items-stretch">
-                {/* Slice label column spacer */}
-                <div className="flex-shrink-0 w-40 mr-3" />
+          <div
+            role="region"
+            aria-label="Story map"
+            className="relative max-h-[75vh] w-full overflow-auto overscroll-x-contain rounded-xl border border-border bg-surface snap-x snap-proximity scroll-pl-[152px] sm:scroll-pl-[184px]"
+          >
+            <div className="w-max min-w-full p-3">
+              {/* Header row: steps, stuck to the top of the board */}
+              <div className="sticky top-0 z-20 flex items-stretch bg-surface">
+                {/* Slice label column spacer, stuck in the corner */}
+                <div className={cn("sticky left-0 z-30 shrink-0 bg-surface", sliceColumn)} />
 
                 {/* Step headers */}
                 {steps.map((step) => (
                   <div
                     key={step.id}
-                    className="group flex-shrink-0 mr-3 last:mr-0"
+                    className="group flex-shrink-0 mr-3 last:mr-0 snap-start"
                     style={{ width: colWidth }}
                   >
                     <div className="flex items-center gap-1 px-2 py-1.5 rounded-t-lg bg-accent/10 border border-accent/20 border-b-0">
@@ -1337,54 +1366,63 @@ export function StoryMapperClient() {
                           title="Remove step"
                           aria-label={`Remove step ${step.name}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                       )}
                     </div>
                   </div>
                 ))}
 
-                {/* Add step button */}
-                <div className="flex-shrink-0 flex items-center">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={addStep}
-                    className="gap-1 text-xs text-accent hover:bg-accent/10 h-8"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Step
-                  </Button>
+                {/* Add step */}
+                <div className="ml-3 flex shrink-0 items-start">
+                  <InlineAdd
+                    className="w-48"
+                    triggerClassName="h-8 text-accent"
+                    triggerLabel="Add step"
+                    fieldLabel="New step name"
+                    placeholder="Step name, then Enter"
+                    requiredMessage="Type a step name first."
+                    max={80}
+                    onAdd={addStep}
+                  />
                 </div>
               </div>
 
               {/* Slice rows */}
               {slices.map((slice, sliceIdx) => (
                 <div key={slice.id} className="flex items-stretch mt-3">
-                  {/* Slice label */}
-                  <div className="group flex-shrink-0 w-40 mr-3 flex flex-col justify-start">
-                    <div className="flex items-start gap-1 px-2 py-1.5 rounded-lg bg-surface-deep border border-border h-full">
-                      <div className="flex-1 min-w-0">
-                        <Badge variant="outline" className="mb-1 text-xs border-border text-sub">
-                          Slice {sliceIdx + 1}
-                        </Badge>
-                        <EditableName
-                          value={slice.name}
-                          onChange={(name) => renameSlice(slice.id, name)}
-                          className="block text-sm font-medium text-text"
-                        />
+                  {/* Slice label, stuck to the left of the board */}
+                  <div
+                    className={cn(
+                      "group sticky left-0 z-10 flex shrink-0 flex-col bg-surface pr-3",
+                      sliceColumn
+                    )}
+                  >
+                    <div className="flex h-full flex-col gap-1.5 rounded-lg border border-border bg-surface-deep px-2 py-1.5">
+                      <div className="flex items-start gap-1">
+                        <div className="flex-1 min-w-0">
+                          <Badge variant="outline" className="mb-1 text-xs border-border text-sub">
+                            Slice {sliceIdx + 1}
+                          </Badge>
+                          <EditableName
+                            value={slice.name}
+                            onChange={(name) => renameSlice(slice.id, name)}
+                            className="block text-sm font-medium text-text"
+                          />
+                        </div>
+                        {slices.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeSlice(slice.id)}
+                            className="btn-danger-ghost min-touch-coarse flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 p-0.5 rounded inline-flex items-center justify-center"
+                            title="Remove slice"
+                            aria-label={`Remove slice ${slice.name}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        )}
                       </div>
-                      {slices.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeSlice(slice.id)}
-                          className="btn-danger-ghost min-touch-coarse flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 p-0.5 rounded inline-flex items-center justify-center"
-                          title="Remove slice"
-                          aria-label={`Remove slice ${slice.name}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <SliceFooter slice={slice} steps={steps} />
                     </div>
                   </div>
 
@@ -1392,34 +1430,36 @@ export function StoryMapperClient() {
                   {steps.map((step) => (
                     <div
                       key={step.id}
-                      className="flex-shrink-0 mr-3 last:mr-0 rounded-lg border border-border bg-surface-deep/60 p-2"
+                      className="flex-shrink-0 mr-3 last:mr-0 snap-start rounded-lg border border-border bg-surface-deep/60 p-2"
                       style={{ width: colWidth }}
                     >
                       <CellDropZone
                         sliceId={slice.id}
                         stepId={step.id}
+                        cellName={`${step.name}, ${slice.name}`}
                         cards={slice.cards[step.id] ?? []}
                         onMove={moveCard}
+                        onAdd={(title) => addCard(slice.id, step.id, title)}
                       />
                     </div>
                   ))}
                 </div>
               ))}
 
-              {/* Add slice row */}
-              <div className="mt-3 flex">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={addSlice}
-                  className="gap-1 text-xs text-accent hover:bg-accent/10 h-8"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Slice
-                </Button>
+              {/* Add slice */}
+              <div className={cn("sticky left-0 mt-3", sliceColumn)}>
+                <InlineAdd
+                  triggerClassName="h-8 text-accent"
+                  triggerLabel="Add slice"
+                  fieldLabel="New slice name"
+                  placeholder="Slice name, then Enter"
+                  requiredMessage="Type a slice name first."
+                  max={80}
+                  onAdd={addSlice}
+                />
               </div>
             </div>
-          </ScrollArea>
+          </div>
         </div>
 
         {/* Drag overlay */}
@@ -1435,5 +1475,53 @@ export function StoryMapperClient() {
         onConfirm={reset}
       />
     </ToolPageWrapper>
+  );
+}
+
+/**
+ * Under a slice's name: its point total and what's unsized, then where the
+ * slice goes next. "Send to backlog" makes a story per card (with points);
+ * "Plan this release" opens Release Planner on this slice, which sums its
+ * numeric estimates (it reads `?slice=`, so slice ids stay stable).
+ */
+function SliceFooter({ slice, steps }: { slice: Slice; steps: Step[] }) {
+  const totals = sliceTotals(slice, steps);
+  const toSend = cardsToSend(slice, steps).length;
+  const sent = sliceCards(slice, steps).filter(inBacklog).length;
+  const link =
+    "min-touch-coarse inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-sub underline-offset-2 hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  return (
+    <div className="mt-auto space-y-0.5">
+      <p className="px-0.5 font-data text-xs text-sub">
+        <span className="sr-only">Slice total: </span>
+        {sliceSummary(totals)}
+      </p>
+      {toSend > 0 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => sendSliceToBacklog(slice.id)}
+          className="h-7 w-full justify-start gap-1 px-1.5 text-xs text-sub hover:bg-accent/10 hover:text-accent"
+        >
+          <Send className="h-3.5 w-3.5" aria-hidden="true" />
+          Send {toSend} to backlog <span className="sr-only">from {slice.name}</span>
+        </Button>
+      )}
+      {toSend === 0 && sent > 0 && (
+        <Link href="/sprint-planning" className={cn(link, "text-success")}>
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+          All in backlog
+          <span className="sr-only">: {slice.name}</span>
+        </Link>
+      )}
+      {totals.cards > 0 && (
+        <Link href={`/release-planner?slice=${encodeURIComponent(slice.id)}`} className={link}>
+          <CalendarRange className="h-3.5 w-3.5" aria-hidden="true" />
+          Plan this release
+          <span className="sr-only">: {slice.name}</span>
+        </Link>
+      )}
+    </div>
   );
 }

@@ -5,7 +5,9 @@ import type { StoryMapSlice, StoryMapStep } from "@/lib/stores/workspace-types";
  * The example map: an online shop's buying journey. A first visit opens on
  * it, Reset brings it back, and so does "Load an example" on an empty map.
  * The walking skeleton is one thin story per step, end to end (buy a single
- * item with no cart yet); the MVP slice adds what shoppers miss first.
+ * item with no cart yet), sized at 8 points; the MVP slice adds what
+ * shoppers miss first, and two of its stories still wait for Planning Poker,
+ * so the slice totals show both a sum and what's unsized.
  *
  * Every id is fixed, so server and client render the same DOM (R5), and
  * starts with `example-`, so "Clear example" removes exactly these rows.
@@ -31,6 +33,7 @@ export function buildExampleSlices(steps: StoryMapStep[]): StoryMapSlice[] {
             title: "Browse product catalog",
             description: "Users can view available products in a list.",
             color: "#00f0ff",
+            estimate: "2",
           },
         ],
         [learn.id]: [
@@ -39,6 +42,7 @@ export function buildExampleSlices(steps: StoryMapStep[]): StoryMapSlice[] {
             title: "Read product details",
             description: "Users can click a product to see full details.",
             color: "#a78bfa",
+            estimate: "1",
           },
         ],
         [use.id]: [
@@ -47,6 +51,7 @@ export function buildExampleSlices(steps: StoryMapStep[]): StoryMapSlice[] {
             title: "Buy a single item",
             description: "Pay by card for one product, straight from its page. No cart yet.",
             color: "#34d399",
+            estimate: "5",
           },
         ],
       },
@@ -61,6 +66,7 @@ export function buildExampleSlices(steps: StoryMapStep[]): StoryMapSlice[] {
             title: "Search by keyword",
             description: "Find a product by name or category.",
             color: "#00f0ff",
+            estimate: "3",
           },
         ],
         [learn.id]: [
@@ -69,6 +75,7 @@ export function buildExampleSlices(steps: StoryMapStep[]): StoryMapSlice[] {
             title: "See ratings and reviews",
             description: "Star rating and the latest reviews on every product page.",
             color: "#a78bfa",
+            estimate: "3",
           },
         ],
         [use.id]: [
