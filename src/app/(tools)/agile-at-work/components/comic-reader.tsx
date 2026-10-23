@@ -33,7 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { usePdfDocument, type PdfDocumentState } from "../hooks/use-pdf-document";
 import { useRenderedPages } from "../hooks/use-rendered-page";
-import { usePageSwipe, useIsZoomed } from "../hooks/use-page-swipe";
+import { usePageSwipe, useIsZoomed, useSettledZoom } from "../hooks/use-page-swipe";
 import { useBodyScrollLock, useFullscreen, useInertSiblings } from "../hooks/use-fullscreen";
 import { useElementSize } from "../hooks/use-element-size";
 import { ReaderToolbar, type LayoutMode } from "./reader-toolbar";
@@ -228,17 +228,25 @@ function ReaderView({
   const boxW = spread ? (innerW - SPREAD_GAP) / 2 : innerW;
   const slot = containSize(aspect, boxW, innerH);
   const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-  const bucket = pageSize
-    ? widthBucket(
-        pageSize.width *
-          fitScale({ pageW: pageSize.width, pageH: pageSize.height, boxW, boxH: innerH, dpr })
-      )
-    : 0;
+  const zoom = useSettledZoom();
+  const fit = pageSize
+    ? { pageW: pageSize.width, pageH: pageSize.height, boxW, boxH: innerH, dpr }
+    : null;
+  // Pinch-zoomed, the pages on screen re-render for the zoom so lettering
+  // stays sharp; neighbours prefetch at the zoomed-out size.
+  const bucket = fit ? widthBucket(fit.pageW * fitScale({ ...fit, zoom })) : 0;
+  const prefetchBucket = fit ? widthBucket(fit.pageW * fitScale(fit)) : 0;
   const prefetch = useMemo(
     () => (numPages ? prefetchPages(page, numPages, spread) : []),
     [page, numPages, spread]
   );
-  const { urls, failed, retry } = useRenderedPages({ doc, visible: view, prefetch, bucket });
+  const { urls, failed, retry } = useRenderedPages({
+    doc,
+    visible: view,
+    prefetch,
+    bucket,
+    prefetchBucket,
+  });
   const [firstShown, setFirstShown] = useState(false);
   const reducedMotion = useReducedMotion();
 
