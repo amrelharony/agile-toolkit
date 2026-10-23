@@ -101,6 +101,37 @@ export function unlink(result: LinkResult): void {
   });
 }
 
+/** Edges taken off the map, with where they sat, so Undo can put them back. */
+export type TakenEdges = { item: DependencyEdge; index: number }[];
+
+/**
+ * Take edges off the live map (an item that drew them is being deleted).
+ * Their nodes stay: a team or deliverable is still on the map without them.
+ */
+export function takeEdges(ids: readonly string[]): TakenEdges {
+  const drop = new Set(ids);
+  let taken: TakenEdges = [];
+  if (drop.size === 0) return taken;
+  updateDependencyMap((map) => {
+    taken = map.edges.flatMap((item, index) => (drop.has(item.id) ? [{ item, index }] : []));
+    return { nodes: map.nodes, edges: map.edges.filter((e) => !drop.has(e.id)) };
+  });
+  return taken;
+}
+
+/** Put taken edges back at their old positions (clamped to the list as it is now). */
+export function restoreEdges(taken: TakenEdges): void {
+  if (taken.length === 0) return;
+  updateDependencyMap((map) => {
+    const ids = new Set(map.edges.map((e) => e.id));
+    const edges = [...map.edges];
+    for (const { item, index } of taken) {
+      if (!ids.has(item.id)) edges.splice(Math.min(index, edges.length), 0, item);
+    }
+    return { nodes: map.nodes, edges };
+  });
+}
+
 export function edgeById(map: MapGraph, id: string | undefined): DependencyEdge | undefined {
   return id ? map.edges.find((e) => e.id === id) : undefined;
 }

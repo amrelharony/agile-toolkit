@@ -1,218 +1,517 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import { CalendarRange, Gauge, GitBranch, Plus, Target } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ActionRow } from "@/components/shared/action-row";
+import { CalloutAlert } from "@/components/shared/callout-alert";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, CalendarRange, AlertCircle } from "lucide-react";
-import { simulateVelocityDistribution } from "@/lib/analytics/monte-carlo";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  exampleId,
+  hasExampleItems,
+} from "@/components/tool-frame/example-data";
 import { generatePiPlanningPrompts } from "@/lib/ai-prompts/pi-planning";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
-import { selectEvents } from "@/lib/history/selectors";
-import { useHistoryStore } from "@/lib/history/history-store";
-import { ActionRow } from "@/components/shared/action-row";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
+import type { DependencyStatus } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { undoable } from "@/lib/utils/undoable";
+import { SelectField } from "../dependency-map/fields";
+import {
+  linkDependency,
+  restoreEdges,
+  setEdgeStatus,
+  takeEdges,
+  unlink,
+  updateDependencyMap,
+  useDependencyMap,
+  type LinkResult,
+  type TakenEdges,
+} from "../dependency-map/link";
+import { TeamCard, type BoardActions, type Editing } from "./board";
+import { itemRef, ownEdge, syncDependencyEdge } from "./dependency-link";
+import { EXAMPLE_MAP_PREFIX, buildExample, withoutExample } from "./example";
+import { TeamAddForm, type ItemValues, type ObjectiveValues, type TeamValues } from "./forms";
+import { dependencyViews, isLegacyDependency, overloads, teamLoad } from "./load";
+import { LoadChart } from "./load-chart";
+import { toMarkdown } from "./markdown";
+import { ObjectivesPanel } from "./objectives";
+import {
+  MAX_ITERATIONS,
+  usePiState,
+  type PiItem,
+  type PiObjective,
+  type PiState,
+  type PiTeam,
+} from "./store";
+import { piVerdict } from "./verdict";
 
-interface PiTeam {
-  id: string;
-  name: string;
-  description?: string;
-  velocity: number;
+type Placed<T> = { item: T; index: number }[];
+
+/** The rows `match` picks, with their positions, so Undo can put them back where they were. */
+const pick = <T,>(list: readonly T[], match: (x: T) => boolean): Placed<T> =>
+  list.flatMap((item, index) => (match(item) ? [{ item, index }] : []));
+
+/** `list` with `placed` rows back at their old positions (clamped), skipping any already there. */
+function putBack<T extends { id: string }>(list: readonly T[], placed: Placed<T>): T[] {
+  const next = [...list];
+  const ids = new Set(list.map((x) => x.id));
+  for (const { item, index } of placed) {
+    if (!ids.has(item.id)) next.splice(Math.min(index, next.length), 0, item);
+  }
+  return next;
 }
 
-interface PiItem {
-  id: string;
-  title: string;
-  description?: string;
-  teamId: string;
-  iteration: number;
-  points: number;
-  kind: "feature" | "dependency" | "risk";
+/** `obj` with `key` set, or without it when the value is undefined. */
+function withOptional<T extends object, K extends keyof T>(
+  obj: T,
+  key: K,
+  value: T[K] | undefined
+) {
+  const next = { ...obj };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  return next;
 }
 
-interface State {
-  teams: PiTeam[];
-  items: PiItem[];
-  iterations: number;
-}
-
-const DEFAULT_STATE: State = { teams: [], items: [], iterations: 5 };
-
-const KIND_COLORS: Record<PiItem["kind"], string> = {
-  feature: "#00f0ff",
-  dependency: "#f59e0b",
-  risk: "#ef4444",
-};
+type Confirm =
+  | { kind: "team"; team: PiTeam; items: number; objectives: number }
+  | { kind: "iterations"; next: number; items: number }
+  | null;
 
 export function PiPlanningClient() {
-  const [state, setState] = usePersisted<State>("agile-toolkit:pi-planning", DEFAULT_STATE);
-  const [newTeam, setNewTeam] = useState({ name: "", velocity: 20, description: "" });
+  const [state, update] = usePiState();
+  const map = useDependencyMap();
+  const today = todayLocalISO();
   const { log } = useHistoryLogger("pi-planning");
+  const exportRef = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState<Editing>(null);
+  const [editingObjective, setEditingObjective] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<Confirm>(null);
 
-  const addTeam = () => {
-    if (!newTeam.name.trim()) return;
-    const description = newTeam.description.trim() || undefined;
-    const team: PiTeam = {
-      id: nanoid(6),
-      name: newTeam.name.trim(),
-      velocity: newTeam.velocity,
-      description,
-    };
-    setState((s) => ({ ...s, teams: [...s.teams, team] }));
-    log(PI_PLANNING_ACTIONS.TEAM_ADDED, { teamId: team.id, name: team.name, description });
-    setNewTeam({ name: "", velocity: 20, description: "" });
+  const teamOf = (id: string) => state.teams.find((t) => t.id === id);
+  const objectives = state.objectives ?? [];
+  const views = useMemo(
+    () => new Map(dependencyViews(state, map, today).map((v) => [v.item.id, v])),
+    [state, map, today]
+  );
+  const legacy = state.items.filter((i) => isLegacyDependency(i) && teamOf(i.teamId));
+
+  /* ── Teams ── */
+
+  const addTeam = (v: TeamValues) => {
+    const team: PiTeam = { id: nanoid(6), ...v };
+    update((s) => ({ ...s, teams: [...s.teams, team] }));
+    log(PI_PLANNING_ACTIONS.TEAM_ADDED, {
+      teamId: team.id,
+      name: team.name,
+      description: team.description,
+    });
   };
-  const removeTeam = (id: string) => {
-    const team = state.teams.find((t) => t.id === id);
-    setState((s) => ({
+
+  const saveTeam = (team: PiTeam, v: TeamValues) => {
+    setEditing(null);
+    update((s) => ({
       ...s,
-      teams: s.teams.filter((t) => t.id !== id),
-      items: s.items.filter((i) => i.teamId !== id),
+      teams: s.teams.map((t) => {
+        if (t.id !== team.id) return t;
+        const next = withOptional({ ...t, name: v.name }, "velocity", v.velocity);
+        return withOptional(next, "description", v.description);
+      }),
     }));
-    log(PI_PLANNING_ACTIONS.TEAM_REMOVED, { teamId: id, name: team?.name });
   };
-  const updateTeam = (id: string, patch: Partial<PiTeam>) =>
-    setState((s) => ({ ...s, teams: s.teams.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
 
-  const addItem = (teamId: string, iteration: number) => {
-    const item = {
-      id: nanoid(6),
-      title: "",
-      teamId,
-      iteration,
-      points: 3,
-      kind: "feature" as const,
-    };
-    setState((s) => ({ ...s, items: [...s.items, item] }));
-    log(PI_PLANNING_ACTIONS.ITEM_ADDED, { itemId: item.id, teamId, iteration });
+  /**
+   * Remove a team with everything planned for it, and offer Undo. The
+   * dependencies its items drew come off the map with them (Undo puts them
+   * back too); edges other tools drew stay.
+   */
+  const removeTeam = (team: PiTeam) => {
+    const own = state.items
+      .filter((i) => i.teamId === team.id)
+      .flatMap((i) => ownEdge(i)?.id ?? []);
+    let taken: TakenEdges = [];
+    let removed: { team: Placed<PiTeam>; items: Placed<PiItem>; objectives: Placed<PiObjective> } =
+      { team: [], items: [], objectives: [] };
+    undoable({
+      label: `Removed team “${team.name}”`,
+      apply: () => {
+        taken = takeEdges(own);
+        update((s) => {
+          removed = {
+            team: pick(s.teams, (t) => t.id === team.id),
+            items: pick(s.items, (i) => i.teamId === team.id),
+            objectives: pick(s.objectives ?? [], (o) => o.teamId === team.id),
+          };
+          return {
+            ...s,
+            teams: s.teams.filter((t) => t.id !== team.id),
+            items: s.items.filter((i) => i.teamId !== team.id),
+            objectives: (s.objectives ?? []).filter((o) => o.teamId !== team.id),
+          };
+        });
+        log(PI_PLANNING_ACTIONS.TEAM_REMOVED, { teamId: team.id, name: team.name });
+      },
+      revert: () => {
+        update((s) => ({
+          ...s,
+          teams: putBack(s.teams, removed.team),
+          items: putBack(s.items, removed.items),
+          objectives: putBack(s.objectives ?? [], removed.objectives),
+        }));
+        restoreEdges(taken);
+      },
+    });
   };
-  const updateItem = (id: string, patch: Partial<PiItem>) => {
-    setState((s) => ({ ...s, items: s.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
-    if (patch.iteration !== undefined || patch.teamId !== undefined) {
-      log(PI_PLANNING_ACTIONS.ITEM_ASSIGNED, { itemId: id, ...patch });
-    } else if (patch.kind !== undefined || patch.points !== undefined) {
-      // Only audit structural changes (kind, points) — not per-keystroke
-      // title/description edits, which used to flood the history log with
-      // one event per character and slowed the whole tool on typing.
-      log(PI_PLANNING_ACTIONS.ITEM_UPDATED, { itemId: id, ...patch });
+
+  /** A team with nothing on it goes at once (with Undo); one with work asks first. */
+  const requestRemoveTeam = (team: PiTeam) => {
+    const items = state.items.filter((i) => i.teamId === team.id).length;
+    const objs = objectives.filter((o) => o.teamId === team.id).length;
+    if (items + objs > 0) setConfirm({ kind: "team", team, items, objectives: objs });
+    else removeTeam(team);
+  };
+
+  /* ── Items ── */
+
+  const addItem = (team: PiTeam, iteration: number, v: ItemValues) => {
+    let item: PiItem = {
+      id: nanoid(6),
+      title: v.title,
+      kind: v.kind,
+      teamId: team.id,
+      iteration,
+      ...(v.points !== undefined ? { points: v.points } : {}),
+      ...(v.description ? { description: v.description } : {}),
+      ...(v.dependsOn ? { dependsOn: v.dependsOn } : {}),
+    };
+    if (item.kind === "dependency" && v.dependsOn) {
+      const edgeId = syncDependencyEdge(null, item, {
+        teamName: team.name,
+        dependsOn: v.dependsOn,
+        title: v.title,
+        due: v.due || undefined,
+      });
+      item = withOptional(item, "edgeId", edgeId);
+    }
+    setEditing(null);
+    update((s) => ({ ...s, items: [...s.items, item] }));
+    log(PI_PLANNING_ACTIONS.ITEM_ADDED, { itemId: item.id, teamId: team.id, iteration });
+  };
+
+  const saveItem = (item: PiItem, v: ItemValues) => {
+    setEditing(null);
+    const team = teamOf(item.teamId);
+    let next: PiItem = { ...item, title: v.title, kind: v.kind };
+    next = withOptional(next, "points", v.points);
+    next = withOptional(next, "description", v.description);
+    next = withOptional(next, "dependsOn", v.dependsOn);
+    const edgeId = syncDependencyEdge(item, next, {
+      teamName: team?.name ?? "",
+      dependsOn: v.dependsOn ?? "",
+      title: v.title,
+      due: v.due || null,
+    });
+    next = withOptional(next, "edgeId", edgeId);
+    update((s) => ({ ...s, items: s.items.map((i) => (i.id === item.id ? next : i)) }));
+    if (v.kind !== item.kind || v.points !== item.points) {
+      log(PI_PLANNING_ACTIONS.ITEM_UPDATED, { itemId: item.id, kind: v.kind, points: v.points });
     }
   };
-  const removeItem = (id: string) => {
-    const item = state.items.find((i) => i.id === id);
-    setState((s) => ({ ...s, items: s.items.filter((i) => i.id !== id) }));
-    log(PI_PLANNING_ACTIONS.ITEM_REMOVED, { itemId: id, title: item?.title });
+
+  const moveItem = (item: PiItem, teamId: string, iteration: number) => {
+    let next: PiItem = { ...item, teamId, iteration };
+    const view = views.get(item.id);
+    if (item.kind === "dependency" && teamId !== item.teamId && view?.waitsOn) {
+      // The waiting side changed: the edge follows the item to its new team.
+      const edgeId = syncDependencyEdge(item, next, {
+        teamName: teamOf(teamId)?.name ?? "",
+        dependsOn: view.waitsOn,
+        title: item.title,
+      });
+      next = withOptional(next, "edgeId", edgeId);
+    }
+    update((s) => ({ ...s, items: s.items.map((i) => (i.id === item.id ? next : i)) }));
+    log(PI_PLANNING_ACTIONS.ITEM_ASSIGNED, { itemId: item.id, teamId, iteration });
   };
 
-  const setIterations = (n: number) =>
-    setState((s) => {
-      const next = Math.max(1, Math.min(10, n));
-      // R5: when the user types `0`, `next` clamps to 1 but `next < s.iterations`
-      // (if current is e.g. 2) → destructive prompt + item removal still fires
-      // even though the user's intent was clamped to a value that may equal
-      // current. Skip the destructive path when the clamped value equals
-      // current (no actual shrink happening) and when the typed value was
-      // outside the allowed range entirely (typed 0 / 11 / negative).
-      if (next === s.iterations) return s;
-      if (!Number.isFinite(n) || n < 1 || n > 10) {
-        // Typed value was outside bounds — silently treat as no-op.
-        return s;
-      }
-      if (next < s.iterations) {
-        const orphans = s.items.filter((i) => i.iteration >= next).length;
-        if (orphans > 0) {
-          const ok =
-            typeof window !== "undefined" &&
-            window.confirm(
-              `Reducing iterations to ${next} will remove ${orphans} item${
-                orphans === 1 ? "" : "s"
-              } pinned to iteration ${next + 1} or later. Continue?`
-            );
-          if (!ok) return s;
-        }
-        return { ...s, iterations: next, items: s.items.filter((i) => i.iteration < next) };
-      }
-      return { ...s, iterations: next };
+  const removeItem = (item: PiItem) => {
+    const own = ownEdge(item);
+    let taken: TakenEdges = [];
+    let removed: Placed<PiItem> = [];
+    undoable({
+      label: `Deleted “${item.title || "item"}”`,
+      description: own ? "and its dependency on the map" : undefined,
+      apply: () => {
+        taken = takeEdges(own ? [own.id] : []);
+        update((s) => {
+          removed = pick(s.items, (i) => i.id === item.id);
+          return { ...s, items: s.items.filter((i) => i.id !== item.id) };
+        });
+        log(PI_PLANNING_ACTIONS.ITEM_REMOVED, { itemId: item.id, title: item.title });
+      },
+      revert: () => {
+        update((s) => ({ ...s, items: putBack(s.items, removed) }));
+        restoreEdges(taken);
+      },
+    });
+  };
+
+  const setStatus = (item: PiItem, status: DependencyStatus) => {
+    if (item.edgeId) setEdgeStatus(item.edgeId, status);
+  };
+
+  /** Put a dependency whose edge was removed from the map back on it. */
+  const relink = (item: PiItem) => {
+    const team = teamOf(item.teamId);
+    if (!team || !item.dependsOn) return;
+    const edgeId = syncDependencyEdge(null, item, {
+      teamName: team.name,
+      dependsOn: item.dependsOn,
+      title: item.title,
+    });
+    update((s) => ({
+      ...s,
+      items: s.items.map((i) => (i.id === item.id ? withOptional(i, "edgeId", edgeId) : i)),
+    }));
+  };
+
+  /**
+   * Dependency items saved before the map link name no other team. Each
+   * goes on the map as "this team needs <the item>", which keeps what was
+   * written; editing the item later can point it at a team instead.
+   */
+  const moveLegacyToMap = () => {
+    let links: { itemId: string; result: LinkResult }[] = [];
+    undoable({
+      label: `Added ${legacy.length} ${legacy.length === 1 ? "dependency" : "dependencies"} to the Dependency Map`,
+      apply: () => {
+        links = legacy.map((item) => ({
+          itemId: item.id,
+          result: linkDependency({
+            from: teamOf(item.teamId)?.name ?? "",
+            to: item.title || "Unnamed dependency",
+            note: item.description,
+            sourceRef: itemRef(item),
+          }),
+        }));
+        const byItem = new Map(links.map((l) => [l.itemId, l.result.edgeId]));
+        update((s) => ({
+          ...s,
+          items: s.items.map((i) =>
+            byItem.has(i.id)
+              ? { ...i, edgeId: byItem.get(i.id), dependsOn: i.title || "Unnamed dependency" }
+              : i
+          ),
+        }));
+      },
+      revert: () => {
+        [...links].reverse().forEach((l) => unlink(l.result));
+        const ids = new Set(links.map((l) => l.itemId));
+        update((s) => ({
+          ...s,
+          items: s.items.map((i) => {
+            if (!ids.has(i.id)) return i;
+            const next = { ...i };
+            delete next.edgeId;
+            delete next.dependsOn;
+            return next;
+          }),
+        }));
+      },
+    });
+  };
+
+  /* ── Iterations ── */
+
+  const shrink = (next: number) => {
+    const doomed = state.items.filter((i) => i.iteration >= next);
+    const own = doomed.flatMap((i) => ownEdge(i)?.id ?? []);
+    let previous = state.iterations;
+    let taken: TakenEdges = [];
+    let removed: Placed<PiItem> = [];
+    undoable({
+      label: `Cut the PI to ${next} ${next === 1 ? "iteration" : "iterations"}`,
+      description: `${doomed.length} ${doomed.length === 1 ? "item" : "items"} removed`,
+      apply: () => {
+        taken = takeEdges(own);
+        update((s) => {
+          previous = s.iterations;
+          removed = pick(s.items, (i) => i.iteration >= next);
+          return { ...s, iterations: next, items: s.items.filter((i) => i.iteration < next) };
+        });
+      },
+      revert: () => {
+        update((s) => ({ ...s, iterations: previous, items: putBack(s.items, removed) }));
+        restoreEdges(taken);
+      },
+    });
+  };
+
+  const setIterations = (next: number) => {
+    if (!Number.isInteger(next) || next < 1 || next > MAX_ITERATIONS || next === state.iterations) {
+      return;
+    }
+    const doomed = state.items.filter((i) => i.iteration >= next).length;
+    if (next < state.iterations && doomed > 0)
+      setConfirm({ kind: "iterations", next, items: doomed });
+    else update((s) => ({ ...s, iterations: next }));
+  };
+
+  /* ── Objectives ── */
+
+  const addObjective = (v: ObjectiveValues) => {
+    const objective: PiObjective = { id: nanoid(6), ...v };
+    update((s) => ({ ...s, objectives: [...(s.objectives ?? []), objective] }));
+  };
+
+  const saveObjective = (o: PiObjective, v: ObjectiveValues) => {
+    setEditingObjective(null);
+    update((s) => ({
+      ...s,
+      objectives: (s.objectives ?? []).map((x) => {
+        if (x.id !== o.id) return x;
+        const next = { ...x, teamId: v.teamId, title: v.title, committed: v.committed };
+        return withOptional(next, "businessValue", v.businessValue);
+      }),
+    }));
+  };
+
+  const removeObjective = (o: PiObjective) => {
+    let removed: Placed<PiObjective> = [];
+    undoable({
+      label: `Deleted objective “${o.title}”`,
+      apply: () =>
+        update((s) => {
+          removed = pick(s.objectives ?? [], (x) => x.id === o.id);
+          return { ...s, objectives: (s.objectives ?? []).filter((x) => x.id !== o.id) };
+        }),
+      revert: () => update((s) => ({ ...s, objectives: putBack(s.objectives ?? [], removed) })),
+    });
+  };
+
+  /* ── Example ── */
+
+  const clearExampleEdges = () =>
+    updateDependencyMap((m) => {
+      const mine = (id: string) => id.startsWith(EXAMPLE_MAP_PREFIX);
+      return {
+        nodes: m.nodes.filter((n) => !mine(n.id)),
+        edges: m.edges.filter((e) => ![e.id, e.from, e.to].some(mine)),
+      };
     });
 
-  const overloads = useMemo(() => {
-    const out: { teamId: string; iteration: number; planned: number; capacity: number }[] = [];
-    for (const team of state.teams) {
-      // A team with velocity 0 (or unset) has no capacity to compare against,
-      // so every scheduled feature would falsely register as overload. Skip
-      // such teams; the UI prompts the user to enter a velocity instead.
-      if (team.velocity <= 0) continue;
-      for (let it = 0; it < state.iterations; it++) {
-        const planned = state.items
-          .filter((i) => i.teamId === team.id && i.iteration === it && i.kind === "feature")
-          .reduce((a, b) => a + b.points, 0);
-        if (planned > team.velocity * 1.15) {
-          out.push({ teamId: team.id, iteration: it, planned, capacity: team.velocity });
-        }
-      }
-    }
-    return out;
-  }, [state.teams, state.items, state.iterations]);
+  const loadExample = () => {
+    clearExampleEdges();
+    const { state: ex, links } = buildExample();
+    let n = 0;
+    const makeId = () => exampleId(`pi-map-${++n}`);
+    const edgeOf = new Map(
+      links.map((l) => {
+        const item = ex.items.find((i) => i.id === l.itemId);
+        const { edgeId } = linkDependency(
+          {
+            from: l.team,
+            to: l.dependsOn,
+            due: l.due,
+            note: item?.title,
+            sourceRef: itemRef({ id: l.itemId }),
+          },
+          makeId
+        );
+        return [l.itemId, edgeId] as const;
+      })
+    );
+    const items = ex.items.map((i) => (edgeOf.has(i.id) ? { ...i, edgeId: edgeOf.get(i.id) } : i));
+    update((s) => {
+      const base = withoutExample(s);
+      return {
+        ...base,
+        iterations: base.teams.length === 0 ? ex.iterations : base.iterations,
+        teams: [...base.teams, ...ex.teams],
+        items: [...base.items, ...items],
+        objectives: [...(base.objectives ?? []), ...(ex.objectives ?? [])],
+      };
+    });
+  };
 
-  const totalScope = useMemo(
-    () => state.items.filter((i) => i.kind === "feature").reduce((a, b) => a + b.points, 0),
-    [state.items]
-  );
-  // Memo on state.teams (stable identity across unrelated renders) so the
-  // 5,000-iter Monte Carlo doesn't re-run on every keystroke. Previously the
-  // velocities array was recomputed inline each render → forecast useMemo's
-  // dep changed identity → simulation re-ran constantly.
-  const velocities = useMemo(
-    () => state.teams.map((t) => t.velocity).filter((v) => v > 0),
-    [state.teams]
-  );
-  // We only have one velocity per team (no historical samples per team), so
-  // we can't model "iterations to clear backlog" — feeding individual team
-  // velocities into simulateThroughputCompletion would treat each draw as a
-  // single-iteration team-of-one, dramatically overestimating effort.
-  // Downscoped to a per-team velocity distribution (P85 = the velocity you'd
-  // expect 85% of teams to hit or beat in a given iteration).
-  const forecast = useMemo(() => {
-    if (velocities.length === 0) return null;
-    return simulateVelocityDistribution(velocities, 5000);
-  }, [velocities]);
+  const clearExample = () => {
+    update(withoutExample);
+    clearExampleEdges();
+  };
+
+  /* ── Derived ── */
+
+  const over = overloads(state);
+  const loads = state.teams.map((t) => teamLoad(state, t));
+  const planned = loads.reduce((a, l) => a + l.planned, 0);
+  const capacity = loads.reduce((a, l) => a + (l.capacity ?? 0), 0);
+  const deps = Array.from(views.values());
+  const openDeps = deps.filter((d) => d.status !== "resolved");
+  const lateDeps = deps.filter((d) => d.overdue).length;
+
+  const actions: BoardActions = {
+    saveTeam,
+    removeTeam: requestRemoveTeam,
+    addItem,
+    saveItem,
+    moveItem,
+    removeItem,
+    setStatus,
+    relink,
+  };
 
   const promptConfig = useMemo(
     () => ({
       toolName: "PI Planning Board",
       prompts: generatePiPlanningPrompts({
-        teams: state.teams,
-        items: state.items,
+        teams: state.teams.map((t) => ({ ...t, velocity: t.velocity ?? 0 })),
+        items: state.items.map((i) => ({ ...i, points: i.points ?? 0 })),
         iterations: state.iterations,
-        overloads,
+        overloads: over,
       }),
     }),
-    [state, overloads]
+    [state, over]
   );
 
-  // ── Cross-tool signal: sprints completed during the PI window ───────────
-  // PI commitments roll forward as constituent sprints complete. Surface a
-  // small chip with the count so the user can sanity-check whether the
-  // board's iteration count and team velocities still reflect reality.
-  const events = useHistoryStore((s) => s.events);
-  const sprintsSincePiStart = useMemo(
-    () =>
-      selectEvents({
-        toolId: "velocity",
-        action: "sprint_added",
-        sinceDays: 90,
-        limit: 50,
-      }),
-    [events]
-  );
+  const csvData = {
+    headers: [
+      "Team",
+      "Team Description",
+      "Iteration",
+      "Item",
+      "Item Description",
+      "Points",
+      "Kind",
+      "Waits on",
+      "Dependency status",
+    ],
+    rows: state.items.map((i): (string | number)[] => {
+      const team = teamOf(i.teamId);
+      const v = views.get(i.id);
+      return [
+        team?.name ?? "",
+        team?.description ?? "",
+        i.iteration + 1,
+        i.title,
+        i.description ?? "",
+        i.points ?? "",
+        i.kind,
+        v?.waitsOn ?? "",
+        v?.status ?? "",
+      ];
+    }),
+  };
 
   return (
     <ToolPageWrapper
@@ -221,321 +520,163 @@ export function PiPlanningClient() {
       description="SAFe Program Increment board — teams × iterations with features, dependencies, and risks."
       category="Portfolio & Scaling"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="pi-planning"
-          csvData={{
-            headers: [
-              "Team",
-              "Team Description",
-              "Iteration",
-              "Item",
-              "Item Description",
-              "Points",
-              "Kind",
-            ],
-            rows: state.items.map((i) => {
-              const team = state.teams.find((t) => t.id === i.teamId);
-              return [
-                team?.name ?? "",
-                team?.description ?? "",
-                i.iteration + 1,
-                i.title,
-                i.description ?? "",
-                i.points,
-                i.kind,
-              ];
-            }),
-          }}
-          jsonData={state}
-        />
-      </ActionRow>
+      <div ref={exportRef} className="space-y-4">
+        {hasExampleItems(state.teams) && <ExampleNotice onClear={clearExample} />}
 
-      {sprintsSincePiStart.length > 0 && (
-        <div className="mb-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-xs">
-            {sprintsSincePiStart.length} sprint{sprintsSincePiStart.length === 1 ? "" : "s"}{" "}
-            completed since PI start
-          </span>
-        </div>
-      )}
-
-      <KpiGrid cols={4} marginBottom="md">
-        <StatCard
-          variant="compact"
-          label="Teams"
-          value={state.teams.length}
-          valueClassName="text-accent"
-        />
-        <StatCard variant="compact" label="Features (pts)" value={totalScope} />
-        <StatCard
-          variant="compact"
-          label="P85 team velocity"
-          value={forecast ? Math.round(forecast.percentiles[85]) : "—"}
-          hint={`points per iter, ${state.teams.length} teams sampled`}
-        />
-        <StatCard
-          variant="compact"
-          label="Overloads"
-          value={overloads.length}
-          hint="teams/iter > 115% cap"
-          tone={overloads.length > 0 ? "danger" : "default"}
-        />
-      </KpiGrid>
-
-      <Card className="bg-surface border-border mb-4">
-        <CardContent className="p-3 space-y-2">
-          <div className="flex flex-wrap items-end gap-2">
-            <div>
-              <label htmlFor="pi-iterations" className="block text-xs text-sub">
-                Iterations in PI
-              </label>
-              <Input
-                id="pi-iterations"
-                type="number"
-                min={1}
-                max={10}
-                value={state.iterations}
-                onChange={(e) => {
-                  // Empty input coerces via Number() to 0, which would clamp to
-                  // min=1 and silently delete iteration columns. Keep the
-                  // current value while the field is empty mid-edit so the
-                  // user can retype freely.
-                  const raw = e.target.value;
-                  if (raw === "") return;
-                  const n = Number(raw);
-                  if (Number.isFinite(n)) setIterations(n);
-                }}
-                className="bg-bg border-border font-data w-24"
-              />
-            </div>
-            <div className="flex-1" />
-            <Input
-              value={newTeam.name}
-              onChange={(e) => setNewTeam((n) => ({ ...n, name: e.target.value }))}
-              placeholder="New team name"
-              aria-label="New team name"
-              className="bg-bg border-border w-48"
-            />
-            <Input
-              type="number"
-              value={newTeam.velocity}
-              // R11-fix: guard against NaN from non-numeric paste / clear.
-              // The previous `Number(e.target.value)` returned NaN, which
-              // then propagated through overload detection
-              // (`planned > team.velocity * 1.15` → false) silently
-              // disabling the load warning. Now: keep prior value on
-              // invalid input.
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                setNewTeam((nt) => ({
-                  ...nt,
-                  velocity: Number.isFinite(n) && n >= 0 ? n : nt.velocity,
-                }));
-              }}
-              placeholder="Velocity"
-              aria-label="New team velocity"
-              className="bg-bg border-border font-data w-24"
-            />
-            <Button onClick={addTeam} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-              <Plus className="w-4 h-4" />
-              Add Team
-            </Button>
-          </div>
-          <Textarea
-            value={newTeam.description}
-            onChange={(e) => setNewTeam((n) => ({ ...n, description: e.target.value }))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addTeam();
-            }}
-            placeholder="Team description (optional)..."
-            rows={2}
-            className="bg-bg border-border resize-none text-xs"
-            aria-label="New team description"
+        <ActionRow>
+          <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename="pi-planning"
+            csvData={csvData}
+            jsonData={state}
+            markdown={toMarkdown(state, map, today)}
+            targetRef={exportRef}
           />
-        </CardContent>
-      </Card>
+        </ActionRow>
 
-      <div className="table-wrap-responsive">
-        <table className="min-w-full border-separate border-spacing-2">
-          <thead>
-            <tr>
-              <th className="text-left text-xs text-sub uppercase tracking-wider w-40">Team</th>
-              {Array.from({ length: state.iterations }).map((_, it) => (
-                <th
-                  key={it}
-                  className="text-left text-xs text-sub uppercase tracking-wider min-w-[180px]"
-                >
-                  Iteration {it + 1}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {state.teams.map((team) => (
-              <tr key={team.id}>
-                <td className="align-top">
-                  <Card className="bg-surface border-border">
-                    <CardContent className="p-2 space-y-1">
-                      <BlurInput
-                        value={team.name}
-                        onCommit={(v) => updateTeam(team.id, { name: v })}
-                        aria-label="Team name"
-                        className="bg-bg border-border text-sm h-8"
-                      />
-                      {team.description && (
-                        <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
-                          {team.description}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
-                          value={team.velocity}
-                          // R11-fix: NaN-guard. Bad paste silently
-                          // disabled overload detection before.
-                          onChange={(e) => {
-                            const n = Number(e.target.value);
-                            if (Number.isFinite(n) && n >= 0) updateTeam(team.id, { velocity: n });
-                          }}
-                          className="bg-bg border-border font-data text-xs h-7 w-20"
-                          aria-label={`Velocity for ${team.name || "team"}`}
-                        />
-                        <span className="text-xs text-sub">vel</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeTeam(team.id)}
-                          aria-label={`Remove team ${team.name}`.trim()}
-                          className="ml-auto h-7 text-sub hover:text-danger"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </td>
-                {Array.from({ length: state.iterations }).map((_, it) => {
-                  const items = state.items.filter(
-                    (i) => i.teamId === team.id && i.iteration === it
-                  );
-                  const planned = items
-                    .filter((i) => i.kind === "feature")
-                    .reduce((a, b) => a + b.points, 0);
-                  // Mirror the `overloads` memo's guard: a velocity-0 team has
-                  // no capacity to compare against, so it must never render as
-                  // overloaded (else red cells contradict the "0 overloads" KPI).
-                  const over = team.velocity > 0 && planned > team.velocity * 1.15;
-                  return (
-                    <td key={it} className="align-top">
-                      <div
-                        className={`rounded-lg border p-2 space-y-1 min-h-[100px] ${over ? "border-danger/40 bg-danger/5" : "border-border bg-surface"}`}
-                      >
-                        <div className="flex items-center justify-between text-xs text-sub font-data">
-                          <span>
-                            {planned} / {team.velocity}
-                          </span>
-                          {over && (
-                            <>
-                              <AlertCircle className="w-3 h-3 text-danger" />
-                              <span className="sr-only">Over capacity</span>
-                            </>
-                          )}
-                        </div>
-                        {items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="rounded border border-border bg-bg p-1.5 space-y-1"
-                            style={{ borderLeftWidth: 3, borderLeftColor: KIND_COLORS[item.kind] }}
-                          >
-                            {/* BUG-T6-pi-planning-3: commit-on-blur for
-                                title + description so a board with many
-                                items doesn't write to localStorage on
-                                every keystroke. */}
-                            <BlurInput
-                              value={item.title}
-                              onCommit={(v) => updateItem(item.id, { title: v })}
-                              placeholder="Item"
-                              className="bg-surface border-border text-xs h-6"
-                              aria-label="Item title"
-                            />
-                            <BlurTextarea
-                              value={item.description ?? ""}
-                              onCommit={(v) =>
-                                updateItem(item.id, { description: v.trim() ? v : undefined })
-                              }
-                              placeholder="Description (optional)..."
-                              rows={2}
-                              className="bg-surface border-border resize-none text-xs py-1"
-                              aria-label="Item description"
-                            />
-                            <div className="flex items-center gap-1">
-                              <Input
-                                type="number"
-                                value={item.points}
-                                // R11-fix: NaN-guard. Without this, a
-                                // single bad-paste row poisons the team's
-                                // `planned` reduce → NaN > velocity is
-                                // false → overload silently hidden.
-                                onChange={(e) => {
-                                  const n = Number(e.target.value);
-                                  if (Number.isFinite(n) && n >= 0)
-                                    updateItem(item.id, { points: n });
-                                }}
-                                className="bg-surface border-border font-data text-xs h-6 w-12"
-                                aria-label="Item points"
-                              />
-                              <select
-                                value={item.kind}
-                                onChange={(e) =>
-                                  updateItem(item.id, { kind: e.target.value as PiItem["kind"] })
-                                }
-                                className="bg-surface border border-border rounded text-xs h-6 flex-1 px-1"
-                                aria-label="Item kind"
-                              >
-                                <option value="feature">feature</option>
-                                <option value="dependency">dep</option>
-                                <option value="risk">risk</option>
-                              </select>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeItem(item.id)}
-                                aria-label={`Remove item ${item.title}`.trim()}
-                                className="h-5 w-5 p-0 text-sub hover:text-danger"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => addItem(team.id, it)}
-                          aria-label={`Add item to ${team.name || "team"}, iteration ${it + 1}`}
-                          className="w-full h-6 text-xs text-sub hover:text-accent"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-            {state.teams.length === 0 && (
-              <tr>
-                <td colSpan={state.iterations + 1} className="text-center text-sub py-8">
-                  <CalendarRange className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                  Add teams to build your PI board.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <KpiGrid cols={4} marginBottom="none">
+          <StatCard
+            variant="compact"
+            label="Teams"
+            value={state.teams.length}
+            valueClassName="text-accent"
+          />
+          <StatCard
+            variant="compact"
+            label="Feature points"
+            value={planned}
+            hint={capacity > 0 ? `of ${capacity} capacity` : "no velocity set"}
+          />
+          <StatCard
+            variant="compact"
+            label="Over capacity"
+            value={over.length}
+            hint={over.length === 1 ? "team iteration" : "team iterations"}
+            tone={over.length > 0 ? "danger" : "default"}
+          />
+          <StatCard
+            variant="compact"
+            label="Open dependencies"
+            value={openDeps.length}
+            hint={lateDeps > 0 ? `${lateDeps} overdue` : undefined}
+            tone={lateDeps > 0 ? "danger" : "default"}
+          />
+        </KpiGrid>
+
+        <SectionCard title="Add a team" icon={Plus}>
+          <TeamAddForm teams={state.teams} onAdd={addTeam} />
+        </SectionCard>
+
+        {state.teams.length === 0 ? (
+          <EmptyState icon={CalendarRange} action={<LoadExampleButton onLoad={loadExample} />}>
+            No teams on the board yet. Add the teams in the release train above, or load an example
+            to see a planned PI.
+          </EmptyState>
+        ) : (
+          <>
+            <SectionCard title="Board" icon={CalendarRange}>
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-text">{piVerdict(state, map, today)}</p>
+                <SelectField
+                  label="Iterations in the PI"
+                  className="max-w-48"
+                  options={Array.from({ length: MAX_ITERATIONS }, (_, i) => ({
+                    value: String(i + 1),
+                    label: String(i + 1),
+                  }))}
+                  value={String(state.iterations)}
+                  onChange={(v) => setIterations(Number(v))}
+                />
+                {legacy.length > 0 && (
+                  <CalloutAlert tone="info">
+                    <p>
+                      {legacy.length} dependency {legacy.length === 1 ? "item was" : "items were"}{" "}
+                      saved before the board linked to the Dependency Map, so{" "}
+                      {legacy.length === 1 ? "it isn't" : "they aren't"} tracked there yet. Add{" "}
+                      {legacy.length === 1 ? "it" : "them"} now, or edit an item to name the team it
+                      waits on.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 gap-1"
+                      onClick={moveLegacyToMap}
+                    >
+                      <GitBranch aria-hidden="true" />
+                      Add to the Dependency Map
+                    </Button>
+                  </CalloutAlert>
+                )}
+                {state.teams.map((team) => (
+                  <TeamCard
+                    key={team.id}
+                    team={team}
+                    state={state}
+                    views={views}
+                    editing={editing}
+                    setEditing={setEditing}
+                    actions={actions}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Load vs capacity" icon={Gauge}>
+              <LoadChart state={state} />
+            </SectionCard>
+
+            <SectionCard title="PI objectives" icon={Target}>
+              <ObjectivesPanel
+                teams={state.teams}
+                objectives={objectives}
+                editingId={editingObjective}
+                setEditingId={setEditingObjective}
+                onAdd={addObjective}
+                onSave={saveObjective}
+                onRemove={removeObjective}
+              />
+            </SectionCard>
+          </>
+        )}
       </div>
+
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirm(null);
+        }}
+        title={
+          confirm?.kind === "team"
+            ? `Remove team “${confirm.team.name}”?`
+            : `Cut the PI to ${confirm?.kind === "iterations" ? confirm.next : ""} iterations?`
+        }
+        description={confirmText(confirm, state)}
+        confirmLabel={confirm?.kind === "team" ? "Remove team" : "Remove iterations"}
+        onConfirm={() => {
+          if (confirm?.kind === "team") removeTeam(confirm.team);
+          else if (confirm?.kind === "iterations") shrink(confirm.next);
+        }}
+      />
     </ToolPageWrapper>
   );
+}
+
+function confirmText(confirm: Confirm, state: PiState): string | undefined {
+  if (!confirm) return undefined;
+  const items = (n: number) => `${n} ${n === 1 ? "item" : "items"}`;
+  if (confirm.kind === "team") {
+    const parts = [
+      confirm.items > 0 ? items(confirm.items) : "",
+      confirm.objectives > 0
+        ? `${confirm.objectives} ${confirm.objectives === 1 ? "objective" : "objectives"}`
+        : "",
+    ].filter(Boolean);
+    const one = confirm.items + confirm.objectives === 1;
+    return `Its ${parts.join(" and ")} ${one ? "goes" : "go"} with it, and so do the dependencies its items put on the Dependency Map.`;
+  }
+  const from = confirm.next + 1;
+  return `${items(confirm.items)} planned in iteration ${from}${
+    from < state.iterations ? ` or later` : ""
+  } will be removed.`;
 }
