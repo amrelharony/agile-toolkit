@@ -35,10 +35,9 @@ export function retroColumnFor(
   return COLUMN_PREFERENCE[tone].find((k) => keys.includes(k)) ?? keys[0] ?? "start";
 }
 
+/** The board under the current retro's id (by id alone, so a send never replaces that row). */
 export function currentRetroBoard(): RetroBoard | undefined {
-  return (useWorkspaceStore.getState().retroBoards ?? []).find(
-    (b) => b.id === RETRO_BOARD_ID && !b.archivedAt
-  );
+  return (useWorkspaceStore.getState().retroBoards ?? []).find((b) => b.id === RETRO_BOARD_ID);
 }
 
 /** A new current board, as the Retro tool's format picker starts one. */
