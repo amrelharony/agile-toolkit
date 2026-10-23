@@ -8,7 +8,12 @@
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
 // Not from workspace-store: loading the store starts the sync registry.
 import { selectCompletedSprints } from "@/lib/stores/sprint-selectors";
-import { recentVelocity, type SprintStatus } from "@/lib/sprints/metrics";
+import {
+  DEFAULT_VELOCITY_WINDOW,
+  gapLabel,
+  velocity,
+  type SprintStatus,
+} from "@/lib/sprints/metrics";
 import {
   completedAt,
   dayForDate,
@@ -18,7 +23,7 @@ import {
 } from "@/lib/sprints/series";
 
 /** How many finished sprints the averages use. */
-export const AVERAGE_WINDOW = 3;
+export const AVERAGE_WINDOW = DEFAULT_VELOCITY_WINDOW;
 
 export const STATUS_LABEL: Record<Sprint["status"], string> = {
   planned: "Planned",
@@ -42,7 +47,7 @@ function days(n: number): string {
   return `${n} ${n === 1 ? "day" : "days"}`;
 }
 
-/** Completed sprints with points, oldest first (the store's own ordering). */
+/** Completed sprints with points, oldest first by start date. */
 export function completedSprints(sprints: readonly Sprint[]): Sprint[] {
   return selectCompletedSprints({ sprints });
 }
@@ -53,11 +58,14 @@ export interface AverageVelocity {
   count: number;
 }
 
-/** Mean completed points of the latest finished sprints, leaving out `excludeId`. */
+/**
+ * Mean completed points of the latest finished sprints (latest by end date,
+ * the shared `velocity`), leaving out `excludeId`.
+ */
 export function averageVelocity(completed: readonly Sprint[], excludeId?: string): AverageVelocity {
   const pool = excludeId ? completed.filter((s) => s.id !== excludeId) : completed;
-  const average = recentVelocity(pool, AVERAGE_WINDOW);
-  return { average, count: average === null ? 0 : Math.min(AVERAGE_WINDOW, pool.length) };
+  const { average, count } = velocity(pool, { window: AVERAGE_WINDOW });
+  return { average, count };
 }
 
 /** "Day 3 of 10", "Starts in 2 days", "Ended 4 days ago", or "No dates set". */
@@ -192,8 +200,7 @@ export function hubTiles(sprint: Sprint, status: SprintStatus, average: AverageV
     tiles.push({
       id: "gap",
       label: "Pace vs ideal",
-      value:
-        gap > 0 ? `${points(gap)} behind` : gap < 0 ? `${points(-gap)} ahead` : "On the ideal line",
+      value: gapLabel(gap),
       hint: `Ideal: ${fmt(status.idealRemaining)} left on day ${status.lastDay}`,
       tone: gap > 0 ? "warning" : "success",
     });

@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
-import { denseSeries, recentVelocity, sprintStatus } from "@/lib/sprints/metrics";
+import { denseSeries, sprintStatus, velocity } from "@/lib/sprints/metrics";
 
 import "@/lib/actions/tools/burndown";
 import "@/lib/actions/tools/burnup";
@@ -98,7 +98,7 @@ describe("sprint status", () => {
       status: "completed",
       pointsCompleted: pts,
     });
-    expect(recentVelocity([done("a", 20), done("b", 30), done("c", 25), done("d", 35)])).toBe(30);
-    expect(recentVelocity([done("a")])).toBeNull();
+    expect(velocity([done("a", 20), done("b", 30), done("c", 25), done("d", 35)]).average).toBe(30);
+    expect(velocity([done("a")]).average).toBeNull();
   });
 });

@@ -50,7 +50,7 @@ describe("tiles", () => {
     };
     const tiles = hubTiles(s, sprintStatus(s, series), { average: null, count: 0 });
     const gap = tiles.find((t) => t.id === "gap");
-    expect(gap).toMatchObject({ value: "4 points ahead", tone: "success" });
+    expect(gap).toMatchObject({ value: "Ahead by 4 points", tone: "success" });
     expect(tiles.find((t) => t.id === "average")).toMatchObject({
       value: "No history yet",
       empty: true,

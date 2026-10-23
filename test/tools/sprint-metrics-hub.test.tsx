@@ -139,7 +139,7 @@ describe("tiles", () => {
     expect(tile(container, "done")).toContain("10% of the scope");
     expect(tile(container, "remaining")).toContain("27");
     expect(tile(container, "remaining")).toContain("On day 2");
-    expect(tile(container, "gap")).toContain("3 points behind");
+    expect(tile(container, "gap")).toContain("Behind by 3 points");
     expect(tile(container, "gap")).toContain("Ideal: 24 left on day 2");
     expect(tile(container, "finish")).toContain(
       `Day ${Math.ceil(status.projectedFinishDay as number)}`
@@ -166,7 +166,7 @@ describe("tiles", () => {
     const md = screen.getByTestId("export-markdown").textContent ?? "";
     expect(md).toContain("# Sprint 2");
     expect(md).toContain("**Goal:** Checkout works end to end");
-    expect(md).toContain("| Pace vs ideal | 3 points behind |");
+    expect(md).toContain("| Pace vs ideal | Behind by 3 points |");
     expect(md).toContain("## Daily log");
     expect(md).toMatch(/\| 2 \| 17 Oct \| 27 \| 3 \| 30 \|/);
   });
