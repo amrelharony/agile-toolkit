@@ -76,7 +76,13 @@ export function PassRateTrendChart({
           stroke={colors.green}
           strokeDasharray="4 4"
           strokeOpacity={0.5}
-          label={{ value: "80% target", fill: colors.green, fontSize: 12, position: "right" }}
+          // Inside the plot: "right" put the label past the chart edge, cut off on a phone.
+          label={{
+            value: "80% target",
+            fill: colors.green,
+            fontSize: 12,
+            position: "insideTopRight",
+          }}
         />
         {control && (
           <>
