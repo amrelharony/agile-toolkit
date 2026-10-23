@@ -1,5 +1,5 @@
-import { normalizeQuarter } from "./quarters";
-import { SCHEDULE_LABEL, rollupLabel } from "./rollup";
+import { normalizeQuarter } from "@/lib/roadmap/quarters";
+import { SCHEDULE_LABEL, rollupLabel } from "@/lib/roadmap/rollup";
 import { byStart, epicName, roadmapVerdict, type EpicView } from "./view";
 
 /** "18 Oct 2026" */

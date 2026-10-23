@@ -3,9 +3,9 @@
 import { ChartFigure } from "@/components/shared/chart-card";
 import type { ChartTable } from "@/lib/charts/chart-text";
 import { cn } from "@/lib/utils";
-import { colorTint, colorVar } from "./palette";
-import { currentQuarterIndex, normalizeQuarter, quarterIndex } from "./quarters";
-import { rollupLabel } from "./rollup";
+import { colorTint, colorVar } from "@/lib/roadmap/palette";
+import { currentQuarterIndex, normalizeQuarter, quarterIndex } from "@/lib/roadmap/quarters";
+import { rollupLabel } from "@/lib/roadmap/rollup";
 import { epicName, inView, type EpicView } from "./view";
 
 /** Column widths in rem: the sticky name column, then each quarter. */

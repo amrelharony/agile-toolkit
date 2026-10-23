@@ -43,10 +43,15 @@ import {
 import { EpicStories } from "./epic-stories";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
-import { colorVar, nextColor } from "./palette";
+import { colorVar, nextColor } from "@/lib/roadmap/palette";
 import { QuarterPicker } from "./pickers";
-import { MAX_QUARTERS_SPAN, normalizeQuarter, quartersBetween, requestedSpan } from "./quarters";
-import { SCHEDULE_LABEL, rollupLabel, type EpicSchedule } from "./rollup";
+import {
+  MAX_QUARTERS_SPAN,
+  normalizeQuarter,
+  quartersBetween,
+  requestedSpan,
+} from "@/lib/roadmap/quarters";
+import { SCHEDULE_LABEL, rollupLabel, type EpicSchedule } from "@/lib/roadmap/rollup";
 import { RoadmapTimeline } from "./timeline";
 import { useFocusAfter } from "./use-focus-after";
 import {

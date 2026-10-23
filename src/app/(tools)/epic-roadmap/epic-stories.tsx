@@ -9,7 +9,7 @@ import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import type { Epic, Story } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
-import { STORY_STATUS_LABEL, isEstimated } from "./rollup";
+import { STORY_STATUS_LABEL, isEstimated } from "@/lib/roadmap/rollup";
 import { epicName, type EpicView } from "./view";
 
 const LINK_CLASS =

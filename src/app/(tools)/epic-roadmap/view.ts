@@ -2,15 +2,20 @@ import type { Epic, Story } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import { listAnd, plural } from "@/lib/charts/chart-text";
 import { EXAMPLE_STORIES } from "./example";
-import { epicColorKey, type EpicColorKey } from "./palette";
-import { normalizeQuarter, quarterIndex, quarterLabel, currentQuarterIndex } from "./quarters";
+import { epicColorKey, type EpicColorKey } from "@/lib/roadmap/palette";
+import {
+  normalizeQuarter,
+  quarterIndex,
+  quarterLabel,
+  currentQuarterIndex,
+} from "@/lib/roadmap/quarters";
 import {
   epicRollup,
   epicSchedule,
   linkedStories,
   type EpicRollup,
   type EpicSchedule,
-} from "./rollup";
+} from "@/lib/roadmap/rollup";
 
 /**
  * The epic's name as the page shows and announces it. The old blur editor

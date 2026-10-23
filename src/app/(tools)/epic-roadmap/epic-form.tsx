@@ -10,9 +10,14 @@ import { PersonPicker } from "@/components/team/person-picker";
 import type { Epic } from "@/lib/stores/workspace-types";
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
 import { ColorPicker, QuarterPicker } from "./pickers";
-import { isEpicColorKey, type EpicColorKey } from "./palette";
-import { MAX_QUARTERS_SPAN, currentQuarter, normalizeQuarter, quarterIndex } from "./quarters";
-import { rollupLabel, type EpicRollup } from "./rollup";
+import { isEpicColorKey, type EpicColorKey } from "@/lib/roadmap/palette";
+import {
+  MAX_QUARTERS_SPAN,
+  currentQuarter,
+  normalizeQuarter,
+  quarterIndex,
+} from "@/lib/roadmap/quarters";
+import { rollupLabel, type EpicRollup } from "@/lib/roadmap/rollup";
 
 /** The agents' `add_epic` limits, so a UI edit never stores what they reject. */
 const TITLE_MAX = 300;

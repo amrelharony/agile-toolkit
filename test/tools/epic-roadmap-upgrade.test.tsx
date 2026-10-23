@@ -32,12 +32,7 @@ import { EpicRoadmapClient } from "@/app/(tools)/epic-roadmap/epic-roadmap-clien
 import { EXAMPLE_STORIES, buildExample } from "@/app/(tools)/epic-roadmap/example";
 import { toMarkdown } from "@/app/(tools)/epic-roadmap/markdown";
 import { newEpicDraft, validateEpic } from "@/app/(tools)/epic-roadmap/epic-form";
-import {
-  EPIC_COLORS,
-  colorName,
-  epicColorKey,
-  nextColor,
-} from "@/app/(tools)/epic-roadmap/palette";
+import { EPIC_COLORS, colorName, epicColorKey, nextColor } from "@/lib/roadmap/palette";
 import {
   MAX_QUARTERS_SPAN,
   currentQuarter,
@@ -47,13 +42,8 @@ import {
   quarterOptions,
   quartersBetween,
   shiftQuarter,
-} from "@/app/(tools)/epic-roadmap/quarters";
-import {
-  epicRollup,
-  epicSchedule,
-  rollupLabel,
-  typedProgress,
-} from "@/app/(tools)/epic-roadmap/rollup";
+} from "@/lib/roadmap/quarters";
+import { epicRollup, epicSchedule, rollupLabel, typedProgress } from "@/lib/roadmap/rollup";
 import { barGeometry } from "@/app/(tools)/epic-roadmap/timeline";
 import {
   epicName,

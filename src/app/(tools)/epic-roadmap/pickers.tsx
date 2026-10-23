@@ -3,8 +3,8 @@
 import { useId, type ReactNode } from "react";
 import { Field } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
-import { EPIC_COLORS, colorVar, type EpicColorKey } from "./palette";
-import { currentQuarter, quarterOptions } from "./quarters";
+import { EPIC_COLORS, colorVar, type EpicColorKey } from "@/lib/roadmap/palette";
+import { currentQuarter, quarterOptions } from "@/lib/roadmap/quarters";
 
 const SELECT_CLASS =
   "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 font-data text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm";

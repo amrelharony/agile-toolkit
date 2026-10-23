@@ -1,6 +1,6 @@
 import { exampleId } from "@/components/tool-frame/example-data";
 import type { Epic, Story } from "@/lib/stores/workspace-types";
-import { currentQuarterIndex, quarterLabel } from "./quarters";
+import { currentQuarterIndex, quarterLabel } from "@/lib/roadmap/quarters";
 
 type Row = [
   key: string,
