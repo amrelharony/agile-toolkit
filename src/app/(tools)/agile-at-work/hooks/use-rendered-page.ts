@@ -245,20 +245,25 @@ export interface RenderedPages {
  * once they are done and the browser is idle.
  *
  * `bucket` is the target pixel width rounded up to 256 px, so resizing the
- * window within a bucket reuses the existing images. One LRU + render
- * queue lives per document; both are torn down (URLs revoked, renders
- * cancelled) when the document changes or the reader unmounts.
+ * window within a bucket reuses the existing images. Prefetches use
+ * `prefetchBucket` (default `bucket`): while pinch-zoomed the visible pages
+ * render larger, but a neighbour is first seen zoomed out — and until a
+ * page's own rendering is ready, its prefetched one stands in. One LRU +
+ * render queue lives per document; both are torn down (URLs revoked,
+ * renders cancelled) when the document changes or the reader unmounts.
  */
 export function useRenderedPages({
   doc,
   visible,
   prefetch,
   bucket,
+  prefetchBucket = bucket,
 }: {
   doc: PDFDocumentProxy | null;
   visible: readonly number[];
   prefetch: readonly number[];
   bucket: number;
+  prefetchBucket?: number;
 }): RenderedPages {
   const cacheRef = useRef<PageUrlCache | null>(null);
   const queueRef = useRef<PageRenderQueue | null>(null);
@@ -297,19 +302,23 @@ export function useRenderedPages({
     const keys: string[] = [];
     for (const page of visible) {
       if (bucket > 0) keys.push(pageCacheKey(page, bucket));
+      if (prefetchBucket > 0) keys.push(pageCacheKey(page, prefetchBucket));
       const shown = latest.get(page);
       if (shown) keys.push(shown.key);
     }
     cache.pin(keys);
     // `visible` is tracked through visibleKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, visibleKey, bucket, latest]);
+  }, [doc, visibleKey, bucket, prefetchBucket, latest]);
 
   useEffect(() => {
     const queue = queueRef.current;
     if (!doc || !queue || bucket <= 0) return;
     let active = true;
-    const wanted = new Set([...visible, ...prefetch].map((page) => pageCacheKey(page, bucket)));
+    const wanted = new Set([
+      ...visible.map((page) => pageCacheKey(page, bucket)),
+      ...(prefetchBucket > 0 ? prefetch.map((page) => pageCacheKey(page, prefetchBucket)) : []),
+    ]);
     queue.retain(wanted);
 
     // A failure is remembered only while its page stays on screen, so
@@ -340,9 +349,11 @@ export function useRenderedPages({
 
     let cancelIdle = () => {};
     void Promise.all(requests).then(() => {
-      if (!active) return;
+      if (!active || prefetchBucket <= 0) return;
       cancelIdle = whenIdle(() => {
-        for (const page of prefetch) queue.request(page, bucket, "prefetch").catch(() => {});
+        for (const page of prefetch) {
+          queue.request(page, prefetchBucket, "prefetch").catch(() => {});
+        }
       });
     });
 
@@ -352,7 +363,7 @@ export function useRenderedPages({
     };
     // `visible` / `prefetch` are tracked through their joined keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, bucket, visibleKey, prefetchKey, retryToken]);
+  }, [doc, bucket, prefetchBucket, visibleKey, prefetchKey, retryToken]);
 
   const retry = useCallback((page: number) => {
     setFailed((prev) => {
@@ -373,7 +384,8 @@ export function useRenderedPages({
       const shown = latest.get(page);
       const url =
         (bucket > 0 ? cache.peek(pageCacheKey(page, bucket)) : undefined) ??
-        (shown ? cache.peek(shown.key) : undefined);
+        (shown ? cache.peek(shown.key) : undefined) ??
+        (prefetchBucket > 0 ? cache.peek(pageCacheKey(page, prefetchBucket)) : undefined);
       if (url) urls.set(page, url);
     }
   }
