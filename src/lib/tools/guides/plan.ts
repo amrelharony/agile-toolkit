@@ -162,6 +162,7 @@ export const GUIDES: ToolGuide[] = [
       "Click Add job story. Jobs nest under their parent in Job stories; Add a job under, on a row, starts a smaller job beneath it.",
       "Use Edit to sharpen the wording as you learn more. An older job with a missing clause shows Complete the job.",
       "When a job is worth building, click Create story to put it on the backlog. The row then shows the story's status and links to it in Sprint Planning.",
+      "Click Link to opportunity to tie a job to the opportunity it serves on the Opportunity Tree; Unlink takes it off.",
     ],
     tips: [
       "Describe the situation, not the person: “When I'm paying in a queue on my phone” says more than “As a customer”.",
