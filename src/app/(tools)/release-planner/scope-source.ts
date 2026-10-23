@@ -16,7 +16,8 @@
  * however big they turn out to be, and the page says so.
  */
 
-import type { Sprint, Story, StoryMap, StoryMapCard } from "@/lib/stores/workspace-types";
+import type { Sprint, Story, StoryMap } from "@/lib/stores/workspace-types";
+import { sliceTotals } from "@/lib/story-map/points";
 import { isExampleId } from "@/components/tool-frame/example-data";
 
 export type ScopeSource = "backlog" | "slice" | "typed";
@@ -94,23 +95,6 @@ export function backlogScope(
 
 /* ── Story-map slices ────────────────────────────────────────────────── */
 
-/**
- * A card's estimate as points: a number of 0 or more ("5", "3.5", ".5").
- * Null for anything else ("?", "XL", "8 pts", a coffee cup): unestimated
- * here, since a T-shirt size has no point value to add up.
- *
- * The same rule as the Story Mapper's `estimatePoints`
- * (story-mapper/estimate.ts), so the slice total its "Plan release" link
- * shows is the total planned here. A looser reading ("8 pts", "0,5")
- * counted cards the Story Mapper calls custom. Once both tools are on one
- * branch, this should import that function instead of repeating it.
- */
-export function estimatePoints(estimate: string | undefined): number | null {
-  if (typeof estimate !== "string" || estimate.trim() === "") return null;
-  const n = Number(estimate);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
 export interface SliceScope {
   id: string;
   name: string;
@@ -119,29 +103,20 @@ export interface SliceScope {
   unestimated: number;
 }
 
-/** The cards of a slice under the map's steps, in step order (a card of a removed step isn't shown, so it isn't counted). */
-function sliceCards(map: StoryMap, cards: Record<string, StoryMapCard[]>): StoryMapCard[] {
-  return map.steps.flatMap((step) => cards?.[step.id] ?? []);
-}
-
 /** Every slice of the map with its point total, in map order. */
 export function storyMapSlices(map: StoryMap | undefined): SliceScope[] {
   if (!map) return [];
   return (map.slices ?? []).map((slice) => {
-    const cards = sliceCards(map, slice.cards);
-    let points = 0;
-    let unestimated = 0;
-    for (const card of cards) {
-      const p = estimatePoints(card.estimate);
-      if (p === null) unestimated++;
-      else points += p;
-    }
+    // The Story Mapper's own totals (lib/story-map/points), so "Plan this
+    // release" opens on the number the slice header shows. A custom
+    // estimate ("XL", "?") has no points to add, so it counts as unestimated.
+    const t = sliceTotals(slice, map.steps ?? []);
     return {
       id: slice.id,
       name: slice.name.trim() || "Untitled slice",
-      points: round1(points),
-      cards: cards.length,
-      unestimated,
+      points: t.points,
+      cards: t.cards,
+      unestimated: t.cards - t.estimated,
     };
   });
 }

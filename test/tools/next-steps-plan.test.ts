@@ -204,7 +204,8 @@ describe("story-mapper and walking-skeleton", () => {
   it("asks to size unestimated cards and to plan the first priced slice", () => {
     const out = steps("story-mapper", { storyMaps: [map(["3", "5", "", "L"])] });
     expect(out.map((s) => s.id)).toEqual(["map-estimate", "map-release"]);
-    expect(out[0].detail).toMatch(/^2 stories on the map have no points/);
+    // "L" is a custom (T-shirt) estimate, shown as such on the slice; only the blank card is unsized.
+    expect(out[0].detail).toMatch(/^1 story on the map has no points/);
     expect(out[1]).toMatchObject({
       detail: "“MVP” totals 8 points. See when it can ship at your velocity.",
       href: "/release-planner?slice=mvp",

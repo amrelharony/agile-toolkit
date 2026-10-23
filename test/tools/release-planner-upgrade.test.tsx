@@ -56,7 +56,6 @@ import {
 import {
   backlogScope,
   effectiveScope,
-  estimatePoints,
   readSliceParam,
   resolveScope,
   resolveScopeSource,
@@ -102,6 +101,7 @@ import {
   validateSprintLength,
 } from "@/app/(tools)/release-planner/validate";
 import { releasePrompts } from "@/app/(tools)/release-planner/prompts";
+import { estimatePoints } from "@/lib/story-map/points";
 import { bootstrapCrossCheck, recentShift } from "@/app/(tools)/release-planner/advanced";
 import { simulationHistogramText } from "@/app/(tools)/release-planner/chart-text";
 
@@ -213,13 +213,13 @@ describe("scope sources", () => {
   });
 
   it("reads card estimates on the Story Mapper's rule, and anything else as unestimated", () => {
-    // The Story Mapper sums a card when Number(estimate) is a finite 0 or
-    // more, so "Plan release" must total a slice the same way.
-    expect(["5", "3.5", ".5", "0", " 21 ", "1e1"].map(estimatePoints)).toEqual([
-      5, 3.5, 0.5, 0, 21, 10,
+    // One reading (lib/story-map/points), so "Plan this release" opens on
+    // the total the Story Mapper's slice header shows.
+    expect(["5", "3.5", "0", " 21 ", "0,5", "½", "8 pts"].map(estimatePoints)).toEqual([
+      5, 3.5, 0, 21, 0.5, 0.5, 8,
     ]);
-    const custom = ["?", "XL", "", "  ", "☕", "-3", "1/2", "8 pts", "0,5", "½", "Infinity"];
-    expect([...custom, undefined].map(estimatePoints)).toEqual(Array(12).fill(null));
+    const custom = ["?", "XL", "", "  ", "☕", "-3", "1/2", ".5", "1e1", "0x10", "Infinity"];
+    expect([...custom, undefined].map(estimatePoints)).toEqual(Array(12).fill(undefined));
   });
 
   it("leaves out the running sprint's stories when the forecast starts after it", () => {

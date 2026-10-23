@@ -23,6 +23,7 @@ import { carryOver } from "@/lib/sprints/progress";
 import { todayIso } from "@/lib/sprints/series";
 import { pickDefaultSprint, sprintHref } from "@/lib/sprints/use-selected-sprint";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { estimateKind, estimatePoints, sliceCards } from "@/lib/story-map/points";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -225,13 +226,11 @@ const RULES: Record<string, NextStepRule<object>> = {
       const map = (maps ?? []).find((m) => m.id === "story-mapper:current");
       if (!map) return [];
       const steps: NextStep[] = [];
-      const cardsOf = (slice: (typeof map.slices)[number]) =>
-        real(Object.values(slice.cards ?? {}).flat());
-      const points = (estimate: string | undefined) => {
-        const n = Number(estimate);
-        return estimate && estimate.trim() !== "" && Number.isFinite(n) && n > 0 ? n : null;
-      };
-      const unsized = map.slices.flatMap(cardsOf).filter((c) => points(c.estimate) === null);
+      // Cards under the map's steps, read the way the Story Mapper reads them.
+      const cardsOf = (slice: (typeof map.slices)[number]) => real(sliceCards(slice, map.steps));
+      const unsized = map.slices
+        .flatMap(cardsOf)
+        .filter((c) => estimateKind(c.estimate) === "none");
       if (unsized.length > 0) {
         steps.push({
           id: "map-estimate",
@@ -240,9 +239,11 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: "/planning-poker",
         });
       }
-      const first = map.slices.find((sl) => cardsOf(sl).some((c) => points(c.estimate) !== null));
+      const first = map.slices.find((sl) =>
+        cardsOf(sl).some((c) => estimateKind(c.estimate) === "points")
+      );
       if (first) {
-        const total = cardsOf(first).reduce((sum, c) => sum + (points(c.estimate) ?? 0), 0);
+        const total = cardsOf(first).reduce((sum, c) => sum + (estimatePoints(c.estimate) ?? 0), 0);
         steps.push({
           id: "map-release",
           label: "Plan the first release",
