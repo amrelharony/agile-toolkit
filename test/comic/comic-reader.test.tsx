@@ -20,6 +20,7 @@ vi.mock("@/lib/sonification/emit", () => ({ emit }));
 
 import { ComicReader } from "@/app/(tools)/agile-at-work/components/comic-reader";
 import { AgileAtWorkClient } from "@/app/(tools)/agile-at-work/agile-at-work-client";
+import { ColorEditionClient } from "@/app/(tools)/agile-at-work/color/color-edition-client";
 
 const SRC = "/comics/agile-at-work.pdf?v=abc123";
 const SIZE = 12_897_485;
@@ -423,5 +424,55 @@ describe("AgileAtWorkClient", () => {
 
     expect(await screen.findByAltText("Agile at Work — page 1 of 24")).toBeInTheDocument();
     expect(pdfjs.getDocument).toHaveBeenCalledWith(expect.objectContaining({ url: SRC }));
+  });
+});
+
+describe("ColorEditionClient", () => {
+  const COLOR_SRC = "/agile-at-work/color/edition.pdf?v=c0101abc";
+  const COLOR_ASSET = { available: true, size: SIZE, version: "c0101abc", src: COLOR_SRC };
+
+  it("tells a locked visitor to scan the QR code, and points at the free edition", () => {
+    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "abc123");
+    render(<ColorEditionClient access="locked" asset={null} />);
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Agile at Work — Colour Edition" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("The colour edition comes with the printed book")).toBeInTheDocument();
+    expect(screen.getByText(/Scan the QR code inside your copy/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Read the free edition" })).toHaveAttribute(
+      "href",
+      "/agile-at-work"
+    );
+    expect(loadPdfjs).not.toHaveBeenCalled();
+  });
+
+  it("explains a bad link, and falls back to the tools while the free edition is unpublished", () => {
+    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "");
+    render(<ColorEditionClient access="invalid-link" asset={null} />);
+    expect(screen.getByText("That link didn't open the colour edition")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to tools" })).toHaveAttribute("href", "/");
+  });
+
+  it("says 'coming soon' to an unlocked device before the colour PDF is published", () => {
+    render(
+      <ColorEditionClient
+        access="unlocked"
+        asset={{ available: false, size: null, version: null, src: "/x.pdf" }}
+      />
+    );
+    expect(screen.getByText("The colour edition is coming soon")).toBeInTheDocument();
+    expect(screen.getByText(/already unlocked/)).toBeInTheDocument();
+    expect(loadPdfjs).not.toHaveBeenCalled();
+  });
+
+  it("opens the colour PDF read-only for an unlocked device", async () => {
+    const pdfjs = fakePdfjs();
+    loadPdfjs.mockResolvedValue(pdfjs);
+    render(<ColorEditionClient access="unlocked" asset={COLOR_ASSET} />);
+
+    expect(await screen.findByAltText("Agile at Work — page 1 of 24")).toBeInTheDocument();
+    expect(pdfjs.getDocument).toHaveBeenCalledWith(expect.objectContaining({ url: COLOR_SRC }));
+    expect(screen.queryByRole("link", { name: /Download PDF/ })).toBeNull();
   });
 });

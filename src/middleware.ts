@@ -443,7 +443,9 @@ export const config = {
     // requests: running middleware per chunk would cost the owner a getUser
     // round-trip each time. Only a FILE directly under /comics is exempt,
     // never the bare `comics/` prefix, which would also exempt any future
-    // page or nested route under /comics. Same idea for the mascot model.
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/[^/]+\\.[a-zA-Z0-9]+$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
+    // page or nested route under /comics. Same idea for the mascot model,
+    // and for the colour edition's PDF route, which checks its own access
+    // cookie (no session involved).
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/[^/]+\\.[a-zA-Z0-9]+$|agile-at-work/color/edition\\.pdf$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
   ],
 };

@@ -33,6 +33,7 @@ const MODES = [
 /** Served straight from /public (or by Next) without running middleware. */
 const EXEMPT = [
   "/comics/agile-at-work.pdf",
+  "/agile-at-work/color/edition.pdf",
   "/.well-known/security.txt",
   "/mascot/mascot.glb",
   "/AT.svg",
@@ -59,6 +60,10 @@ const CHECKED = [
   "/api/kudos",
   "/api/auth/owner",
   "/agile-at-work",
+  "/agile-at-work/color",
+  "/agile-at-work/color/some-key",
+  "/agile-at-work/color/edition.pdf/x",
+  "/x/agile-at-work/color/edition.pdf",
   "/settings/access-tokens",
   "/settings/squads",
   "/auth/callback",

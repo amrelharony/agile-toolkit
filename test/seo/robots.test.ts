@@ -31,6 +31,16 @@ describe("robots", () => {
     expect(rule().disallow).toEqual(expect.arrayContaining(["/join/"]));
   });
 
+  it("keeps the comic's private colour edition and its QR link out of the index", () => {
+    const disallow = [rule().disallow ?? []].flat();
+    for (const path of ["/agile-at-work/color", "/agile-at-work/color/some-key"]) {
+      expect(
+        disallow.some((prefix) => path.startsWith(prefix)),
+        path
+      ).toBe(true);
+    }
+  });
+
   it("does not block any tool route", () => {
     const disallow = [rule().disallow ?? []].flat();
     for (const path of ["/", "/planning-poker", "/retro", "/agile-at-work", "/history"]) {
