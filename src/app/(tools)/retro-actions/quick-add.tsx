@@ -23,7 +23,8 @@ export type QuickAddField = keyof QuickAddDraft;
 
 export const EMPTY_QUICK_ADD: QuickAddDraft = { text: "", assignee: "", dueDate: "" };
 
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** A day as a date input gives it: "YYYY-MM-DD". */
+export const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Check a quick-add draft. The action is required; owner and due date are
@@ -58,10 +59,13 @@ export function validateQuickAdd(d: QuickAddDraft): Validation<NewRetroAction, Q
 export function QuickAddForm({
   onAdd,
   target,
+  offerAddToRoster = true,
 }: {
   onAdd: (values: NewRetroAction) => void;
   /** Where it will land, e.g. "Goes on the current retro." */
   target: string;
+  /** Offer "Add to the team" for a name off the roster; never while the example is shown. */
+  offerAddToRoster?: boolean;
 }) {
   const form = useItemForm<QuickAddDraft, NewRetroAction, QuickAddField>({
     initial: EMPTY_QUICK_ADD,
@@ -94,6 +98,7 @@ export function QuickAddForm({
           onChange={(assignee) => update({ assignee })}
           error={errors.assignee}
           placeholder="Who will do it"
+          offerAddToRoster={offerAddToRoster}
         />
         <Field label="Due date" error={errors.dueDate}>
           {(props) => (

@@ -147,6 +147,14 @@ const undoLast = () => {
 };
 const toastLabels = () => toastSpy.mock.calls.map((c) => c[0]);
 const actionsLogged = () => logs.map((l) => l.action);
+/** A "Show" filter button; a done row's "Done <day>" button starts with "Done" too. */
+const filterButton = (name: RegExp) =>
+  within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name });
+/** Open an action's owner for editing; returns the picker's input. */
+const editOwner = (text: string) => {
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`^Owner of ${text}:`) }));
+  return screen.getByLabelText(`Owner of ${text}`);
+};
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -549,7 +557,9 @@ describe("first run", () => {
     expect(screen.getByRole("region", { name: /Mad \/ Sad \/ Glad/ })).toBeInTheDocument();
     expect(screen.getAllByText(/· Sprint 1[234]/).length).toBeGreaterThan(0);
     for (const b of screen.getAllByRole("button", { name: /^Send to…/ })) expect(b).toBeDisabled();
-    for (const b of screen.getAllByRole("button", { name: "Carry over" })) expect(b).toBeDisabled();
+    for (const b of screen.getAllByRole("button", { name: /^Carry over / })) {
+      expect(b).toBeDisabled();
+    }
     // The follow-through chart reads the example too.
     expect(
       screen.getByText(
@@ -563,7 +573,18 @@ describe("first run", () => {
     fireEvent.submit(screen.getByLabelText(/^Action/).closest("form") as HTMLFormElement);
     expect(screen.getByText("Try it out")).toBeInTheDocument();
 
+    // The example's people aren't the team's: no "Add to the team", in a
+    // row's owner or in quick add.
+    const owner = editOwner("Write the on-call guide");
+    expect(owner).toHaveValue("Dev");
+    expect(screen.getByText("“Dev” isn’t on the team.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "Sam" } });
+    expect(screen.getByText("“Sam” isn’t on the team.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add to the team" })).toBeNull();
+    fireEvent.keyDown(owner, { key: "Escape" });
+
     expect(ws().retroBoards).toEqual([]);
+    expect(ws().teamMembers).toEqual([]);
     expect(logs).toEqual([]);
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
@@ -598,7 +619,7 @@ describe("done, without losing the row", () => {
 
   it("reopening restores the done day it had on Undo", () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Done/ }));
+    fireEvent.click(filterButton(/^Done/));
     fireEvent.click(screen.getByLabelText("Done: Shorter planning"));
     expect(cardOf(LAST.id, "l2")?.done).toBeUndefined();
     expect(screen.getByText("Shorter planning")).toBeInTheDocument();
@@ -607,14 +628,80 @@ describe("done, without losing the row", () => {
     expect(cardOf(LAST.id, "l2")).toMatchObject({ done: true, doneAt: "2026-10-10T09:00:00.000Z" });
   });
 
-  it("shows the done day as the local calendar day", () => {
-    const doneAt = new Date(2026, 9, 21, 0, 30).toISOString();
-    seed([
-      board(RETRO_CURRENT_ID, [card("d1", "Done just after midnight", { done: true, doneAt })]),
-    ]);
+  it("shows the done day as the local calendar day, also east of UTC", () => {
+    // Pinned east of UTC so this holds on a UTC runner too: 20:30 UTC on
+    // the 20th is early on the 21st in Tokyo, where a UTC slice says the 20th.
+    const zone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    process.env.TZ = "Asia/Tokyo";
+    try {
+      const doneAt = "2026-10-20T20:30:00.000Z";
+      expect(new Date(doneAt).getDate()).toBe(21);
+      seed([
+        board(RETRO_CURRENT_ID, [card("d1", "Done early in the morning", { done: true, doneAt })]),
+      ]);
+      renderPage();
+      fireEvent.click(filterButton(/^Done/));
+      expect(screen.getByText("Done 2026-10-21")).toBeInTheDocument();
+      expect(screen.queryByText(`Done ${doneAt.slice(0, 10)}`)).toBeNull();
+    } finally {
+      process.env.TZ = zone;
+    }
+  });
+
+  it("moves the done day back by hand, never past today, and Escape keeps it", () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Done/ }));
-    expect(screen.getByText("Done 2026-10-21")).toBeInTheDocument();
+    fireEvent.click(filterButton(/^Done/));
+    const dayButton = screen.getByRole("button", {
+      name: "Done 2026-10-10: change the day “Shorter planning” was done",
+    });
+    fireEvent.click(dayButton);
+    const day = screen.getByLabelText("Day “Shorter planning” was done");
+    expect(day).toHaveFocus();
+    expect(day).toHaveValue("2026-10-10");
+    expect(day).toHaveAttribute("max", "2026-10-22");
+
+    // Tomorrow: an error, and nothing saved, by Enter or by leaving the field.
+    fireEvent.change(day, { target: { value: "2026-10-23" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("Pick today or an earlier day.");
+    fireEvent.keyDown(day, { key: "Enter" });
+    fireEvent.blur(day);
+    expect(cardOf(LAST.id, "l2")?.doneAt).toBe("2026-10-10T09:00:00.000Z");
+
+    fireEvent.keyDown(day, { key: "Escape" });
+    expect(cardOf(LAST.id, "l2")?.doneAt).toBe("2026-10-10T09:00:00.000Z");
+    expect(screen.getByRole("button", { name: /^Done 2026-10-10:/ })).toHaveFocus();
+    expect(logs).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Done 2026-10-10:/ }));
+    const again = screen.getByLabelText("Day “Shorter planning” was done");
+    fireEvent.change(again, { target: { value: "2026-10-08" } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    const doneAt = cardOf(LAST.id, "l2")?.doneAt as string;
+    // Noon on the picked day, local: the day it reads back as.
+    expect(doneAt).toBe(new Date(2026, 9, 8, 12).toISOString());
+    expect(cardOf(LAST.id, "l2")?.done).toBe(true);
+    expect(logs).toEqual([
+      { action: "action_edited", payload: { boardId: LAST.id, cardId: "l2", field: "doneAt" } },
+    ]);
+    expect(screen.getByRole("button", { name: /^Done 2026-10-08:/ })).toHaveFocus();
+
+    // The same day again, or an emptied field, saves nothing.
+    fireEvent.click(screen.getByRole("button", { name: /^Done 2026-10-08:/ }));
+    fireEvent.keyDown(screen.getByLabelText("Day “Shorter planning” was done"), { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: /^Done 2026-10-08:/ }));
+    const emptied = screen.getByLabelText("Day “Shorter planning” was done");
+    fireEvent.change(emptied, { target: { value: "" } });
+    fireEvent.blur(emptied);
+    expect(cardOf(LAST.id, "l2")?.doneAt).toBe(doneAt);
+    expect(logs).toHaveLength(1);
+  });
+
+  it("keeps a done action without a recorded day as it was", () => {
+    renderPage();
+    fireEvent.click(filterButton(/^Done/));
+    const row = screen.getByText("Book a room for planning").closest("li") as HTMLElement;
+    expect(within(row).getByText("Past retro")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /^Done / })).toBeNull();
   });
 });
 
@@ -632,40 +719,97 @@ describe("edit in place", () => {
     });
   });
 
-  it("saves the owner from the roster picker on blur and on Enter; Escape puts it back", () => {
+  it("edits the owner in place: Enter, Save or clicking away saves; Escape and Cancel don't", () => {
     renderPage();
-    const owner = screen.getByLabelText("Owner of Write the on-call guide");
+    const ownerButton = () =>
+      screen.getByRole("button", { name: /^Owner of Write the on-call guide:/ });
+    expect(ownerButton()).toHaveAccessibleName("Owner of Write the on-call guide: Priya");
+    let owner = editOwner("Write the on-call guide");
+    expect(owner).toHaveFocus();
+    expect(owner).toHaveValue("Priya");
     fireEvent.change(owner, { target: { value: "Dev " } });
-    fireEvent.keyDown(owner, { key: "Enter" });
+    // Enter submits the picker's form (jsdom has no implicit submission).
+    fireEvent.submit(owner.closest("form") as HTMLFormElement);
     expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Dev");
+    expect(logs.filter((l) => l.action === "action_edited")).toHaveLength(1);
     expect(logs.at(-1)).toMatchObject({ action: "action_edited", payload: { field: "assignee" } });
+    expect(ownerButton()).toHaveFocus();
 
+    owner = editOwner("Write the on-call guide");
     fireEvent.change(owner, { target: { value: "Someone else" } });
     fireEvent.keyDown(owner, { key: "Escape" });
-    expect(owner).toHaveValue("Dev");
-    fireEvent.blur(owner);
+    expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Dev");
+    expect(ownerButton()).toHaveFocus();
+
+    owner = editOwner("Write the on-call guide");
+    fireEvent.change(owner, { target: { value: "Someone else" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Dev");
 
+    owner = editOwner("Write the on-call guide");
+    fireEvent.change(owner, { target: { value: "Priya" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Priya");
+
+    // Clicking away saves; an emptied name clears the owner.
+    owner = editOwner("Write the on-call guide");
     fireEvent.change(owner, { target: { value: "" } });
     fireEvent.blur(owner);
     expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("");
+    expect(ownerButton()).toHaveAccessibleName("Owner of Write the on-call guide: No owner");
   });
 
-  it("adds someone to the team only on the explicit click, which also saves them as owner", () => {
+  it("won't cut a long owner name short: it says so and saves nothing", () => {
     renderPage();
-    const owner = screen.getByLabelText("Owner of Write the on-call guide");
+    const owner = editOwner("Write the on-call guide");
+    fireEvent.change(owner, { target: { value: "n".repeat(OWNER_MAX + 1) } });
+    expect(screen.getByText(`Keep the name to ${OWNER_MAX} characters.`)).toBeInTheDocument();
+    expect(owner).toHaveAttribute("aria-invalid", "true");
+    fireEvent.submit(owner.closest("form") as HTMLFormElement);
+    fireEvent.blur(owner);
+    expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Priya");
+    expect(owner).toBeInTheDocument();
+    expect(logs).toEqual([]);
+
+    fireEvent.change(owner, { target: { value: "n".repeat(OWNER_MAX) } });
+    expect(screen.queryByText(`Keep the name to ${OWNER_MAX} characters.`)).toBeNull();
+    fireEvent.submit(owner.closest("form") as HTMLFormElement);
+    expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("n".repeat(OWNER_MAX));
+  });
+
+  it("shows the roster notes only while an owner is being changed", () => {
+    renderPage();
+    // Quick add's Owner is the one picker on screen: no note under each row.
+    expect(screen.getAllByText(/to pick names here/)).toHaveLength(1);
+    expect(screen.queryByText(/isn’t on the team/)).toBeNull();
+    editOwner("Write the on-call guide");
+    expect(screen.getByText("“Priya” isn’t on the team.")).toBeInTheDocument();
+  });
+
+  it("adds someone to the team only on the explicit click, then hands focus back to the name", () => {
+    renderPage();
+    const owner = editOwner("Write the on-call guide");
     fireEvent.change(owner, { target: { value: "Nadia" } });
     expect(ws().teamMembers).toEqual([]);
     const row = owner.closest("li") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Add to the team" }));
+    const add = within(row).getByRole("button", { name: "Add to the team" });
+    // A press keeps focus in the input, so leaving it doesn't save half-way.
+    expect(fireEvent.mouseDown(add)).toBe(false);
+    add.focus();
+    fireEvent.click(add);
     expect(ws().teamMembers.map((m) => m.name)).toEqual(["Nadia"]);
+    expect(within(row).queryByRole("button", { name: "Add to the team" })).toBeNull();
+    expect(owner).toHaveFocus();
+    // Adding to the team isn't choosing the owner: Enter does that.
+    expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Priya");
+    fireEvent.submit(owner.closest("form") as HTMLFormElement);
     expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Nadia");
   });
 
   it("keeps an edited row in view under an owner filter until the filter changes", () => {
     renderPage();
     fireEvent.change(screen.getByLabelText("Filter by owner"), { target: { value: "Priya" } });
-    const owner = screen.getByLabelText("Owner of Write the on-call guide");
+    const owner = editOwner("Write the on-call guide");
     fireEvent.change(owner, { target: { value: "Dev" } });
     fireEvent.blur(owner);
     expect(screen.getByText("Write the on-call guide")).toBeInTheDocument();
@@ -674,17 +818,34 @@ describe("edit in place", () => {
     expect(screen.queryByText("Write the on-call guide")).toBeNull();
   });
 
-  it("logs due date changes", () => {
+  it("saves a due date once, when the field is left or on Enter, not on every keystroke", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Due date of Write the on-call guide"), {
-      target: { value: "2026-11-01" },
-    });
-    expect(cardOf(RETRO_CURRENT_ID, "c1")?.dueDate).toBe("2026-11-01");
-    expect(logs.at(-1)).toMatchObject({ action: "action_edited", payload: { field: "dueDate" } });
-    fireEvent.change(screen.getByLabelText("Due date of Write the on-call guide"), {
-      target: { value: "" },
-    });
+    const due = screen.getByLabelText("Due date of Write the on-call guide");
+    // Typing the year passes through days long gone: none of them is saved.
+    for (const value of ["0002-11-01", "0020-11-01", "0202-11-01", "2026-11-01"]) {
+      fireEvent.change(due, { target: { value } });
+    }
     expect(cardOf(RETRO_CURRENT_ID, "c1")).not.toHaveProperty("dueDate");
+    expect(within(due.closest("li") as HTMLElement).queryByText(/Overdue/)).toBeNull();
+    expect(logs).toEqual([]);
+    fireEvent.blur(due);
+    expect(cardOf(RETRO_CURRENT_ID, "c1")?.dueDate).toBe("2026-11-01");
+    expect(logs).toEqual([
+      {
+        action: "action_edited",
+        payload: { boardId: RETRO_CURRENT_ID, cardId: "c1", field: "dueDate" },
+      },
+    ]);
+    // Leaving it again unchanged saves nothing more.
+    fireEvent.blur(due);
+    expect(logs).toHaveLength(1);
+
+    // Enter saves too; an emptied field clears the due date.
+    due.focus();
+    fireEvent.change(due, { target: { value: "" } });
+    fireEvent.keyDown(due, { key: "Enter" });
+    expect(cardOf(RETRO_CURRENT_ID, "c1")).not.toHaveProperty("dueDate");
+    expect(logs).toHaveLength(2);
   });
 });
 
@@ -715,7 +876,11 @@ describe("carry over", () => {
   it("copies a past action onto the current retro, with Undo", () => {
     renderPage();
     const past = screen.getByRole("region", { name: "Start / Stop / Continue · 5 Oct 2026" });
-    fireEvent.click(within(past).getAllByRole("button", { name: "Carry over" })[0]);
+    fireEvent.click(
+      within(past).getByRole("button", {
+        name: "Carry over Pair on the flaky tests to the current retro",
+      })
+    );
     const copy = boardOf(RETRO_CURRENT_ID)?.cards.find((c) => c.carriedFrom === "l1");
     expect(copy).toBeTruthy();
     expect(toastLabels()).toContain("Carried “Pair on the flaky tests” over to the current retro");
@@ -724,10 +889,37 @@ describe("carry over", () => {
     expect(screen.getAllByText("Pair on the flaky tests")).toHaveLength(1);
   });
 
+  it("names each Carry over button after its action", () => {
+    renderPage();
+    expect(
+      screen
+        .getAllByRole("button", { name: /^Carry over / })
+        .map((b) => b.getAttribute("aria-label"))
+    ).toEqual([
+      "Carry over Pair on the flaky tests to the current retro",
+      "Carry over Fix the staging sandbox to the current retro",
+      "Carry over Retro notes in the wiki to the current retro",
+    ]);
+  });
+
+  it("moves focus onto the carried copy, since the row it was pressed in goes", () => {
+    renderPage();
+    const carry = screen.getByRole("button", {
+      name: "Carry over Pair on the flaky tests to the current retro",
+    });
+    carry.focus();
+    fireEvent.click(carry);
+    expect(carry).not.toBeInTheDocument();
+    const current = screen.getByRole("region", { name: "Current retro" });
+    const copy = within(current).getByRole("button", { name: /^Pair on the flaky tests/ });
+    expect(copy).toHaveFocus();
+    expect(within(current).getByText(/Carried over/)).toBeInTheDocument();
+  });
+
   it("asks for a current retro first when there is none", () => {
     seed([LAST]);
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "Carry over" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Carry over / })[0]);
     expect(toastSpy.error).toHaveBeenCalledWith("Open the Retro board and pick a format first.");
     expect(ws().retroBoards).toHaveLength(1);
   });
@@ -741,7 +933,9 @@ describe("follow-through on the page", () => {
     expect(
       screen.getByText("Hold 1 more retro with actions to see the follow-through per retro.")
     ).toBeInTheDocument();
-    expect(screen.getByText(/The current retro's action is still in progress/)).toBeInTheDocument();
+    expect(
+      screen.getByText("The current retro (1 action) isn't rated until the next retro starts.")
+    ).toBeInTheDocument();
     unmount();
 
     seed([BEFORE, LAST, CURRENT]);

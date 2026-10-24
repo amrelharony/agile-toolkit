@@ -105,6 +105,12 @@ const writeStore: BoardWriter = (boardId, update) => {
 };
 
 /**
+ * The doneAt for a done day picked by hand: noon on that day, local, so it
+ * reads as the same day for teammates a few time zones away.
+ */
+const doneAtOn = (day: string): string => new Date(`${day}T12:00:00`).toISOString();
+
+/**
  * Retro Actions: every action item the team agreed, across the current
  * retro and the archives, with owner, due date and done — done also when
  * the impediment or Kanban card it was sent to is finished. Actions can be
@@ -128,6 +134,9 @@ export function RetroActionsTracker() {
   // Rows changed since the filters were last set stay on screen, so ticking
   // Done under "Open" doesn't whisk the row (and its Undo) away.
   const [kept, setKept] = useState<ReadonlySet<string>>(NOTHING_KEPT);
+  // The row to move focus to once it's on screen: a carried copy, whose
+  // original row goes from under the Carry over button just pressed.
+  const [focusId, setFocusId] = useState<string | null>(null);
   // The example lives here only: nothing in it reaches the workspace.
   const [example, setExample] = useState<RetroActionsExample | null>(null);
   const preview = example !== null;
@@ -316,6 +325,7 @@ export function RetroActionsTracker() {
       },
       revert: () => writeStore(RETRO_CURRENT_ID, withoutCard(card.id)),
     });
+    setFocusId(card.id);
     announce(`Carried “${a.text}” over to the current retro`);
   };
 
@@ -353,7 +363,7 @@ export function RetroActionsTracker() {
 
       {target && (
         <SectionCard title="Add an action" icon={Plus}>
-          <QuickAddForm onAdd={add} target={targetText} />
+          <QuickAddForm onAdd={add} target={targetText} offerAddToRoster={!preview} />
         </SectionCard>
       )}
 
@@ -448,7 +458,11 @@ export function RetroActionsTracker() {
                         key={a.id}
                         action={a}
                         preview={preview}
+                        today={today}
+                        takeFocus={focusId === a.id}
+                        onFocusTaken={() => setFocusId(null)}
                         onDone={setDone}
+                        onDoneDay={(row, day) => edit(row, { doneAt: doneAtOn(day) }, "doneAt")}
                         onText={(row, text) => edit(row, { text }, "text")}
                         onOwner={(row, assignee) => edit(row, { assignee }, "assignee")}
                         onDueDate={(row, dueDate) => edit(row, { dueDate }, "dueDate")}
@@ -484,9 +498,8 @@ export function RetroActionsTracker() {
             )}
             {inProgress > 0 && (
               <p className="mt-3 text-xs text-sub">
-                The current retro&apos;s{" "}
-                {inProgress === 1 ? "action is" : `${inProgress} actions are`} still in progress, so
-                it isn&apos;t rated until the next retro starts.
+                The current retro ({inProgress === 1 ? "1 action" : `${inProgress} actions`})
+                isn&apos;t rated until the next retro starts.
               </p>
             )}
           </SectionCard>

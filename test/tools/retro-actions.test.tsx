@@ -131,7 +131,9 @@ describe("Retro Actions", () => {
     expect(cardOf(LAST.id, "l1")).toMatchObject({ done: true });
     expect(cardOf(LAST.id, "l1")?.doneAt).toBeTruthy();
     expect(logs).toContain("action_done");
-    fireEvent.click(screen.getByRole("button", { name: /^Done/ }));
+    // The row's "Done <day>" button starts with "Done" too.
+    const filters = screen.getByRole("group", { name: "Show" });
+    fireEvent.click(within(filters).getByRole("button", { name: /^Done/ }));
     fireEvent.click(screen.getByLabelText("Done: Pair on the flaky tests"));
     expect(cardOf(LAST.id, "l1")?.done).toBeUndefined();
     expect(logs).toContain("action_reopened");
@@ -151,20 +153,21 @@ describe("Retro Actions", () => {
 
   it("edits the owner and the due date in place", () => {
     render(<RetroActionsTracker />);
+    fireEvent.click(screen.getByRole("button", { name: /^Owner of Write the on-call guide:/ }));
     const owner = screen.getByLabelText("Owner of Write the on-call guide");
     fireEvent.change(owner, { target: { value: "Dev" } });
     fireEvent.blur(owner);
     expect(cardOf(RETRO_CURRENT_ID, "c1")?.assignee).toBe("Dev");
-    fireEvent.change(screen.getByLabelText("Due date of Write the on-call guide"), {
-      target: { value: "2026-11-01" },
-    });
+    const due = screen.getByLabelText("Due date of Write the on-call guide");
+    fireEvent.change(due, { target: { value: "2026-11-01" } });
+    fireEvent.blur(due);
     expect(cardOf(RETRO_CURRENT_ID, "c1")?.dueDate).toBe("2026-11-01");
   });
 
   it("carries a past action onto the current board", () => {
     render(<RetroActionsTracker />);
     const past = screen.getAllByRole("region")[1];
-    fireEvent.click(within(past).getAllByRole("button", { name: "Carry over" })[0]);
+    fireEvent.click(within(past).getAllByRole("button", { name: /^Carry over / })[0]);
     const current = state().retroBoards?.find((b) => b.id === RETRO_CURRENT_ID);
     expect(current?.cards.map((c) => c.carriedFrom)).toContain("l1");
     expect(logs).toContain("action_carried_over");
