@@ -11,13 +11,16 @@ import { cn } from "@/lib/utils";
  * Who is working on a card, edited in place: the name is a button, and
  * clicking it opens the roster's PersonPicker. Nothing is saved until Save
  * (or Enter); Escape and Cancel leave the card as it was, and saving an
- * empty name clears it. Focus goes back to the name afterwards.
+ * empty name clears it. Focus goes back to the name afterwards. A
+ * `readOnly` card (a closed sprint's) shows the name as plain text.
  */
 export function PersonInPlace({
   value,
   itemTitle,
   role,
   emptyText,
+  readOnly = false,
+  offerAddToRoster = true,
   onSave,
 }: {
   value: string | undefined;
@@ -27,6 +30,9 @@ export function PersonInPlace({
   role: string;
   /** Shown when nobody is set: "No owner", "Unassigned". */
   emptyText: string;
+  readOnly?: boolean;
+  /** Offer "Add to the team" for a name off the roster; never for an example card's names. */
+  offerAddToRoster?: boolean;
   onSave: (name: string) => void;
 }) {
   const edit = useInlineEdit();
@@ -67,6 +73,7 @@ export function PersonInPlace({
           onChange={setDraft}
           placeholder="Name"
           hint="Leave empty to clear."
+          offerAddToRoster={offerAddToRoster}
         />
         <div className="flex flex-wrap gap-1.5">
           <Button type="submit" size="sm" className="h-8">
@@ -81,6 +88,20 @@ export function PersonInPlace({
   }
 
   const name = value?.trim();
+  if (readOnly) {
+    return (
+      <span
+        className={cn(
+          "inline-flex min-w-0 items-center gap-1 text-xs",
+          name ? "text-text" : "text-sub"
+        )}
+      >
+        <User className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="sr-only">{role}: </span>
+        <span className="truncate">{name || emptyText}</span>
+      </span>
+    );
+  }
   return (
     <button
       ref={edit.triggerRef}

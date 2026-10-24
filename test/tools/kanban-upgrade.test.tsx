@@ -7,10 +7,19 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { KanbanCard, Sprint, Story } from "@/lib/stores/workspace-types";
-import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { SELECTED_SPRINT_KEY, resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { storyProgress } from "@/lib/sprints/progress";
 import { percentile } from "@/lib/sprints/metrics";
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { exampleId } from "@/components/tool-frame/example-data";
+import { registry } from "@/lib/actions/registry";
+import "@/lib/actions/tools/kanban";
 import { isExampleSprintId } from "@/lib/sprints/example";
+import {
+  STORY_STATUS_HISTORY_CAP,
+  withStoryBlocked,
+  withStoryStatus,
+} from "@/lib/sprints/story-status";
 
 /**
  * Kanban's upgrade to the tool UX contract: a Sprint board over the
@@ -67,6 +76,8 @@ import { BOARD_VIEW_KEY, linkedBoard, pickBoardView } from "@/app/(tools)/kanban
 import {
   cardColumnSince,
   cycleStats,
+  cycleTimeDays,
+  daysInWork,
   daysSince,
   flowBreaches,
   flowVerdict,
@@ -77,8 +88,10 @@ import {
   weeklyThroughput,
 } from "@/app/(tools)/kanban/flow-view";
 import {
+  closedBoardNote,
   columnEnteredAt,
   daysInColumn,
+  isClosedSprint,
   moveMessage,
   revertMove,
   sprintBoardVerdict,
@@ -246,6 +259,29 @@ describe("board choice", () => {
     expect(window.location.search).toBe("");
     expect(JSON.parse(localStorage.getItem(BOARD_VIEW_KEY)!)).toBe("sprint");
   });
+
+  it("choosing Flow on a ?sprint= link drops the link, so a refresh stays on the Flow board", () => {
+    seed({ stories: [story("a", "Pay by card")] });
+    window.history.replaceState(null, "", "/kanban?sprint=s7");
+    const { unmount } = renderBoard();
+    expect(screen.getByText("Pay by card")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Flow board" }));
+    expect(window.location.search).toBe("");
+    unmount();
+    renderBoard();
+    expect(screen.getByRole("textbox", { name: "New card title" })).toBeInTheDocument();
+    // The sprint the link named stays chosen for the sprint tools.
+    expect(localStorage.getItem(SELECTED_SPRINT_KEY)).toBe("s7");
+  });
+
+  it("choosing Sprint keeps a ?sprint= link", () => {
+    seed({ stories: [story("a", "Pay by card")] });
+    window.history.replaceState(null, "", "/kanban?board=flow&sprint=s7");
+    renderBoard();
+    fireEvent.click(screen.getByRole("radio", { name: "Sprint board" }));
+    expect(window.location.search).toBe("?sprint=s7");
+  });
 });
 
 /* ── Sprint board: pure logic ───────────────────────────────────────── */
@@ -273,8 +309,10 @@ describe("sprint board columns and ages", () => {
     expect(cols.done).toEqual([]);
   });
 
-  it("dates the column stay from the history, walking back over moves inside the same column", () => {
-    const s = story("a", "A", {
+  it("dates the column stay from the history's last entry, never from time in the product backlog", () => {
+    // Sprint Planning moved it out of the sprint (backlog) 6 days ago and
+    // planned it back in (todo) 2 days ago: 2 days in this sprint's To do.
+    const replanned = story("a", "A", {
       status: "todo",
       statusHistory: [
         { status: "in_progress", from: "todo", at: ago(9) },
@@ -282,8 +320,17 @@ describe("sprint board columns and ages", () => {
         { status: "todo", from: "backlog", at: ago(2) },
       ],
     });
-    expect(columnEnteredAt(s)).toBe(ago(6));
-    expect(daysInColumn(s, NOW)).toBe(6);
+    expect(columnEnteredAt(replanned)).toBe(ago(2));
+    expect(daysInColumn(replanned, NOW)).toBe(2);
+    // A sprint story still marked backlog waits in To do from its own entry.
+    const waiting = story("b", "B", {
+      status: "backlog",
+      statusHistory: [
+        { status: "todo", from: "backlog", at: ago(8) },
+        { status: "backlog", from: "todo", at: ago(3) },
+      ],
+    });
+    expect(daysInColumn(waiting, NOW)).toBe(3);
   });
 
   it("falls back to the start or done time, and says nothing when nothing says", () => {
@@ -313,26 +360,26 @@ describe("sprint board columns and ages", () => {
     );
   });
 
-  it("nudges columns over their limit, sharing the Flow board's limits (Ready for To do), never Done", () => {
+  it("nudges only the work in progress over its limit, never To do (the sprint's queue) or Done", () => {
     const many = (n: number, status: Story["status"]) =>
       Array.from({ length: n }, (_, i) => story(`${status}${i}`, `S${i}`, { status }));
     const cols = storiesByColumn(
-      [...many(6, "todo"), ...many(4, "in_progress"), ...many(2, "review"), ...many(9, "done")],
+      [...many(6, "todo"), ...many(4, "in_progress"), ...many(3, "review"), ...many(9, "done")],
       "s7"
     );
     const breaches = sprintBreaches(cols, LIMITS);
+    // To do holds 6 against Ready's default 5: a sprint planned that full
+    // on day one is no reason to warn.
     expect(breaches.map((b) => [b.column, b.count, b.limit])).toEqual([
-      ["todo", 6, 5],
       ["in_progress", 4, 3],
+      ["review", 3, 2],
     ]);
-    expect(wipNudge(breaches[1])).toBe(
+    expect(wipNudge(breaches[0])).toBe(
       "In progress has 4 stories, limit 3: finish something before starting more."
     );
-    expect(wipNudge(breaches[0])).toBe(
-      "To do has 6 stories, limit 5: plan less into the sprint, or raise the limit."
-    );
+    expect(sprintBreaches(cols, { ...LIMITS, ready: 1 })).toHaveLength(2);
     // A limit of 0 means no limit.
-    expect(sprintBreaches(cols, { ...LIMITS, ready: 0, in_progress: 0 })).toEqual([]);
+    expect(sprintBreaches(cols, { ...LIMITS, in_progress: 0, review: 0 })).toEqual([]);
   });
 
   it("words a move, with the nudge when it went over the limit", () => {
@@ -432,6 +479,58 @@ describe("undoing a move", () => {
 
   it("leaves a story that has moved again since", () => {
     expect(revertMove({ ...before, status: "review" }, before, "done")).toBeNull();
+  });
+
+  it("keeps a blocked flag set after the move", () => {
+    const todo = story("a", "A", { status: "todo" });
+    const moved = withStoryStatus(todo, "in_progress", ago(1));
+    const back = revertMove(withStoryBlocked(moved, true), todo, "in_progress")!;
+    expect(back).toMatchObject({ status: "todo", blocked: true });
+    expect("statusHistory" in back).toBe(false);
+    // The move to Done cleared the flag itself: Undo brings it back.
+    const done = withStoryStatus(before, "done", ago(0));
+    expect(done.blocked).toBeUndefined();
+    expect(revertMove(done, before, "done")!.blocked).toBe(true);
+  });
+
+  it("leaves a story that moved away and back since, though its status matches again", () => {
+    const todo = story("a", "A", { status: "todo" });
+    const first = withStoryStatus(todo, "in_progress", ago(3));
+    const roundTrip = withStoryStatus(
+      withStoryStatus(first, "review", ago(2)),
+      "in_progress",
+      ago(1)
+    );
+    expect(revertMove(roundTrip, todo, "in_progress")).toBeNull();
+    const backAndForth = withStoryStatus(
+      withStoryStatus(first, "todo", ago(2)),
+      "in_progress",
+      ago(1)
+    );
+    expect(revertMove(backAndForth, todo, "in_progress")).toBeNull();
+    // With a history before the move as well.
+    const later = withStoryStatus(withStoryStatus(before, "review", ago(2)), "in_progress", ago(1));
+    expect(revertMove(later, before, "review")).toBeNull();
+    expect(revertMove(withStoryStatus(before, "review", ago(2)), before, "review")).toMatchObject({
+      status: "in_progress",
+      statusHistory: before.statusHistory,
+    });
+  });
+
+  it("still finds its own move once the history is at its cap", () => {
+    const full = story("a", "A", {
+      status: "todo",
+      statusHistory: Array.from({ length: STORY_STATUS_HISTORY_CAP }, (_, i) => ({
+        status: i % 2 === 0 ? ("in_progress" as const) : ("todo" as const),
+        at: ago(100 - i),
+      })),
+    });
+    const moved = withStoryStatus(full, "in_progress", ago(0));
+    expect(moved.statusHistory).toHaveLength(STORY_STATUS_HISTORY_CAP);
+    expect(revertMove(moved, full, "in_progress")).toMatchObject({
+      status: "todo",
+      statusHistory: full.statusHistory,
+    });
   });
 });
 
@@ -639,6 +738,70 @@ describe("sprint board", () => {
       "/sprint-planning?sprint=s7"
     );
   });
+
+  it("shows a long To do against its limit without a nudge, and a move back says only the move", async () => {
+    const queued = Array.from({ length: 6 }, (_, i) =>
+      story(`t${i}`, `Queued ${i}`, { points: 1 })
+    );
+    seed({ stories: [...stories(), ...queued] });
+    renderBoard();
+    const todo = within(screen.getByRole("region", { name: "To do" }));
+    const count = todo.getByText(/^7 \/ 5/);
+    expect(todo.getByText("(over the WIP limit)")).toBeInTheDocument();
+    expect(count.closest(".rounded-lg")).not.toHaveClass("bg-warning/5");
+    expect(screen.queryByText(/To do has/)).toBeNull();
+    expect(screen.getByText("2 of 16 points done (13%).")).toBeInTheDocument();
+
+    openMenu("Move to…: Pay by card");
+    fireEvent.click(screen.getByRole("menuitem", { name: "To do" }));
+    expect(storyById("a").status).toBe("todo");
+    await waitFor(() => expect(live()).toHaveTextContent("Moved “Pay by card” to To do."));
+    expect(live().textContent).not.toMatch(/limit/);
+  });
+
+  it("opens a completed sprint read-only: no moves, flags, owner edits or limits", () => {
+    seed({
+      sprints: [sprint({ status: "completed" })],
+      stories: [...stories(), story("o", "Saved cards", { status: "review", owner: "Ben" })],
+    });
+    window.history.replaceState(null, "", "/kanban?sprint=s7");
+    renderBoard();
+    expect(screen.getByText(closedBoardNote(sprint({ status: "completed" })))).toBeInTheDocument();
+    expect(screen.getByText("Pay by card")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Move to…/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Flag blocked/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Owner of/ })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: /^WIP limit/ })).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Review" })).getByText("Ben")).toBeVisible();
+    // Still exportable.
+    expect(exported()).toContain("## Review (1/2)");
+  });
+
+  it("words the closed-sprint note, and doesn't offer to plan into an empty closed sprint", () => {
+    expect(isClosedSprint(sprint({ status: "completed" }))).toBe(true);
+    expect(isClosedSprint(sprint({ status: "cancelled" }))).toBe(true);
+    expect(isClosedSprint(sprint({ status: "active" }))).toBe(false);
+    expect(isClosedSprint(sprint({ status: "planned" }))).toBe(false);
+    expect(closedBoardNote(sprint({ status: "cancelled" }))).toBe(
+      "Sprint 7 is cancelled, so its board is read-only: moving its stories now would change what the sprint delivered. Pick an open sprint to keep working."
+    );
+
+    seed({ sprints: [sprint({ status: "cancelled" })], stories: [] });
+    window.history.replaceState(null, "", "/kanban?sprint=s7");
+    renderBoard();
+    expect(screen.getByText("No stories were planned into Sprint 7.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Plan stories into/ })).toBeNull();
+  });
+
+  it("offers to add a new owner to the team on the real board", () => {
+    seed({ stories: stories() });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Owner of Pay by card: no owner" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Owner of Pay by card" }), {
+      target: { value: "Zed" },
+    });
+    expect(screen.getByRole("button", { name: /Add to the team/ })).toBeInTheDocument();
+  });
 });
 
 describe("sprint board example", () => {
@@ -685,6 +848,17 @@ describe("sprint board example", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.queryByText("Pay with a saved card")).toBeNull();
     expect(screen.getByText(/No sprint to show yet/)).toBeInTheDocument();
+  });
+
+  it("never offers an example owner for the team roster", () => {
+    seed({ sprints: [], stories: [] });
+    localStorage.setItem(BOARD_VIEW_KEY, JSON.stringify("sprint"));
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "See an example board" }));
+    fireEvent.click(screen.getByRole("button", { name: "Owner of Refund flow: Dev" }));
+    expect(screen.getByText(/“Dev” isn.t on the team\./)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add to the team/ })).toBeNull();
+    expect(useWorkspaceStore.getState().teamMembers).toEqual([]);
   });
 
   it("offers the Flow board to a team without sprints", () => {
@@ -740,6 +914,76 @@ describe("flow board cards", () => {
     const back = movedCard(reopened, "ready", ago(-4));
     expect("startedAt" in back).toBe(false);
     expect(Object.values(back).includes(undefined)).toBe(false);
+
+    // Pulled straight into Review: work started there, so it counts towards cycle time.
+    const reviewed = movedCard(card("b", "B", { column: "ready" }), "review", at);
+    expect(reviewed.startedAt).toBe(at);
+    const finished = movedCard(reviewed, "done", ago(-2));
+    expect(cycleTimeDays(finished)).toBeCloseTo(2);
+    expect(cycleStats([finished]).count).toBe(1);
+    // Dropped straight into Done: nobody saw it worked on, so no made-up 0 days.
+    const skipped = movedCard(card("c", "C", { column: "ready" }), "done", at);
+    expect("startedAt" in skipped).toBe(false);
+    expect(cycleTimeDays(skipped)).toBeNull();
+  });
+
+  it("dates the stay from the column's own stamp when an agent's move left columnSince behind", () => {
+    // move_card into In progress stamps a date-only start and leaves columnSince.
+    expect(
+      cardColumnSince(
+        card("a", "A", { column: "in_progress", columnSince: ago(10), startedAt: "2026-10-20" })
+      )
+    ).toBe("2026-10-20");
+    expect(
+      cardColumnSince(
+        card("a", "A", {
+          column: "done",
+          columnSince: ago(10),
+          startedAt: ago(9),
+          completedAt: ago(2),
+        })
+      )
+    ).toBe(ago(2));
+    // Moved on the board, columnSince is the newest stamp and wins.
+    expect(
+      cardColumnSince(card("a", "A", { column: "review", columnSince: ago(3), startedAt: ago(5) }))
+    ).toBe(ago(3));
+    expect(
+      cardColumnSince(
+        card("a", "A", { column: "in_progress", columnSince: ago(1), startedAt: ago(6) })
+      )
+    ).toBe(ago(1));
+    // A garbled stamp is skipped, not preferred.
+    expect(
+      cardColumnSince(
+        card("a", "A", { column: "in_progress", columnSince: ago(2), startedAt: "soon" })
+      )
+    ).toBe(ago(2));
+  });
+
+  it("an agent's move_card restarts the age in column on the board", async () => {
+    const now = new Date();
+    seed({
+      sprints: [],
+      cards: [card("a", "Search", { createdAt: ago(10, now), columnSince: ago(10, now) })],
+    });
+    const ctx = { userId: "u", source: "agent" as const, squadProfileIds: [] as string[] };
+    await registry
+      .get("tool.kanban.move_card")!
+      .handler({ cardId: "a", column: "in_progress" }, ctx);
+    expect(daysSince(cardColumnSince(flowBoard()!.cards[0]), now)).toBe(0);
+    await registry.get("tool.kanban.move_card")!.handler({ cardId: "a", column: "done" }, ctx);
+    expect(daysSince(cardColumnSince(flowBoard()!.cards[0]), now)).toBe(0);
+  });
+
+  it("counts time in work from the start, which a move from In progress to Review keeps", () => {
+    expect(
+      daysInWork(card("a", "A", { column: "review", columnSince: ago(1), startedAt: ago(9) }), NOW)
+    ).toBe(9);
+    // No start: from when it entered its column, else when it was created.
+    expect(daysInWork(card("a", "A", { column: "review", columnSince: ago(3) }), NOW)).toBe(3);
+    expect(daysInWork(card("a", "A", { column: "review", createdAt: ago(4) }), NOW)).toBe(4);
+    expect(daysInWork(card("a", "A", { createdAt: "never" }), NOW)).toBeNull();
   });
 
   it("dates the column stay of an old card from its best stamp", () => {
@@ -872,11 +1116,43 @@ describe("flow board markdown and example", () => {
     expect(md.split("\n")).toContain("- Reorder");
   });
 
+  it("doesn't tag a done card as blocked (an agent's move into Done leaves the flag)", () => {
+    const md = toMarkdown(
+      {
+        cards: [
+          card("a", "Wallet", {
+            column: "done",
+            blocked: true,
+            startedAt: ago(3),
+            completedAt: ago(1),
+          }),
+        ],
+        wipLimits: LIMITS,
+      },
+      NOW
+    );
+    expect(md.split("\n")).toContain("- Wallet (cycle time 2.0 days)");
+  });
+
   it("the example shows assignees, a blocked card and an age in column", () => {
     const cards = buildExample(NOW);
     expect(cards.some((c) => c.assignee)).toBe(true);
     expect(cards.filter((c) => c.blocked)).toHaveLength(1);
     expect(cards.find((c) => c.column === "review")!.columnSince).toBe(ago(2));
+  });
+
+  it("the example has enough done cards for the average, P85 and the ageing tint", () => {
+    const cards = buildExample(NOW);
+    const stats = cycleStats(cards);
+    expect(stats.count).toBeGreaterThanOrEqual(MIN_SAMPLE.distribution);
+    expect(stats.average).toBeCloseTo(4);
+    expect(stats.p85).toBeCloseTo(6);
+    const review = cards.find((c) => c.column === "review")!;
+    expect(daysInWork(review, NOW)).toBeGreaterThan(stats.p85!);
+    // New rows went at the end: the earlier cards keep their example ids.
+    expect(cards.find((c) => c.title === "Fix tax rounding on split shipments")!.id).toBe(
+      exampleId("kanban-9")
+    );
   });
 
   it("writes the sprint board's Markdown for an empty sprint too", () => {
@@ -994,7 +1270,7 @@ describe("flow board", () => {
     seed({ sprints: [], cards: [done(2, 1), done(4, 2)] });
     const { unmount } = renderBoard();
     expect(screen.getByText("finish 1 more")).toBeInTheDocument();
-    expect(screen.getByText("needs 5 done cards")).toBeInTheDocument();
+    expect(screen.getByText("finish 3 more")).toBeInTheDocument();
     unmount();
 
     seed({ sprints: [], cards: [1, 2, 3, 4, 10].map(done) });
@@ -1003,6 +1279,89 @@ describe("flow board", () => {
     expect(tile("Cycle avg").getByText("4d")).toBeInTheDocument();
     expect(tile("Cycle avg").getByText("±3.2 days")).toBeInTheDocument();
     expect(tile("85% within").getByText("10d")).toBeInTheDocument();
+  });
+
+  it("tints a card in work for longer than P85, counting from its start, not its column", () => {
+    const now = new Date();
+    const done = (d: number, i: number) =>
+      card(`d${i}`, `Done ${i}`, {
+        column: "done",
+        startedAt: ago(d + 1, now),
+        completedAt: ago(1, now),
+      });
+    seed({
+      sprints: [],
+      cards: [
+        ...[1, 2, 3, 4, 5].map(done),
+        // Just moved on to Review, after 9 days in work: P85 is 5 days.
+        card("r", "Audit", { column: "review", startedAt: ago(9, now), columnSince: ago(1, now) }),
+        card("p", "Search", {
+          column: "in_progress",
+          startedAt: ago(2, now),
+          columnSince: ago(2, now),
+        }),
+      ],
+    });
+    renderBoard();
+    expect(
+      screen.getByText(
+        "1 day in Review, in work for 9 days, longer than 85% of finished cards took"
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 days in In progress")).toBeInTheDocument();
+  });
+
+  it("doesn't show a done card as blocked", () => {
+    seed({
+      sprints: [],
+      cards: [card("a", "Search", { column: "done", blocked: true })],
+    });
+    renderBoard();
+    expect(screen.getByText("Search")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Unblock/ })).toBeNull();
+  });
+
+  it("after a delete, focus goes to the next card in the column, else the one above, else the heading", () => {
+    seed({
+      sprints: [],
+      cards: [
+        card("a", "Search"),
+        card("b", "Exports"),
+        card("c", "Audit"),
+        card("z", "Other", { column: "ready" }),
+      ],
+    });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Search" }));
+    expect(screen.getByRole("combobox", { name: "Move Exports" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Audit" }));
+    expect(screen.getByRole("combobox", { name: "Move Exports" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Exports" }));
+    expect(screen.getByRole("heading", { name: "Backlog" })).toHaveFocus();
+    expect(flowBoard()!.cards.map((c) => c.id)).toEqual(["z"]);
+  });
+
+  it("the example shows cycle time and P85, and never offers its names for the team", () => {
+    seed({ sprints: [], cards: [] });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const tile = (label: string) => within(screen.getByText(label).closest(".rounded-xl")!);
+    expect(tile("Cycle avg").getByText("4d")).toBeInTheDocument();
+    expect(tile("85% within").getByText("6d")).toBeInTheDocument();
+    // The board's clock was read at mount, a moment before the example's
+    // dates: 8 days ago reads as 7 whole days, still past P85.
+    expect(
+      screen.getByText(/in Review, in work for [78] days, longer than 85% of finished cards took/)
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Assignee of Fix double charge when a payment retries: Amira",
+      })
+    );
+    expect(screen.getByText(/“Amira” isn.t on the team\./)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add to the team/ })).toBeNull();
   });
 });
 

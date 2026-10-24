@@ -31,8 +31,9 @@ type Row = {
  * A mobile checkout team mid-sprint. An expedite bug jumped the queue and
  * pushed In Progress over its default limit of 3, which is what the WIP
  * warning is for. One fixed-date card, one intangible upgrade, a blocked
- * card waiting on another team, and two done cards so cycle time has
- * something to show.
+ * card waiting on another team, and five done cards (MIN_SAMPLE.distribution)
+ * so the average cycle time and its 85th percentile show: 2 to 6 days, so
+ * the card in Review, in work for 8 days, is tinted as ageing.
  */
 const ROWS: Row[] = [
   {
@@ -88,7 +89,7 @@ const ROWS: Row[] = [
     column: "review",
     class: "standard",
     created: 12,
-    started: 6,
+    started: 8,
     since: 2,
     assignee: "Dev",
   },
@@ -107,6 +108,31 @@ const ROWS: Row[] = [
     created: 9,
     started: 6,
     completed: 1,
+  },
+  // Added after the rows above, so their example ids stay what they were.
+  {
+    title: "Guest checkout",
+    column: "done",
+    class: "standard",
+    created: 21,
+    started: 18,
+    completed: 12,
+  },
+  {
+    title: "Promo codes at checkout",
+    column: "done",
+    class: "standard",
+    created: 16,
+    started: 13,
+    completed: 9,
+  },
+  {
+    title: "Order confirmation emails",
+    column: "done",
+    class: "standard",
+    created: 8,
+    started: 5,
+    completed: 3,
   },
 ];
 

@@ -40,7 +40,7 @@ import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
-import { enoughData, MIN_SAMPLE, needMore } from "@/lib/analytics/min-sample";
+import { enoughData, needMore } from "@/lib/analytics/min-sample";
 import { fmt } from "@/lib/charts/chart-text";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -71,6 +71,7 @@ import {
   FLOW_COLUMN_LABEL,
   cardColumnSince,
   cycleStats,
+  daysInWork,
   daysSince,
   flowBreaches,
   flowVerdict,
@@ -154,6 +155,11 @@ const COS_LABEL: Record<KanbanClassOfService, string> = {
   fixed_date: "Fixed Date",
   intangible: "Intangible",
 };
+
+/** The column a card shows in: one from an older build's renamed column waits in Backlog. */
+function boardColumn(card: KanbanCard): KanbanColumnId {
+  return FLOW_COLUMNS.some((c) => c.id === card.column) ? card.column : "backlog";
+}
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -274,6 +280,14 @@ export function FlowBoard({
     const index = state.cards.findIndex((c) => c.id === id);
     if (index === -1) return;
     const card = state.cards[index];
+    // The trash button goes with the card, which would drop the keyboard on
+    // the page: focus moves to the next card in the column (the one above
+    // when it was the last), else to the emptied column's heading.
+    const column = boardColumn(card);
+    const inColumn = state.cards.filter((c) => boardColumn(c) === column);
+    const at = inColumn.findIndex((c) => c.id === id);
+    const neighbour = inColumn[at + 1] ?? inColumn[at - 1];
+    returnTo(neighbour ? `move:${neighbour.id}` : `column:${column}`);
     undoable({
       label: `Deleted “${shortName(card.title)}”`,
       apply: () => {
@@ -355,8 +369,8 @@ export function FlowBoard({
     for (const c of state.cards) {
       // Cards from an older build may carry a column that no longer exists
       // (a renamed column): show them in Backlog rather than crash the board.
-      if (c.column in map) map[c.column].push(c);
-      else map.backlog.push({ ...c, column: "backlog" });
+      const col = boardColumn(c);
+      map[col].push(col === c.column ? c : { ...c, column: col });
     }
     return map;
   }, [state.cards]);
@@ -409,7 +423,7 @@ export function FlowBoard({
           variant="compact"
           label="85% within"
           value={showP85 ? `${fmt(stats.p85 as number)}d` : "—"}
-          hint={showP85 ? "P85 cycle time" : `needs ${MIN_SAMPLE.distribution} done cards`}
+          hint={showP85 ? "P85 cycle time" : `finish ${needMore(stats.count, "distribution")} more`}
         />
         <StatCard
           variant="compact"
@@ -541,7 +555,12 @@ export function FlowBoard({
                   )}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-xs uppercase tracking-wider text-text font-semibold">
+                    {/* Focus lands here when the column's last card is deleted. */}
+                    <h3
+                      ref={refFor(`column:${col.id}`)}
+                      tabIndex={-1}
+                      className="rounded-sm text-xs uppercase tracking-wider text-text font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
                       {col.label}
                     </h3>
                     <div className="text-xs font-data text-sub">
@@ -659,10 +678,14 @@ function FlowCard({
 }) {
   const label = FLOW_COLUMN_LABEL[c.column] ?? "Backlog";
   const age = daysSince(cardColumnSince(c), now);
-  const ageing =
-    p85 !== null && age !== null && (c.column === "in_progress" || c.column === "review")
-      ? age > p85
-      : false;
+  // Against P85 (start to done), the time in work counts, not the time in
+  // this column: a card that just went from In progress to Review has been
+  // in work all along.
+  const working = c.column === "in_progress" || c.column === "review";
+  const inWork = working ? daysInWork(c, now) : null;
+  const ageing = p85 !== null && inWork !== null && inWork > p85;
+  // An agent's move into Done leaves the flag behind; a done card isn't blocked.
+  const blocked = Boolean(c.blocked) && c.column !== "done";
   return (
     <DraggableCard
       id={c.id}
@@ -680,12 +703,16 @@ function FlowCard({
             </div>
           </div>
           <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            {c.blocked && <BlockedBadge />}
+            {blocked && <BlockedBadge />}
             <AgeBadge
               days={age}
               column={label}
               warn={ageing}
-              note={ageing ? "longer than 85% of finished cards took" : undefined}
+              note={
+                ageing
+                  ? `in work for ${inWork} ${inWork === 1 ? "day" : "days"}, longer than 85% of finished cards took`
+                  : undefined
+              }
             />
             {/* Sent here from another tool (a retro action). */}
             <SourceLink sourceRef={c.sourceRef} />
@@ -696,14 +723,11 @@ function FlowCard({
               itemTitle={c.title}
               role="Assignee"
               emptyText="Unassigned"
+              offerAddToRoster={!isExampleId(c.id)}
               onSave={onAssignee}
             />
             {c.column !== "done" && (
-              <BlockedToggle
-                blocked={Boolean(c.blocked)}
-                itemTitle={c.title}
-                onToggle={onToggleBlocked}
-              />
+              <BlockedToggle blocked={blocked} itemTitle={c.title} onToggle={onToggleBlocked} />
             )}
           </div>
           {/* Card controls. Stacked on mobile (one per row) so each select

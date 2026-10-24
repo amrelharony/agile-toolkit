@@ -99,19 +99,25 @@ export function DropColumn({
 
 /**
  * A card that can be dragged by its grip. `children` gets the grip to place
- * (in the card's title row), so the rest of the card stays clickable.
+ * (in the card's title row), so the rest of the card stays clickable. A
+ * `disabled` card (on a read-only board) has no grip and can't be dragged.
  */
 export function DraggableCard({
   id,
+  disabled = false,
   className,
   children,
 }: {
   id: string;
+  disabled?: boolean;
   className?: string;
   children: (grip: ReactNode) => ReactNode;
 }) {
-  const { setNodeRef, setActivatorNodeRef, listeners, isDragging } = useDraggable({ id });
-  const grip = (
+  const { setNodeRef, setActivatorNodeRef, listeners, isDragging } = useDraggable({
+    id,
+    disabled,
+  });
+  const grip = disabled ? null : (
     <span
       ref={setActivatorNodeRef}
       {...listeners}

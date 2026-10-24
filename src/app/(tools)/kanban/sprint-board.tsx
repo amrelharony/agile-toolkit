@@ -39,9 +39,12 @@ import type { SprintBoardWriter } from "./sprint-writer";
 import {
   SPRINT_COLUMNS,
   SPRINT_COLUMN_LABEL,
+  closedBoardNote,
   daysInColumn,
+  isClosedSprint,
   isSprintColumnId,
   moveMessage,
+  nudges,
   revertMove,
   sprintBoardVerdict,
   sprintBreaches,
@@ -84,7 +87,7 @@ export interface SprintBoardProps {
  * goes through `setStoryStatus` (via the writer), so started and done
  * times and the status history are stamped, and the cockpit, Burndown and
  * the standup read the board. A column over its WIP limit nudges; it never
- * blocks the move.
+ * blocks the move. A completed or cancelled sprint's board is read-only.
  */
 export function SprintBoard({
   sprint,
@@ -100,6 +103,7 @@ export function SprintBoard({
   const { log } = useHistoryLogger("kanban");
   const { refFor, returnTo } = useReturnFocus();
   const now = useNow();
+  const closed = isClosedSprint(sprint);
 
   const byColumn = useMemo(() => storiesByColumn(stories, sprint.id), [stories, sprint.id]);
   const progress = useMemo(() => storyProgress(stories, sprint.id), [stories, sprint.id]);
@@ -117,12 +121,12 @@ export function SprintBoard({
    */
   const move = (id: string, to: SprintColumnId, { refocus = true } = {}) => {
     const before = writer.story(id);
-    if (!before) return;
+    if (!before || closed) return;
     const from = sprintColumnOf(before.status);
     if (from === to) return;
     const target = sprintColumn(to);
     const count = byColumn[to].filter((s) => s.id !== id).length + 1;
-    const limit = to === "done" ? 0 : (wipLimits[target.wipKey] ?? 0);
+    const limit = nudges(to) ? (wipLimits[target.wipKey] ?? 0) : 0;
     const breach: SprintBreach | undefined =
       limit > 0 && count > limit ? { column: to, label: target.label, count, limit } : undefined;
     const title = shortName(before.title);
@@ -170,6 +174,7 @@ export function SprintBoard({
   const header = (
     <div className="mb-4 space-y-3">
       {picker}
+      {closed && <CalloutAlert tone="info">{closedBoardNote(sprint)}</CalloutAlert>}
       <p className="text-sm font-medium text-text">
         {verdict}
         <span className="ml-2 font-normal text-sub">{sprintDayLine(sprint, todayIso(now))}</span>
@@ -193,17 +198,20 @@ export function SprintBoard({
           icon={ListTodo}
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Button asChild>
-                <Link href={sprintHref("/sprint-planning", sprint.id)}>
-                  Plan stories into {sprint.name}
-                </Link>
-              </Button>
+              {!closed && (
+                <Button asChild>
+                  <Link href={sprintHref("/sprint-planning", sprint.id)}>
+                    Plan stories into {sprint.name}
+                  </Link>
+                </Button>
+              )}
               {onExample && <LoadExampleButton label="See an example board" onLoad={onExample} />}
             </div>
           }
         >
-          No stories in {sprint.name} yet. Plan them in Sprint Planning and they show up here, one
-          column per status.
+          {closed
+            ? `No stories were planned into ${sprint.name}.`
+            : `No stories in ${sprint.name} yet. Plan them in Sprint Planning and they show up here, one column per status.`}
         </EmptyState>
       </>
     );
@@ -273,6 +281,8 @@ export function SprintBoard({
             const limited = col.id !== "done";
             const limit = limited ? (wipLimits[col.wipKey] ?? 0) : 0;
             const over = limit > 0 && list.length > limit;
+            // A long To do shows against its limit but isn't flagged (see `nudges`).
+            const flagged = over && nudges(col.id);
             const points = list.reduce(
               (sum, s) =>
                 sum + (typeof s.points === "number" && Number.isFinite(s.points) ? s.points : 0),
@@ -287,7 +297,7 @@ export function SprintBoard({
                 <div
                   className={cn(
                     "rounded-lg border p-2",
-                    over ? "border-warning/40 bg-warning/5" : "border-border bg-surface"
+                    flagged ? "border-warning/40 bg-warning/5" : "border-border bg-surface"
                   )}
                 >
                   <div className="mb-1 flex items-center justify-between gap-2">
@@ -301,7 +311,7 @@ export function SprintBoard({
                       {over && <span className="sr-only"> (over the WIP limit)</span>}
                     </div>
                   </div>
-                  {limited && onWipChange && (
+                  {limited && onWipChange && !closed && (
                     <WipLimitInput
                       colLabel={col.label}
                       value={limit}
@@ -317,6 +327,8 @@ export function SprintBoard({
                     <StoryCard
                       key={story.id}
                       story={story}
+                      readOnly={closed}
+                      example={example}
                       days={daysInColumn(story, now)}
                       moveRef={refFor(`move:${story.id}`)}
                       onMove={(to) => move(story.id, to)}
@@ -334,9 +346,11 @@ export function SprintBoard({
   );
 }
 
-/** One story on the Sprint board. */
+/** One story on the Sprint board; a closed sprint's cards have no controls. */
 function StoryCard({
   story,
+  readOnly,
+  example,
   days,
   moveRef,
   onMove,
@@ -344,6 +358,9 @@ function StoryCard({
   onOwner,
 }: {
   story: Story;
+  readOnly: boolean;
+  /** An example story: its owner's name is never offered for the team roster. */
+  example: boolean;
   days: number | null;
   moveRef: (el: HTMLElement | null) => void;
   onMove: (to: SprintColumnId) => void;
@@ -356,6 +373,7 @@ function StoryCard({
   return (
     <DraggableCard
       id={story.id}
+      disabled={readOnly}
       className={cn(
         "rounded-md border border-border bg-bg p-2 text-xs",
         blocked && "border-l-[3px] border-l-danger"
@@ -386,15 +404,23 @@ function StoryCard({
               itemTitle={story.title}
               role="Owner"
               emptyText="No owner"
+              readOnly={readOnly}
+              offerAddToRoster={!example}
               onSave={onOwner}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-1">
-            <MoveMenu story={story} column={column} triggerRef={moveRef} onMove={onMove} />
-            {column !== "done" && (
-              <BlockedToggle blocked={blocked} itemTitle={story.title} onToggle={onToggleBlocked} />
-            )}
-          </div>
+          {!readOnly && (
+            <div className="flex flex-wrap items-center gap-1">
+              <MoveMenu story={story} column={column} triggerRef={moveRef} onMove={onMove} />
+              {column !== "done" && (
+                <BlockedToggle
+                  blocked={blocked}
+                  itemTitle={story.title}
+                  onToggle={onToggleBlocked}
+                />
+              )}
+            </div>
+          )}
         </>
       )}
     </DraggableCard>

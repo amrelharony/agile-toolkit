@@ -135,7 +135,9 @@ describe("kanban buildExample", () => {
   it("uses example ids and pushes In progress over its default WIP limit", () => {
     const cards = buildExample(NOW);
     expect(cards.length).toBeGreaterThanOrEqual(6);
-    expect(cards.length).toBeLessThanOrEqual(10);
+    // Small enough to take in at a glance; five of them are done cards, so
+    // cycle time and P85 have their minimum sample.
+    expect(cards.length).toBeLessThanOrEqual(12);
     expect(cards.every((c) => c.id.startsWith("example-"))).toBe(true);
     expect(cards.filter((c) => c.column === "in_progress").length).toBeGreaterThan(
       LIMITS.in_progress

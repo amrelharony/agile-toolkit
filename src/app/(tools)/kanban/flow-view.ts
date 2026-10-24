@@ -63,20 +63,28 @@ const parse = (iso: string | undefined): number | null => {
   return Number.isFinite(t) ? t : null;
 };
 
+/** Columns where a card is being worked on: entering one starts its cycle time. */
+const WORKING: ReadonlySet<KanbanColumnId> = new Set<KanbanColumnId>(["in_progress", "review"]);
+
 /**
  * `card` moved to `col` at `at`. The same card (by reference) when it is
- * already there. Entering In progress stamps `startedAt`, entering Done
- * stamps `completedAt` (the stamps the MCP `move_card` action writes too);
- * leaving Done drops the completion, so a reopened card no longer counts as
- * throughput, and going back to Backlog or Ready drops the start, so the
- * next attempt's cycle time starts afresh. `columnSince` always restarts:
- * it is what the age-in-column badge counts from. A done card can't be
- * blocked, so the flag goes too.
+ * already there. Entering In progress or Review stamps `startedAt` when it
+ * has none (a card pulled straight into Review was worked on too, and would
+ * otherwise never count towards cycle time), entering Done stamps
+ * `completedAt` (the stamps the MCP `move_card` action writes, which starts
+ * the clock on In progress only). A card dropped straight from Backlog or
+ * Ready into Done gets no start: nobody saw it worked on, so it has no
+ * cycle time rather than a made-up 0 days. Leaving Done drops the
+ * completion, so a reopened card no longer counts as throughput, and going
+ * back to Backlog or Ready drops the start, so the next attempt's cycle
+ * time starts afresh. `columnSince` always restarts: it is what the
+ * age-in-column badge counts from. A done card can't be blocked, so the
+ * flag goes too.
  */
 export function movedCard(card: KanbanCard, col: KanbanColumnId, at: string): KanbanCard {
   if (card.column === col) return card;
   const next: KanbanCard = { ...card, column: col, columnSince: at };
-  if (col === "in_progress" && !card.startedAt) next.startedAt = at;
+  if (WORKING.has(col) && !card.startedAt) next.startedAt = at;
   if (col === "done") {
     if (!card.completedAt) next.completedAt = at;
     delete next.blocked;
@@ -87,19 +95,44 @@ export function movedCard(card: KanbanCard, col: KanbanColumnId, at: string): Ka
   return next;
 }
 
+/** The latest of some dates, or null when none of them is one. */
+function latestOf(isos: readonly (string | undefined)[]): string | null {
+  let best: { iso: string; t: number } | null = null;
+  for (const iso of isos) {
+    const t = parse(iso);
+    if (t !== null && (best === null || t > best.t)) best = { iso: iso as string, t };
+  }
+  return best?.iso ?? null;
+}
+
 /**
- * When the card entered its column. Cards from before `columnSince` existed
- * read their best stamp instead: the completion for a done card, the start
- * for one in progress or review, else when it was created.
+ * When the card entered its column: the later of `columnSince` and the
+ * stamp the column writes (the completion for Done, the start for In
+ * progress and Review). An agent's `move_card` writes those stamps but not
+ * `columnSince`, which would otherwise date the stay from the column the
+ * card left. Cards from before `columnSince` existed read the same stamps,
+ * then a done card's start, else when the card was created.
  */
 export function cardColumnSince(card: KanbanCard): string | null {
-  const candidates =
+  const own =
     card.column === "done"
-      ? [card.columnSince, card.completedAt, card.startedAt, card.createdAt]
+      ? latestOf([card.columnSince, card.completedAt])
       : card.column === "in_progress" || card.column === "review"
-        ? [card.columnSince, card.startedAt, card.createdAt]
-        : [card.columnSince, card.createdAt];
-  return candidates.find((iso) => parse(iso) !== null) ?? null;
+        ? latestOf([card.columnSince, card.startedAt])
+        : latestOf([card.columnSince]);
+  if (own) return own;
+  const older = card.column === "done" ? [card.startedAt, card.createdAt] : [card.createdAt];
+  return older.find((iso) => parse(iso) !== null) ?? null;
+}
+
+/**
+ * Whole days the card has been worked on: from its start, which moving
+ * between In progress and Review keeps (the age badge restarts there), else
+ * from when it entered its column. What the ageing tint compares with the
+ * P85 cycle time, which runs from start to done too.
+ */
+export function daysInWork(card: KanbanCard, now: Date): number | null {
+  return daysSince(parse(card.startedAt) !== null ? card.startedAt : cardColumnSince(card), now);
 }
 
 /** Whole days from `iso` to `now` (0 on the day itself), or null when unknown. */

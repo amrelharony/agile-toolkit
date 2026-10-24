@@ -17,7 +17,7 @@ import { generateKanbanPrompts } from "@/lib/ai-prompts/kanban";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
-import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { SPRINT_PARAM, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import { usePersistedLocal } from "@/lib/utils/use-persisted";
 import {
@@ -100,11 +100,14 @@ export function KanbanClient() {
     setLinked(null);
     setStored(next);
     if (next === "flow") closeExample();
-    // Drop a ?board= link from the address bar, so a refresh keeps the choice.
+    // Drop a ?board= link from the address bar, so a refresh keeps the
+    // choice. For the Flow board a ?sprint= link goes too, since it opens
+    // the Sprint board; the sprint stays chosen (useSelectedSprint keeps it).
     try {
       const url = new URL(window.location.href);
-      if (url.searchParams.has(BOARD_PARAM)) {
-        url.searchParams.delete(BOARD_PARAM);
+      const linkParams = next === "flow" ? [BOARD_PARAM, SPRINT_PARAM] : [BOARD_PARAM];
+      if (linkParams.some((p) => url.searchParams.has(p))) {
+        for (const p of linkParams) url.searchParams.delete(p);
         window.history.replaceState(window.history.state, "", url);
       }
     } catch {
@@ -148,7 +151,7 @@ export function KanbanClient() {
             c.column,
             c.class,
             c.assignee ?? "",
-            c.blocked ? "yes" : "",
+            c.blocked && c.column !== "done" ? "yes" : "",
             c.createdAt,
             c.startedAt ?? "",
             c.completedAt ?? "",

@@ -40,7 +40,8 @@ function cardLine(c: KanbanCard): string {
   const tags: string[] = [];
   // Standard is the default; only the classes that change how a card is pulled get a tag.
   if (c.class !== "standard" && CLASS_LABELS[c.class]) tags.push(CLASS_LABELS[c.class]);
-  if (c.blocked) tags.push("blocked");
+  // As on the board: a done card isn't blocked (an agent's move leaves the flag).
+  if (c.blocked && c.column !== "done") tags.push("blocked");
   if (c.assignee?.trim()) tags.push(`assigned to ${oneLine(c.assignee)}`);
   const days = c.column === "done" ? cycleTimeDays(c) : null;
   if (days !== null) tags.push(`cycle time ${days.toFixed(1)} days`);
