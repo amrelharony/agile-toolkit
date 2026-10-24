@@ -283,6 +283,9 @@ describe("source back-links", () => {
   it("map each sending tool to its page", () => {
     expect(sourceHref({ tool: "retro", id: "x" })).toBe("/retro");
     expect(sourceHref({ tool: "premortem", id: "x" })).toBe("/premortem");
+    expect(sourceHref({ tool: "premortem", id: "x", doc: "pm 2" })).toBe(
+      "/premortem?premortem=pm%202"
+    );
     expect(sourceHref({ tool: "standup", id: "x" })).toBe("/standup");
     expect(sourceHref({ tool: "story-mapper", id: "x" })).toBe("/story-mapper");
     expect(sourceHref({ tool: "nope", id: "x" })).toBeNull();

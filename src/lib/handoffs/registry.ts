@@ -97,7 +97,13 @@ export function sourceLabel(ref: HandoffRef | undefined): string | null {
 }
 
 export function sourceHref(ref: HandoffRef | undefined): string | null {
-  return sourceTool(ref)?.href ?? null;
+  const tool = sourceTool(ref);
+  if (!tool) return null;
+  // A tool that keeps several documents opens the one the item came from.
+  if (ref?.tool === "premortem" && ref.doc) {
+    return `${tool.href}?premortem=${encodeURIComponent(ref.doc)}`;
+  }
+  return tool.href;
 }
 
 /* ── Links on the source item ────────────────────────────────────────── */
