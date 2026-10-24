@@ -8,29 +8,61 @@
  *                the current one and the archives).
  *
  *   1. list     — every action item across retros with owner, due date,
- *                 done and overdue, plus the open/overdue/done counts.
+ *                 done and overdue, plus the open/overdue/done counts and
+ *                 the follow-through of each past retro.
  *   2. complete — mark an action done (or open again) on whichever board
  *                 holds it.
+ *   3. add      — add an action outside the board (the page's quick add):
+ *                 onto the current retro, else the newest archived one.
  *
- * "Done" here is what is marked on the card. The page also treats an action
- * as done when the impediment or Kanban card it was sent to is finished;
- * that needs the browser's hand-off routes, so it isn't mirrored here.
+ * An action counts as done when it is marked on the card, or when the
+ * impediment or Kanban card it was sent to is finished, as on the page.
  */
 
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverUpsertEntity } from "../server-store";
-import type { RetroBoard } from "@/lib/stores/workspace-types";
+import type {
+  HandoffLink,
+  Impediment,
+  KanbanBoard,
+  RetroBoard,
+} from "@/lib/stores/workspace-types";
 import {
+  actionCard,
   collectRetroActions,
+  followThroughByRetro,
+  quickAddBoard,
   summarizeRetroActions,
   withActionDone,
+  withAddedAction,
   type RetroAction,
 } from "@/lib/retro/actions";
+import { isResolved } from "@/lib/impediments/model";
 import { todayIso } from "@/lib/sprints/series";
 
 const KIND_RETRO = "workspace:retroBoard";
+
+/**
+ * Whether an action's hand-off target is finished, as the page reads it: an
+ * impediment resolved, a Kanban card in Done.
+ */
+function targetDoneFrom(
+  impediments: readonly Impediment[],
+  boards: readonly KanbanBoard[]
+): (link: HandoffLink) => boolean {
+  return (link) => {
+    if (link.route === "impediment") {
+      const i = impediments.find((x) => x.id === link.targetId);
+      return Boolean(i && isResolved(i));
+    }
+    if (link.route === "kanban") {
+      return boards.some((b) => b.cards.some((c) => c.id === link.targetId && c.column === "done"));
+    }
+    return false;
+  };
+}
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -43,10 +75,15 @@ function matches(a: RetroAction, status: Status): boolean {
   return true;
 }
 
-function listing(boards: readonly RetroBoard[], status: Status = "all") {
-  const all = collectRetroActions(boards, { today: todayIso() });
+function listing(
+  boards: readonly RetroBoard[],
+  status: Status = "all",
+  targetDone?: (link: HandoffLink) => boolean
+) {
+  const all = collectRetroActions(boards, { today: todayIso(), targetDone });
   return {
     ...summarizeRetroActions(all),
+    followThrough: followThroughByRetro(boards, { targetDone }),
     actions: all
       .filter((a) => matches(a, status))
       .map((a) => ({
@@ -75,13 +112,26 @@ registry.register({
   name: "list",
   category: "read",
   description:
-    "List the team's retro action items across every retro (current board first, then archives newest first). Returns {open, overdue, done, actions: {id, boardId, retro, text, assignee, dueDate, done, doneAt, overdue, sentTo}[]}. Filter with status: open | overdue | done | all (default all).",
+    "List the team's retro action items across every retro (current board first, then archives newest first). An action is done when marked on the card or when the impediment or Kanban card it was sent to is finished. Returns {open, overdue, done, followThrough: {boardId, retroLabel, archivedAt, sprintId?, agreed, done, carried, open, rate | null}[] (past retros, oldest first), actions: {id, boardId, retro, text, assignee, dueDate, done, doneAt, overdue, sentTo}[]}. Filter with status: open | overdue | done | all (default all).",
   paramsSchema: z.object({
     status: z.enum(["open", "overdue", "done", "all"]).optional(),
   }),
-  handler: async (params) => listing(ws().retroBoards ?? [], params.status),
-  mcpHandler: async (params, ctx) =>
-    listing(await serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO), params.status),
+  handler: async (params) => {
+    const s = ws();
+    return listing(
+      s.retroBoards ?? [],
+      params.status,
+      targetDoneFrom(s.impediments ?? [], s.kanbanBoards ?? [])
+    );
+  },
+  mcpHandler: async (params, ctx) => {
+    const [boards, impediments, kanban] = await Promise.all([
+      serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO),
+      serverListEntities<Impediment>(ctx.userId, "workspace:impediment"),
+      serverListEntities<KanbanBoard>(ctx.userId, "workspace:kanbanBoard"),
+    ]);
+    return listing(boards, params.status, targetDoneFrom(impediments, kanban));
+  },
 });
 
 // ──────── tool.retro_actions.complete ────────
@@ -113,5 +163,54 @@ registry.register({
     if (!board || !next) return { updated: false };
     await serverUpsertEntity<RetroBoard>(ctx.userId, KIND_RETRO, next);
     return { updated: true, boardId: board.id, done };
+  },
+});
+
+const AddParams = z.object({
+  text: z.string().trim().min(1).max(500),
+  assignee: z.string().trim().max(60).optional(),
+  dueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe("YYYY-MM-DD."),
+  boardId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The retro to add it to. Default: the current retro, else the newest archived one."),
+});
+
+function addTo(boards: readonly RetroBoard[], params: z.infer<typeof AddParams>) {
+  const board = params.boardId
+    ? boards.find((b) => b.id === params.boardId)
+    : quickAddBoard(boards);
+  if (!board) return { error: "no_retro" as const };
+  const columnKey = board.format?.columns?.[0]?.key ?? "start";
+  const card = actionCard(params, columnKey);
+  return { board: withAddedAction(board, card), id: card.id };
+}
+
+// ──────── tool.retro_actions.add ────────
+registry.register({
+  id: "tool.retro_actions.add",
+  toolId: "tool.retro_actions",
+  name: "add",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Add a retro action item outside the board meeting, as the page's quick add does: onto boardId, else the current retro, else the newest archived one (in its first column). Returns {added: true, id, boardId}, or {added: false, reason: 'no_retro'}.",
+  paramsSchema: AddParams,
+  handler: async (params) => {
+    const r = addTo(ws().retroBoards ?? [], params);
+    if ("error" in r) return { added: false, reason: r.error };
+    ws().upsertRetroBoard(r.board);
+    return { added: true, id: r.id, boardId: r.board.id };
+  },
+  mcpHandler: async (params, ctx) => {
+    const r = addTo(await serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO), params);
+    if ("error" in r) return { added: false, reason: r.error };
+    await serverUpsertEntity<RetroBoard>(ctx.userId, KIND_RETRO, r.board);
+    return { added: true, id: r.id, boardId: r.board.id };
   },
 });

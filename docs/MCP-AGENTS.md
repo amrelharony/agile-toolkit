@@ -37,11 +37,11 @@ How authorized AI agents call the Agile Toolkit via the Model Context Protocol. 
 
 ## 2. Action namespaces
 
-| Namespace                   | Purpose                                                     | Example                                                            |
-| --------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------ |
-| `workspace.{entity}.{verb}` | Generic CRUD over typed workspace entities                  | `workspace.sprint.create`, `workspace.impediment.list`             |
-| `tool.{tool-id}.{verb}`     | Tool-specific verbs (semantics that don't fit generic CRUD) | `tool.canvas.add_sticky`, `tool.planning_poker.cast_vote`          |
-| `intent.{name}`             | Compositions across multiple tools/entities                 | `intent.start_retro_for_sprint`, `intent.run_sprint_retrospective` |
+| Namespace                   | Purpose                                                     | Example                                                                  |
+| --------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `workspace.{entity}.{verb}` | Generic CRUD over typed workspace entities                  | `workspace.sprint.create`, `workspace.impediment.list`                   |
+| `tool.{tool-id}.{verb}`     | Tool-specific verbs (semantics that don't fit generic CRUD) | `tool.canvas.add_sticky`, `tool.planning_poker.cast_vote`                |
+| `intent.{name}`             | Compositions across multiple tools/entities                 | `intent.start_retro_for_sprint`, `intent.log_impediment_from_retro_card` |
 
 ### Categories
 
