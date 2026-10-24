@@ -1,563 +1,664 @@
 "use client";
 
-import { useRef, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { BarChart3, Clock, Hourglass, Keyboard, ListChecks, Target } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { SmartInput } from "@/components/shared/smart-input";
-import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { EmptyState } from "@/components/shared/empty-state";
+import { SectionCard } from "@/components/shared/section-card";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
+import { ResetButton } from "@/components/shared/reset-button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { generateCycleTimePrompts } from "@/lib/ai-prompts/cycle-time";
-import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
-import { cusum } from "@/lib/analytics/changepoint";
-import { mannKendall } from "@/lib/analytics/trend-test";
-import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { fmt } from "@/lib/charts/chart-text";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CYCLE_TIME_ACTIONS } from "@/lib/history/event-actions";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Clock, BarChart3, Target } from "lucide-react";
-import { calcCycleTime, percentile, stdDev, round, BUCKETS, PERCENTILE_KEYS } from "./helpers";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { KANBAN_BOARD_ID, type KanbanCard, type Story } from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { todayIso } from "@/lib/sprints/series";
+import { parseNumber } from "@/lib/utils/form";
+import { removeWithUndo } from "@/lib/utils/undoable";
+import { cn } from "@/lib/utils";
 import { useCycleTimeStore } from "./use-cycle-time-store";
+import { SLE_PERCENTILES, type CycleSource, type SlePercentile, type WorkItem } from "./types";
+import {
+  PERCENTILE_KEYS,
+  SOURCE_LABEL,
+  ageingRows,
+  boardRows,
+  cycleStats,
+  histogram,
+  rowsFrom,
+  scatterPoints,
+  sleDays,
+  typedRows,
+  withinTarget,
+} from "./helpers";
+import { analyseCycleTimes, trendSentence } from "./analysis";
+import { cycleTimeVerdict, daysOrDash } from "./verdict";
+import { cycleTimeToMarkdown } from "./markdown";
+import { buildExample, type CycleTimeExample } from "./example";
 import { StatCard } from "./components/stat-card";
 import { HistogramTab } from "./components/histogram-tab";
 import { ScatterTab } from "./components/scatter-tab";
-import { WorkItemsTable } from "./components/work-items-table";
+import { WorkItemsTable, typedItemRows, type ItemRow } from "./components/work-items-table";
+import { AgeingTable } from "./components/ageing-table";
+import { AddItemForm } from "./components/add-item-form";
 
+export const TOOL_ID = "cycle-time";
+
+const NO_STORIES: Story[] = [];
+const NO_CARDS: KanbanCard[] = [];
+const ALL_SOURCES: readonly CycleSource[] = ["story", "card", "typed"];
+const FINISHED = ["finished item", "finished items"] as const;
+const WEEKS = ["week with a finish", "weeks with a finish"] as const;
+
+const INTERPRETATION: Record<(typeof PERCENTILE_KEYS)[number], string> = {
+  50: "Half of items finish within this time",
+  75: "Most items finish within this time",
+  85: "The usual service-level expectation",
+  90: "A high-confidence commitment",
+  95: "Near the worst case seen",
+};
+
+/**
+ * Cycle Time Analyzer: how long work takes from start to finish. Finished
+ * stories (Sprint board) and cards (Flow board) are read live from their
+ * start and done times through lib/flow, with items typed by hand as the
+ * fallback; every source counts days the same way (a same-day item is 1).
+ * The scatter runs by completion date, the ageing view flags work in
+ * progress already older than the 85th percentile, and the statistics wait
+ * for enough items, the heavy ones behind Advanced analysis.
+ */
 export function CycleTimeClient() {
+  const hydrated = useWorkspaceHydrated();
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
+  const cards = (kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID)?.cards ?? NO_CARDS;
   const {
     items,
-    addItem: addItemRaw,
-    removeItem: removeItemRaw,
+    targetPct,
+    sleTargetDays,
+    addItem,
     updateItem,
-    reset: resetRaw,
+    setTargetPct,
+    setSleTargetDays,
+    reset,
+    restoreItems,
   } = useCycleTimeStore();
-  const { log } = useHistoryLogger("cycle-time");
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const [sources, setSources] = useState<ReadonlySet<CycleSource>>(() => new Set(ALL_SOURCES));
+  // The example lives here only: nothing in it reaches the boards or the store.
+  const [example, setExample] = useState<CycleTimeExample | null>(null);
+  const preview = example !== null;
+  const resetSnapshot = useRef<WorkItem[]>([]);
+  const pctId = useId();
+  const [targetDraft, setTargetDraft] = useState<string | null>(null);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
-  const addItem: typeof addItemRaw = (...args) => {
-    addItemRaw(...args);
-    log(CYCLE_TIME_ACTIONS.ITEM_ADDED, {});
-  };
-  const removeItem: typeof removeItemRaw = (id) => {
-    removeItemRaw(id);
-    log(CYCLE_TIME_ACTIONS.ITEM_REMOVED, { itemId: id });
-  };
-  const reset = () => {
-    resetRaw();
-    log(CYCLE_TIME_ACTIONS.CYCLE_TIME_RESET, {});
-  };
-  const exportRef = useRef<HTMLDivElement>(null);
-  const [targetPct, setTargetPct] = useState(85);
+  const typedItems = example?.items ?? items;
+  const boardStories = preview ? NO_STORIES : stories;
+  const boardCards = example?.cards ?? cards;
 
-  /* -- Computed cycle times ------------------------------------------------ */
-  const itemsWithCT = useMemo(
-    () =>
-      items.map((item) => ({
-        ...item,
-        cycleTime: calcCycleTime(item.startDate, item.endDate),
-      })),
-    [items]
+  const allRows = useMemo(
+    () => [
+      ...boardRows(boardStories, boardCards, { includeExamples: preview }),
+      ...typedRows(typedItems),
+    ],
+    [boardStories, boardCards, typedItems, preview]
   );
-
-  const validCycleTimes = useMemo(
+  const rows = useMemo(() => rowsFrom(allRows, sources), [allRows, sources]);
+  const stats = useMemo(() => cycleStats(rows), [rows]);
+  const p85 = stats.distributionQuoted ? stats.summary.p85 : null;
+  const ageing = useMemo(
     () =>
-      itemsWithCT
-        .filter((i): i is typeof i & { cycleTime: number } => i.cycleTime !== null)
-        .map((i) => i.cycleTime),
-    [itemsWithCT]
+      ageingRows(boardStories, boardCards, today, p85, { includeExamples: preview }).filter((a) =>
+        sources.has(a.kind)
+      ),
+    [boardStories, boardCards, today, p85, preview, sources]
   );
+  const sle = { pct: targetPct, days: sleDays(rows, targetPct) };
+  const analysis = useMemo(() => analyseCycleTimes(rows), [rows]);
+  const verdict = cycleTimeVerdict(stats, ageing, sle);
+  const quoted = {
+    median: stats.distributionQuoted ? stats.summary.median : null,
+    p85,
+    p95: stats.percentiles[95],
+  };
+  const tableRows: ItemRow[] = [
+    ...rows.filter((r) => r.source !== "typed").map((r) => ({ key: `${r.source}:${r.id}`, ...r })),
+    ...(sources.has("typed") ? typedItemRows(typedItems) : []),
+  ];
+  const counts = Object.fromEntries(
+    ALL_SOURCES.map((s) => [s, allRows.filter((r) => r.source === s).length])
+  ) as Record<CycleSource, number>;
+  const markdown = cycleTimeToMarkdown({ today, rows, sources, stats, ageing, sle });
+  const empty = allRows.length === 0 && typedItems.length === 0 && ageing.length === 0;
 
-  const sortedCT = useMemo(() => [...validCycleTimes].sort((a, b) => a - b), [validCycleTimes]);
+  /* ── Typed items: the store, or the example's copy while it shows ─── */
 
-  /* -- Stats --------------------------------------------------------------- */
-  const stats = useMemo(() => {
-    if (sortedCT.length === 0) {
-      return { avg: 0, median: 0, p85: 0, stddev: 0 };
+  const writeTyped = (fn: (list: readonly WorkItem[]) => WorkItem[]) => {
+    if (preview) setExample((ex) => (ex ? { ...ex, items: fn(ex.items) } : ex));
+    else useCycleTimeStore.setState((s) => ({ items: fn(s.items) }));
+  };
+  const record: typeof log = preview ? () => undefined : log;
+
+  const add = (values: Omit<WorkItem, "id">) => {
+    if (preview)
+      writeTyped((list) => [...list, { ...values, id: exampleId(`cycle-typed-${Date.now()}`) }]);
+    else addItem(values);
+    record(CYCLE_TIME_ACTIONS.ITEM_ADDED, { name: values.name });
+    announce(`Added ${values.name}`);
+  };
+  const rename = (item: WorkItem, name: string) => {
+    if (preview) writeTyped((list) => list.map((i) => (i.id === item.id ? { ...i, name } : i)));
+    else updateItem(item.id, { name });
+    record(CYCLE_TIME_ACTIONS.ITEM_UPDATED, { itemId: item.id, field: "name" });
+  };
+  const redate = (item: WorkItem, field: "startDate" | "endDate", value: string) => {
+    if (preview)
+      writeTyped((list) => list.map((i) => (i.id === item.id ? { ...i, [field]: value } : i)));
+    else updateItem(item.id, { [field]: value });
+    record(CYCLE_TIME_ACTIONS.ITEM_UPDATED, { itemId: item.id, field });
+  };
+  const remove = (item: WorkItem) => {
+    const name = item.name.trim() || "the item";
+    removeWithUndo<WorkItem>({
+      label: `Deleted “${name}”`,
+      update: writeTyped,
+      match: (i) => i.id === item.id,
+    });
+    record(CYCLE_TIME_ACTIONS.ITEM_REMOVED, { itemId: item.id });
+    announce(`Deleted ${name}`);
+  };
+
+  const toggleSource = (s: CycleSource) => {
+    setSources((cur) => {
+      const next = new Set(cur);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+  };
+
+  const commitTarget = () => {
+    if (targetDraft === null) return;
+    const n = parseNumber(targetDraft);
+    if (n === undefined) {
+      setSleTargetDays(null);
+      setTargetError(null);
+    } else if (!Number.isInteger(n) || n < 1 || n > 365) {
+      setTargetError("A target is a whole number of days, from 1 to 365.");
+      return;
+    } else {
+      setSleTargetDays(n);
+      setTargetError(null);
     }
-    const avg = round(validCycleTimes.reduce((a, b) => a + b, 0) / validCycleTimes.length);
-    const median = percentile(sortedCT, 50);
-    const p85 = percentile(sortedCT, 85);
-    const sd = round(stdDev(validCycleTimes));
-    return { avg, median, p85, stddev: sd };
-  }, [sortedCT, validCycleTimes]);
-
-  /* -- Percentile map ------------------------------------------------------ */
-  const percentileMap = useMemo(
-    () =>
-      Object.fromEntries(PERCENTILE_KEYS.map((p) => [p, percentile(sortedCT, p)])) as Record<
-        (typeof PERCENTILE_KEYS)[number],
-        number
-      >,
-    [sortedCT]
-  );
-
-  /* -- SLE calculation ----------------------------------------------------- */
-  const sleValue = useMemo(
-    () => (sortedCT.length > 0 ? percentile(sortedCT, targetPct) : 0),
-    [sortedCT, targetPct]
-  );
-
-  /* -- Phase-15 analytics -------------------------------------------------- */
-  // Bootstrap CIs for P50 / P85. The primitive shrinks to a point CI when
-  // n<3, which keeps the UI honest. Use 1000 iterations (deterministic seed
-  // inside the primitive) so the bracket is stable across renders.
-  const p50CI = useMemo(
-    () => (validCycleTimes.length >= 3 ? bootstrapQuantile(validCycleTimes, 0.5) : null),
-    [validCycleTimes]
-  );
-  const p85CI = useMemo(
-    () => (validCycleTimes.length >= 3 ? bootstrapQuantile(validCycleTimes, 0.85) : null),
-    [validCycleTimes]
-  );
-
-  // Per-item CUSUM markers (rendered on the scatter plot). Operates on the
-  // scatter's natural ordering — the existing component sorts by insertion
-  // order, so a regime shift here means the team's per-item cycle time
-  // changed character mid-stream.
-  const scatterCusumAnnotations = useMemo<CausalAnnotationData[]>(() => {
-    if (validCycleTimes.length < 4) return [];
-    return cusum(validCycleTimes).map((cp) => ({
-      x: cp.index + 1,
-      label: cp.direction === "up" ? "Cycle-time regime up" : "Cycle-time regime down",
-      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} starting at item #${cp.index + 1}.`,
-      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
-    }));
-  }, [validCycleTimes]);
-
-  // Per-week mean cycle time for the trend chip. Bucket by ISO week of the
-  // item's endDate so a single week with N items contributes one mean.
-  const weeklyCycleMean = useMemo(() => {
-    const buckets = new Map<string, number[]>();
-    for (const i of itemsWithCT) {
-      if (i.cycleTime === null || !i.endDate) continue;
-      // R11-fix: parse YYYY-MM-DD strings as UTC (Date constructor's
-      // default for date-only ISO) AND use UTC accessors throughout.
-      // The previous code mixed `d.getFullYear/getMonth/getDate` (LOCAL)
-      // with `Date.UTC(...)` (UTC), so a user in negative-UTC zones
-      // logging an endDate near Dec 31 produced a week bucket that
-      // straddled the year boundary (off-by-52-weeks).
-      // Parsing with the explicit "T00:00:00Z" suffix forces UTC even
-      // if a future schema change drops the date-only format.
-      const iso = /^\d{4}-\d{2}-\d{2}$/.test(i.endDate) ? `${i.endDate}T00:00:00Z` : i.endDate;
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) continue;
-      // ISO week key (matches kanban's pattern). Now fully UTC.
-      const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-      date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-      const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-      const key = `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-      const arr = buckets.get(key) ?? [];
-      arr.push(i.cycleTime);
-      buckets.set(key, arr);
-    }
-    return Array.from(buckets.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, vals]) => vals.reduce((a, b) => a + b, 0) / vals.length);
-  }, [itemsWithCT]);
-
-  const weeklyTrend = useMemo(
-    () => (weeklyCycleMean.length >= 5 ? mannKendall(weeklyCycleMean) : null),
-    [weeklyCycleMean]
-  );
-
-  // Smart-default predictor for the SLE target days. Note the existing
-  // predictor reads from workspace.stories rather than this tool's local
-  // store, so chip confidence will typically be "none" until the workspace
-  // tracks story timestamps — wiring is forward-compatible.
-  const sleDaysPrediction = usePredictedDefault<number>(
-    "cycle-time",
-    "sleTargetDays",
-    Math.max(1, Math.round(stats.p85 || 5))
-  );
-  const [sleDaysBuffer, setSleDaysBuffer] = useState<string | null>(null);
-  // The tool already exposes targetPct; we add a parallel "target days" SLE
-  // input that mirrors the percentile/value pair from the predictor.
-  const [sleTargetDays, setSleTargetDays] = useState<number | null>(null);
-
-  /* -- Histogram data ------------------------------------------------------ */
-  const histogramData = useMemo(
-    () =>
-      BUCKETS.map((b) => ({
-        bucket: b.label,
-        count: validCycleTimes.filter((ct) => ct >= b.min && ct <= b.max).length,
-      })),
-    [validCycleTimes]
-  );
-
-  /* -- Scatter data -------------------------------------------------------- */
-  const scatterData = useMemo(
-    () =>
-      itemsWithCT
-        .filter((i): i is typeof i & { cycleTime: number } => i.cycleTime !== null)
-        .map((item, idx) => ({
-          idx: idx + 1,
-          cycleTime: item.cycleTime,
-          name: item.name,
-        })),
-    [itemsWithCT]
-  );
-
-  /* -- Export data --------------------------------------------------------- */
-  const csvData = useMemo(
-    () => ({
-      headers: ["Item Name", "Description", "Start Date", "End Date", "Cycle Time (days)"],
-      rows: itemsWithCT.map((i) => [
-        i.name || "(unnamed)",
-        i.description ?? "",
-        i.startDate,
-        i.endDate,
-        i.cycleTime ?? "N/A",
-      ]),
-    }),
-    [itemsWithCT]
-  );
-
-  const jsonData = useMemo(
-    () => ({
-      items: itemsWithCT.map((i) => ({
-        name: i.name || "(unnamed)",
-        description: i.description ?? "",
-        startDate: i.startDate,
-        endDate: i.endDate,
-        cycleTime: i.cycleTime,
-      })),
-      stats,
-      percentiles: percentileMap,
-    }),
-    [itemsWithCT, stats, percentileMap]
-  );
+    setTargetDraft(null);
+  };
+  const attained = sleTargetDays !== null ? withinTarget(rows, sleTargetDays) : null;
+  const pastTarget =
+    sleTargetDays !== null ? ageing.filter((a) => a.ageDays > sleTargetDays).length : 0;
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Cycle Time Tracker",
       prompts: generateCycleTimePrompts({
-        items: itemsWithCT
-          .filter((i): i is typeof i & { cycleTime: number } => i.cycleTime !== null)
-          .map((i) => ({
-            name: i.name,
-            startDate: i.startDate,
-            endDate: i.endDate,
-            cycleTimeDays: i.cycleTime,
-            description: i.description,
-          })),
+        items: rows.map((r) => ({
+          name: r.title,
+          startDate: r.startedOn,
+          endDate: r.doneOn,
+          cycleTimeDays: r.days,
+          description: SOURCE_LABEL[r.source],
+        })),
         stats: {
-          mean: stats.avg,
-          median: stats.median,
-          p85: stats.p85,
-          p95: percentileMap[95],
-          stdDev: stats.stddev,
+          mean: stats.summary.average ?? 0,
+          median: stats.summary.median ?? 0,
+          p85: stats.summary.p85 ?? 0,
+          p95: stats.summary.p95 ?? 0,
+          stdDev: stats.summary.spread ?? 0,
         },
       }),
     }),
-    [itemsWithCT, stats, percentileMap]
+    [rows, stats]
   );
 
-  /* -- Render -------------------------------------------------------------- */
+  if (!hydrated) {
+    return (
+      <ToolPageWrapper
+        toolId={TOOL_ID}
+        title="Cycle Time Analyzer"
+        description="How long work takes from start to finish, from your boards: set a realistic service level expectation and spot work that's ageing."
+        category="Metrics & Dashboards"
+      >
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading the boards…
+        </p>
+      </ToolPageWrapper>
+    );
+  }
+
   return (
     <ToolPageWrapper
-      toolId="cycle-time"
+      toolId={TOOL_ID}
       title="Cycle Time Analyzer"
-      description="Analyze how long work items take to complete. Use histogram, scatter plot, and percentile data to set realistic Service Level Expectations."
+      description="How long work takes from start to finish, from your boards: set a realistic service level expectation and spot work that's ageing."
       category="Metrics & Dashboards"
     >
-      <div ref={exportRef} className="space-y-6">
-        {/* ---- Stats ---- */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <StatCard
-            label="Average"
-            value={stats.avg}
-            unit="days"
-            accent
-            trailing={
-              weeklyTrend?.significant ? (
-                <span
-                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
-                    // For cycle time, "down" trend is good (faster), "up" is bad.
-                    weeklyTrend.trend === "down"
-                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
-                      : "border-warning/40 text-warning bg-warning/10"
-                  }`}
-                  title={`Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)}`}
-                >
-                  <span aria-hidden="true">
-                    {weeklyTrend.trend === "up" ? "↗ trend" : "↘ trend"}
-                  </span>
-                  <span className="sr-only">{`Weekly cycle-time trend ${weeklyTrend.trend} (Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)})`}</span>
-                </span>
-              ) : undefined
-            }
-          />
-          <StatCard
-            label="Median (50th %ile)"
-            value={stats.median}
-            unit="days"
-            footer={
-              p50CI && p50CI.iterations > 0
-                ? `95% CI [${p50CI.lower.toFixed(1)}, ${p50CI.upper.toFixed(1)}]`
-                : undefined
-            }
-          />
-          <StatCard
-            label="85th Percentile"
-            value={stats.p85}
-            unit="days"
-            accent
-            footer={
-              p85CI && p85CI.iterations > 0
-                ? `95% CI [${p85CI.lower.toFixed(1)}, ${p85CI.upper.toFixed(1)}]`
-                : undefined
-            }
-          />
-          <StatCard label="Std Deviation" value={stats.stddev} unit="days" />
-        </div>
+      <div className="space-y-6">
+        {preview && (
+          <div>
+            <ExampleNotice onClear={() => setExample(null)} />
+            <p className="-mt-2 text-xs text-sub">
+              Example: seven weeks of a team&apos;s Flow board and two items typed by hand. Nothing
+              in it is saved, and your own boards stay as they are.
+            </p>
+          </div>
+        )}
 
-        {/* ---- Charts Tabs ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <Clock className="w-5 h-5 text-accent" />
-                Analysis
-              </CardTitle>
-              <div className="flex items-center gap-2">
+        {empty ? (
+          <EmptyState
+            icon={Clock}
+            action={<LoadExampleButton onLoad={() => setExample(buildExample(today))} />}
+          >
+            No finished work yet. Stories and cards that reach Done on the{" "}
+            <Link href="/kanban" className="font-medium text-accent hover:underline">
+              Sprint or Flow board
+            </Link>{" "}
+            appear here with their cycle times; or type an item below.
+          </EmptyState>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-text" aria-live="polite">
+              {verdict}
+            </p>
+
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p id={`${pctId}-sources`} className="mb-1 text-xs font-medium text-sub">
+                  Include
+                </p>
+                <div
+                  role="group"
+                  aria-labelledby={`${pctId}-sources`}
+                  className="flex flex-wrap gap-1"
+                >
+                  {ALL_SOURCES.map((s) => (
+                    <Button
+                      key={s}
+                      type="button"
+                      size="sm"
+                      variant={sources.has(s) ? "default" : "outline"}
+                      aria-pressed={sources.has(s)}
+                      onClick={() => toggleSource(s)}
+                    >
+                      {s === "story"
+                        ? "Sprint board stories"
+                        : s === "card"
+                          ? "Flow board cards"
+                          : "Typed"}
+                      <span className="ml-1 font-mono text-xs opacity-80">{counts[s]}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <AiPromptGenerator config={promptConfig} />
                 <ExportButton
                   filename="cycle-time"
-                  csvData={csvData}
-                  jsonData={jsonData}
-                  targetRef={exportRef}
+                  markdown={markdown}
+                  clipboardText={markdown}
+                  csvData={{
+                    headers: ["Item", "Source", "Started", "Finished", "Cycle Time (days)"],
+                    rows: rows.map((r) => [
+                      r.title,
+                      SOURCE_LABEL[r.source],
+                      r.startedOn,
+                      r.doneOn,
+                      r.days,
+                    ]),
+                  }}
+                  jsonData={{
+                    items: rows,
+                    summary: stats.summary,
+                    percentiles: stats.percentiles,
+                    ageing,
+                  }}
                 />
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
-            {validCycleTimes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-64 text-sub gap-3">
-                <BarChart3 className="w-12 h-12 opacity-20" />
-                <p className="text-sm">Add items with start and end dates to see analysis</p>
-              </div>
-            ) : (
-              <Tabs defaultValue="histogram">
-                <TabsList className="bg-surface-deep border border-border mb-6">
-                  <TabsTrigger
-                    value="histogram"
-                    className="gap-2 data-[state=active]:bg-accent/10 data-[state=active]:text-accent"
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                    Histogram
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="scatter"
-                    className="gap-2 data-[state=active]:bg-accent/10 data-[state=active]:text-accent"
-                  >
-                    <Target className="w-4 h-4" />
-                    Scatter Plot
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="sle"
-                    className="gap-2 data-[state=active]:bg-accent/10 data-[state=active]:text-accent"
-                  >
-                    <Clock className="w-4 h-4" />
-                    SLE
-                  </TabsTrigger>
-                </TabsList>
 
-                {/* Tab 1: Histogram */}
-                <TabsContent value="histogram">
-                  <HistogramTab
-                    histogramData={histogramData}
-                    stats={stats}
-                    percentileMap={percentileMap}
-                  />
-                </TabsContent>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <StatCard
+                label="Average"
+                value={daysOrDash(stats.summary.average, stats.averageQuoted)}
+                unit="days"
+                accent
+              />
+              <StatCard
+                label="Median (50th %ile)"
+                value={daysOrDash(stats.summary.median, stats.distributionQuoted)}
+                unit="days"
+              />
+              <StatCard
+                label="85th percentile"
+                value={daysOrDash(stats.summary.p85, stats.distributionQuoted)}
+                unit="days"
+                accent
+              />
+              <StatCard
+                label="Spread (std dev)"
+                value={daysOrDash(stats.summary.spread, stats.distributionQuoted)}
+                unit="days"
+              />
+            </div>
+            {stats.summary.count > 0 && !stats.distributionQuoted && (
+              <NotEnoughData
+                have={stats.summary.count}
+                need="distribution"
+                unit={FINISHED}
+                action="Finish"
+                what="the spread, the percentiles and a service-level expectation"
+              />
+            )}
 
-                {/* Tab 2: Scatter Plot */}
-                <TabsContent value="scatter">
-                  <ScatterTab
-                    scatterData={scatterData}
-                    stats={stats}
-                    percentileMap={percentileMap}
-                    cusumAnnotations={scatterCusumAnnotations}
-                  />
-                </TabsContent>
+            {rows.length > 0 && (
+              <SectionCard title="Analysis" icon={Clock}>
+                <Tabs defaultValue="histogram">
+                  <TabsList className="mb-6 border border-border bg-surface-deep">
+                    <TabsTrigger value="histogram" className="gap-2">
+                      <BarChart3 className="h-4 w-4" aria-hidden="true" />
+                      Histogram
+                    </TabsTrigger>
+                    <TabsTrigger value="scatter" className="gap-2">
+                      <Target className="h-4 w-4" aria-hidden="true" />
+                      By completion date
+                    </TabsTrigger>
+                    <TabsTrigger value="sle" className="gap-2">
+                      <Clock className="h-4 w-4" aria-hidden="true" />
+                      SLE
+                    </TabsTrigger>
+                  </TabsList>
 
-                {/* Tab 3: SLE */}
-                <TabsContent value="sle">
-                  <div className="space-y-6">
-                    {/* SLE Statement */}
-                    <div className="rounded-xl bg-accent/5 border border-accent/20 p-5 text-center">
-                      <p className="text-sub text-sm mb-1">Service Level Expectation</p>
-                      <p className="text-2xl font-display font-bold text-text">
-                        <span className="text-accent">{targetPct}%</span> of items complete within{" "}
-                        <span className="text-accent-green">{sleValue} days</span>
-                      </p>
-                    </div>
+                  <TabsContent value="histogram">
+                    {stats.distributionQuoted ? (
+                      <HistogramTab histogramData={histogram(rows)} stats={quoted} />
+                    ) : (
+                      <NotEnoughData
+                        have={stats.summary.count}
+                        need="distribution"
+                        unit={FINISHED}
+                        action="Finish"
+                        what="the distribution"
+                      />
+                    )}
+                  </TabsContent>
 
-                    {/* Target % Input */}
-                    <div className="flex items-end gap-3 max-w-xs">
-                      <div className="flex-1 space-y-1.5">
-                        <Label htmlFor="ct-target-pct" className="text-sub text-xs">
-                          Target Percentile (%)
-                        </Label>
-                        <Input
-                          id="ct-target-pct"
-                          type="number"
-                          min={1}
-                          max={99}
-                          value={targetPct}
-                          onChange={(e) => {
-                            const n = Number(e.target.value);
-                            if (Number.isFinite(n)) {
-                              setTargetPct(Math.min(99, Math.max(1, n)));
-                            }
-                          }}
-                          className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-                        />
-                      </div>
-                      <p className="text-xs text-sub pb-2.5">= {sleValue} days</p>
-                    </div>
+                  <TabsContent value="scatter">
+                    <ScatterTab
+                      scatterData={scatterPoints(rows)}
+                      stats={quoted}
+                      cusumAnnotations={analysis.shifts}
+                    />
+                  </TabsContent>
 
-                    {/* Target Days Input — SmartInput-backed. The predictor
-                        suggests P85 of historical cycle times (or workspace
-                        story signal when present). Tab on an empty field
-                        accepts the suggestion. The input commits to a
-                        local target, separate from the percentile. */}
-                    <div className="flex items-end gap-3 max-w-xs">
-                      <div className="flex-1 space-y-1.5">
-                        <Label htmlFor="ct-sle-days" className="text-sub text-xs">
-                          SLE Target (days)
-                        </Label>
-                        <SmartInput<number>
-                          predicted={sleDaysPrediction}
-                          onAccept={(v) => {
-                            setSleTargetDays(v);
-                            setSleDaysBuffer(null);
-                          }}
-                          render={({ ghost, chip, accept }) => (
-                            <>
+                  <TabsContent value="sle">
+                    {!stats.distributionQuoted || sle.days === null ? (
+                      <NotEnoughData
+                        have={stats.summary.count}
+                        need="distribution"
+                        unit={FINISHED}
+                        action="Finish"
+                        what="a service-level expectation"
+                      />
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="rounded-xl border border-accent/20 bg-accent/5 p-5 text-center">
+                          <p className="mb-1 text-sm text-sub">Service level expectation</p>
+                          <p className="text-2xl font-display font-bold text-text">
+                            <span className="text-accent">{sle.pct}%</span> of items finish within{" "}
+                            <span className="text-accent-green">{sle.days} days</span>
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-start gap-4">
+                          <div className="flex flex-col gap-1.5">
+                            <label htmlFor={pctId} className="text-sm text-text">
+                              Stated at
+                            </label>
+                            <select
+                              id={pctId}
+                              value={targetPct}
+                              onChange={(e) =>
+                                setTargetPct(Number(e.target.value) as SlePercentile)
+                              }
+                              className="flex h-9 rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {SLE_PERCENTILES.map((p) => (
+                                <option key={p} value={p}>
+                                  {p}th percentile
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <Field
+                            label="Target (days)"
+                            hint="Optional: a target to check finished and ageing work against."
+                            error={targetError}
+                            className="w-56"
+                          >
+                            {(p) => (
                               <Input
-                                id="ct-sle-days"
+                                {...p}
                                 type="number"
+                                inputMode="numeric"
                                 min={1}
+                                placeholder={sle.days !== null ? `e.g. ${sle.days}` : "e.g. 7"}
                                 value={
-                                  sleDaysBuffer !== null
-                                    ? sleDaysBuffer
-                                    : sleTargetDays !== null
-                                      ? String(sleTargetDays)
-                                      : ""
+                                  targetDraft ??
+                                  (sleTargetDays !== null ? String(sleTargetDays) : "")
                                 }
-                                placeholder={ghost ?? "e.g. 5"}
+                                onChange={(e) => setTargetDraft(e.target.value)}
+                                onBlur={commitTarget}
                                 onKeyDown={(e) => {
-                                  const empty =
-                                    (sleDaysBuffer ?? "") === "" && sleTargetDays === null;
-                                  if (e.key === "Tab" && empty) {
-                                    e.preventDefault();
-                                    accept();
-                                  }
+                                  if (e.key === "Enter") e.currentTarget.blur();
                                 }}
-                                onChange={(e) => {
-                                  const raw = e.target.value;
-                                  setSleDaysBuffer(raw);
-                                  if (raw === "") {
-                                    setSleTargetDays(null);
-                                    return;
-                                  }
-                                  const n = Number(raw);
-                                  if (Number.isFinite(n) && n > 0) setSleTargetDays(n);
-                                }}
-                                onBlur={() => setSleDaysBuffer(null)}
-                                className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
                               />
-                              {chip}
-                            </>
-                          )}
-                        />
-                      </div>
-                    </div>
+                            )}
+                          </Field>
+                        </div>
+                        {attained && sleTargetDays !== null && (
+                          <p className="text-sm text-text">
+                            {attained.within} of {attained.total} finished items (
+                            {fmt(attained.pct ?? 0, 0)}%) made it within {sleTargetDays} days
+                            {pastTarget > 0
+                              ? `; ${pastTarget === 1 ? "1 item" : `${pastTarget} items`} in progress ${
+                                  pastTarget === 1 ? "is" : "are"
+                                } already older than that.`
+                              : "."}
+                          </p>
+                        )}
 
-                    {/* Percentile Table */}
-                    <div>
-                      <p className="text-sm font-medium text-sub mb-3">All Percentile Thresholds</p>
-                      <div className="overflow-hidden rounded-lg border border-border">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-border bg-surface-deep">
-                              <th className="text-left py-2.5 px-4 text-xs text-sub font-medium uppercase tracking-wider">
-                                Percentile
-                              </th>
-                              <th className="text-right py-2.5 px-4 text-xs text-sub font-medium uppercase tracking-wider">
-                                Cycle Time
-                              </th>
-                              <th className="text-left py-2.5 px-4 text-xs text-sub font-medium uppercase tracking-wider">
-                                Interpretation
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {PERCENTILE_KEYS.map((p, i) => {
-                              const val = percentileMap[p];
-                              const isTarget = p === targetPct;
-                              return (
+                        <div className="relative overflow-x-auto rounded-lg border border-border">
+                          <table className="w-full text-sm">
+                            <caption className="sr-only">Cycle time at each percentile</caption>
+                            <thead>
+                              <tr className="border-b border-border bg-surface-deep text-xs uppercase tracking-wider text-sub">
+                                <th scope="col" className="px-4 py-2.5 text-left font-medium">
+                                  Percentile
+                                </th>
+                                <th scope="col" className="px-4 py-2.5 text-right font-medium">
+                                  Cycle time
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="hidden px-4 py-2.5 text-left font-medium sm:table-cell"
+                                >
+                                  Meaning
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {PERCENTILE_KEYS.map((p) => (
                                 <tr
                                   key={p}
-                                  className={`border-b border-border ${isTarget ? "bg-accent/5" : i % 2 === 0 ? "bg-transparent" : "bg-card-hover"}`}
+                                  className={cn(
+                                    "border-b border-border last:border-0",
+                                    p === targetPct && "bg-accent/5"
+                                  )}
                                 >
-                                  <td className="py-2.5 px-4 text-text font-data">
+                                  <th
+                                    scope="row"
+                                    className="px-4 py-2.5 text-left font-data font-normal text-text"
+                                  >
                                     {p}th
-                                    {isTarget && (
-                                      <Badge className="ml-2 text-xs bg-accent/10 text-accent border-accent/20">
-                                        target
-                                      </Badge>
+                                    {p === targetPct && (
+                                      <span className="ml-2 text-xs text-accent">(SLE)</span>
                                     )}
+                                  </th>
+                                  <td className="px-4 py-2.5 text-right font-data font-bold text-text">
+                                    {stats.percentiles[p] ?? "—"} days
                                   </td>
-                                  <td className="py-2.5 px-4 text-right">
-                                    <span
-                                      className={`font-data font-bold ${
-                                        p <= 50
-                                          ? "text-accent"
-                                          : p <= 85
-                                            ? "text-warning"
-                                            : "text-danger"
-                                      }`}
-                                    >
-                                      {val} days
-                                    </span>
-                                  </td>
-                                  <td className="py-2.5 px-4 text-sub text-xs">
-                                    {p === 50 && "Half of items finish within this time"}
-                                    {p === 75 && "Most items finish within this time"}
-                                    {p === 85 && "Recommended SLE target"}
-                                    {p === 90 && "High-confidence commitment"}
-                                    {p === 95 && "Very high confidence, near worst-case"}
-                                    {p === 99 && "Near-maximum observed time"}
+                                  <td className="hidden px-4 py-2.5 text-xs text-sub sm:table-cell">
+                                    {INTERPRETATION[p]}
                                   </td>
                                 </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </SectionCard>
             )}
-          </CardContent>
-        </Card>
 
-        {/* ---- Data Input Table ---- */}
-        <WorkItemsTable
-          items={itemsWithCT}
-          totalCount={items.length}
-          validCount={validCycleTimes.length}
-          onUpdate={updateItem}
-          onRemove={removeItem}
-          onAdd={addItem}
-          onReset={reset}
-        />
+            {ageing.length > 0 && (
+              <SectionCard title="Ageing work in progress" icon={Hourglass}>
+                <p className="mb-3 text-xs text-sub">
+                  {p85 !== null
+                    ? `In progress or in review, oldest first. Tinted: older than the 85th percentile (${p85} days), so likely to miss it.`
+                    : `In progress or in review, oldest first. Ages are checked against the 85th percentile once ${MIN_SAMPLE.distribution} items have finished.`}
+                </p>
+                <AgeingTable items={ageing} sleDays={p85} preview={preview} />
+              </SectionCard>
+            )}
+
+            {rows.length > 0 && (
+              <AdvancedAnalysis summary="Advanced analysis: confidence ranges, change points and trend">
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-text">
+                    How sure are the median and the 85th percentile?
+                  </h3>
+                  {analysis.p50Range && analysis.p85Range ? (
+                    <p className="text-sm text-text">
+                      Resampling the {stats.summary.count} items, the median is likely between{" "}
+                      {fmt(analysis.p50Range.lower)} and {fmt(analysis.p50Range.upper)} days and the
+                      85th percentile between {fmt(analysis.p85Range.lower)} and{" "}
+                      {fmt(analysis.p85Range.upper)} days (95% bootstrap ranges).
+                    </p>
+                  ) : (
+                    <NotEnoughData
+                      have={stats.summary.count}
+                      need="distribution"
+                      unit={FINISHED}
+                      action="Finish"
+                      what="confidence ranges"
+                    />
+                  )}
+                </section>
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-text">Change points</h3>
+                  {stats.summary.count >= MIN_SAMPLE.changePoint ? (
+                    <p className="text-sm text-text">
+                      {analysis.shifts.length === 0
+                        ? "No sustained shift in cycle time, in order of completion."
+                        : `${analysis.shifts.map((s) => s.detail).join(" ")} Marked on the By completion date chart.`}
+                    </p>
+                  ) : (
+                    <NotEnoughData
+                      have={stats.summary.count}
+                      need="changePoint"
+                      unit={FINISHED}
+                      action="Finish"
+                      what="change points"
+                    />
+                  )}
+                </section>
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-text">Weekly trend</h3>
+                  {analysis.trend ? (
+                    <p className="text-sm text-text">{trendSentence(analysis.trend)}</p>
+                  ) : (
+                    <NotEnoughData
+                      have={analysis.weeks}
+                      need="trend"
+                      unit={WEEKS}
+                      action="Wait for"
+                      what="a trend test"
+                    />
+                  )}
+                </section>
+              </AdvancedAnalysis>
+            )}
+
+            {tableRows.length > 0 && (
+              <SectionCard title="Finished items" icon={ListChecks}>
+                <WorkItemsTable
+                  rows={tableRows}
+                  today={today}
+                  onRename={rename}
+                  onDate={redate}
+                  onRemove={remove}
+                />
+              </SectionCard>
+            )}
+          </>
+        )}
+
+        <SectionCard
+          title="Type an item"
+          icon={Keyboard}
+          actions={
+            !preview && items.length > 0 ? (
+              <ResetButton
+                label="Clear typed items"
+                title="Clear every typed item?"
+                description={`All ${items.length} items you typed go; stories and cards on the boards stay. You can undo this for a few seconds.`}
+                confirmLabel="Clear typed items"
+                doneLabel="Cleared the typed items"
+                onReset={() => {
+                  resetSnapshot.current = useCycleTimeStore.getState().items;
+                  reset();
+                  log(CYCLE_TIME_ACTIONS.CYCLE_TIME_RESET, { items: resetSnapshot.current.length });
+                }}
+                onUndo={() => restoreItems(resetSnapshot.current)}
+              />
+            ) : undefined
+          }
+        >
+          <p className="mb-3 text-xs text-sub">
+            For work tracked somewhere the toolkit can&apos;t read. Stories and cards on the boards
+            are counted on their own.
+          </p>
+          <AddItemForm today={today} onAdd={add} />
+        </SectionCard>
       </div>
     </ToolPageWrapper>
   );

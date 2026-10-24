@@ -1,148 +1,242 @@
 "use client";
 
 /**
- * Editable work-items table: name + optional description, start/end dates, the
- * derived cycle time, and per-row remove. Header carries the "N / M with cycle
- * time" badge plus Reset / Add controls.
+ * Every finished item from the sources picked, in order of completion: a
+ * story or card from the boards (read-only here, it lives on the board) or
+ * an item typed by hand (edited in place, deleted with Undo from the page).
+ * A card per item on a phone, so nothing scrolls sideways. The order is
+ * fixed while dates are edited, with a "Re-sort" chip once it's stale.
  */
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput } from "@/components/shared/blur-fields";
+import { useEffect, useId, useState } from "react";
+import Link from "next/link";
+import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Plus, Trash2 } from "lucide-react";
-import type { CycleTimeStore, WorkItemWithCycleTime } from "../types";
+import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
+import { BlurInput } from "@/components/shared/blur-fields";
+import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import type { CycleSource, WorkItem } from "../types";
+import { SOURCE_LABEL, typedDays } from "../helpers";
+import { ITEM_NAME_MAX, dateErrors } from "../form";
+
+/** A row of the table: a finished board item, or a typed item (complete or not). */
+export interface ItemRow {
+  key: string;
+  source: CycleSource;
+  title: string;
+  startedOn: string;
+  doneOn: string;
+  days: number | null;
+  /** The typed item, for editing; absent for a board item. */
+  typed?: WorkItem;
+}
+
+/** A typed item's date, edited in place: committed on blur, refused with a message when wrong. */
+function DateCell({
+  item,
+  field,
+  today,
+  onCommit,
+}: {
+  item: WorkItem;
+  field: "startDate" | "endDate";
+  today: string;
+  onCommit: (value: string) => void;
+}) {
+  const id = useId();
+  const [draft, setDraft] = useState(item[field]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(item[field]);
+    setError(null);
+  }, [item, field]);
+  const commit = () => {
+    if (draft === item[field]) {
+      setError(null);
+      return;
+    }
+    const next = { ...item, [field]: draft };
+    const err = dateErrors(next.startDate, next.endDate, today)[field] ?? null;
+    setError(err);
+    if (!err) onCommit(draft);
+  };
+  const what = field === "startDate" ? "Start" : "Finish";
+  return (
+    <div>
+      <Input
+        type="date"
+        max={today}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(item[field]);
+            setError(null);
+          }
+        }}
+        aria-label={`${what} of ${item.name || "item"}`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className="h-8 w-40 input-toolkit"
+      />
+      {error && (
+        <p id={`${id}-error`} role="alert" className="mt-1 max-w-[12rem] text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TitleCell({
+  row,
+  onRename,
+}: {
+  row: ItemRow;
+  onRename: (item: WorkItem, name: string) => void;
+}) {
+  // Remounts the field when an emptied name is put back, so it shows the saved one.
+  const [nameKey, setNameKey] = useState(0);
+  if (!row.typed) {
+    return (
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-text">{row.title}</span>
+        <Badge variant="outline" className="border-border text-xs text-sub">
+          {SOURCE_LABEL[row.source]}
+        </Badge>
+      </span>
+    );
+  }
+  const item = row.typed;
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <BlurInput
+        key={nameKey}
+        value={item.name}
+        maxLength={ITEM_NAME_MAX}
+        onCommit={(v) => (v.trim() ? onRename(item, v.trim()) : setNameKey((k) => k + 1))}
+        aria-label="Item name"
+        className="h-8 min-w-[10rem] flex-1 input-toolkit"
+      />
+      <Badge variant="outline" className="border-border text-xs text-sub">
+        Typed
+      </Badge>
+    </span>
+  );
+}
 
 export function WorkItemsTable({
-  items,
-  totalCount,
-  validCount,
-  onUpdate,
+  rows,
+  today,
+  onRename,
+  onDate,
   onRemove,
-  onAdd,
-  onReset,
 }: {
-  items: WorkItemWithCycleTime[];
-  totalCount: number;
-  validCount: number;
-  onUpdate: CycleTimeStore["updateItem"];
-  onRemove: CycleTimeStore["removeItem"];
-  onAdd: CycleTimeStore["addItem"];
-  onReset: CycleTimeStore["reset"];
+  rows: ItemRow[];
+  today: string;
+  onRename: (item: WorkItem, name: string) => void;
+  onDate: (item: WorkItem, field: "startDate" | "endDate", value: string) => void;
+  onRemove: (item: WorkItem) => void;
 }) {
-  return (
-    <Card className="bg-surface border-border">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-            <Clock className="w-4 h-4 text-accent" />
-            Work Items
-            <Badge variant="outline" className="border-border text-sub text-xs ml-1">
-              {validCount} / {totalCount} with cycle time
-            </Badge>
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <Button variant="danger-ghost" size="sm" onClick={onReset}>
-              Reset
-            </Button>
-            <Button size="sm" variant="toolkit" onClick={onAdd} className="gap-1.5">
-              <Plus className="w-4 h-4" />
-              Add Item
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="table-wrap-responsive">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-2 pr-4 text-xs text-sub font-medium uppercase tracking-wider">
-                  Item Name
-                </th>
-                <th className="text-left py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider">
-                  Start Date
-                </th>
-                <th className="text-left py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider">
-                  End Date
-                </th>
-                <th className="text-center py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider">
-                  Cycle Time
-                </th>
-                <th className="w-8">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} className="border-b border-border hover:bg-card-hover">
-                  <td className="py-2 pr-4">
-                    {/* Compact single-line Input below the name keeps the
-                        tabular row tidy. Description is optional; empty
-                        string is normalized to undefined on commit. */}
-                    <div className="space-y-1">
-                      <BlurInput
-                        placeholder="Feature or story name"
-                        aria-label="Item name"
-                        value={item.name}
-                        onCommit={(v) => onUpdate(item.id, { name: v })}
-                        className="h-8 input-toolkit"
-                      />
-                      <BlurInput
-                        placeholder="Description (optional)..."
-                        value={item.description ?? ""}
-                        onCommit={(v) =>
-                          onUpdate(item.id, { description: v.trim() ? v : undefined })
-                        }
-                        className="h-7 input-toolkit text-xs"
-                        aria-label="Item description"
-                      />
-                    </div>
-                  </td>
-                  <td className="py-2 px-3">
-                    <Input
-                      type="date"
-                      value={item.startDate}
-                      onChange={(e) => onUpdate(item.id, { startDate: e.target.value })}
-                      className="h-8 w-36 input-toolkit"
-                      aria-label={`Start date for ${item.name || "item"}`}
-                    />
-                  </td>
-                  <td className="py-2 px-3">
-                    <Input
-                      type="date"
-                      value={item.endDate}
-                      onChange={(e) => onUpdate(item.id, { endDate: e.target.value })}
-                      className="h-8 w-36 input-toolkit"
-                      aria-label={`End date for ${item.name || "item"}`}
-                    />
-                  </td>
-                  <td className="py-2 px-3 text-center">
-                    {item.cycleTime !== null ? (
-                      <span className="font-data font-semibold text-accent">{item.cycleTime}d</span>
-                    ) : (
-                      <span className="text-sub text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="py-2">
-                    <button
-                      type="button"
-                      onClick={() => onRemove(item.id)}
-                      disabled={totalCount === 1}
-                      aria-label={`Remove ${item.name || "item"}`}
-                      className="text-sub hover:text-danger transition-colors p-1 disabled:opacity-30"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
+  const { ordered, isStale, resort } = useStableOrder(
+    rows,
+    (r) => r.key,
+    // Completion order; typed items still missing a date go last.
+    (a, b) =>
+      a.days === null || b.days === null
+        ? Number(a.days === null) - Number(b.days === null)
+        : a.doneOn.localeCompare(b.doneOn)
   );
+  const columns: DataTableColumn<ItemRow>[] = [
+    {
+      key: "title",
+      header: "Item",
+      primary: true,
+      cell: (r) => <TitleCell row={r} onRename={onRename} />,
+    },
+    {
+      key: "start",
+      header: "Started",
+      cell: (r) =>
+        r.typed ? (
+          <DateCell
+            item={r.typed}
+            field="startDate"
+            today={today}
+            onCommit={(v) => onDate(r.typed!, "startDate", v)}
+          />
+        ) : (
+          <span className="font-data text-sm">{r.startedOn}</span>
+        ),
+    },
+    {
+      key: "end",
+      header: "Finished",
+      cell: (r) =>
+        r.typed ? (
+          <DateCell
+            item={r.typed}
+            field="endDate"
+            today={today}
+            onCommit={(v) => onDate(r.typed!, "endDate", v)}
+          />
+        ) : (
+          <span className="font-data text-sm">{r.doneOn}</span>
+        ),
+    },
+    {
+      key: "days",
+      header: "Cycle time",
+      align: "center",
+      cell: (r) =>
+        r.days !== null ? (
+          <span className="font-data font-semibold text-accent">{r.days}d</span>
+        ) : (
+          <span className="text-xs text-sub">—</span>
+        ),
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      sortLabel: "Actions",
+      align: "right",
+      cell: (r) =>
+        r.typed ? (
+          <IconButton
+            label={`Delete ${r.typed.name || "item"}`}
+            icon={<Trash2 aria-hidden="true" />}
+            onClick={() => onRemove(r.typed!)}
+            className="text-sub hover:text-danger"
+          />
+        ) : (
+          <Link href="/kanban" className="text-xs font-medium text-accent hover:underline">
+            On the board
+          </Link>
+        ),
+    },
+  ];
+  return (
+    <>
+      <ResortChip isStale={isStale} onResort={resort} what="Dates" />
+      <DataTable columns={columns} rows={ordered} rowKey={(r) => r.key} />
+    </>
+  );
+}
+
+/** The typed items as rows, each with its cycle time (null while a date is missing). */
+export function typedItemRows(items: readonly WorkItem[]): ItemRow[] {
+  return items.map((i) => ({
+    key: `typed:${i.id}`,
+    source: "typed",
+    title: i.name,
+    startedOn: i.startDate,
+    doneOn: i.endDate,
+    days: typedDays(i),
+    typed: i,
+  }));
 }
