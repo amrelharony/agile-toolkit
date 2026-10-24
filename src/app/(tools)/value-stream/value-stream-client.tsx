@@ -1,357 +1,515 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import Link from "next/link";
 import { nanoid } from "nanoid";
+import { ArrowRight, Copy, GitCompareArrows, Plus, Waves } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Waves, Plus, Trash2 } from "lucide-react";
-import { iqrOutliers } from "@/lib/analytics/anomaly";
-import { generateValueStreamPrompts } from "@/lib/ai-prompts/value-stream";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { VALUE_STREAM_ACTIONS } from "@/lib/history/event-actions";
-import { selectEvents } from "@/lib/history/selectors";
-import { useHistoryStore } from "@/lib/history/history-store";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { EmptyState } from "@/components/shared/empty-state";
-import { CalloutAlert } from "@/components/shared/callout-alert";
+import { SectionCard } from "@/components/shared/section-card";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SendToMenu } from "@/components/handoff/send-to-menu";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { generateValueStreamPrompts } from "@/lib/ai-prompts/value-stream";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import {
+  KANBAN_BOARD_ID,
+  type RetroBoard,
+  type ValueStreamStage,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { VALUE_STREAM_ACTIONS } from "@/lib/history/event-actions";
+import { RETRO_CURRENT_ID } from "@/lib/retro/board";
+import { cardItems, recentMoves, storyItems } from "@/lib/flow";
+import { todayIso } from "@/lib/sprints/series";
+import { fmt } from "@/lib/charts/chart-text";
 import { ragTone } from "@/lib/utils/rag-tone";
+import { undoable, removeWithUndo } from "@/lib/utils/undoable";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import {
+  STATE_LABEL,
+  VALUE_STREAM_STATES,
+  appendStage,
+  bottleneck,
+  changedStages,
+  compareStates,
+  comparisonVerdict,
+  copyToFuture,
+  leadOf,
+  moveStage,
+  orderedStages,
+  processOf,
+  stageState,
+  vsmSummary,
+  vsmVerdict,
+  waitOf,
+  type ValueStreamState,
+} from "@/lib/value-stream/summary";
+import { AddStageForm } from "./add-stage-form";
+import { StageCard } from "./stage-card";
+import { buildExample } from "./example";
+import { comparisonRows, stageBars, stageChartText, type ComparisonRow } from "./chart-text";
+import { valueStreamToMarkdown } from "./markdown";
+import type { StageValues } from "./form";
 
-interface Stage {
-  id: string;
-  name: string;
-  description?: string;
-  processTime: number;
-  leadTime: number;
-  completeAccurate: number;
-}
+export const TOOL_ID = "value-stream";
+
+// Recharts loads with the chart, not the page.
+const StageTimesChart = dynamic(() => import("./charts").then((m) => m.StageTimesChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-40 w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
+
+const NO_STAGES: ValueStreamStage[] = [];
+const NO_RETROS: RetroBoard[] = [];
+
+/** A change to the whole list of stages; the writer works out the rows to save. */
+type StagesUpdate = (list: readonly ValueStreamStage[]) => ValueStreamStage[];
+type Write = (update: StagesUpdate) => void;
 
 /**
- * Numeric input that doesn't snap mid-edit. Holds a string draft so empty /
- * partial values stay editable; commits on blur. Guards against NaN with
- * Number.isFinite and clamps into [min, max].
+ * Writes to the workspace (the rows agents, sync and other devices read):
+ * the stages the update dropped are removed, and those it added or changed
+ * are upserted one by one, so a concurrent change to another stage stays.
  */
-function NumCell({
-  value,
-  onCommit,
-  min = 0,
-  max,
-  className,
-  id,
-}: {
-  value: number;
-  onCommit: (n: number) => void;
-  min?: number;
-  max?: number;
-  className?: string;
-  id?: string;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const commit = () => {
-    const n = Number(draft);
-    if (Number.isFinite(n)) {
-      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
-    } else {
-      setDraft(String(value));
-    }
-  };
+const writeStore: Write = (update) => {
+  const ws = useWorkspaceStore.getState();
+  const before = ws.valueStreamStages ?? [];
+  const after = update(before);
+  const kept = new Set(after.map((s) => s.id));
+  for (const s of before) if (!kept.has(s.id)) ws.removeValueStreamStage(s.id);
+  for (const s of changedStages(before, after)) ws.upsertValueStreamStage(s);
+};
+
+/**
+ * Where a stage was sent as a retro topic: the cards on the current retro
+ * that came from it. Read from the board, since a stage keeps no links of
+ * its own, so "Sent · Open" survives a reload and Undo of the send.
+ */
+function retroLinks(boards: readonly RetroBoard[], stageId: string): HandoffLink[] {
+  const board = boards.find((b) => b.id === RETRO_CURRENT_ID);
   return (
-    <Input
-      id={id}
-      type="number"
-      min={min}
-      max={max}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      className={className}
-    />
+    (board?.cards ?? [])
+      .filter((c) => c.sourceRef?.tool === TOOL_ID && c.sourceRef.id === stageId)
+      // The card keeps no send time; the link's `at` isn't shown.
+      .map((c) => ({ route: "retro-topic", targetId: c.id, at: "" }))
   );
 }
 
+const COMPARISON_COLUMNS: DataTableColumn<ComparisonRow>[] = [
+  { key: "measure", header: "Measure", primary: true, cell: (r) => r.measure },
+  { key: "current", header: "Current", align: "right", cell: (r) => r.current },
+  { key: "future", header: "Future", align: "right", cell: (r) => r.future },
+  {
+    key: "change",
+    header: "Change",
+    align: "right",
+    cell: (r) => (
+      <span className={r.better === null ? "text-sub" : r.better ? "text-success" : "text-warning"}>
+        {r.change}
+      </span>
+    ),
+  },
+];
+
+/**
+ * Value Stream Map: the stages work goes through, with how long each takes
+ * (process) and how long work sits there in all (lead), in order. The
+ * bottleneck (the longest wait) is marked, the stages can be reordered,
+ * and a future state can be drafted from the current one and compared
+ * with it. The stages live in the workspace, so tool.value_stream.* reads
+ * and writes the same map, through the same lib/value-stream/summary.
+ */
 export function ValueStreamClient() {
-  // Synced workspace collection (was isolated localStorage), so MCP writes
-  // round-trip into the UI. setStages mirrors the old [value, setter] API.
-  // Local Stage === the synced ValueStreamStage shape.
-  const stages = useWorkspaceStore(useShallow((s) => (s.valueStreamStages ?? []) as Stage[]));
-  const setStages = (updater: Stage[] | ((prev: Stage[]) => Stage[])) => {
-    const cur = (useWorkspaceStore.getState().valueStreamStages ?? []) as Stage[];
-    const next = typeof updater === "function" ? updater(cur) : updater;
-    useWorkspaceStore.setState({ valueStreamStages: next });
-  };
-  const { log } = useHistoryLogger("value-stream");
-  const uid = useId();
+  const hydrated = useWorkspaceHydrated();
+  const stored = useWorkspaceStore((s) => s.valueStreamStages) ?? NO_STAGES;
+  const stories = useWorkspaceStore((s) => s.stories);
+  const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_RETROS;
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const [view, setView] = useState<ValueStreamState>("current");
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<ValueStreamStage[] | null>(null);
+  // The map a Clear took away, for its Undo.
+  const cleared = useRef<ValueStreamStage[]>([]);
+  const preview = example !== null;
+  const stages = example ?? stored;
 
-  const add = () => {
-    // Pick the first unused integer suffix so deleting "Stage 2" then adding
-    // a new one won't produce a duplicate "Stage 4" (or a third "Stage 4").
-    const used = new Set(
-      stages.map((s) => parseInt(String(s.name).replace(/\D/g, ""), 10)).filter(Number.isFinite)
-    );
-    let n = 1;
-    while (used.has(n)) n++;
-    const newStage = {
-      id: nanoid(6),
-      name: `Stage ${n}`,
-      processTime: 1,
-      leadTime: 2,
-      completeAccurate: 90,
-    };
-    setStages((s) => [...s, newStage]);
-    log(VALUE_STREAM_ACTIONS.STAGE_ADDED, { stageId: newStage.id, name: newStage.name });
-  };
-  const update = (id: string, patch: Partial<Stage>) =>
-    setStages((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  const remove = (id: string) => {
-    const stage = stages.find((x) => x.id === id);
-    setStages((s) => s.filter((x) => x.id !== id));
-    log(VALUE_STREAM_ACTIONS.STAGE_REMOVED, { stageId: id, name: stage?.name });
-  };
+  // Fixed for the render an edit starts in, so its Undo goes back to the
+  // same place even if the example is loaded or cleared in between. The
+  // example's edits aren't the team's history, so they aren't logged.
+  const writeExample: Write = (update) => setExample((ex) => (ex ? update(ex) : ex));
+  const write = preview ? writeExample : writeStore;
+  const record: typeof log = preview ? () => undefined : log;
+  const newId = () => (preview ? exampleId(`vsm-${nanoid(6)}`) : `vsstage_${nanoid(8)}`);
 
-  const totals = useMemo(() => {
-    const totalProcess = stages.reduce((a, b) => a + Math.max(0, b.processTime), 0);
-    const totalLead = stages.reduce((a, b) => a + Math.max(0, b.leadTime), 0);
-    // Cap at 100% — process > lead is logically impossible but corrupted
-    // input would otherwise display nonsense like "183% efficient".
-    const flowEfficiency = totalLead > 0 ? Math.min(100, (totalProcess / totalLead) * 100) : 0;
-    const rolledCA =
-      stages.length > 0
-        ? stages.reduce(
-            (acc, s) => acc * (Math.min(100, Math.max(0, s.completeAccurate)) / 100),
-            1
-          ) * 100
-        : 0;
-    return { totalProcess, totalLead, flowEfficiency, rolledCA };
-  }, [stages]);
+  const current = useMemo(() => orderedStages(stages, "current"), [stages]);
+  const future = useMemo(() => orderedStages(stages, "future"), [stages]);
+  const shown = view === "current" ? current : future;
+  const summary = vsmSummary(shown);
+  const neck = bottleneck(shown);
+  const comparison = compareStates(current, future);
+  const compared = comparisonVerdict(comparison);
+  const verdict = vsmVerdict(current);
+  const mapLabel = STATE_LABEL[view].toLowerCase();
+  const chart = stageChartText(shown, STATE_LABEL[view]);
+  const markdown = valueStreamToMarkdown(stages, today);
 
-  // Outlier stages by IQR on lead time. The anomaly utility returns matching
-  // *values* (which can collide when two stages share a lead time), so we
-  // map back to indices ourselves and walk each value once — that way each
-  // index is associated with exactly one stage.
-  const leadOutlierStageIds = useMemo(() => {
-    const series = stages.map((s) => s.leadTime);
-    const { outliers } = iqrOutliers(series);
-    if (outliers.length === 0) return new Set<string>();
-    const remaining = outliers.slice();
-    const ids = new Set<string>();
-    for (let i = 0; i < series.length; i++) {
-      const pos = remaining.indexOf(series[i]);
-      if (pos !== -1) {
-        ids.add(stages[i].id);
-        remaining.splice(pos, 1);
-      }
-    }
-    return ids;
-  }, [stages]);
+  // Board activity since the stage times were typed: read after hydration
+  // (the boards are persisted, so the first render can't know them).
+  const moved = useMemo(() => {
+    if (!hydrated) return 0;
+    const board = (kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID);
+    return recentMoves([...storyItems(stories ?? []), ...cardItems(board?.cards ?? [])], today, 7);
+  }, [hydrated, stories, kanbanBoards, today]);
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Value Stream Map",
-      prompts: generateValueStreamPrompts({ stages, ...totals }),
+      prompts: generateValueStreamPrompts({
+        stages: current.map((s) => ({
+          name: s.name,
+          processTime: processOf(s),
+          leadTime: leadOf(s),
+          completeAccurate: s.completeAccurate,
+        })),
+        totalProcess: vsmSummary(current).totalProcess,
+        totalLead: vsmSummary(current).totalLead,
+        flowEfficiency: vsmSummary(current).flowEfficiency ?? 0,
+        rolledCA: vsmSummary(current).rolledCA ?? 0,
+      }),
     }),
-    [stages, totals]
+    [current]
   );
 
-  // ── Cross-tool signal: recent kanban card moves (proxy for story status
-  // changes). Surfaces a small chip when stories have moved through stages
-  // recently — reminds the user that lead-time/flow-efficiency may be stale
-  // if the value-stream model wasn't updated since.
-  const events = useHistoryStore((s) => s.events);
-  const recentStoryMoves = useMemo(
-    () =>
-      selectEvents({
-        toolId: "kanban",
-        action: "card_moved",
-        sinceDays: 7,
-        limit: 50,
-      }),
-    [events]
-  );
+  /* ── Changes ──────────────────────────────────────────────────────── */
+
+  const add = (values: StageValues) => {
+    const stage: ValueStreamStage = { id: newId(), ...values, state: view };
+    write((list) => appendStage(list, stage));
+    record(VALUE_STREAM_ACTIONS.STAGE_ADDED, { stageId: stage.id, name: stage.name, state: view });
+    announce(`Added ${stage.name} to the ${mapLabel}`);
+  };
+
+  const update = (stage: ValueStreamStage, patch: Partial<ValueStreamStage>, field: string) => {
+    write((list) => list.map((s) => (s.id === stage.id ? { ...s, ...patch } : s)));
+    record(VALUE_STREAM_ACTIONS.STAGE_UPDATED, { stageId: stage.id, field });
+  };
+
+  const move = (stage: ValueStreamStage, index: number, delta: -1 | 1) => {
+    const to = index + delta;
+    if (to < 0 || to >= shown.length) return;
+    write((list) => moveStage(list, stage.id, to));
+    record(VALUE_STREAM_ACTIONS.STAGE_MOVED, { stageId: stage.id, from: index, to });
+    announce(`Moved ${stage.name.trim() || "the stage"} to position ${to + 1} of ${shown.length}`);
+  };
+
+  const remove = (stage: ValueStreamStage) => {
+    const name = stage.name.trim() || "Unnamed stage";
+    removeWithUndo<ValueStreamStage>({
+      label: `Deleted “${name}”`,
+      update: write,
+      match: (s) => s.id === stage.id,
+    });
+    record(VALUE_STREAM_ACTIONS.STAGE_REMOVED, { stageId: stage.id, name: stage.name });
+    announce(`Deleted ${name}`);
+  };
+
+  const startFuture = () => {
+    const copies = copyToFuture(stages, newId);
+    if (copies.length === 0) return;
+    const ids = new Set(copies.map((s) => s.id));
+    undoable({
+      label: "Started the future state from the current one",
+      apply: () => write((list) => [...list, ...copies]),
+      revert: () => write((list) => list.filter((s) => !ids.has(s.id))),
+    });
+    record(VALUE_STREAM_ACTIONS.FUTURE_STATE_STARTED, { stages: copies.length });
+    setView("future");
+    announce(`Copied ${copies.length} stages into the future state`);
+  };
+
+  /** Clear one map; Undo puts its stages back as they were. */
+  const resetMap = () => {
+    const state = view;
+    cleared.current = stages.filter((s) => stageState(s) === state);
+    write((list) => list.filter((s) => stageState(s) !== state));
+    record(VALUE_STREAM_ACTIONS.VALUE_STREAM_RESET, { state, stages: cleared.current.length });
+  };
+  const undoReset = () => {
+    const back = cleared.current;
+    const ids = new Set(back.map((s) => s.id));
+    write((list) => [...list.filter((s) => !ids.has(s.id)), ...back]);
+  };
+
+  const loadExample = () => {
+    setExample(buildExample());
+    setView("current");
+  };
+  const clearExample = () => {
+    setExample(null);
+    setView("current");
+  };
+
+  const empty = current.length === 0 && future.length === 0;
 
   return (
     <ToolPageWrapper
-      toolId="value-stream"
+      toolId={TOOL_ID}
       title="Value Stream Map"
       description="Map your process stages with lead time, process time, and %C/A. Auto-computes flow efficiency."
       category="Flow & Delivery"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="value-stream"
-          csvData={{
-            headers: ["Stage", "Description", "Process Time", "Lead Time", "%C/A"],
-            rows: stages.map((s) => [
-              s.name,
-              s.description ?? "",
-              s.processTime,
-              s.leadTime,
-              s.completeAccurate,
-            ]),
-          }}
-          jsonData={stages}
-        />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          Add Stage
-        </Button>
-      </ActionRow>
-
-      {recentStoryMoves.length > 0 && (
-        <div className="mb-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-xs">
-            {recentStoryMoves.length} stor{recentStoryMoves.length === 1 ? "y" : "ies"} changed
-            status in last 7 days
-          </span>
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: a web team&apos;s map from idea to production, now and as they want it. Nothing
+            in it is saved.
+          </p>
         </div>
       )}
 
-      <KpiGrid cols={4} gap="lg">
-        <StatCard variant="compact" label="Lead Time" value={`${totals.totalLead.toFixed(1)}d`} />
-        <StatCard
-          variant="compact"
-          label="Process Time"
-          value={`${totals.totalProcess.toFixed(1)}d`}
-        />
-        <StatCard
-          variant="compact"
-          label="Flow Efficiency"
-          value={`${totals.flowEfficiency.toFixed(0)}%`}
-          valueClassName={ragTone(totals.flowEfficiency, { good: 40, warn: 15 })}
-        />
-        <StatCard
-          variant="compact"
-          label="Rolled %C/A"
-          value={`${totals.rolledCA.toFixed(0)}%`}
-          valueClassName={ragTone(totals.rolledCA, { good: 80, warn: 60 })}
-        />
-      </KpiGrid>
+      {empty ? (
+        <EmptyState icon={Waves} action={<LoadExampleButton onLoad={loadExample} />}>
+          No stages yet. Add the first stage work goes through below, then the next, in order.
+        </EmptyState>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-text">{verdict}</p>
+          {compared && <p className="text-sm text-sub">{compared}</p>}
 
-      {leadOutlierStageIds.size > 0 && (
-        <CalloutAlert tone="warning" className="mb-4">
-          <strong>Stage(s) with outlier lead time (IQR):</strong>{" "}
-          {stages
-            .filter((s) => leadOutlierStageIds.has(s.id))
-            .map((s) => `${s.name} (${s.leadTime}d)`)
-            .join(", ")}
-        </CalloutAlert>
+          {!preview && moved > 0 && (
+            <p>
+              <Link
+                href="/kanban"
+                className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 px-2.5 py-1 text-xs text-accent hover:bg-accent/10"
+              >
+                {moved === 1 ? "1 item" : `${moved} items`} moved on the boards in the last 7 days:
+                check the stage times still match
+                <ArrowRight className="h-3 w-3" aria-hidden="true" />
+              </Link>
+            </p>
+          )}
+
+          <ActionRow>
+            <AiPromptGenerator config={promptConfig} />
+            <ExportButton
+              filename="value-stream"
+              markdown={markdown}
+              clipboardText={markdown}
+              csvData={{
+                headers: [
+                  "State",
+                  "Order",
+                  "Stage",
+                  "Description",
+                  "Process Time",
+                  "Wait Time",
+                  "Lead Time",
+                  "%C/A",
+                ],
+                rows: [...current, ...future].map((s, i) => [
+                  stageState(s),
+                  (stageState(s) === "current" ? i : i - current.length) + 1,
+                  s.name,
+                  s.description ?? "",
+                  processOf(s),
+                  waitOf(s),
+                  leadOf(s),
+                  s.completeAccurate,
+                ]),
+              }}
+              jsonData={[...current, ...future]}
+            />
+          </ActionRow>
+        </div>
       )}
 
-      <div className="scroll-x-snap items-stretch pb-4">
-        {stages.map((s, i) => (
-          <div key={s.id} className="w-[80vw] max-w-[16rem] md:w-56 space-y-2">
-            <Card className="bg-surface border-border">
-              <CardContent className="p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <Waves className="w-4 h-4 text-accent" aria-hidden="true" />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => remove(s.id)}
-                    className="md:min-h-0 md:min-w-0 md:h-7 md:w-7 text-sub hover:text-danger"
-                    aria-label={`Remove stage ${s.name}`}
-                  >
-                    <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
-                  </Button>
-                </div>
-                <BlurInput
-                  value={s.name}
-                  onCommit={(v) => update(s.id, { name: v })}
-                  aria-label={`Name for stage ${i + 1}`}
-                  className="bg-bg border-border text-sm h-8"
-                />
-                {/* Optional description for this stage; empty trims to undefined. */}
-                <BlurTextarea
-                  value={s.description ?? ""}
-                  onCommit={(v) => update(s.id, { description: v.trim() ? v : undefined })}
-                  placeholder="Description (optional)..."
-                  rows={2}
-                  className="bg-bg border-border resize-none text-xs"
-                  aria-label={`Description for stage ${s.name}`}
-                />
-                <div>
-                  <label
-                    htmlFor={`${uid}-${s.id}-process`}
-                    className="block text-xs uppercase text-sub"
-                  >
-                    Process Time (d)
-                  </label>
-                  <NumCell
-                    id={`${uid}-${s.id}-process`}
-                    value={s.processTime}
-                    onCommit={(n) => update(s.id, { processTime: n })}
-                    min={0}
-                    className="bg-bg border-border font-data h-8"
+      {!empty && (
+        // Toggle buttons, not tabs: the cards, chart and form below all
+        // follow the map picked, so there is no one panel a tab could own.
+        <div role="group" aria-label="Which map" className="mt-4 flex flex-wrap gap-1">
+          {VALUE_STREAM_STATES.map((state) => (
+            <Button
+              key={state}
+              type="button"
+              size="sm"
+              variant={view === state ? "default" : "outline"}
+              aria-pressed={view === state}
+              onClick={() => setView(state)}
+            >
+              {STATE_LABEL[state]}
+              <span className="ml-1 font-mono text-xs opacity-80">
+                {state === "current" ? current.length : future.length}
+              </span>
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {!empty && shown.length === 0 && view === "future" && (
+        <EmptyState
+          icon={GitCompareArrows}
+          padding="md"
+          className="mt-4"
+          action={
+            current.length > 0 ? (
+              <Button type="button" size="sm" onClick={startFuture} className="gap-1.5">
+                <Copy aria-hidden="true" />
+                Start the future state from the current one
+              </Button>
+            ) : undefined
+          }
+        >
+          No future state yet. Copy the current map and change it to the flow you want, or add its
+          stages below.
+        </EmptyState>
+      )}
+
+      {shown.length > 0 && (
+        <div className="mt-4 space-y-4">
+          <KpiGrid cols={4} gap="lg">
+            <StatCard variant="compact" label="Lead time" value={`${fmt(summary.totalLead)}d`} />
+            <StatCard
+              variant="compact"
+              label="Process time"
+              value={`${fmt(summary.totalProcess)}d`}
+            />
+            <StatCard
+              variant="compact"
+              label="Flow efficiency"
+              value={summary.flowEfficiency === null ? "—" : `${fmt(summary.flowEfficiency, 0)}%`}
+              valueClassName={
+                summary.flowEfficiency === null
+                  ? undefined
+                  : ragTone(summary.flowEfficiency, { good: 40, warn: 15 })
+              }
+            />
+            <StatCard
+              variant="compact"
+              label="Rolled %C/A"
+              value={summary.rolledCA === null ? "—" : `${fmt(summary.rolledCA, 0)}%`}
+              valueClassName={
+                summary.rolledCA === null
+                  ? undefined
+                  : ragTone(summary.rolledCA, { good: 80, warn: 60 })
+              }
+            />
+          </KpiGrid>
+
+          <ul
+            aria-label={`${STATE_LABEL[view]} stages, in order`}
+            className="scroll-x-snap items-stretch pb-4"
+          >
+            {shown.map((s, i) => (
+              <Fragment key={s.id}>
+                <li className="w-[80vw] max-w-[16rem] md:w-56">
+                  <StageCard
+                    stage={s}
+                    index={i}
+                    count={shown.length}
+                    bottleneck={neck}
+                    onRename={(name) => update(s, { name }, "name")}
+                    onDescription={(description) => update(s, { description }, "description")}
+                    onNumber={(field, n) => update(s, { [field]: n }, field)}
+                    onMove={(delta) => move(s, i, delta)}
+                    onDelete={() => remove(s)}
                   />
-                </div>
-                <div>
-                  <label
-                    htmlFor={`${uid}-${s.id}-lead`}
-                    className="block text-xs uppercase text-sub"
-                  >
-                    Lead Time (d)
-                  </label>
-                  <NumCell
-                    id={`${uid}-${s.id}-lead`}
-                    value={s.leadTime}
-                    onCommit={(n) => update(s.id, { leadTime: n })}
-                    min={0}
-                    className="bg-bg border-border font-data h-8"
-                  />
-                </div>
-                <div>
-                  <label htmlFor={`${uid}-${s.id}-ca`} className="block text-xs uppercase text-sub">
-                    %C/A
-                  </label>
-                  <NumCell
-                    id={`${uid}-${s.id}-ca`}
-                    value={s.completeAccurate}
-                    onCommit={(n) => update(s.id, { completeAccurate: n })}
-                    min={0}
-                    max={100}
-                    className="bg-bg border-border font-data h-8"
-                  />
-                </div>
-                <div className="pt-1 text-xs text-sub">
-                  {s.leadTime > 0 && (
-                    <span>Wait: {Math.max(0, s.leadTime - s.processTime).toFixed(1)}d</span>
-                  )}
-                  {/* Inline data-quality warning when process time exceeds
-                      lead time — that's logically impossible (process is a
-                      subset of lead) and usually indicates bad input. */}
-                  {s.processTime > s.leadTime && (
-                    <span className="ml-2 text-accent-amber">
-                      <span aria-hidden="true">⚠ </span>process &gt; lead
-                    </span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            {i < stages.length - 1 && (
-              <div className="text-center text-accent" aria-hidden="true">
-                →
-              </div>
-            )}
-          </div>
-        ))}
-        {stages.length === 0 && (
-          <EmptyState className="flex-1">
-            No stages yet. Click &ldquo;Add Stage&rdquo; to map the value stream.
-          </EmptyState>
-        )}
-      </div>
+                </li>
+                {i < shown.length - 1 && (
+                  <li aria-hidden="true" className="flex items-center text-accent">
+                    <ArrowRight className="h-4 w-4" />
+                  </li>
+                )}
+              </Fragment>
+            ))}
+          </ul>
+
+          {neck && !preview && (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-sub">
+              <span>
+                Take the {neck.stage.name.trim() || "bottleneck"} wait to the team&apos;s next
+                retro:
+              </span>
+              <SendToMenu
+                routes={["retro-topic"]}
+                item={{
+                  title: `Work waits ${fmt(neck.waitDays)} days in ${
+                    neck.stage.name.trim() || "one stage"
+                  } (${fmt(neck.sharePct, 0)}% of our lead time)`,
+                  description: verdict,
+                  sourceRef: { tool: TOOL_ID, id: neck.stage.id },
+                }}
+                sentTo={retroLinks(retroBoards, neck.stage.id)}
+                getLinks={() =>
+                  retroLinks(useWorkspaceStore.getState().retroBoards ?? [], neck.stage.id)
+                }
+                // The links are read back from the retro board, so there is nothing to store.
+                onLinksChange={() => undefined}
+              />
+            </div>
+          )}
+
+          <SectionCard title="Where the time goes" icon={Waves}>
+            <ChartFigure
+              label={`${STATE_LABEL[view]}: work and wait per stage`}
+              summary={chart.summary}
+              table={chart.table}
+            >
+              <StageTimesChart data={stageBars(shown)} />
+            </ChartFigure>
+          </SectionCard>
+        </div>
+      )}
+
+      {comparison && current.length > 0 && (
+        <SectionCard title="Current vs future" icon={GitCompareArrows} className="mt-4">
+          <DataTable
+            columns={COMPARISON_COLUMNS}
+            rows={comparisonRows(comparison)}
+            rowKey={(r) => r.key}
+          />
+        </SectionCard>
+      )}
+
+      <SectionCard
+        title={`Add a stage to the ${mapLabel}`}
+        icon={Plus}
+        className="mt-4"
+        actions={
+          shown.length > 0 ? (
+            <ResetButton
+              label={view === "current" ? "Clear the current state" : "Clear the future state"}
+              title={`Clear the ${mapLabel}?`}
+              description={`All ${shown.length} of its stages go${
+                view === "current" && future.length > 0 ? "; the future state stays" : ""
+              }. You can undo this for a few seconds.`}
+              confirmLabel="Clear stages"
+              doneLabel={`Cleared the ${mapLabel}`}
+              onReset={resetMap}
+              onUndo={undoReset}
+            />
+          ) : undefined
+        }
+      >
+        <AddStageForm mapLabel={mapLabel} onAdd={add} />
+      </SectionCard>
     </ToolPageWrapper>
   );
 }
