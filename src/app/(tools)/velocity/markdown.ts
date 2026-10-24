@@ -1,4 +1,12 @@
-import { commitmentAccuracy, finishedRows, type VelocityRow } from "./view";
+import { SAY_DO_GRADE_LABEL } from "@/lib/sprints/metrics";
+import { fmt } from "@/lib/sprints/hub-view";
+import {
+  finishedRows,
+  perDayText,
+  velocitySummary,
+  type VelocityRow,
+  type VelocitySummary,
+} from "./view";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -13,13 +21,13 @@ function cell(v: unknown): string {
     .trim();
 }
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
-const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** The say/do column: "Met (97%)" for a finished sprint, else where it stands. */
 function outcome(r: VelocityRow): string {
   if (r.finished && r.completed !== null) {
-    const pct = r.committed > 0 ? ` (${Math.round((r.completed / r.committed) * 100)}%)` : "";
-    return `${r.completed >= r.committed ? "Yes" : "No"}${pct}`;
+    if (!r.sayDo) return "No commitment";
+    return `${SAY_DO_GRADE_LABEL[r.sayDo.grade]} (${r.sayDo.pct}%)`;
   }
   switch (r.status) {
     case "planned":
@@ -35,32 +43,63 @@ function outcome(r: VelocityRow): string {
 
 /**
  * Velocity as Markdown, for a sprint review page or a planning thread: the
- * average and how often the team met its commitment, then every sprint.
- * Like the KPI tiles, only finished sprints count: a planned or running
- * sprint can't have met or missed anything yet.
+ * shared velocity (the last 3 finished sprints by end date), the graded
+ * say/do, the points per person-day, then every sprint. Like the tiles,
+ * only finished sprints count: a planned or running sprint can't have met
+ * or missed anything yet.
  */
-export function toMarkdown(rows: readonly VelocityRow[], now: Date = new Date()): string {
+export function toMarkdown(
+  rows: readonly VelocityRow[],
+  now: Date = new Date(),
+  {
+    summary,
+    verdict,
+  }: {
+    summary?: Pick<VelocitySummary, "velocity" | "sayDo" | "perPersonDay">;
+    verdict?: string;
+  } = {}
+): string {
   const title = `# Velocity — ${mdDate(now)}`;
   if (rows.length === 0) return `${title}\n\nNo sprints yet.\n`;
 
   const finished = finishedRows(rows);
   const lines = [title, ""];
+  if (verdict) lines.push(verdict, "");
   if (finished.length === 0) {
     lines.push("No finished sprints yet.");
   } else {
-    const completed = finished.map((r) => r.completed);
-    const avg = mean(completed);
-    const recent = completed.slice(-3);
-    const sd = Math.sqrt(mean(completed.map((v) => (v - avg) ** 2)));
-    const accuracy = commitmentAccuracy(rows);
-    const n = finished.length;
+    const s =
+      summary ??
+      velocitySummary(
+        finished.map((r) => ({
+          id: r.id,
+          name: r.name,
+          startDate: "",
+          endDate: "",
+          pointsPlanned: r.committed,
+          pointsCompleted: r.completed,
+          status: "completed" as const,
+        }))
+      );
+    const v = s.velocity;
     lines.push(
-      `**Average velocity:** ${round1(avg)} points over ${n} finished sprint${n === 1 ? "" : "s"}` +
-        (n > 3 ? ` (last 3: ${round1(mean(recent))})` : ""),
+      `**Velocity:** ${fmt(v.average ?? 0)} points, the average of the last ${
+        v.count === 1 ? "finished sprint" : plural(v.count, "finished sprint")
+      } by end date`
+    );
+    const sd = s.sayDo;
+    lines.push(
       "",
-      `**Predictability:** ${accuracy.met} of ${accuracy.considered} met their commitment (${Math.round(accuracy.pct)}%)`,
+      sd.count === 0
+        ? "**Say/do:** no finished sprint had a commitment."
+        : `**Say/do:** ${sd.byGrade.met} of ${plural(sd.count, "sprint")} met the commitment (90–110%); ${sd.byGrade.close} close, ${sd.byGrade.missed} missed, ${sd.byGrade.over} over. Mean ${sd.meanSayDoPct}%.`
+    );
+    const pd = s.perPersonDay;
+    lines.push(
       "",
-      `**Spread:** ±${round1(sd)} points (standard deviation)`
+      pd.average === null
+        ? "**Per person-day:** no capacity plan for the last sprints."
+        : `**Per person-day:** ${perDayText(pd.average)} points (${plural(pd.count, "sprint")} with a capacity plan)`
     );
   }
 
@@ -68,11 +107,13 @@ export function toMarkdown(rows: readonly VelocityRow[], now: Date = new Date())
     "",
     "## Sprints",
     "",
-    "| Sprint | Committed | Completed | Met commitment | Goal |",
-    "|---|---:|---:|---|---|",
+    "| Sprint | Committed | Completed | Say/do | Points per person-day | Goal |",
+    "|---|---:|---:|---|---:|---|",
     ...rows.map(
       (r) =>
-        `| ${cell(r.name) || "—"} | ${r.committed} | ${r.completed ?? "—"} | ${outcome(r)} | ${cell(
+        `| ${cell(r.name) || "—"} | ${fmt(r.committed)} | ${
+          r.completed === null ? "—" : fmt(r.completed)
+        } | ${outcome(r)} | ${r.perDay === null ? "—" : perDayText(r.perDay)} | ${cell(
           r.description
         )} |`
     )

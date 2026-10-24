@@ -4,68 +4,99 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import type { Sprint } from "@/lib/stores/workspace-types";
+import { SAY_DO_GRADE_LABEL, type SayDoGrade } from "@/lib/sprints/metrics";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
+import { parseNumber } from "@/lib/utils/form";
 import { cn } from "@/lib/utils";
-import { sprintDates, statusLabel, type VelocityRow } from "./view";
+import { perDayText, shouldOfferClose, sprintDates, statusLabel, type VelocityRow } from "./view";
 
 const numberCls =
   "bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20";
 
+const POINTS_ERROR = "Enter 0 or more points.";
+
+/**
+ * A points draft checked before it is saved: the number, null for a blank
+ * that may be cleared, or the message to show. A negative or non-number is
+ * an error, never clamped or dropped.
+ */
+export function validatePoints(
+  text: string,
+  allowBlank: boolean
+): { ok: true; value: number | null } | { ok: false; error: string } {
+  const n = parseNumber(text);
+  if (n === undefined)
+    return allowBlank ? { ok: true, value: null } : { ok: false, error: POINTS_ERROR };
+  if (!Number.isFinite(n) || n < 0) return { ok: false, error: POINTS_ERROR };
+  return { ok: true, value: n };
+}
+
 /**
  * A points field that doesn't snap mid-edit: it keeps what is typed and
- * commits on blur or Enter, only when the number changed. Negative numbers
- * become 0. Blank clears the value when `allowBlank`, else it reverts.
+ * saves on blur or Enter, only when the number changed. A bad number shows
+ * why under the field and keeps the draft; Escape puts the saved value
+ * back. Blank clears the value when `allowBlank`, else it is an error.
  */
 function PointsCell({
   value,
   onCommit,
   allowBlank = false,
   placeholder,
-  "aria-label": ariaLabel,
+  label,
 }: {
   value: number | null;
   onCommit: (n: number | null) => void;
   allowBlank?: boolean;
   placeholder?: string;
-  "aria-label": string;
+  label: string;
 }) {
   const shown = value === null ? "" : String(value);
   const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(shown);
+    setError(null);
+  }, [shown]);
   const commit = () => {
-    const text = draft.trim();
-    if (text === "") {
-      if (allowBlank && value !== null) onCommit(null);
-      else setDraft(shown);
+    const check = validatePoints(draft, allowBlank);
+    if (!check.ok) {
+      setError(check.error);
       return;
     }
-    const n = Number(text);
-    if (!Number.isFinite(n)) {
-      setDraft(shown);
-      return;
-    }
-    const next = Math.max(0, n);
-    if (next !== value) onCommit(next);
+    setError(null);
+    if (check.value !== value) onCommit(check.value);
     else setDraft(shown);
   };
   return (
-    <Input
-      type="number"
-      inputMode="decimal"
-      min={0}
-      value={draft}
-      placeholder={placeholder}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      className={numberCls}
-      aria-label={ariaLabel}
-    />
+    <Field label={label} hideLabel error={error ?? undefined}>
+      {(control) => (
+        <Input
+          {...control}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          value={draft}
+          placeholder={placeholder}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (error) setError(null);
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              setDraft(shown);
+              setError(null);
+            }
+          }}
+          className={numberCls}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -118,6 +149,14 @@ const STATUS_TONE: Record<Sprint["status"], string> = {
   cancelled: "border-border text-sub line-through",
 };
 
+/** Say/do grades in the status colours (the label says it in words too). */
+export const GRADE_TONE: Record<SayDoGrade, string> = {
+  met: "text-success",
+  close: "text-warning",
+  missed: "text-danger",
+  over: "text-info",
+};
+
 function SprintMeta({ row, sprint }: { row: VelocityRow; sprint: Sprint }) {
   const dates = sprintDates(sprint);
   return (
@@ -130,6 +169,34 @@ function SprintMeta({ row, sprint }: { row: VelocityRow; sprint: Sprint }) {
   );
 }
 
+/** The finished sprint's say/do and points per person-day, under its numbers. */
+function Outcome({ row, linkPlans }: { row: VelocityRow; linkPlans: boolean }) {
+  if (!row.finished) return null;
+  return (
+    <p className="col-span-2 flex flex-wrap gap-x-3 gap-y-1 text-xs sm:order-last sm:col-span-4">
+      {row.sayDo ? (
+        <span className={cn("font-medium", GRADE_TONE[row.sayDo.grade])}>
+          Say/do {row.sayDo.pct}% · {SAY_DO_GRADE_LABEL[row.sayDo.grade]}
+        </span>
+      ) : (
+        <span className="text-sub">No commitment to compare with</span>
+      )}
+      {row.perDay !== null ? (
+        <span className="text-sub">
+          {perDayText(row.perDay)} points per person-day ({row.personDays} person-days)
+        </span>
+      ) : linkPlans ? (
+        <Link
+          href={sprintHref("/capacity-planner", row.id)}
+          className="text-accent underline-offset-2 hover:underline"
+        >
+          Plan its capacity for points per person-day
+        </Link>
+      ) : null}
+    </p>
+  );
+}
+
 export interface SprintRowProps {
   row: VelocityRow;
   sprint: Sprint;
@@ -137,11 +204,14 @@ export interface SprintRowProps {
   selected: boolean;
   /** Example preview: show the numbers, change nothing. */
   readOnly?: boolean;
+  /** YYYY-MM-DD, local. */
+  today: string;
   onRename?: (name: string) => void;
   onGoal?: (goal: string) => void;
   onCommitted?: (n: number) => void;
   onCompleted?: (n: number | null) => void;
-  onMarkDone?: () => void;
+  /** Open the close dialog (carry-over, one Undo). */
+  onRequestClose?: () => void;
   onRemove?: () => void;
 }
 
@@ -151,15 +221,17 @@ export function SprintRow({
   sprint,
   selected,
   readOnly = false,
+  today,
   onRename,
   onGoal,
   onCommitted,
   onCompleted,
-  onMarkDone,
+  onRequestClose,
   onRemove,
 }: SprintRowProps) {
   const label = row.name || "sprint";
   const open = row.status === "planned" || row.status === "active";
+  const ended = shouldOfferClose(sprint, today);
   const undated = sprintDates(sprint) === null;
   const rowCls = cn(
     "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_0.6fr_0.6fr_auto] gap-2 sm:gap-3 sm:items-start rounded-md border p-2 sm:border-0 sm:p-1",
@@ -177,6 +249,7 @@ export function SprintRow({
         <span className="w-9 sm:order-last" aria-hidden="true" />
         <ReadOnlyPoints label="Committed" value={row.committed} />
         <ReadOnlyPoints label="Completed" value={row.completed} />
+        <Outcome row={row} linkPlans={false} />
       </div>
     );
   }
@@ -202,7 +275,7 @@ export function SprintRow({
           <SprintMeta row={row} sprint={sprint} />
           {undated && (
             <Link
-              href={sprintHref("/sprint-metrics", row.id)}
+              href={sprintHref("/sprint", row.id)}
               className="text-xs text-accent underline-offset-2 hover:underline"
             >
               Set dates
@@ -226,7 +299,7 @@ export function SprintRow({
           onCommit={(n) => {
             if (n !== null) onCommitted?.(n);
           }}
-          aria-label={`Committed points for ${label}`}
+          label={`Committed points for ${label}`}
         />
       </div>
       <div className="col-span-2 space-y-1 sm:col-span-1">
@@ -238,24 +311,43 @@ export function SprintRow({
           allowBlank
           placeholder="Not yet"
           onCommit={(n) => onCompleted?.(n)}
-          aria-label={`Completed points for ${label}`}
+          label={`Completed points for ${label}`}
         />
-        {open && row.completed !== null && (
+        {open && ended ? (
           <div className="flex flex-wrap items-center gap-x-2 text-xs text-sub">
-            <span>Counts once the sprint is done.</span>
+            <span>{row.name || "This sprint"} has ended. Close it?</span>
             <Button
               type="button"
               size="sm"
-              variant="ghost"
-              onClick={onMarkDone}
+              variant="outline"
+              onClick={onRequestClose}
               className="h-7 gap-1 px-2 text-xs"
+              aria-label={`Close ${label}`}
             >
               <Check className="h-3.5 w-3.5" aria-hidden="true" />
-              Mark done
+              Close sprint
             </Button>
           </div>
+        ) : (
+          open &&
+          row.completed !== null && (
+            <div className="flex flex-wrap items-center gap-x-2 text-xs text-sub">
+              <span>Counts once the sprint is done.</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={onRequestClose}
+                className="h-7 gap-1 px-2 text-xs"
+              >
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                Mark done
+              </Button>
+            </div>
+          )
         )}
       </div>
+      <Outcome row={row} linkPlans />
     </div>
   );
 }

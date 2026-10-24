@@ -156,9 +156,9 @@ describe("Velocity rows are the shared sprints", () => {
     expect(completed()).toEqual(["28", "33", "", ""]);
     expect(screen.getByRole("textbox", { name: "Goal for Sprint 1" })).toHaveValue("Checkout v1");
 
-    // Only finished sprints count: one of two met its commitment.
-    const note = screen.getByText(/Sprints meeting commitment/);
-    expect(note.textContent?.replace(/\s+/g, " ")).toContain("1 / 2");
+    // Only finished sprints count, graded: 28 of 30 and 33 of 32 both met
+    // it (90–110%).
+    expect(screen.getByText("2 of 2")).toBeInTheDocument();
 
     // A sprint saved elsewhere (another tool, an agent) shows up at once.
     act(() =>
@@ -197,21 +197,33 @@ describe("Velocity rows are the shared sprints", () => {
     expect(sprint("s1")?.name).toBe("Sprint 1");
     expect(first).toHaveValue("Sprint 1");
 
-    // Completed points on a sprint whose end date has passed close it.
+    // Completed points on a sprint whose end date has passed are saved, and
+    // closing it is asked, never done as a side effect of typing.
     commit(screen.getByRole("spinbutton", { name: "Completed points for Sprint 3" }), "29");
-    expect(sprint("s3")).toMatchObject({ pointsCompleted: 29, status: "completed" });
+    expect(sprint("s3")).toMatchObject({ pointsCompleted: 29, status: "planned" });
     expect(history.log).toHaveBeenLastCalledWith("sprint_updated", {
       sprintId: "s3",
       field: "completed",
       value: 29,
-      status: "completed",
     });
+    expect(screen.getByText("Sprint 3 has ended. Close it?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close Sprint 3" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("spinbutton", { name: /Completed points/ })).toHaveValue(29);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close sprint" }));
+    expect(sprint("s3")).toMatchObject({ pointsCompleted: 29, status: "completed" });
+    expect(undo.last?.label).toBe("Closed Sprint 3 with 29 points done");
 
     // A sprint still running keeps its status until the user closes it.
     commit(screen.getByRole("spinbutton", { name: "Completed points for Sprint 4" }), "12");
     expect(sprint("s4")).toMatchObject({ pointsCompleted: 12, status: "active" });
     expect(screen.getByText("Counts once the sprint is done.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Mark done" }));
+    // Mark done asks first, through the same dialog.
+    expect(sprint("s4")?.status).toBe("active");
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Close sprint" })
+    );
     expect(sprint("s4")?.status).toBe("completed");
 
     // Clearing completed points keeps the status and asks nothing.
@@ -225,10 +237,15 @@ describe("Velocity rows are the shared sprints", () => {
 describe("Adding a sprint", () => {
   it("plans the next sprint with its commitment and no completed points", () => {
     renderVelocity();
-    fireEvent.change(screen.getByRole("spinbutton", { name: /Planned commitment/ }), {
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Points to commit/ }), {
       target: { value: "36" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+    // Commit opens the New sprint dialog, prefilled, so nothing is saved unseen.
+    expect(ws().sprints.find((s) => s.name === "Sprint 5")).toBeUndefined();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("spinbutton", { name: /points/i })).toHaveValue(36);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create sprint" }));
 
     const created = ws().sprints.find((s) => s.name === "Sprint 5");
     expect(created).toMatchObject({
@@ -241,7 +258,7 @@ describe("Adding a sprint", () => {
     expect(created?.pointsCompleted).toBeUndefined();
     expect(names()).toEqual(["Sprint 1", "Sprint 2", "Sprint 3", "Sprint 4", "Sprint 5"]);
     expect(history.log).toHaveBeenLastCalledWith(
-      "sprint_added",
+      "next_sprint_planned",
       expect.objectContaining({ sprintId: created?.id, committed: 36 })
     );
   });
@@ -295,9 +312,9 @@ describe("Velocity with no sprints", () => {
   it("previews the example without writing it", () => {
     renderVelocity();
     expect(screen.getByText(/No sprints yet/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "See an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
-    expect(screen.getByText("Example sprints.")).toBeInTheDocument();
+    expect(screen.getByText("Example data.")).toBeInTheDocument();
     expect(screen.getByText("Sprint 5")).toBeInTheDocument();
     // Read-only: nothing to type into, nothing to remove.
     expect(names()).toEqual([]);
@@ -305,7 +322,7 @@ describe("Velocity with no sprints", () => {
     expect(ws().sprints).toEqual([]);
     expect(ws().sprintSeries).toEqual([]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Close example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.getByText(/No sprints yet/)).toBeInTheDocument();
     expect(ws().sprints).toEqual([]);
   });
@@ -321,7 +338,7 @@ describe("Velocity with no sprints", () => {
 });
 
 describe("Sprints without real dates", () => {
-  it("links to Sprint Metrics to set them, and closes on completed points", () => {
+  it("links to the cockpit to set them, and asks before closing", () => {
     useWorkspaceStore.setState({
       sprints: [
         {
@@ -336,11 +353,13 @@ describe("Sprints without real dates", () => {
       sprintSeries: [],
     });
     renderVelocity();
+    // The cockpit's header edits a sprint's details now.
     expect(screen.getByRole("link", { name: "Set dates" })).toHaveAttribute(
       "href",
-      "/sprint-metrics?sprint=legacy-1"
+      "/sprint?sprint=legacy-1"
     );
     commit(screen.getByRole("spinbutton", { name: "Completed points for Sprint 1" }), "27");
-    expect(sprint("legacy-1")).toMatchObject({ pointsCompleted: 27, status: "completed" });
+    expect(sprint("legacy-1")).toMatchObject({ pointsCompleted: 27, status: "planned" });
+    expect(screen.getByText("Sprint 1 has ended. Close it?")).toBeInTheDocument();
   });
 });

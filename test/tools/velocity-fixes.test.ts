@@ -47,7 +47,11 @@ describe("Velocity changepoint markers", () => {
     }
   });
 
-  it("has no markers below four finished sprints", () => {
+  it("has no markers below MIN_SAMPLE.changePoint (8) finished sprints", () => {
     expect(changepointMarkers(finished.slice(0, 3))).toEqual([]);
+    // A jump in the last of seven is still noise, not a regime shift.
+    expect(changepointMarkers([...finished.slice(0, 6), { name: "S7", completed: 60 }])).toEqual(
+      []
+    );
   });
 });
