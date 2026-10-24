@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, type KeyboardEvent, type ReactNode } from "react";
 import { Send } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -26,19 +26,30 @@ export interface YesterdaySuggestion {
 
 const TEXTAREA = "input-toolkit resize-y min-h-[4.5rem]";
 
-/** The update's text fields, shared by the post form and the in-place editor. */
+/**
+ * The update's text fields, shared by the post form and the in-place editor.
+ * Every field is a textarea, where Enter starts a new line, so Ctrl/⌘+Enter
+ * saves instead (as in the tools' other add forms).
+ */
 function TextFields({
   draft,
   update,
   errors,
   suggestion,
+  onSubmit,
 }: {
   draft: EntryDraft;
   update: (patch: Partial<EntryDraft>) => void;
   errors: Partial<Record<EntryField, string>>;
   suggestion?: YesterdaySuggestion | null;
+  onSubmit: () => void;
 }) {
   const suggested = Boolean(suggestion && draft.yesterday.trim() === suggestion.text.trim());
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    onSubmit();
+  };
   return (
     <>
       <Field
@@ -55,6 +66,7 @@ function TextFields({
             {...props}
             value={draft.yesterday}
             onChange={(e) => update({ yesterday: e.target.value })}
+            onKeyDown={onKeyDown}
             placeholder="What did you complete yesterday?"
             maxLength={ENTRY_TEXT_MAX}
             rows={2}
@@ -68,6 +80,7 @@ function TextFields({
             {...props}
             value={draft.today}
             onChange={(e) => update({ today: e.target.value })}
+            onKeyDown={onKeyDown}
             data-entry-field="today"
             placeholder="What will you work on today?"
             maxLength={ENTRY_TEXT_MAX}
@@ -90,6 +103,7 @@ function TextFields({
             {...props}
             value={draft.blockers}
             onChange={(e) => update({ blockers: e.target.value })}
+            onKeyDown={onKeyDown}
             placeholder="Anything in your way?"
             maxLength={ENTRY_TEXT_MAX}
             rows={2}
@@ -107,6 +121,7 @@ function TextFields({
             {...props}
             value={draft.notes}
             onChange={(e) => update({ notes: e.target.value })}
+            onKeyDown={onKeyDown}
             placeholder="e.g. Out from 3 pm"
             maxLength={ENTRY_TEXT_MAX}
             rows={2}
@@ -188,12 +203,21 @@ export function EntryForm({
           )}
         </Field>
       </div>
-      <TextFields draft={draft} update={update} errors={errors} suggestion={suggestion} />
+      <TextFields
+        draft={draft}
+        update={update}
+        errors={errors}
+        suggestion={suggestion}
+        onSubmit={() => form.submit()}
+      />
     </ItemForm>
   );
 }
 
-/** Edit an entry in place: its text, not who or which day. Enter saves, Escape cancels. */
+/**
+ * Edit an entry in place: its text, not who or which day. Ctrl/⌘+Enter
+ * (or Save) saves, Escape cancels.
+ */
 export function EntryEditor({
   entry,
   today,
@@ -218,8 +242,18 @@ export function EntryEditor({
     formRef.current?.querySelector<HTMLElement>("textarea")?.focus();
   }, [formRef]);
   return (
-    <ItemForm form={form} submitLabel="Save" onCancel={onCancel}>
-      <TextFields draft={form.draft} update={form.update} errors={form.errors} />
+    <ItemForm
+      form={form}
+      submitLabel="Save"
+      onCancel={onCancel}
+      footer={<span className="text-xs text-sub">Ctrl/⌘+Enter saves, Esc cancels.</span>}
+    >
+      <TextFields
+        draft={form.draft}
+        update={form.update}
+        errors={form.errors}
+        onSubmit={() => form.submit()}
+      />
     </ItemForm>
   );
 }

@@ -26,6 +26,13 @@ export interface Walk {
   skipped: string[];
   /** Length of each turn, in seconds. */
   turnSeconds: number;
+  /**
+   * What the facilitator picked for each turn: a fixed length, or "auto"
+   * (the Daily Scrum shared out among who's in). Kept with the walk so it
+   * holds when they open the board and come back; absent, the walk keeps
+   * its `turnSeconds`.
+   */
+  turnChoice?: number | "auto";
   /** Epoch ms the current turn ends while the clock runs; null while paused. */
   endsAt: number | null;
   /** Seconds left (negative once over) while paused. */
@@ -66,7 +73,8 @@ export function startWalk(
   order: readonly string[],
   date: string,
   turnSeconds: number,
-  now: number
+  now: number,
+  turnChoice?: number | "auto"
 ): Walk {
   const base: Walk = {
     date,
@@ -74,6 +82,7 @@ export function startWalk(
     spoken: [],
     skipped: [],
     turnSeconds,
+    ...(turnChoice !== undefined ? { turnChoice } : {}),
     endsAt: null,
     pausedRemaining: 0,
   };
@@ -105,6 +114,21 @@ export function skipSpeaker(walk: Walk, order: readonly string[], now: number): 
   };
   const next = nextInLine(order, moved, walk.current);
   return next ? withTurn(moved, next, now) : walk;
+}
+
+/**
+ * The speaker turns out not to be in today's standup (on another call):
+ * on to the next in line, without counting a turn for them.
+ */
+export function dropSpeaker(walk: Walk, order: readonly string[], now: number): Walk {
+  if (!walk.current) return walk;
+  const key = personKey(walk.current);
+  const moved: Walk = {
+    ...walk,
+    spoken: walk.spoken.filter((k) => k !== key),
+    skipped: walk.skipped.filter((k) => k !== key),
+  };
+  return withTurn(moved, nextInLine(order, moved, walk.current), now);
 }
 
 /** Give `name` the floor now (out of order, or a second turn). */
@@ -194,12 +218,34 @@ export function publishTurn(walk: Walk | null): void {
 /**
  * The walk with the docked clock's state: pausing or resuming from the
  * dock on another page should hold when the facilitator comes back.
+ *
+ * A dock paused at 0:00 was not paused by anyone: the shell's DockedTimer
+ * (mounted on every page, this one included) stops its own clock when the
+ * time is up. The walk's turn keeps running then, so its overtime still
+ * counts when the facilitator is back.
  */
 export function withDockState(walk: Walk, timer: DockedTimer | null): Walk {
   if (!walk.current || !timer || timer.href !== STANDUP_PATH) return walk;
   if (timer.endsAt === null && walk.endsAt !== null) {
+    if (timer.pausedRemaining <= 0) return walk;
     return { ...walk, endsAt: null, pausedRemaining: timer.pausedRemaining };
   }
   if (timer.endsAt !== null && walk.endsAt === null) return { ...walk, endsAt: timer.endsAt };
   return walk;
+}
+
+/** Whether the docked clock is the walk's (the dock then says "time's up" itself). */
+export function dockIsStandup(): boolean {
+  return useDockTimer.getState().timer?.href === STANDUP_PATH;
+}
+
+/**
+ * Stop a docked "Standup: Bo" clock with no walk behind it. The walk lives
+ * in memory and the docked clock in sessionStorage, so a reload mid-walk
+ * (or a new day) left a pill on every page that opened a standup with no
+ * turn running.
+ */
+export function stopOrphanedTurn(walk: Walk | null, today: string): void {
+  if (walk && walk.date === today && walk.current) return;
+  if (dockIsStandup()) useDockTimer.getState().stop();
 }

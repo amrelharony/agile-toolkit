@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Calendar, Mail, Mic } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -170,11 +170,17 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
   const [suggestion, setSuggestion] = useState<YesterdaySuggestion | null>(null);
   const [pending, setPending] = useState<EntryValues | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  // Who "Post for" picked in async mode. With the speaker mid-walk in live
+  // mode, it's who the form should be for next.
+  const [postingFor, setPostingFor] = useState<string | null>(null);
+  const wanted = isAsync ? postingFor : speaker;
   const form = useEntryForm(
     () => emptyDraft(todayLocalISO()),
     today,
     (values) => post(values)
   );
+  const focusToday = () =>
+    form.formRef.current?.querySelector<HTMLElement>('[data-entry-field="today"]')?.focus();
 
   /** What `member` said they'd do the last time before `date`. */
   const suggestFor = (member: string, date: string): YesterdaySuggestion | null => {
@@ -196,15 +202,55 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     form.reset({ ...emptyDraft(today, member), yesterday: next?.text ?? "" });
     setSuggestion(next);
   };
+  // "Post for" starts that person's update for today. Notes already typed
+  // for someone else are never handed to them: the banner above the form
+  // asks first ("These notes are for Ana. Save them, or start Bo's").
   const postFor = (member: string) => {
-    choose(member, form.draft.date || today);
-    form.formRef.current?.querySelector<HTMLElement>('[data-entry-field="today"]')?.focus();
+    setPostingFor(member);
+    const typedFor = form.draft.member.trim();
+    if (isPristine(form.draft, suggestion)) fillFor(member);
+    else if (!typedFor) choose(member, today);
+    else if (personKey(typedFor) !== personKey(member)) return;
+    focusToday();
+  };
+
+  // The old async tool posted a fresh row on every post, so a person can
+  // have more than one for a day. Replacing them writes the one entry and
+  // drops the extra rows, with Undo.
+  const replaceAll = (entry: StandupEntry, extras: readonly StandupEntry[]) => {
+    const s = useWorkspaceStore.getState();
+    const ids = new Set(extras.map((e) => e.id));
+    const before = (s.standupEntries ?? []).find((e) => e.id === entry.id);
+    const extraEntries = (s.standupEntries ?? []).filter((e) => ids.has(e.id));
+    const extraUpdates = (s.asyncUpdates ?? []).filter((u) => ids.has(u.id));
+    undoable({
+      label: `Replaced ${extras.length + 1} updates from ${shortName(entry.member)} with one`,
+      apply: () => {
+        const st = useWorkspaceStore.getState();
+        st.upsertStandupEntry(entry);
+        for (const e of extraEntries) st.removeStandupEntry(e.id);
+        for (const u of extraUpdates) st.removeAsyncUpdate(u.id);
+      },
+      revert: () => {
+        const st = useWorkspaceStore.getState();
+        // An old async update replaced under its own id shows again.
+        if (before) st.upsertStandupEntry(before);
+        else st.removeStandupEntry(entry.id);
+        for (const e of extraEntries) st.upsertStandupEntry(e);
+        for (const u of extraUpdates) st.upsertAsyncUpdate(u);
+      },
+    });
   };
 
   function commitPost(values: EntryValues) {
-    const existing = entryFor(currentEntries(), values.member, values.date);
+    const all = currentEntries();
+    const existing = entryFor(all, values.member, values.date);
     const entry = postedEntry(values, mode, existing, Date.now());
-    upsertStandupEntry(entry);
+    const extras = existing
+      ? all.filter((e) => e.id !== existing.id && dayKey(e) === dayKey(existing))
+      : [];
+    if (extras.length > 0) replaceAll(entry, extras);
+    else upsertStandupEntry(entry);
     if (isAsync) {
       log(ASYNC_STANDUP_ACTIONS.UPDATE_POSTED, {
         updateId: entry.id,
@@ -221,11 +267,13 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
       });
     }
     announce(`${existing ? "Replaced" : "Posted"} ${entry.member}'s update`);
-    // Mid-walk, the form moves on to whoever has the floor now.
-    if (!isAsync && speaker && personKey(speaker) !== personKey(entry.member)) fillFor(speaker);
+    // The form moves on to whoever it's wanted for now: the speaker
+    // mid-walk, or the person "Post for" picked.
+    if (wanted && personKey(wanted) !== personKey(entry.member)) fillFor(wanted);
     else {
       form.reset(emptyDraft(today));
       setSuggestion(null);
+      setPostingFor(null);
     }
   }
 
@@ -263,6 +311,13 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     const s = useWorkspaceStore.getState();
     const saved = (s.standupEntries ?? []).find((e) => e.id === entry.id);
     const update = (s.asyncUpdates ?? []).find((u) => u.id === entry.id);
+    // What that person had for the day when it went (an old async row can
+    // be one of two), so Undo can tell a post made since.
+    const sameDay = new Set(
+      allStandupEntries(s.standupEntries, s.asyncUpdates)
+        .filter((e) => dayKey(e) === dayKey(entry))
+        .map((e) => e.id)
+    );
     if (editingId === entry.id) setEditingId(null);
     undoable({
       label: `Deleted ${shortName(entry.member)}'s update`,
@@ -281,6 +336,13 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
         }
       },
       revert: () => {
+        // One entry per person per day: a post made since the delete wins.
+        if (currentEntries().some((e) => dayKey(e) === dayKey(entry) && !sameDay.has(e.id))) {
+          toast(
+            `${shortName(entry.member)} posted again since, so the deleted update wasn't put back`
+          );
+          return;
+        }
         const st = useWorkspaceStore.getState();
         if (saved) st.upsertStandupEntry(saved);
         if (update) st.upsertAsyncUpdate(update);
@@ -317,10 +379,14 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
 
   /* -- Clear everything (confirm, then Undo) ------------------------------ */
 
-  const clearedRef = useRef<{ entries: StandupEntry[]; updates: AsyncUpdate[] } | null>(null);
+  // Each clear's Undo puts back what that clear took. The snapshot lives in
+  // this render's closures, not a shared ref: a clear empties the store,
+  // which always draws the page again, so a second clear inside the first
+  // one's Undo window gets its own (and the first toast still has its own).
+  let cleared: { entries: StandupEntry[]; updates: AsyncUpdate[] } | null = null;
   const clearAll = () => {
     const s = useWorkspaceStore.getState();
-    clearedRef.current = { entries: s.standupEntries ?? [], updates: s.asyncUpdates ?? [] };
+    cleared = { entries: s.standupEntries ?? [], updates: s.asyncUpdates ?? [] };
     useWorkspaceStore.setState({ standupEntries: [], asyncUpdates: [] });
     setEditingId(null);
     log(isAsync ? ASYNC_STANDUP_ACTIONS.ASYNC_STANDUP_RESET : STANDUP_ACTIONS.STANDUP_RESET, {});
@@ -328,8 +394,8 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
   // Entries posted since the clear are kept, and win over a restored entry
   // for the same person and day (one entry per person per day).
   const restoreAll = () => {
-    const cleared = clearedRef.current;
     if (!cleared) return;
+    const snapshot = cleared;
     useWorkspaceStore.setState((s) => {
       const nowEntries = s.standupEntries ?? [];
       const nowUpdates = s.asyncUpdates ?? [];
@@ -338,8 +404,8 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
       const back = <T extends Pick<StandupEntry, "id" | "date" | "member">>(list: T[]) =>
         list.filter((x) => !taken.has(dayKey(x)) && !ids.has(x.id));
       return {
-        standupEntries: [...back(cleared.entries), ...nowEntries],
-        asyncUpdates: [...back(cleared.updates), ...nowUpdates],
+        standupEntries: [...back(snapshot.entries), ...nowEntries],
+        asyncUpdates: [...back(snapshot.updates), ...nowUpdates],
       };
     });
   };
@@ -449,26 +515,36 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
   const onTurn = (name: string | null) => {
     if (name && isPristine(form.draft, suggestion)) fillFor(name);
   };
+  // Notes typed for someone other than who the form is wanted for (the
+  // speaker, or who "Post for" picked): ask, never hand them over.
   const otherNotes = Boolean(
-    !isAsync &&
-    speaker &&
+    wanted &&
     !pristine &&
     form.draft.member.trim() &&
-    personKey(form.draft.member) !== personKey(speaker)
+    personKey(form.draft.member) !== personKey(wanted)
   );
 
   const entryForm = (
     <>
-      {otherNotes && speaker && (
+      {otherNotes && wanted && (
         <div
           role="status"
           className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-text"
         >
           <span className="min-w-0 flex-1">
-            These notes are for {form.draft.member}. Save them, or start {speaker}&apos;s.
+            These notes are for {form.draft.member}. Save them, or start {wanted}&apos;s.
           </span>
-          <Button type="button" size="sm" variant="ghost" onClick={() => fillFor(speaker)}>
-            Start {speaker}&apos;s notes
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              fillFor(wanted);
+              // The banner (and this button) go: carry on in their update.
+              focusToday();
+            }}
+          >
+            Start {wanted}&apos;s notes
           </Button>
         </div>
       )}
@@ -477,7 +553,11 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
         today={today}
         submitLabel={isAsync ? "Post update" : "Submit Standup"}
         suggestion={suggestion}
-        onMemberChange={(name) => choose(name, form.draft.date || today)}
+        onMemberChange={(name) => {
+          // Picking someone by hand is an answer to "Post for" too.
+          setPostingFor(null);
+          choose(name, form.draft.date || today);
+        }}
         onDateChange={(date) => choose(form.draft.member, date)}
       />
     </>
@@ -485,6 +565,8 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
 
   const n = entries.length;
   const nEntries = `${n} standup ${n === 1 ? "entry" : "entries"}`;
+  // Rows the pending post would replace (more than one from the old async tool).
+  const replacing = pending ? entries.filter((e) => dayKey(e) === dayKey(pending)).length : 0;
 
   return (
     <ToolPageWrapper
@@ -526,12 +608,15 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
               disabled={n === 0}
             />
             <AiPromptGenerator config={promptConfig} />
-            <ExportButton
-              filename="standup-all"
-              csvData={csvData}
-              clipboardText={weekly}
-              markdown={markdown}
-            />
+            {/* Named apart from the digests' own Export menus below. */}
+            <div role="group" aria-label="All entries" className="flex">
+              <ExportButton
+                filename="standup-all"
+                csvData={csvData}
+                clipboardText={weekly}
+                markdown={markdown}
+              />
+            </div>
           </div>
         </div>
 
@@ -636,9 +721,15 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
         open={replaceOpen}
         onOpenChange={setReplaceOpen}
         title={`Replace ${pending?.member ?? ""}'s standup?`}
-        description={`${pending?.member ?? "This member"} already submitted a standup for ${
-          pending?.date ?? "today"
-        }. Submitting again replaces that entry.`}
+        description={
+          replacing > 1
+            ? `${pending?.member ?? "This member"} already has ${replacing} updates for ${
+                pending?.date ?? "today"
+              }. Submitting again replaces them with this one.`
+            : `${pending?.member ?? "This member"} already submitted a standup for ${
+                pending?.date ?? "today"
+              }. Submitting again replaces that entry.`
+        }
         confirmLabel="Replace entry"
         onConfirm={() => {
           if (pending) commitPost(pending);

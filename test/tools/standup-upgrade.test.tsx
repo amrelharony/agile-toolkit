@@ -15,7 +15,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { addDays } from "@/lib/impediments/model";
 import { fromAsyncUpdate } from "@/lib/standup/entries";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
-import { useDockTimer } from "@/lib/timer/dock-timer";
+import { useDockTimer, type DockedTimer } from "@/lib/timer/dock-timer";
 
 /**
  * Standup + Async standup, merged in Phase 3 (Run the sprint): one entity
@@ -88,6 +88,7 @@ import {
 } from "@/app/(tools)/standup/model";
 import {
   autoTurnSeconds,
+  dropSpeaker,
   nextInLine,
   nextSpeaker,
   pauseTurn,
@@ -95,10 +96,12 @@ import {
   resumeTurn,
   skipSpeaker,
   startWalk,
+  stopOrphanedTurn,
   takeTurn,
   turnClock,
   turnRemaining,
   turnState,
+  useStandupWalk,
   withDockState,
 } from "@/app/(tools)/standup/walk";
 import { participationText } from "@/app/(tools)/standup/participation-chart";
@@ -420,6 +423,58 @@ describe("the live walk", () => {
     expect(withDockState(w, docked)).toMatchObject({ endsAt: null, pausedRemaining: 25 });
     expect(withDockState(w, { ...docked, href: "/ceremony-timer" })).toBe(w);
     expect(withDockState(w, null)).toBe(w);
+  });
+
+  const dock = (over: Partial<DockedTimer> = {}): DockedTimer => ({
+    label: "Standup: Alice",
+    href: "/standup",
+    totalSeconds: 60,
+    endsAt: null,
+    pausedRemaining: 0,
+    ...over,
+  });
+
+  it("keeps counting overtime when the dock stopped its own clock at 0:00", () => {
+    const w = startWalk(order, TODAY, 60, 0);
+    // The shell's DockedTimer pauses itself at zero, on every page.
+    expect(withDockState(w, dock())).toBe(w);
+    expect(turnRemaining(withDockState(w, dock()), 90_000)).toBe(-30);
+    expect(withDockState(w, dock({ pausedRemaining: 12 }))).toMatchObject({
+      endsAt: null,
+      pausedRemaining: 12,
+    });
+  });
+
+  it("hands the floor on when the speaker is out today, without counting a turn", () => {
+    let w = skipSpeaker(startWalk(order, TODAY, 60, 0), order, 0); // Bo speaking
+    w = dropSpeaker(w, ["Alice", "Cy"], 5000);
+    expect(w).toMatchObject({ current: "Cy", spoken: [], skipped: ["alice"], endsAt: 65_000 });
+    w = dropSpeaker(w, ["Alice"], 6000);
+    expect(w.current).toBe("Alice");
+    expect(dropSpeaker(w, [], 7000).current).toBeNull();
+    const done = { ...w, current: null };
+    expect(dropSpeaker(done, order, 0)).toBe(done);
+  });
+
+  it("remembers the turn length picked, and stops a docked turn with no walk behind it", () => {
+    expect(startWalk(order, TODAY, 60, 0, 60).turnChoice).toBe(60);
+    expect(startWalk(order, TODAY, 180, 0, "auto").turnChoice).toBe("auto");
+    expect("turnChoice" in startWalk(order, TODAY, 60, 0)).toBe(false);
+
+    useDockTimer.setState({ timer: dock() });
+    stopOrphanedTurn(null, TODAY);
+    expect(useDockTimer.getState().timer).toBeNull();
+    useDockTimer.setState({ timer: dock() });
+    stopOrphanedTurn(startWalk(order, day(-1), 60, 0), TODAY);
+    expect(useDockTimer.getState().timer).toBeNull();
+
+    useDockTimer.setState({ timer: dock() });
+    stopOrphanedTurn(startWalk(order, TODAY, 60, 0), TODAY);
+    expect(useDockTimer.getState().timer).not.toBeNull();
+    const retro = dock({ label: "Retro", href: "/ceremony-timer" });
+    useDockTimer.setState({ timer: retro });
+    stopOrphanedTurn(null, TODAY);
+    expect(useDockTimer.getState().timer).toEqual(retro);
   });
 });
 
@@ -821,7 +876,7 @@ describe("async mode", () => {
 
   it("posts an async entry for someone from the list", () => {
     renderStandup("async");
-    fireEvent.click(screen.getByRole("button", { name: "Post an update for Cy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post for Cy" }));
     expect(memberInput()).toHaveValue("Cy");
     expect(todayInput()).toHaveFocus();
     fireEvent.change(todayInput(), { target: { value: "Write the digest" } });
@@ -933,13 +988,13 @@ describe("blockers across both modes", () => {
     expect(screen.getByText("3 days old")).toBeInTheDocument();
     expect(screen.getByText("Raised today")).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Resolve" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Resolve Alice's blocker" }));
     expect(byId("e1")?.blockerResolved).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Reopen Alice's blocker" }));
     expect(byId("e1")?.blockerResolved).toBeUndefined();
 
     // Resolving an old update writes an entry under its id.
-    fireEvent.click(screen.getAllByRole("button", { name: "Resolve" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Resolve Bo's blocker" }));
     expect(byId("au1")).toMatchObject({ mode: "async", blockerResolved: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Clear Entries" }));
@@ -954,5 +1009,393 @@ describe("blockers across both modes", () => {
         .sort()
     ).toEqual(["au1", "e1"]);
     expect(ws().asyncUpdates).toEqual([LEGACY]);
+  });
+
+  it("counts every open blocker on the Today tab, as the verdict does", () => {
+    useWorkspaceStore.setState({
+      teamMembers: [{ id: "m1", name: "Alice" }],
+      standupEntries: [
+        entry("e1", "Alice", { blockers: "Waiting on the DBA" }, day(-3)),
+        entry("e2", "Alice", { blockers: "Fixed", blockerResolved: true }, day(-1)),
+      ],
+    });
+    renderStandup();
+    expect(
+      screen.getByText("Nobody has posted yet; 1 open blocker, 3 days old.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Open blockers").previousSibling).toHaveTextContent("1");
+  });
+
+  it("keeps focus with a blocker as it is resolved and reopened", async () => {
+    useWorkspaceStore.setState({
+      standupEntries: [entry("e1", "Alice", { blockers: "Keys" }), entry("e2", "Bo")],
+    });
+    renderStandup();
+    // On the card.
+    fireEvent.click(screen.getByRole("button", { name: "Mark resolved: Alice's blocker" }));
+    const reopen = () => screen.getByRole("button", { name: "Reopen Alice's blocker" });
+    await waitFor(() => expect(reopen()).toHaveFocus());
+    fireEvent.click(reopen());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Mark resolved: Alice's blocker" })).toHaveFocus()
+    );
+    // In the Blockers tab, where it moves between the lists.
+    openTab(/Blockers/);
+    fireEvent.click(screen.getByRole("button", { name: "Resolve Alice's blocker" }));
+    await waitFor(() => expect(reopen()).toHaveFocus());
+    fireEvent.click(reopen());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Resolve Alice's blocker" })).toHaveFocus()
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Review fixes                                                              */
+/* -------------------------------------------------------------------------- */
+
+describe("live mode: the walk across leaving the page", () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      teamMembers: [
+        { id: "m1", name: "Alice" },
+        { id: "m2", name: "Bo" },
+        { id: "m3", name: "Cy" },
+      ],
+      sprints: [SPRINT],
+      stories: STORIES,
+    });
+  });
+
+  it("keeps the turn length picked", () => {
+    const view = renderStandup();
+    fireEvent.change(screen.getByLabelText("Each turn"), { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start the standup" }));
+    expect(useDockTimer.getState().timer?.totalSeconds).toBe(60);
+    view.unmount();
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Next speaker" }));
+    // Auto would be 3:00 for three people.
+    expect(useDockTimer.getState().timer).toMatchObject({ label: "Standup: Bo", totalSeconds: 60 });
+    expect(screen.getByRole("timer")).toHaveAccessibleName("1:00 left");
+  });
+
+  it("is still counting overtime on return, and leaves time's up to the docked timer", async () => {
+    const view = renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Start the standup" }));
+    view.unmount();
+    // Ninety seconds over, and the shell's DockedTimer paused itself at 0:00.
+    const w = useStandupWalk.getState().walk!;
+    const docked = useDockTimer.getState().timer!;
+    useStandupWalk.setState({ walk: { ...w, endsAt: Date.now() - 90_000 } });
+    useDockTimer.setState({ timer: { ...docked, endsAt: null, pausedRemaining: 0 } });
+    renderStandup();
+    expect(screen.getByRole("timer")).toHaveAccessibleName("Time's up, 1:30 over");
+    expect(screen.getByRole("button", { name: "Pause the turn" })).toBeInTheDocument();
+    await act(() => new Promise((r) => setTimeout(r, 80)));
+    // The DockedTimer (on every page) says it; the walk doesn't say it again.
+    expect(screen.getByTestId("live-assertive")).toHaveTextContent("");
+  });
+
+  it("says time's up itself while another page holds the docked timer", async () => {
+    const retro = {
+      label: "Retro",
+      href: "/ceremony-timer",
+      totalSeconds: 600,
+      endsAt: Date.now() + 600_000,
+      pausedRemaining: 600,
+    };
+    useDockTimer.setState({ timer: retro });
+    useStandupWalk.setState({
+      walk: startWalk(["Alice", "Bo", "Cy"], TODAY, 60, Date.now() - 61_000),
+    });
+    renderStandup();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-assertive")).toHaveTextContent("Time's up for Alice")
+    );
+    expect(useDockTimer.getState().timer).toEqual(retro);
+  });
+
+  it("lets go of a docked turn clock with no walk behind it (after a reload)", () => {
+    useDockTimer.setState({
+      timer: {
+        label: "Standup: Bo",
+        href: "/standup",
+        totalSeconds: 60,
+        endsAt: Date.now() + 30_000,
+        pausedRemaining: 60,
+      },
+    });
+    renderStandup();
+    expect(useDockTimer.getState().timer).toBeNull();
+    expect(screen.getByRole("button", { name: "Start the standup" })).toBeInTheDocument();
+  });
+
+  it("hands the floor on when the speaker is marked out of today's standup", async () => {
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Start the standup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Not in today's standup: Alice" }));
+    expect(screen.getByText(/Speaking now · turn 1 of 2/).nextSibling).toHaveTextContent("Bo");
+    expect(useDockTimer.getState().timer?.label).toBe("Standup: Bo");
+    expect(ws().teamMembers).toHaveLength(3);
+    await waitFor(() => expect(announced()).toBe("Alice is out of today's standup. Bo's turn"));
+    expect(screen.getByRole("button", { name: "Next speaker" })).toHaveFocus();
+  });
+
+  it("says when the turns add up to more than the Daily Scrum", () => {
+    renderStandup();
+    expect(screen.getByText(/3 people, about/).textContent).toBe(
+      "3 people, about 3:00 each in a 15-minute Daily Scrum. Each person talks to their own cards on the board."
+    );
+    useWorkspaceStore.setState({
+      teamMembers: ["A", "B", "C", "D", "E", "F"].map((name, i) => ({ id: `m${i}`, name })),
+    });
+    fireEvent.change(screen.getByLabelText("Each turn"), { target: { value: "180" } });
+    expect(screen.getByText(/6 people at/).textContent).toBe(
+      "6 people at 3:00 each: about 18 minutes, over the 15-minute Daily Scrum. Each person talks to their own cards on the board."
+    );
+  });
+
+  it("keeps focus on the walk's controls as they change", async () => {
+    renderStandup();
+    const button = (name: string) => screen.getByRole("button", { name });
+    fireEvent.click(button("Start the standup"));
+    await waitFor(() => expect(button("Next speaker")).toHaveFocus());
+    fireEvent.click(button("Give Cy the floor"));
+    await waitFor(() => expect(button("Next speaker")).toHaveFocus());
+    fireEvent.click(button("Next speaker")); // Cy, then Alice
+    fireEvent.click(button("Next speaker")); // then Bo
+    fireEvent.click(button("Next speaker"));
+    await waitFor(() => expect(button("End standup")).toHaveFocus());
+    fireEvent.click(button("End standup"));
+    await waitFor(() => expect(button("Start the standup")).toHaveFocus());
+  });
+
+  it("moves focus along the order as people are marked out, and back in", async () => {
+    renderStandup();
+    const away = (name: string) =>
+      screen.getByRole("button", { name: `Not in today's standup: ${name}` });
+    fireEvent.click(away("Bo"));
+    await waitFor(() => expect(away("Cy")).toHaveFocus());
+    fireEvent.click(away("Cy"));
+    await waitFor(() => expect(away("Alice")).toHaveFocus());
+    fireEvent.click(away("Alice"));
+    // Nobody left to call on: their "Back in".
+    const backIn = screen.getByRole("button", { name: "Back in today's standup: Alice" });
+    await waitFor(() => expect(backIn).toHaveFocus());
+    fireEvent.click(backIn);
+    await waitFor(() => expect(away("Alice")).toHaveFocus());
+  });
+});
+
+describe("editing and deleting in place", () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      teamMembers: [
+        { id: "m1", name: "Alice" },
+        { id: "m2", name: "Bo" },
+      ],
+      standupEntries: [entry("a", "Alice", { timestamp: 1 }), entry("b", "Bo", { timestamp: 2 })],
+    });
+  });
+
+  it("saves with Ctrl+Enter or ⌘+Enter (Enter is a new line), back on Edit", async () => {
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Alice's update" }));
+    const editor = card("Alice");
+    expect(within(editor).getByText("Ctrl/⌘+Enter saves, Esc cancels.")).toBeInTheDocument();
+    const field = within(editor).getByLabelText(/^Today/);
+    fireEvent.change(field, { target: { value: "Edited" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(byId("a")?.today).toBe("t");
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
+    expect(byId("a")?.today).toBe("Edited");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Alice's update" })).toHaveFocus()
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Bo's update" }));
+    const notes = within(card("Bo")).getByLabelText("Notes");
+    fireEvent.change(notes, { target: { value: "From a Mac" } });
+    fireEvent.keyDown(notes, { key: "Enter", metaKey: true });
+    expect(byId("b")?.description).toBe("From a Mac");
+  });
+
+  it("cancels with Escape, back on Edit", async () => {
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Bo's update" }));
+    fireEvent.keyDown(within(card("Bo")).getByLabelText("Yesterday"), { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Bo's update" })).toHaveFocus()
+    );
+  });
+
+  it("posts from the form with Ctrl+Enter", () => {
+    renderStandup();
+    fireEvent.change(memberInput(), { target: { value: "Cy" } });
+    fireEvent.change(todayInput(), { target: { value: "Ship it" } });
+    fireEvent.keyDown(todayInput(), { key: "Enter", ctrlKey: true });
+    expect(stored().find((e) => e.member === "Cy")).toMatchObject({ today: "Ship it" });
+  });
+
+  it("moves focus to the next card when one is deleted, then to the tab", () => {
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Alice's update" }));
+    expect(card("Bo")).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Bo's update" }));
+    expect(screen.getByRole("tabpanel", { name: "Today" })).toHaveFocus();
+  });
+});
+
+describe("async mode: Post for, old duplicates and Undo", () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      teamMembers: [
+        { id: "m1", name: "Alice" },
+        { id: "m2", name: "Bo" },
+        { id: "m3", name: "Cy" },
+      ],
+    });
+  });
+
+  it("never hands notes typed for someone else to the person picked", () => {
+    renderStandup("async");
+    fireEvent.change(memberInput(), { target: { value: "Alice" } });
+    fireEvent.change(todayInput(), { target: { value: "Alice's plan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post for Cy" }));
+    expect(memberInput()).toHaveValue("Alice");
+    expect(todayInput()).toHaveValue("Alice's plan");
+    expect(screen.getByText("These notes are for Alice. Save them, or start Cy's.")).toBeVisible();
+
+    // Saving Alice's moves the form on to Cy.
+    fireEvent.click(screen.getByRole("button", { name: "Post update" }));
+    expect(stored().find((e) => e.member === "Alice")?.today).toBe("Alice's plan");
+    expect(memberInput()).toHaveValue("Cy");
+    expect(todayInput()).toHaveValue("");
+    expect(screen.queryByText(/These notes are for/)).toBeNull();
+  });
+
+  it("starts the picked person's notes from the banner", () => {
+    renderStandup("async");
+    fireEvent.change(memberInput(), { target: { value: "Alice" } });
+    fireEvent.change(todayInput(), { target: { value: "Alice's plan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post for Cy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start Cy's notes" }));
+    expect(memberInput()).toHaveValue("Cy");
+    expect(todayInput()).toHaveValue("");
+    expect(todayInput()).toHaveFocus();
+    expect(screen.queryByText(/These notes are for/)).toBeNull();
+  });
+
+  it("starts a fresh update for today, even from a backdated empty draft", () => {
+    useWorkspaceStore.setState({
+      standupEntries: [entry("p", "Cy", { today: "Write tests" }, day(-1))],
+    });
+    renderStandup("async");
+    fireEvent.change(screen.getByLabelText("Day"), { target: { value: day(-3) } });
+    fireEvent.click(screen.getByRole("button", { name: "Post for Cy" }));
+    expect(memberInput()).toHaveValue("Cy");
+    expect(screen.getByLabelText("Day")).toHaveValue(TODAY);
+    expect(yesterdayInput()).toHaveValue("Write tests");
+    expect(todayInput()).toHaveFocus();
+  });
+
+  it("counts people, and replaces all of a person's old updates for the day with one", () => {
+    const second: AsyncUpdate = {
+      id: "au2",
+      member: "bo",
+      date: TODAY,
+      yesterday: "",
+      today: "Second post",
+    };
+    useWorkspaceStore.setState({ asyncUpdates: [LEGACY, second] });
+    renderStandup("async");
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(screen.getByText("Posted").previousSibling).toHaveTextContent("1");
+
+    fireEvent.change(memberInput(), { target: { value: "Bo" } });
+    fireEvent.change(todayInput(), { target: { value: "One plan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post update" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      `Bo already has 2 updates for ${TODAY}. Submitting again replaces them with this one.`
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Replace entry" }));
+    expect(stored()).toEqual([
+      expect.objectContaining({ id: "au1", today: "One plan", mode: "async" }),
+    ]);
+    expect(ws().asyncUpdates).toEqual([LEGACY]);
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Replaced 2 updates from Bo with one");
+
+    undoLast();
+    expect(stored()).toEqual([]);
+    expect(ws().asyncUpdates).toEqual([LEGACY, second]);
+  });
+
+  it("won't undo a delete over an update posted since", () => {
+    useWorkspaceStore.setState({ standupEntries: [entry("a", "Alice")] });
+    renderStandup("async");
+    fireEvent.click(screen.getByRole("button", { name: "Delete Alice's update" }));
+    const undoDelete = toastSpy.mock.calls.at(-1)?.[1];
+    fireEvent.click(screen.getByRole("button", { name: "Post for Alice" }));
+    fireEvent.change(todayInput(), { target: { value: "Posted again" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post update" }));
+
+    act(() => undoDelete?.action?.onClick());
+    expect(stored().filter((e) => e.member === "Alice")).toEqual([
+      expect.objectContaining({ today: "Posted again" }),
+    ]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe(
+      "Alice posted again since, so the deleted update wasn't put back"
+    );
+  });
+
+  it("gives each Clear Entries its own Undo", () => {
+    useWorkspaceStore.setState({ standupEntries: [entry("a", "Alice")], asyncUpdates: [LEGACY] });
+    renderStandup("async");
+    const clear = () => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear Entries" }));
+      fireEvent.click(screen.getByRole("button", { name: "Delete entries" }));
+      return toastSpy.mock.calls.at(-1)?.[1];
+    };
+    const first = clear();
+    fireEvent.click(screen.getByRole("button", { name: "Post for Cy" }));
+    fireEvent.change(todayInput(), { target: { value: "After the clear" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post update" }));
+    const second = clear();
+
+    act(() => first?.action?.onClick());
+    expect(stored().map((e) => e.id)).toEqual(["a"]);
+    expect(ws().asyncUpdates).toEqual([LEGACY]);
+    act(() => second?.action?.onClick());
+    expect(
+      stored()
+        .map((e) => e.member)
+        .sort()
+    ).toEqual(["Alice", "Cy"]);
+  });
+
+  it("moves focus along the list as people are marked out", async () => {
+    renderStandup("async");
+    const away = (name: string) =>
+      screen.getByRole("button", { name: `Not in today's standup: ${name}` });
+    fireEvent.click(away("Alice"));
+    await waitFor(() => expect(away("Bo")).toHaveFocus());
+    fireEvent.click(away("Bo"));
+    fireEvent.click(away("Cy"));
+    const backIn = screen.getByRole("button", { name: "Back in today's standup: Cy" });
+    await waitFor(() => expect(backIn).toHaveFocus());
+    fireEvent.click(backIn);
+    await waitFor(() => expect(away("Cy")).toHaveFocus());
+  });
+
+  it("names each Export menu by what it exports", () => {
+    useWorkspaceStore.setState({ standupEntries: [entry("e1", "Alice")] });
+    renderStandup("async");
+    expect(screen.getByRole("group", { name: "All entries" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Today's digest" })).toBeInTheDocument();
+    openTab(/History/);
+    expect(screen.getByRole("group", { name: "Day digest" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Week" })).toBeInTheDocument();
   });
 });

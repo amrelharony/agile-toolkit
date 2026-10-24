@@ -5,6 +5,8 @@ import { CheckCircle2, Send, UserMinus, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { SectionCard } from "@/components/shared/section-card";
+import { byFocusKey, focusSoon } from "./focus";
+import { personKey } from "./model";
 
 /**
  * Removing someone from the standup used to remove them from the team
@@ -23,6 +25,29 @@ export function TeamLink() {
   );
 }
 
+/** Focus keys (focus.ts) for a person's "Not in today's standup" and "Back in". */
+export const awayKey = (name: string) => `away:${personKey(name)}`;
+export const backKey = (name: string) => `back:${personKey(name)}`;
+
+const neighbours = (list: readonly string[], name: string) => {
+  const i = list.findIndex((n) => personKey(n) === personKey(name));
+  return i < 0 ? [] : [list[i + 1], list[i - 1]].filter((n): n is string => Boolean(n));
+};
+
+/**
+ * Where focus goes once `name` has left `list` (marked out of today's
+ * standup, so their row is gone): the next person's button, else the one
+ * before, else their own "Back in".
+ */
+export function focusAfterAway(list: readonly string[], name: string): void {
+  focusSoon(byFocusKey(...neighbours(list, name).map(awayKey), backKey(name)));
+}
+
+/** After "Back in": their row in the list again, else the next one still out. */
+export function focusAfterBack(away: readonly string[], name: string): void {
+  focusSoon(byFocusKey(awayKey(name), ...neighbours(away, name).map(backKey)));
+}
+
 /** "Not in today's standup" for one person (skip the day, nothing deleted). */
 export function AwayButton({ name, onAway }: { name: string; onAway: (name: string) => void }) {
   return (
@@ -30,6 +55,7 @@ export function AwayButton({ name, onAway }: { name: string; onAway: (name: stri
       label={`Not in today's standup: ${name}`}
       icon={<UserMinus className="h-4 w-4" />}
       className="text-sub hover:text-text"
+      data-focus-key={awayKey(name)}
       onClick={() => onAway(name)}
     />
   );
@@ -60,6 +86,7 @@ export function AwayList({
               variant="ghost"
               className="h-7 gap-1 px-2 text-xs"
               aria-label={`Back in today's standup: ${name}`}
+              data-focus-key={backKey(name)}
               onClick={() => onBack(name)}
             >
               <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
@@ -74,7 +101,7 @@ export function AwayList({
 
 /**
  * Async mode: who on the team hasn't posted for the day, with "Post for"
- * (fills the form) and "Not in today's standup".
+ * (starts that person's update in the form) and "Not in today's standup".
  */
 export function NotPostedPanel({
   rosterSize,
@@ -91,6 +118,14 @@ export function NotPostedPanel({
   onAway: (name: string) => void;
   onBack: (name: string) => void;
 }) {
+  const markAway = (name: string) => {
+    onAway(name);
+    focusAfterAway(notYet, name);
+  };
+  const markBack = (name: string) => {
+    onBack(name);
+    focusAfterBack(away, name);
+  };
   return (
     <SectionCard title="Who hasn't posted" icon={Users} contentClassName="space-y-4">
       {rosterSize === 0 ? (
@@ -119,18 +154,19 @@ export function NotPostedPanel({
                 size="sm"
                 variant="ghost"
                 className="gap-1 text-xs"
-                aria-label={`Post an update for ${name}`}
+                // Starts with the visible text, so "click Post for" works by voice.
+                aria-label={`Post for ${name}`}
                 onClick={() => onPostFor(name)}
               >
                 <Send className="h-3.5 w-3.5" aria-hidden="true" />
                 Post for
               </Button>
-              <AwayButton name={name} onAway={onAway} />
+              <AwayButton name={name} onAway={markAway} />
             </li>
           ))}
         </ul>
       )}
-      <AwayList away={away} onBack={onBack} />
+      <AwayList away={away} onBack={markBack} />
       {rosterSize > 0 && <TeamLink />}
     </SectionCard>
   );

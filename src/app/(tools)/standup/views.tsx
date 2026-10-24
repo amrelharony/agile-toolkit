@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Calendar,
@@ -15,10 +15,11 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
-import { hasBlocker, standupDigest } from "@/lib/standup/entries";
+import { standupDigest } from "@/lib/standup/entries";
 import type { StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { AGE_BOX, BlockerAge, BlockerSendTo, EntryCard, type EntryCardActions } from "./entry-card";
+import { byFocusKey, focusSoon } from "./focus";
 import { weeklyMarkdown } from "./markdown";
 import {
   ageTone,
@@ -94,22 +95,33 @@ export function TodayView({
     () => entries.filter((e) => e.date === today).sort((a, b) => a.timestamp - b.timestamp),
     [entries, today]
   );
-  const openToday = todays.filter((e) => hasBlocker(e) && !e.blockerResolved).length;
+  // People, not rows: the old async tool posted a fresh row on every post,
+  // so one person can still have two for a day.
+  const postedCount = new Set(todays.map((e) => personKey(e.member))).size;
+  // Every open blocker, as the verdict and the Blockers tab count them.
+  const openCount = useMemo(() => openBlockers(entries).length, [entries]);
   const digest = useMemo(() => standupDigest(entries, today), [entries, today]);
   const isAsync = mode === "async";
+  const digestHeadingId = useId();
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <Stat value={todays.length} label="Posted" tone="text-accent" />
+        <Stat value={postedCount} label="Posted" tone="text-accent" />
         <Stat value={notYet.length} label="Not yet" tone="text-warning" />
-        <Stat value={openToday} label="Blockers" tone="text-danger" />
+        <Stat value={openCount} label="Open blockers" tone="text-danger" />
       </div>
 
       {isAsync && todays.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-xs uppercase tracking-wider text-sub">Today&apos;s digest</h3>
-          <div className="flex flex-wrap items-center gap-2">
+          <h3 id={digestHeadingId} className="text-xs uppercase tracking-wider text-sub">
+            Today&apos;s digest
+          </h3>
+          <div
+            role="group"
+            aria-labelledby={digestHeadingId}
+            className="flex flex-wrap items-center gap-2"
+          >
             <Button
               type="button"
               variant="outline"
@@ -200,6 +212,8 @@ export function HistoryView({
     .sort((a, b) => a.timestamp - b.timestamp);
   const digest = useMemo(() => standupDigest(entries, day), [entries, day]);
   const weekly = useMemo(() => weeklyMarkdown(entries), [entries]);
+  const dayExportId = useId();
+  const weekExportId = useId();
   const select =
     "h-11 max-w-full rounded-md border border-border bg-surface-deep px-3 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent md:h-9";
 
@@ -237,11 +251,20 @@ export function HistoryView({
             ))}
           </select>
         </div>
+        {/* Each Export menu is named by its label, so the two can be told apart. */}
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-          <span className="text-xs text-sub">Day digest</span>
-          <ExportButton filename={`standup-${day}`} clipboardText={digest} markdown={digest} />
-          <span className="text-xs text-sub">Week</span>
-          <ExportButton filename="standup-weekly" clipboardText={weekly} markdown={weekly} />
+          <div role="group" aria-labelledby={dayExportId} className="flex items-center gap-2">
+            <span id={dayExportId} className="text-xs text-sub">
+              Day digest
+            </span>
+            <ExportButton filename={`standup-${day}`} clipboardText={digest} markdown={digest} />
+          </div>
+          <div role="group" aria-labelledby={weekExportId} className="flex items-center gap-2">
+            <span id={weekExportId} className="text-xs text-sub">
+              Week
+            </span>
+            <ExportButton filename="standup-weekly" clipboardText={weekly} markdown={weekly} />
+          </div>
         </div>
       </div>
 
@@ -271,6 +294,16 @@ export function BlockersView({
 }) {
   const open = useMemo(() => openBlockers(entries), [entries]);
   const resolved = useMemo(() => resolvedBlockers(entries), [entries]);
+  // A blocker moves between the lists, taking the pressed button with it:
+  // focus follows it to its new button.
+  const resolve = (e: StandupEntry) => {
+    actions.onResolve(e);
+    focusSoon(byFocusKey(`blocker-reopen:${e.id}`));
+  };
+  const reopen = (e: StandupEntry) => {
+    actions.onReopen(e);
+    focusSoon(byFocusKey(`blocker-resolve:${e.id}`));
+  };
 
   return (
     <div className="space-y-6">
@@ -321,7 +354,9 @@ export function BlockersView({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    onClick={() => actions.onResolve(e)}
+                    aria-label={`Resolve ${e.member}'s blocker`}
+                    data-focus-key={`blocker-resolve:${e.id}`}
+                    onClick={() => resolve(e)}
                     className="gap-1.5 text-xs text-success hover:bg-success/10 hover:text-success"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -362,7 +397,8 @@ export function BlockersView({
                   variant="ghost"
                   className="gap-1 text-xs"
                   aria-label={`Reopen ${e.member}'s blocker`}
-                  onClick={() => actions.onReopen(e)}
+                  data-focus-key={`blocker-reopen:${e.id}`}
+                  onClick={() => reopen(e)}
                 >
                   <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                   Reopen

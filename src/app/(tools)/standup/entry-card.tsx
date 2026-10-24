@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -19,6 +20,7 @@ import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { hasBlocker } from "@/lib/standup/entries";
 import { cn } from "@/lib/utils";
 import { EntryEditor } from "./entry-form";
+import { focusSoon } from "./focus";
 import {
   ageLabel,
   ageTone,
@@ -108,10 +110,42 @@ export function EntryCard({
   const blocked = hasBlocker(entry);
   const resolved = blocked && Boolean(entry.blockerResolved);
   const who = entry.member;
+
+  // Each of these removes the control pressed; focus goes where the user
+  // carries on instead of falling to the page (see focus.ts).
+  const articleRef = useRef<HTMLElement>(null);
+  const editRef = useRef<HTMLButtonElement>(null);
+  const resolveRef = useRef<HTMLButtonElement>(null);
+  const reopenRef = useRef<HTMLButtonElement>(null);
+  const closeEditor = (done: () => void) => {
+    done();
+    focusSoon(() => editRef.current);
+  };
+  // The card next to it takes its place (it stays drawn); with none left,
+  // the tab's panel.
+  const remove = () => {
+    const el = articleRef.current;
+    const next = (el?.nextElementSibling ?? el?.previousElementSibling) as HTMLElement | null;
+    const target = next ?? el?.closest<HTMLElement>('[role="tabpanel"]');
+    actions.onDelete(entry);
+    target?.focus();
+  };
+  const resolve = () => {
+    actions.onResolve(entry);
+    focusSoon(() => reopenRef.current);
+  };
+  const reopen = () => {
+    actions.onReopen(entry);
+    focusSoon(() => resolveRef.current);
+  };
+
   return (
     <article
+      ref={articleRef}
       aria-label={`${who}'s update`}
-      className="min-w-0 space-y-3 rounded-lg border border-border bg-surface-deep p-4"
+      // Focus lands here when the card beside it is deleted.
+      tabIndex={-1}
+      className="min-w-0 space-y-3 rounded-lg border border-border bg-surface-deep p-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
       <header className="flex flex-wrap items-center gap-2">
         <span
@@ -145,6 +179,7 @@ export function EntryCard({
         {!editing && (
           <span className="ml-auto flex shrink-0 items-center">
             <IconButton
+              ref={editRef}
               label={`Edit ${who}'s update`}
               icon={<Pencil className="h-4 w-4" />}
               className="text-sub hover:text-text"
@@ -154,7 +189,7 @@ export function EntryCard({
               label={`Delete ${who}'s update`}
               icon={<Trash2 className="h-4 w-4" />}
               className="text-sub hover:text-danger"
-              onClick={() => actions.onDelete(entry)}
+              onClick={remove}
             />
           </span>
         )}
@@ -164,8 +199,8 @@ export function EntryCard({
         <EntryEditor
           entry={entry}
           today={today}
-          onSave={(values) => actions.onSave(entry, values)}
-          onCancel={actions.onCancelEdit}
+          onSave={(values) => closeEditor(() => actions.onSave(entry, values))}
+          onCancel={() => closeEditor(actions.onCancelEdit)}
         />
       ) : (
         <>
@@ -211,11 +246,13 @@ export function EntryCard({
               <div className="flex flex-wrap items-center gap-2">
                 {resolved ? (
                   <Button
+                    ref={reopenRef}
                     type="button"
                     size="sm"
                     variant="ghost"
                     className="gap-1 text-xs"
-                    onClick={() => actions.onReopen(entry)}
+                    aria-label={`Reopen ${who}'s blocker`}
+                    onClick={reopen}
                   >
                     <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                     Reopen
@@ -223,11 +260,13 @@ export function EntryCard({
                 ) : (
                   <>
                     <Button
+                      ref={resolveRef}
                       type="button"
                       size="sm"
                       variant="ghost"
                       className="gap-1 text-xs text-success hover:bg-success/10 hover:text-success"
-                      onClick={() => actions.onResolve(entry)}
+                      aria-label={`Mark resolved: ${who}'s blocker`}
+                      onClick={resolve}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                       Mark resolved

@@ -17,16 +17,20 @@ import { useDockTimer } from "@/lib/timer/dock-timer";
 import type { StandupEntry, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { EXAMPLE_SPRINT_NAME } from "./example";
+import { byFocusKey, focusSoon } from "./focus";
 import { personKey, shortDay } from "./model";
-import { AwayButton, AwayList, TeamLink } from "./people";
+import { AwayButton, AwayList, TeamLink, focusAfterAway, focusAfterBack } from "./people";
 import {
   autoTurnSeconds,
+  dockIsStandup,
+  dropSpeaker,
   nextSpeaker,
   pauseTurn,
   publishTurn,
   resumeTurn,
   skipSpeaker,
   startWalk,
+  stopOrphanedTurn,
   takeTurn,
   turnClock,
   turnRemaining,
@@ -49,6 +53,15 @@ const COLUMNS: { label: string; statuses: readonly StoryStatus[] }[] = [
 
 /** Fixed turn lengths besides "Auto" (the Daily Scrum shared out). */
 const TURN_OPTIONS = [60, 90, 120, 180] as const;
+
+/** The Daily Scrum's timebox, in minutes. */
+const DAILY_MINUTES = 15;
+
+/**
+ * Where focus goes after a move removes the pressed control (Start gives
+ * way to Next speaker, the last Next speaker to End standup, End to Start).
+ */
+const focusWalkControl = () => focusSoon(byFocusKey("walk:next", "walk:end", "walk:start"));
 
 /** One person's stories on the sprint the walk is over. */
 interface PersonBoard {
@@ -169,9 +182,13 @@ export function BoardWalk({
   const walk = stored && stored.date === today ? stored : null;
   const announce = useAnnounce();
 
-  const [turnChoice, setTurnChoice] = useState<number | "auto">("auto");
+  // Picked before the walk starts; from then on the walk holds it, so it
+  // survives leaving the page (a walk with no choice keeps its own length).
+  const [pickedTurn, setPickedTurn] = useState<number | "auto">("auto");
+  const turnChoice = walk ? (walk.turnChoice ?? walk.turnSeconds) : pickedTurn;
   const autoSeconds = autoTurnSeconds(order.length);
   const turnSeconds = turnChoice === "auto" ? autoSeconds : turnChoice;
+  const overTimebox = turnSeconds * order.length > DAILY_MINUTES * 60;
 
   const [now, setNow] = useState(() => Date.now());
   const running = Boolean(walk?.current && walk.endsAt !== null);
@@ -184,9 +201,11 @@ export function BoardWalk({
   });
 
   // Back on the page mid-walk: pick up a pause or resume made from the
-  // docked timer, and let the form follow the current speaker again.
+  // docked timer, and let the form follow the current speaker again. With
+  // no walk for today (the tab reloaded), a docked turn clock is let go.
   useEffect(() => {
     const w = useStandupWalk.getState().walk;
+    stopOrphanedTurn(w, today);
     if (!w || w.date !== today) return;
     const synced = withDockState(w, useDockTimer.getState().timer);
     if (synced !== w) setWalk(synced);
@@ -195,13 +214,15 @@ export function BoardWalk({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Time's up: said once per turn, never by sound.
+  // Time's up: said once per turn, never by sound. While the turn is on
+  // the docked timer, the shell's DockedTimer says it (it runs on this
+  // page too), so it isn't said twice.
   const announcedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!walk?.current || walk.endsAt === null || remaining > 0) return;
     if (announcedRef.current === walk.current) return;
     announcedRef.current = walk.current;
-    announce(`Time's up for ${walk.current}`, "assertive");
+    if (!dockIsStandup()) announce(`Time's up for ${walk.current}`, "assertive");
   }, [walk, remaining, announce]);
 
   const commit = (next: Walk | null, message?: string) => {
@@ -219,13 +240,15 @@ export function BoardWalk({
   const withLength = (w: Walk): Walk => ({ ...w, turnSeconds });
 
   const start = () => {
-    const w = startWalk(order, today, turnSeconds, Date.now());
+    const w = startWalk(order, today, turnSeconds, Date.now(), turnChoice);
     commit(w, w.current ? `${w.current}'s turn` : undefined);
+    focusWalkControl();
   };
   const next = () => {
     if (!walk) return;
     const w = nextSpeaker(withLength(walk), order, Date.now());
     commit(w, w.current ? `${w.current}'s turn` : "Everyone has had a turn");
+    if (!w.current) focusWalkControl();
   };
   const skip = () => {
     if (!walk?.current) return;
@@ -240,13 +263,37 @@ export function BoardWalk({
   const give = (name: string) => {
     if (!walk) return;
     commit(takeTurn(withLength(walk), name, Date.now()), `${name}'s turn`);
+    focusWalkControl();
   };
   const togglePause = () => {
     if (!walk) return;
     const t = Date.now();
     commit(running ? pauseTurn(walk, t) : resumeTurn(walk, t), running ? "Paused" : "Resumed");
   };
-  const end = () => commit(null, "Standup ended");
+  const end = () => {
+    commit(null, "Standup ended");
+    focusWalkControl();
+  };
+  // Out of today's standup. The speaker leaving mid-turn hands the floor
+  // on (without counting a turn for them), rather than staying "speaking"
+  // while missing from the order.
+  const markAway = (name: string) => {
+    onAway(name);
+    if (walk?.current && personKey(walk.current) === personKey(name)) {
+      const w = dropSpeaker(withLength(walk), order, Date.now());
+      commit(
+        w,
+        `${name} is out of today's standup. ${w.current ? `${w.current}'s turn` : "Everyone has had a turn"}`
+      );
+      focusWalkControl();
+    } else {
+      focusAfterAway(order, name);
+    }
+  };
+  const markBack = (name: string) => {
+    onBack(name);
+    focusAfterBack(away, name);
+  };
 
   const boardFor = (name: string): PersonBoard | null => {
     if (exampleStories && isExamplePerson(name)) {
@@ -301,9 +348,23 @@ export function BoardWalk({
       ) : !walk ? (
         <div className="space-y-3">
           <p className="text-sm text-sub">
-            {order.length} {order.length === 1 ? "person" : "people"}, about{" "}
-            <span className="font-data text-text">{turnClock(turnSeconds)}</span> each in a
-            15-minute Daily Scrum. Each person talks to their own cards on the board.
+            {overTimebox ? (
+              <>
+                {order.length} {order.length === 1 ? "person" : "people"} at{" "}
+                <span className="font-data text-text">{turnClock(turnSeconds)}</span> each: about{" "}
+                <span className="font-data text-text">
+                  {Math.ceil((turnSeconds * order.length) / 60)} minutes
+                </span>
+                , over the {DAILY_MINUTES}-minute Daily Scrum.
+              </>
+            ) : (
+              <>
+                {order.length} {order.length === 1 ? "person" : "people"}, about{" "}
+                <span className="font-data text-text">{turnClock(turnSeconds)}</span> each in a{" "}
+                {DAILY_MINUTES}-minute Daily Scrum.
+              </>
+            )}{" "}
+            Each person talks to their own cards on the board.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <Field label="Each turn" className="w-40">
@@ -312,7 +373,7 @@ export function BoardWalk({
                   {...props}
                   value={String(turnChoice)}
                   onChange={(e) =>
-                    setTurnChoice(e.target.value === "auto" ? "auto" : Number(e.target.value))
+                    setPickedTurn(e.target.value === "auto" ? "auto" : Number(e.target.value))
                   }
                   className="h-11 rounded-md border border-border bg-surface-deep px-2 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent md:h-9"
                 >
@@ -325,7 +386,7 @@ export function BoardWalk({
                 </select>
               )}
             </Field>
-            <Button type="button" onClick={start} className="gap-1">
+            <Button type="button" onClick={start} className="gap-1" data-focus-key="walk:start">
               <Play className="h-4 w-4" aria-hidden="true" />
               Start the standup
             </Button>
@@ -360,7 +421,7 @@ export function BoardWalk({
           )}
           <PersonBoardView name={current} board={boardFor(current)} />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={next} className="gap-1">
+            <Button type="button" onClick={next} className="gap-1" data-focus-key="walk:next">
               <SkipForward className="h-4 w-4" aria-hidden="true" />
               Next speaker
             </Button>
@@ -384,7 +445,7 @@ export function BoardWalk({
             <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />
             Everyone has had a turn.
           </p>
-          <Button type="button" variant="outline" size="sm" onClick={end}>
+          <Button type="button" variant="outline" size="sm" onClick={end} data-focus-key="walk:end">
             End standup
           </Button>
         </div>
@@ -438,13 +499,13 @@ export function BoardWalk({
                     onClick={() => give(name)}
                   />
                 )}
-                <AwayButton name={name} onAway={onAway} />
+                <AwayButton name={name} onAway={markAway} />
               </li>
             );
           })}
         </ol>
       )}
-      <AwayList away={away} onBack={onBack} />
+      <AwayList away={away} onBack={markBack} />
       <TeamLink />
     </SectionCard>
   );
