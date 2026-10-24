@@ -175,7 +175,8 @@ export interface ReviewFacts {
   committed: number;
   /** Points done (its stories', else `Sprint.pointsCompleted`). */
   completed: number;
-  /** Whether the numbers come from the sprint's stories (false: typed on the sprint). */
+  /** Whether the numbers come from the sprint's stories (false: recorded on the
+   *  sprint — typed, or confirmed when it was closed). */
   fromStories: boolean;
   /** Done stories with no points. */
   unestimatedDone: number;
@@ -200,7 +201,12 @@ export function reviewFacts(
   const done = planned.filter((s) => s.status === "done");
   const notDone = planned.filter((s) => s.status !== "done");
   const progress = storyProgress(stories, sprint.id);
-  const fromStories = progress.scope > 0;
+  // Closing a sprint records its points and moves the unfinished stories on
+  // (to the next sprint or the backlog), so afterwards its stories are only
+  // the done ones and would read as 100%. A closed sprint's numbers are the
+  // ones recorded on it: the commitment and the points confirmed at close.
+  const closed = sprint.status === "completed" && typeof sprint.pointsCompleted === "number";
+  const fromStories = !closed && progress.scope > 0;
   const committed = fromStories ? progress.scope : Math.max(0, sprint.pointsPlanned || 0);
   const completed = fromStories ? progress.done : Math.max(0, sprint.pointsCompleted ?? 0);
   return {
