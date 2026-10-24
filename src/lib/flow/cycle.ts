@@ -145,7 +145,8 @@ function enteredOn(item: FlowItem): string | null {
  * progress after more days than the P85 reads as at risk of missing it.
  * Pass a P85 only once it may be quoted (MIN_SAMPLE.distribution finished
  * items), else null, and `overP85` stays null. An item with no start falls
- * back to the day it entered its stage.
+ * back to the day it entered its stage. A story that has left the sprint it
+ * was read for (`leftOn`) isn't that sprint's work in progress any more.
  */
 export function ageingWip(
   items: readonly FlowItem[],
@@ -156,7 +157,7 @@ export function ageingWip(
   const limit = p85 !== null && Number.isFinite(p85) ? p85 : null;
   const out: AgeingItem[] = [];
   for (const item of items) {
-    if (stageKind(item) !== "active") continue;
+    if (stageKind(item) !== "active" || item.leftOn) continue;
     const startedOn = localDay(item.startedOn) ?? enteredOn(item);
     if (!startedOn) continue;
     // A start dated after today (another device's clock) has just started.

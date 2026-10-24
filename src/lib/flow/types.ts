@@ -79,6 +79,14 @@ export interface FlowItem {
   owner?: string;
   /** A story's points. */
   points?: number;
-  /** A story's sprint. */
+  /** A story's sprint (the one it is in now). */
   sprintId?: string;
+  /**
+   * The local day a story left the sprint it was read for (storyItems with
+   * a sprint: carried over when the sprint closed, or descoped). Its stage,
+   * moves, start and done are as they were when it left, so the sprint's
+   * chart keeps the work it ended with; after this day `stageOn` reads null,
+   * and it is no longer that sprint's work in progress (ageingWip).
+   */
+  leftOn?: string;
 }
