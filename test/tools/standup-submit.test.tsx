@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 /**
- * Standup: Submit never silently does nothing (it's disabled and says why),
- * and "Clear Entries" asks before deleting every day's entries.
+ * Standup: Submit never silently does nothing (it says what's missing,
+ * inline, and saves nothing), and "Clear Entries" asks before deleting
+ * every day's entries.
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -37,38 +39,46 @@ beforeEach(() => {
 });
 
 const submitButton = () => screen.getByRole("button", { name: "Submit Standup" });
+const memberInput = () => screen.getByLabelText(/^Team member/);
+const renderStandup = () =>
+  render(
+    <TooltipProvider>
+      <StandupClient />
+    </TooltipProvider>
+  );
 
 describe("Standup submit", () => {
-  it("is disabled with a reason while no member is picked, even with a roster", () => {
-    render(<StandupClient />);
-    expect(submitButton()).toBeDisabled();
-    expect(submitButton()).toHaveAccessibleDescription("Pick a team member or type a name.");
+  it("says who is missing instead of posting under nobody, even with a roster", () => {
+    renderStandup();
+    fireEvent.click(submitButton());
+    expect(screen.getByText("Pick a team member or type a name.")).toBeInTheDocument();
+    expect(memberInput()).toHaveAttribute("aria-invalid", "true");
+    expect(memberInput()).toHaveFocus();
+    expect(useWorkspaceStore.getState().standupEntries).toEqual([]);
   });
 
-  it("stays disabled until at least one field has content", () => {
-    render(<StandupClient />);
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "Alice" } });
-    expect(submitButton()).toBeDisabled();
-    expect(submitButton()).toHaveAccessibleDescription(
-      "Add at least one update: yesterday, today or a blocker."
-    );
+  it("needs today's plan, then posts", () => {
+    renderStandup();
+    fireEvent.change(memberInput(), { target: { value: "Alice" } });
+    fireEvent.click(submitButton());
+    expect(screen.getByText("Say what's planned for today.")).toBeInTheDocument();
+    expect(useWorkspaceStore.getState().standupEntries).toEqual([]);
 
     fireEvent.change(screen.getByPlaceholderText("What will you work on today?"), {
       target: { value: "Ship the fix" },
     });
-    expect(submitButton()).toBeEnabled();
-    expect(submitButton()).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByText("Say what's planned for today.")).toBeNull();
 
     fireEvent.click(submitButton());
     const saved = useWorkspaceStore.getState().standupEntries ?? [];
     expect(saved).toHaveLength(1);
-    expect(saved[0]).toMatchObject({ member: "Alice", today: "Ship the fix" });
+    expect(saved[0]).toMatchObject({ member: "Alice", today: "Ship the fix", mode: "live" });
   });
 
   it("asks before replacing a member's entry for today", () => {
     useWorkspaceStore.setState({ standupEntries: [entry("e1", "Alice")] });
-    render(<StandupClient />);
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "Alice" } });
+    renderStandup();
+    fireEvent.change(memberInput(), { target: { value: "Alice" } });
     fireEvent.change(screen.getByPlaceholderText("What will you work on today?"), {
       target: { value: "New plan" },
     });
@@ -89,7 +99,7 @@ describe("Standup Clear Entries", () => {
     useWorkspaceStore.setState({
       standupEntries: [entry("e1", "Alice"), entry("e2", "Alice", "2026-01-05")],
     });
-    render(<StandupClient />);
+    renderStandup();
     fireEvent.click(screen.getByRole("button", { name: "Clear Entries" }));
 
     expect(screen.getByRole("dialog")).toHaveTextContent("Delete all 2 standup entries?");
@@ -102,7 +112,8 @@ describe("Standup Clear Entries", () => {
   });
 
   it("skips the dialog when there is nothing to delete", () => {
-    render(<StandupClient />);
+    renderStandup();
+    expect(screen.getByRole("button", { name: "Clear Entries" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Clear Entries" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
