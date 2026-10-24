@@ -20,7 +20,7 @@
  * Adding or replacing the PDF needs a `next dev` restart locally; on Vercel the
  * push that adds it triggers a rebuild.
  *
- *   node scripts/comic-asset.mjs        # print { size, version }
+ *   node scripts/comic-asset.mjs        # print { size, version } of both editions
  */
 
 import { createHash } from "node:crypto";
@@ -30,6 +30,16 @@ import { fileURLToPath } from "node:url";
 
 export const COMIC_PDF_FILE = fileURLToPath(
   new URL("../public/comics/agile-at-work.pdf", import.meta.url)
+);
+
+/**
+ * The colour edition, opened only through the QR code in the printed book.
+ * Never under public/ (the CDN would serve it to anyone): a route handler
+ * streams it after checking the access cookie. next.config.mjs exposes its
+ * facts as COMIC_COLOR_PDF_SIZE / COMIC_COLOR_PDF_VERSION.
+ */
+export const COMIC_COLOR_PDF_FILE = fileURLToPath(
+  new URL("../private/comics/agile-at-work-color.pdf", import.meta.url)
 );
 
 const ABSENT = Object.freeze({ size: "", version: "" });
@@ -70,5 +80,8 @@ export async function readComicAsset(file = COMIC_PDF_FILE) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  console.log(await readComicAsset());
+  console.log({
+    comic: await readComicAsset(),
+    color: await readComicAsset(COMIC_COLOR_PDF_FILE),
+  });
 }

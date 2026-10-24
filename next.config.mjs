@@ -1,4 +1,4 @@
-import { readComicAsset } from "./scripts/comic-asset.mjs";
+import { COMIC_COLOR_PDF_FILE, readComicAsset } from "./scripts/comic-asset.mjs";
 
 /** @type {import('next').NextConfig} */
 
@@ -88,11 +88,24 @@ const securityHeaders = [
 // scripts/comic-asset.mjs). Both are "" while public/comics/agile-at-work.pdf
 // is absent; restart `next dev` after adding or replacing the file.
 const comicAsset = await readComicAsset();
+// The private colour edition (private/comics/agile-at-work-color.pdf). Read
+// on the server only, by the colour page once its access cookie checks out.
+const colorAsset = await readComicAsset(COMIC_COLOR_PDF_FILE);
 
 const nextConfig = {
   env: {
     NEXT_PUBLIC_COMIC_PDF_SIZE: comicAsset.size,
     NEXT_PUBLIC_COMIC_PDF_VERSION: comicAsset.version,
+    COMIC_COLOR_PDF_SIZE: colorAsset.size,
+    COMIC_COLOR_PDF_VERSION: colorAsset.version,
+  },
+  experimental: {
+    // The colour PDF sits outside public/ so the CDN never serves it; its
+    // route reads it from disk, so it has to ship inside that function.
+    // Keys match the route path without route groups.
+    outputFileTracingIncludes: {
+      "/agile-at-work/color/edition.pdf": ["./private/comics/*.pdf"],
+    },
   },
   async headers() {
     return [

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  COLOR_EDITION_PDF_PATH,
+  COLOR_EDITION_ROUTE,
   COMIC_PDF_PATH,
   COMIC_ROUTE,
+  colorEditionAsset,
   comicAsset,
   formatBytes,
   isComicRoute,
@@ -60,6 +63,37 @@ describe("comicAsset", () => {
 
   it("serves the reader from the route the registry links to", () => {
     expect(COMIC_ROUTE).toBe("/agile-at-work");
+  });
+});
+
+describe("colorEditionAsset", () => {
+  it("is unavailable until a colour PDF is built in", () => {
+    vi.stubEnv("COMIC_COLOR_PDF_SIZE", "");
+    vi.stubEnv("COMIC_COLOR_PDF_VERSION", "");
+    expect(colorEditionAsset()).toEqual({
+      available: false,
+      size: null,
+      version: null,
+      src: COLOR_EDITION_PDF_PATH,
+    });
+  });
+
+  it("points at the gated route, versioned, never at a public file", () => {
+    vi.stubEnv("COMIC_COLOR_PDF_SIZE", "4096");
+    vi.stubEnv("COMIC_COLOR_PDF_VERSION", "c0101abc");
+    // The free edition's env must not leak into the colour one.
+    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "a163ac728a97");
+    expect(colorEditionAsset()).toEqual({
+      available: true,
+      size: 4096,
+      version: "c0101abc",
+      src: "/agile-at-work/color/edition.pdf?v=c0101abc",
+    });
+    expect(COLOR_EDITION_PDF_PATH.startsWith("/comics/")).toBe(false);
+  });
+
+  it("lives under the comic route, so the reader chrome treats it as the comic", () => {
+    expect(isComicRoute(COLOR_EDITION_ROUTE)).toBe(true);
   });
 });
 

@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { readComicAsset } from "../../scripts/comic-asset.mjs";
+import {
+  COMIC_COLOR_PDF_FILE,
+  COMIC_PDF_FILE,
+  readComicAsset,
+} from "../../scripts/comic-asset.mjs";
 
 /**
  * scripts/comic-asset.mjs runs inside next.config.mjs at build time and
@@ -19,6 +23,18 @@ function file(name: string, contents: string | Buffer): string {
   writeFileSync(p, contents);
   return p;
 }
+
+describe("comic files", () => {
+  it("keeps the colour edition out of public/, where the CDN would serve it", () => {
+    const repo = path.resolve(path.dirname(COMIC_PDF_FILE), "..", "..");
+    expect(path.relative(repo, COMIC_PDF_FILE)).toBe(
+      path.join("public", "comics", "agile-at-work.pdf")
+    );
+    expect(path.relative(repo, COMIC_COLOR_PDF_FILE)).toBe(
+      path.join("private", "comics", "agile-at-work-color.pdf")
+    );
+  });
+});
 
 describe("readComicAsset", () => {
   it("reports size and a short content hash for a PDF", async () => {

@@ -16,6 +16,18 @@ export const COMIC_DOWNLOAD_NAME = "Agile-at-Work.pdf";
 export const COMIC_LAST_PAGE_KEY = "agile-toolkit:comic:agile-at-work:last-page:v1";
 export const COMIC_LAYOUT_KEY = "agile-toolkit:comic:layout:v1";
 
+/**
+ * The colour edition: private, opened through the QR code printed in the
+ * book (see lib/comic/color-edition-access.ts). Its PDF lives outside
+ * public/ and is served by a route that checks the access cookie, so the
+ * path below is a route, not a static file.
+ */
+export const COLOR_EDITION_ROUTE = "/agile-at-work/color";
+export const COLOR_EDITION_PDF_PATH = "/agile-at-work/color/edition.pdf";
+export const COLOR_EDITION_TITLE = "Agile at Work — Colour Edition";
+/** Its own resume point: the two editions are read separately. */
+export const COLOR_EDITION_LAST_PAGE_KEY = "agile-toolkit:comic:agile-at-work-color:last-page:v1";
+
 /** The reader page (or anything under it). */
 export function isComicRoute(pathname: string | null | undefined): boolean {
   return !!pathname && (pathname === COMIC_ROUTE || pathname.startsWith(`${COMIC_ROUTE}/`));
@@ -36,18 +48,40 @@ export type ComicAsset = {
 export function comicAsset(): ComicAsset {
   // Each variable is written out literally (never `process.env[name]`) so
   // Next can inline the build-time value into client bundles.
-  const rawSize = process.env.NEXT_PUBLIC_COMIC_PDF_SIZE;
-  const rawVersion = process.env.NEXT_PUBLIC_COMIC_PDF_VERSION;
+  return assetFrom(
+    process.env.NEXT_PUBLIC_COMIC_PDF_SIZE,
+    process.env.NEXT_PUBLIC_COMIC_PDF_VERSION,
+    COMIC_PDF_PATH
+  );
+}
 
+/**
+ * The colour edition's PDF, as found at build time (private/comics/, see
+ * scripts/comic-asset.mjs). Read on the server only: the colour page passes
+ * the result to the reader once the visitor's access cookie checks out.
+ */
+export function colorEditionAsset(): ComicAsset {
+  return assetFrom(
+    process.env.COMIC_COLOR_PDF_SIZE,
+    process.env.COMIC_COLOR_PDF_VERSION,
+    COLOR_EDITION_PDF_PATH
+  );
+}
+
+function assetFrom(
+  rawSize: string | undefined,
+  rawVersion: string | undefined,
+  path: string
+): ComicAsset {
   if (!rawVersion) {
-    return { available: false, size: null, version: null, src: COMIC_PDF_PATH };
+    return { available: false, size: null, version: null, src: path };
   }
   const parsedSize = rawSize ? Number(rawSize) : NaN;
   return {
     available: true,
     size: Number.isFinite(parsedSize) && parsedSize > 0 ? parsedSize : null,
     version: rawVersion,
-    src: `${COMIC_PDF_PATH}?v=${encodeURIComponent(rawVersion)}`,
+    src: `${path}?v=${encodeURIComponent(rawVersion)}`,
   };
 }
 
