@@ -18,6 +18,10 @@ export const RETRO_ACTIONS = {
   ACTION_TOGGLED: "action_toggled",
   RETRO_RESET: "retro_reset", // milestone
   FORMAT_CHANGED: "format_changed",
+  /** The board's sprint was set or changed. */
+  SPRINT_SET: "sprint_set",
+  /** Kudos from the sprint were added as appreciation cards. */
+  KUDOS_ADDED: "kudos_added",
 } as const;
 
 export const VELOCITY_ACTIONS = {
@@ -204,6 +208,10 @@ export const PREMORTEM_ACTIONS = {
   CAUSE_REMOVED: "cause_removed",
   PREVENTION_ADDED: "prevention_added",
   PREMORTEM_RESET: "premortem_reset", // milestone
+  PREMORTEM_STARTED: "premortem_started",
+  PHASE_ADVANCED: "phase_advanced",
+  CAUSE_VOTED: "cause_voted",
+  RISKS_SENT: "risks_sent", // milestone
 } as const;
 
 export const TECH_DEBT_ACTIONS = {
@@ -293,6 +301,8 @@ export const RETRO_ACTIONS_ACTIONS = {
   ACTION_DONE: "action_done",
   ACTION_REOPENED: "action_reopened",
   ACTION_CARRIED_OVER: "action_carried_over",
+  ACTION_ADDED: "action_added",
+  ACTION_EDITED: "action_edited",
 } as const;
 
 /** Sprint Planning: the plan for a sprint. Payloads carry `sprintId`. */
@@ -351,6 +361,9 @@ export const ICEBREAKER_ACTIONS = {
   PROMPT_DRAWN: "prompt_drawn",
   PROMPT_FAVORITED: "prompt_favorited",
   CATEGORY_CHANGED: "category_changed",
+  TIMER_STARTED: "timer_started",
+  USE_RECORDED: "use_recorded",
+  USE_REMOVED: "use_removed",
 } as const;
 
 export const ESTIMATION_GUIDE_ACTIONS = {
@@ -525,6 +538,8 @@ export const LIBERATING_STRUCTURES_ACTIONS = {
   STRUCTURE_VIEWED: "structure_viewed",
   STRUCTURE_FAVORITED: "structure_favorited",
   FILTER_CHANGED: "filter_changed",
+  STEP_TIMER_STARTED: "step_timer_started",
+  STEP_ADVANCED: "step_advanced",
 } as const;
 
 export const DESIGN_SPRINT_ACTIONS = {
@@ -534,6 +549,9 @@ export const DESIGN_SPRINT_ACTIONS = {
   ARTIFACT_LOGGED: "artifact_logged",
   SPRINT_COMPLETED: "sprint_completed", // milestone
   SPRINT_RESET: "sprint_reset",
+  OUTPUT_ADDED: "output_added",
+  OUTPUT_REMOVED: "output_removed",
+  FINDING_SENT: "finding_sent",
 } as const;
 
 export const RISKIEST_ASSUMPTION_ACTIONS = {
@@ -846,6 +864,11 @@ export const SIX_HATS_ACTIONS = {
   THOUGHT_REMOVED: "thought_removed",
   HAT_CHANGED: "hat_changed",
   SIX_HATS_RESET: "six_hats_reset",
+  SESSION_STARTED: "session_started",
+  ROUND_ADVANCED: "round_advanced",
+  SUMMARY_SAVED: "summary_saved",
+  SESSION_CLOSED: "session_closed", // milestone
+  SESSION_REMOVED: "session_removed",
 } as const;
 
 export const OODA_ACTIONS = {
