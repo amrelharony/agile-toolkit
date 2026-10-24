@@ -8,7 +8,7 @@
  * quote one number.
  */
 
-import type { KanbanCard, KanbanColumnId } from "@/lib/stores/workspace-types";
+import type { KanbanCard, KanbanColumnChange, KanbanColumnId } from "@/lib/stores/workspace-types";
 import { cycleDays, cycleSummary } from "@/lib/flow/cycle";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,6 +21,19 @@ export const WORKING: ReadonlySet<KanbanColumnId> = new Set<KanbanColumnId>([
   "in_progress",
   "review",
 ]);
+
+/**
+ * The card's recorded moves, as far as they can be read. Agents write cards
+ * through workspace CRUD with any fields, so a history that isn't a list,
+ * or holds something that isn't a move, reads as empty or skips it, the
+ * way a board row missing its cards still opens.
+ */
+export function cardHistory(card: Pick<KanbanCard, "history">): KanbanColumnChange[] {
+  const raw: unknown = card.history;
+  return Array.isArray(raw)
+    ? raw.filter((c): c is KanbanColumnChange => typeof c === "object" && c !== null)
+    : [];
+}
 
 /**
  * `card` moved to `col` at `at`. The same card (by reference) when it is
@@ -44,7 +57,7 @@ export function movedCard(card: KanbanCard, col: KanbanColumnId, at: string): Ka
     ...card,
     column: col,
     columnSince: at,
-    history: [...(card.history ?? []), { column: col, from: card.column, at }].slice(
+    history: [...cardHistory(card), { column: col, from: card.column, at }].slice(
       -KANBAN_HISTORY_CAP
     ),
   };

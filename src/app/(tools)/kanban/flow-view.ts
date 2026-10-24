@@ -7,6 +7,7 @@
 
 import type { KanbanCard, KanbanColumnId } from "@/lib/stores/workspace-types";
 import { DAY_MS, finishedCards, type CycleStats } from "@/lib/kanban/flow";
+import { cycleDays } from "@/lib/flow/cycle";
 import {
   throughputByWeek,
   throughputLastWeek as flowThroughputLastWeek,
@@ -112,13 +113,18 @@ export function cardColumnSince(card: KanbanCard): string | null {
 }
 
 /**
- * Whole days the card has been worked on: from its start, which moving
- * between In progress and Review keeps (the age badge restarts there), else
- * from when it entered its column. What the ageing tint compares with the
- * P85 cycle time, which runs from start to done too.
+ * Days the card has been worked on: from its start, which moving between
+ * In progress and Review keeps (the age badge restarts there), else from
+ * when it entered its column. What the ageing tint compares with the P85
+ * cycle time, so it is counted like one (lib/flow cycleDays: whole local
+ * days, the start day is 1), as lib/flow ageingWip ages the same card: a
+ * card one day past the P85 is flagged. A start dated after today (another
+ * device's clock) has just started.
  */
 export function daysInWork(card: KanbanCard, now: Date): number | null {
-  return daysSince(parse(card.startedAt) !== null ? card.startedAt : cardColumnSince(card), now);
+  const start = parse(card.startedAt) !== null ? card.startedAt : cardColumnSince(card);
+  if (parse(start ?? undefined) === null) return null;
+  return cycleDays(start, todayIso(now)) ?? 1;
 }
 
 /** Whole days from `iso` to `now` (0 on the day itself), or null when unknown. */

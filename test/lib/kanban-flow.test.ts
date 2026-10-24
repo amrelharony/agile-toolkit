@@ -1,11 +1,18 @@
 /**
  * lib/kanban/flow: a Flow-board move records itself in the card's history
- * (capped at the latest KANBAN_HISTORY_CAP), the page and tool.kanban.move_card
- * both write through it, and cycle time is lib/flow's whole local days.
+ * (capped at the latest KANBAN_HISTORY_CAP; a malformed one is read as far
+ * as it can be), the page and tool.kanban.move_card both write through it,
+ * and cycle time is lib/flow's whole local days.
  */
 
 import { describe, expect, it } from "vitest";
-import { KANBAN_HISTORY_CAP, cycleStats, cycleTimeDays, movedCard } from "@/lib/kanban/flow";
+import {
+  KANBAN_HISTORY_CAP,
+  cardHistory,
+  cycleStats,
+  cycleTimeDays,
+  movedCard,
+} from "@/lib/kanban/flow";
 import { cycleSummary } from "@/lib/flow";
 import type { KanbanCard } from "@/lib/stores/workspace-types";
 
@@ -54,6 +61,21 @@ describe("movedCard history", () => {
       at: new Date(Date.UTC(2026, 8, 1, 0, 7)).toISOString(),
     });
     expect(c.history![KANBAN_HISTORY_CAP - 1].column).toBe(c.column);
+  });
+
+  it("starts afresh from a malformed history (an agent's write) instead of failing", () => {
+    const kept = { column: "ready" as const, from: "backlog" as const, at: AT };
+    const later = "2026-10-21T15:30:00.000Z";
+    const move = { column: "in_progress", from: "ready", at: later };
+    for (const [history, before] of [
+      [{}, []],
+      ["x", []],
+      [[null, 3, kept], [kept]],
+    ] as const) {
+      const c = card({ column: "ready", history: history as never });
+      expect(cardHistory(c)).toEqual(before);
+      expect(movedCard(c, "in_progress", later).history).toEqual([...before, move]);
+    }
   });
 
   it("doesn't change a stored card's other stamps", () => {

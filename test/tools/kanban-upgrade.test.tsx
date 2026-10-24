@@ -11,6 +11,8 @@ import { SELECTED_SPRINT_KEY, resetSelectedSprint } from "@/lib/sprints/use-sele
 import { storyProgress } from "@/lib/sprints/progress";
 import { percentile } from "@/lib/sprints/metrics";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { ageingWip, cardItems } from "@/lib/flow";
+import { todayIso } from "@/lib/sprints/series";
 import { exampleId } from "@/components/tool-frame/example-data";
 import { registry } from "@/lib/actions/registry";
 import "@/lib/actions/tools/kanban";
@@ -979,13 +981,35 @@ describe("flow board cards", () => {
   });
 
   it("counts time in work from the start, which a move from In progress to Review keeps", () => {
+    // Counted like a cycle time (lib/flow cycleDays): the start day is day 1.
     expect(
       daysInWork(card("a", "A", { column: "review", columnSince: ago(1), startedAt: ago(9) }), NOW)
-    ).toBe(9);
+    ).toBe(10);
     // No start: from when it entered its column, else when it was created.
-    expect(daysInWork(card("a", "A", { column: "review", columnSince: ago(3) }), NOW)).toBe(3);
-    expect(daysInWork(card("a", "A", { column: "review", createdAt: ago(4) }), NOW)).toBe(4);
+    expect(daysInWork(card("a", "A", { column: "review", columnSince: ago(3) }), NOW)).toBe(4);
+    expect(daysInWork(card("a", "A", { column: "review", createdAt: ago(4) }), NOW)).toBe(5);
     expect(daysInWork(card("a", "A", { createdAt: "never" }), NOW)).toBeNull();
+    // Started today; started "tomorrow" by another device's clock: just started.
+    expect(daysInWork(card("a", "A", { column: "in_progress", startedAt: ago(0) }), NOW)).toBe(1);
+    expect(daysInWork(card("a", "A", { column: "in_progress", startedAt: ago(-2) }), NOW)).toBe(1);
+  });
+
+  it("ages a card in work as lib/flow ageingWip does, so the tint flags it a day past P85", () => {
+    // P85 6 days: 6 days in work is within it, 7 is past it.
+    const within = card("a", "A", { column: "in_progress", startedAt: ago(5) });
+    const past = card("b", "B", { column: "review", startedAt: ago(6), columnSince: ago(1) });
+    expect(daysInWork(within, NOW)).toBe(6);
+    expect(daysInWork(past, NOW)).toBe(7);
+    expect(
+      ageingWip(cardItems([within, past]), todayIso(NOW), 6).map((a) => [
+        a.id,
+        a.ageDays,
+        a.overP85,
+      ])
+    ).toEqual([
+      ["b", 7, true],
+      ["a", 6, false],
+    ]);
   });
 
   it("dates the column stay of an old card from its best stamp", () => {
@@ -1294,33 +1318,41 @@ describe("flow board", () => {
   });
 
   it("tints a card in work for longer than P85, counting from its start, not its column", () => {
-    const now = new Date();
+    // The board reads its clock at mount: hold it, so the days are exact.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     const done = (d: number, i: number) =>
       card(`d${i}`, `Done ${i}`, {
         column: "done",
-        startedAt: ago(d + 1, now),
-        completedAt: ago(1, now),
+        startedAt: ago(d + 1),
+        completedAt: ago(1),
       });
     seed({
       sprints: [],
       cards: [
+        // 2 to 6 days with both ends counted: P85 is 6 days.
         ...[1, 2, 3, 4, 5].map(done),
-        // Just moved on to Review, after 9 days in work: P85 is 6 days.
-        card("r", "Audit", { column: "review", startedAt: ago(9, now), columnSince: ago(1, now) }),
-        card("p", "Search", {
-          column: "in_progress",
-          startedAt: ago(2, now),
-          columnSince: ago(2, now),
-        }),
+        // Just moved on to Review, started 9 days ago: 10 days in work.
+        card("r", "Audit", { column: "review", startedAt: ago(9), columnSince: ago(1) }),
+        card("p", "Search", { column: "in_progress", startedAt: ago(2), columnSince: ago(2) }),
+        // Exactly P85 days in work isn't flagged; a day more is.
+        card("e", "Exports", { column: "in_progress", startedAt: ago(5), columnSince: ago(5) }),
+        card("b", "Billing", { column: "review", startedAt: ago(6), columnSince: ago(6) }),
       ],
     });
     renderBoard();
     expect(
       screen.getByText(
-        "1 day in Review, in work for 9 days, longer than 85% of finished cards took"
+        "1 day in Review, in work for 10 days, longer than 85% of finished cards took"
       )
     ).toBeInTheDocument();
     expect(screen.getByText("2 days in In progress")).toBeInTheDocument();
+    expect(screen.getByText("5 days in In progress")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "6 days in Review, in work for 7 days, longer than 85% of finished cards took"
+      )
+    ).toBeInTheDocument();
   });
 
   it("doesn't show a done card as blocked", () => {
@@ -1356,7 +1388,8 @@ describe("flow board", () => {
 
   it("the example shows cycle time and P85, and never offers its names for the team", () => {
     // The board's clock is read at mount and the example's dates when it
-    // loads: hold the clock, so the card in Review is exactly 8 days in work.
+    // loads: hold the clock, so the card in Review is exactly 9 days in work
+    // (started 8 days ago, the start day counted like a cycle time's).
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     seed({ sprints: [], cards: [] });
@@ -1366,7 +1399,7 @@ describe("flow board", () => {
     expect(tile("Cycle avg").getByText("5d")).toBeInTheDocument();
     expect(tile("85% within").getByText("7d")).toBeInTheDocument();
     expect(
-      screen.getByText(/in Review, in work for 8 days, longer than 85% of finished cards took/)
+      screen.getByText(/in Review, in work for 9 days, longer than 85% of finished cards took/)
     ).toBeInTheDocument();
 
     fireEvent.click(
