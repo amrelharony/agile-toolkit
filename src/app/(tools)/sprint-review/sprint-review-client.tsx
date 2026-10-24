@@ -1,311 +1,470 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
+import { BarChart3, CheckSquare, MessageSquare, Presentation } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { generateSprintReviewPrompts } from "@/lib/ai-prompts/sprint-review";
-import { selectEvents } from "@/lib/history/selectors";
-import { useHistoryStore } from "@/lib/history/history-store";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { CalloutAlert } from "@/components/shared/callout-alert";
-import { todayLocalISO } from "@/lib/utils/formatters";
-import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SectionCard } from "@/components/shared/section-card";
+import { LoadingSprints } from "@/components/sprints/start";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Presentation, MessageSquare, CheckSquare, BarChart3 } from "lucide-react";
-import type { FeedbackCategory } from "./types";
-import { useSprintReviewStore } from "./use-sprint-review-store";
+import { generateSprintReviewPrompts } from "@/lib/ai-prompts/sprint-review";
+import { useHistoryStore } from "@/lib/history/history-store";
+import { selectEvents } from "@/lib/history/selectors";
+import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { SprintReview } from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { undoable } from "@/lib/utils/undoable";
+import {
+  contentSummary,
+  reviewDocId,
+  reviewHasContent,
+  startFromDraft,
+  usableDraft,
+  viewReview,
+} from "./doc";
+import { buildExample, type ReviewExample } from "./example";
+import { toMarkdown } from "./markdown";
+import { backlogProgress, reviewNumbers } from "./numbers";
+import type { ReviewSource } from "./types";
+import {
+  createExampleReviewStore,
+  useExampleReview,
+  useLiveReview,
+} from "./use-sprint-review-store";
+import { reviewVerdict } from "./verdict";
 import { DemoScriptTab } from "./components/demo-script-tab";
 import { FeedbackTab } from "./components/feedback-tab";
+import { GoalCard } from "./components/goal-card";
+import { ReviewScope } from "./components/review-scope";
 import { ShowcaseChecklistTab } from "./components/showcase-checklist-tab";
 import { VelocitySummaryTab } from "./components/velocity-summary-tab";
 
+const NO_REVIEWS: SprintReview[] = [];
+
+const TAB_CLASS =
+  "data-[state=active]:bg-accent/10 data-[state=active]:text-accent text-sub gap-1.5";
+
+/** "sprint-12" for a file name. */
+const slug = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "draft";
+
+/**
+ * Sprint Review Kit: one review per sprint, built from what the sprint
+ * already knows — its goal and whether it was met (Sprint Goal), its done
+ * stories as the demo candidates, and its points — plus the demo script,
+ * the stakeholders' feedback (which can become backlog stories) and the
+ * showcase checklist. With no sprint chosen the draft works as it always
+ * has; the example runs in memory.
+ */
 export function SprintReviewClient() {
-  const {
-    sprintName,
-    sprintNumber,
-    features,
-    meetingDate,
-    feedbackItems,
-    checklistItems,
-    committed,
-    completed,
-    totalBacklog,
-    backlogDone,
-    setMeetingDate,
-    reset,
-  } = useSprintReviewStore();
-
-  // Initialize meetingDate on first client mount to avoid SSR/client time
-  // drift. Only set when empty so we don't clobber user edits or persisted data.
-  //
-  // R5: previously re-fired every time `meetingDate` flipped to "" (user
-  // intent to clear), immediately re-stamping today's date back — the
-  // user couldn't ever blank the date input. Guard with a one-shot ref
-  // so the auto-init runs exactly once on first mount.
-  const meetingDateInitRef = useRef(false);
-  useEffect(() => {
-    if (meetingDateInitRef.current) return;
-    meetingDateInitRef.current = true;
-    if (!meetingDate) {
-      setMeetingDate(todayLocalISO());
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Build combined markdown export
-  const fullExport = useMemo(() => {
-    const totalMinutes = features.reduce((s, f) => s + (f.timeMinutes || 0), 0);
-    const completionRate = committed > 0 ? Math.round((completed / committed) * 100) : 0;
-    const releaseProgress = totalBacklog > 0 ? Math.round((backlogDone / totalBacklog) * 100) : 0;
-    const checkedCount = checklistItems.filter((c) => c.checked).length;
-
-    const lines: string[] = [];
-    lines.push(`# Sprint ${sprintNumber} Review Kit — ${sprintName}`);
-    lines.push(`_Date: ${meetingDate}_`);
-    lines.push("");
-
-    // Demo Script
-    lines.push("---");
-    lines.push("## Demo Script");
-    lines.push(`**Estimated Duration:** ${totalMinutes} minutes`);
-    lines.push("");
-    features.forEach((f, i) => {
-      lines.push(`### ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes || 0} min)`);
-      if (f.description) lines.push(`**Description:** ${f.description}`);
-      if (f.acceptanceCriteria) lines.push(`**Acceptance Criteria:** ${f.acceptanceCriteria}`);
-      lines.push("");
-    });
-
-    // Feedback
-    lines.push("---");
-    lines.push("## Stakeholder Feedback");
-    if (feedbackItems.length === 0) {
-      lines.push("_No feedback recorded._");
-    } else {
-      (["positive", "concern", "suggestion"] as FeedbackCategory[]).forEach((cat) => {
-        const items = feedbackItems.filter((f) => f.category === cat);
-        if (items.length > 0) {
-          lines.push(`\n### ${cat.charAt(0).toUpperCase() + cat.slice(1)}`);
-          items.forEach((item) => {
-            lines.push(`- **${item.stakeholder || "Unknown"}:** ${item.feedback || "—"}`);
-          });
-        }
-      });
-    }
-    lines.push("");
-
-    // Checklist
-    lines.push("---");
-    lines.push("## Showcase Checklist");
-    lines.push(`Progress: ${checkedCount}/${checklistItems.length}`);
-    lines.push("");
-    checklistItems.forEach((c) => {
-      lines.push(`- [${c.checked ? "x" : " "}] ${c.label}`);
-    });
-    lines.push("");
-
-    // Velocity
-    lines.push("---");
-    lines.push("## Velocity Summary");
-    lines.push(`- **Committed:** ${committed} points`);
-    lines.push(`- **Completed:** ${completed} points`);
-    lines.push(`- **Completion Rate:** ${completionRate}%`);
-    lines.push(`- **Total Backlog:** ${totalBacklog} points`);
-    lines.push(`- **Done to Date:** ${backlogDone} points`);
-    lines.push(`- **Release Progress:** ${releaseProgress}%`);
-    lines.push("");
-    lines.push(`_Generated ${new Date().toLocaleDateString()}_`);
-
-    return lines.join("\n");
-  }, [
-    sprintName,
-    sprintNumber,
-    features,
-    meetingDate,
-    feedbackItems,
-    checklistItems,
-    committed,
-    completed,
-    totalBacklog,
-    backlogDone,
-  ]);
-
-  const promptConfig = useMemo(
-    () => ({
-      toolName: "Sprint Review",
-      prompts: generateSprintReviewPrompts({
-        sprintName,
-        sprintNumber: Number(sprintNumber),
-        features: features.map((f) => ({
-          name: f.name,
-          description: f.description,
-          timeMinutes: f.timeMinutes,
-        })),
-        feedbackItems: feedbackItems.map((f) => ({
-          stakeholder: f.stakeholder,
-          feedback: f.feedback,
-          category: f.category,
-        })),
-        checklistItems: checklistItems.map((c) => ({ label: c.label, checked: c.checked })),
-        committed,
-        completed,
-      }),
-    }),
-    [sprintName, sprintNumber, features, feedbackItems, checklistItems, committed, completed]
-  );
-
-  // ── Cross-tool signal: review activity in the last 30 days ────────────
-  // Counts past demo additions + feedback captures so the user gets a
-  // sense of cadence without leaving the page. Subscribes to the history
-  // store's events so external logging is reflected immediately.
-  const events = useHistoryStore((s) => s.events);
-  const recentDemoCount = useMemo(
-    () =>
-      selectEvents({
-        toolId: "sprint-review",
-        action: "item_added",
-        sinceDays: 30,
-        limit: 200,
-      }).length,
-    [events]
-  );
-  const recentFeedbackCount = useMemo(
-    () =>
-      selectEvents({
-        toolId: "sprint-review",
-        action: "feedback_added",
-        sinceDays: 30,
-        limit: 200,
-      }).length,
-    [events]
-  );
+  const hydrated = useWorkspaceHydrated();
+  const [example, setExample] = useState<ReviewExample | null>(null);
+  const [tab, setTab] = useState("demo");
 
   return (
     <ToolPageWrapper
       toolId="sprint-review"
       title="Sprint Review Kit"
-      description="Generate demo scripts, collect stakeholder feedback, run showcase checklists, and review velocity."
+      description="Build each sprint's review from its goal and done stories, run the demo script, capture stakeholder feedback and check you're ready to show."
       category="Ceremonies"
     >
-      <div className="space-y-6">
-        {(recentDemoCount > 0 || recentFeedbackCount > 0) && (
-          <CalloutAlert tone="info" className="mb-0">
-            Last 30 days: <strong>{recentDemoCount}</strong> demo item
-            {recentDemoCount === 1 ? "" : "s"} added
-            {recentFeedbackCount > 0 && (
-              <>
-                {" · "}
-                <strong>{recentFeedbackCount}</strong> feedback item
-                {recentFeedbackCount === 1 ? "" : "s"} captured
-              </>
-            )}
-            .
-          </CalloutAlert>
-        )}
-        {/* Header actions */}
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-sub">
-            Sprint <span className="text-accent font-data font-semibold">#{sprintNumber}</span> —{" "}
-            {sprintName}
-          </div>
-          <div className="flex items-center gap-2">
-            <AiPromptGenerator config={promptConfig} />
-            <ExportButton
-              filename={`sprint-${sprintNumber}-review`}
-              clipboardText={fullExport}
-              csvData={{
-                // Single combined CSV — features + feedback share one sheet
-                // with a Type column so spreadsheet users can filter without
-                // juggling two downloads. Numeric/date columns stay typed
-                // where they apply; cross-type columns degrade to "" on the
-                // other row kind.
-                headers: [
-                  "Type",
-                  "Name / Stakeholder",
-                  "Description",
-                  "Acceptance Criteria",
-                  "Feedback",
-                  "Category",
-                  "Time (min)",
-                ],
-                rows: [
-                  ...features.map(
-                    (f) =>
-                      [
-                        "Feature",
-                        f.name,
-                        f.description,
-                        f.acceptanceCriteria,
-                        "",
-                        "",
-                        f.timeMinutes,
-                      ] as (string | number)[]
-                  ),
-                  ...feedbackItems.map(
-                    (fb) =>
-                      ["Feedback", fb.stakeholder, "", "", fb.feedback, fb.category, ""] as (
-                        | string
-                        | number
-                      )[]
-                  ),
-                ],
-              }}
-            />
-            <Button variant="danger-ghost" size="sm" onClick={reset}>
-              Reset
-            </Button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <Tabs defaultValue="demo">
-          <TabsList className="bg-surface-deep border border-border p-1 h-auto flex-wrap gap-1">
-            <TabsTrigger
-              value="demo"
-              className="data-[state=active]:bg-accent/10 data-[state=active]:text-accent text-sub gap-1.5"
-            >
-              <Presentation className="w-3.5 h-3.5" />
-              Demo Script
-            </TabsTrigger>
-            <TabsTrigger
-              value="feedback"
-              className="data-[state=active]:bg-accent/10 data-[state=active]:text-accent text-sub gap-1.5"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              Stakeholder Feedback
-            </TabsTrigger>
-            <TabsTrigger
-              value="checklist"
-              className="data-[state=active]:bg-accent/10 data-[state=active]:text-accent text-sub gap-1.5"
-            >
-              <CheckSquare className="w-3.5 h-3.5" />
-              Showcase Checklist
-            </TabsTrigger>
-            <TabsTrigger
-              value="velocity"
-              className="data-[state=active]:bg-accent/10 data-[state=active]:text-accent text-sub gap-1.5"
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
-              Velocity Summary
-            </TabsTrigger>
-          </TabsList>
-
-          <div className="mt-6">
-            <TabsContent value="demo">
-              <DemoScriptTab />
-            </TabsContent>
-            <TabsContent value="feedback">
-              <FeedbackTab />
-            </TabsContent>
-            <TabsContent value="checklist">
-              <ShowcaseChecklistTab />
-            </TabsContent>
-            <TabsContent value="velocity">
-              <VelocitySummaryTab />
-            </TabsContent>
-          </div>
-        </Tabs>
-      </div>
+      {!hydrated ? (
+        <LoadingSprints />
+      ) : example ? (
+        <ExampleReview
+          example={example}
+          tab={tab}
+          onTabChange={setTab}
+          onExit={() => setExample(null)}
+        />
+      ) : (
+        <LiveReview
+          tab={tab}
+          onTabChange={setTab}
+          onLoadExample={() => setExample(buildExample())}
+        />
+      )}
     </ToolPageWrapper>
+  );
+}
+
+/** The chosen sprint's review (or the draft), in the workspace. */
+function LiveReview({
+  tab,
+  onTabChange,
+  onLoadExample,
+}: {
+  tab: string;
+  onTabChange: (tab: string) => void;
+  onLoadExample: () => void;
+}) {
+  const { sprints, selected, select } = useSelectedSprint();
+  const [inDraft, setInDraft] = useState(false);
+  const sprint = inDraft ? undefined : selected;
+  const source = useLiveReview(sprint);
+  const docs = useWorkspaceStore((s) => s.sprintReviews) ?? NO_REVIEWS;
+  const upsert = useWorkspaceStore((s) => s.upsertSprintReview);
+  const removeReview = useWorkspaceStore((s) => s.removeSprintReview);
+  const draft = useMemo(() => usableDraft(docs), [docs]);
+  const sprintHasContent = useMemo(
+    () => Boolean(selected && reviewHasContent(viewReview(docs, selected).doc)),
+    [docs, selected]
+  );
+
+  const chooseSprint = (id: string) => {
+    setInDraft(false);
+    select(id);
+  };
+
+  /** Copy the draft into the chosen sprint's empty review, with Undo. */
+  function startSprintFromDraft() {
+    if (!selected || !draft) return;
+    const target = selected;
+    const stored = useWorkspaceStore.getState().sprintReviews ?? [];
+    const before = stored.find((d) => d.id === reviewDocId(target.id));
+    const next = startFromDraft(viewReview(stored, target).doc, draft, target);
+    undoable({
+      label: `Started ${target.name}'s review from the draft`,
+      apply: () => {
+        upsert(next);
+        setInDraft(false);
+      },
+      revert: () => (before ? upsert(before) : removeReview(next.id)),
+    });
+  }
+
+  // The row Reset removes, held by this render's pair of callbacks so the
+  // Undo of one reset can't restore another sprint's review.
+  let removed: SprintReview | undefined;
+  const reset = (
+    <ResetButton
+      title={sprint ? `Reset ${sprint.name}'s review?` : "Reset the draft review?"}
+      description={`Its ${contentSummary(source.doc)}, review date and typed numbers are deleted.${
+        sprint ? ` ${sprint.name}'s stories and goal stay as they are.` : ""
+      } You can undo this right after.`}
+      confirmLabel="Reset review"
+      doneLabel={sprint ? `Reset ${sprint.name}'s review` : "Reset the draft review"}
+      disabled={!source.stored}
+      variant="danger-ghost"
+      onReset={() => {
+        const id = source.doc.id;
+        removed = (useWorkspaceStore.getState().sprintReviews ?? []).find((d) => d.id === id);
+        removeReview(id);
+      }}
+      onUndo={() => {
+        if (removed) upsert(removed);
+      }}
+    />
+  );
+
+  return (
+    <ReviewScreen
+      // A half-typed form or an open editor never carries over to another review.
+      key={source.doc.id}
+      source={source}
+      tab={tab}
+      onTabChange={onTabChange}
+      reset={reset}
+      onLoadExample={onLoadExample}
+      scope={
+        <ReviewScope
+          sprints={sprints}
+          selected={selected}
+          inDraft={inDraft}
+          draft={draft}
+          sprintHasContent={sprintHasContent}
+          onSelect={chooseSprint}
+          onOpenDraft={() => setInDraft(true)}
+          onCloseDraft={() => setInDraft(false)}
+          onStartFromDraft={startSprintFromDraft}
+        />
+      }
+    />
+  );
+}
+
+/** The example review, in memory: every tab works, nothing is saved or sent. */
+function ExampleReview({
+  example,
+  tab,
+  onTabChange,
+  onExit,
+}: {
+  example: ReviewExample;
+  tab: string;
+  onTabChange: (tab: string) => void;
+  onExit: () => void;
+}) {
+  const [store] = useState(() => createExampleReviewStore(example));
+  const source = useExampleReview(example, store);
+  return (
+    <ReviewScreen
+      source={source}
+      tab={tab}
+      onTabChange={onTabChange}
+      scope={
+        <div>
+          <ExampleNotice onClear={onExit} />
+          <p className="-mt-2 text-xs text-sub">
+            Example: a checkout team&apos;s {example.sprint.name}. Nothing in it is saved, and none
+            of its feedback can be sent to your backlog.
+          </p>
+        </div>
+      }
+    />
+  );
+}
+
+/** One review: the verdict, the goal, then the four tabs. */
+function ReviewScreen({
+  source,
+  scope,
+  reset,
+  tab,
+  onTabChange,
+  onLoadExample,
+}: {
+  source: ReviewSource;
+  scope: ReactNode;
+  reset?: ReactNode;
+  tab: string;
+  onTabChange: (tab: string) => void;
+  onLoadExample?: () => void;
+}) {
+  const { doc, sprint, facts, example, writer } = source;
+  const uid = useId();
+  const numbers = useMemo(() => reviewNumbers(doc, facts, sprint), [doc, facts, sprint]);
+  // The product's progress across its real stories (other tools' examples
+  // never count).
+  const backlog = useMemo(
+    () =>
+      numbers.source === "stories"
+        ? backlogProgress(
+            example ? source.stories : source.stories.filter((s) => !isExampleId(s.id))
+          )
+        : null,
+    [numbers.source, example, source.stories]
+  );
+  const verdict = reviewVerdict({ doc, sprint, facts, numbers });
+  const storyTitle = (id: string) => source.stories.find((s) => s.id === id)?.title;
+  const markdown = toMarkdown(doc, { sprint, facts, numbers, backlog, storyTitle });
+  const name = sprint?.name ?? doc.sprintName.trim();
+
+  // Nothing to show yet: no demo items, feedback or checklist, and no sprint
+  // facts to build them from.
+  const empty =
+    !reviewHasContent(doc) &&
+    (!facts || (facts.done.length === 0 && facts.notDone.length === 0 && !facts.goal));
+
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Sprint Review",
+      prompts: generateSprintReviewPrompts({
+        sprintName: name,
+        sprintNumber: Number(doc.sprintNumber) || 0,
+        features: doc.features.map((f) => ({
+          name: f.name,
+          description: f.description,
+          timeMinutes: f.timeMinutes,
+        })),
+        feedbackItems: doc.feedbackItems.map((f) => ({
+          stakeholder: f.stakeholder,
+          feedback: f.feedback,
+          category: f.category,
+        })),
+        checklistItems: doc.checklistItems.map((c) => ({ label: c.label, checked: c.checked })),
+        committed: numbers.committed,
+        completed: numbers.completed ?? 0,
+      }),
+    }),
+    [name, doc, numbers]
+  );
+
+  return (
+    <div className="space-y-6">
+      {!example && <RecentActivity />}
+      {scope}
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="min-w-0 flex-1 basis-64 text-sm font-medium text-text">{verdict}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename={`sprint-review-${slug(name)}`}
+            markdown={markdown}
+            jsonData={{
+              sprint: sprint ? { id: sprint.id, name: sprint.name } : null,
+              numbers,
+              review: doc,
+            }}
+            csvData={{
+              // One sheet for demo items and feedback, with a Type column so
+              // a spreadsheet can filter them.
+              headers: [
+                "Type",
+                "Name / Stakeholder",
+                "Description",
+                "Acceptance Criteria",
+                "Feedback",
+                "Category",
+                "Time (min)",
+              ],
+              rows: [
+                ...doc.features.map((f): (string | number)[] => [
+                  "Feature",
+                  f.name,
+                  f.description,
+                  f.acceptanceCriteria,
+                  "",
+                  "",
+                  f.timeMinutes,
+                ]),
+                ...doc.feedbackItems.map((f): (string | number)[] => [
+                  "Feedback",
+                  f.stakeholder,
+                  "",
+                  "",
+                  f.feedback,
+                  f.category,
+                  "",
+                ]),
+              ],
+            }}
+          />
+          {reset}
+        </div>
+      </div>
+
+      {empty && onLoadExample && (
+        <EmptyState
+          icon={Presentation}
+          padding="md"
+          action={<LoadExampleButton label="See an example review" onLoad={onLoadExample} />}
+        >
+          {sprint
+            ? `${sprint.name} has no goal or stories yet, and nothing is in its review.`
+            : "No review yet."}{" "}
+          Add what you&apos;ll demo and capture the stakeholders&apos; feedback below, or look
+          around an example review first.
+        </EmptyState>
+      )}
+
+      {sprint && facts && <GoalCard sprint={sprint} facts={facts} example={example} />}
+
+      {!sprint && (
+        <SectionCard
+          title="Sprint info"
+          icon={Presentation}
+          contentClassName="grid grid-cols-1 gap-4 sm:grid-cols-2"
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor={`${uid}-sprint-name`} className="text-xs text-sub">
+              Sprint name
+            </Label>
+            <BlurInput
+              id={`${uid}-sprint-name`}
+              value={doc.sprintName}
+              onCommit={(v) => writer.update((d) => ({ ...d, sprintName: v }))}
+              placeholder="e.g. Sprint 12"
+              className="input-toolkit"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${uid}-sprint-number`} className="text-xs text-sub">
+              Sprint number
+            </Label>
+            <BlurInput
+              id={`${uid}-sprint-number`}
+              value={doc.sprintNumber}
+              onCommit={(v) => writer.update((d) => ({ ...d, sprintNumber: v }))}
+              placeholder="e.g. 12"
+              className="input-toolkit"
+            />
+          </div>
+        </SectionCard>
+      )}
+
+      <Tabs value={tab} onValueChange={onTabChange}>
+        <TabsList className="h-auto flex-wrap gap-1 border border-border bg-surface-deep p-1">
+          <TabsTrigger value="demo" className={TAB_CLASS}>
+            <Presentation className="h-3.5 w-3.5" aria-hidden="true" />
+            Demo Script
+          </TabsTrigger>
+          <TabsTrigger value="feedback" className={TAB_CLASS}>
+            <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            Stakeholder Feedback
+          </TabsTrigger>
+          <TabsTrigger value="checklist" className={TAB_CLASS}>
+            <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            Showcase Checklist
+          </TabsTrigger>
+          <TabsTrigger value="velocity" className={TAB_CLASS}>
+            <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
+            Velocity Summary
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="mt-6">
+          <TabsContent value="demo">
+            <DemoScriptTab source={source} />
+          </TabsContent>
+          <TabsContent value="feedback">
+            <FeedbackTab source={source} />
+          </TabsContent>
+          <TabsContent value="checklist">
+            <ShowcaseChecklistTab source={source} />
+          </TabsContent>
+          <TabsContent value="velocity">
+            <VelocitySummaryTab source={source} numbers={numbers} backlog={backlog} />
+          </TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  );
+}
+
+/**
+ * Review activity in the last 30 days: demo items added and feedback
+ * captured, so the cadence shows without leaving the page.
+ */
+function RecentActivity() {
+  // `events` is the trigger: selectEvents reads the history store itself.
+  const events = useHistoryStore((s) => s.events);
+  const [demos, feedback] = useMemo(
+    () =>
+      (["item_added", "feedback_added"] as const).map(
+        (action) =>
+          selectEvents({ toolId: "sprint-review", action, sinceDays: 30, limit: 200 }).length
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events]
+  );
+  if (demos === 0 && feedback === 0) return null;
+  return (
+    <CalloutAlert tone="info" className="mb-0">
+      Last 30 days: <strong>{demos}</strong> demo item{demos === 1 ? "" : "s"} added
+      {feedback > 0 && (
+        <>
+          {" · "}
+          <strong>{feedback}</strong> feedback item{feedback === 1 ? "" : "s"} captured
+        </>
+      )}
+      .
+    </CalloutAlert>
   );
 }

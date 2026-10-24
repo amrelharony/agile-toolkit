@@ -1,35 +1,14 @@
 "use client";
 
 /**
- * Shared form atoms for the Sprint Review tabs.
- *
- * `SectionLabel` is the small uppercase field caption used across tabs; pass
- * `htmlFor` to render it as the <label> of the field below it.
  * `NumCell` is a numeric input that doesn't snap mid-edit — it holds a local
  * string draft so intermediate states like "" or "1." don't get rewritten by
- * clamping, committing on blur/Enter and reverting on invalid input.
+ * clamping, committing on blur/Enter and reverting on invalid input. The
+ * Velocity Summary's typed numbers use it.
  */
 
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
-
-export function SectionLabel({
-  children,
-  htmlFor,
-}: {
-  children: React.ReactNode;
-  htmlFor?: string;
-}) {
-  const className = "text-xs text-sub font-medium uppercase tracking-wider mb-1";
-  if (htmlFor) {
-    return (
-      <label htmlFor={htmlFor} className={`block ${className}`}>
-        {children}
-      </label>
-    );
-  }
-  return <p className={className}>{children}</p>;
-}
 
 export function NumCell({
   value,

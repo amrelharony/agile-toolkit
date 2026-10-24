@@ -1,119 +1,89 @@
 "use client";
 
 /**
- * The sprint review is a singleton document in the synced workspace store
- * (one row under a fixed id) rather than an isolated localStorage store, so
- * MCP-written reviews round-trip into the UI. `useSprintReviewStore` keeps the
- * exact shape the components consumed before the migration; each setter reads
- * the freshest doc via getState() to avoid clobbering on rapid edits.
+ * The live review: a sprint's document in the synced workspace store (or
+ * the draft without a sprint), so agent writes round-trip into the page.
+ * Every write reads the freshest document through getState(), so rapid
+ * edits never clobber each other, and the first write to a sprint without
+ * a document creates it from `blankReview(sprint)`.
  *
- * SR_ID MUST match the constant in src/lib/actions/tools/sprint-review.ts so
- * agent writes land on the same row the UI renders.
+ * The example has the same shape of source over an in-memory store, so the
+ * tabs never need to know which one they are editing.
  */
 
-import { useShallow } from "zustand/react/shallow";
+import { useMemo } from "react";
+import { useStore } from "zustand";
+import { createStore, type StoreApi } from "zustand/vanilla";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { SprintReview } from "@/lib/stores/workspace-types";
-import type { SprintReviewStore } from "./types";
-import { DEFAULT_STATE } from "./constants";
+import type { Sprint, SprintGoal, SprintReview, Story } from "@/lib/stores/workspace-types";
+import { DRAFT_REVIEW_ID, reviewFacts } from "@/lib/sprints/review-doc";
+import { viewReview } from "./doc";
+import type { ReviewExample } from "./example";
+import type { ReviewSource, ReviewWriter } from "./types";
 
-export const SR_ID = "sprint-review:current";
+/**
+ * The draft's id. The ids are shared with the cockpit and the
+ * tool.sprint_review.* agent actions through lib/sprints/review-doc.
+ */
+export const SR_ID = DRAFT_REVIEW_ID;
 
-function currentDoc(): SprintReview {
-  const list = useWorkspaceStore.getState().sprintReviews ?? [];
-  return list.find((r) => r.id === SR_ID) ?? { id: SR_ID, ...DEFAULT_STATE };
+const NO_REVIEWS: SprintReview[] = [];
+const NO_STORIES: Story[] = [];
+const NO_GOALS: SprintGoal[] = [];
+
+/** Writes `sprint`'s review (the draft without one) in the workspace. */
+export function liveWriter(sprint?: Pick<Sprint, "id" | "name">): ReviewWriter {
+  const read = () => viewReview(useWorkspaceStore.getState().sprintReviews, sprint).doc;
+  return {
+    read,
+    update: (change) => useWorkspaceStore.getState().upsertSprintReview(change(read())),
+  };
 }
 
-export function useSprintReviewStore(): SprintReviewStore {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.sprintReviews ?? []).find((r) => r.id === SR_ID))
+/** The review of `sprint` (the draft without one), its facts and its writer. */
+export function useLiveReview(sprint: Sprint | undefined): ReviewSource {
+  const docs = useWorkspaceStore((s) => s.sprintReviews) ?? NO_REVIEWS;
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const goals = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
+  const view = useMemo(() => viewReview(docs, sprint), [docs, sprint]);
+  const facts = useMemo(
+    () => (sprint ? reviewFacts(sprint, stories, goals) : null),
+    [sprint, stories, goals]
   );
-  const upsert = useWorkspaceStore((s) => s.upsertSprintReview);
-  const cur: SprintReview = doc ?? { id: SR_ID, ...DEFAULT_STATE };
+  const writer = useMemo(() => liveWriter(sprint), [sprint]);
+  return { ...view, sprint, facts, stories, writer, example: false };
+}
+
+/* ── The example, in memory ──────────────────────────────────────────── */
+
+export type ExampleReviewStore = StoreApi<{ review: SprintReview }>;
+
+/** An in-memory copy of the example review, alive while the example is open. */
+export function createExampleReviewStore(example: ReviewExample): ExampleReviewStore {
+  return createStore(() => ({ review: example.review }));
+}
+
+/** The example as a review source: same tabs, nothing leaves memory. */
+export function useExampleReview(example: ReviewExample, store: ExampleReviewStore): ReviewSource {
+  const doc = useStore(store, (s) => s.review);
+  const facts = useMemo(
+    () => reviewFacts(example.sprint, example.stories, example.goals),
+    [example]
+  );
+  const writer = useMemo<ReviewWriter>(
+    () => ({
+      read: () => store.getState().review,
+      update: (change) => store.setState((s) => ({ review: change(s.review) })),
+    }),
+    [store]
+  );
   return {
-    sprintName: cur.sprintName,
-    sprintNumber: cur.sprintNumber,
-    features: cur.features,
-    meetingDate: cur.meetingDate,
-    feedbackItems: cur.feedbackItems,
-    checklistItems: cur.checklistItems,
-    committed: cur.committed,
-    completed: cur.completed,
-    totalBacklog: cur.totalBacklog,
-    backlogDone: cur.backlogDone,
-    setSprintName: (v) => upsert({ ...currentDoc(), sprintName: v }),
-    setSprintNumber: (v) => upsert({ ...currentDoc(), sprintNumber: v }),
-    addFeature: () =>
-      upsert({
-        ...currentDoc(),
-        features: [
-          ...currentDoc().features,
-          {
-            id: crypto.randomUUID(),
-            name: "",
-            description: "",
-            acceptanceCriteria: "",
-            timeMinutes: 5,
-          },
-        ],
-      }),
-    removeFeature: (id) =>
-      upsert({ ...currentDoc(), features: currentDoc().features.filter((f) => f.id !== id) }),
-    updateFeature: (id, updates) =>
-      upsert({
-        ...currentDoc(),
-        features: currentDoc().features.map((f) => (f.id === id ? { ...f, ...updates } : f)),
-      }),
-    setMeetingDate: (v) => upsert({ ...currentDoc(), meetingDate: v }),
-    addFeedback: () =>
-      upsert({
-        ...currentDoc(),
-        feedbackItems: [
-          ...currentDoc().feedbackItems,
-          { id: crypto.randomUUID(), stakeholder: "", feedback: "", category: "positive" },
-        ],
-      }),
-    removeFeedback: (id) =>
-      upsert({
-        ...currentDoc(),
-        feedbackItems: currentDoc().feedbackItems.filter((f) => f.id !== id),
-      }),
-    updateFeedback: (id, updates) =>
-      upsert({
-        ...currentDoc(),
-        feedbackItems: currentDoc().feedbackItems.map((f) =>
-          f.id === id ? { ...f, ...updates } : f
-        ),
-      }),
-    toggleChecklist: (id) =>
-      upsert({
-        ...currentDoc(),
-        checklistItems: currentDoc().checklistItems.map((c) =>
-          c.id === id ? { ...c, checked: !c.checked } : c
-        ),
-      }),
-    addChecklistItem: (label) =>
-      upsert({
-        ...currentDoc(),
-        checklistItems: [
-          ...currentDoc().checklistItems,
-          { id: crypto.randomUUID(), label, checked: false },
-        ],
-      }),
-    removeChecklistItem: (id) =>
-      upsert({
-        ...currentDoc(),
-        checklistItems: currentDoc().checklistItems.filter((c) => c.id !== id),
-      }),
-    updateChecklistLabel: (id, label) =>
-      upsert({
-        ...currentDoc(),
-        checklistItems: currentDoc().checklistItems.map((c) => (c.id === id ? { ...c, label } : c)),
-      }),
-    setCommitted: (v) => upsert({ ...currentDoc(), committed: v }),
-    setCompleted: (v) => upsert({ ...currentDoc(), completed: v }),
-    setTotalBacklog: (v) => upsert({ ...currentDoc(), totalBacklog: v }),
-    setBacklogDone: (v) => upsert({ ...currentDoc(), backlogDone: v }),
-    reset: () => upsert({ id: SR_ID, ...DEFAULT_STATE }),
+    doc,
+    stored: true,
+    sprint: example.sprint,
+    facts,
+    stories: example.stories,
+    writer,
+    example: true,
   };
 }
