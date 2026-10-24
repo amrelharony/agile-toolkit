@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getNextStepRule } from "@/lib/tools/next-steps";
-import type { RetroBoard, RetroCard, Sprint, Workspace } from "@/lib/stores/workspace-types";
+import type { RetroBoard, RetroCard, Risk, Sprint, Workspace } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
 
@@ -109,12 +109,13 @@ describe("retro-actions", () => {
 
 describe("premortem", () => {
   it("asks for mitigation dates on the premortem's open risks", () => {
-    const risk = (id: string, over: Record<string, unknown> = {}) => ({
+    const risk = (id: string, over: Partial<Risk> = {}): Risk => ({
       id,
       title: id,
       probability: 3,
       impact: 3,
-      status: "open" as const,
+      raisedAt: "2026-10-20",
+      status: "open",
       sourceRef: { tool: "premortem", id: `c-${id}` },
       ...over,
     });
