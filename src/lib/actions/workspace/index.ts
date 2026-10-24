@@ -217,6 +217,12 @@ const ImpedimentSchema = z.object({
   owner: z.string().optional(),
   source: z.enum(["standup", "retro", "manual"]).optional(),
   sourceRef: HandoffRefSchema.optional(),
+  description: z.string().optional(),
+  category: z.enum(["technical", "organizational", "external", "process"]).optional(),
+  raisedBy: z.string().optional(),
+  escalatedAt: z.string().optional(),
+  dueDate: z.string().optional(),
+  expectedResolutionDays: z.number().int().min(0).optional(),
 }) as unknown as z.ZodType<Impediment>;
 
 const RiskSchema = z.object({
@@ -1760,10 +1766,13 @@ const StandupEntrySchema = z.object({
   timestamp: z.number(),
   blockerResolved: z.boolean().optional(),
   sentTo: z.array(HandoffLinkSchema).optional(),
+  mode: z.enum(["live", "async"]).optional(),
+  description: z.string().optional(),
 }) as unknown as z.ZodType<StandupEntry>;
 
 const SprintReviewSchema = z.object({
   id: z.string(),
+  sprintId: z.string().optional(),
   sprintName: z.string(),
   sprintNumber: z.string(),
   features: z.array(z.record(z.string(), z.unknown())),
