@@ -1,104 +1,83 @@
 "use client";
 
 /**
- * Small visual primitives for KPI cards: a direction-aware trend arrow, a
- * Mann-Kendall monotonic-trend chip (rendered only for series of length >= 5
- * with a detectable trend), and the traffic-light circle. The arrow and a
- * labelled circle are images with a text name, so the colour isn't the only
- * cue.
+ * Small visual primitives for the dashboard: the traffic-light circle (an
+ * image with its status as a name when labelled, so colour is never the
+ * only cue) and a Mann-Kendall chip, shown in Advanced analysis once a
+ * series is long enough for a trend test.
  */
 
 import { useMemo } from "react";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { mannKendall } from "@/lib/analytics/trend-test";
-import type { TrafficStatus, TrendDir } from "../types";
-import { STATUS_COLOR, STATUS_LABEL } from "../status-config";
+import type { TrafficStatus } from "@/lib/health-dashboard/settings";
+import { cn } from "@/lib/utils";
+import { STATUS_FILL, STATUS_LABEL } from "../status-config";
 
-const TREND_LABEL: Record<TrendDir, string> = {
-  up: "Trending up",
-  down: "Trending down",
-  same: "No change",
-};
-
-export function TrendIcon({
-  trend,
-  positiveIsUp = true,
-}: {
-  trend: TrendDir;
-  positiveIsUp?: boolean;
-}) {
-  let icon: React.ReactNode;
-  if (trend === "up") {
-    const color = positiveIsUp ? "#22c55e" : "#ef4444";
-    icon = <TrendingUp className="w-4 h-4" style={{ color }} aria-hidden="true" />;
-  } else if (trend === "down") {
-    const color = positiveIsUp ? "#ef4444" : "#22c55e";
-    icon = <TrendingDown className="w-4 h-4" style={{ color }} aria-hidden="true" />;
-  } else {
-    icon = <Minus className="w-4 h-4 text-sub/70" aria-hidden="true" />;
-  }
-  return (
-    <span role="img" aria-label={TREND_LABEL[trend]} className="inline-flex">
-      {icon}
-    </span>
-  );
-}
-
+/**
+ * The direction of a series by the Mann-Kendall test, and whether that is
+ * good for this KPI. The arrow follows the data; good or bad follows the
+ * KPI's direction (the old chip said "trending up" for a falling series
+ * that happened to be good).
+ */
 export function MannKendallChip({
+  label,
   series,
-  positiveIsGood,
+  higherIsBetter,
 }: {
-  series: number[];
-  positiveIsGood: boolean;
+  label: string;
+  series: readonly number[];
+  higherIsBetter: boolean;
 }) {
-  // Hooks are not allowed in this leaf; the cost is bounded by series length.
-  // Mann-Kendall is O(n^2) but n here is at most a few dozen — cheap.
-  const result = useMemo(() => mannKendall(series), [series]);
-  if (series.length < 5 || result.trend === "none") return null;
-  // A trend in the metric is "good" or "bad" depending on the metric.
-  // For positive-is-good (predictability, health), an "up" trend is good.
-  // For positive-is-bad (open impediments), an "up" trend is bad.
-  const trendUp = result.trend === "up";
-  const isGood = trendUp === positiveIsGood;
-  const color = isGood ? "#22c55e" : "#ef4444";
+  const result = useMemo(() => mannKendall([...series]), [series]);
+  if (!result.significant || result.trend === "none") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-xs text-sub">
+        {label}: no confirmed trend (p = {result.pValue.toFixed(2)}
+        {series.length < 10 ? "; the test confirms one from 10 points" : ""})
+      </span>
+    );
+  }
+  const up = result.trend === "up";
+  const good = up === higherIsBetter;
   return (
     <span
-      className="inline-flex items-center gap-1 text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border"
-      style={{
-        color,
-        borderColor: `${color}55`,
-        background: `${color}1a`,
-      }}
-      title={`Mann-Kendall p=${result.pValue.toFixed(3)} — distribution-free monotonic trend test`}
+      className={cn(
+        "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs",
+        good
+          ? "border-success/40 bg-success/10 text-success"
+          : "border-danger/40 bg-danger/10 text-danger"
+      )}
+      title="Mann-Kendall: a distribution-free test for a steady rise or fall"
     >
-      {trendUp ? "↑" : "↓"} {isGood ? "trending up" : "trending down"}
+      <span aria-hidden="true">{up ? "↑" : "↓"}</span>
+      {label}: {up ? "rising" : "falling"}, {good ? "the better direction" : "the worse direction"}{" "}
+      (p = {result.pValue.toFixed(2)})
     </span>
   );
 }
+
+const SIZE = { sm: "h-8 w-8", md: "h-10 w-10", lg: "h-12 w-12" } as const;
 
 export function TrafficCircle({
   status,
-  size = 48,
+  size = "md",
   labelled = false,
 }: {
-  status: TrafficStatus;
-  size?: number;
-  /** Name the circle by its status ("On Track"); otherwise it's decoration. */
+  status: TrafficStatus | null;
+  size?: keyof typeof SIZE;
+  /** Name the circle by its status ("On track"); otherwise it's decoration. */
   labelled?: boolean;
 }) {
-  const color = STATUS_COLOR[status];
-  return (
-    <div
-      {...(labelled
-        ? { role: "img", "aria-label": STATUS_LABEL[status] }
-        : { "aria-hidden": true })}
-      className="rounded-full flex-shrink-0"
-      style={{
-        width: size,
-        height: size,
-        background: color,
-        boxShadow: `0 0 12px ${color}88`,
-      }}
-    />
-  );
+  const a11y = labelled
+    ? { role: "img" as const, "aria-label": status ? STATUS_LABEL[status] : "No data" }
+    : { "aria-hidden": true as const };
+  if (!status) {
+    return (
+      <div
+        {...a11y}
+        className={cn("shrink-0 rounded-full border-2 border-dashed border-border", SIZE[size])}
+      />
+    );
+  }
+  return <div {...a11y} className={cn("shrink-0 rounded-full", STATUS_FILL[status], SIZE[size])} />;
 }
