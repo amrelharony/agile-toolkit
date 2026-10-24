@@ -1,17 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { TrendingDown } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, TrendingDown } from "lucide-react";
 import { ChartCard } from "@/components/shared/chart-card";
+import { useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
-import { dayEntry, dayForDate, sprintLengthDays } from "@/lib/sprints/series";
-import { burndownView } from "@/app/(tools)/burndown/view";
-import { burndownChartText } from "@/app/(tools)/burndown/chart-text";
-import type { BurndownChartRow } from "@/app/(tools)/burndown/charts";
+import { dayDate, dayEntry } from "@/lib/sprints/series";
+import { points } from "@/lib/sprints/hub-view";
+import { isExampleSprintId } from "@/lib/sprints/example";
+import { sprintHref } from "@/lib/sprints/use-selected-sprint";
+import {
+  cockpitChartText,
+  loggableDays,
+  validateDayLog,
+  type CockpitBurndown,
+  type DayLogDraft,
+  type DayLogValues,
+} from "../view";
 
 // Recharts loads with the chart, not the page (see components/charts/lazy-chart.tsx).
 const BurndownChart = dynamic(
@@ -19,96 +29,161 @@ const BurndownChart = dynamic(
   { ssr: false, loading: () => null }
 );
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-/** The chart's rows: the ideal line and what Burndown and Burnup logged. */
-export function miniBurndownRows(sprint: Sprint, series: SprintSeries | undefined) {
-  const length = sprintLengthDays(sprint);
-  const view = burndownView(sprint, series);
-  const rows: BurndownChartRow[] = view.entries
-    .filter((e) => e.day <= length)
-    .map((e) => ({
-      day: e.day,
-      ideal: round1(length > 0 ? sprint.pointsPlanned * (1 - e.day / length) : 0),
-      actual: e.remaining,
-    }));
-  return { rows, scopeChangeDays: view.scopeChangeDays, length };
+const asText = (n: number | null | undefined) => (n == null ? "" : String(n));
+
+/** "Day 7 · today", "Day 5 · Mon 19 Oct" */
+function dayOption(sprint: Sprint, day: number, todayDay: number | null): string {
+  if (day === todayDay) return `Day ${day} · today`;
+  const iso = dayDate(sprint, day);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  if (!m) return `Day ${day}`;
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return `Day ${day} · ${date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;
 }
 
 /**
- * The sprint's burndown at a glance, with today's "points left" input under
- * it. The number goes to the shared sprint log, so Burndown, Sprint Metrics
- * and the forecasts all see it.
+ * The sprint's burndown at a glance, and where its numbers come from. With
+ * pointed stories it is read off the sprint board and nothing is asked;
+ * without, "points left" is typed per day (today, or a missed earlier day)
+ * into the shared sprint log, so Burndown, Sprint Metrics and the forecasts
+ * all see it.
  */
 export function MiniBurndown({
   sprint,
   series,
+  burndown,
   today,
   onLog,
 }: {
   sprint: Sprint;
   series: SprintSeries | undefined;
+  burndown: CockpitBurndown;
   today: string;
   /** Absent in a read-only preview. */
-  onLog?: (remaining: number) => void;
+  onLog?: (day: number, remaining: number) => void;
 }) {
-  const { rows, scopeChangeDays, length } = useMemo(
-    () => miniBurndownRows(sprint, series),
-    [sprint, series]
-  );
-  const text = useMemo(() => burndownChartText(rows), [rows]);
-  const todayDay = useMemo(() => {
-    const d = dayForDate(sprint, today);
-    return d !== null && d >= 0 && d <= length ? d : null;
-  }, [sprint, today, length]);
-  const stored = todayDay === null ? undefined : dayEntry(series, todayDay)?.remaining;
-  const [draft, setDraft] = useState(stored == null ? "" : String(stored));
-  const [error, setError] = useState<string | undefined>();
-  useEffect(() => setDraft(stored == null ? "" : String(stored)), [stored]);
+  const { rows, scopeChangeDays, todayDay, source, remaining } = burndown;
+  const text = useMemo(() => cockpitChartText(burndown), [burndown]);
+  const board = source === "stories";
+  const days = useMemo(() => (board ? [] : loggableDays(sprint, today)), [board, sprint, today]);
+  const lastDay = days.length > 0 ? days[days.length - 1] : null;
+  const storedAt = (day: number | null) =>
+    day === null ? undefined : dayEntry(series, day)?.remaining;
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const n = draft.trim() === "" ? NaN : Number(draft);
-    if (!Number.isFinite(n) || n < 0) {
-      setError("Enter 0 or more points.");
-      return;
-    }
-    setError(undefined);
-    onLog?.(n);
-  };
+  const form = useItemForm<DayLogDraft, DayLogValues, keyof DayLogDraft>({
+    initial: () => ({ day: asText(lastDay), remaining: asText(storedAt(lastDay)) }),
+    validate: (draft) => validateDayLog(draft, days),
+    resetOnSave: false,
+    onSave: ({ day, remaining: left }) => onLog?.(day, left),
+  });
+  const chosen = form.draft.day === "" ? null : Number(form.draft.day);
+  const stored = storedAt(chosen);
+  // Show what the chosen day already holds: after a save, after another
+  // tool's write, or when a different day is picked. Typing is never
+  // overwritten, since the stored number doesn't change while typing.
+  useEffect(() => {
+    form.update({ remaining: asText(stored) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stored]);
+  // A new day (midnight, or the sprint's dates edited) moves the choice on.
+  useEffect(() => {
+    form.update({ day: asText(lastDay) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastDay]);
+
+  const boardHref = isExampleSprintId(sprint.id) ? "/kanban" : sprintHref("/kanban", sprint.id);
+  const sourceLine = board ? (
+    <p className="text-sm text-sub">
+      {remaining.remaining === 0
+        ? "Every pointed story on the sprint board is done."
+        : `${points(remaining.remaining ?? 0)} left on the sprint board today.`}{" "}
+      <Link
+        href={boardHref}
+        className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
+      >
+        Move stories on the board
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+      </Link>
+    </p>
+  ) : source === "log" ? (
+    <p className="text-sm text-sub">
+      {`${points(remaining.remaining ?? 0)} left on day ${remaining.day ?? 0}, typed in the daily log.`}{" "}
+      Pointed stories on the sprint board would fill this in for you.
+    </p>
+  ) : (
+    <p className="text-sm text-sub">
+      Nothing logged yet. Point the sprint&apos;s stories and move them on the board, or type the
+      points left each day.
+    </p>
+  );
+
+  const label =
+    chosen !== null && chosen === todayDay
+      ? `Points left today (day ${chosen})`
+      : `Points left on day ${chosen ?? "—"}`;
 
   return (
     <ChartCard
       title="Burndown"
       icon={TrendingDown}
+      badge={
+        <span className="rounded-md border border-border px-1.5 py-0.5 text-xs font-medium text-sub">
+          {board ? "From the sprint board" : "Typed in the daily log"}
+        </span>
+      }
       height={200}
       summary={text.summary}
       table={text.table}
       footer={
-        onLog && todayDay !== null ? (
-          <form onSubmit={submit} noValidate className="flex flex-wrap items-end gap-2">
-            <Field
-              label={`Points left today (day ${todayDay})`}
-              error={error}
-              className="min-w-[12rem] flex-1"
+        <div className="space-y-3">
+          {sourceLine}
+          {onLog && days.length > 0 && (
+            <form
+              ref={form.formRef}
+              onSubmit={form.submit}
+              noValidate
+              className="flex flex-wrap items-end gap-2"
             >
-              {(control) => (
-                <Input
-                  {...control}
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step="any"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                />
+              {days.length > 1 && (
+                <Field label="Day" error={form.errors.day} className="w-40">
+                  {(control) => (
+                    <select
+                      {...control}
+                      className={SELECT_CLASS}
+                      value={form.draft.day}
+                      onChange={(e) => form.update({ day: e.target.value })}
+                    >
+                      {[...days].reverse().map((d) => (
+                        <option key={d} value={String(d)}>
+                          {dayOption(sprint, d, todayDay)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
               )}
-            </Field>
-            <Button type="submit" size="sm">
-              Log
-            </Button>
-          </form>
-        ) : undefined
+              <Field label={label} error={form.errors.remaining} className="min-w-[12rem] flex-1">
+                {(control) => (
+                  <Input
+                    {...control}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="any"
+                    value={form.draft.remaining}
+                    onChange={(e) => form.update({ remaining: e.target.value })}
+                  />
+                )}
+              </Field>
+              <Button type="submit" size="sm">
+                Log
+              </Button>
+            </form>
+          )}
+        </div>
       }
     >
       <BurndownChart

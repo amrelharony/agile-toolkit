@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   CEREMONY_HREF,
   CEREMONY_LABEL,
+  ceremonyTimeboxMinutes,
   whenLabel,
   type CeremonyCadence,
   type CeremonyOccurrence,
@@ -14,15 +15,25 @@ import {
 import { cn } from "@/lib/utils";
 import { CadenceForm } from "@/components/sprints/cadence-form";
 
+/** "15 min", "2 h", "1 h 30" */
+export function timeboxLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h} h` : `${h} h ${m}`;
+}
+
 /**
- * "Next ceremony": the next one or two events from the team's cadence, with
- * the form that sets the times tucked under it.
+ * "Next ceremony": the next one or two events from the team's cadence, the
+ * first with its timebox for a sprint this long, and the form that sets the
+ * times tucked under it.
  */
 export function NextCeremony({
   occurrences,
   now,
   ended,
   cadence,
+  sprintLengthDays,
   onCadence,
 }: {
   occurrences: CeremonyOccurrence[];
@@ -30,6 +41,8 @@ export function NextCeremony({
   /** The sprint's last day has passed. */
   ended: boolean;
   cadence: CeremonyCadence;
+  /** The sprint's length in days, which sets the planning, review and retro timeboxes. */
+  sprintLengthDays: number;
   /** Absent in a read-only preview. */
   onCadence?: (patch: Partial<CeremonyCadence>) => void;
 }) {
@@ -54,7 +67,10 @@ export function NextCeremony({
                   <Link href={CEREMONY_HREF[first.kind]} className="hover:text-accent">
                     {CEREMONY_LABEL[first.kind]}
                   </Link>{" "}
-                  <span className="font-normal text-sub">· {whenLabel(first.at, now)}</span>
+                  <span className="font-normal text-sub">
+                    · {whenLabel(first.at, now)} ·{" "}
+                    {timeboxLabel(ceremonyTimeboxMinutes(first.kind, sprintLengthDays))}
+                  </span>
                 </p>
                 {second && (
                   <p className="text-sm text-sub">

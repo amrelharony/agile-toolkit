@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Impediment, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
@@ -45,6 +47,9 @@ vi.stubGlobal(
 );
 
 import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
+
+// The start flow's remove buttons are IconButtons, which need the app's TooltipProvider.
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: TooltipProvider });
 
 const S1: Sprint = {
   id: "s1",
@@ -143,11 +148,11 @@ describe("with no sprint", () => {
     seed([]);
     render(<SprintCockpit />);
     fireEvent.click(screen.getByRole("button", { name: "See an example first" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Example sprints");
+    expect(screen.getByRole("status")).toHaveTextContent("Example data");
     expect(screen.getByRole("heading", { level: 2, name: "Sprint 5" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Sprint ceremonies" })).toBeInTheDocument();
     expect(state().sprints).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Close example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.getByRole("heading", { name: "Set up your sprint" })).toBeInTheDocument();
   });
 });
@@ -166,7 +171,7 @@ describe("with a sprint", () => {
     expect(cards[0]).toHaveTextContent("Goal set · 30 pts committed · 2 stories");
     expect(cards[1]).toHaveTextContent("No updates yet today");
     expect(cards[2]).toHaveTextContent("1 sprint story without points");
-    expect(cards[4]).toHaveTextContent("No retro yet");
+    expect(cards[4]).toHaveTextContent("No retro for this sprint yet");
 
     // Thursday 08:00: the daily at 09:30 is next, then Friday's.
     const next = screen.getByRole("region", { name: "Next ceremony" });
@@ -178,14 +183,26 @@ describe("with a sprint", () => {
     expect(screen.getByRole("heading", { name: "Open blockers" })).toBeInTheDocument();
     expect(screen.getByText("Sandbox 500s")).toBeInTheDocument();
     // The plot itself is lazy (and Recharts has no size in jsdom); the card's
-    // text summary is built from the same rows.
+    // text summary is built from the same rows. The sprint's only pointed
+    // story is done, so the board (not the typed log) is the source.
     expect(screen.getByRole("figure", { name: "Burndown" })).toHaveTextContent(
-      "Remaining points fell from 30 to 27 over 2 days; 3 points behind the ideal line."
+      "Remaining points stayed at 0 over 7 days; 9 points ahead of the ideal line."
     );
   });
 
   it("logs today's points left into the shared sprint series", () => {
+    // Without pointed stories the board can't say, so the log is asked.
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) => {
+        const copy = { ...s };
+        delete copy.points;
+        return copy;
+      }),
+    });
     render(<SprintCockpit />);
+    expect(screen.getByRole("figure", { name: "Burndown" })).toHaveTextContent(
+      "Remaining points fell from 30 to 27 over 2 days; 3 points behind the ideal line."
+    );
     const input = screen.getByLabelText("Points left today (day 7)");
     fireEvent.change(input, { target: { value: "20" } });
     fireEvent.click(screen.getByRole("button", { name: "Log" }));
@@ -205,8 +222,11 @@ describe("with a sprint", () => {
     render(<SprintCockpit />);
     fireEvent.click(screen.getByRole("button", { name: "Close sprint" }));
     const dialog = screen.getByRole("dialog");
+    // "Refund flow" isn't done: the dialog asks where it goes first.
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Back to the backlog/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: /Close sprint/ }));
     expect(state().sprints.find((s) => s.id === "s2")).toMatchObject({ status: "completed" });
+    expect(state().stories.find((s) => s.id === "b")).toMatchObject({ status: "backlog" });
     expect(logs.map((l) => l.action)).toContain("sprint_closed");
   });
 
