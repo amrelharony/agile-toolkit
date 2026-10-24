@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TeamMember } from "@/lib/stores/workspace-types";
 
 /**
  * Ceremony Timer "Load team": fills the speaking order from the roster,
- * adding only the people who are missing; participants carry roster ids.
+ * adding only the people who are missing; speakers carry roster ids.
  */
 
 const toastMock = vi.hoisted(() => ({ calls: [] as unknown[] }));
@@ -36,6 +37,7 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 
 import { CeremonyTimerClient } from "@/app/(tools)/ceremony-timer/ceremony-timer-client";
 import { rosterParticipantsToAdd } from "@/app/(tools)/ceremony-timer/roster";
+import { useTimerSession, useTimerSettings } from "@/app/(tools)/ceremony-timer/store";
 
 const ROSTER: TeamMember[] = [
   { id: "t1", name: "Ann" },
@@ -48,10 +50,18 @@ const speakers = () =>
     .getAllByRole("button", { name: /^Remove / })
     .map((b) => b.getAttribute("aria-label")!.replace(/^Remove /, ""));
 
-const turnOnRotation = () => fireEvent.click(screen.getByRole("switch", { name: "Rotation mode" }));
+const renderTimer = () =>
+  render(
+    <TooltipProvider>
+      <CeremonyTimerClient />
+    </TooltipProvider>
+  );
 
 beforeEach(() => {
   toastMock.calls = [];
+  localStorage.clear();
+  useTimerSession.setState({ agendaId: null, run: null });
+  useTimerSettings.setState({ agendas: {}, speakers: [], chime: false });
 });
 
 describe("rosterParticipantsToAdd", () => {
@@ -89,28 +99,25 @@ describe("rosterParticipantsToAdd", () => {
 describe("Ceremony Timer — Load team", () => {
   it("links to the Team page while the roster is empty", () => {
     useWorkspaceStore.setState({ teamMembers: [] });
-    render(<CeremonyTimerClient />);
-    turnOnRotation();
-    expect(screen.getByRole("link", { name: "Set up your team" })).toHaveAttribute("href", "/team");
+    renderTimer();
+    expect(screen.getByRole("link", { name: "Team page" })).toHaveAttribute("href", "/team");
     expect(screen.queryByRole("button", { name: "Load team" })).toBeNull();
   });
 
   it("fills an empty speaking order from the roster", () => {
     useWorkspaceStore.setState({ teamMembers: ROSTER });
-    render(<CeremonyTimerClient />);
-    turnOnRotation();
+    renderTimer();
     fireEvent.click(screen.getByRole("button", { name: "Load team" }));
     expect(speakers()).toEqual(["Ann", "Bo", "Cy"]);
   });
 
   it("adds only the missing people, and a second load adds nobody", () => {
     useWorkspaceStore.setState({ teamMembers: ROSTER });
-    render(<CeremonyTimerClient />);
-    turnOnRotation();
-    const nameInput = screen.getByRole("textbox", { name: "Participant name" });
+    renderTimer();
+    const nameInput = screen.getByRole("combobox", { name: "Speaker" });
     for (const name of ["Zoe", "bo"]) {
       fireEvent.change(nameInput, { target: { value: name } });
-      fireEvent.click(screen.getByRole("button", { name: "Add participant" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add speaker" }));
     }
 
     fireEvent.click(screen.getByRole("button", { name: "Load team" }));

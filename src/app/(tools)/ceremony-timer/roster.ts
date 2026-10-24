@@ -1,6 +1,6 @@
 import type { TeamMember } from "@/lib/stores/workspace-types";
 import { nameKey } from "@/lib/team/use-team-roster";
-import type { Participant } from "./markdown";
+import type { Participant } from "./speakers";
 
 /**
  * The roster members missing from the speaking order, in roster order, as

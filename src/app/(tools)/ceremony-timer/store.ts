@@ -1,0 +1,151 @@
+"use client";
+
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { createPersistedStore } from "@/lib/stores/create-persisted-store";
+import { nameKey } from "@/lib/team/use-team-roster";
+import { isAgendaId, type AgendaId, type SavedAgendas } from "./agenda";
+import type { Run, SegmentRun } from "./run";
+import type { Participant, Turn } from "./speakers";
+
+/**
+ * The Ceremony Timer's two stores.
+ *
+ * - Settings (`agile-toolkit:ceremony-timer`, synced like other tool
+ *   stores): the team's edits to each agenda, the speaking order and the
+ *   opt-in chime. The timer kept nothing between visits before agendas, so
+ *   there is no older shape to read; every field is normalised on the way
+ *   out because a synced or hand-edited value can hold anything.
+ * - Session (sessionStorage, per tab like the docked timer): the agenda on
+ *   screen and the run in progress, so leaving the page or reloading keeps
+ *   the meeting where it was, and a new tab starts fresh.
+ *
+ * Both skip hydration at load and are rehydrated by the page on mount, so
+ * the server render and the first client render agree.
+ */
+
+export interface TimerSettings {
+  /** Per agenda, the team's segments; absent means the defaults. */
+  agendas: SavedAgendas;
+  /** The speaking order for rounds of turns. */
+  speakers: Participant[];
+  /** Chime (and vibrate) when time is up. Off unless the team turns it on. */
+  chime: boolean;
+}
+
+export const SETTINGS_INITIAL: TimerSettings = { agendas: {}, speakers: [], chime: false };
+
+export const useTimerSettings = createPersistedStore<TimerSettings>(
+  "ceremony-timer",
+  SETTINGS_INITIAL
+);
+
+/**
+ * The speaking order made safe to use: rows with an id and a name, each id
+ * and each name (any case) once, names trimmed.
+ */
+export function normalizeSpeakers(raw: unknown): Participant[] {
+  if (!Array.isArray(raw)) return [];
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  const out: Participant[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const { id, name } = row as Record<string, unknown>;
+    if (typeof id !== "string" || !id || typeof name !== "string") continue;
+    const key = nameKey(name);
+    if (!key || ids.has(id) || names.has(key)) continue;
+    ids.add(id);
+    names.add(key);
+    out.push({ id, name: name.trim() });
+  }
+  return out;
+}
+
+/** The saved agenda edits, keeping only agendas the timer knows. */
+export function normalizeAgendas(raw: unknown): SavedAgendas {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: SavedAgendas = {};
+  for (const [id, rows] of Object.entries(raw as Record<string, unknown>)) {
+    if (isAgendaId(id) && Array.isArray(rows)) out[id] = rows;
+  }
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Session                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface TimerSession {
+  /** The agenda on screen; null until one is picked. */
+  agendaId: AgendaId | null;
+  /** The run of that agenda, once started. */
+  run: Run | null;
+}
+
+export const SESSION_KEY = "agile-toolkit:ceremony-timer:session";
+
+const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+function normalizeTurn(raw: unknown): Turn | null {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.speakerId !== "string" || !num(t.spentMs)) return null;
+  return {
+    speakerId: t.speakerId,
+    name: typeof t.name === "string" ? t.name : "",
+    spentMs: Math.max(0, t.spentMs),
+    shareSeconds: num(t.shareSeconds) ? Math.max(0, t.shareSeconds) : 0,
+    skipped: t.skipped === true,
+  };
+}
+
+function normalizeSegmentRun(raw: unknown): SegmentRun | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as Record<string, unknown>;
+  if (!num(s.startMs)) return null;
+  return {
+    startMs: s.startMs,
+    ...(num(s.endMs) ? { endMs: s.endMs } : {}),
+    turns: (Array.isArray(s.turns) ? s.turns : [])
+      .map(normalizeTurn)
+      .filter((t): t is Turn => t !== null),
+    turnStartMs: num(s.turnStartMs) ? s.turnStartMs : s.startMs,
+  };
+}
+
+/** A stored run the timer can carry on with, or null. */
+export function normalizeRun(raw: unknown): Run | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (!isAgendaId(r.agendaId) || !Array.isArray(r.segments) || !num(r.baseMs)) return null;
+  const segments = r.segments.map(normalizeSegmentRun);
+  if (segments.length === 0 || segments.some((s) => s === null)) return null;
+  const index = Number.isInteger(r.index)
+    ? Math.min(Math.max(0, r.index as number), segments.length - 1)
+    : segments.length - 1;
+  return {
+    agendaId: r.agendaId,
+    index,
+    segments: segments as SegmentRun[],
+    baseMs: Math.max(0, r.baseMs),
+    since: num(r.since) ? r.since : null,
+    finished: r.finished === true,
+  };
+}
+
+export function normalizeSession(raw: unknown): TimerSession {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const agendaId = isAgendaId(r.agendaId) ? r.agendaId : null;
+  const run = normalizeRun(r.run);
+  return { agendaId, run: run && run.agendaId === agendaId ? run : null };
+}
+
+export const useTimerSession = create<TimerSession>()(
+  persist((): TimerSession => ({ agendaId: null, run: null }), {
+    name: SESSION_KEY,
+    storage: createJSONStorage(() => sessionStorage),
+    skipHydration: true,
+    merge: (persisted, current) => ({ ...current, ...normalizeSession(persisted) }),
+  })
+);
