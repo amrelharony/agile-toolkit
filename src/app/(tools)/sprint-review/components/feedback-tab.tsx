@@ -8,7 +8,7 @@
  * (never from the example), and the item then links to that story.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { BookCheck, MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
@@ -22,6 +22,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_REVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
 import type { HandoffLink, HandoffSource } from "@/lib/handoffs/types";
+import { hasSyntheticDates } from "@/lib/sprints/series";
 import { cn } from "@/lib/utils";
 import { removeWithUndo } from "@/lib/utils/undoable";
 import type { Story } from "@/lib/stores/workspace-types";
@@ -32,15 +33,13 @@ import {
   CATEGORY_RULE,
   FEEDBACK_CATEGORIES,
 } from "../constants";
-import { isFeedbackCategory, shortName } from "../doc";
+import { feedbackStoryTitle, isFeedbackCategory, shortName } from "../doc";
+import { byData, focusSoon } from "../focus";
 import { STORY_STATUS_LABEL, dayLabel } from "../markdown";
 import type { FeedbackItem, ReviewSource } from "../types";
 import { FeedbackAddForm, FeedbackEditor, type FeedbackValues } from "./feedback-form";
 
 const ROUTES = ["backlog-story"] as const;
-
-/** One line of the feedback, as a backlog story's title. */
-const asTitle = (text: string) => text.replace(/\s+/g, " ").trim();
 
 export function FeedbackTab({ source }: { source: ReviewSource }) {
   const { doc, writer, sprint, example, stored } = source;
@@ -48,6 +47,7 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
   const { log } = useHistoryLogger("sprint-review");
   const announce = useAnnounce();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const addRef = useRef<HTMLDivElement>(null);
 
   const updateItems = (fn: (list: readonly FeedbackItem[]) => FeedbackItem[]) =>
     writer.update((d) => ({ ...d, feedbackItems: fn(d.feedbackItems) }));
@@ -68,12 +68,21 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
     );
   }
 
-  function save(item: FeedbackItem, values: FeedbackValues) {
+  // Saved or cancelled, the editor closes: focus goes back to the item's Edit button.
+  function closeEditor(item: FeedbackItem) {
     setEditingId(null);
+    focusSoon(() => byData("feedback-edit", item.id));
+  }
+
+  function save(item: FeedbackItem, values: FeedbackValues) {
+    closeEditor(item);
     updateItems((list) => list.map((f) => (f.id === item.id ? { ...f, ...values } : f)));
   }
 
-  function remove(item: FeedbackItem) {
+  function remove(item: FeedbackItem, index: number) {
+    // Focus moves on to the next item (else the previous one), or to the
+    // add form once there is no feedback left.
+    const neighbour = items[index + 1] ?? items[index - 1];
     removeWithUndo<FeedbackItem>({
       label: item.stakeholder.trim()
         ? `Deleted feedback from ${shortName(item.stakeholder)}`
@@ -81,6 +90,11 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
       update: updateItems,
       match: (f) => f.id === item.id,
     });
+    focusSoon(() =>
+      neighbour
+        ? byData("feedback-edit", neighbour.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
   }
 
   /** Record where an item was sent (the send, or its Undo). */
@@ -92,15 +106,17 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
       );
 
   const handoff = (item: FeedbackItem): HandoffSource => ({
-    title: asTitle(item.feedback),
+    title: feedbackStoryTitle(item.feedback),
     description: `${isFeedbackCategory(item.category) ? CATEGORY_LABELS[item.category] : "Feedback"} from ${item.stakeholder.trim() || "a stakeholder"} at the ${sprint ? `${sprint.name} ` : ""}review.`,
     sourceRef: { tool: "sprint-review", id: item.id, doc: doc.id },
   });
 
   const written = items.filter((f) => f.feedback.trim());
-  const hint = sprint
-    ? `${sprint.name} ends ${dayLabel(sprint.endDate) ?? "on its last day"}. Backdate it if the review has already happened.`
-    : "Backdate it if the review has already happened.";
+  // The old Velocity placeholder dates (Jan 2020) aren't a real end date.
+  const hint =
+    sprint && !hasSyntheticDates(sprint)
+      ? `${sprint.name} ends ${dayLabel(sprint.endDate) ?? "on its last day"}. Backdate it if the review has already happened.`
+      : "Backdate it if the review has already happened.";
 
   return (
     <div className="space-y-6">
@@ -122,13 +138,13 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
           </p>
         ) : (
           <ul className="space-y-3" aria-label="Feedback">
-            {items.map((item) => (
+            {items.map((item, i) => (
               <li key={item.id} className="rounded-lg border border-border bg-surface-deep/50 p-3">
                 {editingId === item.id ? (
                   <FeedbackEditor
                     item={item}
                     onSave={(values) => save(item, values)}
-                    onCancel={() => setEditingId(null)}
+                    onCancel={() => closeEditor(item)}
                   />
                 ) : (
                   <FeedbackRow
@@ -141,7 +157,7 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
                       writer.read().feedbackItems.find((f) => f.id === item.id)?.sentTo
                     }
                     onEdit={() => setEditingId(item.id)}
-                    onRemove={() => remove(item)}
+                    onRemove={() => remove(item, i)}
                   />
                 )}
               </li>
@@ -149,7 +165,7 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
           </ul>
         )}
 
-        <div className="border-t border-border pt-4">
+        <div ref={addRef} className="border-t border-border pt-4">
           <h3 className="mb-3 text-sm font-medium text-text">Add feedback</h3>
           <FeedbackAddForm onAdd={add} />
         </div>
@@ -264,6 +280,7 @@ function FeedbackRow({
           label={`Edit feedback from ${who}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
+          data-feedback-edit={item.id}
           onClick={onEdit}
         />
         <IconButton

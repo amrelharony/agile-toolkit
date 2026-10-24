@@ -27,7 +27,8 @@ import type { SprintReview } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { undoable } from "@/lib/utils/undoable";
 import {
-  contentSummary,
+  demoMinutes,
+  resetSummary,
   reviewDocId,
   reviewHasContent,
   startFromDraft,
@@ -154,7 +155,7 @@ function LiveReview({
   const reset = (
     <ResetButton
       title={sprint ? `Reset ${sprint.name}'s review?` : "Reset the draft review?"}
-      description={`Its ${contentSummary(source.doc)}, review date and typed numbers are deleted.${
+      description={`${resetSummary(source.doc)}${
         sprint ? ` ${sprint.name}'s stories and goal stay as they are.` : ""
       } You can undo this right after.`}
       confirmLabel="Reset review"
@@ -332,7 +333,8 @@ function ReviewScreen({
                   f.acceptanceCriteria,
                   "",
                   "",
-                  f.timeMinutes,
+                  // Blank, as on the page ("Not timed"), never a 0-minute slot.
+                  demoMinutes(f) ?? "",
                 ]),
                 ...doc.feedbackItems.map((f): (string | number)[] => [
                   "Feedback",

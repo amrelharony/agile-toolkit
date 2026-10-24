@@ -7,7 +7,7 @@
  * the team's own and a copy of the script to share.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -41,6 +41,7 @@ import {
   shortName,
   withStoriesInDemo,
 } from "../doc";
+import { byData, focusMoved, focusSoon } from "../focus";
 import { demoScript } from "../markdown";
 import type { DemoFeature, ReviewSource } from "../types";
 import { DemoAddForm, DemoEditor, type DemoValues } from "./demo-form";
@@ -56,6 +57,7 @@ export function DemoScriptTab({ source }: { source: ReviewSource }) {
   const { log } = useHistoryLogger("sprint-review");
   const announce = useAnnounce();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const addRef = useRef<HTMLDivElement>(null);
 
   const candidates = facts ? demoCandidates(facts.done, features) : [];
   const waiting = candidates.filter((c) => !c.inDemo).map((c) => c.story);
@@ -78,6 +80,9 @@ export function DemoScriptTab({ source }: { source: ReviewSource }) {
         ? `Added “${shortName(stories[0].title)}” to the demo.`
         : `Added ${stories.length} done stories to the demo.`
     );
+    // The button gives way to "In the demo": focus that (the first one when
+    // they all went), so Tab carries on down the list.
+    focusSoon(() => byData("demo-added", stories[0].id));
   }
 
   function add(values: DemoValues) {
@@ -86,12 +91,21 @@ export function DemoScriptTab({ source }: { source: ReviewSource }) {
     announce(`Added “${shortName(values.name)}” to the demo.`);
   }
 
-  function save(f: DemoFeature, values: DemoValues) {
+  // Saved or cancelled, the editor closes: focus goes back to the item's Edit button.
+  function closeEditor(f: DemoFeature) {
     setEditingId(null);
+    focusSoon(() => byData("demo-edit", f.id));
+  }
+
+  function save(f: DemoFeature, values: DemoValues) {
+    closeEditor(f);
     updateFeatures((list) => list.map((x) => (x.id === f.id ? { ...x, ...values } : x)));
   }
 
   function remove(f: DemoFeature, index: number) {
+    // Focus moves on to the next item (else the previous one), or to the
+    // add form once the script is empty.
+    const neighbour = features[index + 1] ?? features[index - 1];
     removeWithUndo<DemoFeature>({
       label: f.name.trim()
         ? `Removed “${shortName(f.name)}” from the demo`
@@ -100,13 +114,19 @@ export function DemoScriptTab({ source }: { source: ReviewSource }) {
       match: (x) => x.id === f.id,
     });
     record(SPRINT_REVIEW_ACTIONS.ITEM_REMOVED, { featureId: f.id, name: f.name });
+    focusSoon(() =>
+      neighbour
+        ? byData("demo-edit", neighbour.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
   }
 
-  function move(f: DemoFeature, index: number, delta: number) {
+  function move(f: DemoFeature, index: number, delta: -1 | 1) {
     const to = Math.max(0, Math.min(features.length - 1, index + delta));
     if (to === index) return;
     updateFeatures((list) => moveItem(list, f.id, delta));
     announce(`Moved “${shortName(f.name || "Untitled item")}” to ${to + 1} of ${features.length}.`);
+    focusMoved("demo-move", f.id, delta === -1 ? "up" : "down");
   }
 
   return (
@@ -149,7 +169,12 @@ export function DemoScriptTab({ source }: { source: ReviewSource }) {
                   <span className="font-data text-xs text-sub">{pts(story)}</span>
                   {story.owner && <span className="text-xs text-sub">{story.owner}</span>}
                   {inDemo ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-success">
+                    // Focusable from script only: "Add to demo" hands focus here.
+                    <span
+                      tabIndex={-1}
+                      data-demo-added={story.id}
+                      className="inline-flex items-center gap-1 rounded text-xs text-success focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
                       <Check className="h-3.5 w-3.5" aria-hidden="true" />
                       In the demo
                     </span>
@@ -198,7 +223,7 @@ export function DemoScriptTab({ source }: { source: ReviewSource }) {
                   <DemoEditor
                     feature={f}
                     onSave={(values) => save(f, values)}
-                    onCancel={() => setEditingId(null)}
+                    onCancel={() => closeEditor(f)}
                   />
                 ) : (
                   <DemoRow
@@ -214,7 +239,7 @@ export function DemoScriptTab({ source }: { source: ReviewSource }) {
             ))}
           </ol>
         )}
-        <div className="border-t border-border pt-4">
+        <div ref={addRef} className="border-t border-border pt-4">
           <h3 className="mb-3 text-sm font-medium text-text">Add an item</h3>
           <DemoAddForm onAdd={add} />
         </div>
@@ -255,7 +280,7 @@ function DemoRow({
   count: number;
   onEdit: () => void;
   onRemove: () => void;
-  onMove: (delta: number) => void;
+  onMove: (delta: -1 | 1) => void;
 }) {
   const minutes = demoMinutes(f);
   const name = f.name.trim() || "Untitled item";
@@ -285,6 +310,7 @@ function DemoRow({
           icon={<ArrowUp className="h-4 w-4" />}
           className="text-sub hover:text-text"
           disabled={index === 0}
+          data-demo-move={`${f.id}:up`}
           onClick={() => onMove(-1)}
         />
         <IconButton
@@ -292,12 +318,14 @@ function DemoRow({
           icon={<ArrowDown className="h-4 w-4" />}
           className="text-sub hover:text-text"
           disabled={index === count - 1}
+          data-demo-move={`${f.id}:down`}
           onClick={() => onMove(1)}
         />
         <IconButton
           label={`Edit ${name}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
+          data-demo-edit={f.id}
           onClick={onEdit}
         />
         <IconButton

@@ -3,10 +3,11 @@
 import { useEffect, useId, useRef } from "react";
 import { Plus } from "lucide-react";
 import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
-import { PersonPicker } from "@/components/team/person-picker";
+import { useTeamRoster } from "@/lib/team/use-team-roster";
 import type { Validation } from "@/lib/utils/form";
 import { CATEGORY_LABELS, CATEGORY_MEANING, FEEDBACK_CATEGORIES } from "../constants";
 import { isFeedbackCategory } from "../doc";
@@ -109,6 +110,46 @@ function CategoryPicker({
   );
 }
 
+/**
+ * Who gave the feedback. Stakeholders are rarely on the team, so this is
+ * not a PersonPicker: its "isn't on the team" note (and the nudge to fill
+ * in the Team page) would flag almost every name here as a problem. The
+ * roster's names are still suggested, for a team member who speaks up.
+ */
+function StakeholderField({
+  value,
+  onChange,
+  error,
+}: {
+  value: string;
+  onChange: (name: string) => void;
+  error?: string;
+}) {
+  const roster = useTeamRoster();
+  const listId = useId();
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <Field label="Stakeholder" error={error} required>
+        {(props) => (
+          <Input
+            {...props}
+            list={listId}
+            autoComplete="off"
+            placeholder="e.g. Priya, Head of Payments"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
+      </Field>
+      <datalist id={listId}>
+        {roster.map((m) => (
+          <option key={m.id} value={m.name} />
+        ))}
+      </datalist>
+    </div>
+  );
+}
+
 function FeedbackFields({
   draft,
   update,
@@ -121,15 +162,10 @@ function FeedbackFields({
   return (
     <>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {/* Stakeholders are rarely on the team, so no "Add to the team". */}
-        <PersonPicker
-          label="Stakeholder"
+        <StakeholderField
           value={draft.stakeholder}
           onChange={(stakeholder) => update({ stakeholder })}
-          placeholder="e.g. Priya, Head of Payments"
-          required
           error={errors.stakeholder}
-          offerAddToRoster={false}
         />
         <CategoryPicker
           value={draft.category}

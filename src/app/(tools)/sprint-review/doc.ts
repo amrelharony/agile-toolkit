@@ -153,10 +153,60 @@ export function contentSummary(doc: SprintReview): string {
 }
 
 /**
+ * What resetting `doc` deletes, for the confirm: only the parts it has
+ * ("This deletes 3 demo items and the review date."). A sprint's review
+ * carries the sprint's name by itself, so only the draft's typed name and
+ * number are listed.
+ */
+export function resetSummary(doc: SprintReview): string {
+  const typedNumbers = [doc.committed, doc.completed, doc.totalBacklog, doc.backlogDone].some(
+    (n) => n > 0
+  );
+  const naming = doc.sprintId
+    ? []
+    : [doc.sprintName.trim() && "name", doc.sprintNumber.trim() && "number"].filter(Boolean);
+  const parts = [
+    doc.features.length > 0 ? many(doc.features.length, "demo item", "demo items") : "",
+    doc.feedbackItems.length > 0
+      ? many(doc.feedbackItems.length, "piece of feedback", "pieces of feedback")
+      : "",
+    doc.checklistItems.length > 0 ? `a checklist of ${doc.checklistItems.length}` : "",
+    doc.meetingDate.trim() ? "the review date" : "",
+    typedNumbers ? "the typed numbers" : "",
+    naming.length > 0 ? `the sprint ${naming.join(" and ")}` : "",
+  ].filter(Boolean);
+  return parts.length > 0
+    ? `This deletes ${listAnd(parts)}.`
+    : "The review holds nothing yet; resetting deletes it.";
+}
+
+/** The longest backlog story title made from a piece of feedback. */
+export const FEEDBACK_TITLE_MAX = 120;
+
+/**
+ * A piece of feedback as a backlog story's title: one line, cut at a word
+ * with an ellipsis when it is long. The story links back to the feedback
+ * (its sourceRef), where the full text stays; the backlog would otherwise
+ * cut it mid-word at its own limit and say nothing.
+ */
+export function feedbackStoryTitle(text: string, max = FEEDBACK_TITLE_MAX): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  // A word longer than half the limit is cut where it stands.
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, "")}…`;
+}
+
+/**
  * `sprint`'s review started from the draft: the draft's demo items,
- * feedback and checklist (copied; the draft stays as it is), and its date
- * and typed numbers where the sprint's review has none. Feedback keeps
+ * feedback and checklist (copied; the draft stays as it is). Feedback keeps
  * where it was sent, so a story made from it isn't sent twice.
+ *
+ * The draft's review date and typed numbers stay behind. Most drafts are
+ * the old page's starter with an edit or two, so its date is the day of the
+ * first visit and its numbers are the starter's made-up 40/36; copied, they
+ * would outrank the sprint's own numbers in the verdict and the export.
  */
 export function startFromDraft(
   sprintDoc: SprintReview,
@@ -174,11 +224,6 @@ export function startFromDraft(
       ...(f.sentTo ? { sentTo: f.sentTo.map((l) => ({ ...l })) } : {}),
     })),
     checklistItems: draft.checklistItems.map((c) => ({ ...c })),
-    meetingDate: sprintDoc.meetingDate || draft.meetingDate,
-    committed: sprintDoc.committed || draft.committed,
-    completed: sprintDoc.completed || draft.completed,
-    totalBacklog: sprintDoc.totalBacklog || draft.totalBacklog,
-    backlogDone: sprintDoc.backlogDone || draft.backlogDone,
   };
 }
 

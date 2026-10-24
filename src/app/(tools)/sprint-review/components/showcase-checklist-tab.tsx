@@ -7,7 +7,7 @@
  * empty for the cockpit); the standard one is a click away.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CheckCircle2, CheckSquare, ListChecks, Plus, Trash2 } from "lucide-react";
 import { BlurInput } from "@/components/shared/blur-fields";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
@@ -22,6 +22,7 @@ import type { Validation } from "@/lib/utils/form";
 import { removeWithUndo } from "@/lib/utils/undoable";
 import { STANDARD_CHECKLIST } from "../constants";
 import { shortName, standardChecklist } from "../doc";
+import { byData, focusSoon } from "../focus";
 import type { ChecklistItem, ReviewSource } from "../types";
 
 interface CheckDraft {
@@ -40,6 +41,7 @@ export function ShowcaseChecklistTab({ source }: { source: ReviewSource }) {
   const items = doc.checklistItems;
   const checked = items.filter((c) => c.checked).length;
   const progress = items.length > 0 ? Math.round((checked / items.length) * 100) : 0;
+  const addRef = useRef<HTMLDivElement>(null);
 
   const updateItems = (fn: (list: readonly ChecklistItem[]) => ChecklistItem[]) =>
     writer.update((d) => ({ ...d, checklistItems: fn(d.checklistItems) }));
@@ -55,12 +57,28 @@ export function ShowcaseChecklistTab({ source }: { source: ReviewSource }) {
     updateItems((list) => list.map((c) => (c.id === id ? { ...c, checked: !c.checked } : c)));
   const rename = (id: string, label: string) =>
     updateItems((list) => list.map((c) => (c.id === id ? { ...c, label } : c)));
-  const remove = (item: ChecklistItem) =>
+
+  function remove(item: ChecklistItem, index: number) {
+    // Focus moves on to the next item (else the previous one), or to the
+    // new-item field once the checklist is empty.
+    const neighbour = items[index + 1] ?? items[index - 1];
     removeWithUndo<ChecklistItem>({
       label: `Deleted “${shortName(item.label || "Untitled item")}”`,
       update: updateItems,
       match: (c) => c.id === item.id,
     });
+    focusSoon(() =>
+      neighbour
+        ? byData("check-toggle", neighbour.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
+  }
+
+  // The button gives way to the list: focus its first item.
+  function addStandard() {
+    updateItems(() => standardChecklist(STANDARD_CHECKLIST));
+    focusSoon(() => document.querySelector<HTMLElement>("[data-check-toggle]"));
+  }
 
   return (
     <div className="space-y-6">
@@ -87,12 +105,7 @@ export function ShowcaseChecklistTab({ source }: { source: ReviewSource }) {
               No checklist yet. Start from the standard one (environment, demo data, invites and
               five more), or add your own items below.
             </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => updateItems(() => standardChecklist(STANDARD_CHECKLIST))}
-            >
+            <Button type="button" size="sm" variant="outline" onClick={addStandard}>
               <ListChecks aria-hidden="true" />
               Use the standard checklist
             </Button>
@@ -107,20 +120,20 @@ export function ShowcaseChecklistTab({ source }: { source: ReviewSource }) {
               <Progress value={progress} className="h-2 bg-card" aria-label="Checklist ready" />
             </div>
             <ul className="space-y-2" aria-label="Showcase checklist">
-              {items.map((item) => (
+              {items.map((item, i) => (
                 <ChecklistRow
                   key={item.id}
                   item={item}
                   onToggle={() => toggle(item.id)}
                   onRename={(label) => rename(item.id, label)}
-                  onRemove={() => remove(item)}
+                  onRemove={() => remove(item, i)}
                 />
               ))}
             </ul>
           </>
         )}
 
-        <div className="border-t border-border pt-4">
+        <div ref={addRef} className="border-t border-border pt-4">
           <ItemForm
             form={form}
             submitLabel="Add"
@@ -165,6 +178,7 @@ function ChecklistRow({
         role="checkbox"
         aria-checked={item.checked}
         aria-label={name}
+        data-check-toggle={item.id}
         onClick={onToggle}
         className={cn(
           "h-5 w-5 flex-shrink-0 rounded border text-primary-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
@@ -191,8 +205,10 @@ function ChecklistRow({
           else setRevision((r) => r + 1);
         }}
         aria-label={`Rename checklist item: ${name}`}
+        // Borderless, but it shows focus: a keyboard user tabbing on from
+        // the checkbox must see they're in an editable field.
         className={cn(
-          "h-auto min-w-0 flex-1 border-none bg-transparent p-0 text-sm focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+          "h-auto min-w-0 flex-1 rounded-sm border-none bg-transparent p-0 text-sm focus-visible:ring-2 focus-visible:ring-accent",
           item.checked ? "text-sub line-through" : "text-text"
         )}
       />

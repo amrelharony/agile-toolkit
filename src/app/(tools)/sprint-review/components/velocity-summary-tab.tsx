@@ -14,12 +14,20 @@ import { SectionCard } from "@/components/shared/section-card";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { SAY_DO_GRADE_LABEL, completionPct, type SayDoGrade } from "@/lib/sprints/metrics";
-import { storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
+import { storyPoints } from "@/lib/sprints/plan";
 import { fmt } from "@/lib/charts/chart-text";
 import { cn } from "@/lib/utils";
 import type { SprintReview } from "@/lib/stores/workspace-types";
 import { STORY_STATUS_LABEL } from "../markdown";
-import { numbersChartText, sourceNote, type BacklogProgress, type ReviewNumbers } from "../numbers";
+import {
+  notDoneSummary,
+  numbersChartText,
+  pointsLabel,
+  sourceNote,
+  sprintOwnNumbers,
+  type BacklogProgress,
+  type ReviewNumbers,
+} from "../numbers";
 import type { ReviewSource } from "../types";
 import { NumCell } from "./form-fields";
 
@@ -57,22 +65,37 @@ export function VelocitySummaryTab({
   };
 
   const max = Math.max(numbers.committed, numbers.completed ?? 0);
+  // A number that isn't recorded gets no bar: a "0" bar would claim it.
   const bars = [
-    { label: "Committed", value: numbers.committed, tone: "bg-accent/40" },
-    { label: "Completed", value: numbers.completed ?? 0, tone: "bg-accent" },
-  ];
+    numbers.committed > 0 && {
+      label: "Committed",
+      value: numbers.committed,
+      tone: "bg-accent/40",
+    },
+    numbers.completed !== null && {
+      label: "Completed",
+      value: numbers.completed,
+      tone: "bg-accent",
+    },
+  ].filter((b): b is { label: string; value: number; tone: string } => Boolean(b));
   const backlogPct = backlog ? completionPct(backlog.done, backlog.total) : null;
   const releasePct = completionPct(doc.backlogDone, doc.totalBacklog);
+  // What a blank typed field falls back to, shown as its placeholder.
+  const own = sprintOwnNumbers(facts, sprint);
+  const ownName = sprint && (own.committed !== null || own.completed !== null) ? sprint.name : null;
 
   return (
     <div className="space-y-6">
       <SectionCard title="Points" icon={BarChart3} contentClassName="space-y-4">
         <p className="text-xs text-sub">{sourceNote(numbers, sprint?.name)}</p>
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Stat label="Committed" value={`${fmt(numbers.committed)} pts`} />
+          <Stat
+            label="Committed"
+            value={numbers.committed > 0 ? pointsLabel(numbers.committed) : "Not recorded"}
+          />
           <Stat
             label="Completed"
-            value={numbers.completed === null ? "Not recorded" : `${fmt(numbers.completed)} pts`}
+            value={numbers.completed === null ? "Not recorded" : pointsLabel(numbers.completed)}
           />
           <Stat
             label="Say/do"
@@ -128,16 +151,23 @@ export function VelocitySummaryTab({
           icon={BarChart3}
           contentClassName="grid grid-cols-1 gap-4 sm:grid-cols-2"
         >
+          <p className="text-xs text-sub sm:col-span-2">
+            {ownName
+              ? `Leave a field blank to use ${ownName}'s own number.`
+              : "Leave a field blank while it isn't recorded."}
+          </p>
           <NumberField
             id={`${uid}-committed`}
             label="Committed points"
             value={doc.committed}
+            placeholder={own.committed !== null ? fmt(own.committed) : "Not recorded"}
             onCommit={(v) => setTyped("committed", v)}
           />
           <NumberField
             id={`${uid}-completed`}
             label="Completed points"
             value={doc.completed}
+            placeholder={own.completed !== null ? fmt(own.completed) : "Not recorded"}
             onCommit={(v) => setTyped("completed", v)}
           />
         </SectionCard>
@@ -145,7 +175,7 @@ export function VelocitySummaryTab({
 
       {facts && facts.notDone.length > 0 && (
         <SectionCard
-          title={`Not done: ${facts.notDone.length} ${facts.notDone.length === 1 ? "story" : "stories"}, ${fmt(totalStoryPoints(facts.notDone))} points`}
+          title={`Not done: ${notDoneSummary(facts.notDone)}`}
           icon={CircleDashed}
           iconClassName="text-warning"
         >
@@ -157,7 +187,7 @@ export function VelocitySummaryTab({
                 </span>
                 <span className="text-xs text-sub">{STORY_STATUS_LABEL[s.status] ?? s.status}</span>
                 <span className="font-data text-xs text-sub">
-                  {typeof s.points === "number" ? `${fmt(storyPoints(s))} pts` : "Not estimated"}
+                  {typeof s.points === "number" ? pointsLabel(storyPoints(s)) : "Not estimated"}
                 </span>
               </li>
             ))}
@@ -196,12 +226,14 @@ export function VelocitySummaryTab({
                 id={`${uid}-total`}
                 label="Total backlog points"
                 value={doc.totalBacklog}
+                placeholder="Not recorded"
                 onCommit={(v) => setTyped("totalBacklog", v)}
               />
               <NumberField
                 id={`${uid}-done`}
                 label="Done to date"
                 value={doc.backlogDone}
+                placeholder="Not recorded"
                 onCommit={(v) => setTyped("backlogDone", v)}
               />
             </div>
@@ -245,15 +277,18 @@ function Stat({
   );
 }
 
+/** A typed number: blank (with what it falls back to) while it's 0, i.e. not filled in. */
 function NumberField({
   id,
   label,
   value,
+  placeholder,
   onCommit,
 }: {
   id: string;
   label: string;
   value: number;
+  placeholder: string;
   onCommit: (v: number) => void;
 }) {
   return (
@@ -261,7 +296,15 @@ function NumberField({
       <Label htmlFor={id} className="text-xs text-sub">
         {label}
       </Label>
-      <NumCell id={id} value={value} onCommit={onCommit} min={0} className={FIELD} />
+      <NumCell
+        id={id}
+        value={value}
+        onCommit={onCommit}
+        min={0}
+        zeroAsBlank
+        placeholder={placeholder}
+        className={FIELD}
+      />
     </div>
   );
 }

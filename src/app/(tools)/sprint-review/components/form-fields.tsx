@@ -5,10 +5,16 @@
  * string draft so intermediate states like "" or "1." don't get rewritten by
  * clamping, committing on blur/Enter and reverting on invalid input. The
  * Velocity Summary's typed numbers use it.
+ *
+ * With `zeroAsBlank`, 0 shows as an empty field (its placeholder says what
+ * that means) and an emptied field commits 0: in the review's typed numbers
+ * 0 is a field nobody filled in, never "0 points done".
  */
 
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
+
+const shown = (v: number, zeroAsBlank: boolean) => (zeroAsBlank && v === 0 ? "" : String(v));
 
 export function NumCell({
   value,
@@ -18,6 +24,8 @@ export function NumCell({
   className,
   id,
   ariaLabel,
+  zeroAsBlank = false,
+  placeholder,
 }: {
   value: number;
   onCommit: (n: number) => void;
@@ -26,15 +34,21 @@ export function NumCell({
   className?: string;
   id?: string;
   ariaLabel?: string;
+  zeroAsBlank?: boolean;
+  placeholder?: string;
 }) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+  const [draft, setDraft] = useState(() => shown(value, zeroAsBlank));
+  useEffect(() => setDraft(shown(value, zeroAsBlank)), [value, zeroAsBlank]);
   const commit = () => {
     const n = Number(draft);
     if (Number.isFinite(n)) {
-      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
+      const next = Math.max(min, Math.min(max ?? Infinity, n));
+      onCommit(next);
+      // Show what was kept (a clamped value, or a typed 0 as the blank it
+      // means) even when it equals the stored one and no new value arrives.
+      setDraft(shown(next, zeroAsBlank));
     } else {
-      setDraft(String(value));
+      setDraft(shown(value, zeroAsBlank));
     }
   };
   return (
@@ -44,6 +58,7 @@ export function NumCell({
       min={min}
       max={max}
       value={draft}
+      placeholder={placeholder}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {

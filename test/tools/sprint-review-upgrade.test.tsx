@@ -19,7 +19,10 @@ import type { Sprint, SprintGoal, SprintReview, Story } from "@/lib/stores/works
  */
 
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn(), success: vi.fn() }));
-const exported = vi.hoisted(() => ({ byFile: {} as Record<string, string | undefined> }));
+const exported = vi.hoisted(() => ({
+  byFile: {} as Record<string, string | undefined>,
+  csvByFile: {} as Record<string, { rows: (string | number)[][] } | undefined>,
+}));
 const history = vi.hoisted(() => ({ log: vi.fn() }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -27,8 +30,17 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 vi.mock("@/components/shared/export-button", () => ({
-  ExportButton: ({ filename, markdown }: { filename: string; markdown?: string }) => {
+  ExportButton: ({
+    filename,
+    markdown,
+    csvData,
+  }: {
+    filename: string;
+    markdown?: string;
+    csvData?: { rows: (string | number)[][] };
+  }) => {
     exported.byFile[filename] = markdown;
+    exported.csvByFile[filename] = csvData;
     return null;
   },
 }));
@@ -48,14 +60,17 @@ import { SprintReviewClient } from "@/app/(tools)/sprint-review/sprint-review-cl
 import { SR_ID } from "@/app/(tools)/sprint-review/use-sprint-review-store";
 import {
   DRAFT_REVIEW_ID,
+  FEEDBACK_TITLE_MAX,
   blankReview,
   demoCandidates,
   demoIdFor,
   demoLength,
   featureFromStory,
+  feedbackStoryTitle,
   isStarterDraft,
   moveItem,
   normalizeReview,
+  resetSummary,
   reviewDocId,
   startFromDraft,
   usableDraft,
@@ -67,9 +82,12 @@ import { buildExample } from "@/app/(tools)/sprint-review/example";
 import { demoScript, toMarkdown } from "@/app/(tools)/sprint-review/markdown";
 import {
   backlogProgress,
+  notDoneSummary,
   numbersChartText,
+  pointsLabel,
   reviewNumbers,
   sourceNote,
+  sprintOwnNumbers,
 } from "@/app/(tools)/sprint-review/numbers";
 import { numbersClause, reviewVerdict } from "@/app/(tools)/sprint-review/verdict";
 import { validateDemo } from "@/app/(tools)/sprint-review/components/demo-form";
@@ -168,12 +186,13 @@ const undoLast = () => {
 const seed = (state: Partial<ReturnType<typeof useWorkspaceStore.getState>>) =>
   useWorkspaceStore.setState(state);
 
-const EMPTY = { sprints: [], sprintReviews: [], sprintGoals: [], stories: [] };
+const EMPTY = { sprints: [], sprintReviews: [], sprintGoals: [], stories: [], teamMembers: [] };
 
 beforeEach(() => {
   toastSpy.mockReset();
   history.log.mockClear();
   exported.byFile = {};
+  exported.csvByFile = {};
   resetSelectedSprint();
   window.localStorage.clear();
   seed(EMPTY);
@@ -274,14 +293,18 @@ describe("one review document per sprint", () => {
     const before = JSON.stringify(draft);
     const sprintDoc = { ...blankReview(s12), meetingDate: "2026-10-23", committed: 0 };
     const next = startFromDraft(sprintDoc, draft, s12);
+    // The draft's date and typed numbers stay behind: only the three lists are copied.
     expect(next).toMatchObject({
       id: "sprint-review:sprint:s12",
       sprintId: "s12",
       sprintName: "Sprint 12",
       meetingDate: "2026-10-23",
-      committed: 30,
-      completed: 24,
+      committed: 0,
+      completed: 0,
+      totalBacklog: 0,
+      backlogDone: 0,
     });
+    expect(startFromDraft(blankReview(s12), draft, s12).meetingDate).toBe("");
     expect(next.features.map((f) => f.name)).toEqual(["Checkout redesign"]);
     expect(next.feedbackItems[0].sentTo?.[0].targetId).toBe("story_1");
     expect(next.features[0]).not.toBe(draft.features[0]);
@@ -971,6 +994,485 @@ describe("the example, in memory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(await screen.findByText(/No review yet\./)).toBeInTheDocument();
     expect(reviews()).toEqual([]);
+  });
+});
+
+// ─── Review fixes ───────────────────────────────────────────────────────────
+
+/** The old page's starter with one checklist item ticked: the most common draft. */
+const starterDraft = (): SprintReview => ({
+  id: SR_ID,
+  ...LEGACY_STARTER,
+  meetingDate: "2026-03-02",
+  checklistItems: LEGACY_STARTER.checklistItems.map((c, i) =>
+    i === 0 ? { ...c, checked: true } : c
+  ),
+});
+
+const pickSprint = (id: string) =>
+  localStorage.setItem("agile-toolkit:sprint-metrics:selected", id);
+
+describe("starting a sprint's review from the draft keeps the sprint's numbers", () => {
+  it("leaves the draft's date and typed numbers behind", () => {
+    const draft = starterDraft();
+    expect(usableDraft([draft])).not.toBeNull();
+    const next = startFromDraft(blankReview(s11), draft, s11);
+    expect(next).toMatchObject({
+      meetingDate: "",
+      committed: 0,
+      completed: 0,
+      totalBacklog: 0,
+      backlogDone: 0,
+    });
+    expect(next.checklistItems).toHaveLength(8);
+    const facts = reviewFacts(s11, [], []);
+    const numbers = reviewNumbers(next, facts, s11);
+    expect(reviewVerdict({ doc: next, sprint: s11, facts, numbers })).toBe(
+      "Sprint 11: 18 of 20 points done."
+    );
+    const md = toMarkdown(next, { sprint: s11, facts, numbers }, new Date(2026, 9, 24));
+    expect(md).not.toContain("Review on");
+    expect(md).not.toContain("Release progress");
+    expect(md).toContain("| Committed | 20 |");
+  });
+
+  it("on the page, the verdict is still the sprint's own after the start", async () => {
+    seed({
+      sprints: [s12, s11],
+      stories: STORIES,
+      sprintGoals: GOALS,
+      sprintReviews: [starterDraft()],
+    });
+    pickSprint("s11");
+    renderReview();
+    expect(await screen.findByText("Sprint 11: 18 of 20 points done.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start from the draft" }));
+    expect(reviewById(reviewDocId("s11"))).toMatchObject({
+      meetingDate: "",
+      committed: 0,
+      completed: 0,
+      totalBacklog: 0,
+      backlogDone: 0,
+    });
+    expect(screen.getByText("Sprint 11: 18 of 20 points done.")).toBeInTheDocument();
+    expect(exported.byFile["sprint-review-sprint-11"]).not.toContain("Review on");
+  });
+});
+
+describe("typed numbers never count a blank field as 0", () => {
+  const s11Facts = reviewFacts(s11, [], []);
+
+  it("fill a blank field from the sprint's own number", () => {
+    expect(sprintOwnNumbers(s11Facts, s11)).toEqual({ committed: 20, completed: 18 });
+    expect(sprintOwnNumbers(reviewFacts(s12, STORIES, []), s12)).toEqual({
+      committed: null,
+      completed: null,
+    });
+    const doc = { ...blankReview(s11), committed: 20 };
+    const n = reviewNumbers(doc, s11Facts, s11);
+    expect(n).toMatchObject({
+      source: "typed",
+      committed: 20,
+      completed: 18,
+      fromSprint: "completed",
+    });
+    expect(n.sayDo).toMatchObject({ pct: 90, grade: "met" });
+    expect(sourceNote(n, "Sprint 11")).toBe(
+      "Typed here, because Sprint 11 has no pointed stories. The completed points are Sprint 11's own."
+    );
+    expect(reviewVerdict({ doc, sprint: s11, facts: s11Facts, numbers: n })).toBe(
+      "Sprint 11: 18 of 20 points done."
+    );
+    expect(reviewNumbers({ ...blankReview(s11), completed: 15 }, s11Facts, s11)).toMatchObject({
+      committed: 20,
+      completed: 15,
+      fromSprint: "committed",
+    });
+    expect(
+      reviewNumbers({ ...blankReview(s11), committed: 30, completed: 15 }, s11Facts, s11).fromSprint
+    ).toBeUndefined();
+  });
+
+  it("read a completed field nobody filled in as not recorded", () => {
+    const draft = { ...blankReview(), sprintName: "Sprint Alpha", committed: 40 };
+    const n = reviewNumbers(draft, null);
+    expect(n).toMatchObject({ source: "typed", committed: 40, completed: null, sayDo: null });
+    expect(reviewVerdict({ doc: draft, facts: null, numbers: n })).toBe(
+      "Sprint Alpha: 40 points committed."
+    );
+    const chart = numbersChartText(n, undefined);
+    expect(chart.summary).toBe("40 points committed; how many were done isn't recorded yet.");
+    expect(chart.table.rows).toEqual([
+      ["Committed", 40],
+      ["Completed", "—"],
+      ["Not done", "—"],
+    ]);
+    const md = toMarkdown(draft, { facts: null, numbers: n }, new Date(2026, 9, 24));
+    expect(md).toContain("| Completed | — |");
+    expect(md).not.toContain("Say/do");
+
+    // A sprint with a plan and no result: typing the commitment invents none.
+    const open = { ...s11, pointsCompleted: undefined };
+    expect(
+      reviewNumbers({ ...blankReview(open), committed: 25 }, reviewFacts(open, [], []), open)
+    ).toMatchObject({ committed: 25, completed: null, sayDo: null });
+
+    // Only the completed points typed, nothing committed anywhere.
+    const doneOnly = reviewNumbers({ ...blankReview(), completed: 12 }, null);
+    expect(numbersClause(doneOnly)).toBe("12 points done");
+    expect(numbersChartText(doneOnly, undefined).table.rows).toEqual([
+      ["Committed", "—"],
+      ["Completed", 12],
+      ["Not done", "—"],
+    ]);
+  });
+
+  it("show blank fields with the sprint's numbers, and typing one keeps the other", async () => {
+    seed({ sprints: [s12, s11], stories: STORIES, sprintGoals: GOALS });
+    pickSprint("s11");
+    renderReview();
+    await screen.findByText("Sprint 11: 18 of 20 points done.");
+    openTab("Velocity Summary");
+    const committed = screen.getByLabelText("Committed points");
+    const completed = screen.getByLabelText("Completed points");
+    expect(committed).toHaveValue(null);
+    expect(committed).toHaveAttribute("placeholder", "20");
+    expect(completed).toHaveValue(null);
+    expect(completed).toHaveAttribute("placeholder", "18");
+    expect(
+      screen.getByText("Leave a field blank to use Sprint 11's own number.")
+    ).toBeInTheDocument();
+
+    fireEvent.change(committed, { target: { value: "20" } });
+    fireEvent.blur(committed);
+    expect(reviewById(reviewDocId("s11"))).toMatchObject({ committed: 20, completed: 0 });
+    expect(screen.getByText("Sprint 11: 18 of 20 points done.")).toBeInTheDocument();
+    expect(screen.getByText(/The completed points are Sprint 11's own\./)).toBeInTheDocument();
+
+    // Emptied again, it is a blank field, not 0.
+    fireEvent.change(committed, { target: { value: "" } });
+    fireEvent.blur(committed);
+    expect(reviewById(reviewDocId("s11"))!.committed).toBe(0);
+    expect(committed).toHaveValue(null);
+    expect(screen.getByText(/Sprint 11's own numbers/)).toBeInTheDocument();
+  });
+
+  it("draw no Completed bar while completed isn't recorded", async () => {
+    seed({ sprintReviews: [{ ...legacyDraft(), committed: 40, completed: 0 }] });
+    renderReview();
+    expect(await screen.findByText("Sprint Alpha: 40 points committed.")).toBeInTheDocument();
+    openTab("Velocity Summary");
+    const figure = screen.getByRole("figure", { name: "Committed and completed points" });
+    expect(Array.from(figure.querySelectorAll("li")).map((li) => li.textContent)).toEqual([
+      "Committed40",
+    ]);
+    expect(screen.getByText("Not recorded")).toBeInTheDocument();
+    expect(screen.getByLabelText("Completed points")).toHaveValue(null);
+    expect(screen.getByText("Leave a field blank while it isn't recorded.")).toBeInTheDocument();
+  });
+});
+
+describe("pluralised points", () => {
+  it("say 1 pt, and 'not estimated' instead of 0 points", () => {
+    expect(pointsLabel(1)).toBe("1 pt");
+    expect(pointsLabel(0.5)).toBe("0.5 pts");
+    expect(notDoneSummary([{ id: "x", title: "X", points: 1, status: "todo" }])).toBe(
+      "1 story, 1 pt"
+    );
+    expect(
+      notDoneSummary([
+        { id: "x", title: "X", status: "todo" },
+        { id: "y", title: "Y", status: "review" },
+      ])
+    ).toBe("2 stories, not estimated");
+    expect(
+      notDoneSummary([
+        { id: "x", title: "X", status: "todo" },
+        { id: "y", title: "Y", points: 3, status: "review" },
+      ])
+    ).toBe("2 stories, 3 pts");
+  });
+
+  it("head the unfinished stories on the page and in the export", async () => {
+    const unestimated = STORIES.map((s) => (s.id === "c" ? { ...s, points: undefined } : s));
+    seed({ sprints: [s12], stories: unestimated, sprintGoals: GOALS });
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    openTab("Velocity Summary");
+    expect(screen.getByText("Not done: 1 story, not estimated")).toBeInTheDocument();
+    expect(exported.byFile["sprint-review-sprint-12"]).toContain(
+      "### Not done (1 story, not estimated)"
+    );
+  });
+});
+
+describe("keyboard focus", () => {
+  beforeEach(() => seed({ sprints: [s12, s11], stories: STORIES, sprintGoals: GOALS }));
+
+  const withDemo = () =>
+    seed({
+      sprintReviews: [
+        review(reviewDocId("s12"), {
+          sprintId: "s12",
+          features: [featureFromStory(STORIES[0]), featureFromStory(STORIES[1])],
+          feedbackItems: [
+            { id: "1", stakeholder: "Priya", feedback: "Fast", category: "positive" },
+            { id: "2", stakeholder: "Marco", feedback: "Slow", category: "concern" },
+          ],
+        }),
+      ],
+    });
+
+  it("stays on a moved item's arrows, the other one at the ends", async () => {
+    withDemo();
+    renderReview();
+    fireEvent.click(await screen.findByRole("button", { name: "Move Receipts by email up" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Move Receipts by email down" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move Receipts by email down" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Move Receipts by email up" })).toHaveFocus()
+    );
+  });
+
+  it("goes back to Edit when a demo item's editor closes", async () => {
+    withDemo();
+    renderReview();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Receipts by email" }));
+    const script = screen.getByRole("list", { name: "Demo script, in running order" });
+    fireEvent.click(within(script).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Receipts by email" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit Receipts by email" }));
+    fireEvent.keyDown(within(script).getByLabelText(/What you'll demo/), { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Receipts by email" })).toHaveFocus()
+    );
+  });
+
+  it("moves on to the next demo item after a delete, then to the add form", async () => {
+    withDemo();
+    renderReview();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Pay with a saved card" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Receipts by email" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete Receipts by email" }));
+    await waitFor(() => expect(screen.getByLabelText(/What you'll demo/)).toHaveFocus());
+  });
+
+  it("lands on 'In the demo' after adding done stories", async () => {
+    renderReview();
+    fireEvent.click(await screen.findByRole("button", { name: "Add all 2 to the demo" }));
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-demo-added", "a"));
+    expect(document.activeElement).toHaveTextContent("In the demo");
+  });
+
+  it("goes back to Edit when feedback's editor closes, and on after a delete", async () => {
+    withDemo();
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    openTab("Stakeholder Feedback");
+    fireEvent.click(screen.getByRole("button", { name: "Edit feedback from Priya" }));
+    fireEvent.keyDown(screen.getByDisplayValue("Fast"), { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit feedback from Priya" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete feedback from Priya" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit feedback from Marco" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete feedback from Marco" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stakeholder/, { selector: "input" })).toHaveFocus()
+    );
+  });
+
+  it("lands on the checklist after 'Use the standard checklist', and on after a delete", async () => {
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    openTab("Showcase Checklist");
+    fireEvent.click(screen.getByRole("button", { name: "Use the standard checklist" }));
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: "Environment is working" })).toHaveFocus()
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete checklist item: Environment is working" })
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: "Demo data prepared" })).toHaveFocus()
+    );
+    // The rename field shows focus although it has no border.
+    const rename = screen.getByLabelText("Rename checklist item: Demo data prepared");
+    expect(rename.className).toContain("focus-visible:ring-2");
+    expect(rename.className).not.toMatch(/focus-visible:ring-0|focus:ring-0/);
+  });
+});
+
+describe("feedback sent to the backlog", () => {
+  const long =
+    "The saved card list should show the card's nickname, its last four digits and when it expires, and shoppers should be able to reorder the list so their usual card comes first every time they pay";
+
+  it("gets a short title, cut at a word", () => {
+    const title = feedbackStoryTitle(long);
+    expect(title.length).toBeLessThanOrEqual(FEEDBACK_TITLE_MAX);
+    expect(title.endsWith("…")).toBe(true);
+    const kept = title.slice(0, -1);
+    expect(long.startsWith(kept)).toBe(true);
+    expect(long[kept.length]).toBe(" ");
+    expect(feedbackStoryTitle("  Short\n note ")).toBe("Short note");
+    expect(feedbackStoryTitle("x".repeat(300))).toBe(`${"x".repeat(119)}…`);
+    // No dangling comma before the ellipsis.
+    expect(feedbackStoryTitle("aaaa, bbbb, cccc", 12)).toBe("aaaa, bbbb…");
+    expect(feedbackStoryTitle("aaaa bbbb cccc dddd", 15)).toBe("aaaa bbbb…");
+  });
+
+  it("sends the short title, and the menu's name stays short", async () => {
+    seed({
+      sprints: [s12],
+      stories: STORIES,
+      sprintGoals: GOALS,
+      sprintReviews: [
+        review(reviewDocId("s12"), {
+          sprintId: "s12",
+          feedbackItems: [
+            { id: "fb", stakeholder: "Lena", feedback: long, category: "suggestion" },
+          ],
+        }),
+      ],
+    });
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    openTab("Stakeholder Feedback");
+    const send = screen.getByRole("button", { name: /^Send to…/ });
+    expect(send).toHaveAccessibleName(`Send to… ${feedbackStoryTitle(long)}`);
+    fireEvent.keyDown(send, { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Backlog story" }));
+    const story = useWorkspaceStore.getState().stories.find((s) => s.sourceRef?.id === "fb")!;
+    expect(story.title).toBe(feedbackStoryTitle(long));
+    // The full text stays on the feedback the story links back to.
+    expect(reviewById(reviewDocId("s12"))!.feedbackItems[0].feedback).toBe(long);
+  });
+});
+
+describe("the stakeholder field", () => {
+  it("suggests the team but never flags a stakeholder who isn't on it", async () => {
+    seed({ teamMembers: [{ id: "m1", name: "Ana" }] });
+    renderReview();
+    await screen.findByText(/No review yet\./);
+    openTab("Stakeholder Feedback");
+    const input = screen.getByLabelText(/Stakeholder/, { selector: "input" });
+    const list = document.getElementById(input.getAttribute("list")!)!;
+    expect(Array.from(list.querySelectorAll("option")).map((o) => o.value)).toEqual(["Ana"]);
+    fireEvent.change(input, { target: { value: "Priya, Head of Payments" } });
+    expect(screen.queryByText(/isn’t on the team/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add to the team/ })).toBeNull();
+  });
+
+  it("doesn't point at the Team page while the roster is empty", async () => {
+    seed({ teamMembers: [] });
+    renderReview();
+    await screen.findByText(/No review yet\./);
+    openTab("Stakeholder Feedback");
+    expect(screen.queryByText(/Team page/)).toBeNull();
+  });
+});
+
+describe("the reset confirm", () => {
+  it("names only what the review holds", () => {
+    expect(resetSummary({ ...blankReview(s12), meetingDate: "2026-10-22" })).toBe(
+      "This deletes the review date."
+    );
+    expect(
+      resetSummary({
+        ...blankReview(),
+        sprintName: "Alpha",
+        sprintNumber: "3",
+        features: [featureFromStory(STORIES[0]), featureFromStory(STORIES[1])],
+        committed: 5,
+      })
+    ).toBe("This deletes 2 demo items, the typed numbers and the sprint name and number.");
+    expect(resetSummary({ ...blankReview(), sprintNumber: "3" })).toBe(
+      "This deletes the sprint number."
+    );
+    // A sprint's review carries its sprint's name by itself.
+    expect(resetSummary(blankReview(s12))).toBe(
+      "The review holds nothing yet; resetting deletes it."
+    );
+    expect(resetSummary(legacyDraft())).toBe(
+      "This deletes 1 demo item, 1 piece of feedback, a checklist of 1, the review date, the typed numbers and the sprint name and number."
+    );
+  });
+
+  it("reads right for a review with only a date", async () => {
+    seed({
+      sprints: [s12],
+      stories: STORIES,
+      sprintGoals: GOALS,
+      sprintReviews: [review(reviewDocId("s12"), { sprintId: "s12", meetingDate: "2026-10-22" })],
+    });
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "This deletes the review date. Sprint 12's stories and goal stay as they are. You can undo this right after."
+    );
+  });
+});
+
+describe("the review date hint", () => {
+  it("gives a real sprint's end date, never a placeholder one", async () => {
+    const placeholder: Sprint = {
+      ...s11,
+      id: "s3",
+      name: "Sprint 3",
+      startDate: "2020-01-01",
+      endDate: "2020-01-03",
+    };
+    seed({ sprints: [placeholder, s12], stories: STORIES, sprintGoals: GOALS });
+    pickSprint("s3");
+    renderReview();
+    await screen.findByText("Sprint 3: 18 of 20 points done.");
+    openTab("Stakeholder Feedback");
+    expect(screen.getByText("Backdate it if the review has already happened.")).toBeInTheDocument();
+    expect(screen.queryByText(/ends 3 Jan 2020/)).toBeNull();
+  });
+
+  it("says when a real sprint ends", async () => {
+    seed({ sprints: [s12], stories: STORIES, sprintGoals: GOALS });
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    openTab("Stakeholder Feedback");
+    expect(
+      screen.getByText(
+        "Sprint 12 ends 23 Oct 2026. Backdate it if the review has already happened."
+      )
+    ).toBeInTheDocument();
+  });
+});
+
+describe("the CSV export", () => {
+  it("leaves an untimed demo item's minutes blank", async () => {
+    seed({
+      sprints: [s12],
+      stories: STORIES,
+      sprintGoals: GOALS,
+      sprintReviews: [
+        review(reviewDocId("s12"), {
+          sprintId: "s12",
+          features: [
+            featureFromStory(STORIES[0]),
+            { ...featureFromStory(STORIES[1]), timeMinutes: 5 },
+          ],
+        }),
+      ],
+    });
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    const rows = exported.csvByFile["sprint-review-sprint-12"]!.rows;
+    expect(rows.map((r) => r[6])).toEqual(["", 5]);
   });
 });
 

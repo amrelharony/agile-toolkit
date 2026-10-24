@@ -2,11 +2,17 @@ import type { Sprint, SprintReview, StoryStatus } from "@/lib/stores/workspace-t
 import type { ReviewFacts } from "@/lib/sprints/review-doc";
 import { GOAL_OUTCOME_LABEL } from "@/lib/sprints/goal-doc";
 import { SAY_DO_GRADE_LABEL } from "@/lib/sprints/metrics";
-import { storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
+import { storyPoints } from "@/lib/sprints/plan";
 import { fmt } from "@/lib/charts/chart-text";
 import { CATEGORY_HEADINGS, FEEDBACK_CATEGORIES } from "./constants";
 import { demoLength, demoMinutes } from "./doc";
-import { sourceNote, type BacklogProgress, type ReviewNumbers } from "./numbers";
+import {
+  notDoneSummary,
+  pointsLabel,
+  sourceNote,
+  type BacklogProgress,
+  type ReviewNumbers,
+} from "./numbers";
 import { reviewVerdict } from "./verdict";
 
 /** "24 Oct 2026" */
@@ -35,8 +41,6 @@ export const STORY_STATUS_LABEL: Record<StoryStatus, string> = {
   review: "In review",
   done: "Done",
 };
-
-const pts = (n: number) => `${fmt(n)} ${n === 1 ? "pt" : "pts"}`;
 
 export interface MarkdownContext {
   /** The sprint under review; absent for the draft. */
@@ -114,7 +118,7 @@ export function toMarkdown(
       "",
       "| Measure | Points |",
       "|---|---:|",
-      `| Committed | ${fmt(numbers.committed)} |`,
+      `| Committed | ${numbers.committed > 0 ? fmt(numbers.committed) : "—"} |`,
       `| Completed | ${done === null ? "—" : fmt(done)} |`
     );
     if (numbers.sayDo) {
@@ -143,10 +147,11 @@ export function toMarkdown(
   if (facts && facts.notDone.length > 0) {
     lines.push(
       "",
-      `### Not done (${facts.notDone.length} ${facts.notDone.length === 1 ? "story" : "stories"}, ${pts(totalStoryPoints(facts.notDone))})`,
+      `### Not done (${notDoneSummary(facts.notDone)})`,
       "",
       ...facts.notDone.map((s) => {
-        const estimate = typeof s.points === "number" ? pts(storyPoints(s)) : "not estimated";
+        const estimate =
+          typeof s.points === "number" ? pointsLabel(storyPoints(s)) : "not estimated";
         return `- ${oneLine(s.title)} · ${estimate} · ${STORY_STATUS_LABEL[s.status] ?? s.status}`;
       })
     );

@@ -11,11 +11,17 @@ import { fmt, type ChartText } from "@/lib/charts/chart-text";
  * types the numbers into the review (the old velocity fields, now the
  * labelled fallback), and a sprint that only has its own typed points
  * (Velocity, an agent) shows those until the review types others.
+ *
+ * A typed 0 is a field nobody filled in: the document has no "unset" (the
+ * old page's blank fields stored 0), so it never counts as 0 points done.
+ * A blank field falls back to the sprint's own number, else it reads as
+ * not recorded, and say/do waits for both.
  */
 export type NumbersSource = "stories" | "typed" | "sprint" | "none";
 
 export interface ReviewNumbers {
   source: NumbersSource;
+  /** Points committed; 0 when none is recorded. */
   committed: number;
   /** Points done; null when the source has a commitment but no result yet. */
   completed: number | null;
@@ -25,6 +31,23 @@ export interface ReviewNumbers {
   doneCount: number;
   /** Points of the planned stories that aren't done. */
   notDonePoints: number;
+  /** Typed numbers only: the field left blank that shows the sprint's own number. */
+  fromSprint?: "committed" | "completed";
+}
+
+/**
+ * The points typed on the sprint itself (Velocity, an agent), for a sprint
+ * whose stories have none; null where it has none either.
+ */
+export function sprintOwnNumbers(
+  facts: ReviewFacts | null,
+  sprint?: Pick<Sprint, "pointsCompleted">
+): { committed: number | null; completed: number | null } {
+  if (!facts || facts.fromStories) return { committed: null, completed: null };
+  return {
+    committed: facts.committed > 0 ? facts.committed : null,
+    completed: sprint?.pointsCompleted != null ? facts.completed : null,
+  };
 }
 
 export function reviewNumbers(
@@ -45,26 +68,50 @@ export function reviewNumbers(
       sayDo: facts.sayDo,
     };
   }
-  if (doc.committed > 0 || doc.completed > 0) {
+  const own = sprintOwnNumbers(facts, sprint);
+  const typedCommitted = doc.committed > 0 ? doc.committed : null;
+  const typedCompleted = doc.completed > 0 ? doc.completed : null;
+  if (typedCommitted !== null || typedCompleted !== null) {
+    const committed = typedCommitted ?? own.committed ?? 0;
+    const completed = typedCompleted ?? own.completed;
+    const fromSprint =
+      typedCommitted === null && own.committed !== null
+        ? "committed"
+        : typedCompleted === null && own.completed !== null
+          ? "completed"
+          : undefined;
     return {
       ...base,
       source: "typed",
-      committed: doc.committed,
-      completed: doc.completed,
-      sayDo: sayDoRatio(doc.committed, doc.completed),
+      committed,
+      completed,
+      sayDo: sayDoRatio(committed, completed),
+      ...(fromSprint ? { fromSprint } : {}),
     };
   }
-  if (facts && facts.committed > 0) {
-    const known = sprint?.pointsCompleted != null;
+  if (own.committed !== null) {
     return {
       ...base,
       source: "sprint",
-      committed: facts.committed,
-      completed: known ? facts.completed : null,
-      sayDo: facts.sayDo,
+      committed: own.committed,
+      completed: own.completed,
+      sayDo: sayDoRatio(own.committed, own.completed),
     };
   }
   return { ...base, source: "none", committed: 0, completed: null, sayDo: null };
+}
+
+/** "1 pt", "34 pts". */
+export const pointsLabel = (n: number) => `${fmt(n)} ${n === 1 ? "pt" : "pts"}`;
+
+/**
+ * The unfinished stories in a few words: "2 stories, 5 pts", or "2
+ * stories, not estimated" when none of them has points (never "0 points").
+ */
+export function notDoneSummary(stories: readonly Story[]): string {
+  const count = `${stories.length} ${stories.length === 1 ? "story" : "stories"}`;
+  const estimated = stories.some((s) => typeof s.points === "number" && Number.isFinite(s.points));
+  return `${count}, ${estimated ? pointsLabel(totalStoryPoints(stories)) : "not estimated"}`;
 }
 
 /** Where the numbers came from, in a line under them. */
@@ -73,9 +120,10 @@ export function sourceNote(n: ReviewNumbers, sprintName: string | undefined): st
     case "stories":
       return `From the ${n.storyCount === 1 ? "story" : `${n.storyCount} stories`} planned into ${sprintName}.`;
     case "typed":
-      return sprintName
-        ? `Typed here, because ${sprintName} has no pointed stories.`
-        : "Typed here.";
+      if (!sprintName) return "Typed here.";
+      return `Typed here, because ${sprintName} has no pointed stories.${
+        n.fromSprint ? ` The ${n.fromSprint} points are ${sprintName}'s own.` : ""
+      }`;
     case "sprint":
       return `${sprintName}'s own numbers (typed in Velocity or by an agent), because it has no pointed stories. Type numbers below to use others.`;
     default:
@@ -121,9 +169,9 @@ export function numbersChartText(n: ReviewNumbers, sprintName: string | undefine
       rows:
         n.committed > 0 || done > 0
           ? [
-              ["Committed", n.committed],
+              ["Committed", n.committed > 0 ? n.committed : "—"],
               ["Completed", n.completed === null ? "—" : done],
-              ["Not done", n.completed === null ? "—" : notDone],
+              ["Not done", n.completed === null || n.committed <= 0 ? "—" : notDone],
             ]
           : [],
     },
