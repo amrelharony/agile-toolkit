@@ -58,11 +58,17 @@ import { DesignSprintClient } from "@/app/(tools)/design-sprint/design-sprint-cl
 import {
   DS_ID,
   dayOutputs,
+  findingsSent,
   legacyNoteId,
+  liveSentTo,
   planDays,
+  sprintToday,
+  statusText,
   updateDay,
   withLegacyNotes,
 } from "@/app/(tools)/design-sprint/doc";
+import { HYPOTHESIS_TRACKER_ID, buildHypothesis } from "@/lib/handoffs/targets/hypothesis";
+import { buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
 import {
   EXAMPLE_PLAN_ID,
   buildExample,
@@ -546,6 +552,30 @@ const hypotheses = () =>
   (ws().hypothesisTrackers ?? []).find((d) => d.id === "hypothesisTracker:current")?.hypotheses ??
   [];
 
+/** Hypotheses and backlog stories with these ids, as if findings were sent to them earlier. */
+function seedTargets(hypothesisIds: string[], storyIds: string[]) {
+  const src = (title: string) => ({ title, sourceRef: { tool: "design-sprint", id: title } });
+  useWorkspaceStore.setState({
+    hypothesisTrackers: [
+      {
+        id: HYPOTHESIS_TRACKER_ID,
+        hypotheses: hypothesisIds.map((id) => buildHypothesis(src(id), id)),
+      },
+    ],
+    stories: storyIds.map((id) => buildBacklogStory(src(id), id)),
+  });
+}
+
+/** Delete a hypothesis in its own tool. */
+const deleteHypothesis = (id: string) =>
+  act(() => {
+    useWorkspaceStore.setState({
+      hypothesisTrackers: [
+        { id: HYPOTHESIS_TRACKER_ID, hypotheses: hypotheses().filter((h) => h.id !== id) },
+      ],
+    });
+  });
+
 describe("Design Sprint: findings go on to hypotheses or the backlog", () => {
   it("sends a finding to the Hypothesis Tracker with a link back; Undo removes both", () => {
     setToday(23);
@@ -828,6 +858,7 @@ describe("Design Sprint: verdict and Markdown", () => {
     expect(designSprintVerdict(plan, t("not a date", "2026-10-23"))).toBe(
       "Set a valid start date to place the five days."
     );
+    seedTargets(["h"], ["s"]);
     const sent = withOutputs(plan, 5, [
       finding({ sentTo: [{ route: "hypothesis", targetId: "h", at: "" }] }),
       finding({ id: "f2", sentTo: [{ route: "backlog-story", targetId: "s", at: "" }] }),
@@ -926,5 +957,189 @@ describe("Design Sprint: older and partial data", () => {
     const plan = newDesignSprintPlan({ name: "N", startDate: "2026-10-19", description: "" });
     expect(plan).not.toHaveProperty("description");
     expect(plan.currentDay).toBe(1);
+  });
+});
+
+// ─── Review fixes ───────────────────────────────────────────────────────────
+
+describe("Design Sprint: an upcoming sprint on a day off", () => {
+  it("counts day 1's place among the working days after today", () => {
+    // Sat 24 Oct: Mon 26 is the next working day, Tue 27 the second.
+    expect(sprintToday("2026-10-26", "2026-10-24").startsIn).toBe(1);
+    expect(sprintToday("2026-10-27", "2026-10-24").startsIn).toBe(2);
+    expect(sprintToday("2026-10-28", "2026-10-24").startsIn).toBe(3);
+    // The shared count, the working days in [today, start), is one short there.
+    expect(designSprintToday("2026-10-27", "2026-10-24").startsIn).toBe(1);
+    // On a working day the two agree: Wed 21 to Mon 26 is Thu, Fri, Mon.
+    expect(sprintToday("2026-10-26", "2026-10-21")).toEqual(
+      designSprintToday("2026-10-26", "2026-10-21")
+    );
+    // A team holiday on Mon 26: Tue 27 is the next working day.
+    const holiday = { workingDays: [1, 2, 3, 4, 5], holidays: ["2026-10-26"] };
+    expect(sprintToday("2026-10-27", "2026-10-26", holiday).startsIn).toBe(1);
+    expect(sprintToday("2026-10-28", "2026-10-26", holiday).startsIn).toBe(2);
+    // Running, over or without a valid date there is no count to fix.
+    expect(sprintToday("2026-10-22", "2026-10-24")).toMatchObject({ status: "running", day: 2 });
+    expect(sprintToday("2026-10-22", "2026-10-24")).not.toHaveProperty("startsIn");
+    expect(sprintToday("nope", "2026-10-24").startsIn).toBeUndefined();
+  });
+
+  it("words it right in the status, the verdict and the Today tile", () => {
+    const plan = makePlan({ startDate: "2026-10-27" });
+    const t = sprintToday(plan.startDate, "2026-10-24");
+    expect(statusText(plan, t)).toBe("Upcoming: starts in 2 working days");
+    expect(designSprintVerdict(plan, t)).toBe("Starts Tuesday 27 Oct, in 2 working days.");
+    expect(designSprintVerdict(plan, sprintToday("2026-10-26", "2026-10-24"))).toBe(
+      "Starts Monday 26 Oct, the next working day."
+    );
+
+    setToday(24); // Saturday
+    store(plan);
+    renderPage();
+    expect(screen.getByText("Upcoming: starts in 2 working days")).toBeInTheDocument();
+    expect(screen.getByText("Starts in 2 working days")).toBeInTheDocument();
+    expect(screen.getByText("Starts Tuesday 27 Oct, in 2 working days.")).toBeInTheDocument();
+  });
+});
+
+describe("Design Sprint: a target deleted in its own tool no longer counts as sent", () => {
+  it("counts, and exports, only links whose hypothesis or story still exists", () => {
+    seedTargets(["h"], []);
+    const plan = withOutputs(makePlan(), 5, [
+      finding({ sentTo: [{ route: "hypothesis", targetId: "h", at: "" }] }),
+      finding({ id: "f2", sentTo: [{ route: "backlog-story", targetId: "gone", at: "" }] }),
+      // A route this build doesn't know (written by a newer one).
+      finding({ id: "f3", sentTo: [{ route: "nope" as never, targetId: "x", at: "" }] }),
+    ]);
+    expect(findingsSent(plan)).toEqual({ total: 3, hypotheses: 1, stories: 0, sent: 1 });
+    const [, gone, unknown] = plan.days[4].outputs!;
+    expect(liveSentTo(gone)).toEqual([]);
+    expect(liveSentTo(unknown)).toEqual([]);
+    expect(liveSentTo({})).toEqual([]);
+    expect(
+      designSprintVerdict({ ...plan, completedAt: "x" }, sprintToday("2026-10-19", "2026-10-30"))
+    ).toBe("Finished: 3 findings, 1 sent to the Hypothesis Tracker.");
+    const md = toMarkdown(plan, sprintToday(plan.startDate, "2026-10-23"));
+    expect(md.match(/4 of 5 \| Hypothesis Tracker \|/g)).toHaveLength(1);
+    expect(md.match(/4 of 5 \| — \|/g)).toHaveLength(2);
+  });
+
+  it("on the page: the row, the menu, the tile and the export agree once it's gone", () => {
+    setToday(23);
+    store(withOutputs(makePlan(), 5, [finding()]));
+    renderPage();
+    openSendTo(/^Send to… Customers kept the starter basket$/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hypothesis to test" }));
+    expect(
+      screen.getByRole("link", { name: /Sent to the Hypothesis Tracker/ })
+    ).toBeInTheDocument();
+    expect(screen.getByText("1 sent on")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Send to… Customers kept the starter basket (sent)" })
+    ).toBeInTheDocument();
+
+    deleteHypothesis(hypotheses()[0].id);
+    expect(
+      screen.queryByRole("link", { name: /Sent to the Hypothesis Tracker/ })
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("0 sent on")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Send to… Customers kept the starter basket" })
+    ).toBeInTheDocument();
+    expect(exported.markdown).toContain("| 4 of 5 | — |");
+  });
+
+  it("logs a re-send once, and undoing it logs no send to the deleted target", () => {
+    setToday(23);
+    store(withOutputs(makePlan(), 5, [finding()]));
+    renderPage();
+    openSendTo(/^Send to… Customers kept the starter basket/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hypothesis to test" }));
+    const first = hypotheses()[0].id;
+    deleteHypothesis(first);
+
+    openSendTo(/^Send to… Customers kept the starter basket$/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hypothesis to test" }));
+    expect(hypotheses()).toHaveLength(1);
+    expect(logged("finding_sent")).toHaveLength(2);
+
+    lastToast().undo();
+    expect(hypotheses()).toEqual([]);
+    // The old link is back as it was, and isn't logged as a new send.
+    expect(storedDay(5).outputs![0].sentTo).toEqual([
+      expect.objectContaining({ route: "hypothesis", targetId: first }),
+    ]);
+    expect(logged("finding_sent")).toHaveLength(2);
+  });
+});
+
+describe("Design Sprint: Map day shows Test day's answers", () => {
+  it("marks an answered question and leaves an open one alone", () => {
+    setToday(19); // Map day
+    store(
+      withOutputs(makePlan(), 1, [
+        { id: "q1", kind: "sprint-question", text: "Will they trust it?", answer: "no" },
+        { id: "q2", kind: "sprint-question", text: "Will they find it?" },
+        // A stored value this build doesn't know shows nothing.
+        { id: "q3", kind: "sprint-question", text: "Odd", answer: "maybe" as never },
+      ])
+    );
+    renderPage();
+    const questions = screen.getByRole("region", { name: "Sprint questions" });
+    expect(within(questions).getAllByText(/^Test day:/)).toHaveLength(1);
+    expect(within(questions).getByText("Test day: No")).toBeInTheDocument();
+  });
+});
+
+describe("Design Sprint: focus when the view swaps", () => {
+  it("Complete focuses Reopen, and Reopen focuses Complete sprint", () => {
+    setToday(23);
+    store(makePlan());
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Complete sprint" }));
+    expect(screen.getByRole("button", { name: "Reopen" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+    expect(screen.getByRole("button", { name: "Complete sprint" })).toHaveFocus();
+  });
+
+  it("starting a sprint focuses its verdict", () => {
+    setToday(21);
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/Sprint name/), { target: { value: "Onboarding" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start sprint" }));
+    // Starting today, the date the form shows.
+    expect(screen.getByText(/^Day 1 of 5 \(Map\)/)).toHaveFocus();
+  });
+
+  it("loading the example focuses its verdict; clearing it focuses the start form", () => {
+    setToday(23);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(screen.getByText(/^Day 5 of 5 \(Test\)/)).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(screen.getByLabelText(/Sprint name/)).toHaveFocus();
+    // Undo, from the toast, brings it back without pulling focus to the page.
+    lastToast().undo();
+    expect(stored()!.id).toBe(EXAMPLE_PLAN_ID);
+    expect(screen.getByText(/^Day 5 of 5 \(Test\)/)).not.toHaveFocus();
+  });
+
+  it("a confirmed reset focuses the start form's name", async () => {
+    setToday(21);
+    store(makePlan());
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset sprint" }));
+    // The dialog hands focus back a tick after it closes.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(screen.getByLabelText(/Sprint name/)).toHaveFocus();
+  });
+
+  it("Open Map day focuses Map day's heading", () => {
+    setToday(23);
+    store(makePlan());
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Open Map day" }));
+    expect(screen.getByText("Day 1 · Map")).toHaveFocus();
   });
 });

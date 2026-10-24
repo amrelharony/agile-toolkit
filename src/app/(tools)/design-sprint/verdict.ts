@@ -60,6 +60,7 @@ export function designSprintVerdict(
       ? `All five days are over: ${findings}.`
       : "All five days are over, with no findings recorded yet.";
   }
+  // `t` comes from sprintToday: a startsIn of 1 is the next working day, on a weekend too.
   if (t.status === "upcoming" || !t.day) {
     const when =
       t.startsIn === undefined || t.startsIn <= 1

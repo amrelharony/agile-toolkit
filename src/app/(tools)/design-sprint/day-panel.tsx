@@ -50,6 +50,7 @@ export function DayPanel({
   record,
   announce,
   onOpenDay,
+  headingRef,
 }: {
   plan: DesignSprintPlan;
   day: DesignSprintDayNumber;
@@ -61,6 +62,8 @@ export function DayPanel({
   record: RecordEvent;
   announce: (message: string) => void;
   onOpenDay: (day: DesignSprintDayNumber) => void;
+  /** The day's title, focusable from code: where "Open Map day" lands. */
+  headingRef?: (el: HTMLElement | null) => void;
 }) {
   const current = planDay(plan, day);
   const outputs = dayOutputs(current);
@@ -117,7 +120,11 @@ export function DayPanel({
 
   return (
     <SectionCard
-      title={label}
+      title={
+        <span ref={headingRef} tabIndex={-1} className="outline-none">
+          {label}
+        </span>
+      }
       icon={Lightbulb}
       titleSuffix={
         <span className="text-sm font-normal text-sub">

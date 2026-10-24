@@ -12,15 +12,18 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import { useReturnFocus } from "@/hooks/use-return-focus";
-import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
 import type { HandoffLink, HandoffSource } from "@/lib/handoffs/types";
 import type { DesignSprintOutput } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
+import { liveSentTo } from "./doc";
 import {
+  ANSWER_LABEL,
   EMPTY_OUTPUT_DRAFT,
   INTERVIEWS,
   SIGNAL_LABEL,
   findingMeta,
+  isAnswer,
   isSignal,
   isWebLink,
   outputDraftFrom,
@@ -204,6 +207,9 @@ function OutputRow({
   const finding = o.kind === "finding";
   const url = o.url && isWebLink(o.url) ? o.url : null;
   const meta = finding ? findingMeta(o) : "";
+  // Live links only, so the row, the menu's "Sent" and its trigger agree once
+  // a target is deleted in its own tool. A send reads the stored links (getLinks).
+  const sent = finding ? liveSentTo(o) : [];
   const handoff: HandoffSource = {
     title: o.text,
     ...(meta ? { description: meta } : {}),
@@ -227,7 +233,8 @@ function OutputRow({
           </a>
         )}
         {finding && (
-          <p className="flex flex-wrap items-center gap-2 text-xs text-sub">
+          // A div, not a p: a Badge is a div.
+          <div className="flex flex-wrap items-center gap-2 text-xs text-sub">
             {isSignal(o.signal) ? (
               <Badge variant="outline" className={cn("text-xs", SIGNAL_TONE[o.signal])}>
                 {SIGNAL_LABEL[o.signal]}
@@ -242,16 +249,24 @@ function OutputRow({
                 Seen in {o.seenIn} of {INTERVIEWS} interviews
               </span>
             )}
-          </p>
+          </div>
         )}
-        {finding && <SentLinks links={o.sentTo} />}
+        {finding && <SentLinks live={sent} />}
+        {o.kind === "sprint-question" && isAnswer(o.answer) && (
+          // Answered on Test day: editing the question keeps the answer, deleting it takes it too.
+          <div className="flex">
+            <Badge variant="outline" className="text-xs">
+              Test day: {ANSWER_LABEL[o.answer]}
+            </Badge>
+          </div>
+        )}
       </div>
       <span className="flex shrink-0 flex-wrap items-center">
         {finding && canSend && (
           <SendToMenu
             routes={FINDING_ROUTES}
             item={handoff}
-            sentTo={o.sentTo}
+            sentTo={sent}
             onLinksChange={onLinksChange}
             getLinks={getLinks}
             itemLabels={{ hypothesis: "Hypothesis to test", "backlog-story": "Backlog story" }}
@@ -276,11 +291,7 @@ function OutputRow({
 }
 
 /** "Sent to the Hypothesis Tracker · Open", one per hand-off whose target still exists. */
-function SentLinks({ links }: { links: readonly HandoffLink[] | undefined }) {
-  const live = (links ?? []).filter((l) => {
-    const route = getHandoffRoute(l.route);
-    return route && liveLink(links, l.route)?.targetId === l.targetId;
-  });
+function SentLinks({ live }: { live: readonly HandoffLink[] }) {
   if (live.length === 0) return null;
   return (
     <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs">

@@ -7,6 +7,7 @@ import type {
   DesignSprintTask,
   HandoffLink,
 } from "@/lib/stores/workspace-types";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { dayOutputs, dayTasks, planDay, updateDay, withOutputPatch, withTaskPatch } from "./doc";
 import {
@@ -152,7 +153,9 @@ export function outputLinks(
 
 /**
  * Record a change to an output's links (a send, or its Undo). Returns the
- * links the change added, so the page can log the send.
+ * links the change added whose target exists, so the page logs real sends
+ * only: undoing a send over a dead link puts that link back, and it isn't a
+ * new send to a target long deleted.
  */
 export function setOutputLinks(
   day: DesignSprintDayNumber,
@@ -166,7 +169,9 @@ export function setOutputLinks(
         const before = o.sentTo ?? [];
         const after = update(o.sentTo);
         added = after.filter(
-          (l) => !before.some((b) => b.route === l.route && b.targetId === l.targetId)
+          (l) =>
+            !before.some((b) => b.route === l.route && b.targetId === l.targetId) &&
+            Boolean(getHandoffRoute(l.route)?.exists(l.targetId))
         );
         return { ...o, sentTo: after };
       })

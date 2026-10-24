@@ -5,6 +5,7 @@ import {
   dateRange,
   dayOutputs,
   dayTasks,
+  liveSentTo,
   planDays,
   shortDay,
   sprintQuestions,
@@ -40,8 +41,11 @@ const SENT_TO: Record<string, string> = {
   "backlog-story": "Backlog",
 };
 
+/** Only hand-offs whose target still exists, as on the page. */
 const sentTo = (o: DesignSprintOutput) =>
-  (o.sentTo ?? []).map((l) => SENT_TO[l.route] ?? l.route).join(", ") || "—";
+  liveSentTo(o)
+    .map((l) => SENT_TO[l.route] ?? l.route)
+    .join(", ") || "—";
 
 /** An output as a list item, its link (a web link only) after the text. */
 function outputLine(o: DesignSprintOutput): string {

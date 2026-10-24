@@ -4,10 +4,17 @@ import type {
   DesignSprintOutput,
   DesignSprintPlan,
   DesignSprintTask,
+  HandoffLink,
 } from "@/lib/stores/workspace-types";
 import { DESIGN_SPRINT_DAY_NAMES, DESIGN_SPRINT_DAY_NUMBERS } from "@/lib/design-sprint/plan";
-import { isoDayNumber } from "@/lib/sprints/calendar";
-import type { DesignSprintToday } from "@/lib/design-sprint/day";
+import {
+  DEFAULT_CALENDAR,
+  isWorkingDay,
+  isoDayNumber,
+  type WorkingCalendar,
+} from "@/lib/sprints/calendar";
+import { designSprintToday, type DesignSprintToday } from "@/lib/design-sprint/day";
+import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
 import { isWebLink } from "./outputs";
 
 /**
@@ -169,6 +176,20 @@ export function findingsOf(plan: Pick<DesignSprintPlan, "days">): DesignSprintOu
   return outputsOfKind(plan, "finding");
 }
 
+/**
+ * Where an output was sent: the links whose target still exists. A
+ * hypothesis or story deleted in its own tool no longer counts as sent, so
+ * the row, the verdict, the Findings tile and the export agree, and the menu
+ * offers to send it again.
+ */
+export function liveSentTo(o: Pick<DesignSprintOutput, "sentTo">): HandoffLink[] {
+  const links = Array.isArray(o.sentTo) ? o.sentTo : [];
+  // A route this build doesn't know has no target to look for.
+  return links.filter(
+    (l) => Boolean(getHandoffRoute(l.route)) && liveLink(links, l.route)?.targetId === l.targetId
+  );
+}
+
 export interface FindingsSent {
   total: number;
   /** Findings with a link to a hypothesis. */
@@ -180,14 +201,13 @@ export interface FindingsSent {
 }
 
 export function findingsSent(plan: Pick<DesignSprintPlan, "days">): FindingsSent {
-  const list = findingsOf(plan);
-  const on = (o: DesignSprintOutput, route: string) =>
-    (o.sentTo ?? []).some((l) => l.route === route);
+  const links = findingsOf(plan).map(liveSentTo);
+  const on = (route: string) => links.filter((ls) => ls.some((l) => l.route === route)).length;
   return {
-    total: list.length,
-    hypotheses: list.filter((o) => on(o, "hypothesis")).length,
-    stories: list.filter((o) => on(o, "backlog-story")).length,
-    sent: list.filter((o) => (o.sentTo ?? []).length > 0).length,
+    total: links.length,
+    hypotheses: on("hypothesis"),
+    stories: on("backlog-story"),
+    sent: links.filter((ls) => ls.length > 0).length,
   };
 }
 
@@ -233,6 +253,24 @@ export function dateRange(dates: readonly string[]): string {
   return `${shortDay(dates[0])} – ${shortDay(last)} ${last.slice(0, 4)}`;
 }
 
+/**
+ * Where the sprint stands on `today`, with `startsIn` as the copy reads it:
+ * day 1's place among the working days after today, so 1 is the next
+ * working day. designSprintToday counts the working days in [today, start),
+ * the same number on a working day but one short on a weekend or a holiday:
+ * on a Saturday, a Tuesday start would read as "the next working day" when
+ * Monday is.
+ */
+export function sprintToday(
+  startDate: string,
+  today: string,
+  calendar: WorkingCalendar = DEFAULT_CALENDAR
+): DesignSprintToday {
+  const t = designSprintToday(startDate, today, calendar);
+  if (t.startsIn === undefined || isWorkingDay(today, calendar)) return t;
+  return { ...t, startsIn: t.startsIn + 1 };
+}
+
 /** Working days of the sprint still ahead, today included when it's one of them. */
 export function workingDaysLeft(t: Pick<DesignSprintToday, "dates">, today: string): number {
   return t.dates.filter((d) => d >= today).length;
@@ -255,7 +293,7 @@ export function statusText(
   return `Upcoming: ${startsInText(t.startsIn)}`;
 }
 
-/** "starts in 2 working days"; the next working day for 0 or 1 working days away. */
+/** "starts in 2 working days"; "starts on the next working day" for 1 (sprintToday's count). */
 export function startsInText(startsIn: number | undefined): string {
   if (startsIn === undefined || startsIn <= 1) return "starts on the next working day";
   return `starts in ${startsIn} working days`;

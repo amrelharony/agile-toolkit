@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Calendar,
@@ -53,6 +53,7 @@ import {
   findingsSent,
   planDays,
   shortDay,
+  sprintToday,
   startsInText,
   statusText,
   taskTotals,
@@ -92,11 +93,32 @@ export function DesignSprintClient() {
   const { log } = useHistoryLogger("design-sprint");
   const announce = useAnnounce();
 
+  // Starting, loading the example, a reset and clearing the example swap the
+  // whole view, and the control just pressed goes with it. Focus lands on
+  // the new view instead of the page body: a sprint's verdict, which says
+  // where it stands, or the start form's name.
+  const swapped = useRef(false);
+  const verdictRef = useRef<HTMLParagraphElement>(null);
+  const startRef = useRef<HTMLDivElement>(null);
+  const hasPlan = plan !== null;
+  useEffect(() => {
+    if (!swapped.current) return;
+    swapped.current = false;
+    const target = hasPlan
+      ? verdictRef.current
+      : startRef.current?.querySelector<HTMLElement>("input");
+    target?.focus();
+  }, [hasPlan]);
+  const focusAfterSwap = () => {
+    swapped.current = true;
+  };
+
   function start(values: DetailsValues) {
     // An agent may have started one meanwhile: keep it, the page now shows it.
     if (readPlan()) return;
     const t = designSprintToday(values.startDate, today, calendar);
     const next = newDesignSprintPlan(values, { currentDay: shownDesignSprintDay(t) });
+    focusAfterSwap();
     writePlanRaw(next);
     log(DESIGN_SPRINT_ACTIONS.SPRINT_STARTED, {
       sprintId: next.id,
@@ -109,6 +131,7 @@ export function DesignSprintClient() {
 
   function loadExample() {
     if (readPlan()) return;
+    focusAfterSwap();
     writePlanRaw(buildExample(today, calendar));
   }
 
@@ -127,11 +150,15 @@ export function DesignSprintClient() {
           calendar={calendar}
           log={log}
           announce={announce}
+          verdictRef={verdictRef}
+          onCleared={focusAfterSwap}
         />
       ) : (
         <div className="space-y-4">
           <SectionCard title="Start a design sprint" icon={Sparkles} className="max-w-3xl">
-            <StartSprintForm today={today} calendar={calendar} onStart={start} />
+            <div ref={startRef}>
+              <StartSprintForm today={today} calendar={calendar} onStart={start} />
+            </div>
           </SectionCard>
           <EmptyState
             icon={Lightbulb}
@@ -153,16 +180,22 @@ function SprintView({
   calendar,
   log,
   announce,
+  verdictRef,
+  onCleared,
 }: {
   plan: DesignSprintPlan;
   today: string;
   calendar: WorkingCalendar;
   log: RecordEvent;
   announce: (message: string) => void;
+  /** The verdict, where focus lands after the sprint starts or the example loads. */
+  verdictRef: RefObject<HTMLParagraphElement>;
+  /** Called just before a reset or Clear example removes the plan (and this view). */
+  onCleared: () => void;
 }) {
   const example = isExampleId(plan.id);
   const t = useMemo(
-    () => designSprintToday(plan.startDate, today, calendar),
+    () => sprintToday(plan.startDate, today, calendar),
     [plan.startDate, today, calendar]
   );
   // The day on screen: today's until the user opens another. Opening a day
@@ -178,6 +211,11 @@ function SprintView({
     if (!example) log(action, { sprintId: plan.id, ...payload });
   };
 
+  // What counts as sent is read from the hand-off targets as the page
+  // renders (liveSentTo), so a hypothesis deleted meanwhile, by an agent
+  // say, re-renders it. Stories are read below for the prompt.
+  useWorkspaceStore((s) => s.hypothesisTrackers);
+
   const days = planDays(plan);
   const totals = taskTotals(days);
   const sent = findingsSent(plan);
@@ -187,6 +225,13 @@ function SprintView({
 
   function view(day: DesignSprintDayNumber) {
     setPicked(day);
+  }
+
+  // From inside a day ("Open Map day"): the panel remounts for the new day
+  // and the button goes with it, so focus moves to the new day's heading.
+  function openDay(day: DesignSprintDayNumber) {
+    setPicked(day);
+    returnTo("day-heading");
   }
 
   function saveDetails(values: DetailsValues) {
@@ -204,7 +249,10 @@ function SprintView({
     if (!captured || !isExampleId(captured.id)) return;
     undoable({
       label: "Cleared the example",
-      apply: () => writePlanRaw(null),
+      apply: () => {
+        onCleared();
+        writePlanRaw(null);
+      },
       // Never over a sprint started since.
       revert: () => {
         if (!readPlan()) writePlanRaw(captured);
@@ -212,15 +260,19 @@ function SprintView({
     });
   }
 
+  // Complete and Reopen swap the wrap-up card for the "completed" note and
+  // back; focus moves to the button that undoes what was just pressed.
   function complete() {
     completeSprint(plan, (completedAt) =>
       record(DESIGN_SPRINT_ACTIONS.SPRINT_COMPLETED, { name: plan.name, completedAt })
     );
+    returnTo("reopen");
     announce(`Completed “${plan.name}”.`);
   }
 
   function reopen() {
     reopenSprint();
+    returnTo("complete");
     announce(`Reopened “${plan.name}”.`);
   }
 
@@ -313,6 +365,7 @@ function SprintView({
           className="gap-2 text-sub hover:border-danger/40 hover:text-danger"
           onReset={() => {
             resetCopy.current = readPlan();
+            onCleared();
             writePlanRaw(null);
             record(DESIGN_SPRINT_ACTIONS.SPRINT_RESET, { name: plan.name });
           }}
@@ -323,7 +376,13 @@ function SprintView({
         />
       </ActionRow>
 
-      <p className="mb-4 text-sm font-medium text-text">{verdict}</p>
+      <p
+        ref={verdictRef}
+        tabIndex={-1}
+        className="mb-4 text-sm font-medium text-text focus:outline-none"
+      >
+        {verdict}
+      </p>
 
       <KpiGrid cols={4} gap="lg">
         <StatCard
@@ -425,7 +484,8 @@ function SprintView({
         example={example}
         record={record}
         announce={announce}
-        onOpenDay={view}
+        onOpenDay={openDay}
+        headingRef={refFor("day-heading")}
       />
 
       {plan.completedAt ? (
@@ -435,7 +495,14 @@ function SprintView({
               <strong>Sprint completed</strong> on{" "}
               {shortDay(todayLocalISO(new Date(plan.completedAt))) || plan.completedAt}.
             </span>
-            <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={reopen}>
+            <Button
+              ref={refFor("reopen")}
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0"
+              onClick={reopen}
+            >
               Reopen
             </Button>
           </span>
@@ -446,7 +513,7 @@ function SprintView({
             <p className="text-sm text-sub">
               When the team has decided what to do with the findings, complete the sprint.
             </p>
-            <Button type="button" onClick={complete} className="gap-2">
+            <Button ref={refFor("complete")} type="button" onClick={complete} className="gap-2">
               <Trophy className="h-4 w-4" aria-hidden="true" />
               Complete sprint
             </Button>
