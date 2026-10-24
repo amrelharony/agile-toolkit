@@ -77,10 +77,10 @@ const commit = (input: HTMLElement, value: string) => {
 };
 
 describe("Burndown first run", () => {
-  it("creates the first sprint, starting today, and shows no trend until two days have numbers", () => {
+  it("creates the first sprint, starting today, and shows no pace until a day has a number", () => {
     renderBurndown();
     expect(screen.getByRole("heading", { name: "No sprints yet" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "See an example" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Create your first sprint" }));
     const dialog = screen.getByRole("dialog");
@@ -89,40 +89,44 @@ describe("Burndown first run", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Create sprint" }));
 
-    // A shared sprint, in the workspace, starting today.
+    // A shared sprint, in the workspace, starting today and as long as the
+    // team's cadence says (two weeks while it isn't set).
     const sprints = useWorkspaceStore.getState().sprints;
     expect(sprints).toHaveLength(1);
     const sprint = sprints[0];
     expect(sprint).toMatchObject({
       name: "Sprint 1",
       startDate: todayIso(),
-      endDate: endDateFor(todayIso(), 10),
+      endDate: endDateFor(todayIso(), 14),
       pointsPlanned: 40,
     });
     expect(screen.getByLabelText("First day")).toHaveValue(todayIso());
     expect(
-      screen.getByText("Shared with Burnup, Velocity and Sprint Metrics.", { exact: false })
+      screen.getByText("Shared with Burnup, Velocity, Sprint Metrics and the Sprint cockpit.", {
+        exact: false,
+      })
     ).toBeInTheDocument();
 
-    expect(screen.getByText("No data yet")).toBeInTheDocument();
-    expect(screen.queryByText("On track")).toBeNull();
+    // Nothing recorded: no pace, no 0s.
+    expect(screen.getByText("Not logged yet")).toBeInTheDocument();
+    expect(screen.queryByText(/Ahead by|Behind by|On the ideal line/)).toBeNull();
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
     // Day 0 holds the plan, dimmed, not as if typed.
     expect(remaining(0)).toHaveValue(null);
     expect(remaining(0)).toHaveAccessibleDescription("40 from the plan");
 
-    // Logging day 1 gives a second point and a trend.
-    commit(remaining(1), "36");
-    expect(screen.queryByText("No data yet")).toBeNull();
-    expect(screen.getByText("On track")).toBeInTheDocument();
+    // Logging today (day 0) gives a reading and a pace against the ideal line.
+    commit(remaining(0), "38");
+    expect(screen.queryByText("Not logged yet")).toBeNull();
+    expect(screen.getByText("Ahead by 2 points")).toBeInTheDocument();
     expect(useWorkspaceStore.getState().sprintSeries).toEqual([
-      expect.objectContaining({ id: sprint.id, days: [{ day: 1, remaining: 36 }] }),
+      expect.objectContaining({ id: sprint.id, days: [{ day: 0, remaining: 38 }] }),
     ]);
-    expect(spy.logs).toContainEqual(["day_logged", { sprintId: sprint.id, day: 1, remaining: 36 }]);
+    expect(spy.logs).toContainEqual(["day_logged", { sprintId: sprint.id, day: 0, remaining: 38 }]);
     expect(spy.sounds).toEqual(["day-logged"]);
 
     // A new number on the same day isn't another logged day.
-    commit(remaining(1), "35");
+    commit(remaining(0), "37");
     expect(spy.sounds).toEqual(["day-logged"]);
   });
 

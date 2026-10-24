@@ -45,8 +45,12 @@ describe("burndown", () => {
     expect(burndownChartText(rows([40, 30, 25, 22, 20, 18])).summary).toBe(
       "Remaining points fell from 40 to 18 over 5 days; 2 points ahead of the ideal line."
     );
+    // The shared gap: on the line only at 0, never within a local half-point.
     expect(burndownChartText(rows([40, 36, 32, 28.4])).summary).toBe(
-      "Remaining points fell from 40 to 28.4 over 3 days; on the ideal line."
+      "Remaining points fell from 40 to 28.4 over 3 days; 0.4 points behind the ideal line."
+    );
+    expect(burndownChartText(rows([40, 36, 32, 28])).summary).toBe(
+      "Remaining points fell from 40 to 28 over 3 days; on the ideal line."
     );
     expect(burndownChartText(rows([40])).summary).toBe(
       "No days logged yet; the ideal line falls from 40 points to 0 by day 10."

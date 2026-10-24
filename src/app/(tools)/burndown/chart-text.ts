@@ -1,17 +1,30 @@
 /**
  * The burndown chart in words: a one-sentence summary and the plotted series
- * as a table, both built from the rows the chart draws.
+ * as a table, both built from the rows the chart draws. The position against
+ * the ideal line is lib/sprints/metrics `gap` (positive is behind), the
+ * number the tiles and the verdict quote.
  */
 
 import { cell, fmt, move, plural, NO_VALUE, type ChartText } from "@/lib/charts/chart-text";
+import { gap as gapOf } from "@/lib/sprints/metrics";
+import type { BurnOff } from "@/lib/sprints/burn";
 import type { BurndownChartRow } from "./charts";
 
-/** Within half a point of the ideal line reads as on it (the stat cards agree). */
-const ON_LINE = 0.5;
+/** A chart row with what the table can add: a day off, scope that joined or left. */
+export type BurndownTextRow = BurndownChartRow & {
+  off?: BurnOff;
+  added?: number;
+  removed?: number;
+};
 
-export function burndownChartText(rows: readonly BurndownChartRow[]): ChartText {
+const OFF_LABEL: Record<NonNullable<BurnOff>, string> = {
+  weekend: "Weekend",
+  holiday: "Holiday",
+};
+
+export function burndownChartText(rows: readonly BurndownTextRow[]): ChartText {
   const logged = rows.filter(
-    (r): r is BurndownChartRow & { actual: number } =>
+    (r): r is BurndownTextRow & { actual: number } =>
       typeof r.actual === "number" && Number.isFinite(r.actual)
   );
 
@@ -25,11 +38,11 @@ export function burndownChartText(rows: readonly BurndownChartRow[]): ChartText 
   } else {
     const first = logged[0];
     const last = logged[logged.length - 1];
-    const gap = last.actual - last.ideal; // > 0: more left than planned
+    const g = gapOf(last.actual, last.ideal); // > 0: more left than planned
     const position =
-      Math.abs(gap) <= ON_LINE
+      g === 0
         ? "on the ideal line"
-        : `${fmt(Math.abs(gap))} points ${gap > 0 ? "behind" : "ahead of"} the ideal line`;
+        : `${fmt(Math.abs(g))} points ${g > 0 ? "behind" : "ahead of"} the ideal line`;
     summary =
       logged.length === 1
         ? `${plural(last.actual, "point")} remaining on day ${last.day}; ${position}.`
@@ -38,13 +51,28 @@ export function burndownChartText(rows: readonly BurndownChartRow[]): ChartText 
             "day"
           )}; ${position}.`;
   }
+  if (rows.some((r) => r.off)) {
+    summary += " Days off are shaded: the ideal line stays flat across them.";
+  }
 
   const hasForecast = rows.some((r) => typeof r.forecast === "number");
-  const columns = ["Day", "Ideal", "Remaining", ...(hasForecast ? ["Forecast", "80% range"] : [])];
+  const hasOff = rows.some((r) => r.off);
+  const hasMoves = rows.some((r) => (r.added ?? 0) > 0 || (r.removed ?? 0) > 0);
+  const columns = [
+    "Day",
+    "Ideal",
+    "Remaining",
+    ...(hasMoves ? ["Added", "Removed"] : []),
+    ...(hasForecast ? ["Forecast", "80% range"] : []),
+    ...(hasOff ? ["Day off"] : []),
+  ];
   const tableRows = rows.map((r) => [
     r.day,
     cell(r.ideal),
     cell(r.actual),
+    ...(hasMoves
+      ? [r.added ? `+${fmt(r.added)}` : NO_VALUE, r.removed ? `−${fmt(r.removed)}` : NO_VALUE]
+      : []),
     ...(hasForecast
       ? [
           cell(r.forecast),
@@ -53,6 +81,7 @@ export function burndownChartText(rows: readonly BurndownChartRow[]): ChartText 
             : NO_VALUE,
         ]
       : []),
+    ...(hasOff ? [r.off ? OFF_LABEL[r.off] : ""] : []),
   ]);
 
   return {

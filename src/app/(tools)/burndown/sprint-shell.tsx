@@ -3,13 +3,15 @@
 /**
  * The frame Burndown and Burnup share around one shared sprint: which sprint
  * (the picker every sprint tool follows), "Loading sprints…" while saved
- * sprints load or old data moves in, the empty state with an in-memory
- * example, the prompt for sprints without real dates, and the sprint
- * settings. Each tool renders its own chart and daily log inside it.
+ * sprints load or old data moves in, the first run with an in-memory example
+ * (each tool renders its own empty state and example notice), the prompt
+ * for sprints without real dates, and the sprint settings. Each tool renders
+ * its own chart and daily log inside it, from the sprint, its log, the
+ * workspace's stories and the team's working days.
  */
 
 import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { CalendarDays, FlaskConical, Plus, Settings2, Sparkles } from "lucide-react";
+import { CalendarDays, Settings2 } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { SmartInput } from "@/components/shared/smart-input";
 import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
@@ -18,32 +20,31 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
-import { exampleSprints } from "@/lib/sprints/example";
+import { cadenceCalendar, MAX_SPRINT_LENGTH_DAYS } from "@/lib/sprints/cadence";
+import type { WorkingCalendar } from "@/lib/sprints/calendar";
 import { useSprintMigrationStatus } from "@/lib/sprints/migration-status";
 import {
-  DEFAULT_SPRINT_DAYS,
   dayDate,
   endDateFor,
   hasSyntheticDates,
   seriesFor,
   sprintLengthDays,
+  sprintWorkingDays,
   todayIso,
 } from "@/lib/sprints/series";
+import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
+import type { Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
+import type { BurnExample } from "./example";
 import { setPlannedPoints, setSprintDates, setSprintLength, setSprintStart } from "./series-writes";
+import { validateLength, validatePlannedPoints, validateStartDate } from "./validate";
 
 export type SprintToolId = "burndown" | "burnup";
 
-const TOOL_NAME: Record<SprintToolId, string> = { burndown: "Burndown", burnup: "Burnup" };
-const OTHER_TOOL: Record<SprintToolId, string> = { burndown: "Burnup", burnup: "Burndown" };
-
-/** Longest sprint the length field accepts, in days. */
-const MAX_SPRINT_DAYS = 90;
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const NO_STORIES: Story[] = [];
 
 /** "16 Oct", or "" when `iso` isn't a date. */
 export function shortDate(iso: string | null | undefined): string {
@@ -52,6 +53,15 @@ export function shortDate(iso: string | null | undefined): string {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString(undefined, {
     day: "numeric",
     month: "short",
+  });
+}
+
+/** "Sat", "Mon", or "" when `iso` isn't a date. */
+export function weekdayShort(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  if (!m) return "";
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString("en-GB", {
+    weekday: "short",
   });
 }
 
@@ -69,45 +79,82 @@ export interface DraftInputProps extends Omit<
   "value" | "defaultValue" | "onChange"
 > {
   value: string;
-  /** Called once, on blur or Enter, when the text changed. */
-  onCommit: (value: string) => void;
+  /**
+   * Called once, on blur or Enter, when the text changed. Return a message
+   * to refuse it: the text stays, the message shows under the field and the
+   * input is marked invalid, and nothing is saved.
+   */
+  onCommit: (value: string) => string | null | void;
+  /** Classes for the wrapper (grid placement); `className` styles the input. */
+  wrapperClassName?: string;
 }
 
 /**
  * An input that keeps keystrokes local and saves once, on blur or Enter.
  * Saving every keystroke would write half-typed numbers ("3" on the way to
  * "36") to the shared sprint, log them, and resize nothing for a reason.
- * Escape drops the draft.
+ * Escape drops the draft (and its error).
  */
-export function DraftInput({ value, onCommit, onBlur, onKeyDown, ...rest }: DraftInputProps) {
+export function DraftInput({
+  value,
+  onCommit,
+  onBlur,
+  onKeyDown,
+  wrapperClassName,
+  ...rest
+}: DraftInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
   const commit = () => {
     if (draft === null) return;
+    if (draft === value) {
+      setDraft(null);
+      setError(null);
+      return;
+    }
+    const refused = onCommit(draft);
+    if (typeof refused === "string") {
+      setError(refused);
+      return;
+    }
     setDraft(null);
-    if (draft !== value) onCommit(draft);
+    setError(null);
   };
+  const describedBy =
+    [rest["aria-describedby"], error ? errorId : null].filter(Boolean).join(" ") || undefined;
   return (
-    <Input
-      {...rest}
-      value={draft ?? value}
-      onChange={(e) => {
-        if (!rest.readOnly) setDraft(e.target.value);
-      }}
-      onBlur={(e) => {
-        commit();
-        onBlur?.(e);
-      }}
-      onKeyDown={(e) => {
-        onKeyDown?.(e);
-        if (e.defaultPrevented) return;
-        if (e.key === "Enter") {
-          e.preventDefault();
+    <div className={cn("min-w-0", wrapperClassName)}>
+      <Input
+        {...rest}
+        aria-describedby={describedBy}
+        aria-invalid={error ? true : rest["aria-invalid"]}
+        value={draft ?? value}
+        onChange={(e) => {
+          if (!rest.readOnly) setDraft(e.target.value);
+        }}
+        onBlur={(e) => {
           commit();
-        } else if (e.key === "Escape" && draft !== null) {
-          setDraft(null);
-        }
-      }}
-    />
+          onBlur?.(e);
+        }}
+        onKeyDown={(e) => {
+          onKeyDown?.(e);
+          if (e.defaultPrevented) return;
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape" && draft !== null) {
+            setDraft(null);
+            setError(null);
+          }
+        }}
+      />
+      {error && (
+        <p id={errorId} className="mt-1 text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -136,20 +183,24 @@ export type SprintSettingsChange = {
 
 /**
  * Planned points, length and start date of the shared sprint. A change here
- * changes the sprint for every tool, which the hint says.
+ * changes the sprint for every tool, which the hint says. Each field saves
+ * on blur or Enter, and refuses (with a message) what it can't save.
  */
 export function SprintSettings({
   tool,
   sprint,
+  calendar,
   readOnly,
   onChanged,
 }: {
   tool: SprintToolId;
   sprint: Sprint;
+  calendar: WorkingCalendar;
   readOnly: boolean;
   onChanged: (change: SprintSettingsChange) => void;
 }) {
   const length = sprintLengthDays(sprint);
+  const working = sprintWorkingDays(sprint, calendar);
   const start = sprint.startDate.slice(0, 10);
   // The velocity forecast for the next sprint, offered while the field is
   // empty (Tab accepts it).
@@ -160,25 +211,30 @@ export function SprintSettings({
   );
 
   const commitPoints = (raw: string | number) => {
-    const n = typeof raw === "number" ? raw : Number(raw);
-    if ((typeof raw === "string" && raw.trim() === "") || !Number.isFinite(n) || n < 0) return;
-    if (setPlannedPoints(sprint.id, n)) onChanged({ totalPoints: n });
+    const r = validatePlannedPoints(String(raw));
+    if (!r.ok) return r.error;
+    if (setPlannedPoints(sprint.id, r.value)) onChanged({ totalPoints: r.value });
+    return null;
   };
   const commitLength = (raw: string) => {
-    const n = Math.round(Number(raw));
-    if (raw.trim() === "" || !Number.isFinite(n)) return;
-    const days = Math.max(1, Math.min(MAX_SPRINT_DAYS, n));
-    if (setSprintLength(sprint.id, days)) onChanged({ sprintDays: days });
+    const r = validateLength(raw);
+    if (!r.ok) return r.error;
+    if (setSprintLength(sprint.id, r.value)) onChanged({ sprintDays: r.value });
+    return null;
   };
   const commitStart = (raw: string) => {
-    if (!ISO_DATE.test(raw) || raw === start) return;
-    if (setSprintStart(sprint.id, raw)) onChanged({ sprintStartDate: raw });
+    const r = validateStartDate(raw);
+    if (!r.ok) return r.error;
+    if (r.value !== start && setSprintStart(sprint.id, r.value)) {
+      onChanged({ sprintStartDate: r.value });
+    }
+    return null;
   };
 
   const others =
     tool === "burndown"
-      ? "Shared with Burnup, Velocity and Sprint Metrics."
-      : "Shared with Burndown, Velocity and Sprint Metrics.";
+      ? "Shared with Burnup, Velocity, Sprint Metrics and the Sprint cockpit."
+      : "Shared with Burndown, Velocity, Sprint Metrics and the Sprint cockpit.";
 
   return (
     <SectionCard title="Sprint settings" icon={Settings2} titleSize="lg" headerClassName="pb-4">
@@ -188,7 +244,7 @@ export function SprintSettings({
           : `${others} A change here shows there too.`}
       </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Planned points">
+        <Field label="Planned points" hint="The sprint's commitment (set in Sprint Planning)">
           {(control) =>
             readOnly ? (
               <Input {...control} type="number" readOnly value={String(sprint.pointsPlanned)} />
@@ -223,14 +279,19 @@ export function SprintSettings({
             )
           }
         </Field>
-        <Field label="Length (days)" hint={`Last day: ${shortDate(dayDate(sprint, length))}`}>
+        <Field
+          label="Length (days)"
+          hint={`Last day: ${shortDate(dayDate(sprint, length))} · ${working} working ${
+            working === 1 ? "day" : "days"
+          }`}
+        >
           {(control) => (
             <DraftInput
               {...control}
               type="number"
               inputMode="numeric"
               min={1}
-              max={MAX_SPRINT_DAYS}
+              max={MAX_SPRINT_LENGTH_DAYS}
               readOnly={readOnly}
               value={String(length)}
               onCommit={commitLength}
@@ -240,14 +301,12 @@ export function SprintSettings({
         </Field>
         <Field label="First day">
           {(control) => (
-            <Input
+            <DraftInput
               {...control}
               type="date"
               readOnly={readOnly}
               value={start}
-              onChange={(e) => {
-                if (!readOnly) commitStart(e.target.value);
-              }}
+              onCommit={commitStart}
               className="font-data"
             />
           )}
@@ -269,80 +328,27 @@ function LoadingSprints() {
   );
 }
 
-function EmptySprints({
-  tool,
-  onCreate,
-  onExample,
-}: {
-  tool: SprintToolId;
-  onCreate: () => void;
-  onExample: () => void;
-}) {
-  const titleId = useId();
-  return (
-    <section
-      aria-labelledby={titleId}
-      className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-border px-6 py-12 text-center"
-    >
-      <h2 id={titleId} className="font-display text-lg text-text">
-        No sprints yet
-      </h2>
-      <p className="max-w-prose text-sm text-sub">
-        {TOOL_NAME[tool]} charts a shared sprint. Create one and {OTHER_TOOL[tool]}, Velocity and
-        Sprint Metrics see it too.
-      </p>
-      <div className="flex flex-wrap justify-center gap-2">
-        <Button type="button" variant="toolkit" onClick={onCreate}>
-          <Plus aria-hidden="true" />
-          Create your first sprint
-        </Button>
-        <Button type="button" variant="outline" onClick={onExample}>
-          <Sparkles aria-hidden="true" />
-          See an example
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function PreviewNotice({ onStart, onBack }: { onStart: () => void; onBack: () => void }) {
-  return (
-    <div
-      role="status"
-      className="flex flex-wrap items-center gap-3 rounded-lg border border-info/30 bg-info/10 px-4 py-2.5 text-sm text-text"
-    >
-      <FlaskConical className="h-4 w-4 shrink-0 text-info" aria-hidden="true" />
-      <p className="min-w-[14rem] flex-1">
-        <span className="font-medium">Example sprint.</span> Look around: nothing here is saved, and
-        it can&apos;t be changed.
-      </p>
-      <Button type="button" size="sm" variant="toolkit" onClick={onStart}>
-        Start your own
-      </Button>
-      <Button type="button" size="sm" variant="ghost" onClick={onBack}>
-        Back
-      </Button>
-    </div>
-  );
-}
-
 /** For sprints without real dates (the old Velocity tool's placeholder dates). */
 function SetSprintDates({
   sprint,
+  lengthDays,
   onSaved,
 }: {
   sprint: Sprint;
+  lengthDays: number;
   onSaved: (change: SprintSettingsChange) => void;
 }) {
   const [start, setStart] = useState(() => todayIso());
-  const [end, setEnd] = useState(() => endDateFor(todayIso(), DEFAULT_SPRINT_DAYS));
+  const [end, setEnd] = useState(() => endDateFor(todayIso(), lengthDays));
   const [errors, setErrors] = useState<{ start?: string; end?: string }>({});
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const next: { start?: string; end?: string } = {};
-    if (!ISO_DATE.test(start)) next.start = "Pick the first day of the sprint.";
-    if (!ISO_DATE.test(end)) next.end = "Pick the last day of the sprint.";
+    const first = validateStartDate(start);
+    const last = validateStartDate(end);
+    if (!first.ok) next.start = "Pick the first day of the sprint.";
+    if (!last.ok) next.end = "Pick the last day of the sprint.";
     else if (!next.start && end <= start) next.end = "The last day comes after the first.";
     setErrors(next);
     if (next.start || next.end) return;
@@ -394,12 +400,24 @@ function SetSprintDates({
 export interface SprintToolContext {
   sprint: Sprint;
   series: SprintSeries;
+  /** Every story in the workspace (or the example's): the burn picks the sprint's. */
+  stories: readonly Story[];
+  /** The team's working days and holidays, from the cadence. */
+  calendar: WorkingCalendar;
+  /** Today, YYYY-MM-DD, as the page opened. */
+  today: string;
   /** The example preview: show everything, change nothing. */
   readOnly: boolean;
 }
 
 export interface SprintToolShellProps {
   tool: SprintToolId;
+  /** The tool's example (its example.ts), built in memory when the preview opens. */
+  example: (today: string) => BurnExample;
+  /** The first run: no sprints yet. Each tool renders its own EmptyState. */
+  renderEmpty: (actions: { onCreate: () => void; onLoadExample: () => void }) => ReactNode;
+  /** Over the example preview. Each tool renders its own ExampleNotice. */
+  renderNotice: (actions: { onStart: () => void; onClear: () => void }) => ReactNode;
   /** Log a change to the sprint's dates made from the dates prompt. */
   onSettingsChanged: (sprintId: string, change: SprintSettingsChange) => void;
   children: (ctx: SprintToolContext) => ReactNode;
@@ -410,17 +428,30 @@ export interface SprintToolShellProps {
  * it, or the state around it: loading, no sprints yet (with an example
  * preview that is never saved), or a sprint that needs dates first.
  */
-export function SprintToolShell({ tool, onSettingsChanged, children }: SprintToolShellProps) {
+export function SprintToolShell({
+  example: buildExample,
+  renderEmpty,
+  renderNotice,
+  onSettingsChanged,
+  children,
+}: SprintToolShellProps) {
   const hydrated = useWorkspaceHydrated();
   const migration = useSprintMigrationStatus();
   const { sprints, selected, select } = useSelectedSprint();
   const allSeries = useWorkspaceStore((s) => s.sprintSeries);
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const [cadence] = useCeremonyCadence();
+  const calendar = useMemo(() => cadenceCalendar(cadence), [cadence]);
+  const [today] = useState(() => todayIso());
   const [preview, setPreview] = useState(false);
   const [creating, setCreating] = useState(false);
   const headingId = useId();
 
   // Built in memory each time the preview opens; never written anywhere.
-  const example = useMemo(() => (preview ? exampleSprints(todayIso()) : null), [preview]);
+  const example = useMemo(
+    () => (preview ? buildExample(today) : null),
+    [preview, buildExample, today]
+  );
   const series = useMemo(
     () => (selected ? seriesFor(allSeries, selected.id) : null),
     [allSeries, selected]
@@ -431,6 +462,7 @@ export function SprintToolShell({ tool, onSettingsChanged, children }: SprintToo
       open={creating}
       onOpenChange={setCreating}
       defaultName={nextSprintName(sprints)}
+      defaultLengthDays={cadence.sprintLengthDays}
       onCreated={(sprint) => {
         select(sprint.id);
         setPreview(false);
@@ -443,10 +475,13 @@ export function SprintToolShell({ tool, onSettingsChanged, children }: SprintToo
   if (example) {
     return (
       <div className="space-y-6">
-        <PreviewNotice onStart={() => setCreating(true)} onBack={() => setPreview(false)} />
+        {renderNotice({ onStart: () => setCreating(true), onClear: () => setPreview(false) })}
         {children({
           sprint: example.current,
           series: seriesFor(example.series, example.current.id),
+          stories: example.stories,
+          calendar,
+          today,
           readOnly: true,
         })}
         {dialog}
@@ -457,11 +492,7 @@ export function SprintToolShell({ tool, onSettingsChanged, children }: SprintToo
   if (!selected || !series) {
     return (
       <>
-        <EmptySprints
-          tool={tool}
-          onCreate={() => setCreating(true)}
-          onExample={() => setPreview(true)}
-        />
+        {renderEmpty({ onCreate: () => setCreating(true), onLoadExample: () => setPreview(true) })}
         {dialog}
       </>
     );
@@ -480,10 +511,11 @@ export function SprintToolShell({ tool, onSettingsChanged, children }: SprintToo
         <SetSprintDates
           key={selected.id}
           sprint={selected}
+          lengthDays={cadence.sprintLengthDays}
           onSaved={(change) => onSettingsChanged(selected.id, change)}
         />
       ) : (
-        children({ sprint: selected, series, readOnly: false })
+        children({ sprint: selected, series, stories, calendar, today, readOnly: false })
       )}
     </div>
   );
