@@ -80,6 +80,7 @@ import type {
   WeightedOption,
   WeightedCriterion,
   SixHatsThought,
+  SixHatsSession,
   OODACycle,
   CynefinItem,
   StaceyItem,
@@ -247,6 +248,9 @@ interface WorkspaceActions {
   removeWeightedCriterion: (id: string) => void;
   upsertSixHatsThought: (x: SixHatsThought) => void;
   removeSixHatsThought: (id: string) => void;
+  upsertSixHatsSession: (x: SixHatsSession) => void;
+  /** The session only: its thoughts stay (the page removes them with its own Undo). */
+  removeSixHatsSession: (id: string) => void;
   upsertOODACycle: (x: OODACycle) => void;
   removeOODACycle: (id: string) => void;
   upsertCynefinItem: (x: CynefinItem) => void;
@@ -1067,6 +1071,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           sixHatsThoughts: (s.sixHatsThoughts ?? []).filter((y) => y.id !== id),
           whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "sixHats", id),
         })),
+      upsertSixHatsSession: (x) =>
+        set((_st) => ({ sixHatsSessions: replaceById(_st.sixHatsSessions ?? [], x) })),
+      removeSixHatsSession: (id) =>
+        set((s) => ({ sixHatsSessions: (s.sixHatsSessions ?? []).filter((y) => y.id !== id) })),
       upsertOODACycle: (x) => set((_st) => ({ oodaCycles: replaceById(_st.oodaCycles ?? [], x) })),
       removeOODACycle: (id) =>
         set((s) => ({
@@ -1454,6 +1462,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           weightedOptions: s.weightedOptions,
           weightedCriteria: s.weightedCriteria,
           sixHatsThoughts: s.sixHatsThoughts,
+          sixHatsSessions: s.sixHatsSessions,
           oodaCycles: s.oodaCycles,
           cynefinItems: s.cynefinItems,
           staceyItems: s.staceyItems,
@@ -1589,6 +1598,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           weightedOptions: arr("weightedOptions"),
           weightedCriteria: arr("weightedCriteria"),
           sixHatsThoughts: arr("sixHatsThoughts"),
+          sixHatsSessions: arr("sixHatsSessions"),
           oodaCycles: arr("oodaCycles"),
           cynefinItems: arr("cynefinItems"),
           staceyItems: arr("staceyItems"),
@@ -1922,6 +1932,7 @@ if (typeof window !== "undefined") {
     registerCollection("weightedOption", "weightedOptions");
     registerCollection("weightedCriterion", "weightedCriteria");
     registerCollection("sixHatsThought", "sixHatsThoughts");
+    registerCollection("sixHatsSession", "sixHatsSessions");
     registerCollection("oodaCycle", "oodaCycles");
     registerCollection("cynefinItem", "cynefinItems");
     registerCollection("staceyItem", "staceyItems");
@@ -2068,6 +2079,7 @@ export function getWorkspaceSnapshot(): Workspace {
     weightedOptions: state.weightedOptions,
     weightedCriteria: state.weightedCriteria,
     sixHatsThoughts: state.sixHatsThoughts,
+    sixHatsSessions: state.sixHatsSessions,
     oodaCycles: state.oodaCycles,
     cynefinItems: state.cynefinItems,
     staceyItems: state.staceyItems,
