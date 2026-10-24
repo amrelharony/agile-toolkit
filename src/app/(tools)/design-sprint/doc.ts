@@ -1,21 +1,15 @@
 import type {
   DesignSprintDay,
-  DesignSprintDayNumber,
   DesignSprintOutput,
   DesignSprintPlan,
   DesignSprintTask,
   HandoffLink,
 } from "@/lib/stores/workspace-types";
-import { DESIGN_SPRINT_DAY_NAMES, DESIGN_SPRINT_DAY_NUMBERS } from "@/lib/design-sprint/plan";
-import {
-  DEFAULT_CALENDAR,
-  isWorkingDay,
-  isoDayNumber,
-  type WorkingCalendar,
-} from "@/lib/sprints/calendar";
+import { DESIGN_SPRINT_DAY_NAMES } from "@/lib/design-sprint/plan";
+import { DESIGN_SPRINT_ID, findingsOf } from "@/lib/design-sprint/doc";
+import { DEFAULT_CALENDAR, isoDayNumber, type WorkingCalendar } from "@/lib/sprints/calendar";
 import { designSprintToday, type DesignSprintToday } from "@/lib/design-sprint/day";
 import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
-import { isWebLink } from "./outputs";
 
 /**
  * Pure reads and edits of the design sprint document: its days, their
@@ -24,99 +18,27 @@ import { isWebLink } from "./outputs";
  * concurrent change to another day or item survives.
  */
 
-/** MUST match DS_ID in src/lib/actions/tools/design-sprint.ts. */
-export const DS_ID = "designSprint:current";
+/** The document's id (lib/design-sprint/doc, shared with the agent actions). */
+export const DS_ID = DESIGN_SPRINT_ID;
+
+// The document's reads and edits are shared with the agent actions.
+export {
+  dayOutputs,
+  legacyNoteId,
+  outputsOfKind,
+  planDay,
+  planDays,
+  sprintQuestions,
+  findingsOf,
+  updateDay,
+  withLegacyNotes,
+  withOutputPatch,
+} from "@/lib/design-sprint/doc";
 
 export const NAME_MAX = 200;
 export const DESCRIPTION_MAX = 4000;
 export const TASK_TEXT_MAX = 500;
 export const PERSON_MAX = 200;
-
-/* ── Old free-text artifacts ────────────────────────────────────────── */
-
-/** djb2 over the text, base 36: short, and the same on every device. */
-function hash(text: string): string {
-  let h = 5381;
-  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
-
-/**
- * The id an old artifact gets as a note. It depends only on the day, the
- * position and the text, so every read and every device gives the same id,
- * and moving the artifacts into outputs twice can't make a duplicate.
- */
-export function legacyNoteId(day: number, index: number, text: string): string {
-  return `note-${day}-${index}-${hash(text)}`;
-}
-
-/**
- * A day's outputs, its old artifacts first as notes (they're older). The
- * artifacts had no ids and were removed by position, so a concurrent edit
- * could delete the wrong one; read here, each gets its stable id. An
- * artifact that is only a link becomes a note with that link.
- */
-export function dayOutputs(day: DesignSprintDay): DesignSprintOutput[] {
-  const outputs = Array.isArray(day.outputs) ? day.outputs : [];
-  const artifacts = Array.isArray(day.artifacts) ? day.artifacts : [];
-  if (artifacts.length === 0) return outputs;
-  const ids = new Set(outputs.map((o) => o.id));
-  const notes: DesignSprintOutput[] = [];
-  artifacts.forEach((raw, i) => {
-    const text = typeof raw === "string" ? raw.trim() : "";
-    if (!text) return;
-    const id = legacyNoteId(day.day, i, text);
-    if (ids.has(id)) return;
-    notes.push({ id, kind: "note", text, ...(isWebLink(text) ? { url: text } : {}) });
-  });
-  return [...notes, ...outputs];
-}
-
-/** The day with its old artifacts moved into `outputs`, ids kept. A no-op once moved. */
-export function withLegacyNotes(day: DesignSprintDay): DesignSprintDay {
-  if (!Array.isArray(day.artifacts) || day.artifacts.length === 0) return day;
-  return { ...day, artifacts: [], outputs: dayOutputs(day) };
-}
-
-/* ── Days ───────────────────────────────────────────────────────────── */
-
-function emptyDay(day: DesignSprintDayNumber): DesignSprintDay {
-  return { day, dayName: DESIGN_SPRINT_DAY_NAMES[day], tasks: [], artifacts: [], outputs: [] };
-}
-
-/** The five days in order, a missing one filled in empty (for reading). */
-export function planDays(plan: Pick<DesignSprintPlan, "days">): DesignSprintDay[] {
-  const days = Array.isArray(plan.days) ? plan.days : [];
-  return DESIGN_SPRINT_DAY_NUMBERS.map((n) => days.find((d) => d.day === n) ?? emptyDay(n));
-}
-
-export function planDay(
-  plan: Pick<DesignSprintPlan, "days">,
-  day: DesignSprintDayNumber
-): DesignSprintDay {
-  return planDays(plan).find((d) => d.day === day) ?? emptyDay(day);
-}
-
-/**
- * The plan with one day changed by `fn`. The day's old artifacts move into
- * outputs first, so the first edit of a day converts it. A day the stored
- * plan lacks is added.
- */
-export function updateDay(
-  plan: DesignSprintPlan,
-  day: DesignSprintDayNumber,
-  fn: (d: DesignSprintDay) => DesignSprintDay
-): DesignSprintPlan {
-  const days = Array.isArray(plan.days) ? plan.days : [];
-  if (!days.some((d) => d.day === day)) {
-    const next = [...days, fn(emptyDay(day))].sort((a, b) => a.day - b.day);
-    return { ...plan, days: next };
-  }
-  return {
-    ...plan,
-    days: days.map((d) => (d.day === day ? fn(withLegacyNotes(d)) : d)),
-  };
-}
 
 /* ── Tasks ──────────────────────────────────────────────────────────── */
 
@@ -147,33 +69,6 @@ export function taskTotals(days: readonly DesignSprintDay[]): TaskTotals {
     }
   }
   return { done, total };
-}
-
-/* ── Outputs ────────────────────────────────────────────────────────── */
-
-export function withOutputPatch(
-  day: DesignSprintDay,
-  id: string,
-  patch: (o: DesignSprintOutput) => DesignSprintOutput
-): DesignSprintDay {
-  return { ...day, outputs: dayOutputs(day).map((o) => (o.id === id ? patch(o) : o)) };
-}
-
-/** Every output of `kind`, across the days (findings live on Test day). */
-export function outputsOfKind(
-  plan: Pick<DesignSprintPlan, "days">,
-  kind: DesignSprintOutput["kind"]
-): DesignSprintOutput[] {
-  return planDays(plan).flatMap((d) => dayOutputs(d).filter((o) => o.kind === kind));
-}
-
-/** The Map day's sprint questions, which Test day answers. */
-export function sprintQuestions(plan: Pick<DesignSprintPlan, "days">): DesignSprintOutput[] {
-  return dayOutputs(planDay(plan, 1)).filter((o) => o.kind === "sprint-question");
-}
-
-export function findingsOf(plan: Pick<DesignSprintPlan, "days">): DesignSprintOutput[] {
-  return outputsOfKind(plan, "finding");
 }
 
 /**
@@ -254,21 +149,16 @@ export function dateRange(dates: readonly string[]): string {
 }
 
 /**
- * Where the sprint stands on `today`, with `startsIn` as the copy reads it:
- * day 1's place among the working days after today, so 1 is the next
- * working day. designSprintToday counts the working days in [today, start),
- * the same number on a working day but one short on a weekend or a holiday:
- * on a Saturday, a Tuesday start would read as "the next working day" when
- * Monday is.
+ * Where the sprint stands on `today` (lib/design-sprint/day, which the agent
+ * actions read too). `startsIn` is day 1's place among the working days
+ * after today, so 1 is the next working day, weekend or not.
  */
 export function sprintToday(
   startDate: string,
   today: string,
   calendar: WorkingCalendar = DEFAULT_CALENDAR
 ): DesignSprintToday {
-  const t = designSprintToday(startDate, today, calendar);
-  if (t.startsIn === undefined || isWorkingDay(today, calendar)) return t;
-  return { ...t, startsIn: t.startsIn + 1 };
+  return designSprintToday(startDate, today, calendar);
 }
 
 /** Working days of the sprint still ahead, today included when it's one of them. */

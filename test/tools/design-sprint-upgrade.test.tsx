@@ -968,8 +968,8 @@ describe("Design Sprint: an upcoming sprint on a day off", () => {
     expect(sprintToday("2026-10-26", "2026-10-24").startsIn).toBe(1);
     expect(sprintToday("2026-10-27", "2026-10-24").startsIn).toBe(2);
     expect(sprintToday("2026-10-28", "2026-10-24").startsIn).toBe(3);
-    // The shared count, the working days in [today, start), is one short there.
-    expect(designSprintToday("2026-10-27", "2026-10-24").startsIn).toBe(1);
+    // The shared count is the same one, so the agent actions read it alike.
+    expect(designSprintToday("2026-10-27", "2026-10-24").startsIn).toBe(2);
     // On a working day the two agree: Wed 21 to Mon 26 is Thu, Fri, Mon.
     expect(sprintToday("2026-10-26", "2026-10-21")).toEqual(
       designSprintToday("2026-10-26", "2026-10-21")

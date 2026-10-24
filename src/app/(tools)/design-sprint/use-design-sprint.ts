@@ -6,7 +6,7 @@ import type { DesignSprint, DesignSprintPlan } from "@/lib/stores/workspace-type
 import { cadenceCalendar, normalizeCadence } from "@/lib/sprints/cadence";
 import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
 import type { WorkingCalendar } from "@/lib/sprints/calendar";
-import { designSprintToday, shownDesignSprintDay } from "@/lib/design-sprint/day";
+import { withShownDesignSprintDay } from "@/lib/design-sprint/day";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { DS_ID } from "./doc";
 
@@ -43,8 +43,7 @@ export function withShownDay(
   today: string = todayLocalISO(),
   calendar: WorkingCalendar = teamCalendar()
 ): DesignSprintPlan {
-  const currentDay = shownDesignSprintDay(designSprintToday(plan.startDate, today, calendar));
-  return plan.currentDay === currentDay ? plan : { ...plan, currentDay };
+  return withShownDesignSprintDay(plan, today, calendar);
 }
 
 /** Store `plan` exactly as given: Undo puts back the copy it took. */

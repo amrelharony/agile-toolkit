@@ -1,3 +1,4 @@
+import { INTERVIEWS, OUTPUT_TEXT_MAX, OUTPUT_URL_MAX, isWebLink } from "@/lib/design-sprint/doc";
 import type {
   DesignSprintDayNumber,
   DesignSprintOutput,
@@ -17,10 +18,8 @@ import { parseNumber, type Validation } from "@/lib/utils/form";
  * answers). Every day keeps a Notes slot, where the old artifacts show.
  */
 
-export const OUTPUT_TEXT_MAX = 1000;
-export const OUTPUT_URL_MAX = 2000;
-/** A design sprint tests with five customers. */
-export const INTERVIEWS = 5;
+// The limits are shared with the agent actions.
+export { INTERVIEWS, OUTPUT_TEXT_MAX, OUTPUT_URL_MAX } from "@/lib/design-sprint/doc";
 
 export type FindingSignal = NonNullable<DesignSprintOutput["signal"]>;
 export type QuestionAnswer = NonNullable<DesignSprintOutput["answer"]>;
@@ -246,16 +245,6 @@ export function outputDraftFrom(o: DesignSprintOutput): OutputDraft {
   };
 }
 
-/** A web link someone can open: http or https, nothing else (no javascript:). */
-export function isWebLink(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    return (u.protocol === "https:" || u.protocol === "http:") && Boolean(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Check an output draft for `slot`. The text is required; a link, when the
  * slot takes one, must be a full web address; a finding's interview count,
@@ -331,3 +320,6 @@ export function sameOutputValues(
   const seenIn = typeof o.seenIn === "number" && Number.isFinite(o.seenIn) ? o.seenIn : undefined;
   return (isSignal(o.signal) ? o.signal : undefined) === v.signal && seenIn === v.seenIn;
 }
+
+// Shared with the agent actions (lib/design-sprint/doc).
+export { isWebLink } from "@/lib/design-sprint/doc";

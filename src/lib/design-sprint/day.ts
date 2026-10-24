@@ -10,7 +10,7 @@
  * the rest of the week along.
  */
 
-import type { DesignSprintDayNumber } from "@/lib/stores/workspace-types";
+import type { DesignSprintDayNumber, DesignSprintPlan } from "@/lib/stores/workspace-types";
 import {
   DEFAULT_CALENDAR,
   isoDayNumber,
@@ -28,7 +28,7 @@ export interface DesignSprintToday {
   status: DesignSprintStatus;
   /** Today's day while running (on a day off in the middle: the last day worked); else null. */
   day: DesignSprintDayNumber | null;
-  /** Working days until day 1, while upcoming. */
+  /** While upcoming: day 1's place among the working days after today (1: the next one). */
   startsIn?: number;
   /** The five dates, day 1 first ("YYYY-MM-DD"); empty without a valid start date. */
   dates: string[];
@@ -61,10 +61,13 @@ export function designSprintToday(
     return { status: "upcoming", day: null, dates };
   }
   if (today < dates[0]) {
+    // Day 1's place among the working days after today: 1 is the next
+    // working day, whether today is one or a weekend.
+    const between = workingDaysBetween(today, dates[0], calendar) ?? 0;
     return {
       status: "upcoming",
       day: null,
-      startsIn: workingDaysBetween(today, dates[0], calendar) ?? undefined,
+      startsIn: between + (isWorkingDay(today, calendar) ? 0 : 1),
       dates,
     };
   }
@@ -80,4 +83,18 @@ export function shownDesignSprintDay(
 ): DesignSprintDayNumber {
   if (t.status === "running" && t.day) return t.day;
   return t.status === "over" ? 5 : 1;
+}
+
+/**
+ * The plan with `currentDay` at the day shown on `today`. The day is derived
+ * from the start date, but older readers still read `currentDay`, so every
+ * write (the page's and the agent actions') keeps it in step.
+ */
+export function withShownDesignSprintDay(
+  plan: DesignSprintPlan,
+  today: string,
+  calendar: WorkingCalendar = DEFAULT_CALENDAR
+): DesignSprintPlan {
+  const currentDay = shownDesignSprintDay(designSprintToday(plan.startDate, today, calendar));
+  return plan.currentDay === currentDay ? plan : { ...plan, currentDay };
 }
