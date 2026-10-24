@@ -14,9 +14,10 @@ import type {
   StoryMapStep,
 } from "@/lib/stores/workspace-types";
 import { estimatePoints, sliceCards } from "./estimate";
+import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 /** The story map's one document id. MUST match SM_ID in story-mapper-client.tsx. */
-export const SM_ID = "story-mapper:current";
+export const SM_ID = STORY_MAP_ID;
 
 const ROUTE = "backlog-story" as const;
 

@@ -18,9 +18,10 @@ import {
   currentPokerLog,
   updatePokerLog,
 } from "./targets/poker-queue";
+import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 /** MUST match SM_ID in story-mapper-client.tsx and actions/tools/story-mapper.ts. */
-export const STORY_MAP_ID = "story-mapper:current";
+export { STORY_MAP_ID };
 
 /** The session's own cap on stories. */
 const MAX_SESSION_STORIES = 500;

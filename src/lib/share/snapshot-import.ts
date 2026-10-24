@@ -26,6 +26,7 @@ import type {
   StoryMapCard,
 } from "@/lib/stores/workspace-types";
 import { archivedRetroCopy, retroArchivesToPrune } from "@/app/(tools)/retro/archive";
+import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 export interface SnapshotImporter {
   /** What "Copy into my browser" will do, in one sentence. */
@@ -161,7 +162,7 @@ function readOkrs(state: unknown): Okr[] | null {
 
 // ── Story map ────────────────────────────────────────────────────────────
 
-export const STORY_MAP_ID = "story-mapper:current";
+export { STORY_MAP_ID };
 
 function readStoryMap(state: unknown): StoryMap | null {
   const s = obj(state);

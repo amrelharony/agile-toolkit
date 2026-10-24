@@ -42,6 +42,7 @@ import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
 import { goalDocId } from "@/lib/sprints/goal-doc";
 import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
+import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -296,7 +297,7 @@ const RULES: Record<string, NextStepRule<object>> = {
   "story-mapper": rule({
     select: (ws) => ({ maps: ws.storyMaps }),
     steps: ({ maps }) => {
-      const map = (maps ?? []).find((m) => m.id === "story-mapper:current");
+      const map = (maps ?? []).find((m) => m.id === STORY_MAP_ID);
       if (!map) return [];
       const steps: NextStep[] = [];
       // Cards under the map's steps, read the way the Story Mapper reads them.
