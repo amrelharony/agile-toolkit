@@ -414,3 +414,20 @@ export function sprintsNewestFirst(sprints: readonly Sprint[]): Sprint[] {
     return a.name.localeCompare(b.name);
   });
 }
+
+/** The chosen sprint if it exists, else the active one, else the newest (not cancelled). */
+export function pickDefaultSprint(
+  sprints: readonly Sprint[],
+  chosenId: string | null | undefined
+): Sprint | undefined {
+  if (chosenId) {
+    const chosen = sprints.find((s) => s.id === chosenId);
+    if (chosen) return chosen;
+  }
+  const newest = sprintsNewestFirst(sprints);
+  return (
+    newest.find((s) => s.status === "active") ??
+    newest.find((s) => s.status !== "cancelled") ??
+    newest[0]
+  );
+}
