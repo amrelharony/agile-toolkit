@@ -932,7 +932,7 @@ describe("the facts panel", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     const facts = screen.getByRole("group", { name: "Facts from Sprint 14" });
-    expect(facts).toHaveTextContent("The example sprint's");
+    expect(facts).toHaveTextContent("From the example, not your tools");
     expect(within(facts).queryAllByRole("link")).toHaveLength(0);
     // Never the user's real sprint.
     expect(screen.queryByText(/Ship saved cards/)).toBeNull();

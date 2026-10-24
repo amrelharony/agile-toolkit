@@ -42,7 +42,7 @@ export function RetroFactsPanel({
           Facts from {sprintName}
         </span>
         <span className="text-xs text-sub">
-          {example ? "The example sprint's" : "Read from the other tools"}
+          {example ? "From the example, not your tools" : "Read from the other tools"}
         </span>
         <ChevronDown
           className="ml-auto h-4 w-4 shrink-0 text-sub transition-transform group-open:rotate-180"
