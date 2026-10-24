@@ -120,7 +120,7 @@ describe("Retro Actions", () => {
     expect(screen.getByText("Shorter planning")).toBeInTheDocument();
     expect(screen.queryByText("Pair on the flaky tests")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^All/ }));
-    fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "Sam" } });
+    fireEvent.change(screen.getByLabelText("Filter by owner"), { target: { value: "Sam" } });
     expect(screen.getByText("Pair on the flaky tests")).toBeInTheDocument();
     expect(screen.queryByText("Write the on-call guide")).toBeNull();
   });
