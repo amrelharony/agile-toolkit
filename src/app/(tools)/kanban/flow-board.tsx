@@ -44,11 +44,12 @@ import { enoughData, needMore } from "@/lib/analytics/min-sample";
 import { fmt } from "@/lib/charts/chart-text";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type {
-  KanbanBoard,
-  KanbanCard,
-  KanbanClassOfService,
-  KanbanColumnId,
+import {
+  KANBAN_BOARD_ID,
+  type KanbanBoard,
+  type KanbanCard,
+  type KanbanClassOfService,
+  type KanbanColumnId,
 } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
@@ -101,10 +102,6 @@ export interface KanbanState {
   wipLimits: Record<KanbanColumnId, number>;
 }
 
-// Singleton id for the one kanban board. MUST match KB_ID in
-// src/lib/actions/tools/kanban.ts so agent writes hit the same row.
-export const KB_ID = "kanban:current";
-
 const DEFAULT_STATE: KanbanState = { cards: [], wipLimits: DEFAULT_WIP_LIMITS };
 
 /** A stored board as the UI reads it; a row missing its cards or limits still opens. */
@@ -117,26 +114,27 @@ function readBoard(board: KanbanBoard | undefined): KanbanState {
 }
 
 const storedBoard = () =>
-  (useWorkspaceStore.getState().kanbanBoards ?? []).find((b) => b.id === KB_ID);
+  (useWorkspaceStore.getState().kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID);
 
 /**
  * The synced workspace singleton (was isolated localStorage), so MCP board
- * writes round-trip into the UI. The setter reads the board as stored at
- * the moment it writes, never a render's copy.
+ * writes round-trip into the UI: the page, tool.kanban.* and hand-offs all
+ * use KANBAN_BOARD_ID. The setter reads the board as stored at the moment
+ * it writes, never a render's copy.
  */
 export function useKanbanBoard(): [
   KanbanState,
   (updater: KanbanState | ((prev: KanbanState) => KanbanState)) => void,
 ] {
   const board = useWorkspaceStore(
-    useShallow((s) => (s.kanbanBoards ?? []).find((b) => b.id === KB_ID))
+    useShallow((s) => (s.kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID))
   );
   const upsertKanbanBoard = useWorkspaceStore((s) => s.upsertKanbanBoard);
   const state = useMemo(() => readBoard(board), [board]);
   const setState = (updater: KanbanState | ((prev: KanbanState) => KanbanState)) => {
     const cur = readBoard(storedBoard());
     const next = typeof updater === "function" ? updater(cur) : updater;
-    upsertKanbanBoard({ ...next, id: KB_ID });
+    upsertKanbanBoard({ ...next, id: KANBAN_BOARD_ID });
   };
   return [state, setState];
 }

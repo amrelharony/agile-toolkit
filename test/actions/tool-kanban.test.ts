@@ -138,6 +138,11 @@ describe("tool.kanban add_card / move_card", () => {
     card = (useWorkspaceStore.getState().kanbanBoards ?? [])[0].cards[0];
     expect(card.column).toBe("done");
     expect(card.completedAt).toBeTruthy();
+    // Each move is recorded, as the page records it, for the flow charts.
+    expect(card.history).toEqual([
+      { column: "in_progress", from: "backlog", at: card.startedAt },
+      { column: "done", from: "in_progress", at: card.completedAt },
+    ]);
   });
 
   it("move_card returns {updated:false} for an unknown card", async () => {

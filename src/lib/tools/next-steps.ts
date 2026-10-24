@@ -46,7 +46,7 @@ import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/l
 import { hasOwnCards } from "@/lib/retro/board";
 import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
 import { lsStructure } from "@/lib/liberating-structures/catalog";
-import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
+import { KANBAN_BOARD_ID, STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -101,8 +101,8 @@ function activeSprint(sprints: readonly Sprint[] | undefined): Sprint | undefine
 /** An impediment is "stuck" from two weeks open. */
 const STUCK_DAYS = 14;
 
-/** The Kanban Flow board's id (lib/handoffs/targets/kanban, the page's KB_ID). */
-const FLOW_BOARD_ID = "kanban:current";
+/** The Kanban Flow board's id (the page's, the agents' and the hand-offs'). */
+const FLOW_BOARD_ID = KANBAN_BOARD_ID;
 
 /** How soon a ceremony has to start for the timer to be the next step. */
 const TIMER_LEAD_MS = 60 * 60 * 1000;

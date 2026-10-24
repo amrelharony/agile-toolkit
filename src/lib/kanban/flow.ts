@@ -10,6 +10,9 @@ import { percentile } from "@/lib/sprints/metrics";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** At most this many column moves are kept per card (the latest). */
+export const KANBAN_HISTORY_CAP = 50;
+
 const parse = (iso: string | undefined): number | null => {
   if (!iso) return null;
   const t = Date.parse(iso);
@@ -33,11 +36,21 @@ export const WORKING: ReadonlySet<KanbanColumnId> = new Set<KanbanColumnId>([
  * card no longer counts as throughput, and going back to Backlog or Ready
  * drops the start, so the next attempt's cycle time starts afresh.
  * `columnSince` always restarts: it is what the age-in-column badge counts
- * from. A done card can't be blocked, so the flag goes too.
+ * from. A done card can't be blocked, so the flag goes too. The move is
+ * added to `history` (the latest `KANBAN_HISTORY_CAP`), so a cumulative
+ * flow can tell how long the card spent in Ready and Review, which the
+ * stamps alone lose.
  */
 export function movedCard(card: KanbanCard, col: KanbanColumnId, at: string): KanbanCard {
   if (card.column === col) return card;
-  const next: KanbanCard = { ...card, column: col, columnSince: at };
+  const next: KanbanCard = {
+    ...card,
+    column: col,
+    columnSince: at,
+    history: [...(card.history ?? []), { column: col, from: card.column, at }].slice(
+      -KANBAN_HISTORY_CAP
+    ),
+  };
   if (WORKING.has(col) && !card.startedAt) next.startedAt = at;
   if (col === "done") {
     if (!card.completedAt) next.completedAt = at;

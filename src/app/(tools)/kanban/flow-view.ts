@@ -15,6 +15,7 @@ import type { Validation } from "@/lib/utils/form";
 // tool.kanban.* agent actions (lib/kanban/flow).
 export {
   DAY_MS,
+  KANBAN_HISTORY_CAP,
   WORKING,
   cycleStats,
   cycleTimeDays,
