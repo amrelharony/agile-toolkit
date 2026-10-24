@@ -30,6 +30,9 @@ import { isStoryStatus } from "@/lib/sprints/story-status";
 import { useCanvasStore } from "../use-canvas-store";
 import { liveDrop, type StoryMove } from "../lib/live-boards";
 import { moveSprintStories } from "../lib/live-card-writer";
+import type { CanvasUndoEffect } from "../use-undo-stack";
+import { toast } from "@/lib/utils/toast";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { STICKY_DEFAULT, SHAPE_DEFAULT, TEXT_DEFAULT } from "../constants";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool } from "../use-canvas-store";
@@ -192,6 +195,8 @@ export function useCanvasPointerMachine(params: {
   addObjectAt: (worldX: number, worldY: number) => void;
   // Undo + logging
   pushSnapshot: () => void;
+  /** Records a change made elsewhere (a live card's story move) as a Cmd+Z step. */
+  pushUndoEffect?: (effect: CanvasUndoEffect) => void;
   log: LogFn;
   logActivity: (kind: string, summary: string) => void;
 }): {
@@ -245,6 +250,7 @@ export function useCanvasPointerMachine(params: {
     setActiveCommentThreadId,
     addObjectAt,
     pushSnapshot,
+    pushUndoEffect,
     log,
     logActivity,
   } = params;
@@ -1123,6 +1129,9 @@ export function useCanvasPointerMachine(params: {
           // check no longer matches what the user sees.
           const cardUpdates: WhiteboardObject[] = [];
           const liveMoves: StoryMove[] = [];
+          let liveNote: string | undefined;
+          const ws = useWorkspaceStore.getState();
+          const dropCtx = { stories: ws.stories, sprints: ws.sprints, dragged: new Set(ids) };
           if (!readOnly)
             for (const id of ids) {
               const obj = objectsById.get(id);
@@ -1143,10 +1152,13 @@ export function useCanvasPointerMachine(params: {
               // A live board's card is the story's view: a drop in another
               // column of its own Sprint board moves the story (with Undo),
               // and the board then lays the card out in that column. A drop
-              // anywhere else changes nothing; the board puts it back.
-              const drop = liveDrop(obj, kanban, objectsById);
+              // anywhere else changes nothing; the board puts it back. A
+              // story card from elsewhere dropped on a Sprint board moves
+              // its story by the same rules, and never joins the board.
+              const drop = liveDrop(obj, kanban, objectsById, dropCtx);
               if (drop) {
                 if (drop.move) liveMoves.push(drop.move);
+                else liveNote ??= drop.note;
                 continue;
               }
               if (kanban && kanban.type === "kanban" && kanban.columns.length > 0) {
@@ -1201,11 +1213,17 @@ export function useCanvasPointerMachine(params: {
             }
           }
           if (liveMoves.length > 0) {
-            moveSprintStories(liveMoves);
+            // Its own Cmd+Z step: the drag's snapshot can't take back a
+            // story's move (use-object-interactions skips it for a drag of
+            // live cards alone).
+            const effect = moveSprintStories(liveMoves);
+            if (effect) pushUndoEffect?.(effect);
             log(CANVAS_ACTIONS.OBJECT_UPDATED, {
               count: liveMoves.length,
               action: "sprint-board-move",
             });
+          } else if (liveNote) {
+            toast.info(liveNote);
           }
 
           // ─── Mind-map drag-to-reparent ─────────────────────────────
@@ -1435,6 +1453,7 @@ export function useCanvasPointerMachine(params: {
       logActivity,
       setDragGuides,
       pushSnapshot,
+      pushUndoEffect,
       objectsById,
       objects,
       readOnly,

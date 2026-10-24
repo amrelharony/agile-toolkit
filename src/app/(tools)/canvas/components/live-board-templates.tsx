@@ -15,6 +15,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
 import { isClosedSprint } from "../../kanban/sprint-view";
+import { pushBoardSnapshot } from "../use-undo-stack";
 import {
   liveChildrenOf,
   livePlacement,
@@ -42,6 +43,14 @@ const ENTRIES: { id: LiveKind; name: string; description: string }[] = [
       "Your story map's steps, slices and cards, read-only here. Change the map in Story Mapper and this board follows.",
   },
 ];
+
+/** The live boards a gallery search shows (all of them for an empty one). */
+export function matchingLiveBoards(query: string): typeof ENTRIES {
+  const q = query.trim().toLowerCase();
+  return ENTRIES.filter(
+    (e) => !q || e.name.toLowerCase().includes(q) || e.description.toLowerCase().includes(q)
+  );
+}
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -87,10 +96,7 @@ export function LiveBoardTemplates({
   const mapCards = useMemo(() => mapCardCount(storyMapDoc(storyMaps)), [storyMaps]);
   const { log } = useHistoryLogger("canvas");
 
-  const q = query.trim().toLowerCase();
-  const shown = ENTRIES.filter(
-    (e) => !q || e.name.toLowerCase().includes(q) || e.description.toLowerCase().includes(q)
-  );
+  const shown = matchingLiveBoards(query);
   if (shown.length === 0) return null;
 
   const add = (kind: LiveKind) => {
@@ -117,6 +123,8 @@ export function LiveBoardTemplates({
     const objects = Array.from(seeded.values());
     const placed = seeded.get(container.id) ?? container;
 
+    // The canvas's Cmd+Z takes the new board away too (and only it).
+    pushBoardSnapshot(boardId);
     undoable({
       label:
         kind === "sprint-board" && sprint

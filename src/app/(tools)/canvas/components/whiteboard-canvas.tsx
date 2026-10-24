@@ -229,7 +229,7 @@ export function WhiteboardCanvas({
     null
   );
   const { log } = useHistoryLogger("canvas");
-  const { pushSnapshot, undo, redo } = useCanvasUndoStack(boardId);
+  const { pushSnapshot, pushUndoEffect, undo, redo } = useCanvasUndoStack(boardId);
 
   // Ephemeral interaction state (drag / resize / marquee / drawing /
   // pendingConnectorFromId / dragGuides) is keyed implicitly by boardId.
@@ -1024,6 +1024,7 @@ export function WhiteboardCanvas({
     setActiveCommentThreadId,
     addObjectAt,
     pushSnapshot,
+    pushUndoEffect,
     log,
     logActivity,
   });

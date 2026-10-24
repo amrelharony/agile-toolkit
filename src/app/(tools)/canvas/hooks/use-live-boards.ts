@@ -20,6 +20,15 @@ export const LIVE_RECONCILE_MS = 150;
 export function applyLivePlan(plan: LivePlan): void {
   const ws = useWorkspaceStore.getState();
   if (plan.upsert.length > 0) ws.upsertWhiteboardObjects(plan.upsert);
+  // Before the remove, which deletes the threads pinned to what it removes:
+  // a kept card's threads move to its plain copy.
+  if (plan.rehome && plan.rehome.length > 0) {
+    const to = new Map(plan.rehome.map((r) => [r.from, r.to]));
+    for (const t of useWorkspaceStore.getState().whiteboardCommentThreads ?? []) {
+      const next = t.objectId ? to.get(t.objectId) : undefined;
+      if (next) ws.upsertWhiteboardCommentThread({ ...t, objectId: next });
+    }
+  }
   if (plan.remove.length > 0) ws.removeWhiteboardObjects(plan.remove);
 }
 
@@ -92,7 +101,12 @@ export function useLiveBoards({
       const ws = useWorkspaceStore.getState();
       const plan = reconcileLiveBoards(
         (ws.whiteboardObjects ?? []).filter((o) => o.boardId === boardId),
-        { stories: ws.stories, sprints: ws.sprints, storyMaps: ws.storyMaps ?? [] },
+        {
+          stories: ws.stories,
+          sprints: ws.sprints,
+          storyMaps: ws.storyMaps ?? [],
+          threads: (ws.whiteboardCommentThreads ?? []).filter((t) => t.boardId === boardId),
+        },
         new Date().toISOString()
       );
       applyLivePlan(plan);

@@ -28,6 +28,41 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 const STACK_LIMIT = 50;
 
 /**
+ * A change outside the board's objects that an edit on the canvas made,
+ * for Cmd+Z to take back with it and Cmd+Shift+Z to make again: a live
+ * Sprint board card's move or rename writes its story
+ * (lib/live-card-writer), which a snapshot of the objects can't restore
+ * (the board lays the card out from the story again straight after). Each
+ * must leave alone what has changed since, as the writer's do.
+ */
+export interface CanvasUndoEffect {
+  undo: () => void;
+  redo: () => void;
+}
+
+/** One undo step: the board's objects as they were, a change elsewhere, or both. */
+interface UndoEntry {
+  slice: WhiteboardObject[] | null;
+  effect?: CanvasUndoEffect;
+}
+
+/**
+ * The open canvas's `pushSnapshot` for each board, so UI outside the
+ * canvas (the template gallery) can record its own undo step.
+ */
+const openBoards = new Map<string, () => void>();
+
+/**
+ * Record an undo step on `boardId`'s canvas, if it is open, before
+ * changing the board's objects from outside it. Without one, Cmd+Z right
+ * after would restore the snapshot from before the previous edit: the
+ * change and that earlier edit would both go.
+ */
+export function pushBoardSnapshot(boardId: string): void {
+  openBoards.get(boardId)?.();
+}
+
+/**
  * Deep-clone a list of whiteboard objects.
  *
  * The previous shallow `({ ...o })` only copied the top-level fields and
@@ -65,9 +100,15 @@ function snapshotsEqual(a: WhiteboardObject[], b: WhiteboardObject[]): boolean {
   return aSum === bSum;
 }
 
+/** A deep copy of `boardId`'s objects as they are now. */
+const currentSlice = (boardId: string) =>
+  deepCloneSlice(
+    (useWorkspaceStore.getState().whiteboardObjects ?? []).filter((o) => o.boardId === boardId)
+  );
+
 export function useCanvasUndoStack(activeBoardId: string | null) {
-  const undoStack = useRef<WhiteboardObject[][]>([]);
-  const redoStack = useRef<WhiteboardObject[][]>([]);
+  const undoStack = useRef<UndoEntry[]>([]);
+  const redoStack = useRef<UndoEntry[]>([]);
   // We snapshot the *previous* state when a mutation is about to be
   // applied externally. `pushSnapshot()` is called from edit pointer-up,
   // delete, paste, etc.
@@ -79,53 +120,78 @@ export function useCanvasUndoStack(activeBoardId: string | null) {
     redoStack.current = [];
   }, [activeBoardId]);
 
-  const pushSnapshot = useCallback(() => {
-    if (!activeBoardId) return;
-    const all = useWorkspaceStore.getState().whiteboardObjects ?? [];
-    const filtered = all.filter((o) => o.boardId === activeBoardId);
-    const slice = deepCloneSlice(filtered);
-    // Skip when this snapshot matches the top of the undo stack — no-op
-    // pushes (e.g. an align that returns early, a paste of zero items
-    // wrapped by a snapshot, undo→redo cycles) would otherwise bloat
-    // the stack and force users to mash Cmd+Z through empty entries
-    // before reaching a real edit.
-    const top = undoStack.current[undoStack.current.length - 1];
-    if (top && snapshotsEqual(slice, top)) return;
-    undoStack.current.push(slice);
+  const push = useCallback((entry: UndoEntry) => {
+    undoStack.current.push(entry);
     if (undoStack.current.length > STACK_LIMIT) undoStack.current.shift();
     // Any new edit invalidates the redo stack.
     redoStack.current = [];
-  }, [activeBoardId]);
+  }, []);
+
+  /** Snapshot the board before an edit; `effect` is what the edit changes elsewhere. */
+  const pushSnapshot = useCallback(
+    (effect?: CanvasUndoEffect) => {
+      if (!activeBoardId) return;
+      const slice = currentSlice(activeBoardId);
+      // Skip when this snapshot matches the top of the undo stack — no-op
+      // pushes (e.g. an align that returns early, a paste of zero items
+      // wrapped by a snapshot, undo→redo cycles) would otherwise bloat
+      // the stack and force users to mash Cmd+Z through empty entries
+      // before reaching a real edit. Never when either step changes
+      // something elsewhere: that's a step of its own.
+      const top = undoStack.current[undoStack.current.length - 1];
+      if (!effect && top?.slice && !top.effect && snapshotsEqual(slice, top.slice)) return;
+      push({ slice, effect });
+    },
+    [activeBoardId, push]
+  );
+
+  /**
+   * Record an edit that changed nothing on the board for good, only
+   * `effect`'s data: a live card's move, which the board then lays out.
+   */
+  const pushUndoEffect = useCallback(
+    (effect: CanvasUndoEffect) => {
+      if (activeBoardId) push({ slice: null, effect });
+    },
+    [activeBoardId, push]
+  );
+
+  useEffect(() => {
+    if (!activeBoardId) return;
+    const record = () => pushSnapshot();
+    openBoards.set(activeBoardId, record);
+    return () => {
+      if (openBoards.get(activeBoardId) === record) openBoards.delete(activeBoardId);
+    };
+  }, [activeBoardId, pushSnapshot]);
 
   const undo = useCallback(() => {
     if (!activeBoardId || undoStack.current.length === 0) return;
     const previous = undoStack.current.pop()!;
     // Stash current state for redo BEFORE applying the previous.
-    const cur = deepCloneSlice(
-      (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === activeBoardId
-      )
-    );
-    redoStack.current.push(cur);
-    applyBoardSlice(activeBoardId, previous);
+    redoStack.current.push({
+      slice: previous.slice && currentSlice(activeBoardId),
+      effect: previous.effect,
+    });
+    if (previous.slice) applyBoardSlice(activeBoardId, previous.slice);
+    previous.effect?.undo();
   }, [activeBoardId]);
 
   const redo = useCallback(() => {
     if (!activeBoardId || redoStack.current.length === 0) return;
     const next = redoStack.current.pop()!;
-    const cur = deepCloneSlice(
-      (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === activeBoardId
-      )
-    );
-    undoStack.current.push(cur);
-    applyBoardSlice(activeBoardId, next);
+    undoStack.current.push({
+      slice: next.slice && currentSlice(activeBoardId),
+      effect: next.effect,
+    });
+    if (next.slice) applyBoardSlice(activeBoardId, next.slice);
+    next.effect?.redo();
   }, [activeBoardId]);
 
   const canUndo = useCallback(() => undoStack.current.length > 0, []);
   const canRedo = useCallback(() => redoStack.current.length > 0, []);
 
-  return { pushSnapshot, undo, redo, canUndo, canRedo };
+  return { pushSnapshot, pushUndoEffect, undo, redo, canUndo, canRedo };
 }
 
 /**

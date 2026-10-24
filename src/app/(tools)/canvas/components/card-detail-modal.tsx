@@ -22,7 +22,7 @@
  * dispatch table).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { X, User, Calendar, Hash, Activity, Tag } from "lucide-react";
 import type { WhiteboardCard, WhiteboardObject } from "@/lib/stores/workspace-types";
@@ -34,9 +34,14 @@ interface Props {
   onClose: () => void;
   /** Where this card's edits go, when not only to the card (a Sprint board card's story). */
   linkNote?: string;
+  /**
+   * The only statuses the card can take (a Sprint board card: its board's
+   * columns), in place of the open list with "none" and custom statuses.
+   */
+  statusChoices?: readonly { value: string; label: string }[];
 }
 
-export function CardDetailModal({ card, onPatch, onClose, linkNote }: Props) {
+export function CardDetailModal({ card, onPatch, onClose, linkNote, statusChoices }: Props) {
   // Local form state mirrors the card's persisted state. We commit on
   // form submit / blur rather than per-keystroke so realtime peers
   // don't see flicker-typing while you're filling in the form.
@@ -49,6 +54,11 @@ export function CardDetailModal({ card, onPatch, onClose, linkNote }: Props) {
   );
   const [status, setStatus] = useState(card.status ?? "");
   const [tagsInput, setTagsInput] = useState((card.tags ?? []).join(", "));
+  // A card whose title is its story's can't save an empty one: the form
+  // stays open with the error under Title (nothing is saved until then).
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const titleErrorId = useId();
 
   // R10-deferred: open-snapshot for per-field merge. We compare the
   // form's eventual values back to THIS snapshot (not the current
@@ -162,6 +172,11 @@ export function CardDetailModal({ card, onPatch, onClose, linkNote }: Props) {
   // modal was open).
 
   const onSave = () => {
+    if (linkNote && title !== openSnapshotRef.current.title && !title.trim()) {
+      setTitleError("A story needs a title. Type one, or Cancel to keep the old one.");
+      titleRef.current?.focus();
+      return;
+    }
     // Explicit parse path — `Number(" ")` is 0 (not NaN) so the trim
     // check is what actually distinguishes "empty" from "zero".
     const trimmedPoints = points.trim();
@@ -205,10 +220,7 @@ export function CardDetailModal({ card, onPatch, onClose, linkNote }: Props) {
     // touched.
     const snap = openSnapshotRef.current;
     const patch: Partial<WhiteboardCard> = {};
-    // A card whose edits go elsewhere (`linkNote`: a Sprint board card's
-    // story) passes an emptied title on as it is: its writer keeps the
-    // story's title and says so, instead of renaming it "Untitled card".
-    if (title !== snap.title) patch.title = title.trim() || (linkNote ? "" : "Untitled card");
+    if (title !== snap.title) patch.title = title.trim() || "Untitled card";
     if (description !== snap.description) patch.description = description.trim() || undefined;
     if (assignee !== snap.assignee) patch.assignee = assignee.trim() || undefined;
     if (due !== snap.due) patch.due = dueISO;
@@ -275,20 +287,34 @@ export function CardDetailModal({ card, onPatch, onClose, linkNote }: Props) {
             onSave();
           }}
         >
-          <label className="text-xs text-sub flex flex-col gap-1">
-            <span>Title</span>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => {
-                touchedRef.current.title = true;
-                setTitle(e.target.value);
-              }}
-              maxLength={140}
-              className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
-              autoFocus
-            />
-          </label>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-sub flex flex-col gap-1">
+              <span>Title</span>
+              <input
+                ref={titleRef}
+                type="text"
+                value={title}
+                onChange={(e) => {
+                  touchedRef.current.title = true;
+                  setTitle(e.target.value);
+                  if (titleError) setTitleError(null);
+                }}
+                maxLength={140}
+                aria-invalid={titleError ? true : undefined}
+                aria-describedby={titleError ? titleErrorId : undefined}
+                className={`bg-surface-deep border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent ${
+                  titleError ? "border-danger" : "border-border"
+                }`}
+                autoFocus
+              />
+            </label>
+            {/* Outside the label, so the field's name stays "Title". */}
+            {titleError && (
+              <p id={titleErrorId} className="text-xs text-danger" role="alert">
+                {titleError}
+              </p>
+            )}
+          </div>
 
           <label className="text-xs text-sub flex flex-col gap-1">
             <span>Description</span>
@@ -393,12 +419,22 @@ export function CardDetailModal({ card, onPatch, onClose, linkNote }: Props) {
                 }}
                 className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
               >
-                <option value="">— none —</option>
-                {statusOptions.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace(/_/g, " ")}
-                  </option>
-                ))}
+                {statusChoices ? (
+                  statusChoices.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="">— none —</option>
+                    {statusOptions.map((s) => (
+                      <option key={s} value={s}>
+                        {s.replace(/_/g, " ")}
+                      </option>
+                    ))}
+                  </>
+                )}
               </select>
             </label>
           </div>

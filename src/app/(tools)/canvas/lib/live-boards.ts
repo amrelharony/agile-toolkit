@@ -35,6 +35,7 @@ import type {
   StoryMapSlice,
   StoryMapStep,
   WhiteboardCard,
+  WhiteboardCommentThread,
   WhiteboardFrame,
   WhiteboardKanbanFrame,
   WhiteboardObject,
@@ -44,6 +45,7 @@ import { estimatePoints, sliceCards, sliceTotals } from "@/lib/story-map/points"
 import { wbId } from "@/lib/whiteboard/clipboard";
 import {
   MAX_COLOR_LEN,
+  MAX_ID_LEN,
   MAX_SHORT_LEN,
   MAX_TEXT_LEN,
   MAX_TITLE_LEN,
@@ -70,15 +72,6 @@ import {
 } from "./live-board-ids";
 
 export * from "./live-board-ids";
-
-/**
- * Header and slice-label text on a live story map. An object's colour is
- * stored on the object and must be a literal colour (the realtime validator
- * rejects `var(--…)`), so it can't follow the theme: this mid slate reads on
- * the dark, light and high-contrast canvas backgrounds alike, where the
- * templates' near-white text vanishes on the light one.
- */
-export const LIVE_TEXT_COLOR = "#64748b";
 
 // Sprint board geometry. The columns split the frame's width evenly, as the
 // kanban drop does (use-canvas-pointer-machine), so a card is laid out in
@@ -203,9 +196,19 @@ export function sprintOf(
   return sprints.find((s) => s.id === id);
 }
 
-/** The sprint's own stories, in stored order: example stories never reach a real board. */
+/**
+ * The sprint's own stories, by id: example stories never reach a real
+ * board. Not in stored order, which differs between devices (a device
+ * holds its own stories in the order it made them, pulled ones in the
+ * cloud's id order): two devices with the board open would each lay the
+ * cards out their way and rewrite each other's rows for as long as both
+ * stay open. Compared by code unit, not `localeCompare`, which depends on
+ * the device's locale too.
+ */
 export function sprintStories(sprintId: string, stories: readonly Story[]): Story[] {
-  return stories.filter((s) => s.sprintId === sprintId && !isExampleId(s.id));
+  return stories
+    .filter((s) => s.sprintId === sprintId && !isExampleId(s.id))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /**
@@ -252,12 +255,19 @@ export interface LiveData {
   stories: readonly Story[];
   sprints: readonly Sprint[];
   storyMaps: readonly StoryMap[];
+  /** The board's comment threads: a card with one pinned to it is kept, not removed. */
+  threads?: readonly Pick<WhiteboardCommentThread, "objectId">[];
 }
 
 /** The writes that bring a board's live containers in line with the workspace. */
 export interface LivePlan {
   upsert: WhiteboardObject[];
   remove: string[];
+  /**
+   * Comment threads to re-pin, from a child the board let go of to its
+   * plain copy (see `detached`). Only there when there are some.
+   */
+  rehome?: { from: string; to: string }[];
 }
 
 /** A child as the workspace says it should be: its kind and the fields reconcile owns. */
@@ -265,6 +275,16 @@ interface ChildSpec {
   id: string;
   type: "card" | "text";
   fields: Record<string, unknown>;
+}
+
+/**
+ * What a live container should look like: its own fields, and its children,
+ * or null to leave the children as they are (a Sprint board whose sprint
+ * isn't in the list: see `sprintBoardSpec`).
+ */
+interface ContainerSpec {
+  container: Fields;
+  children: ChildSpec[] | null;
 }
 
 type Fields = Record<string, unknown>;
@@ -304,14 +324,15 @@ const validPoints = (p: unknown): number | undefined =>
   typeof p === "number" && Number.isFinite(p) && p >= 0 && p <= 1_000_000 ? p : undefined;
 
 /** A Sprint board's frame fields and its cards. */
-function sprintBoardSpec(
-  c: WhiteboardKanbanFrame,
-  data: LiveData
-): { container: Fields; children: ChildSpec[] } {
+function sprintBoardSpec(c: WhiteboardKanbanFrame, data: LiveData): ContainerSpec {
   const sprint = sprintOf(c, data.sprints);
-  // A missing sprint shows no stories: its cards go, the frame stays.
-  const stories = sprint ? sprintStories(sprint.id, data.stories) : [];
-  const locked = sprint && isClosedSprint(sprint) ? true : undefined;
+  // A sprint the board still names but the list doesn't hold: deleted on
+  // another device, with the board's cleared link not here yet (deleting
+  // a sprint clears it, and an unlinked board is left alone), or not
+  // pulled yet. Leave the board as it is rather than empty it.
+  if (!sprint) return { container: {}, children: null };
+  const stories = sprintStories(sprint.id, data.stories);
+  const locked = isClosedSprint(sprint) ? true : undefined;
 
   const rows: Record<string, number> = {};
   const placed = stories.map((story) => {
@@ -330,8 +351,8 @@ function sprintBoardSpec(
     columnLabels: SPRINT_COLUMNS.map((col) => col.label),
     w,
     h,
+    label: clip(sprintBoardLabel(sprint), MAX_TITLE_LEN),
   };
-  if (sprint) container.label = clip(sprintBoardLabel(sprint), MAX_TITLE_LEN);
 
   const children = placed.map(({ story, col, row }): ChildSpec => {
     const colIdx = SPRINT_COLUMNS.findIndex((x) => x.id === col);
@@ -359,23 +380,32 @@ function sprintBoardSpec(
 const mapRowHeight = (tallest: number) =>
   Math.max(1, tallest) * (MAP_CARD_H + MAP_CARD_GAP) + MAP_ROW_PAD;
 
+/**
+ * A step header's or slice label's fields. No colour, so the text takes
+ * the canvas's themed text colour: an object's own colour must be a
+ * literal one (the realtime validator rejects `var(--…)`), and no literal
+ * reads at 4.5:1 on both the dark and the light canvas, least of all
+ * under the lock's dimming. Managed as "no colour", so a colour set by an
+ * earlier build is cleared.
+ */
 const textFields = (content: string, fontSize: number) => ({
   content: clip(content, MAX_TITLE_LEN) ?? "",
   fontSize,
   fontWeight: 600,
-  color: LIVE_TEXT_COLOR,
+  color: undefined,
   align: "left",
   locked: true,
 });
 
-/** A Story map frame's fields and its headers, slice labels and cards. */
-function storyMapSpec(
-  c: WhiteboardFrame,
-  data: LiveData
-): { container: Fields; children: ChildSpec[] } {
+/**
+ * A Story map frame's size and its headers, slice labels and cards. Not
+ * its label: "Story map" is only where a new one starts (`newStoryMapBoard`),
+ * so a renamed board keeps its name.
+ */
+function storyMapSpec(c: WhiteboardFrame, data: LiveData): ContainerSpec {
   const doc = storyMapDoc(data.storyMaps, c.sourceRef?.entityId);
   // No map saved: nothing to mirror, so the frame keeps its size and empties.
-  if (!doc) return { container: { label: "Story map" }, children: [] };
+  if (!doc) return { container: {}, children: [] };
   const { steps, slices } = mirroredMap(doc);
   const children: ChildSpec[] = [];
 
@@ -451,7 +481,6 @@ function storyMapSpec(
   const height = top - c.y;
   return {
     container: {
-      label: "Story map",
       w: MAP_GUTTER + Math.max(1, steps.length) * MAP_STEP_W,
       h: slices.length > 0 ? height : MAP_HEADER_H + mapRowHeight(1),
     },
@@ -475,12 +504,66 @@ function created(spec: ChildSpec, c: LiveContainer, z: number, now: string): Whi
   return { ...base, type: "text", ...spec.fields } as unknown as WhiteboardText;
 }
 
+/** A Sprint board card's own fields: reconcile never writes them, the user does. */
+const USER_CARD_FIELDS = ["description", "due", "tags", "color"] as const;
+
+/**
+ * Whether removing `child` would lose something the user added to it: a
+ * comment thread pinned to it, a connector to it (removing an object takes
+ * its connectors and threads with it), or, on a Sprint board, where they
+ * are the user's, a description, due date, tags or colour.
+ */
+function annotated(
+  child: WhiteboardObject,
+  c: LiveContainer,
+  pinned: ReadonlySet<string>,
+  wired: ReadonlySet<string>
+): boolean {
+  if (pinned.has(child.id) || wired.has(child.id)) return true;
+  if (!isSprintBoard(c) || child.type !== "card") return false;
+  const rec = child as unknown as Record<string, unknown>;
+  return USER_CARD_FIELDS.some((key) => {
+    const v = rec[key];
+    if (Array.isArray(v)) return v.length > 0;
+    return typeof v === "string" ? v.trim() !== "" : v !== undefined;
+  });
+}
+
+/**
+ * `child`, let go by its board (its story left the sprint, its card left
+ * the map) but annotated: a plain object beside the board, with no link,
+ * frame or lock, under an id that isn't the board's (no `__`), so no board
+ * claims it again. The id comes from the child's own id and creation time,
+ * so every device that lets it go writes the same copy, and a card made
+ * again for a story that came back gets a copy of its own.
+ */
+function detached(child: WhiteboardObject, right: number, now: string): WhiteboardObject {
+  const made = Date.parse(child.createdAt);
+  const stamp = Number.isFinite(made) ? made.toString(36) : "0";
+  const id = `kept_${stamp}_${child.id}`.replace(/_{2,}/g, "_").slice(0, MAX_ID_LEN);
+  return {
+    ...child,
+    id,
+    x: right + 2 * PAD,
+    frameId: undefined,
+    sourceRef: undefined,
+    locked: undefined,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  } as WhiteboardObject;
+}
+
 /**
  * The writes that make every live container in `boardObjects` (one board's
  * objects) match `data`. Idempotent: run again on its own result, it returns
  * an empty plan. An object is written only when a field reconcile owns
  * differs, with its version bumped so peers take it; a card's description,
  * due date, tags and colour on a Sprint board stay the user's.
+ *
+ * A child the workspace no longer has goes, unless the user annotated it
+ * (`annotated`): that one becomes a plain copy beside the board, which
+ * takes over its connectors and (through `rehome`) its comment threads.
  *
  * Only children of a live container on the same board are touched. A
  * container whose `sourceRef` was cleared (its sprint deleted) is no longer
@@ -496,6 +579,17 @@ export function reconcileLiveBoards(
   const byId = new Map(boardObjects.map((o) => [o.id, o]));
   const upsert: WhiteboardObject[] = [];
   const remove: string[] = [];
+  const rehome: { from: string; to: string }[] = [];
+  // Old id → copy id, for the connectors that end on a let-go child.
+  const kept = new Map<string, string>();
+  const pinned = new Set<string>();
+  for (const t of data.threads ?? []) if (t.objectId) pinned.add(t.objectId);
+  const wired = new Set<string>();
+  for (const o of boardObjects) {
+    if (o.type !== "connector") continue;
+    wired.add(o.fromId);
+    wired.add(o.toId);
+  }
 
   for (const c of boardObjects) {
     if (!isLiveContainer(c)) continue;
@@ -510,6 +604,7 @@ export function reconcileLiveBoards(
       } as WhiteboardObject);
     }
 
+    if (spec.children === null) continue;
     const wanted = new Set<string>();
     spec.children.forEach((child, i) => {
       // A card listed twice (a hand-edited map) shows once.
@@ -538,12 +633,38 @@ export function reconcileLiveBoards(
       }
     });
 
+    const width = typeof spec.container.w === "number" ? spec.container.w : c.w;
     for (const o of liveChildrenOf(c.id, boardObjects)) {
-      if (!wanted.has(o.id)) remove.push(o.id);
+      if (wanted.has(o.id)) continue;
+      if (annotated(o, c, pinned, wired)) {
+        const copy = detached(o, c.x + width, now);
+        // A copy that wouldn't pass the validator would be lost on the
+        // way: keep the child where it is instead.
+        if (!isValidObject(copy)) continue;
+        upsert.push(copy);
+        kept.set(o.id, copy.id);
+        if (pinned.has(o.id)) rehome.push({ from: o.id, to: copy.id });
+      }
+      remove.push(o.id);
     }
   }
 
-  return { upsert: upsert.filter((o) => isValidObject(o)), remove };
+  if (kept.size > 0) {
+    for (const o of boardObjects) {
+      if (o.type !== "connector" || (!kept.has(o.fromId) && !kept.has(o.toId))) continue;
+      upsert.push({
+        ...o,
+        fromId: kept.get(o.fromId) ?? o.fromId,
+        toId: kept.get(o.toId) ?? o.toId,
+        version: o.version + 1,
+        updatedAt: now,
+      });
+    }
+  }
+
+  const plan: LivePlan = { upsert: upsert.filter((o) => isValidObject(o)), remove };
+  if (rehome.length > 0) plan.rehome = rehome;
+  return plan;
 }
 
 /* ─── Guards for the canvas's own edits ───────────────────────────── */
@@ -554,33 +675,93 @@ export interface StoryMove {
   status: StoryStatus;
 }
 
+/** Why a Sprint board card dropped off its board went back. */
+export const LIVE_OFF_BOARD_NOTE =
+  "Sprint board cards stay on their board: drag one to another column to move its story.";
+
+/** Why the lock shortcut skipped a live board's cards. */
+export const LIVE_LOCK_NOTE =
+  "A live board lays out its own cards, so they can't be locked one by one. Lock the whole board instead.";
+
+/** What the canvas knows at the end of a drag, for `liveDrop`. */
+export interface LiveDropContext {
+  stories: readonly Story[];
+  sprints: readonly Sprint[];
+  /** Every object in the drag: a card dragged along with its own board wasn't dropped anywhere. */
+  dragged?: ReadonlySet<string>;
+}
+
+/** What a drop means: a story to move, or nothing (with why, when the user should hear it). */
+export interface LiveDropResult {
+  move: StoryMove | null;
+  note?: string;
+}
+
+/** The column of `board` under `card`'s centre, found as the kanban drop finds it (w / columns each). */
+function columnUnder(card: WhiteboardCard, board: WhiteboardKanbanFrame): string | undefined {
+  if (board.columns.length === 0) return undefined;
+  const cx = card.x + card.w / 2;
+  const colW = board.w / board.columns.length;
+  const idx = Math.min(board.columns.length - 1, Math.max(0, Math.floor((cx - board.x) / colW)));
+  return board.columns[idx];
+}
+
+/**
+ * A story card that isn't a Sprint board's own (an imported story, a copy
+ * made before copies were unlinked, a card kept after its board let go)
+ * dropped on a Sprint board: it moves its story only as the board's own
+ * card would (with Undo, never in a closed sprint, only a story planned
+ * into that sprint), and never joins the board, whose cards are its own.
+ */
+function storyCardDrop(
+  card: WhiteboardCard,
+  board: WhiteboardKanbanFrame,
+  ctx: LiveDropContext
+): LiveDropResult {
+  const sprint = sprintOf(board, ctx.sprints);
+  if (!sprint) return { move: null };
+  if (isClosedSprint(sprint)) return { move: null, note: closedBoardNote(sprint) };
+  const story = ctx.stories.find((s) => s.id === card.sourceRef?.entityId);
+  if (!story || story.sprintId !== sprint.id) {
+    const title = (story?.title ?? card.title).trim() || "This story";
+    return {
+      move: null,
+      note: `“${title}” isn't planned into ${sprint.name}, so it can't go on its board. Plan it in from Sprint Planning.`,
+    };
+  }
+  const status = columnUnder(card, board);
+  if (!isStoryStatus(status) || sprintColumnOf(story.status) === status) return { move: null };
+  return { move: { storyId: story.id, status } };
+}
+
 /**
  * What a drag that ended with `card` over `target` (the topmost kanban
  * under the card's centre, if any) means for a live card. In another column
  * of its own Sprint board, the story moves there: the column is found the
  * way the kanban drop finds it, w / columns per column. Anywhere else,
- * nothing does: the board lays the card out again. Null for a card that
- * isn't a live board's, which keeps the plain kanban drop.
+ * nothing does: the board lays the card out again (and, off its board, the
+ * note says so). With `ctx`, a story card from elsewhere dropped on a
+ * Sprint board goes by the same rules (`storyCardDrop`). Null for any
+ * other card, which keeps the plain kanban drop.
  */
 export function liveDrop(
   card: WhiteboardCard,
   target: WhiteboardObject | undefined,
-  byId: ReadonlyMap<string, WhiteboardObject>
-): { move: StoryMove | null } | null {
+  byId: ReadonlyMap<string, WhiteboardObject>,
+  ctx?: LiveDropContext
+): LiveDropResult | null {
   const live = liveContainerOf(card.id, byId);
-  if (!live) return null;
-  if (
-    !isSprintBoard(live) ||
-    target?.id !== live.id ||
-    card.sourceRef?.tool !== "story" ||
-    live.columns.length === 0
-  ) {
+  if (!live) {
+    const tool = card.sourceRef?.tool;
+    const storyCard = tool === "story" || tool === "backlog";
+    return ctx && storyCard && isSprintBoard(target) ? storyCardDrop(card, target, ctx) : null;
+  }
+  if (ctx?.dragged?.has(live.id)) return { move: null };
+  if (!isSprintBoard(live) || card.sourceRef?.tool !== "story" || live.columns.length === 0) {
     return { move: null };
   }
-  const cx = card.x + card.w / 2;
-  const colW = live.w / live.columns.length;
-  const idx = Math.min(live.columns.length - 1, Math.max(0, Math.floor((cx - live.x) / colW)));
-  const status = live.columns[idx];
+  if (target?.id !== live.id) return { move: null, note: LIVE_OFF_BOARD_NOTE };
+  const status = columnUnder(card, live);
   if (status === card.status || !isStoryStatus(status)) return { move: null };
   return { move: { storyId: card.sourceRef.entityId, status } };
 }
@@ -650,11 +831,27 @@ export function keptLiveNote(from: LiveDeletion["keptFrom"]): string {
 }
 
 /**
- * `objects` without the children of a live board that is among them, for
- * copy and duplicate: the board rebuilds its own cards, so copying them too
- * would paste a second, unlinked set on top.
+ * `objects` as copy, cut, duplicate and Save as template take them. A live
+ * board's children are left out when their board is among them: the board
+ * rebuilds its own cards, so copying them too would paste a second set on
+ * top. A child copied without its board (looked up in `board`, the whole
+ * board's objects) becomes a plain object, with no link, frame or lock: the
+ * copy is the user's to move and edit, not a second writer of the story.
  */
-export function withoutLiveChildren<T extends WhiteboardObject>(objects: readonly T[]): T[] {
-  const byId = new Map<string, WhiteboardObject>(objects.map((o) => [o.id, o]));
-  return objects.filter((o) => liveContainerOf(o.id, byId) === null);
+export function withoutLiveChildren<T extends WhiteboardObject>(
+  objects: readonly T[],
+  board: readonly WhiteboardObject[] = objects
+): T[] {
+  const byId = new Map<string, WhiteboardObject>(board.map((o) => [o.id, o]));
+  for (const o of objects) byId.set(o.id, o);
+  const chosen = new Set(objects.map((o) => o.id));
+  const out: T[] = [];
+  for (const o of objects) {
+    const container = liveContainerOf(o.id, byId);
+    if (!container) out.push(o);
+    else if (!chosen.has(container.id)) {
+      out.push({ ...o, sourceRef: undefined, frameId: undefined, locked: undefined });
+    }
+  }
+  return out;
 }

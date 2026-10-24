@@ -17,6 +17,7 @@ import {
   liveContainerOf,
 } from "../lib/live-board-ids";
 import { writeLiveCardEdit } from "../lib/live-card-writer";
+import type { CanvasUndoEffect } from "../use-undo-stack";
 
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
@@ -100,7 +101,7 @@ export function useObjectInteractions(params: {
   // Coords
   clientToWorld: (clientX: number, clientY: number) => { x: number; y: number };
   // Undo + logging
-  pushSnapshot: () => void;
+  pushSnapshot: (effect?: CanvasUndoEffect) => void;
   log: LogFn;
   logActivity: (kind: string, summary: string) => void;
   // Mode
@@ -270,7 +271,12 @@ export function useObjectInteractions(params: {
       // pointer-move handler updates positions on every frame, so by
       // pointer-up the store is already at post-drag — snapshot there
       // would record post-drag and Cmd+Z would be a no-op.
-      pushSnapshot();
+      //
+      // Not for a drag of live board cards alone: the board lays them out
+      // again whatever happens, so the snapshot would be an undo step that
+      // does nothing. A drop that moves a story records its own step.
+      const dragIds = Object.keys(initialRects);
+      if (!dragIds.every((sid) => liveContainerOf(sid, objectsById))) pushSnapshot();
       // Build the snap spatial index ONCE for this drag. The candidate
       // set (every non-dragging object) is invariant during the drag;
       // rebuilding per pointer-move is wasteful.
@@ -363,9 +369,11 @@ export function useObjectInteractions(params: {
         const live = liveContainerOf(id, objectsById);
         if (live) {
           if (isSprintBoard(live) && text !== obj.title) {
-            const patch = writeLiveCardEdit(obj, { title: text });
+            const { patch, effect } = writeLiveCardEdit(obj, { title: text });
             if (Object.keys(patch).length > 0) {
-              pushSnapshot();
+              // Cmd+Z puts the story's title back too, or the board would
+              // only show the new one again.
+              pushSnapshot(effect ?? undefined);
               upsert({
                 ...obj,
                 ...patch,
@@ -429,7 +437,11 @@ export function useObjectInteractions(params: {
   );
 
   const onPatchStyles = useCallback(
-    (entries: { id: string; patch: Partial<WhiteboardObject> }[]) => {
+    (
+      entries: { id: string; patch: Partial<WhiteboardObject> }[],
+      /** What the edit changed elsewhere (a Sprint board card's story), for Cmd+Z. */
+      effect?: CanvasUndoEffect
+    ) => {
       // ReadOnly: PropertyPanel is hidden in viewer/commenter mode,
       // but defense-in-depth against a hacked DOM injecting a panel.
       if (readOnly) return;
@@ -446,7 +458,7 @@ export function useObjectInteractions(params: {
         } as WhiteboardObject);
       }
       if (updates.length === 0) return;
-      pushSnapshot();
+      pushSnapshot(effect);
       upsertMany(updates);
       log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: updates.length, action: "style" });
     },

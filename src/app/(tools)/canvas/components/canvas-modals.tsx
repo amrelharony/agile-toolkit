@@ -19,6 +19,11 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { toast } from "@/lib/utils/toast";
 import { isSprintBoard, liveContainerOf, liveLockNote } from "../lib/live-boards";
 import { writeLiveCardEdit } from "../lib/live-card-writer";
+import type { CanvasUndoEffect } from "../use-undo-stack";
+import { SPRINT_COLUMNS } from "../../kanban/sprint-view";
+
+/** A Sprint board card's statuses: its board's columns, each written as its story status. */
+const SPRINT_STATUS_CHOICES = SPRINT_COLUMNS.map((c) => ({ value: c.status, label: c.label }));
 
 /**
  * Side-panel + modal cluster: MiniMap, AI Insights drawer, Comment
@@ -61,7 +66,11 @@ export function CanvasModals(props: {
   cardDetailId: string | null;
   setCardDetailId: (id: string | null) => void;
   objectsById: ReadonlyMap<string, WhiteboardObject>;
-  onPatchStyles: (entries: { id: string; patch: Partial<WhiteboardObject> }[]) => void;
+  /** `effect`: what the edit changed elsewhere (a Sprint board card's story), for Cmd+Z. */
+  onPatchStyles: (
+    entries: { id: string; patch: Partial<WhiteboardObject> }[],
+    effect?: CanvasUndoEffect
+  ) => void;
 }) {
   const {
     showMiniMap,
@@ -161,15 +170,18 @@ export function CanvasModals(props: {
               key={cardDetailId}
               card={card}
               // A Sprint board card's title, points, assignee and status
-              // are its story's: they're saved there, the rest on the card.
+              // are its story's: they're saved there, the rest on the card,
+              // and Cmd+Z takes both back in one step.
               onPatch={(id, patch) => {
-                const own = sprintCard
-                  ? (writeLiveCardEdit(
-                      card,
-                      patch as Partial<WhiteboardCard>
-                    ) as Partial<WhiteboardObject>)
-                  : patch;
-                if (Object.keys(own).length > 0) onPatchStyles([{ id, patch: own }]);
+                if (!sprintCard) {
+                  onPatchStyles([{ id, patch }]);
+                  return;
+                }
+                const edit = writeLiveCardEdit(card, patch as Partial<WhiteboardCard>);
+                const own = edit.patch as Partial<WhiteboardObject>;
+                if (Object.keys(own).length === 0) return;
+                if (edit.effect) onPatchStyles([{ id, patch: own }], edit.effect);
+                else onPatchStyles([{ id, patch: own }]);
               }}
               onClose={() => setCardDetailId(null)}
               linkNote={
@@ -177,6 +189,9 @@ export function CanvasModals(props: {
                   ? "This card shows a story in the sprint: its title, points, assignee and status are saved to the story."
                   : undefined
               }
+              // Only the board's columns: a status outside them (backlog, a
+              // custom one, none) has no column to show the card in.
+              statusChoices={sprintCard ? SPRINT_STATUS_CHOICES : undefined}
             />
           );
         })()}

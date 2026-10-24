@@ -18,7 +18,13 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool } from "../use-canvas-store";
 import type { KeyboardZoomActions } from "./use-pan-zoom-controls";
 import { toast } from "@/lib/utils/toast";
-import { keptLiveNote, liveDeletion, withoutLiveChildren } from "../lib/live-boards";
+import {
+  LIVE_LOCK_NOTE,
+  keptLiveNote,
+  liveContainerOf,
+  liveDeletion,
+  withoutLiveChildren,
+} from "../lib/live-boards";
 
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
@@ -185,7 +191,12 @@ export function useCanvasShortcuts(params: {
     };
     const toggleLock = () => {
       const liveObjects = objectsRef.current ?? [];
-      const sel = liveObjects.filter((o) => selection.includes(o.id));
+      const chosen = liveObjects.filter((o) => selection.includes(o.id));
+      // A live board's cards take their lock from the board (a closed
+      // sprint's, a story map's), which would put it back straight away.
+      const byId = new Map(liveObjects.map((o) => [o.id, o]));
+      const sel = chosen.filter((o) => liveContainerOf(o.id, byId) === null);
+      if (sel.length < chosen.length) toast.info(LIVE_LOCK_NOTE);
       if (sel.length === 0) return;
       pushSnapshot();
       const allLocked = sel.every((o) => o.locked);
@@ -259,9 +270,11 @@ export function useCanvasShortcuts(params: {
         selectAll: () => setSelection((objectsRef.current ?? []).map((o) => o.id)),
         // A copied live board leaves its cards out: the pasted board
         // builds its own from the sprint or map, so copies would double up.
+        // A live card copied without its board pastes as a plain card.
         copy: () => {
-          const sel = (objectsRef.current ?? []).filter((o) => selection.includes(o.id));
-          if (sel.length > 0) void copyObjects(withoutLiveChildren(sel));
+          const all = objectsRef.current ?? [];
+          const sel = all.filter((o) => selection.includes(o.id));
+          if (sel.length > 0) void copyObjects(withoutLiveChildren(sel, all));
         },
         cut: guardMut(() => {
           const all = objectsRef.current ?? [];
@@ -271,7 +284,7 @@ export function useCanvasShortcuts(params: {
           const sel = all.filter((o) => cutIds.has(o.id));
           if (sel.length === 0) return;
           pushSnapshot();
-          void copyObjects(withoutLiveChildren(sel));
+          void copyObjects(withoutLiveChildren(sel, all));
           removeMany(ids);
           log(CANVAS_ACTIONS.OBJECT_REMOVED, {
             count: ids.length,
@@ -296,8 +309,10 @@ export function useCanvasShortcuts(params: {
           })();
         }),
         duplicate: guardMut(() => {
+          const all = objectsRef.current ?? [];
           const sel = withoutLiveChildren(
-            (objectsRef.current ?? []).filter((o) => selection.includes(o.id))
+            all.filter((o) => selection.includes(o.id)),
+            all
           );
           if (sel.length === 0) return;
           pushSnapshot();
