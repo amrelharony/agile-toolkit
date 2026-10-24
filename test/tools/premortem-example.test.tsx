@@ -76,8 +76,10 @@ describe("Premortem Markdown", () => {
     expect(md).toContain("(also: “Nobody trusted the CI pipeline”) | 4 | 5 | 3 | 15 |");
     // Two causes score 12; the votes put the launch date first.
     expect(md.indexOf("Launch date announced")).toBeLessThan(md.indexOf("older Android"));
+    // The example's causes never go to the real Risk Register, so the
+    // verdict doesn't ask for it.
     expect(md).toContain(
-      "**Top risk: “Payment provider integration took far longer than estimated” (5 votes, L4 × I4 = 16). Each has a preventive action: send them to the Risk Register.**"
+      "**Top risk: “Payment provider integration took far longer than estimated” (5 votes, L4 × I4 = 16). Each has a preventive action. Example causes stay in the example: start a premortem of your own to send risks.**"
     );
     expect(md).toContain("## Preventive actions");
     expect(md).toContain("- [ ] Book the legal review for sprint 3. — **Priya (PM)**");
@@ -174,9 +176,19 @@ describe("Premortem example", () => {
     localStorage.setItem(KEY, JSON.stringify({ scenario: "We missed the date.", causes: [] }));
     renderPremortem();
     expect(screen.getByText("We missed the date.")).toBeInTheDocument();
+    // With nothing to act on, the old premortem opens in Write.
+    expect(screen.getByRole("button", { name: /Step 1 of 4: Write/ })).toHaveAttribute(
+      "aria-current",
+      "step"
+    );
+    expect(screen.getByLabelText(/A reason it failed/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "See an example premortem" }));
     const ids = stored().premortems.map((p) => p.id);
     expect(ids).toEqual([EXAMPLE_PREMORTEM_ID, "legacy-premortem"]);
-    expect(stored().premortems[1]).toMatchObject({ scenario: "We missed the date.", causes: [] });
+    expect(stored().premortems[1]).toMatchObject({
+      scenario: "We missed the date.",
+      phase: "write",
+      causes: [],
+    });
   });
 });

@@ -299,30 +299,62 @@ describe("Premortem: group", () => {
     cause("c", "No tests"),
   ];
 
+  /** Open a cause's "Group with…" menu and pick the cause it repeats. */
+  const groupWith = (source: string, target: string) => {
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: `Group “${source}” with another cause` }),
+      { key: "Enter" }
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: target }));
+  };
+
   it("groups a duplicate into another with Undo, and Split brings it back", () => {
     seed(pm({ phase: "group", causes }));
     renderPremortem();
-    fireEvent.change(screen.getByLabelText("Group “Scope keeps growing” with another cause"), {
-      target: { value: "a" },
-    });
+    groupWith("Scope keeps growing", "Scope creep");
     expect(storedCauses()).toEqual([
       cause("a", "Scope creep", { votes: 1, merged: [cause("b", "Scope keeps growing")] }),
       cause("c", "No tests"),
     ]);
     expect(screen.getByText("Also: “Scope keeps growing”")).toBeInTheDocument();
     expect(toastSpy.mock.calls[0][0]).toBe("Grouped “Scope keeps growing” with “Scope creep”");
+    // The row the menu was on is gone: focus is on the cause it joined.
+    expect(
+      screen.getByRole("button", { name: "Split “Scope creep”: bring back 1 grouped cause" })
+    ).toHaveFocus();
     undoLast();
     expect(storedCauses()).toEqual(causes);
 
-    fireEvent.change(screen.getByLabelText("Group “No tests” with another cause"), {
-      target: { value: "b" },
-    });
+    groupWith("No tests", "Scope keeps growing");
     fireEvent.click(
       screen.getByRole("button", {
         name: "Split “Scope keeps growing”: bring back 1 grouped cause",
       })
     );
     expect(storedCauses()).toEqual([causes[0], causes[1], causes[2]]);
+    // Split's button is gone with the group: focus stays on the cause.
+    expect(
+      screen.getByRole("button", { name: "Group “Scope keeps growing” with another cause" })
+    ).toHaveFocus();
+  });
+
+  it("groups only when a cause is picked, never while the keyboard browses the choices", () => {
+    seed(pm({ phase: "group", causes }));
+    renderPremortem();
+    // A menu button, not a select that changes on every arrow key.
+    expect(screen.queryByRole("combobox", { name: /^Group/ })).toBeNull();
+    const trigger = screen.getByRole("button", {
+      name: "Group “Scope keeps growing” with another cause",
+    });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const menu = screen.getByRole("menu");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(storedCauses()).toEqual(causes);
+    expect(toastSpy).not.toHaveBeenCalled();
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(storedCauses()).toEqual(causes);
   });
 
   it("edits a cause in place", () => {
@@ -592,5 +624,232 @@ describe("Premortem: act", () => {
     fireEvent.click(send);
     expect(riskBlob().map((r) => r.title)).toEqual(["Bravo", "Alpha"]);
     expect(toastSpy.mock.calls[0][0]).toBe("Added 1 risk to the Risk Register");
+  });
+
+  it("counts a group whose duplicate is a risk already as sent, and doesn't send it again", () => {
+    localStorage.setItem(RISK_KEY, JSON.stringify([{ id: "r-a", title: "Alpha" }]));
+    seed(
+      pm({
+        phase: "act",
+        causes: [
+          cause("b", "Bravo", {
+            votes: 3,
+            likelihood: 3,
+            impact: 3,
+            merged: [
+              cause("a", "Alpha", {
+                votes: 1,
+                sentTo: [{ route: "risk", targetId: "r-a", at: "2026-10-01T00:00:00.000Z" }],
+              }),
+            ],
+          }),
+          cause("c", "Charlie", { votes: 1, likelihood: 2, impact: 2 }),
+        ],
+      })
+    );
+    renderPremortem();
+    const bravo = rowOf(actList(), "Bravo");
+    expect(within(bravo).getByRole("link", { name: "In the Risk Register" })).toBeInTheDocument();
+    // Its own menu would make a second risk for the same cause.
+    expect(within(bravo).getByRole("button", { name: /^Send to… Bravo/ })).toBeDisabled();
+    const send = screen.getByRole("button", { name: "Send the top 2 to the Risk Register" });
+    expect(send).toHaveAccessibleDescription(
+      "Adds 1 risk with its likelihood, impact and preventive action; 1 is there already."
+    );
+    fireEvent.click(send);
+    expect(riskBlob().map((r) => r.title)).toEqual(["Charlie", "Alpha"]);
+    expect(logged("risks_sent")).toEqual([
+      ["risks_sent", { premortemId: "p1", count: 1, causeIds: ["c"] }],
+    ]);
+  });
+
+  it("won't send a top cause that has no text, and says why", () => {
+    seed(
+      pm({
+        phase: "act",
+        causes: [
+          // The old Add Cause saved blank causes; one with a description survives.
+          cause("a", "", {
+            description: "Something about vendors",
+            votes: 2,
+            likelihood: 3,
+            impact: 3,
+          }),
+          cause("b", "Bravo", { votes: 1, likelihood: 3, impact: 3 }),
+        ],
+      })
+    );
+    renderPremortem();
+    const send = screen.getByRole("button", { name: "Send the top 2 to the Risk Register" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAccessibleDescription("Write the cause for “(untitled)” first.");
+    fireEvent.click(send);
+    expect(riskBlob()).toEqual([]);
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it("marks no cause Top 3 that nobody voted for or rated", () => {
+    seed(
+      pm({
+        phase: "act",
+        causes: [
+          cause("al", "Alpha nobody voted"),
+          cause("z", "Zebra", { votes: 3 }),
+          cause("y", "Yak", { votes: 2 }),
+        ],
+      })
+    );
+    const { unmount } = renderPremortem();
+    expect(within(rowOf(actList(), "Zebra")).getByText("Top 3")).toBeInTheDocument();
+    expect(within(rowOf(actList(), "Alpha nobody voted")).queryByText("Top 3")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Send the top 2 to the Risk Register" })
+    ).toHaveAccessibleDescription("Rate likelihood and impact for “Zebra” and “Yak” first.");
+    unmount();
+
+    // Nothing voted or rated: no top at all, and the room is asked to weigh in.
+    seed(pm({ phase: "act", causes: [cause("a", "Alpha"), cause("b", "Bravo")] }));
+    renderPremortem();
+    expect(screen.queryByText("Top 3")).toBeNull();
+    const send = screen.getByRole("button", { name: "Send the top 3 to the Risk Register" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAccessibleDescription(
+      "Vote, or rate likelihood and impact, to find the top 3."
+    );
+    expect(
+      screen.getByText(
+        "Nothing separates the causes yet: vote, or rate likelihood and impact, to find the top 3."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("names whose ratings each row holds, and a reworded cause doesn't stale the order", () => {
+    seed(
+      pm({
+        phase: "act",
+        causes: [
+          cause("a", "Alpha", { likelihood: 2, impact: 2 }),
+          cause("b", "Bravo", { likelihood: 2, impact: 2 }),
+        ],
+      })
+    );
+    renderPremortem();
+    const ratings = within(rowOf(actList(), "Alpha")).getByRole("group", {
+      name: "Ratings for “Alpha”",
+    });
+    expect(within(ratings).getByRole("radiogroup", { name: "Likelihood" })).toBeInTheDocument();
+    expect(within(ratings).getByRole("radiogroup", { name: "Impact" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit “Alpha”" }));
+    const title = screen.getByRole("textbox", { name: "Cause" });
+    fireEvent.change(title, { target: { value: "Zulu" } });
+    fireEvent.keyDown(title, { key: "Enter" });
+    expect(order(actList())).toEqual(["Zulu", "Bravo"]);
+    expect(screen.queryByText("Ratings changed since the last sort.")).toBeNull();
+  });
+});
+
+describe("Premortem: the example", () => {
+  it("never sends the example's causes to the real Risk Register", () => {
+    renderPremortem();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const send = screen.getByRole("button", { name: "Send the top 3 to the Risk Register" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAccessibleDescription(
+      "Example causes stay in the example: start a premortem of your own to send risks."
+    );
+    for (const b of screen.getAllByRole("button", { name: /^Send to…/ })) {
+      expect(b).toBeDisabled();
+    }
+    fireEvent.click(send);
+    expect(riskBlob()).toEqual([]);
+    expect(useWorkspaceStore.getState().risks).toEqual([]);
+    expect(sonifySpy).not.toHaveBeenCalledWith("premortem", "completed");
+    expect(
+      screen.getByText(/Example causes stay in the example/, { selector: "p.font-medium" })
+    ).toBeInTheDocument();
+  });
+});
+
+describe("Premortem: focus", () => {
+  it("moves focus into the new-premortem form, back to its button on Cancel, and to the first cause on Start", () => {
+    seed(pm());
+    renderPremortem();
+    fireEvent.click(screen.getByRole("button", { name: "New premortem" }));
+    expect(screen.getByLabelText(/^Name/)).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "New premortem" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "New premortem" }));
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Release 3" } });
+    fireEvent.change(screen.getByLabelText(/Imagined failure/), {
+      target: { value: "It shipped broken." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start premortem" }));
+    expect(screen.getByRole("heading", { name: /Release 3/ })).toBeInTheDocument();
+    expect(screen.getByLabelText(/A reason it failed/)).toHaveFocus();
+  });
+
+  it("returns focus to Edit details after Save, Cancel or Escape", () => {
+    seed(pm());
+    renderPremortem();
+    const edit = () => screen.getByRole("button", { name: /^Edit the details of/ });
+    fireEvent.click(edit());
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Checkout v2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
+    expect(edit()).toHaveFocus();
+
+    fireEvent.click(edit());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(edit()).toHaveFocus();
+
+    fireEvent.click(edit());
+    fireEvent.keyDown(screen.getByLabelText(/^Name/), { key: "Escape" });
+    expect(edit()).toHaveFocus();
+  });
+
+  it("puts focus on the current step when the last phase leaves no Next button", () => {
+    seed(pm({ phase: "vote", causes: [cause("a", "Alpha", { votes: 1 })] }));
+    renderPremortem();
+    fireEvent.click(screen.getByRole("button", { name: "Next: Act" }));
+    expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Step 4 of 4: Act/ })).toHaveFocus();
+  });
+
+  it("tells the writers one reason at a time", () => {
+    seed(pm());
+    renderPremortem();
+    expect(screen.getByLabelText(/A reason it failed/)).toHaveAccessibleDescription(
+      /^One reason at a time: Enter adds it/
+    );
+  });
+});
+
+describe("Premortem: the silent-writing clock", () => {
+  it("keeps its controls on the page when another premortem is opened", () => {
+    seed(
+      pm({ id: "p2", title: "Newer", createdAt: "2026-10-10T00:00:00.000Z" }),
+      pm({ id: "p1", title: "Older", phase: "act", causes: [cause("a", "Alpha")] })
+    );
+    renderPremortem();
+    fireEvent.click(screen.getByRole("button", { name: "Start a 3-minute silent writing timer" }));
+    fireEvent.change(screen.getByLabelText("Premortem"), { target: { value: "p1" } });
+    expect(screen.getByRole("heading", { name: /Older/ })).toBeInTheDocument();
+    expect(screen.getByRole("timer")).toHaveTextContent("03:00");
+    // Outside Write it only shows a clock that is running: no Start buttons.
+    expect(screen.queryByRole("button", { name: /^Start a \d+-minute/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Stop the silent writing timer" }));
+    expect(useDockTimer.getState().timer).toBeNull();
+    expect(screen.queryByRole("timer")).toBeNull();
+  });
+
+  it("keeps its controls when the premortem being written is deleted", () => {
+    seed(pm());
+    renderPremortem();
+    fireEvent.click(screen.getByRole("button", { name: "Start a 5-minute silent writing timer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete the premortem “Checkout launch”" }));
+    expect(screen.getByRole("timer")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop the silent writing timer" }));
+    expect(useDockTimer.getState().timer).toBeNull();
   });
 });

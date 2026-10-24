@@ -64,17 +64,18 @@ describe("Premortem undo", () => {
         <PremortemClient />
       </TooltipProvider>
     );
-    // Equal votes and scores: the text decides the order on screen.
-    expect(shownTexts()).toEqual(["No tests", "Scope creep", "Unclear goal"]);
+    // Equal votes and scores: the stored order (the team's, in an old
+    // premortem) decides the order on screen, not the text.
+    expect(shownTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Delete “Scope creep”" }));
-    expect(shownTexts()).toEqual(["No tests", "Unclear goal"]);
+    expect(shownTexts()).toEqual(["Unclear goal", "No tests"]);
     expect(undo.last?.label).toBe("Removed “Scope creep”");
 
     act(() => undo.last!.revert());
     expect(storedTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
     act(() => undo.last!.revert());
     expect(storedTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
-    expect(shownTexts()).toEqual(["No tests", "Scope creep", "Unclear goal"]);
+    expect(shownTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
   });
 });

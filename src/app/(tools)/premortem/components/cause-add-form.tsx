@@ -1,5 +1,6 @@
 "use client";
 
+import type { Ref } from "react";
 import { Plus } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Field } from "@/components/ui/field";
@@ -21,8 +22,15 @@ export function validateCause(d: CauseDraft): Validation<{ text: string }, "text
 /**
  * The quick add for silent writing: one line, Enter adds it and the field
  * is empty and focused for the next one. Nothing is saved blank.
+ * `inputRef` lets the page focus the field when a premortem starts.
  */
-export function CauseAddForm({ onAdd }: { onAdd: (text: string) => void }) {
+export function CauseAddForm({
+  onAdd,
+  inputRef,
+}: {
+  onAdd: (text: string) => void;
+  inputRef?: Ref<HTMLInputElement>;
+}) {
   const form = useItemForm<CauseDraft, { text: string }, "text">({
     initial: { text: "" },
     validate: validateCause,
@@ -36,13 +44,14 @@ export function CauseAddForm({ onAdd }: { onAdd: (text: string) => void }) {
     >
       <Field
         label="A reason it failed"
-        hint="One reason per line. Write as many as you can; they stay hidden until you move on."
+        hint="One reason at a time: Enter adds it, and the field is ready for the next. They stay hidden until you move on."
         error={form.errors.text}
         required
       >
         {(props) => (
           <Input
             {...props}
+            ref={inputRef}
             value={form.draft.text}
             maxLength={300}
             enterKeyHint="enter"

@@ -1,22 +1,33 @@
 "use client";
 
-import { useId, useState } from "react";
-import { Minus, Plus, ShieldAlert, Split } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, Minus, Plus, ShieldAlert, Split } from "lucide-react";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { ResetButton } from "@/components/shared/reset-button";
 import { ResortChip } from "@/components/shared/resort-chip";
 import { ScalePicker } from "@/components/shared/scale-picker";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
+import { isExampleId } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { listAnd, plural } from "@/lib/charts/chart-text";
+import { liveLink } from "@/lib/handoffs/registry";
 import type { HandoffLinkStore } from "@/lib/handoffs/send";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { parseNumber } from "@/lib/utils/form";
 import {
+  TOP_N,
   causeScore,
   compareCauses,
   isRated,
@@ -28,7 +39,7 @@ import {
   type PremortemCause,
 } from "../model";
 import { IMPACT_HINT, IMPACT_STEPS, LIKELIHOOD_HINT, LIKELIHOOD_STEPS } from "../scales";
-import { quoteCause, topLabel } from "../verdict";
+import { EXAMPLE_CAUSES_STAY, quoteCause, topLabel } from "../verdict";
 import { CauseAddForm } from "./cause-add-form";
 import {
   CauseText,
@@ -42,9 +53,6 @@ import { SilentTimer } from "./silent-timer";
 
 /** A premortem cause can become a risk. */
 export const CAUSE_ROUTES = ["risk"] as const;
-
-const SELECT_CLASS =
-  "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm";
 
 const keyOf = (c: PremortemCause) => c.id;
 
@@ -60,9 +68,12 @@ export interface CauseActions {
   setOwner: (id: string, owner: string) => void;
   /** The cause's Risk Register links, read fresh, for its Send to… menu. */
   links: (id: string) => HandoffLinkStore;
-  /** Whether the cause is in the Risk Register now. */
+  /** Whether the cause, or a duplicate grouped into it, is in the Risk Register now. */
   isSent: (c: PremortemCause) => boolean;
 }
+
+/** A focus target the page registers (`useReturnFocus().refFor`). */
+type FocusRef = (el: HTMLElement | null) => void;
 
 /* ── Write ───────────────────────────────────────────────────────────── */
 
@@ -76,10 +87,16 @@ export function WritePanel({
   premortem,
   onAdd,
   actions,
+  addRef,
+  exampleAction,
 }: {
   premortem: Premortem;
   onAdd: (text: string) => void;
   actions: CauseActions;
+  /** The cause field, so the page can focus it when a premortem starts. */
+  addRef?: FocusRef;
+  /** Offered beside "No causes yet." (Load an example). */
+  exampleAction?: ReactNode;
 }) {
   const [shown, setShown] = useState(false);
   const listId = useId();
@@ -87,13 +104,14 @@ export function WritePanel({
   return (
     <div className="space-y-4">
       <SilentTimer />
-      <CauseAddForm onAdd={onAdd} />
+      <CauseAddForm onAdd={onAdd} inputRef={addRef} />
       <div className="flex flex-wrap items-center gap-2">
         <p role="status" className="text-sm text-sub">
           {n === 0
             ? "No causes yet."
             : `${plural(n, "cause")} written${shown ? "" : ", hidden so nobody anchors on another's idea"}.`}
         </p>
+        {n === 0 && exampleAction}
         {n > 0 && (
           <Button
             type="button"
@@ -123,43 +141,66 @@ export function WritePanel({
 
 /* ── Group ───────────────────────────────────────────────────────────── */
 
-/** "Group with…": fold this cause into another as a duplicate. */
+/**
+ * "Group with…": fold this cause into another as a duplicate. A menu, not a
+ * select: a closed select on Windows changes on every arrow key, so a
+ * keyboard user browsing the options grouped the cause into the first one
+ * at once. Here nothing happens until a cause is picked.
+ */
 function GroupWith({
   cause,
   others,
   onMerge,
+  triggerRef,
 }: {
   cause: PremortemCause;
   others: readonly PremortemCause[];
   onMerge: (targetId: string) => void;
+  triggerRef: FocusRef;
 }) {
-  const id = useId();
+  // Picking a cause removes this row, trigger and all: the panel moves
+  // focus to the cause it joined, so the menu mustn't send it back here.
+  const picked = useRef(false);
   if (others.length === 0) return null;
   return (
-    // A native select is as wide as its longest option: let it fill the
-    // row on a phone instead, and keep a fixed width beside the text above.
-    <div className="min-w-0 flex-1 sm:w-56 sm:flex-none">
-      <label htmlFor={id} className="sr-only">
-        {`Group ${causeName(cause)} with another cause`}
-      </label>
-      <select
-        id={id}
-        className={SELECT_CLASS}
-        value=""
-        onChange={(e) => {
-          if (e.target.value) onMerge(e.target.value);
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          ref={triggerRef}
+          type="button"
+          size="sm"
+          variant="outline"
+          className="gap-1"
+          aria-label={`Group ${causeName(cause)} with another cause`}
+        >
+          Group with…
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="max-h-80 overflow-y-auto"
+        onCloseAutoFocus={(e) => {
+          if (picked.current) e.preventDefault();
+          picked.current = false;
         }}
       >
-        <option value="" disabled>
-          Group with…
-        </option>
+        <DropdownMenuLabel className="text-xs font-medium text-sub">
+          {`Group ${causeName(cause)} with`}
+        </DropdownMenuLabel>
         {others.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.text || "(untitled)"}
-          </option>
+          <DropdownMenuItem
+            key={o.id}
+            onSelect={() => {
+              picked.current = true;
+              onMerge(o.id);
+            }}
+          >
+            <span className="min-w-0 break-words">{o.text || "(untitled)"}</span>
+          </DropdownMenuItem>
         ))}
-      </select>
-    </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -176,6 +217,10 @@ export function GroupPanel({
   actions: CauseActions;
 }) {
   const { causes } = premortem;
+  // Grouping removes the row its menu was on, and Split removes the button
+  // just pressed: focus goes to the cause that stays (its Split, or its
+  // Group with…), never to the page body.
+  const { refFor, returnTo } = useReturnFocus();
   if (causes.length === 0) return null;
   return (
     <ul aria-label="Causes to group" className="divide-y divide-border">
@@ -187,7 +232,11 @@ export function GroupPanel({
               <GroupWith
                 cause={c}
                 others={causes.filter((o) => o.id !== c.id)}
-                onMerge={(target) => actions.merge(c.id, target)}
+                triggerRef={refFor(`group:${c.id}`)}
+                onMerge={(target) => {
+                  actions.merge(c.id, target);
+                  returnTo(`split:${target}`);
+                }}
               />
               <RemoveCauseButton cause={c} onRemove={() => actions.remove(c.id)} />
             </div>
@@ -196,12 +245,16 @@ export function GroupPanel({
             <div className="flex flex-wrap items-center gap-2 pl-3 text-xs text-sub">
               <span>Also: {c.merged.map((m) => `“${m.text || "(untitled)"}”`).join(", ")}</span>
               <Button
+                ref={refFor(`split:${c.id}`)}
                 type="button"
                 size="sm"
                 variant="ghost"
                 className="gap-1"
                 aria-label={`Split ${causeName(c)}: bring back ${plural(c.merged.length, "grouped cause")}`}
-                onClick={() => actions.split(c.id)}
+                onClick={() => {
+                  actions.split(c.id);
+                  returnTo(`group:${c.id}`);
+                }}
               >
                 <Split aria-hidden="true" />
                 Split
@@ -371,8 +424,11 @@ export function VotePanel({
 
 /**
  * "Send the top 3 to the Risk Register": one toast, one Undo. Held back,
- * with the reason beside it, until each unsent top cause is rated: the
- * register would otherwise fill a missing rating with a silent 3.
+ * with the reason beside it, until each unsent top cause is rated (the
+ * register would otherwise fill a missing rating with a silent 3) and
+ * written (a risk needs a title; the old Add Cause saved some blank).
+ * Example causes are never sent: they would become real risks that no
+ * Clear example removes.
  */
 export function SendTop({
   premortem,
@@ -385,20 +441,29 @@ export function SendTop({
 }) {
   const reasonId = useId();
   const { top } = topCauses(premortem.causes);
-  if (top.length === 0) return null;
-  const pending = top.filter((c) => !isSent(c));
+  if (premortem.causes.length === 0) return null;
+  const unsent = top.filter((c) => !isSent(c));
+  const pending = unsent.filter((c) => !isExampleId(c.id));
+  const examples = unsent.length - pending.length;
+  const blank = pending.filter((c) => !c.text.trim());
   const unrated = pending.filter((c) => !isRated(c));
-  const label = topLabel(top.length);
+  const label = topLabel(top.length || TOP_N);
   let reason: string;
-  if (pending.length === 0) {
+  if (top.length === 0) {
+    reason = `Vote, or rate likelihood and impact, to find ${label}.`;
+  } else if (unsent.length === 0) {
     reason = `${top.length === 1 ? "The top cause is" : `All of the top ${top.length} are`} in the Risk Register.`;
+  } else if (pending.length === 0) {
+    reason = EXAMPLE_CAUSES_STAY;
+  } else if (blank.length > 0) {
+    reason = `Write the cause for ${listAnd(blank.map((c) => quoteCause(c, 40)))} first.`;
   } else if (unrated.length > 0) {
     reason = `Rate likelihood and impact for ${listAnd(unrated.map((c) => quoteCause(c, 40)))} first.`;
   } else {
-    const already = top.length - pending.length;
+    const already = top.length - unsent.length;
     reason = `Adds ${plural(pending.length, "risk")} with ${pending.length === 1 ? "its" : "their"} likelihood, impact and preventive action${
       already > 0 ? `; ${already} ${already === 1 ? "is" : "are"} there already` : ""
-    }.`;
+    }${examples > 0 ? "; example causes stay here" : ""}.`;
   }
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3 sm:flex-row sm:items-center">
@@ -406,7 +471,7 @@ export function SendTop({
         type="button"
         variant="toolkit"
         className="gap-2 self-start"
-        disabled={pending.length === 0 || unrated.length > 0}
+        disabled={pending.length === 0 || blank.length > 0 || unrated.length > 0}
         aria-describedby={reasonId}
         onClick={() => onSend(pending)}
       >
@@ -435,6 +500,9 @@ function ActRow({
   premortemId: string;
 }) {
   const sent = actions.isSent(c);
+  // In the register through a duplicate grouped into it: its own menu
+  // would make a second risk for the same cause.
+  const viaDuplicate = sent && !liveLink(c.sentTo, "risk");
   const score = causeScore(c);
   const { getLinks, setLinks } = actions.links(c.id);
   return (
@@ -456,7 +524,12 @@ function ActRow({
           Also: {c.merged.map((m) => `“${m.text || "(untitled)"}”`).join(", ")}
         </p>
       )}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] lg:items-start">
+      {/* Every row repeats "Likelihood" and "Impact": the group says whose they are. */}
+      <div
+        role="group"
+        aria-label={`Ratings for ${causeName(c)}`}
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] lg:items-start"
+      >
         <ScalePicker
           label="Likelihood"
           size="sm"
@@ -494,8 +567,9 @@ function ActRow({
         <OwnerField cause={c} onChange={(owner) => actions.setOwner(c.id, owner)} />
         <SendToMenu
           routes={CAUSE_ROUTES}
-          // A missing rating would become the register's silent 3.
-          disabled={!isRated(c)}
+          // A missing rating would become the register's silent 3, and an
+          // example cause never becomes a real risk.
+          disabled={!isRated(c) || isExampleId(c.id) || viaDuplicate}
           item={{
             title: c.text,
             description: c.description,

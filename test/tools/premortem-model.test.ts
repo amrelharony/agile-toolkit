@@ -6,12 +6,14 @@ import {
   compareCauses,
   mergeCause,
   normalizePremortemState,
+  patchCause,
   pickPremortem,
   rankCauses,
   scoreText,
   setVotes,
   splitCause,
   topCauses,
+  totalVotes,
   unmergeCause,
   votesById,
   withVotes,
@@ -124,6 +126,21 @@ describe("normalizePremortemState", () => {
     expect(normalizePremortemState(normalizePremortemState(v2))).toEqual(v2);
   });
 
+  it("opens an old premortem with a scenario but no causes in Write, where there is work to do", () => {
+    const once = normalizePremortemState({ scenario: "We missed the date.", causes: [] });
+    expect(once.premortems).toEqual([
+      {
+        id: LEGACY_PREMORTEM_ID,
+        title: "Premortem",
+        scenario: "We missed the date.",
+        phase: "write",
+        causes: [],
+        createdAt: "",
+      },
+    ]);
+    expect(normalizePremortemState(once)).toEqual(once);
+  });
+
   it("is empty for nothing stored, a blank old premortem, or garbage", () => {
     for (const raw of [undefined, null, "x", 42, [], {}, { scenario: " ", causes: [] }]) {
       expect(normalizePremortemState(raw)).toEqual(EMPTY_PREMORTEM_STATE);
@@ -178,16 +195,40 @@ describe("normalizePremortemState", () => {
 });
 
 describe("Premortem ranking", () => {
-  it("ranks by votes, then likelihood × impact with the unscored last, then the text", () => {
+  it("ranks by votes, then likelihood × impact with the unscored last, then the stored order", () => {
     const causes = [
       cause("u", "Unscored, no votes"),
       cause("s", "Scored 4", { likelihood: 2, impact: 2 }),
       cause("t", "Scored 9", { likelihood: 3, impact: 3 }),
       cause("v", "Voted", { votes: 1 }),
-      cause("w", "A tie on text", { likelihood: 2, impact: 2 }),
+      cause("w", "A tie, written later", { likelihood: 2, impact: 2 }),
     ];
-    expect(ids(rankCauses(causes))).toEqual(["v", "t", "w", "s", "u"]);
+    expect(ids(rankCauses(causes))).toEqual(["v", "t", "s", "w", "u"]);
     expect(compareCauses(causes[0], causes[0])).toBe(0);
+    // The text never decides: rewording a cause doesn't move it.
+    expect(compareCauses(causes[1], causes[4])).toBe(0);
+  });
+
+  it("keeps the team's hand-made order of an old premortem, where every cause tied at 3 × 3", () => {
+    const [p] = normalizePremortemState({
+      scenario: "It slipped",
+      causes: [
+        { id: "z", text: "Zebra crossing", likelihood: 3, impact: 3 },
+        { id: "m", text: "Mango", likelihood: 3, impact: 3 },
+        { id: "a", text: "Apple", likelihood: 3, impact: 3 },
+        { id: "k", text: "Kiwi", likelihood: 3, impact: 3 },
+      ],
+    }).premortems;
+    expect(ids(rankCauses(p.causes))).toEqual(["z", "m", "a", "k"]);
+    const { top, tied } = topCauses(p.causes);
+    expect(ids(top)).toEqual(["z", "m", "a"]);
+    // Nothing separates the third from the fourth: the room hears it.
+    expect(ids(tied)).toEqual(["z", "m", "a", "k"]);
+    // The same after a round trip through storage.
+    const again = normalizePremortemState(
+      JSON.parse(JSON.stringify({ version: 2, premortems: [p] }))
+    );
+    expect(ids(topCauses(again.premortems[0].causes).top)).toEqual(["z", "m", "a"]);
   });
 
   it("scores only rated causes, never a silent 3 × 3", () => {
@@ -225,11 +266,25 @@ describe("Premortem ranking", () => {
     expect(topCauses(settled).tied).toEqual([]);
   });
 
-  it("doesn't call it a tie before anyone has voted or rated, and copes with few causes", () => {
+  it("has no top before anyone has voted or rated, and copes with few causes", () => {
     const blank = ["a", "b", "c", "d"].map((id) => cause(id, id.toUpperCase()));
-    expect(topCauses(blank)).toEqual({ top: blank.slice(0, 3), tied: [] });
+    expect(topCauses(blank)).toEqual({ top: [], tied: [] });
     expect(topCauses([])).toEqual({ top: [], tied: [] });
-    expect(ids(topCauses([cause("a", "A")]).top)).toEqual(["a"]);
+    expect(topCauses([cause("a", "A")])).toEqual({ top: [], tied: [] });
+    expect(ids(topCauses([cause("a", "A", { votes: 1 })]).top)).toEqual(["a"]);
+  });
+
+  it("never fills the top 3 with a cause nobody voted for or rated", () => {
+    const causes = [
+      cause("al", "Alpha nobody voted"),
+      cause("z", "Zebra", { votes: 3 }),
+      cause("y", "Yak", { votes: 2 }),
+      cause("b", "Bravo nobody voted"),
+    ];
+    expect(topCauses(causes)).toEqual({ top: [causes[1], causes[2]], tied: [] });
+    // A rating is the room's word too: a rated cause can make the cut.
+    const rated = patchCause(pm({ causes }), "b", { likelihood: 2, impact: 2 }).causes;
+    expect(ids(topCauses(rated).top)).toEqual(["z", "y", "b"]);
   });
 });
 
@@ -251,10 +306,40 @@ describe("Premortem grouping", () => {
       }),
       cause("c", "No tests"),
     ]);
-    expect(unmergeCause(merged, base.causes[1], "a", 1)).toEqual(base);
+    expect(unmergeCause(merged, base.causes[1], 1)).toEqual(base);
     // Undo twice is still one cause.
-    const back = unmergeCause(merged, base.causes[1], "a", 1);
-    expect(unmergeCause(back, base.causes[1], "a", 1)).toBe(back);
+    const back = unmergeCause(merged, base.causes[1], 1);
+    expect(unmergeCause(back, base.causes[1], 1)).toBe(back);
+  });
+
+  it("undoes a grouping after the target was grouped into a third cause, in either order", () => {
+    // b into a (Undo 1), then a into c (Undo 2).
+    const first = mergeCause(base, "b", "a");
+    const second = mergeCause(first, "a", "c");
+    const [a, b] = base.causes;
+    const aGrouped = first.causes[0];
+
+    // Undo 1 first: b leaves c's list (it sits there now), with its vote.
+    const undoFirst = unmergeCause(second, b, 1);
+    expect(undoFirst.causes).toEqual([
+      cause("c", "No tests", { votes: 2, merged: [cause("a", "Scope creep", { votes: 2 })] }),
+      b,
+    ]);
+    // Then Undo 2: a comes back without the b it carried, which is back already.
+    const both = unmergeCause(undoFirst, aGrouped, 0);
+    expect(both.causes).toEqual([a, cause("c", "No tests"), b]);
+
+    // Undo 2 first, then Undo 1: the same three causes, each listed once.
+    const undoSecond = unmergeCause(second, aGrouped, 0);
+    expect(undoSecond.causes).toEqual([aGrouped, cause("c", "No tests")]);
+    expect(unmergeCause(undoSecond, b, 1).causes).toEqual([a, b, cause("c", "No tests")]);
+
+    // However undone, no cause is listed twice and the votes add up.
+    for (const p of [undoFirst, both, undoSecond]) {
+      const all = p.causes.flatMap((c) => [c.id, ...(c.merged ?? []).map((m) => m.id)]);
+      expect(new Set(all).size).toBe(all.length);
+      expect(totalVotes(p.causes)).toBe(3);
+    }
   });
 
   it("ignores grouping a cause with itself or with one that is gone", () => {
@@ -279,6 +364,41 @@ describe("Premortem grouping", () => {
       cause("b", "Scope keeps growing", { votes: 1, owner: "Bo" }),
     ]);
     expect(splitCause(base, "c")).toBe(base);
+  });
+
+  it("takes votes below what the duplicates brought from them, so Split gives none back", () => {
+    // b (1 vote) into a (2): 3 in all, 1 of them b's.
+    const grouped = mergeCause(base, "b", "a");
+    // The cause's own votes go first…
+    const two = setVotes(grouped, "a", 1);
+    expect(two.causes[0]).toEqual(
+      cause("a", "Scope creep", {
+        votes: 1,
+        merged: [cause("b", "Scope keeps growing", { votes: 1, owner: "Bo" })],
+      })
+    );
+    // …then the duplicates'.
+    const none = setVotes(two, "a", 0);
+    expect(none.causes[0]).toEqual(
+      cause("a", "Scope creep", { merged: [cause("b", "Scope keeps growing", { owner: "Bo" })] })
+    );
+    expect(totalVotes(splitCause(none, "a").causes)).toBe(0);
+    // Adding votes back is the cause's own; the duplicate keeps what it has.
+    expect(setVotes(none, "a", 2).causes[0].merged).toEqual(none.causes[0].merged);
+    // The last grouped gives first.
+    const many = pm({
+      causes: [
+        cause("a", "A", {
+          votes: 5,
+          merged: [cause("b", "B", { votes: 2 }), cause("c", "C", { votes: 3 })],
+        }),
+      ],
+    });
+    expect(setVotes(many, "a", 1).causes[0].merged).toEqual([
+      cause("b", "B", { votes: 1 }),
+      cause("c", "C"),
+    ]);
+    expect(setVotes(many, "zz", 1)).toBe(many);
   });
 
   it("never takes votes below zero, and clears and restores every vote", () => {
@@ -347,6 +467,29 @@ describe("Premortem verdict", () => {
     );
     expect(premortemVerdict(pm({ causes: ready }), () => true)).toBe(
       "Top risk: “A” (3 votes, L4 × I4 = 16). All 3 are in the Risk Register."
+    );
+  });
+
+  it("in the Act phase, asks the room to vote or rate when nothing separates the causes", () => {
+    const blank = [cause("a", "A"), cause("b", "B")];
+    expect(premortemVerdict(pm({ causes: blank }))).toBe(
+      "Nothing separates the causes yet: vote, or rate likelihood and impact, to find the top 3."
+    );
+  });
+
+  it("asks for a blank top cause to be written before it goes to the register", () => {
+    const causes = [
+      cause("a", "", { votes: 2, likelihood: 3, impact: 3, preventiveAction: "Fix", owner: "Bo" }),
+      cause("b", "B", { votes: 1, likelihood: 2, impact: 2, preventiveAction: "Act" }),
+    ];
+    expect(premortemVerdict(pm({ causes }))).toBe(
+      "Top risk: “(untitled)” (2 votes, L3 × I3 = 9). Write the cause that has no text yet before it goes to the Risk Register."
+    );
+  });
+
+  it("never tells the user to send the example's causes", () => {
+    expect(premortemVerdict(buildExample())).toBe(
+      "Top risk: “Payment provider integration took far longer than estimated” (5 votes, L4 × I4 = 16). Each has a preventive action. Example causes stay in the example: start a premortem of your own to send risks."
     );
   });
 });
@@ -471,6 +614,27 @@ describe("Premortem example data", () => {
         scenario: "",
         phase: "act",
         causes: [cause("m", "Mine", { votes: 2 })],
+      }),
+    ]);
+  });
+
+  it("keeps the user's cause that was grouped into an example cause, with its votes", () => {
+    const ex = buildExample();
+    const added = {
+      ...ex,
+      causes: [...ex.causes, cause("mine1", "Nobody owned the rollout", { votes: 2 })],
+    };
+    const grouped = mergeCause(added, "mine1", "example-cause-1");
+    // The user's cause sits inside the example's now…
+    expect(grouped.causes.some((c) => c.id === "mine1")).toBe(false);
+    const cleared = withoutExample({ version: 2, premortems: [grouped] }, "kept");
+    // …and comes back on its own when the example goes.
+    expect(cleared.keptId).toBe("kept");
+    expect(cleared.state.premortems).toEqual([
+      expect.objectContaining({
+        id: "kept",
+        phase: "act",
+        causes: [cause("mine1", "Nobody owned the rollout", { votes: 2 })],
       }),
     ]);
   });

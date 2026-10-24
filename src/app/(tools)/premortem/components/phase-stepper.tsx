@@ -14,9 +14,12 @@ import { PHASE_HINT, PHASE_LABEL, PREMORTEM_PHASES, type PremortemPhase } from "
 export function PhaseStepper({
   phase,
   onChange,
+  activeRef,
 }: {
   phase: PremortemPhase;
   onChange: (phase: PremortemPhase) => void;
+  /** The current step's button, where focus goes when the Next button is gone (the last phase). */
+  activeRef?: (el: HTMLElement | null) => void;
 }) {
   const current = PREMORTEM_PHASES.indexOf(phase);
   const hintId = useId();
@@ -31,6 +34,7 @@ export function PhaseStepper({
             // each step as wide as its sentence.
             <li key={p} className="w-44 md:w-auto md:flex-1">
               <button
+                ref={active ? activeRef : undefined}
                 type="button"
                 onClick={() => onChange(p)}
                 aria-current={active ? "step" : undefined}

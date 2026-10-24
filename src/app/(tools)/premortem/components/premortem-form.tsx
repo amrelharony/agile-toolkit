@@ -74,12 +74,19 @@ export function PremortemForm({
   premortem,
   onSave,
   onCancel,
+  autoFocus = false,
 }: {
   options: readonly LinkOption[];
   /** The premortem being edited; absent for a new one. */
   premortem?: Premortem;
   onSave: (values: PremortemValues) => void;
   onCancel?: () => void;
+  /**
+   * Focus the name when the form opens. Always so when editing; for a new
+   * premortem only when a button opened the form (that button is gone
+   * now), not on the first visit, where the page itself is what to read.
+   */
+  autoFocus?: boolean;
 }) {
   const current = premortem?.link;
   const form = useItemForm<PremortemDraft, PremortemValues, PremortemField>({
@@ -89,11 +96,11 @@ export function PremortemForm({
     resetOnSave: !premortem,
   });
   const { formRef } = form;
-  const editing = premortem !== undefined;
-  // Editing opens on the name, where the keyboard user was heading.
+  const focusOnOpen = premortem !== undefined || autoFocus;
+  // The form opens on the name, where the keyboard user was heading.
   useEffect(() => {
-    if (editing) formRef.current?.querySelector<HTMLElement>("input")?.focus();
-  }, [editing, formRef]);
+    if (focusOnOpen) formRef.current?.querySelector<HTMLElement>("input")?.focus();
+  }, [focusOnOpen, formRef]);
 
   const releases = options.filter((o) => o.kind === "release");
   const epics = options.filter((o) => o.kind === "epic");

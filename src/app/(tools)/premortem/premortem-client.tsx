@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { nanoid } from "nanoid";
 import { useShallow } from "zustand/react/shallow";
 import { ArrowRight, Pencil, Plus, ScrollText, Trash2 } from "lucide-react";
@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { generatePremortemPrompts } from "@/lib/ai-prompts/premortem";
 import { plural } from "@/lib/charts/chart-text";
 import { liveLink } from "@/lib/handoffs/registry";
@@ -41,6 +42,7 @@ import {
   type CauseActions,
 } from "./components/phase-panels";
 import { PremortemForm, type PremortemValues } from "./components/premortem-form";
+import { SilentTimer } from "./components/silent-timer";
 import { EXAMPLE_PREMORTEM_ID, buildExample, withoutExample } from "./example";
 import { linkOptions, linkText, resolveLink } from "./links";
 import { toMarkdown } from "./markdown";
@@ -76,16 +78,27 @@ export function PremortemClient() {
   const announce = useAnnounce();
   const [creating, setCreating] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
+  // Opening and closing the forms, and reaching the last phase, remove the
+  // control just used: focus goes to what comes next, not the page body.
+  const { refFor, returnTo } = useReturnFocus();
   // Read fresh by hand-off callbacks that run after a later render (Undo).
   const stateRef = useRef(state);
   stateRef.current = state;
 
   // Which causes are in the Risk Register now (their risk wasn't deleted
-  // since). Checked once per change: the rows, the verdict, the Send button
-  // and the exports all ask, and each check reads the register's blob.
+  // since), themselves or through a duplicate grouped into them: a group
+  // whose duplicate is a risk already isn't sent a second time. Checked
+  // once per change: the rows, the verdict, the Send button and the exports
+  // all ask, and each check reads the register's blob.
   const sentIds = useMemo(
     () =>
-      new Set((selected?.causes ?? []).filter((c) => liveLink(c.sentTo, "risk")).map((c) => c.id)),
+      new Set(
+        (selected?.causes ?? [])
+          .filter(
+            (c) => liveLink(c.sentTo, "risk") || c.merged?.some((m) => liveLink(m.sentTo, "risk"))
+          )
+          .map((c) => c.id)
+      ),
     [selected]
   );
   const isSent = useCallback((c: PremortemCause) => sentIds.has(c.id), [sentIds]);
@@ -119,6 +132,18 @@ export function PremortemClient() {
 
   /* ── Premortems ──────────────────────────────────────────────────── */
 
+  /** Close Edit details (saved or not), back on the Edit button. */
+  const closeDetails = () => {
+    setEditingDetails(false);
+    returnTo("edit");
+  };
+
+  /** Close the new-premortem form without starting one, back on its button. */
+  const cancelCreating = () => {
+    setCreating(false);
+    returnTo("new");
+  };
+
   const startPremortem = (values: PremortemValues) => {
     const premortem: Premortem = {
       id: nanoid(10),
@@ -132,6 +157,8 @@ export function PremortemClient() {
     update((s) => ({ ...s, premortems: [premortem, ...s.premortems] }));
     select(premortem.id);
     setCreating(false);
+    // Straight to writing the first cause.
+    returnTo("add-cause");
     log(PREMORTEM_ACTIONS.PREMORTEM_STARTED, {
       premortemId: premortem.id,
       title: premortem.title,
@@ -147,7 +174,7 @@ export function PremortemClient() {
       else delete next.link;
       return next;
     });
-    setEditingDetails(false);
+    closeDetails();
   };
 
   const removePremortem = (p: Premortem) => {
@@ -174,6 +201,9 @@ export function PremortemClient() {
     if (!selected || selected.phase === phase) return;
     const from = selected.phase;
     changeSelected((p) => ({ ...p, phase }));
+    // The last phase has no Next button: if that was the control used,
+    // focus lands on the current step instead of the page body.
+    if (phase === PREMORTEM_PHASES[PREMORTEM_PHASES.length - 1]) returnTo("step");
     log(PREMORTEM_ACTIONS.PHASE_ADVANCED, { premortemId: selected.id, from, to: phase });
     // The silent-writing clock has nothing left to time once writing is over.
     if (from === "write" && dockOwnedBy(PREMORTEM_PATH)) useDockTimer.getState().stop();
@@ -300,7 +330,7 @@ export function PremortemClient() {
       undoable({
         label: `Grouped ${quoteCause(source, 30)} with ${quoteCause(target, 30)}`,
         apply: () => change(premortemId, (p) => mergeCause(p, sourceId, targetId)),
-        revert: () => change(premortemId, (p) => unmergeCause(p, source, targetId, index)),
+        revert: () => change(premortemId, (p) => unmergeCause(p, source, index)),
       });
     },
     split: (id) => {
@@ -348,9 +378,14 @@ export function PremortemClient() {
   };
 
   /** One toast and one Undo for the lot; each cause records its risk. */
-  const sendTop = (causes: PremortemCause[]) => {
+  const sendTop = (picked: PremortemCause[]) => {
     if (!selected) return;
     const premortemId = selected.id;
+    // What the batch will really send (it skips a blank title, and a cause
+    // already in the register), so the toast and the history count only
+    // those. Example causes never become real risks.
+    const causes = picked.filter((c) => c.text.trim() && !isSent(c) && !isExampleId(c.id));
+    if (causes.length === 0) return;
     const sent = sendHandoffBatch(
       "risk",
       causes.map((c) => ({
@@ -518,6 +553,7 @@ export function PremortemClient() {
           />
           {!creating && (
             <Button
+              ref={refFor("new")}
               type="button"
               variant="outline"
               className="gap-1"
@@ -535,9 +571,16 @@ export function PremortemClient() {
           <PremortemForm
             options={options}
             onSave={startPremortem}
-            onCancel={none ? undefined : () => setCreating(false)}
+            onCancel={none ? undefined : cancelCreating}
+            autoFocus={creating}
           />
         </SectionCard>
+      )}
+
+      {/* A clock started in Write keeps running when another premortem is
+          opened, or this one deleted; its controls stay on the page. */}
+      {(!selected || selected.phase !== "write") && (
+        <SilentTimer startable={false} className="mb-4" />
       )}
 
       {selected && (
@@ -551,6 +594,7 @@ export function PremortemClient() {
               !editingDetails && (
                 <>
                   <IconButton
+                    ref={refFor("edit")}
                     label={`Edit the details of “${selected.title}”`}
                     icon={<Pencil className="h-4 w-4" />}
                     className="text-sub hover:text-text"
@@ -572,7 +616,7 @@ export function PremortemClient() {
                 options={options}
                 premortem={selected}
                 onSave={saveDetails}
-                onCancel={() => setEditingDetails(false)}
+                onCancel={closeDetails}
               />
             ) : (
               <div className="space-y-1">
@@ -586,7 +630,7 @@ export function PremortemClient() {
             )}
           </SectionCard>
 
-          <PhaseStepper phase={selected.phase} onChange={setPhase} />
+          <PhaseStepper phase={selected.phase} onChange={setPhase} activeRef={refFor("step")} />
 
           <SectionCard
             title={`${PREMORTEM_PHASES.indexOf(selected.phase) + 1}. ${PHASE_LABEL[selected.phase]}`}
@@ -613,6 +657,12 @@ export function PremortemClient() {
                 premortem={selected}
                 actions={actions}
                 onAdd={addCause}
+                addRef={refFor("add-cause")}
+                exampleAction={
+                  hasExampleItems(state.premortems) ? undefined : (
+                    <LoadExampleButton onLoad={loadExample} label="See an example premortem" />
+                  )
+                }
                 onSendTop={sendTop}
                 onDots={(dots) =>
                   changeSelected((p) => {
@@ -638,6 +688,8 @@ function PhasePanel({
   premortem,
   actions,
   onAdd,
+  addRef,
+  exampleAction,
   onSendTop,
   onDots,
   onClearVotes,
@@ -646,6 +698,8 @@ function PhasePanel({
   premortem: Premortem;
   actions: CauseActions;
   onAdd: (text: string) => void;
+  addRef: (el: HTMLElement | null) => void;
+  exampleAction?: ReactNode;
   onSendTop: (causes: PremortemCause[]) => void;
   onDots: (dots: number | undefined) => void;
   onClearVotes: () => void;
@@ -653,7 +707,15 @@ function PhasePanel({
 }) {
   switch (premortem.phase) {
     case "write":
-      return <WritePanel premortem={premortem} onAdd={onAdd} actions={actions} />;
+      return (
+        <WritePanel
+          premortem={premortem}
+          onAdd={onAdd}
+          actions={actions}
+          addRef={addRef}
+          exampleAction={exampleAction}
+        />
+      );
     case "group":
       return <GroupPanel premortem={premortem} actions={actions} />;
     case "vote":

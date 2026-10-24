@@ -100,14 +100,21 @@ export interface ClearedExample {
  * user made some of it their own: causes they wrote into it, or a title or
  * scenario they rewrote. Those stay, in a premortem of their own under
  * `keptId`; an untouched example title or scenario goes with the example.
+ *
+ * Grouping works both ways: an example duplicate grouped into the user's
+ * cause leaves it (with the votes it brought), and the user's cause grouped
+ * into an example one comes back on its own, with its own votes, instead
+ * of going with the example.
  */
 export function withoutExample(state: PremortemState, keptId: string): ClearedExample {
   let kept: string | undefined;
   const premortems = state.premortems.flatMap((p): Premortem[] => {
     if (!isExampleId(p.id)) return [p];
-    const own = p.causes
-      .filter((c) => !isExampleId(c.id))
-      .map((c) => dropMerged(c, (m) => isExampleId(m.id)));
+    const own = p.causes.flatMap((c): PremortemCause[] =>
+      isExampleId(c.id)
+        ? (c.merged ?? []).filter((m) => !isExampleId(m.id))
+        : [dropMerged(c, (m) => isExampleId(m.id))]
+    );
     const title = p.title === EXAMPLE_TITLE ? "" : p.title;
     const scenario = p.scenario === EXAMPLE_SCENARIO ? "" : p.scenario;
     if (own.length === 0 && !title.trim() && !scenario.trim()) return [];

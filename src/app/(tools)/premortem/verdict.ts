@@ -1,5 +1,7 @@
+import { isExampleId } from "@/components/tool-frame/example-data";
 import { listAnd, plural } from "@/lib/charts/chart-text";
 import {
+  TOP_N,
   causeScore,
   isRated,
   scoreText,
@@ -9,6 +11,13 @@ import {
   type Premortem,
   type PremortemCause,
 } from "./model";
+
+/**
+ * Why the example's causes don't go to the Risk Register: they would land
+ * there as real risks with real ids, which neither Clear example removes.
+ */
+export const EXAMPLE_CAUSES_STAY =
+  "Example causes stay in the example: start a premortem of your own to send risks.";
 
 /** A cause in a sentence: quoted, and short enough to read aloud. */
 export function quoteCause(c: Pick<PremortemCause, "text">, max = 60): string {
@@ -79,6 +88,9 @@ export function premortemVerdict(
   }
 
   // Act.
+  if (top.length === 0) {
+    return `Nothing separates the causes yet: vote, or rate likelihood and impact, to find ${topLabel(TOP_N)}.`;
+  }
   const unrated = top.filter((c) => !isRated(c)).length;
   if (unrated > 0) {
     const which =
@@ -87,6 +99,11 @@ export function premortemVerdict(
   }
   const lead = `Top risk: ${quoteCause(top[0])} (${standing(top[0])}).`;
   if (tie) return `${lead} ${tie}`;
+  // A risk needs a title: the old Add Cause saved some causes blank.
+  const blank = top.filter((c) => !c.text.trim() && !isSent(c)).length;
+  if (blank > 0) {
+    return `${lead} Write the ${blank === 1 ? "cause that has" : `${blank} causes that have`} no text yet before ${blank === 1 ? "it goes" : "they go"} to the Risk Register.`;
+  }
   const noAction = top.filter((c) => !c.preventiveAction?.trim()).length;
   if (noAction > 0) {
     const which =
@@ -100,6 +117,10 @@ export function premortemVerdict(
   const sent = top.filter(isSent).length;
   if (sent === top.length) {
     return `${lead} ${top.length === 1 ? "It is" : `All ${top.length} are`} in the Risk Register.`;
+  }
+  // Example causes never become real risks (Send skips them).
+  if (top.every((c) => isSent(c) || isExampleId(c.id))) {
+    return `${lead} Each has a preventive action. ${EXAMPLE_CAUSES_STAY}`;
   }
   return `${lead} Each has a preventive action: send ${top.length === 1 ? "it" : "them"} to the Risk Register.`;
 }

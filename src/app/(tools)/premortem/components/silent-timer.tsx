@@ -33,8 +33,19 @@ export function silentTimer(minutes: number, now: number = Date.now()) {
  * going while the facilitator opens another tool; the dock hides its pill
  * on the page that owns it, so the clock shows here instead. A timer
  * another page holds (a ceremony's) is never replaced: the page says so.
+ *
+ * `startable={false}` shows only a running clock, for the page outside the
+ * Write phase: a clock started there keeps going when the facilitator opens
+ * another premortem (or deletes this one), and the dock shows no pill on
+ * this page, so the controls have to stay somewhere.
  */
-export function SilentTimer() {
+export function SilentTimer({
+  startable = true,
+  className,
+}: {
+  startable?: boolean;
+  className?: string;
+}) {
   const announce = useAnnounce();
   const dock = useDockTimer((s) => s.timer);
   const mine = dockOwnedBy(PREMORTEM_PATH, dock);
@@ -57,6 +68,7 @@ export function SilentTimer() {
   };
 
   if (!mine) {
+    if (!startable) return null;
     return (
       <div className="flex flex-col gap-1.5">
         <div
@@ -95,7 +107,8 @@ export function SilentTimer() {
       aria-label="Silent writing timer"
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2",
-        done ? "border-warning/50 bg-warning/10" : "border-border bg-surface"
+        done ? "border-warning/50 bg-warning/10" : "border-border bg-surface",
+        className
       )}
     >
       <Timer className={cn("h-4 w-4", done ? "text-warning" : "text-accent")} aria-hidden="true" />

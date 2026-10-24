@@ -217,8 +217,10 @@ function readPremortem(raw: unknown): Premortem | null {
  *
  *   - The pre-upgrade `{ scenario, causes }` becomes one premortem under
  *     LEGACY_PREMORTEM_ID, in the Act phase (its causes were already rated),
- *     each cause keeping its id, text, ratings, owner and Risk Register link.
- *     A blank one (no scenario, no causes) is no premortem at all.
+ *     each cause keeping its id, text, ratings, owner and Risk Register link,
+ *     in the order the team put them in. With a scenario but no causes yet,
+ *     it opens in Write instead: there is nothing to act on. A blank one (no
+ *     scenario, no causes) is no premortem at all.
  *   - Rows that can't be read (no id, nothing written) are dropped, and the
  *     first of two rows with one id wins.
  */
@@ -242,7 +244,7 @@ export function normalizePremortemState(raw: unknown): PremortemState {
         id: LEGACY_PREMORTEM_ID,
         title: "Premortem",
         scenario,
-        phase: "act",
+        phase: causes.length > 0 ? "act" : "write",
         causes,
         createdAt: "",
       },
@@ -272,46 +274,53 @@ export function scoreText(c: Pick<MergedCause, "likelihood" | "impact">): string
 
 /**
  * The one ranking: most votes first (the room's call), then likelihood ×
- * impact (unscored last), then the text, so the order never depends on
- * when a cause was written.
+ * impact (unscored last). Causes level on both keep their stored order (the
+ * sort is stable): the order they were written in, or, in a pre-upgrade
+ * premortem, the order the team put them in by hand, where every cause
+ * started at 3 × 3 and most still tie. Breaking ties by the text sorted
+ * those A to Z, and rewording a cause moved it.
  */
 export function compareCauses(a: PremortemCause, b: PremortemCause): number {
   const votes = votesOf(b) - votesOf(a);
   if (votes !== 0) return votes;
   const sa = causeScore(a);
   const sb = causeScore(b);
-  if (sa !== sb) {
-    if (sa === null) return 1;
-    if (sb === null) return -1;
-    return sb - sa;
-  }
-  return a.text.localeCompare(b.text) || a.id.localeCompare(b.id);
+  if (sa === sb) return 0;
+  if (sa === null) return 1;
+  if (sb === null) return -1;
+  return sb - sa;
 }
 
 export const rankCauses = (causes: readonly PremortemCause[]): PremortemCause[] =>
   [...causes].sort(compareCauses);
 
+/** A cause the room has said something about: voted for, or rated. */
+const weighed = (c: PremortemCause) => votesOf(c) > 0 || isRated(c);
+
 const sameRank = (a: PremortemCause, b: PremortemCause) =>
   votesOf(a) === votesOf(b) && causeScore(a) === causeScore(b);
 
 export interface TopCauses {
-  /** The first TOP_N of the ranking. */
+  /**
+   * The first TOP_N of the ranking among the causes with a vote or a
+   * rating. A cause nobody voted for or rated is never "top" just because
+   * it was written early (no silent defaults): with nothing to separate
+   * the causes there is no top at all, and the room votes or rates first.
+   */
   top: PremortemCause[];
   /**
    * The causes level with the last of the top at the cut-off, when one of
-   * them falls outside it. Empty when the cut-off is clear, and when nobody
-   * has voted or rated yet (then everything ties, and saying so is noise).
+   * them falls outside it. Empty when the cut-off is clear.
    */
   tied: PremortemCause[];
 }
 
 export function topCauses(causes: readonly PremortemCause[], n = TOP_N): TopCauses {
-  const ranked = rankCauses(causes);
+  const ranked = rankCauses(causes).filter(weighed);
   const top = ranked.slice(0, n);
   const last = top[top.length - 1];
   const next = ranked[n];
   if (!last || !next || !sameRank(last, next)) return { top, tied: [] };
-  if (votesOf(last) === 0 && causeScore(last) === null) return { top, tied: [] };
   return { top, tied: ranked.filter((c) => sameRank(c, last)) };
 }
 
@@ -392,19 +401,25 @@ export function mergeCause(p: Premortem, sourceId: string, targetId: string): Pr
 
 /**
  * Undo a `mergeCause`: take `source` (and what it carried) back off the
- * target, its votes with it, and put it back at `index`. Nothing happens if
- * the source is already back.
+ * cause that holds it, its votes with it, and put it back at `index`.
+ * Nothing happens if the source is already back.
+ *
+ * The holder is looked up, not assumed to be the target: the target may
+ * since have been grouped into a third cause, so the source sits on that
+ * one's list now. A duplicate the source carried that is already back on
+ * its own (its own Undo ran first) stays where it is, and its votes leave
+ * the source, so no cause is ever listed or counted twice.
  */
-export function unmergeCause(
-  p: Premortem,
-  source: PremortemCause,
-  targetId: string,
-  index: number
-): Premortem {
+export function unmergeCause(p: Premortem, source: PremortemCause, index: number): Premortem {
   if (p.causes.some((c) => c.id === source.id)) return p;
   const ids = new Set([source.id, ...(source.merged ?? []).map((m) => m.id)]);
-  const causes = p.causes.map((c) => (c.id === targetId ? dropMerged(c, (m) => ids.has(m.id)) : c));
-  causes.splice(Math.min(index, causes.length), 0, source);
+  const causes = p.causes.map((c) => dropMerged(c, (m) => ids.has(m.id)));
+  const present = new Set(causes.flatMap((c) => [c.id, ...(c.merged ?? []).map((m) => m.id)]));
+  causes.splice(
+    Math.min(index, causes.length),
+    0,
+    dropMerged(source, (m) => present.has(m.id))
+  );
   return { ...p, causes };
 }
 
@@ -424,10 +439,33 @@ export function splitCause(p: Premortem, id: string): Premortem {
   return { ...p, causes };
 }
 
-/** Set a cause's dot votes; never below zero. */
+/**
+ * Set a cause's dot votes; never below zero.
+ *
+ * A grouped cause's votes are its own plus its duplicates', so taking it
+ * below what the duplicates brought takes the rest from them, the last
+ * grouped first. Split then hands back only the votes the cause still
+ * shows: a vote the facilitator removed never comes back.
+ */
 export function setVotes(p: Premortem, id: string, votes: number): Premortem {
   const n = Math.max(0, Math.floor(Number.isFinite(votes) ? votes : 0));
-  return patchCause(p, id, { votes: n > 0 ? n : undefined });
+  const cause = p.causes.find((c) => c.id === id);
+  if (!cause) return p;
+  let excess = sumVotes(cause.merged ?? []) - n;
+  const merged =
+    excess > 0
+      ? [...(cause.merged ?? [])]
+          .reverse()
+          .map((m) => {
+            const take = Math.min(votesOf(m), excess);
+            if (take === 0) return m;
+            excess -= take;
+            const left = votesOf(m) - take;
+            return compact({ ...m, votes: left > 0 ? left : undefined });
+          })
+          .reverse()
+      : cause.merged;
+  return patchCause(p, id, { votes: n > 0 ? n : undefined, merged });
 }
 
 /** Every vote, by cause id (the grouped duplicates' too), for putting them back. */
