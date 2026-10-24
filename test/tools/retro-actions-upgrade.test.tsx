@@ -58,6 +58,7 @@ import {
   followThroughPoints,
   followThroughText,
   pct,
+  settleRetros,
 } from "@/app/(tools)/retro-actions/follow-through";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
@@ -324,12 +325,43 @@ describe("follow-through per retro, as text", () => {
     expect(followThroughText(many, noSprint).summary).toBe(
       "Share of each retro's actions done, oldest first: from 10% to 90% across 12 retros. 10000 of 12000 actions done overall."
     );
+    // A first-to-last range reads as a trend: below MIN_SAMPLE.trend (6)
+    // retros, every rate is listed instead.
+    const rates = [1, 2, 3, 4, 5, 6].map((done, i) =>
+      ft(`t${i}`, { agreed: 10, done, carried: 0 })
+    );
+    expect(followThroughText(rates.slice(0, 5), noSprint).summary).toBe(
+      "Share of each retro's actions done, oldest first: 10%, 20%, 30%, 40% and 50%. 15 of 50 actions done overall."
+    );
+    expect(followThroughText(rates, noSprint).summary).toBe(
+      "Share of each retro's actions done, oldest first: from 10% to 60% across 6 retros. 21 of 60 actions done overall."
+    );
     expect(followThroughText([], noSprint)).toMatchObject({
       summary: "No past retro has agreed an action yet.",
       table: { rows: [] },
     });
     expect(pct(null)).toBe(NO_VALUE);
     expect(pct(2 / 3)).toBe("67%");
+  });
+});
+
+describe("the retro being followed up", () => {
+  const rows = [
+    ft("a", { agreed: 4, done: 3, carried: 0 }),
+    ft("b", { agreed: 4, done: 1, carried: 0 }),
+  ];
+
+  it("isn't rated while it is the newest archive and no retro is in progress", () => {
+    const newest = { id: "b", archivedAt: "2026-10-19T10:00:00.000Z" };
+    expect(settleRetros(rows, newest)).toEqual({ settled: [rows[0]], pending: rows[1] });
+  });
+
+  it("rates every archive once the next retro has started, or when there is none", () => {
+    expect(settleRetros(rows, { id: RETRO_CURRENT_ID })).toEqual({ settled: rows });
+    expect(settleRetros(rows, undefined)).toEqual({ settled: rows });
+    expect(settleRetros([], { id: "b", archivedAt: "2026-10-19T10:00:00.000Z" })).toEqual({
+      settled: [],
+    });
   });
 });
 
@@ -456,7 +488,8 @@ describe("quick add", () => {
 
   it("adds an action with an owner and a backdated due date to the current retro, with Undo", () => {
     renderPage();
-    expect(screen.getByText("Goes on the current retro.")).toBeInTheDocument();
+    expect(screen.getByText("Goes in the Start column of the current retro.")).toBeInTheDocument();
+    expect(filterButton(/^Overdue/)).toHaveTextContent("1");
     fireEvent.change(screen.getByLabelText(/^Action/), {
       target: { value: "Ask ops for a sandbox" },
     });
@@ -479,7 +512,9 @@ describe("quick add", () => {
     expect(toastLabels()).toContain("Added “Ask ops for a sandbox”");
     // It's open and already past due: listed, and overdue.
     const current = screen.getByRole("region", { name: "Current retro" });
-    expect(within(current).getByText("Ask ops for a sandbox")).toBeInTheDocument();
+    const row = within(current).getByText("Ask ops for a sandbox").closest("li") as HTMLElement;
+    expect(within(row).getByText(/^Overdue/)).toBeInTheDocument();
+    expect(filterButton(/^Overdue/)).toHaveTextContent("2");
     // The form is ready for the next one.
     expect(screen.getByLabelText(/^Action/)).toHaveValue("");
 
@@ -493,7 +528,7 @@ describe("quick add", () => {
     renderPage();
     expect(
       screen.getByText(
-        "No retro is in progress, so it goes on the latest one: Start / Stop / Continue · 5 Oct 2026 (Sprint 14)."
+        "No retro is in progress, so it goes in the Start column of the latest one: Start / Stop / Continue · 5 Oct 2026 (Sprint 14)."
       )
     ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/^Action/), { target: { value: "Late follow-up" } });
@@ -506,11 +541,30 @@ describe("quick add", () => {
     const legacy = { ...LAST, format: undefined } as unknown as RetroBoard;
     seed([legacy]);
     renderPage();
+    // No format, so no column to name.
+    expect(
+      screen.getByText(
+        "No retro is in progress, so it goes on the latest one: Retro · 5 Oct 2026 (Sprint 14)."
+      )
+    ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/^Action/), { target: { value: "Legacy add" } });
     fireEvent.submit(screen.getByLabelText(/^Action/).closest("form") as HTMLFormElement);
     expect(boardOf(LAST.id)?.cards.at(-1)).toMatchObject({
       text: "Legacy add",
       columnKey: "start",
+    });
+  });
+
+  it("says which column of the board it lands in", () => {
+    const sailboat = retroFormats.find((f) => f.id === "sailboat") ?? retroFormats[0];
+    seed([LAST, { ...CURRENT, format: sailboat }]);
+    renderPage();
+    expect(screen.getByText("Goes in the Anchor column of the current retro.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Action/), { target: { value: "Name the anchor" } });
+    fireEvent.submit(screen.getByLabelText(/^Action/).closest("form") as HTMLFormElement);
+    expect(boardOf(RETRO_CURRENT_ID)?.cards.at(-1)).toMatchObject({
+      text: "Name the anchor",
+      columnKey: "anchor",
     });
   });
 });
@@ -549,9 +603,16 @@ describe("first run", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+    // Sprint 14's retro is the one being followed up (no retro is in
+    // progress), so the verdict and the chart rate the two before it.
     expect(
       screen.getByText(
-        "4 actions open, 1 overdue; the last 3 retros got 7 of 12 actions done (58%)."
+        "4 actions open, 1 overdue; the last 2 retros got 6 of 8 actions done (75%)."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The latest retro, for Sprint 14 (4 actions), isn't rated until the next retro starts."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /Mad \/ Sad \/ Glad/ })).toBeInTheDocument();
@@ -563,7 +624,7 @@ describe("first run", () => {
     // The follow-through chart reads the example too.
     expect(
       screen.getByText(
-        "Share of each retro's actions done, oldest first: 75%, 75% and 25%. 7 of 12 actions done overall."
+        "Share of each retro's actions done, oldest first: 75% and 75%. 6 of 8 actions done overall."
       )
     ).toBeInTheDocument();
 
@@ -571,6 +632,11 @@ describe("first run", () => {
     expect(screen.getByLabelText("Done: Write the on-call guide")).toBeChecked();
     fireEvent.change(screen.getByLabelText(/^Action/), { target: { value: "Try it out" } });
     fireEvent.submit(screen.getByLabelText(/^Action/).closest("form") as HTMLFormElement);
+    expect(screen.getByText("Try it out")).toBeInTheDocument();
+    // Deleting stays in the page too.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Try it out" }));
+    expect(screen.queryByText("Try it out")).toBeNull();
+    undoLast();
     expect(screen.getByText("Try it out")).toBeInTheDocument();
 
     // The example's people aren't the team's: no "Add to the team", in a
@@ -591,6 +657,23 @@ describe("first run", () => {
     expect(screen.queryByText(/Example data\./)).toBeNull();
     expect(screen.queryByText("Try it out")).toBeNull();
     expect(screen.getByText(/No retro yet/)).toBeInTheDocument();
+  });
+
+  it("says where the example's quick add goes, not that the team has no retro in progress", () => {
+    const own = board(RETRO_CURRENT_ID, [card("x", "Not an action", { isActionItem: false })]);
+    seed([own]);
+    renderPage();
+    expect(screen.getByText("Goes in the Start column of the current retro.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(
+      screen.getByText(
+        /^In the example, it goes in the Mad column of its latest retro: Mad \/ Sad \/ Glad · .+ \(Sprint 14\)\. Nothing is saved\.$/
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No retro is in progress/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/^Action/), { target: { value: "Try it out" } });
+    fireEvent.submit(screen.getByLabelText(/^Action/).closest("form") as HTMLFormElement);
+    expect(ws().retroBoards).toEqual([own]);
   });
 });
 
@@ -870,6 +953,28 @@ describe("the owner filter", () => {
     expect(screen.getByText("Retro notes in the wiki")).toBeInTheDocument();
     expect(screen.queryByText("Pair on the flaky tests")).toBeNull();
   });
+
+  it("keeps showing the chosen owner when the option's spelling changes under it", () => {
+    seed([
+      BEFORE,
+      LAST,
+      { ...CURRENT, cards: [card("c1", "Write the on-call guide", { assignee: "sam" })] },
+    ]);
+    renderPage();
+    const select = screen.getByLabelText("Filter by owner") as HTMLSelectElement;
+    // The current retro's "sam" is seen first, so it spells the option.
+    fireEvent.change(select, { target: { value: "sam" } });
+    expect(select.value).toBe("sam");
+    const owner = editOwner("Write the on-call guide");
+    fireEvent.change(owner, { target: { value: "Sam" } });
+    fireEvent.submit(owner.closest("form") as HTMLFormElement);
+    // The option is "Sam" now; the select still shows it, not "Everyone".
+    expect(select.value).toBe("Sam");
+    expect(select.selectedOptions[0]?.textContent).toBe("Sam (2 open)");
+    expect(Array.from(select.options).filter((o) => /^Sam/i.test(o.value))).toHaveLength(1);
+    expect(screen.getByText("Pair on the flaky tests")).toBeInTheDocument();
+    expect(screen.queryByText("Fix the staging sandbox")).toBeNull();
+  });
 });
 
 describe("carry over", () => {
@@ -914,6 +1019,11 @@ describe("carry over", () => {
     const copy = within(current).getByRole("button", { name: /^Pair on the flaky tests/ });
     expect(copy).toHaveFocus();
     expect(within(current).getByText(/Carried over/)).toBeInTheDocument();
+
+    // Undo brings the original row back, and focus with it.
+    undoLast();
+    const past = screen.getByRole("region", { name: "Start / Stop / Continue · 5 Oct 2026" });
+    expect(within(past).getByRole("button", { name: /^Pair on the flaky tests/ })).toHaveFocus();
   });
 
   it("asks for a current retro first when there is none", () => {
@@ -922,6 +1032,46 @@ describe("carry over", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Carry over / })[0]);
     expect(toastSpy.error).toHaveBeenCalledWith("Open the Retro board and pick a format first.");
     expect(ws().retroBoards).toHaveLength(1);
+  });
+});
+
+describe("delete", () => {
+  it("takes a mistaken action off an archived retro, with Undo back in its place", () => {
+    renderPage();
+    const del = screen.getByRole("button", { name: "Delete Pair on the flaky tests" });
+    del.focus();
+    fireEvent.click(del);
+    expect(boardOf(LAST.id)?.cards.map((c) => c.id)).toEqual(["l2", "l3"]);
+    expect(toastLabels()).toContain("Deleted “Pair on the flaky tests”");
+    expect(logs.at(-1)).toEqual({
+      action: "action_removed",
+      payload: { boardId: LAST.id, cardId: "l1", text: "Pair on the flaky tests" },
+    });
+    expect(screen.queryByText("Pair on the flaky tests")).toBeNull();
+    // Focus moves on to the next row rather than dropping to the page.
+    expect(screen.getByRole("button", { name: /^Fix the staging sandbox/ })).toHaveFocus();
+    // It no longer counts as agreed: that retro got 1 of 2 done, not 1 of 3.
+    const md = () => screen.getByTestId("export-markdown").textContent ?? "";
+    expect(md()).toContain("| Sprint 14 | 2 | 1 | 0 | 1 | 50% |");
+    expect(md()).not.toContain("33%");
+
+    undoLast();
+    expect(boardOf(LAST.id)?.cards.map((c) => c.id)).toEqual(["l1", "l2", "l3"]);
+    expect(cardOf(LAST.id, "l1")).toEqual(LAST.cards[0]);
+    expect(screen.getByRole("button", { name: /^Pair on the flaky tests/ })).toHaveFocus();
+    expect(md()).toContain("| Sprint 14 | 3 | 1 | 0 | 2 | 33% |");
+  });
+
+  it("leaves the cards grouped under it on the board, and regroups them on Undo", () => {
+    const parent = card("g1", "Make the build faster", { isActionItem: true });
+    const child = card("g2", "CI takes 40 minutes", { isActionItem: false, groupedWith: "g1" });
+    seed([BEFORE, LAST, { ...CURRENT, cards: [...CURRENT.cards, parent, child] }]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Make the build faster" }));
+    expect(boardOf(RETRO_CURRENT_ID)?.cards.map((c) => c.id)).toEqual(["c1", "g2"]);
+    expect(cardOf(RETRO_CURRENT_ID, "g2")?.groupedWith).toBeNull();
+    undoLast();
+    expect(boardOf(RETRO_CURRENT_ID)?.cards).toEqual([...CURRENT.cards, parent, child]);
   });
 });
 
@@ -959,6 +1109,8 @@ describe("follow-through on the page", () => {
             sentTo: [{ route: "impediment", targetId: "imp-1", at: "2026-10-06" }],
           }),
         ]),
+        // The next retro has started, so the 5 Oct one is rated.
+        CURRENT,
       ],
       {
         impediments: [
@@ -976,6 +1128,27 @@ describe("follow-through on the page", () => {
     expect(
       screen.getByText(/the last 2 retros got 2 of 3 actions done \(67%\)/, { selector: "p" })
     ).toBeInTheDocument();
+  });
+
+  it("doesn't rate the latest retro while it is still being followed up", () => {
+    seed([BEFORE, LAST]);
+    renderPage();
+    // No retro in progress: the 5 Oct retro is the one quick add files to,
+    // so only the one before it is rated.
+    expect(
+      screen.getByText("3 actions open, 1 overdue; the last retro got 1 of 2 actions done.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Hold 1 more retro with actions to see the follow-through per retro.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The latest retro, for Sprint 14 (3 actions), isn't rated until the next retro starts."
+      )
+    ).toBeInTheDocument();
+    const md = screen.getByTestId("export-markdown").textContent ?? "";
+    expect(md).toContain("| 2 | 1 | 0 | 1 | 50% |");
+    expect(md).not.toContain("| Sprint 14 |");
   });
 
   it("names the sprint a past retro looked back on in its heading", () => {

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { User } from "lucide-react";
+import { Trash2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { BlurInput } from "@/components/shared/blur-fields";
@@ -262,6 +263,8 @@ export interface ActionRowProps {
   onOwner: (action: RetroAction, owner: string) => void;
   onDueDate: (action: RetroAction, dueDate: string | undefined) => void;
   onCarryOver: (action: RetroAction) => void;
+  /** Delete it from its board (with Undo): a mistaken or doubled quick add, on any retro. */
+  onDelete: (action: RetroAction) => void;
   onLinksChange: (
     action: RetroAction,
     update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
@@ -271,7 +274,8 @@ export interface ActionRowProps {
 /**
  * One action: done (and the day it was done), its text (click to edit in
  * place), owner, due date, and for a past retro's open action, Carry over;
- * Send to… hands it to the impediments log or the Kanban board.
+ * Send to… hands it to the impediments log or the Kanban board, and Delete
+ * takes it off its board.
  */
 export function ActionRow({
   action: a,
@@ -285,6 +289,7 @@ export function ActionRow({
   onOwner,
   onDueDate,
   onCarryOver,
+  onDelete,
   onLinksChange,
 }: ActionRowProps) {
   const edit = useInlineEdit();
@@ -386,6 +391,12 @@ export function ActionRow({
           sentTo={a.sentTo}
           onLinksChange={(update) => onLinksChange(a, update)}
           className="h-9"
+        />
+        <IconButton
+          label={`Delete ${a.text}`}
+          icon={<Trash2 className="h-4 w-4" />}
+          className="h-9 w-9 text-sub hover:text-danger"
+          onClick={() => onDelete(a)}
         />
       </div>
     </li>

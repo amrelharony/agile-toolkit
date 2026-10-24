@@ -61,7 +61,8 @@ function board(key: string, format: RetroFormat, archivedAt: string, cards: Retr
  * a copy carried into Sprint 13); Sprint 13 also three of four, one of them
  * closed when the impediment it was sent to was resolved, and one carried
  * on into Sprint 14; Sprint 14's retro was three days ago and only one of
- * its four is done yet, one already overdue. 7 of 12 overall.
+ * its four is done yet, one already overdue. It is the retro being followed
+ * up, so it isn't rated yet: 6 of 8 for the two before it.
  *
  * Everything carries `example-` ids and stays in the page's memory: the
  * cockpit and the agent never count it.

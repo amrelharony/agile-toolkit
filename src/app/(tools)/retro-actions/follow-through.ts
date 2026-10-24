@@ -5,13 +5,12 @@
  */
 
 import type { RetroFollowThrough } from "@/lib/retro/actions";
+import type { RetroBoard } from "@/lib/stores/workspace-types";
+import { enoughData } from "@/lib/analytics/min-sample";
 import { NO_VALUE, listAnd, type ChartText } from "@/lib/charts/chart-text";
 
 /** Fewer rated retros than this and a "per retro" chart is one bar: the verdict says it better. */
 export const CHART_MIN_RETROS = 2;
-
-/** Above this many retros the summary gives the first and last rate instead of listing all. */
-const LIST_RATES_UP_TO = 4;
 
 /** Looks a sprint's name up by id (undefined when the board names none, or it's gone). */
 export type SprintNameOf = (sprintId: string | undefined) => string | undefined;
@@ -19,6 +18,23 @@ export type SprintNameOf = (sprintId: string | undefined) => string | undefined;
 /** Retros that agreed at least one action: the only ones with a rate. */
 export function ratedRetros(rows: readonly RetroFollowThrough[]): RetroFollowThrough[] {
   return rows.filter((r) => r.agreed > 0);
+}
+
+/**
+ * The retros that can be rated, and the one still being followed up: the
+ * board quick add files to (quickAddBoard). That is the current retro while
+ * there is one, which isn't in `rows` at all, else the newest archive, whose
+ * actions may be a day old: rating it would pull the rate down for actions
+ * that have barely started. A retro is rated once the next one starts.
+ */
+export function settleRetros(
+  rows: readonly RetroFollowThrough[],
+  followingUp: Pick<RetroBoard, "id" | "archivedAt"> | undefined
+): { settled: RetroFollowThrough[]; pending?: RetroFollowThrough } {
+  const pending = followingUp?.archivedAt
+    ? rows.find((r) => r.boardId === followingUp.id)
+    : undefined;
+  return pending ? { settled: rows.filter((r) => r !== pending), pending } : { settled: [...rows] };
 }
 
 /** "58%"; NO_VALUE when nothing was agreed. */
@@ -97,10 +113,11 @@ export function followThroughText(
   }
   const rates = rated.map((r) => pct(r.rate));
   const { agreed, done } = totals(rated);
-  const shape =
-    rated.length <= LIST_RATES_UP_TO
-      ? `Share of each retro's actions done, oldest first: ${listAnd(rates)}.`
-      : `Share of each retro's actions done, oldest first: from ${rates[0]} to ${rates[rates.length - 1]} across ${rated.length} retros.`;
+  // A first-to-last range reads as a trend, so below MIN_SAMPLE.trend
+  // retros every rate is listed instead.
+  const shape = enoughData(rated.length, "trend")
+    ? `Share of each retro's actions done, oldest first: from ${rates[0]} to ${rates[rates.length - 1]} across ${rated.length} retros.`
+    : `Share of each retro's actions done, oldest first: ${listAnd(rates)}.`;
   return {
     summary: `${shape} ${done} of ${agreed} ${agreed === 1 ? "action" : "actions"} done overall.`,
     table,

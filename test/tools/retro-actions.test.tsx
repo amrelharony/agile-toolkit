@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Impediment, RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
 import { retroFormats } from "@/lib/constants/retro-formats";
@@ -98,7 +99,7 @@ afterEach(() => {
 
 describe("Retro Actions", () => {
   it("opens on the open actions, current retro first, with the counts", () => {
-    render(<RetroActionsTracker />);
+    render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     const open = screen.getByRole("button", { name: /^Open/ });
     expect(open).toHaveAttribute("aria-pressed", "true");
     expect(open).toHaveTextContent("3");
@@ -115,7 +116,7 @@ describe("Retro Actions", () => {
   });
 
   it("filters by done and by owner", () => {
-    render(<RetroActionsTracker />);
+    render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: /^Done/ }));
     expect(screen.getByText("Shorter planning")).toBeInTheDocument();
     expect(screen.queryByText("Pair on the flaky tests")).toBeNull();
@@ -126,7 +127,7 @@ describe("Retro Actions", () => {
   });
 
   it("marks an action done on its own (archived) board, and open again", () => {
-    render(<RetroActionsTracker />);
+    render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByLabelText("Done: Pair on the flaky tests"));
     expect(cardOf(LAST.id, "l1")).toMatchObject({ done: true });
     expect(cardOf(LAST.id, "l1")?.doneAt).toBeTruthy();
@@ -140,7 +141,7 @@ describe("Retro Actions", () => {
   });
 
   it("closes an action by itself once the impediment it was sent to is resolved", () => {
-    const { rerender } = render(<RetroActionsTracker />);
+    const { rerender } = render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     expect(screen.getByLabelText("Done: Fix the staging sandbox")).not.toBeChecked();
     useWorkspaceStore.setState({ impediments: [{ ...IMP_OPEN, resolvedAt: "2026-10-20" }] });
     rerender(<RetroActionsTracker />);
@@ -152,7 +153,7 @@ describe("Retro Actions", () => {
   });
 
   it("edits the owner and the due date in place", () => {
-    render(<RetroActionsTracker />);
+    render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: /^Owner of Write the on-call guide:/ }));
     const owner = screen.getByLabelText("Owner of Write the on-call guide");
     fireEvent.change(owner, { target: { value: "Dev" } });
@@ -165,7 +166,7 @@ describe("Retro Actions", () => {
   });
 
   it("carries a past action onto the current board", () => {
-    render(<RetroActionsTracker />);
+    render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     const past = screen.getAllByRole("region")[1];
     fireEvent.click(within(past).getAllByRole("button", { name: /^Carry over / })[0]);
     const current = state().retroBoards?.find((b) => b.id === RETRO_CURRENT_ID);
@@ -176,7 +177,7 @@ describe("Retro Actions", () => {
   });
 
   it("exports the list as a Markdown checklist", () => {
-    render(<RetroActionsTracker />);
+    render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     const md = screen.getByTestId("export-markdown").textContent ?? "";
     expect(md).toContain("# Retro actions");
     expect(md).toContain("3 open (1 overdue) · 1 done");
@@ -186,7 +187,7 @@ describe("Retro Actions", () => {
 
   it("points at the Retro board when there are no actions yet", () => {
     useWorkspaceStore.setState({ retroBoards: [] });
-    render(<RetroActionsTracker />);
+    render(<RetroActionsTracker />, { wrapper: TooltipProvider });
     expect(screen.getByRole("link", { name: "Open the Retro board" })).toHaveAttribute(
       "href",
       "/retro"
