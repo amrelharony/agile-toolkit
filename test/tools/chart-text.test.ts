@@ -197,19 +197,20 @@ describe("DORA scorecard", () => {
 });
 
 describe("cumulative flow", () => {
-  const columns = [
-    { id: "1", name: "To Do", color: "#64748b" },
-    { id: "2", name: "In Progress", color: "#00f0ff" },
-    { id: "3", name: "In Review", color: "#ff00aa" },
-    { id: "4", name: "Done", color: "#00ff88" },
+  // Stages keyed by id, as the page passes them (typed columns or a board's workflow).
+  const stages = [
+    { id: "1", label: "To Do", kind: "queue" as const },
+    { id: "2", label: "In Progress", kind: "active" as const },
+    { id: "3", label: "In Review", kind: "active" as const },
+    { id: "4", label: "Done", kind: "done" as const },
   ];
 
-  it("follows the last column and the work in progress", () => {
+  it("follows the done stage and the work in progress", () => {
     const rows = [
-      { date: "2026-10-01", "To Do": 10, "In Progress": 3, "In Review": 1, Done: 2 },
-      { date: "2026-10-12", "To Do": 4, "In Progress": 5, "In Review": 4, Done: 14 },
+      { date: "2026-10-01", counts: { "1": 10, "2": 3, "3": 1, "4": 2 } },
+      { date: "2026-10-12", counts: { "1": 4, "2": 5, "3": 4, "4": 14 } },
     ];
-    const text = flowChartText(rows, columns);
+    const text = flowChartText(rows, stages);
     expect(text.summary).toBe(
       "Done rose from 2 to 14 items between 2026-10-01 and 2026-10-12; 9 items in progress on the last day."
     );
@@ -311,7 +312,7 @@ describe("cycle time, NPS / CSAT and mood", () => {
       { bucket: "8-14 days", count: 1 },
       { bucket: "15+ days", count: 0 },
     ];
-    expect(histogramText(bars, { median: 3, p85: 7 }, 14).summary).toBe(
+    expect(histogramText(bars, { median: 3, p85: 7, p95: 14 }).summary).toBe(
       "13 items: half finished within 3 days, 85% within 7 and 95% within 14; the most common range is 3-4 days (5 items)."
     );
   });
