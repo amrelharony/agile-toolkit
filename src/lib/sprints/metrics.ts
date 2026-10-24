@@ -3,6 +3,8 @@
  *
  *   - `velocity`      mean completed points of the latest finished sprints,
  *                     latest by end date (never the order they were stored);
+ *   - `predictability` how often the latest pointed sprints met their
+ *                     commitment, from the graded say/do;
  *   - `sayDoRatio`    completed vs committed, graded rather than pass/fail;
  *   - `projectFinish` where a least-squares trend reaches a target;
  *   - `percentile`    one method (nearest rank);
@@ -214,28 +216,55 @@ function sortDay(s: Sprint, by: "endDate" | "startDate"): number {
 }
 
 /**
+ * Sprints oldest first by `by` (the end date unless told otherwise): the
+ * order velocity, trends and charts share. Undated sprints count as the
+ * oldest; ties keep their stored order.
+ */
+export function sprintsByEndDate<T extends Sprint>(
+  sprints: readonly T[],
+  by: "endDate" | "startDate" = "endDate"
+): T[] {
+  return sprints
+    .map((s, i) => ({ s, i, day: sortDay(s, by) }))
+    .sort((a, b) => (a.day === b.day ? a.i - b.i : a.day - b.day))
+    .map(({ s }) => s);
+}
+
+/** A finished sprint with a completed number: one velocity counts. */
+function isFinished(s: Sprint): boolean {
+  return (
+    s.status === "completed" &&
+    typeof s.pointsCompleted === "number" &&
+    Number.isFinite(s.pointsCompleted)
+  );
+}
+
+/**
+ * A finished sprint the team pointed: a positive commitment and a completed
+ * number. A sprint closed with 0 committed points (a team that doesn't
+ * estimate, or a placeholder) would read as 0% predictable or skew a
+ * per-person rate, so trends and the health dashboard leave it out.
+ */
+export function isPointedSprint(s: Sprint): boolean {
+  return isFinished(s) && Number.isFinite(s.pointsPlanned) && s.pointsPlanned > 0;
+}
+
+function windowOf(requested: number | undefined, fallback: number): number {
+  if (requested === Number.POSITIVE_INFINITY) return requested;
+  return typeof requested === "number" && Number.isFinite(requested) && requested >= 1
+    ? Math.floor(requested)
+    : fallback;
+}
+
+/**
  * Velocity over the latest `window` completed sprints that have completed
  * points, latest by `by` (undated sprints count as the oldest; ties keep
  * their stored order).
  */
 export function velocity(sprints: readonly Sprint[], options: VelocityOptions = {}): Velocity {
   const { window: requested = DEFAULT_VELOCITY_WINDOW, by = "endDate" } = options;
-  const window =
-    requested === Number.POSITIVE_INFINITY
-      ? requested
-      : Number.isFinite(requested) && requested >= 1
-        ? Math.floor(requested)
-        : DEFAULT_VELOCITY_WINDOW;
-  const finished = sprints
-    .filter(
-      (s) =>
-        s.status === "completed" &&
-        typeof s.pointsCompleted === "number" &&
-        Number.isFinite(s.pointsCompleted)
-    )
-    .map((s, i) => ({ s, i, day: sortDay(s, by) }))
-    .sort((a, b) => (a.day === b.day ? a.i - b.i : a.day - b.day))
-    .map(({ s }) => s);
+  const window = windowOf(requested, DEFAULT_VELOCITY_WINDOW);
+  const finished = sprintsByEndDate(sprints.filter(isFinished), by);
   const used = window === Number.POSITIVE_INFINITY ? finished : finished.slice(-window);
   const points = used.map((s) => s.pointsCompleted as number);
   return {
@@ -243,6 +272,79 @@ export function velocity(sprints: readonly Sprint[], options: VelocityOptions = 
     count: points.length,
     points,
     sprintIds: used.map((s) => s.id),
+  };
+}
+
+/**
+ * The velocity as it stood after each finished sprint, oldest first: the
+ * mean of that sprint and the `window - 1` finished before it (fewer at the
+ * start). For a rolling-average line on a velocity chart.
+ */
+export function rollingVelocity(
+  sprints: readonly Sprint[],
+  window: number = DEFAULT_VELOCITY_WINDOW,
+  by: "endDate" | "startDate" = "endDate"
+): { sprintId: string; average: number }[] {
+  const w = windowOf(window, DEFAULT_VELOCITY_WINDOW);
+  const finished = sprintsByEndDate(sprints.filter(isFinished), by);
+  return finished.map((s, i) => {
+    const used = finished.slice(w === Number.POSITIVE_INFINITY ? 0 : Math.max(0, i - w + 1), i + 1);
+    const sum = used.reduce((a, x) => a + (x.pointsCompleted as number), 0);
+    return { sprintId: s.id, average: round1(sum / used.length) };
+  });
+}
+
+/* ── Predictability ──────────────────────────────────────────────────── */
+
+/** How many pointed sprints predictability looks at unless told otherwise. */
+export const DEFAULT_PREDICTABILITY_WINDOW = 6;
+
+export interface SprintSayDo extends SayDo {
+  sprintId: string;
+  name: string;
+  endDate: string;
+}
+
+export interface Predictability {
+  /** % of the window's pointed sprints that met their commitment (90–110%); null with none. */
+  pct: number | null;
+  /** Mean say/do % across them; null with none. */
+  meanSayDoPct: number | null;
+  /** Pointed sprints it looked at. */
+  count: number;
+  byGrade: Record<SayDoGrade, number>;
+  /** The sprints, oldest first by end date. */
+  sprints: SprintSayDo[];
+}
+
+/**
+ * How predictable the team is: of the latest `window` pointed sprints
+ * (default 6), how many met their commitment, with the graded say/do of
+ * each. Unpointed sprints are left out (see `isPointedSprint`). Quote a
+ * trend in it only from MIN_SAMPLE.trend sprints.
+ */
+export function predictability(
+  sprints: readonly Sprint[],
+  { window, by = "endDate" }: { window?: number; by?: "endDate" | "startDate" } = {}
+): Predictability {
+  const w = windowOf(window, DEFAULT_PREDICTABILITY_WINDOW);
+  const pointed = sprintsByEndDate(sprints.filter(isPointedSprint), by);
+  const used = w === Number.POSITIVE_INFINITY ? pointed : pointed.slice(-w);
+  const byGrade: Record<SayDoGrade, number> = { met: 0, close: 0, missed: 0, over: 0 };
+  const rows: SprintSayDo[] = [];
+  for (const s of used) {
+    const sd = sayDoRatio(s.pointsPlanned, s.pointsCompleted);
+    if (!sd) continue;
+    byGrade[sd.grade]++;
+    rows.push({ ...sd, sprintId: s.id, name: s.name, endDate: s.endDate });
+  }
+  const count = rows.length;
+  return {
+    pct: count === 0 ? null : Math.round((byGrade.met / count) * 100),
+    meanSayDoPct: count === 0 ? null : Math.round(rows.reduce((a, r) => a + r.pct, 0) / count),
+    count,
+    byGrade,
+    sprints: rows,
   };
 }
 
