@@ -30,6 +30,7 @@ vi.mock("recharts", () => {
     Line: Nothing,
     Area: Nothing,
     ReferenceLine: Nothing,
+    ReferenceArea: Nothing,
     ReferenceDot: Nothing,
   };
 });
@@ -101,8 +102,9 @@ describe("Burnup chart text alternative", () => {
       </TooltipProvider>
     );
     const figure = screen.getByRole("figure", { name: "Burnup chart" });
+    // The sprint has weekends, shaded now that the chart counts working days.
     expect(figure).toHaveAccessibleDescription(
-      "11 of 30 points done by day 2 (37%); scope stayed at 30 points."
+      "11 of 30 points done by day 2 (37%); scope stayed at 30 points. Days off are shaded."
     );
 
     const toggle = within(figure).getByRole("button", { name: "View as table" });

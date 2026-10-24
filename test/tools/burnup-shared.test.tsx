@@ -161,7 +161,9 @@ describe("Burnup on a shared sprint", () => {
   it("edits the shared Sprint's length and planned points", () => {
     renderBurnup();
     expect(
-      screen.getByText("Shared with Burndown, Velocity and Sprint Metrics.", { exact: false })
+      screen.getByText("Shared with Burndown, Velocity, Sprint Metrics and the Sprint cockpit.", {
+        exact: false,
+      })
     ).toBeInTheDocument();
 
     const length = screen.getByLabelText("Length (days)");
@@ -178,8 +180,10 @@ describe("Burnup on a shared sprint", () => {
     // The plan is day 0's scope.
     expect(scope(0)).toHaveAccessibleDescription("34 from the plan");
 
-    // Moving the start keeps the length.
+    // Moving the start keeps the length; it saves on blur (or Enter), never mid-typing.
     fireEvent.change(screen.getByLabelText("First day"), { target: { value: "2026-10-13" } });
+    expect(sprint("s-active")).toMatchObject({ startDate: "2026-10-12" });
+    fireEvent.blur(screen.getByLabelText("First day"));
     expect(sprint("s-active")).toMatchObject({ startDate: "2026-10-13", endDate: "2026-10-27" });
 
     expect(spy.logs).toEqual([
