@@ -103,7 +103,7 @@ describe("async posts are standup entries", () => {
     });
     expect(again).toMatchObject({ id: first.id, replaced: true });
     expect(ws().standupEntries).toHaveLength(1);
-    expect(ws().standupEntries[0]).toMatchObject({ today: "Ship", blockers: "" });
+    expect(ws().standupEntries?.[0]).toMatchObject({ today: "Ship", blockers: "" });
   });
 
   it("posting over an old async update keeps its id, so the day has one post", async () => {
@@ -158,7 +158,7 @@ describe("async posts are standup entries", () => {
     expect(state.openBlockers).toHaveLength(1);
 
     expect(await call("tool.standup.resolve_blocker", { id: "u1" })).toEqual({ updated: true });
-    expect(ws().standupEntries.find((e) => e.id === "u1")).toMatchObject({
+    expect(ws().standupEntries?.find((e) => e.id === "u1")).toMatchObject({
       mode: "async",
       blockers: "VPN",
       blockerResolved: true,
