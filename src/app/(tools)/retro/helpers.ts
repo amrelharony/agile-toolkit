@@ -106,6 +106,17 @@ export function removeCardWithGroup(
 }
 
 /**
+ * The cards without `ids` (an Undo taking back cards it added), with any
+ * card grouped under one of them standing on its own again: a column draws
+ * only top-level cards and their children, so an orphan would vanish.
+ */
+export function withoutCards(cards: readonly RetroCard[], ids: ReadonlySet<string>): RetroCard[] {
+  return cards
+    .filter((c) => !ids.has(c.id))
+    .map((c) => (c.groupedWith && ids.has(c.groupedWith) ? { ...c, groupedWith: null } : c));
+}
+
+/**
  * Undo for `removeCardWithGroup`: put the removed cards back at their old
  * positions (from `snapshot`, the cards before the delete) and re-hook the
  * survivors that were unhooked from them. Edits made since are kept, cards

@@ -1,6 +1,6 @@
 import type { BoardState, RetroCard } from "./types";
 import type { FactLine } from "./facts-text";
-import type { KeywordTheme } from "./themes";
+import { themeCardTexts, type KeywordTheme } from "./themes";
 import { sortedByVotes } from "./helpers";
 
 /** "18 Oct 2026" */
@@ -38,14 +38,13 @@ function factsSection(facts: readonly FactLine[]): string[] {
 
 /** "- flaky (3 cards): Flaky UI tests; Flaky deploys; …" for each common word. */
 function themesSection(themes: readonly KeywordTheme[], cards: readonly RetroCard[]): string[] {
-  const text = new Map(cards.map((c) => [c.id, oneLine(c.text)]));
   return [
     "",
     "## Common words",
     "",
     ...themes.map((t) => {
       const n = t.cardIds.length;
-      const list = t.cardIds.map((id) => text.get(id) ?? "").filter(Boolean);
+      const list = themeCardTexts(t, cards).map(oneLine);
       return `- ${oneLine(t.keyword)} (${n} ${n === 1 ? "card" : "cards"}): ${list.join("; ")}`;
     }),
   ];

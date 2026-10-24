@@ -7,18 +7,31 @@
  * budget. Without a team roster the facilitator types the names in.
  */
 
-import { useState } from "react";
 import Link from "next/link";
 import { UserPlus } from "lucide-react";
+import { useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
+import type { Validation } from "@/lib/utils/form";
 import { MAX_VOTES } from "../types";
 import { votesCastBy } from "../helpers";
 
 /** The "Me (single voter)" choice: no name, so votes count in `userVotes`. */
 export const SINGLE_VOTER = "";
+
+interface VoterDraft {
+  name: string;
+}
+
+const EMPTY_VOTER: VoterDraft = { name: "" };
+
+/** A voter typed in by hand: a name, trimmed. */
+export function validateVoterName(draft: VoterDraft): Validation<string, "name"> {
+  const name = draft.name.trim();
+  return name ? { ok: true, values: name } : { ok: false, errors: { name: "Type a name first." } };
+}
 
 export function VoterPicker({
   names,
@@ -38,7 +51,12 @@ export function VoterPicker({
   showAddVoter: boolean;
   onAddVoter: (name: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  // Draft-then-save: an empty Enter says what's missing instead of doing nothing.
+  const form = useItemForm<VoterDraft, string, "name">({
+    initial: EMPTY_VOTER,
+    validate: validateVoterName,
+    onSave: onAddVoter,
+  });
 
   const options: ToggleOption<string>[] = [
     { value: SINGLE_VOTER, label: "Me (single voter)" },
@@ -47,13 +65,6 @@ export function VoterPicker({
       return { value: name, label: `${name} · ${left} left` };
     }),
   ];
-
-  function addVoter() {
-    const name = draft.trim();
-    if (!name) return;
-    onAddVoter(name);
-    setDraft("");
-  }
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2">
@@ -74,34 +85,31 @@ export function VoterPicker({
       </p>
       {showAddVoter && (
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              addVoter();
-            }}
-            className="flex items-end gap-1.5"
-          >
-            <Field label="Add a voter">
+          <form ref={form.formRef} onSubmit={form.submit} noValidate>
+            {/* The button sits in the field's row, so an error shows under both. */}
+            <Field label="Add a voter" error={form.errors.name}>
               {(props) => (
-                <Input
-                  {...props}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="Name"
-                  autoComplete="off"
-                  className="h-8 w-40 text-xs bg-cardH border-border text-text placeholder:text-sub"
-                />
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    {...props}
+                    value={form.draft.name}
+                    onChange={(e) => form.update({ name: e.target.value })}
+                    placeholder="Name"
+                    autoComplete="off"
+                    className="h-8 w-40 text-xs bg-cardH border-border text-text placeholder:text-sub"
+                  />
+                  {/* Never disabled: pressing it on an empty name is how the error shows. */}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3 text-xs border-border text-sub hover:border-accent-cyan/50 hover:text-accent"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" aria-hidden="true" /> Add voter
+                  </Button>
+                </div>
               )}
             </Field>
-            <Button
-              type="submit"
-              size="sm"
-              variant="outline"
-              disabled={!draft.trim()}
-              className="h-8 px-3 text-xs border-border text-sub hover:border-accent-cyan/50 hover:text-accent"
-            >
-              <UserPlus className="w-3.5 h-3.5" aria-hidden="true" /> Add voter
-            </Button>
           </form>
           <p className="text-xs text-sub">
             Or{" "}

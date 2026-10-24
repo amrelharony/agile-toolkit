@@ -64,6 +64,7 @@ export function RetroCardItem({
   phase,
   canVote,
   highlighted = false,
+  highlightWord,
   onVote,
   onDelete,
   onGroup,
@@ -80,8 +81,10 @@ export function RetroCardItem({
   column: RetroColumn;
   phase: BoardPhase;
   canVote: boolean;
-  /** Ringed: the card uses the common word picked under "Common words". */
+  /** Ringed: the card's group uses the common word picked under "Common words". */
   highlighted?: boolean;
+  /** That word, so a ringed card says it to screen readers (the ring is visual only). */
+  highlightWord?: string;
   onVote: (id: string) => void;
   onDelete: (id: string) => void;
   onGroup: (id: string, parentId: string | null) => void;
@@ -133,6 +136,9 @@ export function RetroCardItem({
       }`}
       data-highlighted={highlighted || undefined}
     >
+      {highlighted && highlightWord && (
+        <span className="sr-only">Ringed for “{highlightWord}”.</span>
+      )}
       <div className="flex items-start gap-2">
         {/* Action item checkbox in actions phase (a read-only mark for participants) */}
         {phase === "actions" && card.groupedWith === null && !canModerate && card.isActionItem && (

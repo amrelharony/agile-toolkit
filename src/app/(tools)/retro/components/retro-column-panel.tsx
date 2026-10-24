@@ -61,6 +61,7 @@ export function RetroColumnPanel({
   phase,
   votesUsed,
   highlightIds,
+  highlightWord,
   onAdd,
   onAddMany,
   onEdit,
@@ -84,6 +85,8 @@ export function RetroColumnPanel({
   votesUsed: number;
   /** Top-level cards to ring (a common word's cards); their grouped cards ring too. */
   highlightIds?: ReadonlySet<string>;
+  /** The common word they're ringed for, said to screen readers on each ringed card. */
+  highlightWord?: string;
   onAdd: (columnKey: string, text: string) => void;
   /** Add several cards at once (a multi-line paste). Falls back to `onAdd` per card. */
   onAddMany?: (columnKey: string, texts: string[]) => void;
@@ -214,6 +217,7 @@ export function RetroColumnPanel({
                     phase={phase}
                     canVote={canVote}
                     highlighted={ringed(card)}
+                    highlightWord={highlightWord}
                     onVote={onVote}
                     onDelete={onDelete}
                     onGroup={onGroup}
@@ -234,6 +238,7 @@ export function RetroColumnPanel({
                       phase={phase}
                       canVote={canVote}
                       highlighted={ringed(child)}
+                      highlightWord={highlightWord}
                       onVote={onVote}
                       onDelete={onDelete}
                       onGroup={onGroup}

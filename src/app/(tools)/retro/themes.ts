@@ -19,6 +19,12 @@ export interface KeywordTheme {
   keyword: string;
   /** Top-level cards that use it, most-voted first. A card grouped under one counts with it. */
   cardIds: string[];
+  /**
+   * For each of `cardIds`, the card of its group whose own text uses the
+   * word (the top card when it does), so the prompt and the export quote
+   * text that has the word in it.
+   */
+  usedBy: string[];
   /** Votes on those cards and the cards grouped under them. */
   votes: number;
 }
@@ -78,11 +84,23 @@ export function stem(word: string): string {
   return t;
 }
 
-/** The words of a card worth counting: lower-case, 3+ letters, stop words dropped. */
+/**
+ * What separates words: anything but a letter (in any script), a digit or
+ * an apostrophe. Built at run time, as the `u` flag is beyond the
+ * TypeScript target.
+ */
+const NOT_WORD = new RegExp("[^\\p{L}\\p{N}']+", "u");
+
+/**
+ * The words of a card worth counting: lower-case, 3+ letters, stop words
+ * dropped. Letters in any script count ("réunion", "Überstunden"), and a
+ * typographic apostrophe is an apostrophe.
+ */
 export function cardWords(text: string): string[] {
   return text
     .toLowerCase()
-    .split(/[^a-z0-9']+/)
+    .replace(/’/g, "'")
+    .split(NOT_WORD)
     .map((w) => w.replace(/'s$/, "").replace(/^'+|'+$/g, ""))
     .filter((w) => w.length >= 3 && w.length <= 30 && !/^\d+$/.test(w) && !STOP_WORDS.has(w));
 }
@@ -93,6 +111,8 @@ interface Item {
   votes: number;
   /** Stem → the spellings this item used. */
   stems: Map<string, string[]>;
+  /** Stem → the item's card that uses it (the top card when it does). */
+  usedBy: Map<string, string>;
 }
 
 /**
@@ -121,13 +141,14 @@ function boardItems(cards: readonly RetroCard[]): Item[] {
     const top = topCardId(c, byId);
     let item = items.get(top);
     if (!item) {
-      item = { id: top, votes: 0, stems: new Map() };
+      item = { id: top, votes: 0, stems: new Map(), usedBy: new Map() };
       items.set(top, item);
     }
     item.votes += Number.isFinite(c.votes) ? Math.max(0, c.votes) : 0;
     for (const word of cardWords(c.text)) {
       const s = stem(word);
       item.stems.set(s, [...(item.stems.get(s) ?? []), word]);
+      if (c.id === top || !item.usedBy.has(s)) item.usedBy.set(s, c.id);
     }
   }
   return Array.from(items.values());
@@ -186,13 +207,24 @@ export function keywordThemes(
     if (!best) break;
     const chosen = best;
     for (const i of chosen.items) taken.add(i.id);
+    const ranked = [...chosen.items].sort((a, b) => b.votes - a.votes);
     out.push({
       keyword: displayForm(chosen.items.flatMap((i) => i.stems.get(chosen.stem) ?? [])),
-      cardIds: [...chosen.items].sort((a, b) => b.votes - a.votes).map((i) => i.id),
+      cardIds: ranked.map((i) => i.id),
+      usedBy: ranked.map((i) => i.usedBy.get(chosen.stem) ?? i.id),
       votes: chosen.votes,
     });
   }
   return out;
+}
+
+/**
+ * The text a theme quotes, one card per group: the card that uses the word,
+ * so a word found only on a grouped card isn't quoted from its parent.
+ */
+export function themeCardTexts(theme: KeywordTheme, cards: readonly RetroCard[]): string[] {
+  const text = new Map(cards.map((c) => [c.id, c.text]));
+  return theme.usedBy.map((id) => text.get(id) ?? "").filter(Boolean);
 }
 
 /** The themes as the AI prompt takes them: each word with its cards' text. */
@@ -200,9 +232,5 @@ export function themesForPrompt(
   themes: readonly KeywordTheme[],
   cards: readonly RetroCard[]
 ): { keyword: string; cards: string[] }[] {
-  const text = new Map(cards.map((c) => [c.id, c.text]));
-  return themes.map((t) => ({
-    keyword: t.keyword,
-    cards: t.cardIds.map((id) => text.get(id) ?? "").filter(Boolean),
-  }));
+  return themes.map((t) => ({ keyword: t.keyword, cards: themeCardTexts(t, cards) }));
 }

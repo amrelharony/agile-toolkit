@@ -6,8 +6,8 @@
  * board as an action item) and "Send to…" (an impediment or a Kanban card).
  * Sending records the link on the archived card, so the next look shows
  * where it went. An action that got done (marked in Retro Actions, or its
- * impediment resolved, its Kanban card finished) says so: that is the
- * follow-through the retro starts by checking.
+ * impediment resolved, its Kanban card finished) says so, and isn't offered
+ * for carrying over: that is the follow-through the retro starts by checking.
  */
 
 import { useId, useMemo } from "react";
@@ -21,7 +21,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import type { RetroCard } from "../types";
-import { previousRetro, retroActionItems } from "../archive";
+import { pastRetros, retroActionItems } from "../archive";
 import { ExampleNotSent, RETRO_ACTION_ROUTES } from "./retro-card-item";
 
 /** Whether a hand-off target (an impediment, a Kanban card) is finished. */
@@ -52,12 +52,15 @@ function setArchivedCardLinks(
 }
 
 export function LastRetroActions({
-  previousRetroId,
+  retroId,
   cards,
   onCarryOver,
 }: {
-  /** The archive this board follows; the newest archive when absent. */
-  previousRetroId?: string;
+  /**
+   * The archive this board follows (useBoardFacts picks it, so this panel
+   * and the facts' "Last retro's actions" agree); null for none.
+   */
+  retroId: string | null;
   /** This board's cards, to tell which actions are already carried over. */
   cards: readonly RetroCard[];
   onCarryOver: (action: StoredRetroCard) => void;
@@ -67,8 +70,8 @@ export function LastRetroActions({
   useWorkspaceStore((s) => s.impediments);
   useWorkspaceStore((s) => s.kanbanBoards);
   const previous = useMemo(
-    () => previousRetro(boards ?? [], previousRetroId),
-    [boards, previousRetroId]
+    () => (retroId ? (pastRetros(boards ?? []).find((b) => b.id === retroId) ?? null) : null),
+    [boards, retroId]
   );
   const actions = useMemo(() => (previous ? retroActionItems(previous) : []), [previous]);
   const headingId = useId();
@@ -96,52 +99,56 @@ export function LastRetroActions({
         Check how each one went. Carry over the ones that are still open.
       </p>
       <ul className="space-y-1.5">
-        {actions.map((action) => (
-          <li
-            key={action.id}
-            className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-cardH px-2.5 py-1.5"
-          >
-            <span className="min-w-0 flex-1 break-words text-sm text-text">{action.text}</span>
-            {action.assignee && <span className="text-xs text-sub">{action.assignee}</span>}
-            {isActionDone(action, targetDone) && (
-              <span className="inline-flex items-center gap-1 text-xs text-success">
-                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                Done
-              </span>
-            )}
-            {carried.has(action.id) ? (
-              <span className="inline-flex items-center gap-1 text-xs text-success">
-                <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                Carried over
-              </span>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onCarryOver(action)}
-                aria-label={`Carry over ${action.text}`}
-                className="min-touch-coarse h-7 px-2 text-xs text-sub hover:text-accent"
-              >
-                Carry over
-              </Button>
-            )}
-            {isExampleId(action.id) ? (
-              <ExampleNotSent />
-            ) : (
-              <SendToMenu
-                routes={RETRO_ACTION_ROUTES}
-                item={{
-                  title: action.text,
-                  owner: action.assignee || undefined,
-                  sourceRef: { tool: "retro", id: action.id, doc: previous.id },
-                }}
-                sentTo={action.sentTo}
-                onLinksChange={(update) => setArchivedCardLinks(previous.id, action.id, update)}
-              />
-            )}
-          </li>
-        ))}
+        {actions.map((action) => {
+          const done = isActionDone(action, targetDone);
+          return (
+            <li
+              key={action.id}
+              className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-cardH px-2.5 py-1.5"
+            >
+              <span className="min-w-0 flex-1 break-words text-sm text-text">{action.text}</span>
+              {action.assignee && <span className="text-xs text-sub">{action.assignee}</span>}
+              {done && (
+                <span className="inline-flex items-center gap-1 text-xs text-success">
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Done
+                </span>
+              )}
+              {/* A done action isn't carried: its copy would be open work again. */}
+              {carried.has(action.id) ? (
+                <span className="inline-flex items-center gap-1 text-xs text-success">
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  Carried over
+                </span>
+              ) : done ? null : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onCarryOver(action)}
+                  aria-label={`Carry over ${action.text}`}
+                  className="min-touch-coarse h-7 px-2 text-xs text-sub hover:text-accent"
+                >
+                  Carry over
+                </Button>
+              )}
+              {isExampleId(action.id) ? (
+                <ExampleNotSent />
+              ) : (
+                <SendToMenu
+                  routes={RETRO_ACTION_ROUTES}
+                  item={{
+                    title: action.text,
+                    owner: action.assignee || undefined,
+                    sourceRef: { tool: "retro", id: action.id, doc: previous.id },
+                  }}
+                  sentTo={action.sentTo}
+                  onLinksChange={(update) => setArchivedCardLinks(previous.id, action.id, update)}
+                />
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

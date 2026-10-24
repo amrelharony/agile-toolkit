@@ -8,6 +8,7 @@
  * the team's back. "Not linked" is a real choice too.
  */
 
+import { useRef } from "react";
 import Link from "next/link";
 import { Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ export function RetroSprintPicker({
   sprintGone?: boolean;
   className?: string;
 }) {
+  const boxRef = useRef<HTMLDivElement>(null);
   if (sprints.length === 0) {
     return (
       <p className={`text-xs text-sub ${className ?? ""}`}>
@@ -42,12 +44,12 @@ export function RetroSprintPicker({
   }
   const selected = sprintId && sprints.some((s) => s.id === sprintId) ? sprintId : undefined;
   return (
-    <div className={`flex flex-wrap items-end gap-x-3 gap-y-1 ${className ?? ""}`}>
-      {/* Keyed so "Not linked" clears the select back to its placeholder. */}
+    <div ref={boxRef} className={`flex flex-wrap items-end gap-x-3 gap-y-1 ${className ?? ""}`}>
+      {/* "" (not undefined) clears the select back to its placeholder, so it
+          never remounts and a pick keeps focus on it. */}
       <SprintPicker
-        key={selected ?? "none"}
         sprints={sprints}
-        selectedId={selected}
+        selectedId={selected ?? ""}
         onSelect={(id) => onChange(id)}
         label="Retro for"
         allowCreate={false}
@@ -57,7 +59,11 @@ export function RetroSprintPicker({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => onChange(undefined)}
+          onClick={() => {
+            // Unlink goes away with the link: focus moves to the select first.
+            boxRef.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus();
+            onChange(undefined);
+          }}
           className="min-touch-coarse h-9 gap-1 text-xs text-sub hover:text-accent"
         >
           <Unlink className="h-3.5 w-3.5" aria-hidden="true" />

@@ -132,6 +132,10 @@ describe("retro toMarkdown", () => {
 });
 
 describe("retro example", () => {
+  // The notice is one status line among others (the "Common words" count).
+  const exampleNotice = () =>
+    screen.queryByText("Example data.")?.closest('[role="status"]') ?? null;
+
   it("is a voted Start / Stop / Continue board with two owned action items", () => {
     const board = buildExample();
     expect(board.format.id).toBe("start-stop-continue");
@@ -155,7 +159,7 @@ describe("retro example", () => {
     render(<RetroClient />);
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Example data.");
+    expect(exampleNotice()).not.toBeNull();
     expect(screen.getByText("Pair on the flaky checkout UI tests")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(history.log).not.toHaveBeenCalled();
@@ -173,7 +177,7 @@ describe("retro example", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(current()?.cards.map((c) => c.id)).toEqual(["mine"]);
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(exampleNotice()).toBeNull();
     expect(screen.getByText("Keep the Friday demo")).toBeInTheDocument();
     expect(screen.queryByText("Pair on the flaky checkout UI tests")).toBeNull();
     expect(history.log).not.toHaveBeenCalled();
@@ -224,6 +228,6 @@ describe("retro example", () => {
     render(<RetroClient />);
     expect(screen.getByText("Rotate the facilitator")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(exampleNotice()).toBeNull();
   });
 });

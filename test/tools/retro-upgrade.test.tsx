@@ -73,7 +73,9 @@ vi.mock("framer-motion", async () => {
 });
 
 import { RetroClient } from "@/app/(tools)/retro/retro-client";
-import { EXAMPLE_FACTS } from "@/app/(tools)/retro/example";
+import { EXAMPLE_FACTS, buildExample } from "@/app/(tools)/retro/example";
+import { withClosedSprintSayDo } from "@/app/(tools)/retro/use-board-facts";
+import { closeSprint } from "@/app/(tools)/sprint/close";
 import { factLines } from "@/app/(tools)/retro/facts-text";
 import { kudosCardText, kudosCards } from "@/app/(tools)/retro/kudos";
 import { toMarkdown } from "@/app/(tools)/retro/markdown";
@@ -323,8 +325,51 @@ describe("common words (keyword grouping)", () => {
     ];
     const [merge] = keywordThemes(board);
     // "merges", "merging" and "merge" once each: the shortest spelling shows.
-    expect(merge).toEqual({ keyword: "merge", cardIds: ["q", "p"], votes: 7 });
+    expect(merge).toEqual({
+      keyword: "merge",
+      cardIds: ["q", "p"],
+      usedBy: ["q", "p"],
+      votes: 7,
+    });
     expect(themeCardCount(board)).toBe(4);
+  });
+
+  it("quotes the grouped card that uses a word, not its parent", () => {
+    const board = [
+      card("p", "stop", { text: "Release day chaos", votes: 2 }),
+      card("child", "stop", { text: "Flaky deploys", groupedWith: "p" }),
+      card("q", "stop", { text: "Flaky tests" }),
+      card("x1", "start", { text: "Retro snacks" }),
+      card("x2", "start", { text: "Office plants" }),
+    ];
+    const [flaky] = keywordThemes(board);
+    expect(flaky).toMatchObject({ keyword: "flaky", cardIds: ["p", "q"], usedBy: ["child", "q"] });
+    expect(themesForPrompt([flaky], board)).toEqual([
+      { keyword: "flaky", cards: ["Flaky deploys", "Flaky tests"] },
+    ]);
+    const md = toMarkdown({ format: startStop, cards: board }, new Date(2026, 9, 18), {
+      themes: [flaky],
+    });
+    expect(md).toContain("- flaky (2 cards): Flaky deploys; Flaky tests\n");
+    expect(md).not.toContain("(2 cards): Release day chaos");
+  });
+
+  it("reads words in any script, with either apostrophe", () => {
+    expect(cardWords("Réunion trop longue, réunion inutile")).toEqual([
+      "réunion",
+      "trop",
+      "longue",
+      "réunion",
+      "inutile",
+    ]);
+    expect(cardWords("Тесты падают на CI")).toEqual(["тесты", "падают"]);
+    expect(cardWords("The team’s demo")).toEqual(["demo"]);
+    const themes = keywordThemes(
+      ["Réunion trop longue", "Une réunion de plus", "Café", "Musique", "Plantes"].map((t, i) =>
+        card(`f${i}`, "start", { text: t })
+      )
+    );
+    expect(themes.map((t) => [t.keyword, t.cardIds])).toEqual([["réunion", ["f0", "f1"]]]);
   });
 
   it("leaves out a word most cards use, and boards too small to group", () => {
@@ -530,22 +575,40 @@ describe("the facts as sentences", () => {
     );
     const typed = { ...base, fromStories: false, sayDo: sayDoRatio(10, 10) };
     expect(sentence({ ...typed, committed: 10, completed: 10 }, "sayDo")).toBe(
-      "10 of 10 committed points done (as typed on the sprint): say/do 100%, met the commitment."
+      "10 of 10 committed points done (as recorded on the sprint): say/do 100%, met the commitment."
     );
   });
 
-  it("asks for dates instead of counting a sprint without them", () => {
+  it("asks for dates instead of reading a sprint without them, its burndown too", () => {
+    // A burndown read against no days (or the old 2020 placeholders) says nothing.
     const lines = factLines({ ...base, dated: false });
-    expect(lines.map((l) => l.key)).toEqual([
-      "goal",
-      "sayDo",
-      "burndown",
-      "dates",
-      "followThrough",
-    ]);
+    expect(lines.map((l) => l.key)).toEqual(["goal", "sayDo", "dates", "followThrough"]);
     expect(lines.find((l) => l.key === "dates")?.sentence).toBe(
-      "Sprint 9 has no dates yet, so the impediments, mood and kudos from it can't be counted."
+      "Sprint 9 has no dates yet, so its burndown and the impediments, mood and kudos from it can't be read."
     );
+  });
+
+  it("tells none raised from never logged, and nothing finished from no data", () => {
+    const quiet: RetroFacts = {
+      ...base,
+      impediments: { raised: 0, resolvedInSprint: 0, stillOpen: 0, escalated: 0 },
+      burndown: { shape: "none", lateShare: null, sentence: "No pointed story was finished." },
+    };
+    const line = (key: string, opts?: Parameters<typeof factLines>[1]) =>
+      factLines(quiet, opts).find((l) => l.key === key)!;
+    expect(line("impediments")).toMatchObject({
+      sentence: "No impediments were raised during Sprint 9.",
+      missing: false,
+    });
+    expect(line("impediments", { impedimentsRecorded: false })).toMatchObject({
+      sentence: "No impediments recorded in Impediments yet.",
+      missing: true,
+    });
+    // Nothing finished is a finding: shown as one, not muted.
+    expect(line("burndown")).toMatchObject({
+      sentence: "No pointed story was finished.",
+      missing: false,
+    });
   });
 });
 
@@ -642,6 +705,52 @@ describe("New Retro's undo", () => {
     ]);
     expect(back.timerRunning).toBe(false);
     expect(boardBeforeNewRetro(before, undefined, undefined).cards).toEqual(before.cards);
+  });
+
+  it("puts a new board's cards in the old format's columns, and folds a carried copy back", () => {
+    const k1 = { route: "kanban" as const, targetId: "k1", at: "2026-10-01T10:00:00.000Z" };
+    const i9 = { route: "impediment" as const, targetId: "i9", at: "2026-10-02T10:00:00.000Z" };
+    const action = card("a", "start", { text: "Pair on tests", isActionItem: true });
+    const before = board("retro:current", { cards: [action] });
+    const archive = board("retro:x", {
+      archivedAt: "2026-10-01",
+      cards: [{ ...action, sentTo: [k1] }],
+    });
+    // Started since in Mad / Sad / Glad: columns Start / Stop / Continue lacks.
+    const started = board("retro:current", {
+      format: madSadGlad,
+      cards: [
+        card("g", "glad", { text: "Nice demo" }),
+        card("g2", "glad", { text: "Same here", groupedWith: "g" }),
+        card("copy", "mad", {
+          text: "Pair on tests",
+          isActionItem: true,
+          carriedFrom: "a",
+          assignee: "Sam",
+          done: true,
+          doneAt: "2026-10-02T10:00:00.000Z",
+          sentTo: [k1, i9],
+        }),
+        card("under", "mad", { text: "Under the copy", groupedWith: "copy" }),
+      ],
+    });
+    const back = boardBeforeNewRetro(before, archive, started);
+    expect(back.format.id).toBe(startStop.id);
+    expect(back.cards.map((c) => [c.id, c.columnKey, c.groupedWith])).toEqual([
+      ["a", "start", null],
+      ["g", "start", null],
+      ["g2", "start", "g"],
+      ["under", "start", null],
+    ]);
+    // The original is back with what its copy got since; the copy is gone.
+    expect(back.cards[0]).toMatchObject({
+      assignee: "Sam",
+      done: true,
+      doneAt: "2026-10-02T10:00:00.000Z",
+      sentTo: [k1, i9],
+    });
+    const keys = new Set(startStop.columns.map((c) => c.key));
+    expect(back.cards.every((c) => keys.has(c.columnKey))).toBe(true);
   });
 });
 
@@ -771,7 +880,10 @@ describe("the facts panel", () => {
     expect(facts).toHaveAttribute("open");
     const text = facts.textContent ?? "";
     expect(text).toContain("Not met: “Ship saved cards”.");
-    expect(text).toContain("5 of 8 committed points done: say/do 63%, missed the commitment.");
+    // Sprint 12 is closed: its say/do is the one recorded on it.
+    expect(text).toContain(
+      "5 of 20 committed points done (as recorded on the sprint): say/do 25%, missed the commitment."
+    );
     expect(text).toContain("Most of the done points (100%) landed in the sprint's last third.");
     expect(text).toContain(
       "2 impediments raised during the sprint: 1 resolved by its last day, 1 still open."
@@ -914,9 +1026,12 @@ describe("common words on the board", () => {
     fireEvent.click(chip);
     expect(chip).toHaveAttribute("aria-pressed", "true");
     expect(document.querySelectorAll("[data-highlighted]")).toHaveLength(3);
+    // Each ringed card says so to a screen reader moving through the columns.
+    expect(screen.getAllByText("Ringed for “flaky”.")).toHaveLength(3);
     await waitFor(() => expect(announced()).toHaveTextContent("Ringed 3 cards with “flaky”."));
     fireEvent.click(chip);
     expect(document.querySelectorAll("[data-highlighted]")).toHaveLength(0);
+    expect(screen.queryByText("Ringed for “flaky”.")).toBeNull();
 
     expect(ai.prompts[0].prompt).toContain("Common words on the board");
     expect(ai.prompts[0].prompt).toContain('"flaky"');
@@ -1105,11 +1220,16 @@ describe("the rest of the board", () => {
   it("names the timer presets as pressed buttons and says where the board is saved", () => {
     seedBoards(board("retro:current", { cards: [card("a", "start")] }));
     renderPage();
-    const five = screen.getByRole("button", { name: "5m" });
+    // Named in words ("5 minutes"), not "5m", which reads as "5 meters".
+    const five = screen.getByRole("button", { name: "5 minutes" });
+    expect(five).toHaveTextContent("5m");
     expect(five).toHaveAttribute("type", "button");
     expect(five).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "10m" })).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(screen.getByRole("button", { name: "10m" }));
+    expect(screen.getByRole("button", { name: "10 minutes" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "10 minutes" }));
     expect(current()?.timerSeconds).toBe(600);
     expect(screen.getByText(/Saved in your workspace/)).toBeInTheDocument();
     expect(screen.queryByText(/Local session/)).toBeNull();
@@ -1136,5 +1256,246 @@ describe("the rest of the board", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/* ── After review ───────────────────────────────────────────────────── */
+
+describe("say/do once the sprint is closed", () => {
+  it("reads the numbers recorded on the sprint, not the done stories left in it", () => {
+    useWorkspaceStore.setState({
+      sprints: [{ ...S1, status: "active", pointsPlanned: 8, pointsCompleted: undefined }, S2],
+    });
+    // Closing carries the unfinished story (3 points) over into Sprint 13.
+    const closed = closeSprint("s1", 5, { target: "next", stories: [stories[1]], nextSprint: S2 });
+    expect(closed?.moved).toBe(1);
+    expect(ws().stories.find((s) => s.id === "st2")?.sprintId).toBe("s2");
+
+    seedBoards(board("retro:current", { sprintId: "s1" }));
+    renderPage();
+    const text = screen.getByRole("group", { name: "Facts from Sprint 12" }).textContent ?? "";
+    expect(text).toContain(
+      "5 of 8 committed points done (as recorded on the sprint): say/do 63%, missed the commitment."
+    );
+    expect(text).not.toContain("say/do 100%");
+  });
+
+  it("keeps the stories' numbers for an open sprint, or a closed one with nothing recorded", () => {
+    const f = EXAMPLE_FACTS;
+    expect(withClosedSprintSayDo(f, S2)).toBe(f);
+    expect(withClosedSprintSayDo(f, { ...S1, pointsPlanned: 0 })).toBe(f);
+    expect(withClosedSprintSayDo(f, { ...S1, pointsCompleted: undefined })).toBe(f);
+    expect(withClosedSprintSayDo(f, S1)).toMatchObject({
+      committed: 20,
+      completed: 5,
+      fromStories: false,
+      sayDo: sayDoRatio(20, 5),
+    });
+  });
+});
+
+describe("the sprint a new board defaults to", () => {
+  it("skips a sprint whose retro is already under Past retros", () => {
+    const at = `${day(-1)}T10:00:00.000Z`;
+    seedBoards(
+      board(`retro:${at}`, { archivedAt: at, sprintId: "s1", cards: [card("z", "start")] })
+    );
+    renderPage();
+    expect(screen.getByRole("combobox", { name: "Retro for" })).toHaveTextContent("Sprint 13");
+    fireEvent.click(screen.getByRole("button", { name: startStop.name }));
+    expect(current()?.sprintId).toBe("s2");
+  });
+
+  it("skips one archived before retros named their sprint, placed by its day", () => {
+    const at = `${day(-1)}T10:00:00.000Z`;
+    seedBoards(board(`retro:${at}`, { archivedAt: at, cards: [card("z", "start")] }));
+    renderPage();
+    expect(screen.getByRole("combobox", { name: "Retro for" })).toHaveTextContent("Sprint 13");
+  });
+
+  it("applies a ?sprint= link to the first board only", async () => {
+    window.history.replaceState(null, "", "/retro?sprint=s2");
+    renderPage();
+    expect(await screen.findByRole("combobox", { name: "Retro for" })).toHaveTextContent(
+      "Sprint 13"
+    );
+    fireEvent.click(screen.getByRole("button", { name: startStop.name }));
+    expect(current()?.sprintId).toBe("s2");
+    // An empty board's New Retro needs no confirmation.
+    fireEvent.click(screen.getByRole("button", { name: /New Retro/ }));
+    expect(current()).toBeUndefined();
+    expect(screen.getByRole("combobox", { name: "Retro for" })).toHaveTextContent("Sprint 12");
+  });
+});
+
+describe("the example and real sprints", () => {
+  it("can't be linked to a real sprint, and shows its own facts even when it names one", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(screen.queryByRole("combobox", { name: "Retro for" })).toBeNull();
+    expect(
+      screen.getByText(/Clear the example to link this retro to one of your sprints/)
+    ).toBeInTheDocument();
+    // An agent's set_sprint on the example board.
+    act(() => ws().upsertRetroBoard({ ...current()!, sprintId: "s1" }));
+    expect(screen.getByRole("group", { name: "Facts from Sprint 14" })).toBeInTheDocument();
+    expect(screen.queryByText(/Ship saved cards/)).toBeNull();
+
+    // Cleared, with a card of the team's left: the picker is back.
+    act(() =>
+      ws().upsertRetroBoard({
+        ...current()!,
+        cards: [...current()!.cards, card("mine", "start", { text: "Mine" })],
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(screen.getByRole("combobox", { name: "Retro for" })).toHaveTextContent("Sprint 12");
+    expect(screen.getByRole("group", { name: "Facts from Sprint 12" })).toBeInTheDocument();
+  });
+
+  it("lists no real retro's actions on the example", () => {
+    seedBoards(lastRetro(), { id: "retro:current", ...buildExample(), phase: "write" });
+    renderPage();
+    expect(screen.queryByRole("region", { name: "Actions from the last retro" })).toBeNull();
+    expect(screen.getByRole("group", { name: "Facts from Sprint 14" })).toHaveTextContent(
+      "2 of 3 actions from the last retro done (67%), 1 carried over."
+    );
+  });
+});
+
+describe("the last retro, in the facts and in the panel", () => {
+  // Sprint 12's own first retro, archived yesterday, after the one before it.
+  const own = () => {
+    const at = `${day(-1)}T09:00:00.000Z`;
+    return board(`retro:${at}`, {
+      archivedAt: at,
+      sprintId: "s1",
+      phase: "actions",
+      cards: [card("o1", "start", { text: "Own action", isActionItem: true })],
+    });
+  };
+  const facts = () => screen.getByRole("group", { name: "Facts from Sprint 12" });
+  const panel = () => screen.getByRole("region", { name: "Actions from the last retro" });
+
+  it("is the one the facts pick for the sprint when the board names none", () => {
+    seedBoards(lastRetro(), own(), board("retro:current", { sprintId: "s1" }));
+    renderPage();
+    expect(within(panel()).getByText("Stop late merges")).toBeInTheDocument();
+    expect(within(panel()).queryByText("Own action")).toBeNull();
+    expect(facts()).toHaveTextContent(
+      "1 of 2 actions from the last retro done (50%), 1 still open."
+    );
+  });
+
+  it("is the one the board was started after, in both", () => {
+    seedBoards(
+      lastRetro(),
+      own(),
+      board("retro:current", { sprintId: "s1", previousRetroId: own().id })
+    );
+    renderPage();
+    expect(within(panel()).getByText("Own action")).toBeInTheDocument();
+    expect(within(panel()).queryByText("Stop late merges")).toBeNull();
+    expect(facts()).toHaveTextContent("0 of 1 action from the last retro done (0%), 1 still open.");
+  });
+
+  it("offers no Carry over for an action that got done", () => {
+    seedBoards(lastRetro(), board("retro:current", { previousRetroId: lastRetro().id }));
+    renderPage();
+    const [done, open] = within(panel()).getAllByRole("listitem");
+    expect(done).toHaveTextContent("Pair on reviews");
+    expect(within(done).getByText("Done")).toBeInTheDocument();
+    expect(within(done).queryByRole("button", { name: /^Carry over/ })).toBeNull();
+    expect(
+      within(open).getByRole("button", { name: "Carry over Stop late merges" })
+    ).toBeInTheDocument();
+  });
+});
+
+describe("keyboard focus", () => {
+  it("stays on the sprint picker after a pick and after Unlink", () => {
+    seedBoards(board("retro:current", { cards: [card("a", "start")] }));
+    renderPage();
+    const trigger = screen.getByRole("combobox", { name: "Retro for" });
+    chooseSprint("Sprint 12");
+    // The same select, not a new one: focus isn't dropped to the page.
+    expect(screen.getByRole("combobox", { name: "Retro for" })).toBe(trigger);
+    expect(trigger).toHaveTextContent("Sprint 12");
+
+    fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(screen.getByRole("combobox", { name: "Retro for" })).toBe(trigger);
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveTextContent("Choose a sprint");
+    expect(current()?.sprintId).toBeUndefined();
+  });
+
+  it("moves to the line that says every kudos is on the board", () => {
+    seedBoards(board("retro:current", { sprintId: "s1" }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 kudos as cards in Continue" }));
+    expect(document.activeElement).toHaveTextContent("Every kudos is on the board, in Continue.");
+  });
+});
+
+describe("Undo of the kudos cards", () => {
+  it("keeps a card grouped under one of them since, on its own", () => {
+    seedBoards(board("retro:current", { sprintId: "s1" }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 kudos as cards in Continue" }));
+    const undo = lastUndo();
+    const kudosCard = current()!.cards[0];
+    act(() =>
+      ws().upsertRetroBoard({
+        ...current()!,
+        cards: [
+          ...current()!.cards,
+          card("mine", "continue", { text: "Me too", groupedWith: kudosCard.id }),
+        ],
+      })
+    );
+    act(() => undo());
+    expect(current()!.cards).toEqual([expect.objectContaining({ id: "mine", groupedWith: null })]);
+    expect(screen.getByText("Me too")).toBeInTheDocument();
+  });
+});
+
+describe("common words below the bar", () => {
+  it("says how many more cards they need, from the first card", () => {
+    seedBoards(board("retro:current"));
+    const { unmount } = renderPage();
+    expect(screen.queryByText(/to see the words they share/)).toBeNull();
+    unmount();
+
+    seedBoards(
+      board("retro:current", {
+        cards: [
+          card("a", "start", { text: "One" }),
+          card("b", "stop", { text: "Two" }),
+          card("c", "stop", { text: "Three", groupedWith: "b" }),
+        ],
+      })
+    );
+    renderPage();
+    // A group counts once: two of ten.
+    expect(screen.getByText("Add 8 more cards to see the words they share.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Common words" })).toBeNull();
+  });
+});
+
+describe("adding a voter by hand", () => {
+  it("says what's missing instead of ignoring an empty name", () => {
+    seedBoards(board("retro:current", { phase: "vote", cards: [card("a", "start")] }));
+    renderPage();
+    const add = screen.getByRole("button", { name: "Add voter" });
+    expect(add).not.toBeDisabled();
+    fireEvent.click(add);
+    expect(screen.getByRole("alert")).toHaveTextContent("Type a name first.");
+    expect(current()!.votesBy).toBeUndefined();
+
+    fireEvent.change(screen.getByLabelText("Add a voter"), { target: { value: " Alex " } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(add);
+    expect(current()!.votesBy).toEqual({ Alex: 0 });
+    expect(screen.getByLabelText("Add a voter")).toHaveValue("");
   });
 });

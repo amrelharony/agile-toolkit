@@ -49,6 +49,7 @@ export function TimerWidget({
             type="button"
             onClick={() => onChange(p)}
             aria-pressed={!running && seconds === p}
+            aria-label={`${p / 60} minutes`}
             title={`${p / 60} minutes`}
             className={`${BUTTON} px-1.5 py-0.5 hover:border-accent-cyan/40 hover:text-accent aria-pressed:border-accent aria-pressed:text-accent`}
           >

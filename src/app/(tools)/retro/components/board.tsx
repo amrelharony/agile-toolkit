@@ -28,6 +28,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ExportButton } from "@/components/shared/export-button";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { ExampleNotice, hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
 import { enoughData } from "@/lib/analytics/min-sample";
@@ -54,6 +55,7 @@ import {
   voterKey,
   voterNames,
   votesCastBy,
+  withoutCards,
   withoutVotesBy,
 } from "../helpers";
 import { factLines } from "../facts-text";
@@ -134,10 +136,11 @@ export function Board({
   const hasVotes = state.cards.some((c) => c.votes > 0);
 
   // ── The sprint, and what the toolkit knows about it ────────────────
-  const { sprints, sprint, sprintGone, facts, example } = useBoardFacts(state);
+  const { sprints, sprint, sprintGone, facts, example, previousRetroId, impedimentsRecorded } =
+    useBoardFacts(state);
   const lines = useMemo(
-    () => (facts ? factLines(facts, { links: !example }) : []),
-    [facts, example]
+    () => (facts ? factLines(facts, { links: !example, impedimentsRecorded }) : []),
+    [facts, example, impedimentsRecorded]
   );
 
   // Timer tick — only depend on timerRunning, not timerSeconds, to avoid
@@ -475,7 +478,7 @@ export function Board({
           });
         },
         revert: () =>
-          onUpdate((prev) => ({ ...prev, cards: prev.cards.filter((c) => c.id !== card.id) })),
+          onUpdate((prev) => ({ ...prev, cards: withoutCards(prev.cards, new Set([card.id])) })),
       });
     },
     [onUpdate, log, state.format.columns]
@@ -514,8 +517,8 @@ export function Board({
             });
           }
         },
-        revert: () =>
-          onUpdate((prev) => ({ ...prev, cards: prev.cards.filter((c) => !ids.has(c.id)) })),
+        // A card grouped under a kudos card since then stays, on its own.
+        revert: () => onUpdate((prev) => ({ ...prev, cards: withoutCards(prev.cards, ids) })),
       });
       announce(`Added ${added.length} kudos to ${kudosColumn.label}.`);
     },
@@ -711,12 +714,21 @@ export function Board({
         </div>
 
         {/* ── The sprint it looks back on ──────────────────── */}
-        <RetroSprintPicker
-          sprints={sprints}
-          sprintId={state.sprintId}
-          sprintGone={sprintGone}
-          onChange={handleSprintChange}
-        />
+        {/* The example looks back on its own sprint: linking it to a real one
+            would bring that sprint's facts and kudos onto the example. */}
+        {example ? (
+          <p className="px-1 text-xs text-sub">
+            The example looks back on its own {facts?.sprintName ?? "sprint"}. Clear the example to
+            link this retro to one of your sprints.
+          </p>
+        ) : (
+          <RetroSprintPicker
+            sprints={sprints}
+            sprintId={state.sprintId}
+            sprintGone={sprintGone}
+            onChange={handleSprintChange}
+          />
+        )}
 
         {/* ── Verdict and phase hint ───────────────────────── */}
         <div className="space-y-1 px-1">
@@ -758,14 +770,24 @@ export function Board({
         )}
 
         {/* ── Common words across the cards ────────────────── */}
-        {enoughData(themeCards, THEME_MIN_CARDS) && (
+        {/* Below the bar, say how many more cards it takes (from the first card). */}
+        {enoughData(themeCards, THEME_MIN_CARDS) ? (
           <CommonWords themes={themes} highlighted={highlight} onToggle={toggleHighlight} />
+        ) : (
+          themeCards > 0 && (
+            <NotEnoughData
+              have={themeCards}
+              need={THEME_MIN_CARDS}
+              unit={["card", "cards"]}
+              what="the words they share"
+            />
+          )
         )}
 
         {/* ── Last retro's actions and the sprint's kudos (Write phase) ── */}
         {state.phase === "write" && (
           <LastRetroActions
-            previousRetroId={state.previousRetroId}
+            retroId={previousRetroId}
             cards={state.cards}
             onCarryOver={handleCarryOver}
           />
@@ -793,6 +815,7 @@ export function Board({
                 phase={state.phase}
                 votesUsed={votesUsed}
                 highlightIds={highlightIds}
+                highlightWord={highlighted?.keyword}
                 onAdd={handleAddCard}
                 onAddMany={handleAddCards}
                 onEdit={handleEditCard}

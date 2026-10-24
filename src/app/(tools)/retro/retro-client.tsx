@@ -12,6 +12,7 @@ import {
   RETRO_CURRENT_ID,
   blankRetroBoard,
   newestArchivedRetro,
+  retroFor,
   retroSprintFor,
 } from "@/lib/retro/board";
 import { sprintsNewestFirst, todayIso } from "@/lib/sprints/series";
@@ -54,15 +55,24 @@ export function RetroClient() {
   const allSprints = useWorkspaceStore((s) => s.sprints) ?? NO_SPRINTS;
   const sprints = useMemo(() => sprintsNewestFirst(allSprints), [allSprints]);
   // A ?sprint= link (the cockpit's "Hold the retro") names it; read after
-  // mount, so the server render and the first client render agree.
+  // mount, so the server render and the first client render agree. It
+  // names the first board started here only: after New Retro the next
+  // board goes back to the default.
   const [linkedSprint, setLinkedSprint] = useState<string | null>(null);
   useEffect(() => setLinkedSprint(readSprintParam(window.location.search)), []);
   // undefined: the default below; null: "Not linked" was picked; else the pick.
   const [sprintChoice, setSprintChoice] = useState<string | null | undefined>(undefined);
+  // Else the sprint whose retro window holds today, of those whose retro
+  // isn't under Past retros yet (the cockpit's rule): the week after a
+  // sprint's retro was archived, the next board is the next sprint's, not a
+  // second one for the same sprint. Picking that sprint is still possible.
   const defaultSprintId = useMemo(() => {
     if (linkedSprint && allSprints.some((s) => s.id === linkedSprint)) return linkedSprint;
-    return retroSprintFor(todayIso(), allSprints)?.id;
-  }, [linkedSprint, allSprints]);
+    const today = todayIso();
+    const boards = retroBoards ?? [];
+    const due = allSprints.filter((s) => !retroFor(boards, s, allSprints, today).archived);
+    return retroSprintFor(today, due)?.id;
+  }, [linkedSprint, allSprints, retroBoards]);
   const newBoardSprintId =
     sprintChoice === undefined ? defaultSprintId : (sprintChoice ?? undefined);
 
@@ -79,6 +89,7 @@ export function RetroClient() {
         })
       );
       setSprintChoice(undefined);
+      setLinkedSprint(null);
       logger.log(RETRO_ACTIONS.FORMAT_CHANGED, {
         format: format.name,
         ...(newBoardSprintId ? { sprintId: newBoardSprintId } : {}),

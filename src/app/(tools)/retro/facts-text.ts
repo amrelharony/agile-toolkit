@@ -82,7 +82,8 @@ function sayDoLine(f: RetroFacts): Omit<FactLine, "href" | "tool"> {
       missing: true,
     };
   }
-  const source = f.fromStories ? "" : " (as typed on the sprint)";
+  // Not from the stories: typed on the sprint, or recorded when it started and closed.
+  const source = f.fromStories ? "" : " (as recorded on the sprint)";
   return {
     ...base,
     sentence: `${fmt(f.completed)} of ${plural(f.committed, "committed point")} done${source}: say/do ${f.sayDo.pct}%, ${SAY_DO_GRADE_LABEL[f.sayDo.grade].toLowerCase()}.`,
@@ -99,12 +100,17 @@ function burndownLine(f: RetroFacts): Omit<FactLine, "href" | "tool"> {
       missing: true,
     };
   }
-  return { ...base, sentence: f.burndown.sentence, missing: f.burndown.shape === "none" };
+  // "No pointed story was finished" is a finding, not missing data.
+  return { ...base, sentence: f.burndown.sentence, missing: false };
 }
 
-function impedimentsLine(f: RetroFacts): Omit<FactLine, "href" | "tool"> {
+function impedimentsLine(f: RetroFacts, recorded: boolean): Omit<FactLine, "href" | "tool"> {
   const { raised, resolvedInSprint, stillOpen, escalated } = f.impediments;
   const base = { key: "impediments" as const, label: "Impediments" };
+  // None raised is a finding only when the team logs impediments at all.
+  if (raised === 0 && !recorded) {
+    return { ...base, sentence: "No impediments recorded in Impediments yet.", missing: true };
+  }
   if (raised === 0) {
     return {
       ...base,
@@ -180,29 +186,40 @@ function kudosLine(f: RetroFacts): Omit<FactLine, "href" | "tool"> {
 /**
  * Each fact as a sentence and the tool it comes from. A sprint without real
  * dates gets one "set its dates" line in place of the facts that need them
- * (impediments, mood, kudos). `links: false` (the example) leaves the links off.
+ * (the burndown, impediments, mood, kudos). `links: false` (the example)
+ * leaves the links off. `impedimentsRecorded: false` (the team has never
+ * logged one) says so rather than report none raised as a finding.
  */
 export function factLines(
   facts: RetroFacts,
-  { links = true }: { links?: boolean } = {}
+  {
+    links = true,
+    impedimentsRecorded = true,
+  }: { links?: boolean; impedimentsRecorded?: boolean } = {}
 ): FactLine[] {
   const id = facts.sprintId;
   const link = (href: string) => (links ? { href } : {});
   const lines: FactLine[] = [
     { ...goalLine(facts), tool: "Sprint Goal", ...link(sprintHref("/sprint-goal", id)) },
     { ...sayDoLine(facts), tool: "Sprint Cockpit", ...link(sprintHref("/sprint", id)) },
-    { ...burndownLine(facts), tool: "Burndown", ...link(sprintHref("/burndown", id)) },
   ];
   if (facts.dated) {
     lines.push(
-      { ...impedimentsLine(facts), tool: "Impediments", ...link("/impediments") },
+      { ...burndownLine(facts), tool: "Burndown", ...link(sprintHref("/burndown", id)) },
+      {
+        ...impedimentsLine(facts, impedimentsRecorded),
+        tool: "Impediments",
+        ...link("/impediments"),
+      },
       { ...moodLine(facts), tool: "Mood Tracker", ...link("/mood-tracker") }
     );
   } else {
+    // Without dates the burndown can't be read either: it would be read
+    // against no days, or against the old placeholder dates.
     lines.push({
       key: "dates",
       label: "Dates",
-      sentence: `${facts.sprintName} has no dates yet, so the impediments, mood and kudos from it can't be counted.`,
+      sentence: `${facts.sprintName} has no dates yet, so its burndown and the impediments, mood and kudos from it can't be read.`,
       missing: true,
       tool: "Sprint Cockpit",
       ...link(sprintHref("/sprint", id)),

@@ -7,7 +7,7 @@
  * says so, and is never added twice.
  */
 
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Check, HeartHandshake } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { kudosOnBoard, type SprintKudos } from "../kudos";
@@ -32,9 +32,18 @@ export function KudosSeed({
   onAdd: (kudos: SprintKudos[]) => void;
 }) {
   const headingId = useId();
-  if (kudos.length === 0) return null;
   const onBoard = kudosOnBoard(cards);
   const pending = kudos.filter((k) => !onBoard.has(k.id));
+  // The add button goes once every kudos is on the board: focus moves to
+  // the line that says so, not to the top of the page.
+  const allAddedRef = useRef<HTMLParagraphElement>(null);
+  const focusAfterAdd = useRef(false);
+  useEffect(() => {
+    if (!focusAfterAdd.current) return;
+    focusAfterAdd.current = false;
+    if (pending.length === 0) allAddedRef.current?.focus();
+  });
+  if (kudos.length === 0) return null;
   const shown = kudos.slice(0, SHOWN);
   const rest = kudos.length - shown.length;
 
@@ -74,11 +83,25 @@ export function KudosSeed({
       </ul>
       {rest > 0 && <p className="text-xs text-sub">And {rest} more.</p>}
       {pending.length > 0 ? (
-        <Button type="button" variant="outline" size="sm" onClick={() => onAdd(pending)}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            focusAfterAdd.current = true;
+            onAdd(pending);
+          }}
+        >
           Add {pending.length} kudos as {pending.length === 1 ? "a card" : "cards"} in {columnLabel}
         </Button>
       ) : (
-        <p className="text-xs text-sub">Every kudos is on the board, in {columnLabel}.</p>
+        <p
+          ref={allAddedRef}
+          tabIndex={-1}
+          className="rounded-sm text-xs text-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Every kudos is on the board, in {columnLabel}.
+        </p>
       )}
     </section>
   );
