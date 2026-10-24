@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
@@ -71,7 +72,7 @@ beforeEach(() => {
 
 describe("Kanban card delete", () => {
   it("removes the card, names it in the toast, and Undo restores it in place", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: "Remove Checkout flow" }));
 
     expect(screen.queryByText("Checkout flow")).toBeNull();

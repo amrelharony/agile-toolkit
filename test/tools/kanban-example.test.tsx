@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { KanbanCard } from "@/lib/stores/workspace-types";
 
@@ -149,7 +150,7 @@ describe("kanban example flow", () => {
     useWorkspaceStore.setState({
       kanbanBoards: [{ id: "kanban:current", cards: [], wipLimits: { ...LIMITS, review: 4 } }],
     });
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     expect(screen.queryByRole("button", { name: "Clear example" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
@@ -176,7 +177,7 @@ describe("kanban example flow", () => {
     useWorkspaceStore.setState({
       kanbanBoards: [{ id: "kanban:current", cards: [card("u1", "Mine")], wipLimits: LIMITS }],
     });
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(spies.markdown).toContain("- Mine");
   });

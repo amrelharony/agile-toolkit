@@ -3,7 +3,19 @@ import type {
   KanbanCard,
   KanbanClassOfService,
   KanbanColumnId,
+  Sprint,
+  Story,
 } from "@/lib/stores/workspace-types";
+import { storyProgress } from "@/lib/sprints/progress";
+import { cycleTimeDays, FLOW_COLUMNS, isLimited } from "./flow-view";
+import {
+  SPRINT_COLUMNS,
+  daysInColumn,
+  sprintBoardVerdict,
+  sprintBreaches,
+  storiesByColumn,
+  wipNudge,
+} from "./sprint-view";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -17,14 +29,6 @@ function oneLine(v: unknown): string {
     .trim();
 }
 
-const COLUMNS: { id: KanbanColumnId; label: string }[] = [
-  { id: "backlog", label: "Backlog" },
-  { id: "ready", label: "Ready" },
-  { id: "in_progress", label: "In progress" },
-  { id: "review", label: "Review" },
-  { id: "done", label: "Done" },
-];
-
 const CLASS_LABELS: Record<KanbanClassOfService, string> = {
   standard: "Standard",
   expedite: "Expedite",
@@ -32,20 +36,13 @@ const CLASS_LABELS: Record<KanbanClassOfService, string> = {
   intangible: "Intangible",
 };
 
-/** Backlog and Done are queues, not WIP: the board never limits them. */
-const limited = (col: KanbanColumnId) => col !== "backlog" && col !== "done";
-
-function cycleDays(c: KanbanCard): number | null {
-  if (!c.startedAt || !c.completedAt) return null;
-  const ms = new Date(c.completedAt).getTime() - new Date(c.startedAt).getTime();
-  return Number.isFinite(ms) ? Math.max(0, ms / (24 * 60 * 60 * 1000)) : null;
-}
-
 function cardLine(c: KanbanCard): string {
   const tags: string[] = [];
   // Standard is the default; only the classes that change how a card is pulled get a tag.
   if (c.class !== "standard" && CLASS_LABELS[c.class]) tags.push(CLASS_LABELS[c.class]);
-  const days = c.column === "done" ? cycleDays(c) : null;
+  if (c.blocked) tags.push("blocked");
+  if (c.assignee?.trim()) tags.push(`assigned to ${oneLine(c.assignee)}`);
+  const days = c.column === "done" ? cycleTimeDays(c) : null;
   if (days !== null) tags.push(`cycle time ${days.toFixed(1)} days`);
   const description = oneLine(c.description);
   return `- ${oneLine(c.title)}${tags.length ? ` (${tags.join(", ")})` : ""}${
@@ -53,7 +50,7 @@ function cardLine(c: KanbanCard): string {
   }`;
 }
 
-/** The board as one section per column, for a wiki page or a team channel. */
+/** The Flow board as one section per column, for a wiki page or a team channel. */
 export function toMarkdown(
   board: Pick<KanbanBoard, "cards" | "wipLimits">,
   now: Date = new Date()
@@ -61,13 +58,13 @@ export function toMarkdown(
   const title = `# Kanban — ${mdDate(now)}`;
   if (board.cards.length === 0) return `${title}\n\nNo cards yet.\n`;
 
-  const byColumn = new Map<KanbanColumnId, KanbanCard[]>(COLUMNS.map((c) => [c.id, []]));
+  const byColumn = new Map<KanbanColumnId, KanbanCard[]>(FLOW_COLUMNS.map((c) => [c.id, []]));
   // Cards from an older build may carry a column that no longer exists;
   // the board shows those in Backlog, so the export does too.
   for (const c of board.cards) (byColumn.get(c.column) ?? byColumn.get("backlog")!).push(c);
 
-  const limitOf = (col: KanbanColumnId) => (limited(col) ? (board.wipLimits[col] ?? 0) : 0);
-  const over = COLUMNS.filter((c) => {
+  const limitOf = (col: KanbanColumnId) => (isLimited(col) ? (board.wipLimits[col] ?? 0) : 0);
+  const over = FLOW_COLUMNS.filter((c) => {
     const limit = limitOf(c.id);
     return limit > 0 && byColumn.get(c.id)!.length > limit;
   });
@@ -76,7 +73,7 @@ export function toMarkdown(
   const lines = [
     title,
     "",
-    `${n} ${n === 1 ? "card" : "cards"}: ${COLUMNS.map(
+    `${n} ${n === 1 ? "card" : "cards"}: ${FLOW_COLUMNS.map(
       (c) => `${c.label} ${byColumn.get(c.id)!.length}`
     ).join(", ")}.`,
     over.length > 0
@@ -86,7 +83,7 @@ export function toMarkdown(
       : "All columns are within their WIP limits.",
   ];
 
-  for (const col of COLUMNS) {
+  for (const col of FLOW_COLUMNS) {
     const cards = byColumn.get(col.id)!;
     const limit = limitOf(col.id);
     const count =
@@ -98,5 +95,66 @@ export function toMarkdown(
     else lines.push(...cards.map(cardLine));
   }
 
+  return `${lines.join("\n")}\n`;
+}
+
+const pts = (n: number) => `${n} ${n === 1 ? "pt" : "pts"}`;
+
+function storyLine(s: Story, now: Date): string {
+  const tags: string[] = [];
+  tags.push(
+    typeof s.points === "number" && Number.isFinite(s.points) ? pts(s.points) : "no estimate"
+  );
+  if (s.owner?.trim()) tags.push(oneLine(s.owner));
+  if (s.blocked && s.status !== "done") tags.push("blocked");
+  if (s.status !== "done") {
+    const days = daysInColumn(s, now);
+    if (days !== null) tags.push(`${days} ${days === 1 ? "day" : "days"} in column`);
+  }
+  return `- ${oneLine(s.title)} (${tags.join(", ")})`;
+}
+
+/**
+ * The Sprint board as Markdown: the sprint's progress and verdict, any
+ * WIP nudges, then one section per column — for the Daily Scrum notes or a
+ * stakeholder update.
+ */
+export function sprintBoardMarkdown(
+  {
+    sprint,
+    stories,
+    wipLimits,
+  }: {
+    sprint: Pick<Sprint, "id" | "name" | "goal">;
+    stories: readonly Story[];
+    wipLimits: Partial<Record<KanbanColumnId, number>>;
+  },
+  now: Date = new Date()
+): string {
+  const title = `# ${oneLine(sprint.name)} board — ${mdDate(now)}`;
+  const progress = storyProgress(stories, sprint.id);
+  const byColumn = storiesByColumn(stories, sprint.id);
+  const breaches = sprintBreaches(byColumn, wipLimits);
+  const lines = [title, ""];
+  if (sprint.goal?.trim()) lines.push(`**Sprint goal:** ${oneLine(sprint.goal)}`, "");
+  lines.push(sprintBoardVerdict(sprint, progress, breaches));
+  if (progress.count === 0) return `${lines.join("\n")}\n`;
+
+  lines.push(
+    "",
+    `${progress.count} ${progress.count === 1 ? "story" : "stories"}: ${SPRINT_COLUMNS.map(
+      (c) => `${c.label} ${byColumn[c.id].length}`
+    ).join(", ")}. ${progress.blocked} blocked.`
+  );
+  for (const b of breaches) lines.push(`**WIP:** ${wipNudge(b)}`);
+
+  for (const col of SPRINT_COLUMNS) {
+    const list = byColumn[col.id];
+    const limit = col.id === "done" ? 0 : (wipLimits[col.wipKey] ?? 0);
+    const count = limit > 0 ? `${list.length}/${limit}` : `${list.length}`;
+    lines.push("", `## ${col.label} (${count})`, "");
+    if (list.length === 0) lines.push("No stories.");
+    else lines.push(...list.map((s) => storyLine(s, now)));
+  }
   return `${lines.join("\n")}\n`;
 }
