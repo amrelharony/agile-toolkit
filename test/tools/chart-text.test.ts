@@ -149,15 +149,15 @@ describe("sprint compare", () => {
   it("names the highest and lowest average", () => {
     const text = sprintRadarText(rows, [a, b]);
     expect(text.summary).toBe(
-      "2 sprints compared; Sprint 8 has the highest average rating (8.5 out of 10) and Sprint 7 the lowest (7)."
+      "2 sprints compared; Sprint 8 has the highest average score (8.5 out of 10) and Sprint 7 the lowest (7)."
     );
     expect(text.table.columns).toEqual(["Dimension", "Sprint 7", "Sprint 8"]);
-    expect(text.table.rows[2]).toEqual(["Morale", 8, "Not rated"]);
+    expect(text.table.rows[2]).toEqual(["Morale", 8, "Not scored"]);
   });
 
   it("describes a single sprint by its average and best dimension", () => {
     expect(sprintRadarText(rows, [a]).summary).toBe(
-      "Sprint 7 averages 7 out of 10 across 3 rated dimensions; its highest is Morale (8)."
+      "Sprint 7 averages 7 out of 10 across 3 scored dimensions; its highest is Morale (8)."
     );
   });
 });
