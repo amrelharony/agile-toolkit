@@ -126,7 +126,7 @@ describe("Ceremony Timer and the dock", () => {
     expect(await screen.findByRole("button", { name: "Pause timer" })).toBeInTheDocument();
   });
 
-  it("clears the dock when the timer is restarted", async () => {
+  it("clears the dock when the timer is started over", async () => {
     nav.pathname = "/ceremony-timer";
     render(<CeremonyTimerClient />);
     fireEvent.click(screen.getByRole("button", { name: /^Daily Scrum/ }));
@@ -134,10 +134,12 @@ describe("Ceremony Timer and the dock", () => {
       fireEvent.click(screen.getByRole("button", { name: "Start timer" }));
     });
     expect(useDockTimer.getState().timer).not.toBeNull();
-    // Restart confirms first (the time spent so far is lost), then clears.
-    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
+    // Start over confirms first (the time spent so far is lost), then clears.
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
     await act(async () => {
-      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Restart" }));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Start over" })
+      );
     });
     expect(useDockTimer.getState().timer).toBeNull();
   });
