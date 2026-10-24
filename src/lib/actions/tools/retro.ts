@@ -230,9 +230,15 @@ async function start(store: RetroStore, params: { formatId?: string; sprintId?: 
   return { started: true, id: RETRO_CURRENT_ID, sprintId: sprintId ?? null };
 }
 
-async function setSprint(store: RetroStore, params: { sprintId: string }) {
+async function setSprint(store: RetroStore, params: { sprintId: string | null }) {
   const board = await store.getBoard(RETRO_CURRENT_ID);
   if (!board || board.archivedAt) return { updated: false, reason: "no_retro" as const };
+  if (params.sprintId === null) {
+    const { sprintId, ...rest } = board;
+    void sprintId;
+    await store.putBoard(rest);
+    return { updated: true };
+  }
   const sprints = await store.listSprints();
   if (!sprints.some((s) => s.id === params.sprintId)) {
     return { updated: false, reason: "unknown_sprint" as const };
@@ -298,8 +304,8 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Say which sprint the current retro board looks back on (the cockpit and the facts then use it). Returns {updated: true}, or {updated: false, reason: 'no_retro' | 'unknown_sprint'}.",
-  paramsSchema: z.object({ sprintId: SprintIdParam }),
+    "Say which sprint the current retro board looks back on (the cockpit and the facts then use it), or unlink it with sprintId: null (it is then placed by date). Returns {updated: true}, or {updated: false, reason: 'no_retro' | 'unknown_sprint'}.",
+  paramsSchema: z.object({ sprintId: SprintIdParam.nullable() }),
   handler: async (params) => setSprint(browserStore, params),
   mcpHandler: async (params, ctx) => setSprint(serverStore(ctx.userId), params),
 });

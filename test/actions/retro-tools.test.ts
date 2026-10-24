@@ -276,3 +276,66 @@ describe("tool.six_hats sessions", () => {
     expect(ws().sixHatsSessions).toEqual([]);
   });
 });
+
+describe("parity with the rebuilt pages", () => {
+  it("set_sprint unlinks with null", async () => {
+    useWorkspaceStore.setState({
+      retroBoards: [{ ...blankRetroBoard(retroFormats[0]), sprintId: "s1" }],
+    });
+    expect(await call("tool.retro.set_sprint", { sprintId: null })).toEqual({ updated: true });
+    expect("sprintId" in (current() ?? {})).toBe(false);
+  });
+
+  it("retro_actions.update edits text, owner and due date, and clears them", async () => {
+    useWorkspaceStore.setState({
+      retroBoards: [
+        {
+          ...blankRetroBoard(retroFormats[0]),
+          cards: [
+            {
+              id: "a1",
+              columnKey: "start",
+              text: "Old",
+              votes: 0,
+              groupedWith: null,
+              isActionItem: true,
+              assignee: "Sam",
+              discussing: false,
+              dueDate: "2026-10-30",
+            },
+          ],
+        },
+      ],
+    });
+    expect(
+      await call("tool.retro_actions.update", { cardId: "a1", text: " New ", assignee: "Bo" })
+    ).toEqual({ updated: true, boardId: "retro:current" });
+    expect(current()?.cards[0]).toMatchObject({
+      text: "New",
+      assignee: "Bo",
+      dueDate: "2026-10-30",
+    });
+    await call("tool.retro_actions.update", { cardId: "a1", assignee: null, dueDate: null });
+    expect(current()?.cards[0].assignee).toBe("");
+    expect("dueDate" in (current()?.cards[0] ?? {})).toBe(false);
+    expect(await call("tool.retro_actions.update", { cardId: "nope", text: "x" })).toEqual({
+      updated: false,
+    });
+  });
+
+  it("six_hats closes only with a summary, and reopens on the last round", async () => {
+    const { id } = await call<{ id: string }>("tool.six_hats.start_session", { topic: "T" });
+    expect(await call("tool.six_hats.close_session", { sessionId: id })).toEqual({
+      updated: false,
+      reason: "summary_required",
+    });
+    await call("tool.six_hats.set_summary", { sessionId: id, summary: "Done" });
+    expect(await call("tool.six_hats.close_session", { sessionId: id })).toEqual({ updated: true });
+    expect(await call("tool.six_hats.reopen_session", { sessionId: id })).toEqual({
+      updated: true,
+    });
+    const session = ws().sixHatsSessions?.find((x) => x.id === id);
+    expect(session?.closedAt).toBeUndefined();
+    expect(session?.currentRound).toBe((session?.order.length ?? 1) - 1);
+  });
+});

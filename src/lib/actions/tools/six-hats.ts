@@ -407,7 +407,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Close a session (later thoughts no longer go to it). Returns {updated: true}, or {updated: false} for an unknown session.",
+    "Close a session (later thoughts no longer go to it). Like the page, it needs the Blue hat's summary first (set_summary). Returns {updated: true}, or {updated: false, reason: 'unknown_session' | 'summary_required'}.",
   paramsSchema: z.object({ sessionId: z.string().min(1) }),
   handler: async (params) => closeSession(browserStore, params.sessionId),
   mcpHandler: async (params, ctx) => closeSession(serverStore(ctx.userId), params.sessionId),
@@ -415,7 +415,8 @@ registry.register({
 
 async function closeSession(store: SixHatsStore, sessionId: string) {
   const session = await store.getSession(sessionId);
-  if (!session) return { updated: false };
+  if (!session) return { updated: false, reason: "unknown_session" as const };
+  if (!session.summary?.trim()) return { updated: false, reason: "summary_required" as const };
   if (!session.closedAt) {
     const { currentRound, ...rest } = session;
     void currentRound;
@@ -463,4 +464,29 @@ function renderMarkdown(items: SixHatsThought[], session?: SixHatsSession): stri
   }
   lines.push(...summary);
   return lines.join("\n");
+}
+
+// ──────── tool.six_hats.reopen_session ────────
+registry.register({
+  id: "tool.six_hats.reopen_session",
+  toolId: "tool.six_hats",
+  name: "reopen_session",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Reopen a closed session, on its last round, as the page's Reopen does (new thoughts go to it again). Returns {updated: true}, or {updated: false} for an unknown session.",
+  paramsSchema: z.object({ sessionId: z.string().min(1) }),
+  handler: async (params) => reopenSession(browserStore, params.sessionId),
+  mcpHandler: async (params, ctx) => reopenSession(serverStore(ctx.userId), params.sessionId),
+});
+
+async function reopenSession(store: SixHatsStore, sessionId: string) {
+  const session = await store.getSession(sessionId);
+  if (!session) return { updated: false };
+  if (session.closedAt) {
+    const { closedAt, ...rest } = session;
+    void closedAt;
+    await store.putSession({ ...rest, currentRound: Math.max(0, session.order.length - 1) });
+  }
+  return { updated: true };
 }
