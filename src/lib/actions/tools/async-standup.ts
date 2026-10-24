@@ -15,7 +15,9 @@
  *                   so an agent can answer "who's posted / who's blocked?".
  *   2. digest     — the tool's signature output: a grouped-by-member
  *                   markdown digest for a given day (defaults to today),
- *                   ready to paste into Slack/email.
+ *                   ready to paste into Slack/email. Like the page's, it
+ *                   covers the day's entries of both modes (one per person
+ *                   per day); `mode` narrows it.
  *   3. post       — post (or replace) one member's async update for a day.
  */
 
@@ -29,6 +31,7 @@ import {
   allStandupEntries,
   entryFor,
   hasBlocker,
+  postedEntry,
   standupDigest,
   standupMode,
 } from "@/lib/standup/entries";
@@ -109,34 +112,28 @@ const PostParams = z.object({
   description: z.string().max(4000).optional(),
 });
 
-/**
- * One async post per person per day: an existing entry for the day (live
- * or async, an old async update included) is replaced under its id, keeping
- * its first timestamp and where its blocker was sent when the blocker is
- * unchanged.
- */
+/** One async post per person per day (postedEntry in lib/standup/entries). */
 async function post(store: AsyncStore, params: z.infer<typeof PostParams>) {
   const date = params.date ?? todayUTC();
   const existing = entryFor(await store.list(), params.member, date);
-  const blockers = (params.blockers ?? "").trim();
-  const sameBlocker = existing && existing.blockers.trim() === blockers;
-  const description = (params.description ?? "").trim();
-  const entry: StandupEntry = {
-    id: existing?.id ?? `standup_${nanoid(8)}`,
-    member: params.member.trim(),
-    date,
-    yesterday: params.yesterday.trim(),
-    today: params.today.trim(),
-    blockers,
-    timestamp: existing?.timestamp ?? Date.now(),
-    mode: "async",
-    ...(description ? { description } : {}),
-    ...(sameBlocker && existing.blockerResolved ? { blockerResolved: true } : {}),
-    ...(sameBlocker && existing.sentTo ? { sentTo: existing.sentTo } : {}),
-  };
+  const entry = postedEntry(
+    existing,
+    { ...params, date },
+    "async",
+    `standup_${nanoid(8)}`,
+    Date.now()
+  );
   await store.put(entry);
   return { posted: true, id: entry.id, replaced: Boolean(existing) };
 }
+
+const DigestMode = z
+  .enum(["all", "async", "live"])
+  .optional()
+  .describe("Which entries: all (default, as the page's digest), async or live.");
+
+const byMode = (entries: StandupEntry[], mode: "all" | "async" | "live" | undefined) =>
+  !mode || mode === "all" ? entries : entries.filter((e) => standupMode(e) === mode);
 
 // ──────── tool.async_standup.list_state ────────
 registry.register({
@@ -158,14 +155,15 @@ registry.register({
   name: "digest",
   category: "read",
   description:
-    "Render a grouped-by-member markdown digest of one day's async updates (defaults to today, UTC). Returns {date, markdown, updateCount, blockerCount}.",
+    "Render a grouped-by-member markdown digest of one day's standup updates (defaults to today, UTC), blockers first: by default every entry of the day, live and async, as the page's digest (one per person per day); mode narrows it. Returns {date, markdown, updateCount, blockerCount}.",
   paramsSchema: z.object({
     date: z.string().optional().describe("Day to digest, YYYY-MM-DD. Defaults to today (UTC)."),
+    mode: DigestMode,
   }),
   handler: async (params) =>
-    digest(asyncOnly(await browserStore.list()), params.date ?? todayUTC()),
+    digest(byMode(await browserStore.list(), params.mode), params.date ?? todayUTC()),
   mcpHandler: async (params, ctx) =>
-    digest(asyncOnly(await serverStore(ctx.userId).list()), params.date ?? todayUTC()),
+    digest(byMode(await serverStore(ctx.userId).list(), params.mode), params.date ?? todayUTC()),
 });
 
 // ──────── tool.async_standup.post ────────

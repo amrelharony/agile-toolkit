@@ -271,9 +271,9 @@ describe("Kanban card shape", () => {
       column: viaAgent.column,
       class: viaAgent.class,
       createdAt: viaAgent.createdAt,
-      startedAt: undefined,
-      completedAt: undefined,
+      columnSince: viaAgent.columnSince,
     });
+    expect("startedAt" in rest || "completedAt" in rest).toBe(false);
     // Appended after the agent's card: nothing on the board was dropped.
     expect(kanbanCards().map((c) => c.id)).toEqual([added.id, link.targetId]);
   });

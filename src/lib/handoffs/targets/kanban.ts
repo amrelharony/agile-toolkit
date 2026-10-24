@@ -28,16 +28,17 @@ function currentBoard(): KanbanBoard | undefined {
 
 export function buildKanbanCard(src: HandoffSource, id = crypto.randomUUID()): KanbanCard {
   // Same caps as the board's own add form.
-  const description = (src.description ?? "").trim().slice(0, 4000) || undefined;
+  const description = (src.description ?? "").trim().slice(0, 4000);
+  const today = new Date().toISOString().slice(0, 10);
+  // The shape tool.kanban.add_card makes: in Backlog since today.
   return {
     id,
     title: src.title.trim().slice(0, 240),
-    description,
+    ...(description ? { description } : {}),
     column: "backlog",
     class: "standard",
-    createdAt: new Date().toISOString().slice(0, 10),
-    startedAt: undefined,
-    completedAt: undefined,
+    createdAt: today,
+    columnSince: today,
     sourceRef: src.sourceRef,
   };
 }
@@ -47,7 +48,8 @@ export const kanbanRoute: HandoffRoute = {
   label: "Kanban card",
   doneLabel: "Added to the Kanban backlog",
   targetToolId: "kanban",
-  targetHref: () => "/kanban",
+  // The Flow board, where the card lives (a viewer's default may be the Sprint board).
+  targetHref: () => "/kanban?board=flow",
   send: (src) => {
     const card = buildKanbanCard(src);
     const board = currentBoard() ?? emptyBoard();

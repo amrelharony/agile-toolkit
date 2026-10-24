@@ -6,12 +6,22 @@
  */
 
 import type { KanbanCard, KanbanColumnId } from "@/lib/stores/workspace-types";
-import { percentile } from "@/lib/sprints/metrics";
+import { DAY_MS, finishedCards, type CycleStats } from "@/lib/kanban/flow";
 import { enoughData, needMore } from "@/lib/analytics/min-sample";
 import { fmt, move, plural, type ChartText } from "@/lib/charts/chart-text";
 import type { Validation } from "@/lib/utils/form";
 
-export const DAY_MS = 24 * 60 * 60 * 1000;
+// How a move stamps a card and how cycle time is counted are shared with the
+// tool.kanban.* agent actions (lib/kanban/flow).
+export {
+  DAY_MS,
+  WORKING,
+  cycleStats,
+  cycleTimeDays,
+  finishedCards,
+  movedCard,
+  type CycleStats,
+} from "@/lib/kanban/flow";
 
 export const FLOW_COLUMNS: readonly { id: KanbanColumnId; label: string }[] = [
   { id: "backlog", label: "Backlog" },
@@ -63,38 +73,6 @@ const parse = (iso: string | undefined): number | null => {
   return Number.isFinite(t) ? t : null;
 };
 
-/** Columns where a card is being worked on: entering one starts its cycle time. */
-const WORKING: ReadonlySet<KanbanColumnId> = new Set<KanbanColumnId>(["in_progress", "review"]);
-
-/**
- * `card` moved to `col` at `at`. The same card (by reference) when it is
- * already there. Entering In progress or Review stamps `startedAt` when it
- * has none (a card pulled straight into Review was worked on too, and would
- * otherwise never count towards cycle time), entering Done stamps
- * `completedAt` (the stamps the MCP `move_card` action writes, which starts
- * the clock on In progress only). A card dropped straight from Backlog or
- * Ready into Done gets no start: nobody saw it worked on, so it has no
- * cycle time rather than a made-up 0 days. Leaving Done drops the
- * completion, so a reopened card no longer counts as throughput, and going
- * back to Backlog or Ready drops the start, so the next attempt's cycle
- * time starts afresh. `columnSince` always restarts: it is what the
- * age-in-column badge counts from. A done card can't be blocked, so the
- * flag goes too.
- */
-export function movedCard(card: KanbanCard, col: KanbanColumnId, at: string): KanbanCard {
-  if (card.column === col) return card;
-  const next: KanbanCard = { ...card, column: col, columnSince: at };
-  if (WORKING.has(col) && !card.startedAt) next.startedAt = at;
-  if (col === "done") {
-    if (!card.completedAt) next.completedAt = at;
-    delete next.blocked;
-  } else {
-    delete next.completedAt;
-  }
-  if (col === "backlog" || col === "ready") delete next.startedAt;
-  return next;
-}
-
 /** The latest of some dates, or null when none of them is one. */
 function latestOf(isos: readonly (string | undefined)[]): string | null {
   let best: { iso: string; t: number } | null = null;
@@ -142,47 +120,10 @@ export function daysSince(iso: string | null | undefined, now: Date): number | n
   return Math.max(0, Math.floor((now.getTime() - t) / DAY_MS));
 }
 
-/** Days from start to completion, or null without both stamps. */
-export function cycleTimeDays(card: Pick<KanbanCard, "startedAt" | "completedAt">): number | null {
-  const start = parse(card.startedAt);
-  const end = parse(card.completedAt);
-  if (start === null || end === null) return null;
-  return Math.max(0, (end - start) / DAY_MS);
-}
-
-export interface CycleStats {
-  /** Done cards with a start and a completion. */
-  count: number;
-  /** Mean days; null without any. Quote it from MIN_SAMPLE.average cards. */
-  average: number | null;
-  /** Standard deviation in days; quote it from MIN_SAMPLE.distribution. */
-  spread: number | null;
-  /** 85% of cards finished within this many days (nearest rank, the shared
-   *  `percentile`); quote it from MIN_SAMPLE.distribution. */
-  p85: number | null;
-}
-
-/**
- * A card counts as finished while it is in Done. The completion stamp alone
- * isn't enough: an agent's `move_card` out of Done leaves it in place.
- */
-const finished = (cards: readonly KanbanCard[]) => cards.filter((c) => c.column === "done");
-
-export function cycleStats(cards: readonly KanbanCard[]): CycleStats {
-  const days = finished(cards)
-    .map(cycleTimeDays)
-    .filter((d): d is number => d !== null);
-  const count = days.length;
-  if (count === 0) return { count, average: null, spread: null, p85: null };
-  const average = days.reduce((a, b) => a + b, 0) / count;
-  const variance = days.reduce((sum, d) => sum + (d - average) ** 2, 0) / count;
-  return { count, average, spread: Math.sqrt(variance), p85: percentile(days, 85) };
-}
-
 /** Cards completed in the 7 days up to `now`. */
 export function throughputLastWeek(cards: readonly KanbanCard[], now: Date): number {
   const cutoff = now.getTime() - 7 * DAY_MS;
-  return finished(cards).filter((c) => {
+  return finishedCards(cards).filter((c) => {
     const t = parse(c.completedAt);
     return t !== null && t >= cutoff && t <= now.getTime();
   }).length;
@@ -225,7 +166,7 @@ export function weeklyThroughput(cards: readonly KanbanCard[]): WeekPoint[] {
   const byWeek = new Map<string, number>();
   let minTs = Infinity;
   let maxTs = -Infinity;
-  for (const c of finished(cards)) {
+  for (const c of finishedCards(cards)) {
     const t = parse(c.completedAt);
     if (t === null) continue;
     minTs = Math.min(minTs, t);

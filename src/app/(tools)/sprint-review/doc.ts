@@ -9,12 +9,24 @@ import type {
 import {
   DRAFT_REVIEW_ID,
   blankReview,
+  demoIdFor,
+  isStarterDraft,
   reviewDocId,
   reviewHasContent,
 } from "@/lib/sprints/review-doc";
 import { listAnd } from "@/lib/charts/chart-text";
-import { FEEDBACK_CATEGORIES, LEGACY_STARTER } from "./constants";
+import { FEEDBACK_CATEGORIES } from "./constants";
 import type { FeedbackCategory } from "./types";
+
+// Shared with the cockpit and the agent actions (lib/sprints/review-doc).
+export {
+  FEEDBACK_TITLE_MAX,
+  demoIdFor,
+  featureFromStory,
+  feedbackStoryTitle,
+  isStarterDraft,
+  withStoriesInDemo,
+} from "@/lib/sprints/review-doc";
 
 /**
  * Where a sprint review lives. Each sprint has its own document, under
@@ -76,32 +88,6 @@ export function normalizeReview(doc: SprintReview): SprintReview {
     totalBacklog: points(doc.totalBacklog),
     backlogDone: points(doc.backlogDone),
   };
-}
-
-const featureKey = (f: DemoFeature) =>
-  [f.id, f.name, f.description, f.acceptanceCriteria, f.timeMinutes].join("\u0000");
-const checkKey = (c: ChecklistItem) => [c.id, c.label, c.checked].join("\u0000");
-
-/**
- * Whether the draft is still the old page's starter content, untouched
- * (any meeting date: the old page stamped one on the first visit). Such a
- * draft is shown as empty and never offered for a sprint.
- */
-export function isStarterDraft(doc: SprintReview): boolean {
-  const s = LEGACY_STARTER;
-  return (
-    doc.id === DRAFT_REVIEW_ID &&
-    !doc.sprintId &&
-    doc.sprintName === s.sprintName &&
-    doc.sprintNumber === s.sprintNumber &&
-    doc.feedbackItems.length === 0 &&
-    doc.features.map(featureKey).join("\n") === s.features.map(featureKey).join("\n") &&
-    doc.checklistItems.map(checkKey).join("\n") === s.checklistItems.map(checkKey).join("\n") &&
-    doc.committed === s.committed &&
-    doc.completed === s.completed &&
-    doc.totalBacklog === s.totalBacklog &&
-    doc.backlogDone === s.backlogDone
-  );
 }
 
 export interface ReviewView {
@@ -180,24 +166,6 @@ export function resetSummary(doc: SprintReview): string {
     : "The review holds nothing yet; resetting deletes it.";
 }
 
-/** The longest backlog story title made from a piece of feedback. */
-export const FEEDBACK_TITLE_MAX = 120;
-
-/**
- * A piece of feedback as a backlog story's title: one line, cut at a word
- * with an ellipsis when it is long. The story links back to the feedback
- * (its sourceRef), where the full text stays; the backlog would otherwise
- * cut it mid-word at its own limit and say nothing.
- */
-export function feedbackStoryTitle(text: string, max = FEEDBACK_TITLE_MAX): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(0, max - 1);
-  const space = cut.lastIndexOf(" ");
-  // A word longer than half the limit is cut where it stands.
-  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, "")}…`;
-}
-
 /**
  * `sprint`'s review started from the draft: the draft's demo items,
  * feedback and checklist (copied; the draft stays as it is). Feedback keeps
@@ -229,26 +197,6 @@ export function startFromDraft(
 
 /* ── Demo items from done stories ────────────────────────────────────── */
 
-/**
- * The demo item made from a story has an id derived from the story's, so
- * the page (and an agent) can tell which done stories are already in the
- * demo without a field the document doesn't have.
- */
-export function demoIdFor(storyId: string): string {
-  return `story-${storyId}`;
-}
-
-/** A demo item for a done story: its title, not timed yet. */
-export function featureFromStory(story: Pick<Story, "id" | "title">): DemoFeature {
-  return {
-    id: demoIdFor(story.id),
-    name: story.title.trim(),
-    description: "",
-    acceptanceCriteria: "",
-    timeMinutes: 0,
-  };
-}
-
 /** The done stories with whether each is in the demo already. */
 export function demoCandidates(
   done: readonly Story[],
@@ -256,13 +204,6 @@ export function demoCandidates(
 ): { story: Story; inDemo: boolean }[] {
   const ids = new Set(features.map((f) => f.id));
   return done.map((story) => ({ story, inDemo: ids.has(demoIdFor(story.id)) }));
-}
-
-/** The review with demo items for `stories` added (those not in it yet). */
-export function withStoriesInDemo(doc: SprintReview, stories: readonly Story[]): SprintReview {
-  const ids = new Set(doc.features.map((f) => f.id));
-  const added = stories.filter((s) => !ids.has(demoIdFor(s.id))).map(featureFromStory);
-  return added.length === 0 ? doc : { ...doc, features: [...doc.features, ...added] };
 }
 
 /** A demo item's minutes, or null while it isn't timed (0, from the old blank rows). */

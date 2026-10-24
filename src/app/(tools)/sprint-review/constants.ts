@@ -4,52 +4,11 @@
  * the feedback categories' labels and colours. Pure data, no React.
  */
 
-import type { SprintReview } from "@/lib/stores/workspace-types";
 import type { FeedbackCategory } from "./types";
 
-/** What a team usually checks before it shows the increment. */
-export const STANDARD_CHECKLIST: readonly string[] = [
-  "Environment is working",
-  "Demo data prepared",
-  "Acceptance criteria reviewed",
-  "Stakeholders invited",
-  "Meeting link shared",
-  "Screen sharing tested",
-  "Backup plan ready",
-  "Release notes prepared",
-];
-
-/**
- * What the review held before reviews were per sprint and nothing was
- * typed: a made-up "Sprint Alpha" with one demo item, the checklist and
- * velocity numbers (40 committed, 36 done). The old page stored it on the
- * first visit (stamping the meeting date), so most drafts are exactly this.
- * It is example content, not the user's, and is read as an empty draft
- * (doc.ts, `isStarterDraft`).
- */
-export const LEGACY_STARTER: Omit<SprintReview, "id" | "meetingDate"> = {
-  sprintName: "Sprint Alpha",
-  sprintNumber: "1",
-  features: [
-    {
-      id: "f1",
-      name: "User Login Flow",
-      description: "Enhanced authentication with SSO support",
-      acceptanceCriteria: "User can log in via email/password and Google SSO",
-      timeMinutes: 5,
-    },
-  ],
-  feedbackItems: [],
-  checklistItems: STANDARD_CHECKLIST.map((label, i) => ({
-    id: `c${i + 1}`,
-    label,
-    checked: false,
-  })),
-  committed: 40,
-  completed: 36,
-  totalBacklog: 200,
-  backlogDone: 36,
-};
+// The checklist and the old starter draft moved to lib/sprints/review-doc,
+// so the cockpit and agents can tell the starter draft from a real one.
+export { LEGACY_STARTER, STANDARD_CHECKLIST } from "@/lib/sprints/review-doc";
 
 /** The longest demo slot the form takes: a full working day. */
 export const MAX_DEMO_MINUTES = 480;

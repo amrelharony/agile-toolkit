@@ -102,6 +102,46 @@ export function notPostedYet(
   return roster.filter((name) => name.trim() && !posted.has(memberKey(name)));
 }
 
+export interface StandupPost {
+  member: string;
+  date: string;
+  yesterday: string;
+  today: string;
+  blockers?: string;
+  description?: string;
+}
+
+/**
+ * The entry a post writes, one per person per day: the day's entry for
+ * that person (either mode, an old async update included) is replaced
+ * under its id, keeping when it was first posted, and keeping its
+ * blocker's resolution and hand-offs while the blocker text is unchanged.
+ */
+export function postedEntry(
+  existing: StandupEntry | undefined,
+  post: StandupPost,
+  mode: StandupMode,
+  id: string,
+  now: number
+): StandupEntry {
+  const blockers = (post.blockers ?? "").trim();
+  const sameBlocker = Boolean(existing) && existing!.blockers.trim() === blockers;
+  const description = (post.description ?? "").trim();
+  return {
+    id: existing?.id ?? id,
+    member: post.member.trim(),
+    date: post.date,
+    yesterday: post.yesterday.trim(),
+    today: post.today.trim(),
+    blockers,
+    timestamp: existing?.timestamp ?? now,
+    mode,
+    ...(description ? { description } : {}),
+    ...(sameBlocker && existing!.blockerResolved ? { blockerResolved: true } : {}),
+    ...(sameBlocker && existing!.sentTo ? { sentTo: existing!.sentTo } : {}),
+  };
+}
+
 export const hasBlocker = (e: Pick<StandupEntry, "blockers">) =>
   (e.blockers ?? "").trim().length > 0;
 

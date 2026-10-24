@@ -226,7 +226,7 @@ describe("the last retro's actions", () => {
     // Reopened, the menu links to the card instead of sending again.
     openSendTo(/^Send to… Pair on flaky tests \(sent\)/);
     const sent = screen.getByRole("menuitem", { name: /Kanban card.*Sent · Open/ });
-    expect(sent).toHaveAttribute("href", "/kanban");
+    expect(sent).toHaveAttribute("href", "/kanban?board=flow");
   });
 
   it("keeps where a carried action was sent, so it isn't sent twice", () => {

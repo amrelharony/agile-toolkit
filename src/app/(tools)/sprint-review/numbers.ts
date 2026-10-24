@@ -1,105 +1,19 @@
-import type { Sprint, SprintReview, Story } from "@/lib/stores/workspace-types";
-import type { ReviewFacts } from "@/lib/sprints/review-doc";
-import { SAY_DO_GRADE_LABEL, sayDoRatio, type SayDo } from "@/lib/sprints/metrics";
+/**
+ * The review's numbers as the page words them: which source they come
+ * from, the unfinished stories, backlog progress and the chart text. The
+ * numbers themselves (stories, then the review's typed numbers, then the
+ * sprint's own) are worked out in lib/sprints/review-doc, shared with the
+ * agent actions; re-exported here for the page.
+ */
+
+import type { Story } from "@/lib/stores/workspace-types";
+import type { ReviewNumbers } from "@/lib/sprints/review-doc";
+import { SAY_DO_GRADE_LABEL } from "@/lib/sprints/metrics";
 import { totalStoryPoints } from "@/lib/sprints/plan";
 import { fmt, type ChartText } from "@/lib/charts/chart-text";
 
-/**
- * The review's numbers: committed and completed points, and say/do.
- *
- * The sprint's stories are the source. A team without pointed stories
- * types the numbers into the review (the old velocity fields, now the
- * labelled fallback), and a sprint that only has its own typed points
- * (Velocity, an agent) shows those until the review types others.
- *
- * A typed 0 is a field nobody filled in: the document has no "unset" (the
- * old page's blank fields stored 0), so it never counts as 0 points done.
- * A blank field falls back to the sprint's own number, else it reads as
- * not recorded, and say/do waits for both.
- */
-export type NumbersSource = "stories" | "typed" | "sprint" | "none";
-
-export interface ReviewNumbers {
-  source: NumbersSource;
-  /** Points committed; 0 when none is recorded. */
-  committed: number;
-  /** Points done; null when the source has a commitment but no result yet. */
-  completed: number | null;
-  sayDo: SayDo | null;
-  /** Stories planned into the sprint (0 for the draft). */
-  storyCount: number;
-  doneCount: number;
-  /** Points of the planned stories that aren't done. */
-  notDonePoints: number;
-  /** Typed numbers only: the field left blank that shows the sprint's own number. */
-  fromSprint?: "committed" | "completed";
-}
-
-/**
- * The points typed on the sprint itself (Velocity, an agent), for a sprint
- * whose stories have none; null where it has none either.
- */
-export function sprintOwnNumbers(
-  facts: ReviewFacts | null,
-  sprint?: Pick<Sprint, "pointsCompleted">
-): { committed: number | null; completed: number | null } {
-  if (!facts || facts.fromStories) return { committed: null, completed: null };
-  return {
-    committed: facts.committed > 0 ? facts.committed : null,
-    completed: sprint?.pointsCompleted != null ? facts.completed : null,
-  };
-}
-
-export function reviewNumbers(
-  doc: Pick<SprintReview, "committed" | "completed">,
-  facts: ReviewFacts | null,
-  sprint?: Pick<Sprint, "pointsCompleted">
-): ReviewNumbers {
-  const storyCount = facts ? facts.done.length + facts.notDone.length : 0;
-  const doneCount = facts ? facts.done.length : 0;
-  const notDonePoints = facts ? totalStoryPoints(facts.notDone) : 0;
-  const base = { storyCount, doneCount, notDonePoints };
-  if (facts?.fromStories) {
-    return {
-      ...base,
-      source: "stories",
-      committed: facts.committed,
-      completed: facts.completed,
-      sayDo: facts.sayDo,
-    };
-  }
-  const own = sprintOwnNumbers(facts, sprint);
-  const typedCommitted = doc.committed > 0 ? doc.committed : null;
-  const typedCompleted = doc.completed > 0 ? doc.completed : null;
-  if (typedCommitted !== null || typedCompleted !== null) {
-    const committed = typedCommitted ?? own.committed ?? 0;
-    const completed = typedCompleted ?? own.completed;
-    const fromSprint =
-      typedCommitted === null && own.committed !== null
-        ? "committed"
-        : typedCompleted === null && own.completed !== null
-          ? "completed"
-          : undefined;
-    return {
-      ...base,
-      source: "typed",
-      committed,
-      completed,
-      sayDo: sayDoRatio(committed, completed),
-      ...(fromSprint ? { fromSprint } : {}),
-    };
-  }
-  if (own.committed !== null) {
-    return {
-      ...base,
-      source: "sprint",
-      committed: own.committed,
-      completed: own.completed,
-      sayDo: sayDoRatio(own.committed, own.completed),
-    };
-  }
-  return { ...base, source: "none", committed: 0, completed: null, sayDo: null };
-}
+export { reviewNumbers, sprintOwnNumbers } from "@/lib/sprints/review-doc";
+export type { NumbersSource, ReviewNumbers } from "@/lib/sprints/review-doc";
 
 /** "1 pt", "34 pts". */
 export const pointsLabel = (n: number) => `${fmt(n)} ${n === 1 ? "pt" : "pts"}`;
