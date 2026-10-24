@@ -1,68 +1,14 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { Field } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import { EPIC_COLORS, colorVar, type EpicColorKey } from "@/lib/roadmap/palette";
-import { currentQuarter, quarterOptions } from "@/lib/roadmap/quarters";
-
-const SELECT_CLASS =
-  "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 font-data text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm";
 
 /**
- * A quarter, picked from a list instead of typed ("2026 Q3"): the free
- * text accepted "next spring" and then drew nothing. The current quarter
- * is marked, and a stored quarter outside the usual years stays listed.
+ * The quarter picker ("2026 Q3") moved to components/shared, where the
+ * DORA Scorecard uses it too in the dash format; the roadmap keeps its import.
  */
-export function QuarterPicker({
-  label,
-  value,
-  onChange,
-  now = new Date(),
-  also = [],
-  hint,
-  error,
-  required,
-  className,
-}: {
-  label: string;
-  /** "2026 Q3", or "" when none is picked yet. */
-  value: string;
-  onChange: (quarter: string) => void;
-  now?: Date;
-  /** Other quarters to keep in the list (the epics' dates). */
-  also?: readonly string[];
-  hint?: ReactNode;
-  error?: ReactNode;
-  required?: boolean;
-  className?: string;
-}) {
-  const options = quarterOptions(now, [value, ...also]);
-  const thisQuarter = currentQuarter(now);
-  return (
-    <Field label={label} hint={hint} error={error} required={required} className={className}>
-      {(props) => (
-        <select
-          {...props}
-          className={SELECT_CLASS}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          {value === "" && (
-            <option value="" disabled>
-              Pick a quarter
-            </option>
-          )}
-          {options.map((q) => (
-            <option key={q} value={q}>
-              {q === thisQuarter ? `${q} (this quarter)` : q}
-            </option>
-          ))}
-        </select>
-      )}
-    </Field>
-  );
-}
+export { QuarterPicker } from "@/components/shared/quarter-picker";
 
 /**
  * The epic's colour from the theme palette. Native radios, so arrow keys

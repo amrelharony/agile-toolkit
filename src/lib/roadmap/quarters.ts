@@ -1,7 +1,9 @@
 /**
  * Quarters as the roadmap stores them: "2026 Q3". The agents' `add_epic`
- * takes the same free text, so parsing stays lenient ("2026q3", "2026 q3")
- * while everything the tool writes is the canonical label.
+ * takes the same free text, so parsing stays lenient ("2026q3", "2026 q3",
+ * and the DORA Scorecard's "2026-Q3") while everything the tool writes is
+ * the canonical label. The DORA Scorecard stores the dash form
+ * (`dashQuarter`) and reads a quarter's days with `quarterBounds`.
  *
  * A quarter's index is `year * 4 + q` with q in 1..4, so 0 can mean
  * "unparsable". Decoding subtracts 1 first: the earlier `floor(i / 4)`
@@ -15,9 +17,9 @@ export const MAX_QUARTERS_SPAN = 40;
 const YEARS_BACK = 2;
 const YEARS_AHEAD = 5;
 
-/** The quarter's index, or 0 when it isn't a "YYYY Qn" between 1900 and 2200. */
+/** The quarter's index, or 0 when it isn't a "YYYY Qn" (or "YYYY-Qn") between 1900 and 2200. */
 export function quarterIndex(q: string | null | undefined): number {
-  const m = typeof q === "string" ? q.match(/(\d{4})\s*Q([1-4])/i) : null;
+  const m = typeof q === "string" ? q.match(/(\d{4})[\s-]*Q([1-4])/i) : null;
   if (!m) return 0;
   const year = parseInt(m[1], 10);
   // A hand-edited "0 Q1" (or "9999 Q1") must not pass as a real quarter.
@@ -29,6 +31,37 @@ export function quarterIndex(q: string | null | undefined): number {
 export function quarterLabel(index: number): string {
   const zero = index - 1;
   return `${Math.floor(zero / 4)} Q${(zero % 4) + 1}`;
+}
+
+/** "2026-Q3" for an index from `quarterIndex`: the form the DORA Scorecard stores. */
+export function dashQuarter(index: number): string {
+  const zero = index - 1;
+  return `${Math.floor(zero / 4)}-Q${(zero % 4) + 1}`;
+}
+
+/**
+ * Whether `q` is exactly a dash quarter ("2026-Q3") with a year from 1900 to
+ * 2200. Stricter than `quarterIndex`, which also reads "2026-Q10" as Q1: a
+ * store that sorts its quarters as text needs the exact form.
+ */
+export function isDashQuarter(q: unknown): q is string {
+  return typeof q === "string" && /^\d{4}-Q[1-4]$/.test(q) && quarterIndex(q) !== 0;
+}
+
+/** The first and last day ("YYYY-MM-DD") of a quarter, or null when it can't be read. */
+export function quarterBounds(q: string | null | undefined): { start: string; end: string } | null {
+  const i = quarterIndex(q);
+  if (i === 0) return null;
+  const zero = i - 1;
+  const year = Math.floor(zero / 4);
+  const firstMonth = (zero % 4) * 3;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // Day 0 of the month after the quarter is the quarter's last day.
+  const lastDay = new Date(Date.UTC(year, firstMonth + 3, 0)).getUTCDate();
+  return {
+    start: `${year}-${pad(firstMonth + 1)}-01`,
+    end: `${year}-${pad(firstMonth + 3)}-${pad(lastDay)}`,
+  };
 }
 
 /** The canonical label for a stored quarter, or "" when it can't be read. */
