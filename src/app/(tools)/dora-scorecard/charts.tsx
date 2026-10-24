@@ -1,152 +1,99 @@
 "use client";
 
-// Recharts lives here so the DORA scorecard loads it only when the trend
+// Recharts lives here so the DORA scorecard loads it only when a trend
 // chart mounts. Import this module through next/dynamic, never statically.
 import {
-  LineChart,
-  Line,
   CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  Tooltip,
-  Legend,
-  ReferenceLine,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
-import type { ControlLimits } from "@/lib/analytics/control-chart";
+import { DORA_BANDS, type DoraMetric } from "@/lib/dora/bands";
+import { plotted, type DoraTrendRow } from "./chart-text";
 
-export interface DoraTrendRow {
-  quarter: string;
-  deployFreqPerWeek: number;
-  leadTimeHours: number;
-  changeFailRatePct: number;
-  mttrHours: number;
-}
+const { colors } = chartTheme;
 
-export function DoraTrendChart({
-  data,
-  deployControl,
-  deployChangepoints,
-  width,
-  height,
-}: {
-  data: DoraTrendRow[];
-  deployControl: ControlLimits | null;
-  deployChangepoints: CausalAnnotationData[];
-  /** Injected by ChartCard's ResponsiveContainer. */
-  width?: number;
-  height?: number;
-}) {
+/** Each metric keeps one theme colour across its chart, its legend and the KPI tiles. */
+const STROKE: Record<DoraMetric, string> = {
+  deployFreqPerWeek: colors.cyan,
+  leadTimeHours: colors.amber,
+  changeFailRate: colors.red,
+  mttrHours: colors.purple,
+};
+
+const BOUNDARIES = [
+  { key: "elite", label: "Elite" },
+  { key: "high", label: "High" },
+  { key: "medium", label: "Medium" },
+] as const;
+
+/**
+ * One DORA metric across the quarters, in its own unit (the old chart put
+ * deploys a week and lead-time hours on one axis, which flattened the
+ * deploy line), with the band boundaries of the cited report as dashed
+ * lines where they fall inside the plotted range.
+ */
+export function MetricTrendChart({ metric, data }: { metric: DoraMetric; data: DoraTrendRow[] }) {
+  const points = data.map((r) => ({ quarter: r.quarter, value: plotted(r, metric) }));
+  const scale = metric === "changeFailRate" ? 100 : 1;
+  const cuts = DORA_BANDS.cut[metric];
   return (
-    <LineChart
-      width={width}
-      height={height}
-      data={data}
-      margin={{ top: 8, right: 12, left: -16, bottom: 4 }}
-      // ChartCard hides the plot from assistive tech behind its summary and
-      // table, so the SVG mustn't be a tab stop.
-      accessibilityLayer={false}
-    >
-      <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-      <XAxis dataKey="quarter" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-      {/* Left axis: deploy frequency (per week) and lead time (hours). */}
-      <YAxis yAxisId="left" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-      {/* Right axis: CFR (%) and MTTR (hours) — distinct scales/units. */}
-      <YAxis
-        yAxisId="right"
-        orientation="right"
-        tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-      />
-      <Tooltip contentStyle={chartTheme.tooltipStyle} />
-      <Legend wrapperStyle={chartTheme.legendStyle} />
-      <Line
-        yAxisId="left"
-        type="monotone"
-        dataKey="deployFreqPerWeek"
-        name="Deploy/wk"
-        stroke={chartTheme.colors.cyan}
-        strokeWidth={2}
-        dot={{ r: 3 }}
-      />
-      <Line
-        yAxisId="left"
-        type="monotone"
-        dataKey="leadTimeHours"
-        name="Lead (h)"
-        stroke={chartTheme.colors.amber}
-        strokeWidth={2}
-        dot={{ r: 3 }}
-      />
-      <Line
-        yAxisId="right"
-        type="monotone"
-        dataKey="changeFailRatePct"
-        name="CFR (%)"
-        stroke={chartTheme.colors.red}
-        strokeWidth={2}
-        dot={{ r: 3 }}
-      />
-      <Line
-        yAxisId="right"
-        type="monotone"
-        dataKey="mttrHours"
-        name="MTTR (h)"
-        stroke={chartTheme.colors.purple}
-        strokeWidth={2}
-        dot={{ r: 3 }}
-      />
-      {/* XmR control limits on deploy frequency — most actionable SPC. */}
-      {deployControl && (
-        <>
+    <ResponsiveContainer width="100%" height={180}>
+      {/* ChartFigure hides the plot behind its summary and table, so the SVG
+          mustn't be a tab stop. */}
+      <LineChart
+        data={points}
+        margin={{ top: 8, right: 44, left: -12, bottom: 0 }}
+        accessibilityLayer={false}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+        <XAxis
+          dataKey="quarter"
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
+          tickLine={false}
+          interval="preserveStartEnd"
+        />
+        <YAxis
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={false}
+          tickLine={false}
+          width={48}
+        />
+        <Tooltip contentStyle={chartTheme.tooltipStyle} />
+        {BOUNDARIES.map((b) => (
           <ReferenceLine
-            yAxisId="left"
-            y={deployControl.centerLine}
-            stroke={chartTheme.colors.cyan}
+            key={b.key}
+            y={cuts[b.key] * scale}
+            stroke={chartTheme.axisColor}
             strokeDasharray="2 4"
-            strokeOpacity={0.55}
+            strokeOpacity={0.6}
+            // Only the boundaries inside the plotted range: a month of lead
+            // time would squash a team that ships in days into the floor.
+            ifOverflow="hidden"
             label={{
-              value: "X̄",
-              fill: chartTheme.colors.cyan,
-              fontSize: 10,
+              value: b.label,
+              fill: chartTheme.axisColor,
+              fontSize: 12,
               position: "right",
             }}
-            ifOverflow="extendDomain"
           />
-          <ReferenceLine
-            yAxisId="left"
-            y={deployControl.ucl}
-            stroke={chartTheme.colors.green}
-            strokeDasharray="2 4"
-            strokeOpacity={0.55}
-            label={{
-              value: "UCL",
-              fill: chartTheme.colors.green,
-              fontSize: 10,
-              position: "right",
-            }}
-            ifOverflow="extendDomain"
-          />
-          <ReferenceLine
-            yAxisId="left"
-            y={deployControl.lcl}
-            stroke={chartTheme.colors.red}
-            strokeDasharray="2 4"
-            strokeOpacity={0.55}
-            label={{
-              value: "LCL",
-              fill: chartTheme.colors.red,
-              fontSize: 10,
-              position: "right",
-            }}
-            ifOverflow="extendDomain"
-          />
-        </>
-      )}
-      {/* CUSUM regime-shift markers on the deploy series. */}
-      {deployChangepoints.map((cp, i) => (
-        <CausalLine key={`cusum-${i}`} annotation={cp} />
-      ))}
-    </LineChart>
+        ))}
+        <Line
+          type="monotone"
+          dataKey="value"
+          name="Value"
+          stroke={STROKE[metric]}
+          strokeWidth={2}
+          dot={{ r: 3 }}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
   );
 }

@@ -1,10 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { DoraScorecardClient } from "./dora-scorecard-client";
 
-export const metadata = {
-  title: "DORA Scorecard",
-  description:
-    "Track the four DORA keys (deploy frequency, lead time, change failure rate, MTTR) across quarters with Elite/High/Medium/Low banding.",
-};
+export const metadata: Metadata = toolMetadata("dora-scorecard");
 
 export default function Page() {
   return <DoraScorecardClient />;
