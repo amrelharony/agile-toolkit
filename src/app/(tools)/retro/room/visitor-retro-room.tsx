@@ -226,7 +226,15 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
       return;
     }
     setSaved(true);
-    toast.success("Saved a copy to Past retros on the Retro page.");
+    toast.success("Saved a copy to Past retros on the Retro page.", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          undo();
+          setSaved(false);
+        },
+      },
+    });
   };
 
   const downloadMarkdown = () => {

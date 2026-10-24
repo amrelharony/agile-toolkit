@@ -57,6 +57,26 @@ describe("snapshot import", () => {
     expect(useWorkspaceStore.getState().retroBoards!.map((b) => b.id)).toEqual(["retro:current"]);
   });
 
+  it("makes room among full past retros, and Undo puts the oldest back", () => {
+    const past = Array.from({ length: 20 }, (_, i) => ({
+      ...retroState,
+      id: `retro:${i}`,
+      archivedAt: `2026-01-${String(i + 1).padStart(2, "0")}T10:00:00.000Z`,
+    }));
+    useWorkspaceStore.setState({ retroBoards: past as never });
+    const undo = SNAPSHOT_IMPORTERS.retro.importState(retroState);
+    const ids = useWorkspaceStore.getState().retroBoards!.map((b) => b.id);
+    expect(ids).toHaveLength(20);
+    expect(ids).not.toContain("retro:0");
+    undo!();
+    expect(
+      useWorkspaceStore
+        .getState()
+        .retroBoards!.map((b) => b.id)
+        .sort()
+    ).toEqual(past.map((b) => b.id).sort());
+  });
+
   it("adds WSJF rows with new ids and only known fields", () => {
     const undo = SNAPSHOT_IMPORTERS.wsjf.importState([
       {
