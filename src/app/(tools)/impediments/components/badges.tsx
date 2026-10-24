@@ -44,7 +44,11 @@ export function StatusBadge({ status }: { status: ImpedimentStatus }) {
   );
 }
 
-/** "Open 5 days", graded by how long it has been in the way; "Took 3 days" once resolved. */
+/**
+ * "5 days old", graded by how long it has been in the way; "Took 3 days"
+ * once resolved. Not "Open 5 days": next to an "Escalated" chip that read
+ * as a second, contradicting status.
+ */
 export function AgeBadge({ days, resolved }: { days: number; resolved: boolean }) {
   if (resolved) {
     return (
@@ -57,7 +61,7 @@ export function AgeBadge({ days, resolved }: { days: number; resolved: boolean }
   return (
     <Chip className={cn("font-data", ageTone(days))}>
       <Clock className="h-3 w-3" aria-hidden="true" />
-      {days === 0 ? "Raised today" : `Open ${daysText(days)}`}
+      {days === 0 ? "Raised today" : `${daysText(days)} old`}
     </Chip>
   );
 }

@@ -60,7 +60,14 @@ export function LogForm({
 
   if (!open) {
     return (
-      <Button ref={openerRef} variant="toolkit" onClick={() => setOpen(true)} className="gap-2">
+      <Button
+        ref={openerRef}
+        variant="toolkit"
+        onClick={() => setOpen(true)}
+        className="gap-2"
+        // The page focuses it once a delete empties the list.
+        data-log-opener=""
+      >
         <Plus className="h-4 w-4" aria-hidden="true" />
         Log impediment
       </Button>

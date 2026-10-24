@@ -7,7 +7,7 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Impediment, WhiteboardObject } from "@/lib/stores/workspace-types";
-import { addDays } from "@/lib/impediments/model";
+import { addDays, daysOverdue, impedimentDueDate } from "@/lib/impediments/model";
 import { LEGACY_IMPEDIMENTS_KEY } from "@/lib/impediments/legacy-key";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
@@ -45,6 +45,7 @@ import {
 import {
   applyValues,
   draftFrom,
+  earliestDay,
   emptyDraft,
   newImpediment,
   validateImpediment,
@@ -308,6 +309,110 @@ describe("editing a stored impediment", () => {
     expect(
       applyValues(stored, { title: "CI", severity: "medium", raisedAt: ago(6), resolvedAt: ago(1) })
     ).toMatchObject({ resolvedAt: ago(1) });
+  });
+
+  it("saves the due date the field showed when the raised day moves", () => {
+    // Due by its expected days: the field shows raised + 9 as a date.
+    const stored = imp("a", "Shared test env", { raisedAt: ago(8), expectedResolutionDays: 9 });
+    const start = draftFrom(stored);
+    expect(start.dueDate).toBe(addDays(TODAY, 1));
+    const v = validateImpediment({ ...start, raisedAt: ago(10) }, TODAY, { stored: start });
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    const next = applyValues(stored, v.values);
+    // Not raised + 9 from the new day (yesterday, so "Overdue by 1 day").
+    expect(next).toMatchObject({ raisedAt: ago(10), dueDate: addDays(TODAY, 1) });
+    expect(impedimentDueDate(next)).toBe(addDays(TODAY, 1));
+    expect(daysOverdue(next, TODAY)).toBe(0);
+    // A due date of its own isn't rewritten when the raised day moves.
+    const own = imp("b", "CI", { raisedAt: ago(8), dueDate: `${ago(1)}T12:00:00.000Z` });
+    const moved = applyValues(own, {
+      title: "CI",
+      severity: "medium",
+      raisedAt: ago(9),
+      dueDate: ago(1),
+    });
+    expect(moved.dueDate).toBe(`${ago(1)}T12:00:00.000Z`);
+  });
+});
+
+describe("an agent's UTC day that reads as tomorrow here", () => {
+  // An intent stamps new Date().toISOString(): 21:30 in New York is 01:30
+  // UTC the next day, so the stored day is a day after the local today.
+  const tomorrow = addDays(TODAY, 1);
+  const agentRow = imp("utc", "Waiting on infra", {
+    raisedAt: `${tomorrow}T01:30:00.000Z`,
+    source: "retro",
+  });
+
+  it("can still be resolved today, and nothing before today", () => {
+    expect(earliestDay(agentRow.raisedAt, TODAY)).toBe(TODAY);
+    expect(earliestDay(ago(3), TODAY)).toBe(ago(3));
+    expect(earliestDay("garbage", TODAY)).toBeNull();
+    expect(validateResolvedDay(TODAY, agentRow.raisedAt, TODAY)).toEqual({
+      ok: true,
+      values: TODAY,
+    });
+    expect(validateResolvedDay(ago(1), agentRow.raisedAt, TODAY)).toMatchObject({
+      ok: false,
+      errors: { resolvedAt: "It can't be resolved before it was raised." },
+    });
+  });
+
+  it("can be edited without moving a day nobody touched", () => {
+    const start = draftFrom(agentRow);
+    expect(start.raisedAt).toBe(tomorrow);
+    const v = validateImpediment({ ...start, severity: "high" }, TODAY, { stored: start });
+    expect(v).toMatchObject({ ok: true, values: { severity: "high", raisedAt: tomorrow } });
+    if (!v.ok) return;
+    // The timestamp is kept as it was.
+    expect(applyValues(agentRow, v.values).raisedAt).toBe(agentRow.raisedAt);
+    // Moved to another future day, it is checked like any other.
+    expect(
+      validateImpediment({ ...start, raisedAt: addDays(TODAY, 2) }, TODAY, { stored: start })
+    ).toMatchObject({ ok: false, errors: { raisedAt: "It can't be raised in the future." } });
+    // Without a stored draft (the log form) tomorrow is still refused.
+    expect(validateImpediment(start, TODAY).ok).toBe(false);
+  });
+
+  it("keeps a resolved day an agent wrote, or one before an agent's raised day", () => {
+    // set_status resolves on the UTC day too.
+    const resolvedByAgent = imp("r", "Licence renewal", { raisedAt: ago(2), resolvedAt: tomorrow });
+    const a = draftFrom(resolvedByAgent);
+    expect(validateImpediment(a, TODAY, { resolved: true, stored: a }).ok).toBe(true);
+    expect(
+      validateImpediment({ ...a, resolvedAt: addDays(TODAY, 2) }, TODAY, {
+        resolved: true,
+        stored: a,
+      })
+    ).toMatchObject({ ok: false, errors: { resolvedAt: "It can't be resolved in the future." } });
+    // Resolved here today, raised "tomorrow" by an agent: left as stored, it saves.
+    const b = draftFrom({ ...agentRow, resolvedAt: TODAY });
+    expect(validateImpediment(b, TODAY, { resolved: true, stored: b }).ok).toBe(true);
+  });
+});
+
+describe("text longer than the caps", () => {
+  it("keeps stored text whole and caps only new text", () => {
+    const stored = imp("long", "x".repeat(300), {
+      description: "a".repeat(5000),
+      owner: "o".repeat(150),
+    });
+    const start = draftFrom(stored);
+    const v = validateImpediment({ ...start, severity: "high" }, TODAY, { stored: start });
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.values.title).toHaveLength(300);
+    expect(v.values.description).toHaveLength(5000);
+    expect(v.values.owner).toHaveLength(150);
+    const next = applyValues(stored, v.values);
+    expect(next.description).toBe(stored.description);
+    expect(next.title).toBe(stored.title);
+    // Changed text is capped as in the log form.
+    const edited = validateImpediment({ ...start, description: "b".repeat(5000) }, TODAY, {
+      stored: start,
+    });
+    expect(edited.ok && edited.values.description).toHaveLength(4000);
   });
 });
 
@@ -606,7 +711,7 @@ describe("Impediments first run", () => {
     );
     renderPage();
     const agent = card("Waiting on infra ticket");
-    expect(within(agent).getByText("Open 4 days")).toBeInTheDocument();
+    expect(within(agent).getByText("4 days old")).toBeInTheDocument();
     expect(within(agent).getByRole("link", { name: "From standup" })).toBeInTheDocument();
     // Raised on the timestamp's day.
     expect(within(agent).getByText(dayLabel(ago(4)))).toBeInTheDocument();
@@ -626,14 +731,19 @@ describe("logging an impediment", () => {
     const form = openForm();
     const title = within(form).getByLabelText(/^Impediment/);
     expect(title).toHaveFocus();
+    const severity = within(form).getByRole("radiogroup", { name: "Severity" });
+    expect(severity).toHaveAttribute("aria-required", "true");
     fireEvent.submit(form);
     expect(within(form).getByText("Enter a title.")).toBeInTheDocument();
     expect(within(form).getByText("Pick a severity.")).toBeInTheDocument();
+    // The group's message is tied to it, not just shown next to it.
+    expect(severity).toHaveAccessibleDescription("Pick a severity.");
     expect(rows()).toHaveLength(0);
     expect(title).toHaveFocus();
 
     fireEvent.change(title, { target: { value: "Build server down" } });
     fireEvent.click(within(form).getByRole("radio", { name: "Critical" }));
+    expect(severity).not.toHaveAttribute("aria-describedby");
     fireEvent.change(within(form).getByLabelText(/^Raised on/), { target: { value: ago(3) } });
     fireEvent.change(within(form).getByLabelText(/^Owner/), { target: { value: "Priya" } });
     // Enter in a field submits the form.
@@ -742,6 +852,56 @@ describe("status changes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
     expect(row("a")).toMatchObject({ escalatedAt: ago(2), resolvedAt: TODAY });
   });
+
+  it("acts once on a double-click, though the opposite action takes the button's place", () => {
+    renderPage();
+    const a = () => card("Slow reviews");
+    // The two clicks of a double-click: detail counts them.
+    fireEvent.click(within(a()).getByRole("button", { name: "Escalate Slow reviews" }), {
+      detail: 1,
+    });
+    fireEvent.click(within(a()).getByRole("button", { name: "De-escalate Slow reviews" }), {
+      detail: 2,
+    });
+    expect(row("a")?.escalatedAt).toBe(TODAY);
+    expect(within(a()).getByText("Escalated")).toBeInTheDocument();
+    // Escalated cards say how old they are, not "Open".
+    expect(within(a()).getByText("4 days old")).toBeInTheDocument();
+    expect(within(a()).queryByText(/^Open/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(a()).getByRole("button", { name: "Resolve Slow reviews" }));
+    fireEvent.click(within(a()).getByRole("button", { name: "Mark resolved" }));
+    fireEvent.click(within(a()).getByRole("button", { name: "Reopen Slow reviews" }), {
+      detail: 1,
+    });
+    // Resolve now stands where Reopen was; the second click doesn't open it.
+    fireEvent.click(within(a()).getByRole("button", { name: "Resolve Slow reviews" }), {
+      detail: 2,
+    });
+    expect(row("a")).not.toHaveProperty("resolvedAt");
+    expect(within(a()).queryByRole("button", { name: "Mark resolved" })).not.toBeInTheDocument();
+  });
+
+  it("resolves an agent's row today though its UTC day reads as tomorrow, and edits it", () => {
+    const stamp = `${addDays(TODAY, 1)}T01:30:00.000Z`;
+    seed(imp("utc", "Waiting on infra", { raisedAt: stamp, source: "retro" }));
+    renderPage();
+    const u = () => card("Waiting on infra");
+    expect(within(u()).getByText("Raised today")).toBeInTheDocument();
+    fireEvent.click(within(u()).getByRole("button", { name: "Resolve Waiting on infra" }));
+    expect(within(u()).getByLabelText(/^Resolved on/)).toHaveAttribute("min", TODAY);
+    fireEvent.click(within(u()).getByRole("button", { name: "Mark resolved" }));
+    expect(row("utc")?.resolvedAt).toBe(TODAY);
+
+    // The hand-off's default severity can be changed without touching the dates.
+    fireEvent.click(within(u()).getByRole("button", { name: "Edit Waiting on infra" }));
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.click(within(form).getByRole("radio", { name: "High" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    // Saved and closed: no "can't be raised in the future" on a day nobody moved.
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(row("utc")).toMatchObject({ severity: "high", raisedAt: stamp, resolvedAt: TODAY });
+  });
 });
 
 describe("ageing, due dates and filters", () => {
@@ -757,7 +917,7 @@ describe("ageing, due dates and filters", () => {
   it("flags overdue ones and shows each one's age and due date in words", () => {
     renderPage();
     expect(within(card("Build server down")).getByText("Overdue by 4 days")).toBeInTheDocument();
-    expect(within(card("Build server down")).getByText("Open 5 days")).toBeInTheDocument();
+    expect(within(card("Build server down")).getByText("5 days old")).toBeInTheDocument();
     expect(
       within(card("Shared test env")).getByText(`Due ${dayLabel(addDays(TODAY, 1))}`)
     ).toBeInTheDocument();
@@ -782,6 +942,69 @@ describe("ageing, due dates and filters", () => {
     expect(screen.getByText("No impediments match these filters.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(listTitles()).toHaveLength(4);
+  });
+
+  it("keeps the due date it showed when the raised day is moved back", () => {
+    renderPage();
+    const due = `Due ${dayLabel(addDays(TODAY, 1))}`;
+    expect(within(card("Shared test env")).getByText(due)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Shared test env" }));
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    expect(within(form).getByLabelText(/^Due by/)).toHaveValue(addDays(TODAY, 1));
+    fireEvent.change(within(form).getByLabelText(/^Raised on/), { target: { value: ago(10) } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    expect(row("soon")).toMatchObject({ raisedAt: ago(10), dueDate: addDays(TODAY, 1) });
+    expect(within(card("Shared test env")).getByText(due)).toBeInTheDocument();
+    expect(within(card("Shared test env")).queryByText(/Overdue/)).not.toBeInTheDocument();
+  });
+
+  it("moves focus on and says so when a change takes a card out of the filter", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("radio", { name: "Open (3)" }));
+    expect(listTitles()).toEqual(["Build server down", "Shared test env", "Unclear criteria"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Escalate Shared test env" }));
+    expect(listTitles()).toEqual(["Build server down", "Unclear criteria"]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Unclear criteria" })).toHaveFocus()
+    );
+    await waitFor(() =>
+      expect(announced()).toHaveTextContent(
+        "Escalated “Shared test env”, now hidden by the filters"
+      )
+    );
+
+    // The last one shown: the previous card.
+    fireEvent.click(screen.getByRole("button", { name: "Resolve Unclear criteria" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Build server down" })).toHaveFocus()
+    );
+
+    // Nothing left to show: Clear filters.
+    expect(listTitles()).toEqual(["Build server down"]);
+    fireEvent.click(screen.getByRole("button", { name: "Escalate Build server down" }));
+    expect(screen.getByText("No impediments match these filters.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Clear filters" })).toHaveFocus()
+    );
+  });
+
+  it("moves focus on when an edit takes a card out of the severity filter", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Severity"), { target: { value: "critical" } });
+    expect(listTitles()).toEqual(["Build server down"]);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Build server down" }));
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.click(within(form).getByRole("radio", { name: "High" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    expect(row("late")?.severity).toBe("high");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Clear filters" })).toHaveFocus()
+    );
+    await waitFor(() =>
+      expect(announced()).toHaveTextContent("Saved “Build server down”, now hidden by the filters")
+    );
   });
 });
 
@@ -883,6 +1106,74 @@ describe("edit in place and delete", () => {
         .map((i) => i.id)
         .sort()
     ).toEqual(["a", "b"]);
+  });
+
+  it("words Delete all for a single impediment", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Delete the 1 impediment?")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete all" }));
+    expect(toastSpy.mock.calls[0][0]).toBe("Deleted 1 impediment");
+  });
+
+  it("gives each Delete all its own Undo", () => {
+    act(() => ws().upsertImpediment(imp("b", "Flaky tests")));
+    renderPage();
+    const deleteAll = () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Delete all" })
+      );
+    };
+    deleteAll();
+    // An example loaded and deleted again before the first toast is gone.
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(rows()).toHaveLength(8);
+    deleteAll();
+    expect(rows()).toEqual([]);
+
+    const [first, second] = toastSpy.mock.calls.map((c) => c[1]);
+    act(() => first.action.onClick());
+    // The first Undo brings back the real rows, not the example.
+    expect(
+      rows()
+        .map((i) => i.id)
+        .sort()
+    ).toEqual(["a", "b"]);
+    act(() => second.action.onClick());
+    expect(rows()).toHaveLength(10);
+  });
+
+  it("moves focus to the next card after a delete, else the previous one, else Log impediment", async () => {
+    act(() => {
+      ws().upsertImpediment(imp("b", "Build server down", { severity: "critical" }));
+      ws().upsertImpediment(imp("c", "Flaky tests", { severity: "low" }));
+    });
+    renderPage();
+    expect(listTitles()).toEqual(["Build server down", "Slow reviews", "Flaky tests"]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Slow reviews" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Flaky tests" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete Flaky tests" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Build server down" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete Build server down" }));
+    expect(rows()).toEqual([]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Log impediment" })).toHaveFocus()
+    );
+  });
+
+  it("focuses Log impediment after Delete all, not the page", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete all" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Log impediment" })).toHaveFocus()
+    );
   });
 });
 

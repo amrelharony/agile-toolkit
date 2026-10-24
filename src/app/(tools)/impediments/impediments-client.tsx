@@ -2,14 +2,14 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ListChecks, TrendingUp, X } from "lucide-react";
+import { AlertTriangle, ListChecks, Trash2, TrendingUp, X } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ChartFigure } from "@/components/shared/chart-card";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
-import { ResetButton } from "@/components/shared/reset-button";
 import { ResortChip } from "@/components/shared/resort-chip";
 import { SectionCard } from "@/components/shared/section-card";
 import {
@@ -23,6 +23,7 @@ import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { generateImpedimentPrompts } from "@/lib/ai-prompts/impediments";
 import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
+import { plural } from "@/lib/charts/chart-text";
 import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { hasLegacyImpediments } from "@/lib/impediments/legacy-key";
@@ -101,6 +102,25 @@ const STATUS_DONE: Record<ImpedimentStatus, string> = {
   resolved: "Resolved",
 };
 
+/** Added to the announcement when a change takes the card out of the filtered list. */
+const HIDDEN_NOTE = ", now hidden by the filters";
+
+/**
+ * Focus what `find` returns once React has re-rendered. Deleting a card,
+ * or a change that takes it out of the filter, unmounts the focused
+ * control, and focus would otherwise drop to <body>.
+ */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+/** The Edit button of the card for `id`; ids go in no selector, so need no escaping. */
+function editButtonOf(id: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-impediment-edit]")).find(
+    (el) => el.getAttribute("data-impediment-edit") === id
+  );
+}
+
 /**
  * True while impediments this browser kept under the tool's old store are
  * still waiting for their one-time move into the workspace (the app shell
@@ -160,11 +180,10 @@ export function ImpedimentsClient() {
   const announce = useAnnounce();
   const legacyPending = useLegacyMovePending();
   const exportRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const clearFiltersRef = useRef<HTMLButtonElement>(null);
   const [filters, setFilters] = useState<ImpedimentFilters>(NO_FILTERS);
-  const resetSnapshot = useRef<{ rows: Impediment[]; pins: WhiteboardObject[] }>({
-    rows: [],
-    pins: [],
-  });
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const summary = useMemo(() => impedimentSummary(list, today), [list, today]);
   const took = useMemo(() => resolutionDays(list), [list]);
@@ -190,6 +209,22 @@ export function ImpedimentsClient() {
     compareImpediments(a, b, today)
   );
 
+  /* ── Focus ── */
+
+  /** The log form's opener, or its title while it is open. */
+  const logStart = () => logRef.current?.querySelector<HTMLElement>("[data-log-opener], input");
+
+  /**
+   * Once the card for `id` has gone from the list (deleted, or out of the
+   * filter), focus the card shown after it, else the one before, else
+   * "Clear filters", else the log form.
+   */
+  function focusPast(id: string) {
+    const at = ordered.findIndex((i) => i.id === id);
+    const near = at >= 0 ? (ordered[at + 1] ?? ordered[at - 1]) : undefined;
+    focusSoon(() => (near && editButtonOf(near.id)) || clearFiltersRef.current || logStart());
+  }
+
   /* ── Changes ── */
 
   function add(values: ImpedimentValues) {
@@ -205,12 +240,17 @@ export function ImpedimentsClient() {
     announce(`Logged “${item.title}”`);
   }
 
+  // A save or a status change can take the card out of the filtered list,
+  // and it leaves at once (the stable order only holds cards still shown):
+  // the announcement says so, and focus moves on to its neighbour.
   function save(row: Impediment, values: ImpedimentValues) {
     const next = applyValues(row, values);
     if (next === row) return;
     upsert(next);
     log(IMPEDIMENT_ACTIONS.IMPEDIMENT_UPDATED, { id: row.id, title: next.title });
-    announce(`Saved “${titleOf(next)}”`);
+    const hidden = !matchesFilters(next, filters, today);
+    announce(`Saved “${titleOf(next)}”${hidden ? HIDDEN_NOTE : ""}`);
+    if (hidden) focusPast(row.id);
   }
 
   function setStatus(row: Impediment, status: ImpedimentStatus, day: string) {
@@ -235,7 +275,9 @@ export function ImpedimentsClient() {
     }
     const done =
       from === "escalated" && status === "open" ? "Moved back to open:" : STATUS_DONE[status];
-    announce(`${done} “${titleOf(row)}”`);
+    const hidden = !matchesFilters(next, filters, today);
+    announce(`${done} “${titleOf(row)}”${hidden ? HIDDEN_NOTE : ""}`);
+    if (hidden) focusPast(row.id);
   }
 
   function remove(row: Impediment) {
@@ -251,18 +293,28 @@ export function ImpedimentsClient() {
         repin(pins);
       },
     });
+    focusPast(row.id);
   }
 
+  /**
+   * Each "Delete all" keeps what it took for its own Undo. One snapshot
+   * shared by every reset (ResetButton's onReset / onUndo pair) let the
+   * Undo of an earlier toast restore what a later one deleted, say an
+   * example loaded in between, and lose the real rows.
+   */
   function deleteAll() {
     const rows = useWorkspaceStore.getState().impediments ?? [];
-    resetSnapshot.current = { rows, pins: pinnedTo(new Set(rows.map((i) => i.id))) };
-    rows.forEach((i) => removeOne(i.id));
-  }
-
-  function undoDeleteAll() {
-    const { rows, pins } = resetSnapshot.current;
-    rows.forEach(upsert);
-    repin(pins);
+    const pins = pinnedTo(new Set(rows.map((i) => i.id)));
+    undoable({
+      label: `Deleted ${plural(rows.length, "impediment")}`,
+      apply: () => rows.forEach((i) => removeOne(i.id)),
+      revert: () => {
+        rows.forEach(upsert);
+        repin(pins);
+      },
+    });
+    // The list and the button that opened the dialog are gone.
+    focusSoon(logStart);
   }
 
   const loadExample = () => buildExample(today).forEach(upsert);
@@ -353,7 +405,9 @@ export function ImpedimentsClient() {
           </p>
         )}
 
-        <LogForm today={today} typicalDays={typicalDays} onAdd={add} />
+        <div ref={logRef}>
+          <LogForm today={today} typicalDays={typicalDays} onAdd={add} />
+        </div>
 
         {list.length === 0 ? (
           !legacyPending && (
@@ -400,15 +454,27 @@ export function ImpedimentsClient() {
                     markdown={toMarkdown(list, today)}
                     targetRef={exportRef}
                   />
-                  <ResetButton
-                    label="Delete all"
-                    title={`Delete all ${list.length} impediments?`}
+                  {/* Confirm, then Undo, as ResetButton does; see deleteAll for why not it. */}
+                  <Button
+                    type="button"
+                    variant="danger-ghost"
+                    size="sm"
+                    onClick={() => setConfirmDeleteAll(true)}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    Delete all
+                  </Button>
+                  <ConfirmDialog
+                    open={confirmDeleteAll}
+                    onOpenChange={setConfirmDeleteAll}
+                    title={
+                      list.length === 1
+                        ? "Delete the 1 impediment?"
+                        : `Delete all ${list.length} impediments?`
+                    }
                     description="They go from every tool that reads them: the sprint cockpit, Standup, Retro and the dashboards."
                     confirmLabel="Delete all"
-                    doneLabel={`Deleted ${list.length} impediments`}
-                    onReset={deleteAll}
-                    onUndo={undoDeleteAll}
-                    variant="danger-ghost"
+                    onConfirm={deleteAll}
                   />
                 </>
               }
@@ -471,6 +537,7 @@ export function ImpedimentsClient() {
                   <p className="flex items-center gap-2 text-xs text-sub" role="status">
                     Showing {shown.length} of {list.length}
                     <Button
+                      ref={clearFiltersRef}
                       type="button"
                       variant="ghost"
                       size="sm"

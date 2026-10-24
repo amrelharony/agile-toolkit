@@ -7,6 +7,7 @@
  * (backdatable), a due date, and the resolved day on a resolved one.
  */
 
+import { useEffect, useId, useRef } from "react";
 import { CalendarPlus } from "lucide-react";
 import type { ItemFormState } from "@/components/shared/item-form";
 import { PersonPicker } from "@/components/team/person-picker";
@@ -26,7 +27,7 @@ import {
 } from "@/lib/impediments/model";
 import { NAME_MAX, TEXT_MAX, TITLE_MAX } from "../constants";
 import { dayLabel, daysText } from "../helpers";
-import type { ImpedimentDraft, ImpedimentField } from "../form";
+import { earliestDay, type ImpedimentDraft, type ImpedimentField } from "../form";
 
 /** Matches <Input>: 44 px on phones, 36 px from md. */
 const SELECT_CLASS =
@@ -63,7 +64,24 @@ export function ImpedimentFields({
 }) {
   const { draft, update, errors } = form;
   const raised = dayOf(draft.raisedAt);
+  // Nothing is due or resolved before it was raised (or before today, when
+  // an agent's UTC stamp reads as tomorrow here).
+  const floor = earliestDay(draft.raisedAt, today) ?? undefined;
   const suggested = typicalDays !== null && raised ? addDays(raised, typicalDays) : null;
+  const severityErrorId = useId();
+  const severityRef = useRef<HTMLDivElement>(null);
+  // Mark the severity group required and link its message, as Field does
+  // for the inputs. ToggleGroup takes no ARIA props, so set them on its
+  // radio group here; React leaves attributes it doesn't render alone. Not
+  // aria-invalid: focusFirstInvalid would then pick the group itself, which
+  // can't take focus, instead of its radio.
+  useEffect(() => {
+    const group = severityRef.current?.querySelector('[role="radiogroup"]');
+    if (!group) return;
+    group.setAttribute("aria-required", "true");
+    if (errors.severity) group.setAttribute("aria-describedby", severityErrorId);
+    else group.removeAttribute("aria-describedby");
+  }, [errors.severity, severityErrorId]);
 
   return (
     <>
@@ -80,6 +98,7 @@ export function ImpedimentFields({
       </Field>
 
       <div
+        ref={severityRef}
         className="flex min-w-0 flex-col gap-1.5"
         data-scale-invalid={errors.severity ? "true" : undefined}
       >
@@ -100,7 +119,7 @@ export function ImpedimentFields({
             : "Low: a nuisance · Medium: slows the team down · High: blocks a story or a person · Critical: blocks the sprint goal or a release."}
         </p>
         {errors.severity && (
-          <p className="text-xs text-danger" role="alert">
+          <p id={severityErrorId} className="text-xs text-danger" role="alert">
             {errors.severity}
           </p>
         )}
@@ -175,7 +194,7 @@ export function ImpedimentFields({
               <Input
                 {...props}
                 type="date"
-                min={raised ?? undefined}
+                min={floor}
                 value={draft.dueDate}
                 onChange={(e) => update({ dueDate: e.target.value })}
               />
@@ -200,7 +219,7 @@ export function ImpedimentFields({
               <Input
                 {...props}
                 type="date"
-                min={raised ?? undefined}
+                min={floor}
                 max={today}
                 value={draft.resolvedAt}
                 onChange={(e) => update({ resolvedAt: e.target.value })}

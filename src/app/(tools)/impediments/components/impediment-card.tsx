@@ -25,7 +25,6 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import type { Impediment } from "@/lib/stores/workspace-types";
 import {
-  dayOf,
   daysOverdue,
   impedimentAgeDays,
   impedimentDueDate,
@@ -36,6 +35,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   draftFrom,
+  earliestDay,
   validateImpediment,
   validateResolvedDay,
   type ImpedimentDraft,
@@ -144,6 +144,8 @@ export function ImpedimentCard({
             label={`Edit ${title}`}
             icon={<Pencil className="h-4 w-4" />}
             className="text-sub hover:text-text"
+            // Where focus goes when the card next to it is deleted or leaves the filter.
+            data-impediment-edit={i.id}
             onClick={() => switchMode("edit")}
           />
           <IconButton
@@ -250,6 +252,12 @@ const TONE = {
  * "Resolve", "Escalate"… on screen; "Resolve Build server down" to a
  * screen reader, so a list of cards isn't a list of identical buttons.
  * The visible verb starts the name, as WCAG 2.5.3 asks.
+ *
+ * The second click of a double-click is ignored. The status changes on the
+ * first, and the opposite action takes the pressed button's place
+ * (De-escalate where Escalate was, Resolve where Reopen was), so the second
+ * click would undo or redirect the first. `detail` counts the clicks in a
+ * row; it is 0 for a keyboard press.
  */
 const StatusButton = forwardRef<
   HTMLButtonElement,
@@ -267,7 +275,10 @@ const StatusButton = forwardRef<
     variant="ghost"
     size="sm"
     aria-label={`${action} ${title}`}
-    onClick={onClick}
+    onClick={(e) => {
+      if (e.detail > 1) return;
+      onClick();
+    }}
     className={cn("min-touch-coarse gap-1", TONE[tone])}
   >
     {icon}
@@ -311,7 +322,7 @@ function ResolveForm({
           <Input
             {...props}
             type="date"
-            min={dayOf(impediment.raisedAt) ?? undefined}
+            min={earliestDay(impediment.raisedAt, today) ?? undefined}
             max={today}
             value={draft.resolvedAt}
             onChange={(e) => update({ resolvedAt: e.target.value })}
@@ -337,9 +348,11 @@ function ImpedimentEditor({
   onCancel: () => void;
 }) {
   const resolved = isResolved(impediment);
+  // What the editor opened with: fields still holding it aren't judged again.
+  const [stored] = useState(() => draftFrom(impediment));
   const form = useItemForm<ImpedimentDraft, ImpedimentValues, ImpedimentField>({
-    initial: () => draftFrom(impediment),
-    validate: (d) => validateImpediment(d, today, { resolved }),
+    initial: stored,
+    validate: (d) => validateImpediment(d, today, { resolved, stored }),
     onSave,
     resetOnSave: false,
   });

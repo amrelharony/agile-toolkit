@@ -85,16 +85,37 @@ export function draftFrom(i: Impediment): ImpedimentDraft {
 }
 
 /**
+ * The first day it can be due or resolved: the day it was raised, or today
+ * when the stored raised day reads later than today. Agents stamp a full
+ * UTC time, so a row written on a New York evening reads as tomorrow here,
+ * and without this it couldn't be resolved until local midnight.
+ */
+export function earliestDay(raisedAt: string | null | undefined, today: string): string | null {
+  const raised = dayOf(raisedAt);
+  if (!raised) return null;
+  return raised > today ? today : raised;
+}
+
+/**
  * Check a draft against `today`. A missing title or severity is an error,
  * never a default. Dates can be in the past (backdating is the point) but
  * not the future, and nothing is due or resolved before it was raised.
  * `resolved` checks the resolved day too (the editor of a resolved row).
+ *
+ * `stored` is the draft the editor started from. What the user left as
+ * stored isn't judged again: an agent's UTC raised or resolved day can read
+ * as tomorrow, and a save that only changes the severity mustn't fail on a
+ * date nobody touched. Nor is stored text cut to the caps (an agent or the
+ * old browser store may hold more); only new text is.
  */
 export function validateImpediment(
   d: ImpedimentDraft,
   today: string,
-  { resolved = false }: { resolved?: boolean } = {}
+  { resolved = false, stored }: { resolved?: boolean; stored?: ImpedimentDraft } = {}
 ): Validation<ImpedimentValues, ImpedimentField> {
+  const kept = (k: ImpedimentField) => stored !== undefined && d[k] === stored[k];
+  const cap = (k: ImpedimentField, value: string, max: number) =>
+    kept(k) ? value : value.slice(0, max);
   const errors: FormErrors<ImpedimentField> = {};
   const title = d.title.trim();
   if (!title) errors.title = "Enter a title.";
@@ -103,19 +124,22 @@ export function validateImpediment(
   const raisedOk = isDay(d.raisedAt);
   if (!d.raisedAt) errors.raisedAt = "Enter the day it was raised.";
   else if (!raisedOk) errors.raisedAt = "Use a date like 2026-10-24.";
-  else if (d.raisedAt > today) errors.raisedAt = "It can't be raised in the future.";
+  else if (d.raisedAt > today && !kept("raisedAt"))
+    errors.raisedAt = "It can't be raised in the future.";
+  const floor = raisedOk ? earliestDay(d.raisedAt, today) : null;
 
   if (d.dueDate) {
     if (!isDay(d.dueDate)) errors.dueDate = "Use a date like 2026-10-31.";
-    else if (raisedOk && d.dueDate < d.raisedAt)
+    else if (floor && d.dueDate < floor && !(kept("dueDate") && kept("raisedAt")))
       errors.dueDate = "It can't be due before the day it was raised.";
   }
 
   if (resolved) {
     if (!d.resolvedAt) errors.resolvedAt = "Enter the day it was resolved.";
     else if (!isDay(d.resolvedAt)) errors.resolvedAt = "Use a date like 2026-10-24.";
-    else if (d.resolvedAt > today) errors.resolvedAt = "It can't be resolved in the future.";
-    else if (raisedOk && d.resolvedAt < d.raisedAt)
+    else if (d.resolvedAt > today && !kept("resolvedAt"))
+      errors.resolvedAt = "It can't be resolved in the future.";
+    else if (floor && d.resolvedAt < floor && !(kept("resolvedAt") && kept("raisedAt")))
       errors.resolvedAt = "It can't be resolved before it was raised.";
   }
 
@@ -126,13 +150,13 @@ export function validateImpediment(
   return {
     ok: true,
     values: {
-      title: title.slice(0, TITLE_MAX),
+      title: cap("title", title, TITLE_MAX),
       severity: d.severity as ImpedimentSeverity,
       raisedAt: d.raisedAt,
-      ...(description ? { description: description.slice(0, TEXT_MAX) } : {}),
+      ...(description ? { description: cap("description", description, TEXT_MAX) } : {}),
       ...(d.category ? { category: d.category } : {}),
-      ...(raisedBy ? { raisedBy: raisedBy.slice(0, NAME_MAX) } : {}),
-      ...(owner ? { owner: owner.slice(0, NAME_MAX) } : {}),
+      ...(raisedBy ? { raisedBy: cap("raisedBy", raisedBy, NAME_MAX) } : {}),
+      ...(owner ? { owner: cap("owner", owner, NAME_MAX) } : {}),
       ...(d.dueDate ? { dueDate: d.dueDate } : {}),
       ...(resolved ? { resolvedAt: d.resolvedAt } : {}),
     },
@@ -145,12 +169,12 @@ export function validateResolvedDay(
   raisedAt: string | undefined,
   today: string
 ): Validation<string, "resolvedAt"> {
-  const raised = dayOf(raisedAt);
+  const floor = earliestDay(raisedAt, today);
   if (!day) return { ok: false, errors: { resolvedAt: "Enter the day it was resolved." } };
   if (!isDay(day)) return { ok: false, errors: { resolvedAt: "Use a date like 2026-10-24." } };
   if (day > today)
     return { ok: false, errors: { resolvedAt: "It can't be resolved in the future." } };
-  if (raised && day < raised)
+  if (floor && day < floor)
     return { ok: false, errors: { resolvedAt: "It can't be resolved before it was raised." } };
   return { ok: true, values: day };
 }
@@ -169,9 +193,11 @@ const OPTIONAL: readonly Optional[] = ["description", "category", "raisedBy", "o
  * `row` with the editor's values. Untouched fields keep exactly what is
  * stored: a raised or resolved day that didn't change keeps an agent's full
  * timestamp, and a due date that still reads as the expected days stays
- * expected days (so moving the raised day moves it too). Clearing the due
- * date clears both. Fields the page doesn't edit (source, tags, the
- * escalation day) are kept. Unchanged: the same object.
+ * expected days. What the "Due by" field showed is what is saved, though:
+ * once the raised day moves, the expected days would move the due date with
+ * it, so the shown day is written as the due date. Clearing the due date
+ * clears both. Fields the page doesn't edit (source, tags, the escalation
+ * day) are kept. Unchanged: the same object.
  */
 export function applyValues(row: Impediment, v: ImpedimentValues): Impediment {
   const next: Impediment = { ...row, title: v.title, severity: v.severity };
@@ -185,10 +211,11 @@ export function applyValues(row: Impediment, v: ImpedimentValues): Impediment {
     next.resolvedAt = v.resolvedAt;
 
   const shownDue = impedimentDueDate(row);
+  const fromExpectedDays = !dayOf(row.dueDate);
   if (!v.dueDate) {
     delete next.dueDate;
     delete next.expectedResolutionDays;
-  } else if (v.dueDate !== shownDue) {
+  } else if (v.dueDate !== shownDue || (fromExpectedDays && next.raisedAt !== row.raisedAt)) {
     next.dueDate = v.dueDate;
   }
   return sameImpediment(row, next) ? row : next;
