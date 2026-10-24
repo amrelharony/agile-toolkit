@@ -39,7 +39,7 @@ import {
   type LinkResult,
   type ReleasedEdges,
 } from "../dependency-map/link";
-import { useReturnFocus } from "../dependency-map/use-return-focus";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { TeamCard, type BoardActions, type Editing } from "./board";
 import {
   boardHeir,

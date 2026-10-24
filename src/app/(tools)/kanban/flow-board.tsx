@@ -57,7 +57,7 @@ import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
 import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
-import { useReturnFocus } from "../dependency-map/use-return-focus";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { buildExample } from "./example";
 import { KANBAN_DESCRIPTION_MAX, KANBAN_TITLE_MAX, KanbanCardText } from "./card-text";
 import { AgeBadge, BlockedBadge, BlockedToggle, PersonInPlace } from "./card-parts";

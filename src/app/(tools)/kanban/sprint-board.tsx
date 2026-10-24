@@ -30,7 +30,7 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
-import { useReturnFocus } from "../dependency-map/use-return-focus";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AgeBadge, BlockedBadge, BlockedToggle, PersonInPlace } from "./card-parts";
 import { BoardDnd, DragPreview, DraggableCard, DropColumn } from "./board-dnd";
 import { WipLimitInput, clampWipLimit } from "./wip-limit-input";

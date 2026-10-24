@@ -73,7 +73,7 @@ import {
 } from "./link";
 import { toMarkdown } from "./markdown";
 import { DependencyStatusChip } from "./status-chip";
-import { useReturnFocus, type RefFor } from "./use-return-focus";
+import { useReturnFocus, type RefFor } from "@/hooks/use-return-focus";
 import { dependencyVerdict } from "./verdict";
 
 type StatusFilter = "all" | DependencyStatus;
