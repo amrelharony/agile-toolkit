@@ -18,12 +18,18 @@
  * (Enter saves, Escape cancels, an emptied card reverts). In Discuss, where
  * a click on the card focuses it, an Edit button opens the editor instead.
  * Without `onEdit` (a participant) the text is read-only.
+ *
+ * An action's owner is picked from the team roster and saved when the field
+ * is left (OwnerField). A card another tool sent here (a kudos, a red health
+ * check) links back to it ("From kudos"). Example cards can't be sent to
+ * another tool: the example must never reach the team's real backlog.
  */
 
 import { motion } from "framer-motion";
 import { Heart, Trash2, CheckSquare, Square, Pencil } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
+import { SourceLink } from "@/components/handoff/source-link";
+import { isExampleId } from "@/components/tool-frame/example-data";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import {
   Select,
@@ -35,20 +41,29 @@ import {
 import type { RetroColumn } from "@/lib/constants/retro-formats";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
+import { RETRO_CURRENT_ID } from "@/lib/retro/board";
 import type { BoardPhase, RetroCard } from "../types";
-import { CLUSTER_COLORS } from "../helpers";
+import { shortText } from "../helpers";
+import { OwnerField } from "./owner-field";
 
 /** Where a retro action can be sent. */
 export const RETRO_ACTION_ROUTES = ["impediment", "kanban"] as const;
-/** MUST match RB_ID in retro-client.tsx. */
-const CURRENT_RETRO_DOC = "retro:current";
+
+/** In place of "Send to…" on an example card. */
+export function ExampleNotSent({ className }: { className?: string }) {
+  return (
+    <span className={`text-xs text-sub ${className ?? ""}`}>
+      Example card: not sent to other tools
+    </span>
+  );
+}
 
 export function RetroCardItem({
   card,
   allCards,
   phase,
   canVote,
-  clusterId,
+  highlighted = false,
   onVote,
   onDelete,
   onGroup,
@@ -58,7 +73,6 @@ export function RetroCardItem({
   onLinksChange,
   onEdit,
   maxCardLength,
-  assigneeListId,
   canModerate = true,
 }: {
   card: RetroCard;
@@ -66,7 +80,8 @@ export function RetroCardItem({
   column: RetroColumn;
   phase: BoardPhase;
   canVote: boolean;
-  clusterId?: number;
+  /** Ringed: the card uses the common word picked under "Common words". */
+  highlighted?: boolean;
   onVote: (id: string) => void;
   onDelete: (id: string) => void;
   onGroup: (id: string, parentId: string | null) => void;
@@ -82,8 +97,6 @@ export function RetroCardItem({
   onEdit?: (id: string, text: string) => void;
   /** Longest card text the editor accepts, as the add box does. */
   maxCardLength?: number;
-  /** Id of a <datalist> of team members for the assignee field. */
-  assigneeListId?: string;
   /** False for a visitor-room participant: vote in Vote, everything else read-only. */
   canModerate?: boolean;
 }) {
@@ -97,10 +110,7 @@ export function RetroCardItem({
   // Grouped child cards inherit visual state from the parent and aren't toggled.
   const isDiscussClickable = canModerate && phase === "discuss" && card.groupedWith === null;
   const votesLabel = `${card.votes} ${card.votes === 1 ? "vote" : "votes"}`;
-  const clusterColor =
-    clusterId !== undefined && clusterId >= 0
-      ? CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]
-      : undefined;
+  const isExample = isExampleId(card.id);
 
   return (
     <motion.div
@@ -117,14 +127,11 @@ export function RetroCardItem({
           : card.groupedWith !== null
             ? "border-border bg-cardH ml-6 opacity-80"
             : "border-border bg-card hover:border-border"
+      }${
+        // The common-word ring; the discussing highlight takes priority.
+        highlighted && !isDiscussing ? " ring-2 ring-accent/70" : ""
       }`}
-      // Cluster theme accent — a 3-px left rule. Don't override the discussing
-      // ring; that visual takes priority during the discuss phase.
-      style={
-        clusterColor && !isDiscussing
-          ? { borderLeftColor: clusterColor, borderLeftWidth: 3 }
-          : undefined
-      }
+      data-highlighted={highlighted || undefined}
     >
       <div className="flex items-start gap-2">
         {/* Action item checkbox in actions phase (a read-only mark for participants) */}
@@ -293,31 +300,37 @@ export function RetroCardItem({
         </p>
       )}
 
-      {/* Assignee input, and Send to, in actions phase */}
+      {/* Owner, and Send to, in actions phase */}
       {phase === "actions" && card.isActionItem && canModerate && (
-        <div className="mt-2 pt-2 border-t border-accent-cyan/20 flex items-center gap-1.5">
-          <Input
-            value={card.assignee}
-            onChange={(e) => onAssigneeChange(card.id, e.target.value)}
-            placeholder="Assign to…"
-            aria-label="Assignee"
-            list={assigneeListId}
-            className="h-6 flex-1 text-xs bg-cardH border-border text-sub placeholder:text-sub"
+        <div className="relative z-10 mt-2 pt-2 border-t border-accent-cyan/20 flex flex-wrap items-start gap-1.5">
+          <OwnerField
+            value={card.assignee ?? ""}
+            label={`Owner of “${shortText(card.text)}”`}
+            onCommit={(name) => onAssigneeChange(card.id, name)}
           />
-          {onLinksChange && card.groupedWith === null && (
-            <SendToMenu
-              routes={RETRO_ACTION_ROUTES}
-              item={{
-                title: card.text,
-                owner: card.assignee || undefined,
-                sourceRef: { tool: "retro", id: card.id, doc: CURRENT_RETRO_DOC },
-              }}
-              sentTo={card.sentTo}
-              onLinksChange={(update) => onLinksChange(card.id, update)}
-              className="relative z-10 h-6 shrink-0"
-            />
-          )}
+          {onLinksChange &&
+            card.groupedWith === null &&
+            (isExample ? (
+              <ExampleNotSent className="self-center" />
+            ) : (
+              <SendToMenu
+                routes={RETRO_ACTION_ROUTES}
+                item={{
+                  title: card.text,
+                  owner: card.assignee || undefined,
+                  sourceRef: { tool: "retro", id: card.id, doc: RETRO_CURRENT_ID },
+                }}
+                sentTo={card.sentTo}
+                onLinksChange={(update) => onLinksChange(card.id, update)}
+                className="relative z-10 h-11 shrink-0 md:h-9"
+              />
+            ))}
         </div>
+      )}
+
+      {/* Where a card another tool sent came from */}
+      {card.sourceRef && canModerate && (
+        <SourceLink sourceRef={card.sourceRef} className="relative z-10 mt-1.5" />
       )}
     </motion.div>
   );

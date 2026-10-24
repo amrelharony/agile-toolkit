@@ -2,10 +2,11 @@
 
 /**
  * The live retro board. Owns the per-action history logging + sonification,
- * the countdown timer interval, the k-means theme clustering (once the board
- * crosses CLUSTER_MIN_CARDS), and the export path. All mutations flow through
- * the parent-supplied `onUpdate` functional updater so the synced workspace
- * doc stays the single source of truth.
+ * the countdown timer interval, the sprint the board looks back on and the
+ * facts read for it, the common words across its cards, and the export
+ * path. All mutations flow through the parent-supplied `onUpdate`
+ * functional updater so the synced workspace doc stays the single source of
+ * truth.
  *
  * Facilitator mode: in the Vote phase "Voting as" picks who the next vote
  * belongs to, each person with their own MAX_VOTES (`votesBy`); "Me" keeps
@@ -15,9 +16,11 @@
  * Visitor live room: with NEXT_PUBLIC_VISITOR_ROOMS=1, a visitor (never the
  * owner) can "Go live" from the header. Participants' cards and votes arrive
  * through `onUpdate` like any other edit; ending the room keeps the board.
+ * The board's sprint, its facts and where cards came from stay host-side:
+ * the room's snapshot carries only what participants need.
  */
 
-import { useState, useCallback, useEffect, useId, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RotateCcw, Eraser } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -27,46 +30,48 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ExportButton } from "@/components/shared/export-button";
 import { ExampleNotice, hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
+import { enoughData } from "@/lib/analytics/min-sample";
+import { retroColumnFor } from "@/lib/handoffs/targets/retro-board";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { type HistoryLogger } from "@/lib/history/use-history-logger";
 import { RETRO_ACTIONS } from "@/lib/history/event-actions";
-import { kMeansAuto } from "@/lib/analytics/clustering";
 import { undoable } from "@/lib/utils/undoable";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAnnounce } from "@/components/a11y/live-announcer";
-import type { RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
+import type { RetroBoard, RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { type BoardState, type RetroCard, MAX_VOTES, PHASES } from "../types";
-import { carriedOverCard } from "../archive";
+import { carriedOverCard, RETRO_ARCHIVE_LIMIT } from "../archive";
 import {
   makeId,
-  CLUSTER_MIN_CARDS,
-  CLUSTER_COLORS,
   columnGridClass,
-  extractCardFeatures,
   buildExportJson,
+  formatTimer,
   removeCardWithGroup,
   restoreRemovedCards,
+  shortText,
   voterKey,
   voterNames,
   votesCastBy,
   withoutVotesBy,
 } from "../helpers";
+import { factLines } from "../facts-text";
+import { kudosCards, kudosOnBoard, type SprintKudos } from "../kudos";
+import { THEME_MIN_CARDS, keywordThemes, themeCardCount, themesForPrompt } from "../themes";
+import { useBoardFacts } from "../use-board-facts";
+import { retroVerdict } from "../verdict";
 import { PhaseIndicator } from "./phase-indicator";
 import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
 import { LastRetroActions } from "./last-retro-actions";
 import { SINGLE_VOTER, VoterPicker } from "./voter-picker";
+import { RetroSprintPicker } from "./retro-sprint-picker";
+import { RetroFactsPanel } from "./retro-facts";
+import { CommonWords } from "./common-words";
+import { KudosSeed } from "./kudos-seed";
 import { toMarkdown } from "../markdown";
 import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
-import { themed, tint } from "@/lib/utils/theme-color";
-
-/** A name short enough for a one-line toast. */
-function shortName(name: string, max = 40): string {
-  const t = name.trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-}
 
 /** A fresh card in `columnKey`. */
 function newCard(columnKey: string, text: string): RetroCard {
@@ -82,12 +87,21 @@ function newCard(columnKey: string, text: string): RetroCard {
   };
 }
 
+/** "Sat 4 Oct" for the retro that drops off Past retros. */
+function retroDay(iso: string | undefined): string {
+  const d = iso ? new Date(iso) : null;
+  return d && Number.isFinite(d.getTime())
+    ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })
+    : "undated";
+}
+
 export function Board({
   state,
   onUpdate,
   onReset,
   onClearExample,
   logger,
+  dropsOff = [],
 }: {
   state: BoardState;
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
@@ -95,6 +109,8 @@ export function Board({
   /** Removes the example cards; the notice shows while any are on the board. */
   onClearExample?: () => void;
   logger: HistoryLogger;
+  /** Past retros that "New Retro" drops to stay within RETRO_ARCHIVE_LIMIT. */
+  dropsOff?: readonly RetroBoard[];
 }) {
   const { log } = logger;
   const [confirmNewOpen, setConfirmNewOpen] = useState(false);
@@ -103,8 +119,7 @@ export function Board({
   // Set while a visitor live room runs, so "New Retro" can end it first.
   const liveRoomRef = useRef<LiveRoomHandle | null>(null);
 
-  // Team names for "Voting as" and the assignee field (Actions phase).
-  const assigneeListId = useId();
+  // Team names for "Voting as" (Vote phase).
   const teamNames = useWorkspaceStore(
     useShallow((s) => Array.from(new Set((s.teamMembers ?? []).map((m) => (m.name ?? "").trim()))))
   ).filter(Boolean);
@@ -117,6 +132,13 @@ export function Board({
     (voter && voters.find((n) => n.toLowerCase() === voter.trim().toLowerCase())) || SINGLE_VOTER;
   const votesUsed = activeVoter ? votesCastBy(state.votesBy, activeVoter) : state.userVotes;
   const hasVotes = state.cards.some((c) => c.votes > 0);
+
+  // ── The sprint, and what the toolkit knows about it ────────────────
+  const { sprints, sprint, sprintGone, facts, example } = useBoardFacts(state);
+  const lines = useMemo(
+    () => (facts ? factLines(facts, { links: !example }) : []),
+    [facts, example]
+  );
 
   // Timer tick — only depend on timerRunning, not timerSeconds, to avoid
   // interval churn on every tick. Functional updater accesses latest state.
@@ -131,6 +153,15 @@ export function Board({
     }, 1000);
     return () => clearInterval(id);
   }, [state.timerRunning, onUpdate]);
+
+  // Say when the timebox runs out: the room is talking, not watching the clock.
+  const wasRunning = useRef(state.timerRunning);
+  useEffect(() => {
+    if (wasRunning.current && !state.timerRunning && state.timerSeconds === 0) {
+      announce("Time's up.", "assertive");
+    }
+    wasRunning.current = state.timerRunning;
+  }, [state.timerRunning, state.timerSeconds, announce]);
 
   const handleAdvancePhase = useCallback(() => {
     // BUG-T7-retro-1: compute the transition BEFORE dispatch so we
@@ -166,6 +197,30 @@ export function Board({
     announce(`Back to the ${back.label} phase.${hasVotes ? " Votes cast so far are kept." : ""}`);
   }, [onUpdate, announce, state.phase, hasVotes]);
 
+  // Which sprint the retro looks back on. Set here only when someone picks
+  // it (never on open), so an old board isn't silently moved to a sprint.
+  const handleSprintChange = useCallback(
+    (sprintId: string | undefined) => {
+      const picked = sprintId ? sprints.find((s) => s.id === sprintId) : undefined;
+      onUpdate((prev) => {
+        const next = { ...prev };
+        if (sprintId) next.sprintId = sprintId;
+        else delete next.sprintId;
+        return next;
+      });
+      log(RETRO_ACTIONS.SPRINT_SET, {
+        sprintId: sprintId ?? null,
+        ...(picked ? { sprintName: picked.name } : {}),
+      });
+      announce(
+        picked
+          ? `This retro looks back on ${picked.name}.`
+          : "This retro isn't linked to a sprint any more."
+      );
+    },
+    [onUpdate, log, announce, sprints]
+  );
+
   const handleAddCard = useCallback(
     (columnKey: string, text: string) => {
       sonify("retro", "card-add");
@@ -192,7 +247,7 @@ export function Board({
     [onUpdate, log, announce, state.format.columns]
   );
 
-  // Fix a card's text after adding it. Not logged: history has no edit event.
+  // Fix a card's text after adding it.
   const handleEditCard = useCallback(
     (id: string, text: string) => {
       onUpdate((prev) => ({
@@ -269,7 +324,7 @@ export function Board({
       const { removed } = removeCardWithGroup(snapshot, id);
       const cascadedCount = removed.size - 1;
       undoable({
-        label: `Deleted “${shortName(card.text)}”`,
+        label: `Deleted “${shortText(card.text)}”`,
         description:
           cascadedCount > 0
             ? `And ${cascadedCount} card${cascadedCount === 1 ? "" : "s"} grouped under it.`
@@ -347,14 +402,17 @@ export function Board({
     [onUpdate, log, state.cards]
   );
 
+  // The owner field saves once, when it's left or on Enter (OwnerField).
   const handleAssigneeChange = useCallback(
     (id: string, val: string) => {
       onUpdate((prev) => ({
         ...prev,
         cards: prev.cards.map((c) => (c.id === id ? { ...c, assignee: val } : c)),
       }));
+      log(RETRO_ACTIONS.ACTION_ASSIGNED, { cardId: id, assignee: val });
+      announce(val ? `Owner set to ${val}.` : "Owner cleared.");
     },
-    [onUpdate]
+    [onUpdate, log, announce]
   );
 
   const handleToggleDiscussing = useCallback(
@@ -402,7 +460,7 @@ export function Board({
         makeId()
       );
       undoable({
-        label: `Carried over “${shortName(action.text)}”`,
+        label: `Carried over “${shortText(action.text)}”`,
         apply: () => {
           onUpdate((prev) =>
             prev.cards.some((c) => c.carriedFrom === action.id)
@@ -423,6 +481,72 @@ export function Board({
     [onUpdate, log, state.format.columns]
   );
 
+  // ── Kudos as appreciation cards ─────────────────────────────────────
+  const kudosColumn = useMemo(() => {
+    const key = retroColumnFor(state.format, "appreciation");
+    return state.format.columns.find((c) => c.key === key) ?? state.format.columns[0];
+  }, [state.format]);
+
+  // One click adds every kudos not on the board yet; one Undo takes them all
+  // back. A kudos already on the board (by its sourceRef) is skipped, also
+  // inside the updater, so a send from Kudos in the meantime isn't doubled.
+  const handleAddKudos = useCallback(
+    (kudos: SprintKudos[]) => {
+      if (!kudosColumn) return;
+      const added = kudosCards(kudos, state.cards, kudosColumn.key);
+      if (added.length === 0) return;
+      const ids = new Set(added.map((c) => c.id));
+      undoable({
+        label: `Added ${added.length} kudos as ${added.length === 1 ? "a card" : "cards"}`,
+        description: `In ${kudosColumn.label}.`,
+        apply: () => {
+          onUpdate((prev) => {
+            const there = kudosOnBoard(prev.cards);
+            const fresh = added.filter((c) => !there.has(c.sourceRef?.id ?? ""));
+            return fresh.length === 0 ? prev : { ...prev, cards: [...prev.cards, ...fresh] };
+          });
+          // The example's kudos aren't the team's work, so they go unlogged.
+          if (added.some((c) => !isExampleId(c.id))) {
+            log(RETRO_ACTIONS.KUDOS_ADDED, {
+              count: added.length,
+              columnKey: kudosColumn.key,
+              cardIds: added.map((c) => c.id),
+            });
+          }
+        },
+        revert: () =>
+          onUpdate((prev) => ({ ...prev, cards: prev.cards.filter((c) => !ids.has(c.id)) })),
+      });
+      announce(`Added ${added.length} kudos to ${kudosColumn.label}.`);
+    },
+    [onUpdate, log, announce, state.cards, kudosColumn]
+  );
+
+  // ── Common words across the cards (keyword grouping) ───────────────
+  // Only from THEME_MIN_CARDS cards (a group counts once): on a small board
+  // every shared word is a coincidence.
+  const themeCards = useMemo(() => themeCardCount(state.cards), [state.cards]);
+  const themes = useMemo(
+    () => (enoughData(themeCards, THEME_MIN_CARDS) ? keywordThemes(state.cards) : []),
+    [state.cards, themeCards]
+  );
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const highlighted = themes.find((t) => t.keyword === highlight) ?? null;
+  const highlightIds = useMemo(
+    () => (highlighted ? new Set(highlighted.cardIds) : undefined),
+    [highlighted]
+  );
+  const toggleHighlight = (keyword: string) => {
+    const on = highlight !== keyword;
+    setHighlight(on ? keyword : null);
+    const theme = themes.find((t) => t.keyword === keyword);
+    announce(
+      on && theme
+        ? `Ringed ${theme.cardIds.length} cards with “${keyword}”.`
+        : "Cleared the highlight."
+    );
+  };
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Retrospective Board",
@@ -430,36 +554,21 @@ export function Board({
         formatName: state.format.name,
         columns: state.format.columns,
         cards: state.cards,
+        themes: themesForPrompt(themes, state.cards),
       }),
     }),
-    [state.format, state.cards]
+    [state.format, state.cards, themes]
   );
 
-  // ── Phase-15: lightweight theme clustering across all cards ────────
-  // Only kicks in once the board reaches CLUSTER_MIN_CARDS — small boards
-  // get nothing rather than misleading 1-card "themes". Memoised on the
-  // text+id signature so card edits, additions, and removals all retrigger
-  // exactly once per tick.
-  const clusters = useMemo(() => {
-    if (state.cards.length < CLUSTER_MIN_CARDS) return null;
-    const features = state.cards.map((c) => extractCardFeatures(c.text));
-    const result = kMeansAuto(features);
-    const byCardId: Record<string, number> = {};
-    state.cards.forEach((c, i) => {
-      byCardId[c.id] = result.labels[i] ?? -1;
-    });
-    const counts = new Array(result.k).fill(0) as number[];
-    for (const lbl of result.labels) {
-      if (lbl >= 0 && lbl < result.k) counts[lbl]++;
-    }
-    return { byCardId, counts, k: result.k };
-  }, [state.cards]);
-
-  // Exports read only the format and cards, so the timer's per-second ticks
-  // don't rebuild them.
+  // Exports read only the format, cards, sprint and facts, so the timer's
+  // per-second ticks don't rebuild them.
   const markdown = useMemo(
-    () => toMarkdown({ format: state.format, cards: state.cards }),
-    [state.format, state.cards]
+    () =>
+      toMarkdown({ format: state.format, cards: state.cards }, new Date(), {
+        ...(facts ? { sprintName: facts.sprintName, facts: lines } : {}),
+        themes,
+      }),
+    [state.format, state.cards, facts, lines, themes]
   );
   const exportJson = useMemo(
     () => buildExportJson({ format: state.format, cards: state.cards }),
@@ -521,9 +630,20 @@ export function Board({
     });
   };
 
+  // "New Retro" past the archive limit drops the oldest past retro: say which.
+  const dropNote =
+    dropsOff.length === 0
+      ? ""
+      : ` Past retros keep the latest ${RETRO_ARCHIVE_LIMIT}, so the ${dropsOff
+          .map((b) => `${retroDay(b.archivedAt)} ${b.format?.name ?? "retro"}`)
+          .join(
+            ", "
+          )} retro${dropsOff.length === 1 ? "" : "s"} will drop off (Undo brings ${dropsOff.length === 1 ? "it" : "them"} back).`;
+
   const totalCards = state.cards.filter((c) => c.groupedWith === null).length;
   const actionCount = state.cards.filter((c) => c.isActionItem).length;
   const gridClass = columnGridClass(state.format.columns.length);
+  const verdict = retroVerdict(state, facts);
 
   return (
     <ToolPageWrapper
@@ -536,13 +656,13 @@ export function Board({
       <div className="space-y-5">
         {/* ── Board Header ─────────────────────────────────── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <PhaseIndicator
               current={state.phase}
               onAdvance={handleAdvancePhase}
               onBack={handleBackPhase}
             />
-            <div className="flex items-center gap-3 text-xs text-sub">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-sub">
               <span>{totalCards} cards</span>
               {state.phase === "vote" && (
                 <span className="text-accent font-semibold">
@@ -564,7 +684,14 @@ export function Board({
             <TimerWidget
               seconds={state.timerSeconds}
               running={state.timerRunning}
-              onToggle={() => onUpdate((prev) => ({ ...prev, timerRunning: !prev.timerRunning }))}
+              onToggle={() => {
+                onUpdate((prev) => ({ ...prev, timerRunning: !prev.timerRunning }));
+                announce(
+                  state.timerRunning
+                    ? "Timer paused."
+                    : `Timer started: ${formatTimer(state.timerSeconds)}.`
+                );
+              }}
               onReset={() =>
                 onUpdate((prev) => ({
                   ...prev,
@@ -583,17 +710,28 @@ export function Board({
           </div>
         </div>
 
-        {/* ── Phase hint ───────────────────────────────────── */}
-        <div className="text-xs text-sub px-1">
-          {PHASES.find((p) => p.key === state.phase)?.description}
-          {state.phase === "discuss" && (
-            <span className="ml-2 text-accent">
-              Cards sorted by votes — click a card to mark it as discussing.
-            </span>
-          )}
-          {state.phase === "write" && hasVotes && (
-            <span className="ml-2 text-accent">Votes cast so far are kept.</span>
-          )}
+        {/* ── The sprint it looks back on ──────────────────── */}
+        <RetroSprintPicker
+          sprints={sprints}
+          sprintId={state.sprintId}
+          sprintGone={sprintGone}
+          onChange={handleSprintChange}
+        />
+
+        {/* ── Verdict and phase hint ───────────────────────── */}
+        <div className="space-y-1 px-1">
+          <p className="text-sm font-medium text-text">{verdict}</p>
+          <p className="text-xs text-sub">
+            {PHASES.find((p) => p.key === state.phase)?.description}
+            {state.phase === "discuss" && (
+              <span className="ml-2 text-accent">
+                Cards sorted by votes — click a card to mark it as discussing.
+              </span>
+            )}
+            {state.phase === "write" && hasVotes && (
+              <span className="ml-2 text-accent">Votes cast so far are kept.</span>
+            )}
+          </p>
         </div>
 
         {/* ── Voting as (facilitator mode, Vote phase) ─────── */}
@@ -608,43 +746,37 @@ export function Board({
           />
         )}
 
-        {/* ── Auto-detected themes (k-means clustering) ────── */}
-        {clusters && (
-          <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="font-semibold text-text">Auto-detected themes</span>
-              <span className="text-sub">
-                {clusters.k} cluster{clusters.k !== 1 ? "s" : ""} across {state.cards.length} cards
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {clusters.counts.map((count, i) => {
-                const color = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
-                return (
-                  <span
-                    key={i}
-                    className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border"
-                    style={{
-                      color: themed(color),
-                      borderColor: tint(color, 40),
-                      background: tint(color, 8),
-                    }}
-                  >
-                    <span className="w-2 h-2 rounded-full" style={{ background: themed(color) }} />
-                    Theme {i + 1}: {count} card{count !== 1 ? "s" : ""}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
+        {/* ── Facts from the sprint (open while writing) ───── */}
+        {facts && (
+          <RetroFactsPanel
+            key={state.phase === "write" ? "write" : "later"}
+            sprintName={facts.sprintName}
+            lines={lines}
+            example={example}
+            defaultOpen={state.phase === "write"}
+          />
         )}
 
-        {/* ── Last retro's actions (Write phase) ───────────── */}
+        {/* ── Common words across the cards ────────────────── */}
+        {enoughData(themeCards, THEME_MIN_CARDS) && (
+          <CommonWords themes={themes} highlighted={highlight} onToggle={toggleHighlight} />
+        )}
+
+        {/* ── Last retro's actions and the sprint's kudos (Write phase) ── */}
         {state.phase === "write" && (
           <LastRetroActions
             previousRetroId={state.previousRetroId}
             cards={state.cards}
             onCarryOver={handleCarryOver}
+          />
+        )}
+        {state.phase === "write" && facts && kudosColumn && (
+          <KudosSeed
+            sprintName={facts.sprintName}
+            kudos={facts.kudos}
+            cards={state.cards}
+            columnLabel={kudosColumn.label}
+            onAdd={handleAddKudos}
           />
         )}
 
@@ -660,7 +792,7 @@ export function Board({
                 allCards={state.cards}
                 phase={state.phase}
                 votesUsed={votesUsed}
-                clusterByCardId={clusters?.byCardId}
+                highlightIds={highlightIds}
                 onAdd={handleAddCard}
                 onAddMany={handleAddCards}
                 onEdit={handleEditCard}
@@ -671,19 +803,10 @@ export function Board({
                 onAssigneeChange={handleAssigneeChange}
                 onToggleDiscussing={handleToggleDiscussing}
                 onLinksChange={handleLinksChange}
-                assigneeListId={teamNames.length > 0 ? assigneeListId : undefined}
               />
             );
           })}
         </div>
-
-        {state.phase === "actions" && teamNames.length > 0 && (
-          <datalist id={assigneeListId}>
-            {teamNames.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-        )}
 
         {/* ── Footer actions ───────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
@@ -706,7 +829,10 @@ export function Board({
           <Button onClick={requestClearBoard} variant="ghost" className="text-sub hover:text-sub">
             <Eraser className="w-4 h-4 mr-2" /> Clear Board
           </Button>
-          <span className="ml-auto text-xs text-sub">{state.format.name} · Local session</span>
+          <span className="ml-auto text-xs text-sub">
+            {state.format.name}
+            {sprint ? ` · ${sprint.name}` : ""} · Saved in your workspace
+          </span>
         </div>
       </div>
 
@@ -714,7 +840,7 @@ export function Board({
         open={confirmNewOpen}
         onOpenChange={setConfirmNewOpen}
         title="Start a new retro?"
-        description={`This ${state.format.name} board and its ${ownCardsLabel} move to Past retros, below the format picker, and you start a new board.`}
+        description={`This ${state.format.name} board and its ${ownCardsLabel} move to Past retros, below the format picker, and you start a new board.${dropNote}`}
         confirmLabel="Start new retro"
         onConfirm={startNewRetro}
       />

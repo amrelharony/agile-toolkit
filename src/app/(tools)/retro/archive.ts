@@ -40,6 +40,26 @@ export function retroArchivesToPrune(
     .map((b) => b.id);
 }
 
+/**
+ * Undo of "New Retro": the board as it was before, with what changed since.
+ * Its archived copy may have been edited in the meantime (an action marked
+ * done in Retro Actions, a send from Past retros), so each card is taken
+ * from the copy when the copy still has it. A board started since (a format
+ * picked, a hand-off) keeps its cards: they are added after the old ones,
+ * so nothing typed in the new board is lost. The timer comes back stopped.
+ */
+export function boardBeforeNewRetro(
+  before: RetroBoard,
+  archive: RetroBoard | undefined,
+  startedSince: RetroBoard | undefined
+): RetroBoard {
+  const edited = new Map((archive?.cards ?? []).map((c) => [c.id, c]));
+  const cards = before.cards.map((c) => edited.get(c.id) ?? c);
+  const ids = new Set(cards.map((c) => c.id));
+  for (const c of startedSince?.cards ?? []) if (!ids.has(c.id)) cards.push(c);
+  return { ...before, cards, timerRunning: false };
+}
+
 export function retroActionItems(board: RetroBoard): RetroCard[] {
   return board.cards.filter((c) => c.isActionItem);
 }

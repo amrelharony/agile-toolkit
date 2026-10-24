@@ -8,7 +8,7 @@
  */
 
 import type { RetroFormat } from "@/lib/constants/retro-formats";
-import type { HandoffLink } from "@/lib/stores/workspace-types";
+import type { HandoffLink, HandoffRef } from "@/lib/stores/workspace-types";
 
 export type BoardPhase = "write" | "vote" | "discuss" | "actions";
 
@@ -30,6 +30,8 @@ export interface RetroCard {
   doneAt?: string;
   /** When the action is due, YYYY-MM-DD. */
   dueDate?: string;
+  /** The item this card came from (a kudos, a red health check); shown as "From …". */
+  sourceRef?: HandoffRef;
 }
 
 export interface BoardState {
@@ -48,6 +50,12 @@ export interface BoardState {
    * single-voter ("Me") count. A name with 0 is a voter added by hand.
    */
   votesBy?: Record<string, number>;
+  /**
+   * The sprint this retro looks back on (Sprint.id); absent until someone
+   * picks one, and on boards from before retros were per sprint. Host-local:
+   * a visitor room's snapshot doesn't carry it.
+   */
+  sprintId?: string;
 }
 
 export const MAX_VOTES = 3;

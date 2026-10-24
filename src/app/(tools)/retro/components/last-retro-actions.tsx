@@ -5,19 +5,28 @@
  * action the previous retro agreed, with "Carry over" (copies it onto this
  * board as an action item) and "Send to…" (an impediment or a Kanban card).
  * Sending records the link on the archived card, so the next look shows
- * where it went.
+ * where it went. An action that got done (marked in Retro Actions, or its
+ * impediment resolved, its Kanban card finished) says so: that is the
+ * follow-through the retro starts by checking.
  */
 
 import { useId, useMemo } from "react";
-import { Check, History } from "lucide-react";
+import { Check, CheckCircle2, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
+import { isExampleId } from "@/components/tool-frame/example-data";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
+import { isActionDone } from "@/lib/retro/actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import type { RetroCard } from "../types";
 import { previousRetro, retroActionItems } from "../archive";
-import { RETRO_ACTION_ROUTES } from "./retro-card-item";
+import { ExampleNotSent, RETRO_ACTION_ROUTES } from "./retro-card-item";
+
+/** Whether a hand-off target (an impediment, a Kanban card) is finished. */
+const targetDone = (link: HandoffLink) =>
+  getHandoffRoute(link.route).isDone?.(link.targetId) ?? false;
 
 function formatDay(iso: string | undefined): string | null {
   if (!iso) return null;
@@ -54,6 +63,9 @@ export function LastRetroActions({
   onCarryOver: (action: StoredRetroCard) => void;
 }) {
   const boards = useWorkspaceStore((s) => s.retroBoards);
+  // Re-read when a target finishes, for "Done".
+  useWorkspaceStore((s) => s.impediments);
+  useWorkspaceStore((s) => s.kanbanBoards);
   const previous = useMemo(
     () => previousRetro(boards ?? [], previousRetroId),
     [boards, previousRetroId]
@@ -91,6 +103,12 @@ export function LastRetroActions({
           >
             <span className="min-w-0 flex-1 break-words text-sm text-text">{action.text}</span>
             {action.assignee && <span className="text-xs text-sub">{action.assignee}</span>}
+            {isActionDone(action, targetDone) && (
+              <span className="inline-flex items-center gap-1 text-xs text-success">
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                Done
+              </span>
+            )}
             {carried.has(action.id) ? (
               <span className="inline-flex items-center gap-1 text-xs text-success">
                 <Check className="h-3.5 w-3.5" aria-hidden="true" />
@@ -108,16 +126,20 @@ export function LastRetroActions({
                 Carry over
               </Button>
             )}
-            <SendToMenu
-              routes={RETRO_ACTION_ROUTES}
-              item={{
-                title: action.text,
-                owner: action.assignee || undefined,
-                sourceRef: { tool: "retro", id: action.id, doc: previous.id },
-              }}
-              sentTo={action.sentTo}
-              onLinksChange={(update) => setArchivedCardLinks(previous.id, action.id, update)}
-            />
+            {isExampleId(action.id) ? (
+              <ExampleNotSent />
+            ) : (
+              <SendToMenu
+                routes={RETRO_ACTION_ROUTES}
+                item={{
+                  title: action.text,
+                  owner: action.assignee || undefined,
+                  sourceRef: { tool: "retro", id: action.id, doc: previous.id },
+                }}
+                sentTo={action.sentTo}
+                onLinksChange={(update) => setArchivedCardLinks(previous.id, action.id, update)}
+              />
+            )}
           </li>
         ))}
       </ul>
