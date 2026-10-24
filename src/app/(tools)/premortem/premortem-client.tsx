@@ -1,262 +1,394 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Plus, Trash2, ScrollText, ChevronUp, ChevronDown } from "lucide-react";
-import { generatePremortemPrompts } from "@/lib/ai-prompts/premortem";
 import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { PREMORTEM_ACTIONS } from "@/lib/history/event-actions";
+import { ArrowRight, Pencil, Plus, ScrollText, Trash2 } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ActionRow } from "@/components/shared/action-row";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { SectionCard } from "@/components/shared/section-card";
 import {
   ExampleNotice,
   LoadExampleButton,
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
-import { usePersisted } from "@/lib/utils/use-persisted";
-import { undoable } from "@/lib/utils/undoable";
-import { SendToMenu } from "@/components/handoff/send-to-menu";
+import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { IconButton } from "@/components/ui/icon-button";
+import { generatePremortemPrompts } from "@/lib/ai-prompts/premortem";
+import { plural } from "@/lib/charts/chart-text";
+import { liveLink } from "@/lib/handoffs/registry";
+import { sendHandoffBatch, type HandoffLinkStore } from "@/lib/handoffs/send";
 import type { HandoffLink } from "@/lib/handoffs/types";
-import { EXAMPLE_SCENARIO, buildExample } from "./example";
+import { PREMORTEM_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { emit as sonify } from "@/lib/sonification/emit";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
+import { dockOwnedBy, useDockTimer } from "@/lib/timer/dock-timer";
+import { undoable } from "@/lib/utils/undoable";
+import { PhaseStepper } from "./components/phase-stepper";
+import {
+  ActPanel,
+  GroupPanel,
+  VotePanel,
+  WritePanel,
+  type CauseActions,
+} from "./components/phase-panels";
+import { PremortemForm, type PremortemValues } from "./components/premortem-form";
+import { EXAMPLE_PREMORTEM_ID, buildExample, withoutExample } from "./example";
+import { linkOptions, linkText, resolveLink } from "./links";
 import { toMarkdown } from "./markdown";
+import {
+  PHASE_HINT,
+  PHASE_LABEL,
+  PREMORTEM_PATH,
+  PREMORTEM_PHASES,
+  causeScore,
+  mergeCause,
+  patchCause,
+  rankCauses,
+  setVotes,
+  splitCause,
+  unmergeCause,
+  updatePremortem,
+  votesById,
+  votesOf,
+  withVotes,
+  type Premortem,
+  type PremortemCause,
+  type PremortemPhase,
+} from "./model";
+import { usePremortems } from "./use-premortems";
+import { premortemVerdict, quoteCause } from "./verdict";
 
-/** A name short enough for a one-line toast. */
-function shortName(name: string, max = 40): string {
-  const t = name.trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-}
-
-interface Cause {
-  id: string;
-  text: string;
-  // Optional elaboration on the cause itself — distinct from `text` (the
-  // one-line cause name) and `preventiveAction` (the response).
-  description?: string;
-  likelihood: number;
-  impact: number;
-  preventiveAction?: string;
-  owner?: string;
-  /** Where this cause was sent (added to the Risk Register). */
-  sentTo?: HandoffLink[];
-}
-
-/** A premortem cause can become a risk. */
-const CAUSE_ROUTES = ["risk"] as const;
-
-interface State {
-  scenario: string;
-  causes: Cause[];
-}
-
-const DEFAULT_STATE: State = { scenario: "", causes: [] };
-
-/**
- * Numeric input with a string draft buffer so typing a value doesn't snap
- * mid-edit. Commits on blur or Enter and clamps to [min, max].
- */
-function NumCell({
-  value,
-  onChange,
-  min,
-  max,
-  className,
-  placeholder,
-  title,
-  ariaLabel,
-}: {
-  value: number;
-  onChange: (n: number) => void;
-  min: number;
-  max: number;
-  className?: string;
-  placeholder?: string;
-  title?: string;
-  ariaLabel?: string;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const commit = () => {
-    const n = Number(draft);
-    if (Number.isFinite(n)) {
-      const clamped = Math.max(min, Math.min(max, n));
-      onChange(clamped);
-      setDraft(String(clamped));
-    } else {
-      setDraft(String(value));
-    }
-  };
-  return (
-    <Input
-      type="number"
-      min={min}
-      max={max}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      className={className}
-      placeholder={placeholder}
-      title={title}
-      aria-label={ariaLabel}
-    />
-  );
-}
+const SELECT_CLASS =
+  "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm";
 
 export function PremortemClient() {
-  const [state, setState] = usePersisted<State>("agile-toolkit:premortem", DEFAULT_STATE);
+  const { state, update, selected, select } = usePremortems();
   const { log } = useHistoryLogger("premortem");
-  // Track which causes have already emitted PREVENTION_ADDED so the audit
-  // log records the milestone once (empty → non-empty), not on every blur.
+  const announce = useAnnounce();
+  const [creating, setCreating] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
+  // Read fresh by hand-off callbacks that run after a later render (Undo).
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // Which causes are in the Risk Register now (their risk wasn't deleted
+  // since). Checked once per change: the rows, the verdict, the Send button
+  // and the exports all ask, and each check reads the register's blob.
+  const sentIds = useMemo(
+    () =>
+      new Set((selected?.causes ?? []).filter((c) => liveLink(c.sentTo, "risk")).map((c) => c.id)),
+    [selected]
+  );
+  const isSent = useCallback((c: PremortemCause) => sentIds.has(c.id), [sentIds]);
+
+  const releaseDocs = useWorkspaceStore((s) => s.releaseReadinesses);
+  const epicDocs = useWorkspaceStore((s) => s.epicRoadmaps);
+  const options = useMemo(() => linkOptions(releaseDocs, epicDocs), [releaseDocs, epicDocs]);
+
+  // Which causes have already logged PREVENTION_ADDED, so the history
+  // records the milestone once (empty → written), not on every blur. Seeded
+  // from what is stored once it loads (usePersisted hydrates after mount),
+  // so a reload doesn't log saved actions again.
   const preventionLoggedRef = useRef<Set<string>>(new Set());
-  // Seed from persisted state on first hydration so a page reload doesn't
-  // re-emit PREVENTION_ADDED for causes that already have a preventive
-  // action saved. usePersisted hydrates in a post-mount effect, so the ref
-  // can't be initialized synchronously from `state`.
   const seededRef = useRef(false);
   useEffect(() => {
-    if (seededRef.current) return;
-    if (state.causes.length === 0) return;
-    for (const c of state.causes) {
-      if ((c.preventiveAction ?? "").trim().length > 0) {
-        preventionLoggedRef.current.add(c.id);
+    if (seededRef.current || state.premortems.length === 0) return;
+    for (const p of state.premortems) {
+      for (const c of p.causes) {
+        if (c.preventiveAction?.trim()) preventionLoggedRef.current.add(c.id);
       }
     }
     seededRef.current = true;
-  }, [state.causes]);
+  }, [state.premortems]);
 
-  const add = () => {
-    const cause = { id: nanoid(6), text: "", likelihood: 3, impact: 3 };
-    setState((s) => ({ ...s, causes: [...s.causes, cause] }));
-    log(PREMORTEM_ACTIONS.CAUSE_ADDED, { causeId: cause.id });
+  const pid = selected?.id;
+  const change = (id: string, fn: (p: Premortem) => Premortem) =>
+    update((s) => updatePremortem(s, id, fn));
+  const changeSelected = (fn: (p: Premortem) => Premortem) => {
+    if (pid) change(pid, fn);
   };
-  const update = (id: string, patch: Partial<Cause>) => {
-    setState((s) => ({
-      ...s,
-      causes: s.causes.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-    }));
-  };
-  const updateLinks = (
-    id: string,
-    change: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
-  ) => {
-    setState((s) => ({
-      ...s,
-      causes: s.causes.map((c) => (c.id === id ? { ...c, sentTo: change(c.sentTo) } : c)),
-    }));
-  };
-  // Separate from `update` so we can call it from onBlur on the
-  // preventiveAction Textarea — emitting PREVENTION_ADDED on every keystroke
-  // (the previous behaviour) flooded the history with one event per character.
-  const commitPrevention = (id: string, action: string) => {
-    const trimmed = action.trim();
-    if (trimmed.length === 0) return;
-    if (preventionLoggedRef.current.has(id)) return;
-    preventionLoggedRef.current.add(id);
-    const cause = state.causes.find((c) => c.id === id);
-    log(PREMORTEM_ACTIONS.PREVENTION_ADDED, {
-      causeId: id,
-      owner: cause?.owner,
+
+  /* ── Premortems ──────────────────────────────────────────────────── */
+
+  const startPremortem = (values: PremortemValues) => {
+    const premortem: Premortem = {
+      id: nanoid(10),
+      title: values.title,
+      scenario: values.scenario,
+      ...(values.link ? { link: values.link } : {}),
+      phase: "write",
+      causes: [],
+      createdAt: new Date().toISOString(),
+    };
+    update((s) => ({ ...s, premortems: [premortem, ...s.premortems] }));
+    select(premortem.id);
+    setCreating(false);
+    log(PREMORTEM_ACTIONS.PREMORTEM_STARTED, {
+      premortemId: premortem.id,
+      title: premortem.title,
+      linkedTo: premortem.link?.kind,
     });
+    announce(`Started “${premortem.title}”. Phase 1 of 4: Write.`);
   };
-  const remove = (id: string) => {
-    const index = state.causes.findIndex((c) => c.id === id);
-    const cause = state.causes[index];
-    if (!cause) return;
-    const preventionLogged = preventionLoggedRef.current.has(id);
+
+  const saveDetails = (values: PremortemValues) => {
+    changeSelected((p) => {
+      const next: Premortem = { ...p, title: values.title, scenario: values.scenario };
+      if (values.link) next.link = values.link;
+      else delete next.link;
+      return next;
+    });
+    setEditingDetails(false);
+  };
+
+  const removePremortem = (p: Premortem) => {
+    const index = state.premortems.findIndex((x) => x.id === p.id);
     undoable({
-      label: cause.text.trim()
-        ? `Removed “${shortName(cause.text)}”`
-        : `Removed cause ${index + 1}`,
+      label: `Deleted the premortem “${p.title}”`,
+      description: p.causes.length > 0 ? `${plural(p.causes.length, "cause")} with it.` : undefined,
       apply: () => {
-        preventionLoggedRef.current.delete(id);
-        setState((s) => ({ ...s, causes: s.causes.filter((c) => c.id !== id) }));
-        log(PREMORTEM_ACTIONS.CAUSE_REMOVED, { causeId: id, text: cause.text });
+        update((s) => ({ ...s, premortems: s.premortems.filter((x) => x.id !== p.id) }));
+        setEditingDetails(false);
       },
-      // Back in its ranked slot (unless something already put it back).
-      revert: () => {
-        if (preventionLogged) preventionLoggedRef.current.add(id);
-        setState((s) => {
-          if (s.causes.some((c) => c.id === id)) return s;
-          const causes = [...s.causes];
-          causes.splice(Math.min(index, causes.length), 0, cause);
-          return { ...s, causes };
-        });
-      },
-    });
-  };
-  // Loading is offered only on a blank premortem. Neither is logged: the
-  // example isn't the user's own work.
-  const loadExample = () => {
-    const example = buildExample();
-    // Its preventive actions are already written: blurring one later must
-    // not log PREVENTION_ADDED as the user's.
-    for (const c of example.causes) {
-      if (c.preventiveAction?.trim()) preventionLoggedRef.current.add(c.id);
-    }
-    setState((s) => ({
-      scenario: s.scenario.trim() ? s.scenario : example.scenario,
-      causes: [...s.causes, ...example.causes],
-    }));
-  };
-  // Removes the example causes, and the example scenario unless it was edited.
-  const clearExample = () => {
-    const removed = state.causes
-      .map((cause, index) => ({ cause, index }))
-      .filter(({ cause }) => isExampleId(cause.id));
-    const scenarioWasExample = state.scenario === EXAMPLE_SCENARIO;
-    undoable({
-      label: "Cleared the example",
-      apply: () =>
-        setState((s) => ({
-          scenario: s.scenario === EXAMPLE_SCENARIO ? "" : s.scenario,
-          causes: s.causes.filter((c) => !isExampleId(c.id)),
-        })),
-      // Each back in its slot (unless something already put it back).
+      // Back in its slot (unless something already put it back).
       revert: () =>
-        setState((s) => {
-          const causes = [...s.causes];
-          for (const { cause, index } of removed) {
-            if (!causes.some((c) => c.id === cause.id)) {
-              causes.splice(Math.min(index, causes.length), 0, cause);
-            }
-          }
-          return {
-            scenario: scenarioWasExample && !s.scenario.trim() ? EXAMPLE_SCENARIO : s.scenario,
-            causes,
-          };
+        update((s) => {
+          if (s.premortems.some((x) => x.id === p.id)) return s;
+          const premortems = [...s.premortems];
+          premortems.splice(Math.min(index, premortems.length), 0, p);
+          return { ...s, premortems };
         }),
     });
   };
 
-  const markdown = useMemo(() => toMarkdown(state), [state]);
+  const setPhase = (phase: PremortemPhase) => {
+    if (!selected || selected.phase === phase) return;
+    const from = selected.phase;
+    changeSelected((p) => ({ ...p, phase }));
+    log(PREMORTEM_ACTIONS.PHASE_ADVANCED, { premortemId: selected.id, from, to: phase });
+    // The silent-writing clock has nothing left to time once writing is over.
+    if (from === "write" && dockOwnedBy(PREMORTEM_PATH)) useDockTimer.getState().stop();
+    const step = PREMORTEM_PHASES.indexOf(phase) + 1;
+    announce(
+      `Phase ${step} of ${PREMORTEM_PHASES.length}: ${PHASE_LABEL[phase]}. ${PHASE_HINT[phase]}`
+    );
+  };
 
-  const move = (id: string, dir: -1 | 1) =>
-    setState((s) => {
-      const idx = s.causes.findIndex((c) => c.id === id);
-      if (idx < 0) return s;
-      const next = idx + dir;
-      if (next < 0 || next >= s.causes.length) return s;
-      const copy = s.causes.slice();
-      [copy[idx], copy[next]] = [copy[next], copy[idx]];
-      return { ...s, causes: copy };
+  // The example is a premortem of its own, so it never mixes with the
+  // user's. Loading isn't logged: it isn't the user's work.
+  const loadExample = () => {
+    const example = buildExample();
+    for (const c of example.causes) {
+      if (c.preventiveAction?.trim()) preventionLoggedRef.current.add(c.id);
+    }
+    update((s) => ({
+      ...s,
+      premortems: [example, ...s.premortems.filter((p) => p.id !== EXAMPLE_PREMORTEM_ID)],
+    }));
+    select(EXAMPLE_PREMORTEM_ID);
+    setCreating(false);
+  };
+
+  const clearExample = () => {
+    const removed = state.premortems
+      .map((p, index) => ({ p, index }))
+      .filter(({ p }) => isExampleId(p.id));
+    const keptId = nanoid(10);
+    const { keptId: kept } = withoutExample(state, keptId);
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        update((s) => withoutExample(s, keptId).state);
+        if (kept && selected && isExampleId(selected.id)) select(kept);
+      },
+      // Each back in its slot, with the user's own causes back inside it
+      // (unless something already put it back).
+      revert: () => {
+        update((s) => {
+          const premortems = s.premortems.filter((p) => p.id !== kept);
+          for (const { p, index } of removed) {
+            if (!premortems.some((x) => x.id === p.id)) {
+              premortems.splice(Math.min(index, premortems.length), 0, p);
+            }
+          }
+          return { ...s, premortems };
+        });
+        if (kept) select(removed[0]?.p.id ?? kept);
+      },
     });
+  };
 
-  // Previously we exposed a `ranked` (likelihood × impact, desc) memo for the
-  // CSV export, but the export now follows display order (preserving manual
-  // reorders), so the rank-by-score derivation is no longer needed anywhere.
+  /* ── Causes ──────────────────────────────────────────────────────── */
+
+  const addCause = (text: string) => {
+    if (!pid) return;
+    const cause: PremortemCause = { id: nanoid(8), text, createdAt: new Date().toISOString() };
+    change(pid, (p) => ({ ...p, causes: [...p.causes, cause] }));
+    log(PREMORTEM_ACTIONS.CAUSE_ADDED, { premortemId: pid, causeId: cause.id });
+    sonify("premortem", "cause-added");
+  };
+
+  /** The cause's links, read fresh and written back, for a hand-off and its Undo. */
+  const linksOf = (premortemId: string, causeId: string): HandoffLinkStore => ({
+    getLinks: (): readonly HandoffLink[] | undefined =>
+      stateRef.current.premortems
+        .find((p) => p.id === premortemId)
+        ?.causes.find((c) => c.id === causeId)?.sentTo,
+    setLinks: (change) =>
+      update((s) =>
+        updatePremortem(s, premortemId, (p) => ({
+          ...p,
+          causes: p.causes.map((c) => (c.id === causeId ? { ...c, sentTo: change(c.sentTo) } : c)),
+        }))
+      ),
+  });
+
+  const actions: CauseActions = {
+    // A description only changes when the editor showed it; "" removes it.
+    edit: (id, next) =>
+      changeSelected((p) =>
+        patchCause(
+          p,
+          id,
+          next.description === undefined
+            ? { text: next.text }
+            : { text: next.text, description: next.description || undefined }
+        )
+      ),
+    remove: (id) => {
+      if (!selected) return;
+      const premortemId = selected.id;
+      const index = selected.causes.findIndex((c) => c.id === id);
+      const cause = selected.causes[index];
+      if (!cause) return;
+      const preventionLogged = preventionLoggedRef.current.has(id);
+      undoable({
+        label: `Removed ${quoteCause(cause, 40)}`,
+        apply: () => {
+          preventionLoggedRef.current.delete(id);
+          change(premortemId, (p) => ({ ...p, causes: p.causes.filter((c) => c.id !== id) }));
+          log(PREMORTEM_ACTIONS.CAUSE_REMOVED, { premortemId, causeId: id, text: cause.text });
+        },
+        // Back in its slot (unless something already put it back).
+        revert: () => {
+          if (preventionLogged) preventionLoggedRef.current.add(id);
+          change(premortemId, (p) => {
+            if (p.causes.some((c) => c.id === id)) return p;
+            const causes = [...p.causes];
+            causes.splice(Math.min(index, causes.length), 0, cause);
+            return { ...p, causes };
+          });
+        },
+      });
+    },
+    merge: (sourceId, targetId) => {
+      if (!selected) return;
+      const premortemId = selected.id;
+      const index = selected.causes.findIndex((c) => c.id === sourceId);
+      const source = selected.causes[index];
+      const target = selected.causes.find((c) => c.id === targetId);
+      if (!source || !target) return;
+      undoable({
+        label: `Grouped ${quoteCause(source, 30)} with ${quoteCause(target, 30)}`,
+        apply: () => change(premortemId, (p) => mergeCause(p, sourceId, targetId)),
+        revert: () => change(premortemId, (p) => unmergeCause(p, source, targetId, index)),
+      });
+    },
+    split: (id) => {
+      const cause = selected?.causes.find((c) => c.id === id);
+      if (!cause?.merged?.length) return;
+      changeSelected((p) => splitCause(p, id));
+      announce(
+        `Split ${quoteCause(cause, 40)}: ${plural(cause.merged.length, "cause")} back on the list.`
+      );
+    },
+    vote: (id, votes) => {
+      const cause = selected?.causes.find((c) => c.id === id);
+      if (!selected || !cause) return;
+      const next = Math.max(0, votes);
+      if (next === votesOf(cause)) return;
+      changeSelected((p) => setVotes(p, id, next));
+      log(PREMORTEM_ACTIONS.CAUSE_VOTED, { premortemId: selected.id, causeId: id, votes: next });
+      announce(`${quoteCause(cause, 40)}: ${plural(next, "vote")}.`);
+    },
+    rate: (id, patch) =>
+      changeSelected((p) =>
+        patchCause(p, id, {
+          ...("likelihood" in patch ? { likelihood: patch.likelihood ?? undefined } : {}),
+          ...("impact" in patch ? { impact: patch.impact ?? undefined } : {}),
+        })
+      ),
+    setPrevention: (id, text) => {
+      if (!selected) return;
+      changeSelected((p) =>
+        patchCause(p, id, { preventiveAction: text.trim() ? text : undefined })
+      );
+      if (!text.trim() || preventionLoggedRef.current.has(id)) return;
+      preventionLoggedRef.current.add(id);
+      const cause = selected.causes.find((c) => c.id === id);
+      log(PREMORTEM_ACTIONS.PREVENTION_ADDED, {
+        premortemId: selected.id,
+        causeId: id,
+        owner: cause?.owner,
+      });
+    },
+    setOwner: (id, owner) =>
+      changeSelected((p) => patchCause(p, id, { owner: owner || undefined })),
+    links: (id) => linksOf(pid ?? "", id),
+    isSent,
+  };
+
+  /** One toast and one Undo for the lot; each cause records its risk. */
+  const sendTop = (causes: PremortemCause[]) => {
+    if (!selected) return;
+    const premortemId = selected.id;
+    const sent = sendHandoffBatch(
+      "risk",
+      causes.map((c) => ({
+        src: {
+          title: c.text,
+          description: c.description,
+          owner: c.owner,
+          likelihood: c.likelihood,
+          impact: c.impact,
+          mitigation: c.preventiveAction,
+          sourceRef: { tool: "premortem", id: c.id, doc: premortemId },
+        },
+        links: linksOf(premortemId, c.id),
+      })),
+      causes.length === 1
+        ? "Added 1 risk to the Risk Register"
+        : `Added ${causes.length} risks to the Risk Register`
+    );
+    if (sent.length === 0) return;
+    log(PREMORTEM_ACTIONS.RISKS_SENT, {
+      premortemId,
+      count: sent.length,
+      causeIds: causes.map((c) => c.id),
+    });
+    // The "premortem complete" achievement listens for this.
+    sonify("premortem", "completed");
+    announce(`${plural(sent.length, "risk")} added to the Risk Register.`);
+  };
+
+  /* ── Results ─────────────────────────────────────────────────────── */
+
+  // The votes as this render shows them. "Clear votes" confirms from this
+  // render, so its Undo puts back the votes as they were before the clear.
+  const votesBefore = selected ? votesById(selected) : new Map<string, number>();
+
+  const link = selected ? resolveLink(selected.link, options) : null;
+  const ranked = useMemo(() => (selected ? rankCauses(selected.causes) : []), [selected]);
+  const markdown = selected ? toMarkdown(selected, { link, isSent }) : "";
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -275,209 +407,286 @@ export function PremortemClient() {
     )
   );
 
+  // The prompts need numbers: unrated causes would read as 0 × 0, so only
+  // the rated ones go in.
   const promptConfig = useMemo(
     () => ({
       toolName: "Premortem Facilitator",
       prompts: generatePremortemPrompts(
-        { scenario: state.scenario, causes: state.causes },
+        {
+          scenario: selected?.scenario ?? "",
+          causes: ranked
+            .filter((c) => causeScore(c) !== null)
+            .map((c) => ({
+              text: c.text,
+              description: c.description,
+              likelihood: c.likelihood as number,
+              impact: c.impact as number,
+              preventiveAction: c.preventiveAction,
+              owner: c.owner,
+            })),
+        },
         workspace
       ),
     }),
-    [state, workspace]
+    [selected, ranked, workspace]
   );
+
+  const none = state.premortems.length === 0;
+  const showNewForm = creating || none;
 
   return (
     <ToolPageWrapper
       toolId="premortem"
       title="Premortem Facilitator"
-      description="Imagine this project failed — what would have caused it? Rank causes and turn them into preventive actions."
+      description="Imagine this project failed — what would have caused it? Write silently, group, vote, and turn the top causes into risks with preventive actions."
       category="Risk & Governance"
     >
-      {hasExampleItems(state.causes) && <ExampleNotice onClear={clearExample} />}
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="premortem"
-          csvData={{
-            headers: [
-              "Cause",
-              "Description",
-              "Likelihood",
-              "Impact",
-              "Score",
-              "Preventive Action",
-              "Owner",
-            ],
-            // Use display order (state.causes), not the ranked-by-score order.
-            // The user can manually reorder causes via the up/down buttons,
-            // and re-sorting on export would silently destroy that intent.
-            rows: state.causes.map((c) => [
-              c.text,
-              c.description ?? "",
-              c.likelihood,
-              c.impact,
-              c.likelihood * c.impact,
-              c.preventiveAction ?? "",
-              c.owner ?? "",
-            ]),
-          }}
-          jsonData={state}
-          markdown={markdown}
-        />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          Add Cause
-        </Button>
-      </ActionRow>
+      {hasExampleItems(state.premortems) && <ExampleNotice onClear={clearExample} />}
 
-      <Card className="bg-surface border-border mb-6">
-        <CardContent className="p-4 space-y-2">
-          <div className="text-sm font-semibold text-text flex items-center gap-2">
-            <ScrollText className="w-4 h-4 text-accent" />
-            Imagined Failure Scenario
-          </div>
-          <BlurTextarea
-            rows={3}
-            value={state.scenario}
-            onCommit={(v) => setState((s) => ({ ...s, scenario: v }))}
-            placeholder={`It's 6 months from now. The project shipped but is widely considered a failure. Describe what that looks like in concrete terms.`}
-            aria-label="Imagined failure scenario"
-            className="bg-bg border-border"
+      {none && (
+        <EmptyState
+          icon={ScrollText}
+          className="mb-4"
+          action={<LoadExampleButton onLoad={loadExample} />}
+        >
+          No premortem yet. Start one for a release or epic: imagine it has failed, then find out
+          why while there is still time.
+        </EmptyState>
+      )}
+
+      {!none && selected && (
+        <ActionRow
+          left={
+            <Field label="Premortem" className="min-w-0 sm:w-80">
+              {(props) => (
+                <select
+                  {...props}
+                  className={SELECT_CLASS}
+                  value={selected.id}
+                  onChange={(e) => {
+                    select(e.target.value);
+                    setEditingDetails(false);
+                  }}
+                >
+                  {state.premortems.map((p) => {
+                    const l = resolveLink(p.link, options);
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {l ? `${p.title} · ${linkText(l)}` : p.title}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </Field>
+          }
+        >
+          <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename="premortem"
+            csvData={{
+              headers: [
+                "Rank",
+                "Cause",
+                "Description",
+                "Grouped duplicates",
+                "Votes",
+                "Likelihood",
+                "Impact",
+                "Score",
+                "Preventive Action",
+                "Owner",
+                "Risk Register",
+              ],
+              rows: ranked.map((c, i) => [
+                i + 1,
+                c.text,
+                c.description ?? "",
+                (c.merged ?? []).map((m) => m.text).join("; "),
+                votesOf(c),
+                c.likelihood ?? "",
+                c.impact ?? "",
+                causeScore(c) ?? "",
+                c.preventiveAction ?? "",
+                c.owner ?? "",
+                isSent(c) ? "Added" : "",
+              ]),
+            }}
+            jsonData={selected}
+            markdown={markdown}
           />
-        </CardContent>
-      </Card>
+          {!creating && (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1"
+              onClick={() => setCreating(true)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New premortem
+            </Button>
+          )}
+        </ActionRow>
+      )}
 
-      <div className="space-y-2">
-        {state.causes.length === 0 && (
-          <EmptyState
+      {showNewForm && (
+        <SectionCard title="New premortem" icon={Plus} className="mb-4">
+          <PremortemForm
+            options={options}
+            onSave={startPremortem}
+            onCancel={none ? undefined : () => setCreating(false)}
+          />
+        </SectionCard>
+      )}
+
+      {selected && (
+        <>
+          <SectionCard
+            title={selected.title}
             icon={ScrollText}
-            action={state.scenario.trim() ? undefined : <LoadExampleButton onLoad={loadExample} />}
+            titleSuffix={link ? linkText(link) : undefined}
+            className="mb-4"
+            actions={
+              !editingDetails && (
+                <>
+                  <IconButton
+                    label={`Edit the details of “${selected.title}”`}
+                    icon={<Pencil className="h-4 w-4" />}
+                    className="text-sub hover:text-text"
+                    onClick={() => setEditingDetails(true)}
+                  />
+                  <IconButton
+                    label={`Delete the premortem “${selected.title}”`}
+                    icon={<Trash2 className="h-4 w-4" />}
+                    className="text-sub hover:text-danger"
+                    onClick={() => removePremortem(selected)}
+                  />
+                </>
+              )
+            }
           >
-            No causes yet. Imagine the project has failed, then click &ldquo;Add Cause&rdquo; for
-            each reason why.
-          </EmptyState>
-        )}
-        {state.causes.map((c, idx) => {
-          const score = c.likelihood * c.impact;
-          return (
-            <Card key={c.id} className="bg-surface border-border">
-              <CardContent className="p-3 space-y-2">
-                <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_80px_80px_80px_auto] gap-2 items-center">
-                  <div className="flex flex-col">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0 text-sub min-touch-coarse"
-                      onClick={() => move(c.id, -1)}
-                      aria-label={`Move cause ${idx + 1} up`}
-                    >
-                      <ChevronUp className="w-3 h-3" aria-hidden="true" />
-                    </Button>
-                    <span className="text-xs text-sub font-data text-center">{idx + 1}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0 text-sub min-touch-coarse"
-                      onClick={() => move(c.id, 1)}
-                      aria-label={`Move cause ${idx + 1} down`}
-                    >
-                      <ChevronDown className="w-3 h-3" aria-hidden="true" />
-                    </Button>
-                  </div>
-                  <BlurInput
-                    value={c.text}
-                    onCommit={(v) => update(c.id, { text: v })}
-                    placeholder="Cause of failure..."
-                    aria-label={`Cause of failure ${idx + 1}`}
-                    className="bg-bg border-border"
-                  />
-                  <NumCell
-                    value={c.likelihood}
-                    onChange={(n) => update(c.id, { likelihood: n })}
-                    min={1}
-                    max={5}
-                    placeholder="L"
-                    className="bg-bg border-border font-data"
-                    title="Likelihood 1-5"
-                    ariaLabel={`Likelihood (1-5) for cause ${idx + 1}`}
-                  />
-                  <NumCell
-                    value={c.impact}
-                    onChange={(n) => update(c.id, { impact: n })}
-                    min={1}
-                    max={5}
-                    placeholder="I"
-                    className="bg-bg border-border font-data"
-                    title="Impact 1-5"
-                    ariaLabel={`Impact (1-5) for cause ${idx + 1}`}
-                  />
-                  <span
-                    className="px-2 py-1 rounded-md font-data text-sm text-center text-accent border border-accent/40 bg-accent/10"
-                    title="Risk score (likelihood × impact)"
-                  >
-                    <span className="sr-only">Risk score </span>
-                    {score}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => remove(c.id)}
-                    aria-label={`Remove cause ${idx + 1}`}
-                    className="text-sub hover:text-danger min-touch-coarse"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                  </Button>
-                </div>
-                {/* Description — elaboration on the cause itself, distinct
-                    from preventive action below. */}
-                <BlurTextarea
-                  rows={2}
-                  value={c.description ?? ""}
-                  onCommit={(v) => update(c.id, { description: v })}
-                  placeholder="Description (optional) — context, signals, dependencies..."
-                  aria-label={`Description for cause ${idx + 1} (optional)`}
-                  className="bg-bg border-border text-sm"
-                />
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-2 md:items-start">
-                  <BlurTextarea
-                    rows={1}
-                    value={c.preventiveAction ?? ""}
-                    onCommit={(v) => {
-                      update(c.id, { preventiveAction: v });
-                      commitPrevention(c.id, v);
-                    }}
-                    placeholder="Preventive action..."
-                    aria-label={`Preventive action for cause ${idx + 1}`}
-                    className="bg-bg border-border text-sm"
-                  />
-                  <BlurInput
-                    value={c.owner ?? ""}
-                    onCommit={(v) => update(c.id, { owner: v })}
-                    placeholder="Owner"
-                    aria-label={`Owner for cause ${idx + 1}`}
-                    className="bg-bg border-border text-sm"
-                  />
-                  <SendToMenu
-                    routes={CAUSE_ROUTES}
-                    item={{
-                      title: c.text,
-                      description: c.description,
-                      owner: c.owner,
-                      likelihood: c.likelihood,
-                      impact: c.impact,
-                      mitigation: c.preventiveAction,
-                      sourceRef: { tool: "premortem", id: c.id },
-                    }}
-                    sentTo={c.sentTo}
-                    onLinksChange={(change) => updateLinks(c.id, change)}
-                    className="h-9 justify-self-start"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+            {editingDetails ? (
+              <PremortemForm
+                key={selected.id}
+                options={options}
+                premortem={selected}
+                onSave={saveDetails}
+                onCancel={() => setEditingDetails(false)}
+              />
+            ) : (
+              <div className="space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-sub">
+                  Imagined failure
+                </p>
+                <p className="whitespace-pre-line break-words text-sm text-text">
+                  {selected.scenario.trim() || "Not described yet. Edit the details to add it."}
+                </p>
+              </div>
+            )}
+          </SectionCard>
+
+          <PhaseStepper phase={selected.phase} onChange={setPhase} />
+
+          <SectionCard
+            title={`${PREMORTEM_PHASES.indexOf(selected.phase) + 1}. ${PHASE_LABEL[selected.phase]}`}
+            className="mb-4"
+          >
+            <p className="mb-4 text-sm font-medium text-text">
+              {premortemVerdict(selected, isSent)}
+            </p>
+            {selected.causes.length === 0 && selected.phase !== "write" ? (
+              <EmptyState
+                icon={ScrollText}
+                padding="md"
+                action={
+                  hasExampleItems(state.premortems) ? undefined : (
+                    <LoadExampleButton onLoad={loadExample} label="See an example premortem" />
+                  )
+                }
+              >
+                No causes yet. Go back to Write and add the reasons it failed.
+              </EmptyState>
+            ) : (
+              <PhasePanel
+                key={`${selected.id}:${selected.phase}`}
+                premortem={selected}
+                actions={actions}
+                onAdd={addCause}
+                onSendTop={sendTop}
+                onDots={(dots) =>
+                  changeSelected((p) => {
+                    const next = { ...p, dotsPerPerson: dots };
+                    if (dots === undefined) delete next.dotsPerPerson;
+                    return next;
+                  })
+                }
+                onClearVotes={() => changeSelected((p) => withVotes(p, new Map()))}
+                onRestoreVotes={() => changeSelected((p) => withVotes(p, votesBefore))}
+              />
+            )}
+            <NextPhase phase={selected.phase} onNext={setPhase} />
+          </SectionCard>
+        </>
+      )}
     </ToolPageWrapper>
+  );
+}
+
+/** The panel for the phase the premortem is in. */
+function PhasePanel({
+  premortem,
+  actions,
+  onAdd,
+  onSendTop,
+  onDots,
+  onClearVotes,
+  onRestoreVotes,
+}: {
+  premortem: Premortem;
+  actions: CauseActions;
+  onAdd: (text: string) => void;
+  onSendTop: (causes: PremortemCause[]) => void;
+  onDots: (dots: number | undefined) => void;
+  onClearVotes: () => void;
+  onRestoreVotes: () => void;
+}) {
+  switch (premortem.phase) {
+    case "write":
+      return <WritePanel premortem={premortem} onAdd={onAdd} actions={actions} />;
+    case "group":
+      return <GroupPanel premortem={premortem} actions={actions} />;
+    case "vote":
+      return (
+        <VotePanel
+          premortem={premortem}
+          actions={actions}
+          onDots={onDots}
+          onClearVotes={onClearVotes}
+          onRestoreVotes={onRestoreVotes}
+        />
+      );
+    case "act":
+      return <ActPanel premortem={premortem} actions={actions} onSendTop={onSendTop} />;
+  }
+}
+
+/** "Next: Group", at the end of every phase but the last. */
+function NextPhase({
+  phase,
+  onNext,
+}: {
+  phase: PremortemPhase;
+  onNext: (phase: PremortemPhase) => void;
+}) {
+  const next = PREMORTEM_PHASES[PREMORTEM_PHASES.indexOf(phase) + 1];
+  if (!next) return null;
+  return (
+    <div className="mt-4 flex justify-end border-t border-border pt-4">
+      <Button type="button" variant="toolkit" className="gap-2" onClick={() => onNext(next)}>
+        {`Next: ${PHASE_LABEL[next]}`}
+        <ArrowRight aria-hidden="true" />
+      </Button>
+    </div>
   );
 }
