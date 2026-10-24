@@ -30,6 +30,7 @@ import {
   completedSprints,
   fmt,
   hubTiles,
+  points,
   type Tile,
   type TileId,
 } from "@/lib/sprints/hub-view";
@@ -154,6 +155,26 @@ export function storyCounts(stories: readonly Story[]): {
     done: stories.filter((s) => s.status === "done").length,
     unestimated: stories.filter((s) => !(typeof s.points === "number" && s.points > 0)).length,
   };
+}
+
+/**
+ * Open stories in `sprintId` without points (as the Refinement card counts
+ * them). The board's "points left" leaves them out, so while there are any
+ * it is only a floor: the cockpit says so, and never reads the sprint as
+ * finished or in a success tone.
+ */
+export function openUnpointed(stories: readonly Story[], sprintId: string): number {
+  return stories.filter(
+    (s) =>
+      s.sprintId === sprintId &&
+      s.status !== "done" &&
+      !(typeof s.points === "number" && s.points > 0)
+  ).length;
+}
+
+/** "1 open story has no points", "2 open stories have no points". */
+export function noPointsLine(n: number): string {
+  return `${plural(n, "open story", "open stories")} ${n === 1 ? "has" : "have"} no points`;
 }
 
 /** The five cards of the ceremony strip, Planning to Retro. */
@@ -387,6 +408,24 @@ export function sprintImpediments(
     all.filter((i) => openDuring(i, start, end)),
     today
   );
+}
+
+/**
+ * How many of the sprint's impediments were resolved during it: by its last
+ * day. `openDuring` also keeps one resolved after the end (it was in the
+ * way while the sprint ran), and that one doesn't count here. A sprint
+ * without real dates has none (it only gets the unresolved ones).
+ */
+export function resolvedDuring(
+  inWindow: readonly Impediment[],
+  sprint: Pick<Sprint, "startDate" | "endDate">
+): number {
+  if (hasSyntheticDates(sprint)) return 0;
+  const end = dayOf(sprint.endDate) as string;
+  return inWindow.filter((i) => {
+    const day = dayOf(i.resolvedAt);
+    return day !== null && day <= end;
+  }).length;
 }
 
 export interface BlockersTileOptions {
@@ -646,12 +685,22 @@ export interface CockpitBurndown {
   length: number;
   /** Today's sprint day, when today falls inside the sprint. */
   todayDay: number | null;
+  /** The sprint has real dates, so the board can be read by day. */
+  dated: boolean;
+  /** The sprint's stories added up (`storyProgress`). */
+  progress: StoryProgress;
+  /** Open stories without points (`openUnpointed`) while the board is the source, else 0. */
+  unpointedOpen: number;
 }
 
 /**
  * The burndown the cockpit draws: the board's when the sprint has pointed
  * stories (`remainingToday` decides, as every delivery chart does), else
- * the typed daily log's.
+ * the typed daily log's. A closed sprint is read as it was recorded, never
+ * off the board: closing can move its unfinished stories on (the close
+ * dialog's carry-over, Sprint Planning's "Carry over"), so the board no
+ * longer holds what it committed. Its chart is the daily log's, as in
+ * Sprint Metrics, and its done points are the ones confirmed at close.
  */
 export function cockpitBurndown(
   sprint: Sprint,
@@ -660,10 +709,12 @@ export function cockpitBurndown(
   today: string,
   progress: StoryProgress = storyProgress(stories, sprint.id)
 ): CockpitBurndown {
-  const remaining = remainingToday({ sprint, stories, series, today });
+  const closed = sprint.status === "completed";
+  const remaining = remainingToday({ sprint, stories: closed ? [] : stories, series, today });
   const length = sprintLengthDays(sprint);
   const d = dayForDate(sprint, today);
   const todayDay = d !== null && d >= 0 && d <= length ? d : null;
+  const dated = !hasSyntheticDates(sprint);
   if (remaining.source === "stories") {
     return {
       source: "stories",
@@ -672,6 +723,9 @@ export function cockpitBurndown(
       scopeChangeDays: [],
       length,
       todayDay,
+      dated,
+      progress,
+      unpointedOpen: openUnpointed(stories, sprint.id),
     };
   }
   const log = logBurndownRows(sprint, series);
@@ -682,28 +736,44 @@ export function cockpitBurndown(
     scopeChangeDays: log.scopeChangeDays,
     length,
     todayDay,
+    dated,
+    progress,
+    unpointedOpen: 0,
   };
 }
 
 /**
- * The burndown in words (Burndown's own summary and table), except that a
- * board-read chart before the sprint starts says so rather than "No days
- * logged": nothing is typed on the board.
+ * The burndown in words: Burndown's own summary and table, with the board's
+ * wording where Burndown's would mislead. Nothing is typed on the board, so
+ * it never says "No days logged" (before the start, on day 0, or without
+ * dates). While open stories have no points it says the board can't show
+ * all that's left, and with every pointed story done it claims no pace.
  */
 export function cockpitChartText(burndown: CockpitBurndown): ChartText {
   const text = burndownChartText(burndown.rows);
-  const { rows } = burndown;
-  if (
-    burndown.source !== "stories" ||
-    rows.length === 0 ||
-    rows.some((r) => typeof r.actual === "number")
-  ) {
-    return text;
+  const { rows, unpointedOpen: n } = burndown;
+  if (burndown.source !== "stories" || rows.length === 0) return text;
+  const read = rows.filter(
+    (r): r is BurndownChartRow & { actual: number } => typeof r.actual === "number"
+  );
+  const falls = `the ideal line falls from ${fmt(rows[0].ideal)} points to 0 by day ${
+    rows[rows.length - 1].day
+  }`;
+  const end = read[read.length - 1];
+  let summary: string;
+  if (read.length === 0) {
+    summary = burndown.dated
+      ? `Nothing has burned down yet; ${falls}.`
+      : `${fmt(burndown.progress.done)} of ${points(burndown.progress.scope)} done; set the sprint's dates to see the burndown by day.`;
+  } else if (read.length === 1 && end.day === 0) {
+    summary = `${points(end.actual)} left on day 0; ${falls}.`;
+  } else if (n > 0 && end.actual <= 0) {
+    summary = `No pointed work left on day ${end.day}.`;
+  } else {
+    summary = text.summary;
   }
-  return {
-    ...text,
-    summary: `Nothing has burned down yet; the ideal line falls from ${fmt(rows[0].ideal)} points to 0 by day ${rows[rows.length - 1].day}.`,
-  };
+  const caveat = n > 0 ? ` ${noPointsLine(n)}, so the board can't show all that's left.` : "";
+  return { ...text, summary: `${summary}${caveat}` };
 }
 
 /**
@@ -749,7 +819,12 @@ export function validateDayLog(
 
 const FROM_BOARD = "From the sprint board";
 
-/** The hub tiles that the board answers, read off the stories. */
+/**
+ * The hub tiles that the board answers, read off the stories. While open
+ * stories have no points the board's "left" is only a floor: the tiles say
+ * so and never show a success tone, and with every pointed story done the
+ * pace and finish can't be told (not "Finished").
+ */
 function boardTiles(
   sprint: Sprint,
   p: StoryProgress,
@@ -760,20 +835,31 @@ function boardTiles(
   const change = committed > 0 ? round1(p.scope - committed) : 0;
   const pct = completionPct(p.done, p.scope);
   const open = p.count - p.doneCount;
+  const n = burndown.unpointedOpen;
+  const unpointed = n > 0 ? ` · ${plural(n, "story", "stories")} without points` : "";
+  const unknown = (id: "gap" | "finish", label: string): Tile => ({
+    id,
+    label,
+    value: "Can't tell yet",
+    hint: noPointsLine(n),
+    tone: "default",
+    empty: true,
+  });
   const tiles: Partial<Record<TileId, Tile>> = {
     scope: {
       id: "scope",
       label: "Scope now",
       value: fmt(p.scope),
       unit: "points",
-      hint:
+      hint: `${
         committed <= 0
           ? FROM_BOARD
           : change > 0
             ? `+${fmt(change)} since the plan`
             : change < 0
               ? `−${fmt(-change)} since the plan`
-              : "No change since the plan",
+              : "No change since the plan"
+      }${unpointed}`,
       tone: change > 0 ? "warning" : "default",
     },
     done: {
@@ -803,13 +889,16 @@ function boardTiles(
     const at = Math.min(day, burndown.length);
     const ideal = idealRemainingAt(sprint, idealBase(sprint, p), at);
     const g = gapOf(p.remaining, ideal);
-    tiles.gap = {
-      id: "gap",
-      label: "Pace vs ideal",
-      value: gapLabel(g),
-      hint: `Ideal: ${fmt(ideal)} left on day ${at}`,
-      tone: g > 0 ? "warning" : "success",
-    };
+    tiles.gap =
+      n > 0 && p.remaining <= 0
+        ? unknown("gap", "Pace vs ideal")
+        : {
+            id: "gap",
+            label: "Pace vs ideal",
+            value: gapLabel(g),
+            hint: `Ideal: ${fmt(ideal)} left on day ${at}${unpointed}`,
+            tone: g > 0 ? "warning" : n > 0 ? "default" : "success",
+          };
   } else {
     tiles.gap = {
       id: "gap",
@@ -820,18 +909,21 @@ function boardTiles(
     };
   }
 
-  const points = burndown.rows.flatMap((r) =>
+  const trend = burndown.rows.flatMap((r) =>
     typeof r.actual === "number" ? [{ x: r.day, y: r.actual }] : []
   );
   if (p.remaining <= 0) {
-    tiles.finish = {
-      id: "finish",
-      label: "Projected finish",
-      value: "Finished",
-      hint: "Every pointed story is done",
-      tone: "success",
-    };
-  } else if (points.length === 0) {
+    tiles.finish =
+      n > 0
+        ? unknown("finish", "Projected finish")
+        : {
+            id: "finish",
+            label: "Projected finish",
+            value: "Finished",
+            hint: "Every pointed story is done",
+            tone: "success",
+          };
+  } else if (trend.length === 0) {
     tiles.finish = {
       id: "finish",
       label: "Projected finish",
@@ -840,7 +932,7 @@ function boardTiles(
       empty: true,
     };
   } else {
-    const finish = projectFinish(points);
+    const finish = projectFinish(trend);
     tiles.finish =
       finish === null
         ? {
@@ -848,7 +940,7 @@ function boardTiles(
             label: "Projected finish",
             value: "No trend yet",
             hint:
-              points.length < 2
+              trend.length < 2
                 ? "Move a story to Done tomorrow to see a trend"
                 : "The points left aren't going down",
             tone: "default",
@@ -858,8 +950,10 @@ function boardTiles(
             id: "finish",
             label: "Projected finish",
             value: `Day ${Math.ceil(finish)}`,
-            hint: `Trend of the board · last day is day ${burndown.length}`,
-            tone: finish <= burndown.length ? "success" : "warning",
+            hint: `Trend of the ${n > 0 ? "pointed stories" : "board"} · last day is day ${
+              burndown.length
+            }`,
+            tone: finish > burndown.length ? "warning" : n > 0 ? "default" : "success",
           };
   }
   return tiles;
@@ -868,7 +962,8 @@ function boardTiles(
 /**
  * The cockpit's tiles: the Sprint Metrics hub's (lib/sprints/hub-view),
  * with the progress tiles read off the board when the sprint has pointed
- * stories, and the blockers tile last.
+ * stories, and the blockers tile last. A closed sprint's Done is the
+ * points confirmed when it closed, as its verdict says.
  */
 export function cockpitTiles(
   data: Pick<
@@ -880,12 +975,22 @@ export function cockpitTiles(
 ): Tile[] {
   const { sprint, status } = data;
   const hub = hubTiles(sprint, status, averageVelocity(completedSprints(sprints), sprint.id));
-  const board =
+  const overrides: Partial<Record<TileId, Tile>> =
     data.burndown.source === "stories"
       ? boardTiles(sprint, data.progress, data.burndown, today)
-      : null;
+      : {};
+  if (sprint.status === "completed" && typeof sprint.pointsCompleted === "number") {
+    overrides.done = {
+      id: "done",
+      label: "Done",
+      value: fmt(sprint.pointsCompleted),
+      unit: "points",
+      hint: "When the sprint closed",
+      tone: "default",
+    };
+  }
   return [
-    ...(board ? hub.map((t) => board[t.id] ?? t) : hub),
+    ...hub.map((t) => overrides[t.id] ?? t),
     blockersTile(data.openImpediments, { blockedStories: data.blockedStories.length, today }),
   ];
 }
@@ -924,6 +1029,8 @@ export interface CockpitData extends CockpitInput {
   burndown: CockpitBurndown;
   /** Every impediment in the sprint's window, resolved ones last. */
   sprintImpediments: Impediment[];
+  /** Of those, the ones resolved by the sprint's last day (`resolvedDuring`). */
+  resolvedImpediments: number;
   /** Open stories in the sprint flagged as blocked. */
   blockedStories: Story[];
 }
@@ -976,6 +1083,7 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
     progress,
     burndown: cockpitBurndown(sprint, series, stories, today, progress),
     sprintImpediments: inWindow,
+    resolvedImpediments: resolvedDuring(inWindow, sprint),
     blockedStories: sprintStories.filter((s) => s.blocked && s.status !== "done"),
   };
 }

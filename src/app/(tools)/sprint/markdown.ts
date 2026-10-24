@@ -84,11 +84,17 @@ export function cockpitMarkdown({ data, series, sprints, today }: CockpitMarkdow
         `| ${t.label} | ${cell(t.unit ? `${t.value} ${t.unit}` : t.value)} | ${cell(t.hint ?? "")} |`
     ),
     "",
-    board
-      ? "Done and remaining are read from the sprint board's stories."
-      : burndown.source === "log"
-        ? "Done and remaining are typed in the daily log."
-        : "Nothing on the board or in the daily log yet."
+    sprint.status === "completed" && typeof sprint.pointsCompleted === "number"
+      ? `Done is what was confirmed when the sprint closed; ${
+          burndown.source === "log"
+            ? "the rest is typed in the daily log."
+            : "no daily log was typed for it."
+        }`
+      : board
+        ? "Done and remaining are read from the sprint board's stories."
+        : burndown.source === "log"
+          ? "Done and remaining are typed in the daily log."
+          : "Nothing on the board or in the daily log yet."
   );
 
   if (board) {

@@ -390,7 +390,7 @@ function CockpitBody({
           />
           <Blockers
             open={data.openImpediments}
-            resolved={data.sprintImpediments.length - data.openImpediments.length}
+            resolved={data.resolvedImpediments}
             blockedStories={data.blockedStories}
             today={today}
             boardHref={boardHref}
@@ -477,8 +477,10 @@ function ExampleCockpit({
       <div>
         <ExampleNotice onClear={onExit} />
         <div className="-mt-2 flex flex-wrap items-center gap-3">
+          {/* ExampleNotice invites editing; this example is read-only, so say so here. */}
           <p className="min-w-0 flex-1 text-xs text-sub">
-            Nothing in the example is saved: your sprints, stories and impediments stay as they are.
+            This example is a read-only preview: nothing in it can be changed or saved, and your
+            sprints, stories and impediments stay as they are.
           </p>
           <Button type="button" size="sm" onClick={onStart}>
             <Plus className="mr-1 h-4 w-4" aria-hidden="true" />

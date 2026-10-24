@@ -75,6 +75,8 @@ import {
   localDay,
   loggableDays,
   openImpediments,
+  openUnpointed,
+  resolvedDuring,
   retroFor,
   retroWindow,
   reviewFor,
@@ -283,6 +285,19 @@ describe("impediments filtered to the sprint", () => {
       openImpediments(IMPS, TODAY).map((i) => i.id)
     );
     expect(openImpediments(IMPS, TODAY).every((i) => !i.resolvedAt)).toBe(true);
+  });
+
+  it("counts as resolved during the sprint only what was resolved by its last day", () => {
+    // "Gone before" was in Sprint 1's way but resolved nine days after it ended.
+    const s1 = gatherCockpitData(sources({ sprint: S1, stories: [] }));
+    expect(s1.sprintImpediments.map((i) => i.id)).toEqual(["old-open", "before"]);
+    expect(s1.resolvedImpediments).toBe(0);
+    // Sprint 2: "Fixed mid-sprint" only.
+    expect(gatherCockpitData(sources()).resolvedImpediments).toBe(1);
+    // Resolved on the last day still counts; a sprint without dates has none.
+    expect(resolvedDuring([{ ...IMPS[0], resolvedAt: "2026-10-01T18:00:00.000Z" }], S1)).toBe(1);
+    expect(resolvedDuring(IMPS, UNDATED)).toBe(0);
+    expect(resolvedDuring([], S2)).toBe(0);
   });
 
   it("handles none and a full ISO raised time from an agent", () => {
@@ -555,7 +570,11 @@ describe("done and remaining come from the board", () => {
     const data = gatherCockpitData(sources());
     const tiles = Object.fromEntries(cockpitTiles(data, [S1, S2], TODAY).map((t) => [t.id, t]));
     expect(tiles.committed).toMatchObject({ value: "30" });
-    expect(tiles.scope).toMatchObject({ value: "30", hint: "No change since the plan" });
+    // "Fraud checks" has no points: the board's numbers say they leave it out.
+    expect(tiles.scope).toMatchObject({
+      value: "30",
+      hint: "No change since the plan · 1 story without points",
+    });
     expect(tiles.done).toMatchObject({ value: "13", hint: "43% of the scope · from the board" });
     expect(tiles.remaining).toMatchObject({
       value: "17",
@@ -563,11 +582,93 @@ describe("done and remaining come from the board", () => {
     });
     expect(tiles.gap).toMatchObject({
       value: "Behind by 8 points",
-      hint: "Ideal: 9 left on day 7",
+      hint: "Ideal: 9 left on day 7 · 1 story without points",
       tone: "warning",
     });
-    expect(tiles.finish).toMatchObject({ value: "Day 15", tone: "warning" });
+    expect(tiles.finish).toMatchObject({
+      value: "Day 15",
+      hint: "Trend of the pointed stories · last day is day 10",
+      tone: "warning",
+    });
     expect(tiles.blockers).toMatchObject({ value: "5", unit: "blockers" });
+
+    // Every story pointed: the hints are the plain ones.
+    const sized = BOARD.map((s) => (s.id === "e" ? { ...s, points: 0.5 } : s));
+    const plain = Object.fromEntries(
+      cockpitTiles(gatherCockpitData(sources({ stories: sized })), [S2], TODAY).map((t) => [
+        t.id,
+        t,
+      ])
+    );
+    expect(plain.scope).toMatchObject({ hint: "+0.5 since the plan" });
+    expect(plain.gap).toMatchObject({ hint: "Ideal: 9 left on day 7" });
+    expect(plain.finish).toMatchObject({ hint: "Trend of the board · last day is day 10" });
+  });
+
+  it("a partly pointed sprint never reads as finished, ahead or on time", () => {
+    // Committed 30; the only pointed story (8) is done, "Refund flow" has no
+    // points. The typed log said 27 left; the board can't say what's left.
+    const stories: Story[] = [
+      { id: "a", title: "Save a card", points: 8, status: "done", sprintId: "s2" },
+      { id: "b", title: "Refund flow", status: "todo", sprintId: "s2" },
+    ];
+    const series: SprintSeries = {
+      id: "s2",
+      days: [
+        { day: 0, remaining: 30 },
+        { day: 2, remaining: 27 },
+      ],
+    };
+    const data = gatherCockpitData(sources({ stories, series, impediments: [] }));
+    expect(data.burndown).toMatchObject({ source: "stories", unpointedOpen: 1 });
+    const tiles = Object.fromEntries(cockpitTiles(data, [S2], TODAY).map((t) => [t.id, t]));
+    for (const id of ["gap", "finish"] as const) {
+      expect(tiles[id]).toMatchObject({
+        value: "Can't tell yet",
+        hint: "1 open story has no points",
+        tone: "default",
+        empty: true,
+      });
+    }
+    expect(tiles.scope).toMatchObject({ hint: "−22 since the plan · 1 story without points" });
+    expect(tiles.remaining).toMatchObject({ value: "0", hint: "1 story to go · from the board" });
+    expect(cockpitVerdict(data, TODAY)).toBe(
+      "Day 7 of 10: every pointed story is done, but 1 open story has no points yet, and nothing is blocking the team."
+    );
+    expect(cockpitChartText(data.burndown).summary).toBe(
+      "No pointed work left on day 7. 1 open story has no points, so the board can't show all that's left."
+    );
+
+    // Ahead with an unpointed story: said with the caveat, never in a success tone.
+    const ahead = gatherCockpitData(
+      sources({
+        stories: [
+          { id: "a", title: "A", points: 20, status: "done", sprintId: "s2", doneAt: at(TODAY) },
+          { id: "c", title: "C", points: 5, status: "todo", sprintId: "s2" },
+          { id: "b", title: "B", status: "todo", sprintId: "s2" },
+        ],
+        impediments: [],
+      })
+    );
+    const aheadTiles = Object.fromEntries(cockpitTiles(ahead, [S2], TODAY).map((t) => [t.id, t]));
+    expect(aheadTiles.gap).toMatchObject({
+      value: "Ahead by 4 points",
+      hint: "Ideal: 9 left on day 7 · 1 story without points",
+      tone: "default",
+    });
+    expect(aheadTiles.finish.tone).not.toBe("success");
+    expect(cockpitVerdict(ahead, TODAY)).toBe(
+      "Day 7 of 10: 20 of 25 points done, ahead by 4 points (not counting 1 story without points), and nothing is blocking the team."
+    );
+    expect(cockpitChartText(ahead.burndown).summary).toMatch(
+      /1 open story has no points, so the board can't show all that's left\.$/
+    );
+    // Ended with nothing left on the board but a story still open: not "everything done".
+    expect(
+      cockpitVerdict(gatherCockpitData(sources({ stories, today: "2026-10-28" })), "2026-10-28")
+    ).toBe(
+      "Sprint 2 ended 3 days ago with 1 unfinished story: close it and decide where the unfinished stories go."
+    );
   });
 
   it("an all-done board is finished; a future sprint hasn't started", () => {
@@ -642,6 +743,127 @@ describe("done and remaining come from the board", () => {
   });
 });
 
+describe("the chart in words, off the board", () => {
+  it("on the first day reads the board's start, not 'No days logged'", () => {
+    const stories: Story[] = [
+      { id: "p1", title: "P1", points: 5, status: "todo", sprintId: "s2" },
+      { id: "p2", title: "P2", points: 3, status: "in_progress", sprintId: "s2" },
+    ];
+    const burndown = cockpitBurndown({ ...S2, pointsPlanned: 8 }, undefined, stories, "2026-10-15");
+    expect(burndown.rows.filter((r) => typeof r.actual === "number")).toHaveLength(1);
+    const { summary } = cockpitChartText(burndown);
+    expect(summary).toBe(
+      "8 points left on day 0; the ideal line falls from 8 points to 0 by day 10."
+    );
+    expect(summary).not.toContain("No days logged");
+  });
+
+  it("without dates says what's done, not that nothing burned down", () => {
+    const stories: Story[] = [
+      { id: "u1", title: "U1", points: 5, status: "done", sprintId: "u" },
+      { id: "u2", title: "U2", points: 15, status: "todo", sprintId: "u" },
+    ];
+    const burndown = cockpitBurndown(UNDATED, undefined, stories, TODAY);
+    expect(burndown).toMatchObject({ source: "stories", dated: false });
+    expect(burndown.rows.every((r) => r.actual === null)).toBe(true);
+    expect(cockpitChartText(burndown).summary).toBe(
+      "5 of 20 points done; set the sprint's dates to see the burndown by day."
+    );
+  });
+
+  it("counts open stories without points the way the Refinement card does", () => {
+    expect(openUnpointed(BOARD, "s2")).toBe(1);
+    const zero: Story[] = [
+      { id: "z", title: "Z", points: 0, status: "todo", sprintId: "s2" },
+      { id: "n", title: "N", status: "done", sprintId: "s2" },
+      { id: "o", title: "O", status: "todo", sprintId: "s1" },
+    ];
+    expect(openUnpointed(zero, "s2")).toBe(1);
+    expect(openUnpointed([], "s2")).toBe(0);
+    // Only the board's numbers carry it; a typed log is the whole picture.
+    expect(cockpitBurndown(S2, SERIES2, BOARD.map(unpointed), TODAY).unpointedOpen).toBe(0);
+  });
+
+  it("keeps Burndown's summary when behind, with what the board leaves out", () => {
+    expect(cockpitChartText(cockpitBurndown(S2, undefined, BOARD, TODAY)).summary).toBe(
+      "Remaining points fell from 30 to 17 over 7 days; 8 points behind the ideal line. 1 open story has no points, so the board can't show all that's left."
+    );
+    const sized = BOARD.map((s) => (s.id === "e" ? { ...s, points: 1 } : s));
+    expect(cockpitChartText(cockpitBurndown(S2, undefined, sized, TODAY)).summary).toBe(
+      "Remaining points fell from 31 to 18 over 7 days; 9 points behind the ideal line."
+    );
+  });
+});
+
+/* ── A closed sprint ───────────────────────────────────────────────────── */
+
+describe("a closed sprint keeps what was recorded", () => {
+  // Closed on day 7 with 13 of 30 done; the 17 unfinished points went into Sprint 3.
+  const closed: Sprint = { ...S2, status: "completed", pointsCompleted: 13 };
+  const carried = BOARD.map((s) =>
+    s.sprintId === "s2" && s.status !== "done" ? { ...s, sprintId: "s3" } : s
+  );
+  const tilesOf = (data: CockpitData) =>
+    Object.fromEntries(cockpitTiles(data, [S1, data.sprint, S3], TODAY).map((t) => [t.id, t]));
+
+  it("reads the points confirmed at close, not the board its stories left", () => {
+    const data = gatherCockpitData(
+      sources({ sprint: closed, stories: carried, sprints: [S1, closed, S3] })
+    );
+    expect(data.burndown.source).toBe("none");
+    const tiles = tilesOf(data);
+    expect(tiles.done).toMatchObject({ value: "13", hint: "When the sprint closed" });
+    expect(tiles.scope).toMatchObject({ value: "30", hint: "No change since the plan" });
+    for (const id of ["remaining", "gap", "finish"]) {
+      expect(tiles[id]).toMatchObject({ empty: true });
+    }
+    expect(JSON.stringify(tiles)).not.toMatch(/Every story done|Finished|−17|from the board/);
+    expect(cockpitVerdict(data, TODAY)).toBe(
+      "Sprint 2 is closed: 13 of 30 points done (43%, missed the commitment)."
+    );
+    // The chart is the daily log's (none typed), not the board's 13 burning to 0.
+    expect(data.burndown.rows.filter((r) => typeof r.actual === "number")).toEqual([
+      { day: 0, ideal: 30, actual: 30 },
+    ]);
+    expect(cockpitChartText(data.burndown).summary).toBe(
+      "No days logged yet; the ideal line falls from 30 points to 0 by day 10."
+    );
+    const out = cockpitMarkdown({ data, series: undefined, sprints: [S1, closed], today: TODAY });
+    expect(out).toContain(
+      "Done is what was confirmed when the sprint closed; no daily log was typed for it."
+    );
+    expect(out).not.toContain("## Burndown from the board");
+  });
+
+  it("an old closed sprint with a leftover pointed story keeps its recorded points", () => {
+    // Sprint 1 closed with 26; "Other sprint" (3 points, to do) still names it.
+    const data = gatherCockpitData(sources({ sprint: S1 }));
+    expect(data.progress).toMatchObject({ scope: 3, done: 0 });
+    expect(tilesOf(data).done).toMatchObject({ value: "26", hint: "When the sprint closed" });
+    expect(cockpitVerdict(data, TODAY)).toBe(
+      "Sprint 1 is closed: 26 of 30 points done (87%, close to the commitment)."
+    );
+  });
+
+  it("with a typed log, the chart and the rest are the log's; Done is what was confirmed", () => {
+    const series: SprintSeries = {
+      id: "s2",
+      days: [
+        { day: 0, remaining: 30 },
+        { day: 10, remaining: 5 },
+      ],
+    };
+    const data = gatherCockpitData(sources({ sprint: closed, series, stories: carried }));
+    expect(data.burndown.source).toBe("log");
+    const tiles = tilesOf(data);
+    expect(tiles.done).toMatchObject({ value: "13", hint: "When the sprint closed" });
+    expect(tiles.remaining).toMatchObject({ value: "5", hint: "On day 10" });
+    expect(cockpitMarkdown({ data, series, sprints: [S1, closed], today: TODAY })).toContain(
+      "Done is what was confirmed when the sprint closed; the rest is typed in the daily log."
+    );
+  });
+});
+
 /* ── The verdict ───────────────────────────────────────────────────────── */
 
 describe("the verdict", () => {
@@ -650,12 +872,15 @@ describe("the verdict", () => {
 
   it("reads the board mid-sprint", () => {
     expect(verdict()).toBe(
-      "Day 7 of 10: 13 of 30 points done, behind by 8 points, and 5 blockers are open."
+      "Day 7 of 10: 13 of 30 points done, behind by 8 points (not counting 1 story without points), and 5 blockers are open."
     );
     expect(
-      verdict({ impediments: [], stories: BOARD.map((s) => ({ ...s, blocked: false })) })
+      verdict({
+        impediments: [],
+        stories: BOARD.map((s) => ({ ...s, blocked: false, points: s.points ?? 2 })),
+      })
     ).toBe(
-      "Day 7 of 10: 13 of 30 points done, behind by 8 points, and nothing is blocking the team."
+      "Day 7 of 10: 13 of 32 points done, behind by 10 points, and nothing is blocking the team."
     );
   });
 
@@ -680,17 +905,28 @@ describe("the verdict", () => {
       "Sprint 3 starts in 4 days with 0 points planned."
     );
     expect(verdict({}, "2026-10-28")).toBe(
-      "Sprint 2 ended 3 days ago with 17 points left: close it and decide where the unfinished stories go."
+      "Sprint 2 ended 3 days ago with 17 points left (not counting 1 story without points): close it and decide where the unfinished stories go."
     );
     const allDone = BOARD.map((s) => ({ ...s, status: "done" as const }));
     expect(verdict({ stories: allDone }, "2026-10-28")).toBe(
       "Sprint 2 ended with everything done: close it to record its velocity."
     );
-    expect(verdict({ sprint: { ...S2, status: "completed" } })).toBe(
+    // Closed: the points confirmed at close against the commitment, never the board.
+    expect(verdict({ sprint: { ...S2, status: "completed", pointsCompleted: 13 } })).toBe(
       "Sprint 2 is closed: 13 of 30 points done (43%, missed the commitment)."
+    );
+    expect(verdict({ sprint: { ...S2, status: "completed" } })).toBe(
+      "Sprint 2 is closed, but its completed points aren't recorded yet."
     );
     expect(verdict({ sprint: S1, stories: [] })).toBe(
       "Sprint 1 is closed: 26 of 30 points done (87%, close to the commitment)."
+    );
+    // Sprint 1 still holds a leftover pointed story ("Other sprint", 3 points, to do).
+    expect(verdict({ sprint: S1 })).toBe(
+      "Sprint 1 is closed: 26 of 30 points done (87%, close to the commitment)."
+    );
+    expect(verdict({ sprint: { ...S1, pointsPlanned: 0 } })).toBe(
+      "Sprint 1 is closed with 26 points done."
     );
     expect(verdict({ sprint: { ...S1, pointsCompleted: undefined }, stories: [] })).toBe(
       "Sprint 1 is closed, but its completed points aren't recorded yet."
@@ -746,7 +982,7 @@ describe("the Markdown export", () => {
     const out = md(data);
     expect(out).toContain("# Sprint 2");
     expect(out).toContain(
-      "Day 7 of 10: 13 of 30 points done, behind by 8 points, and 5 blockers are open."
+      "Day 7 of 10: 13 of 30 points done, behind by 8 points (not counting 1 story without points), and 5 blockers are open."
     );
     expect(out).toContain("| Done | 13 points | 43% of the scope · from the board |");
     expect(out).toContain("Done and remaining are read from the sprint board's stories.");
@@ -818,7 +1054,7 @@ describe("the example", () => {
       today: TODAY,
     });
     expect(cockpitVerdict(data, TODAY)).toBe(
-      "Day 5 of 14: 13 of 32 points done, ahead by 3.5 points, and 3 blockers are open."
+      "Day 5 of 14: 13 of 32 points done, ahead by 3.5 points (not counting 1 story without points), and 3 blockers are open."
     );
     expect(data.burndown.source).toBe("stories");
     expect(data.standup).toEqual({ posted: 3, members: 5, blockers: 1 });
@@ -1135,7 +1371,7 @@ describe("the cockpit page", () => {
     seed();
     const { container } = render(<SprintCockpit />);
     expect(container.querySelector("[data-cockpit-verdict]")).toHaveTextContent(
-      "Day 7 of 10: 13 of 30 points done, behind by 8 points, and 5 blockers are open."
+      "Day 7 of 10: 13 of 30 points done, behind by 8 points (not counting 1 story without points), and 5 blockers are open."
     );
     expect(container.querySelector('[data-tile="done"]')).toHaveTextContent("13");
     expect(container.querySelector('[data-tile="remaining"]')).toHaveTextContent("17");
@@ -1200,9 +1436,20 @@ describe("the cockpit page", () => {
     });
   });
 
+  it("labels the burndown's source as nothing yet when neither the board nor the log says", () => {
+    seed({ stories: BOARD.map(unpointed), sprintSeries: [] });
+    render(<SprintCockpit />);
+    const chart = screen.getByRole("figure", { name: /Burndown/ });
+    expect(chart).toHaveTextContent("Nothing recorded yet");
+    expect(chart).not.toHaveTextContent("Typed in the daily log");
+    expect(chart).not.toHaveTextContent("From the sprint board");
+    // Typing is still how it gets started.
+    expect(screen.getByLabelText("Points left today (day 7)")).toBeInTheDocument();
+  });
+
   it("closes the sprint and carries the unfinished stories over, with one Undo", () => {
     seed();
-    render(<SprintCockpit />);
+    const { container } = render(<SprintCockpit />);
     fireEvent.click(screen.getByRole("button", { name: "Close sprint" }));
     const dlg = screen.getByRole("dialog");
     fireEvent.click(within(dlg).getByRole("radio", { name: "Into Sprint 3" }));
@@ -1229,6 +1476,23 @@ describe("the cockpit page", () => {
       movedTo: "s3",
     });
 
+    // The cockpit stays on the closed sprint and reads what was recorded,
+    // not the board its unfinished stories just left (13 of 13 "done").
+    expect(container.querySelector("[data-cockpit-verdict]")).toHaveTextContent(
+      "Sprint 2 is closed: 13 of 30 points done (43%, missed the commitment)."
+    );
+    const done = container.querySelector('[data-tile="done"]');
+    expect(done).toHaveTextContent("13");
+    expect(done).toHaveTextContent("When the sprint closed");
+    expect(container.querySelector('[data-tile="remaining"]')).not.toHaveTextContent(
+      "Every story done"
+    );
+    expect(container.querySelector('[data-tile="finish"]')).not.toHaveTextContent("Finished");
+    const chart = screen.getByRole("figure", { name: /Burndown/ });
+    expect(chart).toHaveTextContent("Typed in the daily log");
+    expect(chart).toHaveTextContent("Closed with 13 points done.");
+    expect(screen.queryByLabelText(/Points left/)).toBeNull();
+
     undo();
     expect(state().sprints.find((s) => s.id === "s2")).toEqual(S2);
     expect(
@@ -1244,8 +1508,10 @@ describe("the cockpit page", () => {
     expect(screen.getByRole("heading", { name: "Set up your sprint" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "See an example first" }));
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+    // The shared notice invites editing; this example can't be, and says so.
+    expect(screen.getByText(/This example is a read-only preview/)).toBeInTheDocument();
     expect(container.querySelector("[data-cockpit-verdict]")).toHaveTextContent(
-      "Day 5 of 14: 13 of 32 points done, ahead by 3.5 points, and 3 blockers are open."
+      "Day 5 of 14: 13 of 32 points done, ahead by 3.5 points (not counting 1 story without points), and 3 blockers are open."
     );
     expect(screen.queryByRole("button", { name: "Close sprint" })).toBeNull();
     expect(screen.queryByLabelText(/Points left/)).toBeNull();
@@ -1273,6 +1539,10 @@ describe("the cockpit page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Ann from the team" }));
     expect(state().teamMembers.map((m) => m.name)).toEqual(["Bo"]);
+    // Focus doesn't drop to the page: it moves to the next name's button.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Remove Bo from the team" })
+    );
     const { label, undo } = lastUndo();
     expect(label).toBe("Removed Ann from the team");
     undo();
@@ -1281,6 +1551,16 @@ describe("the cockpit page", () => {
         .teamMembers.map((m) => m.id)
         .sort()
     ).toEqual(["m1", state().teamMembers.find((m) => m.name === "Bo")!.id].sort());
+
+    // The last name's button hands focus back; with nobody left, the name input has it.
+    const [first, last] = state().teamMembers.map((m) => m.name);
+    fireEvent.click(screen.getByRole("button", { name: `Remove ${last} from the team` }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: `Remove ${first} from the team` })
+    );
+    fireEvent.click(screen.getByRole("button", { name: `Remove ${first} from the team` }));
+    expect(state().teamMembers).toEqual([]);
+    expect(document.activeElement).toBe(screen.getByLabelText("Team member name"));
   });
 
   it("shows the next ceremony's timebox", () => {

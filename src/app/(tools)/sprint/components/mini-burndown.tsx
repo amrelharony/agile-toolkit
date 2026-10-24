@@ -49,7 +49,8 @@ function dayOption(sprint: Sprint, day: number, todayDay: number | null): string
  * pointed stories it is read off the sprint board and nothing is asked;
  * without, "points left" is typed per day (today, or a missed earlier day)
  * into the shared sprint log, so Burndown, Sprint Metrics and the forecasts
- * all see it.
+ * all see it. A closed sprint shows its daily log and the points confirmed
+ * when it closed, and asks nothing.
  */
 export function MiniBurndown({
   sprint,
@@ -68,7 +69,12 @@ export function MiniBurndown({
   const { rows, scopeChangeDays, todayDay, source, remaining } = burndown;
   const text = useMemo(() => cockpitChartText(burndown), [burndown]);
   const board = source === "stories";
-  const days = useMemo(() => (board ? [] : loggableDays(sprint, today)), [board, sprint, today]);
+  // A closed sprint keeps what was recorded; its log is changed in Burndown, not here.
+  const closed = sprint.status === "completed";
+  const days = useMemo(
+    () => (board || closed ? [] : loggableDays(sprint, today)),
+    [board, closed, sprint, today]
+  );
   const lastDay = days.length > 0 ? days[days.length - 1] : null;
   const storedAt = (day: number | null) =>
     day === null ? undefined : dayEntry(series, day)?.remaining;
@@ -95,7 +101,15 @@ export function MiniBurndown({
   }, [lastDay]);
 
   const boardHref = isExampleSprintId(sprint.id) ? "/kanban" : sprintHref("/kanban", sprint.id);
-  const sourceLine = board ? (
+  const sourceLine = closed ? (
+    <p className="text-sm text-sub">
+      {typeof sprint.pointsCompleted === "number"
+        ? `Closed with ${points(sprint.pointsCompleted)} done. `
+        : "Closed. "}
+      A closed sprint&apos;s chart is its daily log, since closing can move its unfinished stories
+      off the board{source === "log" ? "." : "; none was typed for this one."}
+    </p>
+  ) : board ? (
     <p className="text-sm text-sub">
       {remaining.remaining === 0
         ? "Every pointed story on the sprint board is done."
@@ -131,7 +145,13 @@ export function MiniBurndown({
       icon={TrendingDown}
       badge={
         <span className="rounded-md border border-border px-1.5 py-0.5 text-xs font-medium text-sub">
-          {board ? "From the sprint board" : "Typed in the daily log"}
+          {board
+            ? "From the sprint board"
+            : source === "log"
+              ? "Typed in the daily log"
+              : closed
+                ? "No daily log"
+                : "Nothing recorded yet"}
         </span>
       }
       height={200}

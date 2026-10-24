@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { CalendarRange, Plus, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -83,7 +83,23 @@ function TeamQuickAdd() {
     onSave: ({ name }) => upsert({ id: `member_${crypto.randomUUID()}`, name }),
   });
 
-  const remove = (member: TeamMember) =>
+  // The removed chip takes its focused button with it: once it's gone, focus
+  // the next chip's button (the last one's when it was last), else the input.
+  const listRef = useRef<HTMLUListElement>(null);
+  const removed = useRef<{ id: string; index: number } | null>(null);
+  const { formRef } = form;
+  useEffect(() => {
+    const gone = removed.current;
+    if (!gone || roster.some((m) => m.id === gone.id)) return;
+    removed.current = null;
+    const buttons = listRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [];
+    const next = buttons[Math.min(gone.index, buttons.length - 1)];
+    if (next) next.focus();
+    else formRef.current?.querySelector("input")?.focus();
+  }, [roster, formRef]);
+
+  const remove = (member: TeamMember, index: number) => {
+    removed.current = { id: member.id, index };
     undoable({
       label: `Removed ${member.name} from the team`,
       description: "Standup, Capacity Planner, Mood Tracker and Kudos no longer list them.",
@@ -96,6 +112,7 @@ function TeamQuickAdd() {
         if (!back) upsert(member);
       },
     });
+  };
 
   return (
     <div className="space-y-2">
@@ -132,8 +149,8 @@ function TeamQuickAdd() {
         </Button>
       </form>
       {roster.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5" aria-label="Team members">
-          {roster.map((m) => (
+        <ul ref={listRef} className="flex flex-wrap gap-1.5" aria-label="Team members">
+          {roster.map((m, i) => (
             <li
               key={m.id}
               className="inline-flex items-center gap-0.5 rounded-full border border-border bg-surface py-0.5 pl-2.5 pr-0.5 text-xs text-text"
@@ -143,7 +160,7 @@ function TeamQuickAdd() {
                 label={`Remove ${m.name} from the team`}
                 icon={<X className="h-3 w-3" />}
                 className="h-6 w-6 rounded-full text-sub hover:text-text"
-                onClick={() => remove(m)}
+                onClick={() => remove(m, i)}
               />
             </li>
           ))}

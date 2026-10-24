@@ -184,10 +184,20 @@ describe("with a sprint", () => {
     expect(screen.getByText("Sandbox 500s")).toBeInTheDocument();
     // The plot itself is lazy (and Recharts has no size in jsdom); the card's
     // text summary is built from the same rows. The sprint's only pointed
-    // story is done, so the board (not the typed log) is the source.
+    // story is done, so the board (not the typed log) is the source; "Refund
+    // flow" has no points, so the sprint reads neither finished nor ahead.
     expect(screen.getByRole("figure", { name: "Burndown" })).toHaveTextContent(
-      "Remaining points stayed at 0 over 7 days; 9 points ahead of the ideal line."
+      "No pointed work left on day 7. 1 open story has no points, so the board can't show all that's left."
     );
+    expect(container.querySelector("[data-cockpit-verdict]")).toHaveTextContent(
+      "Day 7 of 10: every pointed story is done, but 1 open story has no points yet, and 1 blocker is open."
+    );
+    for (const id of ["gap", "finish"]) {
+      const tile = container.querySelector(`[data-tile="${id}"]`);
+      expect(tile).toHaveTextContent("Can't tell yet");
+      expect(tile).toHaveTextContent("1 open story has no points");
+      expect(tile?.textContent).not.toMatch(/Finished|Ahead/);
+    }
   });
 
   it("logs today's points left into the shared sprint series", () => {
