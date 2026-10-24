@@ -96,22 +96,6 @@ export function bootstrapPredictions(): void {
     return { value: 5, confidence: "none" };
   });
 
-  // ── impediments ──────────────────────────────────────────────────────
-  registerPredictor<number>("impediments", "expectedResolutionDays", (ctx) => {
-    const resolved = ctx.workspace.impediments
-      .filter((i) => i.resolvedAt)
-      .map((i) => daysBetween(i.raisedAt, i.resolvedAt!))
-      .filter((d) => Number.isFinite(d) && d >= 0);
-    if (resolved.length < 3) return { value: 3, confidence: "none" };
-    const sorted = resolved.slice().sort((a, b) => a - b);
-    return {
-      value: Math.round(quantile(sorted, 0.5)),
-      ciHigh: Math.round(quantile(sorted, 0.85)),
-      confidence: resolved.length >= 8 ? "high" : "medium",
-      source: `Median across ${resolved.length} resolved impediments`,
-    };
-  });
-
   // ── tech-debt ────────────────────────────────────────────────────────
   registerPredictor<number>("tech-debt", "interestRate", (ctx) => {
     const items = ctx.workspace.techDebt;

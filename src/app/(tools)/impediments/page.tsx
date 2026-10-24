@@ -4,7 +4,7 @@ import { ImpedimentsClient } from "./impediments-client";
 export const metadata: Metadata = {
   title: "Impediment Tracker",
   description:
-    "Log, categorize, and resolve team impediments with severity tracking, aging indicators, and resolution metrics.",
+    "Log, escalate and resolve impediments with owners, due dates, age badges and time-to-resolve metrics.",
 };
 
 export default function ImpedimentsPage() {

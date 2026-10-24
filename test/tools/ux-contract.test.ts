@@ -33,7 +33,24 @@ const UPGRADED_TOOLS = [
   "pi-planning",
   "scrum-of-scrums",
   "dependency-map",
+  // Phase 3: Run the sprint.
+  "kanban",
+  "sprint",
+  "standup",
+  "async-standup",
+  "impediments",
+  "ceremony-timer",
+  "sprint-review",
 ];
+
+/**
+ * Tools merged into another: their route opens the other tool (in a mode
+ * of its own), so the other tool's folder and upgrade test hold their
+ * contract. The route's own folder keeps only its page.
+ */
+const MERGED_INTO: Record<string, string> = {
+  "async-standup": "standup",
+};
 
 /**
  * Upgraded tools with no add form, so there is no draft to validate. The
@@ -101,9 +118,17 @@ describe("tool UX contract", () => {
     for (const id of UPGRADED_TOOLS) expect(mainToolIds, id).toContain(id);
   });
 
+  it("merged tools open the tool they were merged into", () => {
+    for (const [id, home] of Object.entries(MERGED_INTO)) {
+      expect(UPGRADED_TOOLS, home).toContain(home);
+      expect(code(path.join(TOOLS_DIR, id, "page.tsx")), id).toContain(`(tools)/${home}/`);
+    }
+  });
+
   describe.each(UPGRADED_TOOLS)("%s", (id) => {
-    const dir = path.join(TOOLS_DIR, id);
-    const src = toolCode(id);
+    const home = MERGED_INTO[id] ?? id;
+    const dir = path.join(TOOLS_DIR, home);
+    const src = toolCode(home);
 
     it("has example data and a Markdown export", () => {
       expect(existsSync(path.join(dir, "example.ts")), "example.ts").toBe(true);
@@ -137,7 +162,7 @@ describe("tool UX contract", () => {
     });
 
     it("has an upgrade test", () => {
-      expect(existsSync(path.join(TESTS_DIR, `${id}-upgrade.test.tsx`))).toBe(true);
+      expect(existsSync(path.join(TESTS_DIR, `${home}-upgrade.test.tsx`))).toBe(true);
     });
   });
 });

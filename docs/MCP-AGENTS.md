@@ -169,6 +169,30 @@ The Plan tools read and write the same data as their pages:
 }}}
 ```
 
+### Run the sprint with the Run tools
+
+The Run tools read and write the same data as their pages:
+
+- **Impediments live in `workspace.impediment.*`**, the one store the Impediments page, the cockpit and hand-offs use (the page's old browser-only store is moved there once). Status is derived, not stored: resolved when `resolvedAt` is set, escalated when `escalatedAt` is, open otherwise. `tool.impediments.set_status` escalates, resolves or reopens on a day (`YYYY-MM-DD`, default today UTC); `list_state` returns the counts (open, escalated, resolved, overdue, critical), the average days to resolve, and the list in the page's order with each one's `status`, `ageDays`, `due` and `daysOverdue`. An impediment is due on `dueDate`, else `raisedAt` plus `expectedResolutionDays`.
+- **Live and async standups share `StandupEntry`**, with `mode` (`live` when absent, or `async`). `tool.standup.post` posts a live entry and `tool.async_standup.post` an async one; either way it's one entry per person per day, so posting again replaces that day's entry (keeping its blocker's resolution and hand-offs while the blocker text is unchanged). The reads also include the older `workspace.async_update.*` rows, which stay readable but are no longer written by the page. `tool.standup.list_state` counts both modes (`byMode`), `resolve_blocker` takes `resolved: false` to reopen, and `remove_entry` removes an entry together with the old async update under its id (plain `workspace.standup_entry.delete` would bring that update back). `tool.async_standup.digest` covers the day's entries of both modes, as the page's digest does; `mode` narrows it.
+- **Sprint reviews are per sprint.** `tool.sprint_review.*` take an optional `sprintId`; a sprint's review is `sprint-review:sprint:<sprintId>` and `sprint-review:current` is the draft (the old page's untouched "Sprint Alpha" starter reads as no draft). With a `sprintId`, `list_state` adds `facts`: the sprint goal and whether it was met (from Sprint Goal), the done stories (each with `inDemo`), and committed and completed points from the sprint's stories. `numbers` gives what the page shows, with its `source` (`stories`, else the review's `typed` numbers, else the `sprint`'s own). `add_feedback` needs a `category` (there is no default). `add_done_stories_to_demo` puts done stories in the demo script, and `send_feedback_to_backlog` turns a piece of feedback into a linked backlog story, once.
+- **The Kanban Flow board stamps cards as the page does.** `tool.kanban.move_card` sets `columnSince` on every move, `startedAt` on entering `in_progress` or `review` (dropped on going back to `backlog` or `ready`), `completedAt` on entering `done` (dropped on leaving it), and clears `blocked` in `done`. `add_card` takes `assignee` and `blocked`. `list_state` counts blocked cards per column and gives cycle time (average, P85, sample size) for the cards in `done`.
+- **The sprint board is the stories.** Moving a story with `workspace.story.update` and a new `status` stamps `startedAt`, `doneAt` and `statusHistory`, so the Kanban sprint board, the cockpit, burndown and the review all see it.
+
+```jsonc
+// Post an async update, then resolve its blocker once it's gone
+{"method":"tools/call","params":{"name":"tool.async_standup.post","arguments":{
+  "member":"Alice", "yesterday":"Payment form", "today":"Refunds", "blockers":"Waiting on sandbox keys"
+}}}
+// → {"posted": true, "id": "standup_x", "replaced": false}
+{"method":"tools/call","params":{"name":"tool.standup.resolve_blocker","arguments":{"id":"standup_x"}}}
+
+// Escalate an impediment
+{"method":"tools/call","params":{"name":"tool.impediments.set_status","arguments":{
+  "id":"imp_1", "status":"escalated"
+}}}
+```
+
 ### Run a retro for a sprint (composed intent)
 
 ```jsonc

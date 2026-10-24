@@ -21,7 +21,7 @@ describe("HowItWorks", () => {
     // Before the guide text arrives the header is already in place.
     expect(screen.getByRole("heading", { name: "How this works" })).toBeInTheDocument();
     expect(container.querySelector("details")).not.toHaveAttribute("open");
-    expect((await screen.findAllByText(/Work-in-progress/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/The Sprint board shows/)).length).toBeGreaterThan(0);
     expect(container.querySelector("details")).not.toHaveAttribute("open");
   });
 });

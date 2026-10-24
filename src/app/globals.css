@@ -1037,6 +1037,10 @@
    */
   .scroll-x-snap {
     display: flex;
+    /* The containing block for absolutely positioned descendants (sr-only
+       labels on cards scrolled out of view): without it they escape the
+       overflow and widen the page, and phones zoom the whole page out. */
+    position: relative;
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x mandatory;

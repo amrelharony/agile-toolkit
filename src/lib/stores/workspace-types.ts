@@ -128,17 +128,39 @@ export interface StoryReadiness {
 
 export type ImpedimentSeverity = "low" | "medium" | "high" | "critical";
 
+export type ImpedimentCategory = "technical" | "organizational" | "external" | "process";
+
+/**
+ * Something in the team's way. The Impediments tool, hand-offs and agents
+ * all write here (the tool's own local store was moved in; see
+ * lib/impediments). Its status is derived, never stored: resolved when
+ * `resolvedAt` is set, escalated when `escalatedAt` is, open otherwise
+ * (lib/impediments/model.ts).
+ */
 export interface Impediment {
   id: string;
   title: string;
   severity: ImpedimentSeverity;
+  /** When it was raised, "YYYY-MM-DD" (can be backdated). */
   raisedAt: ISODateString;
   resolvedAt?: ISODateString;
   tags?: string[];
+  /** Who is working on removing it. */
   owner?: string;
   source?: "standup" | "retro" | "manual";
   /** The item this was sent from (a retro card, a standup blocker). */
   sourceRef?: HandoffRef;
+  description?: string;
+  category?: ImpedimentCategory;
+  /** Who raised it. */
+  raisedBy?: string;
+  /** When it was escalated beyond the team (cleared on reopen). */
+  escalatedAt?: ISODateString;
+  /** "YYYY-MM-DD" it should be gone by. Without one, `raisedAt` plus
+   *  `expectedResolutionDays` is the due date, when that is set. */
+  dueDate?: ISODateString;
+  /** Expected days to resolve, from when it was raised. */
+  expectedResolutionDays?: number;
 }
 
 /* ── Hand-offs ─────────────────────────────────────────────────────────
@@ -1555,7 +1577,14 @@ export interface AsyncUpdate {
   description?: string;
 }
 
-/** One member's daily standup entry. */
+/** How a standup entry was given: in the live meeting, or posted async. */
+export type StandupMode = "live" | "async";
+
+/**
+ * One member's daily standup entry. The live standup and the async
+ * standup share these (`mode`); the async tool's older `AsyncUpdate` rows
+ * are read alongside them (lib/standup/entries.ts).
+ */
 export interface StandupEntry {
   id: string;
   member: string;
@@ -1572,6 +1601,10 @@ export interface StandupEntry {
   blockerResolved?: boolean;
   /** Where this entry's blocker was sent (e.g. raised as an impediment). */
   sentTo?: HandoffLink[];
+  /** Absent: live (every entry from before async posts moved here). */
+  mode?: StandupMode;
+  /** Anything else the person added (async posts). */
+  description?: string;
 }
 
 /** A demo item in a sprint review's demo script. */
@@ -1591,6 +1624,8 @@ export interface FeedbackItem {
   stakeholder: string;
   feedback: string;
   category: FeedbackCategory;
+  /** Where it was sent (a backlog story). */
+  sentTo?: HandoffLink[];
 }
 
 /** A showcase-prep checklist item. */
@@ -1605,6 +1640,10 @@ export interface ChecklistItem {
  *  singleton, so there is normally one row under a fixed id. */
 export interface SprintReview {
   id: string;
+  /** The sprint this review is for: its document is
+   *  `sprint-review:sprint:<sprintId>` (lib/sprints/review-doc.ts). Absent
+   *  on the draft, `sprint-review:current`. */
+  sprintId?: string;
   sprintName: string;
   sprintNumber: string;
   features: DemoFeature[];
@@ -1840,6 +1879,12 @@ export interface KanbanCard {
   completedAt?: ISODateString;
   /** The item this was sent from (e.g. a retro action). */
   sourceRef?: HandoffRef;
+  /** Who is working on it. */
+  assignee?: string;
+  /** Flagged as blocked. */
+  blocked?: boolean;
+  /** When it entered its current column, for its age there. */
+  columnSince?: ISODateString;
 }
 
 /** The kanban board — a singleton document (cards + per-column WIP limits). */

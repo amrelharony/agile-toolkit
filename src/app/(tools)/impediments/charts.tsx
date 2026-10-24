@@ -1,52 +1,70 @@
 "use client";
 
 // Recharts lives here so the Impediments page loads it only when the weekly
-// trend chart mounts. Import this module through next/dynamic.
-import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+// chart mounts. Import this module through next/dynamic.
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 
-interface WeeklyRaisedChartProps {
-  data: { week: string; raised: number }[];
-  changepoints: CausalAnnotationData[];
-  /** Injected by ChartCard's ResponsiveContainer. */
-  width?: number;
-  height?: number;
+export interface WeeklyPoint {
+  /** "12 Oct" */
+  week: string;
+  raised: number;
+  open: number;
 }
 
-export function WeeklyRaisedChart({ data, changepoints, width, height }: WeeklyRaisedChartProps) {
+const { colors } = chartTheme;
+
+/**
+ * Impediments raised each week (bars) against how many were still open at
+ * the week's end (line): the bars say how much new trouble arrives, the
+ * line whether the team is keeping up with it.
+ */
+export function WeeklyImpedimentsChart({ data }: { data: WeeklyPoint[] }) {
   return (
-    <LineChart
-      width={width}
-      height={height}
-      data={data}
-      margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
-    >
-      <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
-      <XAxis
-        dataKey="week"
-        tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-        axisLine={{ stroke: chartTheme.gridColor }}
-        tickLine={false}
-      />
-      <YAxis
-        tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-        axisLine={false}
-        tickLine={false}
-        allowDecimals={false}
-      />
-      <Tooltip contentStyle={chartTheme.tooltipStyle} />
-      <Line
-        type="monotone"
-        dataKey="raised"
-        stroke={chartTheme.colors.cyan}
-        strokeWidth={2}
-        dot={{ r: 3 }}
-        name="Raised / week"
-      />
-      {changepoints.map((cp, i) => (
-        <CausalLine key={`raised-cusum-${i}`} annotation={cp} />
-      ))}
-    </LineChart>
+    <ResponsiveContainer width="100%" height={220}>
+      {/* ChartFigure hides the plot behind its summary and table, so the SVG
+          mustn't be a tab stop. */}
+      <ComposedChart
+        data={data}
+        margin={{ top: 10, right: 12, left: -20, bottom: 0 }}
+        accessibilityLayer={false}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+        <XAxis
+          dataKey="week"
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
+          tickLine={false}
+          interval="preserveStartEnd"
+        />
+        <YAxis
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={false}
+          tickLine={false}
+          allowDecimals={false}
+        />
+        <Tooltip contentStyle={chartTheme.tooltipStyle} />
+        <Legend wrapperStyle={chartTheme.legendStyle} />
+        <Bar dataKey="raised" name="Raised" fill={colors.amber} radius={[3, 3, 0, 0]} />
+        <Line
+          type="monotone"
+          dataKey="open"
+          name="Open at week end"
+          stroke={colors.cyan}
+          strokeWidth={2}
+          dot={{ r: 3, fill: colors.cyan }}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
   );
 }

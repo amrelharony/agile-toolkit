@@ -17,7 +17,7 @@ import type { DependencyStatus } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { dayLabel } from "../dependency-map/format";
 import { DependencyStatusChip } from "../dependency-map/status-chip";
-import type { RefFor } from "../dependency-map/use-return-focus";
+import type { RefFor } from "@/hooks/use-return-focus";
 import {
   EMPTY_ITEM,
   PiItemEditor,

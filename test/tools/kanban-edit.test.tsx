@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
@@ -93,7 +94,7 @@ beforeEach(() => {
 
 describe("Kanban: editing a card", () => {
   it("saves the title and description and hands focus back", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: "Login page" }));
 
     const title = screen.getByRole("textbox", { name: "Card title" });
@@ -116,7 +117,7 @@ describe("Kanban: editing a card", () => {
   });
 
   it("Ctrl+Enter saves from the description, and a card can get its first description", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     const description = screen.getByRole("textbox", { name: "Card description" });
     fireEvent.change(description, { target: { value: "Line one\nLine two" } });
@@ -128,7 +129,7 @@ describe("Kanban: editing a card", () => {
   });
 
   it("an emptied description is removed", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: "Login page" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Card description" }), {
       target: { value: "  " },
@@ -139,7 +140,7 @@ describe("Kanban: editing a card", () => {
 
   it("Escape cancels", () => {
     const before = cards();
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: "Checkout flow" }));
     const title = screen.getByRole("textbox", { name: "Card title" });
     fireEvent.change(title, { target: { value: "Something else" } });
@@ -151,7 +152,7 @@ describe("Kanban: editing a card", () => {
 
   it("an emptied title reverts", () => {
     const before = cards();
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: "Checkout flow" }));
     const title = screen.getByRole("textbox", { name: "Card title" });
     fireEvent.change(title, { target: { value: "" } });
@@ -164,7 +165,7 @@ describe("Kanban: editing a card", () => {
 
 describe("Kanban: adding cards", () => {
   it("Add keeps the cursor in the title box for the next card", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     const input = screen.getByRole("textbox", { name: "New card title" });
     fireEvent.change(input, { target: { value: "Payments" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -174,7 +175,7 @@ describe("Kanban: adding cards", () => {
   });
 
   it("a pasted list adds one Backlog card per line", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     paste(
       screen.getByRole("textbox", { name: "New card title" }),
       "Reports\n\n- Exports\nAudit log"
@@ -197,7 +198,7 @@ describe("Kanban: adding cards", () => {
   });
 
   it("caps a long paste and says how many lines were left out", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     const lines = Array.from({ length: 31 }, (_, i) => `Task ${i + 1}`).join("\n");
     paste(screen.getByRole("textbox", { name: "New card title" }), lines);
     expect(cards()).toHaveLength(3 + 30);
@@ -209,7 +210,7 @@ describe("Kanban: adding cards", () => {
 
 describe("Kanban: delete and Undo", () => {
   it("removes the card and Undo restores it in place, edits and all", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     fireEvent.click(screen.getByRole("button", { name: "Login page" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Card title" }), {
       target: { value: "Sign-in page" },
@@ -225,7 +226,7 @@ describe("Kanban: delete and Undo", () => {
   });
 
   it("still moves cards by select", () => {
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     expect(screen.getByRole("combobox", { name: "Move Search" })).toBeInTheDocument();
   });
 });

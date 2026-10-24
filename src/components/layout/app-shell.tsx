@@ -20,6 +20,7 @@ import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
 import { installKudosReceiveBridge } from "@/lib/kudos/receive-bridge";
 import { KudosOwnerBridge } from "@/lib/kudos/owner-bridge";
 import { LegacySprintMigration } from "@/components/sprints/legacy-sprint-migration";
+import { LegacyToolMigrations } from "@/components/data/legacy-tool-migrations";
 // The tool action registry is populated by the owner's agent panel
 // (components/agent/mascot/owner-agent-panel) when it loads — only the
 // agent reads it client-side, so visitors never download it.
@@ -157,6 +158,8 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                             {/* Inside AuthProvider and the sync gate: moves old per-tool
                                 sprint data into shared sprints once it's safe to. */}
                             <LegacySprintMigration />
+                            {/* The same for tools whose storage moved later (Impediments). */}
+                            <LegacyToolMigrations />
                             <RecentToolTracker />
                             <Suspense fallback={null}>
                               <FlyingCardPortal />

@@ -1,56 +1,72 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { StandupEntry } from "@/lib/stores/workspace-types";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Calendar, Mail, Mic } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { generateStandupPrompts } from "@/lib/ai-prompts/standup";
-import { todayLocalISO } from "@/lib/utils/formatters";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
-import { undoable } from "@/lib/utils/undoable";
-import { selectEvents } from "@/lib/history/selectors";
-import { useHistoryStore } from "@/lib/history/history-store";
-import { SendToMenu } from "@/components/handoff/send-to-menu";
-import type { HandoffLink } from "@/lib/handoffs/types";
-import {
-  ExampleNotice,
-  LoadExampleButton,
-  hasExampleItems,
-  isExampleId,
-} from "@/components/tool-frame/example-data";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { ExportButton } from "@/components/shared/export-button";
+import { ResetButton } from "@/components/shared/reset-button";
 import { SectionCard } from "@/components/shared/section-card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ExampleNotice, hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { generateAsyncStandupPrompts } from "@/lib/ai-prompts/async-standup";
+import { generateStandupPrompts } from "@/lib/ai-prompts/standup";
+import { ASYNC_STANDUP_ACTIONS, STANDUP_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryStore } from "@/lib/history/history-store";
+import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import {
-  Mic,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  User,
-  Calendar,
-  FileText,
-} from "lucide-react";
-import { buildExample } from "./example";
-import { toMarkdown } from "./markdown";
+  allStandupEntries,
+  entryFor,
+  hasBlocker,
+  notPostedYet,
+  previousEntry,
+} from "@/lib/standup/entries";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { AsyncUpdate, StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
+import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
+import { copyToClipboard } from "@/lib/utils/export";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
+import { usePersistedLocal } from "@/lib/utils/use-persisted";
+import { BoardWalk } from "./board-walk";
+import { type EntryCardActions, type LinksUpdate } from "./entry-card";
+import { EntryForm, useEntryForm, type YesterdaySuggestion } from "./entry-form";
+import { EXAMPLE_MEMBERS, buildExample, buildExampleBoard } from "./example";
+import { toMarkdown, weeklyMarkdown } from "./markdown";
+import {
+  CSV_HEADERS,
+  NO_ONE_AWAY,
+  awayOn,
+  csvRows,
+  editedEntry,
+  emptyDraft,
+  longDay,
+  personKey,
+  postedEntry,
+  sameEntryText,
+  speakingOrder,
+  withAway,
+  type AwayDay,
+  type EntryDraft,
+  type EntryValues,
+} from "./model";
+import { ModeSwitch } from "./mode-switch";
+import { NotPostedPanel } from "./people";
+import { standupVerdict } from "./verdict";
+import { BlockersView, HistoryView, TodayView } from "./views";
+import { publishTurn, useStandupWalk } from "./walk";
 
-/* -------------------------------------------------------------------------- */
-/*  Helpers                                                                   */
-/* -------------------------------------------------------------------------- */
+/** Who is out of today's standup, per browser (removes nothing; see model.AwayDay). */
+export const AWAY_KEY = "agile-toolkit:standup:away";
 
-function todayStr() {
-  return todayLocalISO();
-}
+const NO_ENTRIES: StandupEntry[] = [];
+const NO_UPDATES: AsyncUpdate[] = [];
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -58,720 +74,426 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
-function ageLabel(timestamp: number) {
-  const hours = (Date.now() - timestamp) / 3600_000;
-  if (hours < 24) return "< 1 day";
-  if (hours < 72) return `${Math.floor(hours / 24)}d`;
-  return `${Math.floor(hours / 24)}d`;
+/** Same person, same day: one entry each, across both modes. */
+const dayKey = (e: Pick<StandupEntry, "date" | "member">) => `${e.date} ${personKey(e.member)}`;
+
+/** Every entry as stored right now, old async updates included. */
+function currentEntries(): StandupEntry[] {
+  const s = useWorkspaceStore.getState();
+  return allStandupEntries(s.standupEntries, s.asyncUpdates);
 }
 
-function ageColor(timestamp: number) {
-  const hours = (Date.now() - timestamp) / 3600_000;
-  if (hours < 24) return "text-success";
-  if (hours < 72) return "text-warning";
-  return "text-danger";
-}
-
-function ageBg(timestamp: number) {
-  const hours = (Date.now() - timestamp) / 3600_000;
-  if (hours < 24) return "border-success/30 bg-success/5";
-  if (hours < 72) return "border-warning/30 bg-warning/5";
-  return "border-danger/30 bg-danger/5";
-}
-
-function generateDayDigest(entries: StandupEntry[], date: string): string {
-  const dayEntries = entries.filter((e) => e.date === date);
-  if (dayEntries.length === 0) return `# Standup — ${date}\n\nNo entries.`;
-
-  const lines: string[] = [`# Standup — ${date}`, ""];
-  for (const e of dayEntries) {
-    lines.push(`## ${e.member}`);
-    lines.push(`**Yesterday:** ${e.yesterday || "—"}`);
-    lines.push(`**Today:** ${e.today || "—"}`);
-    if (e.blockers) lines.push(`**Blockers:** ${e.blockers}`);
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-
-function generateWeeklyDigest(entries: StandupEntry[]): string {
-  const sorted = [...entries].sort((a, b) => b.timestamp - a.timestamp);
-  const dates = Array.from(new Set(sorted.map((e) => e.date))).slice(0, 5);
-  const members = Array.from(new Set(sorted.map((e) => e.member)));
-
-  const lines: string[] = ["# Weekly Standup Digest", ""];
-  for (const member of members) {
-    lines.push(`## ${member}`);
-    const memberEntries = dates.flatMap((d) =>
-      entries.filter((e) => e.date === d && e.member === member)
-    );
-    if (memberEntries.length === 0) {
-      lines.push("_No entries_");
-    } else {
-      for (const e of memberEntries) {
-        lines.push(`**${e.date}**`);
-        lines.push(`- Yesterday: ${e.yesterday || "—"}`);
-        lines.push(`- Today: ${e.today || "—"}`);
-        if (e.blockers) lines.push(`- Blockers: ${e.blockers}`);
-      }
-    }
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Sub-components                                                            */
-/* -------------------------------------------------------------------------- */
-
-function EntryCard({
-  entry,
-  isResolved,
-  onResolve,
-}: {
-  entry: StandupEntry;
-  isResolved: boolean;
-  onResolve: () => void;
-}) {
-  const hasBlocker = entry.blockers.trim().length > 0;
+/** Nothing typed yet beyond the suggested "yesterday". */
+function isPristine(d: EntryDraft, suggestion: YesterdaySuggestion | null): boolean {
+  const y = d.yesterday.trim();
   return (
-    <Card className="bg-surface-deep border-border">
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-accent/15 flex items-center justify-center">
-              <User className="w-3.5 h-3.5 text-accent" />
-            </div>
-            <span className="font-medium text-text">{entry.member}</span>
-          </div>
-          {hasBlocker && !isResolved && (
-            <Badge className="bg-danger/15 text-danger border-danger/30 gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              Blocker
-            </Badge>
-          )}
-          {isResolved && (
-            <Badge className="bg-success/15 text-success border-success/30 gap-1">
-              <CheckCircle2 className="w-3 h-3" />
-              Resolved
-            </Badge>
-          )}
-        </div>
-
-        {entry.yesterday && (
-          <div>
-            <p className="text-xs text-sub mb-1 uppercase tracking-wider">Yesterday</p>
-            <p className="text-sm text-text">{entry.yesterday}</p>
-          </div>
-        )}
-        {entry.today && (
-          <div>
-            <p className="text-xs text-sub mb-1 uppercase tracking-wider">Today</p>
-            <p className="text-sm text-text">{entry.today}</p>
-          </div>
-        )}
-        {hasBlocker && (
-          <div
-            className={`rounded-md border p-3 ${
-              isResolved ? "border-border bg-card" : "border-danger/30 bg-danger/5"
-            }`}
-          >
-            <p className="text-xs text-sub mb-1 uppercase tracking-wider">Blockers</p>
-            <p className={`text-sm ${isResolved ? "text-sub line-through" : "text-danger"}`}>
-              {entry.blockers}
-            </p>
-            {!isResolved && (
-              <button
-                onClick={onResolve}
-                className="mt-2 text-xs text-success hover:underline flex items-center gap-1 min-touch-coarse py-1"
-              >
-                <CheckCircle2 className="w-3 h-3" />
-                Mark resolved
-              </button>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    !d.today.trim() &&
+    !d.blockers.trim() &&
+    !d.notes.trim() &&
+    (!y || y === (suggestion?.text.trim() ?? ""))
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Tab 1 — Today                                                             */
-/* -------------------------------------------------------------------------- */
+const PAGE: Record<StandupMode, { toolId: string; title: string; description: string }> = {
+  live: {
+    toolId: "standup",
+    title: "Standup Tracker",
+    description:
+      "Run the Daily Scrum over the sprint board: each person's turn shows their stories, with a timer, skip and next. Blockers become impediments in one click.",
+  },
+  async: {
+    toolId: "async-standup",
+    title: "Async Standup Digest",
+    description:
+      "Written standup updates, one per person per day: see who hasn't posted, and copy the daily digest with blockers first.",
+  },
+};
 
-function TodayTab({
-  entries,
-  members,
-  resolvedBlockers,
-  onResolve,
-}: {
-  entries: StandupEntry[];
-  members: string[];
-  resolvedBlockers: string[];
-  onResolve: (id: string) => void;
-}) {
-  const today = todayStr();
-  const todayEntries = entries.filter((e) => e.date === today);
-  const submittedMembers = new Set(todayEntries.map((e) => e.member));
-  const missingMembers = members.filter((m) => !submittedMembers.has(m));
-
-  return (
-    <div className="space-y-4">
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-fluid-h3 font-data font-bold text-accent">{todayEntries.length}</p>
-          <p className="text-xs text-sub mt-0.5">Submitted</p>
-        </div>
-        <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-fluid-h3 font-data font-bold text-warning">{missingMembers.length}</p>
-          <p className="text-xs text-sub mt-0.5">Missing</p>
-        </div>
-        <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-fluid-h3 font-data font-bold text-danger">
-            {
-              todayEntries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id))
-                .length
-            }
-          </p>
-          <p className="text-xs text-sub mt-0.5">Blockers</p>
-        </div>
-      </div>
-
-      {/* Entries */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {todayEntries.map((e) => (
-          <EntryCard
-            key={e.id}
-            entry={e}
-            isResolved={resolvedBlockers.includes(e.id)}
-            onResolve={() => onResolve(e.id)}
-          />
-        ))}
-      </div>
-
-      {/* Missing members */}
-      {missingMembers.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-sub uppercase tracking-wider">Not yet submitted</p>
-          <div className="flex flex-wrap gap-2">
-            {missingMembers.map((m) => (
-              <div
-                key={m}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-card border border-border text-sub text-sm"
-              >
-                <User className="w-3.5 h-3.5" />
-                {m}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {todayEntries.length === 0 && missingMembers.length === 0 && (
-        <p className="text-center text-sub py-8 text-sm">
-          No entries today and no team members configured yet.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Tab 2 — History                                                           */
-/* -------------------------------------------------------------------------- */
-
-function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: string[] }) {
-  const [filterMember, setFilterMember] = useState<string>("all");
-  const [selectedDate, setSelectedDate] = useState<string>(todayStr());
-
-  const allDates = useMemo(
-    () => Array.from(new Set(entries.map((e) => e.date))).sort((a, b) => b.localeCompare(a)),
-    [entries]
-  );
-
-  const filtered = useMemo(
-    () =>
-      entries.filter(
-        (e) => e.date === selectedDate && (filterMember === "all" || e.member === filterMember)
-      ),
-    [entries, selectedDate, filterMember]
-  );
-
-  const digestText = useMemo(
-    () => generateDayDigest(entries, selectedDate),
-    [entries, selectedDate]
-  );
-
-  return (
-    <div className="space-y-4">
-      {/* Controls */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-sub" />
-          <select
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            aria-label="Digest date"
-            className="bg-surface-deep border border-border rounded-md px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {allDates.length === 0 ? (
-              <option value={todayStr()}>{todayStr()}</option>
-            ) : (
-              allDates.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <User className="w-4 h-4 text-sub" />
-          <select
-            value={filterMember}
-            onChange={(e) => setFilterMember(e.target.value)}
-            aria-label="Filter by member"
-            className="bg-surface-deep border border-border rounded-md px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <option value="all">All members</option>
-            {members.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="ml-auto">
-          <ExportButton filename={`standup-${selectedDate}`} clipboardText={digestText} />
-        </div>
-      </div>
-
-      {/* Table */}
-      {filtered.length > 0 ? (
-        <div className="table-wrap-responsive">
-          <table className="w-full text-sm min-w-[640px]">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">
-                  Member
-                </th>
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">
-                  Yesterday
-                </th>
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">
-                  Today
-                </th>
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3">
-                  Blockers
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((e) => (
-                <tr key={e.id} className="border-b border-border last:border-0">
-                  <td className="py-3 pr-4 text-text font-medium whitespace-nowrap">{e.member}</td>
-                  <td className="py-3 pr-4 text-sub max-w-xs">
-                    {e.yesterday || <span className="opacity-40">—</span>}
-                  </td>
-                  <td className="py-3 pr-4 text-sub max-w-xs">
-                    {e.today || <span className="opacity-40">—</span>}
-                  </td>
-                  <td className="py-3 text-sub max-w-xs">
-                    {e.blockers ? (
-                      <span className="text-danger">{e.blockers}</span>
-                    ) : (
-                      <span className="opacity-40">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="text-center text-sub py-8 text-sm">
-          No entries for {selectedDate}
-          {filterMember !== "all" ? ` from ${filterMember}` : ""}.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Tab 3 — Blockers Dashboard                                                */
-/* -------------------------------------------------------------------------- */
-
-/** An open blocker can be raised as an impediment. */
-const BLOCKER_ROUTES = ["impediment"] as const;
-
-function BlockersTab({
-  entries,
-  resolvedBlockers,
-  onResolve,
-  onLinksChange,
-}: {
-  entries: StandupEntry[];
-  resolvedBlockers: string[];
-  onResolve: (id: string) => void;
-  /** Record where a blocker was sent; without it there is no Send to. */
-  onLinksChange?: (
-    id: string,
-    update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
-  ) => void;
-}) {
-  const blockerEntries = useMemo(
-    () =>
-      entries
-        .filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id))
-        .sort((a, b) => a.timestamp - b.timestamp),
-    [entries, resolvedBlockers]
-  );
-
-  const resolvedEntries = useMemo(
-    () => entries.filter((e) => e.blockers.trim() && resolvedBlockers.includes(e.id)),
-    [entries, resolvedBlockers]
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* Open blockers */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle className="w-4 h-4 text-danger" />
-          <h3 className="text-sm font-medium text-text uppercase tracking-wider">Open Blockers</h3>
-          {blockerEntries.length > 0 && (
-            <Badge className="bg-danger/15 text-danger border-danger/30">
-              {blockerEntries.length}
-            </Badge>
-          )}
-        </div>
-
-        {blockerEntries.length === 0 ? (
-          <div className="text-center py-8 text-sub text-sm bg-surface border border-border rounded-lg">
-            <CheckCircle2 className="w-8 h-8 text-success mx-auto mb-2 opacity-60" />
-            No open blockers — all clear!
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {blockerEntries.map((e) => (
-              <div key={e.id} className={`border rounded-lg p-4 ${ageBg(e.timestamp)}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <User className="w-3.5 h-3.5 text-sub shrink-0" />
-                      <span className="font-medium text-text text-sm">{e.member}</span>
-                      <span className="text-sub text-xs">·</span>
-                      <span className="text-sub text-xs">{e.date}</span>
-                      <div className="flex items-center gap-1 ml-auto">
-                        <Clock className={`w-3 h-3 ${ageColor(e.timestamp)}`} />
-                        <span className={`text-xs font-data ${ageColor(e.timestamp)}`}>
-                          {ageLabel(e.timestamp)}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-sm text-text">{e.blockers}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center">
-                    {onLinksChange && (
-                      <SendToMenu
-                        routes={BLOCKER_ROUTES}
-                        item={{
-                          title: e.blockers,
-                          raisedBy: e.member,
-                          sourceRef: { tool: "standup", id: e.id },
-                        }}
-                        sentTo={e.sentTo}
-                        onLinksChange={(update) => onLinksChange(e.id, update)}
-                      />
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onResolve(e.id)}
-                      className="shrink-0 text-success hover:text-success hover:bg-success/10 gap-1.5 text-xs"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Resolve
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Resolved blockers */}
-      {resolvedEntries.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <CheckCircle2 className="w-4 h-4 text-success" />
-            <h3 className="text-sm font-medium text-sub uppercase tracking-wider">Resolved</h3>
-          </div>
-          <div className="space-y-2">
-            {resolvedEntries.map((e) => (
-              <div
-                key={e.id}
-                className="border border-border rounded-lg p-3 flex items-center gap-3 opacity-50"
-              >
-                <User className="w-3.5 h-3.5 text-sub" />
-                <span className="text-sm text-sub font-medium">{e.member}</span>
-                <span className="text-xs text-sub">·</span>
-                <span className="text-sm text-sub line-through flex-1">{e.blockers}</span>
-                <span className="text-xs text-sub">{e.date}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Main component                                                            */
-/* -------------------------------------------------------------------------- */
-
-export function StandupClient() {
-  const entries = useWorkspaceStore(useShallow((s) => s.standupEntries ?? []));
-  const teamMembers = useWorkspaceStore(useShallow((s) => s.teamMembers ?? []));
+/**
+ * The standup, live or async, over one set of entries (StandupEntry with
+ * `mode`; lib/standup/entries). /standup opens the live mode and
+ * /async-standup the async one; the switch at the top moves between them.
+ * The old async tool's AsyncUpdate rows show alongside, and editing one
+ * writes a StandupEntry under its id.
+ */
+export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
+  const isAsync = mode === "async";
+  const page = PAGE[mode];
+  const stored = useWorkspaceStore((s) => s.standupEntries ?? NO_ENTRIES);
+  const legacy = useWorkspaceStore((s) => s.asyncUpdates ?? NO_UPDATES);
+  const entries = useMemo(() => allStandupEntries(stored, legacy), [stored, legacy]);
+  const roster = useTeamRoster();
+  const rosterNames = useMemo(() => roster.map((m) => m.name), [roster]);
   const upsertStandupEntry = useWorkspaceStore((s) => s.upsertStandupEntry);
-  const removeStandupEntry = useWorkspaceStore((s) => s.removeStandupEntry);
-  const upsertTeamMember = useWorkspaceStore((s) => s.upsertTeamMember);
-  const removeTeamMember = useWorkspaceStore((s) => s.removeTeamMember);
+  const { log } = useHistoryLogger(page.toolId);
+  const announce = useAnnounce();
 
-  // Roster is unified with the workspace team (shared across tools).
-  const members = useMemo(() => teamMembers.map((m) => m.name), [teamMembers]);
-  // resolvedBlockers folds into the entity now; derive the id list the
-  // subcomponents still consume so their props stay unchanged.
-  const resolvedBlockers = useMemo(
-    () => entries.filter((e) => e.blockerResolved).map((e) => e.id),
-    [entries]
+  // Re-render every minute so "today" rolls over at midnight without a reload.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const today = todayLocalISO();
+  // Who has the floor in today's live walk (walk.ts), if one is on.
+  const walk = useStandupWalk((s) => s.walk);
+  const speaker = walk && walk.date === today ? walk.current : null;
+
+  /* -- Who's in today ------------------------------------------------------ */
+
+  const [awayState, setAwayState] = usePersistedLocal<AwayDay>(AWAY_KEY, NO_ONE_AWAY);
+  const away = useMemo(() => awayOn(awayState, today), [awayState, today]);
+  const expected = useMemo(
+    () => rosterNames.filter((n) => !away.some((a) => personKey(a) === personKey(n))),
+    [rosterNames, away]
+  );
+  const notYet = useMemo(() => notPostedYet(entries, expected, today), [entries, expected, today]);
+  const order = useMemo(
+    () => speakingOrder(rosterNames, entries, today, away),
+    [rosterNames, entries, today, away]
   );
 
-  const addMember = (name: string) => {
-    const norm = name.trim().toLowerCase();
-    if (!norm) return;
-    if (teamMembers.some((m) => m.name.trim().toLowerCase() === norm)) return;
-    upsertTeamMember({ id: `member_${crypto.randomUUID()}`, name: name.trim() });
-  };
-  // Undo brings the member back to the roster (at the end). Owner links the
-  // store cleared on removal (stories, OKRs, impediments, canvas cards) stay
-  // cleared.
-  const removeMember = (name: string) => {
-    const norm = name.trim().toLowerCase();
-    const tm = teamMembers.find((m) => m.name.trim().toLowerCase() === norm);
-    if (!tm) return;
+  // Out for the day only: the team, and everyone's stories and links, stay.
+  const markAway = (name: string) =>
     undoable({
-      label: `Removed “${shortName(tm.name)}”`,
-      apply: () => removeTeamMember(tm.id),
+      label: `${shortName(name)} is out of today's standup`,
+      apply: () => setAwayState((s) => withAway(s, today, name, true)),
+      revert: () => setAwayState((s) => withAway(s, today, name, false)),
+    });
+  const markBack = (name: string) => {
+    setAwayState((s) => withAway(s, today, name, false));
+    announce(`${name} is back in today's standup`);
+  };
+
+  /* -- The post form ------------------------------------------------------- */
+
+  const [suggestion, setSuggestion] = useState<YesterdaySuggestion | null>(null);
+  const [pending, setPending] = useState<EntryValues | null>(null);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  // Who "Post for" picked in async mode. With the speaker mid-walk in live
+  // mode, it's who the form should be for next.
+  const [postingFor, setPostingFor] = useState<string | null>(null);
+  const wanted = isAsync ? postingFor : speaker;
+  const form = useEntryForm(
+    () => emptyDraft(todayLocalISO()),
+    today,
+    (values) => post(values)
+  );
+  const focusToday = () =>
+    form.formRef.current?.querySelector<HTMLElement>('[data-entry-field="today"]')?.focus();
+
+  /** What `member` said they'd do the last time before `date`. */
+  const suggestFor = (member: string, date: string): YesterdaySuggestion | null => {
+    const prev = previousEntry(entries, member, date);
+    return prev && prev.today.trim() ? { date: prev.date, text: prev.today.trim() } : null;
+  };
+
+  // Prefill "yesterday" from the person's last plan, unless something else
+  // has been typed there.
+  const choose = (member: string, date: string) => {
+    const next = suggestFor(member, date);
+    const typed = form.draft.yesterday.trim();
+    const own = typed !== "" && typed !== (suggestion?.text.trim() ?? "");
+    form.update({ member, date, ...(own ? {} : { yesterday: next?.text ?? "" }) });
+    setSuggestion(next);
+  };
+  const fillFor = (member: string) => {
+    const next = suggestFor(member, today);
+    form.reset({ ...emptyDraft(today, member), yesterday: next?.text ?? "" });
+    setSuggestion(next);
+  };
+  // "Post for" starts that person's update for today. Notes already typed
+  // for someone else are never handed to them: the banner above the form
+  // asks first ("These notes are for Ana. Save them, or start Bo's").
+  const postFor = (member: string) => {
+    setPostingFor(member);
+    const typedFor = form.draft.member.trim();
+    if (isPristine(form.draft, suggestion)) fillFor(member);
+    else if (!typedFor) choose(member, today);
+    else if (personKey(typedFor) !== personKey(member)) return;
+    focusToday();
+  };
+
+  // The old async tool posted a fresh row on every post, so a person can
+  // have more than one for a day. Replacing them writes the one entry and
+  // drops the extra rows, with Undo.
+  const replaceAll = (entry: StandupEntry, extras: readonly StandupEntry[]) => {
+    const s = useWorkspaceStore.getState();
+    const ids = new Set(extras.map((e) => e.id));
+    const before = (s.standupEntries ?? []).find((e) => e.id === entry.id);
+    const extraEntries = (s.standupEntries ?? []).filter((e) => ids.has(e.id));
+    const extraUpdates = (s.asyncUpdates ?? []).filter((u) => ids.has(u.id));
+    undoable({
+      label: `Replaced ${extras.length + 1} updates from ${shortName(entry.member)} with one`,
+      apply: () => {
+        const st = useWorkspaceStore.getState();
+        st.upsertStandupEntry(entry);
+        for (const e of extraEntries) st.removeStandupEntry(e.id);
+        for (const u of extraUpdates) st.removeAsyncUpdate(u.id);
+      },
       revert: () => {
-        const back = (useWorkspaceStore.getState().teamMembers ?? []).some((m) => m.id === tm.id);
-        if (!back) upsertTeamMember(tm);
+        const st = useWorkspaceStore.getState();
+        // An old async update replaced under its own id shows again.
+        if (before) st.upsertStandupEntry(before);
+        else st.removeStandupEntry(entry.id);
+        for (const e of extraEntries) st.upsertStandupEntry(e);
+        for (const u of extraUpdates) st.upsertAsyncUpdate(u);
       },
     });
   };
-  const hasEntry = (member: string, date: string) =>
-    entries.some((e) => e.member === member && e.date === date);
-  const addEntry = (entry: Omit<StandupEntry, "id" | "timestamp">) =>
-    upsertStandupEntry({ ...entry, id: crypto.randomUUID(), timestamp: Date.now() });
-  const upsertEntry = (entry: Omit<StandupEntry, "id" | "timestamp">) => {
-    const existing = entries.find((e) => e.member === entry.member && e.date === entry.date);
-    // Preserve the original id + raise timestamp on edit. The resolved flag
-    // carries over ONLY while the blocker text is unchanged — a re-submit
-    // that reports a NEW blocker must not be born "resolved" (it would be
-    // struck through and vanish from Open Blockers / the KPI / the badge).
-    upsertStandupEntry(
-      existing
-        ? {
-            ...entry,
-            id: existing.id,
-            timestamp: existing.timestamp,
-            blockerResolved:
-              entry.blockers.trim() === existing.blockers.trim() ? existing.blockerResolved : false,
-            // Same for where the blocker was sent: a new blocker starts unsent.
-            sentTo:
-              entry.blockers.trim() === existing.blockers.trim() ? existing.sentTo : undefined,
-          }
-        : { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }
+
+  function commitPost(values: EntryValues) {
+    const all = currentEntries();
+    const existing = entryFor(all, values.member, values.date);
+    const entry = postedEntry(values, mode, existing, Date.now());
+    const extras = existing
+      ? all.filter((e) => e.id !== existing.id && dayKey(e) === dayKey(existing))
+      : [];
+    if (extras.length > 0) replaceAll(entry, extras);
+    else upsertStandupEntry(entry);
+    if (isAsync) {
+      log(ASYNC_STANDUP_ACTIONS.UPDATE_POSTED, {
+        updateId: entry.id,
+        member: entry.member,
+        date: entry.date,
+        hasBlockers: hasBlocker(entry),
+        description: entry.description,
+      });
+    } else {
+      log(STANDUP_ACTIONS.ENTRY_ADDED, {
+        member: entry.member,
+        date: entry.date,
+        hasBlocker: hasBlocker(entry),
+      });
+    }
+    announce(`${existing ? "Replaced" : "Posted"} ${entry.member}'s update`);
+    // The form moves on to whoever it's wanted for now: the speaker
+    // mid-walk, or the person "Post for" picked.
+    if (wanted && personKey(wanted) !== personKey(entry.member)) fillFor(wanted);
+    else {
+      form.reset(emptyDraft(today));
+      setSuggestion(null);
+      setPostingFor(null);
+    }
+  }
+
+  function post(values: EntryValues) {
+    // A roster name is stored with the roster's spelling, so "alice" and
+    // "Alice" stay one person. Typing a new name never adds them to the
+    // team; the picker offers that as its own click.
+    const member = findRosterMember(roster, values.member)?.name.trim() ?? values.member;
+    const clean = { ...values, member };
+    if (entryFor(currentEntries(), member, clean.date)) {
+      // One entry per person per day: ask before replacing. The form keeps
+      // its values if the user backs out.
+      setPending(clean);
+      setReplaceOpen(true);
+      return;
+    }
+    commitPost(clean);
+  }
+
+  /* -- Editing, deleting, blockers ---------------------------------------- */
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const saveEdit = (entry: StandupEntry, values: EntryValues) => {
+    setEditingId(null);
+    if (sameEntryText(entry, values)) return;
+    // Re-read: a blocker resolved or sent since the editor opened is kept.
+    const fresh = currentEntries().find((e) => e.id === entry.id) ?? entry;
+    upsertStandupEntry(editedEntry(fresh, values));
+    announce(`Saved ${entry.member}'s update`);
+  };
+
+  // An old async update may sit under the same id as its replacement; both go.
+  const remove = (entry: StandupEntry) => {
+    const s = useWorkspaceStore.getState();
+    const saved = (s.standupEntries ?? []).find((e) => e.id === entry.id);
+    const update = (s.asyncUpdates ?? []).find((u) => u.id === entry.id);
+    // What that person had for the day when it went (an old async row can
+    // be one of two), so Undo can tell a post made since.
+    const sameDay = new Set(
+      allStandupEntries(s.standupEntries, s.asyncUpdates)
+        .filter((e) => dayKey(e) === dayKey(entry))
+        .map((e) => e.id)
     );
+    if (editingId === entry.id) setEditingId(null);
+    undoable({
+      label: `Deleted ${shortName(entry.member)}'s update`,
+      apply: () => {
+        const st = useWorkspaceStore.getState();
+        if (saved) st.removeStandupEntry(entry.id);
+        if (update) st.removeAsyncUpdate(entry.id);
+        if (isAsync) {
+          log(ASYNC_STANDUP_ACTIONS.UPDATE_REMOVED, {
+            updateId: entry.id,
+            member: entry.member,
+            date: entry.date,
+          });
+        } else {
+          log(STANDUP_ACTIONS.ENTRY_REMOVED, { member: entry.member, date: entry.date });
+        }
+      },
+      revert: () => {
+        // One entry per person per day: a post made since the delete wins.
+        if (currentEntries().some((e) => dayKey(e) === dayKey(entry) && !sameDay.has(e.id))) {
+          toast(
+            `${shortName(entry.member)} posted again since, so the deleted update wasn't put back`
+          );
+          return;
+        }
+        const st = useWorkspaceStore.getState();
+        if (saved) st.upsertStandupEntry(saved);
+        if (update) st.upsertAsyncUpdate(update);
+      },
+    });
   };
-  const resolveBlocker = (entryId: string) => {
-    const e = entries.find((x) => x.id === entryId);
-    if (e) upsertStandupEntry({ ...e, blockerResolved: true });
+
+  const setResolved = (entry: StandupEntry, resolved: boolean) => {
+    const cur = currentEntries().find((e) => e.id === entry.id);
+    if (!cur) return;
+    const next: StandupEntry = { ...cur };
+    if (resolved) next.blockerResolved = true;
+    else delete next.blockerResolved;
+    upsertStandupEntry(next);
+    announce(`${resolved ? "Resolved" : "Reopened"} ${entry.member}'s blocker`);
   };
+
   // Where a blocker was sent. Reads the entry fresh, so an edit made since
   // the last render isn't overwritten.
-  const updateBlockerLinks = (
-    entryId: string,
-    update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
-  ) => {
-    const e = (useWorkspaceStore.getState().standupEntries ?? []).find((x) => x.id === entryId);
-    if (e) upsertStandupEntry({ ...e, sentTo: update(e.sentTo) });
+  const updateBlockerLinks = (id: string, update: LinksUpdate) => {
+    const cur = currentEntries().find((e) => e.id === id);
+    if (cur) upsertStandupEntry({ ...cur, sentTo: update(cur.sentTo) });
   };
-  const resetRaw = () => useWorkspaceStore.setState({ standupEntries: [] });
+
+  const actions: EntryCardActions = {
+    onEdit: (e) => setEditingId(e.id),
+    onCancelEdit: () => setEditingId(null),
+    onSave: saveEdit,
+    onDelete: remove,
+    onResolve: (e) => setResolved(e, true),
+    onReopen: (e) => setResolved(e, false),
+    onLinksChange: updateBlockerLinks,
+  };
+
+  /* -- Clear everything (confirm, then Undo) ------------------------------ */
+
+  // Each clear's Undo puts back what that clear took. The snapshot lives in
+  // this render's closures, not a shared ref: a clear empties the store,
+  // which always draws the page again, so a second clear inside the first
+  // one's Undo window gets its own (and the first toast still has its own).
+  let cleared: { entries: StandupEntry[]; updates: AsyncUpdate[] } | null = null;
+  const clearAll = () => {
+    const s = useWorkspaceStore.getState();
+    cleared = { entries: s.standupEntries ?? [], updates: s.asyncUpdates ?? [] };
+    useWorkspaceStore.setState({ standupEntries: [], asyncUpdates: [] });
+    setEditingId(null);
+    log(isAsync ? ASYNC_STANDUP_ACTIONS.ASYNC_STANDUP_RESET : STANDUP_ACTIONS.STANDUP_RESET, {});
+  };
+  // Entries posted since the clear are kept, and win over a restored entry
+  // for the same person and day (one entry per person per day).
+  const restoreAll = () => {
+    if (!cleared) return;
+    const snapshot = cleared;
+    useWorkspaceStore.setState((s) => {
+      const nowEntries = s.standupEntries ?? [];
+      const nowUpdates = s.asyncUpdates ?? [];
+      const taken = new Set(allStandupEntries(nowEntries, nowUpdates).map(dayKey));
+      const ids = new Set([...nowEntries, ...nowUpdates].map((x) => x.id));
+      const back = <T extends Pick<StandupEntry, "id" | "date" | "member">>(list: T[]) =>
+        list.filter((x) => !taken.has(dayKey(x)) && !ids.has(x.id));
+      return {
+        standupEntries: [...back(snapshot.entries), ...nowEntries],
+        asyncUpdates: [...back(snapshot.updates), ...nowUpdates],
+      };
+    });
+  };
+
+  /* -- Example ------------------------------------------------------------ */
+
+  const exampleLoaded = hasExampleItems(entries);
+  const exampleStories = useMemo(
+    () => (exampleLoaded ? buildExampleBoard() : null),
+    [exampleLoaded]
+  );
+  const isExamplePerson = (name: string) =>
+    exampleLoaded &&
+    EXAMPLE_MEMBERS.some((m) => personKey(m) === personKey(name)) &&
+    entries.some((e) => isExampleId(e.id) && personKey(e.member) === personKey(name));
+
   // Example entries are written like any other entry but never logged, so
   // they don't count as a submitted standup in history, XP or streaks. The
   // shared team roster is left alone; clearing removes only example entries.
   const loadExample = () => {
-    for (const e of buildExample()) upsertStandupEntry(e);
+    for (const e of buildExample(new Date(), mode)) upsertStandupEntry(e);
+    form.reset(emptyDraft(today));
+    setSuggestion(null);
   };
   const clearExample = () => {
-    for (const e of entries) if (isExampleId(e.id)) removeStandupEntry(e.id);
-  };
-  const { log } = useHistoryLogger("standup");
-
-  // Form state — split into two non-fighting fields: a select for picking an
-  // existing team member, and a free-text override for ad-hoc names. The
-  // override wins on submit, so typing always beats the dropdown.
-  const [formMember, setFormMember] = useState("");
-  const [customMemberDraft, setCustomMemberDraft] = useState("");
-  const [yesterday, setYesterday] = useState("");
-  const [today, setToday] = useState("");
-  const [blockers, setBlockers] = useState("");
-
-  // New member input
-  const [newMember, setNewMember] = useState("");
-
-  // An entry that would replace one already posted today, held until the
-  // user confirms the overwrite. Kept after the dialog closes so its copy
-  // doesn't blank out mid exit-animation.
-  const [pendingReplace, setPendingReplace] = useState<Omit<
-    StandupEntry,
-    "id" | "timestamp"
-  > | null>(null);
-  const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
-  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
-
-  // Submit needs a member AND something to say. Both used to be possible
-  // to miss: with a roster but nothing picked the button stayed enabled
-  // and silently did nothing, and an all-blank form posted an empty entry.
-  // The reason is shown under the disabled button instead.
-  const typedMember = customMemberDraft.trim() || formMember.trim();
-  const hasContent = Boolean(yesterday.trim() || today.trim() || blockers.trim());
-  const submitBlockedReason = !typedMember
-    ? "Pick a team member or type a name."
-    : !hasContent
-      ? "Add at least one update: yesterday, today or a blocker."
-      : null;
-
-  const commitEntry = (payload: Omit<StandupEntry, "id" | "timestamp">, replace: boolean) => {
-    if (replace) upsertEntry(payload);
-    else addEntry(payload);
-    log(STANDUP_ACTIONS.ENTRY_ADDED, {
-      member: payload.member,
-      date: payload.date,
-      hasBlocker: payload.blockers.trim().length > 0,
-    });
-    setYesterday("");
-    setToday("");
-    setBlockers("");
-    setCustomMemberDraft("");
-  };
-
-  const handleSubmit = () => {
-    // Prior code silently fell back to `members[0]` if both fields were
-    // empty — a user who cleared the dropdown and forgot to type a name
-    // got their standup posted under whoever was alphabetically first.
-    // Require explicit selection. The button is disabled (with the reason
-    // shown) in that state; this guard only covers programmatic calls.
-    const typed = typedMember;
-    if (!typed || !hasContent) {
-      if (process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.warn("[standup] submit ignored —", submitBlockedReason);
-      }
-      return;
+    const s = useWorkspaceStore.getState();
+    for (const e of s.standupEntries ?? []) if (isExampleId(e.id)) s.removeStandupEntry(e.id);
+    for (const u of s.asyncUpdates ?? []) if (isExampleId(u.id)) s.removeAsyncUpdate(u.id);
+    const w = useStandupWalk.getState().walk;
+    if (w?.current && EXAMPLE_MEMBERS.some((m) => personKey(m) === personKey(w.current))) {
+      useStandupWalk.getState().setWalk(null);
+      publishTurn(null);
     }
-    // BUG-T8-standup-1: if the user typed a custom name that's not on
-    // the roster, ADD them to the roster too. The prior flow posted
-    // the entry but left the right-column roster empty of this person,
-    // so `missingMembers` didn't include them and the green-dot
-    // "submitted today" indicator never appeared.
-    //
-    // Canonicalize to the ROSTER's casing when a case-insensitive match
-    // exists: `addMember` dedupes case-insensitively but everything else
-    // (hasEntry, submittedMembers, digests, history filter) matches
-    // exactly, so typing "alice" against a roster "Alice" used to split
-    // one person into two identities (double entries, wrong green dot).
-    const norm = typed.toLowerCase();
-    const rosterMatch = teamMembers.find((m) => m.name.trim().toLowerCase() === norm);
-    const member = rosterMatch ? rosterMatch.name.trim() : typed;
-    if (!rosterMatch) {
-      addMember(member);
-    }
-    const date = todayStr();
-    const payload = { member, date, yesterday, today, blockers };
-    if (hasEntry(member, date)) {
-      // Ask before replacing today's entry; the form keeps its values if
-      // the user backs out.
-      setPendingReplace(payload);
-      setConfirmReplaceOpen(true);
-      return;
-    }
-    commitEntry(payload, false);
   };
 
-  const reset = () => {
-    resetRaw();
-    log(STANDUP_ACTIONS.STANDUP_RESET, {});
-  };
-  // Clearing wipes every day's entries, so confirm first (with the count),
-  // then offer Undo — unless there is nothing to lose.
-  const requestReset = () => {
-    if (entries.length === 0) reset();
-    else setConfirmClearOpen(true);
-  };
-  const confirmReset = () => {
-    const cleared = useWorkspaceStore.getState().standupEntries ?? [];
-    undoable({
-      label: `Deleted ${cleared.length} standup ${cleared.length === 1 ? "entry" : "entries"}`,
-      apply: reset,
-      // Entries posted since the clear are kept, and win over a restored
-      // entry for the same member and day (one entry per member per day).
-      revert: () =>
-        useWorkspaceStore.setState((s) => {
-          const now = s.standupEntries ?? [];
-          const taken = new Set(now.map((e) => `${e.date} ${e.member}`));
-          const restored = cleared.filter((e) => !taken.has(`${e.date} ${e.member}`));
-          return { standupEntries: [...restored, ...now] };
-        }),
-    });
-  };
+  /* -- Read-outs ---------------------------------------------------------- */
 
-  /* -- CSV export of all entries ------------------------------------------ */
-  const csvData = useMemo(
-    () => ({
-      headers: ["Date", "Member", "Yesterday", "Today", "Blockers"],
-      rows: [...entries]
-        .sort((a, b) => b.timestamp - a.timestamp)
-        .map((e) => [e.date, e.member, e.yesterday, e.today, e.blockers]),
-    }),
-    [entries]
+  const verdict = standupVerdict({ entries, expected, today });
+  const markdown = useMemo(
+    () => toMarkdown(entries, new Date(), { notPosted: notYet }),
+    [entries, notYet]
   );
+  const weekly = useMemo(() => weeklyMarkdown(entries), [entries]);
+  const csvData = useMemo(() => ({ headers: CSV_HEADERS, rows: csvRows(entries) }), [entries]);
+  const openCount = entries.filter((e) => hasBlocker(e) && !e.blockerResolved).length;
 
-  /* -- Weekly digest text -------------------------------------------------- */
-  const weeklyDigest = useMemo(() => generateWeeklyDigest(entries), [entries]);
-
-  /* -- Today's standup as Markdown ----------------------------------------- */
-  const markdown = useMemo(() => toMarkdown(entries), [entries]);
-
-  /* -- AI prompt config --------------------------------------------------- */
-  const promptConfig = useMemo(
-    () => ({
+  const promptConfig = useMemo(() => {
+    if (isAsync) {
+      const updates = entries
+        .filter((e) => e.mode === "async")
+        .sort((a, b) => b.date.localeCompare(a.date) || b.timestamp - a.timestamp)
+        .map((e) => ({
+          id: e.id,
+          member: e.member,
+          date: e.date,
+          yesterday: e.yesterday,
+          today: e.today,
+          blockers: e.blockers || undefined,
+          description: e.description,
+        }));
+      return {
+        toolName: "Async Standup Digest",
+        prompts: generateAsyncStandupPrompts({ updates }),
+      };
+    }
+    const resolvedBlockers = entries.filter((e) => e.blockerResolved).map((e) => e.id);
+    return {
       toolName: "Daily Standup",
-      prompts: generateStandupPrompts({ entries, members, resolvedBlockers }),
-    }),
-    [entries, members, resolvedBlockers]
-  );
+      prompts: generateStandupPrompts({ entries, members: rosterNames, resolvedBlockers }),
+    };
+  }, [isAsync, entries, rosterNames]);
 
-  // ── Cross-tool signal: blocker activity from impediments tool ────────
-  // Counts blockers raised in the last 7 days so the standup facilitator
-  // sees external activity at a glance. Subscribes to the history store's
-  // events array so external logging is picked up.
+  const copyDigest = async (digest: string) => {
+    const ok = await copyToClipboard(digest);
+    if (ok) toast.success("Digest copied to clipboard");
+    else toast.error("Failed to copy digest");
+    const day = entries.filter((e) => e.date === today);
+    log(ASYNC_STANDUP_ACTIONS.DIGEST_GENERATED, {
+      date: today,
+      updateCount: day.length,
+      blockerCount: day.filter(hasBlocker).length,
+    });
+  };
+
+  // ── Cross-tool signal: blockers raised in the Impediments tool ────────
+  // Counted over the last 7 days so the facilitator sees outside activity
+  // at a glance. Subscribes to the history store's events so logging
+  // elsewhere shows up.
   const events = useHistoryStore((s) => s.events);
   const recentBlockerCount = useMemo(
     () =>
@@ -781,340 +503,236 @@ export function StandupClient() {
         sinceDays: 7,
         limit: 100,
       }).length,
+    // `events` is the trigger: selectEvents reads the store itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [events]
   );
 
+  /* -- The live walk and the form ---------------------------------------- */
+
+  const pristine = isPristine(form.draft, suggestion);
+  // The form follows the speaker, but never over notes not saved yet.
+  const onTurn = (name: string | null) => {
+    if (name && isPristine(form.draft, suggestion)) fillFor(name);
+  };
+  // Notes typed for someone other than who the form is wanted for (the
+  // speaker, or who "Post for" picked): ask, never hand them over.
+  const otherNotes = Boolean(
+    wanted &&
+    !pristine &&
+    form.draft.member.trim() &&
+    personKey(form.draft.member) !== personKey(wanted)
+  );
+
+  const entryForm = (
+    <>
+      {otherNotes && wanted && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-text"
+        >
+          <span className="min-w-0 flex-1">
+            These notes are for {form.draft.member}. Save them, or start {wanted}&apos;s.
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              fillFor(wanted);
+              // The banner (and this button) go: carry on in their update.
+              focusToday();
+            }}
+          >
+            Start {wanted}&apos;s notes
+          </Button>
+        </div>
+      )}
+      <EntryForm
+        form={form}
+        today={today}
+        submitLabel={isAsync ? "Post update" : "Submit Standup"}
+        suggestion={suggestion}
+        onMemberChange={(name) => {
+          // Picking someone by hand is an answer to "Post for" too.
+          setPostingFor(null);
+          choose(name, form.draft.date || today);
+        }}
+        onDateChange={(date) => choose(form.draft.member, date)}
+      />
+    </>
+  );
+
+  const n = entries.length;
+  const nEntries = `${n} standup ${n === 1 ? "entry" : "entries"}`;
+  // Rows the pending post would replace (more than one from the old async tool).
+  const replacing = pending ? entries.filter((e) => dayKey(e) === dayKey(pending)).length : 0;
+
   return (
     <ToolPageWrapper
-      toolId="standup"
-      title="Standup Tracker"
-      description="Log daily standups, track blockers, and generate digests for async teams."
+      toolId={page.toolId}
+      title={page.title}
+      description={page.description}
       category="Ceremonies"
     >
-      {hasExampleItems(entries) && <ExampleNotice onClear={clearExample} />}
+      {exampleLoaded && <ExampleNotice onClear={clearExample} />}
       <div className="space-y-6">
-        {/* ---- Top controls ---- */}
+        {/* ---- Mode, day, actions ---- */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 text-sm text-sub">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4" />
-              {todayStr()}
-            </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <ModeSwitch mode={mode} />
+            <span className="flex items-center gap-2 text-sm text-sub">
+              <Calendar className="h-4 w-4" aria-hidden="true" />
+              {longDay(today)}
+            </span>
             {recentBlockerCount > 0 && (
               <Badge
-                className="bg-danger/15 text-danger border-danger/30 gap-1.5"
+                className="gap-1.5 border-danger/30 bg-danger/15 text-danger"
                 title="Blockers logged in the Impediments tool in the last 7 days. Bring these up during standup."
               >
-                <AlertTriangle className="w-3 h-3" />
+                <AlertTriangle className="h-3 w-3" aria-hidden="true" />
                 Recent blocker activity: {recentBlockerCount}
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="danger-ghost" size="sm" onClick={requestReset}>
-              Clear Entries
-            </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ResetButton
+              label="Clear Entries"
+              variant="danger-ghost"
+              title={`Delete all ${nEntries}?`}
+              description="Every day's entries and blockers will be removed, live and async. Team members stay on the roster."
+              confirmLabel="Delete entries"
+              doneLabel={`Deleted ${nEntries}`}
+              onReset={clearAll}
+              onUndo={restoreAll}
+              disabled={n === 0}
+            />
             <AiPromptGenerator config={promptConfig} />
-            <ExportButton
-              filename="standup-all"
-              csvData={csvData}
-              clipboardText={weeklyDigest}
-              markdown={markdown}
+            {/* Named apart from the digests' own Export menus below. */}
+            <div role="group" aria-label="All entries" className="flex">
+              <ExportButton
+                filename="standup-all"
+                csvData={csvData}
+                clipboardText={weekly}
+                markdown={markdown}
+              />
+            </div>
+          </div>
+        </div>
+
+        <p className="text-sm font-medium text-text">{verdict}</p>
+
+        {/* ---- Mode panel + form ---- */}
+        {isAsync ? (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <SectionCard
+              title={`Post your update for ${longDay(today)}`}
+              icon={Mail}
+              className="min-w-0 lg:col-span-2"
+            >
+              {entryForm}
+            </SectionCard>
+            <NotPostedPanel
+              rosterSize={roster.length}
+              notYet={notYet}
+              away={away}
+              onPostFor={postFor}
+              onAway={markAway}
+              onBack={markBack}
             />
           </div>
-        </div>
-
-        {/* ---- Two-column layout: form + team ---- */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Entry form */}
-          <div className="lg:col-span-2">
-            <SectionCard
-              title="Today's Standup"
-              icon={Mic}
-              titleSize="lg"
-              className="h-full"
-              headerClassName="pb-4"
-              contentClassName="space-y-4"
-            >
-              {/* Member selector */}
-              <div>
-                <label
-                  htmlFor="standup-member"
-                  className="text-xs text-sub uppercase tracking-wider mb-1.5 block"
-                >
-                  Team member
-                </label>
-                <div className="flex gap-2">
-                  <select
-                    id="standup-member"
-                    value={formMember}
-                    onChange={(e) => {
-                      setFormMember(e.target.value);
-                      // Picking from the dropdown clears any ad-hoc draft so
-                      // the picked name takes effect immediately.
-                      if (e.target.value) setCustomMemberDraft("");
-                    }}
-                    className="flex-1 bg-surface-deep border border-border rounded-md px-3 py-2 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    <option value="">Select member…</option>
-                    {members.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                  <Input
-                    placeholder="Or type name"
-                    aria-label="Or type a team member name"
-                    value={customMemberDraft}
-                    onChange={(e) => setCustomMemberDraft(e.target.value)}
-                    className="flex-1 input-toolkit"
-                  />
-                </div>
-              </div>
-
-              {/* Yesterday */}
-              <div>
-                <label
-                  htmlFor="standup-yesterday"
-                  className="text-xs text-sub uppercase tracking-wider mb-1.5 block"
-                >
-                  Yesterday
-                </label>
-                <Textarea
-                  id="standup-yesterday"
-                  value={yesterday}
-                  onChange={(e) => setYesterday(e.target.value)}
-                  placeholder="What did you complete yesterday?"
-                  rows={2}
-                  className="input-toolkit resize-none"
-                />
-              </div>
-
-              {/* Today */}
-              <div>
-                <label
-                  htmlFor="standup-today"
-                  className="text-xs text-sub uppercase tracking-wider mb-1.5 block"
-                >
-                  Today
-                </label>
-                <Textarea
-                  id="standup-today"
-                  value={today}
-                  onChange={(e) => setToday(e.target.value)}
-                  placeholder="What will you work on today?"
-                  rows={2}
-                  className="input-toolkit resize-none"
-                />
-              </div>
-
-              {/* Blockers */}
-              <div>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <label
-                    htmlFor="standup-blockers"
-                    className="text-xs text-sub uppercase tracking-wider"
-                  >
-                    Blockers
-                  </label>
-                  {blockers.trim() && (
-                    <span className="inline-flex items-center gap-1 text-danger text-xs">
-                      <AlertTriangle className="w-3 h-3" />
-                      Will be flagged
-                    </span>
-                  )}
-                </div>
-                <Textarea
-                  id="standup-blockers"
-                  value={blockers}
-                  onChange={(e) => setBlockers(e.target.value)}
-                  placeholder="Any impediments or blockers? (leave blank if none)"
-                  rows={2}
-                  className={`bg-surface-deep border-border text-text resize-none focus:border-accent/50 ${
-                    blockers.trim() ? "border-danger/40 focus:border-danger/60" : ""
-                  }`}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Button
-                  variant="toolkit"
-                  onClick={handleSubmit}
-                  disabled={submitBlockedReason !== null}
-                  aria-describedby={submitBlockedReason ? "standup-submit-hint" : undefined}
-                  className="w-full"
-                >
-                  Submit Standup
-                </Button>
-                {submitBlockedReason && (
-                  <p id="standup-submit-hint" className="text-xs text-sub text-center">
-                    {submitBlockedReason}
-                  </p>
-                )}
-                {entries.length === 0 && (
-                  <div className="flex justify-center pt-1">
-                    <LoadExampleButton onLoad={loadExample} />
-                  </div>
-                )}
-              </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+            <div className="min-w-0 lg:col-span-3">
+              <BoardWalk
+                order={order}
+                away={away}
+                entries={entries}
+                today={today}
+                exampleStories={exampleStories}
+                isExamplePerson={isExamplePerson}
+                onTurn={onTurn}
+                onAway={markAway}
+                onBack={markBack}
+              />
+            </div>
+            <SectionCard title="Today's Standup" icon={Mic} className="min-w-0 lg:col-span-2">
+              {entryForm}
             </SectionCard>
           </div>
+        )}
 
-          {/* Team members */}
-          <div>
-            <SectionCard
-              title="Team Members"
-              icon={FileText}
-              headerClassName="pb-4"
-              contentClassName="space-y-3"
-            >
-              {/* Add member */}
-              <div className="flex gap-2">
-                <Input
-                  value={newMember}
-                  onChange={(e) => setNewMember(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && newMember.trim()) {
-                      addMember(newMember.trim());
-                      setNewMember("");
-                    }
-                  }}
-                  placeholder="Add member…"
-                  aria-label="New team member name"
-                  className="input-toolkit text-sm"
-                />
-                <Button
-                  size="icon"
-                  variant="toolkit"
-                  onClick={() => {
-                    if (newMember.trim()) {
-                      addMember(newMember.trim());
-                      setNewMember("");
-                    }
-                  }}
-                  className="shrink-0"
-                  aria-label="Add member"
-                >
-                  <Plus className="w-4 h-4" aria-hidden="true" />
-                </Button>
-              </div>
-
-              {/* Member list */}
-              <div className="space-y-1.5">
-                {members.map((m) => {
-                  const submittedToday = entries.some(
-                    (e) => e.member === m && e.date === todayStr()
-                  );
-                  return (
-                    <div
-                      key={m}
-                      className="flex items-center justify-between px-3 py-2 rounded-md bg-card border border-border"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-2 h-2 rounded-full ${
-                            submittedToday ? "bg-[#22c55e]" : "bg-card-hover"
-                          }`}
-                        />
-                        <span className="text-sm text-text">{m}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeMember(m)}
-                        className="text-sub hover:text-danger transition-colors min-touch-coarse inline-flex items-center justify-center"
-                        aria-label={`Remove ${m}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                })}
-                {members.length === 0 && (
-                  <p className="text-xs text-sub text-center py-3">No members yet</p>
-                )}
-              </div>
-
-              {/* Weekly digest button */}
-              <div className="pt-2 border-t border-border">
-                <ExportButton filename="weekly-digest" clipboardText={weeklyDigest} />
-              </div>
-            </SectionCard>
-          </div>
-        </div>
-
-        {/* ---- Tabs ---- */}
+        {/* ---- Today, history, blockers ---- */}
         <Tabs defaultValue="today">
-          <TabsList className="bg-surface-deep border border-border h-10">
+          <TabsList className="h-10 border border-border bg-surface-deep">
             <TabsTrigger
               value="today"
-              className="data-[state=active]:bg-surface data-[state=active]:text-text text-sub"
+              className="text-sub data-[state=active]:bg-surface data-[state=active]:text-text"
             >
               Today
             </TabsTrigger>
             <TabsTrigger
               value="history"
-              className="data-[state=active]:bg-surface data-[state=active]:text-text text-sub"
+              className="text-sub data-[state=active]:bg-surface data-[state=active]:text-text"
             >
               History
             </TabsTrigger>
             <TabsTrigger
               value="blockers"
-              className="data-[state=active]:bg-surface data-[state=active]:text-text text-sub"
+              className="text-sub data-[state=active]:bg-surface data-[state=active]:text-text"
             >
               Blockers
-              {entries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id)).length >
-                0 && (
-                <span className="ml-1.5 bg-[#ef4444] text-white text-xs rounded-full w-4 h-4 inline-flex items-center justify-center font-data">
-                  {
-                    entries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id))
-                      .length
-                  }
+              {openCount > 0 && (
+                <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-danger/30 bg-danger/15 px-1 font-data text-xs text-danger">
+                  {openCount}
                 </span>
               )}
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="today" className="mt-4">
-            <TodayTab
+            <TodayView
+              mode={mode}
               entries={entries}
-              members={members}
-              resolvedBlockers={resolvedBlockers}
-              onResolve={resolveBlocker}
+              today={today}
+              notYet={notYet}
+              editingId={editingId}
+              actions={actions}
+              onLoadExample={loadExample}
+              onCopyDigest={copyDigest}
             />
           </TabsContent>
-
           <TabsContent value="history" className="mt-4">
-            <HistoryTab entries={entries} members={members} />
-          </TabsContent>
-
-          <TabsContent value="blockers" className="mt-4">
-            <BlockersTab
+            <HistoryView
               entries={entries}
-              resolvedBlockers={resolvedBlockers}
-              onResolve={resolveBlocker}
-              onLinksChange={updateBlockerLinks}
+              today={today}
+              teamSize={expected.length}
+              editingId={editingId}
+              actions={actions}
             />
+          </TabsContent>
+          <TabsContent value="blockers" className="mt-4">
+            <BlockersView entries={entries} today={today} actions={actions} />
           </TabsContent>
         </Tabs>
       </div>
 
       <ConfirmDialog
-        open={confirmClearOpen}
-        onOpenChange={setConfirmClearOpen}
-        title={`Delete all ${entries.length} standup ${entries.length === 1 ? "entry" : "entries"}?`}
-        description="Every day's entries and blockers will be removed. Team members stay on the roster."
-        confirmLabel="Delete entries"
-        onConfirm={confirmReset}
-      />
-      <ConfirmDialog
-        open={confirmReplaceOpen}
-        onOpenChange={setConfirmReplaceOpen}
-        title={`Replace ${pendingReplace?.member ?? ""}'s standup?`}
-        description={`${pendingReplace?.member ?? "This member"} already submitted a standup for ${pendingReplace?.date ?? "today"}. Submitting again replaces that entry.`}
+        open={replaceOpen}
+        onOpenChange={setReplaceOpen}
+        title={`Replace ${pending?.member ?? ""}'s standup?`}
+        description={
+          replacing > 1
+            ? `${pending?.member ?? "This member"} already has ${replacing} updates for ${
+                pending?.date ?? "today"
+              }. Submitting again replaces them with this one.`
+            : `${pending?.member ?? "This member"} already submitted a standup for ${
+                pending?.date ?? "today"
+              }. Submitting again replaces that entry.`
+        }
         confirmLabel="Replace entry"
         onConfirm={() => {
-          if (pendingReplace) commitEntry(pendingReplace, true);
+          if (pending) commitPost(pending);
         }}
       />
     </ToolPageWrapper>

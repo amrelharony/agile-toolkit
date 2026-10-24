@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
-import { useImpedimentStore } from "@/app/(tools)/impediments/use-impediment-store";
 
 /**
  * Retro hand-offs: a new retro follows the newest archive; in the Write
@@ -107,7 +106,6 @@ function openSendTo(name: RegExp) {
 beforeEach(() => {
   undo.last = null;
   localStorage.clear();
-  useImpedimentStore.setState({ impediments: [] });
   useWorkspaceStore.setState({
     retroBoards: [],
     kanbanBoards: [],
@@ -228,7 +226,7 @@ describe("the last retro's actions", () => {
     // Reopened, the menu links to the card instead of sending again.
     openSendTo(/^Send to… Pair on flaky tests \(sent\)/);
     const sent = screen.getByRole("menuitem", { name: /Kanban card.*Sent · Open/ });
-    expect(sent).toHaveAttribute("href", "/kanban");
+    expect(sent).toHaveAttribute("href", "/kanban?board=flow");
   });
 
   it("keeps where a carried action was sent, so it isn't sent twice", () => {
@@ -277,10 +275,10 @@ describe("sending an action in the Actions phase", () => {
     openSendTo(/^Send to… Flaky deploys/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Impediment" }));
 
-    const [local] = useImpedimentStore.getState().impediments;
+    const [local] = ws().impediments;
     expect(local).toMatchObject({
       title: "Flaky deploys",
-      assignedTo: "Bo",
+      owner: "Bo",
       source: "retro",
       sourceRef: { tool: "retro", id: "c1", doc: "retro:current" },
     });
@@ -299,7 +297,6 @@ describe("sending an action in the Actions phase", () => {
     expect(screen.getByRole("menuitem", { name: "Kanban card" })).toBeInTheDocument();
 
     act(() => undo.last!.revert());
-    expect(useImpedimentStore.getState().impediments).toEqual([]);
     expect(ws().impediments).toEqual([]);
     expect(c1().sentTo).toEqual([]);
   });

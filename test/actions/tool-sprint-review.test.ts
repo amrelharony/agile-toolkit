@@ -4,8 +4,8 @@
  *   1. list_state (read) + add_feedback (write w/ mcpHandler, no confirm)
  *   2. list_state summarises feedback-by-category, checklist progress, demo
  *      minutes, and velocity completion %
- *   3. add_feedback appends an item (creating the singleton if absent) and
- *      defaults category to "positive"
+ *   3. add_feedback appends an item (creating the review if absent) and
+ *      requires a category (no silent default)
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -86,14 +86,26 @@ describe("tool.sprint_review.list_state", () => {
       exists: boolean;
       features: number;
       totalDemoMinutes: number;
-      feedback: { total: number; positive: number; concern: number; suggestion: number };
+      feedback: {
+        total: number;
+        positive: number;
+        concern: number;
+        suggestion: number;
+        notOnBacklog: number;
+      };
       checklist: { done: number; total: number };
       velocity: { completionPct: number };
     };
     expect(r.exists).toBe(true);
     expect(r.features).toBe(2);
     expect(r.totalDemoMinutes).toBe(15);
-    expect(r.feedback).toEqual({ total: 4, positive: 2, concern: 1, suggestion: 1 });
+    expect(r.feedback).toEqual({
+      total: 4,
+      positive: 2,
+      concern: 1,
+      suggestion: 1,
+      notOnBacklog: 2,
+    });
     expect(r.checklist).toEqual({ done: 1, total: 2 });
     expect(r.velocity.completionPct).toBe(75);
   });
@@ -117,21 +129,28 @@ describe("tool.sprint_review.add_feedback", () => {
     expect(doc?.feedbackItems[0].stakeholder).toBe("Dana");
   });
 
-  it("defaults category to positive and appends to an existing review", async () => {
-    useWorkspaceStore
-      .getState()
-      .upsertSprintReview(
-        review({
-          feedbackItems: [{ id: "fb1", stakeholder: "X", feedback: "y", category: "concern" }],
-        })
-      );
+  it("appends to an existing review", async () => {
+    useWorkspaceStore.getState().upsertSprintReview(
+      review({
+        feedbackItems: [{ id: "fb1", stakeholder: "X", feedback: "y", category: "concern" }],
+      })
+    );
 
     const action = registry.get("tool.sprint_review.add_feedback");
-    await action!.handler({ stakeholder: "Eve", feedback: "nice" }, ctx());
+    await action!.handler({ stakeholder: "Eve", feedback: "nice", category: "suggestion" }, ctx());
 
     const doc = (useWorkspaceStore.getState().sprintReviews ?? []).find((x) => x.id === SR_ID);
     expect(doc?.feedbackItems).toHaveLength(2);
     const added = doc?.feedbackItems.find((f) => f.stakeholder === "Eve");
-    expect(added?.category).toBe("positive");
+    expect(added?.category).toBe("suggestion");
+  });
+
+  it("requires a category: no silent default", async () => {
+    const action = registry.get("tool.sprint_review.add_feedback");
+    expect(await action!.handler({ stakeholder: "Eve", feedback: "nice" }, ctx())).toEqual({
+      added: false,
+      reason: "category_required",
+    });
+    expect(useWorkspaceStore.getState().sprintReviews).toEqual([]);
   });
 });

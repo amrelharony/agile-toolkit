@@ -1,8 +1,10 @@
-/** A rotation speaker. Names are unique; the id marks example rows. */
-export interface Participant {
-  id: string;
-  name: string;
-}
+import { formatClock as clock } from "@/lib/timer/dock-timer";
+import { agendaSeconds, type Agenda } from "./agenda";
+import type { RunReport } from "./run";
+import { plannedSlots, type Participant } from "./speakers";
+import { planVerdict, runVerdict } from "./verdict";
+
+export type { Participant } from "./speakers";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -17,68 +19,121 @@ function cell(v: unknown): string {
     .trim();
 }
 
-/** 900 → "15:00", 3600 → "1:00:00". */
-function clock(totalSeconds: number): string {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+/** "+02:15" over, "−00:40" under, "00:00" on the dot. */
+function signed(seconds: number): string {
+  if (seconds === 0) return "00:00";
+  return `${seconds > 0 ? "+" : "−"}${clock(Math.abs(seconds))}`;
 }
 
 /**
- * The ceremony's agenda as Markdown, for a meeting invite or the team
- * channel: the time-box, then, with rotation on, the speaking order with each
- * slot's start and length. Slots match the timer: an equal share each, and
- * the last speaker also gets the seconds that don't divide evenly.
+ * The ceremony as Markdown, for the meeting invite before and the team
+ * channel after: the time-box, the agenda with each segment's start and
+ * length, the speaking order of any round of turns (an even share each, as
+ * the round starts), and, once it has run, planned against actual per
+ * segment and per turn with the one-sentence verdict.
  */
 export function toMarkdown(
   {
-    ceremony,
-    totalSeconds,
-    rotationMode,
-    participants,
+    agenda,
+    speakers,
+    report,
   }: {
-    /** The preset matching the duration ("Standup"), if any. */
-    ceremony?: string;
-    totalSeconds: number;
-    rotationMode: boolean;
-    participants: readonly Participant[];
+    /** The agenda picked, or null before one is. */
+    agenda: Agenda | null;
+    speakers: readonly Participant[];
+    /** The run so far, once started. */
+    report?: RunReport | null;
   },
   now: Date = new Date()
 ): string {
   const title = `# Ceremony Timer — ${mdDate(now)}`;
-  if (totalSeconds <= 0 && participants.length === 0) {
-    return `${title}\n\nNo ceremony set up yet.\n`;
+  const total = agenda ? agendaSeconds(agenda) : 0;
+  if (!agenda || (total <= 0 && !report)) return `${title}\n\nNo ceremony set up yet.\n`;
+
+  const segs = agenda.segments;
+  const lines = [title, "", `**${cell(agenda.label)}:** ${clock(total)} time-box`, ""];
+
+  if (segs.length > 1 || report) {
+    lines.push("## Agenda", "");
+    if (report) {
+      lines.push("| # | Segment | Planned | Actual | Difference |", "|---:|---|---:|---:|---:|");
+      report.segments.forEach((s, i) => {
+        // Mid-meeting, the segment on has no difference yet: it isn't over.
+        const actual =
+          s.actualSeconds === null ? "—" : `${clock(s.actualSeconds)}${s.current ? " so far" : ""}`;
+        const diff =
+          s.actualSeconds === null || s.current ? "—" : signed(s.actualSeconds - s.plannedSeconds);
+        lines.push(
+          `| ${i + 1} | ${cell(s.label)} | ${clock(s.plannedSeconds)} | ${actual} | ${diff} |`
+        );
+      });
+      const total = report.finished
+        ? `${clock(report.actualSeconds)} | ${signed(report.actualSeconds - report.plannedSeconds)}`
+        : `${clock(report.actualSeconds)} so far | —`;
+      lines.push(`| | **Total** | ${clock(report.plannedSeconds)} | ${total} |`);
+    } else {
+      lines.push("| # | Segment | Starts at | Time |", "|---:|---|---:|---:|");
+      let start = 0;
+      segs.forEach((s, i) => {
+        lines.push(`| ${i + 1} | ${cell(s.label)} | ${clock(start)} | ${clock(s.seconds)} |`);
+        start += s.seconds;
+      });
+    }
+    lines.push("");
   }
 
-  const lines = [
-    title,
-    "",
-    totalSeconds > 0
-      ? `**${cell(ceremony) || "Custom"}:** ${clock(totalSeconds)} time-box`
-      : "**Time-box:** not set yet",
-    "",
-  ];
-  const n = participants.length;
-  if (!rotationMode || n === 0) {
-    lines.push("One shared time-box, no speaker rotation.");
-    return `${lines.join("\n")}\n`;
+  const rounds = segs
+    .map((s, i) => ({ s, i, offset: segs.slice(0, i).reduce((sum, x) => sum + x.seconds, 0) }))
+    .filter(({ s }) => s.speakers);
+  if (rounds.length === 0) {
+    lines.push(
+      segs.length > 1
+        ? "No round of speakers in this agenda."
+        : "One shared time-box, no speaker rotation."
+    );
+  } else if (speakers.length === 0) {
+    lines.push("No speakers added yet.");
   }
 
-  const per = Math.floor(totalSeconds / n);
-  lines.push(
-    totalSeconds > 0 ? `## Speaking order (${clock(per)} each)` : "## Speaking order",
-    "",
-    "| # | Speaker | Starts at | Time |",
-    "|---:|---|---:|---:|",
-    ...participants.map((p, i) => {
-      const start = i * per;
-      const length = i === n - 1 ? totalSeconds - start : per;
-      return totalSeconds > 0
-        ? `| ${i + 1} | ${cell(p.name)} | ${clock(start)} | ${clock(length)} |`
-        : `| ${i + 1} | ${cell(p.name)} | — | — |`;
-    })
-  );
-  return `${lines.join("\n")}\n`;
+  for (const { s, i, offset } of speakers.length > 0 ? rounds : []) {
+    const turns = report?.segments[i]?.turns ?? [];
+    const name = segs.length > 1 ? `: ${cell(s.label)}` : "";
+    if (turns.length > 0) {
+      lines.push(
+        `## Turns${name}`,
+        "",
+        "| # | Speaker | Share | Spoke |",
+        "|---:|---|---:|---:|",
+        ...turns.map(
+          (t, n) =>
+            `| ${n + 1} | ${cell(t.name)} | ${clock(t.plannedSeconds)} | ${
+              t.skipped ? "skipped" : clock(t.actualSeconds)
+            } |`
+        ),
+        ""
+      );
+      continue;
+    }
+    const slots = plannedSlots(s.seconds, speakers, offset);
+    const per = Math.floor(s.seconds / speakers.length);
+    lines.push(
+      s.seconds > 0 ? `## Speaking order${name} (${clock(per)} each)` : `## Speaking order${name}`,
+      "",
+      "| # | Speaker | Starts at | Time |",
+      "|---:|---|---:|---:|",
+      ...slots.map(({ participant, startSeconds, seconds }, n) =>
+        s.seconds > 0
+          ? `| ${n + 1} | ${cell(participant.name)} | ${clock(startSeconds)} | ${clock(seconds)} |`
+          : `| ${n + 1} | ${cell(participant.name)} | — | — |`
+      ),
+      ""
+    );
+  }
+
+  const verdict = report?.finished ? runVerdict(report) : planVerdict(agenda, speakers.length);
+  lines.push("", `**${verdict}**`);
+  return `${lines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd()}\n`;
 }

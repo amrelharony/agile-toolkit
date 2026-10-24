@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 
@@ -58,6 +59,12 @@ function entry(
 }
 
 const entries = () => useWorkspaceStore.getState().standupEntries ?? [];
+const renderStandup = () =>
+  render(
+    <TooltipProvider>
+      <StandupClient />
+    </TooltipProvider>
+  );
 
 beforeEach(() => {
   spies.log.mockClear();
@@ -123,12 +130,12 @@ describe("standup buildExample", () => {
 
 describe("standup example flow", () => {
   it("loads the example without logging it, then clears only the example entries", () => {
-    render(<StandupClient />);
+    renderStandup();
     expect(screen.queryByRole("button", { name: "Clear example" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(entries()).toHaveLength(4);
-    expect(screen.getByText("Priya (PM)")).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "Priya (PM)'s update" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear example" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     // Not a submitted standup: no history event (so no XP or streak).
@@ -138,7 +145,7 @@ describe("standup example flow", () => {
     expect(spies.markdown).toContain("## Blockers");
     expect(spies.markdown).toContain("### Lee (iOS)");
 
-    fireEvent.change(screen.getByLabelText("Or type a team member name"), {
+    fireEvent.change(screen.getByLabelText(/^Team member/), {
       target: { value: "Alice" },
     });
     fireEvent.change(screen.getByPlaceholderText("What will you work on today?"), {
@@ -155,7 +162,7 @@ describe("standup example flow", () => {
 
   it("doesn't offer the example once the user has entries", () => {
     useWorkspaceStore.setState({ standupEntries: [entry("u1", "Alice")] });
-    render(<StandupClient />);
+    renderStandup();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
   });
 });

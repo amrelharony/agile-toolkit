@@ -1,71 +1,77 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { Timer } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ActionRow } from "@/components/shared/action-row";
+import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
+import { ResetButton } from "@/components/shared/reset-button";
 import {
   ExampleNotice,
   LoadExampleButton,
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
-import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import {
-  Play,
-  Pause,
-  RotateCcw,
-  Users,
-  X,
-  Plus,
-  ChevronRight,
-  Timer,
-  Maximize,
-  Minimize,
-} from "lucide-react";
-import { useToolSonification } from "@/lib/sonification/use-sonification";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CEREMONY_TIMER_ACTIONS } from "@/lib/history/event-actions";
-import { undoable } from "@/lib/utils/undoable";
-import { toast } from "@/lib/utils/toast";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
+import { useToolSonification } from "@/lib/sonification/use-sonification";
+import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { findRosterMember, nameKey } from "@/lib/team/use-team-roster";
+import { useDockTimer } from "@/lib/timer/dock-timer";
+import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
+import {
+  agendaSeconds,
+  allAgendas,
+  durationText,
+  readAgendaParam,
+  shortClock,
+  toSaved,
+  type AgendaId,
+  type SavedSegment,
+  type Segment,
+} from "./agenda";
+import { AgendaCard } from "./agenda-card";
+import { AgendaPicker } from "./agenda-picker";
+import { flashTitle, playChime, vibrate } from "./alarm";
 import { buildExample } from "./example";
-import { toMarkdown, type Participant } from "./markdown";
+import { toMarkdown } from "./markdown";
 import { rosterParticipantsToAdd } from "./roster";
-import { timerRemaining, useDockTimer } from "@/lib/timer/dock-timer";
+import {
+  advanceSegment,
+  dockFor,
+  endTurn,
+  pauseRun,
+  reconcileWithDock,
+  restartTurns,
+  resumeRun,
+  runFromLegacyDock,
+  runReport,
+  runView,
+  startRun,
+  type Run,
+} from "./run";
+import { RunSummary } from "./run-summary";
+import { useTimerShortcuts, type Shortcut } from "./shortcuts";
+import { SpeakersCard } from "./speakers-card";
+import { TimerFace } from "./timer-face";
+import type { Participant } from "./speakers";
+import {
+  followDockWhileAway,
+  normalizeAgendas,
+  normalizeSpeakers,
+  useTimerSession,
+  useTimerSettings,
+  type TimerSession,
+} from "./store";
+import { planVerdict, runVerdict } from "./verdict";
 
 const DOCK_HREF = "/ceremony-timer";
-
-// ---------------------------------------------------------------------------
-// Types & constants
-// ---------------------------------------------------------------------------
-
-interface Preset {
-  label: string;
-  minutes: number;
-}
-
-const PRESETS: Preset[] = [
-  { label: "Standup", minutes: 15 },
-  { label: "Planning", minutes: 120 },
-  { label: "Review", minutes: 60 },
-  { label: "Retro", minutes: 90 },
-  { label: "Refinement", minutes: 60 },
-];
-
-const SVG_SIZE = 280;
-const STROKE_WIDTH = 10;
-const RADIUS = (SVG_SIZE - STROKE_WIDTH) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -73,892 +79,520 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
-function formatTime(totalSeconds: number): string {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
-}
+const setSession = (patch: Partial<TimerSession>) => useTimerSession.setState(patch);
+const setRun = (run: Run | null) => useTimerSession.setState({ run });
 
-// Theme-aware color tokens. We intentionally use CSS custom properties so the
-// timer adapts to light/dark without each call site needing to know the
-// current theme. `--destructive` and `--chart-4` are defined on `:root` in
-// globals.css and inherit into both themes; `--accent` overrides per theme.
-function progressColor(fraction: number): string {
-  if (fraction <= 0.05) return "var(--destructive)";
-  if (fraction <= 0.2) return "var(--chart-4)";
-  return "var(--accent)";
-}
-
-function glowColor(fraction: number): string {
-  if (fraction <= 0.05) return "0 0 30px var(--destructive), 0 0 60px var(--destructive)";
-  if (fraction <= 0.2) return "0 0 30px var(--chart-4), 0 0 60px var(--chart-4)";
-  return "0 0 30px var(--accent), 0 0 60px var(--glowS)";
+function setSpeakers(fn: (list: Participant[]) => Participant[]) {
+  useTimerSettings.setState((s) => ({ speakers: fn(normalizeSpeakers(s.speakers)) }));
 }
 
 /**
- * Direct-to-browser alarm beep — completely separate from the toolkit's
- * sonification engine.
- *
- * Why a parallel audio path? The sonification engine respects a user
- * preference toggle in the header (Volume On/Off). The Ceremony Timer's
- * whole purpose is to alert the team that time is up — silently letting
- * a 60-minute planning meeting end without a single ding because someone
- * muted the toolkit's UI sounds is a primary-feature regression.
- *
- * The beep uses a freshly-created AudioContext so it isn't affected by
- * the toolkit's shared engine state (suspended context, mode gates).
- * Pattern: three rapid 600Hz beeps over 800ms.
- *
- * Browsers require a user gesture before audio can play; the user
- * always taps Start to begin the timer so the alarm fires inside a
- * gesture-derived context.
+ * A step through the meeting (a turn passed or skipped, the next segment,
+ * Finish) with Undo: a slip of the key or the mouse can't be walked back
+ * otherwise, and a finished run can't be resumed. Undo puts the step back
+ * while the run is still where the step left it, keeping a pause or resume
+ * made since; after a later step, that step's own Undo comes first.
  */
-function playFinishAlarm(): void {
-  if (typeof window === "undefined") return;
-  const Ctx =
-    typeof window !== "undefined" &&
-    (window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
-  if (!Ctx) return;
-  try {
-    const ctx = new Ctx();
-    // Close the context after the last beep so it doesn't linger and
-    // burn idle CPU. The 0.85s timeout covers all three beeps.
-    const closeAt = ctx.currentTime + 0.85;
-
-    const playBeep = (offset: number) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      // 880 Hz (A5) — bright, attention-grabbing, but not piercing
-      osc.frequency.setValueAtTime(880, ctx.currentTime + offset);
-      // ADSR envelope avoids the click-pop of an instant on/off
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
-      gain.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + offset + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.18);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + offset);
-      osc.stop(ctx.currentTime + offset + 0.2);
-    };
-
-    playBeep(0);
-    playBeep(0.3);
-    playBeep(0.6);
-
-    setTimeout(
-      () => {
-        void ctx.close().catch(() => undefined);
-      },
-      (closeAt - ctx.currentTime) * 1000
-    );
-  } catch {
-    /* AudioContext creation failed (sandboxed iframe, etc.) — fall back to
-     * the existing sonify("finish") path which the caller invoked too */
-  }
+function stepWithUndo(label: string, before: Run, after: Run) {
+  undoable({
+    label,
+    apply: () => setRun(after),
+    revert: () => {
+      const now = useTimerSession.getState().run;
+      if (now === after) setRun(before);
+      else if (now && !after.finished && now.segments === after.segments) {
+        setRun({ ...now, index: before.index, segments: before.segments });
+      }
+    },
+  });
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+/** Save the team's rows for one agenda; none (or an empty list) means the defaults. */
+function setSaved(id: AgendaId, rows: SavedSegment[] | undefined) {
+  useTimerSettings.setState((s) => {
+    const agendas = { ...normalizeAgendas(s.agendas) };
+    if (rows && rows.length > 0) agendas[id] = rows;
+    else delete agendas[id];
+    return { agendas };
+  });
+}
 
 export function CeremonyTimerClient() {
-  // Timer state
-  const [totalSeconds, setTotalSeconds] = useState(0); // chosen duration
-  const [remaining, setRemaining] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [started, setStarted] = useState(false);
+  const { agendaId, run } = useTimerSession(
+    useShallow((s) => ({ agendaId: s.agendaId, run: s.run }))
+  );
+  const settings = useTimerSettings(
+    useShallow((s) => ({ agendas: s.agendas, speakers: s.speakers, chime: s.chime }))
+  );
+  const [cadence] = useCeremonyCadence();
+  const sprintLength = cadence.sprintLengthDays;
+  const saved = useMemo(() => normalizeAgendas(settings.agendas), [settings.agendas]);
+  const speakers = useMemo(() => normalizeSpeakers(settings.speakers), [settings.speakers]);
+  const chime = settings.chime === true;
+  const agendas = useMemo(() => allAgendas(saved, sprintLength), [saved, sprintLength]);
+  const agenda = useMemo(() => agendas.find((a) => a.id === agendaId) ?? null, [agendas, agendaId]);
 
-  // Custom duration input
-  const [customMin, setCustomMin] = useState("");
-  const [showCustom, setShowCustom] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const view = useMemo(
+    () => (agenda ? runView(run, agenda, speakers, now) : null),
+    [run, agenda, speakers, now]
+  );
 
-  // Rotation mode
-  const [rotationMode, setRotationMode] = useState(false);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [nameInput, setNameInput] = useState("");
-  const [currentPerson, setCurrentPerson] = useState(0);
-  const prevPersonRef = useRef(0);
-  // BUG-T1-ceremony-timer-1: reset prevPersonRef when rotation mode
-  // turns on OR when the participants list changes shape. Without this,
-  // a previous session's index leaks: 3-person rotation finishes at
-  // index 3, user toggles rotation off then back on with 5 new people,
-  // and the rotation effect sees newPerson=0 vs prev=3 and spuriously
-  // plays the "rotate" sound on the next tick.
-  useEffect(() => {
-    if (rotationMode) prevPersonRef.current = 0;
-  }, [rotationMode]);
-  useEffect(() => {
-    prevPersonRef.current = Math.min(prevPersonRef.current, Math.max(0, participants.length - 1));
-  }, [participants.length]);
-  // Suppresses the rotation sonification when the active-person index changes
-  // because a participant was removed (vs. because the timer rolled forward).
-  // Without this, deleting the active participant plays "rotate" spuriously.
-  const suppressRotateSonifyRef = useRef(false);
-
-  // `useToolSonification` returns a callback memoized with `[toolId]`; since
-  // toolId is a string literal here, `sonify` is stable across renders and
-  // safe to include in effect deps without thrashing the interval.
   const sonify = useToolSonification("ceremony-timer");
   const { log } = useHistoryLogger("ceremony-timer");
+  const announce = useAnnounce();
 
-  // Fullscreen — uses the browser Fullscreen API on the timer card so the
-  // user gets a distraction-free view (browser hides chrome, address bar).
-  // Listen for `fullscreenchange` so ESC / browser-driven exits keep state in sync.
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // ---------------------------------------------------------------------------
+  // Loading, and the docked timer
+  // ---------------------------------------------------------------------------
+
+  // The run in progress on mount was kept in line with the dock (or came
+  // from it), so it is not published back: after a Stop in the dock that
+  // would bring the closed pill straight back. The next change publishes.
+  const quietRunRef = useRef<Run | null>(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const handler = () => {
-      setIsFullscreen(document.fullscreenElement === cardRef.current);
-    };
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
+    if (!useTimerSettings.persist.hasHydrated()) void useTimerSettings.persist.rehydrate();
+    if (!useTimerSession.persist.hasHydrated()) void useTimerSession.persist.rehydrate();
+    // Back on the page: it drives the run again, after reading the dock.
+    followDockWhileAway(false, DOCK_HREF);
+    const t = Date.now();
+    const docked = useDockTimer.getState().timer;
+    const ours = docked?.href === DOCK_HREF ? docked : null;
+    const session = useTimerSession.getState();
+
+    if (session.run && session.agendaId) {
+      const next = reconcileWithDock(session.run, ours, t);
+      if (next !== session.run) setRun(next);
+      quietRunRef.current = next;
+    } else if (ours) {
+      // A countdown started before agendas: carry on with it as a Custom
+      // time-box of the same length.
+      const legacy = runFromLegacyDock(ours, t);
+      setSaved("custom", [{ id: "timebox", minutes: ours.totalSeconds / 60 }]);
+      setSession({ agendaId: "custom", run: legacy });
+      quietRunRef.current = legacy;
+    } else {
+      // `?agenda=retro` from a link opens that agenda, unless a meeting is on.
+      const linked = readAgendaParam(window.location.search);
+      if (linked) setSession({ agendaId: linked, run: null });
+    }
+    setNow(t);
+    setReady(true);
+    // Leaving the page: what is done in the dock from here on is applied to
+    // the run as it happens.
+    return () => followDockWhileAway(true, DOCK_HREF);
   }, []);
 
-  const toggleFullscreen = async () => {
-    if (!cardRef.current) return;
-    try {
-      if (document.fullscreenElement === cardRef.current) {
-        await document.exitFullscreen();
-      } else {
-        await cardRef.current.requestFullscreen();
-      }
-    } catch {
-      // Some browsers (or sandboxed iframes) reject the request silently.
-    }
-  };
-
-  // ---------------------------------------------------------------------------
-  // Derived
-  // ---------------------------------------------------------------------------
-
-  const fraction = totalSeconds > 0 ? remaining / totalSeconds : 1;
-  const dashOffset = CIRCUMFERENCE * (1 - fraction);
-  const color = progressColor(fraction);
-  const glow = glowColor(fraction);
-
-  const perPersonSeconds =
-    rotationMode && participants.length > 0
-      ? Math.floor(totalSeconds / participants.length)
-      : totalSeconds;
-
-  const currentPersonName =
-    rotationMode && participants.length > 0 ? (participants[currentPerson]?.name ?? null) : null;
-
-  // ---------------------------------------------------------------------------
-  // Timer tick
-  // ---------------------------------------------------------------------------
-
-  // R11-fix: anchor the countdown to a wall-clock `endsAt` rather
-  // than decrementing once per setInterval tick. Browsers throttle
-  // setInterval to ≥1s (often 60s+) when the tab is hidden, and the
-  // Date.now() clock advances during laptop sleep — both made the
-  // displayed remaining time drift past actual wall-time, missing
-  // the ten-second + minute-mark alarms and rendering after
-  // ceremonies actually ended. Now: stash `endsAtRef`, compute
-  // remaining from the live clock each tick. useVisibilityTick fires
-  // a catch-up call on visibility-change → visible so the display
-  // jumps to the correct time even after long tab-hidden stretches.
-  const endsAtRef = useRef<number | null>(null);
-  const lastReportedRef = useRef<number>(0);
-  // Establish / clear the wall-clock anchor when running toggles.
   useEffect(() => {
-    if (!running) {
-      endsAtRef.current = null;
+    if (!ready) return;
+    if (run && run === quietRunRef.current) return;
+    quietRunRef.current = null;
+    const dock = useDockTimer.getState();
+    const next = agenda ? dockFor(run, agenda, DOCK_HREF, Date.now()) : null;
+    if (next) dock.publish(next);
+    else if (dock.timer?.href === DOCK_HREF) dock.publish(null);
+  }, [ready, run, agenda]);
+
+  useVisibilityTick(Boolean(view?.running), 1000, () => setNow(Date.now()));
+
+  // Time's up, the last ten seconds and the minute marks, each once, on the
+  // tick that crosses it (a tab that slept through it catches up on return).
+  const lastTickRef = useRef<{
+    key: string;
+    left: number;
+    turnId: string | null;
+    turnLeft: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!agenda || !view || !run || view.finished) {
+      lastTickRef.current = null;
       return;
     }
-    if (endsAtRef.current === null) {
-      endsAtRef.current = Date.now() + remaining * 1000;
-      lastReportedRef.current = remaining;
+    const key = `${run.agendaId}:${view.index}`;
+    const cur = view.speakers?.current ?? null;
+    const turnLeft = cur ? cur.shareSeconds - cur.spentSeconds : 0;
+    const left = view.segmentLeft;
+    const prev = lastTickRef.current;
+    lastTickRef.current = { key, left, turnId: cur?.id ?? null, turnLeft };
+    if (!prev || prev.key !== key || !view.running) return;
+
+    if (prev.left > 0 && left <= 0) {
+      const what = agenda.segments.length > 1 ? view.segment.label : agenda.short;
+      sonify("finish");
+      announce(`${what}: time's up`, "assertive");
+      flashTitle("Time's up");
+      if (chime) {
+        playChime(3);
+        vibrate();
+      }
+    } else if (prev.left > 10 && left <= 10) {
+      sonify("ten-seconds");
+    } else if (left > 0 && left !== prev.left && left % 60 === 0) {
+      sonify("minute-mark");
     }
-    // `remaining` intentionally excluded — it changes every tick and
-    // including it would re-run the effect every second.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running]);
-  useVisibilityTick(running, 1000, () => {
-    const endsAt = endsAtRef.current;
-    if (endsAt === null) return;
-    const next = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
-    const lastReported = lastReportedRef.current;
-    // Fire alarms at threshold crossings against the previous tick's
-    // value (so suspending the tab through the 11-sec mark still
-    // emits the ten-second alarm on the next visible tick).
-    if (lastReported > 10 && next <= 10 && next > 0) sonify("ten-seconds");
-    else if (next > 0 && next !== lastReported && next % 60 === 0) sonify("minute-mark");
-    lastReportedRef.current = next;
-    setRemaining(next);
+    if (cur && prev.turnId === cur.id && prev.turnLeft > 0 && turnLeft <= 0 && left > 0) {
+      announce(`${cur.name}'s time is up`);
+      if (chime) playChime(1);
+    }
+  }, [agenda, view, run, chime, sonify, announce]);
+
+  // ---------------------------------------------------------------------------
+  // Running the meeting
+  // ---------------------------------------------------------------------------
+
+  const canStart = Boolean(agenda && agendaSeconds(agenda) > 0);
+
+  /**
+   * Start, pause or resume. From the Space key it also says so: focus isn't
+   * on the button then, so its changed name isn't read out.
+   */
+  const toggle = (fromKey: boolean): boolean => {
+    const current = useTimerSession.getState().run;
+    if (!agenda || !view || !canStart || current?.finished) return false;
+    const t = Date.now();
+    const pausing = Boolean(current && current.since !== null);
+    if (!current) {
+      setRun(startRun(agenda.id, t));
+      sonify("start");
+      log(CEREMONY_TIMER_ACTIONS.TIMER_STARTED, {
+        agenda: agenda.id,
+        remainingSeconds: view.segmentLeft,
+      });
+    } else if (!pausing) {
+      setRun(resumeRun(current, t));
+      sonify("start");
+      log(CEREMONY_TIMER_ACTIONS.TIMER_STARTED, {
+        agenda: agenda.id,
+        remainingSeconds: view.segmentLeft,
+      });
+    } else {
+      setRun(pauseRun(current, t));
+      log(CEREMONY_TIMER_ACTIONS.TIMER_PAUSED, {
+        agenda: agenda.id,
+        remainingSeconds: view.segmentLeft,
+      });
+    }
+    if (fromKey) {
+      const what = agenda.segments.length > 1 ? view.segment.label : agenda.short;
+      const left = view.segmentLeft;
+      const clock = left >= 0 ? `${shortClock(left)} left` : `${shortClock(-left)} over`;
+      announce(`Timer ${pausing ? "paused" : "started"}. ${what}: ${clock}.`);
+    }
+    setNow(t);
+    return true;
+  };
+
+  /** Next speaker, or Skip speaker: the turn is recorded (with Undo) and the next one begins. */
+  const passTurn = (skipped: boolean): boolean => {
+    const current = useTimerSession.getState().run;
+    const speaker = view?.speakers?.current;
+    if (!agenda || !current || current.finished || !speaker) return false;
+    const t = Date.now();
+    const next = endTurn(current, speaker, speaker.shareSeconds, skipped, t);
+    const who = shortName(speaker.name);
+    stepWithUndo(skipped ? `Skipped ${who}` : `${who}'s turn ended`, current, next);
+    setNow(t);
+    sonify("rotate");
+    const up = runView(next, agenda, speakers, t).speakers?.current;
+    const then = up ? `Next: ${up.name}, ${shortClock(up.shareSeconds)}.` : "Everyone has spoken.";
+    announce(skipped ? `Skipped ${speaker.name}. ${then}` : then);
+    return true;
+  };
+
+  const nextSegment = (): boolean => {
+    const current = useTimerSession.getState().run;
+    if (!agenda || !current || current.finished) return false;
+    const t = Date.now();
+    const speaker = view?.speakers?.current;
+    const next = advanceSegment(
+      current,
+      agenda.segments.length,
+      t,
+      speaker ? { speaker, shareSeconds: speaker.shareSeconds } : undefined
+    );
+    const seg = agenda.segments[next.index];
+    stepWithUndo(
+      next.finished ? `Finished the ${agenda.label}` : `Moved on to ${seg.label}`,
+      current,
+      next
+    );
+    setNow(t);
+    if (next.finished) {
+      announce(runVerdict(runReport(next, agenda, t)));
+    } else {
+      sonify("rotate");
+      announce(
+        `Segment ${next.index + 1} of ${agenda.segments.length}: ${seg.label}, ${durationText(seg.seconds)}.`
+      );
+    }
+    return true;
+  };
+
+  useTimerShortcuts((shortcut: Shortcut) => {
+    if (shortcut === "toggle") return toggle(true);
+    if (shortcut === "next-speaker") return passTurn(false);
+    if (shortcut === "skip-speaker") return passTurn(true);
+    return nextSegment();
   });
 
-  // Dock: publish the countdown so it keeps showing (and running) while the
-  // facilitator uses other tools, and pick it back up on return
-  // (lib/timer/dock-timer). The first publish run is skipped: it would see
-  // the initial blank state and clear the timer before the restore lands.
-  useEffect(() => {
-    const t = useDockTimer.getState().timer;
-    if (!t || t.href !== DOCK_HREF) return;
-    const rem = timerRemaining(t);
-    setTotalSeconds(t.totalSeconds);
-    setRemaining(rem);
-    setStarted(true);
-    if (t.endsAt !== null && rem > 0) {
-      endsAtRef.current = t.endsAt;
-      lastReportedRef.current = rem;
-      setRunning(true);
-    }
-  }, []);
-  const firstPublishRef = useRef(true);
-  useEffect(() => {
-    if (firstPublishRef.current) {
-      firstPublishRef.current = false;
-      return;
-    }
-    const dock = useDockTimer.getState();
-    if (!started || totalSeconds <= 0) {
-      if (dock.timer?.href === DOCK_HREF) dock.publish(null);
-      return;
-    }
-    dock.publish({
-      label: PRESETS.find((p) => p.minutes * 60 === totalSeconds)?.label ?? "Timer",
-      href: DOCK_HREF,
-      totalSeconds,
-      endsAt: running ? (endsAtRef.current ?? Date.now() + remaining * 1000) : null,
-      pausedRemaining: remaining,
-    });
-    // `remaining` is read at each start/pause/reset; republishing every
-    // tick isn't needed because a running timer is anchored to `endsAt`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, running, totalSeconds]);
-
-  // Stop the timer and fire the multi-channel finish alarm exactly once
-  // when remaining reaches zero while running.
-  //
-  // Belt-and-braces design — `sonify("finish")` alone was unreliable:
-  //   - It's gated by the sonification store's `enabled` flag, so a user
-  //     who toggled sound off in the header chip got no audio AND no
-  //     haptic (haptic forwards from the same call but checks a
-  //     separate gate)
-  //   - Browser AudioContext can auto-suspend after extended idle, and
-  //     the suspended-resume race meant the first sound after suspension
-  //     could be eaten by the engine's lazy resume()
-  //   - Mobile users running the timer in a backgrounded tab got NO
-  //     feedback at all when their ceremony ended
-  //
-  // The new layered alarm:
-  //   1) sonify("finish")          — keep the existing chord through
-  //                                  the sonification pipeline so
-  //                                  full-mode users get the rich sound
-  //                                  AND the haptic pattern
-  //   2) navigator.vibrate(...)    — direct call, ignores haptic store
-  //                                  gating. The whole point of the
-  //                                  timer is to alert; even users who
-  //                                  muted "sonification" still want
-  //                                  to know their meeting is over
-  //   3) document.title flash      — for the backgrounded-tab case.
-  //                                  Restores on focus or after 5s
-  //   4) timeUp visual banner      — large pulsing "Time's up!" replaces
-  //                                  the prior tiny destructive-coloured
-  //                                  span. Captured below in render
-  useEffect(() => {
-    if (!(running && remaining === 0)) return;
-    setRunning(false);
-    sonify("finish");
-
-    // Guaranteed alarm beep — bypasses the sonification toggle so a
-    // user who muted UI sounds still hears the timer end. Three
-    // 880 Hz sine bursts over 800 ms.
-    playFinishAlarm();
-
-    // Direct Android vibration — iOS Safari silently ignores
-    // navigator.vibrate (no API), which is fine; the visual banner
-    // and audio chord still fire. The 7-element pattern matches the
-    // timer-end haptic pattern but goes through the lower-level API
-    // so it fires even if the haptics store is disabled.
-    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-      try {
-        navigator.vibrate([200, 100, 200, 100, 200, 100, 400]);
-      } catch {
-        /* permission denied or device doesn't support */
-      }
-    }
-
-    // Document title flash — for users whose tab is backgrounded. Many
-    // users start a 90-minute retro timer and switch tabs to do other
-    // work; without this, the timer ending was invisible to them until
-    // they came back. Restore on focus or after 5 s, whichever comes
-    // first.
-    if (typeof document !== "undefined") {
-      const originalTitle = document.title;
-      document.title = "⏰ Time's up — Agile Toolkit";
-      const restoreTimer = setTimeout(() => {
-        if (document.title.startsWith("⏰")) document.title = originalTitle;
-      }, 5000);
-      const onFocus = () => {
-        if (document.title.startsWith("⏰")) document.title = originalTitle;
-        clearTimeout(restoreTimer);
-      };
-      window.addEventListener("focus", onFocus, { once: true });
-    }
-  }, [running, remaining, sonify]);
-
-  // Person rotation -- check if we should switch person.
-  // Guard against `perPersonSeconds === 0` (which happens when the user picks
-  // a duration shorter than the participant count, e.g. 3s split across 5
-  // people). Without the guard, `Math.floor(elapsed / 0)` becomes NaN on the
-  // first tick and propagates into the rotation chip ("NaN / 5").
-  useEffect(() => {
-    if (!rotationMode || participants.length === 0 || totalSeconds === 0) return;
-    if (perPersonSeconds <= 0) return;
-    const elapsed = totalSeconds - remaining;
-    const newPerson = Math.min(Math.floor(elapsed / perPersonSeconds), participants.length - 1);
-    if (newPerson !== prevPersonRef.current) {
-      prevPersonRef.current = newPerson;
-      setCurrentPerson(newPerson);
-      // Skip the rotation sound when the index moved because a participant
-      // was just removed — that's a structural change, not a real rotation.
-      if (suppressRotateSonifyRef.current) {
-        suppressRotateSonifyRef.current = false;
-      } else {
-        sonify("rotate");
-      }
-    }
-  }, [remaining, rotationMode, participants.length, totalSeconds, perPersonSeconds, sonify]);
+  // Undo brings back the meeting together with the agenda it belongs to, as
+  // this render shows them. A ref shared across confirmations would hand an
+  // older toast's Undo a later run, under whichever agenda is on screen.
+  const shownSession: TimerSession = { agendaId, run };
+  const restart = agenda && (
+    <ResetButton
+      label="Start over"
+      title={`Start the ${agenda.label} over?`}
+      description="The time spent so far is cleared and the timer goes back to the first segment, ready to start."
+      confirmLabel="Start over"
+      doneLabel="Cleared the timer"
+      onReset={() => {
+        setRun(null);
+        log(CEREMONY_TIMER_ACTIONS.TIMER_RESET, { agenda: agenda.id });
+      }}
+      onUndo={() => setSession(shownSession)}
+    />
+  );
 
   // ---------------------------------------------------------------------------
-  // Actions
+  // The agenda
   // ---------------------------------------------------------------------------
 
-  const selectPreset = (minutes: number) => {
-    const secs = minutes * 60;
-    setTotalSeconds(secs);
-    setRemaining(secs);
-    setRunning(false);
-    setStarted(false);
-    setCurrentPerson(0);
-    prevPersonRef.current = 0;
-    setShowCustom(false);
-    log(CEREMONY_TIMER_ACTIONS.PRESET_CHANGED, { minutes });
-  };
-
-  const applyCustom = () => {
-    const trimmed = customMin.trim();
-    const mins = Number(trimmed);
-    if (trimmed && Number.isFinite(mins) && mins > 0 && mins <= 480) {
-      selectPreset(mins);
-      setShowCustom(false);
-      // Reset the input so the next time the user opens Custom they don't
-      // see a stale value pre-filled from the prior session.
-      setCustomMin("");
+  /** Pick an agenda. Leaving a meeting in progress clears its run, with Undo. */
+  const pickAgenda = (id: AgendaId) => {
+    const before = useTimerSession.getState();
+    if (before.agendaId === id) return;
+    const picked = agendas.find((a) => a.id === id);
+    if (before.run) {
+      const snapshot = { agendaId: before.agendaId, run: before.run };
+      undoable({
+        label: `Switched to ${picked?.label ?? "another agenda"}`,
+        description: "The meeting in progress was cleared.",
+        apply: () => setSession({ agendaId: id, run: null }),
+        revert: () => setSession(snapshot),
+      });
+    } else {
+      setSession({ agendaId: id, run: null });
     }
-  };
-
-  const togglePlay = () => {
-    if (remaining <= 0) return;
-    if (!running) {
-      sonify("start");
-      // BUG-T1-ceremony-timer-2: only pre-decrement on the very FIRST
-      // start. The prior unconditional pre-decrement also fired on
-      // resume-from-pause, so pausing at 30s and immediately resuming
-      // visibly jumped to 29s with no actual elapsed time. After
-      // `started === true`, the interval tick handles the next decrement.
-      if (!started) {
-        setRemaining((prev) => (prev > 0 ? prev - 1 : prev));
-      }
-    }
-    setStarted(true);
-    setRunning((r) => !r);
-    log(running ? CEREMONY_TIMER_ACTIONS.TIMER_PAUSED : CEREMONY_TIMER_ACTIONS.TIMER_STARTED, {
-      remainingSeconds: remaining,
+    log(CEREMONY_TIMER_ACTIONS.PRESET_CHANGED, {
+      agenda: id,
+      minutes: picked ? agendaSeconds(picked) / 60 : 0,
     });
   };
 
-  const reset = () => {
-    setRunning(false);
-    setStarted(false);
-    setRemaining(totalSeconds);
-    setCurrentPerson(0);
-    prevPersonRef.current = 0;
-    log(CEREMONY_TIMER_ACTIONS.TIMER_RESET, { totalSeconds });
+  const saveAgenda = (segments: Segment[]) => {
+    if (!agenda) return;
+    setSaved(agenda.id, toSaved(agenda.id, segments, sprintLength));
   };
 
-  const addParticipant = () => {
-    const name = nameInput.trim();
-    if (name && !participants.some((p) => p.name === name)) {
-      setParticipants((prev) => [...prev, { id: crypto.randomUUID(), name }]);
-      setNameInput("");
+  // Undo puts back the rows this agenda had in the render that confirmed the
+  // reset, so resetting two agendas in a row undoes each one's own edits.
+  const shownRows: SavedSegment[] | undefined = agenda ? saved[agenda.id] : undefined;
+  const resetDefaults = () => {
+    if (agenda) setSaved(agenda.id, undefined);
+  };
+  const restoreDefaults = () => {
+    if (agenda) setSaved(agenda.id, shownRows);
+  };
+
+  /** Turn-taking for the segment that's on: an edit to the agenda like any other. */
+  const setTurns = (on: boolean) => {
+    if (!agenda || !view) return;
+    const segments = agenda.segments.map((s, i) => (i === view.index ? { ...s, speakers: on } : s));
+    setSaved(agenda.id, toSaved(agenda.id, segments, sprintLength));
+    const current = useTimerSession.getState().run;
+    if (on && current) setRun(restartTurns(current, Date.now()));
+  };
+
+  // ---------------------------------------------------------------------------
+  // Speakers
+  // ---------------------------------------------------------------------------
+
+  const addSpeaker = (name: string) => {
+    // Someone joining a round while nobody is up (nobody in it yet, or
+    // everyone has spoken) starts their turn now, not from the start of the
+    // segment or the end of the last turn.
+    const current = useTimerSession.getState().run;
+    if (current && !current.finished && view?.segment.speakers && !view.speakers?.current) {
+      setRun(restartTurns(current, Date.now()));
+    }
+    // Someone on the team keeps their roster id, as "Load team" does.
+    const member = findRosterMember(useWorkspaceStore.getState().teamMembers ?? [], name);
+    setSpeakers((list) => {
+      const id = member && !list.some((p) => p.id === member.id) ? member.id : crypto.randomUUID();
+      return [...list, { id, name }];
+    });
+  };
+
+  /** A speaker who leaves mid-turn hands the clock to the next one from now. */
+  const handOver = (leaving: (p: Participant) => boolean) => {
+    const current = useTimerSession.getState().run;
+    const speaker = view?.speakers?.current;
+    if (current && !current.finished && speaker && leaving(speaker)) {
+      setRun(restartTurns(current, Date.now()));
     }
   };
 
-  const removeParticipant = (participant: Participant) => {
-    const { id, name } = participant;
-    const index = participants.findIndex((p) => p.id === id);
+  const removeSpeaker = (speaker: Participant) => {
+    const index = speakers.findIndex((p) => p.id === speaker.id);
     if (index < 0) return;
     undoable({
-      label: `Removed “${shortName(name)}”`,
+      label: `Removed “${shortName(speaker.name)}”`,
       apply: () => {
-        // Compute the post-removal state outside any setState updater so we
-        // don't fall back into the "setState inside setState" anti-pattern
-        // that was fixed in the timer-tick effect (React 18 StrictMode invokes
-        // updaters twice; nested setState + ref mutation in an updater is
-        // unsafe).
-        const nextLen = Math.max(0, participants.filter((p) => p.id !== id).length);
-        const max = Math.max(0, nextLen - 1);
-        const newCp = Math.min(currentPerson, max);
-        const newPrev = Math.min(prevPersonRef.current, max);
-        // Mark the next rotation index change as remove-driven so the
-        // rotation effect doesn't play a "rotate" sound for what is
-        // structurally a participant deletion.
-        if (newCp !== currentPerson || newPrev !== prevPersonRef.current) {
-          suppressRotateSonifyRef.current = true;
-        }
-        prevPersonRef.current = newPrev;
-        setCurrentPerson(newCp);
-        setParticipants((prev) => prev.filter((p) => p.id !== id));
+        handOver((p) => p.id === speaker.id);
+        setSpeakers((list) => list.filter((p) => p.id !== speaker.id));
       },
-      // Back in their speaking slot, unless they were re-added meanwhile
-      // (names are unique, see addParticipant).
+      // Back in their place, unless they were added again meanwhile.
       revert: () =>
-        setParticipants((prev) => {
-          if (prev.some((p) => p.id === id || p.name === name)) return prev;
-          const next = [...prev];
-          next.splice(Math.min(index, next.length), 0, participant);
+        setSpeakers((list) => {
+          if (list.some((p) => p.id === speaker.id || nameKey(p.name) === nameKey(speaker.name))) {
+            return list;
+          }
+          const next = [...list];
+          next.splice(Math.min(index, next.length), 0, speaker);
           return next;
         }),
     });
   };
 
-  // Everyone on the Team page who isn't in the speaking order yet, added at
-  // the end with their roster id. Only adds, so it needs no Undo: each
-  // person can be removed (with Undo) like any other participant.
-  const roster = useTeamRoster();
-  const workspaceReady = useWorkspaceHydrated();
+  // Everyone on the Team page who isn't in the order yet, at the end with
+  // their roster id. Only adds, so it needs no Undo: each person can be
+  // removed (with Undo) like any other speaker.
   const loadTeam = () => {
     const additions = rosterParticipantsToAdd(
-      participants,
+      speakers,
       useWorkspaceStore.getState().teamMembers ?? []
     );
     if (additions.length === 0) {
       toast("Everyone on the team is already in the list.");
       return;
     }
-    setParticipants([...participants, ...additions]);
+    setSpeakers((list) => [...list, ...additions]);
   };
 
   // ---------------------------------------------------------------------------
   // Example
   // ---------------------------------------------------------------------------
 
-  // Offered only on an untouched timer. Not logged (selectPreset would log a
-  // preset change): the example isn't the user's own choice.
+  // Offered only on an untouched timer: no agenda picked and nobody added.
+  const untouched = !agenda && speakers.length === 0;
   const loadExample = () => {
-    const { minutes, participants: speakers } = buildExample();
-    setTotalSeconds(minutes * 60);
-    setRemaining(minutes * 60);
-    setRunning(false);
-    setStarted(false);
-    setCurrentPerson(0);
-    prevPersonRef.current = 0;
-    setShowCustom(false);
-    setRotationMode(true);
-    setParticipants(speakers);
+    const example = buildExample();
+    setSession({ agendaId: example.agendaId, run: null });
+    setSpeakers((list) => [...list, ...example.participants]);
   };
 
-  // Removes the example speakers. With none of the user's left and the timer
-  // not yet started, it also goes back to the blank timer the example was
-  // loaded into, where "Load an example" is offered again: no Undo needed.
+  // Removes the example speakers. With none of the team's own left and no
+  // meeting started, it also goes back to the blank timer the example was
+  // loaded into, where "Load an example" is offered again.
   const clearExample = () => {
-    const kept = participants.filter((p) => !isExampleId(p.id));
-    if (currentPerson !== 0 || prevPersonRef.current !== 0) {
-      suppressRotateSonifyRef.current = true;
-    }
-    prevPersonRef.current = 0;
-    setCurrentPerson(0);
-    setParticipants(kept);
-    if (kept.length === 0 && !started) {
-      setTotalSeconds(0);
-      setRemaining(0);
-      setRotationMode(false);
+    handOver((p) => isExampleId(p.id));
+    const kept = speakers.filter((p) => !isExampleId(p.id));
+    setSpeakers(() => kept);
+    if (kept.length === 0 && !useTimerSession.getState().run) {
+      setSession({ agendaId: null, run: null });
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------------------
+
+  const report = useMemo(
+    () => (run && agenda ? runReport(run, agenda, now) : null),
+    [run, agenda, now]
+  );
   const markdown = useMemo(
-    () =>
-      toMarkdown({
-        ceremony: PRESETS.find((p) => p.minutes * 60 === totalSeconds)?.label,
-        totalSeconds,
-        rotationMode,
-        participants,
-      }),
-    [totalSeconds, rotationMode, participants]
+    () => toMarkdown({ agenda, speakers, report }),
+    [agenda, speakers, report]
   );
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
+  const multi = (agenda?.segments.length ?? 0) > 1;
+  // Where focus goes once Finish has switched itself off.
+  const summaryRef = useRef<HTMLParagraphElement>(null);
+
   return (
     <ToolPageWrapper
       toolId="ceremony-timer"
       title="Ceremony Timer"
-      description="Time-box agile ceremonies with preset or custom durations. Optional per-person rotation for standups."
+      description="Run a ceremony to its agenda: a time-box for each segment, fair turns for every speaker, and planned against actual at the end."
       category="Ceremonies"
     >
-      {hasExampleItems(participants) && <ExampleNotice onClear={clearExample} />}
+      {hasExampleItems(speakers) && <ExampleNotice onClear={clearExample} />}
       <ActionRow>
         <ExportButton filename="ceremony-agenda" markdown={markdown} />
       </ActionRow>
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        {/* ----------------------------------------------------------------- */}
-        {/* Left column -- Timer display */}
-        {/* ----------------------------------------------------------------- */}
-        <Card
-          ref={cardRef}
-          className={`border-border bg-surface ${
-            isFullscreen ? "!bg-bg !border-0 !rounded-none flex items-center justify-center" : ""
-          }`}
-        >
-          <CardContent
-            className={`flex flex-col items-center gap-6 pt-8 pb-8 ${
-              isFullscreen ? "scale-[1.6] sm:scale-[2.2]" : ""
-            }`}
-          >
-            {/* SVG circular timer */}
-            <div className="w-full max-w-[280px] mx-auto">
-              <div
-                className="relative aspect-square w-full"
-                style={{
-                  filter:
-                    started && remaining > 0
-                      ? `drop-shadow(${glow.split(",")[0].replace("0 0", "0 0")})`
-                      : undefined,
-                }}
-              >
-                <svg
-                  width="100%"
-                  height="100%"
-                  viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
-                  preserveAspectRatio="xMidYMid meet"
-                  className="rotate-[-90deg]"
-                >
-                  {/* Track */}
-                  <circle
-                    cx={SVG_SIZE / 2}
-                    cy={SVG_SIZE / 2}
-                    r={RADIUS}
-                    fill="none"
-                    stroke="var(--surface-hover)"
-                    strokeWidth={STROKE_WIDTH}
-                  />
-                  {/* Progress */}
-                  <circle
-                    cx={SVG_SIZE / 2}
-                    cy={SVG_SIZE / 2}
-                    r={RADIUS}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={STROKE_WIDTH}
-                    strokeLinecap="round"
-                    strokeDasharray={CIRCUMFERENCE}
-                    strokeDashoffset={dashOffset}
-                    style={{
-                      transition: "stroke-dashoffset 0.4s linear, stroke 0.5s ease",
-                      filter: started ? `drop-shadow(0 0 8px ${color})` : undefined,
-                    }}
-                  />
-                </svg>
-
-                {/* Center time display */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span
-                    className="font-data text-5xl tabular-nums tracking-tight"
-                    style={{ color }}
-                  >
-                    {formatTime(remaining)}
-                  </span>
-                  {currentPersonName && started && (
-                    <span className="mt-2 text-sm font-medium text-accent flex items-center gap-1">
-                      <ChevronRight className="h-3 w-3" />
-                      {currentPersonName}
-                    </span>
-                  )}
-                  {remaining === 0 && started && (
-                    <span
-                      // Pulsing block instead of small text — combined
-                      // with the audio + vibration triggers, this is the
-                      // VISUAL channel of the multi-modal alarm. Without
-                      // animation the previous tiny destructive-coloured
-                      // text was easy to miss across the room during a
-                      // standup.
-                      //
-                      // `animate-pulse` is a Tailwind utility that the
-                      // toolkit's reduced-motion CSS automatically clamps
-                      // to a near-still state, so users with
-                      // prefers-reduced-motion still see the banner
-                      // without the pulse.
-                      role="status"
-                      aria-live="assertive"
-                      className="mt-3 px-3 py-1 rounded-md text-base font-bold uppercase tracking-wider animate-pulse"
-                      style={{
-                        color: "var(--destructive)",
-                        backgroundColor: "color-mix(in srgb, var(--destructive) 12%, transparent)",
-                        border: "1px solid color-mix(in srgb, var(--destructive) 35%, transparent)",
-                      }}
-                    >
-                      Time&apos;s up!
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center gap-3">
-              <Button
-                size="lg"
-                onClick={togglePlay}
-                disabled={totalSeconds === 0}
-                aria-label={running ? "Pause timer" : "Start timer"}
-                aria-pressed={running}
-                className="h-14 w-14 rounded-full p-0"
-                style={{
-                  backgroundColor: running ? "var(--surface-hover)" : "var(--accent)",
-                  color: running ? "var(--accent)" : "var(--bg)",
-                }}
-              >
-                {running ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={reset}
-                disabled={!started}
-                className="h-14 w-14 rounded-full p-0 border-border hover:bg-surface-hover"
-                aria-label="Reset timer"
-              >
-                <RotateCcw className="h-5 w-5 text-sub" />
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={toggleFullscreen}
-                className="h-14 w-14 rounded-full p-0 border-border hover:bg-surface-hover"
-                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                title={isFullscreen ? "Exit fullscreen (Esc)" : "Enter fullscreen"}
-              >
-                {isFullscreen ? (
-                  <Minimize className="h-5 w-5 text-sub" />
-                ) : (
-                  <Maximize className="h-5 w-5 text-sub" />
-                )}
-              </Button>
-            </div>
-
-            {totalSeconds === 0 && participants.length === 0 && !isFullscreen && (
-              <div className="flex flex-col items-center gap-2 text-center text-sm text-sub">
-                <p>Pick a ceremony preset to start, or see a standup set up for five speakers.</p>
-                <LoadExampleButton onLoad={loadExample} />
-              </div>
-            )}
-
-            {/* Rotation status bar */}
-            {rotationMode && participants.length > 0 && started && (
-              <div className="w-full max-w-xs">
-                <div className="flex gap-1">
-                  {participants.map((p, i) => (
-                    <div
-                      key={p.id}
-                      className="flex-1 h-2 rounded-full transition-colors duration-300"
-                      style={{
-                        backgroundColor:
-                          i < currentPerson
-                            ? "var(--accent)"
-                            : i === currentPerson
-                              ? color
-                              : "var(--surface-hover)",
-                      }}
-                    />
-                  ))}
-                </div>
-                <p className="text-center text-xs text-sub mt-2">
-                  {currentPerson + 1} / {participants.length} &middot;{" "}
-                  {formatTime(perPersonSeconds)} per person
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          {agenda && view ? (
+            <>
+              <TimerFace
+                agenda={agenda}
+                view={view}
+                canStart={canStart}
+                onToggle={() => toggle(false)}
+                onNextSpeaker={() => passTurn(false)}
+                onSkipSpeaker={() => passTurn(true)}
+                onNextSegment={() => nextSegment()}
+                restart={restart}
+                summaryRef={summaryRef}
+                chime={chime}
+                onChime={(on) => useTimerSettings.setState({ chime: on })}
+              />
+              {!view.started && (
+                <p className="text-sm font-medium text-text">
+                  {planVerdict(agenda, speakers.length)}
                 </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ----------------------------------------------------------------- */}
-        {/* Right column -- Presets & Participants */}
-        {/* ----------------------------------------------------------------- */}
-        <div className="flex flex-col gap-6">
-          {/* Presets */}
-          <Card className="border-border bg-surface">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-sub flex items-center gap-2">
-                <Timer className="h-4 w-4" />
-                Ceremony Presets
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              {PRESETS.map((p) => (
-                <Button
-                  key={p.label}
-                  variant="ghost"
-                  onClick={() => selectPreset(p.minutes)}
-                  aria-pressed={totalSeconds === p.minutes * 60 && !showCustom}
-                  className={`justify-between h-11 px-4 text-sm ${
-                    totalSeconds === p.minutes * 60 && !showCustom
-                      ? "bg-accent/10 text-accent border border-accent/30"
-                      : "text-sub hover:text-text hover:bg-surface-hover"
-                  }`}
-                >
-                  <span>{p.label}</span>
-                  <span className="font-data tabular-nums text-xs opacity-70">{p.minutes} min</span>
-                </Button>
-              ))}
-
-              {/* Custom */}
-              {!showCustom ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowCustom(true)}
-                  className="justify-between h-11 px-4 text-sm text-sub hover:text-text hover:bg-surface-hover"
-                >
-                  <span>Custom</span>
-                  <span className="text-xs opacity-70">...</span>
-                </Button>
-              ) : (
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={480}
-                    placeholder="Minutes"
-                    aria-label="Custom duration in minutes"
-                    value={customMin}
-                    onChange={(e) => setCustomMin(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && applyCustom()}
-                    className="h-11 bg-surface-deep border-border text-text font-data"
-                  />
-                  <Button
-                    onClick={applyCustom}
-                    className="h-11 bg-accent text-[var(--bg)] hover:bg-accent/80 font-medium"
-                  >
-                    Set
-                  </Button>
-                </div>
               )}
-            </CardContent>
-          </Card>
+              {view.finished && report && <RunSummary report={report} verdictRef={summaryRef} />}
+              <AgendaCard
+                agenda={agenda}
+                view={view}
+                onSave={saveAgenda}
+                onResetDefaults={resetDefaults}
+                onRestore={restoreDefaults}
+              />
+            </>
+          ) : (
+            <EmptyState
+              icon={Timer}
+              action={untouched ? <LoadExampleButton onLoad={loadExample} /> : undefined}
+            >
+              {untouched
+                ? "Pick an agenda to run a ceremony to time, or load an example: a Daily Scrum for five speakers."
+                : "Pick an agenda to run a ceremony to time."}
+            </EmptyState>
+          )}
+        </div>
 
-          {/* Participants / Rotation */}
-          <Card className="border-border bg-surface">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-sub flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Rotation Mode
-                </CardTitle>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setRotationMode((v) => !v)}
-                  role="switch"
-                  aria-checked={rotationMode}
-                  aria-label="Rotation mode"
-                  className={`h-7 px-3 text-xs rounded-full ${
-                    rotationMode ? "bg-accent/10 text-accent" : "text-sub"
-                  }`}
-                >
-                  {rotationMode ? "On" : "Off"}
-                </Button>
-              </div>
-            </CardHeader>
-
-            {rotationMode && (
-              <CardContent className="flex flex-col gap-3">
-                {/* Name input */}
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Add participant"
-                    aria-label="Participant name"
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addParticipant()}
-                    className="h-10 bg-surface-deep border-border text-text text-sm"
-                  />
-                  <Button
-                    size="icon"
-                    onClick={addParticipant}
-                    disabled={!nameInput.trim()}
-                    className="h-10 w-10 shrink-0 bg-accent text-[var(--bg)] hover:bg-accent/80"
-                    aria-label="Add participant"
-                  >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-
-                {workspaceReady && roster.length === 0 ? (
-                  <p className="text-xs text-sub">
-                    <Link href="/team" className="text-accent underline-offset-4 hover:underline">
-                      Set up your team
-                    </Link>{" "}
-                    once to load everyone here in one click.
-                  </p>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="toolkit"
-                    onClick={loadTeam}
-                    disabled={roster.length === 0}
-                    className="gap-1.5 self-start"
-                  >
-                    <Users className="h-4 w-4" aria-hidden="true" />
-                    Load team
-                  </Button>
-                )}
-
-                {/* Participant list */}
-                {participants.length > 0 && (
-                  <div className="flex flex-col gap-1">
-                    {participants.map((p, i) => (
-                      <div
-                        key={p.id}
-                        aria-current={started && i === currentPerson ? "step" : undefined}
-                        className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                          started && i === currentPerson ? "bg-accent/10 text-accent" : "text-sub"
-                        }`}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="font-data text-xs opacity-50">{i + 1}.</span>
-                          {p.name}
-                        </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => removeParticipant(p)}
-                          disabled={started && running}
-                          aria-label={`Remove ${p.name}`}
-                          className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[var(--destructive)]"
-                        >
-                          <X className="h-3 w-3" aria-hidden="true" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {participants.length === 0 && (
-                  <p className="text-xs text-sub/60 text-center py-2">
-                    Add names to split time equally among participants.
-                  </p>
-                )}
-              </CardContent>
-            )}
-          </Card>
+        <div className="flex min-w-0 flex-col gap-6">
+          <AgendaPicker agendas={agendas} selected={agendaId} onPick={pickAgenda} />
+          <SpeakersCard
+            speakers={speakers}
+            plan={view && !view.finished ? view.speakers : null}
+            started={Boolean(view?.started)}
+            turns={
+              agenda && view && !view.finished
+                ? {
+                    label: multi
+                      ? `Speakers take turns in ${view.segment.label}`
+                      : "Speakers take turns",
+                    checked: view.segment.speakers,
+                    onChange: setTurns,
+                  }
+                : null
+            }
+            locked={Boolean(view?.running)}
+            onAdd={addSpeaker}
+            onRemove={removeSpeaker}
+            onLoadTeam={loadTeam}
+          />
         </div>
       </div>
     </ToolPageWrapper>

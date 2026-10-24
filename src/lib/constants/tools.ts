@@ -625,7 +625,8 @@ export const tools: ToolDefinition[] = [
     id: "standup",
     code: "C2",
     name: "Standup Tracker",
-    description: "Daily standup log with blocker tracking, aging indicators, and weekly digest",
+    description:
+      "Daily Scrum over the sprint board: timed turns, last plans, blocker ages and impediment hand-off",
     category: "Ceremonies",
     path: "/standup",
     icon: Mic,
@@ -646,7 +647,8 @@ export const tools: ToolDefinition[] = [
     id: "sprint-review",
     code: "C3",
     name: "Sprint Review Kit",
-    description: "Template generator for demo scripts, feedback forms, and showcase checklists",
+    description:
+      "Each sprint's review from its goal and done stories: demo script, stakeholder feedback, and checklist",
     category: "Ceremonies",
     path: "/sprint-review",
     icon: Presentation,
@@ -664,7 +666,7 @@ export const tools: ToolDefinition[] = [
     code: "C4",
     name: "Ceremony Timer",
     description:
-      "Smart timeboxing with presets, visual countdown, sound alerts, and rotation timing",
+      "Ceremony agendas with a time-box per segment, fair speaker turns, and planned against actual at the end",
     category: "Ceremonies",
     path: "/ceremony-timer",
     icon: Timer,
@@ -769,7 +771,8 @@ export const tools: ToolDefinition[] = [
     id: "impediments",
     code: "D5",
     name: "Impediment Tracker",
-    description: "Log, categorize, and track impediments with aging and resolution metrics",
+    description:
+      "Log, escalate, and resolve impediments with owners, due dates, age badges, and time-to-resolve metrics",
     category: "Team Health & Maturity",
     path: "/impediments",
     icon: AlertTriangle,
@@ -998,7 +1001,8 @@ export const tools: ToolDefinition[] = [
     id: "kanban",
     code: "B8",
     name: "Kanban Board",
-    description: "WIP-limited columns with throughput chart, lead time, and class-of-service lanes",
+    description:
+      "Run the sprint on a board of its stories, or keep a WIP-limited flow board with cycle time and throughput",
     category: "Flow & Delivery",
     path: "/kanban",
     icon: Columns,
@@ -1061,7 +1065,7 @@ export const tools: ToolDefinition[] = [
     code: "B11",
     name: "Sprint Cockpit",
     description:
-      "Your current sprint on one page: goal and days left, burndown, today's standup, open blockers, retro actions and the next ceremony",
+      "Your current sprint on one page: ceremony status, burndown, open blockers, and close with carry-over",
     category: "Metrics & Dashboards",
     path: "/sprint",
     icon: Compass,
@@ -1637,7 +1641,8 @@ export const tools: ToolDefinition[] = [
     id: "async-standup",
     code: "C10",
     name: "Async Standup Digest",
-    description: "Async-first standup with auto-generated daily digest and blocker rollup",
+    description:
+      "Written standup updates with who hasn't posted, a blockers-first daily digest, and a 14-day history",
     category: "Ceremonies",
     path: "/async-standup",
     icon: Mail,

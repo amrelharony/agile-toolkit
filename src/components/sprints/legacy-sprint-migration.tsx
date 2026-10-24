@@ -2,24 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
-import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { useLegacyMigrationMode } from "@/lib/data/use-legacy-migration-mode";
 import { hasLegacySprintData } from "@/lib/sprints/legacy-keys";
 import { useSprintMigrationStore } from "@/lib/sprints/migration-status";
 import { syncEngine } from "@/lib/sync/engine";
-import { useOwnerSyncGate, useOwnerSyncGateStore } from "@/lib/sync/owner-sync-gate";
-import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { toast } from "@/lib/utils/toast";
 
 /**
  * Moves the old per-tool sprint data (Burndown, Burnup, Velocity, Sprint
- * Comparison) into shared sprints, once, when it is safe to:
- *
- *   1. the workspace has loaded from this browser;
- *   2. auth has settled (an owner whose check is still being retried waits);
- *   3. no "work created while signed out" question is open (merge/discard);
- *   4. for the owner, the cloud's first pull has finished
- *      (`syncEngine.whenReady()`), so moved rows can't beat newer cloud rows;
- *   5. a visitor's data stays local, so it runs straight away.
+ * Comparison) into shared sprints, once, when it is safe to (the rules are
+ * in useLegacyMigrationMode: the workspace has loaded, auth has settled,
+ * no merge/discard question is open, and for the owner the cloud's first
+ * pull has finished).
  *
  * Renders nothing. Without any old key it does nothing at all and never
  * loads the migration code. It must sit inside AuthProvider (the app
@@ -30,21 +24,14 @@ import { toast } from "@/lib/utils/toast";
 /** After this long still waiting (offline owner, slow pull), tools stop showing "Loading sprints…". */
 const STALL_MS = 10_000;
 
-type Mode = "off" | "wait" | "blocked" | "local" | "cloud";
-
 function setStatus(status: "idle" | "pending" | "done") {
   useSprintMigrationStore.getState().setStatus(status);
 }
 
 export function LegacySprintMigration() {
-  const auth = useAuthOptional();
-  const owner = useOwnerState();
-  const gateOpen = useOwnerSyncGate();
-  const decision = useOwnerSyncGateStore((s) => s.decision);
-  const hydrated = useWorkspaceHydrated();
+  const hasAuth = useAuthOptional() !== null;
   const [found, setFound] = useState(false);
   const started = useRef(false);
-  const hasAuth = auth !== null;
 
   // The cheap check, once: no old keys means nothing to do, ever.
   useEffect(() => {
@@ -53,15 +40,7 @@ export function LegacySprintMigration() {
     setStatus("pending");
   }, [hasAuth]);
 
-  let mode: Mode = "off";
-  if (found && hasAuth) {
-    if (!hydrated || !owner.settled || owner.unverified) mode = "wait";
-    else if (owner.visitor) mode = "local";
-    else if (!owner.isOwner) mode = "wait";
-    else if (gateOpen) mode = "cloud";
-    else if (decision === "pending" || decision === "discarding") mode = "blocked";
-    else mode = "wait";
-  }
+  const mode = useLegacyMigrationMode(found);
 
   // Waiting on the owner's merge/discard answer can take any time: let the
   // tools show what they have meanwhile. Waiting on anything else gets a

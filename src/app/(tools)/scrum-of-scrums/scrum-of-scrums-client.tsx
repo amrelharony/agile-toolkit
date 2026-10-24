@@ -61,7 +61,7 @@ import {
   type ReleasedEdges,
 } from "../dependency-map/link";
 import { DependencyStatusChip } from "../dependency-map/status-chip";
-import { useReturnFocus, type RefFor } from "../dependency-map/use-return-focus";
+import { useReturnFocus, type RefFor } from "@/hooks/use-return-focus";
 import { itemRef } from "../pi-planning/dependency-link";
 import { piTeamNames, usePiState } from "../pi-planning/store";
 import {

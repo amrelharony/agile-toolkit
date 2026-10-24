@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 /**
- * Standup: removing a team member offers Undo, and the confirmed
- * "Clear Entries" wipe can be undone too.
+ * Standup: taking someone out of today's standup offers Undo (and never
+ * removes them from the team), and the confirmed "Clear Entries" wipe can
+ * be undone too.
  */
 
 const undo = vi.hoisted(() => ({
@@ -39,9 +41,16 @@ function entry(id: string, member: string, date = todayLocalISO()): StandupEntry
 }
 
 const entries = () => useWorkspaceStore.getState().standupEntries ?? [];
+const renderStandup = () =>
+  render(
+    <TooltipProvider>
+      <StandupClient />
+    </TooltipProvider>
+  );
 
 beforeEach(() => {
   undo.last = null;
+  localStorage.clear();
   useWorkspaceStore.setState({
     teamMembers: [
       { id: "m1", name: "Alice" },
@@ -51,18 +60,24 @@ beforeEach(() => {
   });
 });
 
-describe("Standup member remove", () => {
-  it("removes the member and Undo puts them back on the roster", () => {
-    render(<StandupClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Alice" }));
+describe("Standup: not in today's standup", () => {
+  it("takes the person out of today only, keeps the team, and Undo brings them back", () => {
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Not in today's standup: Alice" }));
 
-    expect(useWorkspaceStore.getState().teamMembers.map((m) => m.id)).toEqual(["m2"]);
-    expect(screen.queryByRole("button", { name: "Remove Alice" })).toBeNull();
-    expect(undo.last!.label).toBe("Removed “Alice”");
+    // The team is untouched: removing someone from the standup used to
+    // remove them from the roster (and clear them as owner everywhere).
+    expect(useWorkspaceStore.getState().teamMembers.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(screen.queryByRole("button", { name: "Not in today's standup: Alice" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Back in today's standup: Alice" })
+    ).toBeInTheDocument();
+    expect(undo.last!.label).toBe("Alice is out of today's standup");
 
     act(() => undo.last!.revert());
-    expect(useWorkspaceStore.getState().teamMembers).toContainEqual({ id: "m1", name: "Alice" });
-    expect(screen.getByRole("button", { name: "Remove Alice" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Not in today's standup: Alice" })
+    ).toBeInTheDocument();
   });
 });
 
@@ -71,7 +86,7 @@ describe("Standup Clear Entries undo", () => {
     useWorkspaceStore.setState({
       standupEntries: [entry("e1", "Alice"), entry("e2", "Bo"), entry("e3", "Bo", "2026-01-05")],
     });
-    render(<StandupClient />);
+    renderStandup();
     fireEvent.click(screen.getByRole("button", { name: "Clear Entries" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("Delete all 3 standup entries?");
     fireEvent.click(screen.getByRole("button", { name: "Delete entries" }));

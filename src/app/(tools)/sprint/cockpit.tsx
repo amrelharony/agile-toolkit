@@ -5,14 +5,16 @@ import Link from "next/link";
 import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ExportButton } from "@/components/shared/export-button";
+import { ExampleNotice } from "@/components/tool-frame/example-data";
 import { SprintPicker, nextSprintName } from "@/components/sprints/sprint-picker";
 import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
 import { SprintHeader } from "@/components/sprints/sprint-header";
 import { SprintTiles } from "@/components/sprints/sprint-tiles";
-import { CloseSprintDialog } from "@/components/sprints/close-sprint-dialog";
-import { ExampleBanner, LoadingSprints } from "@/components/sprints/start";
+import { CloseSprintDialog, type CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
+import { LoadingSprints } from "@/components/sprints/start";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
+  AsyncUpdate,
   Impediment,
   RetroBoard,
   Sprint,
@@ -25,30 +27,20 @@ import type {
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_COCKPIT_ACTIONS } from "@/lib/history/event-actions";
-import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
-import { exampleSprints, type ExampleSprints } from "@/lib/sprints/example";
-import {
-  dayDate,
-  dayForDate,
-  seriesFor,
-  sprintLengthDays,
-  todayIso,
-  withDay,
-} from "@/lib/sprints/series";
-import {
-  averageVelocity,
-  completedSprints,
-  hubTiles,
-  type Tile,
-  type TileId,
-} from "@/lib/sprints/hub-view";
+import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { dayForDate, seriesFor, sprintLengthDays, todayIso, withDay } from "@/lib/sprints/series";
+import { points, type TileId } from "@/lib/sprints/hub-view";
 import { updateSeries, updateSprint } from "@/lib/sprints/store";
 import { nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
-import { sprintReport } from "@/lib/sprints/report";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
-import { blockersTile, flowCards, gatherCockpitData, type CockpitData } from "./view";
+import { undoable } from "@/lib/utils/undoable";
+import { cockpitTiles, flowCards, gatherCockpitData, type CockpitData } from "./view";
+import { cockpitVerdict } from "./verdict";
+import { cockpitMarkdown } from "./markdown";
+import { buildExample, type CockpitExample } from "./example";
+import { carryOverLine, closeSprint, type ClosedSprint } from "./close";
 import { FlowStrip } from "./components/flow-strip";
 import { NextCeremony } from "./components/next-ceremony";
 import { Blockers } from "./components/blockers";
@@ -61,6 +53,7 @@ const NO_SERIES: SprintSeries[] = [];
 const NO_STORIES: Story[] = [];
 const NO_IMPEDIMENTS: Impediment[] = [];
 const NO_ENTRIES: StandupEntry[] = [];
+const NO_UPDATES: AsyncUpdate[] = [];
 const NO_MEMBERS: TeamMember[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_REVIEWS: SprintReview[] = [];
@@ -83,9 +76,10 @@ export interface SprintCockpitProps {
 /**
  * The Sprint Cockpit: the current sprint on one page. With no sprint it runs
  * the start flow (team, sprint, ceremony times) or shows an example; with one
- * it shows the ceremony strip, the next ceremony, the numbers, the burndown
- * with today's log, and the open blockers. Everything comes from the other
- * tools' data; nothing is typed twice.
+ * it shows the verdict, the next ceremony, the ceremony strip, the numbers
+ * (from the sprint board when its stories have points, else the daily log),
+ * the burndown, and what is blocking the sprint. Everything comes from the
+ * other tools' data; nothing is typed twice.
  */
 export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const hydrated = useWorkspaceHydrated();
@@ -94,6 +88,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const impediments = useWorkspaceStore((s) => s.impediments) ?? NO_IMPEDIMENTS;
   const standupEntries = useWorkspaceStore((s) => s.standupEntries) ?? NO_ENTRIES;
+  const asyncUpdates = useWorkspaceStore((s) => s.asyncUpdates) ?? NO_UPDATES;
   const teamMembers = useWorkspaceStore((s) => s.teamMembers) ?? NO_MEMBERS;
   const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
   const reviews = useWorkspaceStore((s) => s.sprintReviews) ?? NO_REVIEWS;
@@ -102,7 +97,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const [today] = useState(() => todayIso());
   const [now] = useState(() => new Date());
   const [creating, setCreating] = useState(false);
-  const [example, setExample] = useState<ExampleSprints | null>(null);
+  const [example, setExample] = useState<CockpitExample | null>(null);
 
   const selectedId = selected?.id;
   const data = useMemo(
@@ -114,9 +109,11 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             stories,
             impediments,
             standupEntries,
+            asyncUpdates,
             teamMembers,
             retroBoards,
             reviews,
+            sprints,
             today,
             // Done when the impediment or Kanban card an action was sent to is finished.
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
@@ -128,9 +125,11 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       stories,
       impediments,
       standupEntries,
+      asyncUpdates,
       teamMembers,
       retroBoards,
       reviews,
+      sprints,
       today,
     ]
   );
@@ -147,16 +146,39 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       edit: (patch) => {
         write(patch);
       },
-      close: (pointsCompleted) => {
-        const done = write({ status: "completed", pointsCompleted });
+      close: (pointsCompleted, carry) => {
+        const current = useWorkspaceStore.getState().sprints.find((s) => s.id === selectedId);
+        if (!current) return;
+        select(selectedId);
+        // One Undo for the close and every story it moved.
+        const closed: { result: ClosedSprint | null } = { result: null };
+        undoable({
+          label: `Closed ${current.name} with ${points(pointsCompleted)} done`,
+          description: carryOverLine(carry),
+          apply: () => {
+            closed.result = closeSprint(selectedId, pointsCompleted, carry);
+          },
+          revert: () => {
+            closed.result?.revert();
+            select(selectedId);
+          },
+        });
+        const done = closed.result;
         if (done) {
           log(SPRINT_COCKPIT_ACTIONS.SPRINT_CLOSED, {
-            sprintId: done.id,
-            name: done.name,
-            pointsPlanned: done.pointsPlanned,
+            sprintId: done.sprint.id,
+            name: done.sprint.name,
+            pointsPlanned: done.sprint.pointsPlanned,
             pointsCompleted,
+            ...(carry
+              ? {
+                  carryOver: carry.target,
+                  unfinished: carry.stories.length,
+                  moved: done.moved,
+                  ...(done.movedTo ? { movedTo: done.movedTo.id } : {}),
+                }
+              : {}),
           });
-          toast.success(`${done.name} closed with ${pointsCompleted} points done`);
         }
       },
       reopen: (status) => {
@@ -165,7 +187,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       logDay: (day, remaining) => {
         updateSeries(selectedId, (s) => withDay(s, day, { remaining }));
         log(SPRINT_COCKPIT_ACTIONS.DAY_LOGGED, { sprintId: selectedId, day, remaining });
-        toast.success(`Day ${day} logged: ${remaining} points left`);
+        toast.success(`Day ${day} logged: ${points(remaining)} left`);
       },
       select,
     };
@@ -202,6 +224,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       <CockpitBody
         sprints={sprints}
         series={seriesFor(allSeries, selected.id)}
+        stories={stories}
         data={data}
         today={today}
         now={now}
@@ -216,7 +239,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
     body = (
       <StartFlow
         onCreate={() => setCreating(true)}
-        onExample={() => setExample(exampleSprints(today))}
+        onExample={() => setExample(buildExample(today))}
         cadence={cadence}
         onCadence={updateCadence}
       />
@@ -241,7 +264,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
 
 export interface CockpitCommands {
   edit: (patch: Partial<Omit<Sprint, "id">>) => void;
-  close: (pointsCompleted: number) => void;
+  close: (pointsCompleted: number, carryOver?: CarryOverPlan) => void;
   reopen: (status: Exclude<Sprint["status"], "completed">) => void;
   logDay: (day: number, remaining: number) => void;
   select: (id: string) => void;
@@ -250,6 +273,7 @@ export interface CockpitCommands {
 function CockpitBody({
   sprints,
   series,
+  stories,
   data,
   today,
   now,
@@ -261,6 +285,8 @@ function CockpitBody({
 }: {
   sprints: readonly Sprint[];
   series: SprintSeries | undefined;
+  /** Every story, for the close dialog's carry-over. */
+  stories: readonly Story[];
   data: CockpitData;
   today: string;
   now: Date;
@@ -272,45 +298,25 @@ function CockpitBody({
   commands?: CockpitCommands;
   onNewSprint?: () => void;
 }) {
-  const { sprint, status } = data;
+  const { sprint } = data;
   const readOnly = !commands;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [closing, setClosing] = useState(false);
 
   const cards = useMemo(() => flowCards(data), [data]);
-  const tiles = useMemo<Tile[]>(() => {
-    const all = [
-      ...hubTiles(sprint, status, averageVelocity(completedSprints(sprints), sprint.id)),
-      blockersTile(data.openImpediments),
-    ];
+  const tiles = useMemo(() => {
+    const all = cockpitTiles(data, sprints, today);
     return compact ? all.filter((t) => COMPACT_TILES.includes(t.id)) : all;
-  }, [sprint, status, sprints, data.openImpediments, compact]);
+  }, [data, sprints, today, compact]);
+  const verdict = useMemo(() => cockpitVerdict(data, today), [data, today]);
   const upcoming = useMemo(() => nextCeremonies(sprint, cadence, now), [sprint, cadence, now]);
   const day = dayForDate(sprint, today);
   const ended = day !== null && day > sprintLengthDays(sprint);
+  const boardHref = readOnly ? "/kanban" : sprintHref("/kanban", sprint.id);
 
   const report = useMemo(
-    () =>
-      sprintReport({
-        sprint,
-        series,
-        sprints,
-        today,
-        stories: data.sprintStories,
-        openImpediments: data.openImpediments,
-        standup: data.standup,
-        retroActions: data.openActions.map((a) => ({ text: a.text, assignee: a.assignee })),
-        review: data.reviewDoc
-          ? {
-              demoItems: data.reviewDoc.features.map((f) => ({
-                name: f.name,
-                timeMinutes: f.timeMinutes,
-              })),
-              feedback: data.reviewDoc.feedbackItems,
-            }
-          : null,
-      }),
-    [sprint, series, sprints, today, data]
+    () => cockpitMarkdown({ data, series, sprints, today }),
+    [data, series, sprints, today]
   );
 
   return (
@@ -335,7 +341,12 @@ function CockpitBody({
             filename={`sprint-report-${slug(sprint.name)}`}
             markdown={report}
             clipboardText={report}
-            jsonData={{ sprint, series, stories: data.sprintStories }}
+            jsonData={{
+              sprint,
+              series,
+              stories: data.sprintStories,
+              impediments: data.sprintImpediments,
+            }}
           />
         </div>
       )}
@@ -351,11 +362,16 @@ function CockpitBody({
         onReopen={(s) => commands?.reopen(s)}
       />
 
+      <p className="text-sm font-medium text-text" data-cockpit-verdict>
+        {verdict}
+      </p>
+
       <NextCeremony
         occurrences={upcoming}
         now={now}
         ended={ended}
         cadence={cadence}
+        sprintLengthDays={sprintLengthDays(sprint)}
         onCadence={compact ? undefined : onCadence}
       />
 
@@ -368,12 +384,17 @@ function CockpitBody({
           <MiniBurndown
             sprint={sprint}
             series={series}
+            burndown={data.burndown}
             today={today}
-            onLog={
-              commands && day !== null ? (remaining) => commands.logDay(day, remaining) : undefined
-            }
+            onLog={commands ? commands.logDay : undefined}
           />
-          <Blockers open={data.openImpediments} today={today} />
+          <Blockers
+            open={data.openImpediments}
+            resolved={data.resolvedImpediments}
+            blockedStories={data.blockedStories}
+            today={today}
+            boardHref={boardHref}
+          />
         </div>
       )}
 
@@ -386,7 +407,7 @@ function CockpitBody({
             Open the full cockpit
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
-          <span className="text-sub"> — burndown log, blockers, the sprint report.</span>
+          <span className="text-sub"> — burndown, blockers, the sprint report.</span>
         </p>
       )}
 
@@ -397,8 +418,11 @@ function CockpitBody({
           sprint={sprint}
           series={series}
           mode="close"
-          onConfirm={(points) => {
-            commands.close(points);
+          stories={stories}
+          sprints={sprints}
+          nextLengthDays={cadence.sprintLengthDays}
+          onConfirm={(pointsCompleted, carry) => {
+            commands.close(pointsCompleted, carry);
             setClosing(false);
           }}
         />
@@ -409,7 +433,10 @@ function CockpitBody({
 
 /* ── Example ───────────────────────────────────────────────────────────── */
 
-/** The cockpit on the example sprints, in memory only: nothing is saved. */
+/**
+ * The cockpit on the example (./example.ts), in memory only: nothing is
+ * saved, so the user's real sprints and stories stay as they are.
+ */
 function ExampleCockpit({
   example,
   today,
@@ -419,7 +446,7 @@ function ExampleCockpit({
   onStart,
   onExit,
 }: {
-  example: ExampleSprints;
+  example: CockpitExample;
   today: string;
   now: Date;
   cadence: CeremonyCadence;
@@ -434,22 +461,37 @@ function ExampleCockpit({
       gatherCockpitData({
         sprint,
         series,
-        stories: EXAMPLE_STORIES.map((s) => ({ ...s, sprintId: sprint.id })),
-        impediments: exampleImpediments(today),
-        standupEntries: EXAMPLE_STANDUP.map((e) => ({ ...e, date: today })),
-        teamMembers: EXAMPLE_TEAM,
-        retroBoards: [],
-        reviews: [],
+        stories: example.stories,
+        impediments: example.impediments,
+        standupEntries: example.standupEntries,
+        teamMembers: example.teamMembers,
+        retroBoards: example.retroBoards,
+        reviews: example.reviews,
+        sprints: example.sprints,
         today,
       }),
-    [sprint, series, today]
+    [example, sprint, series, today]
   );
   return (
     <div className="space-y-4 sm:space-y-6">
-      <ExampleBanner onStart={onStart} onExit={onExit} />
+      <div>
+        <ExampleNotice onClear={onExit} />
+        <div className="-mt-2 flex flex-wrap items-center gap-3">
+          {/* ExampleNotice invites editing; this example is read-only, so say so here. */}
+          <p className="min-w-0 flex-1 text-xs text-sub">
+            This example is a read-only preview: nothing in it can be changed or saved, and your
+            sprints, stories and impediments stay as they are.
+          </p>
+          <Button type="button" size="sm" onClick={onStart}>
+            <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+            Start your own sprint
+          </Button>
+        </div>
+      </div>
       <CockpitBody
         sprints={example.sprints}
         series={series}
+        stories={example.stories}
         data={data}
         today={today}
         now={now}
@@ -459,66 +501,3 @@ function ExampleCockpit({
     </div>
   );
 }
-
-const EXAMPLE_TEAM: TeamMember[] = [
-  { id: "example-m1", name: "Amira" },
-  { id: "example-m2", name: "Ben" },
-  { id: "example-m3", name: "Chloé" },
-  { id: "example-m4", name: "Dev" },
-  { id: "example-m5", name: "Elin" },
-];
-
-const EXAMPLE_STORIES: Omit<Story, "sprintId">[] = [
-  { id: "example-s1", title: "Save a card at checkout", points: 8, status: "done" },
-  { id: "example-s2", title: "Pay with a saved card", points: 5, status: "in_progress" },
-  { id: "example-s3", title: "Remove a saved card", points: 3, status: "todo" },
-  { id: "example-s4", title: "Refund flow", points: 8, status: "todo" },
-  { id: "example-s5", title: "Card expiry reminders", status: "todo" },
-];
-
-/** Two open blockers, raised a few days before `today`. */
-function exampleImpediments(today: string): Impediment[] {
-  const daysAgo = (n: number) => dayDate({ startDate: today }, -n) ?? today;
-  return [
-    {
-      id: "example-i1",
-      title: "Payment sandbox returns 500s under load",
-      severity: "high",
-      raisedAt: daysAgo(2),
-      owner: "Ben",
-    },
-    {
-      id: "example-i2",
-      title: "Waiting on legal copy for the refund screen",
-      severity: "medium",
-      raisedAt: daysAgo(4),
-    },
-  ];
-}
-
-const EXAMPLE_STANDUP: Omit<StandupEntry, "date">[] = [
-  {
-    id: "example-e1",
-    member: "Amira",
-    yesterday: "Finished the saved-card form",
-    today: "Pairing on payment",
-    blockers: "",
-    timestamp: 0,
-  },
-  {
-    id: "example-e2",
-    member: "Ben",
-    yesterday: "Load-tested the sandbox",
-    today: "Chasing the sandbox 500s",
-    blockers: "Sandbox 500s",
-    timestamp: 0,
-  },
-  {
-    id: "example-e3",
-    member: "Chloé",
-    yesterday: "Refund flow designs",
-    today: "Refund flow build",
-    blockers: "",
-    timestamp: 0,
-  },
-];

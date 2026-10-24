@@ -5,7 +5,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { DependencyEdge, DependencyMap, SosEntry } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { useImpedimentStore } from "@/app/(tools)/impediments/use-impediment-store";
 
 /**
  * Scrum of Scrums as a per-meeting agenda: open blockers and dependencies
@@ -92,7 +91,6 @@ beforeEach(() => {
   n = 0;
   toastSpy.mockReset();
   localStorage.clear();
-  useImpedimentStore.setState({ impediments: [] });
   useWorkspaceStore.setState({
     sosEntries: [],
     dependencyMaps: [],

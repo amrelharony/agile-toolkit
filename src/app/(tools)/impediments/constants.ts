@@ -1,60 +1,37 @@
 /**
- * Impediment Tracker — severity/status presentation maps (label + palette
- * tokens) used by the badge components. Pure data, no React.
+ * Impediment Tracker: how severity, status and age look. Theme tokens only
+ * (the old maps carried fixed hex colours, unreadable on the light theme),
+ * and every badge also says its state in words, so colour is never the
+ * only signal. Labels come from lib/impediments/model. Pure data, no React.
  */
 
-import type { Severity, Status } from "./types";
+import type { ImpedimentSeverity } from "@/lib/stores/workspace-types";
+import type { ImpedimentStatus } from "@/lib/impediments/model";
 
-export const SEVERITY_CONFIG: Record<
-  Severity,
-  { label: string; color: string; bg: string; border: string }
-> = {
-  Low: {
-    label: "Low",
-    color: "#00ff88",
-    bg: "bg-accent-green/10",
-    border: "border-accent-green/20",
-  },
-  Medium: {
-    label: "Medium",
-    color: "#ffaa00",
-    bg: "bg-accent-amber/10",
-    border: "border-accent-amber/20",
-  },
-  High: {
-    label: "High",
-    color: "#ef4444",
-    bg: "bg-danger/10",
-    border: "border-danger/20",
-  },
-  Critical: {
-    label: "Critical",
-    color: "#ef4444",
-    bg: "bg-danger/20",
-    border: "border-danger/40",
-  },
+export const SEVERITY_TONE: Record<ImpedimentSeverity, string> = {
+  low: "border-border text-sub",
+  medium: "border-warning/40 text-warning",
+  high: "border-danger/40 text-danger",
+  critical: "border-danger/60 bg-danger/10 text-danger font-semibold",
 };
 
-export const STATUS_CONFIG: Record<
-  Status,
-  { label: string; color: string; bg: string; border: string }
-> = {
-  Open: {
-    label: "Open",
-    color: "#00f0ff",
-    bg: "bg-accent/10",
-    border: "border-accent/20",
-  },
-  Escalated: {
-    label: "Escalated",
-    color: "#ffaa00",
-    bg: "bg-accent-amber/10",
-    border: "border-accent-amber/20",
-  },
-  Resolved: {
-    label: "Resolved",
-    color: "#00ff88",
-    bg: "bg-accent-green/10",
-    border: "border-accent-green/20",
-  },
+export const STATUS_TONE: Record<ImpedimentStatus, string> = {
+  open: "border-accent/40 text-accent",
+  escalated: "border-warning/40 text-warning",
+  resolved: "border-success/40 text-success",
 };
+
+/** Open this long it's worth a look; this long it's in the way of the sprint. */
+export const AGE_WATCH_DAYS = 3;
+export const AGE_ALARM_DAYS = 7;
+
+export function ageTone(days: number): string {
+  if (days >= AGE_ALARM_DAYS) return "border-danger/40 text-danger";
+  if (days >= AGE_WATCH_DAYS) return "border-warning/40 text-warning";
+  return "border-success/40 text-success";
+}
+
+/** Caps on what one row may hold, so a pasted essay can't fill the storage quota. */
+export const TITLE_MAX = 240;
+export const TEXT_MAX = 4000;
+export const NAME_MAX = 120;

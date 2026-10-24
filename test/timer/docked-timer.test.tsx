@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 const nav = vi.hoisted(() => ({ pathname: "/retro" }));
@@ -30,11 +30,13 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 import { DockedTimer } from "@/components/timer/docked-timer";
 import { formatClock, timerRemaining, useDockTimer } from "@/lib/timer/dock-timer";
 import { CeremonyTimerClient } from "@/app/(tools)/ceremony-timer/ceremony-timer-client";
+import { useTimerSession } from "@/app/(tools)/ceremony-timer/store";
 
 const T0 = Date.parse("2026-10-19T09:00:00Z");
 
 beforeEach(() => {
   useDockTimer.setState({ timer: null });
+  useTimerSession.setState({ agendaId: null, run: null });
   nav.pathname = "/retro";
 });
 afterEach(() => vi.useRealTimers());
@@ -106,13 +108,13 @@ describe("Ceremony Timer and the dock", () => {
   it("publishes a started timer and picks it back up after navigating away and back", async () => {
     nav.pathname = "/ceremony-timer";
     const first = render(<CeremonyTimerClient />);
-    fireEvent.click(screen.getByRole("button", { name: /Standup/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Daily Scrum/ }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Start timer" }));
     });
     const published = useDockTimer.getState().timer;
     expect(published).toMatchObject({
-      label: "Standup",
+      label: "Daily Scrum",
       href: "/ceremony-timer",
       totalSeconds: 900,
     });
@@ -124,16 +126,20 @@ describe("Ceremony Timer and the dock", () => {
     expect(await screen.findByRole("button", { name: "Pause timer" })).toBeInTheDocument();
   });
 
-  it("clears the dock when the timer is reset", async () => {
+  it("clears the dock when the timer is started over", async () => {
     nav.pathname = "/ceremony-timer";
     render(<CeremonyTimerClient />);
-    fireEvent.click(screen.getByRole("button", { name: /Standup/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Daily Scrum/ }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Start timer" }));
     });
     expect(useDockTimer.getState().timer).not.toBeNull();
+    // Start over confirms first (the time spent so far is lost), then clears.
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^Reset/ }));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Start over" })
+      );
     });
     expect(useDockTimer.getState().timer).toBeNull();
   });

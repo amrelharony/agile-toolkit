@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { KanbanCard } from "@/lib/stores/workspace-types";
 
@@ -134,7 +135,9 @@ describe("kanban buildExample", () => {
   it("uses example ids and pushes In progress over its default WIP limit", () => {
     const cards = buildExample(NOW);
     expect(cards.length).toBeGreaterThanOrEqual(6);
-    expect(cards.length).toBeLessThanOrEqual(10);
+    // Small enough to take in at a glance; five of them are done cards, so
+    // cycle time and P85 have their minimum sample.
+    expect(cards.length).toBeLessThanOrEqual(12);
     expect(cards.every((c) => c.id.startsWith("example-"))).toBe(true);
     expect(cards.filter((c) => c.column === "in_progress").length).toBeGreaterThan(
       LIMITS.in_progress
@@ -149,7 +152,7 @@ describe("kanban example flow", () => {
     useWorkspaceStore.setState({
       kanbanBoards: [{ id: "kanban:current", cards: [], wipLimits: { ...LIMITS, review: 4 } }],
     });
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     expect(screen.queryByRole("button", { name: "Clear example" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
@@ -176,7 +179,7 @@ describe("kanban example flow", () => {
     useWorkspaceStore.setState({
       kanbanBoards: [{ id: "kanban:current", cards: [card("u1", "Mine")], wipLimits: LIMITS }],
     });
-    render(<KanbanClient />);
+    render(<KanbanClient />, { wrapper: TooltipProvider });
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(spies.markdown).toContain("- Mine");
   });

@@ -3,7 +3,7 @@
 import { Pencil, Trash2 } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
-import type { RefFor } from "../dependency-map/use-return-focus";
+import type { RefFor } from "@/hooks/use-return-focus";
 import { ObjectiveAddForm, ObjectiveEditor, type ObjectiveValues } from "./forms";
 import type { PiObjective, PiTeam } from "./store";
 

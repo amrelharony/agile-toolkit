@@ -111,7 +111,10 @@ describe("flowCards", () => {
     expect(card({ ...base, review: { demoItems: 2, feedback: 1 } }, "review").line).toBe(
       "2 demo items · 1 feedback note"
     );
-    expect(card(base, "retro")).toMatchObject({ state: "todo", line: "No retro yet" });
+    expect(card(base, "retro")).toMatchObject({
+      state: "todo",
+      line: "No retro for this sprint yet",
+    });
     expect(
       card(
         { ...base, retro: { hasRetro: true, openActions: 3, overdue: 1, currentCards: 0 } },
@@ -262,8 +265,11 @@ describe("gatherCockpitData", () => {
     expect(data.backlogUnestimated).toBe(1);
     expect(data.standup).toEqual({ posted: 1, members: 2, blockers: 1 });
     expect(data.openImpediments.map((i) => i.id)).toEqual(["crit", "high-old", "high-new", "low"]);
-    expect(data.review).toEqual({ demoItems: 1, feedback: 0 });
-    expect(data.retro).toEqual({ hasRetro: true, openActions: 2, overdue: 0, currentCards: 0 });
+    // Sprint 2 has no review of its own, so the draft's is read (and says so).
+    expect(data.review).toEqual({ demoItems: 1, feedback: 0, started: true, fromDraft: true });
+    // The archived retro is from before Sprint 2 started, so it isn't this
+    // sprint's retro; its open actions still count.
+    expect(data.retro).toEqual({ hasRetro: false, openActions: 2, overdue: 0, currentCards: 0 });
     expect(data.openActions.map((c) => c.id)).toEqual(["a1", "a2"]);
     expect(data.status.committed).toBe(30);
   });
