@@ -39,6 +39,9 @@ import {
 } from "@/lib/sprints/cadence";
 import { reviewDocId, reviewHasContent } from "@/lib/sprints/review-doc";
 import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
+import { goalDocId } from "@/lib/sprints/goal-doc";
+import { cycleStats } from "@/lib/kanban/flow";
+import { impedimentStatus } from "@/lib/impediments/model";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -93,6 +96,12 @@ function activeSprint(sprints: readonly Sprint[] | undefined): Sprint | undefine
 /** An impediment is "stuck" from two weeks open. */
 const STUCK_DAYS = 14;
 
+/** The Kanban Flow board's id (lib/handoffs/targets/kanban, the page's KB_ID). */
+const FLOW_BOARD_ID = "kanban:current";
+
+/** How soon a ceremony has to start for the timer to be the next step. */
+const TIMER_LEAD_MS = 60 * 60 * 1000;
+
 /** Live and async standups are one tool with one next step. */
 const standupRule = rule({
   select: (ws) => ({ impediments: ws.impediments, sprints: ws.sprints, stories: ws.stories }),
@@ -111,7 +120,17 @@ const standupRule = rule({
       });
     }
     const sprint = activeSprint(sprints);
-    if (sprint && real(stories).some((s) => s.sprintId === sprint.id)) {
+    const planned = sprint ? real(stories).filter((s) => s.sprintId === sprint.id) : [];
+    const unowned = planned.filter((s) => s.status !== "done" && !s.owner?.trim()).length;
+    if (sprint && unowned > 0) {
+      steps.push({
+        id: "standup-owners",
+        label: "Give the sprint's stories owners",
+        detail: `${plural(unowned, "story", "stories")} on ${sprint.name}'s board ${unowned === 1 ? "has" : "have"} no owner, so ${unowned === 1 ? "it doesn't" : "they don't"} come up in anyone's turn when the team walks the board.`,
+        href: sprintHref("/kanban", sprint.id),
+      });
+    }
+    if (sprint && planned.length > 0) {
       steps.push({
         id: "standup-board",
         label: "Update the sprint board",
@@ -488,10 +507,33 @@ const RULES: Record<string, NextStepRule<object>> = {
 
   // Run the sprint.
   kanban: rule({
-    select: (ws) => ({ sprints: ws.sprints, stories: ws.stories }),
-    steps: ({ sprints, stories }) => {
+    select: (ws) => ({ sprints: ws.sprints, stories: ws.stories, boards: ws.kanbanBoards }),
+    steps: ({ sprints, stories, boards }) => {
       const sprint = activeSprint(sprints);
-      if (!sprint) return [];
+      if (!sprint) {
+        // No sprint running: the Flow board is the one in use.
+        const cards = real((boards ?? []).find((b) => b.id === FLOW_BOARD_ID)?.cards);
+        const steps: NextStep[] = [];
+        const blocked = cards.filter((c) => c.blocked && c.column !== "done").length;
+        if (blocked > 0) {
+          steps.push({
+            id: "kanban-flow-blocked",
+            label: "Raise the blocked cards as impediments",
+            detail: `${plural(blocked, "card")} on the Flow board ${be(blocked)} blocked. Raise what the team can't unblock itself as an impediment.`,
+            href: "/impediments",
+          });
+        }
+        const finished = cycleStats(cards).count;
+        if (finished >= MIN_SAMPLE.distribution) {
+          steps.push({
+            id: "kanban-cycle-time",
+            label: "See how long cards take in Cycle Time",
+            detail: `${plural(finished, "finished card")} ${finished === 1 ? "has" : "have"} start and finish dates: enough for a cycle-time spread.`,
+            href: "/cycle-time",
+          });
+        }
+        return steps;
+      }
       const planned = real(stories).filter((s) => s.sprintId === sprint.id);
       if (planned.length === 0) {
         return [
@@ -530,8 +572,10 @@ const RULES: Record<string, NextStepRule<object>> = {
       sprints: ws.sprints,
       impediments: ws.impediments,
       reviews: ws.sprintReviews,
+      stories: ws.stories,
+      cadences: ws.ceremonyCadences,
     }),
-    steps: ({ sprints, impediments, reviews }) => {
+    steps: ({ sprints, impediments, reviews, stories, cadences }) => {
       const sprint = focusSprint(sprints);
       if (!sprint) return [];
       const today = todayIso();
@@ -546,6 +590,30 @@ const RULES: Record<string, NextStepRule<object>> = {
           detail: `${plural(overdue, "impediment")} in ${sprint.name}'s way ${be(overdue)} past due.`,
           href: "/impediments",
         });
+      }
+      const blocked = real(stories).filter(
+        (s) => s.sprintId === sprint.id && s.blocked && s.status !== "done"
+      ).length;
+      if (sprint.status === "active" && blocked > 0) {
+        steps.push({
+          id: "cockpit-blocked",
+          label: "Unblock the blocked stories",
+          detail: `${plural(blocked, "story", "stories")} on ${sprint.name}'s board ${be(blocked)} flagged as blocked.`,
+          href: sprintHref("/kanban", sprint.id),
+        });
+      }
+      if (sprint.status === "active") {
+        const now = new Date();
+        const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+        const [next] = nextCeremonies(sprint, cadence, now, 1);
+        if (next && next.at.getTime() - now.getTime() <= TIMER_LEAD_MS) {
+          steps.push({
+            id: "cockpit-timer",
+            label: `Time the ${CEREMONY_LABEL[next.kind]} with its agenda`,
+            detail: `It starts ${whenLabel(next.at, now)}.`,
+            href: `/ceremony-timer?agenda=${next.kind}`,
+          });
+        }
       }
       const review = (reviews ?? []).find((r) => r.id === reviewDocId(sprint.id));
       if (sprint.status === "active" && sprint.endDate <= today && !reviewHasContent(review)) {
@@ -570,8 +638,19 @@ const RULES: Record<string, NextStepRule<object>> = {
       const open = real(impediments).filter((i) => !isResolved(i));
       const overdue = open.filter((i) => isImpedimentOverdue(i, today)).length;
       const stuck = open.filter((i) => (impedimentAgeDays(i, today) ?? 0) >= STUCK_DAYS).length;
-      if (overdue === 0 && stuck === 0) return [];
+      const escalated = open.filter((i) => impedimentStatus(i) === "escalated").length;
+      const steps: NextStep[] = [];
+      if (escalated > 0) {
+        steps.push({
+          id: "impediments-sos",
+          label: "Raise the escalated impediments at the Scrum of Scrums",
+          detail: `${plural(escalated, "escalated impediment")} ${escalated === 1 ? "needs" : "need"} help from outside the team.`,
+          href: "/scrum-of-scrums",
+        });
+      }
+      if (overdue === 0 && stuck === 0) return steps;
       return [
+        ...steps,
         {
           id: "impediments-retro",
           label: "Take the stuck impediments to the retrospective",
@@ -606,13 +685,31 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "sprint-review": rule({
-    select: (ws) => ({ sprints: ws.sprints, reviews: ws.sprintReviews, stories: ws.stories }),
-    steps: ({ sprints, reviews, stories }) => {
+    select: (ws) => ({
+      sprints: ws.sprints,
+      reviews: ws.sprintReviews,
+      stories: ws.stories,
+      goals: ws.sprintGoals,
+    }),
+    steps: ({ sprints, reviews, stories, goals }) => {
       const steps: NextStep[] = [];
       // The latest sprint whose review has something in it.
       const reviewed = real(sprints)
         .filter((s) => reviewHasContent((reviews ?? []).find((r) => r.id === reviewDocId(s.id))))
         .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+      // That one, or the active sprint once it's on its last day.
+      const ending = activeSprint(sprints);
+      const asked = reviewed ?? (ending && ending.endDate <= todayIso() ? ending : undefined);
+      const goal = asked && (goals ?? []).find((g) => g.id === goalDocId(asked.id));
+      if (asked && goal?.goal.trim() && !goal.outcome) {
+        steps.push({
+          id: "review-goal-met",
+          label: `Answer “Did we meet the sprint goal?” for ${asked.name}`,
+          detail:
+            "The review leads with that answer. Record it in Sprint Goal and it shows here, in the export and in the cockpit.",
+          href: sprintHref("/sprint-goal", asked.id),
+        });
+      }
       if (reviewed) {
         steps.push({
           id: "review-retro",

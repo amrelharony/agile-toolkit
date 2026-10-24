@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getNextStepRule } from "@/lib/tools/next-steps";
 import type {
   Impediment,
+  KanbanCard,
   Sprint,
   SprintReview,
   Story,
@@ -74,8 +75,37 @@ describe("kanban", () => {
     ]);
   });
 
-  it("stays quiet without an active sprint", () => {
+  it("stays quiet without an active sprint or Flow board cards", () => {
     expect(ids("kanban", { sprints: [sprint({ status: "planned" })], stories: [] })).toEqual([]);
+  });
+
+  it("without a sprint, reads the Flow board: blocked cards, then cycle time", () => {
+    const card = (id: string, over: Partial<KanbanCard> = {}): KanbanCard => ({
+      id,
+      title: id,
+      column: "done",
+      class: "standard",
+      createdAt: "2026-10-01",
+      startedAt: "2026-10-01",
+      completedAt: "2026-10-04",
+      ...over,
+    });
+    const board = (cards: KanbanCard[]) => ({
+      sprints: [],
+      stories: [],
+      kanbanBoards: [
+        {
+          id: "kanban:current",
+          cards,
+          wipLimits: { backlog: 0, ready: 5, in_progress: 3, review: 2, done: 0 },
+        },
+      ],
+    });
+    const done = ["a", "b", "c", "d", "e"].map((id) => card(id));
+    expect(
+      ids("kanban", board([...done, card("x", { column: "in_progress", blocked: true })]))
+    ).toEqual(["kanban-flow-blocked", "kanban-cycle-time"]);
+    expect(ids("kanban", board(done.slice(0, 4)))).toEqual([]);
   });
 });
 
@@ -92,6 +122,34 @@ describe("sprint (cockpit)", () => {
     });
     expect(out.map((s) => s.id)).toEqual(["cockpit-impediments"]);
     expect(out[0].detail).toBe("1 impediment in Sprint 2's way is past due.");
+  });
+
+  it("points blocked stories at the board", () => {
+    expect(
+      ids("sprint", {
+        sprints: [sprint()],
+        stories: [story({ blocked: true })],
+        impediments: [],
+        sprintReviews: [],
+      })
+    ).toEqual(["cockpit-blocked"]);
+  });
+
+  it("offers the timer's agenda when a ceremony starts within the hour", () => {
+    // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
+    vi.setSystemTime(new Date("2026-10-26T09:00:00"));
+    const [step] = steps("sprint", {
+      sprints: [sprint()],
+      stories: [],
+      impediments: [],
+      sprintReviews: [],
+      ceremonyCadences: [],
+    });
+    expect(step).toMatchObject({
+      id: "cockpit-timer",
+      label: "Time the Daily Scrum with its agenda",
+      href: "/ceremony-timer?agenda=daily",
+    });
   });
 
   it("asks for the review once the sprint has ended and its review is empty", () => {
@@ -119,9 +177,14 @@ describe("standup and async standup", () => {
       sprints: [sprint()],
       stories: [story()],
     };
-    expect(ids("standup", ws)).toEqual(["standup-impediments", "standup-board"]);
+    expect(ids("standup", ws)).toEqual(["standup-impediments", "standup-owners", "standup-board"]);
     expect(steps("async-standup", ws)).toEqual(steps("standup", ws));
-    expect(steps("standup", ws)[1].href).toBe("/kanban?sprint=s2");
+    expect(steps("standup", ws)[2].href).toBe("/kanban?sprint=s2");
+    // Owned stories come up in someone's turn: no owners step.
+    expect(ids("standup", { ...ws, stories: [story({ owner: "Alice" })] })).toEqual([
+      "standup-impediments",
+      "standup-board",
+    ]);
   });
 });
 
@@ -134,6 +197,9 @@ describe("impediments", () => {
       "1 impediment is open for two weeks or more."
     );
     expect(ids("impediments", { impediments: [imp()] })).toEqual([]);
+    expect(ids("impediments", { impediments: [imp({ escalatedAt: "2026-10-21" })] })).toEqual([
+      "impediments-sos",
+    ]);
     expect(
       ids("impediments", {
         impediments: [imp({ raisedAt: "2026-10-01", resolvedAt: "2026-10-02" })],
@@ -155,6 +221,31 @@ describe("ceremony-timer", () => {
 });
 
 describe("sprint-review", () => {
+  it("asks whether the goal was met before the retro, until it's answered", () => {
+    const s1 = sprint({ id: "s1", name: "Sprint 1", status: "completed", endDate: "2026-10-16" });
+    const review: SprintReview = {
+      ...blankReview(s1),
+      feedbackItems: [{ id: "f", stakeholder: "Dana", feedback: "Nice", category: "positive" }],
+    };
+    const goal = {
+      id: "sprint-goal:sprint:s1",
+      sprintId: "s1",
+      businessObjective: "",
+      goal: "Customers can pay by card",
+      criteria: [],
+      keyResults: [],
+    };
+    const ws = { sprints: [s1], sprintReviews: [review], stories: [], sprintGoals: [goal] };
+    const [first] = steps("sprint-review", ws);
+    expect(first).toMatchObject({
+      id: "review-goal-met",
+      label: "Answer “Did we meet the sprint goal?” for Sprint 1",
+      href: "/sprint-goal?sprint=s1",
+    });
+    const answered = { ...goal, outcome: { met: "met" as const, decidedAt: "2026-10-16" } };
+    expect(ids("sprint-review", { ...ws, sprintGoals: [answered] })).toEqual(["review-retro"]);
+  });
+
   it("leads to the retro once a review has content, and to refinement for its stories", () => {
     const s1 = sprint({ id: "s1", name: "Sprint 1", status: "completed", endDate: "2026-10-16" });
     const review: SprintReview = {
