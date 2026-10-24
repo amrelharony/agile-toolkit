@@ -1,5 +1,10 @@
-import { AsyncStandupClient } from "./async-standup-client";
+import { StandupClient } from "@/app/(tools)/standup/standup-client";
 
+/**
+ * The async standup is the Standup Tracker's async mode: the same entries,
+ * opened on the written-update view. The page keeps its own title so old
+ * links and bookmarks land where they did.
+ */
 export const metadata = {
   title: "Async Standup Digest",
   description:
@@ -7,5 +12,5 @@ export const metadata = {
 };
 
 export default function Page() {
-  return <AsyncStandupClient />;
+  return <StandupClient mode="async" />;
 }
