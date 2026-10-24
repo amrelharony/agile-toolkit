@@ -28,6 +28,8 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { setStoryStatus } from "@/lib/sprints/store";
 import { isStoryStatus } from "@/lib/sprints/story-status";
 import { useCanvasStore } from "../use-canvas-store";
+import { liveDrop, type StoryMove } from "../lib/live-boards";
+import { moveSprintStories } from "../lib/live-card-writer";
 import { STICKY_DEFAULT, SHAPE_DEFAULT, TEXT_DEFAULT } from "../constants";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool } from "../use-canvas-store";
@@ -1120,6 +1122,7 @@ export function useCanvasPointerMachine(params: {
           // cleared. Skip rotated kanban frames — axis-aligned bounds
           // check no longer matches what the user sees.
           const cardUpdates: WhiteboardObject[] = [];
+          const liveMoves: StoryMove[] = [];
           if (!readOnly)
             for (const id of ids) {
               const obj = objectsById.get(id);
@@ -1137,6 +1140,15 @@ export function useCanvasPointerMachine(params: {
                     cy <= o.y + o.h
                 )
                 .sort((a, b) => b.z - a.z)[0];
+              // A live board's card is the story's view: a drop in another
+              // column of its own Sprint board moves the story (with Undo),
+              // and the board then lays the card out in that column. A drop
+              // anywhere else changes nothing; the board puts it back.
+              const drop = liveDrop(obj, kanban, objectsById);
+              if (drop) {
+                if (drop.move) liveMoves.push(drop.move);
+                continue;
+              }
               if (kanban && kanban.type === "kanban" && kanban.columns.length > 0) {
                 const colWidth = kanban.w / kanban.columns.length;
                 const colIdx = Math.min(
@@ -1187,6 +1199,13 @@ export function useCanvasPointerMachine(params: {
                 setStoryStatus(ref.entityId, updated.status);
               }
             }
+          }
+          if (liveMoves.length > 0) {
+            moveSprintStories(liveMoves);
+            log(CANVAS_ACTIONS.OBJECT_UPDATED, {
+              count: liveMoves.length,
+              action: "sprint-board-move",
+            });
           }
 
           // ─── Mind-map drag-to-reparent ─────────────────────────────

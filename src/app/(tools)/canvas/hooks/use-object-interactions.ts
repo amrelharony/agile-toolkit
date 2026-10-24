@@ -10,6 +10,13 @@ import { normalizedRect } from "@/lib/geometry/bbox";
 import type { Rect } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool, ResizeHandle } from "../use-canvas-store";
+import {
+  isLiveContainer,
+  isSprintBoard,
+  liveChildrenOf,
+  liveContainerOf,
+} from "../lib/live-board-ids";
+import { writeLiveCardEdit } from "../lib/live-card-writer";
 
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
@@ -250,6 +257,15 @@ export function useObjectInteractions(params: {
         initialRects[sid] = { x: o.x, y: o.y, w: o.w, h: o.h };
       }
       if (!anyMovable) return;
+      // A live board (Sprint board, Story map) carries its cards along,
+      // locked ones included: the board lays them out, so they move with
+      // it instead of waiting behind until the drag ends.
+      for (const sid of Object.keys(initialRects)) {
+        if (!isLiveContainer(objectsById.get(sid))) continue;
+        for (const child of liveChildrenOf(sid, objects)) {
+          initialRects[child.id] ??= { x: child.x, y: child.y, w: child.w, h: child.h };
+        }
+      }
       // Snapshot BEFORE the drag starts mutating the store. The
       // pointer-move handler updates positions on every frame, so by
       // pointer-up the store is already at post-drag — snapshot there
@@ -340,6 +356,28 @@ export function useObjectInteractions(params: {
       if (!obj) {
         setEditingObjectId(null);
         return;
+      }
+      // A Sprint board card's title is its story's: save it there (the
+      // card shows what the story took). Other live children are locked.
+      if (obj.type === "card") {
+        const live = liveContainerOf(id, objectsById);
+        if (live) {
+          if (isSprintBoard(live) && text !== obj.title) {
+            const patch = writeLiveCardEdit(obj, { title: text });
+            if (Object.keys(patch).length > 0) {
+              pushSnapshot();
+              upsert({
+                ...obj,
+                ...patch,
+                version: obj.version + 1,
+                updatedAt: new Date().toISOString(),
+              });
+              log(CANVAS_ACTIONS.OBJECT_UPDATED, { id, action: "edit-text" });
+            }
+          }
+          setEditingObjectId(null);
+          return;
+        }
       }
       // Pick the right field by type. Sticky/text/shape store editable
       // text in `content`; frame/kanban/timer use `label`; card uses

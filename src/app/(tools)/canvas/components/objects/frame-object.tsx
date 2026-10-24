@@ -7,9 +7,11 @@
  */
 
 import React from "react";
+import Link from "next/link";
 import type { WhiteboardFrame, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { InlineEditor, LockBadge, FramePresenterNotesAffordance } from "./object-render-primitives";
 import type { ObjectViewBaseProps } from "./object-view-shared";
+import { isStoryMapBoard } from "../../lib/live-board-ids";
 
 export function FrameObject({
   object: o,
@@ -97,6 +99,23 @@ export function FrameObject({
           />
         ) : (
           o.label || <span style={{ opacity: 0.5 }}>Frame</span>
+        )}
+        {/* A live story map is read-only here: point to where it's edited. */}
+        {!editing && isStoryMapBoard(o) && (
+          <Link
+            href="/story-mapper"
+            data-canvas-export-ignore="true"
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              marginLeft: 8,
+              fontSize: 12,
+              fontWeight: 500,
+              color: "inherit",
+              textDecoration: "underline",
+            }}
+          >
+            Edit in Story Mapper
+          </Link>
         )}
       </div>
       {o.locked && !editing && <LockBadge z={o.z} />}

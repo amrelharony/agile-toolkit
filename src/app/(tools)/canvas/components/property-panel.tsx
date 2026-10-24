@@ -55,6 +55,7 @@ import type {
   WhiteboardKanbanFrame,
   ConnectorRouting,
 } from "@/lib/stores/workspace-types";
+import { isSprintBoard } from "../lib/live-board-ids";
 
 interface PropertyPanelProps {
   selection: readonly WhiteboardObject[];
@@ -147,7 +148,11 @@ function PropertyPanelImpl({
   const cards = selection.filter((o): o is WhiteboardCard => o.type === "card");
   const timers = selection.filter((o): o is WhiteboardTimer => o.type === "timer");
   const votings = selection.filter((o): o is WhiteboardVoting => o.type === "voting");
-  const kanbans = selection.filter((o): o is WhiteboardKanbanFrame => o.type === "kanban");
+  // A Sprint board's columns are the story statuses (its reconcile puts
+  // them back), so the column presets are for plain kanbans only.
+  const kanbans = selection.filter(
+    (o): o is WhiteboardKanbanFrame => o.type === "kanban" && !isSprintBoard(o)
+  );
 
   /** Apply the same patch to every object in `targets`. */
   const patchAll = <T extends WhiteboardObject>(targets: readonly T[], patch: Partial<T>) => {

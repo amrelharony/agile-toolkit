@@ -17,6 +17,8 @@ import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool } from "../use-canvas-store";
 import type { KeyboardZoomActions } from "./use-pan-zoom-controls";
+import { toast } from "@/lib/utils/toast";
+import { keptLiveNote, liveDeletion, withoutLiveChildren } from "../lib/live-boards";
 
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
@@ -238,31 +240,42 @@ export function useCanvasShortcuts(params: {
         setTool: (t) => setTool(t as CanvasTool),
         deleteSelected: guardMut(() => {
           if (selection.length === 0) return;
+          // A live board goes with its cards; a card of a board that stays
+          // can't go (the board would rebuild it), so say where to change it.
+          const { ids, kept, keptFrom } = liveDeletion(selection, objectsRef.current ?? []);
+          if (kept > 0) toast.info(keptLiveNote(keptFrom));
+          if (ids.length === 0) return;
           pushSnapshot();
           // Capture types BEFORE the remove for a sane activity summary.
           const summary =
-            selection.length === 1
-              ? `Deleted ${objectsByIdRef.current?.get(selection[0])?.type ?? "object"}`
-              : `Deleted ${selection.length} objects`;
-          removeMany([...selection]);
-          log(CANVAS_ACTIONS.OBJECT_REMOVED, { count: selection.length, ids: selection });
+            ids.length === 1
+              ? `Deleted ${objectsByIdRef.current?.get(ids[0])?.type ?? "object"}`
+              : `Deleted ${ids.length} objects`;
+          removeMany(ids);
+          log(CANVAS_ACTIONS.OBJECT_REMOVED, { count: ids.length, ids });
           logActivity("deleted", summary);
           clearSelection();
         }),
         selectAll: () => setSelection((objectsRef.current ?? []).map((o) => o.id)),
+        // A copied live board leaves its cards out: the pasted board
+        // builds its own from the sprint or map, so copies would double up.
         copy: () => {
           const sel = (objectsRef.current ?? []).filter((o) => selection.includes(o.id));
-          if (sel.length > 0) void copyObjects(sel);
+          if (sel.length > 0) void copyObjects(withoutLiveChildren(sel));
         },
         cut: guardMut(() => {
-          const sel = (objectsRef.current ?? []).filter((o) => selection.includes(o.id));
+          const all = objectsRef.current ?? [];
+          const { ids, kept, keptFrom } = liveDeletion(selection, all);
+          if (kept > 0) toast.info(keptLiveNote(keptFrom));
+          const cutIds = new Set(ids);
+          const sel = all.filter((o) => cutIds.has(o.id));
           if (sel.length === 0) return;
           pushSnapshot();
-          void copyObjects(sel);
-          removeMany([...selection]);
+          void copyObjects(withoutLiveChildren(sel));
+          removeMany(ids);
           log(CANVAS_ACTIONS.OBJECT_REMOVED, {
-            count: selection.length,
-            ids: selection,
+            count: ids.length,
+            ids,
             action: "cut",
           });
           logActivity("cut", sel.length === 1 ? `Cut ${sel[0].type}` : `Cut ${sel.length} objects`);
@@ -283,7 +296,9 @@ export function useCanvasShortcuts(params: {
           })();
         }),
         duplicate: guardMut(() => {
-          const sel = (objectsRef.current ?? []).filter((o) => selection.includes(o.id));
+          const sel = withoutLiveChildren(
+            (objectsRef.current ?? []).filter((o) => selection.includes(o.id))
+          );
           if (sel.length === 0) return;
           pushSnapshot();
           const dup = duplicateObjects(sel, boardId);

@@ -10,13 +10,17 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { wbId } from "@/lib/whiteboard/clipboard";
+import type { Rect } from "@/lib/geometry/bbox";
+import { LiveBoardTemplates } from "./live-board-templates";
 
 interface Props {
   boardId: string;
   onClose: () => void;
+  /** Called with a live board's rect after it is added, so the canvas can bring it into view. */
+  onApplied?: (rect: Rect) => void;
 }
 
-export function TemplateGallery({ boardId, onClose }: Props) {
+export function TemplateGallery({ boardId, onClose, onApplied }: Props) {
   // Stable callback ref so the keydown effect doesn't re-register on
   // every parent render (the canvas typically passes an inline
   // `onClose={() => setShowTemplates(false)}`).
@@ -34,6 +38,10 @@ export function TemplateGallery({ boardId, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // An open menu inside the gallery (the live Sprint board's sprint
+      // picker) closes itself on Esc and marks the event handled; that Esc
+      // must not take the whole gallery with it.
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -274,6 +282,17 @@ export function TemplateGallery({ boardId, onClose }: Props) {
             <option value="brainstorm">Brainstorm</option>
           </select>
         </div>
+
+        {(category === "all" || category === "planning") && (
+          <LiveBoardTemplates
+            boardId={boardId}
+            query={search}
+            onAdded={(rect) => {
+              onApplied?.(rect);
+              onClose();
+            }}
+          />
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           {filteredTemplates.length === 0 && (

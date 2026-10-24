@@ -32,9 +32,11 @@ interface Props {
   card: WhiteboardCard;
   onPatch: (id: string, patch: Partial<WhiteboardObject>) => void;
   onClose: () => void;
+  /** Where this card's edits go, when not only to the card (a Sprint board card's story). */
+  linkNote?: string;
 }
 
-export function CardDetailModal({ card, onPatch, onClose }: Props) {
+export function CardDetailModal({ card, onPatch, onClose, linkNote }: Props) {
   // Local form state mirrors the card's persisted state. We commit on
   // form submit / blur rather than per-keystroke so realtime peers
   // don't see flicker-typing while you're filling in the form.
@@ -203,7 +205,10 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
     // touched.
     const snap = openSnapshotRef.current;
     const patch: Partial<WhiteboardCard> = {};
-    if (title !== snap.title) patch.title = title.trim() || "Untitled card";
+    // A card whose edits go elsewhere (`linkNote`: a Sprint board card's
+    // story) passes an emptied title on as it is: its writer keeps the
+    // story's title and says so, instead of renaming it "Untitled card".
+    if (title !== snap.title) patch.title = title.trim() || (linkNote ? "" : "Untitled card");
     if (description !== snap.description) patch.description = description.trim() || undefined;
     if (assignee !== snap.assignee) patch.assignee = assignee.trim() || undefined;
     if (due !== snap.due) patch.due = dueISO;
@@ -431,11 +436,15 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
               Save
             </button>
           </div>
-          {card.sourceRef && (
-            <p className="text-xs text-sub italic text-center pt-1">
-              Linked to a {card.sourceRef.tool} item. {card.sourceRef.tool} edits flow into this
-              card; card edits stay on the canvas.
-            </p>
+          {linkNote ? (
+            <p className="text-xs text-sub italic text-center pt-1">{linkNote}</p>
+          ) : (
+            card.sourceRef && (
+              <p className="text-xs text-sub italic text-center pt-1">
+                Linked to a {card.sourceRef.tool} item. {card.sourceRef.tool} edits flow into this
+                card; card edits stay on the canvas.
+              </p>
+            )
           )}
         </form>
       </div>
