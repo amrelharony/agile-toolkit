@@ -4,7 +4,7 @@ import { SprintMetricsClient } from "./sprint-metrics-client";
 export const metadata: Metadata = {
   title: "Sprint Metrics",
   description:
-    "Every sprint in one place: committed, scope, done, pace against the ideal line and the recent average, with links into Burndown, Burnup, Velocity, Sprint Comparison and Release Planner.",
+    "How your sprints went over time: say/do, carry-over and scope churn across the last finished sprints, with links to the cockpit and every sprint tool.",
 };
 
 export default function SprintMetricsPage() {

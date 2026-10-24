@@ -1,20 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
 import { SELECTED_SPRINT_KEY, resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { useSprintMigrationStore } from "@/lib/sprints/migration-status";
-import { sprintStatus } from "@/lib/sprints/metrics";
 import { SPRINT_METRICS_ACTIONS } from "@/lib/history/event-actions";
+import { CEREMONY_CADENCE_ID } from "@/lib/stores/workspace-types";
+import { DEFAULT_CADENCE } from "@/lib/sprints/cadence";
 
 /**
- * The Sprint Metrics hub: one place for the shared sprints. It opens on the
- * same sprint as every sprint tool, shows the series' numbers, deep-links
- * the tools with ?sprint=, closes and reopens sprints, flags data problems,
- * and offers an example that is never saved.
+ * Sprint Metrics around the trend: the current sprint is left to the
+ * cockpit (a card links there), the sprint tools and the board-level tools
+ * are plain links, the data checks stay (points added with Undo, dates and
+ * details fixed in the cockpit, migrated sprints checked once), new sprints
+ * take the cadence's length, and the example is never saved. The trend
+ * itself is covered by sprint-metrics-upgrade.test.tsx; the current
+ * sprint's tiles, close and details by the cockpit's tests.
  */
 
+const toastSpy = vi.hoisted(() =>
+  Object.assign(vi.fn(), { dismiss: vi.fn(), error: vi.fn(), success: vi.fn() })
+);
+vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 const logs = vi.hoisted(() => [] as { action: string; payload: Record<string, unknown> }[]);
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({
@@ -35,14 +43,10 @@ vi.mock("@/components/shared/export-button", () => ({
     <pre data-testid="export-markdown">{markdown}</pre>
   ),
 }));
-vi.stubGlobal(
-  "ResizeObserver",
-  class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-);
+vi.mock("@/app/(tools)/sprint-metrics/charts", () => ({
+  SayDoChart: () => null,
+  ChurnChart: () => null,
+}));
 
 import {
   SprintMetricsClient,
@@ -75,30 +79,27 @@ const S3: Sprint = {
   pointsPlanned: 0,
   status: "planned",
 };
-/** Day 0: 30 left; day 2: 27 left (ideal is 24): 3 points behind. Rated 7.5. */
-const SERIES2: SprintSeries = {
-  id: "s2",
-  days: [
-    { day: 0, remaining: 30 },
-    { day: 2, remaining: 27 },
-  ],
-  ratings: { Velocity: 7, Quality: 8 },
-};
+const SERIES2: SprintSeries = { id: "s2", days: [{ day: 0, remaining: 30 }] };
 
 const state = () => useWorkspaceStore.getState();
 const stored = (id: string) => state().sprints.find((s) => s.id === id);
-const heading = (name: string) => screen.getByRole("heading", { level: 2, name });
-const tile = (container: HTMLElement, id: string) =>
-  container.querySelector(`[data-tile="${id}"]`)?.textContent ?? "";
 
 function seed(sprints: Sprint[], series: SprintSeries[] = []) {
-  useWorkspaceStore.setState({ sprints, sprintSeries: series });
+  useWorkspaceStore.setState({ sprints, sprintSeries: series, stories: [] });
 }
+
+/** Click Undo on the newest toast. */
+const undoLast = () => {
+  const opts = toastSpy.mock.calls.at(-1)?.[1] as { action?: { onClick: () => void } } | undefined;
+  expect(opts?.action).toBeTruthy();
+  act(() => opts?.action?.onClick());
+};
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 9, 19, 12, 0, 0)); // 19 Oct 2026: day 4 of Sprint 2
   logs.length = 0;
+  toastSpy.mockReset();
   resetSelectedSprint();
   window.localStorage.clear();
   window.history.replaceState(null, "", "/sprint-metrics");
@@ -109,93 +110,34 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   seed([], []);
+  useWorkspaceStore.setState({ ceremonyCadences: [] });
 });
 
-describe("choosing the sprint", () => {
-  it("opens on the active sprint", () => {
+describe("the current sprint", () => {
+  it("is left to the cockpit, with a card that links there", () => {
     render(<SprintMetricsClient />);
-    expect(heading("Sprint 2")).toBeInTheDocument();
-    expect(screen.getByText("Day 4 of 10")).toBeInTheDocument();
-    expect(screen.getByText("Checkout works end to end")).toBeInTheDocument();
-  });
-
-  it("lets a ?sprint= link win over the active sprint", () => {
-    window.history.replaceState(null, "", "/sprint-metrics?sprint=s1");
-    render(<SprintMetricsClient />);
-    expect(heading("Sprint 1")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { level: 2, name: "Sprint 2" })).toBeNull();
-  });
-});
-
-describe("tiles", () => {
-  it("come from the sprint's series", () => {
-    const { container } = render(<SprintMetricsClient />);
-    const status = sprintStatus(S2, SERIES2);
-    expect(status).toMatchObject({ remaining: 27, done: 3, gap: 3, scopeNow: 30 });
-
-    expect(tile(container, "committed")).toContain("30");
-    expect(tile(container, "scope")).toContain("No change since the plan");
-    expect(tile(container, "done")).toContain("3");
-    expect(tile(container, "done")).toContain("10% of the scope");
-    expect(tile(container, "remaining")).toContain("27");
-    expect(tile(container, "remaining")).toContain("On day 2");
-    expect(tile(container, "gap")).toContain("Behind by 3 points");
-    expect(tile(container, "gap")).toContain("Ideal: 24 left on day 2");
-    expect(tile(container, "finish")).toContain(
-      `Day ${Math.ceil(status.projectedFinishDay as number)}`
+    expect(screen.getByText(/is running · Day 4 of 10/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open the cockpit/ })).toHaveAttribute(
+      "href",
+      "/sprint?sprint=s2"
     );
-    // Committed against the other finished sprints' average (Sprint 1: 26).
-    expect(tile(container, "average")).toContain("30 vs 26");
-    expect(tile(container, "average")).toContain("4 over the last sprint");
-    expect(tile(container, "rating")).toContain("7.5");
-  });
-
-  it("say honestly when nothing is logged", () => {
-    window.history.replaceState(null, "", "/sprint-metrics?sprint=s3");
-    const { container } = render(<SprintMetricsClient />);
-    expect(tile(container, "done")).toContain("Not logged yet");
-    expect(tile(container, "remaining")).toContain("Not logged yet");
-    expect(tile(container, "gap")).toContain("Not logged yet");
-    expect(tile(container, "finish")).toContain("Not logged yet");
-    expect(container.querySelector('[data-tile="rating"]')).toBeNull();
-    expect(screen.getByText("Starts in 7 days")).toBeInTheDocument();
-  });
-
-  it("exports the selected sprint as Markdown", () => {
-    render(<SprintMetricsClient />);
-    const md = screen.getByTestId("export-markdown").textContent ?? "";
-    expect(md).toContain("# Sprint 2");
-    expect(md).toContain("**Goal:** Checkout works end to end");
-    expect(md).toContain("| Pace vs ideal | Behind by 3 points |");
-    expect(md).toContain("## Daily log");
-    expect(md).toMatch(/\| 2 \| 17 Oct \| 27 \| 3 \| 30 \|/);
+    // No tiles, close or details here any more.
+    expect(document.querySelector("[data-tile]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close sprint" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit details" })).toBeNull();
   });
 });
 
-describe("tool cards", () => {
-  it("open each sprint tool on this sprint, with a status line", () => {
+describe("tool links", () => {
+  it("open each sprint tool on the current sprint", () => {
     render(<SprintMetricsClient />);
     const tools = screen.getByRole("region", { name: "Sprint tools" });
     const link = (name: RegExp) => within(tools).getByRole("link", { name });
-
     expect(link(/^Burndown/)).toHaveAttribute("href", "/burndown?sprint=s2");
-    expect(link(/^Burndown/)).toHaveTextContent("2 of 11 days logged");
     expect(link(/^Burnup/)).toHaveAttribute("href", "/burnup?sprint=s2");
-    expect(link(/^Burnup/)).toHaveTextContent("3 of 30 points done");
     expect(link(/^Velocity/)).toHaveAttribute("href", "/velocity?sprint=s2");
-    expect(link(/^Velocity/)).toHaveTextContent("Average 26 points over 1 sprint");
     expect(link(/^Sprint Comparison/)).toHaveAttribute("href", "/sprint-compare?sprint=s2");
-    expect(link(/^Sprint Comparison/)).toHaveTextContent("Rated 7.5");
     expect(link(/^Release Planner/)).toHaveAttribute("href", "/release-planner?sprint=s2");
-  });
-
-  it("show Sprint Comparison as not rated yet", () => {
-    seed([S1, S2, S3], [{ ...SERIES2, ratings: {} }]);
-    render(<SprintMetricsClient />);
-    const tools = screen.getByRole("region", { name: "Sprint tools" });
-    expect(within(tools).getByRole("link", { name: /^Sprint Comparison/ })).toHaveTextContent(
-      "Not rated yet"
-    );
   });
 
   it("list Cumulative Flow and Cycle Time as board-level links", () => {
@@ -210,78 +152,16 @@ describe("tool cards", () => {
       "href",
       "/cycle-time"
     );
-    const tools = screen.getByRole("region", { name: "Sprint tools" });
-    expect(within(tools).queryByRole("link", { name: /Cumulative Flow|Cycle Time/ })).toBeNull();
-  });
-});
-
-describe("closing a sprint", () => {
-  it("sets its status and completed points, suggested from the log", () => {
-    render(<SprintMetricsClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Close sprint" }));
-    const dialog = screen.getByRole("dialog");
-    const input = within(dialog).getByLabelText(/Completed points/);
-    expect(input).toHaveValue(3); // done by day 2
-    fireEvent.change(input, { target: { value: "5" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close sprint" }));
-
-    expect(stored("s2")).toMatchObject({ status: "completed", pointsCompleted: 5 });
-    expect(logs).toContainEqual({
-      action: SPRINT_METRICS_ACTIONS.SPRINT_CLOSED,
-      payload: expect.objectContaining({ sprintId: "s2", pointsCompleted: 5 }),
-    });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    // Still on the sprint just closed, though it's no longer the active one.
-    expect(heading("Sprint 2")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
-    expect(stored("s2")?.status).toBe("active");
-    expect(logs.map((l) => l.action)).toContain(SPRINT_METRICS_ACTIONS.SPRINT_REOPENED);
-    expect(screen.getByRole("button", { name: "Close sprint" })).toBeInTheDocument();
-  });
-
-  it("won't close without a number", () => {
-    window.history.replaceState(null, "", "/sprint-metrics?sprint=s3");
-    render(<SprintMetricsClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Close sprint" }));
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByLabelText(/Completed points/)).toHaveValue(null);
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close sprint" }));
-    expect(within(dialog).getByText("Enter 0 or more points.")).toBeInTheDocument();
-    expect(stored("s3")?.status).toBe("planned");
-  });
-});
-
-describe("editing details", () => {
-  it("saves the name, goal and committed points on blur", () => {
-    render(<SprintMetricsClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
-
-    const name = screen.getByLabelText(/^Name/);
-    fireEvent.change(name, { target: { value: "Sprint 2: checkout" } });
-    fireEvent.blur(name);
-    expect(stored("s2")?.name).toBe("Sprint 2: checkout");
-
-    const goal = screen.getByLabelText("Sprint goal");
-    fireEvent.change(goal, { target: { value: "" } });
-    fireEvent.blur(goal);
-    expect(stored("s2")?.goal).toBeUndefined();
-
-    const committed = screen.getByLabelText("Committed points");
-    fireEvent.change(committed, { target: { value: "34" } });
-    fireEvent.blur(committed);
-    expect(stored("s2")?.pointsPlanned).toBe(34);
   });
 });
 
 describe("data-quality nudges", () => {
-  it("asks for completed points on a finished sprint without them", () => {
+  it("asks for completed points on a finished sprint without them, with Undo", () => {
     seed([{ ...S1, pointsCompleted: undefined }, S2, S3], [SERIES2]);
-    window.history.replaceState(null, "", "/sprint-metrics?sprint=s1");
     render(<SprintMetricsClient />);
-    expect(screen.getByText(/is done but has no completed points/)).toBeInTheDocument();
+    expect(screen.getByText(/Sprint 1 is done but has no completed points/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add completed points" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add completed points to Sprint 1" }));
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText(/Completed points/), {
       target: { value: "24" },
@@ -290,10 +170,15 @@ describe("data-quality nudges", () => {
 
     expect(stored("s1")).toMatchObject({ status: "completed", pointsCompleted: 24 });
     expect(screen.queryByText(/is done but has no completed points/)).toBeNull();
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Added 24 points to Sprint 1");
     expect(logs.map((l) => l.action)).not.toContain(SPRINT_METRICS_ACTIONS.SPRINT_CLOSED);
+
+    undoLast();
+    expect(stored("s1")?.pointsCompleted).toBeUndefined();
+    expect(screen.getByText(/Sprint 1 is done but has no completed points/)).toBeInTheDocument();
   });
 
-  it("offers to set real dates on a sprint with placeholder dates", () => {
+  it("sends a sprint with placeholder dates to the cockpit to set them", () => {
     const old: Sprint = {
       id: "v1",
       name: "Old sprint",
@@ -304,20 +189,12 @@ describe("data-quality nudges", () => {
       status: "completed",
     };
     seed([old, S2], [SERIES2]);
-    window.history.replaceState(null, "", "/sprint-metrics?sprint=v1");
     render(<SprintMetricsClient />);
-    expect(screen.getByText(/has no real dates/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Set real dates" }));
-    const first = screen.getByLabelText("First day");
-    expect(first).toHaveFocus();
-    fireEvent.change(first, { target: { value: "2026-08-03" } });
-    const last = screen.getByLabelText("Last day");
-    fireEvent.change(last, { target: { value: "2026-08-14" } });
-    fireEvent.blur(last);
-
-    expect(stored("v1")).toMatchObject({ startDate: "2026-08-03", endDate: "2026-08-14" });
-    expect(screen.queryByText(/has no real dates/)).toBeNull();
+    expect(screen.getByText(/Old sprint has no real dates/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Set real dates for Old sprint" })).toHaveAttribute(
+      "href",
+      "/sprint?sprint=v1"
+    );
   });
 
   it("flags a sprint made by the migration until it's checked", () => {
@@ -326,35 +203,38 @@ describe("data-quality nudges", () => {
     expect(
       screen.getByText(/made from your earlier Burndown and Velocity data/)
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Check the details of Sprint 2" })).toHaveAttribute(
+      "href",
+      "/sprint?sprint=s2"
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Check this sprint's details" }));
-    expect(screen.getByLabelText(/^Name/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Looks right" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sprint 2 looks right" }));
     expect(screen.queryByText(/made from your earlier/)).toBeNull();
     expect(JSON.parse(window.localStorage.getItem(CHECKED_SPRINTS_KEY) ?? "[]")).toEqual(["s2"]);
   });
 
-  it("points to other sprints that need a look", () => {
-    seed([{ ...S1, pointsCompleted: undefined }, S2, S3], [SERIES2]);
+  it("remembers the checked sprints from before (the same key)", () => {
+    window.localStorage.setItem(CHECKED_SPRINTS_KEY, JSON.stringify(["s2"]));
+    seed([S1, S2, S3], [{ ...SERIES2, migratedFrom: ["burndown"] }]);
     render(<SprintMetricsClient />);
-    expect(heading("Sprint 2")).toBeInTheDocument();
-    expect(screen.getByText("Sprints to check:")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Sprint 1" }));
-    expect(heading("Sprint 1")).toBeInTheDocument();
-    expect(window.localStorage.getItem(SELECTED_SPRINT_KEY)).toBe("s1");
+    expect(screen.queryByText(/made from your earlier/)).toBeNull();
   });
 });
 
 describe("no sprints yet", () => {
   beforeEach(() => seed([], []));
 
-  it("offers to create the first sprint, and logs it", () => {
+  it("offers to create the first sprint at the cadence's length, and logs it", () => {
+    useWorkspaceStore.setState({
+      ceremonyCadences: [{ ...DEFAULT_CADENCE, id: CEREMONY_CADENCE_ID, sprintLengthDays: 7 }],
+    });
     render(<SprintMetricsClient />);
     expect(screen.queryByText("Loading sprints…")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Create your first sprint" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText(/^Name/)).toHaveValue("Sprint 1");
+    expect(within(dialog).getByLabelText(/First day/)).toHaveValue("2026-10-19");
+    expect(within(dialog).getByLabelText(/Last day/)).toHaveValue("2026-10-26");
     fireEvent.change(within(dialog).getByLabelText(/Planned points/), {
       target: { value: "20" },
     });
@@ -362,11 +242,11 @@ describe("no sprints yet", () => {
 
     expect(state().sprints).toHaveLength(1);
     expect(state().sprints[0]).toMatchObject({ name: "Sprint 1", pointsPlanned: 20 });
-    expect(heading("Sprint 1")).toBeInTheDocument();
     expect(logs).toContainEqual({
       action: SPRINT_METRICS_ACTIONS.SPRINT_CREATED,
       payload: expect.objectContaining({ sprintId: state().sprints[0].id, name: "Sprint 1" }),
     });
+    expect(window.localStorage.getItem(SELECTED_SPRINT_KEY)).toBe(state().sprints[0].id);
   });
 
   it("still links the board-level tools", () => {
@@ -377,14 +257,11 @@ describe("no sprints yet", () => {
 
   it("shows an example that writes nothing", () => {
     render(<SprintMetricsClient />);
-    fireEvent.click(screen.getByRole("button", { name: "See an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
-    expect(screen.getByText("Example sprints.")).toBeInTheDocument();
-    expect(heading("Sprint 5")).toBeInTheDocument();
-    expect(screen.getByText("Day 5 of 14")).toBeInTheDocument();
-    // Read-only: no editing, closing or data checks.
-    expect(screen.queryByRole("button", { name: "Close sprint" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Edit details" })).toBeNull();
+    expect(screen.getByText("Example data.")).toBeInTheDocument();
+    // The verdict, on the page and in the export.
+    expect(screen.getAllByText(/^Over the last 6 sprints/).length).toBeGreaterThan(0);
     // Tools open on the user's own sprints, not an example id.
     const tools = screen.getByRole("region", { name: "Sprint tools" });
     expect(within(tools).getByRole("link", { name: /^Burndown/ })).toHaveAttribute(
@@ -393,7 +270,7 @@ describe("no sprints yet", () => {
     );
 
     expect(state().sprints).toEqual([]);
-    expect(state().sprintSeries).toEqual([]);
+    expect(state().stories).toEqual([]);
     expect(window.localStorage.getItem(SELECTED_SPRINT_KEY)).toBeNull();
     expect(logs).toEqual([]);
 
@@ -401,7 +278,7 @@ describe("no sprints yet", () => {
     expect(within(screen.getByRole("dialog")).getByText("New sprint")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Close example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.getByRole("button", { name: "Create your first sprint" })).toBeInTheDocument();
     expect(state().sprints).toEqual([]);
   });
