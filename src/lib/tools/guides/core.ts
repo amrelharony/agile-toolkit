@@ -65,37 +65,60 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "kanban",
     summary:
-      "A Kanban board shows work flowing from idea to done. Work-in-progress (WIP) limits stop the team starting more than it can finish.",
+      "Two boards. The Sprint board shows the selected sprint's stories by status and saves every move on the story, so the Sprint Cockpit, the standup and the Sprint Review read it. The Flow board holds free cards with WIP limits, classes of service, cycle time and throughput.",
     whenToUse: [
-      "For continuous work like support, operations or platform teams.",
-      "Inside a sprint, to see where work gets stuck.",
+      "During the sprint, to move stories as work starts and finishes.",
+      "When work seems stuck: each card shows its days in the column, and a column over its WIP limit is flagged.",
+      "For work outside a sprint, or a team that doesn't run sprints, on the Flow board.",
     ],
     steps: [
-      "Add cards to Backlog.",
-      "Set a WIP limit for each in-progress column (start with roughly the team size).",
-      "Pull a card forward only when the next column has room.",
-      "When a column hits its limit, help finish work there instead of starting new work.",
-      "Review cycle time and throughput weekly.",
+      "Pick Sprint board or Flow board at the top. It opens on the Sprint board while a sprint is active, otherwise on the Flow board, and remembers your choice in this browser.",
+      "On the Sprint board, pick the sprint under Sprint. Drag a story by its grip, or use Move to… on the card, to put it in To do, In progress, Review or Done. Each move offers Undo.",
+      "Click No owner (Unassigned on the Flow board) to pick who has the card, then Save. Click Flag blocked when it's stuck and Unblock once it moves again.",
+      "Type WIP limits in the column headers. A column over its limit shows a warning but never blocks a move: finish something there before pulling more.",
+      "On the Flow board, type a New card title and click Add; paste several lines to add one card per line. Retro actions sent with Send to… land in Backlog too.",
+      "Above the Flow board, Cycle avg needs three finished cards and 85% within needs five; the Weekly throughput chart and Advanced analysis follow as history builds. Export gives the board on screen as Markdown, CSV or JSON.",
     ],
     tips: [
-      "Stop starting, start finishing.",
-      "A card that sits in one column for days is a conversation to have at standup.",
+      "The two boards share their WIP limits: the Sprint board's To do uses the Flow board's Ready limit.",
+      "A completed or cancelled sprint's board is read-only. Pick an open sprint to keep moving stories.",
+    ],
+    scales: [
+      {
+        name: "Class of service (Flow board)",
+        values: [
+          { value: "Standard", meaning: "the usual work, pulled in order" },
+          { value: "Expedite", meaning: "urgent work that jumps the queue; keep it rare" },
+          { value: "Fixed Date", meaning: "has to be done by a set date, so start it in time" },
+          {
+            value: "Intangible",
+            meaning: "no visible value yet but costly to put off, such as an upgrade",
+          },
+        ],
+      },
     ],
   },
   {
     toolId: "standup",
     summary:
-      "The daily standup is a short check-in where the team syncs on progress towards the sprint goal and surfaces blockers early.",
-    whenToUse: ["Every working day, same time and place.", "For co-located or call-based teams."],
+      "The Standup Tracker runs the Daily Scrum person by person over the sprint board, with a clock for each turn. You get one update per person per day and the open blockers with their age, each one ready to raise as an impediment.",
+    whenToUse: [
+      "Every working day, for the 15-minute Daily Scrum on a shared screen or call.",
+      "When the standup turns into a status report: each turn starts from the person's own cards and what they planned last time.",
+      "When blockers come up at standup and then get forgotten.",
+    ],
     steps: [
-      "Each person shares what they finished, what they'll do next and anything blocking them.",
-      "Record blockers so they're followed up after the standup.",
-      "Take detailed discussions offline with only the people involved.",
+      "The speaking order is your team from the Team page. On Walk the board, check the sprint (it opens on the active one), leave Each turn on Auto or pick a length, and click Start the standup.",
+      "Each turn shows that person's stories by status, the blocked ones flagged, and what they planned last time. Click Next speaker, or Skip for now if they're not here yet (they come round again after everyone else). Click End standup to finish.",
+      "Type their update in Today's Standup as they talk. Yesterday is filled in from their last plan, and Today is required. Click Submit Standup, or press Ctrl/⌘+Enter.",
+      "Someone on leave? Click Not in today's standup next to their name. It lasts for today in this browser and the team stays as it is; Back in returns them.",
+      "In the Blockers tab, Open blockers are listed oldest first with their age. Send to… then Impediment raises one; Resolve closes it and Reopen brings it back.",
+      "History shows past days by day or person; the Export menus next to Day digest and Week copy that summary or save it as Markdown.",
     ],
     tips: [
-      "Keep it to 15 minutes. Use the Ceremony Timer if it drifts.",
-      "Talk about the sprint goal, not just task lists.",
-      "Spread across time zones? Try the Async Standup Digest.",
+      "The turn's clock stays on the docked timer while you open the sprint board to move cards. Reloading the page ends the walk.",
+      "A story shows in its owner's turn, so one with no owner shows in nobody's. Set owners on the sprint board.",
+      "Part of the team writes instead? Switch to Async: both modes share the same entries.",
     ],
     timebox: "15 minutes",
   },
@@ -333,13 +356,26 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "ceremony-timer",
     summary:
-      "The ceremony timer keeps meetings on time, with fair turns for each speaker and a visible countdown.",
-    whenToUse: ["Standups, retros and any timeboxed meeting."],
-    steps: [
-      "Pick a preset or set the total time.",
-      "Add participants to share the time equally.",
-      "Start the timer and move to the next speaker when their time is up.",
+      "The Ceremony Timer runs a ceremony to its agenda, with a time-box for each segment and fair turns for each speaker. When you finish, you get planned against actual for every segment and turn, ready to export.",
+    whenToUse: [
+      "A Daily Scrum where everyone should get a fair share of the 15 minutes.",
+      "A retro, planning or review where one part of the agenda keeps running over.",
+      "Any time-boxed meeting, or a 1-2-4-All, on a shared screen.",
     ],
-    tips: ["Show it full screen during calls so everyone sees the time."],
+    steps: [
+      "Under Agenda, pick the ceremony: Daily Scrum, Sprint Planning, Backlog Refinement, Sprint Review, Sprint Retrospective, 1-2-4-All or Custom time-box. Planning, Review and Retrospective scale with your sprint length.",
+      "To change it for your team, click Edit agenda. Rename segments, change their minutes or the Total minutes, tick Speakers take turns where people go in turn, then click Save agenda. A Custom time-box can't start until you save its Minutes. Once it's changed, Reset to defaults puts it back.",
+      "Under Speakers, add each name with Add speaker, or click Load team for everyone on the Team page. The list is the speaking order. Only the Daily Scrum takes turns by default; switch on Speakers take turns here for the segment that's on.",
+      "Click Start timer (the play button) or press Space. At zero it shows Over time and counts up; it never moves on by itself. In a round of turns, use Next speaker (N), or Skip speaker (S) for someone absent. Next segment (Shift+N) moves on. Each offers Undo.",
+      "On the last segment the button reads Finish. How it went then shows planned against actual for each segment and each speaker's turn. Use Export to copy or download it as Markdown. Start over clears the run.",
+    ],
+    tips: [
+      "Turns are worked out as you go: each speaker gets an even share of the time left when their turn starts. Finish early and the others get more; run over and they get less, never under half a minute.",
+      "Leave the page mid-meeting and the timer docks at the bottom left. Pause or resume it there while you use other tools; closing it pauses the meeting.",
+      "On a shared screen or call, use Enter fullscreen. Chime when time is up is off until you turn it on.",
+      "Export before the meeting too. The Markdown lists when each segment starts and, for a round of turns, the speaking order, ready for the invite.",
+    ],
+    timebox:
+      "Set by the agenda. For a two-week sprint: Daily Scrum 15 min, Planning 4 h, Refinement 1 h, Review 2 h, Retrospective 1 h 30 min, 1-2-4-All 12 min.",
   },
 ];
