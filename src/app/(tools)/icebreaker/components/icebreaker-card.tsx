@@ -56,11 +56,11 @@ export function IcebreakerCard({
           <Badge variant="outline" className={`text-xs ${CATEGORY_COLORS[icebreaker.category]}`}>
             {icebreaker.category}
           </Badge>
-          <Badge variant="outline" className="text-xs bg-cardH text-sub border-border">
+          <Badge variant="outline" className="text-xs bg-card-hover text-sub border-border">
             <Clock className="w-3 h-3 mr-0.5" aria-hidden="true" />
             {icebreaker.timeMinutes}m
           </Badge>
-          <Badge variant="outline" className="text-xs bg-cardH text-sub border-border">
+          <Badge variant="outline" className="text-xs bg-card-hover text-sub border-border">
             <Users className="w-3 h-3 mr-0.5" aria-hidden="true" />
             {peopleLabel(icebreaker)}
           </Badge>

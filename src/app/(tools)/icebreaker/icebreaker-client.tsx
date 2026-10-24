@@ -34,6 +34,7 @@ import {
   recentIds,
   relaxHint,
   withUse,
+  withUseDate,
   type Category,
   type Energy,
   type IcebreakerFilters,
@@ -180,6 +181,8 @@ export function IceBreakerClient() {
   const spinRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const featuredRef = useRef<HTMLHeadingElement>(null);
   const pendingFocus = useRef<"focus" | "scroll" | null>(null);
+  /** Bumped by every selection, so choosing the activity already shown still moves to it. */
+  const [selectCount, setSelectCount] = useState(0);
   const shown = byId.get(flashId ?? selectedId ?? "") ?? null;
 
   useEffect(
@@ -191,6 +194,7 @@ export function IceBreakerClient() {
 
   // After a card is chosen, the featured card is where the user looks next:
   // at 375 px it renders far above the grid, so without this nothing moved.
+  // It runs on every selection, the shown activity's own card included.
   useEffect(() => {
     const how = pendingFocus.current;
     if (!how || flashId) return;
@@ -198,11 +202,12 @@ export function IceBreakerClient() {
     const el = featuredRef.current;
     el?.scrollIntoView?.({ block: how === "focus" ? "start" : "nearest" });
     if (how === "focus") el?.focus({ preventScroll: true });
-  }, [selectedId, flashId]);
+  }, [selectCount, selectedId, flashId]);
 
   const select = useCallback((id: string, how: "focus" | "scroll") => {
     pendingFocus.current = how;
     useIcebreakerSession.setState({ selectedId: id });
+    setSelectCount((n) => n + 1);
   }, []);
 
   const handleRandomPick = () => {
@@ -314,8 +319,15 @@ export function IceBreakerClient() {
     log(ICEBREAKER_ACTIONS.USE_REMOVED, { promptId: u.icebreakerId, usedAt: u.usedAt });
   };
 
-  const changeUseDate = (u: IcebreakerUse, usedAt: string) =>
-    updateUses((list) => list.map((x) => (x.id === u.id ? { ...x, usedAt } : x)));
+  /** Re-date a use; never onto a day its activity already has one (see withUse). */
+  const changeUseDate = (u: IcebreakerUse, usedAt: string) => {
+    // The form already refuses a taken day; this covers a sync landing in between.
+    if (!withUseDate(used, u.id, usedAt).changed) {
+      toast(`${nameOf(u.icebreakerId)} is already recorded for that day`);
+      return;
+    }
+    updateUses((list) => withUseDate(list, u.id, usedAt).next);
+  };
 
   const restoreUses = (rows: IcebreakerUse[]) =>
     updateUses((list) => [...list, ...rows.filter((r) => !list.some((x) => x.id === r.id))]);
@@ -475,6 +487,8 @@ export function IceBreakerClient() {
             usedText={usedText(shown.id)}
             ownTimer={running?.id === shown.id ? ownTimer : null}
             otherTimer={otherTimer}
+            // Start publishes over this page's own clock, so say whose it is.
+            replacesTimer={ownTimer && running?.id !== shown.id ? ownTimer.label : null}
             today={today}
             onStartTimer={() => startTimer(shown)}
             onStopTimer={stopTimer}

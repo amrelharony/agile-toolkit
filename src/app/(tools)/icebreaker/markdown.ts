@@ -74,7 +74,8 @@ export function toMarkdown(
   const rows = [...used]
     .filter((u) => byId.has(u.icebreakerId))
     .sort((a, b) => Date.parse(b.usedAt) - Date.parse(a.usedAt));
-  lines.push("## Used recently", "");
+  // Every use, as on the page: "recent" means the last two weeks only.
+  lines.push("## History", "");
   if (rows.length === 0) lines.push("Nothing recorded yet.");
   else {
     lines.push(

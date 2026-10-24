@@ -32,12 +32,18 @@ export function PeopleField({
 }) {
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const changeRef = useRef<HTMLButtonElement>(null);
+  /** Set by "Use team size", which unmounts itself along with the field. */
+  const backToRoster = useRef(false);
   const editing = text !== null || fromRoster === null;
   const wasEditing = useRef(editing);
 
-  // Change opens the field with the team's number in it, ready to retype.
+  // Change opens the field with the team's number in it, ready to retype;
+  // "Use team size" closes it onto Change, so focus isn't dropped.
   useEffect(() => {
     if (editing && !wasEditing.current && fromRoster !== null) inputRef.current?.select();
+    if (!editing && backToRoster.current) changeRef.current?.focus();
+    backToRoster.current = false;
     wasEditing.current = editing;
   }, [editing, fromRoster]);
 
@@ -53,6 +59,7 @@ export function PeopleField({
         <p className="flex flex-wrap items-center gap-2 text-sm text-text">
           {plural(fromRoster ?? 0, "person", "people")}, from your team
           <Button
+            ref={changeRef}
             type="button"
             size="sm"
             variant="outline"
@@ -99,6 +106,7 @@ export function PeopleField({
               variant="ghost"
               onClick={() => {
                 setTouched(false);
+                backToRoster.current = true;
                 onUseRoster();
               }}
             >

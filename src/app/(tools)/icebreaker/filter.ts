@@ -161,6 +161,26 @@ export function pickRandom<T extends { id: string }>(
 }
 
 /**
+ * Whether `icebreakerId` already has a use on `usedAt`'s local day, other
+ * than the use `exceptId` (the one being re-dated): one use per activity
+ * per day.
+ */
+export function usedOnDay(
+  used: readonly IcebreakerUse[],
+  icebreakerId: string,
+  usedAt: string,
+  exceptId?: string
+): boolean {
+  const day = todayLocalISO(new Date(usedAt));
+  return used.some(
+    (u) =>
+      u.id !== exceptId &&
+      u.icebreakerId === icebreakerId &&
+      todayLocalISO(new Date(u.usedAt)) === day
+  );
+}
+
+/**
  * The uses with one more for `icebreakerId` on `usedAt`'s day, or the same
  * list when it was already recorded that day: restarting a warm-up's timer
  * in the same meeting is still one use.
@@ -169,9 +189,24 @@ export function withUse(
   used: readonly IcebreakerUse[],
   use: IcebreakerUse
 ): { next: IcebreakerUse[]; added: boolean } {
-  const day = todayLocalISO(new Date(use.usedAt));
-  const same = used.some(
-    (u) => u.icebreakerId === use.icebreakerId && todayLocalISO(new Date(u.usedAt)) === day
-  );
-  return same ? { next: [...used], added: false } : { next: [use, ...used], added: true };
+  return usedOnDay(used, use.icebreakerId, use.usedAt)
+    ? { next: [...used], added: false }
+    : { next: [use, ...used], added: true };
+}
+
+/**
+ * The uses with `useId` moved to `usedAt`, or the same list when that
+ * would give its activity a second use on that day (re-dating Monday's
+ * use onto Tuesday, which already has one, would count the warm-up twice).
+ */
+export function withUseDate(
+  used: readonly IcebreakerUse[],
+  useId: string,
+  usedAt: string
+): { next: IcebreakerUse[]; changed: boolean } {
+  const target = used.find((u) => u.id === useId);
+  if (!target || usedOnDay(used, target.icebreakerId, usedAt, useId)) {
+    return { next: [...used], changed: false };
+  }
+  return { next: used.map((u) => (u.id === useId ? { ...u, usedAt } : u)), changed: true };
 }

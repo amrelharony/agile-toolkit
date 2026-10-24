@@ -23,10 +23,16 @@ export function DockClock({
   timer,
   onStop,
   size = "lg",
+  controlRef,
 }: {
   timer: DockedTimer;
   onStop: () => void;
   size?: "lg" | "sm";
+  /**
+   * Its first control (Pause, or Close once time is up), where focus goes
+   * when Start swaps itself for this clock.
+   */
+  controlRef?: (el: HTMLElement | null) => void;
 }) {
   const announce = useAnnounce();
   const [now, setNow] = useState(() => Date.now());
@@ -55,6 +61,7 @@ export function DockClock({
       <span className="flex flex-wrap items-center gap-2">
         {!done && (
           <Button
+            ref={controlRef}
             type="button"
             size="sm"
             variant="outline"
@@ -73,7 +80,14 @@ export function DockClock({
             {running ? "Pause" : "Resume"}
           </Button>
         )}
-        <Button type="button" size="sm" variant="ghost" className="gap-1" onClick={onStop}>
+        <Button
+          ref={done ? controlRef : undefined}
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="gap-1"
+          onClick={onStop}
+        >
           <Square aria-hidden="true" />
           {done ? "Close timer" : "Stop timer"}
         </Button>

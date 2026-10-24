@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import type { IceBreaker } from "@/lib/constants/icebreakers";
 import type { DockedTimer } from "@/lib/timer/dock-timer";
 import { CATEGORY_COLORS, ENERGY_COLORS } from "../labels";
@@ -21,6 +22,10 @@ import { FavoriteToggle } from "./favorite-toggle";
 /**
  * The activity on screen: how to run it, its time-box on the docked timer,
  * and "Mark as used" for a warm-up run without the timer (backdatable).
+ *
+ * Only Start depends on the dock: a warm-up that opens a meeting timed by
+ * the Ceremony Timer is still marked as used here, or the "used recently"
+ * memory would miss exactly those.
  */
 export const FeaturedCard = forwardRef<
   HTMLHeadingElement,
@@ -34,6 +39,8 @@ export const FeaturedCard = forwardRef<
     ownTimer: DockedTimer | null;
     /** Another page's timer holding the dock, which this page never replaces. */
     otherTimer: DockedTimer | null;
+    /** The label of this page's clock for another activity, which Start replaces. */
+    replacesTimer: string | null;
     today: string;
     onStartTimer: () => void;
     onStopTimer: () => void;
@@ -47,6 +54,7 @@ export const FeaturedCard = forwardRef<
     usedText,
     ownTimer,
     otherTimer,
+    replacesTimer,
     today,
     onStartTimer,
     onStopTimer,
@@ -55,6 +63,13 @@ export const FeaturedCard = forwardRef<
   headingRef
 ) {
   const [marking, setMarking] = useState(false);
+  // Start, Stop and the form's buttons each unmount the control that was
+  // pressed: focus moves to the one that took its place, not the page body.
+  const { refFor, returnTo } = useReturnFocus();
+  const closeForm = () => {
+    setMarking(false);
+    returnTo("mark");
+  };
 
   return (
     <motion.div
@@ -104,11 +119,11 @@ export const FeaturedCard = forwardRef<
               <Tag className="w-3 h-3 mr-1" aria-hidden="true" />
               {icebreaker.category}
             </Badge>
-            <Badge variant="outline" className="bg-cardH text-sub border-border">
+            <Badge variant="outline" className="bg-card-hover text-sub border-border">
               <Clock className="w-3 h-3 mr-1" aria-hidden="true" />
               {icebreaker.timeMinutes} minutes
             </Badge>
-            <Badge variant="outline" className="bg-cardH text-sub border-border">
+            <Badge variant="outline" className="bg-card-hover text-sub border-border">
               <Users className="w-3 h-3 mr-1" aria-hidden="true" />
               {peopleLabel(icebreaker)}
             </Badge>
@@ -126,44 +141,72 @@ export const FeaturedCard = forwardRef<
 
           <div className="space-y-3 border-t border-border pt-4">
             {ownTimer ? (
-              <DockClock timer={ownTimer} onStop={onStopTimer} />
-            ) : otherTimer ? (
-              <p className="flex flex-wrap items-center gap-2 text-sm text-sub" role="status">
-                The {otherTimer.label} timer is running, so this one can&apos;t start yet.
-                <Link
-                  href={otherTimer.href}
-                  className="text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
-                >
-                  Open the {otherTimer.label} timer
-                </Link>
-              </p>
+              <DockClock
+                timer={ownTimer}
+                controlRef={refFor("clock")}
+                onStop={() => {
+                  returnTo("start");
+                  onStopTimer();
+                }}
+              />
             ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" className="gap-1" onClick={onStartTimer}>
-                  <Play aria-hidden="true" />
-                  Start {icebreaker.timeMinutes}-min timer
-                </Button>
-                {!marking && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1"
-                    onClick={() => setMarking(true)}
-                  >
-                    <CalendarCheck aria-hidden="true" />
-                    Mark as used
-                  </Button>
+              <>
+                {otherTimer && (
+                  <p className="flex flex-wrap items-center gap-2 text-sm text-sub" role="status">
+                    The {otherTimer.label} timer is running, so this one can&apos;t start yet; you
+                    can still mark it as used.
+                    <Link
+                      href={otherTimer.href}
+                      className="text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                    >
+                      Open the {otherTimer.label} timer
+                    </Link>
+                  </p>
                 )}
-              </div>
+                {/* With the dock busy and the form open, nothing is left to show here. */}
+                {(!otherTimer || !marking) && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!otherTimer && (
+                      <Button
+                        ref={refFor("start")}
+                        type="button"
+                        className="gap-1"
+                        onClick={() => {
+                          returnTo("clock");
+                          onStartTimer();
+                        }}
+                      >
+                        <Play aria-hidden="true" />
+                        Start {icebreaker.timeMinutes}-min timer
+                      </Button>
+                    )}
+                    {!marking && (
+                      <Button
+                        ref={refFor("mark")}
+                        type="button"
+                        variant="outline"
+                        className="gap-1"
+                        onClick={() => setMarking(true)}
+                      >
+                        <CalendarCheck aria-hidden="true" />
+                        Mark as used
+                      </Button>
+                    )}
+                    {!otherTimer && replacesTimer && (
+                      <span className="text-xs text-sub">Replaces the {replacesTimer} timer.</span>
+                    )}
+                  </div>
+                )}
+              </>
             )}
             {marking && !ownTimer && (
               <MarkUsedForm
                 today={today}
                 onSave={(usedAt) => {
-                  setMarking(false);
+                  closeForm();
                   onMarkUsed(usedAt);
                 }}
-                onCancel={() => setMarking(false)}
+                onCancel={closeForm}
               />
             )}
           </div>
@@ -173,23 +216,34 @@ export const FeaturedCard = forwardRef<
   );
 });
 
-/** "Used on [day]": today unless changed, never in the future. */
+/**
+ * "Used on [day]": today unless changed, never in the future, and never a
+ * day `isTaken` says the activity already has a use on.
+ */
 export function MarkUsedForm({
   today,
   initialDay = today,
   submitLabel = "Record use",
+  isTaken,
   onSave,
   onCancel,
 }: {
   today: string;
   initialDay?: string;
   submitLabel?: string;
+  /** Whether the activity already has another use on `usedAt`'s day. */
+  isTaken?: (usedAt: string) => boolean;
   onSave: (usedAt: string) => void;
   onCancel: () => void;
 }) {
   const form = useItemForm<UseDraft, { usedAt: string }, "day">({
     initial: { day: initialDay },
-    validate: (d) => validateUseDay(d, today),
+    validate: (d) => {
+      const v = validateUseDay(d, today);
+      return v.ok && isTaken?.(v.values.usedAt)
+        ? { ok: false, errors: { day: "It's already recorded for that day." } }
+        : v;
+    },
     onSave: (v) => onSave(v.usedAt),
     resetOnSave: false,
   });

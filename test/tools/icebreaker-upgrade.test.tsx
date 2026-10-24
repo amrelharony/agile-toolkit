@@ -44,7 +44,9 @@ import {
   pickRandom,
   recentIds,
   relaxHint,
+  usedOnDay,
   withUse,
+  withUseDate,
 } from "@/app/(tools)/icebreaker/filter";
 import {
   MAX_USES,
@@ -731,5 +733,125 @@ describe("the page", () => {
     ).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Re-sort" }));
     expect(names()[0]).toContain("Desert Island Pick");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe("review fixes", () => {
+  it("re-dates a use only onto a day its activity has no use on", () => {
+    const list = [use("a", "q-1", 1), use("b", "q-1", 3), use("c", "q-2", 1)];
+    const threeDaysAgo = list[1].usedAt;
+    expect(usedOnDay(list, "q-1", threeDaysAgo)).toBe(true);
+    // The use being moved doesn't count against its own day.
+    expect(usedOnDay(list, "q-1", threeDaysAgo, "b")).toBe(false);
+    expect(usedOnDay(list, "q-2", threeDaysAgo)).toBe(false);
+
+    const clash = withUseDate(list, "a", threeDaysAgo);
+    expect(clash.changed).toBe(false);
+    expect(clash.next).toEqual(list);
+    // Another activity's use that day is no clash; nor is the use's own day.
+    const moved = withUseDate(list, "c", threeDaysAgo);
+    expect(moved.changed).toBe(true);
+    expect(moved.next.find((u) => u.id === "c")?.usedAt).toBe(threeDaysAgo);
+    expect(withUseDate(list, "a", list[0].usedAt).changed).toBe(true);
+    expect(withUseDate(list, "missing", threeDaysAgo).changed).toBe(false);
+    expect(withUseDate([], "a", threeDaysAgo)).toEqual({ next: [], changed: false });
+  });
+
+  it("marks a use while another page's timer holds the dock", async () => {
+    useDockTimer.setState({ timer: ceremonyDock() });
+    useIcebreakerSession.setState({ selectedId: "q-2", runningId: null });
+    await mount();
+    expect(screen.queryByRole("button", { name: /min timer/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/you can still mark it as used/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mark as used" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record use" }));
+    expect(settings().used.map((u) => [u.icebreakerId, dayOfUse(u.usedAt)])).toEqual([
+      ["q-2", todayLocalISO()],
+    ]);
+    expect(useDockTimer.getState().timer?.href).toBe("/ceremony-timer");
+    // Focus returns to the button that opened the form.
+    expect(screen.getByRole("button", { name: "Mark as used" })).toHaveFocus();
+  });
+
+  it("refuses to re-date a use onto a day it already has, in the form", async () => {
+    const now = new Date();
+    const [a, b] = [use("a", "q-1", 1, now), use("b", "q-1", 3, now)];
+    useIcebreakerSettings.setState({ used: [a, b] });
+    await mount();
+    const history = screen.getByRole("list", { name: "Icebreakers used, newest first" });
+    fireEvent.click(
+      within(history).getAllByRole("button", { name: "Change the date of Two Truths and a Lie" })[0]
+    );
+    const day = within(history).getByLabelText(/Used on/);
+    fireEvent.change(day, { target: { value: dayOfUse(b.usedAt) } });
+    fireEvent.click(within(history).getByRole("button", { name: "Save date" }));
+    expect(within(history).getByText("It's already recorded for that day.")).toBeInTheDocument();
+    expect(day).toHaveAttribute("aria-invalid", "true");
+    expect(settings().used.map((u) => u.usedAt)).toEqual([a.usedAt, b.usedAt]);
+  });
+
+  it("titles the whole list History, as the export does", async () => {
+    const now = new Date();
+    useIcebreakerSettings.setState({ used: [use("a", "q-1", 1, now), use("b", "q-2", 30, now)] });
+    await mount();
+    expect(screen.getByText("History (2)")).toBeInTheDocument();
+    expect(screen.queryByText(/Recently used/)).not.toBeInTheDocument();
+    const md = toMarkdown({ selected: null, people: null, favorites: [], used: [] }, NOW);
+    expect(md).toContain("## History");
+    expect(md).not.toContain("Used recently");
+  });
+
+  it("moves to the featured card even when it already shows that activity", async () => {
+    await mount();
+    const first = icebreakers[0];
+    const heading = () => screen.getByRole("heading", { level: 2, name: first.name });
+    fireEvent.click(within(grid()).getByRole("button", { name: first.name }));
+    expect(heading()).toHaveFocus();
+    act(() => screen.getByRole("button", { name: "Random Pick" }).focus());
+    fireEvent.click(within(grid()).getByRole("button", { name: first.name }));
+    expect(heading()).toHaveFocus();
+  });
+
+  it("keeps focus on the control that replaces the one pressed", async () => {
+    useWorkspaceStore.setState({
+      teamMembers: [
+        { id: "m1", name: "Ana" },
+        { id: "m2", name: "Bo" },
+      ],
+    });
+    useIcebreakerSession.setState({ selectedId: "q-1", runningId: null });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Start 10-min timer" }));
+    expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Stop timer" }));
+    expect(screen.getByRole("button", { name: "Start 10-min timer" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark as used" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Mark as used" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use team size (2)" }));
+    expect(screen.getByRole("button", { name: "Change" })).toHaveFocus();
+  });
+
+  it("says which of its own timers Start would replace", async () => {
+    useIcebreakerSession.setState({ selectedId: "q-1", runningId: null });
+    await mount();
+    expect(screen.queryByText(/Replaces the/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start 10-min timer" }));
+    fireEvent.click(within(grid()).getByRole("button", { name: ib("q-2").name }));
+    expect(screen.getByText("Replaces the Two Truths and a Lie timer.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start 5-min timer" }));
+    expect(useDockTimer.getState().timer?.label).toBe("Desert Island Pick");
+    expect(screen.queryByText(/Replaces the/)).not.toBeInTheDocument();
+  });
+
+  it("gives the time and people badges a defined background", async () => {
+    useIcebreakerSession.setState({ selectedId: "q-1", runningId: null });
+    const { container } = await mount();
+    expect(container.querySelector(".bg-cardH")).toBeNull();
+    expect(container.querySelectorAll(".bg-card-hover").length).toBeGreaterThan(2);
   });
 });

@@ -12,7 +12,7 @@ import { useReturnFocus } from "@/hooks/use-return-focus";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { icebreakers } from "@/lib/constants/icebreakers";
 import { plural } from "@/lib/charts/chart-text";
-import { RECENT_DAYS, daysAgo, daysAgoText } from "../filter";
+import { RECENT_DAYS, daysAgo, daysAgoText, usedOnDay } from "../filter";
 import type { IcebreakerUse } from "../store";
 import { dayOfUse } from "../uses";
 import { MarkUsedForm } from "./featured-card";
@@ -32,8 +32,11 @@ const dayText = (usedAt: string) =>
 
 /**
  * The team's icebreaker history, newest first: what the "used recently"
- * filter reads. Each use can be re-dated or removed (with Undo), and the
- * whole history cleared behind a confirm (with Undo too).
+ * filter reads. It is titled History, not "Recently used", because it
+ * keeps every use; only those of the last two weeks count as recent. Each
+ * use can be re-dated (never onto a day its activity already has a use) or
+ * removed (with Undo), and the whole history cleared behind a confirm
+ * (with Undo too).
  */
 export function RecentlyUsed({
   uses,
@@ -84,7 +87,7 @@ export function RecentlyUsed({
 
   return (
     <SectionCard
-      title={`Recently used (${uses.length})`}
+      title={`History (${uses.length})`}
       icon={History}
       actions={
         <ResetButton
@@ -111,6 +114,7 @@ export function RecentlyUsed({
                   today={today}
                   initialDay={dayOfUse(u.usedAt)}
                   submitLabel="Save date"
+                  isTaken={(usedAt) => usedOnDay(uses, u.icebreakerId, usedAt, u.id)}
                   onSave={(usedAt) => {
                     onChangeDate(u, usedAt);
                     close(u.id);
