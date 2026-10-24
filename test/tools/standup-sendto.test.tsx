@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { useImpedimentStore } from "@/app/(tools)/impediments/use-impediment-store";
 
 /**
  * Standup: an open blocker can be raised as an impediment from the Blockers
@@ -63,7 +62,6 @@ function openSendTo(name: RegExp) {
 beforeEach(() => {
   undo.last = null;
   localStorage.clear();
-  useImpedimentStore.setState({ impediments: [] });
   useWorkspaceStore.setState({
     teamMembers: [
       { id: "m1", name: "Alice" },
@@ -88,27 +86,21 @@ describe("Standup Send to", () => {
     ).toBeInTheDocument();
   });
 
-  it("raises the blocker as an impediment in both stores, linked both ways", () => {
+  it("raises the blocker as an impediment in the workspace, linked both ways", () => {
     render(<StandupClient />);
     openBlockersTab();
     openSendTo(/^Send to… Waiting on the API keys/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Impediment" }));
 
-    const [local] = useImpedimentStore.getState().impediments;
+    const [local] = ws().impediments;
+    expect(ws().impediments).toHaveLength(1);
     expect(local).toMatchObject({
       title: "Waiting on the API keys",
       raisedBy: "Alice",
-      status: "Open",
       source: "standup",
       sourceRef: { tool: "standup", id: "e1" },
     });
-    expect(ws().impediments).toEqual([
-      expect.objectContaining({
-        id: local.id,
-        source: "standup",
-        sourceRef: { tool: "standup", id: "e1" },
-      }),
-    ]);
+    expect(local.resolvedAt).toBeUndefined();
     expect(entryById("e1").sentTo).toEqual([
       { route: "impediment", targetId: local.id, at: expect.any(String) },
     ]);
@@ -129,7 +121,6 @@ describe("Standup Send to", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Impediment" }));
 
     act(() => undo.last!.revert());
-    expect(useImpedimentStore.getState().impediments).toEqual([]);
     expect(ws().impediments).toEqual([]);
     expect(entryById("e1").sentTo).toEqual([]);
     expect(
@@ -165,15 +156,12 @@ describe("Standup Send to", () => {
     openBlockersTab();
     openSendTo(/^Send to… Waiting on the API keys/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Impediment" }));
-    const [first] = useImpedimentStore.getState().impediments;
-    act(() => {
-      useImpedimentStore.getState().remove(first.id);
-      ws().removeImpediment(first.id);
-    });
+    const [first] = ws().impediments;
+    act(() => ws().removeImpediment(first.id));
 
     openSendTo(/^Send to… Waiting on the API keys/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Impediment" }));
-    const [second] = useImpedimentStore.getState().impediments;
+    const [second] = ws().impediments;
     expect(second.id).not.toBe(first.id);
     expect(entryById("e1").sentTo).toEqual([
       { route: "impediment", targetId: second.id, at: expect.any(String) },

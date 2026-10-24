@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HandoffLink, HandoffRouteId, KanbanCard, Risk } from "@/lib/stores/workspace-types";
-import { useImpedimentStore } from "@/app/(tools)/impediments/use-impediment-store";
-import { toWorkspaceImpediment } from "@/app/(tools)/impediments/helpers";
 import { registry } from "@/lib/actions/registry";
 
 import "@/lib/actions/tools/kanban";
@@ -77,10 +75,7 @@ const depNodes = () => ws().dependencyMaps?.find((d) => d.id === DEPENDENCY_MAP_
 function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
   switch (route) {
     case "impediment":
-      return [
-        useImpedimentStore.getState().impediments.some((i) => i.id === id),
-        ws().impediments.some((i) => i.id === id),
-      ];
+      return [ws().impediments.some((i) => i.id === id)];
     case "kanban":
       return [kanbanCards().some((c) => c.id === id)];
     case "risk":
@@ -104,7 +99,6 @@ function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
 beforeEach(() => {
   undo.last = null;
   localStorage.clear();
-  useImpedimentStore.setState({ impediments: [] });
   useWorkspaceStore.setState({
     impediments: [],
     risks: [],
@@ -130,21 +124,24 @@ describe("hand-off routes", () => {
     expect(undo.last!.label).toBe(getHandoffRoute(route).doneLabel);
   });
 
-  it("impediment: the same id in the tool's store and the workspace, both keeping the source", () => {
+  it("impediment: one open row in the workspace, keeping the source", () => {
     const link = sendHandoff("impediment", src(), linkStore())!;
-    const local = useImpedimentStore.getState().impediments.find((i) => i.id === link.targetId)!;
     const shared = ws().impediments.find((i) => i.id === link.targetId)!;
-    expect(local).toMatchObject({
+    expect(shared).toMatchObject({
       title: "Fix the flaky checkout tests",
-      assignedTo: "Sam",
+      owner: "Sam",
       raisedBy: "Alice",
-      status: "Open",
+      severity: "medium",
       source: "retro",
       sourceRef: { tool: "retro", id: "card-1", doc: "retro:current" },
     });
-    expect(shared).toMatchObject({ source: "retro", sourceRef: local.sourceRef, owner: "Sam" });
-    // The tool's one-way bridge would write exactly this row: nothing to change.
-    expect(toWorkspaceImpediment(local)).toEqual(shared);
+    // Open: no resolution or escalation, and no category picked for it.
+    expect(shared.resolvedAt).toBeUndefined();
+    expect(shared.escalatedAt).toBeUndefined();
+    expect(shared.category).toBeUndefined();
+    expect(getHandoffRoute("impediment").isDone?.(link.targetId)).toBe(false);
+    ws().upsertImpediment({ ...shared, resolvedAt: "2026-10-24" });
+    expect(getHandoffRoute("impediment").isDone?.(link.targetId)).toBe(true);
   });
 
   it("risk: the register's blob and workspace.risks hold one row under one id", () => {
