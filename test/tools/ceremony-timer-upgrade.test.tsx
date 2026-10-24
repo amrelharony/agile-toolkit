@@ -49,14 +49,17 @@ import {
   validateAgenda,
   withRowMinutes,
   withTotal,
+  type AgendaDraft,
 } from "@/app/(tools)/ceremony-timer/agenda-form";
 import {
   activeMs,
   advanceSegment,
   dockFor,
   endTurn,
+  followDock,
   pauseRun,
   reconcileWithDock,
+  restartTurns,
   resumeRun,
   runFromLegacyDock,
   runReport,
@@ -79,6 +82,10 @@ import {
   useTimerSettings,
 } from "@/app/(tools)/ceremony-timer/store";
 import { shortcutFor } from "@/app/(tools)/ceremony-timer/shortcuts";
+import { ringColor } from "@/app/(tools)/ceremony-timer/timer-face";
+import { normalizeCadence } from "@/lib/sprints/cadence";
+import { cadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { planVerdict, runVerdict } from "@/app/(tools)/ceremony-timer/verdict";
 import { toMarkdown } from "@/app/(tools)/ceremony-timer/markdown";
 import { validateSpeaker } from "@/app/(tools)/ceremony-timer/speakers-card";
@@ -371,6 +378,35 @@ describe("a run's clock", () => {
       { name: "Cy", plannedSeconds: 830, actualSeconds: 890, skipped: false },
     ]);
   });
+
+  it("shares only what is left when turn-taking starts part-way through a segment", () => {
+    const agenda = resolveAgenda("retro", { retro: [{ id: "gather-data", speakers: true }] }, 14);
+    const five = [ANN, BO, CY, { id: "d", name: "Dee" }, { id: "e", name: "Eve" }];
+    let run = startRun("retro", T0);
+    run = advanceSegment(run, 5, T0 + 600_000);
+    // Switched on 20 minutes into the 30-minute Gather data.
+    run = restartTurns(run, T0 + 1_800_000);
+    const view = runView(run, agenda, five, T0 + 1_800_000);
+    expect(view.segmentLeft).toBe(600);
+    expect(view.speakers?.current).toMatchObject({ id: "a", shareSeconds: 120, spentSeconds: 0 });
+    expect(view.speakers).toMatchObject({ nextShareSeconds: 120, overbooked: false });
+    // Twenty-one speakers can't fit the 10 minutes left at the half-minute floor.
+    const many = Array.from({ length: 21 }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
+    expect(runView(run, agenda, many, T0 + 1_800_000).speakers?.overbooked).toBe(true);
+  });
+
+  it("counts the unfinished turn of a speaker who left against the round", () => {
+    let run = startRun("daily", T0);
+    // Ann spoke for 100 seconds and was removed: the turn clock starts again.
+    run = restartTurns(run, T0 + 100_000);
+    const plan = runView(run, daily(), [BO, CY], T0 + 100_000).speakers;
+    expect(plan?.current).toMatchObject({ id: "b", shareSeconds: 400 });
+    expect(plan?.nextShareSeconds).toBe(400);
+    // The finished turns still count when they are more (a hand-built record).
+    expect(speakerPlan(900, [BO, CY], [turn(ANN, 300, 450)], 0, 100).current?.shareSeconds).toBe(
+      300
+    );
+  });
 });
 
 describe("the docked timer", () => {
@@ -408,26 +444,72 @@ describe("the docked timer", () => {
       ...patch,
     });
     // In step: nothing changes.
-    expect(reconcileWithDock(run, daily(), dock({}), now)).toBe(run);
+    expect(reconcileWithDock(run, dock({}), now)).toBe(run);
     // Paused for a minute in the dock, then resumed.
-    const shifted = reconcileWithDock(run, daily(), dock({ endsAt: T0 + 960_000 }), now);
+    const shifted = reconcileWithDock(run, dock({ endsAt: T0 + 960_000 }), now);
     expect(activeMs(shifted, now)).toBe(240_000);
     expect(shifted.since).toBe(now);
     // Paused in the dock with five minutes left.
-    expect(
-      reconcileWithDock(run, daily(), dock({ endsAt: null, pausedRemaining: 300 }), now)
-    ).toMatchObject({ baseMs: 600_000, since: null });
-    // The dock stopping itself at "Time's up": the meeting runs on.
-    expect(reconcileWithDock(run, daily(), dock({ endsAt: null, pausedRemaining: 0 }), now)).toBe(
-      run
+    expect(reconcileWithDock(run, dock({ endsAt: null, pausedRemaining: 300 }), now)).toMatchObject(
+      { baseMs: 600_000, since: null }
     );
+    // The dock stopping itself at "Time's up": the meeting runs on.
+    expect(reconcileWithDock(run, dock({ endsAt: null, pausedRemaining: 0 }), now)).toBe(run);
     // Stop in the dock: paused now, record kept.
-    expect(reconcileWithDock(run, daily(), null, now)).toMatchObject({
+    expect(reconcileWithDock(run, null, now)).toMatchObject({
       baseMs: 300_000,
       since: null,
     });
     const finished = { ...run, finished: true };
-    expect(reconcileWithDock(finished, daily(), null, now)).toBe(finished);
+    expect(reconcileWithDock(finished, null, now)).toBe(finished);
+  });
+
+  it("reads the segment's length from the dock, not from the agenda as it resolves now", () => {
+    // A one-week team's retro (5 / 15 / 10 / 10 / 5), paused 7 minutes into
+    // Gather data. The two-week lengths (Gather data 30 minutes) would have
+    // moved the clock by 15 minutes.
+    let run = startRun("retro", T0);
+    run = advanceSegment(run, 5, T0 + 300_000);
+    run = pauseRun(run, T0 + 720_000);
+    const dock: DockedTimer = {
+      label: "Retro · Gather data",
+      href: HREF,
+      totalSeconds: 900,
+      endsAt: null,
+      pausedRemaining: 480,
+    };
+    expect(reconcileWithDock(run, dock, T0 + 999_000)).toBe(run);
+    // Resumed in the dock: the segment ends when the dock's does.
+    const resumed = reconcileWithDock(run, { ...dock, endsAt: T0 + 1_480_000 }, T0 + 1_000_000);
+    expect(activeMs(resumed, T0 + 1_000_000)).toBe(720_000);
+  });
+
+  it("applies a pause, resume or Stop made in the dock while the page is closed", () => {
+    const run = startRun("daily", T0);
+    const running: DockedTimer = {
+      label: "Daily Scrum",
+      href: HREF,
+      totalSeconds: 900,
+      endsAt: T0 + 900_000,
+      pausedRemaining: 900,
+    };
+    const paused = { ...running, endsAt: null, pausedRemaining: 780 };
+    // A pause there pauses the meeting where it was.
+    const stopped = followDock(run, running, paused, T0 + 120_000);
+    expect(stopped).toMatchObject({ baseMs: 120_000, since: null });
+    // A resume, half an hour later: the break isn't meeting time.
+    const back = followDock(stopped, paused, { ...paused, endsAt: T0 + 2_580_000 }, T0 + 1_920_000);
+    expect(activeMs(back, T0 + 2_000_000)).toBe(200_000);
+    // The dock stopping itself at "Time's up": the meeting carries on.
+    const zero = { ...running, endsAt: null, pausedRemaining: 0 };
+    expect(followDock(back, running, zero, T0 + 2_580_000)).toBe(back);
+    // Stop: paused at the moment of the Stop, not on return.
+    expect(followDock(back, running, null, T0 + 2_000_000)).toMatchObject({
+      baseMs: 200_000,
+      since: null,
+    });
+    const finished = { ...run, finished: true };
+    expect(followDock(finished, running, null, T0)).toBe(finished);
   });
 
   it("carries on a countdown from before agendas as a Custom time-box", () => {
@@ -581,6 +663,22 @@ describe("the agenda editor", () => {
     });
   });
 
+  it("keeps the proportions while the total is typed one key at a time", () => {
+    const type = (draft: AgendaDraft, ...keys: string[]) =>
+      keys.reduce((d, value) => withTotal(d, value), draft);
+    const minutes = (d: AgendaDraft) => d.rows.map((r) => r.minutes);
+    // "60" passes through "6", which rounds the retro to 1 / 2 / 1 / 1 / 1.
+    expect(minutes(type(draftOf(retro()), "6", "60"))).toEqual(["7", "20", "13", "13", "7"]);
+    const planning = draftOf(resolveAgenda("planning", null, 14));
+    expect(minutes(type(planning, "1", "12", "120"))).toEqual(["24", "48", "48"]);
+    // Clearing the field and typing again lands back on the defaults.
+    expect(minutes(type(draftOf(retro()), "", "9", "90"))).toEqual(["10", "30", "20", "20", "10"]);
+    // A segment the team typed sets the proportions from then on.
+    const edited = withRowMinutes(draftOf(retro()), "gather-data", "50");
+    expect(edited.total).toBe("110");
+    expect(minutes(type(edited, "5", "55"))).toEqual(["5", "25", "10", "10", "5"]);
+  });
+
   it("rejects blanks and out-of-range lengths instead of defaulting them", () => {
     const base = retro();
     const draft = draftOf(base);
@@ -701,6 +799,23 @@ describe("keyboard shortcuts", () => {
     expect(shortcutFor(ev("n", input))).toBeNull();
     expect(shortcutFor(ev("n", body, { repeat: true }))).toBeNull();
     expect(shortcutFor(ev("x", body))).toBeNull();
+  });
+
+  it("keeps Space as start or pause on the timer's own buttons", () => {
+    const next = document.createElement("button");
+    next.setAttribute("data-timer-control", "");
+    expect(shortcutFor(ev(" ", next))).toBe("toggle");
+    expect(shortcutFor(ev(" ", next, { repeat: true }))).toBeNull();
+    expect(shortcutFor(ev(" ", document.createElement("button")))).toBeNull();
+  });
+});
+
+describe("the ring", () => {
+  it("only gets more urgent on the way to running over", () => {
+    expect(ringColor(0.5, false)).toBe("var(--accent)");
+    expect(ringColor(0.2, false)).toBe("var(--chart-4)");
+    expect(ringColor(0.01, false)).toBe("var(--chart-4)");
+    expect(ringColor(0, true)).toBe("var(--warning)");
   });
 });
 
@@ -1019,5 +1134,297 @@ describe("first run", () => {
       true
     );
     expect(screen.getByText("Daily Scrum: 15 min for 5 speakers, 3:00 each.")).toBeInTheDocument();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Keys, Undo and focus while the meeting runs                                */
+/* -------------------------------------------------------------------------- */
+
+const lastToast = () => {
+  const [label, opts] = toastSpy.mock.calls[toastSpy.mock.calls.length - 1];
+  return { label, undo: () => act(() => opts.action.onClick()) };
+};
+const sessionRun = () => useTimerSession.getState().run;
+const order = () => screen.getByRole("list", { name: "Speaking order" });
+const announced = () => {
+  act(() => {
+    vi.advanceTimersByTime(100);
+  });
+  return screen.getByTestId("live-polite").textContent;
+};
+
+describe("stepping through the meeting", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  it("keeps Space as pause after a click on Next segment, and says so", () => {
+    renderTimer();
+    pick(/^Sprint Retrospective/);
+    fireEvent.click(screen.getByRole("button", { name: "Start timer" }));
+    tick(60);
+    const next = screen.getByRole("button", { name: "Next segment" });
+    next.focus();
+    fireEvent.click(next);
+    expect(sessionRun()).toMatchObject({ index: 1 });
+
+    // Both halves of the key press are taken, so the button isn't pressed again.
+    expect(fireEvent.keyDown(next, { key: " " })).toBe(false);
+    expect(fireEvent.keyUp(next, { key: " " })).toBe(false);
+    expect(sessionRun()).toMatchObject({ index: 1, since: null });
+    expect(screen.getByRole("button", { name: "Start timer" })).toBeInTheDocument();
+    expect(announced()).toBe("Timer paused. Gather data: 30:00 left.");
+
+    key(" ");
+    expect(announced()).toBe("Timer started. Gather data: 30:00 left.");
+    // Only the keyup of a Space the page used is taken.
+    expect(fireEvent.keyUp(document.body, { key: " " })).toBe(false);
+    expect(fireEvent.keyUp(document.body, { key: " " })).toBe(true);
+  });
+
+  it("undoes Next segment, keeping a pause made since", () => {
+    renderTimer();
+    pick(/^Sprint Retrospective/);
+    key(" ");
+    tick(120);
+    key("N", { shiftKey: true });
+    expect(lastToast().label).toBe("Moved on to Gather data");
+    const { undo } = lastToast();
+    key(" ");
+    undo();
+    expect(sessionRun()).toMatchObject({ index: 0, since: null, finished: false });
+    expect(timer()).toBe("08:00");
+  });
+
+  it("undoes Finish: the meeting carries on as if it never stopped", () => {
+    renderTimer();
+    pick(/^Daily Scrum/);
+    key(" ");
+    tick(60);
+    key("N", { shiftKey: true });
+    expect(sessionRun()?.finished).toBe(true);
+    expect(lastToast().label).toBe("Finished the Daily Scrum");
+    tick(30);
+    lastToast().undo();
+    expect(sessionRun()?.finished).toBe(false);
+    expect(screen.getByRole("button", { name: "Pause timer" })).toBeInTheDocument();
+    // The half minute since Finish was pressed is meeting time again.
+    tick(1);
+    expect(timer()).toBe("13:29");
+  });
+
+  it("undoes a turn passed or skipped by mistake", () => {
+    useTimerSettings.setState({ speakers: [ANN, BO, CY] });
+    renderTimer();
+    pick(/^Daily Scrum/);
+    key(" ");
+    tick(60);
+    key("n");
+    expect(lastToast().label).toBe("Ann's turn ended");
+    lastToast().undo();
+    expect(within(order()).getByText("4:00 left")).toBeInTheDocument();
+    key("s");
+    expect(lastToast().label).toBe("Skipped Ann");
+    lastToast().undo();
+    expect(within(order()).queryByText("skipped")).toBeNull();
+    // After a later step, the earlier Undo leaves that step alone.
+    key("n");
+    const first = lastToast();
+    key("n");
+    first.undo();
+    expect(sessionRun()?.segments[0].turns.map((t) => t.name)).toEqual(["Ann", "Bo"]);
+  });
+
+  it("hands focus on when the control that had it switches itself off", () => {
+    useTimerSettings.setState({ speakers: [ANN] });
+    renderTimer();
+    pick(/^Daily Scrum/);
+    fireEvent.click(screen.getByRole("button", { name: "Start timer" }));
+    tick(60);
+    const nextSpeaker = screen.getByRole("button", { name: "Next speaker" });
+    nextSpeaker.focus();
+    fireEvent.click(nextSpeaker);
+    const finish = screen.getByRole("button", { name: "Finish" });
+    expect(finish).toHaveFocus();
+    fireEvent.click(finish);
+    expect(screen.getByText(/^Daily Scrum finished 14 minutes early/)).toHaveFocus();
+  });
+
+  it("starts over with Undo that brings back the meeting and its agenda", () => {
+    renderTimer();
+    pick(/^Daily Scrum/);
+    key(" ");
+    tick(30);
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "The time spent so far is cleared and the timer goes back to the first segment, ready to start."
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start over" }));
+    expect(sessionRun()).toBeNull();
+    expect(lastToast().label).toBe("Cleared the timer");
+    expect(screen.getByRole("button", { name: "Start timer" })).toHaveFocus();
+    const { undo } = lastToast();
+    pick(/^Sprint Review/);
+    undo();
+    expect(useTimerSession.getState().agendaId).toBe("daily");
+    expect(timer()).toBe("14:30");
+  });
+});
+
+describe("speakers during the meeting", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  it("names nobody as speaking before the start", () => {
+    useTimerSettings.setState({ speakers: [ANN, BO, CY] });
+    renderTimer();
+    pick(/^Daily Scrum/);
+    expect(within(order()).getAllByText("5:00 each")).toHaveLength(3);
+    expect(order().querySelector("[aria-current]")).toBeNull();
+    key(" ");
+    expect(within(order()).getByText("5:00 left").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step"
+    );
+  });
+
+  it("says why Remove is off while the timer runs", () => {
+    useTimerSettings.setState({ speakers: [ANN, BO] });
+    renderTimer();
+    pick(/^Daily Scrum/);
+    key(" ");
+    const note = screen.getByText("Pause the timer to remove someone, or use Skip speaker.");
+    const remove = screen.getByRole("button", { name: "Remove Ann" });
+    expect(remove).toBeDisabled();
+    expect(remove).toHaveAttribute("aria-describedby", note.id);
+    key(" ");
+    expect(screen.queryByText(/^Pause the timer to remove someone/)).toBeNull();
+  });
+
+  it("starts a newcomer's turn when they join, not when the segment began", () => {
+    renderTimer();
+    pick(/^Daily Scrum/);
+    key(" ");
+    tick(120);
+    fireEvent.change(screen.getByRole("combobox", { name: "Speaker" }), {
+      target: { value: "Ann" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add speaker" }));
+    expect(within(order()).getByText("13:00 left")).toBeInTheDocument();
+    tick(180);
+    key("n");
+    expect(within(order()).getByText("spoke 3:00")).toBeInTheDocument();
+  });
+});
+
+describe("the agenda editor's focus and Undo", () => {
+  it("moves focus into the editor and back to Edit agenda", () => {
+    renderTimer();
+    pick(/^Sprint Retrospective/);
+    fireEvent.click(screen.getByRole("button", { name: "Edit agenda" }));
+    const total = screen.getByRole("spinbutton", { name: /^Total minutes/ });
+    expect(total).toHaveFocus();
+    // Typed one key at a time, as a person does.
+    fireEvent.change(total, { target: { value: "6" } });
+    fireEvent.change(total, { target: { value: "60" } });
+    expect(
+      screen
+        .getAllByRole("spinbutton", { name: /^Segment \d minutes/ })
+        .map((i) => (i as HTMLInputElement).value)
+    ).toEqual(["7", "20", "13", "13", "7"]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Edit agenda" })).toHaveFocus();
+  });
+
+  it("undoes each agenda's reset with that agenda's own edits", () => {
+    useTimerSettings.setState({
+      agendas: {
+        retro: [{ id: "close", label: "Wrap up" }],
+        review: [{ id: "demo", minutes: 30 }],
+      },
+    });
+    renderTimer();
+    const resetAgenda = () => {
+      fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Reset agenda" })
+      );
+    };
+    pick(/^Sprint Retrospective/);
+    resetAgenda();
+    expect(screen.getByRole("button", { name: "Edit agenda" })).toHaveFocus();
+    const retroReset = lastToast();
+    pick(/^Sprint Review/);
+    resetAgenda();
+    expect(useTimerSettings.getState().agendas).toEqual({});
+    retroReset.undo();
+    expect(useTimerSettings.getState().agendas).toEqual({
+      retro: [{ id: "close", label: "Wrap up" }],
+    });
+  });
+});
+
+describe("coming back after time away", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    useWorkspaceStore.setState({ ceremonyCadences: [] });
+  });
+
+  it("leaves a break taken in the dock out of the meeting", () => {
+    const first = renderTimer();
+    pick(/^Daily Scrum/);
+    key(" ");
+    tick(60);
+    first.unmount();
+
+    // On another page: paused a minute later, resumed after a half-hour
+    // break, then the dock ran to "Time's up" and stopped itself.
+    vi.setSystemTime(T0 + 120_000);
+    useDockTimer.getState().pause();
+    vi.setSystemTime(T0 + 1_920_000);
+    useDockTimer.getState().resume();
+    vi.setSystemTime(T0 + 2_700_000);
+    useDockTimer.getState().pause();
+    expect(useDockTimer.getState().timer).toMatchObject({ endsAt: null, pausedRemaining: 0 });
+
+    vi.setSystemTime(T0 + 2_760_000);
+    renderTimer();
+    expect(timer()).toBe("+1:00");
+  });
+
+  it("keeps the clock of a team whose sprint isn't two weeks long", () => {
+    // A one-week team's retro, paused 7 minutes into its 15-minute Gather data.
+    let paused = startRun("retro", T0);
+    paused = advanceSegment(paused, 5, T0 + 300_000);
+    paused = pauseRun(paused, T0 + 720_000);
+    useTimerSession.setState({ agendaId: "retro", run: paused });
+    useDockTimer.setState({
+      timer: {
+        label: "Retro · Gather data",
+        href: HREF,
+        totalSeconds: 900,
+        endsAt: null,
+        pausedRemaining: 480,
+      },
+    });
+    // The first render doesn't see the team's cadence yet, as when the page
+    // hydrates from the server: the two-week lengths show for a moment.
+    renderTimer();
+    expect(timer()).toBe("23:00");
+    expect(sessionRun()).toEqual(paused);
+    act(() => {
+      useWorkspaceStore.setState({
+        ceremonyCadences: [cadenceDoc(normalizeCadence({ sprintLengthDays: 7 }))],
+      });
+    });
+    expect(timer()).toBe("08:00");
   });
 });

@@ -128,7 +128,12 @@ export function advanceSegment(
   return { ...next, baseMs: at, since: null, finished: true };
 }
 
-/** Turn-taking switched on part-way through a segment: the first turn starts now. */
+/**
+ * The turn clock starts again from now: turn-taking switched on part-way
+ * through a segment, the speaker who was up left, or someone joined while
+ * nobody was up. The time before still counts against the segment (runView
+ * reads it from `turnStartMs`), so the shares cover only what is left.
+ */
 export function restartTurns(run: Run, now: number): Run {
   if (run.finished) return run;
   return withCurrent(run, { turnStartMs: activeMs(run, now) });
@@ -213,7 +218,11 @@ export function runView(
   let speakers: SpeakerPlan | null = null;
   if (segment?.speakers && order.length > 0) {
     const turnSpent = rec && !run?.finished ? secondsOf(at - rec.turnStartMs) : 0;
-    speakers = speakerPlan(segment.seconds, order, rec?.turns ?? [], turnSpent);
+    // Everything in the segment before this turn is gone, not only the
+    // finished turns: minutes before turn-taking began, or the unfinished
+    // turn of a speaker who left.
+    const used = rec ? Math.max(0, rec.turnStartMs - rec.startMs) / 1000 : 0;
+    speakers = speakerPlan(segment.seconds, order, rec?.turns ?? [], turnSpent, used);
   }
 
   return {
@@ -333,21 +342,22 @@ export function dockFor(
  *   it does while the meeting carries on into overtime, so the run is kept;
  * - gone (Stop in the dock): a running run pauses now and keeps its record.
  *
+ * The segment's length is the one the dock counted down (`totalSeconds`),
+ * not the agenda as the page resolves it: on a full page load the first
+ * render sees the default cadence rather than the team's, and a one-week
+ * team's retro would have its clock moved by the two-week lengths.
+ *
  * Differences under a second are rounding, not a change, and are ignored.
+ * The dock only shows how it is now, so a pause taken in it and later
+ * resumed or stopped leaves no trace here; followDock applies those as they
+ * happen while the page is closed.
  */
-export function reconcileWithDock(
-  run: Run,
-  agenda: Agenda,
-  dock: DockedTimer | null,
-  now: number
-): Run {
+export function reconcileWithDock(run: Run, dock: DockedTimer | null, now: number): Run {
   if (run.finished) return run;
-  const segment = agenda.segments[Math.min(run.index, agenda.segments.length - 1)];
-  const startMs = run.segments[run.index]?.startMs ?? 0;
-  if (!segment) return run;
   if (!dock) return pauseRun(run, now);
+  const startMs = run.segments[run.index]?.startMs ?? 0;
 
-  const planned = segment.seconds * 1000;
+  const planned = Math.max(0, dock.totalSeconds) * 1000;
   const close = (a: number, b: number) => Math.abs(a - b) < 1000;
   if (dock.endsAt !== null) {
     const target = startMs + planned - (dock.endsAt - now);
@@ -359,6 +369,30 @@ export function reconcileWithDock(
     if (run.since === null && close(run.baseMs, target)) return run;
     return { ...run, baseMs: Math.max(0, target), since: null };
   }
+  return run;
+}
+
+/**
+ * The run after one change to the docked timer made while the page is
+ * closed, applied as it happens: a pause there pauses the meeting, a resume
+ * resumes it, and Stop pauses it where it was. The dock stopping itself at
+ * "Time's up" changes nothing, since the meeting carries on into overtime.
+ * Without this, a coffee break taken in the dock counted as meeting time
+ * whenever the dock had been resumed or closed by the time the facilitator
+ * came back.
+ */
+export function followDock(
+  run: Run,
+  before: DockedTimer,
+  after: DockedTimer | null,
+  now: number
+): Run {
+  if (run.finished) return run;
+  if (!after) return pauseRun(run, now);
+  const wasRunning = before.endsAt !== null;
+  const isRunning = after.endsAt !== null;
+  if (wasRunning && !isRunning && after.pausedRemaining > 0) return pauseRun(run, now);
+  if (!wasRunning && isRunning) return resumeRun(run, now);
   return run;
 }
 

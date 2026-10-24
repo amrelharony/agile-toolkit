@@ -4,8 +4,9 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createPersistedStore } from "@/lib/stores/create-persisted-store";
 import { nameKey } from "@/lib/team/use-team-roster";
+import { useDockTimer } from "@/lib/timer/dock-timer";
 import { isAgendaId, type AgendaId, type SavedAgendas } from "./agenda";
-import type { Run, SegmentRun } from "./run";
+import { followDock, type Run, type SegmentRun } from "./run";
 import type { Participant, Turn } from "./speakers";
 
 /**
@@ -149,3 +150,31 @@ export const useTimerSession = create<TimerSession>()(
     merge: (persisted, current) => ({ ...current, ...normalizeSession(persisted) }),
   })
 );
+
+let stopFollowing: (() => void) | null = null;
+
+/**
+ * While the page is closed, the docked timer is the only control the
+ * facilitator has, and the dock only keeps its own countdown: a pause taken
+ * there and later resumed, or ended with Stop, leaves nothing for the page
+ * to read on return. So each pause, resume or Stop made in the dock (the one
+ * whose link is `href`) is applied to the session's run as it happens; see
+ * followDock. The page turns this on when it unmounts and off when it
+ * mounts, where it reconciles with the dock instead. A full reload on
+ * another page drops the subscription; the reconcile still covers what the
+ * dock shows on return.
+ */
+export function followDockWhileAway(on: boolean, href: string): void {
+  stopFollowing?.();
+  stopFollowing = null;
+  if (!on) return;
+  stopFollowing = useDockTimer.subscribe((state, prev) => {
+    const before = prev.timer?.href === href ? prev.timer : null;
+    if (!before || state.timer === prev.timer) return;
+    const after = state.timer?.href === href ? state.timer : null;
+    const { run } = useTimerSession.getState();
+    if (!run) return;
+    const next = followDock(run, before, after, Date.now());
+    if (next !== run) useTimerSession.setState({ run: next });
+  });
+}

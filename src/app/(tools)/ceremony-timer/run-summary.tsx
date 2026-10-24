@@ -1,5 +1,6 @@
 "use client";
 
+import type { Ref } from "react";
 import { Flag } from "lucide-react";
 import { ChartFigure } from "@/components/shared/chart-card";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
@@ -75,9 +76,16 @@ const TURN_COLUMNS: DataTableColumn<TurnReport>[] = [
 /**
  * The end of the meeting: the verdict, planned against actual for each
  * segment, and each speaker's turn in any round. The Markdown export
- * carries the same.
+ * carries the same. The verdict takes focus (`verdictRef`, tabIndex -1)
+ * when Finish switches itself off under the keyboard.
  */
-export function RunSummary({ report }: { report: RunReport }) {
+export function RunSummary({
+  report,
+  verdictRef,
+}: {
+  report: RunReport;
+  verdictRef?: Ref<HTMLParagraphElement>;
+}) {
   const text = summaryChartText(report);
   const longest = Math.max(
     1,
@@ -88,7 +96,12 @@ export function RunSummary({ report }: { report: RunReport }) {
   return (
     <SectionCard title="How it went" icon={Flag} titleSize="sm">
       <div className="flex flex-col gap-5">
-        <p className="text-sm font-medium text-text" role="status">
+        <p
+          ref={verdictRef}
+          tabIndex={-1}
+          className="rounded-sm text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          role="status"
+        >
           {runVerdict(report)}
         </p>
         <ChartFigure label="Planned and actual time" summary={text.summary} table={text.table}>

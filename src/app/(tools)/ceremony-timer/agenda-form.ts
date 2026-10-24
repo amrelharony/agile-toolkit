@@ -1,8 +1,9 @@
 /**
  * The agenda editor's draft: the total and each segment's name, minutes and
  * turn-taking, kept consistent while the team types. Changing the total
- * re-splits the segments in their current proportions; changing a segment
- * moves the total. Pure, for ./agenda-card.tsx and its tests.
+ * re-splits the segments in the proportions they had before the team began
+ * typing it; changing a segment moves the total. Pure, for ./agenda-card.tsx
+ * and its tests.
  */
 
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
@@ -25,6 +26,13 @@ export interface DraftRow {
 export interface AgendaDraft {
   total: string;
   rows: DraftRow[];
+  /**
+   * Each row's share when the total is re-split: the proportions the team
+   * last set, kept apart from the rows' rounded minutes. Typing "60" passes
+   * through "6", and splitting by the rows that one keystroke rounded would
+   * leave the retro at 10 / 20 / 10 / 10 / 10 instead of 7 / 20 / 13 / 13 / 7.
+   */
+  weights: number[];
 }
 
 /** Error keys: "total", "label:<segment id>", "minutes:<segment id>". */
@@ -39,7 +47,11 @@ export function draftOf(agenda: Agenda): AgendaDraft {
     speakers: s.speakers,
   }));
   const total = agenda.segments.reduce((sum, s) => sum + s.seconds, 0);
-  return { total: total > 0 ? minutesValue(total) : "", rows };
+  return {
+    total: total > 0 ? minutesValue(total) : "",
+    rows,
+    weights: agenda.segments.map((s) => s.seconds),
+  };
 }
 
 /** Minutes a segment (or the total, `max` given) can be, else null. */
@@ -49,29 +61,34 @@ function usableMinutes(raw: string, min: number, max: number): number | null {
   return n;
 }
 
-/** The draft after the total was typed: the segments follow when it is usable. */
+/**
+ * The draft after the total was typed: the segments follow when it is
+ * usable, split by the draft's weights, which typing the total never moves.
+ */
 export function withTotal(draft: AgendaDraft, raw: string): AgendaDraft {
   const n = draft.rows.length;
   const total = usableMinutes(raw, MIN_SEGMENT_MINUTES * n, MAX_AGENDA_MINUTES);
   if (total === null) return { ...draft, total: raw };
-  // Current proportions; a blank or unusable segment counts as one share.
-  const weights = draft.rows.map(
-    (r) => usableMinutes(r.minutes, MIN_SEGMENT_MINUTES, MAX_AGENDA_MINUTES) ?? 1
-  );
-  const seconds = splitSeconds(total * 60, weights);
+  const seconds = splitSeconds(total * 60, draft.weights);
   return {
+    ...draft,
     total: raw,
     rows: draft.rows.map((r, i) => ({ ...r, minutes: minutesValue(seconds[i]) })),
   };
 }
 
-/** The draft after a segment's minutes were typed: the total follows when all add up. */
+/**
+ * The draft after a segment's minutes were typed: the total follows when all
+ * add up, and the rows as they now read become the proportions for the next
+ * change of total (a blank or unusable segment counts as one minute).
+ */
 export function withRowMinutes(draft: AgendaDraft, id: string, raw: string): AgendaDraft {
   const rows = draft.rows.map((r) => (r.id === id ? { ...r, minutes: raw } : r));
   const mins = rows.map((r) => usableMinutes(r.minutes, MIN_SEGMENT_MINUTES, MAX_AGENDA_MINUTES));
-  if (mins.some((m) => m === null)) return { ...draft, rows };
+  const weights = mins.map((m) => (m === null ? 1 : m));
+  if (mins.some((m) => m === null)) return { ...draft, rows, weights };
   const sum = (mins as number[]).reduce((a, b) => a + Math.round(b * 60), 0);
-  return { total: minutesValue(sum), rows };
+  return { total: minutesValue(sum), rows, weights };
 }
 
 const RANGE = `from ${MIN_SEGMENT_MINUTES} to ${MAX_AGENDA_MINUTES}`;

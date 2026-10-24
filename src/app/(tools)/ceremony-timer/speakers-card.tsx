@@ -27,8 +27,12 @@ export function validateSpeaker(
   return { ok: true, values: name };
 }
 
-/** What a speaker's row says about their turn in the round that's on. */
-function slotText(slot: SpeakerSlot): { text: string; over: boolean } {
+/**
+ * What a speaker's row says about their turn in the round that's on. Before
+ * the meeting starts nobody is speaking yet: everyone shows their share.
+ */
+function slotText(slot: SpeakerSlot, started: boolean): { text: string; over: boolean } {
+  if (!started) return { text: `${shortClock(slot.shareSeconds)} each`, over: false };
   switch (slot.status) {
     case "done":
       return {
@@ -64,6 +68,7 @@ export interface TurnsSwitch {
 export function SpeakersCard({
   speakers,
   plan,
+  started,
   turns,
   locked,
   onAdd,
@@ -73,6 +78,8 @@ export function SpeakersCard({
   speakers: readonly Participant[];
   /** The round in progress, when the segment on takes turns. */
   plan: SpeakerPlan | null;
+  /** The meeting has started: until then nobody is the current speaker. */
+  started: boolean;
   turns: TurnsSwitch | null;
   /** Removing is off while the timer runs: skip a speaker instead. */
   locked: boolean;
@@ -83,6 +90,7 @@ export function SpeakersCard({
   const roster = useTeamRoster();
   const workspaceReady = useWorkspaceHydrated();
   const switchId = useId();
+  const lockedId = useId();
   const form = useItemForm<{ name: string }, string, "name">({
     initial: { name: "" },
     validate: (d) => validateSpeaker(d, speakers),
@@ -141,8 +149,8 @@ export function SpeakersCard({
           <ol className="flex flex-col gap-1" aria-label="Speaking order">
             {speakers.map((p, i) => {
               const slot = slots.get(p.id);
-              const status = slot ? slotText(slot) : null;
-              const isCurrent = slot?.status === "current";
+              const status = slot ? slotText(slot, started) : null;
+              const isCurrent = started && slot?.status === "current";
               return (
                 <li
                   key={p.id}
@@ -173,6 +181,7 @@ export function SpeakersCard({
                       icon={<X className="h-3.5 w-3.5" aria-hidden="true" />}
                       onClick={() => onRemove(p)}
                       disabled={locked}
+                      {...(locked ? { "aria-describedby": lockedId } : {})}
                       className="text-sub hover:text-danger"
                     />
                   </span>
@@ -183,6 +192,14 @@ export function SpeakersCard({
         ) : (
           <p className="py-1 text-center text-xs text-sub">
             Add the people who will speak, to give each a fair share of the round.
+          </p>
+        )}
+
+        {locked && speakers.length > 0 && (
+          <p id={lockedId} className="text-xs text-sub">
+            {plan
+              ? "Pause the timer to remove someone, or use Skip speaker."
+              : "Pause the timer to remove someone."}
           </p>
         )}
 

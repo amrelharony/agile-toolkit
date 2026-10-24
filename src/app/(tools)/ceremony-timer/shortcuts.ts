@@ -27,6 +27,16 @@ const TEXT_ENTRY =
 const SPACE_TARGETS =
   'button, a[href], summary, [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="link"]';
 
+/**
+ * The timer's own buttons (Start or pause, Next speaker, Skip speaker, Next
+ * segment), marked `data-timer-control`. A mouse click leaves focus on the
+ * button, and Space would then press it again: a second Next segment, or
+ * Finish. On these Space keeps the meaning the page gives it.
+ */
+const TIMER_CONTROLS = "[data-timer-control]";
+
+const isSpace = (key: string) => key === " " || key === "Spacebar";
+
 type KeyLike = Pick<
   KeyboardEvent,
   "key" | "shiftKey" | "ctrlKey" | "metaKey" | "altKey" | "repeat" | "defaultPrevented"
@@ -35,14 +45,15 @@ type KeyLike = Pick<
 /**
  * The timer action a key press asks for, or null: not one of the keys, a
  * modifier held (Ctrl+S still saves), typing in a field or a dialog, or
- * Space on a control that Space presses anyway.
+ * Space on a control that Space presses anyway (other than the timer's own).
  */
 export function shortcutFor(e: KeyLike): Shortcut | null {
   if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return null;
   const el = e.target instanceof Element ? e.target : null;
   if (el?.closest(TEXT_ENTRY)) return null;
-  if (e.key === " " || e.key === "Spacebar") {
-    if (e.repeat || e.shiftKey || el?.closest(SPACE_TARGETS)) return null;
+  if (isSpace(e.key)) {
+    if (e.repeat || e.shiftKey) return null;
+    if (el?.closest(SPACE_TARGETS) && !el.closest(TIMER_CONTROLS)) return null;
     return "toggle";
   }
   if (e.repeat) return null;
@@ -55,7 +66,9 @@ export function shortcutFor(e: KeyLike): Shortcut | null {
 /**
  * Listens on the document while the page is open. `run` gets the shortcut
  * and returns whether it did anything; only then is the key's default
- * (Space scrolling the page) prevented.
+ * (Space scrolling the page, or pressing the focused timer button) prevented.
+ * A button presses itself on Space's keyup, so a handled Space's keyup is
+ * prevented too.
  */
 export function useTimerShortcuts(run: (shortcut: Shortcut) => boolean): void {
   const ref = useRef(run);
@@ -63,11 +76,24 @@ export function useTimerShortcuts(run: (shortcut: Shortcut) => boolean): void {
     ref.current = run;
   });
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    let spaceHandled = false;
+    const onKeyDown = (e: KeyboardEvent) => {
       const shortcut = shortcutFor(e);
-      if (shortcut && ref.current(shortcut)) e.preventDefault();
+      if (shortcut && ref.current(shortcut)) {
+        e.preventDefault();
+        if (isSpace(e.key)) spaceHandled = true;
+      }
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!spaceHandled || !isSpace(e.key)) return;
+      spaceHandled = false;
+      e.preventDefault();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup", onKeyUp);
+    };
   }, []);
 }

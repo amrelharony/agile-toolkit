@@ -80,16 +80,23 @@ export interface SpeakerPlan {
  * current speaker is the first in the order without a turn. Waiting
  * speakers' share assumes the current one takes at least their own share,
  * so it shrinks live while the current speaker runs over.
+ *
+ * `usedSeconds` is the budget already gone when the current turn began.
+ * It is at least the finished turns, and more when the segment ran before
+ * turn-taking began or a speaker left mid-turn: sharing the whole segment
+ * then would promise the waiting speakers time that is already spent.
  */
 export function speakerPlan(
   budgetSeconds: number,
   order: readonly Participant[],
   turns: readonly Turn[],
-  currentSpentSeconds: number
+  currentSpentSeconds: number,
+  usedSeconds = 0
 ): SpeakerPlan {
   const spoken = new Set(turns.map((t) => t.speakerId));
   const waiting = order.filter((p) => !spoken.has(p.id));
-  const used = turns.reduce((sum, t) => sum + Math.max(0, t.spentMs), 0) / 1000;
+  const turnsUsed = turns.reduce((sum, t) => sum + Math.max(0, t.spentMs), 0) / 1000;
+  const used = Math.max(turnsUsed, Number.isFinite(usedSeconds) ? usedSeconds : 0);
 
   const slots: SpeakerSlot[] = turns.map((t) => ({
     id: t.speakerId,

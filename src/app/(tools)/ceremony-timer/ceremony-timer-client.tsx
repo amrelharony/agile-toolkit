@@ -30,7 +30,6 @@ import {
   allAgendas,
   durationText,
   readAgendaParam,
-  resolveAgenda,
   shortClock,
   toSaved,
   type AgendaId,
@@ -63,6 +62,7 @@ import { SpeakersCard } from "./speakers-card";
 import { TimerFace } from "./timer-face";
 import type { Participant } from "./speakers";
 import {
+  followDockWhileAway,
   normalizeAgendas,
   normalizeSpeakers,
   useTimerSession,
@@ -84,6 +84,27 @@ const setRun = (run: Run | null) => useTimerSession.setState({ run });
 
 function setSpeakers(fn: (list: Participant[]) => Participant[]) {
   useTimerSettings.setState((s) => ({ speakers: fn(normalizeSpeakers(s.speakers)) }));
+}
+
+/**
+ * A step through the meeting (a turn passed or skipped, the next segment,
+ * Finish) with Undo: a slip of the key or the mouse can't be walked back
+ * otherwise, and a finished run can't be resumed. Undo puts the step back
+ * while the run is still where the step left it, keeping a pause or resume
+ * made since; after a later step, that step's own Undo comes first.
+ */
+function stepWithUndo(label: string, before: Run, after: Run) {
+  undoable({
+    label,
+    apply: () => setRun(after),
+    revert: () => {
+      const now = useTimerSession.getState().run;
+      if (now === after) setRun(before);
+      else if (now && !after.finished && now.segments === after.segments) {
+        setRun({ ...now, index: before.index, segments: before.segments });
+      }
+    },
+  });
 }
 
 /** Save the team's rows for one agenda; none (or an empty list) means the defaults. */
@@ -134,18 +155,15 @@ export function CeremonyTimerClient() {
   useEffect(() => {
     if (!useTimerSettings.persist.hasHydrated()) void useTimerSettings.persist.rehydrate();
     if (!useTimerSession.persist.hasHydrated()) void useTimerSession.persist.rehydrate();
+    // Back on the page: it drives the run again, after reading the dock.
+    followDockWhileAway(false, DOCK_HREF);
     const t = Date.now();
     const docked = useDockTimer.getState().timer;
     const ours = docked?.href === DOCK_HREF ? docked : null;
     const session = useTimerSession.getState();
 
     if (session.run && session.agendaId) {
-      const shown = resolveAgenda(
-        session.agendaId,
-        normalizeAgendas(useTimerSettings.getState().agendas),
-        sprintLength
-      );
-      const next = reconcileWithDock(session.run, shown, ours, t);
+      const next = reconcileWithDock(session.run, ours, t);
       if (next !== session.run) setRun(next);
       quietRunRef.current = next;
     } else if (ours) {
@@ -162,8 +180,9 @@ export function CeremonyTimerClient() {
     }
     setNow(t);
     setReady(true);
-    // Mount only: the cadence's sprint length is read once for the reconcile.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Leaving the page: what is done in the dock from here on is applied to
+    // the run as it happens.
+    return () => followDockWhileAway(true, DOCK_HREF);
   }, []);
 
   useEffect(() => {
@@ -225,10 +244,15 @@ export function CeremonyTimerClient() {
 
   const canStart = Boolean(agenda && agendaSeconds(agenda) > 0);
 
-  const toggle = (): boolean => {
+  /**
+   * Start, pause or resume. From the Space key it also says so: focus isn't
+   * on the button then, so its changed name isn't read out.
+   */
+  const toggle = (fromKey: boolean): boolean => {
     const current = useTimerSession.getState().run;
     if (!agenda || !view || !canStart || current?.finished) return false;
     const t = Date.now();
+    const pausing = Boolean(current && current.since !== null);
     if (!current) {
       setRun(startRun(agenda.id, t));
       sonify("start");
@@ -236,7 +260,7 @@ export function CeremonyTimerClient() {
         agenda: agenda.id,
         remainingSeconds: view.segmentLeft,
       });
-    } else if (current.since === null) {
+    } else if (!pausing) {
       setRun(resumeRun(current, t));
       sonify("start");
       log(CEREMONY_TIMER_ACTIONS.TIMER_STARTED, {
@@ -250,18 +274,25 @@ export function CeremonyTimerClient() {
         remainingSeconds: view.segmentLeft,
       });
     }
+    if (fromKey) {
+      const what = agenda.segments.length > 1 ? view.segment.label : agenda.short;
+      const left = view.segmentLeft;
+      const clock = left >= 0 ? `${shortClock(left)} left` : `${shortClock(-left)} over`;
+      announce(`Timer ${pausing ? "paused" : "started"}. ${what}: ${clock}.`);
+    }
     setNow(t);
     return true;
   };
 
-  /** Next speaker, or Skip speaker: the turn is recorded and the next one begins. */
+  /** Next speaker, or Skip speaker: the turn is recorded (with Undo) and the next one begins. */
   const passTurn = (skipped: boolean): boolean => {
     const current = useTimerSession.getState().run;
     const speaker = view?.speakers?.current;
     if (!agenda || !current || current.finished || !speaker) return false;
     const t = Date.now();
     const next = endTurn(current, speaker, speaker.shareSeconds, skipped, t);
-    setRun(next);
+    const who = shortName(speaker.name);
+    stepWithUndo(skipped ? `Skipped ${who}` : `${who}'s turn ended`, current, next);
     setNow(t);
     sonify("rotate");
     const up = runView(next, agenda, speakers, t).speakers?.current;
@@ -281,12 +312,16 @@ export function CeremonyTimerClient() {
       t,
       speaker ? { speaker, shareSeconds: speaker.shareSeconds } : undefined
     );
-    setRun(next);
+    const seg = agenda.segments[next.index];
+    stepWithUndo(
+      next.finished ? `Finished the ${agenda.label}` : `Moved on to ${seg.label}`,
+      current,
+      next
+    );
     setNow(t);
     if (next.finished) {
       announce(runVerdict(runReport(next, agenda, t)));
     } else {
-      const seg = agenda.segments[next.index];
       sonify("rotate");
       announce(
         `Segment ${next.index + 1} of ${agenda.segments.length}: ${seg.label}, ${durationText(seg.seconds)}.`
@@ -296,29 +331,28 @@ export function CeremonyTimerClient() {
   };
 
   useTimerShortcuts((shortcut: Shortcut) => {
-    if (shortcut === "toggle") return toggle();
+    if (shortcut === "toggle") return toggle(true);
     if (shortcut === "next-speaker") return passTurn(false);
     if (shortcut === "skip-speaker") return passTurn(true);
     return nextSegment();
   });
 
-  // Restart keeps the run it cleared for its Undo.
-  const restartedRef = useRef<Run | null>(null);
+  // Undo brings back the meeting together with the agenda it belongs to, as
+  // this render shows them. A ref shared across confirmations would hand an
+  // older toast's Undo a later run, under whichever agenda is on screen.
+  const shownSession: TimerSession = { agendaId, run };
   const restart = agenda && (
     <ResetButton
-      label="Restart"
-      title={`Restart the ${agenda.label}?`}
-      description="The time spent so far is cleared and the agenda starts again from the first segment."
-      confirmLabel="Restart"
-      doneLabel="Restarted the timer"
+      label="Start over"
+      title={`Start the ${agenda.label} over?`}
+      description="The time spent so far is cleared and the timer goes back to the first segment, ready to start."
+      confirmLabel="Start over"
+      doneLabel="Cleared the timer"
       onReset={() => {
-        restartedRef.current = useTimerSession.getState().run;
         setRun(null);
         log(CEREMONY_TIMER_ACTIONS.TIMER_RESET, { agenda: agenda.id });
       }}
-      onUndo={() => {
-        if (restartedRef.current) setRun(restartedRef.current);
-      }}
+      onUndo={() => setSession(shownSession)}
     />
   );
 
@@ -353,15 +387,14 @@ export function CeremonyTimerClient() {
     setSaved(agenda.id, toSaved(agenda.id, segments, sprintLength));
   };
 
-  // Reset to defaults keeps the rows it removed for its Undo.
-  const resetRowsRef = useRef<SavedSegment[] | undefined>(undefined);
+  // Undo puts back the rows this agenda had in the render that confirmed the
+  // reset, so resetting two agendas in a row undoes each one's own edits.
+  const shownRows: SavedSegment[] | undefined = agenda ? saved[agenda.id] : undefined;
   const resetDefaults = () => {
-    if (!agenda) return;
-    resetRowsRef.current = normalizeAgendas(useTimerSettings.getState().agendas)[agenda.id];
-    setSaved(agenda.id, undefined);
+    if (agenda) setSaved(agenda.id, undefined);
   };
   const restoreDefaults = () => {
-    if (agenda) setSaved(agenda.id, resetRowsRef.current);
+    if (agenda) setSaved(agenda.id, shownRows);
   };
 
   /** Turn-taking for the segment that's on: an edit to the agenda like any other. */
@@ -378,6 +411,13 @@ export function CeremonyTimerClient() {
   // ---------------------------------------------------------------------------
 
   const addSpeaker = (name: string) => {
+    // Someone joining a round while nobody is up (nobody in it yet, or
+    // everyone has spoken) starts their turn now, not from the start of the
+    // segment or the end of the last turn.
+    const current = useTimerSession.getState().run;
+    if (current && !current.finished && view?.segment.speakers && !view.speakers?.current) {
+      setRun(restartTurns(current, Date.now()));
+    }
     // Someone on the team keeps their roster id, as "Load team" does.
     const member = findRosterMember(useWorkspaceStore.getState().teamMembers ?? [], name);
     setSpeakers((list) => {
@@ -474,6 +514,8 @@ export function CeremonyTimerClient() {
   // ---------------------------------------------------------------------------
 
   const multi = (agenda?.segments.length ?? 0) > 1;
+  // Where focus goes once Finish has switched itself off.
+  const summaryRef = useRef<HTMLParagraphElement>(null);
 
   return (
     <ToolPageWrapper
@@ -494,11 +536,12 @@ export function CeremonyTimerClient() {
                 agenda={agenda}
                 view={view}
                 canStart={canStart}
-                onToggle={toggle}
+                onToggle={() => toggle(false)}
                 onNextSpeaker={() => passTurn(false)}
                 onSkipSpeaker={() => passTurn(true)}
-                onNextSegment={nextSegment}
+                onNextSegment={() => nextSegment()}
                 restart={restart}
+                summaryRef={summaryRef}
                 chime={chime}
                 onChime={(on) => useTimerSettings.setState({ chime: on })}
               />
@@ -507,7 +550,7 @@ export function CeremonyTimerClient() {
                   {planVerdict(agenda, speakers.length)}
                 </p>
               )}
-              {view.finished && report && <RunSummary report={report} />}
+              {view.finished && report && <RunSummary report={report} verdictRef={summaryRef} />}
               <AgendaCard
                 agenda={agenda}
                 view={view}
@@ -533,6 +576,7 @@ export function CeremonyTimerClient() {
           <SpeakersCard
             speakers={speakers}
             plan={view && !view.finished ? view.speakers : null}
+            started={Boolean(view?.started)}
             turns={
               agenda && view && !view.finished
                 ? {

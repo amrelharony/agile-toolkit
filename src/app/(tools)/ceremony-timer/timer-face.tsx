@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Maximize, Minimize, Pause, Play, SkipForward, StepForward, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,12 +28,13 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /**
  * The ring's colour, as theme variables so it follows light, dark and high
- * contrast: the accent while there's time, amber near the end, and the
+ * contrast: the accent while there's time, amber in the last fifth, and the
  * warning colour once the segment runs over (with "over" said in text too).
+ * Nothing before zero is more urgent than running over, so there is no red
+ * step on the way.
  */
-function ringColor(fraction: number, over: boolean): string {
+export function ringColor(fraction: number, over: boolean): string {
   if (over) return "var(--warning)";
-  if (fraction <= 0.05) return "var(--destructive)";
   if (fraction <= 0.2) return "var(--chart-4)";
   return "var(--accent)";
 }
@@ -44,8 +53,10 @@ export interface TimerFaceProps {
   onNextSpeaker: () => void;
   onSkipSpeaker: () => void;
   onNextSegment: () => void;
-  /** The Restart control (it confirms and offers Undo), shown once started. */
+  /** The Start over control (it confirms and offers Undo), shown once started. */
   restart: ReactNode;
+  /** The end summary's verdict, where focus goes when Finish switches itself off. */
+  summaryRef: RefObject<HTMLElement>;
   chime: boolean;
   onChime: (on: boolean) => void;
 }
@@ -64,12 +75,45 @@ export function TimerFace({
   onSkipSpeaker,
   onNextSegment,
   restart,
+  summaryRef,
   chime,
   onChime,
 }: TimerFaceProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const chimeId = useId();
+  const startRef = useRef<HTMLButtonElement>(null);
+  const nextSegmentRef = useRef<HTMLButtonElement>(null);
+  // The step control (Next speaker, Skip speaker, Next segment) that last
+  // had focus, until focus moves somewhere else on purpose.
+  const stepFocusRef = useRef<HTMLButtonElement | null>(null);
+  const wasStartedRef = useRef(view.started);
+
+  // A control that switches itself off while it has focus would drop the
+  // keyboard to the top of the page: Next speaker after the last turn,
+  // Finish, and Start over (gone with its dialog once confirmed). Focus goes
+  // on to what comes next instead: Next segment, the end summary, or Start.
+  useEffect(() => {
+    const active = document.activeElement;
+    const dropped = !active || active === document.body;
+    const lost = stepFocusRef.current;
+    if (lost?.disabled && (dropped || active === lost)) {
+      stepFocusRef.current = null;
+      const target = view.finished ? summaryRef.current : nextSegmentRef.current;
+      if (target && !(target as HTMLButtonElement).disabled) target.focus();
+    }
+    const wasStarted = wasStartedRef.current;
+    wasStartedRef.current = view.started;
+    if (wasStarted && !view.started && dropped) startRef.current?.focus();
+  });
+  const stepFocus = {
+    onFocus: (e: FocusEvent<HTMLButtonElement>) => {
+      stepFocusRef.current = e.currentTarget;
+    },
+    onBlur: (e: FocusEvent<HTMLButtonElement>) => {
+      if (e.relatedTarget) stepFocusRef.current = null;
+    },
+  };
 
   // Kept in sync with Esc and other browser-driven exits.
   useEffect(() => {
@@ -231,11 +275,13 @@ export function TimerFace({
 
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
+            ref={startRef}
             size="lg"
             onClick={onToggle}
             disabled={!canStart || view.finished}
             aria-label={view.running ? "Pause timer" : "Start timer"}
             aria-keyshortcuts={SHORTCUT_KEYS.toggle}
+            data-timer-control=""
             className={cn(
               "h-14 w-14 rounded-full p-0",
               view.running
@@ -256,6 +302,8 @@ export function TimerFace({
                 onClick={onNextSpeaker}
                 disabled={!view.started || view.finished || !current}
                 aria-keyshortcuts={SHORTCUT_KEYS["next-speaker"]}
+                data-timer-control=""
+                {...stepFocus}
                 className="gap-1.5"
               >
                 <StepForward className="h-4 w-4" aria-hidden="true" />
@@ -266,6 +314,8 @@ export function TimerFace({
                 onClick={onSkipSpeaker}
                 disabled={!view.started || view.finished || !current}
                 aria-keyshortcuts={SHORTCUT_KEYS["skip-speaker"]}
+                data-timer-control=""
+                {...stepFocus}
                 className="gap-1.5"
               >
                 <UserX className="h-4 w-4" aria-hidden="true" />
@@ -274,10 +324,13 @@ export function TimerFace({
             </>
           )}
           <Button
+            ref={nextSegmentRef}
             variant="outline"
             onClick={onNextSegment}
             disabled={!view.started || view.finished}
             aria-keyshortcuts={SHORTCUT_KEYS["next-segment"]}
+            data-timer-control=""
+            {...stepFocus}
             className="gap-1.5"
           >
             <SkipForward className="h-4 w-4" aria-hidden="true" />

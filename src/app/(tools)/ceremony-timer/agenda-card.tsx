@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ListChecks, Pencil, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -44,6 +44,32 @@ export function AgendaCard({
   const [editing, setEditing] = useState(false);
   const open = editing || unset;
 
+  // Opening, saving, cancelling and resetting each remove the control that
+  // had focus (Edit agenda, the editor's buttons, or Reset to defaults with
+  // its dialog). Focus moves to the editor's first field on opening and back
+  // to Edit agenda after, rather than to the top of the page. A Custom
+  // time-box opening its editor by itself leaves focus where it is.
+  const editRef = useRef<HTMLButtonElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const focusNextRef = useRef<"editor" | "edit" | null>(null);
+  useEffect(() => {
+    const next = focusNextRef.current;
+    if (next === "editor" && open) {
+      bodyRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+    } else if (next === "edit" && !open) {
+      editRef.current?.focus();
+    } else return;
+    focusNextRef.current = null;
+  });
+  const startEditing = () => {
+    focusNextRef.current = "editor";
+    setEditing(true);
+  };
+  const close = () => {
+    focusNextRef.current = "edit";
+    setEditing(false);
+  };
+
   return (
     <SectionCard
       title={`${agenda.label} agenda`}
@@ -59,11 +85,20 @@ export function AgendaCard({
                 description="Each segment's name, length and round of turns go back to the defaults for your sprint length."
                 confirmLabel="Reset agenda"
                 doneLabel={`Reset the ${agenda.label} agenda`}
-                onReset={onResetDefaults}
+                onReset={() => {
+                  focusNextRef.current = "edit";
+                  onResetDefaults();
+                }}
                 onUndo={onRestore}
               />
             )}
-            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
+            <Button
+              ref={editRef}
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              onClick={startEditing}
+            >
               <Pencil className="h-4 w-4" aria-hidden="true" />
               Edit agenda
             </Button>
@@ -71,20 +106,22 @@ export function AgendaCard({
         )
       }
     >
-      {open ? (
-        <AgendaEditor
-          // A fresh draft each time the editor opens, from the agenda as it is.
-          key={agenda.id}
-          agenda={agenda}
-          onSave={(segments) => {
-            onSave(segments);
-            setEditing(false);
-          }}
-          onCancel={unset ? undefined : () => setEditing(false)}
-        />
-      ) : (
-        <SegmentList agenda={agenda} view={view} />
-      )}
+      <div ref={bodyRef}>
+        {open ? (
+          <AgendaEditor
+            // A fresh draft each time the editor opens, from the agenda as it is.
+            key={agenda.id}
+            agenda={agenda}
+            onSave={(segments) => {
+              onSave(segments);
+              close();
+            }}
+            onCancel={unset ? undefined : close}
+          />
+        ) : (
+          <SegmentList agenda={agenda} view={view} />
+        )}
+      </div>
     </SectionCard>
   );
 }
