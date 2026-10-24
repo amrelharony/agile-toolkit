@@ -73,17 +73,22 @@ const ERROR_COPY: Record<ComicLoadError | "crash", string> = {
   missing: "The comic file couldn't be found.",
 };
 
-/** The reader failed: say why, offer Retry (when it can help) and Download. */
+/**
+ * The reader failed: say why, offer Retry (when it can help) and Download
+ * (unless the edition is read in the browser only).
+ */
 export function ComicErrorPanel({
   kind,
   onRetry,
   src,
   size,
+  download = true,
 }: {
   kind: ComicLoadError | "crash";
   onRetry: () => void;
   src: string;
   size: number | null;
+  download?: boolean;
 }) {
   return (
     <EmptyState
@@ -98,12 +103,16 @@ export function ComicErrorPanel({
               Retry
             </Button>
           )}
-          <DownloadPdfButton src={src} size={size} />
+          {download && <DownloadPdfButton src={src} size={size} />}
         </div>
       }
     >
       <p className="font-semibold text-text">{ERROR_COPY[kind]}</p>
-      <p className="mt-1">You can still download the PDF and read it in any PDF viewer.</p>
+      {download ? (
+        <p className="mt-1">You can still download the PDF and read it in any PDF viewer.</p>
+      ) : (
+        kind !== "password" && <p className="mt-1">Give it a moment, then try again.</p>
+      )}
     </EmptyState>
   );
 }

@@ -56,11 +56,13 @@ interface ReaderToolbarProps {
   onToggleFullscreen: () => void;
   src: string;
   size: number | null;
+  /** Show the Download PDF button (default on). */
+  download?: boolean;
 }
 
 /**
  * Prev/Next, the page label, a page scrubber, the layout toggle,
- * fullscreen and Download.
+ * fullscreen and Download (when offered).
  *
  * Hints are `title` + `aria-label`, not Radix tooltips: tooltips portal
  * into <body>, which is not rendered while the reader is in native
@@ -84,6 +86,7 @@ export const ReaderToolbar = forwardRef<HTMLButtonElement, ReaderToolbarProps>(
       onToggleFullscreen,
       src,
       size,
+      download = true,
     },
     fullscreenButtonRef
   ) {
@@ -218,7 +221,7 @@ export const ReaderToolbar = forwardRef<HTMLButtonElement, ReaderToolbarProps>(
           >
             {isFullscreen ? <Minimize aria-hidden="true" /> : <Maximize aria-hidden="true" />}
           </Button>
-          <DownloadPdfButton src={src} size={size} />
+          {download && <DownloadPdfButton src={src} size={size} />}
         </div>
       </div>
     );

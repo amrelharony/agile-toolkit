@@ -56,9 +56,9 @@ const STAGE_HEIGHT = [
   "xl:h-[calc(100vh-17rem)] xl:supports-[height:100dvh]:h-[calc(100dvh-17rem)]",
 ].join(" ");
 
-function readLastPage(): number | null {
+function readLastPage(key: string): number | null {
   try {
-    const raw = localStorage.getItem(COMIC_LAST_PAGE_KEY);
+    const raw = localStorage.getItem(key);
     const page = raw === null ? NaN : Number(JSON.parse(raw));
     return Number.isInteger(page) && page >= 1 ? page : null;
   } catch {
@@ -66,9 +66,9 @@ function readLastPage(): number | null {
   }
 }
 
-function writeLastPage(page: number): void {
+function writeLastPage(key: string, page: number): void {
   try {
-    localStorage.setItem(COMIC_LAST_PAGE_KEY, JSON.stringify(page));
+    localStorage.setItem(key, JSON.stringify(page));
   } catch {
     // Private mode / quota — resuming is a nicety, not a requirement.
   }
@@ -81,29 +81,53 @@ function containSize(aspect: number, boxW: number, boxH: number): { w: number; h
   return { w: Math.floor(h * aspect), h: Math.floor(h) };
 }
 
+interface ComicReaderProps {
+  src: string;
+  size: number | null;
+  /** Offer "Download PDF". Off for the colour edition, read in the browser only. */
+  download?: boolean;
+  /** Where "Continue from p. N" is remembered; each edition keeps its own. */
+  lastPageKey?: string;
+}
+
 /**
  * The "Agile at Work" reader: opens the PDF, then hands a loading or ready
  * document to the view. A missing file falls back to "coming soon"; any
- * other failure shows Retry + Download.
+ * other failure shows Retry (+ Download, when offered).
  */
-export function ComicReader({ src, size }: { src: string; size: number | null }) {
+export function ComicReader({
+  src,
+  size,
+  download = true,
+  lastPageKey = COMIC_LAST_PAGE_KEY,
+}: ComicReaderProps) {
   const pdf = usePdfDocument(src);
   if (pdf.status === "error") {
     if (pdf.kind === "missing") return <ComicComingSoon />;
-    return <ComicErrorPanel kind={pdf.kind} onRetry={pdf.retry} src={src} size={size} />;
+    return (
+      <ComicErrorPanel
+        kind={pdf.kind}
+        onRetry={pdf.retry}
+        src={src}
+        size={size}
+        download={download}
+      />
+    );
   }
   // Same element for loading and ready, so the stage never remounts.
-  return <ReaderView pdf={pdf} src={src} size={size} />;
+  return (
+    <ReaderView pdf={pdf} src={src} size={size} download={download} lastPageKey={lastPageKey} />
+  );
 }
 
 function ReaderView({
   pdf,
   src,
   size,
-}: {
+  download,
+  lastPageKey,
+}: Required<ComicReaderProps> & {
   pdf: Exclude<PdfDocumentState, { status: "error" }>;
-  src: string;
-  size: number | null;
 }) {
   const doc = pdf.status === "ready" ? pdf.doc : null;
   const numPages = pdf.status === "ready" ? pdf.numPages : 0;
@@ -177,11 +201,11 @@ function ReaderView({
       setPage(fromHash);
     } else {
       // Offer, don't jump: a fresh visit should open on the cover.
-      const saved = readLastPage();
+      const saved = readLastPage(lastPageKey);
       if (saved !== null && saved > 1 && saved <= numPages) setResumePage(saved);
     }
     setHashReady(true);
-  }, [numPages, hashReady]);
+  }, [numPages, hashReady, lastPageKey]);
 
   useEffect(() => {
     if (!hashReady) return;
@@ -212,9 +236,9 @@ function ReaderView({
 
   useEffect(() => {
     if (!navigatedRef.current || !numPages) return;
-    const timer = setTimeout(() => writeLastPage(page), 500);
+    const timer = setTimeout(() => writeLastPage(lastPageKey, page), 500);
     return () => clearTimeout(timer);
-  }, [page, numPages]);
+  }, [page, numPages, lastPageKey]);
 
   // Gamification hook (tool:agile-at-work:finished), once per visit.
   const finishedRef = useRef(false);
@@ -501,6 +525,7 @@ function ReaderView({
         onToggleFullscreen={toggle}
         src={src}
         size={size}
+        download={download}
       />
     </div>
   );

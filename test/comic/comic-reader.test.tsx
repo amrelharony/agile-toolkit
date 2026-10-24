@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMIC_LAST_PAGE_KEY } from "@/lib/comic/agile-at-work";
+import { COLOR_EDITION_LAST_PAGE_KEY, COMIC_LAST_PAGE_KEY } from "@/lib/comic/agile-at-work";
 
 /**
  * The "Agile at Work" reader against a fake pdf.js: page images, keyboard,
@@ -273,6 +273,49 @@ describe("ComicReader", () => {
     expect(await screen.findByText(/password-protected/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByRole("link", { name: /Download PDF/ })).toBeInTheDocument();
+  });
+});
+
+describe("ComicReader read-only (colour edition)", () => {
+  it("offers no download in the toolbar", async () => {
+    loadPdfjs.mockResolvedValue(fakePdfjs());
+    render(<ComicReader src={SRC} size={SIZE} download={false} />);
+    await screen.findByAltText("Agile at Work — page 1 of 24");
+
+    const controls = screen.getByRole("group", { name: "Comic reader controls" });
+    expect(within(controls).getByRole("button", { name: "Enter fullscreen" })).toBeInTheDocument();
+    expect(within(controls).queryByRole("link", { name: /Download PDF/ })).toBeNull();
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  it("offers Retry but no download when the PDF can't be read", async () => {
+    loadPdfjs.mockRejectedValueOnce(pdfError("InvalidPDFException"));
+    render(<ComicReader src={SRC} size={SIZE} download={false} />);
+    expect(await screen.findByText(/couldn't be read/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText(/download the PDF/)).toBeNull();
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  it("keeps its own resume point, apart from the free edition's", async () => {
+    localStorage.setItem(COMIC_LAST_PAGE_KEY, "7");
+    localStorage.setItem(COLOR_EDITION_LAST_PAGE_KEY, "12");
+    loadPdfjs.mockResolvedValue(fakePdfjs());
+    render(
+      <ComicReader
+        src={SRC}
+        size={SIZE}
+        download={false}
+        lastPageKey={COLOR_EDITION_LAST_PAGE_KEY}
+      />
+    );
+    expect(await screen.findByRole("button", { name: "Continue from p. 12" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue from p. 12" }));
+    await waitFor(() => expect(localStorage.getItem(COLOR_EDITION_LAST_PAGE_KEY)).toBe("12"));
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(localStorage.getItem(COLOR_EDITION_LAST_PAGE_KEY)).toBe("13"));
+    expect(localStorage.getItem(COMIC_LAST_PAGE_KEY)).toBe("7");
   });
 });
 
