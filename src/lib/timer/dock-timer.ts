@@ -72,3 +72,30 @@ export const useDockTimer = create<DockTimerState>()(
     }
   )
 );
+
+/** The docked timer when `href` owns it, else null. */
+export function dockOwnedBy(
+  href: string,
+  timer: DockedTimer | null = useDockTimer.getState().timer
+): DockedTimer | null {
+  return timer?.href === href ? timer : null;
+}
+
+/** A countdown of `seconds` for `label`, owned by `href`, paused at its start. */
+export function countdown(label: string, href: string, seconds: number): DockedTimer {
+  const s = Math.max(0, Math.round(seconds));
+  return { label, href, totalSeconds: s, endsAt: null, pausedRemaining: s };
+}
+
+/**
+ * Put `timer` on the dock unless another page holds it. A page keeps the
+ * dock while its timer is there, running, paused or at zero, so starting a
+ * warm-up never silently replaces a ceremony's clock: the caller says so
+ * and lets the user stop the other timer first.
+ */
+export function claimDock(timer: DockedTimer): { ok: true } | { ok: false; holder: DockedTimer } {
+  const dock = useDockTimer.getState();
+  if (dock.timer && dock.timer.href !== timer.href) return { ok: false, holder: dock.timer };
+  dock.publish(timer);
+  return { ok: true };
+}
