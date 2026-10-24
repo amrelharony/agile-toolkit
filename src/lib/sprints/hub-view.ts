@@ -125,11 +125,31 @@ export interface Tile {
 
 const NOT_LOGGED = "Not logged yet";
 
+export interface RatingOption {
+  /**
+   * The sprint's average score as Sprint Comparison computes it
+   * (`averageScore(sprintScores(...))` from lib/sprints/compare), so the
+   * tile shows the same number as that page. Null: not scored. Left out,
+   * the ratings typed into the sprint's series are averaged, as before.
+   */
+  rating?: number | null;
+}
+
+/** The rating to show: the computed one when given, else the typed ratings' average. */
+function ratingOf(status: SprintStatus, opts: RatingOption): number | null {
+  return opts.rating !== undefined ? opts.rating : status.averageRating;
+}
+
 /**
  * The hub's tiles for one sprint. `average` is the recent velocity of the
  * other finished sprints, for "committed vs average".
  */
-export function hubTiles(sprint: Sprint, status: SprintStatus, average: AverageVelocity): Tile[] {
+export function hubTiles(
+  sprint: Sprint,
+  status: SprintStatus,
+  average: AverageVelocity,
+  opts: RatingOption = {}
+): Tile[] {
   const logged = status.lastDay !== null;
   const tiles: Tile[] = [
     {
@@ -282,11 +302,12 @@ export function hubTiles(sprint: Sprint, status: SprintStatus, average: AverageV
     });
   }
 
-  if (status.averageRating !== null) {
+  const rating = ratingOf(status, opts);
+  if (rating !== null) {
     tiles.push({
       id: "rating",
       label: "Average rating",
-      value: fmt(status.averageRating),
+      value: fmt(rating),
       unit: "/ 10",
       hint: "From Sprint Comparison",
       tone: "default",
@@ -305,9 +326,11 @@ export type SprintToolId =
 /** One status line per sprint tool card. */
 export function toolStatusLines(
   status: SprintStatus,
-  teamAverage: AverageVelocity
+  teamAverage: AverageVelocity,
+  opts: RatingOption = {}
 ): Record<SprintToolId, string> {
   const logged = status.lastDay !== null && status.done !== null;
+  const rating = ratingOf(status, opts);
   return {
     burndown:
       status.loggedDays === 0
@@ -322,8 +345,7 @@ export function toolStatusLines(
         : `Average ${points(teamAverage.average)} over ${
             teamAverage.count === 1 ? "1 sprint" : `${teamAverage.count} sprints`
           }`,
-    "sprint-compare":
-      status.averageRating === null ? "Not rated yet" : `Rated ${fmt(status.averageRating)}`,
+    "sprint-compare": rating === null ? "Not rated yet" : `Rated ${fmt(rating)}`,
     "release-planner":
       teamAverage.average === null
         ? "Close a sprint to forecast from velocity"

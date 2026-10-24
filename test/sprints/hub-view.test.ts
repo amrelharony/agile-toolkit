@@ -10,9 +10,13 @@ import {
   sprintNudges,
   suggestedCompletedPoints,
   toolStatusLines,
-} from "@/app/(tools)/sprint-metrics/view";
+} from "@/lib/sprints/hub-view";
 
-/** The hub's wording, without rendering: day line, tiles, status lines, nudges. */
+/**
+ * The cockpit's (and formerly the Sprint Metrics hub's) wording, without
+ * rendering: day line, tiles, status lines, nudges. Moved here from
+ * test/tools/sprint-metrics-view when Sprint Metrics became the trend view.
+ */
 
 const sprint = (partial: Partial<Sprint> = {}): Sprint => ({
   id: "s",
@@ -95,6 +99,32 @@ describe("averages", () => {
     expect(lines.velocity).toBe("Average 24 points over 3 sprints");
     expect(lines["release-planner"]).toBe("Ready to forecast from your last 3 sprints");
     expect(lines.burndown).toBe("Not logged yet");
+  });
+});
+
+describe("the rating", () => {
+  const rated: SprintSeries = { id: "s", ratings: { Velocity: 6, Quality: 8 } };
+
+  it("averages the typed ratings when no computed score is given", () => {
+    const status = sprintStatus(sprint(), rated);
+    expect(
+      hubTiles(sprint(), status, { average: null, count: 0 }).find((t) => t.id === "rating")
+    ).toMatchObject({ value: "7", hint: "From Sprint Comparison" });
+    expect(toolStatusLines(status, { average: null, count: 0 })["sprint-compare"]).toBe("Rated 7");
+  });
+
+  it("shows Sprint Comparison's computed average when given, and nothing for null", () => {
+    const status = sprintStatus(sprint(), rated);
+    const tiles = hubTiles(sprint(), status, { average: null, count: 0 }, { rating: 8.4 });
+    expect(tiles.find((t) => t.id === "rating")?.value).toBe("8.4");
+    expect(
+      hubTiles(sprint(), status, { average: null, count: 0 }, { rating: null }).find(
+        (t) => t.id === "rating"
+      )
+    ).toBeUndefined();
+    expect(
+      toolStatusLines(status, { average: null, count: 0 }, { rating: null })["sprint-compare"]
+    ).toBe("Not rated yet");
   });
 });
 

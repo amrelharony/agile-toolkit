@@ -1,4 +1,5 @@
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
+import type { WorkingCalendar } from "@/lib/sprints/calendar";
 import { sprintStatus } from "@/lib/sprints/metrics";
 import { completedAt, dayDate, remainingAt, scopeAt, sortedDays } from "@/lib/sprints/series";
 import {
@@ -38,14 +39,17 @@ export function toMarkdown({
   series,
   sprints,
   today,
+  calendar,
 }: {
   sprint: Sprint;
   series: SprintSeries | undefined;
   /** Every sprint, for the "committed vs average" tile. */
   sprints: readonly Sprint[];
   today: string;
+  /** The team's working days (cadenceCalendar): the pace and finish count them. */
+  calendar?: WorkingCalendar;
 }): string {
-  const status = sprintStatus(sprint, series);
+  const status = sprintStatus(sprint, series, { calendar });
   const tiles = hubTiles(sprint, status, averageVelocity(completedSprints(sprints), sprint.id));
   const dates = sprintDates(sprint);
 
