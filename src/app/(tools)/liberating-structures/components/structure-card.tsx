@@ -5,6 +5,7 @@ import { Clock, ExternalLink, Heart, Play, Timer, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import type { RefFor } from "@/hooks/use-return-focus";
 import {
   LS_PURPOSE_LABEL,
   LS_SOURCE_URL,
@@ -22,9 +23,14 @@ export const ceremonyTimerHref = (agenda: string) =>
 /**
  * One structure: its purpose, people and timing; opened, how it runs step
  * by step, the step timer, and the source.
+ *
+ * Its title and Start button register with the page's useReturnFocus
+ * (`title:<id>`, `start:<id>`): opening it from the favourites strip, and
+ * stopping its run at the top of the page, bring focus back here.
  */
 export function StructureCard({
   structure: s,
+  refFor,
   isFavorite,
   expanded,
   onExpand,
@@ -35,6 +41,7 @@ export function StructureCard({
   onStartTimer,
 }: {
   structure: LsStructure;
+  refFor: RefFor;
   isFavorite: boolean;
   expanded: boolean;
   onExpand: () => void;
@@ -60,6 +67,7 @@ export function StructureCard({
         <div className="flex items-start justify-between gap-2">
           {/* The title button stretches over the card (see icebreaker). */}
           <button
+            ref={refFor(`title:${s.id}`)}
             type="button"
             onClick={onExpand}
             aria-expanded={expanded}
@@ -157,7 +165,13 @@ export function StructureCard({
                   </p>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" size="sm" className="gap-1.5" onClick={onStartTimer}>
+                    <Button
+                      ref={refFor(`start:${s.id}`)}
+                      type="button"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={onStartTimer}
+                    >
                       <Play aria-hidden="true" />
                       Start step timer
                     </Button>

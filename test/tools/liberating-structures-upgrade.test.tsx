@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { LsFavorite } from "@/lib/stores/workspace-types";
 import { useDockTimer, type DockedTimer } from "@/lib/timer/dock-timer";
 import { registry } from "@/lib/actions/registry";
 import "@/lib/actions/tools/liberating-structures";
+import { LIBERATING_STRUCTURES_ACTIONS } from "@/lib/history/event-actions";
 
 /**
  * Liberating Structures upgrade: the catalog as data (people ranges,
@@ -17,6 +19,7 @@ import "@/lib/actions/tools/liberating-structures";
  */
 
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
+const logSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -24,7 +27,7 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
 vi.mock("@/lib/history/use-history-logger", () => ({
-  useHistoryLogger: () => ({ log: () => {} }),
+  useHistoryLogger: () => ({ log: logSpy }),
 }));
 
 import { LiberatingStructuresClient } from "@/app/(tools)/liberating-structures/liberating-structures-client";
@@ -107,6 +110,7 @@ const shownNames = () =>
 
 beforeEach(() => {
   toastSpy.mockReset();
+  logSpy.mockReset();
   sessionStorage.clear();
   useDockTimer.setState({ timer: null });
   useLsSession.setState({ structureId: null, run: null });
@@ -593,5 +597,114 @@ describe("the page", () => {
       within(card("TRIZ")).getByRole("button", { name: "Remove TRIZ from favorites" })
     ).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("heading", { name: "Your favorites (2)" })).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe("review fixes", () => {
+  const peopleLogs = () =>
+    logSpy.mock.calls
+      .filter(
+        ([action, detail]) =>
+          action === LIBERATING_STRUCTURES_ACTIONS.FILTER_CHANGED && "people" in detail
+      )
+      .map(([, detail]) => detail.people);
+  const startButton = () => screen.getByRole("button", { name: "Start step timer" });
+
+  it("logs the People filter once it is settled and valid, not per keystroke", async () => {
+    useWorkspaceStore.setState({
+      teamMembers: Array.from({ length: 5 }, (_, i) => ({ id: `m${i}`, name: `P${i}` })),
+    });
+    await mount();
+    const field = screen.getByLabelText(/People/);
+    for (const text of ["1", "12", "120"]) fireEvent.change(field, { target: { value: text } });
+    expect(peopleLogs()).toEqual([]);
+    fireEvent.blur(field);
+    expect(peopleLogs()).toEqual(["120"]);
+    // The same value again, by Enter or blur, isn't a change.
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.blur(field);
+    expect(peopleLogs()).toEqual(["120"]);
+    // A number the filter can't use isn't logged.
+    fireEvent.change(field, { target: { value: "1" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(peopleLogs()).toEqual(["120"]);
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.blur(field);
+    expect(peopleLogs()).toEqual(["120", "any"]);
+    fireEvent.click(screen.getByRole("button", { name: "Use team size (5)" }));
+    expect(peopleLogs()).toEqual(["120", "any", "5"]);
+  });
+
+  it("moves focus with the step timer: Start, Finish, Close", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "TRIZ", expanded: false }));
+    fireEvent.click(startButton());
+    expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    // The card is still open: its Start button is back.
+    expect(startButton()).toHaveFocus();
+  });
+
+  it("returns focus to the card's title after Stop when the card was closed", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Troika Consulting", expanded: false }));
+    fireEvent.click(startButton());
+    fireEvent.click(screen.getByRole("button", { name: "Troika Consulting", expanded: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(
+      screen.getByRole("button", { name: "Troika Consulting", expanded: false })
+    ).toHaveFocus();
+  });
+
+  it("announces pause and resume of the step timer", async () => {
+    render(
+      <TooltipProvider>
+        <LiveAnnouncerProvider>
+          <LiberatingStructuresClient />
+        </LiveAnnouncerProvider>
+      </TooltipProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "TRIZ", expanded: false }));
+    fireEvent.click(startButton());
+    const live = screen.getByTestId("live-polite");
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    await waitFor(() => expect(live).toHaveTextContent("TRIZ step timer paused."));
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(live).toHaveTextContent("TRIZ step timer resumed."));
+  });
+
+  it("focuses and scrolls to a favourite's card, even one already open", async () => {
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      setFavorites([fav("t1", "ls-troika")]);
+      await mount();
+      const chip = () =>
+        within(screen.getByRole("list", { name: "Favorite structures" })).getByRole("button", {
+          name: "Troika Consulting",
+        });
+      fireEvent.click(chip());
+      const title = screen.getByRole("button", { name: "Troika Consulting", expanded: true });
+      expect(title).toHaveFocus();
+      expect(scroll).toHaveBeenCalledTimes(1);
+
+      // Already open: the click still takes the user there.
+      act(() => chip().focus());
+      fireEvent.click(chip());
+      expect(title).toHaveFocus();
+      expect(scroll).toHaveBeenCalledTimes(2);
+
+      // No scroll target is left behind for the next time the card opens.
+      fireEvent.click(title);
+      fireEvent.click(screen.getByRole("button", { name: "Troika Consulting", expanded: false }));
+      expect(scroll).toHaveBeenCalledTimes(2);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 });

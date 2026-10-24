@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, Pause, Play, SkipForward, Square, Timer } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
+import type { RefFor } from "@/hooks/use-return-focus";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { formatClock, timerRemaining, type DockedTimer } from "@/lib/timer/dock-timer";
 import { currentStep, runSeconds, type StepRun } from "@/lib/timer/step-timer";
@@ -15,10 +16,15 @@ import { cn } from "@/lib/utils";
  * timer, which the shell hides on this page), what happens in it, and the
  * whole sequence with done, now and next. The shell's DockedTimer still
  * runs here: it stops the clock at 0:00 and announces "time's up".
+ *
+ * Its controls register with the page's useReturnFocus: "timer:controls"
+ * (Pause, or Next step once time is up), where Start sends focus, and
+ * "timer:close", where Finish sends it.
  */
 export function StepTimerPanel({
   run,
   timer,
+  refFor,
   onPause,
   onResume,
   onNext,
@@ -27,6 +33,7 @@ export function StepTimerPanel({
   run: StepRun;
   /** The dock's countdown for the current step; null once the run is finished. */
   timer: DockedTimer | null;
+  refFor: RefFor;
   onPause: () => void;
   onResume: () => void;
   onNext: () => void;
@@ -42,6 +49,7 @@ export function StepTimerPanel({
   const remaining = timer ? timerRemaining(timer, now) : 0;
   const done = remaining === 0;
   const last = run.index === run.steps.length - 1;
+  const canPause = Boolean(timer && !done);
 
   return (
     <SectionCard title={`Step timer: ${run.title}`} icon={Timer}>
@@ -50,7 +58,13 @@ export function StepTimerPanel({
           <p className="min-w-0 flex-1 text-sm text-text" role="status">
             All {run.steps.length} steps done ({durationText(runSeconds(run))} planned).
           </p>
-          <Button type="button" size="sm" variant="outline" onClick={onStop}>
+          <Button
+            ref={refFor("timer:close")}
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onStop}
+          >
             Close
           </Button>
         </div>
@@ -75,8 +89,9 @@ export function StepTimerPanel({
               {done ? "Time's up" : formatClock(remaining)}
             </span>
             <span className="flex flex-wrap items-center gap-2">
-              {timer && !done && (
+              {canPause && (
                 <Button
+                  ref={refFor("timer:controls")}
                   type="button"
                   size="sm"
                   variant="outline"
@@ -87,7 +102,15 @@ export function StepTimerPanel({
                   {running ? "Pause" : "Resume"}
                 </Button>
               )}
-              <Button type="button" size="sm" className="gap-1" onClick={onNext}>
+              <Button
+                // Only the fallback for "timer:controls": a second Enter
+                // after Start is harmless on Pause, but here skips a step.
+                ref={canPause ? undefined : refFor("timer:controls")}
+                type="button"
+                size="sm"
+                className="gap-1"
+                onClick={onNext}
+              >
                 {last ? <Check aria-hidden="true" /> : <SkipForward aria-hidden="true" />}
                 {last ? "Finish" : "Next step"}
               </Button>

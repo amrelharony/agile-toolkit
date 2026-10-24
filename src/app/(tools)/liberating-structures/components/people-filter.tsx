@@ -19,8 +19,13 @@ export const PeopleFilter = forwardRef<
     /** The roster's size, offered as a chip; null for no usable roster. */
     teamSize: number | null;
     onChange: (text: string) => void;
+    /**
+     * The number is settled: blur, Enter or the team-size chip. The page
+     * logs the filter here, not on every keystroke ("1", "12", "120").
+     */
+    onCommit: (text: string) => void;
   }
->(function PeopleFilter({ text, error, teamSize, onChange }, ref) {
+>(function PeopleFilter({ text, error, teamSize, onChange, onCommit }, ref) {
   const [touched, setTouched] = useState(false);
   const usingTeam = teamSize !== null && text.trim() === String(teamSize);
   return (
@@ -44,9 +49,14 @@ export const PeopleFilter = forwardRef<
             placeholder="Any size"
             value={text}
             onChange={(e) => onChange(e.target.value)}
-            onBlur={() => setTouched(true)}
+            onBlur={(e) => {
+              setTouched(true);
+              onCommit(e.currentTarget.value);
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") setTouched(true);
+              if (e.key !== "Enter") return;
+              setTouched(true);
+              onCommit(e.currentTarget.value);
             }}
           />
           {teamSize !== null && (
@@ -54,8 +64,10 @@ export const PeopleFilter = forwardRef<
               label={`Use team size (${teamSize})`}
               active={usingTeam}
               onClick={() => {
+                const next = usingTeam ? "" : String(teamSize);
                 setTouched(false);
-                onChange(usingTeam ? "" : String(teamSize));
+                onChange(next);
+                onCommit(next);
               }}
             />
           )}

@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { durationText } from "@/app/(tools)/ceremony-timer/agenda";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { generateLiberatingStructuresPrompts } from "@/lib/ai-prompts/liberating-structures";
 import { LIBERATING_STRUCTURES_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -95,6 +96,10 @@ export function LiberatingStructuresClient() {
   const [favorites, updateFavorites] = useFavorites();
   const { log } = useHistoryLogger("liberating-structures");
   const announce = useAnnounce();
+  // The step timer's controls replace each other (Start → the panel at the
+  // top → Close → the card again) and the favourites strip opens a card far
+  // below it: focus follows to the control now on screen.
+  const { refFor, returnTo } = useReturnFocus();
 
   // ── Filters ───────────────────────────────────────────────
   const [peopleText, setPeopleText] = useState("");
@@ -120,6 +125,8 @@ export function LiberatingStructuresClient() {
 
   // `?structure=ls-troika` opens that card, `?ceremony=retro` picks the ceremony.
   const scrollTo = useRef<string | null>(null);
+  /** Bumped by every open, so reopening the card already open still scrolls to it. */
+  const [openCount, setOpenCount] = useState(0);
   useEffect(() => {
     const link = readDeepLink(window.location.search);
     // A ceremony that would hide the linked structure is left off.
@@ -137,7 +144,7 @@ export function LiberatingStructuresClient() {
     if (!id || expandedId !== id) return;
     scrollTo.current = null;
     document.getElementById(`ls-card-${id}`)?.scrollIntoView?.({ block: "start" });
-  }, [expandedId]);
+  }, [expandedId, openCount]);
 
   const handleExpand = (id: string) => {
     const next = expandedId === id ? null : id;
@@ -147,6 +154,18 @@ export function LiberatingStructuresClient() {
 
   const logFilter = (detail: Record<string, string>) =>
     log(LIBERATING_STRUCTURES_ACTIONS.FILTER_CHANGED, detail);
+
+  /** The People value last logged: "any" or a headcount. */
+  const loggedPeople = useRef("any");
+  /** Log a settled People value once: valid, and not the one logged last. */
+  const commitPeople = (text: string) => {
+    const h = validatePeople(text);
+    if (h.error) return;
+    const value = h.value === null ? "any" : String(h.value);
+    if (value === loggedPeople.current) return;
+    loggedPeople.current = value;
+    logFilter({ people: value });
+  };
 
   // ── Favourites ────────────────────────────────────────────
   const shownFavorites = useMemo(() => catalogFavorites(favorites), [favorites]);
@@ -182,11 +201,15 @@ export function LiberatingStructuresClient() {
     log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_FAVORITED, { structureId: s.id, action: "added" });
   };
 
-  /** Open a favourite's card, clearing filters that would hide it. */
+  /** Open a favourite's card, clearing filters that would hide it, and move focus to it. */
   const openFavorite = (s: LsStructure) => {
-    if (!matches.some((m) => m.id === s.id)) clearFilters();
+    const hidden = !matches.some((m) => m.id === s.id);
+    if (hidden) clearFilters();
     scrollTo.current = s.id;
     setExpandedId(s.id);
+    setOpenCount((n) => n + 1);
+    returnTo(`title:${s.id}`);
+    if (hidden) announce(`Cleared the filters to show ${s.name}.`);
     log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_VIEWED, { structureId: s.id });
   };
 
@@ -248,6 +271,7 @@ export function LiberatingStructuresClient() {
     );
     log(LIBERATING_STRUCTURES_ACTIONS.STEP_TIMER_STARTED, { structureId: s.id });
     setScrollToPanel(true);
+    returnTo("timer:controls");
   };
 
   const nextStepNow = () => {
@@ -259,8 +283,11 @@ export function LiberatingStructuresClient() {
     }
     const r = claim.run;
     const step = currentStep(r);
-    if (r.finished || !step) announce(`${r.title}: all steps done.`);
-    else {
+    if (r.finished || !step) {
+      announce(`${r.title}: all steps done.`);
+      // Finish gives way to Close.
+      returnTo("timer:close");
+    } else {
       announce(
         `Step ${r.index + 1} of ${r.steps.length}: ${step.label}, ${durationText(step.seconds)}.`
       );
@@ -274,8 +301,21 @@ export function LiberatingStructuresClient() {
 
   const stopTimer = () => {
     const title = run?.title;
+    const id = runStructureId;
     stopStepTimer();
     if (title && !run?.finished) announce(`${title} step timer stopped.`);
+    // Stop and Close take the panel away: back to the structure's card,
+    // on its Start button when the card is open.
+    if (id) returnTo(expandedId === id ? `start:${id}` : `title:${id}`);
+  };
+
+  const pauseTimer = () => {
+    useDockTimer.getState().pause();
+    if (run) announce(`${run.title} step timer paused.`);
+  };
+  const resumeTimer = () => {
+    useDockTimer.getState().resume();
+    if (run) announce(`${run.title} step timer resumed.`);
   };
 
   // ── AI prompt and export ──────────────────────────────────
@@ -354,8 +394,9 @@ export function LiberatingStructuresClient() {
           <StepTimerPanel
             run={liveRun}
             timer={ownTimer}
-            onPause={() => useDockTimer.getState().pause()}
-            onResume={() => useDockTimer.getState().resume()}
+            refFor={refFor}
+            onPause={pauseTimer}
+            onResume={resumeTimer}
             onNext={nextStepNow}
             onStop={stopTimer}
           />
@@ -385,10 +426,8 @@ export function LiberatingStructuresClient() {
             text={peopleText}
             error={headcount.error}
             teamSize={teamSize}
-            onChange={(text) => {
-              setPeopleText(text);
-              logFilter({ people: text.trim() || "any" });
-            }}
+            onChange={setPeopleText}
+            onCommit={commitPeople}
           />
           <ChipFilter
             id="ls-filter-purpose"
@@ -491,6 +530,7 @@ export function LiberatingStructuresClient() {
             <StructureCard
               key={s.id}
               structure={s}
+              refFor={refFor}
               isFavorite={favSet.has(s.id)}
               expanded={expandedId === s.id}
               onExpand={() => handleExpand(s.id)}
