@@ -31,7 +31,7 @@ import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint
 import { dayForDate, seriesFor, sprintLengthDays, todayIso, withDay } from "@/lib/sprints/series";
 import { points, type TileId } from "@/lib/sprints/hub-view";
 import { updateSeries, updateSprint } from "@/lib/sprints/store";
-import { nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
+import { cadenceCalendar, nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
@@ -98,6 +98,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const [now] = useState(() => new Date());
   const [creating, setCreating] = useState(false);
   const [example, setExample] = useState<CockpitExample | null>(null);
+  const calendar = useMemo(() => cadenceCalendar(cadence), [cadence]);
 
   const selectedId = selected?.id;
   const data = useMemo(
@@ -117,6 +118,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             today,
             // Done when the impediment or Kanban card an action was sent to is finished.
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
+            // The burndown's ideal line and projection count the team's working days.
+            calendar,
           })
         : null,
     [
@@ -131,6 +134,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       reviews,
       sprints,
       today,
+      calendar,
     ]
   );
 
@@ -469,8 +473,9 @@ function ExampleCockpit({
         reviews: example.reviews,
         sprints: example.sprints,
         today,
+        calendar: cadenceCalendar(cadence),
       }),
-    [example, sprint, series, today]
+    [example, sprint, series, today, cadence]
   );
   return (
     <div className="space-y-4 sm:space-y-6">

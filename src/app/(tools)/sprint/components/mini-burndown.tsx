@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
+import { offDayRanges } from "@/lib/sprints/burn";
 import { dayDate, dayEntry } from "@/lib/sprints/series";
 import { points } from "@/lib/sprints/hub-view";
 import { isExampleSprintId } from "@/lib/sprints/example";
@@ -68,6 +69,7 @@ export function MiniBurndown({
 }) {
   const { rows, scopeChangeDays, todayDay, source, remaining } = burndown;
   const text = useMemo(() => cockpitChartText(burndown), [burndown]);
+  const offDays = useMemo(() => (burndown.burn ? offDayRanges(burndown.burn) : []), [burndown]);
   const board = source === "stories";
   // A closed sprint keeps what was recorded; its log is changed in Burndown, not here.
   const closed = sprint.status === "completed";
@@ -210,7 +212,8 @@ export function MiniBurndown({
         data={rows}
         scopeChangeDays={scopeChangeDays}
         todayDay={todayDay}
-        changepointDays={[]}
+        // The ideal line counts the team's working days: shade the days off.
+        offDays={offDays}
       />
     </ChartCard>
   );

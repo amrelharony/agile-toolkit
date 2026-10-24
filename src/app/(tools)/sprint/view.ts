@@ -17,14 +17,16 @@ import type {
   Story,
   TeamMember,
 } from "@/lib/stores/workspace-types";
+import { completionPct, sprintStatus, type SprintStatus } from "@/lib/sprints/metrics";
 import {
-  completionPct,
-  gap as gapOf,
-  gapLabel,
-  projectFinish,
-  sprintStatus,
-  type SprintStatus,
-} from "@/lib/sprints/metrics";
+  boardBurn,
+  burnSeries,
+  burnStatus,
+  openUnpointed,
+  type BurnSeries,
+  type BurnStatus,
+} from "@/lib/sprints/burn";
+import type { WorkingCalendar } from "@/lib/sprints/calendar";
 import {
   averageVelocity,
   completedSprints,
@@ -35,13 +37,7 @@ import {
   type TileId,
 } from "@/lib/sprints/hub-view";
 import { CEREMONY_HREF, CEREMONY_LABEL, type CeremonyKind } from "@/lib/sprints/cadence";
-import {
-  dayForDate,
-  hasSyntheticDates,
-  idealRemainingAt,
-  sprintLengthDays,
-  todayIso,
-} from "@/lib/sprints/series";
+import { dayForDate, hasSyntheticDates, sprintLengthDays, todayIso } from "@/lib/sprints/series";
 import {
   remainingToday,
   storyProgress,
@@ -61,10 +57,9 @@ import {
 import { allStandupEntries, hasBlocker } from "@/lib/standup/entries";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { RETRO_CURRENT_ID, collectRetroActions, type RetroAction } from "@/lib/retro/actions";
-import { localDay, retroFor } from "@/lib/retro/board";
+import { retroFor } from "@/lib/retro/board";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
-import { burndownView } from "@/app/(tools)/burndown/view";
 import { burndownChartText } from "@/app/(tools)/burndown/chart-text";
 import type { BurndownChartRow } from "@/app/(tools)/burndown/charts";
 
@@ -156,20 +151,9 @@ export function storyCounts(stories: readonly Story[]): {
   };
 }
 
-/**
- * Open stories in `sprintId` without points (as the Refinement card counts
- * them). The board's "points left" leaves them out, so while there are any
- * it is only a floor: the cockpit says so, and never reads the sprint as
- * finished or in a success tone.
- */
-export function openUnpointed(stories: readonly Story[], sprintId: string): number {
-  return stories.filter(
-    (s) =>
-      s.sprintId === sprintId &&
-      s.status !== "done" &&
-      !(typeof s.points === "number" && s.points > 0)
-  ).length;
-}
+// Open stories without points: the board's "points left" is only a floor
+// while there are any (lib/sprints/burn, which the delivery charts share).
+export { openUnpointed };
 
 /** "1 open story has no points", "2 open stories have no points". */
 export function noPointsLine(n: number): string {
@@ -515,76 +499,51 @@ export {
 
 /* ── Numbers: the board first, the typed log as the fallback ───────────── */
 
-/** The line the ideal burndown starts from: the commitment, else the board's scope. */
-export function idealBase(sprint: Pick<Sprint, "pointsPlanned">, progress: StoryProgress): number {
-  return sprint.pointsPlanned > 0 ? sprint.pointsPlanned : progress.scope;
+/*
+ * The burn itself (which source, the board's days, the log's days, the
+ * ideal line on the team's working days, the gap and the projection) is
+ * lib/sprints/burn, which Burndown, Burnup and their agent actions read
+ * too. The cockpit maps it to its chart's rows and tiles.
+ */
+
+/** A burn's days as the chart's rows: the ideal line and the points left. */
+function chartRows(burn: BurnSeries): BurndownChartRow[] {
+  return burn.days.map((d) => ({ day: d.day, ideal: d.ideal, actual: d.remaining }));
+}
+
+/** Days the scope moved: flagged in the log, or a story joining or leaving the board. */
+function scopeMoveDays(burn: BurnSeries): number[] {
+  return burn.days
+    .filter((d) => d.scopeChangeFlag || d.added > 0 || d.removed > 0)
+    .map((d) => d.day);
 }
 
 /** The chart's rows from the typed daily log: the ideal line and what Burndown and Burnup logged. */
-export function logBurndownRows(sprint: Sprint, series: SprintSeries | undefined) {
-  const length = sprintLengthDays(sprint);
-  const view = burndownView(sprint, series);
-  const rows: BurndownChartRow[] = view.entries
-    .filter((e) => e.day <= length)
-    .map((e) => ({
-      day: e.day,
-      ideal: round1(length > 0 ? sprint.pointsPlanned * (1 - e.day / length) : 0),
-      actual: e.remaining,
-    }));
-  return { rows, scopeChangeDays: view.scopeChangeDays, length };
-}
-
-/** When a done story was done: `doneAt`, else its last move into done. */
-function doneDay(story: Story): string | null {
-  if (story.doneAt) return localDay(story.doneAt);
-  const history = story.statusHistory ?? [];
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].status === "done") return localDay(history[i].at);
-  }
-  return null;
+export function logBurndownRows(
+  sprint: Sprint,
+  series: SprintSeries | undefined,
+  calendar?: WorkingCalendar
+) {
+  const burn = burnSeries({ sprint, series, stories: [], calendar, today: todayIso() });
+  return { rows: chartRows(burn), scopeChangeDays: scopeMoveDays(burn), length: burn.lengthDays };
 }
 
 /**
- * The burndown read off the board: for every day up to today, the sprint's
- * points minus those of the stories done by then. The scope is today's (the
- * board doesn't record when a story joined the sprint), and a done story
- * with no done time, from before the board kept them, counts from day 0.
- * Stories done after the last day count on it, so the last point is the
- * tiles' "Remaining". Days after today carry only the ideal line.
+ * The burndown read off the board: for every day up to today, the points in
+ * the sprint that day minus those of its stories in Done by the end of it
+ * (lib/sprints/burn). A done story with no done time, from before the board
+ * kept them, counts from the day it arrived; stories done after the last
+ * day count on it, so the last point is the tiles' "Remaining". Days after
+ * today carry only the ideal line.
  */
 export function boardBurndownRows(
   sprint: Sprint,
   stories: readonly Story[],
   today: string,
-  progress: StoryProgress = storyProgress(stories, sprint.id)
+  _progress?: StoryProgress,
+  calendar?: WorkingCalendar
 ): BurndownChartRow[] {
-  const length = sprintLengthDays(sprint);
-  const base = idealBase(sprint, progress);
-  const todayDay = hasSyntheticDates(sprint) ? null : dayForDate(sprint, today);
-  const last = todayDay === null ? -1 : Math.min(todayDay, length);
-  const burnt = new Array<number>(Math.max(0, last + 1)).fill(0);
-  if (last >= 0) {
-    for (const story of stories) {
-      if (story.sprintId !== sprint.id || story.status !== "done") continue;
-      const points =
-        typeof story.points === "number" && Number.isFinite(story.points) ? story.points : 0;
-      if (points <= 0) continue;
-      const day = doneDay(story);
-      const at = day === null ? 0 : (dayForDate(sprint, day) ?? 0);
-      burnt[Math.min(last, Math.max(0, at))] += points;
-    }
-  }
-  const rows: BurndownChartRow[] = [];
-  let done = 0;
-  for (let day = 0; day <= length; day++) {
-    if (day <= last) done += burnt[day];
-    rows.push({
-      day,
-      ideal: round1(idealRemainingAt(sprint, base, day)),
-      actual: day <= last ? round1(Math.max(0, progress.scope - done)) : null,
-    });
-  }
-  return rows;
+  return chartRows(boardBurn({ sprint, series: undefined, stories, calendar, today }));
 }
 
 export interface CockpitBurndown {
@@ -604,6 +563,10 @@ export interface CockpitBurndown {
   progress: StoryProgress;
   /** Open stories without points (`openUnpointed`) while the board is the source, else 0. */
   unpointedOpen: number;
+  /** The burn the chart and the board's tiles read (lib/sprints/burn). */
+  burn: BurnSeries;
+  /** Where it stands: the gap and the projection on the team's working days. */
+  burnStatus: BurnStatus;
 }
 
 /**
@@ -620,38 +583,25 @@ export function cockpitBurndown(
   series: SprintSeries | undefined,
   stories: readonly Story[],
   today: string,
-  progress: StoryProgress = storyProgress(stories, sprint.id)
+  progress: StoryProgress = storyProgress(stories, sprint.id),
+  calendar?: WorkingCalendar
 ): CockpitBurndown {
   const closed = sprint.status === "completed";
   const remaining = remainingToday({ sprint, stories: closed ? [] : stories, series, today });
-  const length = sprintLengthDays(sprint);
-  const d = dayForDate(sprint, today);
-  const todayDay = d !== null && d >= 0 && d <= length ? d : null;
-  const dated = !hasSyntheticDates(sprint);
-  if (remaining.source === "stories") {
-    return {
-      source: "stories",
-      remaining,
-      rows: boardBurndownRows(sprint, stories, today, progress),
-      scopeChangeDays: [],
-      length,
-      todayDay,
-      dated,
-      progress,
-      unpointedOpen: openUnpointed(stories, sprint.id),
-    };
-  }
-  const log = logBurndownRows(sprint, series);
+  // The same rule as `remaining`: the board while it has pointed stories, a closed sprint's log.
+  const burn = burnSeries({ sprint, series, stories, calendar, today });
   return {
-    source: remaining.source,
+    source: burn.source,
     remaining,
-    rows: log.rows,
-    scopeChangeDays: log.scopeChangeDays,
-    length,
-    todayDay,
-    dated,
+    rows: chartRows(burn),
+    scopeChangeDays: scopeMoveDays(burn),
+    length: burn.lengthDays,
+    todayDay: burn.todayDay,
+    dated: burn.dated,
     progress,
-    unpointedOpen: 0,
+    unpointedOpen: burn.source === "stories" ? burn.unpointedOpen : 0,
+    burn,
+    burnStatus: burnStatus(burn, sprint),
   };
 }
 
@@ -798,18 +748,19 @@ function boardTiles(
 
   const dated = !hasSyntheticDates(sprint);
   const day = dated ? dayForDate(sprint, today) : null;
-  if (day !== null && day >= 0) {
+  // The gap and the projection count the team's working days (lib/sprints/burn).
+  const status = burndown.burnStatus;
+  if (day !== null && day >= 0 && status.gap !== null && status.gapLabel !== null) {
     const at = Math.min(day, burndown.length);
-    const ideal = idealRemainingAt(sprint, idealBase(sprint, p), at);
-    const g = gapOf(p.remaining, ideal);
+    const g = status.gap;
     tiles.gap =
       n > 0 && p.remaining <= 0
         ? unknown("gap", "Pace vs ideal")
         : {
             id: "gap",
             label: "Pace vs ideal",
-            value: gapLabel(g),
-            hint: `Ideal: ${fmt(ideal)} left on day ${at}${unpointed}`,
+            value: status.gapLabel,
+            hint: `Ideal: ${fmt(status.idealRemaining ?? 0)} left on day ${at}${unpointed}`,
             tone: g > 0 ? "warning" : n > 0 ? "default" : "success",
           };
   } else {
@@ -822,9 +773,7 @@ function boardTiles(
     };
   }
 
-  const trend = burndown.rows.flatMap((r) =>
-    typeof r.actual === "number" ? [{ x: r.day, y: r.actual }] : []
-  );
+  const trend = burndown.rows.filter((r) => typeof r.actual === "number");
   if (p.remaining <= 0) {
     tiles.finish =
       n > 0
@@ -845,7 +794,7 @@ function boardTiles(
       empty: true,
     };
   } else {
-    const finish = projectFinish(trend);
+    const finish = status.projectedFinishDay;
     tiles.finish =
       finish === null
         ? {
@@ -928,6 +877,11 @@ export interface CockpitSources {
   today: string;
   /** Whether a hand-off target is finished (lib/handoffs routes); absent in previews. */
   targetDone?: (link: HandoffLink) => boolean;
+  /**
+   * The team's working days (cadenceCalendar of the cadence): the ideal
+   * line, the gap and the projections count them. Absent, calendar days.
+   */
+  calendar?: WorkingCalendar;
 }
 
 export interface CockpitData extends CockpitInput {
@@ -972,7 +926,7 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
 
   return {
     sprint,
-    status: sprintStatus(sprint, series),
+    status: sprintStatus(sprint, series, { calendar: src.calendar }),
     sprintStories,
     backlogUnestimated,
     standup: { posted, members: teamMembers.length, blockers },
@@ -994,7 +948,7 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
     reviewDoc: review.doc,
     ...(retro.archived ? { retroBoard: retro.archived } : {}),
     progress,
-    burndown: cockpitBurndown(sprint, series, stories, today, progress),
+    burndown: cockpitBurndown(sprint, series, stories, today, progress, src.calendar),
     sprintImpediments: inWindow,
     resolvedImpediments: resolvedDuring(inWindow, sprint),
     blockedStories: sprintStories.filter((s) => s.blocked && s.status !== "done"),

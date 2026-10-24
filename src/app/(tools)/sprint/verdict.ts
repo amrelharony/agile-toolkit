@@ -1,7 +1,7 @@
-import { SAY_DO_GRADE_LABEL, gap as gapOf, gapLabel, sayDoRatio } from "@/lib/sprints/metrics";
+import { SAY_DO_GRADE_LABEL, gapLabel, sayDoRatio } from "@/lib/sprints/metrics";
 import { fmt, points } from "@/lib/sprints/hub-view";
-import { dayForDate, hasSyntheticDates, idealRemainingAt } from "@/lib/sprints/series";
-import { idealBase, noPointsLine, type CockpitData } from "./view";
+import { dayForDate, hasSyntheticDates } from "@/lib/sprints/series";
+import { noPointsLine, type CockpitData } from "./view";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -83,9 +83,10 @@ export function cockpitVerdict(data: VerdictData, today: string): string {
         ? `${lead}: every pointed story is done, but ${noPointsLine(unpointed)} yet, and ${inTheWay}.`
         : `${lead}: every pointed story is done, and ${inTheWay}.`;
     }
-    const ideal = idealRemainingAt(sprint, idealBase(sprint, progress), day);
-    const pace = lower(gapLabel(gapOf(progress.remaining, ideal)));
-    return `${lead}: ${fmt(progress.done)} of ${points(progress.scope)} done, ${pace}${notCounting(
+    // The gap on the team's working days, as the tiles and Burndown read it (lib/sprints/burn).
+    const gap = burndown.burnStatus.gapLabel;
+    const pace = gap ? `, ${lower(gap)}` : "";
+    return `${lead}: ${fmt(progress.done)} of ${points(progress.scope)} done${pace}${notCounting(
       unpointed
     )}, and ${inTheWay}.`;
   }
