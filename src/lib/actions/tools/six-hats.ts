@@ -34,6 +34,10 @@
  *                          as markdown ({markdown: string}). Useful for
  *                          an agent to generate a session writeup the
  *                          team can paste into a retro doc or wiki.
+ *   5. start_session / set_summary / close_session — a session: one
+ *                          topic, the hats in order, timed rounds, and
+ *                          the Blue hat's summary (SixHatsSession). Thoughts
+ *                          logged while a session is open belong to it.
  *
  * ─── ENTITY KIND ─────────────────────────────────────────────────────
  * The server-side entity kind written by defineCrudActions is
@@ -58,14 +62,15 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverListEntities, serverUpsertEntity } from "../server-store";
-import type { SixHatsThought } from "@/lib/stores/workspace-types";
+import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
+import type { SixHatsSession, SixHatsThought } from "@/lib/stores/workspace-types";
 
 /** Server-side entity kind. Matches kindFromToolId("workspace.six_hats_thought")
  *  used by the auto-generated CRUD in src/lib/actions/workspace/index.ts,
  *  so server reads/writes here line up byte-for-byte with the generic
  *  surface and with the browser sync engine — both camelCase. */
 const KIND_SIX_HATS = "workspace:sixHatsThought";
+const KIND_SESSION = "workspace:sixHatsSession";
 
 /** Closed enum of the six hats. Matches the literal union in
  *  workspace-types.ts:SixHatsThought.hat verbatim — Zod will reject
@@ -91,6 +96,107 @@ const HAT_LABELS: Record<Hat, string> = {
 };
 
 const ws = () => useWorkspaceStore.getState();
+
+/** A common running order: open and close with Blue, facts before ideas, risks after benefits. */
+export const DEFAULT_HAT_ORDER: readonly Hat[] = [
+  "blue",
+  "white",
+  "green",
+  "yellow",
+  "black",
+  "red",
+  "blue",
+];
+
+/** Where the Six Hats actions read and write, in the browser or on the server. */
+interface SixHatsStore {
+  listThoughts: () => Promise<SixHatsThought[]>;
+  putThought: (t: SixHatsThought) => Promise<void>;
+  listSessions: () => Promise<SixHatsSession[]>;
+  getSession: (id: string) => Promise<SixHatsSession | null>;
+  putSession: (x: SixHatsSession) => Promise<void>;
+}
+
+const browserStore: SixHatsStore = {
+  listThoughts: async () => ws().sixHatsThoughts ?? [],
+  putThought: async (t) => ws().upsertSixHatsThought(t),
+  listSessions: async () => ws().sixHatsSessions ?? [],
+  getSession: async (id) => (ws().sixHatsSessions ?? []).find((x) => x.id === id) ?? null,
+  putSession: async (x) => ws().upsertSixHatsSession(x),
+};
+
+const serverStore = (userId: string): SixHatsStore => ({
+  listThoughts: () => serverListEntities<SixHatsThought>(userId, KIND_SIX_HATS),
+  putThought: async (t) => {
+    await serverUpsertEntity<SixHatsThought>(userId, KIND_SIX_HATS, t);
+  },
+  listSessions: () => serverListEntities<SixHatsSession>(userId, KIND_SESSION),
+  getSession: (id) => serverGetEntity<SixHatsSession>(userId, KIND_SESSION, id),
+  putSession: async (x) => {
+    await serverUpsertEntity<SixHatsSession>(userId, KIND_SESSION, x);
+  },
+});
+
+/** The newest session that hasn't been closed. */
+function openSession(sessions: readonly SixHatsSession[]): SixHatsSession | undefined {
+  return [...sessions]
+    .filter((x) => !x.closedAt)
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+}
+
+const randomId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+
+async function listState(store: SixHatsStore, sessionId?: string) {
+  const [all, sessions] = await Promise.all([store.listThoughts(), store.listSessions()]);
+  const items = sessionId ? all.filter((t) => t.sessionId === sessionId) : all;
+  return {
+    ...group(items),
+    total: items.length,
+    sessions: [...sessions]
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+      .map((x) => ({
+        id: x.id,
+        topic: x.topic,
+        startedAt: x.startedAt,
+        closedAt: x.closedAt ?? null,
+        thoughtCount: all.filter((t) => t.sessionId === x.id).length,
+        hasSummary: Boolean(x.summary?.trim()),
+      })),
+  };
+}
+
+async function logThought(
+  store: SixHatsStore,
+  params: { hat: Hat; text: string; sessionId?: string }
+) {
+  let sessionId = params.sessionId;
+  if (sessionId && !(await store.getSession(sessionId))) {
+    return { error: "unknown_session" as const };
+  }
+  sessionId ??= openSession(await store.listSessions())?.id;
+  const item: SixHatsThought = {
+    id: randomId("sixHats"),
+    hat: params.hat,
+    text: params.text.trim(),
+    loggedAt: new Date().toISOString(),
+    ...(sessionId ? { sessionId } : {}),
+  };
+  await store.putThought(item);
+  return { id: item.id, sessionId: sessionId ?? null };
+}
+
+async function exportSession(store: SixHatsStore, sessionId?: string) {
+  const all = await store.listThoughts();
+  if (!sessionId) return { markdown: renderMarkdown(all) };
+  const session = await store.getSession(sessionId);
+  if (!session) return { markdown: "", error: "unknown_session" };
+  return {
+    markdown: renderMarkdown(
+      all.filter((t) => t.sessionId === sessionId),
+      session
+    ),
+  };
+}
 
 /** Zero-initialised per-hat buckets. Returning a fresh copy from a
  *  helper (vs. spreading a singleton) keeps the API immutable — a
@@ -131,18 +237,10 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List all Six Thinking Hats thoughts grouped by hat. Returns {white, red, black, yellow, green, blue} as arrays plus a total count. Mirrors the in-app grouping so an agent can describe a session at a glance.",
-  paramsSchema: z.object({}),
-  handler: async () => {
-    const items = ws().sixHatsThoughts ?? [];
-    const buckets = group(items);
-    return { ...buckets, total: items.length };
-  },
-  mcpHandler: async (_params, ctx) => {
-    const items = await serverListEntities<SixHatsThought>(ctx.userId, KIND_SIX_HATS);
-    const buckets = group(items);
-    return { ...buckets, total: items.length };
-  },
+    "List Six Thinking Hats thoughts grouped by hat (all of them, or one session's with sessionId). Returns {white, red, black, yellow, green, blue} as arrays, a total count, and sessions: {id, topic, startedAt, closedAt | null, thoughtCount, hasSummary}[] (oldest first). Mirrors the in-app grouping so an agent can describe a session at a glance.",
+  paramsSchema: z.object({ sessionId: z.string().min(1).optional() }),
+  handler: async (params) => listState(browserStore, params.sessionId),
+  mcpHandler: async (params, ctx) => listState(serverStore(ctx.userId), params.sessionId),
 });
 
 // ──────── tool.six_hats.log_thought ────────
@@ -158,31 +256,14 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Log a single thought under one of the six hats (white | red | black | yellow | green | blue). Stamps id + loggedAt automatically. Returns {id}.",
+    "Log a single thought under one of the six hats (white | red | black | yellow | green | blue). Stamps id + loggedAt automatically. It belongs to sessionId when given, else to the open session (the newest not closed), else to none. Returns {id, sessionId | null}, or {error: 'unknown_session'}.",
   paramsSchema: z.object({
     hat: HatSchema,
     text: z.string().min(1).max(2000),
+    sessionId: z.string().min(1).optional(),
   }),
-  handler: async (params) => {
-    const item: SixHatsThought = {
-      id: `sixHats_${Math.random().toString(36).slice(2, 10)}`,
-      hat: params.hat,
-      text: params.text.trim(),
-      loggedAt: new Date().toISOString(),
-    };
-    ws().upsertSixHatsThought(item);
-    return { id: item.id };
-  },
-  mcpHandler: async (params, ctx) => {
-    const item: SixHatsThought = {
-      id: `sixHats_${Math.random().toString(36).slice(2, 10)}`,
-      hat: params.hat,
-      text: params.text.trim(),
-      loggedAt: new Date().toISOString(),
-    };
-    await serverUpsertEntity<SixHatsThought>(ctx.userId, KIND_SIX_HATS, item);
-    return { id: item.id };
-  },
+  handler: async (params) => logThought(browserStore, params),
+  mcpHandler: async (params, ctx) => logThought(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.six_hats.summarize_by_hat ────────
@@ -254,17 +335,95 @@ registry.register({
   name: "export_session",
   category: "read",
   description:
-    "Export the full Six Hats session as a markdown writeup. Thoughts are listed under per-hat headings in chronological order. Returns {markdown: string}.",
-  paramsSchema: z.object({}),
-  handler: async () => {
-    const items = ws().sixHatsThoughts ?? [];
-    return { markdown: renderMarkdown(items) };
-  },
-  mcpHandler: async (_params, ctx) => {
-    const items = await serverListEntities<SixHatsThought>(ctx.userId, KIND_SIX_HATS);
-    return { markdown: renderMarkdown(items) };
-  },
+    "Export Six Hats thoughts as a markdown writeup: all of them, or one session's with sessionId (with its topic and the Blue hat's summary). Thoughts are listed under per-hat headings in chronological order. Returns {markdown: string}.",
+  paramsSchema: z.object({ sessionId: z.string().min(1).optional() }),
+  handler: async (params) => exportSession(browserStore, params.sessionId),
+  mcpHandler: async (params, ctx) => exportSession(serverStore(ctx.userId), params.sessionId),
 });
+
+// ──────── tool.six_hats.start_session ────────
+registry.register({
+  id: "tool.six_hats.start_session",
+  toolId: "tool.six_hats",
+  name: "start_session",
+  category: "write",
+  requiresConfirmation: false,
+  description: `Start a Six Hats session on a topic: the hats in order (default ${DEFAULT_HAT_ORDER.join(
+    " → "
+  )}) and minutes per round (default 5). Thoughts logged while it is open belong to it. Returns {id}.`,
+  paramsSchema: z.object({
+    topic: z.string().trim().min(1).max(300),
+    order: z.array(HatSchema).min(1).max(12).optional(),
+    roundMinutes: z.number().min(1).max(30).optional(),
+  }),
+  handler: async (params) => startSession(browserStore, params),
+  mcpHandler: async (params, ctx) => startSession(serverStore(ctx.userId), params),
+});
+
+async function startSession(
+  store: SixHatsStore,
+  params: { topic: string; order?: Hat[]; roundMinutes?: number }
+) {
+  const session: SixHatsSession = {
+    id: randomId("sixHatsSession"),
+    topic: params.topic.trim(),
+    order: [...(params.order ?? DEFAULT_HAT_ORDER)],
+    roundMinutes: params.roundMinutes ?? 5,
+    startedAt: new Date().toISOString(),
+  };
+  await store.putSession(session);
+  return { id: session.id };
+}
+
+// ──────── tool.six_hats.set_summary ────────
+registry.register({
+  id: "tool.six_hats.set_summary",
+  toolId: "tool.six_hats",
+  name: "set_summary",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Write a session's Blue-hat summary: the conclusions and next steps. Returns {updated: true}, or {updated: false} for an unknown session.",
+  paramsSchema: z.object({
+    sessionId: z.string().min(1),
+    summary: z.string().trim().min(1).max(4000),
+  }),
+  handler: async (params) => setSummary(browserStore, params),
+  mcpHandler: async (params, ctx) => setSummary(serverStore(ctx.userId), params),
+});
+
+async function setSummary(store: SixHatsStore, params: { sessionId: string; summary: string }) {
+  const session = await store.getSession(params.sessionId);
+  if (!session) return { updated: false };
+  await store.putSession({ ...session, summary: params.summary.trim() });
+  return { updated: true };
+}
+
+// ──────── tool.six_hats.close_session ────────
+registry.register({
+  id: "tool.six_hats.close_session",
+  toolId: "tool.six_hats",
+  name: "close_session",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Close a session (later thoughts no longer go to it). Like the page, it needs the Blue hat's summary first (set_summary). Returns {updated: true}, or {updated: false, reason: 'unknown_session' | 'summary_required'}.",
+  paramsSchema: z.object({ sessionId: z.string().min(1) }),
+  handler: async (params) => closeSession(browserStore, params.sessionId),
+  mcpHandler: async (params, ctx) => closeSession(serverStore(ctx.userId), params.sessionId),
+});
+
+async function closeSession(store: SixHatsStore, sessionId: string) {
+  const session = await store.getSession(sessionId);
+  if (!session) return { updated: false, reason: "unknown_session" as const };
+  if (!session.summary?.trim()) return { updated: false, reason: "summary_required" as const };
+  if (!session.closedAt) {
+    const { currentRound, ...rest } = session;
+    void currentRound;
+    await store.putSession({ ...rest, closedAt: new Date().toISOString() });
+  }
+  return { updated: true };
+}
 
 /** Build the markdown writeup. Sections are in canonical De Bono order
  *  (white → red → black → yellow → green → blue); within each section
@@ -276,9 +435,15 @@ registry.register({
  *  Kept as a single helper so the browser-path and MCP-path outputs
  *  are guaranteed identical — drift would mean an agent gets different
  *  markdown depending on whether it's invoked from chat or over MCP. */
-function renderMarkdown(items: SixHatsThought[]): string {
+function renderMarkdown(items: SixHatsThought[], session?: SixHatsSession): string {
+  const title = session
+    ? `# Six Thinking Hats — ${session.topic.replace(/\s+/g, " ").trim()}`
+    : "# Six Thinking Hats — Session";
+  const summary = session?.summary?.trim()
+    ? ["## Summary (Blue hat)", "", session.summary.trim(), ""]
+    : [];
   if (items.length === 0) {
-    return "# Six Thinking Hats — Session\n\n_No thoughts logged yet._\n";
+    return [title, "", "_No thoughts logged yet._", "", ...summary].join("\n").trimEnd() + "\n";
   }
   const buckets = group(items);
   // Sort each bucket chronologically. ISO string compare is correct
@@ -286,7 +451,7 @@ function renderMarkdown(items: SixHatsThought[]): string {
   for (const hat of HATS) {
     buckets[hat].sort((a, b) => a.loggedAt.localeCompare(b.loggedAt));
   }
-  const lines: string[] = ["# Six Thinking Hats — Session", ""];
+  const lines: string[] = [title, ""];
   for (const hat of HATS) {
     const bucket = buckets[hat];
     if (bucket.length === 0) continue;
@@ -297,5 +462,31 @@ function renderMarkdown(items: SixHatsThought[]): string {
     }
     lines.push("");
   }
+  lines.push(...summary);
   return lines.join("\n");
+}
+
+// ──────── tool.six_hats.reopen_session ────────
+registry.register({
+  id: "tool.six_hats.reopen_session",
+  toolId: "tool.six_hats",
+  name: "reopen_session",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Reopen a closed session, on its last round, as the page's Reopen does (new thoughts go to it again). Returns {updated: true}, or {updated: false} for an unknown session.",
+  paramsSchema: z.object({ sessionId: z.string().min(1) }),
+  handler: async (params) => reopenSession(browserStore, params.sessionId),
+  mcpHandler: async (params, ctx) => reopenSession(serverStore(ctx.userId), params.sessionId),
+});
+
+async function reopenSession(store: SixHatsStore, sessionId: string) {
+  const session = await store.getSession(sessionId);
+  if (!session) return { updated: false };
+  if (session.closedAt) {
+    const { closedAt, ...rest } = session;
+    void closedAt;
+    await store.putSession({ ...rest, currentRound: Math.max(0, session.order.length - 1) });
+  }
+  return { updated: true };
 }

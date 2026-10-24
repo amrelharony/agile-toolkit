@@ -25,7 +25,12 @@ import type {
   StoryMap,
   StoryMapCard,
 } from "@/lib/stores/workspace-types";
-import { archivedRetroCopy, retroArchivesToPrune } from "@/app/(tools)/retro/archive";
+import {
+  RETRO_ARCHIVE_LIMIT,
+  archivedRetroCopy,
+  retroArchivesToPrune,
+} from "@/app/(tools)/retro/archive";
+import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 export interface SnapshotImporter {
   /** What "Copy into my browser" will do, in one sentence. */
@@ -161,7 +166,7 @@ function readOkrs(state: unknown): Okr[] | null {
 
 // ── Story map ────────────────────────────────────────────────────────────
 
-export const STORY_MAP_ID = "story-mapper:current";
+export { STORY_MAP_ID };
 
 function readStoryMap(state: unknown): StoryMap | null {
   const s = obj(state);
@@ -205,16 +210,22 @@ const ws = () => useWorkspaceStore.getState();
 
 export const SNAPSHOT_IMPORTERS: Record<string, SnapshotImporter> = {
   retro: {
-    describe: "Adds this retro to Past retros in your browser. Your current board isn't touched.",
+    describe: `Adds this retro to Past retros in your browser (with ${RETRO_ARCHIVE_LIMIT} there already, the oldest makes room). Your current board isn't touched.`,
     href: "/retro",
     importState(state) {
       const board = readRetro(state);
       if (!board) return null;
       const boards = ws().retroBoards ?? [];
-      for (const id of retroArchivesToPrune(boards)) ws().removeRetroBoard(id);
+      const pruneIds = new Set(retroArchivesToPrune(boards));
+      // Kept so Undo puts back the past retros the copy made room for.
+      const pruned = boards.filter((b) => pruneIds.has(b.id));
+      for (const b of pruned) ws().removeRetroBoard(b.id);
       const copy = archivedRetroCopy(board);
       ws().upsertRetroBoard(copy);
-      return () => ws().removeRetroBoard(copy.id);
+      return () => {
+        ws().removeRetroBoard(copy.id);
+        for (const b of pruned) ws().upsertRetroBoard(b);
+      };
     },
   },
   wsjf: {

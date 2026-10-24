@@ -213,9 +213,18 @@ describe("tool.retro.list_state previousActions", () => {
         assignee: "Sam",
         retroId: ARCHIVE,
         carriedOver: true,
+        done: false,
         sentTo: [sent],
       },
-      { id: "a2", text: "fix CI", assignee: "", retroId: ARCHIVE, carriedOver: false, sentTo: [] },
+      {
+        id: "a2",
+        text: "fix CI",
+        assignee: "",
+        retroId: ARCHIVE,
+        carriedOver: false,
+        done: false,
+        sentTo: [],
+      },
     ]);
   });
 

@@ -23,7 +23,7 @@ registry.register({
   name: "start_retro_for_sprint",
   category: "intent",
   description:
-    "Start a retro for the given sprint: create a new whiteboard, seed Start/Stop/Continue columns, and return the boardId.",
+    "Make a Canvas whiteboard for a sprint's retro: a new whiteboard with Start/Stop/Continue frames; returns the boardId. This is not the Retro tool's board: to start that (looking back on the sprint, with its facts and actions), use tool.retro.start.",
   longDescription:
     "Composes workspace.sprint.list + workspace.whiteboard.create + canvas object creation. The agent UI should navigate the user to /canvas after this returns.",
   paramsSchema: z.object({

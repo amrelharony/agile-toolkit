@@ -94,6 +94,7 @@ import type {
   RAPIDDecision,
   WeightedOption,
   SixHatsThought,
+  SixHatsSession,
   OODACycle,
   CynefinItem,
   Polarity,
@@ -1108,11 +1109,34 @@ const DesignSprintTaskSchema = z.object({
   owner: z.string().optional(),
 });
 
+const DesignSprintOutputSchema = z.object({
+  id: z.string(),
+  kind: z.enum([
+    "long-term-goal",
+    "sprint-question",
+    "target",
+    "sketch",
+    "decision",
+    "storyboard",
+    "prototype",
+    "finding",
+    "note",
+  ]),
+  text: z.string(),
+  url: z.string().optional(),
+  signal: z.enum(["positive", "negative", "mixed"]).optional(),
+  seenIn: z.number().int().min(0).max(5).optional(),
+  answer: z.enum(["yes", "no", "unclear"]).optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
+  createdAt: z.string().optional(),
+});
+
 const DesignSprintDaySchema = z.object({
   day: z.number(),
   dayName: z.enum(["Map", "Sketch", "Decide", "Prototype", "Test"]),
   tasks: z.array(DesignSprintTaskSchema),
   artifacts: z.array(z.string()),
+  outputs: z.array(DesignSprintOutputSchema).optional(),
 });
 
 const DesignSprintPlanSchema = z.object({
@@ -1700,12 +1724,27 @@ const WeightedOptionSchema = z.object({
   scores: z.record(z.string(), z.number()),
 }) as unknown as z.ZodType<WeightedOption>;
 
+const SixHatsHatSchema = z.enum(["white", "red", "black", "yellow", "green", "blue"]);
+
 const SixHatsThoughtSchema = z.object({
   id: z.string(),
-  hat: z.enum(["white", "red", "black", "yellow", "green", "blue"]),
+  hat: SixHatsHatSchema,
   text: z.string(),
   loggedAt: z.string(),
+  sessionId: z.string().optional(),
 }) as unknown as z.ZodType<SixHatsThought>;
+
+const SixHatsSessionSchema = z.object({
+  id: z.string(),
+  topic: z.string(),
+  order: z.array(SixHatsHatSchema),
+  roundMinutes: z.number(),
+  currentRound: z.number().int().min(0).optional(),
+  summary: z.string().optional(),
+  startedAt: z.string(),
+  closedAt: z.string().optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
+}) as unknown as z.ZodType<SixHatsSession>;
 
 const OODACycleSchema = z.object({
   id: z.string(),
@@ -1797,6 +1836,7 @@ const RetroBoardSchema = z.object({
   archivedAt: z.string().optional(),
   previousRetroId: z.string().optional(),
   votesBy: z.record(z.string(), z.number()).optional(),
+  sprintId: z.string().optional(),
 }) as unknown as z.ZodType<RetroBoard>;
 
 const SprintGoalSchema = z.object({
@@ -1977,6 +2017,16 @@ defineCrudActions<SixHatsThought>({
   upsert: (x) => ws().upsertSixHatsThought(x),
   remove: (id) => ws().removeSixHatsThought(id),
   generateId: () => `sixHats_${nanoid(8)}`,
+});
+
+defineCrudActions<SixHatsSession>({
+  toolId: "workspace.six_hats_session",
+  entityName: "Six Hats session",
+  schema: SixHatsSessionSchema,
+  selectAll: () => ws().sixHatsSessions ?? [],
+  upsert: (x) => ws().upsertSixHatsSession(x),
+  remove: (id) => ws().removeSixHatsSession(id),
+  generateId: () => `sixHatsSession_${nanoid(8)}`,
 });
 
 defineCrudActions<OODACycle>({

@@ -1,4 +1,4 @@
-import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
+import type { HandoffLink, RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
 
 /**
  * Past retros.
@@ -40,20 +40,75 @@ export function retroArchivesToPrune(
     .map((b) => b.id);
 }
 
-export function retroActionItems(board: RetroBoard): RetroCard[] {
-  return board.cards.filter((c) => c.isActionItem);
+/** `a`'s links, then `b`'s to targets `a` doesn't link to. */
+function mergedLinks(
+  a: readonly HandoffLink[] = [],
+  b: readonly HandoffLink[] = []
+): HandoffLink[] {
+  const out = [...a];
+  for (const l of b) {
+    if (!out.some((o) => o.route === l.route && o.targetId === l.targetId)) out.push(l);
+  }
+  return out;
+}
+
+/** An action with what its carried copy got since: done, an owner, a send. */
+function foldCarriedCopy(original: RetroCard, copy: RetroCard): RetroCard {
+  const sentTo = mergedLinks(original.sentTo, copy.sentTo);
+  return {
+    ...original,
+    assignee: (copy.assignee ?? "").trim() ? copy.assignee : original.assignee,
+    ...(copy.done && !original.done
+      ? { done: true, ...(copy.doneAt ? { doneAt: copy.doneAt } : {}) }
+      : {}),
+    ...(sentTo.length > 0 ? { sentTo } : {}),
+  };
 }
 
 /**
- * The retro this board follows: the archive named by `previousRetroId`, or
- * else the newest archive. Null when there is none.
+ * Undo of "New Retro": the board as it was before, with what changed since.
+ * Its archived copy may have been edited in the meantime (an action marked
+ * done in Retro Actions, a send from Past retros), so each card is taken
+ * from the copy when the copy still has it. A board started since (a format
+ * picked, a hand-off) keeps its cards: they are added after the old ones,
+ * so nothing typed in the new board is lost. One in a column this board's
+ * format lacks goes to the first column, as a carried-over action does
+ * (else it would count but never show). A copy carried over from one of
+ * this board's own actions folds back into it: the original is back, and
+ * Retro Actions would hide it behind the copy. The timer comes back stopped.
  */
-export function previousRetro(
-  boards: readonly RetroBoard[],
-  previousRetroId?: string
-): RetroBoard | null {
-  const past = pastRetros(boards);
-  return (previousRetroId && past.find((b) => b.id === previousRetroId)) || past[0] || null;
+export function boardBeforeNewRetro(
+  before: RetroBoard,
+  archive: RetroBoard | undefined,
+  startedSince: RetroBoard | undefined
+): RetroBoard {
+  const edited = new Map((archive?.cards ?? []).map((c) => [c.id, c]));
+  const cards = before.cards.map((c) => edited.get(c.id) ?? c);
+  const at = new Map(cards.map((c, i) => [c.id, i]));
+  const keys = before.format.columns.map((col) => col.key);
+  const folded = new Set<string>();
+  for (const c of startedSince?.cards ?? []) {
+    if (at.has(c.id)) continue;
+    const original = c.carriedFrom ? at.get(c.carriedFrom) : undefined;
+    if (original !== undefined) {
+      cards[original] = foldCarriedCopy(cards[original], c);
+      folded.add(c.id);
+      continue;
+    }
+    cards.push(keys.length === 0 || keys.includes(c.columnKey) ? c : { ...c, columnKey: keys[0] });
+  }
+  // A card grouped under a folded copy stands on its own.
+  const out =
+    folded.size === 0
+      ? cards
+      : cards.map((c) =>
+          c.groupedWith && folded.has(c.groupedWith) ? { ...c, groupedWith: null } : c
+        );
+  return { ...before, cards: out, timerRunning: false };
+}
+
+export function retroActionItems(board: RetroBoard): RetroCard[] {
+  return board.cards.filter((c) => c.isActionItem);
 }
 
 /**

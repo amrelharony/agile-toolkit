@@ -1,302 +1,324 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ActionRow } from "@/components/shared/action-row";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Star, Clock, Users, Heart, Sparkles } from "lucide-react";
-import { generateLiberatingStructuresPrompts } from "@/lib/ai-prompts/liberating-structures";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { LIBERATING_STRUCTURES_ACTIONS } from "@/lib/history/event-actions";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { CalendarDays, Clock, Star, Target, X } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ActionRow } from "@/components/shared/action-row";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { IconButton } from "@/components/ui/icon-button";
+import { durationText } from "@/app/(tools)/ceremony-timer/agenda";
+import { useReturnFocus } from "@/hooks/use-return-focus";
+import { generateLiberatingStructuresPrompts } from "@/lib/ai-prompts/liberating-structures";
+import { LIBERATING_STRUCTURES_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import {
+  LS_CATALOG,
+  LS_PURPOSE_LABEL,
+  lsPeopleLabel,
+  lsStructure,
+  type LsPurpose,
+  type LsStructure,
+} from "@/lib/liberating-structures/catalog";
+import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
+import type { CeremonyKind } from "@/lib/sprints/cadence";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { LsFavorite, Workspace } from "@/lib/stores/workspace-types";
+import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { useDockTimer } from "@/lib/timer/dock-timer";
+import { currentStep } from "@/lib/timer/step-timer";
+import { removeWithUndo } from "@/lib/utils/undoable";
+import { ChipFilter } from "./components/filter-chips";
+import { PeopleFilter } from "./components/people-filter";
+import { StepTimerPanel } from "./components/step-timer-panel";
+import { StructureCard } from "./components/structure-card";
+import { EXAMPLE_CEREMONY, buildExample } from "./example";
+import { catalogFavorites, withFavorite } from "./favorites";
+import {
+  CEREMONY_CHIP,
+  LS_FILTER_CEREMONIES,
+  LS_FILTER_PURPOSES,
+  TIMING_BUCKETS,
+  TIMING_LABEL,
+  filterStructures,
+  readDeepLink,
+  relaxLsFilter,
+  validatePeople,
+  type LsFilters,
+  type TimingBucket,
+} from "./filters";
+import { toMarkdown } from "./markdown";
+import {
+  LS_HREF,
+  advanceStepTimer,
+  runIsLive,
+  startStepTimer,
+  stopStepTimer,
+  useLsSession,
+} from "./session";
+import { lsVerdict } from "./verdict";
 
-type GroupSize = "small (2-7)" | "medium (8-30)" | "large (30+)";
-type TimingBucket = "under 15 min" | "15-30 min" | "30+ min";
+const NO_FAVORITES: LsFavorite[] = [];
 
-interface CatalogEntry {
-  id: string;
-  name: string;
-  purpose: string;
-  /** Human label (e.g. "20 min", "60 min") used as the displayed timing. */
-  timing: string;
-  /** Numeric minutes used for bucket filtering. */
-  timingMinutes: number;
-  groupSize: GroupSize;
-  description: string;
-  source: string;
-}
-
-interface Favorite {
-  id: string;
-  structureId: string;
-  ts: string;
-}
-
-interface State {
-  favorites: Favorite[];
-}
-
-const DEFAULT_STATE: State = { favorites: [] };
-
-const LS_ID = "liberatingStructures:current"; // MUST match LS_ID in liberating-structures.ts.
-
-// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
-// writes round-trip into the UI. Drop-in [state, setState] (structural types).
-function useLiberatingStructures(): [State, (u: State | ((p: State) => State)) => void] {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.liberatingStructures ?? []).find((d) => d.id === LS_ID))
+/**
+ * The saved favourites (a synced workspace singleton, so the agent's
+ * toggles show up here) and a writer that starts from the live document:
+ * an Undo or an agent write in between is never overwritten by a stale copy.
+ */
+function useFavorites(): [
+  LsFavorite[],
+  (fn: (list: readonly LsFavorite[]) => LsFavorite[]) => void,
+] {
+  const favorites = useWorkspaceStore(
+    (s) => (s.liberatingStructures ?? []).find((d) => d.id === LS_DOC_ID)?.favorites ?? NO_FAVORITES
   );
-  const upsert = useWorkspaceStore((s) => s.upsertLiberatingStructures);
-  const state: State = doc ? { favorites: doc.favorites } : DEFAULT_STATE;
-  const setState = (u: State | ((p: State) => State)) => {
-    const cur = (useWorkspaceStore.getState().liberatingStructures ?? []).find(
-      (d) => d.id === LS_ID
-    );
-    const curState: State = cur ? { favorites: cur.favorites } : DEFAULT_STATE;
-    const next = typeof u === "function" ? u(curState) : u;
-    upsert({ id: LS_ID, favorites: next.favorites });
+  const update = (fn: (list: readonly LsFavorite[]) => LsFavorite[]) => {
+    const { liberatingStructures, upsertLiberatingStructures } = useWorkspaceStore.getState();
+    const cur = (liberatingStructures ?? []).find((d) => d.id === LS_DOC_ID);
+    const list = Array.isArray(cur?.favorites) ? cur.favorites : NO_FAVORITES;
+    upsertLiberatingStructures({ ...cur, id: LS_DOC_ID, favorites: fn(list) });
   };
-  return [state, setState];
-}
-
-const CATALOG: CatalogEntry[] = [
-  {
-    id: "ls-1-2-4-all",
-    name: "1-2-4-All",
-    purpose: "Engage everyone simultaneously in generating questions, ideas, and suggestions",
-    timing: "12-15 min",
-    timingMinutes: 13,
-    groupSize: "medium (8-30)",
-    description:
-      "Silent reflection (1 min) → pairs (2 min) → quartets (4 min) → whole group (5 min). Ensures everyone speaks before the loud voices anchor the room.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-impromptu",
-    name: "Impromptu Networking",
-    purpose: "Rapidly share challenges and expectations, build connections",
-    timing: "15-20 min",
-    timingMinutes: 18,
-    groupSize: "medium (8-30)",
-    description:
-      "Three rounds of 2-minute paired conversations on a focused question. Standing up. Great as an opener that breaks cliques.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-9-whys",
-    name: "9 Whys",
-    purpose: "Make the purpose of work together clear",
-    timing: "20 min",
-    timingMinutes: 20,
-    groupSize: "small (2-7)",
-    description:
-      "Pairs ask each other 'Why is that important to you?' up to 9 times. Surfaces the deepest motivation behind a goal in a way other framings miss.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-wise-crowds",
-    name: "Wise Crowds",
-    purpose: "Tap the wisdom of the whole group in rapid cycles",
-    timing: "15-25 min per round",
-    timingMinutes: 25,
-    groupSize: "small (2-7)",
-    description:
-      "A client presents a challenge for 2 min, the group asks clarifying questions, the client turns their back, and the group discusses while the client listens, then the client reflects.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-25-10",
-    name: "25/10 Crowd Sourcing",
-    purpose: "Quickly surface and prioritize the group's boldest ideas",
-    timing: "30 min",
-    timingMinutes: 30,
-    groupSize: "large (30+)",
-    description:
-      "Each person writes their boldest idea on a card, then 5 rounds of swap-and-rate (1-5). Top-rated ideas surface without the loudest-voice bias of open discussion.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-troika",
-    name: "Troika Consulting",
-    purpose: "Get practical and imaginative help from peers immediately",
-    timing: "30 min",
-    timingMinutes: 30,
-    groupSize: "small (2-7)",
-    description:
-      "Trios; each person gets 7-10 min as 'client'. Client describes the challenge (1-2 min), turns away, and consultants discuss while client listens, then client reflects on what was useful.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-winfy",
-    name: "What I Need From You (WINFY)",
-    purpose: "Surface essential requests across functions to clear blockers",
-    timing: "55-70 min",
-    timingMinutes: 60,
-    groupSize: "medium (8-30)",
-    description:
-      "Each function makes 2-3 specific 'what I need from you' requests of each other function. Requests are then answered with yes / no / whatever / I'll try, with no negotiation in the moment.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-dad",
-    name: "Discovery & Action Dialogue (DAD)",
-    purpose: "Discover, invent, and unleash local solutions to chronic problems",
-    timing: "25-70 min",
-    timingMinutes: 50,
-    groupSize: "medium (8-30)",
-    description:
-      "A 7-question protocol that draws out 'positive deviants' — people already solving the problem — and invites the group to invent next steps together.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-ecocycle",
-    name: "Ecocycle Planning",
-    purpose: "Analyze the full portfolio of activities to identify obstacles and opportunities",
-    timing: "60-95 min",
-    timingMinutes: 75,
-    groupSize: "medium (8-30)",
-    description:
-      "Map every activity onto a 4-stage ecocycle (birth, maturity, creative destruction, renewal). Surfaces 'rigidity traps' (doing too much) and 'poverty traps' (starving the new).",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-cafe",
-    name: "Conversation Café",
-    purpose: "Engage everyone in making sense of profound challenges",
-    timing: "60-90 min",
-    timingMinutes: 75,
-    groupSize: "large (30+)",
-    description:
-      "Tables of 5-7 hold rounds of conversation guided by 6 agreements (e.g. 'speak with intention'). Two rounds with a talking object then open dialogue.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-triz",
-    name: "TRIZ",
-    purpose: "Make space for innovation by stopping counterproductive activities",
-    timing: "35 min",
-    timingMinutes: 35,
-    groupSize: "medium (8-30)",
-    description:
-      "Three rounds: (1) make a list of how to achieve the worst possible result, (2) match items to what you currently do, (3) decide what to stop doing.",
-    source: "liberatingstructures.com",
-  },
-  {
-    id: "ls-open-space",
-    name: "Open Space Technology",
-    purpose: "Liberate inherent action and leadership in large groups",
-    timing: "90 min – 3 days",
-    timingMinutes: 180,
-    groupSize: "large (30+)",
-    description:
-      "Participants self-organize sessions around a single overarching question. Governed by the Law of Two Feet: if you're not learning or contributing, move.",
-    source: "liberatingstructures.com",
-  },
-];
-
-const GROUP_SIZES: GroupSize[] = ["small (2-7)", "medium (8-30)", "large (30+)"];
-const TIMING_BUCKETS: TimingBucket[] = ["under 15 min", "15-30 min", "30+ min"];
-
-function bucketFor(min: number): TimingBucket {
-  if (min < 15) return "under 15 min";
-  if (min <= 30) return "15-30 min";
-  return "30+ min";
-}
-
-function newId(): string {
-  return crypto.randomUUID();
-}
-
-interface FilterChipProps {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-function FilterChip({ label, active, onClick }: FilterChipProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition border ${
-        active
-          ? "bg-accent/15 text-accent border-accent/60"
-          : "bg-surface text-sub border-border hover:border-accent/30 hover:text-text"
-      }`}
-    >
-      {label}
-    </button>
-  );
+  return [Array.isArray(favorites) ? favorites : NO_FAVORITES, update];
 }
 
 export function LiberatingStructuresClient() {
-  const [state, setState] = useLiberatingStructures();
-  const [groupFilter, setGroupFilter] = useState<GroupSize | "all">("all");
-  const [timingFilter, setTimingFilter] = useState<TimingBucket | "all">("all");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [favorites, updateFavorites] = useFavorites();
   const { log } = useHistoryLogger("liberating-structures");
+  const announce = useAnnounce();
+  // The step timer's controls replace each other (Start → the panel at the
+  // top → Close → the card again) and the favourites strip opens a card far
+  // below it: focus follows to the control now on screen.
+  const { refFor, returnTo } = useReturnFocus();
 
-  const favSet = useMemo(
-    // Filter out malformed entries (missing/null structureId) so a corrupt
-    // persisted payload doesn't end up with `Set(undefined)` — that masked
-    // the favorited-state of every card whose id happens to match the
-    // implicit `undefined` lookup.
-    () =>
-      new Set(
-        state.favorites
-          .map((f) => f?.structureId)
-          .filter((id): id is string => typeof id === "string")
-      ),
-    [state.favorites]
-  );
+  // ── Filters ───────────────────────────────────────────────
+  const [peopleText, setPeopleText] = useState("");
+  const [purpose, setPurpose] = useState<LsPurpose | null>(null);
+  const [ceremony, setCeremony] = useState<CeremonyKind | null>(null);
+  const [timing, setTiming] = useState<TimingBucket | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const roster = useTeamRoster();
+  const hydrated = useWorkspaceHydrated();
+  const teamSize = hydrated && roster.length >= 2 ? roster.length : null;
+  const headcount = validatePeople(peopleText);
+  const filters: LsFilters = { people: headcount.value, purpose, ceremony, timing };
+  const matches = filterStructures(LS_CATALOG, filters);
+  const relax = matches.length === 0 ? relaxLsFilter(LS_CATALOG, filters) : null;
+  const verdict = lsVerdict({ matches, filters, relax });
 
-  const toggleFavorite = (structureId: string) => {
-    const isFav = favSet.has(structureId);
-    setState((s) => ({
-      favorites: isFav
-        ? s.favorites.filter((f) => f.structureId !== structureId)
-        : [...s.favorites, { id: newId(), structureId, ts: new Date().toISOString() }],
-    }));
-    log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_FAVORITED, {
-      structureId,
-      action: isFav ? "removed" : "added",
-    });
+  const clearFilters = () => {
+    setPeopleText("");
+    setPurpose(null);
+    setCeremony(null);
+    setTiming(null);
   };
+
+  // `?structure=ls-troika` opens that card, `?ceremony=retro` picks the ceremony.
+  const scrollTo = useRef<string | null>(null);
+  /** Bumped by every open, so reopening the card already open still scrolls to it. */
+  const [openCount, setOpenCount] = useState(0);
+  useEffect(() => {
+    const link = readDeepLink(window.location.search);
+    // A ceremony that would hide the linked structure is left off.
+    const linked = lsStructure(link.structureId);
+    if (link.ceremony && (!linked || linked.ceremonies.includes(link.ceremony))) {
+      setCeremony(link.ceremony);
+    }
+    if (link.structureId) {
+      scrollTo.current = link.structureId;
+      setExpandedId(link.structureId);
+    }
+  }, []);
+  useEffect(() => {
+    const id = scrollTo.current;
+    if (!id || expandedId !== id) return;
+    scrollTo.current = null;
+    document.getElementById(`ls-card-${id}`)?.scrollIntoView?.({ block: "start" });
+  }, [expandedId, openCount]);
 
   const handleExpand = (id: string) => {
-    // Compute the next state up-front so we can decide whether to log without
-    // racing the (asynchronous) `expandedId` update from the previous click.
-    const nextExpanded = expandedId === id ? null : id;
-    setExpandedId(nextExpanded);
-    if (nextExpanded !== null) {
-      log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_VIEWED, { structureId: id });
-    }
+    const next = expandedId === id ? null : id;
+    setExpandedId(next);
+    if (next !== null) log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_VIEWED, { structureId: id });
   };
 
-  const filtered = useMemo(() => {
-    return CATALOG.filter((s) => {
-      if (groupFilter !== "all" && s.groupSize !== groupFilter) return false;
-      if (timingFilter !== "all" && bucketFor(s.timingMinutes) !== timingFilter) return false;
-      return true;
-    });
-  }, [groupFilter, timingFilter]);
+  const logFilter = (detail: Record<string, string>) =>
+    log(LIBERATING_STRUCTURES_ACTIONS.FILTER_CHANGED, detail);
 
-  const favoriteEntries = useMemo(
-    () =>
-      state.favorites
-        .map((f) => CATALOG.find((c) => c.id === f.structureId))
-        .filter((c): c is CatalogEntry => Boolean(c)),
-    [state.favorites]
+  /** The People value last logged: "any" or a headcount. */
+  const loggedPeople = useRef("any");
+  /** Log a settled People value once: valid, and not the one logged last. */
+  const commitPeople = (text: string) => {
+    const h = validatePeople(text);
+    if (h.error) return;
+    const value = h.value === null ? "any" : String(h.value);
+    if (value === loggedPeople.current) return;
+    loggedPeople.current = value;
+    logFilter({ people: value });
+  };
+
+  // ── Favourites ────────────────────────────────────────────
+  const shownFavorites = useMemo(() => catalogFavorites(favorites), [favorites]);
+  const favSet = useMemo(
+    () => new Set(shownFavorites.map((f) => f.structure.id)),
+    [shownFavorites]
   );
 
+  const removeFavorite = (s: LsStructure) => {
+    removeWithUndo<LsFavorite>({
+      label: `Removed ${s.name} from favorites`,
+      update: updateFavorites,
+      match: (f) => f?.structureId === s.id,
+    });
+    log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_FAVORITED, {
+      structureId: s.id,
+      action: "removed",
+    });
+  };
+
+  const toggleFavorite = (s: LsStructure) => {
+    if (favSet.has(s.id)) {
+      removeFavorite(s);
+      return;
+    }
+    updateFavorites((list) =>
+      withFavorite(list, {
+        id: crypto.randomUUID(),
+        structureId: s.id,
+        ts: new Date().toISOString(),
+      })
+    );
+    log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_FAVORITED, { structureId: s.id, action: "added" });
+  };
+
+  /** Open a favourite's card, clearing filters that would hide it, and move focus to it. */
+  const openFavorite = (s: LsStructure) => {
+    const hidden = !matches.some((m) => m.id === s.id);
+    if (hidden) clearFilters();
+    scrollTo.current = s.id;
+    setExpandedId(s.id);
+    setOpenCount((n) => n + 1);
+    returnTo(`title:${s.id}`);
+    if (hidden) announce(`Cleared the filters to show ${s.name}.`);
+    log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_VIEWED, { structureId: s.id });
+  };
+
+  // ── Example ───────────────────────────────────────────────
+  const loadExample = () => {
+    const ex = buildExample(new Date());
+    updateFavorites((list) => ex.favorites.reduce(withFavorite, [...list]));
+    setCeremony(ex.ceremony);
+  };
+  const clearExample = () => {
+    updateFavorites((list) => list.filter((f) => !isExampleId(f?.id)));
+    if (ceremony === EXAMPLE_CEREMONY) setCeremony(null);
+  };
+
+  // ── Step timer ────────────────────────────────────────────
+  const run = useLsSession((s) => s.run);
+  const runStructureId = useLsSession((s) => s.structureId);
+  const dock = useDockTimer((s) => s.timer);
+  const ownTimer = dock?.href === LS_HREF ? dock : null;
+  const otherTimer = dock && dock.href !== LS_HREF ? dock : null;
+  const live = runIsLive(run, dock);
+  const liveRun = live ? run : null;
+  const runStructure = liveRun ? (lsStructure(runStructureId) ?? null) : null;
+
+  // The run is read back once this tab's session has loaded; until then a
+  // docked clock of ours isn't an orphan yet.
+  const [sessionReady, setSessionReady] = useState(false);
+  useEffect(() => {
+    const persist = useLsSession.persist;
+    void Promise.resolve(persist.hasHydrated() ? undefined : persist.rehydrate()).finally(() =>
+      setSessionReady(true)
+    );
+  }, []);
+
+  // A run whose dock was stopped from the pill on another page is over.
+  useEffect(() => {
+    if (run && !live) useLsSession.setState({ structureId: null, run: null });
+  }, [run, live]);
+
+  // Starting from a card far down the grid: bring the timer into view.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [scrollToPanel, setScrollToPanel] = useState(false);
+  useEffect(() => {
+    if (!scrollToPanel) return;
+    setScrollToPanel(false);
+    panelRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [scrollToPanel]);
+
+  const startTimer = (s: LsStructure) => {
+    const claim = startStepTimer(s);
+    if (!claim) return;
+    if (!claim.ok) {
+      announce(`The ${claim.holder.label} timer is running. Stop it before starting this one.`);
+      return;
+    }
+    const step = currentStep(claim.run);
+    announce(
+      `${s.name} step timer started. Step 1 of ${claim.run.steps.length}: ${step?.label}, ${durationText(step?.seconds ?? 0)}.`
+    );
+    log(LIBERATING_STRUCTURES_ACTIONS.STEP_TIMER_STARTED, { structureId: s.id });
+    setScrollToPanel(true);
+    returnTo("timer:controls");
+  };
+
+  const nextStepNow = () => {
+    const claim = advanceStepTimer();
+    if (!claim) return;
+    if (!claim.ok) {
+      announce(`The ${claim.holder.label} timer took the clock. Stop it to carry on.`);
+      return;
+    }
+    const r = claim.run;
+    const step = currentStep(r);
+    if (r.finished || !step) {
+      announce(`${r.title}: all steps done.`);
+      // Finish gives way to Close.
+      returnTo("timer:close");
+    } else {
+      announce(
+        `Step ${r.index + 1} of ${r.steps.length}: ${step.label}, ${durationText(step.seconds)}.`
+      );
+    }
+    log(LIBERATING_STRUCTURES_ACTIONS.STEP_ADVANCED, {
+      structureId: runStructureId ?? "",
+      index: r.index,
+      finished: r.finished,
+    });
+  };
+
+  const stopTimer = () => {
+    const title = run?.title;
+    const id = runStructureId;
+    stopStepTimer();
+    if (title && !run?.finished) announce(`${title} step timer stopped.`);
+    // Stop and Close take the panel away: back to the structure's card,
+    // on its Start button when the card is open.
+    if (id) returnTo(expandedId === id ? `start:${id}` : `title:${id}`);
+  };
+
+  const pauseTimer = () => {
+    useDockTimer.getState().pause();
+    if (run) announce(`${run.title} step timer paused.`);
+  };
+  const resumeTimer = () => {
+    useDockTimer.getState().resume();
+    if (run) announce(`${run.title} step timer resumed.`);
+  };
+
+  // ── AI prompt and export ──────────────────────────────────
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -313,226 +335,214 @@ export function LiberatingStructuresClient() {
       })
     )
   );
-
   const promptConfig = useMemo(
     () => ({
       toolName: "Liberating Structures Picker",
       prompts: generateLiberatingStructuresPrompts(
         {
-          catalog: CATALOG,
-          favoriteIds: state.favorites.map((f) => f.structureId),
+          catalog: LS_CATALOG.map((s) => ({
+            id: s.id,
+            name: s.name,
+            purpose: s.purpose,
+            timing: s.timing,
+            groupSize: lsPeopleLabel(s),
+            description: s.description,
+          })),
+          favoriteIds: shownFavorites.map((f) => f.structure.id),
         },
         workspace
       ),
     }),
-    [state.favorites, workspace]
+    [shownFavorites, workspace]
   );
 
-  const handleGroupFilter = (g: GroupSize | "all") => {
-    setGroupFilter(g);
-    log(LIBERATING_STRUCTURES_ACTIONS.FILTER_CHANGED, { groupSize: g });
-  };
-
-  const handleTimingFilter = (t: TimingBucket | "all") => {
-    setTimingFilter(t);
-    log(LIBERATING_STRUCTURES_ACTIONS.FILTER_CHANGED, { timing: t });
-  };
+  const selected = lsStructure(expandedId) ?? runStructure ?? null;
+  const favoriteStructures = shownFavorites.map((f) => f.structure);
 
   return (
     <ToolPageWrapper
       toolId="liberating-structures"
       title="Liberating Structures Picker"
-      description="Twelve high-leverage micro-structures from Liberating Structures. Filter by group size and timing, click a card for details, save favorites for your next workshop."
+      description="Twelve Liberating Structures that get everyone contributing. Filter by people, purpose, Scrum event and timing, open a card to see its steps, and run them on the step timer."
       category="Workshops & Facilitation"
     >
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
-          filename="liberating-structures-favorites"
+          filename="liberating-structures"
+          markdown={toMarkdown({ selected, favorites: favoriteStructures, filters })}
           csvData={{
-            headers: ["Name", "Purpose", "Timing", "Group Size", "Source", "Description"],
-            rows: favoriteEntries.map((s) => [
+            headers: ["Name", "Purpose", "Timing", "People", "Steps", "Source", "Description"],
+            rows: favoriteStructures.map((s) => [
               s.name,
               s.purpose,
               s.timing,
-              s.groupSize,
+              lsPeopleLabel(s),
+              s.steps ? s.steps.map((st) => `${st.label} (${st.minutes} min)`).join("; ") : "",
               s.source,
               s.description,
             ]),
           }}
-          jsonData={{ favorites: favoriteEntries }}
+          jsonData={{ favorites: favoriteStructures }}
         />
       </ActionRow>
 
-      <KpiGrid cols={3} gap="lg">
-        <StatCard
-          variant="compact"
-          icon={Sparkles}
-          label="Catalog"
-          value={CATALOG.length}
-          hint="structures"
-          valueClassName="text-accent"
-        />
-        <StatCard variant="compact" icon={Heart} label="Favorites" value={state.favorites.length} />
-        <StatCard variant="compact" label="Showing" value={filtered.length} hint="match filters" />
-      </KpiGrid>
+      {hasExampleItems(favorites.filter(Boolean)) && <ExampleNotice onClear={clearExample} />}
+
+      {liveRun ? (
+        <div className="mb-6 scroll-mt-24" ref={panelRef}>
+          <StepTimerPanel
+            run={liveRun}
+            timer={ownTimer}
+            refFor={refFor}
+            onPause={pauseTimer}
+            onResume={resumeTimer}
+            onNext={nextStepNow}
+            onStop={stopTimer}
+          />
+        </div>
+      ) : (
+        ownTimer &&
+        sessionReady && (
+          // The dock is this page's, but no run is behind it (cleared
+          // session storage): it can still be stopped.
+          <Card className="mb-6 bg-surface border-border">
+            <CardContent className="flex flex-wrap items-center gap-3 p-4">
+              <p className="min-w-0 flex-1 text-sm text-text">
+                A {ownTimer.label} timer from an earlier visit is still running.
+              </p>
+              <Button type="button" size="sm" variant="outline" onClick={stopTimer}>
+                Stop it
+              </Button>
+            </CardContent>
+          </Card>
+        )
+      )}
 
       {/* Filters */}
-      <Card className="bg-surface border-border mb-6">
-        <CardContent className="p-4 space-y-3">
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-sub font-semibold">
-              <Users className="w-3.5 h-3.5" />
-              Group size
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <FilterChip
-                label="All"
-                active={groupFilter === "all"}
-                onClick={() => handleGroupFilter("all")}
-              />
-              {GROUP_SIZES.map((g) => (
-                <FilterChip
-                  key={g}
-                  label={g}
-                  active={groupFilter === g}
-                  onClick={() => handleGroupFilter(g)}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-sub font-semibold">
-              <Clock className="w-3.5 h-3.5" />
-              Timing
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <FilterChip
-                label="All"
-                active={timingFilter === "all"}
-                onClick={() => handleTimingFilter("all")}
-              />
-              {TIMING_BUCKETS.map((t) => (
-                <FilterChip
-                  key={t}
-                  label={t}
-                  active={timingFilter === t}
-                  onClick={() => handleTimingFilter(t)}
-                />
-              ))}
-            </div>
-          </div>
+      <Card className="bg-surface border-border mb-4">
+        <CardContent className="p-4 space-y-4">
+          <PeopleFilter
+            text={peopleText}
+            error={headcount.error}
+            teamSize={teamSize}
+            onChange={setPeopleText}
+            onCommit={commitPeople}
+          />
+          <ChipFilter
+            id="ls-filter-purpose"
+            icon={<Target className="w-3.5 h-3.5" aria-hidden="true" />}
+            label="Purpose"
+            choices={LS_FILTER_PURPOSES}
+            labelOf={(p) => LS_PURPOSE_LABEL[p]}
+            value={purpose}
+            onChange={(p) => {
+              setPurpose(p);
+              logFilter({ purpose: p ?? "all" });
+            }}
+          />
+          <ChipFilter
+            id="ls-filter-ceremony"
+            icon={<CalendarDays className="w-3.5 h-3.5" aria-hidden="true" />}
+            label="Ceremony"
+            choices={LS_FILTER_CEREMONIES}
+            labelOf={(c) => CEREMONY_CHIP[c]}
+            value={ceremony}
+            onChange={(c) => {
+              setCeremony(c);
+              logFilter({ ceremony: c ?? "all" });
+            }}
+          />
+          <ChipFilter
+            id="ls-filter-timing"
+            icon={<Clock className="w-3.5 h-3.5" aria-hidden="true" />}
+            label="Timing"
+            choices={TIMING_BUCKETS}
+            labelOf={(t) => TIMING_LABEL[t]}
+            value={timing}
+            onChange={(t) => {
+              setTiming(t);
+              logFilter({ timing: t ?? "all" });
+            }}
+          />
         </CardContent>
       </Card>
 
-      {/* Favorites strip */}
-      {favoriteEntries.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Star className="w-4 h-4 text-accent" />
-            <h2 className="text-sm font-semibold text-text">Your favorites</h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {favoriteEntries.map((s) => (
-              <Badge
-                key={s.id}
-                variant="outline"
-                className="bg-accent/10 border-accent/40 text-accent text-xs px-3 py-1"
-              >
-                {s.name}
-              </Badge>
-            ))}
-          </div>
+      <p className="mb-6 text-sm font-medium text-text">{verdict}</p>
+
+      {/* Favorites */}
+      <section className="mb-6" aria-labelledby="ls-favorites-heading">
+        <div className="flex items-center gap-2 mb-2">
+          <Star className="w-4 h-4 text-accent" aria-hidden="true" />
+          <h2 id="ls-favorites-heading" className="text-sm font-semibold text-text">
+            Your favorites ({shownFavorites.length})
+          </h2>
         </div>
-      )}
+        {shownFavorites.length === 0 ? (
+          <EmptyState
+            icon={Star}
+            padding="md"
+            action={<LoadExampleButton onLoad={loadExample} label="Load an example retro plan" />}
+          >
+            No favorites yet. Open a card and Save the structures for your next session, or load an
+            example: three structures that make a retro.
+          </EmptyState>
+        ) : (
+          <ul className="flex flex-wrap gap-2" aria-label="Favorite structures">
+            {shownFavorites.map(({ structure: s }) => (
+              <li
+                key={s.id}
+                className="inline-flex items-center rounded-full border border-accent/40 bg-accent/10 pl-3 text-xs text-accent"
+              >
+                <button
+                  type="button"
+                  onClick={() => openFavorite(s)}
+                  className="min-touch-coarse py-1 font-medium rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {s.name}
+                </button>
+                <IconButton
+                  label={`Remove ${s.name} from favorites`}
+                  icon={<X className="h-3.5 w-3.5" />}
+                  className="text-accent hover:text-text"
+                  onClick={() => removeFavorite(s)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* Card grid */}
-      {filtered.length === 0 ? (
-        <Card className="bg-surface border-border">
-          <CardContent className="p-8 text-center text-sub text-sm">
-            No structures match your current filters.
-          </CardContent>
-        </Card>
+      {matches.length === 0 ? (
+        <EmptyState
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          }
+        >
+          {verdict}
+        </EmptyState>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filtered.map((s) => {
-            const isFav = favSet.has(s.id);
-            const isExpanded = expandedId === s.id;
-            return (
-              <Card
-                key={s.id}
-                className={`relative bg-surface border-border transition cursor-pointer ${
-                  isExpanded ? "border-accent/40" : "hover:border-accent/30"
-                }`}
-              >
-                <CardContent className="p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    {/* Title button stretches over the card (see icebreaker). */}
-                    <button
-                      type="button"
-                      onClick={() => handleExpand(s.id)}
-                      aria-expanded={isExpanded}
-                      className="text-sm font-semibold text-text text-left focus-visible:outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-accent"
-                    >
-                      {s.name}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite(s.id);
-                      }}
-                      aria-label={`${isFav ? "Remove" : "Add"} ${s.name} ${isFav ? "from" : "to"} favorites`}
-                      aria-pressed={isFav}
-                      className="relative z-10 shrink-0 p-1 -m-1 min-touch-coarse inline-flex items-center justify-center"
-                    >
-                      <Heart
-                        className={`w-4 h-4 transition ${
-                          isFav ? "fill-accent text-accent" : "text-sub hover:text-accent"
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <div className="text-xs text-sub line-clamp-2">{s.purpose}</div>
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    <Badge variant="outline" className="text-xs bg-bg border-border text-sub">
-                      <Clock className="w-3 h-3 mr-0.5" />
-                      {s.timing}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs bg-bg border-border text-sub">
-                      <Users className="w-3 h-3 mr-0.5" />
-                      {s.groupSize}
-                    </Badge>
-                  </div>
-                  {isExpanded && (
-                    // Above the title's stretched hit area, so the text is
-                    // selectable and the Save button clickable.
-                    <div className="relative z-10 pt-2 border-t border-border space-y-2">
-                      <p className="text-xs text-text leading-relaxed">{s.description}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-sub">Source: {s.source}</span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFavorite(s.id);
-                          }}
-                          className="gap-1.5 text-xs"
-                        >
-                          <Heart
-                            className={`w-3.5 h-3.5 ${isFav ? "fill-accent text-accent" : ""}`}
-                          />
-                          {isFav ? "Saved" : "Save"}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+          {matches.map((s) => (
+            <StructureCard
+              key={s.id}
+              structure={s}
+              refFor={refFor}
+              isFavorite={favSet.has(s.id)}
+              expanded={expandedId === s.id}
+              onExpand={() => handleExpand(s.id)}
+              onToggleFavorite={() => toggleFavorite(s)}
+              isRunning={Boolean(liveRun && !liveRun.finished && runStructureId === s.id)}
+              ownRunTitle={
+                liveRun && !liveRun.finished && runStructureId !== s.id ? liveRun.title : null
+              }
+              otherTimer={otherTimer}
+              onStartTimer={() => startTimer(s)}
+            />
+          ))}
         </div>
       )}
     </ToolPageWrapper>

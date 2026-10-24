@@ -41,7 +41,23 @@ const UPGRADED_TOOLS = [
   "impediments",
   "ceremony-timer",
   "sprint-review",
+  // Phase 4: Retrospect & improve. Canvas is a scoped upgrade (below).
+  "retro",
+  "retro-actions",
+  "premortem",
+  "icebreaker",
+  "liberating-structures",
+  "six-hats",
+  "design-sprint",
 ];
+
+/**
+ * Tools whose phase row limits the upgrade to named features ("no other
+ * changes"): they get an upgrade test for those, not the whole contract.
+ */
+const SCOPED_UPGRADES: Record<string, string> = {
+  canvas: "Phase 4: Sprint board and Story map templates bound to live data only",
+};
 
 /**
  * Tools merged into another: their route opens the other tool (in a mode
@@ -68,7 +84,6 @@ const LOCAL_STORAGE_OFFENDERS = [
   "agile-at-work",
   "canvas",
   "health-dashboard",
-  "icebreaker",
   "planning-poker",
   "sprint-compare",
   "sprint-metrics",
@@ -164,6 +179,14 @@ describe("tool UX contract", () => {
     it("has an upgrade test", () => {
       expect(existsSync(path.join(TESTS_DIR, `${home}-upgrade.test.tsx`))).toBe(true);
     });
+  });
+});
+
+describe("scoped upgrades", () => {
+  it.each(Object.keys(SCOPED_UPGRADES))("%s has an upgrade test", (id) => {
+    expect(mainToolIds, id).toContain(id);
+    expect(UPGRADED_TOOLS, id).not.toContain(id);
+    expect(existsSync(path.join(TESTS_DIR, `${id}-upgrade.test.tsx`))).toBe(true);
   });
 });
 

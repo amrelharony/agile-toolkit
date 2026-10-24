@@ -10,13 +10,18 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { wbId } from "@/lib/whiteboard/clipboard";
+import type { Rect } from "@/lib/geometry/bbox";
+import { withoutLiveChildren } from "../lib/live-boards";
+import { LiveBoardTemplates, matchingLiveBoards } from "./live-board-templates";
 
 interface Props {
   boardId: string;
   onClose: () => void;
+  /** Called with a live board's rect after it is added, so the canvas can bring it into view. */
+  onApplied?: (rect: Rect) => void;
 }
 
-export function TemplateGallery({ boardId, onClose }: Props) {
+export function TemplateGallery({ boardId, onClose, onApplied }: Props) {
   // Stable callback ref so the keydown effect doesn't re-register on
   // every parent render (the canvas typically passes an inline
   // `onClose={() => setShowTemplates(false)}`).
@@ -34,6 +39,10 @@ export function TemplateGallery({ boardId, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // An open menu inside the gallery (the live Sprint board's sprint
+      // picker) closes itself on Esc and marks the event handled; that Esc
+      // must not take the whole gallery with it.
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -108,6 +117,9 @@ export function TemplateGallery({ boardId, onClose }: Props) {
       return t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q);
     });
   }, [allTemplates, search, category]);
+  // The live boards are planning boards, listed above the templates.
+  const showLive = category === "all" || category === "planning";
+  const liveMatches = showLive ? matchingLiveBoards(search).length : 0;
 
   const apply = (id: string) => {
     if (objects.length > 0 && confirm !== id) {
@@ -128,11 +140,16 @@ export function TemplateGallery({ boardId, onClose }: Props) {
     } else {
       const saved = savedTemplates.find((x) => x.id === id);
       if (!saved) return;
+      // A live board in the template fills itself from the sprint or the
+      // map once applied: its saved cards would be a second, stale set
+      // under the new ones (saving leaves them out; a template saved
+      // before that may still hold them).
+      const source = withoutLiveChildren(saved.objects);
       // Saved templates carry their own objects array. Assign fresh
       // ids + boardId so they don't collide with the source board.
       const remap: Record<string, string> = {};
       const freshId = () => wbId("wb");
-      for (const o of saved.objects) remap[o.id] = freshId();
+      for (const o of source) remap[o.id] = freshId();
       // `groupId` / `mindMapId` are grouping keys, not always object
       // ids (a group id is minted as `wbg_…`; a mindMapId is normally
       // the root node's id, which IS in `remap`). Mint one fresh value
@@ -148,7 +165,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
         return keyRemap[old];
       };
       const now = new Date().toISOString();
-      seeded = saved.objects
+      seeded = source
         .map((o) => {
           const next: WhiteboardObject = {
             ...o,
@@ -235,11 +252,12 @@ export function TemplateGallery({ boardId, onClose }: Props) {
           Templates
         </h2>
         <p className="text-sm text-sub mb-3">
-          Click a template to seed the active board.{" "}
+          Click a template to add it to the active board.{" "}
           {objects.length > 0 && (
             <span className="text-warning">
               {" "}
-              Confirm twice if the board already has content — templates append, not replace.
+              The board has content, so a template asks for a second click: it adds to the board,
+              never replaces. Live boards go beside your content, with Undo.
             </span>
           )}
         </p>
@@ -275,8 +293,20 @@ export function TemplateGallery({ boardId, onClose }: Props) {
           </select>
         </div>
 
+        {showLive && (
+          <LiveBoardTemplates
+            boardId={boardId}
+            query={search}
+            onAdded={(rect) => {
+              onApplied?.(rect);
+              onClose();
+            }}
+          />
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {filteredTemplates.length === 0 && (
+          {/* Only when the live boards above don't match either. */}
+          {filteredTemplates.length === 0 && liveMatches === 0 && (
             <div className="col-span-full text-xs text-sub italic py-4 text-center">
               No templates match your search.
             </div>

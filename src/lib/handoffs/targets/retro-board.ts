@@ -12,13 +12,18 @@
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
+import {
+  RETRO_CARD_MAX,
+  RETRO_CURRENT_ID,
+  blankRetroBoard,
+  newestArchivedRetro,
+} from "@/lib/retro/board";
 import type { HandoffSource } from "../types";
 
-/** MUST match RB_ID in retro-client.tsx and src/lib/actions/tools/retro.ts. */
-export const RETRO_BOARD_ID = "retro:current";
+/** The current retro's id (lib/retro/board). */
+export const RETRO_BOARD_ID = RETRO_CURRENT_ID;
 
-/** Same cap as a card typed on the board. */
-export const RETRO_CARD_MAX = 500;
+export { RETRO_CARD_MAX };
 
 /** Column keys for each tone, best first; a format without any uses its first column. */
 const COLUMN_PREFERENCE: Record<NonNullable<HandoffSource["tone"]>, readonly string[]> = {
@@ -42,20 +47,8 @@ export function currentRetroBoard(): RetroBoard | undefined {
 
 /** A new current board, as the Retro tool's format picker starts one. */
 function newBoard(): RetroBoard {
-  const archived = (useWorkspaceStore.getState().retroBoards ?? [])
-    .filter((b) => typeof b.archivedAt === "string")
-    .sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
-  return {
-    id: RETRO_BOARD_ID,
-    format: retroFormats[0],
-    phase: "write",
-    cards: [],
-    userVotes: 0,
-    timerSeconds: 300,
-    timerRunning: false,
-    discussingIndex: 0,
-    ...(archived[0] ? { previousRetroId: archived[0].id } : {}),
-  };
+  const previous = newestArchivedRetro(useWorkspaceStore.getState().retroBoards ?? []);
+  return blankRetroBoard(retroFormats[0], previous ? { previousRetroId: previous.id } : {});
 }
 
 /** Cards whose send started the board (Undo takes the board away with them). */
@@ -90,8 +83,16 @@ export function addRetroCard(src: HandoffSource, action: boolean): string {
   return card.id;
 }
 
+/**
+ * The card on any board: an archived copy keeps its cards' ids, so a sent
+ * item is still found (and its link still live) after New Retro.
+ */
 export function findRetroCard(id: string): RetroCard | undefined {
-  return currentRetroBoard()?.cards.find((c) => c.id === id);
+  for (const b of useWorkspaceStore.getState().retroBoards ?? []) {
+    const card = b.cards.find((c) => c.id === id);
+    if (card) return card;
+  }
+  return undefined;
 }
 
 /** Remove the card; and the board, when this card's send started it and it is empty again. */

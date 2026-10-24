@@ -51,9 +51,7 @@ import {
 import { DRAFT_REVIEW_ID, reviewDocId, reviewHasContent } from "@/lib/sprints/review-doc";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import {
-  addDays,
   dayOf,
-  daysBetween,
   impedimentStatus,
   isImpedimentOverdue,
   isResolved,
@@ -63,6 +61,7 @@ import {
 import { allStandupEntries, hasBlocker } from "@/lib/standup/entries";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { RETRO_CURRENT_ID, collectRetroActions, type RetroAction } from "@/lib/retro/actions";
+import { localDay, retroFor } from "@/lib/retro/board";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
 import { burndownView } from "@/app/(tools)/burndown/view";
@@ -340,7 +339,7 @@ export function flowCards(input: CockpitInput): FlowCard[] {
       label: CEREMONY_LABEL.retro,
       state: "doing",
       line: `Retro in progress · ${plural(retro.currentCards, "card")}`,
-      href: CEREMONY_HREF.retro,
+      href: onSprint(CEREMONY_HREF.retro, sprint),
       cta: "Continue the retro",
     };
   } else if (!retro.hasRetro) {
@@ -351,7 +350,7 @@ export function flowCards(input: CockpitInput): FlowCard[] {
       line: `No retro for this sprint yet${
         retro.openActions > 0 ? ` · ${plural(retro.openActions, "open action")}` : ""
       }`,
-      href: CEREMONY_HREF.retro,
+      href: onSprint(CEREMONY_HREF.retro, sprint),
       cta: "Open the retro board",
     };
   } else if (retro.openActions > 0) {
@@ -504,101 +503,15 @@ export function reviewFor(
   return { doc: undefined, fromDraft: false };
 }
 
-/** Days after a sprint's last day in which its retro can still be archived. */
-export const RETRO_GRACE_DAYS = 7;
-
-/** The local calendar day of a timestamp (or a plain "YYYY-MM-DD" as it is). */
-export function localDay(value: string | undefined | null): string | null {
-  if (!value) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const t = Date.parse(value);
-  return Number.isFinite(t) ? todayIso(new Date(t)) : dayOf(value);
-}
-
-/** The days `sprint`'s retro can fall in: its first day to a week after its last. */
-export function retroWindow(
-  sprint: Pick<Sprint, "startDate" | "endDate">
-): { start: string; end: string } | null {
-  if (hasSyntheticDates(sprint)) return null;
-  const start = dayOf(sprint.startDate) as string;
-  return { start, end: addDays(dayOf(sprint.endDate) as string, RETRO_GRACE_DAYS) };
-}
-
-/**
- * The sprint a retro board names. Boards don't record one yet; Phase 4 adds
- * `RetroBoard.sprintId`, and this is the one place that reads it, so the
- * day-window guesses below give way to it as soon as boards carry it.
- */
-function boardSprintId(board: RetroBoard): string | undefined {
-  const id = (board as RetroBoard & { sprintId?: unknown }).sprintId;
-  return typeof id === "string" && id ? id : undefined;
-}
-
-/**
- * Whether an archived board is `sprint`'s retro: it was archived in the
- * sprint's window, and of the sprints whose windows hold that day, this one
- * ended nearest to it (a retro archived two days into the next sprint is
- * still the last one's). A tie goes to the sprint that had already ended.
- */
-function isArchivedRetroOf(board: RetroBoard, sprint: Sprint, sprints: readonly Sprint[]): boolean {
-  const day = localDay(board.archivedAt);
-  if (!day) return false;
-  const candidates = [
-    sprint,
-    ...sprints.filter((s) => s.id !== sprint.id && s.status !== "cancelled"),
-  ];
-  let best: { id: string; distance: number; ended: boolean } | null = null;
-  for (const s of candidates) {
-    const w = retroWindow(s);
-    if (!w || day < w.start || day > w.end) continue;
-    const end = dayOf(s.endDate) as string;
-    const distance = Math.abs(daysBetween(end, day));
-    const ended = end <= day;
-    if (!best || distance < best.distance || (distance === best.distance && ended && !best.ended)) {
-      best = { id: s.id, distance, ended };
-    }
-  }
-  return best?.id === sprint.id;
-}
-
-export interface SprintRetro {
-  /** The current board, when it has cards and counts as this sprint's retro in progress. */
-  current?: RetroBoard;
-  /** This sprint's archived retro (the latest, if several). */
-  archived?: RetroBoard;
-}
-
-/**
- * `sprint`'s retro. The current board with cards is its retro in progress
- * while today is in the sprint's window (any day for a sprint without
- * dates), so an old sprint doesn't claim today's board; an archived board
- * counts when `isArchivedRetroOf` says so.
- */
-export function retroFor(
-  boards: readonly RetroBoard[],
-  sprint: Sprint,
-  sprints: readonly Sprint[],
-  today: string
-): SprintRetro {
-  const out: SprintRetro = {};
-  const window = retroWindow(sprint);
-  for (const board of boards) {
-    const tagged = boardSprintId(board);
-    if (!board.archivedAt) {
-      if (board.id !== RETRO_CURRENT_ID || board.cards.length === 0) continue;
-      const mine = tagged
-        ? tagged === sprint.id
-        : !window || (today >= window.start && today <= window.end);
-      if (mine) out.current = board;
-      continue;
-    }
-    const mine = tagged ? tagged === sprint.id : isArchivedRetroOf(board, sprint, sprints);
-    if (mine && (!out.archived || board.archivedAt > (out.archived.archivedAt ?? ""))) {
-      out.archived = board;
-    }
-  }
-  return out;
-}
+// Which retro belongs to which sprint is shared with the Retro page and
+// agents (lib/retro/board); re-exported for the cockpit's callers.
+export {
+  RETRO_GRACE_DAYS,
+  localDay,
+  retroFor,
+  retroWindow,
+  type SprintRetro,
+} from "@/lib/retro/board";
 
 /* ── Numbers: the board first, the typed log as the fallback ───────────── */
 

@@ -37,11 +37,11 @@ How authorized AI agents call the Agile Toolkit via the Model Context Protocol. 
 
 ## 2. Action namespaces
 
-| Namespace                   | Purpose                                                     | Example                                                            |
-| --------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------ |
-| `workspace.{entity}.{verb}` | Generic CRUD over typed workspace entities                  | `workspace.sprint.create`, `workspace.impediment.list`             |
-| `tool.{tool-id}.{verb}`     | Tool-specific verbs (semantics that don't fit generic CRUD) | `tool.canvas.add_sticky`, `tool.planning_poker.cast_vote`          |
-| `intent.{name}`             | Compositions across multiple tools/entities                 | `intent.start_retro_for_sprint`, `intent.run_sprint_retrospective` |
+| Namespace                   | Purpose                                                     | Example                                                                  |
+| --------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `workspace.{entity}.{verb}` | Generic CRUD over typed workspace entities                  | `workspace.sprint.create`, `workspace.impediment.list`                   |
+| `tool.{tool-id}.{verb}`     | Tool-specific verbs (semantics that don't fit generic CRUD) | `tool.canvas.add_sticky`, `tool.planning_poker.cast_vote`                |
+| `intent.{name}`             | Compositions across multiple tools/entities                 | `intent.start_retro_for_sprint`, `intent.log_impediment_from_retro_card` |
 
 ### Categories
 
@@ -193,6 +193,31 @@ The Run tools read and write the same data as their pages:
 }}}
 ```
 
+### Look back with the Retro tools
+
+The Retrospect & improve tools read and write the same data as their pages:
+
+- **A retro looks back on a sprint.** `RetroBoard.sprintId` links the current board (`retro:current`) to its sprint. `tool.retro.start` starts the board as the page's format picker does (`formatId`, and `sprintId`, by default the sprint whose retro window holds today: from its start to 7 days after its end), following the newest archived retro; it refuses while a board is in progress (`already_started`). `set_sprint` links another sprint, or unlinks with `sprintId: null`. `add_card` trims the text (at most 500 characters) and says why it refused (`no_retro`, `unknown_column` with the board's columns, `empty_text`).
+- **`tool.retro.list_state` returns the facts panel** for the board's sprint (or `sprintId`): the goal and whether it was met, committed and completed points with say/do (from the sprint's stories, or the sprint's recorded points once it's closed), the burndown's shape (`none`, `steady` or `late`, from the share of points finished in the last third), impediments raised in the sprint (resolved, still open, escalated), the average mood from at least 3 check-ins, follow-through on the previous retro's actions, and the sprint's kudos.
+- **Retro actions are the action cards on every retro.** `tool.retro_actions.list` counts an action done when it's marked on its card or when the impediment or Kanban card it was sent to is finished (`closedByTarget`), follows carried-over actions back to where they started (`carriedFrom`), and gives `followThrough` per past retro (agreed, done, carried, open, rate). `add` is the page's quick add (onto `boardId`, else the current retro, else the newest archived one), `update` edits text, owner and due date, and `complete` marks one done (or open again with `done: false`).
+- **Six Hats runs in sessions.** `tool.six_hats.start_session` takes a topic, the hats in order and the minutes per round; thoughts logged while it's open belong to it (`log_thought` takes `sessionId`). `set_summary` writes the Blue hat's summary, `close_session` needs it first (`summary_required`), and `reopen_session` reopens a closed one. `list_state` and `export_session` take `sessionId`.
+- **Liberating Structures come from one catalog.** `tool.liberating_structures.find` filters it as the page does (`people`, `purpose`, `ceremony`, `maxMinutes`) and returns each structure's timed steps and Ceremony Timer agenda; `toggle_favorite` only takes catalog ids (`ls-1-2-4-all`, …).
+- **The design sprint's day comes from its start date** and the team's working days and holidays (the ceremony cadence), never from a stored counter. `tool.design_sprint.list_state` returns the status (`upcoming`, `running`, `over`, `completed`), today's day, the five dates, `startsIn` while upcoming, and each day's tasks and outputs with their ids. `start_sprint` seeds the page's checklist and refuses to replace a sprint unless `replace: true`. `add_output` records what a day produced on the day it belongs to (`long-term-goal`, `sprint-question` and `target` on Map; `sketch` on Sketch; `decision` and `storyboard` on Decide; `prototype`; `finding` on Test; a `note` on any day); the goal, target, decision, storyboard and prototype are one each (`already_set`: change it with `update_output`). `set_answer` records Test day's answer to a sprint question, and `complete_sprint` finishes or reopens the sprint.
+
+```jsonc
+// Start the retro for the sprint that just ended, then read its facts
+{"method":"tools/call","params":{"name":"tool.retro.start","arguments":{"formatId":"start-stop-continue"}}}
+// → {"started": true, "id": "retro:current", "sprintId": "sprint_x"}
+{"method":"tools/call","params":{"name":"tool.retro.list_state","arguments":{}}}
+// → {..., "facts": {"goalOutcome": "partly", "sayDo": 0.8, "burndown": {"shape": "late", ...}, ...}}
+
+// Record a design sprint finding from Test day
+{"method":"tools/call","params":{"name":"tool.design_sprint.add_output","arguments":{
+  "kind":"finding", "text":"Nobody found the skip link", "signal":"negative", "seenIn":4
+}}}
+// → {"added": true, "id": "f_x", "day": 5}
+```
+
 ### Run a retro for a sprint (composed intent)
 
 ```jsonc
@@ -206,6 +231,7 @@ The Run tools read and write the same data as their pages:
   },
 }
 // → returns boardId; agent UI navigates to /canvas?b={boardId}
+// This makes a Canvas whiteboard. The Retro tool's own board is tool.retro.start.
 ```
 
 ### Score a backlog with WSJF then persist top items

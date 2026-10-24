@@ -1,7 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import type { Camera } from "@/lib/geometry/bbox";
-import type { WhiteboardObject, WhiteboardCard, WhiteboardCommentThread } from "@/lib/stores/workspace-types";
+import type {
+  WhiteboardObject,
+  WhiteboardCard,
+  WhiteboardCommentThread,
+} from "@/lib/stores/workspace-types";
 import type { ClusterResult } from "@/lib/whiteboard/cluster-bridge";
 import type { ActionItem } from "./ai-selection-actions";
 import type { MindMapTreeNode } from "./ai-mind-map-section";
@@ -10,6 +15,15 @@ import { MiniMap } from "./mini-map";
 import { AIInsightsPanel } from "./ai-insights-panel";
 import { CommentDrawer } from "./comment-drawer";
 import { CardDetailModal } from "./card-detail-modal";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { toast } from "@/lib/utils/toast";
+import { isSprintBoard, liveContainerOf, liveLockNote } from "../lib/live-boards";
+import { writeLiveCardEdit } from "../lib/live-card-writer";
+import type { CanvasUndoEffect } from "../use-undo-stack";
+import { SPRINT_COLUMNS } from "../../kanban/sprint-view";
+
+/** A Sprint board card's statuses: its board's columns, each written as its story status. */
+const SPRINT_STATUS_CHOICES = SPRINT_COLUMNS.map((c) => ({ value: c.status, label: c.label }));
 
 /**
  * Side-panel + modal cluster: MiniMap, AI Insights drawer, Comment
@@ -52,17 +66,49 @@ export function CanvasModals(props: {
   cardDetailId: string | null;
   setCardDetailId: (id: string | null) => void;
   objectsById: ReadonlyMap<string, WhiteboardObject>;
-  onPatchStyles: (entries: { id: string; patch: Partial<WhiteboardObject> }[]) => void;
+  /** `effect`: what the edit changed elsewhere (a Sprint board card's story), for Cmd+Z. */
+  onPatchStyles: (
+    entries: { id: string; patch: Partial<WhiteboardObject> }[],
+    effect?: CanvasUndoEffect
+  ) => void;
 }) {
   const {
-    showMiniMap, objects, camera, size, setCamera,
-    boardId, selection,
-    showAIPanel, clusters, insights, setSelection, setShowAIPanel,
-    onApplyAiStickies, onApplyClusterSummary,
-    onApplyTextUpdates, onApplyActionItems, onApplyMindMapTree,
-    activeCommentThread, setActiveCommentThreadId,
-    cardDetailId, setCardDetailId, objectsById, onPatchStyles,
+    showMiniMap,
+    objects,
+    camera,
+    size,
+    setCamera,
+    boardId,
+    selection,
+    showAIPanel,
+    clusters,
+    insights,
+    setSelection,
+    setShowAIPanel,
+    onApplyAiStickies,
+    onApplyClusterSummary,
+    onApplyTextUpdates,
+    onApplyActionItems,
+    onApplyMindMapTree,
+    activeCommentThread,
+    setActiveCommentThreadId,
+    cardDetailId,
+    setCardDetailId,
+    objectsById,
+    onPatchStyles,
   } = props;
+
+  // A live card that can't be edited here (a story map card, a closed
+  // sprint's card) says where to change it instead of opening a form
+  // whose Save would do nothing.
+  const sprints = useWorkspaceStore((s) => s.sprints);
+  const detailBoard = cardDetailId ? liveContainerOf(cardDetailId, objectsById) : null;
+  const lockNote = detailBoard ? liveLockNote(detailBoard, sprints) : null;
+  useEffect(() => {
+    if (!lockNote) return;
+    toast.info(lockNote);
+    setCardDetailId(null);
+  }, [lockNote, setCardDetailId]);
 
   return (
     <>
@@ -106,23 +152,49 @@ export function CanvasModals(props: {
         />
       )}
 
-      {cardDetailId && (() => {
-        const o = objectsById.get(cardDetailId);
-        if (!o || o.type !== "card") return null;
-        return (
-          <CardDetailModal
-            // `key` forces React to remount the modal whenever the
-            // focused card changes, so its useState form fields
-            // re-initialise from the new `card` prop. Without this a
-            // Cmd+E swap between cards would keep the previous card's
-            // in-progress form state.
-            key={cardDetailId}
-            card={o as WhiteboardCard}
-            onPatch={(id, patch) => onPatchStyles([{ id, patch }])}
-            onClose={() => setCardDetailId(null)}
-          />
-        );
-      })()}
+      {cardDetailId &&
+        !lockNote &&
+        (() => {
+          const o = objectsById.get(cardDetailId);
+          if (!o || o.type !== "card") return null;
+          const card = o as WhiteboardCard;
+          const live = liveContainerOf(card.id, objectsById);
+          const sprintCard = live !== null && isSprintBoard(live);
+          return (
+            <CardDetailModal
+              // `key` forces React to remount the modal whenever the
+              // focused card changes, so its useState form fields
+              // re-initialise from the new `card` prop. Without this a
+              // Cmd+E swap between cards would keep the previous card's
+              // in-progress form state.
+              key={cardDetailId}
+              card={card}
+              // A Sprint board card's title, points, assignee and status
+              // are its story's: they're saved there, the rest on the card,
+              // and Cmd+Z takes both back in one step.
+              onPatch={(id, patch) => {
+                if (!sprintCard) {
+                  onPatchStyles([{ id, patch }]);
+                  return;
+                }
+                const edit = writeLiveCardEdit(card, patch as Partial<WhiteboardCard>);
+                const own = edit.patch as Partial<WhiteboardObject>;
+                if (Object.keys(own).length === 0) return;
+                if (edit.effect) onPatchStyles([{ id, patch: own }], edit.effect);
+                else onPatchStyles([{ id, patch: own }]);
+              }}
+              onClose={() => setCardDetailId(null)}
+              linkNote={
+                sprintCard
+                  ? "This card shows a story in the sprint: its title, points, assignee and status are saved to the story."
+                  : undefined
+              }
+              // Only the board's columns: a status outside them (backlog, a
+              // custom one, none) has no column to show the card in.
+              statusChoices={sprintCard ? SPRINT_STATUS_CHOICES : undefined}
+            />
+          );
+        })()}
     </>
   );
 }

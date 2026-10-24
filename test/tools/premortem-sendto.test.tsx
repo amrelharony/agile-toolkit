@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Risk } from "@/lib/stores/workspace-types";
 
@@ -8,7 +9,8 @@ import type { Risk } from "@/lib/stores/workspace-types";
  * Premortem: a cause can be added to the Risk Register. Its likelihood,
  * impact and preventive action become the risk's probability, impact and
  * mitigation; the register's blob and workspace.risks get the same row; the
- * cause records the link, and Undo removes both.
+ * cause records the link, and Undo removes both. A cause that isn't rated
+ * can't be sent: the register would fill the gap with a silent 3.
  */
 
 const undo = vi.hoisted(() => ({
@@ -34,28 +36,32 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 }));
 
 import { PremortemClient } from "@/app/(tools)/premortem/premortem-client";
+import type { PremortemCause, PremortemState } from "@/app/(tools)/premortem/model";
 
 const PREMORTEM_KEY = "agile-toolkit:premortem";
 const RISK_KEY = "agile-toolkit:risk-register";
 
-interface StoredCause {
-  id: string;
-  text: string;
-  sentTo?: { route: string; targetId: string; at: string }[];
-}
-
-const causes = (): StoredCause[] =>
-  JSON.parse(localStorage.getItem(PREMORTEM_KEY) ?? "{}").causes ?? [];
+const causes = (): PremortemCause[] =>
+  (JSON.parse(localStorage.getItem(PREMORTEM_KEY) ?? "{}") as PremortemState).premortems[0].causes;
 const riskBlob = (): Risk[] => JSON.parse(localStorage.getItem(RISK_KEY) ?? "[]");
 
 function openSendTo(name: RegExp) {
   fireEvent.keyDown(screen.getByRole("button", { name }), { key: "Enter" });
 }
 
+const renderPremortem = () =>
+  render(
+    <TooltipProvider>
+      <PremortemClient />
+    </TooltipProvider>
+  );
+
 beforeEach(() => {
   undo.last = null;
   localStorage.clear();
+  window.history.replaceState(null, "", "/premortem");
   useWorkspaceStore.setState({ risks: [] });
+  // The single premortem stored before the upgrade: it opens in the Act phase.
   localStorage.setItem(
     PREMORTEM_KEY,
     JSON.stringify({
@@ -69,22 +75,35 @@ beforeEach(() => {
           preventiveAction: "Start certification in sprint 1",
           owner: "Priya",
         },
-        { id: "c2", text: "", likelihood: 3, impact: 3 },
       ],
     })
   );
 });
 
 describe("Premortem Send to", () => {
-  it("can't send a cause with no text", () => {
-    render(<PremortemClient />);
-    const buttons = screen.getAllByRole("button", { name: /^Send to…/ });
-    expect(buttons).toHaveLength(2);
-    expect(buttons[1]).toBeDisabled();
+  it("can't send a cause until both ratings are given", () => {
+    localStorage.setItem(
+      PREMORTEM_KEY,
+      JSON.stringify({
+        version: 2,
+        premortems: [
+          {
+            id: "p1",
+            title: "Launch",
+            scenario: "It slipped",
+            phase: "act",
+            createdAt: "2026-10-01T00:00:00.000Z",
+            causes: [{ id: "c2", text: "Nobody tested on old phones", likelihood: 3 }],
+          },
+        ],
+      })
+    );
+    renderPremortem();
+    expect(screen.getByRole("button", { name: /^Send to… Nobody tested/ })).toBeDisabled();
   });
 
   it("adds the cause to the Risk Register, linked both ways", () => {
-    render(<PremortemClient />);
+    renderPremortem();
     openSendTo(/^Send to… Payment provider/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Risk" }));
 
@@ -95,7 +114,7 @@ describe("Premortem Send to", () => {
       impact: 5,
       mitigation: "Start certification in sprint 1",
       status: "open",
-      sourceRef: { tool: "premortem", id: "c1" },
+      sourceRef: { tool: "premortem", id: "c1", doc: "legacy-premortem" },
     });
     // The same row, under the same id, for dashboards and agents.
     expect(useWorkspaceStore.getState().risks).toEqual([risk]);
@@ -113,7 +132,7 @@ describe("Premortem Send to", () => {
 
   it("Undo removes the risk from both places and the link", () => {
     localStorage.setItem(RISK_KEY, JSON.stringify([{ id: "r0", title: "Existing" }]));
-    render(<PremortemClient />);
+    renderPremortem();
     openSendTo(/^Send to… Payment provider/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Risk" }));
     expect(riskBlob()).toHaveLength(2);

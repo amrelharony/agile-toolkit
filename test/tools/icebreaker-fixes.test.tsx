@@ -24,7 +24,10 @@ describe("Icebreaker time filter", () => {
 
     const fits = icebreakers.filter((ib) => ib.timeMinutes <= 10);
     expect(fits.length).toBeLessThan(icebreakers.length);
-    expect(document.body.textContent).toContain(`${fits.length} icebreakers match your filters`);
+    // The verdict counts what fits ("54 activities fit in up to 10 minutes.").
+    expect(document.body.textContent).toContain(
+      `${fits.length} activities fit in up to 10 minutes.`
+    );
 
     const fiveMinute = icebreakers.find((ib) => ib.timeMinutes === 5)!;
     expect(screen.getByRole("button", { name: fiveMinute.name })).toBeInTheDocument();

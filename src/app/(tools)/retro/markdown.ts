@@ -1,4 +1,6 @@
 import type { BoardState, RetroCard } from "./types";
+import type { FactLine } from "./facts-text";
+import { themeCardTexts, type KeywordTheme } from "./themes";
 import { sortedByVotes } from "./helpers";
 
 /** "18 Oct 2026" */
@@ -20,19 +22,55 @@ function withVotes(card: RetroCard): string {
   return `${text} (${card.votes} ${card.votes === 1 ? "vote" : "votes"})`;
 }
 
+export interface MarkdownExtra {
+  /** The sprint the retro looks back on, for the title. */
+  sprintName?: string;
+  /** The facts the retro opened with (facts-text.ts). */
+  facts?: readonly FactLine[];
+  /** The board's common words (themes.ts). */
+  themes?: readonly KeywordTheme[];
+}
+
+/** "- **Sprint goal:** Partly met: “…”." for each fact. */
+function factsSection(facts: readonly FactLine[]): string[] {
+  return ["", "## Facts", "", ...facts.map((f) => `- **${f.label}:** ${oneLine(f.sentence)}`)];
+}
+
+/** "- flaky (3 cards): Flaky UI tests; Flaky deploys; …" for each common word. */
+function themesSection(themes: readonly KeywordTheme[], cards: readonly RetroCard[]): string[] {
+  return [
+    "",
+    "## Common words",
+    "",
+    ...themes.map((t) => {
+      const n = t.cardIds.length;
+      const list = themeCardTexts(t, cards).map(oneLine);
+      return `- ${oneLine(t.keyword)} (${n} ${n === 1 ? "card" : "cards"}): ${list.join("; ")}`;
+    }),
+  ];
+}
+
 /**
- * The retro board as Markdown, for the team wiki or the sprint channel: one
- * section per column (most-voted first, grouped cards nested under their
- * parent), then the action items with their owners.
+ * The retro board as Markdown, for the team wiki or the sprint channel: the
+ * sprint in the title and the facts the retro opened with (when the board
+ * has a sprint), one section per column (most-voted first, grouped cards
+ * nested under their parent), the action items with their owners, then the
+ * common words across the cards. The visitor room calls it with the board
+ * alone.
  */
 export function toMarkdown(
   state: Pick<BoardState, "format" | "cards">,
-  now: Date = new Date()
+  now: Date = new Date(),
+  extra: MarkdownExtra = {}
 ): string {
-  const title = `# Retro — ${mdDate(now)} (${oneLine(state.format.name)})`;
-  if (state.cards.length === 0) return `${title}\n\nNo cards on the board yet.\n`;
+  const sprint = extra.sprintName ? oneLine(extra.sprintName) : "";
+  const title = `# Retro — ${sprint ? `${sprint} — ` : ""}${mdDate(now)} (${oneLine(state.format.name)})`;
+  const facts = extra.facts && extra.facts.length > 0 ? factsSection(extra.facts) : [];
+  if (state.cards.length === 0) {
+    return `${[title, ...facts].join("\n")}\n\nNo cards on the board yet.\n`;
+  }
 
-  const lines = [title];
+  const lines = [title, ...facts];
   for (const col of state.format.columns) {
     const cards = state.cards.filter((c) => c.columnKey === col.key);
     const top = sortedByVotes(cards.filter((c) => c.groupedWith === null));
@@ -55,6 +93,9 @@ export function toMarkdown(
   for (const a of actions) {
     const owner = oneLine(a.assignee);
     lines.push(`- ${oneLine(a.text)} — ${owner ? `Owner: ${owner}` : "No owner yet"}`);
+  }
+  if (extra.themes && extra.themes.length > 0) {
+    lines.push(...themesSection(extra.themes, state.cards));
   }
   return `${lines.join("\n")}\n`;
 }

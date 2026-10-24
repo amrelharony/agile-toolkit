@@ -87,6 +87,24 @@ describe("reviewFacts", () => {
     expect(facts.sayDo?.pct).toBe(63);
   });
 
+  it("reads a closed sprint's recorded points, not the stories left after carry-over", () => {
+    // Closed at 5 of a 20-point commitment; the unfinished stories moved on.
+    const closed = {
+      ...sprint,
+      status: "completed" as const,
+      pointsPlanned: 20,
+      pointsCompleted: 5,
+    };
+    const facts = reviewFacts(closed, [story("a", "done", 5)], undefined);
+    expect(facts).toMatchObject({ committed: 20, completed: 5, fromStories: false });
+    expect(facts.sayDo?.pct).toBe(25);
+    expect(facts.done.map((s) => s.id)).toEqual(["a"]);
+    // No commitment recorded: no say/do rather than a made-up 100%.
+    expect(
+      reviewFacts({ ...closed, pointsPlanned: 0 }, [story("a", "done", 5)], undefined).sayDo
+    ).toBeNull();
+  });
+
   it("falls back to the sprint's goal and typed points without pointed stories", () => {
     const facts = reviewFacts(sprint, [story("a", "done")], undefined);
     expect(facts).toMatchObject({

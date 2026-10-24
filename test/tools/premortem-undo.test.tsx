@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
- * Premortem: removing a cause offers Undo that puts it back in its ranked
- * slot, once.
+ * Premortem: removing a cause offers Undo that puts it back in its slot,
+ * once.
  */
 
 const undo = vi.hoisted(() => ({
@@ -30,13 +31,16 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 }));
 
 import { PremortemClient } from "@/app/(tools)/premortem/premortem-client";
+import type { PremortemState } from "@/app/(tools)/premortem/model";
 
+const KEY = "agile-toolkit:premortem";
 const cause = (id: string, text: string) => ({ id, text, likelihood: 3, impact: 3 });
 
 beforeEach(() => {
   undo.last = null;
+  window.history.replaceState(null, "", "/premortem");
   localStorage.setItem(
-    "agile-toolkit:premortem",
+    KEY,
     JSON.stringify({
       scenario: "",
       causes: [cause("c1", "Unclear goal"), cause("c2", "Scope creep"), cause("c3", "No tests")],
@@ -44,23 +48,34 @@ beforeEach(() => {
   );
 });
 
-const causeTexts = () =>
-  screen
-    .getAllByRole("textbox", { name: /^Cause of failure \d+$/ })
-    .map((i) => (i as HTMLInputElement).value);
+const storedTexts = () =>
+  (JSON.parse(localStorage.getItem(KEY) ?? "{}") as PremortemState).premortems[0].causes.map(
+    (c) => c.text
+  );
+const shownTexts = () =>
+  within(screen.getByRole("list", { name: /^Causes, most votes first/ }))
+    .getAllByRole("listitem")
+    .map((li) => li.querySelector("p")?.textContent);
 
 describe("Premortem undo", () => {
   it("puts a removed cause back in its slot", () => {
-    render(<PremortemClient />);
-    expect(causeTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
+    render(
+      <TooltipProvider>
+        <PremortemClient />
+      </TooltipProvider>
+    );
+    // Equal votes and scores: the stored order (the team's, in an old
+    // premortem) decides the order on screen, not the text.
+    expect(shownTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove cause 2" }));
-    expect(causeTexts()).toEqual(["Unclear goal", "No tests"]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Scope creep”" }));
+    expect(shownTexts()).toEqual(["Unclear goal", "No tests"]);
     expect(undo.last?.label).toBe("Removed “Scope creep”");
 
     act(() => undo.last!.revert());
-    expect(causeTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
+    expect(storedTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
     act(() => undo.last!.revert());
-    expect(causeTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
+    expect(storedTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
+    expect(shownTexts()).toEqual(["Unclear goal", "Scope creep", "No tests"]);
   });
 });

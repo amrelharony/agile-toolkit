@@ -43,6 +43,7 @@ import {
 } from "@/lib/whiteboard/share-link";
 import type { WhiteboardSavedTemplate } from "@/lib/stores/workspace-types";
 import { wbId } from "@/lib/whiteboard/clipboard";
+import { withoutLiveChildren } from "../lib/live-boards";
 
 interface Props {
   boardId: string;
@@ -492,8 +493,9 @@ function SaveTemplateTab({
       category,
       // Strip id/boardId so the apply path can reassign fresh values.
       // The TemplateGallery's apply function already handles id/board
-      // assignment, but stripping here keeps the saved data clean.
-      objects: objs.map((o) => ({ ...o, boardId: "" })),
+      // assignment, but stripping here keeps the saved data clean. A
+      // live board is saved without its cards: applied, it fills itself.
+      objects: withoutLiveChildren(objs).map((o) => ({ ...o, boardId: "" })),
       createdAt: now,
     });
     onClose();

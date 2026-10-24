@@ -64,3 +64,57 @@ export function sendHandoff(
   });
   return sent;
 }
+
+export interface HandoffBatchItem {
+  src: HandoffSource;
+  links: HandoffLinkStore;
+}
+
+/**
+ * Send several items on one route with one toast and one Undo ("Sent 3
+ * to the Risk Register"). Items with a blank title or a live link on the
+ * route are skipped, as `sendHandoff` would skip them. Undo removes every
+ * target and link this send made, and puts back any dead link a send
+ * replaced. Returns the new links, in the items' order.
+ */
+export function sendHandoffBatch(
+  routeId: HandoffRouteId,
+  items: readonly HandoffBatchItem[],
+  label?: string
+): HandoffLink[] {
+  const route = getHandoffRoute(routeId);
+  const todo = items.filter(
+    (item) => item.src.title.trim() && !liveLink(item.links.getLinks(), routeId)
+  );
+  if (todo.length === 0) return [];
+  const previous = todo.map((item) => findLink(item.links.getLinks(), routeId));
+  const sent: (HandoffLink | null)[] = todo.map(() => null);
+  undoable({
+    label: label ?? route.doneLabel,
+    description: todo.length === 1 ? `“${shortName(todo[0].src.title)}”` : `${todo.length} items`,
+    apply: () => {
+      todo.forEach((item, i) => {
+        const link: HandoffLink = {
+          route: routeId,
+          targetId: route.send(item.src),
+          at: new Date().toISOString(),
+        };
+        sent[i] = link;
+        item.links.setLinks((cur) => withLink(cur, link));
+      });
+    },
+    revert: () => {
+      todo.forEach((item, i) => {
+        const link = sent[i];
+        if (!link) return;
+        route.remove(link.targetId);
+        const prior = previous[i];
+        item.links.setLinks((cur) => {
+          const rest = withoutLink(cur, link);
+          return prior && !findLink(rest, routeId) ? [...rest, prior] : rest;
+        });
+      });
+    },
+  });
+  return sent.filter((l): l is HandoffLink => l !== null);
+}

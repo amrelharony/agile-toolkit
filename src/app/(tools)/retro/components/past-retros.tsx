@@ -25,9 +25,12 @@ function formatRetroDate(iso: string | undefined): string {
 export function PastRetros({
   retros,
   onDelete,
+  sprintNames,
 }: {
   retros: RetroBoard[];
   onDelete: (retro: RetroBoard) => void;
+  /** Sprint id → name, to say which sprint each retro looked back on. */
+  sprintNames?: ReadonlyMap<string, string>;
 }) {
   if (retros.length === 0) return null;
 
@@ -40,13 +43,14 @@ export function PastRetros({
         {retros.map((retro, i) => {
           const actions = retroActionItems(retro);
           const date = formatRetroDate(retro.archivedAt);
+          const sprint = retro.sprintId ? sprintNames?.get(retro.sprintId) : undefined;
           return (
             <li key={retro.id}>
               <details open={i === 0} className="group rounded-lg border border-border bg-card">
                 <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
                   <span className="font-medium text-text">{date}</span>
-                  <span className="text-sub">
-                    · {retro.format.name} · {retro.cards.length} card
+                  <span className="min-w-0 text-sub">
+                    {sprint ? `· ${sprint} ` : ""}· {retro.format.name} · {retro.cards.length} card
                     {retro.cards.length !== 1 ? "s" : ""} · {actions.length} action
                     {actions.length !== 1 ? "s" : ""}
                   </span>

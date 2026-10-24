@@ -589,7 +589,8 @@ export const tools: ToolDefinition[] = [
     id: "retro",
     code: "C1",
     name: "Retro Board",
-    description: "Run a retrospective with 8 formats, a timer, dot voting and action items",
+    description:
+      "Run the sprint's retrospective in 8 formats, starting from that sprint's facts: write, dot-vote, discuss and agree actions with owners",
     category: "Ceremonies",
     path: "/retro",
     icon: MessageSquare,
@@ -610,7 +611,7 @@ export const tools: ToolDefinition[] = [
     code: "C12",
     name: "Retro Actions",
     description:
-      "Every action the team agreed in a retro, across retros, with owner, due date and done — done too when its impediment or Kanban card is finished",
+      "Follow up every action your retros agreed, with owner and due date, until it's done, and see each retro's follow-through",
     category: "Ceremonies",
     path: "/retro-actions",
     icon: ListChecks,
@@ -698,7 +699,8 @@ export const tools: ToolDefinition[] = [
     id: "icebreaker",
     code: "C6",
     name: "Ice Breaker Generator",
-    description: "Random Agile-themed icebreaker picker with 50+ activities",
+    description:
+      "Icebreaker picker with 50+ activities: filter by people, time, energy and category, skip recent ones, and run it on the docked timer",
     category: "Ceremonies",
     path: "/icebreaker",
     icon: Sparkles,
@@ -933,7 +935,7 @@ export const tools: ToolDefinition[] = [
     code: "C8",
     name: "Premortem Facilitator",
     description:
-      '"Imagine this project failed" workshop — rank causes, convert to preventive actions',
+      '"Imagine this project failed" workshop: write causes silently, group and dot-vote them, then send the top 3 to the Risk Register with preventive actions',
     category: "Risk & Governance",
     path: "/premortem",
     icon: ScrollText,
@@ -1561,7 +1563,7 @@ export const tools: ToolDefinition[] = [
     code: "N2",
     name: "Liberating Structures Picker",
     description:
-      "Filterable catalog of 12 Liberating Structures with timing and group-size matchmaker",
+      "Filterable catalog of 12 Liberating Structures: match by people, purpose, Scrum event and timing, then run a structure's steps on a step timer",
     category: "Workshops & Facilitation",
     path: "/liberating-structures",
     icon: Sparkles,
@@ -1576,7 +1578,8 @@ export const tools: ToolDefinition[] = [
     id: "design-sprint",
     code: "N3",
     name: "Design Sprint Tracker",
-    description: "5-day GV design-sprint timeline with daily artifacts and decision points",
+    description:
+      "Five-day GV design sprint that works out today's day, keeps each day's output and sends Test-day findings on as hypotheses or backlog stories",
     category: "Workshops & Facilitation",
     path: "/design-sprint",
     icon: Lightbulb,
@@ -2287,7 +2290,7 @@ export const tools: ToolDefinition[] = [
     code: "DC4",
     name: "Six Thinking Hats",
     description:
-      "De Bono's six perspectives (facts/emotions/risks/benefits/creativity/process) for balanced thinking",
+      "De Bono's six hats (facts, feelings, risks, benefits, new ideas, process) in timed rounds, ending in a Blue-hat summary for the Decision Log",
     category: "Decision Frameworks",
     path: "/six-hats",
     icon: Sparkles,
@@ -2374,7 +2377,7 @@ export const tools: ToolDefinition[] = [
     code: "WB1",
     name: "Canvas",
     description:
-      "Infinite whiteboard — stickies, shapes, free-hand drawing, smart connectors, multiple boards, AI clustering and cross-tool import.",
+      "Infinite whiteboard — stickies, shapes, free-hand drawing, smart connectors, multiple boards, AI clustering, cross-tool import and live sprint and story map boards.",
     category: "Visual Collaboration",
     path: "/canvas",
     icon: PenLine,

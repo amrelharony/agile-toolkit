@@ -5,22 +5,26 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "retro",
     summary:
-      "A retrospective helps the team look back at the last sprint and agree a few concrete improvements for the next one.",
+      "Run the retrospective for one sprint. The board opens with what the toolkit already knows about that sprint, then the team writes, votes, discusses and agrees a few actions, each with an owner.",
     whenToUse: [
       "At the end of every sprint, before planning the next one.",
       "After a release, a hard week or any event the team wants to learn from.",
+      "When the Sprint Cockpit says No retro for this sprint yet: its Open the retro board link picks that sprint for you.",
     ],
     steps: [
-      "Pick a format. Start / Stop / Continue suits most teams; Sailboat and 4Ls help when the team needs a fresh angle.",
-      "Write: everyone adds cards silently for 5–10 minutes, one idea per card.",
-      "Vote: each person gets three votes for the cards they most want to discuss.",
-      "Discuss the top-voted cards in order, timeboxing each one.",
-      "Agree one to three actions, each with an owner, and check them at the next retro.",
+      "Under Retro for, check the sprint this retro looks back on: the one you came from, else the sprint ending nearest today. Pick another or press Unlink, then choose a format, or Quick Start: Start / Stop / Continue. First time? Load an example shows a finished board.",
+      "In Write, read Facts from your sprint: goal, say/do, burndown, impediments, mood, kudos and how the last retro's actions went, each linked to its tool. Under Actions from the last retro, Carry over the ones still open, and add the sprint's kudos as cards.",
+      "Add cards to each column; pasting several lines adds one card per line. Click a card's text to fix it. In Write, Group with… puts a card under a similar one in its column, and the bin deletes a card, with Undo. From 10 cards, Common words rings the cards that share a word.",
+      "Press Next Phase to vote. Everyone has 3 votes: on a shared screen, pick who is voting under Voting as. Previous phase goes back and keeps the votes.",
+      "In Discuss the cards are sorted by votes. Click one to mark it as discussing, and timebox it: pick 5m, 10m, 15m or 30m on the timer and press Start.",
+      "In Actions, tick the cards the team will act on, pick each one's owner from the team, and use Send to… to raise it as an Impediment or a Kanban card. Retro Actions follows them up.",
+      "Export gives the board as Markdown or JSON. New Retro moves the board to Past retros, below the format picker; Undo in the toast brings it back.",
     ],
     tips: [
-      "Keep it safe: discuss situations and processes, not people.",
+      'A fact with no data says what\'s missing (for example "No mood check-ins this sprint"); follow its link to fill it in.',
       "Fewer, owned actions beat a long list nobody follows up.",
-      "Rotate the facilitator so it isn't always the Scrum Master.",
+      "Example cards can't be sent to other tools, and Clear example removes only them.",
+      "Past retros keep the latest 20. The New Retro confirmation names any that will drop off.",
     ],
     timebox: "45 minutes for a one-week sprint, up to 90 for a month",
   },
@@ -341,16 +345,26 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "premortem",
     summary:
-      "A premortem imagines the project has already failed and asks why, so the team can spot and prevent risks while there's still time.",
-    whenToUse: ["Before starting a big project or release.", "When the plan feels optimistic."],
-    steps: [
-      "Say: “It's six months from now and this has failed. What went wrong?”",
-      "Everyone writes causes silently for a few minutes.",
-      "Share and group the causes.",
-      "Rate likelihood and impact; pick the top few.",
-      "Agree preventive actions and owners — and add the big ones to the risk register.",
+      "A premortem imagines the project has already failed and asks why, so the team can spot and prevent risks while there's still time. You get the top causes ranked, each with a preventive action and an owner, ready for the Risk Register.",
+    whenToUse: [
+      "Before a big release, epic or project starts, while the plan can still change.",
+      "When the plan feels optimistic and nobody is saying what could go wrong.",
     ],
-    tips: ["Assuming failure makes it safe to raise concerns people might otherwise hold back."],
+    steps: [
+      "Click New premortem (on a first visit the form is already open, and Load an example shows one already voted and rated). Give it a Name and the Imagined failure, pick the release or epic it is For or leave Not linked, then click Start premortem.",
+      "Write: pick 3 min, 5 min or 10 min to start the silent-writing timer. Type one reason in A reason it failed and press Enter (or Add cause). Causes stay hidden until you click Show causes or move on, so nobody anchors on the first idea.",
+      "Click Next: Group and read the causes out. Use Group with… to fold a duplicate into the cause it repeats; Split brings it back. Grouping or deleting a cause offers Undo.",
+      "Click Next: Vote. Set Dots per person if you like (it is only a guide), then use + and − on each cause. The top 3 get a Top 3 badge, and a tie at the cut-off is named. Re-sort brings the order up to date; Clear votes asks first and offers Undo.",
+      "Click Next: Act. Rate Likelihood and Impact from 1 to 5 for each cause, write what would prevent it, and pick an Owner from the team.",
+      "Click Send the top 3 to the Risk Register once each of them is rated; Undo takes them back. Send to… sends one rated cause on its own. Export copies or downloads the premortem as Markdown, or as CSV.",
+    ],
+    tips: [
+      "Assuming failure makes it safe to raise concerns people might otherwise hold back.",
+      "Every step stays clickable: go back to Write to add a cause someone remembers late.",
+      "The silent-writing timer runs on the docked timer, so it keeps going if you open another tool, and stops when you move on from Write. If another tool's timer is on the dock, stop it there first.",
+      "Example causes never go to the Risk Register: start a premortem of your own to send risks.",
+      "Use the Premortem picker at the top to go back to an earlier premortem. The icons beside its name edit its details, or delete it with Undo.",
+    ],
     timebox: "45–60 minutes",
   },
   {

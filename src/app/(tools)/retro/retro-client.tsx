@@ -1,17 +1,32 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { type RetroFormat } from "@/lib/constants/retro-formats";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { undoable } from "@/lib/utils/undoable";
-import type { RetroBoard } from "@/lib/stores/workspace-types";
+import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
 import { RETRO_ACTIONS } from "@/lib/history/event-actions";
+import {
+  RETRO_CURRENT_ID,
+  blankRetroBoard,
+  newestArchivedRetro,
+  retroFor,
+  retroSprintFor,
+} from "@/lib/retro/board";
+import { sprintsNewestFirst, todayIso } from "@/lib/sprints/series";
+import { readSprintParam } from "@/lib/sprints/use-selected-sprint";
 import type { BoardState } from "./types";
 import { FormatSelector } from "./components/format-selector";
 import { Board } from "./components/board";
-import { archivedRetroCopy, hasRetroContent, pastRetros, retroArchivesToPrune } from "./archive";
+import {
+  archivedRetroCopy,
+  boardBeforeNewRetro,
+  hasRetroContent,
+  pastRetros,
+  retroArchivesToPrune,
+} from "./archive";
 import { buildExample, withoutExampleCards } from "./example";
 
 // ── Root Client ──────────────────────────────────────────────
@@ -19,8 +34,10 @@ import { buildExample, withoutExampleCards } from "./example";
 // The retro board is a singleton document in the synced workspace store (one
 // row under a fixed id) — previously it was ephemeral useState that reset on
 // reload. Now it persists and syncs, and MCP-written cards round-trip in.
-// MUST match RB_ID in src/lib/actions/tools/retro.ts.
-const RB_ID = "retro:current";
+// The id is lib/retro/board's, which the agent actions and hand-offs use too.
+const RB_ID = RETRO_CURRENT_ID;
+
+const NO_SPRINTS: Sprint[] = [];
 
 export function RetroClient() {
   const board = useWorkspaceStore(
@@ -34,42 +51,100 @@ export function RetroClient() {
   const boardState: BoardState | null = board ?? null;
   const logger = useHistoryLogger("retro");
 
+  // ── The sprint a new board looks back on ──
+  const allSprints = useWorkspaceStore((s) => s.sprints) ?? NO_SPRINTS;
+  const sprints = useMemo(() => sprintsNewestFirst(allSprints), [allSprints]);
+  // A ?sprint= link (the cockpit's "Hold the retro") names it; read after
+  // mount, so the server render and the first client render agree. It
+  // names the first board started here only: after New Retro the next
+  // board goes back to the default.
+  const [linkedSprint, setLinkedSprint] = useState<string | null>(null);
+  useEffect(() => setLinkedSprint(readSprintParam(window.location.search)), []);
+  // undefined: the default below; null: "Not linked" was picked; else the pick.
+  const [sprintChoice, setSprintChoice] = useState<string | null | undefined>(undefined);
+  // Else the sprint whose retro window holds today, of those whose retro
+  // isn't under Past retros yet (the cockpit's rule): the week after a
+  // sprint's retro was archived, the next board is the next sprint's, not a
+  // second one for the same sprint. Picking that sprint is still possible.
+  const defaultSprintId = useMemo(() => {
+    if (linkedSprint && allSprints.some((s) => s.id === linkedSprint)) return linkedSprint;
+    const today = todayIso();
+    const boards = retroBoards ?? [];
+    const due = allSprints.filter((s) => !retroFor(boards, s, allSprints, today).archived);
+    return retroSprintFor(today, due)?.id;
+  }, [linkedSprint, allSprints, retroBoards]);
+  const newBoardSprintId =
+    sprintChoice === undefined ? defaultSprintId : (sprintChoice ?? undefined);
+
   const handleSelectFormat = useCallback(
     (format: RetroFormat) => {
       // The picker only shows when there is no board, so nothing is lost here.
       // The new retro follows the newest archived one, whose actions it
-      // offers to carry over.
-      const previous = pastRetros(useWorkspaceStore.getState().retroBoards ?? [])[0];
-      upsertRetroBoard({
-        id: RB_ID,
-        format,
-        phase: "write",
-        cards: [],
-        userVotes: 0,
-        timerSeconds: 300,
-        timerRunning: false,
-        discussingIndex: 0,
-        ...(previous ? { previousRetroId: previous.id } : {}),
+      // offers to carry over, and looks back on the sprint shown above.
+      const previous = newestArchivedRetro(useWorkspaceStore.getState().retroBoards ?? []);
+      upsertRetroBoard(
+        blankRetroBoard(format, {
+          ...(previous ? { previousRetroId: previous.id } : {}),
+          ...(newBoardSprintId ? { sprintId: newBoardSprintId } : {}),
+        })
+      );
+      setSprintChoice(undefined);
+      setLinkedSprint(null);
+      logger.log(RETRO_ACTIONS.FORMAT_CHANGED, {
+        format: format.name,
+        ...(newBoardSprintId ? { sprintId: newBoardSprintId } : {}),
       });
-      logger.log(RETRO_ACTIONS.FORMAT_CHANGED, { format: format.name });
     },
-    [logger, upsertRetroBoard]
+    [logger, upsertRetroBoard, newBoardSprintId]
   );
 
   // "New Retro" keeps the finished board under Past retros (with its action
   // items) before clearing the current one. Example cards aren't the team's
-  // retro, so they aren't kept.
+  // retro, so they aren't kept. Past retros keep the latest
+  // RETRO_ARCHIVE_LIMIT; the confirmation names the one that drops off.
+  // Undo puts the board back, the dropped retro too.
   const handleReset = useCallback(() => {
     const boards = useWorkspaceStore.getState().retroBoards ?? [];
     const cur = boards.find((b) => b.id === RB_ID);
-    const own = cur && { ...cur, cards: withoutExampleCards(cur.cards) };
-    if (hasRetroContent(own)) {
-      for (const id of retroArchivesToPrune(boards)) removeRetroBoard(id);
-      upsertRetroBoard(archivedRetroCopy(own));
+    if (!cur) return;
+    if (cur.cards.length === 0) {
+      // An empty board has nothing to keep or to undo.
+      removeRetroBoard(RB_ID);
+      logger.log(RETRO_ACTIONS.RETRO_RESET, {});
+      return;
     }
-    removeRetroBoard(RB_ID);
-    logger.log(RETRO_ACTIONS.RETRO_RESET, {});
+    const own = { ...cur, cards: withoutExampleCards(cur.cards) };
+    const keep = hasRetroContent(own);
+    const pruneIds = keep ? new Set(retroArchivesToPrune(boards)) : new Set<string>();
+    const pruned = boards.filter((b) => pruneIds.has(b.id));
+    const archive = keep ? archivedRetroCopy(own) : null;
+    undoable({
+      label: keep ? "Started a new retro" : "Cleared the example board",
+      description: keep
+        ? `The last one is under Past retros${pruned.length > 0 ? `; ${pruned.length === 1 ? "the oldest past retro" : `${pruned.length} old retros`} dropped off` : ""}.`
+        : undefined,
+      apply: () => {
+        for (const b of pruned) removeRetroBoard(b.id);
+        if (archive) upsertRetroBoard(archive);
+        removeRetroBoard(RB_ID);
+        logger.log(RETRO_ACTIONS.RETRO_RESET, {});
+      },
+      revert: () => {
+        const now = useWorkspaceStore.getState().retroBoards ?? [];
+        const copy = archive ? now.find((b) => b.id === archive.id) : undefined;
+        const started = now.find((b) => b.id === RB_ID);
+        if (archive) removeRetroBoard(archive.id);
+        for (const b of pruned) upsertRetroBoard(b);
+        upsertRetroBoard({ ...boardBeforeNewRetro(cur, copy, started), id: RB_ID });
+      },
+    });
   }, [logger, removeRetroBoard, upsertRetroBoard]);
+
+  // What "New Retro" will drop from Past retros, for its confirmation.
+  const dropsOff = useMemo(() => {
+    const ids = new Set(retroArchivesToPrune(retroBoards ?? []));
+    return past.filter((b) => ids.has(b.id));
+  }, [retroBoards, past]);
 
   // Offered only from the format picker, so there is no board to overwrite.
   // Not logged: loading the example isn't the team's work.
@@ -116,6 +191,9 @@ export function RetroClient() {
         onLoadExample={handleLoadExample}
         past={past}
         onDeletePast={handleDeletePast}
+        sprints={sprints}
+        sprintId={newBoardSprintId}
+        onSprintChange={(id) => setSprintChoice(id ?? null)}
       />
     );
   }
@@ -127,6 +205,7 @@ export function RetroClient() {
       onReset={handleReset}
       onClearExample={handleClearExample}
       logger={logger}
+      dropsOff={dropsOff}
     />
   );
 }

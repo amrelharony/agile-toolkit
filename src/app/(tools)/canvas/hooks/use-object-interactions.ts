@@ -10,6 +10,14 @@ import { normalizedRect } from "@/lib/geometry/bbox";
 import type { Rect } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool, ResizeHandle } from "../use-canvas-store";
+import {
+  isLiveContainer,
+  isSprintBoard,
+  liveChildrenOf,
+  liveContainerOf,
+} from "../lib/live-board-ids";
+import { writeLiveCardEdit } from "../lib/live-card-writer";
+import type { CanvasUndoEffect } from "../use-undo-stack";
 
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
@@ -93,7 +101,7 @@ export function useObjectInteractions(params: {
   // Coords
   clientToWorld: (clientX: number, clientY: number) => { x: number; y: number };
   // Undo + logging
-  pushSnapshot: () => void;
+  pushSnapshot: (effect?: CanvasUndoEffect) => void;
   log: LogFn;
   logActivity: (kind: string, summary: string) => void;
   // Mode
@@ -250,11 +258,25 @@ export function useObjectInteractions(params: {
         initialRects[sid] = { x: o.x, y: o.y, w: o.w, h: o.h };
       }
       if (!anyMovable) return;
+      // A live board (Sprint board, Story map) carries its cards along,
+      // locked ones included: the board lays them out, so they move with
+      // it instead of waiting behind until the drag ends.
+      for (const sid of Object.keys(initialRects)) {
+        if (!isLiveContainer(objectsById.get(sid))) continue;
+        for (const child of liveChildrenOf(sid, objects)) {
+          initialRects[child.id] ??= { x: child.x, y: child.y, w: child.w, h: child.h };
+        }
+      }
       // Snapshot BEFORE the drag starts mutating the store. The
       // pointer-move handler updates positions on every frame, so by
       // pointer-up the store is already at post-drag — snapshot there
       // would record post-drag and Cmd+Z would be a no-op.
-      pushSnapshot();
+      //
+      // Not for a drag of live board cards alone: the board lays them out
+      // again whatever happens, so the snapshot would be an undo step that
+      // does nothing. A drop that moves a story records its own step.
+      const dragIds = Object.keys(initialRects);
+      if (!dragIds.every((sid) => liveContainerOf(sid, objectsById))) pushSnapshot();
       // Build the snap spatial index ONCE for this drag. The candidate
       // set (every non-dragging object) is invariant during the drag;
       // rebuilding per pointer-move is wasteful.
@@ -341,6 +363,30 @@ export function useObjectInteractions(params: {
         setEditingObjectId(null);
         return;
       }
+      // A Sprint board card's title is its story's: save it there (the
+      // card shows what the story took). Other live children are locked.
+      if (obj.type === "card") {
+        const live = liveContainerOf(id, objectsById);
+        if (live) {
+          if (isSprintBoard(live) && text !== obj.title) {
+            const { patch, effect } = writeLiveCardEdit(obj, { title: text });
+            if (Object.keys(patch).length > 0) {
+              // Cmd+Z puts the story's title back too, or the board would
+              // only show the new one again.
+              pushSnapshot(effect ?? undefined);
+              upsert({
+                ...obj,
+                ...patch,
+                version: obj.version + 1,
+                updatedAt: new Date().toISOString(),
+              });
+              log(CANVAS_ACTIONS.OBJECT_UPDATED, { id, action: "edit-text" });
+            }
+          }
+          setEditingObjectId(null);
+          return;
+        }
+      }
       // Pick the right field by type. Sticky/text/shape store editable
       // text in `content`; frame/kanban/timer use `label`; card uses
       // `title`; voting uses `question`. Previously this always wrote
@@ -391,7 +437,11 @@ export function useObjectInteractions(params: {
   );
 
   const onPatchStyles = useCallback(
-    (entries: { id: string; patch: Partial<WhiteboardObject> }[]) => {
+    (
+      entries: { id: string; patch: Partial<WhiteboardObject> }[],
+      /** What the edit changed elsewhere (a Sprint board card's story), for Cmd+Z. */
+      effect?: CanvasUndoEffect
+    ) => {
       // ReadOnly: PropertyPanel is hidden in viewer/commenter mode,
       // but defense-in-depth against a hacked DOM injecting a panel.
       if (readOnly) return;
@@ -408,7 +458,7 @@ export function useObjectInteractions(params: {
         } as WhiteboardObject);
       }
       if (updates.length === 0) return;
-      pushSnapshot();
+      pushSnapshot(effect);
       upsertMany(updates);
       log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: updates.length, action: "style" });
     },

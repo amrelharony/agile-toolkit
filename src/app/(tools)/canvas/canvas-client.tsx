@@ -53,6 +53,8 @@ import { ShareModal } from "./components/share-modal";
 import { ActivityStream } from "./components/activity-stream";
 import { TagFilterRow } from "./components/tag-filter-row";
 import { VoiceInputButton } from "./components/voice-input-button";
+import { useLiveBoards } from "./hooks/use-live-boards";
+import { liveContainerOf } from "./lib/live-board-ids";
 
 /** Per-board access mode. Resolved from the URL with `?share=<token>`
  * winning over `?view=<role>` — the token's role is the source of
@@ -373,9 +375,21 @@ export function CanvasClient() {
           // here because the card-specific spreads below assume
           // card fields (title/points/status). For stickies we
           // add a parallel updater.
+          //
+          // A live board's cards (Sprint board, Story map) are skipped:
+          // the live-board reconcile is their one writer, and it shows a
+          // sprint story still marked "backlog" in To do, where this would
+          // write the raw status and cost a version bump per change.
+          const all = state.whiteboardObjects ?? [];
+          let byId: Map<string, WhiteboardObject> | null = null;
+          const isLive = (o: WhiteboardObject) => {
+            byId ??= new Map(all.map((x) => [x.id, x]));
+            return liveContainerOf(o.id, byId) !== null;
+          };
           const cardsFor = (entityId: string): WhiteboardCard[] =>
-            (state.whiteboardObjects ?? []).filter(
-              (o): o is WhiteboardCard => o.type === "card" && o.sourceRef?.entityId === entityId
+            all.filter(
+              (o): o is WhiteboardCard =>
+                o.type === "card" && o.sourceRef?.entityId === entityId && !isLive(o)
             );
           // R10: sticky updater — content lives in `content` on
           // WhiteboardSticky. Syncs the displayed text only (stickies
@@ -487,6 +501,8 @@ export function CanvasClient() {
     () => (allComments ?? []).filter((c) => c.boardId === activeBoardId),
     [allComments, activeBoardId]
   );
+  // Sprint boards and story maps on this board follow the workspace.
+  useLiveBoards({ boardId: activeBoardId, objects, readOnly });
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -1062,7 +1078,14 @@ export function CanvasClient() {
       )}
 
       {showTemplates && activeBoardId && (
-        <TemplateGallery boardId={activeBoardId} onClose={() => setShowTemplates(false)} />
+        <TemplateGallery
+          boardId={activeBoardId}
+          onClose={() => setShowTemplates(false)}
+          onApplied={(rect) => {
+            const camera = fitToRects([rect], viewportSize.w, viewportSize.h, 0.1);
+            if (camera) setCamera(camera);
+          }}
+        />
       )}
       {showImport && activeBoardId && (
         <ImportModal boardId={activeBoardId} onClose={() => setShowImport(false)} />

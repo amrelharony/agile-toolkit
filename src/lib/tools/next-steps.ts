@@ -42,6 +42,11 @@ import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
 import { goalDocId } from "@/lib/sprints/goal-doc";
 import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
+import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
+import { hasOwnCards } from "@/lib/retro/board";
+import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
+import { lsStructure } from "@/lib/liberating-structures/catalog";
+import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -101,6 +106,22 @@ const FLOW_BOARD_ID = "kanban:current";
 
 /** How soon a ceremony has to start for the timer to be the next step. */
 const TIMER_LEAD_MS = 60 * 60 * 1000;
+
+/** MUST match HYPOTHESIS_TRACKER_ID in lib/handoffs/targets/hypothesis.ts. */
+const HYPOTHESIS_TRACKER_ID = "hypothesisTracker:current";
+
+/** How far ahead a saved structure is suggested for the next ceremony. */
+const STRUCTURE_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
+
+/** Follow-through under this, over the last few retros, means too many actions are agreed. */
+const LOW_FOLLOW_THROUGH = 0.5;
+
+/** The next sprint to plan: the earliest planned one. */
+function nextPlannedSprint(sprints: readonly Sprint[] | undefined): Sprint | undefined {
+  return real(sprints)
+    .filter((s) => s.status === "planned")
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+}
 
 /** Live and async standups are one tool with one next step. */
 const standupRule = rule({
@@ -296,7 +317,7 @@ const RULES: Record<string, NextStepRule<object>> = {
   "story-mapper": rule({
     select: (ws) => ({ maps: ws.storyMaps }),
     steps: ({ maps }) => {
-      const map = (maps ?? []).find((m) => m.id === "story-mapper:current");
+      const map = (maps ?? []).find((m) => m.id === STORY_MAP_ID);
       if (!map) return [];
       const steps: NextStep[] = [];
       // Cards under the map's steps, read the way the Story Mapper reads them.
@@ -730,6 +751,222 @@ const RULES: Record<string, NextStepRule<object>> = {
         });
       }
       return steps;
+    },
+  }),
+
+  // Retrospect & improve.
+  retro: rule({
+    select: (ws) => ({ boards: ws.retroBoards, sprints: ws.sprints }),
+    steps: ({ boards, sprints }) => {
+      const steps: NextStep[] = [];
+      const current = (boards ?? []).find((b) => b.id === RETRO_CURRENT_ID && !b.archivedAt);
+      const actions = current
+        ? current.cards.filter((c) => c.isActionItem && !isExampleId(c.id))
+        : [];
+      if (current && actions.length > 0) {
+        const unowned = actions.filter((c) => !c.assignee?.trim()).length;
+        steps.push({
+          id: "retro-follow-up",
+          label: `Follow up the ${plural(actions.length, "action")} in Retro Actions`,
+          detail:
+            unowned > 0
+              ? `${plural(unowned, "action")} ${unowned === 1 ? "has" : "have"} no owner yet. An action without one rarely gets done.`
+              : "Each has an owner. Retro Actions keeps them in view until the next retro.",
+          href: "/retro-actions",
+        });
+      }
+      const next = nextPlannedSprint(sprints);
+      if (next && current && hasOwnCards(current) && current.phase === "actions") {
+        steps.push({
+          id: "retro-plan-next",
+          label: `Plan ${next.name}`,
+          detail: "Bring the retro's actions into the next sprint's plan.",
+          href: sprintHref("/sprint-planning", next.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "retro-actions": rule({
+    select: (ws) => ({ boards: ws.retroBoards }),
+    steps: ({ boards }) => {
+      const steps: NextStep[] = [];
+      const all = boards ?? [];
+      const overdue = collectRetroActions(all, { today: todayIso() }).filter(
+        (a) => !a.done && a.overdue
+      ).length;
+      if (overdue > 0) {
+        steps.push({
+          id: "retro-actions-overdue",
+          label: `Raise the ${plural(overdue, "overdue action")} at the next retro`,
+          detail: "Ask what got in the way, then drop them or give them a new date.",
+          href: "/retro",
+        });
+      }
+      const recent = followThroughByRetro(all)
+        .filter((f) => !isExampleId(f.boardId))
+        .slice(-3);
+      const agreed = recent.reduce((sum, f) => sum + f.agreed, 0);
+      const done = recent.reduce((sum, f) => sum + f.done, 0);
+      if (recent.length >= 3 && agreed >= 3 && done / agreed < LOW_FOLLOW_THROUGH) {
+        steps.push({
+          id: "retro-actions-low-follow-through",
+          label: "Agree fewer, owned actions at the next retro",
+          detail: `The last ${plural(recent.length, "retro")} got ${done} of ${plural(agreed, "action")} done.`,
+          href: "/retro",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  premortem: rule({
+    select: (ws) => ({ risks: ws.risks }),
+    steps: ({ risks }) => {
+      const open = real(risks).filter(
+        (r) =>
+          r.sourceRef?.tool === "premortem" && (r.status === "open" || r.status === "mitigating")
+      );
+      const unplanned = open.filter((r) => !r.mitigation?.trim()).length;
+      if (unplanned > 0) {
+        return [
+          {
+            id: "premortem-mitigations",
+            label: "Agree mitigations for the premortem's risks",
+            detail: `${plural(unplanned, "risk")} from the premortem ${unplanned === 1 ? "has" : "have"} no mitigation yet.`,
+            href: "/risk-register",
+          },
+        ];
+      }
+      const undated = open.filter((r) => !r.mitigationDueAt).length;
+      return undated === 0
+        ? []
+        : [
+            {
+              id: "premortem-risks",
+              label: "Give the premortem's risks a mitigation date",
+              detail: `${plural(undated, "risk")} from the premortem ${be(undated)} open with no due date.`,
+              href: "/risk-register",
+            },
+          ];
+    },
+  }),
+
+  "liberating-structures": rule({
+    select: (ws) => ({
+      docs: ws.liberatingStructures,
+      sprints: ws.sprints,
+      cadences: ws.ceremonyCadences,
+    }),
+    steps: ({ docs, sprints, cadences }) => {
+      const sprint = activeSprint(sprints);
+      const doc = (docs ?? []).find((d) => d.id === LS_DOC_ID);
+      if (!sprint || !doc) return [];
+      const now = new Date();
+      const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+      const [next] = nextCeremonies(sprint, cadence, now, 1);
+      if (!next || next.at.getTime() - now.getTime() > STRUCTURE_LEAD_MS) return [];
+      const fits = real(doc.favorites)
+        .map((f) => lsStructure(f.structureId))
+        .find((st) => st?.ceremonies.includes(next.kind));
+      if (!fits) return [];
+      return [
+        {
+          id: "ls-use-in-ceremony",
+          label: `Use ${fits.name} in the ${CEREMONY_LABEL[next.kind]}`,
+          detail: `It's ${whenLabel(next.at, now)}, and your saved structure suits it.`,
+          href: fits.ceremonyTimerAgenda
+            ? `/ceremony-timer?agenda=${fits.ceremonyTimerAgenda}`
+            : sprintHref(CEREMONY_HREF[next.kind], sprint.id),
+        },
+      ];
+    },
+  }),
+
+  "six-hats": rule({
+    select: (ws) => ({
+      decisions: ws.decisions,
+      sessions: ws.sixHatsSessions,
+      thoughts: ws.sixHatsThoughts,
+    }),
+    steps: ({ decisions, sessions, thoughts }) => {
+      const steps: NextStep[] = [];
+      const proposed = real(decisions).filter(
+        (d) => d.sourceRef?.tool === "six-hats" && d.status === "proposed"
+      );
+      if (proposed.length > 0) {
+        steps.push({
+          id: "six-hats-decide",
+          label: `Record the decision on “${proposed[0].title}”`,
+          detail:
+            "The Blue hat's summary is in the Decision Log as proposed. Accept it, or say why not.",
+          href: "/decision-log",
+        });
+      }
+      const latest = [...real(sessions)].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+      const risks = latest
+        ? real(thoughts).filter((t) => t.sessionId === latest.id && t.hat === "black").length
+        : 0;
+      if (latest && risks >= 3) {
+        steps.push({
+          id: "six-hats-premortem",
+          label: `Run a premortem on “${latest.topic}”`,
+          detail: `${plural(risks, "risk")} came up under the Black hat. A premortem turns the worst into owned risks.`,
+          href: "/premortem",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "design-sprint": rule({
+    select: (ws) => ({ trackers: ws.hypothesisTrackers, stories: ws.stories }),
+    steps: ({ trackers, stories }) => {
+      const steps: NextStep[] = [];
+      const drafted = real(
+        (trackers ?? []).find((t) => t.id === HYPOTHESIS_TRACKER_ID)?.hypotheses
+      ).filter((h) => h.sourceRef?.tool === "design-sprint" && h.status === "drafted").length;
+      if (drafted > 0) {
+        steps.push({
+          id: "design-sprint-hypotheses",
+          label: "Plan how to test the design sprint's hypotheses",
+          detail: `${plural(drafted, "hypothesis", "hypotheses")} from the design sprint ${be(drafted)} still drafted.`,
+          href: "/hypothesis-tracker",
+        });
+      }
+      const fromSprint = real(stories).filter(
+        (s) => fromTool(s, "design-sprint") && inBacklog(s) && !s.readiness?.ready
+      ).length;
+      if (fromSprint > 0) {
+        steps.push({
+          id: "design-sprint-refine",
+          label: "Refine the stories from the design sprint",
+          detail: `${plural(fromSprint, "story", "stories")} from the design sprint ${be(fromSprint)} on the backlog, not refined yet.`,
+          href: "/refinement",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  icebreaker: rule({
+    select: (ws) => ({ sprints: ws.sprints, cadences: ws.ceremonyCadences }),
+    steps: ({ sprints, cadences }) => {
+      const sprint = activeSprint(sprints);
+      if (!sprint) return [];
+      const now = new Date();
+      const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+      const [next] = nextCeremonies(sprint, cadence, now, 1);
+      if (!next || next.at.getTime() - now.getTime() > TIMER_LEAD_MS) return [];
+      return [
+        {
+          id: "icebreaker-ceremony",
+          label: `Go on to the ${CEREMONY_LABEL[next.kind]}`,
+          detail: `It starts ${whenLabel(next.at, now)}. Warm up, then run it there.`,
+          href: sprintHref(CEREMONY_HREF[next.kind], sprint.id),
+        },
+      ];
     },
   }),
 

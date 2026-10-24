@@ -3,29 +3,53 @@
 /**
  * Pre-board screen — pick a retro format (card grid) or jump straight in with
  * the Start/Stop/Continue quick-start. Shown when no board exists yet. A
- * first-time visitor (no past retros either) can load an example board.
+ * first-time visitor (no past retros either) gets an empty state that offers
+ * an example board.
+ *
+ * "Retro for" names the sprint the new board will look back on: the one a
+ * ?sprint= link named, else the sprint whose retro window holds today. It is
+ * shown, never applied behind the team's back, and can be changed or
+ * cleared before a format is picked.
  */
 
+import { useMemo } from "react";
+import { MessagesSquare } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { themed, tint } from "@/lib/utils/theme-color";
-import type { RetroBoard } from "@/lib/stores/workspace-types";
+import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
 import { PastRetros } from "./past-retros";
+import { RetroSprintPicker } from "./retro-sprint-picker";
 
 export function FormatSelector({
   onSelect,
   onLoadExample,
   past = [],
   onDeletePast,
+  sprints,
+  sprintId,
+  onSprintChange,
 }: {
   onSelect: (format: RetroFormat) => void;
   onLoadExample?: () => void;
   past?: RetroBoard[];
   onDeletePast?: (retro: RetroBoard) => void;
+  /** Every sprint, newest first; without it the picker isn't shown. */
+  sprints?: Sprint[];
+  /** The sprint the new board will look back on. */
+  sprintId?: string;
+  onSprintChange?: (sprintId: string | undefined) => void;
 }) {
+  const sprintNames = useMemo(
+    () => new Map((sprints ?? []).map((s) => [s.id, s.name] as const)),
+    [sprints]
+  );
+  const firstRun = Boolean(onLoadExample) && past.length === 0;
+
   return (
     <ToolPageWrapper
       toolId="retro"
@@ -34,6 +58,17 @@ export function FormatSelector({
       category="Ceremonies"
     >
       <div className="space-y-6">
+        {firstRun && onLoadExample && (
+          <EmptyState icon={MessagesSquare} action={<LoadExampleButton onLoad={onLoadExample} />}>
+            No retro yet. Pick a format below to start the board, or load an example to see a
+            finished one.
+          </EmptyState>
+        )}
+
+        {sprints && onSprintChange && (
+          <RetroSprintPicker sprints={sprints} sprintId={sprintId} onChange={onSprintChange} />
+        )}
+
         <h2 className="text-lg font-display font-bold text-text">Choose a Format</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {retroFormats.map((fmt) => (
@@ -87,14 +122,15 @@ export function FormatSelector({
           <Button
             size="lg"
             onClick={() => onSelect(retroFormats[0])}
-            className="bg-accent-cyan text-bg font-bold hover:bg-accent-cyan/90 shadow-neon-cyan"
+            className="h-auto min-h-10 max-w-full whitespace-normal py-2 bg-accent-cyan text-bg font-bold hover:bg-accent-cyan/90 shadow-neon-cyan"
           >
             Quick Start: Start / Stop / Continue
           </Button>
-          {onLoadExample && past.length === 0 && <LoadExampleButton onLoad={onLoadExample} />}
         </div>
 
-        {onDeletePast && <PastRetros retros={past} onDelete={onDeletePast} />}
+        {onDeletePast && (
+          <PastRetros retros={past} onDelete={onDeletePast} sprintNames={sprintNames} />
+        )}
       </div>
     </ToolPageWrapper>
   );

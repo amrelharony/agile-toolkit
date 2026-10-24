@@ -4,16 +4,22 @@
  * Category: Ceremonies (squad S3 — team retrospective board)
  *
  * Agent surface: tool.retro.*
- * Backing CRUD : workspace.retro_board.* (auto-generated). The tool is a
- *                singleton: one RetroBoard document under a fixed id.
+ * Backing CRUD : workspace.retro_board.* (auto-generated). The current
+ *                board is one RetroBoard under a fixed id (retro:current);
+ *                past retros are archived copies (retro:<time>).
  *
  *   1. list_state — board phase, per-column counts, vote totals, action
- *                   items, and the top-voted cards in one read; plus the
- *                   previous retro's action items (previousActions), with
- *                   whether each was carried over and where it was sent.
- *   2. add_card   — append a card to a column (the verb an agent uses to
- *                   seed a board). No-op {added:false} when no retro is
- *                   active (a format must be chosen first, in-app).
+ *                   items, and the top-voted cards in one read; the sprint
+ *                   the board looks back on and, for it, the facts the page
+ *                   opens with (lib/retro/facts); plus the previous retro's
+ *                   action items (previousActions), with whether each was
+ *                   carried over, done, and where it was sent.
+ *   2. start      — start the current board in a format, looking back on a
+ *                   sprint (the one whose retro window holds today when not
+ *                   given), as the page's format picker does.
+ *   3. set_sprint — say which sprint the current board looks back on.
+ *   4. add_card   — append a card to a column (the verb an agent uses to
+ *                   seed a board).
  *
  * Entity kind is "workspace:retroBoard" (camelCase via kindFromToolId),
  * matching the browser sync engine so MCP-written cards round-trip.
@@ -23,18 +29,84 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
-import type { HandoffLink, RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
+import type {
+  HandoffLink,
+  Impediment,
+  Kudos,
+  MoodEntry,
+  RetroBoard,
+  RetroCard,
+  Sprint,
+  SprintGoal,
+  Story,
+} from "@/lib/stores/workspace-types";
+import { retroFormats } from "@/lib/constants/retro-formats";
+import { todayIso } from "@/lib/sprints/series";
+import {
+  RETRO_CARD_MAX,
+  RETRO_CURRENT_ID,
+  blankRetroBoard,
+  boardSprintId,
+  newestArchivedRetro,
+  retroSprintFor,
+} from "@/lib/retro/board";
+import { retroFacts } from "@/lib/retro/facts";
 
 const KIND_RETRO = "workspace:retroBoard";
-// MUST match RB_ID in retro-client.tsx so agent writes land on the row the
-// browser reads.
-const RB_ID = "retro:current";
 
 const ws = () => useWorkspaceStore.getState();
 
-function browserBoard(): RetroBoard | null {
-  return (ws().retroBoards ?? []).find((b) => b.id === RB_ID) ?? null;
+/** What the retro actions read and write, in the browser or on the server. */
+interface RetroStore {
+  getBoard: (id: string) => Promise<RetroBoard | null>;
+  listBoards: () => Promise<RetroBoard[]>;
+  putBoard: (board: RetroBoard) => Promise<void>;
+  listSprints: () => Promise<Sprint[]>;
+  /** The rest of what the facts read. */
+  factsInput: () => Promise<{
+    stories: Story[];
+    goals: SprintGoal[];
+    impediments: Impediment[];
+    moodEntries: MoodEntry[];
+    kudos: Kudos[];
+  }>;
 }
+
+const browserStore: RetroStore = {
+  getBoard: async (id) => (ws().retroBoards ?? []).find((b) => b.id === id) ?? null,
+  listBoards: async () => ws().retroBoards ?? [],
+  putBoard: async (board) => ws().upsertRetroBoard(board),
+  listSprints: async () => ws().sprints ?? [],
+  factsInput: async () => {
+    const s = ws();
+    return {
+      stories: s.stories ?? [],
+      goals: s.sprintGoals ?? [],
+      impediments: s.impediments ?? [],
+      moodEntries: s.moodEntries ?? [],
+      kudos: s.kudos ?? [],
+    };
+  },
+};
+
+const serverStore = (userId: string): RetroStore => ({
+  getBoard: (id) => serverGetEntity<RetroBoard>(userId, KIND_RETRO, id),
+  listBoards: () => serverListEntities<RetroBoard>(userId, KIND_RETRO),
+  putBoard: async (board) => {
+    await serverUpsertEntity<RetroBoard>(userId, KIND_RETRO, board);
+  },
+  listSprints: () => serverListEntities<Sprint>(userId, "workspace:sprint"),
+  factsInput: async () => {
+    const [stories, goals, impediments, moodEntries, kudos] = await Promise.all([
+      serverListEntities<Story>(userId, "workspace:story"),
+      serverListEntities<SprintGoal>(userId, "workspace:sprintGoal"),
+      serverListEntities<Impediment>(userId, "workspace:impediment"),
+      serverListEntities<MoodEntry>(userId, "workspace:moodEntry"),
+      serverListEntities<Kudos>(userId, "workspace:kudos"),
+    ]);
+    return { stories, goals, impediments, moodEntries, kudos };
+  },
+});
 
 /** Build the board summary. Shared by browser + MCP paths. */
 function summarize(board: RetroBoard | null) {
@@ -42,6 +114,7 @@ function summarize(board: RetroBoard | null) {
     return {
       exists: false,
       phase: null,
+      sprintId: null,
       totalCards: 0,
       totalVotes: 0,
       actionItems: 0,
@@ -56,6 +129,7 @@ function summarize(board: RetroBoard | null) {
     exists: true,
     formatName: board.format?.name,
     phase: board.phase,
+    sprintId: boardSprintId(board) ?? null,
     totalCards: cards.length,
     totalVotes: cards.reduce((acc, c) => acc + (c.votes || 0), 0),
     actionItems: cards.filter((c) => c.isActionItem).length,
@@ -76,25 +150,18 @@ interface PreviousAction {
   retroId: string;
   /** Copied onto the current board as an action item. */
   carriedOver: boolean;
+  /** Marked done on the card. */
+  done: boolean;
   /** Where it was sent (an impediment, a Kanban card). */
   sentTo: HandoffLink[];
 }
 
-// Mirrors pastRetros / previousRetro in retro/archive.ts (kept local so this
-// server action stays self-contained, like the other tool actions).
-function pastRetros(boards: readonly RetroBoard[]): RetroBoard[] {
-  return boards
-    .filter((b) => typeof b.archivedAt === "string")
-    .sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
-}
-
+/** The retro the current board follows (previousRetroId), else the newest archive. */
 function previousRetro(boards: readonly RetroBoard[], previousRetroId?: string): RetroBoard | null {
-  const past = pastRetros(boards);
-  return (previousRetroId && past.find((b) => b.id === previousRetroId)) || past[0] || null;
+  const found = previousRetroId ? boards.find((b) => b.id === previousRetroId) : undefined;
+  return (found?.archivedAt ? found : newestArchivedRetro(boards)) ?? null;
 }
 
-/** The previous retro's actions: the archive the current board follows
- *  (previousRetroId), else the newest archive. Shared by both paths. */
 function previousActions(board: RetroBoard | null, previous: RetroBoard | null): PreviousAction[] {
   if (!previous) return [];
   const carried = new Set((board?.cards ?? []).map((c) => c.carriedFrom).filter(Boolean));
@@ -106,9 +173,95 @@ function previousActions(board: RetroBoard | null, previous: RetroBoard | null):
       assignee: c.assignee,
       retroId: previous.id,
       carriedOver: carried.has(c.id),
+      done: c.done === true,
       sentTo: c.sentTo ?? [],
     }));
 }
+
+async function listState(store: RetroStore, params: { sprintId?: string }) {
+  const boards = await store.listBoards();
+  const board = boards.find((b) => b.id === RETRO_CURRENT_ID && !b.archivedAt) ?? null;
+  const previous = previousRetro(boards, board?.previousRetroId);
+  const sprintId = params.sprintId ?? (board ? boardSprintId(board) : undefined);
+  let facts = null;
+  if (sprintId) {
+    const sprints = await store.listSprints();
+    const sprint = sprints.find((s) => s.id === sprintId);
+    if (sprint) {
+      facts = retroFacts({
+        sprint,
+        sprints,
+        retroBoards: boards,
+        today: todayIso(),
+        ...(await store.factsInput()),
+      });
+    }
+  }
+  return { ...summarize(board), previousActions: previousActions(board, previous), facts };
+}
+
+async function start(store: RetroStore, params: { formatId?: string; sprintId?: string }) {
+  const current = await store.getBoard(RETRO_CURRENT_ID);
+  if (current && !current.archivedAt) {
+    return { started: false, reason: "already_started" as const, id: RETRO_CURRENT_ID };
+  }
+  const format = params.formatId
+    ? retroFormats.find((f) => f.id === params.formatId)
+    : retroFormats[0];
+  if (!format) {
+    return {
+      started: false,
+      reason: "unknown_format" as const,
+      formats: retroFormats.map((f) => f.id),
+    };
+  }
+  const sprints = await store.listSprints();
+  if (params.sprintId && !sprints.some((s) => s.id === params.sprintId)) {
+    return { started: false, reason: "unknown_sprint" as const };
+  }
+  const sprintId = params.sprintId ?? retroSprintFor(todayIso(), sprints)?.id;
+  const previous = newestArchivedRetro(await store.listBoards());
+  await store.putBoard(
+    blankRetroBoard(format, {
+      ...(previous ? { previousRetroId: previous.id } : {}),
+      ...(sprintId ? { sprintId } : {}),
+    })
+  );
+  return { started: true, id: RETRO_CURRENT_ID, sprintId: sprintId ?? null };
+}
+
+async function setSprint(store: RetroStore, params: { sprintId: string | null }) {
+  const board = await store.getBoard(RETRO_CURRENT_ID);
+  if (!board || board.archivedAt) return { updated: false, reason: "no_retro" as const };
+  if (params.sprintId === null) {
+    const { sprintId, ...rest } = board;
+    void sprintId;
+    await store.putBoard(rest);
+    return { updated: true };
+  }
+  const sprints = await store.listSprints();
+  if (!sprints.some((s) => s.id === params.sprintId)) {
+    return { updated: false, reason: "unknown_sprint" as const };
+  }
+  await store.putBoard({ ...board, sprintId: params.sprintId });
+  return { updated: true };
+}
+
+async function addCard(store: RetroStore, params: { columnKey: string; text: string }) {
+  const board = await store.getBoard(RETRO_CURRENT_ID);
+  if (!board || board.archivedAt) return { added: false, reason: "no_retro" as const };
+  const columns = (board.format?.columns ?? []).map((c) => c.key);
+  if (columns.length > 0 && !columns.includes(params.columnKey)) {
+    return { added: false, reason: "unknown_column" as const, columns };
+  }
+  const text = params.text.trim().slice(0, RETRO_CARD_MAX);
+  if (!text) return { added: false, reason: "empty_text" as const };
+  const card = newCard(params.columnKey, text);
+  await store.putBoard({ ...board, cards: [...board.cards, card] });
+  return { added: true, id: card.id };
+}
+
+const SprintIdParam = z.string().min(1).describe("The sprint (Sprint.id) the retro looks back on.");
 
 // ──────── tool.retro.list_state ────────
 registry.register({
@@ -117,24 +270,44 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the current retro board. Returns {exists, formatName, phase, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, sentTo: {route, targetId, at}[]}[] (the previous retro's action items)}.",
-  paramsSchema: z.object({}),
-  handler: async () => {
-    const board = browserBoard();
-    const previous = previousRetro(ws().retroBoards ?? [], board?.previousRetroId);
-    return { ...summarize(board), previousActions: previousActions(board, previous) };
-  },
-  mcpHandler: async (_params, ctx) => {
-    const board = (await serverGetEntity<RetroBoard>(ctx.userId, KIND_RETRO, RB_ID)) ?? null;
-    let previous = board?.previousRetroId
-      ? await serverGetEntity<RetroBoard>(ctx.userId, KIND_RETRO, board.previousRetroId)
-      : null;
-    if (!previous?.archivedAt) {
-      previous =
-        pastRetros(await serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO))[0] ?? null;
-    }
-    return { ...summarize(board), previousActions: previousActions(board, previous) };
-  },
+    "Summarise the current retro board. Returns {exists, formatName, phase, sprintId (the sprint it looks back on) | null, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, done, sentTo: {route, targetId, at}[]}[] (the previous retro's action items), facts: null | {sprintName, goal, goalOutcome, committed, completed, sayDo, burndown: {shape: none|steady|late, lateShare, sentence} | null, impediments: {raised, resolvedInSprint, stillOpen, escalated}, mood: {average | null, checkIns, people}, followThrough (the previous retro's actions: agreed, done, carried, open, rate) | null, kudos: {toName, fromName, message, sentAt}[]}} — facts for the board's sprint, or for sprintId when given.",
+  paramsSchema: z.object({ sprintId: SprintIdParam.optional() }),
+  handler: async (params) => listState(browserStore, params),
+  mcpHandler: async (params, ctx) => listState(serverStore(ctx.userId), params),
+});
+
+// ──────── tool.retro.start ────────
+registry.register({
+  id: "tool.retro.start",
+  toolId: "tool.retro",
+  name: "start",
+  category: "write",
+  requiresConfirmation: false,
+  description: `Start the current retro board, as the page's format picker does: format ${retroFormats
+    .map((f) => f.id)
+    .join(
+      " | "
+    )} (default the first), looking back on sprintId (default: the sprint whose retro window holds today), following the newest archived retro. Returns {started: true, id, sprintId | null}, or {started: false, reason: 'already_started' | 'unknown_format' | 'unknown_sprint'}.`,
+  paramsSchema: z.object({
+    formatId: z.string().min(1).optional(),
+    sprintId: SprintIdParam.optional(),
+  }),
+  handler: async (params) => start(browserStore, params),
+  mcpHandler: async (params, ctx) => start(serverStore(ctx.userId), params),
+});
+
+// ──────── tool.retro.set_sprint ────────
+registry.register({
+  id: "tool.retro.set_sprint",
+  toolId: "tool.retro",
+  name: "set_sprint",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Say which sprint the current retro board looks back on (the cockpit and the facts then use it), or unlink it with sprintId: null (it is then placed by date). Returns {updated: true}, or {updated: false, reason: 'no_retro' | 'unknown_sprint'}.",
+  paramsSchema: z.object({ sprintId: SprintIdParam.nullable() }),
+  handler: async (params) => setSprint(browserStore, params),
+  mcpHandler: async (params, ctx) => setSprint(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.retro.add_card ────────
@@ -144,8 +317,7 @@ registry.register({
   name: "add_card",
   category: "write",
   requiresConfirmation: false,
-  description:
-    "Append a card to a column of the active retro board. Returns {added: false} when no retro is active (a format must be chosen in-app first). Returns {added: true, id} on success.",
+  description: `Append a card to a column of the current retro board (text trimmed, at most ${RETRO_CARD_MAX} characters). Returns {added: true, id}, or {added: false, reason: 'no_retro' (start one with tool.retro.start) | 'unknown_column' (with the board's columns) | 'empty_text'}.`,
   paramsSchema: z.object({
     columnKey: z
       .string()
@@ -153,23 +325,8 @@ registry.register({
       .describe("Target column key (see list_state byColumn / the format)."),
     text: z.string().min(1),
   }),
-  handler: async (params) => {
-    const board = browserBoard();
-    if (!board) return { added: false };
-    const card = newCard(params.columnKey, params.text);
-    ws().upsertRetroBoard({ ...board, cards: [...board.cards, card] });
-    return { added: true, id: card.id };
-  },
-  mcpHandler: async (params, ctx) => {
-    const board = await serverGetEntity<RetroBoard>(ctx.userId, KIND_RETRO, RB_ID);
-    if (!board) return { added: false };
-    const card = newCard(params.columnKey, params.text);
-    await serverUpsertEntity<RetroBoard>(ctx.userId, KIND_RETRO, {
-      ...board,
-      cards: [...board.cards, card],
-    });
-    return { added: true, id: card.id };
-  },
+  handler: async (params) => addCard(browserStore, params),
+  mcpHandler: async (params, ctx) => addCard(serverStore(ctx.userId), params),
 });
 
 function newCard(columnKey: string, text: string): RetroCard {

@@ -14,6 +14,10 @@
  * Pasting several lines into the add box adds one card per non-empty line
  * (up to `pasteCap`, saying so when lines are left out). Cards are
  * click-to-edit when the board passes `onEdit`.
+ *
+ * Adding a card is draft-then-save (useItemForm): Enter on an empty box says
+ * what's missing instead of doing nothing, and a card is only added once it
+ * has text.
  */
 
 import { useEffect, useState, useRef, type ClipboardEvent } from "react";
@@ -21,9 +25,12 @@ import { AnimatePresence } from "framer-motion";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { useItemForm } from "@/components/shared/item-form";
 import type { RetroColumn } from "@/lib/constants/retro-formats";
 import type { HandoffLink } from "@/lib/handoffs/types";
+import type { Validation } from "@/lib/utils/form";
 import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { toast } from "@/lib/utils/toast";
 import { type BoardPhase, type RetroCard, MAX_VOTES } from "../types";
@@ -31,13 +38,30 @@ import { sortedByVotes } from "../helpers";
 import { RetroCardItem } from "./retro-card-item";
 import { themed, tint } from "@/lib/utils/theme-color";
 
+interface CardDraft {
+  text: string;
+}
+
+const EMPTY_CARD: CardDraft = { text: "" };
+
+/** A new card's text: something written, within the board's limit. */
+export function validateCardText(draft: CardDraft, maxLength?: number): Validation<string, "text"> {
+  const text = draft.text.trim();
+  if (!text) return { ok: false, errors: { text: "Write the card first." } };
+  if (maxLength && text.length > maxLength) {
+    return { ok: false, errors: { text: `Keep it to ${maxLength} characters.` } };
+  }
+  return { ok: true, values: text };
+}
+
 export function RetroColumnPanel({
   column,
   cards,
   allCards,
   phase,
   votesUsed,
-  clusterByCardId,
+  highlightIds,
+  highlightWord,
   onAdd,
   onAddMany,
   onEdit,
@@ -48,7 +72,6 @@ export function RetroColumnPanel({
   onAssigneeChange,
   onToggleDiscussing,
   onLinksChange,
-  assigneeListId,
   canModerate = true,
   canAdd = true,
   maxCardLength,
@@ -60,7 +83,10 @@ export function RetroColumnPanel({
   phase: BoardPhase;
   /** Votes the current voter ("Me", or the person picked) has cast. */
   votesUsed: number;
-  clusterByCardId?: Record<string, number>;
+  /** Top-level cards to ring (a common word's cards); their grouped cards ring too. */
+  highlightIds?: ReadonlySet<string>;
+  /** The common word they're ringed for, said to screen readers on each ringed card. */
+  highlightWord?: string;
   onAdd: (columnKey: string, text: string) => void;
   /** Add several cards at once (a multi-line paste). Falls back to `onAdd` per card. */
   onAddMany?: (columnKey: string, texts: string[]) => void;
@@ -76,7 +102,6 @@ export function RetroColumnPanel({
     id: string,
     update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
   ) => void;
-  assigneeListId?: string;
   /** False for a visitor-room participant: add in Write, vote in Vote, nothing else. */
   canModerate?: boolean;
   /** False hides the add-card input (e.g. a participant without a seat yet). */
@@ -86,8 +111,16 @@ export function RetroColumnPanel({
   /** Most cards one multi-line paste adds. */
   pasteCap?: number;
 }) {
-  const [inputVal, setInputVal] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const form = useItemForm<CardDraft, string, "text">({
+    initial: EMPTY_CARD,
+    validate: (d) => validateCardText(d, maxCardLength),
+    onSave: (text) => {
+      onAdd(column.key, text);
+      // The box stays ready for the next card, even after a click on "+".
+      inputRef.current?.focus();
+    },
+  });
   const toggleRef = useRef<HTMLButtonElement>(null);
   // Outside Write the input opens on demand, for the phase it was opened in:
   // a phase change closes it again.
@@ -108,23 +141,23 @@ export function RetroColumnPanel({
 
   function openAdd() {
     focusOnOpen.current = true;
+    // A box closed by a phase change may have kept an error; start clean.
+    form.reset();
     setAddingIn(phase);
   }
 
   function closeAdd() {
     setAddingIn(null);
+    form.reset();
     toggleRef.current?.focus();
   }
 
   const displayCards = phase === "discuss" || phase === "actions" ? sortedByVotes(cards) : cards;
-
-  function handleSubmit() {
-    const trimmed = inputVal.trim();
-    if (!trimmed) return;
-    onAdd(column.key, trimmed);
-    setInputVal("");
-    inputRef.current?.focus();
-  }
+  const ringed = (card: RetroCard) =>
+    Boolean(
+      highlightIds &&
+      (highlightIds.has(card.id) || (card.groupedWith && highlightIds.has(card.groupedWith)))
+    );
 
   // Several lines pasted: one card per line. What's typed in the box stays.
   function handlePaste(e: ClipboardEvent<HTMLInputElement>) {
@@ -183,7 +216,8 @@ export function RetroColumnPanel({
                     column={column}
                     phase={phase}
                     canVote={canVote}
-                    clusterId={clusterByCardId?.[card.id]}
+                    highlighted={ringed(card)}
+                    highlightWord={highlightWord}
                     onVote={onVote}
                     onDelete={onDelete}
                     onGroup={onGroup}
@@ -193,7 +227,6 @@ export function RetroColumnPanel({
                     onLinksChange={onLinksChange}
                     onEdit={onEdit}
                     maxCardLength={maxCardLength}
-                    assigneeListId={assigneeListId}
                     canModerate={canModerate}
                   />
                   {children.map((child) => (
@@ -204,7 +237,8 @@ export function RetroColumnPanel({
                       column={column}
                       phase={phase}
                       canVote={canVote}
-                      clusterId={clusterByCardId?.[child.id]}
+                      highlighted={ringed(child)}
+                      highlightWord={highlightWord}
                       onVote={onVote}
                       onDelete={onDelete}
                       onGroup={onGroup}
@@ -214,7 +248,6 @@ export function RetroColumnPanel({
                       onLinksChange={onLinksChange}
                       onEdit={onEdit}
                       maxCardLength={maxCardLength}
-                      assigneeListId={assigneeListId}
                       canModerate={canModerate}
                     />
                   ))}
@@ -240,32 +273,49 @@ export function RetroColumnPanel({
 
         {/* Add card input — always open in Write, on demand after it */}
         {showInput && (
-          <div className="flex gap-1.5 pt-1">
-            <Input
-              ref={inputRef}
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onPaste={handlePaste}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) handleSubmit();
-                else if (e.key === "Escape" && !isWrite) closeAdd();
-              }}
-              placeholder="Add a card…"
-              maxLength={maxCardLength}
-              aria-label={`New card for ${column.label}`}
-              className="h-8 text-xs bg-cardH border-border text-text placeholder:text-sub focus:border-accent-cyan/50"
-            />
+          <form
+            ref={form.formRef}
+            onSubmit={form.submit}
+            noValidate
+            className="flex items-start gap-1.5 pt-1"
+          >
+            <Field
+              label={`New card for ${column.label}`}
+              hideLabel
+              error={form.errors.text}
+              className="min-w-0 flex-1 gap-1"
+            >
+              {(props) => (
+                <Input
+                  {...props}
+                  ref={inputRef}
+                  value={form.draft.text}
+                  onChange={(e) => form.update({ text: e.target.value })}
+                  onPaste={handlePaste}
+                  onKeyDown={(e) => {
+                    // Handled here rather than by the form's implicit submit,
+                    // so a composing IME's Enter never adds a half-typed card.
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      form.submit();
+                    } else if (e.key === "Escape" && !isWrite) closeAdd();
+                  }}
+                  placeholder="Add a card…"
+                  maxLength={maxCardLength}
+                  className="md:h-8 md:text-xs bg-cardH border-border text-text placeholder:text-sub focus:border-accent-cyan/50"
+                />
+              )}
+            </Field>
             <Button
+              type="submit"
               size="sm"
               variant="ghost"
-              onClick={handleSubmit}
-              disabled={!inputVal.trim()}
               aria-label={`Add card to ${column.label}`}
-              className="min-touch-coarse h-8 w-8 p-0 text-sub hover:text-accent hover:bg-accent-cyan/10"
+              className="min-touch-coarse h-8 w-8 shrink-0 p-0 text-sub hover:text-accent hover:bg-accent-cyan/10"
             >
               <Plus className="w-4 h-4" aria-hidden="true" />
             </Button>
-          </div>
+          </form>
         )}
       </div>
     </div>

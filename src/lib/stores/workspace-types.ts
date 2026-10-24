@@ -60,6 +60,9 @@ export interface SprintSeries {
 /** The one ceremony-cadence document's id (see `CeremonyCadenceDoc`). */
 export const CEREMONY_CADENCE_ID = "ceremony-cadence:current";
 
+/** The story map's one document id (Story Mapper, its agent actions, Canvas's live story map). */
+export const STORY_MAP_ID = "story-mapper:current";
+
 /**
  * The team's ceremony cadence as a workspace document: when the Daily Scrum,
  * Planning, Refinement, Review and Retro happen relative to a sprint's dates
@@ -739,17 +742,50 @@ export interface DesignSprintTask {
   owner?: string;
 }
 
+export type DesignSprintOutputKind =
+  | "long-term-goal"
+  | "sprint-question"
+  | "target"
+  | "sketch"
+  | "decision"
+  | "storyboard"
+  | "prototype"
+  | "finding"
+  | "note";
+
+/** Something a design-sprint day produced: the goal, a sketch, a decision, a finding. */
+export interface DesignSprintOutput {
+  id: string;
+  kind: DesignSprintOutputKind;
+  text: string;
+  url?: string;
+  /** Test day: how the interviews took it; unset until judged. */
+  signal?: "positive" | "negative" | "mixed";
+  /** Test day: in how many interviews it came up (0–5). */
+  seenIn?: number;
+  /** A Map-day sprint question: the answer Test day gave. */
+  answer?: "yes" | "no" | "unclear";
+  /** Where a finding was sent (a hypothesis, a backlog story). */
+  sentTo?: HandoffLink[];
+  createdAt?: ISODateString;
+}
+
 export interface DesignSprintDay {
   day: DesignSprintDayNumber;
   dayName: "Map" | "Sketch" | "Decide" | "Prototype" | "Test";
   tasks: DesignSprintTask[];
+  /** Free-text notes, from before days had typed outputs. */
   artifacts: string[];
+  /** What the day produced. */
+  outputs?: DesignSprintOutput[];
 }
 
 export interface DesignSprintPlan {
   id: string;
   name: string;
   startDate: ISODateString;
+  /** Kept for older readers. Today's day is derived from `startDate` and
+   *  the team's working days (lib/design-sprint/day.ts). */
   currentDay: DesignSprintDayNumber;
   days: DesignSprintDay[];
   description?: string;
@@ -1122,6 +1158,31 @@ export interface SixHatsThought {
   hat: "white" | "red" | "black" | "yellow" | "green" | "blue";
   text: string;
   loggedAt: ISODateString;
+  /** The session it was said in; absent on thoughts from before sessions. */
+  sessionId?: string;
+}
+
+export type SixHatsHat = SixHatsThought["hat"];
+
+/**
+ * A Six Thinking Hats session: one topic, worn hat by hat in timed rounds,
+ * closed with the Blue hat's summary (which can become a decision record).
+ */
+export interface SixHatsSession {
+  id: string;
+  topic: string;
+  /** Hats in the agreed order; a hat may repeat (Blue to open and to close). */
+  order: SixHatsHat[];
+  /** Minutes per round. */
+  roundMinutes: number;
+  /** Index in `order` of the round being worn; absent before the first and after the last. */
+  currentRound?: number;
+  /** The Blue hat's summary: conclusions and next steps. */
+  summary?: string;
+  startedAt: ISODateString;
+  closedAt?: ISODateString;
+  /** Where the summary went (a decision record). */
+  sentTo?: HandoffLink[];
 }
 
 export interface OODACycle {
@@ -1700,6 +1761,10 @@ export interface RetroBoard {
    *  person gets their own budget on a shared screen. `userVotes` stays the
    *  single-voter count. */
   votesBy?: Record<string, number>;
+  /** The sprint this retro looks back on (Sprint.id). Absent on boards from
+   *  before retros were per sprint: the cockpit then places the retro by its
+   *  archive date (lib/retro/board.ts). Archived copies keep it. */
+  sprintId?: string;
 }
 
 // ── Sprint Planning (squad S1) ───────────────────────────────────────
@@ -2187,6 +2252,7 @@ export interface Workspace {
   weightedOptions?: WeightedOption[];
   weightedCriteria?: WeightedCriterion[];
   sixHatsThoughts?: SixHatsThought[];
+  sixHatsSessions?: SixHatsSession[];
   oodaCycles?: OODACycle[];
   cynefinItems?: CynefinItem[];
   staceyItems?: StaceyItem[];
@@ -2425,6 +2491,7 @@ export const emptyWorkspace = {
   weightedOptions: [],
   weightedCriteria: [],
   sixHatsThoughts: [],
+  sixHatsSessions: [],
   oodaCycles: [],
   cynefinItems: [],
   staceyItems: [],

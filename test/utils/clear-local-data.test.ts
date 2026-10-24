@@ -85,6 +85,8 @@ describe("clearLocalWorkspaceData", () => {
     localStorage.setItem("agile-toolkit:visitor-used", "1");
     localStorage.setItem("mascot_appearance", "{}");
     localStorage.setItem("icebreaker-favorites", "[]");
+    localStorage.setItem("icebreaker-favorites:migrated", "[]");
+    localStorage.setItem("icebreaker-favorites:migrated:1729000000000", "[]");
     localStorage.setItem("canvas:touchGestureHintSeen:v1", "1");
     localStorage.setItem("ae-theme", "light");
     localStorage.setItem("sb-project-auth-token", "session");

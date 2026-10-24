@@ -18,10 +18,11 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { StoryMap, StoryMapCard } from "@/lib/stores/workspace-types";
+import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 const KIND_SM = "workspace:storyMap";
 // MUST match SM_ID in story-mapper-client.tsx.
-const SM_ID = "story-mapper:current";
+const SM_ID = STORY_MAP_ID;
 
 const ws = () => useWorkspaceStore.getState();
 
