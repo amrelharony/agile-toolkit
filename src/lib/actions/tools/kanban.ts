@@ -8,7 +8,8 @@
  *
  *   1. list_state — per-column counts and blocked cards, WIP-limit
  *      breaches, and the cycle time of cards in Done (startedAt →
- *      completedAt): average, P85 and how many cards they rest on.
+ *      completedAt in whole local days, both counted, as lib/flow counts
+ *      it): average, P85 and how many cards they rest on.
  *   2. add_card   — add a card (defaults: backlog column, standard class).
  *   3. move_card  — move a card to a column, stamped and recorded in the
  *      card's history as the page does it (movedCard in lib/kanban/flow).
@@ -101,7 +102,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the kanban Flow board. Returns {exists, totalCards, byColumn: {column: count}, blockedByColumn: {column: count}, wipBreaches: {column, count, limit}[], avgCycleTimeDays | null, p85CycleTimeDays | null, cycleTimeSample} — cycle time is startedAt→completedAt of the cards in done; the page quotes the average from 3 cards and the P85 from 5. The sprint board is the stories: read them with workspace.story.list.",
+    "Summarise the kanban Flow board. Returns {exists, totalCards, byColumn: {column: count}, blockedByColumn: {column: count}, wipBreaches: {column, count, limit}[], avgCycleTimeDays | null, p85CycleTimeDays | null, cycleTimeSample} — cycle time is startedAt→completedAt of the cards in done, in whole local days with both counted (a card started and finished the same day took 1 day); the page quotes the average from 3 cards and the P85 from 5. The sprint board is the stories: read them with workspace.story.list.",
   paramsSchema: z.object({}),
   handler: async () => summarize(browserBoard()),
   mcpHandler: async (_params, ctx) => {

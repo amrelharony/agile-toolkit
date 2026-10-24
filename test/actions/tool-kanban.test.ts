@@ -101,7 +101,7 @@ describe("tool.kanban.list_state", () => {
       count: 3,
       limit: 2,
     });
-    expect(r.avgCycleTimeDays).toBe(4); // 2026-01-01 → 2026-01-05
+    expect(r.avgCycleTimeDays).toBe(5); // 2026-01-01 → 2026-01-05, both days counted
   });
 });
 

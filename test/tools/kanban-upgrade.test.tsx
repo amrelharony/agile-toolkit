@@ -195,6 +195,7 @@ beforeEach(() => {
 
 afterEach(() => {
   window.history.replaceState(null, "", "/");
+  vi.useRealTimers();
 });
 
 /* ── Which board opens ──────────────────────────────────────────────── */
@@ -919,7 +920,8 @@ describe("flow board cards", () => {
     const reviewed = movedCard(card("b", "B", { column: "ready" }), "review", at);
     expect(reviewed.startedAt).toBe(at);
     const finished = movedCard(reviewed, "done", ago(-2));
-    expect(cycleTimeDays(finished)).toBeCloseTo(2);
+    // Whole local days with the start and finish day both counted: 3, not 2.
+    expect(cycleTimeDays(finished)).toBe(3);
     expect(cycleStats([finished]).count).toBe(1);
     // Dropped straight into Done: nobody saw it worked on, so no made-up 0 days.
     const skipped = movedCard(card("c", "C", { column: "ready" }), "done", at);
@@ -1013,13 +1015,19 @@ describe("flow board cards", () => {
     cards.push(card("r", "R", { column: "review", startedAt: ago(40), completedAt: ago(1) }));
     const stats = cycleStats(cards);
     expect(stats.count).toBe(5);
-    expect(stats.average).toBeCloseTo(4);
+    // 1, 2, 3, 4 and 10 days apart: 2, 3, 4, 5 and 11 days with both ends counted.
+    expect(stats.average).toBe(5);
     expect(stats.spread).toBeCloseTo(Math.sqrt(10));
-    expect(stats.p85).toBeCloseTo(percentile([1, 2, 3, 4, 10], 85)!);
-    expect(stats.p85).toBeCloseTo(10);
-    const huge = cycleStats([finished(1e6, 0)]);
+    expect(stats.p85).toBe(percentile([2, 3, 4, 5, 11], 85)!);
+    expect(stats.p85).toBe(11);
+    const huge = cycleStats([finished(10_000, 0)]);
     expect(huge).toMatchObject({ count: 1, spread: 0 });
-    expect(huge.p85).toBeCloseTo(1e6);
+    expect(huge.p85).toBe(10_001);
+    // Same day: 1 day, not a made-up 0.
+    const local = (h: number) => new Date(2026, 9, 20, h).toISOString();
+    expect(cycleTimeDays({ startedAt: local(9), completedAt: local(17) })).toBe(1);
+    // Finished "before" it started (bad data): no cycle time.
+    expect(cycleTimeDays({ startedAt: ago(1), completedAt: ago(3) })).toBeNull();
   });
 
   it("counts throughput for the last 7 days and per week, gaps included", () => {
@@ -1085,13 +1093,14 @@ describe("flow board cards", () => {
 
     const done = (d: number, i: number) =>
       card(`d${i}`, "D", { column: "done", startedAt: ago(d), completedAt: ago(0) });
+    // Started 2, 4 and 6 days ago and done today: 3, 5 and 7 days with both ends counted.
     const three = [2, 4, 6].map(done);
     expect(flowVerdict(three, LIMITS, stats(three))).toBe(
-      "Cards take 4 days on average from start to done."
+      "Cards take 5 days on average from start to done."
     );
     const five = [1, 2, 3, 4, 10].map(done);
     expect(flowVerdict(five, LIMITS, stats(five))).toBe(
-      "Cards take 4 days on average from start to done, and 85% finished within 10 days."
+      "Cards take 5 days on average from start to done, and 85% finished within 11 days."
     );
     const two = [card("x", "X", { column: "in_progress" }), done(3, 1)];
     expect(flowVerdict(two, LIMITS, stats(two))).toBe(
@@ -1131,7 +1140,8 @@ describe("flow board markdown and example", () => {
       },
       NOW
     );
-    expect(md.split("\n")).toContain("- Wallet (cycle time 2.0 days)");
+    // Started 3 days ago, done yesterday: 3 days with both ends counted.
+    expect(md.split("\n")).toContain("- Wallet (cycle time 3.0 days)");
   });
 
   it("the example shows assignees, a blocked card and an age in column", () => {
@@ -1145,8 +1155,9 @@ describe("flow board markdown and example", () => {
     const cards = buildExample(NOW);
     const stats = cycleStats(cards);
     expect(stats.count).toBeGreaterThanOrEqual(MIN_SAMPLE.distribution);
-    expect(stats.average).toBeCloseTo(4);
-    expect(stats.p85).toBeCloseTo(6);
+    // 2 to 6 days apart, so 3 to 7 days with both ends counted.
+    expect(stats.average).toBe(5);
+    expect(stats.p85).toBe(7);
     const review = cards.find((c) => c.column === "review")!;
     expect(daysInWork(review, NOW)).toBeGreaterThan(stats.p85!);
     // New rows went at the end: the earlier cards keep their example ids.
@@ -1276,9 +1287,10 @@ describe("flow board", () => {
     seed({ sprints: [], cards: [1, 2, 3, 4, 10].map(done) });
     renderBoard();
     const tile = (label: string) => within(screen.getByText(label).closest(".rounded-xl")!);
-    expect(tile("Cycle avg").getByText("4d")).toBeInTheDocument();
+    // 2, 3, 4, 5 and 11 days with both ends counted.
+    expect(tile("Cycle avg").getByText("5d")).toBeInTheDocument();
     expect(tile("Cycle avg").getByText("±3.2 days")).toBeInTheDocument();
-    expect(tile("85% within").getByText("10d")).toBeInTheDocument();
+    expect(tile("85% within").getByText("11d")).toBeInTheDocument();
   });
 
   it("tints a card in work for longer than P85, counting from its start, not its column", () => {
@@ -1293,7 +1305,7 @@ describe("flow board", () => {
       sprints: [],
       cards: [
         ...[1, 2, 3, 4, 5].map(done),
-        // Just moved on to Review, after 9 days in work: P85 is 5 days.
+        // Just moved on to Review, after 9 days in work: P85 is 6 days.
         card("r", "Audit", { column: "review", startedAt: ago(9, now), columnSince: ago(1, now) }),
         card("p", "Search", {
           column: "in_progress",
@@ -1343,16 +1355,18 @@ describe("flow board", () => {
   });
 
   it("the example shows cycle time and P85, and never offers its names for the team", () => {
+    // The board's clock is read at mount and the example's dates when it
+    // loads: hold the clock, so the card in Review is exactly 8 days in work.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     seed({ sprints: [], cards: [] });
     renderBoard();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     const tile = (label: string) => within(screen.getByText(label).closest(".rounded-xl")!);
-    expect(tile("Cycle avg").getByText("4d")).toBeInTheDocument();
-    expect(tile("85% within").getByText("6d")).toBeInTheDocument();
-    // The board's clock was read at mount, a moment before the example's
-    // dates: 8 days ago reads as 7 whole days, still past P85.
+    expect(tile("Cycle avg").getByText("5d")).toBeInTheDocument();
+    expect(tile("85% within").getByText("7d")).toBeInTheDocument();
     expect(
-      screen.getByText(/in Review, in work for [78] days, longer than 85% of finished cards took/)
+      screen.getByText(/in Review, in work for 8 days, longer than 85% of finished cards took/)
     ).toBeInTheDocument();
 
     fireEvent.click(

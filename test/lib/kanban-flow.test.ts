@@ -1,11 +1,12 @@
 /**
  * lib/kanban/flow: a Flow-board move records itself in the card's history
- * (capped at the latest KANBAN_HISTORY_CAP); the page and tool.kanban.move_card
- * both write through it.
+ * (capped at the latest KANBAN_HISTORY_CAP), the page and tool.kanban.move_card
+ * both write through it, and cycle time is lib/flow's whole local days.
  */
 
 import { describe, expect, it } from "vitest";
-import { KANBAN_HISTORY_CAP, movedCard } from "@/lib/kanban/flow";
+import { KANBAN_HISTORY_CAP, cycleStats, cycleTimeDays, movedCard } from "@/lib/kanban/flow";
+import { cycleSummary } from "@/lib/flow";
 import type { KanbanCard } from "@/lib/stores/workspace-types";
 
 const AT = "2026-10-20T09:00:00.000Z";
@@ -58,5 +59,27 @@ describe("movedCard history", () => {
   it("doesn't change a stored card's other stamps", () => {
     const done = movedCard(card({ column: "review", startedAt: AT }), "done", AT);
     expect(done).toMatchObject({ column: "done", startedAt: AT, completedAt: AT, columnSince: AT });
+  });
+});
+
+describe("cycle time on the Flow board", () => {
+  it("is lib/flow's: whole local days, both ends counted, and the same summary", () => {
+    const c = (startedAt: string, completedAt: string) =>
+      card({ column: "done", startedAt, completedAt });
+    // Local times, so the same calendar day in any time zone.
+    const local = (d: number, h: number) => new Date(2026, 9, d, h).toISOString();
+    const cards = [
+      c(local(1, 9), local(1, 17)),
+      c(local(1, 23), local(2, 1)),
+      c(local(1, 9), local(5, 9)),
+    ];
+    expect(cards.map(cycleTimeDays)).toEqual([1, 2, 5]);
+    const summary = cycleSummary([1, 2, 5]);
+    expect(cycleStats(cards)).toEqual({
+      count: 3,
+      average: summary.average,
+      spread: summary.spread,
+      p85: summary.p85,
+    });
   });
 });

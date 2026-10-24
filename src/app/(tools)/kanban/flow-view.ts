@@ -7,12 +7,18 @@
 
 import type { KanbanCard, KanbanColumnId } from "@/lib/stores/workspace-types";
 import { DAY_MS, finishedCards, type CycleStats } from "@/lib/kanban/flow";
+import {
+  throughputByWeek,
+  throughputLastWeek as flowThroughputLastWeek,
+  type ThroughputPoint,
+} from "@/lib/flow/throughput";
+import { localDay, todayIso } from "@/lib/sprints/series";
 import { enoughData, needMore } from "@/lib/analytics/min-sample";
 import { fmt, move, plural, type ChartText } from "@/lib/charts/chart-text";
 import type { Validation } from "@/lib/utils/form";
 
 // How a move stamps a card and how cycle time is counted are shared with the
-// tool.kanban.* agent actions (lib/kanban/flow).
+// tool.kanban.* agent actions (lib/kanban/flow); weeks are lib/flow's.
 export {
   DAY_MS,
   KANBAN_HISTORY_CAP,
@@ -23,6 +29,7 @@ export {
   movedCard,
   type CycleStats,
 } from "@/lib/kanban/flow";
+export { isoWeek } from "@/lib/flow/throughput";
 
 export const FLOW_COLUMNS: readonly { id: KanbanColumnId; label: string }[] = [
   { id: "backlog", label: "Backlog" },
@@ -121,74 +128,24 @@ export function daysSince(iso: string | null | undefined, now: Date): number | n
   return Math.max(0, Math.floor((now.getTime() - t) / DAY_MS));
 }
 
-/** Cards completed in the 7 days up to `now`. */
+/** The cards in Done by their local completion day, as lib/flow's throughput helpers count them. */
+const doneDays = (cards: readonly KanbanCard[]) =>
+  finishedCards(cards).map((c) => ({ doneOn: localDay(c.completedAt) }));
+
+/** Cards completed in the 7 local days up to and including `now`'s (lib/flow throughputLastWeek). */
 export function throughputLastWeek(cards: readonly KanbanCard[], now: Date): number {
-  const cutoff = now.getTime() - 7 * DAY_MS;
-  return finishedCards(cards).filter((c) => {
-    const t = parse(c.completedAt);
-    return t !== null && t >= cutoff && t <= now.getTime();
-  }).length;
+  return flowThroughputLastWeek(doneDays(cards), todayIso(now));
 }
+
+/** "2026-W42" and the cards finished that week. */
+export type WeekPoint = ThroughputPoint;
 
 /**
- * ISO-8601 week number with the year of the Thursday-anchored week. Avoids
- * the year/DST boundary glitch of raw `floor((d - Jan1) / 7days)` keys,
- * which miscount weeks at year boundaries and split one calendar week across
- * two buckets when DST shifts the millisecond delta.
- */
-export function isoWeek(d: Date): { year: number; week: number } {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / DAY_MS + 1) / 7);
-  return { year: date.getUTCFullYear(), week };
-}
-
-const weekKey = (d: Date) => {
-  const { year, week } = isoWeek(d);
-  return `${year}-W${String(week).padStart(2, "0")}`;
-};
-
-export interface WeekPoint {
-  /** "2026-W42" */
-  label: string;
-  value: number;
-}
-
-/**
- * Cards completed per ISO week, from the first completion's week to the
- * last, with the empty weeks in between as 0. The control limits, change
- * points, trend test and forecast all read the series as consecutive weeks:
- * listing only weeks with a completion made a stalled team (5 done, four
- * silent weeks, 5 done) read as a flat, in-control [5, 5]. Only cards in
- * Done count (see `finished`).
+ * Cards completed per ISO week, gaps as 0 (lib/flow throughputByWeek, which
+ * says why). Only cards in Done count (`finishedCards`).
  */
 export function weeklyThroughput(cards: readonly KanbanCard[]): WeekPoint[] {
-  const byWeek = new Map<string, number>();
-  let minTs = Infinity;
-  let maxTs = -Infinity;
-  for (const c of finishedCards(cards)) {
-    const t = parse(c.completedAt);
-    if (t === null) continue;
-    minTs = Math.min(minTs, t);
-    maxTs = Math.max(maxTs, t);
-    const key = weekKey(new Date(t));
-    byWeek.set(key, (byWeek.get(key) ?? 0) + 1);
-  }
-  if (byWeek.size === 0) return [];
-  const lastKey = weekKey(new Date(maxTs));
-  // Step 7 days from a noon-anchored start so a ±1 h DST shift can never
-  // cross a local day boundary (isoWeek keys off the local calendar day).
-  const anchor = new Date(minTs);
-  anchor.setHours(12, 0, 0, 0);
-  const out: WeekPoint[] = [];
-  // A 1000-week cap keeps a corrupt far-past date from looping for long.
-  for (let t = anchor.getTime(); out.length < 1000; t += 7 * DAY_MS) {
-    const key = weekKey(new Date(t));
-    out.push({ label: key, value: byWeek.get(key) ?? 0 });
-    if (key === lastKey) break;
-  }
-  return out;
+  return throughputByWeek(doneDays(cards));
 }
 
 /** The throughput chart's summary sentence and its data as a table. */

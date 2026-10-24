@@ -2,22 +2,19 @@
  * How a Flow-board card moves and how long cards take, shared by the Kanban
  * page (src/app/(tools)/kanban/flow-view.ts re-exports these) and the
  * tool.kanban.* agent actions, so a move stamps a card the same way and
- * cycle time is counted the same way wherever it happens.
+ * cycle time is counted the same way wherever it happens. Cycle time is
+ * lib/flow's: whole local days, start and finish day both counted, so the
+ * Flow board, its agent actions, next steps and the Track delivery tools
+ * quote one number.
  */
 
 import type { KanbanCard, KanbanColumnId } from "@/lib/stores/workspace-types";
-import { percentile } from "@/lib/sprints/metrics";
+import { cycleDays, cycleSummary } from "@/lib/flow/cycle";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** At most this many column moves are kept per card (the latest). */
 export const KANBAN_HISTORY_CAP = 50;
-
-const parse = (iso: string | undefined): number | null => {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  return Number.isFinite(t) ? t : null;
-};
 
 /** Columns where a card is being worked on: entering one starts its cycle time. */
 export const WORKING: ReadonlySet<KanbanColumnId> = new Set<KanbanColumnId>([
@@ -62,18 +59,19 @@ export function movedCard(card: KanbanCard, col: KanbanColumnId, at: string): Ka
   return next;
 }
 
-/** Days from start to completion, or null without both stamps. */
+/**
+ * Whole local days from start to completion, both counted (lib/flow
+ * cycleDays): a card started and finished on the same day took 1 day.
+ * Null without both stamps, or when the completion comes first.
+ */
 export function cycleTimeDays(card: Pick<KanbanCard, "startedAt" | "completedAt">): number | null {
-  const start = parse(card.startedAt);
-  const end = parse(card.completedAt);
-  if (start === null || end === null) return null;
-  return Math.max(0, (end - start) / DAY_MS);
+  return cycleDays(card.startedAt, card.completedAt);
 }
 
 export interface CycleStats {
   /** Done cards with a start and a completion. */
   count: number;
-  /** Mean days; null without any. Quote it from MIN_SAMPLE.average cards. */
+  /** Mean whole days (`cycleTimeDays`); null without any. Quote it from MIN_SAMPLE.average cards. */
   average: number | null;
   /** Standard deviation in days; quote it from MIN_SAMPLE.distribution. */
   spread: number | null;
@@ -90,13 +88,11 @@ export interface CycleStats {
 export const finishedCards = (cards: readonly KanbanCard[]) =>
   cards.filter((c) => c.column === "done");
 
+/** The cycle time of the cards in Done, by lib/flow cycleSummary (Cycle Time's own numbers). */
 export function cycleStats(cards: readonly KanbanCard[]): CycleStats {
   const days = finishedCards(cards)
     .map(cycleTimeDays)
     .filter((d): d is number => d !== null);
-  const count = days.length;
-  if (count === 0) return { count, average: null, spread: null, p85: null };
-  const average = days.reduce((a, b) => a + b, 0) / count;
-  const variance = days.reduce((sum, d) => sum + (d - average) ** 2, 0) / count;
-  return { count, average, spread: Math.sqrt(variance), p85: percentile(days, 85) };
+  const { count, average, spread, p85 } = cycleSummary(days);
+  return { count, average, spread, p85 };
 }
