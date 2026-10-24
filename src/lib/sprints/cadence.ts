@@ -47,6 +47,33 @@ export const CEREMONY_HREF: Record<CeremonyKind, string> = {
   retro: "/retro",
 };
 
+/**
+ * Timeboxes in minutes for a sprint of four weeks or more: the Scrum
+ * Guide's (planning 8 h, review 4 h, retro 3 h, a 15-minute Daily Scrum),
+ * and an hour for a refinement session, which the guide doesn't timebox.
+ */
+const TIMEBOX_FOUR_WEEKS: Record<CeremonyKind, number> = {
+  planning: 480,
+  daily: 15,
+  refinement: 60,
+  review: 240,
+  retro: 180,
+};
+
+/**
+ * How long `kind` should take in a sprint of `sprintLengthDays` calendar
+ * days. Planning, review and retro shrink with shorter sprints (a two-week
+ * sprint: 4 h, 2 h, 1 h 30), rounded to 15 minutes with 15 the least; the
+ * Daily Scrum and refinement stay as they are.
+ */
+export function ceremonyTimeboxMinutes(kind: CeremonyKind, sprintLengthDays: number): number {
+  const full = TIMEBOX_FOUR_WEEKS[kind];
+  if (kind === "daily" || kind === "refinement") return full;
+  const days = Number.isFinite(sprintLengthDays) && sprintLengthDays > 0 ? sprintLengthDays : 14;
+  const scaled = full * Math.min(1, days / 28);
+  return Math.max(15, Math.round(scaled / 15) * 15);
+}
+
 export interface CeremonyCadence {
   /** Calendar days from the first day to the last day (a two-week sprint is 14). */
   sprintLengthDays: number;
