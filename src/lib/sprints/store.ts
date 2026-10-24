@@ -9,7 +9,7 @@ import { nanoid } from "nanoid";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, SprintSeries, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { seriesFor } from "./series";
-import { withStoryBlocked, withStoryStatus } from "./story-status";
+import { withStoryBlocked, withStoryStatus, withStorySprint } from "./story-status";
 
 /**
  * Move a story to `status`, stamping when work started, when it was done and
@@ -27,6 +27,28 @@ export function setStoryStatus(
   const current = ws.stories.find((s) => s.id === id);
   if (!current) return null;
   const next = withStoryStatus(current, status, at);
+  if (next !== current) ws.upsertStory(next);
+  return next;
+}
+
+/**
+ * Move a story into `sprintId` (undefined: back to the backlog), recording
+ * the move. The store records any change of a story's sprint by itself; use
+ * this to mark a move as a carry-over (`carriedOver`), which only the
+ * writer knows. Returns the story as saved, or null if it doesn't exist.
+ */
+export function setStorySprint(
+  id: string,
+  sprintId: string | undefined,
+  {
+    at = new Date().toISOString(),
+    carriedOver = false,
+  }: { at?: string; carriedOver?: boolean } = {}
+): Story | null {
+  const ws = useWorkspaceStore.getState();
+  const current = ws.stories.find((s) => s.id === id);
+  if (!current) return null;
+  const next = withStorySprint(current, sprintId, at, { carriedOver });
   if (next !== current) ws.upsertStory(next);
   return next;
 }

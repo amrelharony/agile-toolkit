@@ -49,6 +49,20 @@ export function todayIso(now: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/**
+ * The local calendar day of a timestamp (or a plain "YYYY-MM-DD" as it is),
+ * or null. Stamps are UTC ISO strings, so slicing them would put an evening's
+ * move on the next day east of UTC (or the previous one west of it).
+ */
+export function localDay(value: string | undefined | null): string | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const t = Date.parse(value);
+  if (Number.isFinite(t)) return todayIso(new Date(t));
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return m ? m[1] : null;
+}
+
 /** Days from start to end (the last day's index), or the default when dates are missing. */
 export function sprintLengthDays(sprint: Pick<Sprint, "startDate" | "endDate">): number {
   const start = utcDay(sprint.startDate);

@@ -2,7 +2,10 @@
  * A story's flow stamps, written whenever its status changes: when work
  * started, when it was done, and a capped history of the changes. Pure, so
  * the browser writer (`setStoryStatus` in ./store.ts) and the agents'
- * `workspace.story.*` actions stamp a change the same way.
+ * `workspace.story.*` actions stamp a change the same way. Its sprint moves
+ * are stamped too (`stampStoryMembership`), by the workspace store on every
+ * local write and by the agents' writes, so a burnup can tell when scope
+ * joined or left a sprint.
  *
  *   - Into in progress, review or done from the backlog or to do: `startedAt`.
  *   - Back to the backlog or to do: `startedAt` and `doneAt` are cleared (the
@@ -10,10 +13,18 @@
  *   - Into done: `doneAt`, and `blocked` is cleared. Out of done: no `doneAt`.
  */
 
-import type { Story, StoryStatus, StoryStatusChange } from "@/lib/stores/workspace-types";
+import type {
+  Story,
+  StorySprintChange,
+  StoryStatus,
+  StoryStatusChange,
+} from "@/lib/stores/workspace-types";
 
 /** At most this many status changes are kept per story (the latest). */
 export const STORY_STATUS_HISTORY_CAP = 50;
+
+/** At most this many sprint moves are kept per story (the latest). */
+export const STORY_SPRINT_HISTORY_CAP = 20;
 
 export const STORY_STATUSES: readonly StoryStatus[] = [
   "backlog",
@@ -77,6 +88,88 @@ export function withStoryBlocked(story: Story, blocked: boolean): Story {
   return next;
 }
 
+/** A story's points as a number (an unestimated story has none to record). */
+function pointsOf(story: Pick<Story, "points">): number | undefined {
+  return typeof story.points === "number" && Number.isFinite(story.points)
+    ? story.points
+    : undefined;
+}
+
+function sprintChange(
+  story: Story,
+  sprintId: string | undefined,
+  from: string | undefined,
+  at: string,
+  carriedOver?: boolean
+): StorySprintChange {
+  const points = pointsOf(story);
+  return {
+    ...(sprintId ? { sprintId } : {}),
+    ...(from ? { from } : {}),
+    at,
+    ...(points !== undefined ? { points } : {}),
+    ...(carriedOver ? { carriedOver: true } : {}),
+  };
+}
+
+/**
+ * `story` moved to `sprintId` (undefined: back to the backlog) at `at`, with
+ * the move recorded. The same story (by reference) when its sprint doesn't
+ * change. `carriedOver` marks a move made by closing the sprint it left.
+ */
+export function withStorySprint(
+  story: Story,
+  sprintId: string | undefined,
+  at: string = new Date().toISOString(),
+  { carriedOver = false }: { carriedOver?: boolean } = {}
+): Story {
+  const to = sprintId || undefined;
+  if ((story.sprintId || undefined) === to) return story;
+  const next: Story = {
+    ...story,
+    sprintHistory: [
+      ...(story.sprintHistory ?? []),
+      sprintChange(story, to, story.sprintId || undefined, at, carriedOver),
+    ].slice(-STORY_SPRINT_HISTORY_CAP),
+  };
+  if (to) next.sprintId = to;
+  else delete next.sprintId;
+  return next;
+}
+
+/**
+ * Stamps for any write of a story: `next` is the record about to be saved
+ * and `prev` the stored one (undefined for a new story). A new story gets
+ * `createdAt`, and its sprint as its first sprint move. A changed `sprintId`
+ * is recorded, unless the write set its own `sprintHistory` (an Undo putting
+ * a copy back, or `withStorySprint` marking a carry-over): that is kept as
+ * written. The same story (by reference) when there is nothing to stamp.
+ */
+export function stampStoryMembership(
+  next: Story,
+  prev: Story | undefined,
+  at: string = new Date().toISOString()
+): Story {
+  if (!prev) {
+    const needsCreated = !next.createdAt;
+    const needsJoin = Boolean(next.sprintId) && !(next.sprintHistory ?? []).length;
+    if (!needsCreated && !needsJoin) return next;
+    const out: Story = { ...next };
+    if (needsCreated) out.createdAt = at;
+    if (needsJoin) out.sprintHistory = [sprintChange(next, next.sprintId, undefined, at)];
+    return out;
+  }
+  if ((prev.sprintId || undefined) === (next.sprintId || undefined)) return next;
+  if (!same(next.sprintHistory, prev.sprintHistory)) return next;
+  return {
+    ...next,
+    sprintHistory: [
+      ...(prev.sprintHistory ?? []),
+      sprintChange(next, next.sprintId || undefined, prev.sprintId || undefined, at),
+    ].slice(-STORY_SPRINT_HISTORY_CAP),
+  };
+}
+
 const STAMPS = ["startedAt", "doneAt", "blocked", "statusHistory"] as const;
 
 /** Equal by value (a validated copy of the history is a new array). */
@@ -97,6 +190,10 @@ export function stampStoryWrite(
   prev: Story | undefined,
   at: string = new Date().toISOString()
 ): Story {
+  return stampStoryMembership(stampStatusWrite(next, prev, at), prev, at);
+}
+
+function stampStatusWrite(next: Story, prev: Story | undefined, at: string): Story {
   if (!prev) {
     const out: Story = { ...next };
     if (STARTED.has(next.status) && !next.startedAt) out.startedAt = at;
