@@ -44,6 +44,8 @@ import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
 import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
 import { hasOwnCards } from "@/lib/retro/board";
+import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
+import { lsStructure } from "@/lib/liberating-structures/catalog";
 import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 
 export interface NextStep {
@@ -107,6 +109,9 @@ const TIMER_LEAD_MS = 60 * 60 * 1000;
 
 /** MUST match HYPOTHESIS_TRACKER_ID in lib/handoffs/targets/hypothesis.ts. */
 const HYPOTHESIS_TRACKER_ID = "hypothesisTracker:current";
+
+/** How far ahead a saved structure is suggested for the next ceremony. */
+const STRUCTURE_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
 
 /** Follow-through under this, over the last few retros, means too many actions are agreed. */
 const LOW_FOLLOW_THROUGH = 0.5;
@@ -819,12 +824,22 @@ const RULES: Record<string, NextStepRule<object>> = {
   premortem: rule({
     select: (ws) => ({ risks: ws.risks }),
     steps: ({ risks }) => {
-      const undated = real(risks).filter(
+      const open = real(risks).filter(
         (r) =>
-          r.sourceRef?.tool === "premortem" &&
-          (r.status === "open" || r.status === "mitigating") &&
-          !r.mitigationDueAt
-      ).length;
+          r.sourceRef?.tool === "premortem" && (r.status === "open" || r.status === "mitigating")
+      );
+      const unplanned = open.filter((r) => !r.mitigation?.trim()).length;
+      if (unplanned > 0) {
+        return [
+          {
+            id: "premortem-mitigations",
+            label: "Agree mitigations for the premortem's risks",
+            detail: `${plural(unplanned, "risk")} from the premortem ${unplanned === 1 ? "has" : "have"} no mitigation yet.`,
+            href: "/risk-register",
+          },
+        ];
+      }
+      const undated = open.filter((r) => !r.mitigationDueAt).length;
       return undated === 0
         ? []
         : [
@@ -835,6 +850,37 @@ const RULES: Record<string, NextStepRule<object>> = {
               href: "/risk-register",
             },
           ];
+    },
+  }),
+
+  "liberating-structures": rule({
+    select: (ws) => ({
+      docs: ws.liberatingStructures,
+      sprints: ws.sprints,
+      cadences: ws.ceremonyCadences,
+    }),
+    steps: ({ docs, sprints, cadences }) => {
+      const sprint = activeSprint(sprints);
+      const doc = (docs ?? []).find((d) => d.id === LS_DOC_ID);
+      if (!sprint || !doc) return [];
+      const now = new Date();
+      const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+      const [next] = nextCeremonies(sprint, cadence, now, 1);
+      if (!next || next.at.getTime() - now.getTime() > STRUCTURE_LEAD_MS) return [];
+      const fits = real(doc.favorites)
+        .map((f) => lsStructure(f.structureId))
+        .find((st) => st?.ceremonies.includes(next.kind));
+      if (!fits) return [];
+      return [
+        {
+          id: "ls-use-in-ceremony",
+          label: `Use ${fits.name} in the ${CEREMONY_LABEL[next.kind]}`,
+          detail: `It's ${whenLabel(next.at, now)}, and your saved structure suits it.`,
+          href: fits.ceremonyTimerAgenda
+            ? `/ceremony-timer?agenda=${fits.ceremonyTimerAgenda}`
+            : sprintHref(CEREMONY_HREF[next.kind], sprint.id),
+        },
+      ];
     },
   }),
 

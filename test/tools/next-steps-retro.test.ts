@@ -3,6 +3,7 @@ import { getNextStepRule } from "@/lib/tools/next-steps";
 import type { RetroBoard, RetroCard, Risk, Sprint, Workspace } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
+import { LS_CATALOG } from "@/lib/liberating-structures/catalog";
 
 /**
  * Next steps for the Retrospect & improve tools (Phase 4): each reads the
@@ -108,29 +109,90 @@ describe("retro-actions", () => {
 });
 
 describe("premortem", () => {
-  it("asks for mitigation dates on the premortem's open risks", () => {
-    const risk = (id: string, over: Partial<Risk> = {}): Risk => ({
-      id,
-      title: id,
-      probability: 3,
-      impact: 3,
-      raisedAt: "2026-10-20",
-      status: "open",
-      sourceRef: { tool: "premortem", id: `c-${id}` },
-      ...over,
+  const risk = (id: string, over: Partial<Risk> = {}): Risk => ({
+    id,
+    title: id,
+    probability: 3,
+    impact: 3,
+    raisedAt: "2026-10-20",
+    status: "open",
+    sourceRef: { tool: "premortem", id: `c-${id}` },
+    ...over,
+  });
+  const planned = (id: string, over: Partial<Risk> = {}) =>
+    risk(id, { mitigation: "Pair on it", ...over });
+
+  it("asks for mitigations first", () => {
+    expect(steps("premortem", { risks: [risk("r0")] })[0]).toMatchObject({
+      id: "premortem-mitigations",
+      detail: "1 risk from the premortem has no mitigation yet.",
     });
+  });
+
+  it("then asks for mitigation dates on the open ones", () => {
     expect(
       steps("premortem", {
         risks: [
-          risk("r1"),
-          risk("r2", { mitigationDueAt: "2026-11-01" }),
-          risk("r3", { status: "closed" }),
+          planned("r1"),
+          planned("r2", { mitigationDueAt: "2026-11-01" }),
+          planned("r3", { status: "closed" }),
         ],
       })[0].detail
     ).toBe("1 risk from the premortem is open with no due date.");
-    expect(ids("premortem", { risks: [risk("r2", { mitigationDueAt: "2026-11-01" })] })).toEqual(
+    expect(ids("premortem", { risks: [planned("r2", { mitigationDueAt: "2026-11-01" })] })).toEqual(
       []
     );
+  });
+});
+
+describe("liberating-structures", () => {
+  const favourites = (ids: string[]) => [
+    {
+      id: "liberatingStructures:current",
+      favorites: ids.map((structureId, i) => ({ id: `f${i}`, structureId, ts: "2026-10-01" })),
+    },
+  ];
+  // The sprint's last day at 14:30: review is done, the retro is at 15:30.
+  const lastDay = sprint({ startDate: "2026-10-13", endDate: "2026-10-26" });
+  const at = () => vi.setSystemTime(new Date("2026-10-26T14:30:00"));
+
+  it("suggests a saved structure that suits the next ceremony", () => {
+    at();
+    const forRetro = LS_CATALOG.find((x) => x.ceremonies.includes("retro"));
+    expect(forRetro).toBeDefined();
+    const [step] = steps("liberating-structures", {
+      liberatingStructures: favourites([forRetro!.id]),
+      sprints: [lastDay],
+      ceremonyCadences: [],
+    });
+    expect(step).toMatchObject({
+      id: "ls-use-in-ceremony",
+      label: `Use ${forRetro!.name} in the Sprint Retrospective`,
+    });
+    expect(step.href).toBe(
+      forRetro!.ceremonyTimerAgenda
+        ? `/ceremony-timer?agenda=${forRetro!.ceremonyTimerAgenda}`
+        : "/retro?sprint=s2"
+    );
+  });
+
+  it("stays quiet with no fitting favourite, or none at all", () => {
+    at();
+    const notForRetro = LS_CATALOG.find((x) => !x.ceremonies.includes("retro"));
+    expect(
+      ids("liberating-structures", {
+        liberatingStructures: favourites([notForRetro!.id, "not-a-structure"]),
+        sprints: [lastDay],
+        ceremonyCadences: [],
+      })
+    ).toEqual([]);
+    expect(
+      ids("liberating-structures", {
+        liberatingStructures: [],
+        sprints: [lastDay],
+        ceremonyCadences: [],
+      })
+    ).toEqual([]);
   });
 });
 
