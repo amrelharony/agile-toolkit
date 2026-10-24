@@ -31,7 +31,7 @@ const APP_KEY_PREFIX = "agile-toolkit:";
 /** App-owned keys written before the `agile-toolkit:` prefix convention. */
 export const LEGACY_APP_KEYS: readonly string[] = [
   "mascot_appearance", // lib/agent/mascot/store.ts
-  "icebreaker-favorites", // icebreaker-client.tsx (migrated on read, may linger)
+  "icebreaker-favorites", // the Icebreaker's old favourites (icebreaker/migrate.ts moves them)
   "canvas:touchGestureHintSeen:v1", // canvas/components/whiteboard-canvas.tsx
 ];
 
@@ -66,8 +66,15 @@ function getChannel(): BroadcastChannel | null {
   return channel;
 }
 
+/** Old keys whose backups (`<key>:migrated`, `<key>:migrated:<time>`) are the app's too. */
+const LEGACY_BACKUP_PREFIXES: readonly string[] = ["icebreaker-favorites:migrated"];
+
 function isAppKey(key: string): boolean {
-  return key.startsWith(APP_KEY_PREFIX) || LEGACY_APP_KEYS.includes(key);
+  return (
+    key.startsWith(APP_KEY_PREFIX) ||
+    LEGACY_APP_KEYS.includes(key) ||
+    LEGACY_BACKUP_PREFIXES.some((p) => key.startsWith(p))
+  );
 }
 
 function clearStorage(getStorage: () => Storage): void {
