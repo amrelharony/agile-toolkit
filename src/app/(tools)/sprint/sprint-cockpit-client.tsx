@@ -8,7 +8,7 @@ export function SprintCockpitClient() {
     <ToolPageWrapper
       toolId={TOOL_ID}
       title="Sprint Cockpit"
-      description="Your current sprint on one page: goal and days left, burndown, today's standup, open blockers, retro actions and the next ceremony."
+      description="Your current sprint on one page: where it stands, each ceremony, the burndown from the sprint board, open blockers, and closing it with carry-over."
       category="Metrics & Dashboards"
     >
       <SprintCockpit />

@@ -8,7 +8,7 @@ import { StandupClient } from "@/app/(tools)/standup/standup-client";
 export const metadata = {
   title: "Async Standup Digest",
   description:
-    "Async-first standup with auto-generated daily digest, blocker rollup, and a 14-day calendar.",
+    "The standup's written mode: who hasn't posted, one update per person per day, a blockers-first daily digest and a 14-day history.",
 };
 
 export default function Page() {
