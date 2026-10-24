@@ -952,6 +952,8 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `scrum-of-scrums:${SCRUM_OF_SCRUMS_ACTIONS.SOS_RESET}`,
   `risk-register:${RISK_ACTIONS.RISK_RESET}`,
   `premortem:${PREMORTEM_ACTIONS.PREMORTEM_RESET}`,
+  `premortem:${PREMORTEM_ACTIONS.RISKS_SENT}`,
+  `six-hats:${SIX_HATS_ACTIONS.SESSION_CLOSED}`,
   `tech-debt:${TECH_DEBT_ACTIONS.ITEM_RESOLVED}`,
   `okrs:${OKR_ACTIONS.OKR_RESET}`,
   `opportunity-tree:${OPPORTUNITY_TREE_ACTIONS.TREE_RESET}`,
