@@ -17,11 +17,15 @@ import {
   emptySessionDraft,
   moveHat,
   removeHatAt,
+  sameRoundIn,
   sessionDraftFrom,
   validateSession,
+  wornAfterMove,
+  wornAfterRemove,
   type SessionDraft,
   type SessionField,
   type SessionValues,
+  type WornRound,
 } from "./session";
 
 const sameOrder = (a: readonly SixHatsHat[], b: readonly SixHatsHat[]) =>
@@ -74,6 +78,7 @@ export function SessionForm({
         {(props) => (
           <Input
             {...props}
+            data-focus="session-topic"
             value={draft.topic}
             maxLength={TOPIC_MAX}
             onChange={(e) => update({ topic: e.target.value })}
@@ -83,8 +88,9 @@ export function SessionForm({
       </Field>
       <HatOrderEditor
         order={draft.order}
+        worn={draft.worn}
         error={errors.order}
-        onChange={(order) => update({ order })}
+        onChange={(order, worn) => update({ order, worn })}
       />
       <Field
         label="Minutes per round"
@@ -110,44 +116,90 @@ export function SessionForm({
   );
 }
 
+/** A control to focus after an order change: in a row (by index), or anywhere in the editor (-1). */
+type FocusTry = [row: number, selector: string];
+
 /**
  * The hats in the order they'll be worn: move each up or down, remove it,
  * or add one. The order always keeps at least one hat, so it can't be
- * emptied by accident.
+ * emptied by accident. Mid-round it marks the round being worn and follows
+ * it through the edits (`worn`).
  */
 function HatOrderEditor({
   order,
+  worn,
   error,
   onChange,
 }: {
   order: SixHatsHat[];
+  worn?: WornRound;
   error?: string;
-  onChange: (order: SixHatsHat[]) => void;
+  onChange: (order: SixHatsHat[], worn: WornRound | undefined) => void;
 }) {
   const full = order.length >= ORDER_MAX;
+  const groupRef = useRef<HTMLFieldSetElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
-  // Rows are keyed by position, so after a move the hat's arrow is a
-  // different button: focus follows the hat (or its other arrow at an end).
-  const follow = useRef<{ index: number; dir: "earlier" | "later" } | null>(null);
+  // Rows are keyed by position, so after a change the button just used can
+  // be another hat's, or gone (the last row removed, "Use the common order"
+  // once used, Add at the limit): focus goes to the first of these controls
+  // still there, never to the page body.
+  const follow = useRef<FocusTry[] | null>(null);
   useEffect(() => {
-    const f = follow.current;
-    if (!f) return;
+    const tries = follow.current;
+    if (!tries) return;
     follow.current = null;
-    const row = listRef.current?.children[f.index];
-    const pick = (dir: string) =>
-      row?.querySelector<HTMLButtonElement>(`[data-move="${dir}"]:not(:disabled)`);
-    (pick(f.dir) ?? pick(f.dir === "earlier" ? "later" : "earlier"))?.focus();
+    for (const [row, selector] of tries) {
+      const scope = row < 0 ? groupRef.current : listRef.current?.children[row];
+      const el = scope?.querySelector<HTMLButtonElement>(`${selector}:not(:disabled)`);
+      if (el) {
+        el.focus();
+        return;
+      }
+    }
   });
   const move = (i: number, by: -1 | 1) => {
-    follow.current = { index: i + by, dir: by < 0 ? "earlier" : "later" };
-    onChange(moveHat(order, i, by));
+    const [dir, other] = by < 0 ? ["earlier", "later"] : ["later", "earlier"];
+    follow.current = [
+      [i + by, `[data-move="${dir}"]`],
+      [i + by, `[data-move="${other}"]`],
+    ];
+    onChange(moveHat(order, i, by), wornAfterMove(worn, i, by, order.length));
+  };
+  const remove = (i: number) => {
+    follow.current = [
+      [i, "[data-remove]"],
+      [i - 1, "[data-remove]"],
+      [-1, "[data-add]"],
+    ];
+    onChange(removeHatAt(order, i), wornAfterRemove(worn, i));
+  };
+  const add = (hat: SixHatsHat) => {
+    follow.current = [
+      [-1, `[data-add="${hat}"]`],
+      [order.length, "[data-remove]"],
+    ];
+    onChange([...order, hat], worn);
+  };
+  const toCommon = () => {
+    follow.current = [[-1, "[data-add]"]];
+    const at = worn?.at ?? null;
+    onChange(
+      [...DEFAULT_ORDER],
+      worn && { ...worn, at: at === null ? null : sameRoundIn(order, at, DEFAULT_ORDER) }
+    );
   };
   return (
-    <fieldset className="space-y-2">
+    <fieldset ref={groupRef} className="space-y-2">
       <legend className="text-sm text-text">Order of the hats</legend>
       <p className="text-xs text-sub">
         Blue opens and closes. Keep Black after Yellow and Green, so new ideas don’t die early.
       </p>
+      {worn?.at === null && (
+        <p className="text-xs text-warning">
+          The round being worn is removed: saving moves the session on to the round now in its
+          place.
+        </p>
+      )}
       <ol ref={listRef} className="space-y-1" aria-label="Order of the hats">
         {order.map((hat, i) => {
           const info = hatInfo(hat);
@@ -166,6 +218,9 @@ function HatOrderEditor({
                 <span className={cn("font-medium", info.text)}>{info.name}</span>
                 <span className="text-sub"> · {info.focus}</span>
               </span>
+              {worn?.at === i && (
+                <span className="shrink-0 text-xs font-medium text-accent">being worn</span>
+              )}
               <IconButton
                 label={`Move ${place} earlier`}
                 icon={<ArrowUp className="h-4 w-4" />}
@@ -190,8 +245,9 @@ function HatOrderEditor({
                 }
                 icon={<X className="h-4 w-4" />}
                 className="text-sub hover:text-danger"
+                data-remove
                 disabled={order.length === 1}
-                onClick={() => onChange(removeHatAt(order, i))}
+                onClick={() => remove(i)}
               />
             </li>
           );
@@ -207,8 +263,9 @@ function HatOrderEditor({
             variant="outline"
             className="min-touch-coarse h-7 gap-1 px-2 text-xs"
             disabled={full}
+            data-add={h.id}
             aria-label={`Add ${h.name} hat`}
-            onClick={() => onChange([...order, h.id])}
+            onClick={() => add(h.id)}
           >
             <Plus className="h-3 w-3" aria-hidden="true" />
             {h.name}
@@ -220,7 +277,7 @@ function HatOrderEditor({
             size="sm"
             variant="ghost"
             className="min-touch-coarse h-7 gap-1 px-2 text-xs text-sub"
-            onClick={() => onChange([...DEFAULT_ORDER])}
+            onClick={toCommon}
           >
             <RotateCcw className="h-3 w-3" aria-hidden="true" />
             Use the common order

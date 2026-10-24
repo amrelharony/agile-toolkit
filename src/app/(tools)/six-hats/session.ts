@@ -159,13 +159,21 @@ export function sortSessions(sessions: readonly SixHatsSession[]): SixHatsSessio
   return [...sessions].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-/** The session to show: the one picked, else the newest open one, else the newest. */
+/**
+ * The session to show: the one picked, else the one whose round is on the
+ * docked clock (back from another tool, or a reload), else the newest open
+ * one, else the newest. The page pins whatever this gives it, so it only
+ * decides on a visit and after the shown session is deleted.
+ */
 export function pickSession(
   sessions: readonly SixHatsSession[],
-  pickedId: string | null | undefined
+  pickedId: string | null | undefined,
+  dock: DockedTimer | null = null
 ): SixHatsSession | null {
   const picked = pickedId ? sessions.find((x) => x.id === pickedId) : undefined;
   if (picked) return picked;
+  const timed = dock ? sessions.find((x) => isRoundClock(dock, x)) : undefined;
+  if (timed) return timed;
   const sorted = sortSessions(sessions);
   return sorted.find((x) => !x.closedAt) ?? sorted[0] ?? null;
 }
@@ -193,6 +201,41 @@ export function earlierThoughts(
   return thoughts
     .filter((t) => isHat(t.hat) && (!t.sessionId || !ids.has(t.sessionId)))
     .sort(byLogged);
+}
+
+/**
+ * The id prefix of a session made from earlier thoughts. Nobody set one up
+ * with rounds, so the page reads it as a past discussion: no rounds done,
+ * no minutes per round (it keeps the agents' default only for a reopen).
+ */
+const ADOPTED_PREFIX = "earlier-";
+/** Its minutes per round if it is ever reopened and timed: the agents' start_session default. */
+const ADOPTED_ROUND_MINUTES = 5;
+
+export const isAdoptedSession = (s: Pick<SixHatsSession, "id">): boolean =>
+  s.id.startsWith(ADOPTED_PREFIX);
+
+/**
+ * Earlier thoughts (oldest first) as a session of their own: dated from the
+ * first thought and closed at the last, since that discussion is over (so
+ * it never becomes the open session an agent's log_thought files into),
+ * with the hats in the order they first came up.
+ */
+export function adoptedSession(
+  topic: string,
+  list: readonly SixHatsThought[],
+  uuid: string
+): SixHatsSession {
+  const order: SixHatsHat[] = [];
+  for (const t of list) if (isHat(t.hat) && !order.includes(t.hat)) order.push(t.hat);
+  return {
+    id: `${ADOPTED_PREFIX}${uuid}`,
+    topic,
+    order,
+    roundMinutes: ADOPTED_ROUND_MINUTES,
+    startedAt: list[0].loggedAt,
+    closedAt: list[list.length - 1].loggedAt,
+  };
 }
 
 export type ByHat = Record<SixHatsHat, SixHatsThought[]>;
@@ -224,11 +267,23 @@ export function hatColumns(
 
 /* ── Forms ── */
 
+/**
+ * Editing a session mid-round: the round being worn when the form opened
+ * (`from`) and where the edits have put it (`at`; null once it is removed).
+ * Followed through each move and removal, so taking out or moving a hat
+ * before it never makes another hat the one being worn.
+ */
+export interface WornRound {
+  from: number;
+  at: number | null;
+}
+
 export interface SessionDraft {
   topic: string;
   order: SixHatsHat[];
   /** As typed: blank until someone enters it. */
   minutes: string;
+  worn?: WornRound;
 }
 
 export type SessionField = "topic" | "order" | "minutes";
@@ -237,6 +292,7 @@ export interface SessionValues {
   topic: string;
   order: SixHatsHat[];
   roundMinutes: number;
+  worn?: WornRound;
 }
 
 export const emptySessionDraft = (): SessionDraft => ({
@@ -245,11 +301,15 @@ export const emptySessionDraft = (): SessionDraft => ({
   minutes: "",
 });
 
-export const sessionDraftFrom = (s: SixHatsSession): SessionDraft => ({
-  topic: s.topic,
-  order: [...s.order],
-  minutes: String(s.roundMinutes),
-});
+export function sessionDraftFrom(s: SixHatsSession): SessionDraft {
+  const i = currentIndex(s);
+  return {
+    topic: s.topic,
+    order: [...s.order],
+    minutes: String(s.roundMinutes),
+    ...(i === null ? {} : { worn: { from: i, at: i } }),
+  };
+}
 
 export function validateSession(d: SessionDraft): Validation<SessionValues, SessionField> {
   const errors: Partial<Record<SessionField, string>> = {};
@@ -265,14 +325,67 @@ export function validateSession(d: SessionDraft): Validation<SessionValues, Sess
   else if (!Number.isFinite(minutes) || minutes < ROUND_MINUTES_MIN || minutes > ROUND_MINUTES_MAX)
     errors.minutes = `A round runs from ${ROUND_MINUTES_MIN} to ${ROUND_MINUTES_MAX} minutes.`;
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  return { ok: true, values: { topic, order, roundMinutes: minutes } };
+  return {
+    ok: true,
+    values: { topic, order, roundMinutes: minutes, ...(d.worn ? { worn: d.worn } : {}) },
+  };
 }
 
 export function newSession(v: SessionValues, id: string, now: string): SixHatsSession {
   return { id, topic: v.topic, order: [...v.order], roundMinutes: v.roundMinutes, startedAt: now };
 }
 
-/** The session with edited values; a round past a shortened order moves to the last one. */
+/** Where the worn round is after the hat at `i` swaps places with its neighbour. */
+export function wornAfterMove(
+  worn: WornRound | undefined,
+  i: number,
+  by: -1 | 1,
+  length: number
+): WornRound | undefined {
+  const j = i + by;
+  if (!worn || worn.at === null || i < 0 || i >= length || j < 0 || j >= length) return worn;
+  return { ...worn, at: worn.at === i ? j : worn.at === j ? i : worn.at };
+}
+
+/** Where the worn round is after the hat at `i` is removed: gone when it was that one. */
+export function wornAfterRemove(worn: WornRound | undefined, i: number): WornRound | undefined {
+  if (!worn || worn.at === null) return worn;
+  return { ...worn, at: i === worn.at ? null : i < worn.at ? worn.at - 1 : worn.at };
+}
+
+/**
+ * The same round in another order: the same hat, and the same time it is
+ * worn (the closing Blue stays the closing Blue), else its last one. Null
+ * when the other order doesn't have that hat.
+ */
+export function sameRoundIn(
+  order: readonly SixHatsHat[],
+  i: number,
+  next: readonly SixHatsHat[]
+): number | null {
+  const hat = order[i];
+  if (!hat) return null;
+  const nth = order.slice(0, i).filter((h) => h === hat).length;
+  const places = next.flatMap((h, k) => (h === hat ? [k] : []));
+  return places.length === 0 ? null : places[Math.min(nth, places.length - 1)];
+}
+
+/**
+ * Where the round on now is in the edited order: as the form followed it,
+ * or (the round moved on while the form was open) the same hat. Null when
+ * no round is on, or the round being worn was removed.
+ */
+export function editedRound(s: SixHatsSession, v: SessionValues): number | null {
+  const i = currentIndex(s);
+  if (i === null) return null;
+  return v.worn && v.worn.from === i ? v.worn.at : sameRoundIn(s.order, i, v.order);
+}
+
+/**
+ * The session with edited values. A round on keeps its hat (editedRound);
+ * when that round was removed, the one now in its place is worn (the last
+ * one past a shortened order), and the page says so.
+ */
 export function editedSession(s: SixHatsSession, v: SessionValues): SixHatsSession {
   const next: SixHatsSession = {
     ...s,
@@ -280,9 +393,11 @@ export function editedSession(s: SixHatsSession, v: SessionValues): SixHatsSessi
     order: [...v.order],
     roundMinutes: v.roundMinutes,
   };
-  if (next.currentRound !== undefined && next.currentRound >= next.order.length) {
-    next.currentRound = next.order.length - 1;
-  }
+  const i = currentIndex(s);
+  if (i !== null) next.currentRound = editedRound(s, v) ?? Math.min(i, v.order.length - 1);
+  // A stored round that was already out of range (a hand edit) must not
+  // turn into a real one because the order grew.
+  else delete next.currentRound;
   return next;
 }
 

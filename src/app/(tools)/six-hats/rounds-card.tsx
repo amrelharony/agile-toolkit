@@ -20,6 +20,7 @@ import {
   SIX_HATS_PATH,
   currentIndex,
   halfTimeHint,
+  isAdoptedSession,
   isLastRound,
   isRoundClock,
   sessionStatus,
@@ -86,45 +87,62 @@ export function RoundsCard({
   const status = sessionStatus(session);
   const i = currentIndex(session);
   const n = session.order.length;
+  // Earlier thoughts given a topic: a discussion that never had rounds, so
+  // none are shown as done and no minutes as chosen (until it's reopened).
+  const untimed = status === "closed" && isAdoptedSession(session);
 
   return (
     <SectionCard
       title="Rounds"
       icon={Timer}
       titleSuffix={
-        <span className="text-xs font-normal text-sub">
-          {n} × {session.roundMinutes} min
-        </span>
+        untimed ? undefined : (
+          <span className="text-xs font-normal text-sub">
+            {n} × {session.roundMinutes} min
+          </span>
+        )
       }
     >
-      <ol className="scroll-x-snap gap-2 pb-1" aria-label="Rounds">
-        {session.order.map((hat, k) => {
-          const info = hatInfo(hat);
-          const state =
-            status === "closed" || (i !== null && k < i) ? "done" : k === i ? "current" : "next";
-          return (
-            <li
-              key={k}
-              aria-current={state === "current" ? "step" : undefined}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs",
-                state === "current"
-                  ? "border-accent bg-accent/10 font-medium text-text"
-                  : "border-border text-sub"
-              )}
-            >
-              {state === "done" && <Check className="h-3 w-3" aria-hidden="true" />}
-              <span className={cn("h-2.5 w-2.5 rounded-full", info.swatch)} aria-hidden="true" />
-              <span>
-                {k + 1}. {info.name}
-              </span>
-              {state !== "next" && (
-                <span className="sr-only">{state === "done" ? ", done" : ", now"}</span>
-              )}
-            </li>
-          );
-        })}
-      </ol>
+      {untimed ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-sub">
+            These thoughts were logged before sessions had timed rounds. Reopen it to add thoughts
+            or run rounds.
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={onReopen} data-focus="reopen">
+            Reopen session
+          </Button>
+        </div>
+      ) : (
+        <ol className="scroll-x-snap gap-2 pb-1" aria-label="Rounds">
+          {session.order.map((hat, k) => {
+            const info = hatInfo(hat);
+            const state =
+              status === "closed" || (i !== null && k < i) ? "done" : k === i ? "current" : "next";
+            return (
+              <li
+                key={k}
+                aria-current={state === "current" ? "step" : undefined}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs",
+                  state === "current"
+                    ? "border-accent bg-accent/10 font-medium text-text"
+                    : "border-border text-sub"
+                )}
+              >
+                {state === "done" && <Check className="h-3 w-3" aria-hidden="true" />}
+                <span className={cn("h-2.5 w-2.5 rounded-full", info.swatch)} aria-hidden="true" />
+                <span>
+                  {k + 1}. {info.name}
+                </span>
+                {state !== "next" && (
+                  <span className="sr-only">{state === "done" ? ", done" : ", now"}</span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
 
       {status === "not-started" && n > 0 && (
         <div className="mt-3 space-y-3">
@@ -155,7 +173,7 @@ export function RoundsCard({
         />
       )}
 
-      {status === "closed" && (
+      {status === "closed" && !untimed && (
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <p className="text-sm text-sub">
             Closed {formatDate(session.closedAt!)}. Reopen it to add thoughts or run more rounds.

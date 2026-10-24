@@ -24,8 +24,9 @@ function validateTopic(d: { topic: string }): Validation<string, "topic"> {
 
 /**
  * Thoughts that belong to no session: logged before sessions existed, or
- * left when an agent deleted their session. They stay where they were, and
- * "Give these a topic" turns them into a session of their own (with Undo).
+ * left when their session was deleted (by an agent, or "Clear example" with
+ * a thought of the user's in it). They stay where they were, and "Give
+ * these a topic" turns them into a past session of their own (with Undo).
  */
 export function EarlierThoughts({
   thoughts,
@@ -66,8 +67,8 @@ export function EarlierThoughts({
       }
     >
       <p className="mb-3 text-sm text-sub">
-        {plural(thoughts.length, "thought")} from before sessions, with no topic. Give them one to
-        keep them together as a session.
+        {plural(thoughts.length, "thought")} in no session: logged before sessions existed, or left
+        when their session was deleted. Give them a topic to keep them together as a session.
       </p>
       <ItemForm
         form={form}

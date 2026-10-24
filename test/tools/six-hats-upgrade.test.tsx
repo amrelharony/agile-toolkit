@@ -47,14 +47,17 @@ import { HATS, hatInfo, isHat } from "@/app/(tools)/six-hats/hats";
 import {
   DEFAULT_ORDER,
   ORDER_MAX,
+  adoptedSession,
   byHat,
   closed,
   currentHat,
   earlierThoughts,
+  editedRound,
   editedSession,
   emptySessionDraft,
   halfTimeHint,
   hatColumns,
+  isAdoptedSession,
   isRoundClock,
   moveHat,
   nextRound,
@@ -64,12 +67,15 @@ import {
   reopened,
   roundDock,
   roundsLeft,
+  sameRoundIn,
   sessionRun,
   sessionStatus,
   sessionThoughts,
   validateSession,
   validateSummary,
   validateThought,
+  wornAfterMove,
+  wornAfterRemove,
 } from "@/app/(tools)/six-hats/session";
 
 const ws = () => useWorkspaceStore.getState();
@@ -206,10 +212,13 @@ describe("starting a session", () => {
         name: "Remove Blue hat, round 1 (a session needs at least one hat)",
       })
     ).toBeDisabled();
+    // The last Remove is disabled now, so focus moves on to adding a hat.
+    expect(screen.getByRole("button", { name: "Add White hat" })).toHaveFocus();
     for (let i = 1; i < ORDER_MAX; i++)
       fireEvent.click(screen.getByRole("button", { name: "Add Red hat" }));
     expect(screen.getByRole("button", { name: "Add Red hat" })).toBeDisabled();
     expect(screen.getByText(/most rounds a session can have \(12\)/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Red hat, round 12" })).toHaveFocus();
   });
 
   it("edits a session in place, moving a round past a shortened order to the last one", () => {
@@ -226,10 +235,92 @@ describe("starting a session", () => {
     expect(sessionById("s1").order).toHaveLength(6);
   });
 
+  const editButton = () =>
+    screen.getByRole("button", { name: "Edit session “Adopt trunk-based development?”" });
+  const orderRows = () =>
+    within(screen.getByRole("list", { name: "Order of the hats" })).getAllByRole("listitem");
+
+  it("keeps the hat being worn when a hat before it goes, and its clock follows the round", async () => {
+    seed([session({ currentRound: 2, summary: "Go." })]);
+    renderHats();
+    fireEvent.click(screen.getByRole("button", { name: "Time this round" }));
+    expect(dock()!.label).toBe("Six Hats · Green hat (3/7)");
+    const endsAt = dock()!.endsAt;
+
+    fireEvent.click(editButton());
+    expect(orderRows()[2]).toHaveTextContent(/Green.*being worn/);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Blue hat, round 1" }));
+    expect(orderRows()[1]).toHaveTextContent(/Green.*being worn/);
+    fireEvent.click(screen.getByRole("button", { name: "Move Green hat, round 2 later" }));
+    expect(orderRows()[2]).toHaveTextContent(/Green.*being worn/);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(sessionById("s1").currentRound).toBe(2);
+    expect(currentHat(sessionById("s1"))).toBe("green");
+    expect(hatRadio("Green")).toHaveAttribute("aria-checked", "true");
+    // The same clock, renamed for the round's new place, so the page still owns it.
+    expect(dock()).toMatchObject({ label: "Six Hats · Green hat (3/6)", endsAt });
+    expect(screen.getByRole("timer")).toBeInTheDocument();
+    await waitFor(() => expect(editButton()).toHaveFocus());
+
+    // And closing the session can still stop it.
+    fireEvent.click(screen.getByRole("button", { name: "Close session" }));
+    expect(dock()).toBeNull();
+  });
+
+  it("when the round being worn is removed, moves to the one in its place, stops its clock and says so", async () => {
+    seed([session({ currentRound: 2 })]);
+    renderHats();
+    fireEvent.click(screen.getByRole("button", { name: "Time this round" }));
+    fireEvent.click(editButton());
+    fireEvent.click(screen.getByRole("button", { name: "Remove Green hat, round 3" }));
+    expect(screen.getByText(/The round being worn is removed/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(sessionById("s1").currentRound).toBe(2);
+    expect(currentHat(sessionById("s1"))).toBe("yellow");
+    expect(dock()).toBeNull();
+    await waitFor(() =>
+      expect(live()).toHaveTextContent(
+        "Session saved. The Green hat round was removed, so it's Round 3 of 6: Yellow hat now; its clock is stopped."
+      )
+    );
+  });
+
+  it("returns focus to Edit session after Save, Cancel or Escape, and to New session after its Cancel", async () => {
+    seed([session()]);
+    renderHats();
+    fireEvent.click(editButton());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(editButton()).toHaveFocus());
+    fireEvent.click(editButton());
+    fireEvent.keyDown(screen.getByLabelText(/^Topic/), { key: "Escape" });
+    await waitFor(() => expect(editButton()).toHaveFocus());
+    fireEvent.click(editButton());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(editButton()).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveFocus());
+  });
+
+  it("keeps focus in the hat order when the row or the button used goes", async () => {
+    renderHats();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Blue hat, round 7" }));
+    await act(() => Promise.resolve());
+    expect(screen.getByRole("button", { name: "Remove Red hat, round 6" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Use the common order" }));
+    await act(() => Promise.resolve());
+    expect(screen.getByRole("button", { name: "Add White hat" })).toHaveFocus();
+  });
+
   it("opens an agent's session (no round yet, thoughts already in it) as not started", () => {
     seed([session()], [thought("t1", "white", "Builds take 40 minutes.")]);
     renderHats();
     expect(screen.getByText(/^Not started\./)).toBeInTheDocument();
+    // Not "Started … · not started".
+    expect(screen.getByText(/^Created .+ · 1 thought · not started$/)).toBeInTheDocument();
     expect(
       within(screen.getByRole("region", { name: "White hat" })).getByText("Builds take 40 minutes.")
     );
@@ -286,6 +377,25 @@ describe("rounds on the docked timer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to White" }));
     expect(sessionById("s1").currentRound).toBe(1);
     expect(dock()!.label).toBe("Six Hats · White hat (2/7)");
+    expect(screen.getByText(/^Started .+ · 1 thought · in progress$/)).toBeInTheDocument();
+
+    // Back to round 1: the Back button goes, so focus moves to Next hat.
+    fireEvent.click(screen.getByRole("button", { name: "Back to Blue" }));
+    expect(sessionById("s1").currentRound).toBe(0);
+    expect(screen.queryByRole("button", { name: /^Back to/ })).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next hat: White" })).toHaveFocus()
+    );
+  });
+
+  it("back from another tool, opens the session whose round is on the dock", () => {
+    const timed = session({ id: "timed", topic: "Older, being timed", currentRound: 1 });
+    seed([timed, session({ id: "newer", topic: "Newer", startedAt: "2026-10-22T09:00:00Z" })]);
+    useDockTimer.setState({ timer: roundDock(timed) });
+    renderHats();
+    expect(screen.getByRole("heading", { name: "Older, being timed" }));
+    expect(screen.getByRole("timer")).toBeInTheDocument();
+    expect(pickSession(sessions(), null, null)?.id).toBe("newer");
   });
 
   it("pauses and resumes the round from the page", () => {
@@ -307,7 +417,12 @@ describe("rounds on the docked timer", () => {
     expect(sessionById("s1").currentRound).toBe(0);
     expect(dock()!.label).toBe("Standup: Bo");
     expect(screen.getByText(/The docked timer is running “Standup: Bo”/)).toBeInTheDocument();
-    await waitFor(() => expect(live()).toHaveTextContent(/isn't timed/));
+    // One announcement that says both, not a warning the round's own message replaces.
+    const said = "Round 1 of 7: Blue hat, not timed: the docked timer is running “Standup: Bo”.";
+    await waitFor(() => expect(live()).toHaveTextContent(said));
+    await act(() => new Promise((r) => setTimeout(r, 120)));
+    expect(live()).toHaveTextContent(said);
+    expect(live()).not.toHaveTextContent(/minutes/);
 
     fireEvent.click(screen.getByRole("button", { name: "Stop it and time this round" }));
     expect(dock()!.label).toBe("Six Hats · Blue hat (1/7)");
@@ -431,12 +546,22 @@ describe("thoughts", () => {
         .sort()
     ).toEqual(["t1", "t2", "t3"]);
   });
+
+  it("after deleting the last session, focus is on the Start form's topic", async () => {
+    seed([session()]);
+    renderHats();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete session “Adopt trunk-based development?”" })
+    );
+    expect(sessions()).toEqual([]);
+    await waitFor(() => expect(screen.getByLabelText(/^Topic/)).toHaveFocus());
+  });
 });
 
 /* ── Earlier thoughts ── */
 
 describe("earlier thoughts", () => {
-  it("shows thoughts from before sessions, and orphans, and gives them a topic with Undo", () => {
+  it("shows thoughts from before sessions, and orphans, and gives them a topic with Undo", async () => {
     seed(
       [],
       [
@@ -452,6 +577,8 @@ describe("earlier thoughts", () => {
     );
     renderHats();
     expect(screen.getByText("Earlier thoughts (2)")).toBeInTheDocument();
+    // Orphans had a topic once, so the copy doesn't say they never did.
+    expect(screen.getByText(/^2 thoughts in no session: logged before sessions existed, or left/));
     expect(
       within(screen.getByRole("region", { name: "Earlier thoughts: White hat" })).getByText(
         "We have no tests"
@@ -472,7 +599,16 @@ describe("earlier thoughts", () => {
     fireEvent.click(screen.getByRole("button", { name: "Give these a topic" }));
     expect(sessions()).toHaveLength(1);
     const made = sessions()[0];
-    expect(made).toMatchObject({ topic: "Testing strategy", startedAt: thoughts()[0].loggedAt });
+    const [old1, old2] = thoughts().filter((t) => t.id === "old1" || t.id === "old2");
+    // A past discussion: dated by its thoughts, closed, the hats as they came up.
+    expect(made).toMatchObject({
+      topic: "Testing strategy",
+      startedAt: old1.loggedAt,
+      closedAt: old2.loggedAt,
+      order: ["white", "black"],
+    });
+    expect(made.currentRound).toBeUndefined();
+    expect(isAdoptedSession(made)).toBe(true);
     expect(
       thoughts()
         .filter((t) => t.sessionId === made.id)
@@ -480,6 +616,17 @@ describe("earlier thoughts", () => {
     ).toEqual(["old1", "old2"]);
     expect(screen.queryByText(/^Earlier thoughts/)).toBeNull();
     expect(lastToast()[0]).toBe("Made “Testing strategy” a session");
+    // No rounds to start, no minutes it never had, and nowhere new to log a thought.
+    expect(screen.queryByRole("button", { name: "Start round 1" })).toBeNull();
+    expect(screen.queryByText(/× 5 min/)).toBeNull();
+    expect(screen.getByText(/logged before sessions had timed rounds/)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Thought" })).toBeNull();
+    const md = screen.getByTestId("export-six-hats").textContent!;
+    expect(md).toContain("before sessions had timed rounds.");
+    expect(md).not.toMatch(/rounds of|\*\*Order:\*\*/);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit session “Testing strategy”" })).toHaveFocus()
+    );
 
     undoLast();
     expect(sessions()).toEqual([]);
@@ -550,11 +697,56 @@ describe("the Blue-hat summary", () => {
     expect(dock()).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Thought" })).toBeNull();
     expect(spies.log).toHaveBeenCalledWith("session_closed", { id: "s1", thoughts: 0 });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reopen session" })).toHaveFocus()
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Reopen session" }));
     expect(sessionById("s1").closedAt).toBeUndefined();
     expect(sessionById("s1").currentRound).toBe(6);
     expect(thoughtBox()).toBeInTheDocument();
+    // The Reopen button went; focus lands on the round's own control.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Write the summary" })).toHaveFocus()
+    );
+  });
+
+  it("keeps the closed session on screen, with its Send to, while another one is open", async () => {
+    seed([
+      session({ currentRound: 6, summary: "Go." }),
+      session({ id: "s2", topic: "Older and open", startedAt: "2026-10-01T09:00:00Z" }),
+    ]);
+    renderHats();
+    expect(screen.getByRole("heading", { name: "Adopt trunk-based development?" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close session" }));
+    expect(sessionById("s1").closedAt).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Adopt trunk-based development?" }));
+    expect(screen.getByRole("button", { name: /^Send to… Adopt trunk-based/ })).toBeEnabled();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reopen session" })).toHaveFocus()
+    );
+  });
+
+  it("doesn't switch sessions, or lose a draft, when an agent starts a newer one", () => {
+    seed([session({ currentRound: 1 })]);
+    renderHats();
+    fireEvent.change(thoughtBox(), { target: { value: "Half-typed" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Summary" }), {
+      target: { value: "Draft summary" },
+    });
+    act(() =>
+      ws().upsertSixHatsSession(
+        session({ id: "agent", topic: "From the agent", startedAt: "2026-10-22T09:00:00Z" })
+      )
+    );
+    expect(screen.getByRole("heading", { name: "Adopt trunk-based development?" }));
+    expect(thoughtBox()).toHaveValue("Half-typed");
+    expect(screen.getByRole("textbox", { name: "Summary" })).toHaveValue("Draft summary");
+    // It's one pick away.
+    fireEvent.change(screen.getByRole("combobox", { name: "Open a session" }), {
+      target: { value: "agent" },
+    });
+    expect(screen.getByRole("heading", { name: "From the agent" }));
   });
 
   it("shows a summary an agent writes, unless one is being typed here", () => {
@@ -567,6 +759,20 @@ describe("the Blue-hat summary", () => {
     });
     act(() => ws().upsertSixHatsSession({ ...sessionById("s1"), summary: "Again" }));
     expect(screen.getByRole("textbox", { name: "Summary" })).toHaveValue("Mine");
+  });
+
+  it("after saving a summary with a trailing newline, still shows the agent's next one, and Close keeps it", () => {
+    seed([session({ currentRound: 6 })]);
+    renderHats();
+    const box = () => screen.getByRole("textbox", { name: "Summary" });
+    fireEvent.change(box(), { target: { value: "Plan A\n" } });
+    fireEvent.keyDown(box(), { key: "Enter", ctrlKey: true });
+    expect(sessionById("s1").summary).toBe("Plan A");
+
+    act(() => ws().upsertSixHatsSession({ ...sessionById("s1"), summary: "Plan B" }));
+    expect(box()).toHaveValue("Plan B");
+    fireEvent.click(screen.getByRole("button", { name: "Close session" }));
+    expect(sessionById("s1")).toMatchObject({ summary: "Plan B", closedAt: expect.any(String) });
   });
 });
 
@@ -716,6 +922,80 @@ describe("session logic", () => {
     expect(removeHatAt(["red", "blue"], 0)).toEqual(["blue"]);
   });
 
+  it("follows the round being worn through an edit of the order", () => {
+    const worn = { from: 2, at: 2 };
+    expect(wornAfterMove(worn, 2, -1, 7)).toEqual({ from: 2, at: 1 });
+    expect(wornAfterMove(worn, 1, 1, 7)).toEqual({ from: 2, at: 1 });
+    expect(wornAfterMove(worn, 4, 1, 7)).toEqual(worn);
+    expect(wornAfterMove(worn, 6, 1, 7)).toEqual(worn);
+    expect(wornAfterRemove(worn, 0)).toEqual({ from: 2, at: 1 });
+    expect(wornAfterRemove(worn, 5)).toEqual(worn);
+    expect(wornAfterRemove(worn, 2)).toEqual({ from: 2, at: null });
+    expect(wornAfterRemove({ from: 2, at: null }, 0)).toEqual({ from: 2, at: null });
+    expect(wornAfterMove(undefined, 0, 1, 7)).toBeUndefined();
+
+    // The same hat, the same time it is worn: the closing Blue stays the closing one.
+    expect(sameRoundIn(DEFAULT_ORDER, 6, ["white", "blue", "blue"])).toBe(2);
+    expect(sameRoundIn(DEFAULT_ORDER, 0, ["white", "blue", "blue"])).toBe(1);
+    expect(sameRoundIn(DEFAULT_ORDER, 6, ["white", "blue"])).toBe(1);
+    expect(sameRoundIn(DEFAULT_ORDER, 2, ["white", "red"])).toBeNull();
+    expect(sameRoundIn([], 0, DEFAULT_ORDER)).toBeNull();
+  });
+
+  it("edits a session mid-round without making another hat current", () => {
+    const s = session({ currentRound: 2 }); // Green
+    const noOpening = DEFAULT_ORDER.slice(1);
+    const v = { topic: s.topic, order: noOpening, roundMinutes: 5 };
+    // As the form followed it.
+    expect(editedSession(s, { ...v, worn: { from: 2, at: 1 } }).currentRound).toBe(1);
+    // Without the form's record (or one from an older round): the same hat.
+    expect(editedSession(s, v).currentRound).toBe(1);
+    expect(editedRound({ ...s, currentRound: 3 }, { ...v, worn: { from: 2, at: 1 } })).toBe(2);
+    // The worn round removed: the one now in its place, the last past a shorter order.
+    expect(editedRound(s, { ...v, worn: { from: 2, at: null } })).toBeNull();
+    expect(editedSession(s, { ...v, worn: { from: 2, at: null } }).currentRound).toBe(2);
+    expect(
+      editedSession(s, { ...v, order: ["white"], worn: { from: 2, at: null } }).currentRound
+    ).toBe(0);
+    // Not in a round: nothing to follow, and a stored round already out of range stays out.
+    expect(editedSession(session(), v).currentRound).toBeUndefined();
+    const longer = { ...v, order: [...DEFAULT_ORDER, ...DEFAULT_ORDER.slice(0, 5)] };
+    expect(sessionStatus(editedSession(session({ currentRound: 9 }), longer))).toBe("not-started");
+    expect(editedSession(closed(s, "x"), v).currentRound).toBeUndefined();
+    // Running it twice changes nothing more.
+    const once = editedSession(s, v);
+    expect(editedSession(once, v)).toEqual(once);
+  });
+
+  it("makes earlier thoughts a closed session with the hats they came up under", () => {
+    const list = [
+      thought("a", "red", "A", { sessionId: undefined }),
+      thought("b", "white", "B", { sessionId: undefined }),
+      thought("c", "red", "C", { sessionId: undefined }),
+    ];
+    const s = adoptedSession("Old talk", list, "u1");
+    expect(s).toEqual({
+      id: "earlier-u1",
+      topic: "Old talk",
+      order: ["red", "white"],
+      roundMinutes: 5,
+      startedAt: list[0].loggedAt,
+      closedAt: list[2].loggedAt,
+    });
+    expect(isAdoptedSession(s)).toBe(true);
+    expect(isAdoptedSession(session())).toBe(false);
+    expect(sessionStatus(s)).toBe("closed");
+    // Closed, so it never takes the view (or an agent's log_thought) from an open one.
+    expect(
+      pickSession([s, session({ id: "x", startedAt: "2026-01-01T00:00:00Z" })], null)?.id
+    ).toBe("x");
+    const md = toMarkdown(s, list);
+    expect(md).toContain(
+      "Thoughts logged 20 Oct 2026 to 20 Oct 2026, before sessions had timed rounds."
+    );
+    expect(md).not.toMatch(/rounds of|\*\*Order:\*\*/);
+  });
+
   it("picks the session asked for, else the newest open one", () => {
     const a = session({ id: "a", startedAt: "2026-10-01T00:00:00Z" });
     const b = session({
@@ -796,6 +1076,29 @@ describe("Markdown record", () => {
     expect(blue.indexOf("Question:")).toBeLessThan(blue.indexOf("Agreed:"));
     expect(md).toContain("Trial weekly releases for two sprints.");
     expect(md).toContain("Sent to the Decision Log as a proposed decision on 20 Oct 2026.");
+    const decided = toMarkdown(ex.session, ex.thoughts, {
+      decision: { route: "decision", targetId: "d1", at: "2026-10-20T12:30:00Z" },
+      decided: true,
+    });
+    expect(decided).toContain("Sent to the Decision Log on 20 Oct 2026, and decided there.");
+    expect(decided).not.toContain("proposed");
+  });
+
+  it("says the decision was decided once the Decision Log accepted it, as the page does", () => {
+    seed([
+      session({
+        summary: "Go.",
+        sentTo: [{ route: "decision", targetId: "d1", at: "2026-10-20T12:30:00Z" }],
+      }),
+    ]);
+    useWorkspaceStore.setState({
+      decisions: [{ id: "d1", title: "Adopt", status: "accepted" } as unknown as Decision],
+    });
+    renderHats();
+    expect(screen.getByRole("link", { name: /Decided in the Decision Log/ })).toBeInTheDocument();
+    expect(screen.getByTestId("export-six-hats").textContent).toContain(
+      "Sent to the Decision Log on 20 Oct 2026, and decided there."
+    );
   });
 
   it("marks empty hats and a missing summary, and keeps line breaks inside a thought", () => {

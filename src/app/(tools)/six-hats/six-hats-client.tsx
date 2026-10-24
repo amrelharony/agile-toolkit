@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Brain, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -27,11 +27,11 @@ import type {
   Workspace,
 } from "@/lib/stores/workspace-types";
 import { generateSixHatsPrompts } from "@/lib/ai-prompts/six-hats";
-import { liveLink } from "@/lib/handoffs/registry";
+import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SIX_HATS_ACTIONS } from "@/lib/history/event-actions";
 import { plural } from "@/lib/charts/chart-text";
-import { claimDock, useDockTimer } from "@/lib/timer/dock-timer";
+import { claimDock, useDockTimer, type DockedTimer } from "@/lib/timer/dock-timer";
 import { formatDate } from "@/lib/utils/formatters";
 import { undoable } from "@/lib/utils/undoable";
 import { buildExample } from "./example";
@@ -39,12 +39,13 @@ import { hatInfo, hatName } from "./hats";
 import { toMarkdown } from "./markdown";
 import { RoundsCard, useRoundClock } from "./rounds-card";
 import {
-  DEFAULT_ORDER,
+  adoptedSession,
   byHat,
   closed,
   currentHat,
   currentIndex,
   earlierThoughts,
+  editedRound,
   editedSession,
   hasSummary,
   isLastRound,
@@ -71,12 +72,6 @@ import { sixHatsVerdict } from "./verdict";
 
 const NO_SESSIONS: SixHatsSession[] = [];
 const NO_THOUGHTS: SixHatsThought[] = [];
-
-/**
- * The minutes per round for earlier thoughts given a topic: the default the
- * agents' start_session uses. Those rounds are long over, so it only shows.
- */
-const ADOPTED_ROUND_MINUTES = 5;
 
 const ws = () => useWorkspaceStore.getState();
 const freshSession = (id: string) => (ws().sixHatsSessions ?? []).find((x) => x.id === id);
@@ -108,8 +103,16 @@ export function SixHatsClient() {
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "new" | "edit">("view");
 
-  const session = pickSession(sessions, pickedId);
+  const dockTimer = useDockTimer((s) => s.timer);
+  const session = pickSession(sessions, pickedId, dockTimer);
   const sessionId = session?.id ?? null;
+  // Pin the session on screen once it shows: closing it, an agent starting
+  // another one, a sync or a clock never switches the view, or the drafts
+  // in it, to a different session. Only "Open a session", a new one or a
+  // delete do.
+  useEffect(() => {
+    if (sessionId && sessionId !== pickedId) setPickedId(sessionId);
+  }, [sessionId, pickedId]);
   const sorted = useMemo(() => sortSessions(sessions), [sessions]);
   const own = useMemo(
     () => (sessionId ? sessionThoughts(thoughts, sessionId) : NO_THOUGHTS),
@@ -118,6 +121,9 @@ export function SixHatsClient() {
   const earlier = useMemo(() => earlierThoughts(thoughts, sessions), [thoughts, sessions]);
   const hat = session ? currentHat(session) : undefined;
   const decision = session ? liveLink(session.sentTo, "decision") : undefined;
+  const decided = decision
+    ? getHandoffRoute("decision").isDone?.(decision.targetId) === true
+    : false;
   const firstRun = sessions.length === 0;
 
   /* ── Sessions ── */
@@ -132,12 +138,49 @@ export function SixHatsClient() {
     focusSoon('[data-focus="start-round"]');
   }
 
-  function saveEdit(values: SessionValues) {
+  /** Back from editing a session: on the Edit button, now on screen again. */
+  function closeEdit() {
     setMode("view");
+    focusSoon('[data-focus="edit-session"]');
+  }
+
+  function saveEdit(values: SessionValues) {
+    closeEdit();
     const cur = sessionId ? freshSession(sessionId) : undefined;
     if (!cur || sameSessionValues(cur, values)) return;
-    upsertSession(editedSession(cur, values));
-    announce("Session saved.");
+    const next = editedSession(cur, values);
+    const i = currentIndex(cur);
+    const removed = i !== null && editedRound(cur, values) === null;
+    const stopped = followClock(cur, next, removed);
+    upsertSession(next);
+    const now = currentIndex(next);
+    if (!removed || i === null || now === null) {
+      announce("Session saved.");
+      return;
+    }
+    announce(
+      `Session saved. The ${hatName(cur.order[i])} round was removed, so it's ${roundLabel(next, now)} now${stopped ? "; its clock is stopped" : ""}.`
+    );
+  }
+
+  /**
+   * Keep the round's docked clock with its round through an edit. The clock
+   * is matched by its label, which names the hat and its place ("Green hat
+   * (3/7)"), so a renumbered round would leave it running unmatched, and
+   * Close or Delete could no longer stop it. The same round carries on under
+   * its new label; a removed round's clock stops (the next one isn't timed
+   * by itself). True when it stopped.
+   */
+  function followClock(cur: SixHatsSession, next: SixHatsSession, removed: boolean): boolean {
+    const dock = useDockTimer.getState();
+    if (!dock.timer || !isRoundClock(dock.timer, cur)) return false;
+    const label = roundDock(next, 0)?.label;
+    if (removed || !label) {
+      dock.stop();
+      return true;
+    }
+    if (label !== dock.timer.label) dock.publish({ ...dock.timer, label });
+    return false;
   }
 
   function remove(s: SixHatsSession) {
@@ -160,20 +203,26 @@ export function SixHatsClient() {
     });
     setPickedId(null);
     setMode("view");
-    focusSoon('[data-focus="new-session"]');
+    // With no session left, the Start form is all there is.
+    focusSoon('[data-focus="new-session"], [data-focus="session-topic"]');
   }
 
   /* ── Rounds ── */
 
-  /** Put the round's clock on the dock, unless another page's timer is there (it says so). */
-  function timeRound(s: SixHatsSession) {
+  /**
+   * Put the round's clock on the dock, unless another page's timer is there.
+   * Returns that timer then, so the caller says it in the same announcement
+   * (a second one would replace the first before it is read).
+   */
+  function timeRound(s: SixHatsSession): DockedTimer | null {
     const dock = roundDock(s);
-    if (!dock) return;
+    if (!dock) return null;
     const claimed = claimDock(dock);
-    if (!claimed.ok) {
-      announce(`The docked timer is running “${claimed.holder.label}”, so this round isn't timed.`);
-    }
+    return claimed.ok ? null : claimed.holder;
   }
+
+  const notTimed = (holder: DockedTimer) =>
+    `not timed: the docked timer is running “${holder.label}”`;
 
   function stopClockOf(s: SixHatsSession) {
     const dock = useDockTimer.getState();
@@ -183,11 +232,15 @@ export function SixHatsClient() {
   /** Move to `next` (a later or earlier round), time it, and say where the session is. */
   function goTo(next: SixHatsSession, said: string) {
     upsertSession(next);
-    timeRound(next);
+    const holder = timeRound(next);
     const i = currentIndex(next);
     if (i === null) return;
-    const minutes = plural(next.roundMinutes, "minute");
-    announce(`${said}${roundLabel(next, i)}. ${minutes}.`);
+    const round = `${said}${roundLabel(next, i)}`;
+    announce(
+      holder
+        ? `${round}, ${notTimed(holder)}.`
+        : `${round}. ${plural(next.roundMinutes, "minute")}.`
+    );
     // The Next and Skip buttons give way to "Write the summary" on the last round.
     if (isLastRound(next)) focusSoon('[data-focus="to-summary"]');
   }
@@ -219,12 +272,16 @@ export function SixHatsClient() {
     const cur = sessionId ? freshSession(sessionId) : undefined;
     if (!cur) return;
     const next = prevRound(cur);
-    if (next !== cur) goTo(next, "Back to ");
+    if (next === cur) return;
+    goTo(next, "Back to ");
+    // Back to round 1: the Back button goes, Next hat is right beside it.
+    if (currentIndex(next) === 0) focusSoon('[data-focus="next-hat"], [data-focus="to-summary"]');
   }
 
   function timeCurrent() {
     const cur = sessionId ? freshSession(sessionId) : undefined;
-    if (cur) timeRound(cur);
+    const holder = cur ? timeRound(cur) : null;
+    if (holder) announce(`This round is ${notTimed(holder)}.`);
   }
 
   /** The user chose to stop the other page's timer: never done without asking. */
@@ -254,6 +311,8 @@ export function SixHatsClient() {
     if (!cur?.closedAt) return;
     upsertSession(reopened(cur));
     announce("Session reopened, back in the last round.");
+    // Reopen gives way to the round's controls.
+    focusSoon('[data-focus="to-summary"], [data-focus="next-hat"], [data-focus="start-round"]');
   }
 
   function saveSummary(summary: string) {
@@ -312,18 +371,11 @@ export function SixHatsClient() {
     });
   }
 
-  /** Earlier thoughts become a session of their own; Undo takes them back out. */
+  /** Earlier thoughts become a past session of their own; Undo takes them back out. */
   function adopt(topic: string) {
     const list = earlierThoughts(ws().sixHatsThoughts ?? [], ws().sixHatsSessions ?? []);
     if (list.length === 0) return;
-    const s: SixHatsSession = {
-      id: crypto.randomUUID(),
-      topic,
-      order: [...DEFAULT_ORDER],
-      roundMinutes: ADOPTED_ROUND_MINUTES,
-      // Dated when the discussion happened, so it sorts with its own time.
-      startedAt: list[0].loggedAt,
-    };
+    const s = adoptedSession(topic, list, crypto.randomUUID());
     undoable({
       label: `Made “${shortText(topic)}” a session`,
       description: plural(list.length, "earlier thought"),
@@ -338,6 +390,8 @@ export function SixHatsClient() {
       },
     });
     setPickedId(s.id);
+    // The Earlier thoughts card goes; the session they became is up top.
+    focusSoon('[data-focus="edit-session"]');
   }
 
   /* ── Example ── */
@@ -418,7 +472,14 @@ export function SixHatsClient() {
             <SessionForm
               autoFocus={!firstRun}
               onSave={start}
-              onCancel={firstRun ? undefined : () => setMode("view")}
+              onCancel={
+                firstRun
+                  ? undefined
+                  : () => {
+                      setMode("view");
+                      focusSoon('[data-focus="new-session"]');
+                    }
+              }
             />
           </SectionCard>
         )}
@@ -471,7 +532,7 @@ export function SixHatsClient() {
                   session={session}
                   autoFocus
                   onSave={saveEdit}
-                  onCancel={() => setMode("view")}
+                  onCancel={closeEdit}
                 />
               ) : (
                 <>
@@ -483,6 +544,7 @@ export function SixHatsClient() {
                       label={`Edit session “${shortText(session.topic)}”`}
                       icon={<Pencil className="h-4 w-4" />}
                       className="text-sub hover:text-text"
+                      data-focus="edit-session"
                       onClick={() => setMode("edit")}
                     />
                     <IconButton
@@ -493,7 +555,8 @@ export function SixHatsClient() {
                     />
                   </div>
                   <p className="text-xs text-sub">
-                    Started {formatDate(session.startedAt)} · {plural(own.length, "thought")} ·{" "}
+                    {sessionStatus(session) === "not-started" ? "Created" : "Started"}{" "}
+                    {formatDate(session.startedAt)} · {plural(own.length, "thought")} ·{" "}
                     {STATUS_TEXT[sessionStatus(session)]}
                   </p>
                   <SessionVerdict session={session} thoughts={own} sent={Boolean(decision)} />
@@ -528,7 +591,7 @@ export function SixHatsClient() {
                     filename="six-hats"
                     csvData={csvData}
                     jsonData={{ session, thoughts: own }}
-                    markdown={toMarkdown(session, own, { decision })}
+                    markdown={toMarkdown(session, own, { decision, decided })}
                     targetRef={exportRef}
                   />
                 </>

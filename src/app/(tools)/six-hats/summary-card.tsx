@@ -51,11 +51,13 @@ export const SummaryCard = forwardRef<
   const { draft, update, errors, reset, formRef } = form;
 
   // An agent (or another tab) wrote the summary: show it, unless someone is
-  // in the middle of changing it here.
+  // in the middle of changing it here. Trimmed, since the store keeps the
+  // trimmed text: a draft saved with a trailing newline isn't an edit, and
+  // treating it as one hid the next summary and let Close overwrite it.
   const synced = useRef(saved);
   useEffect(() => {
     if (saved === synced.current) return;
-    if (draft.summary === synced.current) reset({ summary: saved });
+    if (draft.summary.trim() === synced.current.trim()) reset({ summary: saved });
     synced.current = saved;
   }, [saved, draft.summary, reset]);
 
