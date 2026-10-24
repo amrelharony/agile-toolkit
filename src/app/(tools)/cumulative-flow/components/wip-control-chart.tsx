@@ -1,20 +1,17 @@
 "use client";
 
 /**
- * WIP control chart card: WIP over time with XmR UCL/LCL bands (suppressed
- * with a notice below the sample floor), CUSUM regime-shift markers,
- * Western-Electric out-of-control dots, and the team's WIP limit if set.
+ * WIP control chart: WIP over time with XmR UCL/LCL bands, CUSUM
+ * regime-shift markers, Western-Electric out-of-control dots, and the WIP
+ * limit if there is one. Shown inside Advanced analysis, and only once
+ * the series is long enough for the limits to mean something.
  */
 
 import { useId, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { ChartFigure } from "@/components/shared/chart-card";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Activity } from "lucide-react";
 import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import type { WipLimits, WipSeriesPoint, WipSignal } from "../types";
-import { MIN_XMR_SAMPLES } from "../constants";
 import { wipChartText } from "../chart-text";
 
 // Recharts loads with the chart, not the page. The fixed-height box below
@@ -32,58 +29,43 @@ export function WipControlChart({
   wipLimit = null,
   cusumAnnotations,
   signals,
+  unit,
 }: {
   wipSeries: WipSeriesPoint[];
   wipLimits: WipLimits | null;
   wipLimit?: number | null;
   cusumAnnotations: CausalAnnotationData[];
   signals: WipSignal[];
+  /** What a point is: ["day", "days"] or ["snapshot", "snapshots"]. */
+  unit: readonly [string, string];
 }) {
   const titleId = useId();
   const text = useMemo(
-    () => wipChartText(wipSeries, signals, wipLimit),
-    [wipSeries, signals, wipLimit]
+    () => wipChartText(wipSeries, signals, wipLimit, unit),
+    [wipSeries, signals, wipLimit, unit]
   );
   return (
-    <Card className="bg-surface border-border">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base font-display text-text flex-wrap">
-          <Activity className="w-4 h-4 text-accent" aria-hidden="true" />
-          <span id={titleId}>WIP control chart</span>
-          <span className="text-xs text-sub font-normal ml-1">
-            · XmR limits + CUSUM regime shifts
-          </span>
-          {/* When the series is too short for statistically valid XmR
-              limits (<8 samples), suppress the UCL/LCL bands and tell
-              the user why — otherwise the chart shows misleading
-              "control" lines that produce false alarms on every
-              point. */}
-          {!wipLimits && (
-            <Badge
-              variant="outline"
-              className="text-xs font-normal border-warning/40 text-warning ml-auto"
-            >
-              Need {MIN_XMR_SAMPLES}+ data points for control limits
-            </Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <ChartFigure
-          labelledBy={titleId}
-          summary={text.summary}
-          table={text.table}
-          plotClassName="-mx-2 h-60"
-        >
-          <WipControlLineChart
-            wipSeries={wipSeries}
-            wipLimits={wipLimits}
-            wipLimit={wipLimit}
-            cusumAnnotations={cusumAnnotations}
-            signals={signals}
-          />
-        </ChartFigure>
-      </CardContent>
-    </Card>
+    <section className="space-y-2">
+      <h3 id={titleId} className="text-sm font-semibold text-text">
+        WIP control chart
+        <span className="ml-1 text-xs font-normal text-sub">
+          · XmR limits + CUSUM regime shifts
+        </span>
+      </h3>
+      <ChartFigure
+        labelledBy={titleId}
+        summary={text.summary}
+        table={text.table}
+        plotClassName="-mx-2 h-60"
+      >
+        <WipControlLineChart
+          wipSeries={wipSeries}
+          wipLimits={wipLimits}
+          wipLimit={wipLimit}
+          cusumAnnotations={cusumAnnotations}
+          signals={signals}
+        />
+      </ChartFigure>
+    </section>
   );
 }

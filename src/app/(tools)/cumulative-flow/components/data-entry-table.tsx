@@ -1,145 +1,208 @@
 "use client";
 
 /**
- * Per-snapshot data entry table: one row per dated snapshot with a per-column
- * count input, an optional note, and remove. Header carries the "Add Date"
- * action (dedupe + logging handled by the parent's onAddEntry).
+ * The typed snapshots, edited in place: one row per date (a card per date
+ * on a phone, so nothing scrolls sideways), a count per column, a note and
+ * Delete (with Undo, from the page). A count edit commits on blur; a blank
+ * or impossible count isn't saved (clearing a field used to write 0). A
+ * date already used by another snapshot is refused with a message.
  */
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useId, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
 import { BlurInput } from "@/components/shared/blur-fields";
-import { BarChart2, Plus, Trash2 } from "lucide-react";
-import type { CFDStore, DataEntry, StatusColumn } from "../types";
+import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
+import type { DataEntry, StatusColumn } from "../types";
+import { countError, dateError } from "../form";
+
+/** A cell's error message, under its control. */
+function CellError({ id, error }: { id: string; error: string | null }) {
+  return error ? (
+    <p id={id} role="alert" className="mt-1 max-w-[12rem] text-left text-xs text-danger">
+      {error}
+    </p>
+  ) : null;
+}
+
+function CountCell({
+  entry,
+  column,
+  onCommit,
+}: {
+  entry: DataEntry;
+  column: StatusColumn;
+  onCommit: (count: number) => void;
+}) {
+  const id = useId();
+  const stored = entry.counts[column.id];
+  const shown = stored === undefined ? "" : String(stored);
+  const [draft, setDraft] = useState(shown);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(shown);
+    setError(null);
+  }, [shown]);
+  const commit = () => {
+    if (draft.trim() === shown) {
+      setError(null);
+      return;
+    }
+    const err = countError(draft, column);
+    setError(err);
+    if (!err) onCommit(Number(draft));
+  };
+  return (
+    <div>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        step={1}
+        value={draft}
+        // A column added after this snapshot has no count: it charts as 0.
+        placeholder="—"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(shown);
+            setError(null);
+          }
+        }}
+        aria-label={`${column.name} on ${entry.date}`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className="h-8 w-20 bg-surface-deep border-border text-text font-data text-center md:mx-auto"
+      />
+      <CellError id={`${id}-error`} error={error} />
+    </div>
+  );
+}
+
+function DateCell({
+  entry,
+  entries,
+  today,
+  onCommit,
+}: {
+  entry: DataEntry;
+  entries: readonly DataEntry[];
+  today: string;
+  /** Saves the date; false when it was taken meanwhile. */
+  onCommit: (date: string) => boolean;
+}) {
+  const id = useId();
+  const [draft, setDraft] = useState(entry.date);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(entry.date);
+    setError(null);
+  }, [entry.date]);
+  const commit = (value: string) => {
+    if (value === entry.date) {
+      setError(null);
+      return;
+    }
+    const err = dateError(value, entries, today, entry.id);
+    setError(err);
+    if (!err && !onCommit(value)) setError(dateError(value, [], today) ?? "That date is taken.");
+  };
+  return (
+    <div>
+      <Input
+        type="date"
+        max={today}
+        value={draft}
+        // Committed on blur (or Enter), not per change: typing a year digit by
+        // digit passes through dates like 0002-10-05 on the way.
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(entry.date);
+            setError(null);
+          }
+        }}
+        aria-label={`Date of the snapshot from ${entry.date}`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className="h-8 w-40 bg-surface-deep border-border text-text text-sm"
+      />
+      <CellError id={`${id}-error`} error={error} />
+    </div>
+  );
+}
 
 export function DataEntryTable({
   sortedEntries,
   columns,
-  hasEntries,
-  onUpdateEntry,
+  today,
+  onUpdateDate,
+  onUpdateNote,
   onUpdateCount,
   onRemoveEntry,
-  onAddEntry,
 }: {
   sortedEntries: DataEntry[];
   columns: StatusColumn[];
-  hasEntries: boolean;
-  onUpdateEntry: CFDStore["updateEntry"];
-  onUpdateCount: CFDStore["updateEntryCount"];
-  onRemoveEntry: CFDStore["removeEntry"];
-  onAddEntry: CFDStore["addEntry"];
+  today: string;
+  onUpdateDate: (entry: DataEntry, date: string) => boolean;
+  onUpdateNote: (entry: DataEntry, note: string | undefined) => void;
+  onUpdateCount: (entry: DataEntry, columnId: string, count: number) => void;
+  onRemoveEntry: (entry: DataEntry) => void;
 }) {
-  return (
-    <Card className="bg-surface border-border">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-            <BarChart2 className="w-4 h-4 text-accent" />
-            Data Entries
-          </CardTitle>
-          <Button size="sm" variant="toolkit" onClick={onAddEntry} className="gap-1.5">
-            <Plus className="w-4 h-4" />
-            Add Date
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {!hasEntries ? (
-          <p className="text-sm text-sub text-center py-6">
-            No entries yet. Click &ldquo;Add Date&rdquo; to start tracking.
-          </p>
-        ) : (
-          <div className="table-wrap-responsive">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-2 pr-4 text-xs text-sub font-medium uppercase tracking-wider">
-                    Date
-                  </th>
-                  {columns.map((col) => (
-                    <th
-                      key={col.id}
-                      className="text-center py-2 px-3 text-xs font-medium uppercase tracking-wider whitespace-nowrap"
-                      style={{ color: col.color }}
-                    >
-                      {col.name}
-                    </th>
-                  ))}
-                  <th className="text-left py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider whitespace-nowrap">
-                    Note
-                  </th>
-                  <th className="w-8">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedEntries.map((entry) => (
-                  <tr key={entry.id} className="border-b border-border hover:bg-card">
-                    <td className="py-2 pr-4">
-                      <Input
-                        type="date"
-                        value={entry.date}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          // Reject blank — date is required for chart x-axis.
-                          if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
-                            onUpdateEntry(entry.id, { date: v });
-                          }
-                        }}
-                        className="h-8 w-36 bg-surface-deep border-border text-text text-sm focus:border-accent/50"
-                        aria-label="Snapshot date"
-                      />
-                    </td>
-                    {columns.map((col) => (
-                      <td key={col.id} className="py-2 px-3 text-center">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={entry.counts[col.id] ?? 0}
-                          onChange={(e) => {
-                            const n = Number(e.target.value);
-                            if (Number.isFinite(n)) {
-                              onUpdateCount(entry.id, col.id, Math.max(0, n));
-                            }
-                          }}
-                          className="h-8 w-20 mx-auto bg-surface-deep border-border text-text font-data text-center focus:border-accent/50"
-                          aria-label={`${col.name} count on ${entry.date}`}
-                        />
-                      </td>
-                    ))}
-                    {/* Compact single-line note input — dense table row. */}
-                    <td className="py-2 px-3">
-                      <BlurInput
-                        placeholder="Optional note..."
-                        value={entry.description ?? ""}
-                        onCommit={(v) =>
-                          onUpdateEntry(entry.id, {
-                            description: v.trim() ? v : undefined,
-                          })
-                        }
-                        className="h-8 min-w-[140px] bg-surface-deep border-border text-text text-xs focus:border-accent/50"
-                        aria-label={`Note for ${entry.date}`}
-                      />
-                    </td>
-                    <td className="py-2">
-                      <button
-                        type="button"
-                        onClick={() => onRemoveEntry(entry.id)}
-                        aria-label={`Remove snapshot for ${entry.date}`}
-                        className="text-sub hover:text-danger transition-colors p-1"
-                      >
-                        <Trash2 className="w-4 h-4" aria-hidden="true" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+  const tableColumns: DataTableColumn<DataEntry>[] = [
+    {
+      key: "date",
+      header: "Date",
+      primary: true,
+      cell: (e) => (
+        <DateCell
+          entry={e}
+          entries={sortedEntries}
+          today={today}
+          onCommit={(date) => onUpdateDate(e, date)}
+        />
+      ),
+    },
+    ...columns.map(
+      (c): DataTableColumn<DataEntry> => ({
+        key: `count-${c.id}`,
+        header: c.name,
+        align: "center",
+        cell: (e) => <CountCell entry={e} column={c} onCommit={(n) => onUpdateCount(e, c.id, n)} />,
+      })
+    ),
+    {
+      key: "note",
+      header: "Note",
+      cell: (e) => (
+        <BlurInput
+          placeholder="Optional note"
+          value={e.description ?? ""}
+          onCommit={(v) => onUpdateNote(e, v.trim() ? v.trim() : undefined)}
+          className="h-8 min-w-[8rem] bg-surface-deep border-border text-text text-xs"
+          aria-label={`Note for ${e.date}`}
+        />
+      ),
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      sortLabel: "Actions",
+      align: "right",
+      cell: (e) => (
+        <IconButton
+          label={`Delete the snapshot from ${e.date}`}
+          icon={<Trash2 aria-hidden="true" />}
+          onClick={() => onRemoveEntry(e)}
+          className="text-sub hover:text-danger"
+        />
+      ),
+    },
+  ];
+  return <DataTable columns={tableColumns} rows={sortedEntries} rowKey={(e) => e.id} />;
 }
