@@ -29,6 +29,8 @@ export const VELOCITY_ACTIONS = {
   SPRINT_REMOVED: "sprint_removed",
   SPRINT_UPDATED: "sprint_updated",
   VELOCITY_RESET: "velocity_reset", // milestone
+  SPRINT_CLOSED: "sprint_closed",
+  NEXT_SPRINT_PLANNED: "next_sprint_planned",
 } as const;
 
 export const IMPEDIMENT_ACTIONS = {
@@ -67,6 +69,7 @@ export const BURNDOWN_ACTIONS = {
   CONFIG_UPDATED: "config_updated",
   SCOPE_CHANGED: "scope_changed",
   BURNDOWN_RESET: "burndown_reset", // milestone
+  SOURCE_SWITCHED: "source_switched",
 } as const;
 
 export const BURNUP_ACTIONS = {
@@ -75,6 +78,7 @@ export const BURNUP_ACTIONS = {
   CONFIG_UPDATED: "config_updated",
   SCOPE_CHANGED: "scope_changed",
   BURNUP_RESET: "burnup_reset", // milestone
+  SOURCE_SWITCHED: "source_switched",
 } as const;
 
 export const CFD_ACTIONS = {
@@ -82,6 +86,8 @@ export const CFD_ACTIONS = {
   COLUMN_ADDED: "column_added",
   COLUMN_REMOVED: "column_removed",
   CFD_RESET: "cfd_reset", // milestone
+  SNAPSHOT_REMOVED: "snapshot_removed",
+  SOURCE_SWITCHED: "source_switched",
 } as const;
 
 export const MOOD_ACTIONS = {
@@ -168,6 +174,7 @@ export const CYCLE_TIME_ACTIONS = {
   ITEM_REMOVED: "item_removed",
   ITEM_UPDATED: "item_updated",
   CYCLE_TIME_RESET: "cycle_time_reset", // milestone
+  ITEMS_IMPORTED: "items_imported",
 } as const;
 
 export const VALUE_STREAM_ACTIONS = {
@@ -175,6 +182,8 @@ export const VALUE_STREAM_ACTIONS = {
   STAGE_REMOVED: "stage_removed",
   STAGE_UPDATED: "stage_updated",
   VALUE_STREAM_RESET: "value_stream_reset", // milestone
+  STAGE_MOVED: "stage_moved",
+  FUTURE_STATE_STARTED: "future_state_started",
 } as const;
 
 export const PI_PLANNING_ACTIONS = {
@@ -280,6 +289,7 @@ export const SPRINT_COMPARE_ACTIONS = {
   SPRINT_PINNED: "sprint_pinned",
   SPRINT_UNPINNED: "sprint_unpinned",
   COMPARE_RESET: "compare_reset", // milestone
+  RATING_SET: "rating_set",
 } as const;
 
 export const RELEASE_PLANNER_ACTIONS = {
@@ -377,6 +387,7 @@ export const HEALTH_DASHBOARD_ACTIONS = {
   DASHBOARD_REFRESHED: "dashboard_refreshed",
   SUMMARY_GENERATED: "summary_generated", // milestone
   SUMMARY_COPIED: "summary_copied",
+  THRESHOLDS_UPDATED: "thresholds_updated",
 } as const;
 
 export const DEPENDENCY_MAP_ACTIONS = {
@@ -393,6 +404,8 @@ export const DORA_ACTIONS = {
   SAMPLE_REMOVED: "sample_removed",
   TARGET_UPDATED: "target_updated",
   DORA_RESET: "dora_reset", // milestone
+  SAMPLE_UPDATED: "sample_updated",
+  SAMPLE_DERIVED: "sample_derived",
 } as const;
 
 export const SPACE_ACTIONS = {
@@ -457,6 +470,9 @@ export const RELEASE_READINESS_ACTIONS = {
   RELEASE_ROLLED_BACK: "release_rolled_back",
   RELEASE_REMOVED: "release_removed",
   READINESS_RESET: "readiness_reset",
+  RELEASE_REOPENED: "release_reopened",
+  RELEASE_UPDATED: "release_updated",
+  GATES_CHANGED: "gates_changed",
 } as const;
 
 export const RUNBOOK_SCORER_ACTIONS = {
@@ -647,6 +663,7 @@ export const FEATURE_FLAG_ACTIONS = {
   FLAG_UPDATED: "flag_updated",
   FLAG_RETIRED: "flag_retired", // milestone
   FEATURE_FLAG_RESET: "feature_flag_reset",
+  FLAG_STATUS_CHANGED: "flag_status_changed",
 } as const;
 
 // ════════════════════════════════════════════════════════════════════
