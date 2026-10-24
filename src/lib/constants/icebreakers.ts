@@ -4,7 +4,17 @@ export interface IceBreaker {
   description: string;
   instructions: string;
   timeMinutes: number;
+  /** The size it was written for: small 2-5, medium 5-10, large 10+ people. */
   teamSize: "small" | "medium" | "large";
+  /**
+   * The fewest and the most people it works with, where they differ from
+   * the `teamSize` range (src/app/(tools)/icebreaker/sizes.ts). Set on the
+   * large-group activities that work just as well for a small team: there
+   * "large" means it scales up, not that it needs ten people. Null for no
+   * upper limit.
+   */
+  minPeople?: number;
+  maxPeople?: number | null;
   energyLevel: "low" | "medium" | "high";
   category: "question" | "activity" | "game" | "creative" | "agile";
 }
@@ -14,7 +24,8 @@ export const icebreakers: IceBreaker[] = [
   {
     id: "q-1",
     name: "Two Truths and a Lie",
-    description: "Each person shares two true statements and one false one. The group guesses the lie.",
+    description:
+      "Each person shares two true statements and one false one. The group guesses the lie.",
     instructions:
       "Go around the group. Each person states three things about themselves: two true and one made up. After each person shares, the rest of the group votes on which statement is the lie. Reveal the answer and move on.",
     timeMinutes: 10,
@@ -63,6 +74,7 @@ export const icebreakers: IceBreaker[] = [
       "The facilitator reads out a Would You Rather question (e.g., 'Would you rather have unlimited money or unlimited time?'). Participants pick a side and briefly explain. Do 3-5 rounds.",
     timeMinutes: 10,
     teamSize: "large",
+    minPeople: 3,
     energyLevel: "medium",
     category: "question",
   },
@@ -85,6 +97,7 @@ export const icebreakers: IceBreaker[] = [
       "Each person shares a single word that captures their current mood or state. No explanations required unless they want to elaborate briefly. Great for pulse-checking the room.",
     timeMinutes: 2,
     teamSize: "large",
+    minPeople: 2,
     energyLevel: "low",
     category: "question",
   },
@@ -142,6 +155,7 @@ export const icebreakers: IceBreaker[] = [
       "Ask everyone to simultaneously drop an emoji in the chat that represents how they feel. Then go around and have a few people explain their choice. Quick, visual, and inclusive.",
     timeMinutes: 2,
     teamSize: "large",
+    minPeople: 2,
     energyLevel: "low",
     category: "activity",
   },
@@ -164,6 +178,7 @@ export const icebreakers: IceBreaker[] = [
       "One person leads 4-5 simple stretches (neck rolls, shoulder shrugs, wrist stretches, standing stretch). Hold each for 15-20 seconds. Great for mid-meeting energy boosts.",
     timeMinutes: 2,
     teamSize: "large",
+    minPeople: 2,
     energyLevel: "medium",
     category: "activity",
   },
@@ -243,6 +258,7 @@ export const icebreakers: IceBreaker[] = [
       "Pair everyone up. Play best-of-one Rock Paper Scissors. Winners advance, losers cheer. Continue the bracket until a champion is crowned. Works great on camera with countdown.",
     timeMinutes: 5,
     teamSize: "large",
+    minPeople: 4,
     energyLevel: "high",
     category: "game",
   },
@@ -254,6 +270,7 @@ export const icebreakers: IceBreaker[] = [
       "The facilitator reads 5 trivia questions one at a time. Participants type their answers in chat. First correct answer wins the point. Tally scores at the end. Mix categories for variety.",
     timeMinutes: 5,
     teamSize: "large",
+    minPeople: 3,
     energyLevel: "high",
     category: "game",
   },
@@ -320,6 +337,7 @@ export const icebreakers: IceBreaker[] = [
       "Pick a random letter and a category (e.g., 'animals starting with B'). Everyone has 30 seconds to write as many as they can. Share answers. Unique answers score a point. Play 3 rounds.",
     timeMinutes: 5,
     teamSize: "large",
+    minPeople: 3,
     energyLevel: "high",
     category: "game",
   },
@@ -421,6 +439,7 @@ export const icebreakers: IceBreaker[] = [
       "The facilitator shares a random or absurd stock photo. Everyone has 60 seconds to write a caption in the chat. Read them aloud and vote on the funniest one.",
     timeMinutes: 5,
     teamSize: "large",
+    minPeople: 3,
     energyLevel: "medium",
     category: "creative",
   },
@@ -522,6 +541,7 @@ export const icebreakers: IceBreaker[] = [
       "Before the meeting, create or distribute bingo cards with Agile terms (velocity, blocker, increment, etc.). During the meeting, mark off terms as they are used naturally. First to get a row wins. Keeps everyone engaged.",
     timeMinutes: 15,
     teamSize: "large",
+    minPeople: 4,
     energyLevel: "medium",
     category: "agile",
   },
@@ -605,7 +625,8 @@ export const icebreakers: IceBreaker[] = [
   {
     id: "ag-14",
     name: "Ceremony Confession",
-    description: "Share your honest opinion about which Agile ceremony you secretly enjoy most (or least).",
+    description:
+      "Share your honest opinion about which Agile ceremony you secretly enjoy most (or least).",
     instructions:
       "Each person anonymously (or openly) shares which Agile ceremony they find most valuable and which they would skip if they could. Discuss the results. This can surface improvements for how your team runs ceremonies.",
     timeMinutes: 5,
