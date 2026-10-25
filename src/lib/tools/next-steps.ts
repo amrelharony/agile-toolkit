@@ -47,6 +47,23 @@ import { hasOwnCards } from "@/lib/retro/board";
 import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
 import { lsStructure } from "@/lib/liberating-structures/catalog";
 import { KANBAN_BOARD_ID, STORY_MAP_ID } from "@/lib/stores/workspace-types";
+import type { CeremonyCadenceDoc, SprintSeries } from "@/lib/stores/workspace-types";
+import { cadenceCalendar } from "@/lib/sprints/cadence";
+import { burnSeries, burnStatus, openUnpointed } from "@/lib/sprints/burn";
+import { predictability } from "@/lib/sprints/metrics";
+import { sprintTrends } from "@/lib/sprints/trends";
+import { hasSyntheticDates } from "@/lib/sprints/series";
+import { addDays, ageingWip, cardItems, cycleSummary, finishedItems, storyItems } from "@/lib/flow";
+import { bottleneck, orderedStages } from "@/lib/value-stream/summary";
+import { dashboardKpis } from "@/lib/health-dashboard/kpis";
+import { kpiReading } from "@/lib/health-dashboard/verdict";
+import { HEALTH_DASHBOARD_ID } from "@/lib/stores/workspace-types";
+import { DORA_DOC_ID } from "@/lib/dora/samples";
+import { currentQuarterIndex, dashQuarter, quarterBounds } from "@/lib/roadmap/quarters";
+import { RELEASE_DOC_ID } from "@/lib/releases/gates";
+import { shipEvents, shippedBetween } from "@/lib/releases/model";
+import { gateResults, releaseChecks } from "@/lib/releases/auto-gates";
+import { flagSummary } from "@/lib/flags/model";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -123,6 +140,71 @@ function nextPlannedSprint(sprints: readonly Sprint[] | undefined): Sprint | und
     .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
 }
 
+/** How recent a rollback has to be for the retro to be the next step. */
+const ROLLBACK_LEAD_DAYS = 14;
+
+/** How soon a planned release has to be for a premortem to be the next step. */
+const RELEASE_LEAD_DAYS = 7;
+
+/**
+ * The focus sprint's burn, as Burndown and Burnup chart it: from the board
+ * or the typed log, on the team's working days. Null without an open sprint.
+ */
+function focusBurn(
+  sprints: readonly Sprint[] | undefined,
+  stories: readonly Story[] | undefined,
+  series: readonly SprintSeries[] | undefined,
+  cadences: readonly CeremonyCadenceDoc[] | undefined
+) {
+  const sprint = focusSprint(sprints);
+  if (!sprint) return null;
+  const calendar = cadenceCalendar(
+    normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences as CeremonyCadenceDoc[] }))
+  );
+  const burn = burnSeries({
+    sprint,
+    series: (series ?? []).find((x) => x.id === sprint.id),
+    stories: real(stories),
+    calendar,
+    today: todayIso(),
+  });
+  return { sprint, burn, status: burnStatus(burn, sprint) };
+}
+
+/** "N open stories in Sprint 7 have no points": the unsized step both burn charts share. */
+function unsizedStep(
+  id: string,
+  sprint: Sprint,
+  stories: readonly Story[] | undefined,
+  chart: string
+): NextStep[] {
+  const n = openUnpointed(real(stories), sprint.id);
+  return n === 0
+    ? []
+    : [
+        {
+          id,
+          label: "Estimate the unsized stories",
+          detail: `${plural(n, "open story", "open stories")} in ${sprint.name} ${n === 1 ? "has" : "have"} no points, so the ${chart} can't show all of the work.`,
+          href: "/planning-poker",
+        },
+      ];
+}
+
+/** Sprints whose end date has passed but that were never closed. */
+function endedOpenSprints(sprints: readonly Sprint[] | undefined): Sprint[] {
+  const today = todayIso();
+  return real(sprints)
+    .filter((s) => isOpenSprint(s) && !hasSyntheticDates(s) && s.endDate.slice(0, 10) < today)
+    .sort((a, b) => a.endDate.localeCompare(b.endDate));
+}
+
+/** Finished sprints still missing their completed points (velocity skips them). */
+const missingPoints = (sprints: readonly Sprint[] | undefined) =>
+  completed(sprints).filter(
+    (s) => !(typeof s.pointsCompleted === "number" && Number.isFinite(s.pointsCompleted))
+  );
+
 /** Live and async standups are one tool with one next step. */
 const standupRule = rule({
   select: (ws) => ({ impediments: ws.impediments, sprints: ws.sprints, stories: ws.stories }),
@@ -164,6 +246,387 @@ const standupRule = rule({
 });
 
 const RULES: Record<string, NextStepRule<object>> = {
+  // ── Track delivery ──
+  burndown: rule({
+    select: (ws) => ({
+      sprints: ws.sprints,
+      stories: ws.stories,
+      series: ws.sprintSeries,
+      cadences: ws.ceremonyCadences,
+    }),
+    steps: ({ sprints, stories, series, cadences }) => {
+      const now = focusBurn(sprints, stories, series, cadences);
+      if (!now) return [];
+      const { sprint, burn, status } = now;
+      const steps: NextStep[] = [];
+      if (burn.phase === "over" && sprint.status === "active") {
+        steps.push({
+          id: "burndown-close",
+          label: `Close ${sprint.name} in the cockpit`,
+          detail:
+            "It has ended. Closing it records its velocity and carries the unfinished stories over.",
+          href: sprintHref("/sprint", sprint.id),
+        });
+      }
+      steps.push(...unsizedStep("burndown-unsized", sprint, stories, "burndown"));
+      if (burn.phase === "running" && !status.cantTell && (status.gap ?? 0) > 0) {
+        steps.push({
+          id: "burndown-gap",
+          label: "Talk through the gap at the Daily Scrum",
+          detail: `${status.gapLabel} against the ideal line, counted on working days.`,
+          href: sprintHref("/standup", sprint.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
+  burnup: rule({
+    select: (ws) => ({
+      sprints: ws.sprints,
+      stories: ws.stories,
+      series: ws.sprintSeries,
+      cadences: ws.ceremonyCadences,
+    }),
+    steps: ({ sprints, stories, series, cadences }) => {
+      const now = focusBurn(sprints, stories, series, cadences);
+      if (!now) return [];
+      const { sprint, burn } = now;
+      const steps: NextStep[] = [];
+      if (burn.scopeAdded > 0) {
+        steps.push({
+          id: "burnup-scope-added",
+          label: "Check the added scope against the Sprint Goal",
+          detail: `${plural(burn.scopeAdded, "point")} joined ${sprint.name} after its first day.`,
+          href: sprintHref("/sprint-goal", sprint.id),
+        });
+      }
+      if (burn.scopeRemoved > 0) {
+        steps.push({
+          id: "burnup-scope-removed",
+          label: "Note the descoped work in the Sprint Review",
+          detail: `${plural(burn.scopeRemoved, "point")} left ${sprint.name} after its first day.`,
+          href: sprintHref("/sprint-review", sprint.id),
+        });
+      }
+      steps.push(...unsizedStep("burnup-unsized", sprint, stories, "burnup"));
+      return steps;
+    },
+  }),
+
+  velocity: rule({
+    select: (ws) => ({ sprints: ws.sprints }),
+    steps: ({ sprints }) => {
+      const steps: NextStep[] = [];
+      const [ended] = endedOpenSprints(sprints);
+      if (ended) {
+        steps.push({
+          id: "velocity-close",
+          label: `Close ${ended.name} with its completed points`,
+          detail:
+            "It has ended. Closing it counts its points toward velocity and decides where its unfinished stories go.",
+          href: sprintHref("/sprint", ended.id),
+        });
+      }
+      const [unscored] = missingPoints(sprints);
+      if (unscored) {
+        steps.push({
+          id: "velocity-missing-points",
+          label: `Add ${unscored.name}'s completed points`,
+          detail:
+            "Velocity and forecasts skip a finished sprint until it has its completed points.",
+          href: "/velocity",
+        });
+      }
+      const recent = predictability(real(sprints), { window: 3 });
+      const short = recent.byGrade.missed + recent.byGrade.close;
+      if (recent.count >= 2 && short >= 2) {
+        steps.push({
+          id: "velocity-commitments",
+          label: "Talk about the missed commitments at the retro",
+          detail: `${short} of the last ${plural(recent.count, "pointed sprint")} finished under 90% of their commitment.`,
+          href: "/retro",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "sprint-compare": rule({
+    select: (ws) => ({ sprints: ws.sprints, goals: ws.sprintGoals }),
+    steps: ({ sprints, goals }) => {
+      const [newest] = completed(sprints).sort((a, b) => b.endDate.localeCompare(a.endDate));
+      if (!newest) return [];
+      const goal = (goals ?? []).find((g) => g.id === goalDocId(newest.id));
+      return goal?.goal.trim() && !goal.outcome
+        ? [
+            {
+              id: "sprint-compare-goal",
+              label: `Answer whether ${newest.name} met its goal`,
+              detail: "Goal Achievement isn't scored until the team answers it in Sprint Goal.",
+              href: sprintHref("/sprint-goal", newest.id),
+            },
+          ]
+        : [];
+    },
+  }),
+
+  "sprint-metrics": rule({
+    select: (ws) => ({ sprints: ws.sprints, stories: ws.stories, series: ws.sprintSeries }),
+    steps: ({ sprints, stories, series }) => {
+      const steps: NextStep[] = [];
+      const unscored = missingPoints(sprints);
+      if (unscored.length > 0) {
+        steps.push({
+          id: "sprint-metrics-missing-points",
+          label: "Add the missing completed points",
+          detail: `${plural(unscored.length, "finished sprint")} ${be(unscored.length)} left out of the trend and velocity.`,
+          href: "/velocity",
+        });
+      }
+      const rows = sprintTrends({
+        sprints: sprints ?? [],
+        stories: stories ?? [],
+        series,
+        window: 3,
+      }).rows;
+      const missed = rows.filter((r) => r.sayDo?.grade === "missed").length;
+      if (missed >= 2) {
+        steps.push({
+          id: "sprint-metrics-slipping",
+          label: "Look at why commitments slip",
+          detail: `${missed} of the last ${plural(rows.length, "sprint")} delivered under 70% of their commitment.`,
+          href: "/retro",
+        });
+      }
+      const carried = rows.filter((r) => (r.carryOver.pct ?? 0) > 20).length;
+      const next = nextPlannedSprint(sprints);
+      if (carried >= 2 && next) {
+        steps.push({
+          id: "sprint-metrics-carry-over",
+          label: `Plan ${next.name} lighter, or split stories`,
+          detail: `${carried} of the last ${plural(rows.length, "sprint")} carried over more than a fifth of their commitment.`,
+          href: sprintHref("/sprint-planning", next.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "cumulative-flow": rule({
+    select: (ws) => ({ stories: ws.stories, boards: ws.kanbanBoards }),
+    steps: ({ stories, boards }) => {
+      const board = (boards ?? []).find((b) => b.id === FLOW_BOARD_ID);
+      const finished = finishedItems([
+        ...storyItems(stories ?? []),
+        ...cardItems(board?.cards ?? []),
+      ]);
+      return finished.length >= MIN_SAMPLE.distribution
+        ? [
+            {
+              id: "cfd-cycle-time",
+              label: "See how long items take to finish in Cycle Time",
+              detail: `${plural(finished.length, "item")} finished on the boards. Little's Law gives an average; Cycle Time gives the spread.`,
+              href: "/cycle-time",
+            },
+          ]
+        : [];
+    },
+  }),
+
+  "cycle-time": rule({
+    select: (ws) => ({ stories: ws.stories, boards: ws.kanbanBoards }),
+    steps: ({ stories, boards }) => {
+      const board = (boards ?? []).find((b) => b.id === FLOW_BOARD_ID);
+      const items = [...storyItems(stories ?? []), ...cardItems(board?.cards ?? [])];
+      const finished = finishedItems(items);
+      if (finished.length < MIN_SAMPLE.distribution) {
+        return [
+          {
+            id: "cycle-time-move-work",
+            label: "Move work to Done on the board to see cycle times",
+            detail: `${plural(finished.length, "item")} finished with a start date; a spread needs ${MIN_SAMPLE.distribution}.`,
+            href: "/kanban",
+          },
+        ];
+      }
+      const { p85 } = cycleSummary(finished.map((f) => f.days));
+      const old = ageingWip(items, todayIso(), p85).filter((a) => a.overP85);
+      return old.length > 0
+        ? [
+            {
+              id: "cycle-time-ageing",
+              label: `Talk through the ${plural(old.length, "oldest item")} at the Daily Scrum`,
+              detail: `${old.length === 1 ? "It is" : "They are"} already older than 85% of finished work took (${p85} days).`,
+              href: "/standup",
+            },
+          ]
+        : [];
+    },
+  }),
+
+  "value-stream": rule({
+    select: (ws) => ({ stages: ws.valueStreamStages }),
+    steps: ({ stages }) => {
+      const current = orderedStages(real(stages), "current");
+      const steps: NextStep[] = [];
+      const worst = bottleneck(current);
+      if (worst) {
+        steps.push({
+          id: "value-stream-bottleneck",
+          label: `Take the ${worst.stage.name} wait to the retro`,
+          detail: `Work waits ${Math.round(worst.waitDays * 10) / 10} days there, ${Math.round(worst.sharePct)}% of the lead time.`,
+          href: "/retro",
+        });
+      }
+      if (current.length >= 2 && orderedStages(real(stages), "future").length === 0) {
+        steps.push({
+          id: "value-stream-future",
+          label: "Draft the future state you want",
+          detail: "Copy the current map and change it to the flow the team is aiming for.",
+          href: "/value-stream",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "health-dashboard": rule({
+    select: (ws) => ({
+      sprints: ws.sprints,
+      stories: ws.stories,
+      kanbanBoards: ws.kanbanBoards,
+      healthChecks: ws.healthChecks,
+      impediments: ws.impediments,
+      standupEntries: ws.standupEntries,
+      asyncUpdates: ws.asyncUpdates,
+      configs: ws.healthDashboards,
+    }),
+    steps: ({ configs, ...sources }) => {
+      const kpis = dashboardKpis({
+        ...sources,
+        config: (configs ?? []).find((c) => c.id === HEALTH_DASHBOARD_ID) ?? null,
+        today: todayIso(),
+      });
+      const steps: NextStep[] = [];
+      const red = kpis.find((k) => k.status === "red");
+      if (red) {
+        steps.push({
+          id: "health-dashboard-red",
+          label: `Look into ${red.name.toLowerCase()}`,
+          detail: kpiReading(red),
+          href: red.source.href,
+        });
+      }
+      if (kpis.some((k) => k.id === "team-health" && !k.hasData)) {
+        steps.push({
+          id: "health-dashboard-health-check",
+          label: "Run a squad health check",
+          detail: "Team health reads the latest saved health check, and there is none yet.",
+          href: "/health-check",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "dora-scorecard": rule({
+    select: (ws) => ({ scorecards: ws.doraScorecards, readiness: ws.releaseReadinesses }),
+    steps: ({ scorecards, readiness }) => {
+      const samples = real((scorecards ?? []).find((d) => d.id === DORA_DOC_ID)?.samples);
+      const doc = (readiness ?? []).find((d) => d.id === RELEASE_DOC_ID);
+      const events = shipEvents(doc ? { ...doc, releases: real(doc.releases) } : undefined);
+      const quarter = dashQuarter(currentQuarterIndex() - 1);
+      const bounds = quarterBounds(quarter);
+      const shipped = bounds ? shippedBetween(events, bounds.start, bounds.end).length : 0;
+      if (shipped > 0 && !samples.some((s) => s.quarter === quarter)) {
+        return [
+          {
+            id: "dora-fill-quarter",
+            label: `Fill ${quarter} from your data`,
+            detail: `No sample for ${quarter} yet, and ${plural(shipped, "release")} went out in it.`,
+            href: "/dora-scorecard",
+          },
+        ];
+      }
+      if (samples.length === 0 && events.length === 0) {
+        return [
+          {
+            id: "dora-track-releases",
+            label: "Track releases to derive the deployment numbers",
+            detail:
+              "Deployment frequency and change failure rate come from shipped and rolled-back releases.",
+            href: "/release-readiness",
+          },
+        ];
+      }
+      return [];
+    },
+  }),
+
+  "release-readiness": rule({
+    select: (ws) => ({ readiness: ws.releaseReadinesses, flags: ws.featureFlags }),
+    steps: ({ readiness, flags }) => {
+      const doc = (readiness ?? []).find((d) => d.id === RELEASE_DOC_ID);
+      const releases = real(doc?.releases);
+      const today = todayIso();
+      const steps: NextStep[] = [];
+      const since = addDays(today, -ROLLBACK_LEAD_DAYS) ?? today;
+      const rolledBack = releases
+        .filter((r) => r.status === "rolled_back" && r.rolledBackAt && r.rolledBackAt >= since)
+        .sort((a, b) => (b.rolledBackAt ?? "").localeCompare(a.rolledBackAt ?? ""))[0];
+      if (rolledBack) {
+        steps.push({
+          id: "release-rollback-retro",
+          label: `Talk about the ${rolledBack.name} rollback at the retro`,
+          detail: `It was rolled back on ${rolledBack.rolledBackAt}. Send it as a retro topic from its card.`,
+          href: "/retro",
+        });
+      }
+      const soon = addDays(today, RELEASE_LEAD_DAYS) ?? today;
+      for (const r of releases) {
+        if (r.status !== "planning" || r.plannedDate < today || r.plannedDate > soon) continue;
+        const open = gateResults(r, doc, releaseChecks(r, real(flags), null, today)).filter(
+          (g) => !g.passed
+        ).length;
+        if (open === 0) continue;
+        steps.push({
+          id: "release-premortem",
+          label: `Run a premortem on ${r.name}`,
+          detail: `It's planned for ${r.plannedDate} with ${plural(open, "gate")} still open.`,
+          href: "/premortem",
+        });
+        break;
+      }
+      return steps;
+    },
+  }),
+
+  "feature-flag-tracker": rule({
+    select: (ws) => ({ flags: ws.featureFlags }),
+    steps: ({ flags }) => {
+      const summary = flagSummary(real(flags), todayIso());
+      const steps: NextStep[] = [];
+      if (summary.stale > 0) {
+        steps.push({
+          id: "flags-stale",
+          label: `Plan the removal of ${plural(summary.stale, "stale flag")}`,
+          detail: `${summary.pastRemoval} past the removal date the team set, ${summary.overLifetime} older than their purpose's typical lifetime. Send each to the backlog from its card.`,
+          href: "/sprint-planning",
+        });
+      }
+      if (summary.noOwner > 0) {
+        steps.push({
+          id: "flags-no-owner",
+          label: `Give ${plural(summary.noOwner, "flag")} an owner`,
+          detail: "A flag nobody owns is the one nobody removes.",
+          href: "/feature-flag-tracker",
+        });
+      }
+      return steps;
+    },
+  }),
+
   "sprint-planning": rule({
     select: (ws) => ({ sprints: ws.sprints, stories: ws.stories }),
     steps: ({ sprints, stories }) => {
