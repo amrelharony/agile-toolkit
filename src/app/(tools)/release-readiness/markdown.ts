@@ -35,9 +35,15 @@ export function toMarkdown(input: ReleaseMarkdownInput): string {
   const title = `# Release readiness — ${dayLabel(today, true)}`;
   if (releases.length === 0) return `${title}\n\nNo releases yet.\n`;
 
-  const rate = enoughData(stats.shipped, "average")
+  // Both rates wait for the page's minimum sample: quoted from fewer ships they're noise.
+  const quotable = enoughData(stats.shipped, "average");
+  const notYet = `${NO_VALUE} (shows after ${MIN_SAMPLE.average} ships)`;
+  const rate = quotable
     ? `${fmt(stats.pct ?? 0, 0)}% (${stats.onTime} of ${stats.shipped})`
-    : `${NO_VALUE} (shows after ${MIN_SAMPLE.average} ships)`;
+    : notYet;
+  const avgOpen = quotable && stats.avgGatesOpen !== null ? fmt(stats.avgGatesOpen) : notYet;
+  // Days with their year: a release review thread outlives the year it started in.
+  const day = (v: string | undefined) => dayLabel(v, true);
   const lines = [
     title,
     "",
@@ -47,7 +53,7 @@ export function toMarkdown(input: ReleaseMarkdownInput): string {
     "",
     `- Went out: ${stats.shipped}${stats.rolledBack > 0 ? ` (${stats.rolledBack} rolled back)` : ""}`,
     `- On time: ${rate}`,
-    `- Average gates open at ship: ${stats.avgGatesOpen === null ? NO_VALUE : fmt(stats.avgGatesOpen)}`,
+    `- Average gates open at ship: ${avgOpen}`,
     "",
     "## Releases",
     "",
@@ -56,9 +62,9 @@ export function toMarkdown(input: ReleaseMarkdownInput): string {
     ...releases.map(({ release: r, results }) => {
       const open = results.filter((g) => !g.passed).map((g) => g.label);
       const passed = results.length - open.length;
-      return `| ${md(nameOf(r))} | ${STATUS_LABEL[r.status]} | ${dayLabel(r.plannedDate)} | ${dayLabel(
+      return `| ${md(nameOf(r))} | ${STATUS_LABEL[r.status]} | ${day(r.plannedDate)} | ${day(
         r.shippedDate
-      )} | ${dayLabel(r.rolledBackAt)} | ${passed} / ${results.length} | ${orDash(open.join(", "))} |`;
+      )} | ${day(r.rolledBackAt)} | ${passed} / ${results.length} | ${orDash(open.join(", "))} |`;
     }),
   ];
 
@@ -74,7 +80,7 @@ export function toMarkdown(input: ReleaseMarkdownInput): string {
       "|---|---|---|---:|",
       ...earlier.map(
         ({ r, s }) =>
-          `| ${md(nameOf(r))} | ${dayLabel(s.shippedDate)} | ${dayLabel(s.rolledBackAt)} | ${
+          `| ${md(nameOf(r))} | ${day(s.shippedDate)} | ${day(s.rolledBackAt)} | ${
             s.gatesOpenAtShip ?? NO_VALUE
           } |`
       )

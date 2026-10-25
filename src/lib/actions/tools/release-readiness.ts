@@ -18,7 +18,8 @@
  *   3. update_release — rename, re-plan or re-describe a release.
  *   4. toggle_gate    — tick or clear one gate on a release being planned.
  *   5. ship_release   — ship on a day (today unless given), freezing the gates.
- *   6. set_status     — roll a shipped release back (on a day), or reopen it.
+ *   6. set_status     — roll a shipped release back (on a day), or reopen a
+ *                       rolled-back one.
  *   7. set_gates      — replace the team's gate list (left-out gates are archived).
  *   8. remove_release — delete a release by id.
  *
@@ -46,6 +47,7 @@ import type {
 import { RELEASE_DOC_ID, gatesOf, teamGates } from "@/lib/releases/gates";
 import { releaseStats } from "@/lib/releases/model";
 import {
+  describedGate,
   gateLabels,
   gateResults,
   newGateId,
@@ -57,8 +59,10 @@ import {
   shipRelease,
   storedGates,
   withRelease,
+  withShipPlans,
   withTeamGates,
   type GateChecks,
+  type PlannedShip,
 } from "@/lib/releases/auto-gates";
 import { normalizeFlags } from "@/lib/flags/model";
 import { enoughData, MIN_SAMPLE } from "@/lib/analytics/min-sample";
@@ -125,12 +129,15 @@ async function checker(store: ReleaseStore, today: string): Promise<(r: Release)
 
 /* ── list_state ─────────────────────────────────────────────────────── */
 
-const gateDefRow = (g: ReleaseGateDef) => ({
-  id: g.id,
-  label: g.label,
-  ...(g.description ? { description: g.description } : {}),
-  ...(g.auto ? { auto: g.auto } : {}),
-});
+const gateDefRow = (def: ReleaseGateDef) => {
+  const g = describedGate(def);
+  return {
+    id: g.id,
+    label: g.label,
+    ...(g.description ? { description: g.description } : {}),
+    ...(g.auto ? { auto: g.auto } : {}),
+  };
+};
 
 async function listState(store: ReleaseStore) {
   const doc = await store.getDoc();
@@ -140,7 +147,8 @@ async function listState(store: ReleaseStore) {
   const byStatus = { planning: 0, shipped: 0, rolled_back: 0 };
   for (const r of releases) byStatus[r.status]++;
   const labels = gateLabels(doc ?? undefined);
-  const stats = releaseStats(doc ?? undefined);
+  // Each ship judged against the plan it went out against, as the page does.
+  const stats = releaseStats(withShipPlans(doc ?? undefined));
   return {
     exists: doc !== null,
     total: releases.length,
@@ -174,8 +182,9 @@ async function listState(store: ReleaseStore) {
           ...(g.auto ? { auto: g.auto } : {}),
           ...(g.check ? { check: { passed: g.check.passed, detail: g.check.detail } } : {}),
         })),
-        previousShips: (r.previousShips ?? []).map((s) => ({
+        previousShips: (r.previousShips ?? []).map((s: PlannedShip) => ({
           shippedDate: s.shippedDate,
+          plannedDate: s.plannedDate ?? r.plannedDate,
           rolledBackAt: s.rolledBackAt,
           gatesOpenAtShip: s.gatesOpenAtShip,
         })),
@@ -200,7 +209,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],previousShips:{shippedDate,rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime,pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
+    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],previousShips:{shippedDate,plannedDate (the plan it went out against),rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime (each ship against the plan it went out against),pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
@@ -434,7 +443,14 @@ async function setStatus(store: ReleaseStore, params: z.infer<typeof statusParam
   }
   if (r.status === "planning")
     return { updated: false as const, reason: "It is in planning already." };
-  await store.putDoc(withRelease(doc, reopenRelease(r)));
+  // As on the page: a release that went out and stayed out isn't planned again.
+  if (r.status === "shipped")
+    return {
+      updated: false as const,
+      reason:
+        "Only a rolled-back release reopens for planning: roll it back first (status rolled_back), or add a new release for the next one.",
+    };
+  await store.putDoc(withRelease(doc, reopenRelease(r, doc)));
   return { updated: true as const };
 }
 
@@ -445,7 +461,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Roll a shipped release back (status 'rolled_back', rolledBackAt? YYYY-MM-DD from its ship day to today, default today; it still counts as a ship), or reopen a shipped or rolled-back release for 'planning' (its ship is kept on previousShips, so % on time and the skipped gates still count it). Use ship_release to ship. Returns {updated: true} or {updated: false, reason}.",
+    "Roll a shipped release back (status 'rolled_back', rolledBackAt? YYYY-MM-DD from its ship day to today, default today; it still counts as a ship), or reopen a rolled-back release for 'planning' (refused for one that shipped and stayed out, as on the page; its ship is kept on previousShips with the planned date it went out against, so % on time and the skipped gates still count it as it was; manual ticks carry over, auto gates are checked again). Use ship_release to ship. Returns {updated: true} or {updated: false, reason}.",
   paramsSchema: statusParams,
   handler: async (params) => setStatus(browserStore, params),
   mcpHandler: async (params, ctx) => setStatus(serverStore(ctx.userId), params),

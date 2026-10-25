@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import { BarChart3, CheckCircle2, ListChecks, Plus, Rocket, Settings2 } from "lucide-react";
@@ -24,7 +24,9 @@ import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import { fmt, plural } from "@/lib/charts/chart-text";
 import { RELEASE_READINESS_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { normalizeFlags } from "@/lib/flags/model";
 import {
+  describedGate,
   gateLabels,
   gateResults,
   releaseChecks,
@@ -33,6 +35,7 @@ import {
   shipRelease,
   storedGates,
   withRelease,
+  withShipPlans,
 } from "@/lib/releases/auto-gates";
 import { RELEASE_DOC_ID, teamGates } from "@/lib/releases/gates";
 import { releaseStats, shipEvents } from "@/lib/releases/model";
@@ -126,6 +129,28 @@ function focusSoon(find: () => HTMLElement | null | undefined) {
 }
 
 /**
+ * Today's local day, kept current: release day often starts in a tab left
+ * open overnight, whose Ship dialog would otherwise open on yesterday and
+ * refuse the real today as the future. A minute's tick costs nothing (the
+ * same day doesn't re-render), and a tab coming back checks at once.
+ */
+function useToday(): string {
+  const [today, setToday] = useState(() => todayIso());
+  useEffect(() => {
+    const refresh = () => setToday(todayIso());
+    const id = window.setInterval(refresh, 60 * 1000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+  return today;
+}
+
+/**
  * Release Readiness: each release's gates (the team's own list, the
  * built-ins until it changes, two of them checked from the Feature Flag
  * Tracker and the DoD Builder), a dated Ship that freezes the gates as
@@ -137,14 +162,18 @@ export function ReleaseReadinessClient() {
   const stored = useWorkspaceStore(
     useShallow((s) => (s.releaseReadinesses ?? []).find((d) => d.id === RELEASE_DOC_ID))
   );
-  const storedFlags = useWorkspaceStore((s) => s.featureFlags) ?? NO_FLAGS;
+  const rawFlags = useWorkspaceStore((s) => s.featureFlags) ?? NO_FLAGS;
+  // Read as the Feature Flag Tracker and the agent read them (old statuses,
+  // rows written through the generic CRUD), so all three decide the flag
+  // gate the same way and freeze the same result at ship.
+  const storedFlags = useMemo(() => normalizeFlags(rawFlags), [rawFlags]);
   const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
   // The DoD Builder's checklist, read as the Team charter reads it.
   const [dodRaw] = usePersisted(DOD_STORAGE_KEY, EMPTY_DOD);
   const storedDod = useMemo(() => normalizeDod(dodRaw), [dodRaw]);
   const { log } = useHistoryLogger("release-readiness");
   const announce = useAnnounce();
-  const [today] = useState(() => todayIso());
+  const today = useToday();
   const addRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   // The example lives here only: nothing in it reaches the workspace.
@@ -170,8 +199,10 @@ export function ReleaseReadinessClient() {
       })),
     [doc, flags, dod, today]
   );
-  const stats = useMemo(() => releaseStats(doc), [doc]);
-  const events = useMemo(() => shipEvents(doc), [doc]);
+  // Every ship judged against the plan it went out against (withShipPlans).
+  const judged = useMemo(() => withShipPlans(doc), [doc]);
+  const stats = useMemo(() => releaseStats(judged), [judged]);
+  const events = useMemo(() => shipEvents(judged), [judged]);
   const labels = useMemo(() => gateLabels(doc), [doc]);
   const labelOf = (id: string) => labels.get(id) ?? id;
   const skipped = useMemo(() => skippedRows(stats, (id) => labels.get(id) ?? id), [stats, labels]);
@@ -198,7 +229,7 @@ export function ReleaseReadinessClient() {
     releases: rows,
     stats,
     skipped,
-    gates: teamGates(doc),
+    gates: teamGates(doc).map(describedGate),
   });
 
   /* ── Changes ──────────────────────────────────────────────────────── */
@@ -284,8 +315,11 @@ export function ReleaseReadinessClient() {
 
   const reopen = (r: Release) => {
     if (r.status === "planning") return;
-    change(r, reopenRelease(r), `Reopened “${nameOf(r)}” for planning; its ship still counts`, () =>
-      record(RELEASE_READINESS_ACTIONS.RELEASE_REOPENED, { releaseId: r.id, name: r.name })
+    change(
+      r,
+      reopenRelease(r, doc),
+      `Reopened “${nameOf(r)}” for planning; its ship still counts`,
+      () => record(RELEASE_READINESS_ACTIONS.RELEASE_REOPENED, { releaseId: r.id, name: r.name })
     );
   };
 
@@ -457,7 +491,13 @@ export function ReleaseReadinessClient() {
             icon={ListChecks}
             label="Avg gates open at ship"
             value={quotable && stats.avgGatesOpen !== null ? fmt(stats.avgGatesOpen) : "—"}
-            hint={quotable ? `over ${plural(stats.shipped, "ship")}` : undefined}
+            hint={
+              stats.shipped === 0
+                ? "no ships yet"
+                : quotable
+                  ? `over ${plural(stats.shipped, "ship")}`
+                  : `shows after ${MIN_SAMPLE.average} ships (${stats.shipped} so far)`
+            }
             tone={
               !quotable || stats.avgGatesOpen === null
                 ? "default"

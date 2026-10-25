@@ -26,7 +26,7 @@ import type {
   ReleaseReadiness,
   ReleaseShip,
 } from "@/lib/stores/workspace-types";
-import { BUILT_IN_GATES, DOD_GATE, gatesOf } from "@/lib/releases/gates";
+import { BUILT_IN_GATES, DOD_GATE, gatesOf, teamGates } from "@/lib/releases/gates";
 import { wentOut } from "@/lib/releases/model";
 import { flagStaleness } from "@/lib/flags/model";
 import { isIsoDate } from "@/lib/sprints/calendar";
@@ -159,6 +159,22 @@ export function checkDodGate(dod: unknown): GateCheck {
   return { passed: false, detail: `Not ticked: ${listAnd(open.map((i) => i.label))}`, href };
 }
 
+/**
+ * What "Feature flag ready" checks, in words. lib/releases/gates still
+ * describes the built-in as "Kill switch in place", which checkFlagsGate
+ * never asks for, and a team list saved from the built-ins copied that text.
+ */
+export const FLAGS_GATE_DESCRIPTION =
+  "Linked flags are live; rollouts and experiments have an owner and a removal date";
+const OLD_FLAGS_GATE_DESCRIPTION = "Kill switch in place";
+
+/** `g` as the page and the agent describe it: the flag gate's old text read as what its check does. */
+export function describedGate<T extends ReleaseGateDef>(g: T): T {
+  return g.auto === "flags" && g.description === OLD_FLAGS_GATE_DESCRIPTION
+    ? { ...g, description: FLAGS_GATE_DESCRIPTION }
+    : g;
+}
+
 /** Both checks for `release`. */
 export function releaseChecks(
   release: Pick<Release, "id">,
@@ -192,7 +208,7 @@ export function gateResults(
   doc: Pick<ReleaseReadiness, "gates"> | undefined,
   checks: GateChecks
 ): GateResult[] {
-  const defs = gatesOf(release, doc);
+  const defs = gatesOf(release, doc).map(describedGate);
   if (release.status !== "planning") {
     return defs.map((g) => ({
       ...g,
@@ -282,24 +298,97 @@ export function rollBackRelease(release: Release, rolledBackAt: string): Release
 }
 
 /**
+ * A ship kept on a reopened release, with the planned date it went out
+ * against. ReleaseShip (workspace-types) has no planned date, and
+ * lib/releases/model judges every ship by the release's current one, so
+ * re-planning the next try would turn an old late ship into an on-time
+ * one; withShipPlans reads this field until the model does.
+ */
+export interface PlannedShip extends ReleaseShip {
+  plannedDate?: string;
+}
+
+/** The planned date a kept ship went out against, when it was kept with one. */
+function planOf(ship: ReleaseShip): string | undefined {
+  const plan = (ship as PlannedShip).plannedDate;
+  return typeof plan === "string" && plan ? plan : undefined;
+}
+
+/**
  * `release` back in planning. A ship it made is kept on `previousShips`
- * (its date, rollback and frozen gates), so the on-time rate, the rollback
- * and the skipped gates still count it; the ticks stay for the next try.
- * A rollback recorded before rollback days were kept has no day: it is
- * dated its ship day, the earliest it can have been, since a kept ship
+ * (its date, the plan it went out against, its rollback and frozen gates),
+ * so the on-time rate, the rollback and the skipped gates still count it as
+ * it was. The manual ticks stay for the next try; an auto gate's result
+ * doesn't, since it was its check's at ship, not anybody's tick: the check
+ * reads again, and when it can't tell, the gate waits for a tick of this
+ * round. A rollback recorded before rollback days were kept has no day: it
+ * is dated its ship day, the earliest it can have been, since a kept ship
  * without one would read as never rolled back.
  */
-export function reopenRelease(release: Release): Release {
+export function reopenRelease(release: Release, doc?: Pick<ReleaseReadiness, "gates">): Release {
   const { shippedDate, rolledBackAt, gateIds, gatesOpenAtShip, ...rest } = release;
   if (!wentOut(release) || !shippedDate) return { ...rest, status: "planning" };
-  const ship: ReleaseShip = {
+  const ship: PlannedShip = {
     shippedDate,
+    ...(typeof release.plannedDate === "string" && release.plannedDate
+      ? { plannedDate: release.plannedDate }
+      : {}),
     ...(release.status === "rolled_back" ? { rolledBackAt: rolledBackAt ?? shippedDate } : {}),
     ...(gateIds ? { gateIds: [...gateIds] } : {}),
     gates: { ...(release.gates ?? {}) },
     ...(gatesOpenAtShip !== undefined ? { gatesOpenAtShip } : {}),
   };
-  return { ...rest, status: "planning", previousShips: [...(release.previousShips ?? []), ship] };
+  // The auto gates it shipped with, and the ones the next try will check.
+  const auto = new Set(
+    [...gatesOf(release, doc), ...teamGates(doc)].filter((g) => g.auto).map((g) => g.id)
+  );
+  const ticks = Object.fromEntries(
+    Object.entries(release.gates ?? {}).filter(([id]) => !auto.has(id))
+  );
+  return {
+    ...rest,
+    status: "planning",
+    gates: ticks,
+    previousShips: [...(release.previousShips ?? []), ship],
+  };
+}
+
+/**
+ * `doc` as lib/releases/model should read it: each earlier ship of a
+ * reopened release judged against the plan it went out against. The model
+ * dates every ship by the release's current plannedDate, so a re-plan for
+ * the next try would change whether an old ship was on time. Here an
+ * earlier ship kept with its own plan reads as a release of its own (same
+ * id and name), which the model counts exactly as it counts a kept ship.
+ * The page's stats and tool.release_readiness both go through it; a
+ * document with no such ship comes back as it is.
+ */
+export function withShipPlans(doc: ReleaseReadiness | undefined): ReleaseReadiness | undefined {
+  const replanned = (r: Release) =>
+    (r.previousShips ?? []).some((s) => planOf(s) !== undefined && planOf(s) !== r.plannedDate);
+  if (!doc || !Array.isArray(doc.releases) || !doc.releases.some(replanned)) return doc;
+  return {
+    ...doc,
+    releases: doc.releases.flatMap((r) => {
+      if (!replanned(r)) return [r];
+      const earlier = (r.previousShips ?? []).map(
+        (s): Release => ({
+          id: r.id,
+          name: r.name,
+          plannedDate: planOf(s) ?? r.plannedDate,
+          status: s.rolledBackAt ? "rolled_back" : "shipped",
+          shippedDate: s.shippedDate,
+          gates: s.gates ?? {},
+          ...(s.rolledBackAt ? { rolledBackAt: s.rolledBackAt } : {}),
+          ...(s.gateIds ? { gateIds: s.gateIds } : {}),
+          ...(s.gatesOpenAtShip !== undefined ? { gatesOpenAtShip: s.gatesOpenAtShip } : {}),
+        })
+      );
+      const { previousShips, ...current } = r;
+      void previousShips;
+      return [...earlier, current];
+    }),
+  };
 }
 
 /** `doc` with `release` in place of the one with its id. */
@@ -309,9 +398,15 @@ export function withRelease(doc: ReleaseReadiness, release: Release): ReleaseRea
 
 /* ── The team's gate list ───────────────────────────────────────────── */
 
-/** The gate list the document starts from: its own, else the built-ins. */
+/**
+ * The gate list the document starts from: its own, else the built-ins.
+ * The flag gate's old description reads as what it checks (describedGate),
+ * so the next edit of the list saves the new text.
+ */
 export function storedGates(doc: Pick<ReleaseReadiness, "gates"> | undefined): ReleaseGateDef[] {
-  return (Array.isArray(doc?.gates) ? doc.gates : BUILT_IN_GATES).map((g) => ({ ...g }));
+  return (Array.isArray(doc?.gates) ? doc.gates : BUILT_IN_GATES).map((g) =>
+    describedGate({ ...g })
+  );
 }
 
 /**

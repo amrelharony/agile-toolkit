@@ -362,7 +362,10 @@ function Meta({ term, children }: { term: string; children: ReactNode }) {
 /**
  * A gate on a release being planned. An auto gate says what its check
  * found and links to where it's fixed; when the check can tell, it decides
- * the tick, otherwise the gate is ticked by hand.
+ * the tick, otherwise the gate is ticked by hand. The name and description
+ * are the checkbox's label, so the whole tile ticks (a 16 px box alone is
+ * too small a target on a phone); the check's line, with its link, sits
+ * outside the label.
  */
 function GateTick({ gate: g, onChange }: { gate: GateResult; onChange: (value: boolean) => void }) {
   const source = g.auto ? AUTO_SOURCE[g.auto] : null;
@@ -370,44 +373,49 @@ function GateTick({ gate: g, onChange }: { gate: GateResult; onChange: (value: b
   return (
     <div
       className={cn(
-        "flex h-full items-start gap-2 rounded-md border bg-bg p-2",
-        g.passed ? "border-success/30" : "border-border"
+        "h-full rounded-md border bg-bg p-2",
+        g.passed ? "border-success/30" : "border-border",
+        !g.locked && "hover:border-accent/30"
       )}
     >
-      <input
-        type="checkbox"
-        className="mt-0.5 h-4 w-4 shrink-0 accent-success"
-        checked={g.passed}
-        disabled={g.locked}
-        aria-label={g.label}
-        aria-describedby={g.check ? checkId : undefined}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-semibold text-text">{g.label}</div>
-        {g.description && <div className="text-xs text-sub">{g.description}</div>}
-        {g.check && source && (
-          <div id={checkId} className="mt-0.5 text-xs">
-            <span
-              className={
-                g.check.passed === null
-                  ? "text-sub"
-                  : g.check.passed
-                    ? "text-success"
-                    : "text-warning"
-              }
-            >
-              {g.check.passed === null
-                ? `${g.check.detail}: tick it by hand.`
-                : `Checked from the ${source}: ${g.check.detail}.`}
-            </span>{" "}
-            <Link href={g.check.href} className="text-accent underline-offset-2 hover:underline">
-              Open
-              <span className="sr-only"> the {source}</span>
-            </Link>
-          </div>
-        )}
-      </div>
+      <label
+        className={cn("flex items-start gap-2", g.locked ? "cursor-default" : "cursor-pointer")}
+      >
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-success"
+          checked={g.passed}
+          disabled={g.locked}
+          aria-label={g.label}
+          aria-describedby={g.check ? checkId : undefined}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-semibold text-text">{g.label}</span>
+          {g.description && <span className="block text-xs text-sub">{g.description}</span>}
+        </span>
+      </label>
+      {g.check && source && (
+        <div id={checkId} className="mt-0.5 min-w-0 pl-6 text-xs">
+          <span
+            className={
+              g.check.passed === null
+                ? "text-sub"
+                : g.check.passed
+                  ? "text-success"
+                  : "text-warning"
+            }
+          >
+            {g.check.passed === null
+              ? `${g.check.detail}: tick it by hand.`
+              : `Checked from the ${source}: ${g.check.detail}.`}
+          </span>{" "}
+          <Link href={g.check.href} className="text-accent underline-offset-2 hover:underline">
+            Open
+            <span className="sr-only"> the {source}</span>
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

@@ -69,6 +69,7 @@ import {
   skippedRows,
 } from "@/app/(tools)/release-readiness/analysis";
 import {
+  FLAGS_GATE_DESCRIPTION,
   checkDodGate,
   checkFlagsGate,
   effectiveGates,
@@ -82,8 +83,11 @@ import {
   shipDateError,
   shipRelease,
   storedGates,
+  withShipPlans,
   withTeamGates,
+  type PlannedShip,
 } from "@/lib/releases/auto-gates";
+import { dayLabel } from "@/app/(tools)/release-readiness/text";
 import { BUILT_IN_GATES, DOD_GATE, RELEASE_DOC_ID, gatesOf, teamGates } from "@/lib/releases/gates";
 import { releaseStats, shipEvents } from "@/lib/releases/model";
 import { addDays } from "@/lib/flow/days";
@@ -298,6 +302,7 @@ describe("a release's gates", () => {
     expect(reopened.previousShips).toEqual([
       {
         shippedDate: on(-4),
+        plannedDate: on(3),
         rolledBackAt: on(-3),
         gateIds: [...RELEASE_GATE_IDS],
         gates: Object.fromEntries(RELEASE_GATE_IDS.map((id) => [id, false])),
@@ -792,10 +797,11 @@ describe("the page", () => {
     expect(screen.getByText(/No releases yet/)).toBeInTheDocument();
   });
 
-  it("quotes % on time only from three ships", () => {
+  it("quotes % on time and the average gates open only from three ships, and says so", () => {
     seed({ releases: [release({ status: "shipped", shippedDate: on(-1), plannedDate: on(-1) })] });
     renderPage();
-    expect(screen.getByText("shows after 3 ships (1 so far)")).toBeInTheDocument();
+    // Both KPIs: "% on time" and "Avg gates open at ship".
+    expect(screen.getAllByText("shows after 3 ships (1 so far)")).toHaveLength(2);
   });
 
   it("reads legacy data: a shipped release with no frozen gates, and boolean-only gate maps", () => {
@@ -854,5 +860,266 @@ describe("tool.release_readiness, the same numbers as the page", () => {
       "Rollback tested",
       "SRE review",
     ]);
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+describe("each ship judged against the plan it went out against", () => {
+  it("keeps an earlier late ship late after the reopened release is re-planned", () => {
+    // Planned 20 days ago, shipped 16 days ago (late), rolled back, reopened.
+    const first = shipRelease(release({ plannedDate: on(-20) }), undefined, {}, on(-16));
+    const reopened = reopenRelease(rollBackRelease(first, on(-15)));
+    expect(reopened.previousShips?.[0]).toMatchObject({ plannedDate: on(-20) });
+    // Re-planned for the next try, and shipped by the new plan.
+    const replanned = applyRelease(reopened, { name: "v1", plannedDate: on(-2) });
+    const second = shipRelease(replanned, undefined, {}, on(-3));
+    const d: ReleaseReadiness = { id: RELEASE_DOC_ID, releases: [second] };
+    expect(releaseStats(withShipPlans(d))).toMatchObject({ shipped: 2, onTime: 1, rolledBack: 1 });
+    expect(shipEvents(withShipPlans(d)).map((e) => e.plannedDate)).toEqual([on(-20), on(-2)]);
+    // lib/releases/model alone reads both ships against today's plan.
+    expect(releaseStats(d).onTime).toBe(2);
+  });
+
+  it("leaves a document with nothing re-planned as it is, and reads an old kept ship by the current plan", () => {
+    const d: ReleaseReadiness = {
+      id: RELEASE_DOC_ID,
+      releases: [
+        release({
+          plannedDate: on(-10),
+          previousShips: [{ shippedDate: on(-12), gates: {} }],
+        }),
+      ],
+    };
+    expect(withShipPlans(d)).toBe(d);
+    expect(withShipPlans(undefined)).toBeUndefined();
+    const kept: PlannedShip = { shippedDate: on(-12), plannedDate: on(-10), gates: {} };
+    const same: ReleaseReadiness = {
+      ...d,
+      releases: [{ ...d.releases[0], previousShips: [kept] }],
+    };
+    expect(withShipPlans(same)).toBe(same);
+    expect(releaseStats(withShipPlans(d))).toMatchObject({ shipped: 1, onTime: 1 });
+  });
+
+  it("gives the agent the same on-time count as the page", async () => {
+    const first = shipRelease(release({ plannedDate: on(-20) }), undefined, {}, on(-16));
+    const reopened = reopenRelease(rollBackRelease(first, on(-15)));
+    const d: ReleaseReadiness = {
+      id: RELEASE_DOC_ID,
+      releases: [
+        shipRelease({ ...reopened, plannedDate: on(-2) }, undefined, {}, on(-3)),
+        release({
+          id: "b",
+          name: "v2",
+          status: "shipped",
+          shippedDate: on(-1),
+          plannedDate: on(-1),
+        }),
+      ],
+    };
+    seed(d);
+    const state = await run<{
+      stats: { shipped: number; onTime: number };
+      releases: { id: string; previousShips: { plannedDate: string }[] }[];
+    }>("list_state", {});
+    expect(state.stats).toMatchObject({ shipped: 3, onTime: 2 });
+    expect(state.stats.onTime).toBe(releaseStats(withShipPlans(d)).onTime);
+    expect(state.releases.find((r) => r.id === "r1")?.previousShips[0].plannedDate).toBe(on(-20));
+  });
+});
+
+describe("reopening a release", () => {
+  it("carries the manual ticks over, and checks the auto gates again", () => {
+    const checks = releaseChecks(release(), [flag()], null, TODAY);
+    const shipped = shipRelease(
+      release({ gates: { a11y_audit: true } }),
+      undefined,
+      checks,
+      on(-2)
+    );
+    expect(shipped.gates).toMatchObject({ a11y_audit: true, feature_flag_ready: true });
+    const reopened = reopenRelease(rollBackRelease(shipped, on(-1)));
+    expect(reopened.gates.a11y_audit).toBe(true);
+    expect(reopened.gates).not.toHaveProperty("feature_flag_ready");
+    // The kept ship still has what it shipped with.
+    expect(reopened.previousShips?.[0].gates).toMatchObject({ feature_flag_ready: true });
+    // No flags linked any more: the gate waits for a tick of this round.
+    const now = gateResults(reopened, undefined, releaseChecks(reopened, [], null, TODAY));
+    expect(now.find((g) => g.id === "feature_flag_ready")).toMatchObject({
+      passed: false,
+      locked: false,
+    });
+    // The team's own auto gate is cleared too.
+    const d = { gates: [...BUILT_IN_GATES, DOD_GATE] };
+    const withDod = shipRelease(release({ gates: { dod_met: true } }), d, {}, on(-2));
+    expect(reopenRelease(rollBackRelease(withDod, on(-1)), d).gates.dod_met).toBeUndefined();
+  });
+
+  it("is refused to an agent for a release that shipped and stayed out, as on the page", async () => {
+    seed({
+      releases: [release({ status: "shipped", shippedDate: on(-1), plannedDate: on(-1) })],
+    });
+    expect(await run("set_status", { releaseId: "r1", status: "planning" })).toMatchObject({
+      updated: false,
+      reason: expect.stringMatching(/^Only a rolled-back release reopens/),
+    });
+    renderPage();
+    expect(
+      within(card("v1")).queryByRole("button", { name: "Reopen v1 for planning" })
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("the flag gate on the page and for the agent", () => {
+  it("reads the flags as the tracker and the agent do, old statuses included", async () => {
+    // A row in the old tracker's shape: "deprecated" is retired.
+    const raw = {
+      id: "f1",
+      name: "old_flag",
+      status: "deprecated",
+      purpose: "rollout",
+      createdAt: on(-50),
+      owner: "Priya",
+      removeBy: on(10),
+      releaseId: "r1",
+    } as unknown as FeatureFlag;
+    seed({ releases: [release()] }, [raw]);
+    renderPage();
+    const ff = within(card("v1")).getByRole("checkbox", { name: "Feature flag ready" });
+    expect(ff).toBeEnabled();
+    expect(
+      within(card("v1")).getByText(/The one linked flag is retired: tick it by hand/)
+    ).toBeInTheDocument();
+    const state = await run<{
+      releases: { gates: { id: string; check?: { passed: boolean | null } }[] }[];
+    }>("list_state", {});
+    expect(
+      state.releases[0].gates.find((g) => g.id === "feature_flag_ready")?.check?.passed
+    ).toBeNull();
+  });
+
+  it("describes Feature flag ready as what its check does", () => {
+    seed({ releases: [release()] });
+    renderPage();
+    expect(within(card("v1")).getByText(FLAGS_GATE_DESCRIPTION)).toBeInTheDocument();
+    expect(screen.queryByText("Kill switch in place")).not.toBeInTheDocument();
+    // A team list saved with the old text reads the new one; the team's own words are kept.
+    const old = storedGates({
+      gates: [
+        {
+          id: "feature_flag_ready",
+          label: "Feature flag ready",
+          description: "Kill switch in place",
+          auto: "flags",
+        },
+        { id: "flags_2", label: "Flags", description: "Our own words", auto: "flags" },
+      ],
+    });
+    expect(old.map((g) => g.description)).toEqual([FLAGS_GATE_DESCRIPTION, "Our own words"]);
+  });
+
+  it("ticks a gate from anywhere on its tile, not only the box", () => {
+    seed({ releases: [release()] });
+    renderPage();
+    fireEvent.click(within(card("v1")).getByText("A11y audit"));
+    expect(releases()[0].gates.a11y_audit).toBe(true);
+    fireEvent.click(within(card("v1")).getByText("WCAG checks pass on changed UI"));
+    expect(releases()[0].gates.a11y_audit).toBe(false);
+  });
+});
+
+describe("today on a page left open", () => {
+  it("moves on past midnight, so Ship opens on the real today", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date());
+      seed({ releases: [release()] });
+      renderPage();
+      vi.setSystemTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(todayIso()).toBe(on(1));
+      fireEvent.click(within(card("v1")).getByRole("button", { name: "Ship v1" }));
+      expect(within(screen.getByRole("dialog")).getByLabelText(/^Shipped on/)).toHaveValue(on(1));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("the Markdown export, quoted as the page quotes", () => {
+  it("waits for three ships before the average gates open, and dates with the year", () => {
+    const r = release({
+      status: "shipped",
+      shippedDate: on(-1),
+      plannedDate: on(-2),
+      gatesOpenAtShip: 2,
+    });
+    const d: ReleaseReadiness = { id: RELEASE_DOC_ID, releases: [r] };
+    const md = toMarkdown({
+      today: TODAY,
+      verdict: "",
+      releases: [{ release: r, results: gateResults(r, d, {}) }],
+      stats: releaseStats(d),
+      skipped: [],
+      gates: teamGates(d),
+    });
+    expect(md).toContain("- Average gates open at ship: — (shows after 3 ships)");
+    expect(md).toContain(`| ${dayLabel(on(-2), true)} | ${dayLabel(on(-1), true)} |`);
+  });
+});
+
+describe("the gate list, by keyboard", () => {
+  const gateList = () => screen.getByRole("list", { name: "Gates, in order" });
+  const gateButton = (name: string) => within(gateList()).getByRole("button", { name });
+  const three = [
+    { id: "a", label: "Alpha" },
+    { id: "b", label: "Beta" },
+    { id: "c", label: "Gamma" },
+  ];
+
+  it("keeps focus on the gate being moved, and on its other button once it reaches an end", () => {
+    seed({ releases: [], gates: three });
+    renderPage();
+    gateButton("Move Alpha down").focus();
+    fireEvent.click(gateButton("Move Alpha down"));
+    expect(teamGates(doc()).map((g) => g.id)).toEqual(["b", "a", "c"]);
+    expect(document.activeElement).toBe(gateButton("Move Alpha down"));
+    fireEvent.click(gateButton("Move Alpha down"));
+    expect(teamGates(doc()).map((g) => g.id)).toEqual(["b", "c", "a"]);
+    // At the bottom, Move down is disabled: focus is on Move up.
+    expect(document.activeElement).toBe(gateButton("Move Alpha up"));
+  });
+
+  it("refuses a rename to another gate's name inline, and hands focus back to Rename", () => {
+    seed({ releases: [], gates: three.slice(0, 2) });
+    renderPage();
+    fireEvent.click(gateButton("Rename Alpha"));
+    const editor = within(screen.getByRole("group", { name: "Edit gate Alpha" }));
+    fireEvent.change(editor.getByLabelText(/^Gate name/), { target: { value: " beta " } });
+    fireEvent.click(editor.getByRole("button", { name: "Save" }));
+    expect(editor.getByText("There is a gate with that name already.")).toBeInTheDocument();
+    expect(teamGates(doc()).map((g) => g.label)).toEqual(["Alpha", "Beta"]);
+
+    fireEvent.change(editor.getByLabelText(/^Gate name/), { target: { value: "Smoke test" } });
+    fireEvent.click(editor.getByRole("button", { name: "Save" }));
+    expect(teamGates(doc()).map((g) => g.label)).toEqual(["Smoke test", "Beta"]);
+    expect(document.activeElement).toBe(gateButton("Rename Smoke test"));
+
+    fireEvent.click(gateButton("Rename Beta"));
+    fireEvent.keyDown(screen.getByLabelText(/^Gate name/), { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Edit gate Beta" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(gateButton("Rename Beta"));
+  });
+
+  it("passes focus to the next gate after an archive, and to the Add gate field after the last", () => {
+    seed({ releases: [], gates: three.slice(0, 2) });
+    renderPage();
+    fireEvent.click(gateButton("Archive Alpha"));
+    expect(document.activeElement).toBe(gateButton("Archive Beta"));
+    fireEvent.click(gateButton("Archive Beta"));
+    expect(document.activeElement).toBe(screen.getByLabelText(/^New gate/));
   });
 });
