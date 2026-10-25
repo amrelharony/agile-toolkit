@@ -341,7 +341,8 @@ export function SprintRow({
                 className="h-7 gap-1 px-2 text-xs"
               >
                 <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                Mark done
+                {/* Which sprint, for a list of them read out of context. */}
+                Mark done <span className="sr-only">for {label}</span>
               </Button>
             </div>
           )

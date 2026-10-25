@@ -103,7 +103,7 @@ describe("Velocity Markdown", () => {
       "**Velocity:** 31.7 points, the average of the last 3 finished sprints by end date"
     );
     expect(md).toContain(
-      "**Say/do:** 2 of 3 sprints met the commitment (90–110%); 1 close, 0 missed, 0 over. Mean 95%."
+      "**Say/do:** 2 of the last 3 sprints with a commitment met it (90–110%); 1 close, 0 missed, 0 over. Mean 95%."
     );
     expect(md).toContain(
       "| Sprint | Committed | Completed | Say/do | Points per person-day | Goal |"

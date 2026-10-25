@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { Activity, Gauge, Plus, Sigma, Target, Users } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CapacityPlan, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
@@ -23,7 +24,6 @@ import { chartTheme } from "@/components/charts/chart-theme";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { generateVelocityPrompts } from "@/lib/ai-prompts/velocity";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VELOCITY_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
@@ -40,6 +40,7 @@ import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { carryOverLine, closeSprint, type ClosedSprint } from "@/app/(tools)/sprint/close";
 import { toMarkdown } from "./markdown";
+import { velocityPrompts } from "./prompts";
 import { changepointMarkers as buildChangepointMarkers } from "./changepoints";
 import { forecastChartText, velocityChartText } from "./chart-text";
 import type { VelocityChartRow } from "./charts";
@@ -164,9 +165,18 @@ export function VelocityClient() {
     if (!current) return;
     const closed: { result: ClosedSprint | null } = { result: null };
     const label = `Closed ${current.name} with ${points(done)} done`;
+    // The close dialog starts from the board's (or the daily log's) number,
+    // not the one typed in the row: say when the close replaced it, so it
+    // isn't lost without a word and Undo can bring it back.
+    const typed = current.pointsCompleted;
+    const replaced =
+      typeof typed === "number" && Number.isFinite(typed) && typed !== done
+        ? `It replaces the ${points(typed)} typed here.`
+        : undefined;
+    const description = [carryOverLine(carry), replaced].filter(Boolean).join(" ") || undefined;
     undoable({
       label,
-      description: carryOverLine(carry),
+      description,
       apply: () => {
         closed.result = closeSprint(sprintId, done, carry);
       },
@@ -188,7 +198,7 @@ export function VelocityClient() {
           }
         : {}),
     });
-    announce(label);
+    announce(replaced ? `${label}. ${replaced}` : label);
   };
 
   const onCreated = (sprint: Sprint) => {
@@ -333,19 +343,19 @@ export function VelocityClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: TITLE,
-      prompts: generateVelocityPrompts({
-        sprints: finished.map((r) => ({
-          name: r.name,
-          committed: r.committed,
-          completed: r.completed,
-        })),
-        stats: {
-          avgVelocity: summary.velocity.average ?? 0,
-          predictability: summary.sayDo.pct ?? 0,
-          sd: spread ?? 0,
-          trendDir: trendTest ? trendTest.trend : "not enough sprints to say",
-        },
-      }),
+      prompts: velocityPrompts(
+        finished.map((r) => ({ name: r.name, committed: r.committed, completed: r.completed })),
+        {
+          velocity: summary.velocity,
+          sayDo: {
+            count: summary.sayDo.count,
+            met: summary.sayDo.byGrade.met,
+            pct: summary.sayDo.pct,
+          },
+          spread,
+          trend: trendTest ? trendTest.trend : "not enough sprints to say",
+        }
+      ),
     }),
     [finished, summary, spread, trendTest]
   );
@@ -360,11 +370,14 @@ export function VelocityClient() {
     summary.velocity.average === null || preview ? undefined : Math.round(summary.velocity.average);
   const [planDraft, setPlanDraft] = useState("");
   const [planError, setPlanError] = useState<string | null>(null);
+  const planInput = useRef<HTMLInputElement>(null);
   const planNext = (e: React.FormEvent) => {
     e.preventDefault();
     const check = validatePoints(planDraft, true);
     if (!check.ok) {
       setPlanError(check.error);
+      // Submitted with the button: take the user to the field that's wrong.
+      planInput.current?.focus();
       return;
     }
     setPlanError(null);
@@ -505,7 +518,7 @@ export function VelocityClient() {
           hint={
             sd.count === 0
               ? "No finished sprint with a commitment yet"
-              : `90–110% of the commitment · mean ${sd.meanSayDoPct}% · ${sd.byGrade.close} close, ${sd.byGrade.missed} missed, ${sd.byGrade.over} over`
+              : `Last ${plural(sd.count, "sprint")} with a commitment, 90–110% of it · mean ${sd.meanSayDoPct}% · ${sd.byGrade.close} close, ${sd.byGrade.missed} missed, ${sd.byGrade.over} over`
           }
           icon={Target}
           iconColor={chartTheme.colors.green}
@@ -519,18 +532,38 @@ export function VelocityClient() {
             icon={Users}
             iconColor={chartTheme.colors.purple}
           />
-        ) : (
+        ) : v.count < MIN_SAMPLE.average ? (
+          // Plans can't make up for sprints that haven't finished yet.
           <NotEnoughData
-            have={pd.count}
+            have={v.count}
             need="average"
-            unit={[
-              `capacity plan for the last ${DEFAULT_VELOCITY_WINDOW} sprints`,
-              `capacity plans for the last ${DEFAULT_VELOCITY_WINDOW} sprints`,
-            ]}
-            action="Add"
+            unit={["finished sprint", "finished sprints"]}
+            action="Close"
             what="points per person-day"
             className="h-full"
           />
+        ) : (
+          <div className="flex h-full flex-col gap-1">
+            <NotEnoughData
+              have={pd.count}
+              need="average"
+              unit={[
+                `capacity plan for the last ${DEFAULT_VELOCITY_WINDOW} sprints`,
+                `capacity plans for the last ${DEFAULT_VELOCITY_WINDOW} sprints`,
+              ]}
+              action="Add"
+              what="points per person-day"
+              className="flex-1"
+            />
+            {!preview && (
+              <Link
+                href="/capacity-planner"
+                className="px-1 text-xs text-accent underline-offset-2 hover:underline"
+              >
+                Plan capacity in Capacity Planner
+              </Link>
+            )}
+          </div>
         )}
         {spread !== null ? (
           <StatCard
@@ -651,6 +684,7 @@ export function VelocityClient() {
               {(control) => (
                 <Input
                   {...control}
+                  ref={planInput}
                   type="number"
                   inputMode="decimal"
                   min={0}

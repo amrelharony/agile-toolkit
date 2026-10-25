@@ -1,3 +1,4 @@
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { SAY_DO_GRADE_LABEL } from "@/lib/sprints/metrics";
 import { fmt } from "@/lib/sprints/hub-view";
 import {
@@ -92,14 +93,17 @@ export function toMarkdown(
       "",
       sd.count === 0
         ? "**Say/do:** no finished sprint had a commitment."
-        : `**Say/do:** ${sd.byGrade.met} of ${plural(sd.count, "sprint")} met the commitment (90–110%); ${sd.byGrade.close} close, ${sd.byGrade.missed} missed, ${sd.byGrade.over} over. Mean ${sd.meanSayDoPct}%.`
+        : `**Say/do:** ${sd.byGrade.met} of the last ${plural(sd.count, "sprint")} with a commitment met it (90–110%); ${sd.byGrade.close} close, ${sd.byGrade.missed} missed, ${sd.byGrade.over} over. Mean ${sd.meanSayDoPct}%.`
     );
+    // From the same minimum sample as the page's tile.
     const pd = s.perPersonDay;
     lines.push(
       "",
       pd.average === null
         ? "**Per person-day:** no capacity plan for the last sprints."
-        : `**Per person-day:** ${perDayText(pd.average)} points (${plural(pd.count, "sprint")} with a capacity plan)`
+        : pd.count < MIN_SAMPLE.average
+          ? `**Per person-day:** not enough capacity plans yet (${pd.count} of the last ${plural(v.count, "finished sprint")}; needs ${MIN_SAMPLE.average}).`
+          : `**Per person-day:** ${perDayText(pd.average)} points (${plural(pd.count, "sprint")} with a capacity plan)`
     );
   }
 

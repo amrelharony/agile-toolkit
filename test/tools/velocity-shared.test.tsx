@@ -218,7 +218,7 @@ describe("Velocity rows are the shared sprints", () => {
     commit(screen.getByRole("spinbutton", { name: "Completed points for Sprint 4" }), "12");
     expect(sprint("s4")).toMatchObject({ pointsCompleted: 12, status: "active" });
     expect(screen.getByText("Counts once the sprint is done.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Mark done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark done for Sprint 4" }));
     // Mark done asks first, through the same dialog.
     expect(sprint("s4")?.status).toBe("active");
     fireEvent.click(

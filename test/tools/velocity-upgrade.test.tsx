@@ -65,6 +65,7 @@ import { toMarkdown } from "@/app/(tools)/velocity/markdown";
 import { velocityChartText } from "@/app/(tools)/velocity/chart-text";
 import { changepointMarkers } from "@/app/(tools)/velocity/changepoints";
 import { buildExample } from "@/app/(tools)/velocity/example";
+import { velocityPrompts } from "@/app/(tools)/velocity/prompts";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
 
@@ -340,6 +341,61 @@ describe("typing points never closes a sprint", () => {
     expect(ws().stories.find((s) => s.id === "st2")?.sprintId).toBe("s3");
   });
 
+  it("says when the close replaced the points typed in the row, and Undo brings them back", () => {
+    const ended = sprint({
+      id: "s3",
+      name: "Sprint 3",
+      startDate: "2026-09-28",
+      endDate: "2026-10-11",
+      status: "active",
+      pointsPlanned: 13,
+    });
+    const stories: Story[] = [
+      { id: "st1", title: "Checkout", points: 8, status: "done", sprintId: "s3" },
+      { id: "st2", title: "Refunds", points: 5, status: "in_progress", sprintId: "s3" },
+    ];
+    useWorkspaceStore.setState({ sprints: [ended], stories, sprintSeries: [] });
+    renderVelocity();
+    commit(screen.getByRole("spinbutton", { name: "Completed points for Sprint 3" }), "11");
+    fireEvent.click(screen.getByRole("button", { name: "Close Sprint 3" }));
+    const dialog = screen.getByRole("dialog");
+    // The shared dialog starts from the board (8), not the 11 typed in the row.
+    expect(within(dialog).getByRole("spinbutton", { name: /Completed points/ })).toHaveValue(8);
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Decide later/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close sprint" }));
+
+    expect(stored("s3")).toMatchObject({ status: "completed", pointsCompleted: 8 });
+    const [label, opts] = toastSpy.mock.calls.at(-1) as [string, { description?: string }];
+    expect(label).toBe("Closed Sprint 3 with 8 points done");
+    expect(opts.description).toBe(
+      "1 unfinished story wait in Sprint Planning. It replaces the 11 points typed here."
+    );
+    undoLast();
+    expect(stored("s3")).toMatchObject({ status: "active", pointsCompleted: 11 });
+  });
+
+  it("says nothing extra when the close keeps the typed points", () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        sprint({
+          id: "s3",
+          name: "Sprint 3",
+          startDate: "2026-09-28",
+          endDate: "2026-10-11",
+          status: "active",
+          pointsCompleted: 9,
+        }),
+      ],
+    });
+    renderVelocity();
+    fireEvent.click(screen.getByRole("button", { name: "Close Sprint 3" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Close sprint" })
+    );
+    const [, opts] = toastSpy.mock.calls.at(-1) as [string, { description?: string }];
+    expect(opts.description).toBeUndefined();
+  });
+
   it("Mark done opens the dialog instead of closing at once", () => {
     useWorkspaceStore.setState({
       sprints: [
@@ -354,7 +410,8 @@ describe("typing points never closes a sprint", () => {
       ],
     });
     renderVelocity();
-    fireEvent.click(screen.getByRole("button", { name: "Mark done" }));
+    // Named for its sprint, so a list of them reads apart.
+    fireEvent.click(screen.getByRole("button", { name: "Mark done for Sprint 9" }));
     expect(stored("run")?.status).toBe("active");
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -414,6 +471,8 @@ describe("new sprints come only from the New sprint dialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Commit" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent("Enter 0 or more points.");
+    // The field that's wrong gets focus, not the button that was pressed.
+    expect(screen.getByRole("spinbutton", { name: /Points to commit/ })).toHaveFocus();
   });
 
   it("falls back to the cadence's length when no sprint has real dates", () => {
@@ -431,15 +490,47 @@ describe("verdict, tiles and minimum samples", () => {
     const plans = sprints.map((s) => capacity(s.id, [{ availability: 100, daysOff: 0 }]));
     const rows = toVelocityRows(sprints, plans);
     expect(velocityVerdict(rows, velocitySummary(sprints, plans))).toBe(
-      "Velocity is 30.3 points over the last 3 sprints; 3 of 3 met the commitment; 3.03 points per person-day."
+      "Velocity is 30.3 points over the last 3 sprints; 3 of the last 3 sprints with a commitment met it (90–110%); 3.03 points per person-day."
     );
     expect(velocityVerdict([], velocitySummary([]))).toBe(
       "No sprints yet: add one to start tracking velocity."
     );
     const one = finishedRun([20]);
     expect(velocityVerdict(toVelocityRows(one), velocitySummary(one))).toBe(
-      "Velocity is 20 points over the last sprint; it didn't meet its commitment (90–110%). Close more sprints before planning on it."
+      "Velocity is 20 points over the last sprint; the one sprint with a commitment missed it (67%). Close more sprints before planning on it."
     );
+  });
+
+  it("words each grade of a single sprint: over-delivery isn't a miss", () => {
+    const say = (completed: number) => {
+      const one = finishedRun([completed]);
+      return velocityVerdict(toVelocityRows(one), velocitySummary(one));
+    };
+    expect(say(38)).toContain("the one sprint with a commitment did more than it committed (127%)");
+    expect(say(30)).toContain("the one sprint with a commitment met it (100%)");
+    expect(say(24)).toContain("the one sprint with a commitment came close to it (80%)");
+    const unpointed = finishedRun([20], 0);
+    expect(velocityVerdict(toVelocityRows(unpointed), velocitySummary(unpointed))).toContain(
+      "no finished sprint had a commitment to meet"
+    );
+  });
+
+  it("counts commitments met over the tile's window, and the tile, verdict and export say which", () => {
+    // Four finished sprints: velocity looks at the last 3, say/do at all 4.
+    const sprints = finishedRun([29, 31, 25, 30]);
+    const summary = velocitySummary(sprints);
+    expect(summary.velocity.count).toBe(3);
+    expect(summary.sayDo).toMatchObject({ count: 4, byGrade: { met: 3, close: 1 } });
+    const verdict = velocityVerdict(toVelocityRows(sprints), summary);
+    expect(verdict).toContain("3 of the last 4 sprints with a commitment met it (90–110%)");
+    const md = toMarkdown(toVelocityRows(sprints), new Date(2026, 9, 22), { summary, verdict });
+    expect(md).toContain("**Say/do:** 3 of the last 4 sprints with a commitment met it (90–110%)");
+    useWorkspaceStore.setState({ sprints });
+    renderVelocity();
+    expect(screen.getByText("3 of 4")).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Last 4 sprints with a commitment, 90–110% of it/)
+    ).toBeInTheDocument();
   });
 
   it("keeps spread, forecast, trend and change points behind their minimum samples", () => {
@@ -507,8 +598,92 @@ describe("verdict, tiles and minimum samples", () => {
     });
     expect(md).toContain("Verdict line.");
     expect(md).toContain("**Velocity:** 30.3 points");
-    expect(md).toContain("**Per person-day:** 3.3 points (1 sprint with a capacity plan)");
+    // One plan isn't enough to quote, as on the page: the sprint's own row still shows it.
+    expect(md).toContain(
+      "**Per person-day:** not enough capacity plans yet (1 of the last 3 finished sprints; needs 3)."
+    );
+    expect(md).not.toContain("**Per person-day:** 3.3");
     expect(md).toContain("| Sprint 3 | 30 | 33 | Met the commitment (110%) | 3.3 |  |");
+
+    const planned = sprints.map((s) => capacity(s.id, [{ availability: 100, daysOff: 0 }]));
+    expect(
+      toMarkdown(toVelocityRows(sprints, planned), new Date(2026, 9, 22), {
+        summary: velocitySummary(sprints, planned),
+      })
+    ).toContain("**Per person-day:** 3.03 points (3 sprints with a capacity plan)");
+  });
+
+  it("asks for finished sprints before plans when the velocity's window isn't full", () => {
+    const sprints = finishedRun([28]);
+    useWorkspaceStore.setState({
+      sprints,
+      capacityPlans: [capacity("f1", [{ availability: 100, daysOff: 0 }])],
+    });
+    renderVelocity();
+    expect(
+      screen.getByText("Close 2 more finished sprints to see points per person-day.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/more capacity plans/)).toBeNull();
+  });
+
+  it("links to the Capacity Planner when only the plans are missing", () => {
+    useWorkspaceStore.setState({ sprints: finishedRun([20, 22, 24]) });
+    renderVelocity();
+    expect(screen.getByRole("link", { name: "Plan capacity in Capacity Planner" })).toHaveAttribute(
+      "href",
+      "/capacity-planner"
+    );
+  });
+});
+
+/* ── AI prompts ─────────────────────────────────────────────────────── */
+
+describe("AI prompts", () => {
+  const sprints = [{ name: "Sprint 1", committed: 30, completed: 20 }];
+
+  it("label the graded say/do and say what isn't known instead of a 0", () => {
+    const prompts = velocityPrompts(sprints, {
+      velocity: { average: 20, count: 1 },
+      sayDo: { count: 1, met: 0, pct: 0 },
+      spread: null,
+      trend: "not enough sprints to say",
+    });
+    expect(prompts).toHaveLength(3);
+    for (const p of prompts) {
+      expect(p.prompt).toContain("Velocity: 20 pts/sprint (the last 1 finished sprint)");
+      expect(p.prompt).toContain(
+        "Met the commitment (90–110% of it): 0 of the last 1 sprint with a commitment (0%)"
+      );
+      expect(p.prompt).toContain("Standard deviation: not enough finished sprints yet");
+      expect(p.prompt).toContain("Trend direction: not enough sprints to say");
+      // The builder's own block is gone: no pass/fail label, no made-up zero.
+      expect(p.prompt).not.toContain("completed ≥ committed");
+      expect(p.prompt).not.toContain("Standard Deviation:");
+      expect(p.prompt).toContain("## Questions");
+    }
+  });
+
+  it("quote a spread once there is one, and no velocity before a sprint finishes", () => {
+    const [p] = velocityPrompts(sprints, {
+      velocity: { average: null, count: 0 },
+      sayDo: { count: 0, met: 0, pct: null },
+      spread: 2.345,
+      trend: "up",
+    });
+    expect(p.prompt).toContain("Velocity: not known yet (no finished sprint)");
+    expect(p.prompt).toContain(
+      "Met the commitment (90–110% of it): no finished sprint had a commitment"
+    );
+    expect(p.prompt).toContain("Standard deviation: 2.3 pts");
+    // No finished sprint: no prompts at all.
+    expect(
+      velocityPrompts([], {
+        velocity: { average: null, count: 0 },
+        sayDo: { count: 0, met: 0, pct: null },
+        spread: null,
+        trend: "up",
+      })
+    ).toEqual([]);
   });
 });
 
