@@ -4,7 +4,7 @@
  */
 
 import type { MoodEntry } from "@/lib/stores/workspace-types";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { dayOf } from "@/lib/impediments/model";
 

@@ -8,7 +8,7 @@
 
 import type { HandoffLink, RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
 import { pastRetros } from "@/app/(tools)/retro/archive";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
 import { RETRO_CARD_MAX, RETRO_CURRENT_ID, newestArchivedRetro } from "./board";
 
 export { RETRO_CURRENT_ID };

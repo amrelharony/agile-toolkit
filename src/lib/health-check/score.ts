@@ -18,7 +18,7 @@ import type {
   Sprint,
 } from "@/lib/stores/workspace-types";
 import { HEALTH_CHECK_DIMENSIONS } from "@/lib/stores/workspace-types";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
 import { retroSprintFor } from "@/lib/retro/board";
 
 export const LIGHT_VALUE: Readonly<Record<HealthTrafficLight, number>> = {

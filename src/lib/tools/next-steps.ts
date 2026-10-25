@@ -15,7 +15,7 @@
  */
 
 import type { Sprint, Story, Workspace } from "@/lib/stores/workspace-types";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
 import { edgeStatus, isOverdue, validEdges } from "@/lib/dependencies/edges";
 import { findCapacityPlan, pointsForecast } from "@/lib/sprints/capacity";
 import { velocity } from "@/lib/sprints/metrics";

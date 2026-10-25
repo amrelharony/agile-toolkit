@@ -11,7 +11,7 @@
 
 import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
 import type { RetroFormat } from "@/lib/constants/retro-formats";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
 import { hasSyntheticDates, localDay } from "@/lib/sprints/series";
 import { addDays, dayOf, daysBetween } from "@/lib/impediments/model";
 

@@ -18,7 +18,7 @@ import type {
   SprintGoalOutcome,
   Story,
 } from "@/lib/stores/workspace-types";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
 import { doneOn } from "@/lib/flow";
 import { dayOf, impedimentStatus } from "@/lib/impediments/model";
 import { storyPoints } from "@/lib/sprints/plan";
