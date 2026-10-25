@@ -46,6 +46,17 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 vi.mock("@/lib/sonification/use-sonification", () => ({
   useToolSonification: () => () => {},
 }));
+const toastSpy = vi.hoisted(() =>
+  Object.assign(vi.fn(), {
+    dismiss: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    warning: vi.fn(),
+    message: vi.fn(),
+  })
+);
+vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -335,7 +346,7 @@ describe("Advanced analysis", () => {
       within(details).getByRole("figure", { name: "Forecast of the points done" })
     ).toBeInTheDocument();
     expect(
-      within(details).getByText("Log 2 more working days to see pace shifts.")
+      within(details).getByText("Wait for 2 more working days to see pace shifts.")
     ).toBeInTheDocument();
     expect(within(details).queryByText(/to see a trend test/)).toBeNull();
     expect(within(details).getByText(/^Mann-Kendall:/)).toBeInTheDocument();
@@ -360,5 +371,107 @@ describe("the example", () => {
     expect(JSON.stringify({ ...window.localStorage })).not.toContain(EXAMPLE_SPRINT_PREFIX);
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.getByRole("heading", { name: "No sprints yet" })).toBeInTheDocument();
+  });
+});
+
+describe("review fixes", () => {
+  it("reads the tiles, the verdict and the footer on one day when a scope is typed ahead of the done", () => {
+    // Done typed through day 4; on day 7 (today) the new scope, but no done yet.
+    useWorkspaceStore.setState({
+      stories: [],
+      sprintSeries: [
+        {
+          id: "s1",
+          days: [
+            { day: 4, completed: 13 },
+            { day: 7, scope: 45 },
+          ],
+        },
+      ],
+    });
+    const { container } = renderBurnup();
+    expect(verdict(container)).toMatch(
+      /^Day 7 of 14 \(last logged day 4\): 13 of 38 points done \(34%\); the scope hasn't changed since day 0/
+    );
+    expect(tile(container, "done")).toHaveTextContent("of 38 points");
+    expect(tile(container, "added")).toHaveTextContent("Nothing added since day 0");
+    expect(screen.getByRole("figure", { name: "Burnup chart" })).not.toHaveTextContent(
+      /The scope grew/
+    );
+
+    // With day 7's done typed, the new scope counts everywhere at once.
+    commit(completed(7), "15");
+    expect(verdict(container)).toMatch(
+      /^Day 7 of 14: 15 of 45 points done \(33%\); the scope grew by 7 points since day 0/
+    );
+    expect(tile(container, "added")).toHaveTextContent("+7");
+    expect(tile(container, "added")).toHaveTextContent("On day 7");
+    expect(screen.getByRole("figure", { name: "Burnup chart" })).toHaveTextContent(
+      "The scope grew by 7 points since day 0 (38 → 45)."
+    );
+  });
+
+  it("shows a closed sprint run on the board, with no log typed, from its board", () => {
+    vi.setSystemTime(new Date(2026, 9, 21, 9, 0, 0));
+    useWorkspaceStore.setState({
+      sprints: [{ ...SPRINT, status: "completed", pointsCompleted: 13 }],
+    });
+    const { container } = renderBurnup();
+    expect(verdict(container)).toMatch(
+      /^Sprint 7 is closed: 13 of 40 points done \(33%\); the scope grew by 7 and lost 5 points since day 0/
+    );
+    expect(tile(container, "done")).toHaveTextContent("from the board");
+    expect(
+      screen.getByText(
+        "Rebuilt from the stories' sprint moves: the sprint is closed and no daily log was typed for it."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("refuses text a number field can't read instead of clearing the day", () => {
+    useWorkspaceStore.setState({
+      stories: [],
+      sprintSeries: [{ id: "s1", days: [{ day: 2, scope: 40, completed: 10 }] }],
+    });
+    renderBurnup();
+    for (const [input, message] of [
+      [completed(2), "Enter the points done as a number."],
+      [scope(2), "Enter the scope as a number."],
+    ] as const) {
+      Object.defineProperty(input, "validity", { value: { badInput: true }, configurable: true });
+      commit(input, "");
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(input).toHaveAccessibleDescription(expect.stringContaining(message));
+    }
+    expect(seriesDays()).toEqual([{ day: 2, scope: 40, completed: 10 }]);
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
+  });
+
+  it("moves focus to the row's input when a day is cleared", () => {
+    useWorkspaceStore.setState({
+      stories: [],
+      sprintSeries: [{ id: "s1", days: [{ day: 2, completed: 10 }] }],
+    });
+    renderBurnup();
+    fireEvent.click(screen.getByRole("button", { name: "Clear day 2" }));
+    expect(seriesDays() ?? []).toEqual([]);
+    expect(document.activeElement).toBe(scope(2));
+    expect(toastSpy).toHaveBeenCalledWith("Cleared day 2", expect.anything());
+  });
+
+  it("words the board's first day as the board's, and marks the fallback disclosure", () => {
+    vi.setSystemTime(new Date(2026, 9, 5, 9, 0, 0)); // day 0
+    renderBurnup();
+    expect(screen.getByRole("figure", { name: "Burnup chart" })).toHaveAccessibleDescription(
+      /^Nothing done yet; scope stayed at 38 points\./
+    );
+    const summary = screen.getByText("Daily log (fallback)").closest("summary") as HTMLElement;
+    expect(summary.querySelector(".group-open\\:rotate-180")).not.toBeNull();
+  });
+
+  it("says the board hasn't started before the first day", () => {
+    vi.setSystemTime(new Date(2026, 9, 1, 9, 0, 0));
+    const { container } = renderBurnup();
+    expect(tile(container, "done")).toHaveTextContent("Not started yet");
   });
 });

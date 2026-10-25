@@ -24,7 +24,14 @@ const OFF_LABEL: Record<NonNullable<BurnOff>, string> = {
   holiday: "Holiday",
 };
 
-export function burnupChartText(rows: readonly BurnupTextRow[]): ChartText {
+/**
+ * `board`: the rows were read off the sprint board, where nothing is typed,
+ * so an empty start says nothing is done yet rather than nothing logged.
+ */
+export function burnupChartText(
+  rows: readonly BurnupTextRow[],
+  { board = false }: { board?: boolean } = {}
+): ChartText {
   const scopes = rows.map((r) => r.scope).filter(isNum);
   const done = rows.filter((r): r is BurnupTextRow & { completed: number } => isNum(r.completed));
 
@@ -37,7 +44,7 @@ export function burnupChartText(rows: readonly BurnupTextRow[]): ChartText {
     const scopeClause = `scope ${move(firstScope, lastScope)} points`;
     const last = done[done.length - 1];
     if (!last || (done.length === 1 && last.day === 0 && last.completed === 0)) {
-      summary = `No points logged yet; ${scopeClause}.`;
+      summary = `${board ? "Nothing done yet" : "No points logged yet"}; ${scopeClause}.`;
     } else {
       const scopeThen = isNum(last.scope) ? last.scope : lastScope;
       const pct = completionPct(last.completed, scopeThen);

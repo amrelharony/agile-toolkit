@@ -2,7 +2,14 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, BarChart2, ListChecks, Trash2, TrendingUp } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart2,
+  ChevronDown,
+  ListChecks,
+  Trash2,
+  TrendingUp,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ChartCard } from "@/components/shared/chart-card";
@@ -119,8 +126,12 @@ function BurnupLog({
     if (!readOnly) writeBurnupDay(sprint.id, day, { note });
   };
 
+  const inputId = (day: number) => `${rowsId}-input-${day}`;
+
   const clearOneDay = (day: number) => {
     if (readOnly) return;
+    // The button disables once its day is empty: focus goes to the day's input, not the page top.
+    document.getElementById(inputId(day))?.focus();
     let removed: SprintDay | undefined;
     undoable({
       label: `Cleared day ${day}`,
@@ -222,9 +233,11 @@ function BurnupLog({
 
               <div className="col-span-2 sm:col-span-1">
                 <DraftInput
+                  id={inputId(e.day)}
                   type="number"
                   inputMode="decimal"
                   min={0}
+                  badInputMessage="Enter the scope as a number."
                   aria-label={`Scope points on day ${e.day}`}
                   aria-describedby={planScope ? scopeCaptionId : undefined}
                   // A blank day carries the scope forward; show it dimmed.
@@ -244,6 +257,7 @@ function BurnupLog({
                   type="number"
                   inputMode="decimal"
                   min={0}
+                  badInputMessage="Enter the points done as a number."
                   aria-label={`Completed points on day ${e.day}`}
                   aria-describedby={doneDescribedBy}
                   placeholder={
@@ -434,7 +448,10 @@ function BurnupSprint({
       })),
     [burn]
   );
-  const chartText = useMemo(() => burnupChartText(rows), [rows]);
+  const chartText = useMemo(
+    () => burnupChartText(rows, { board: burn.source === "stories" }),
+    [rows, burn.source]
+  );
   const offDays = useMemo(() => offDayRanges(burn), [burn]);
   const scopeMoves = useMemo(
     () =>
@@ -550,6 +567,10 @@ function BurnupSprint({
             <summary className="flex min-h-11 cursor-pointer select-none list-none items-center gap-2 px-3 py-2 text-sm font-medium text-text [&::-webkit-details-marker]:hidden">
               <ListChecks className="h-4 w-4 text-sub" aria-hidden="true" />
               Daily log (fallback)
+              <ChevronDown
+                className="ml-auto h-4 w-4 shrink-0 text-sub transition-transform group-open:rotate-180"
+                aria-hidden="true"
+              />
             </summary>
             <div className="border-t border-border p-3">
               <BurnupLog

@@ -9,7 +9,7 @@
 import type { BurnSeries, BurnStatus } from "@/lib/sprints/burn";
 import { fmt } from "@/lib/sprints/hub-view";
 import type { Sprint } from "@/lib/stores/workspace-types";
-import { fromWhere, projectionTile, type BurnTile } from "../burndown/tiles";
+import { fromWhere, notYet, projectionTile, type BurnTile } from "../burndown/tiles";
 
 /** "days 3 and 5", the days some scope moved. */
 function daysOf(days: number[]): string {
@@ -25,7 +25,7 @@ export function burnupTiles(sprint: Sprint, burn: BurnSeries, status: BurnStatus
   const removedDays = burn.days.filter((d) => d.removed > 0 && upTo(d)).map((d) => d.day);
   const n = burn.unpointedOpen;
   const done: BurnTile = !read
-    ? { id: "done", label: "Done", value: "Not logged yet", tone: "default", empty: true }
+    ? { id: "done", label: "Done", value: notYet(burn), tone: "default", empty: true }
     : {
         id: "done",
         label: "Done",
