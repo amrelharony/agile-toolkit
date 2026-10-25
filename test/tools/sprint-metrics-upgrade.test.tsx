@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -252,6 +252,41 @@ describe("carry-over", () => {
       source: "none",
     });
   });
+
+  it("reads a sprint the cockpit closed before moves were recorded from its numbers", () => {
+    // Committed 34, done 25; the 9 unfinished points moved out with no
+    // record, so only the done stories keep the sprint's id.
+    const closed = sprint(1, { pointsPlanned: 34, pointsCompleted: 25 });
+    const done = [
+      story("d1", { points: 13, sprintId: "s1" }),
+      story("d2", { points: 12, sprintId: "s1" }),
+    ];
+    expect(sprintCarryOver(closed, done)).toEqual({
+      count: null,
+      points: 9,
+      pct: 26,
+      source: "numbers",
+    });
+    // All of it done: nothing carried, and the stories say so.
+    expect(sprintCarryOver(sprint(1, { pointsCompleted: 30 }), done)).toMatchObject({
+      count: 0,
+      points: 0,
+      source: "stories",
+    });
+    // A story still open in it says more than the numbers.
+    const left = [...done, story("o", { points: 5, status: "todo", sprintId: "s1" })];
+    expect(sprintCarryOver(closed, left)).toMatchObject({
+      count: 1,
+      points: 5,
+      source: "stories",
+    });
+    // The trend's averages and verdict read the same.
+    const three = [1, 2, 3].map((n) => sprint(n, { pointsPlanned: 34, pointsCompleted: 25 }));
+    const doneIn = three.map((s) => story(`d-${s.id}`, { points: 25, sprintId: s.id }));
+    const t = sprintTrends({ sprints: three, stories: doneIn });
+    expect(t.carryOver).toEqual({ meanPoints: 9, count: 3 });
+    expect(trendVerdict(t)).toContain("carried over 9 points a sprint");
+  });
 });
 
 /* ── Scope churn ────────────────────────────────────────────────────── */
@@ -368,6 +403,35 @@ describe("scope churn", () => {
     expect(sprintScope(s1, carriedIn, undefined).source).toBe("none");
     // The carry-over is still read from the moves.
     expect(sprintCarryOver(s1, carriedIn).source).toBe("history");
+  });
+
+  it("doesn't take a move made after the sprint ended as its scope record: the log answers", () => {
+    // A leftover Sprint Planning took into the next sprint, after s1's last day.
+    const leftover = [
+      story("left", {
+        points: 6,
+        status: "todo",
+        sprintId: "s2",
+        sprintHistory: [move({ from: "s1", sprintId: "s2", at: on(1, 16), points: 6 })],
+      }),
+    ];
+    const series: SprintSeries = { id: "s1", days: [{ day: 5, scope: 36 }] };
+    expect(sprintScope(s1, leftover, series)).toEqual({
+      added: 6,
+      removed: 0,
+      net: 6,
+      churnPct: 20,
+      source: "log",
+    });
+    expect(sprintScope(s1, leftover, undefined).source).toBe("none");
+    // A move during the sprint is a record, whatever the log says.
+    const mid = [
+      story("mid", {
+        sprintId: "s1",
+        sprintHistory: [move({ sprintId: "s1", at: on(1, 4), points: 3 })],
+      }),
+    ];
+    expect(sprintScope(s1, mid, series)).toMatchObject({ added: 3, source: "history" });
   });
 
   it("can't place moves for a sprint without real dates: only its log says", () => {
@@ -497,6 +561,14 @@ describe("the example", () => {
     expect(useWorkspaceStore.getState().stories).toEqual([]);
     expect(logs).toEqual([]);
   });
+
+  it("doesn't link the example's sprints to the cockpit, where they don't exist", () => {
+    render(<SprintMetricsClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(screen.queryAllByRole("link", { name: /open in the cockpit/ })).toEqual([]);
+    expect(screen.queryByText(/Each opens in the cockpit/)).toBeNull();
+    expect(screen.getAllByText("Sprint 3").length).toBeGreaterThan(0);
+  });
 });
 
 /* ── The page ───────────────────────────────────────────────────────── */
@@ -531,6 +603,71 @@ describe("the page", () => {
     render(<SprintMetricsClient />);
     const links = screen.getAllByRole("link", { name: /Sprint 2 \(open in the cockpit\)/ });
     expect(links[0]).toHaveAttribute("href", "/sprint?sprint=s2");
+    expect(screen.getByText(/Each opens in the cockpit/)).toBeInTheDocument();
+  });
+
+  it("describes Sprint Comparison as it works now", () => {
+    useWorkspaceStore.setState({ sprints: run.slice(0, 3) });
+    render(<SprintMetricsClient />);
+    expect(
+      screen.getByText("Six scores per sprint, read from your data, side by side")
+    ).toBeInTheDocument();
+  });
+});
+
+describe("worth checking", () => {
+  const migrated = (n: number): SprintSeries => ({ id: `s${n}`, migratedFrom: ["velocity"] });
+
+  it("moves focus to the next check once one is fixed, then to the heading", async () => {
+    useWorkspaceStore.setState({
+      sprints: [sprint(1), sprint(2)],
+      sprintSeries: [migrated(1), migrated(2)],
+    });
+    render(<SprintMetricsClient />);
+    const first = screen.getByRole("button", { name: "Sprint 1 looks right" });
+    first.focus();
+    fireEvent.click(first);
+    expect(screen.queryByRole("button", { name: "Sprint 1 looks right" })).toBeNull();
+    // The next check's first control, not the page body.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Check the details of Sprint 2" })).toHaveFocus()
+    );
+
+    const second = screen.getByRole("button", { name: "Sprint 2 looks right" });
+    second.focus();
+    fireEvent.click(second);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Worth checking" })).toHaveFocus()
+    );
+    expect(screen.getByText("Nothing left to check.")).toBeInTheDocument();
+  });
+
+  it("doesn't take focus from where the user moved it", async () => {
+    useWorkspaceStore.setState({
+      sprints: [sprint(1), sprint(2)],
+      sprintSeries: [migrated(1), migrated(2)],
+    });
+    render(<SprintMetricsClient />);
+    const window6 = screen.getByRole("button", { name: "Last 6 sprints" });
+    window6.focus();
+    fireEvent.click(screen.getByRole("button", { name: "Sprint 1 looks right" }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(window6).toHaveFocus();
+  });
+
+  it("says whether all the checks are shown", () => {
+    const six = [1, 2, 3, 4, 5, 6].map((n) => sprint(n));
+    useWorkspaceStore.setState({ sprints: six, sprintSeries: six.map((_, i) => migrated(i + 1)) });
+    render(<SprintMetricsClient />);
+    const toggle = screen.getByRole("button", { name: "Show all 6 sprints to check" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const list = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+    expect(list?.tagName).toBe("UL");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Show fewer" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
   });
 });
 

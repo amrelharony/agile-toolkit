@@ -13,12 +13,17 @@
  *     dialog made, the moves out of the sprint after its last day, and the
  *     stories still open in it. Without a recorded move it is the open
  *     stories alone, else the numbers (committed − completed, labelled as
- *     such), else nothing.
+ *     such), else nothing. A sprint the cockpit closed before the moves
+ *     were recorded keeps only its done stories (the unfinished ones left
+ *     without a trace), so with none left open a shortfall in the numbers
+ *     is the better answer than "nothing carried".
  *   - scope churn is the points that joined or left the sprint after its
- *     first day (the plan is made on day 0), from the same moves once the
- *     sprint's own planning was recorded. Without them it is read from the
- *     daily log's scope readings (Burnup's scope, or Burndown's flagged
- *     scope changes), else it isn't recorded.
+ *     first day (the plan is made on day 0), from the same moves once one
+ *     dated by the sprint's last day was recorded (its planning, a join or
+ *     a mid-sprint move: one made after it ended, say Sprint Planning
+ *     taking a leftover, says nothing about its scope). Without them it is
+ *     read from the daily log's scope readings (Burnup's scope, or
+ *     Burndown's flagged scope changes), else it isn't recorded.
  *
  * Moves are weighed by the points a story had when it moved, and dated by
  * the local day (`localDay`), never the UTC date of the stamp.
@@ -174,6 +179,12 @@ export function sprintCarryOver(
 ): SprintCarryOver {
   const committed = Number.isFinite(sprint.pointsPlanned) ? sprint.pointsPlanned : 0;
   const pctOf = (points: number) => (committed > 0 ? Math.round((points / committed) * 100) : null);
+  const completed = sprint.pointsCompleted;
+  // Committed − completed, or null without both.
+  const shortfall =
+    committed > 0 && typeof completed === "number" && Number.isFinite(completed)
+      ? round1(Math.max(0, committed - completed))
+      : null;
   const open = openStories(sprint, stories).stories;
   const moves = movesTouching(stories, sprint.id);
   if (moves.length > 0) {
@@ -188,25 +199,26 @@ export function sprintCarryOver(
     const points = round1(Array.from(carried.values()).reduce((a, b) => a + b, 0));
     return { count: carried.size, points, pct: pctOf(points), source: "history" };
   }
-  if (stories.some((s) => s.sprintId === sprint.id)) {
+  // Only done stories left and the numbers short: the unfinished ones went
+  // without a record (see the file comment), so the stories can't tell.
+  const storiesCanTell = open.length > 0 || shortfall === null || shortfall === 0;
+  if (storiesCanTell && stories.some((s) => s.sprintId === sprint.id)) {
     const points = round1(open.reduce((sum, s) => sum + storyPoints(s), 0));
     return { count: open.length, points, pct: pctOf(points), source: "stories" };
   }
-  const completed = sprint.pointsCompleted;
-  if (committed > 0 && typeof completed === "number" && Number.isFinite(completed)) {
-    const points = round1(Math.max(0, committed - completed));
-    return { count: null, points, pct: pctOf(points), source: "numbers" };
+  if (shortfall !== null) {
+    return { count: null, points: shortfall, pct: pctOf(shortfall), source: "numbers" };
   }
   return { count: null, points: null, pct: null, source: "none" };
 }
 
 /**
  * How much `sprint`'s scope changed after its first day: from the stories'
- * moves once the sprint's own planning was recorded (a story joining or
+ * moves once one dated by its last day was recorded (a story joining or
  * leaving it other than by a carry-over: carry-overs alone say nothing
- * about mid-sprint changes), else from the daily log's scope readings,
- * else not recorded. A sprint without real dates can't place a move, so
- * only its log can say.
+ * about mid-sprint changes, and neither does a move made after it ended),
+ * else from the daily log's scope readings, else not recorded. A sprint
+ * without real dates can't place a move, so only its log can say.
  */
 export function sprintScope(
   sprint: Pick<Sprint, "id" | "startDate" | "endDate" | "pointsPlanned">,
@@ -223,8 +235,8 @@ export function sprintScope(
   });
 
   const moves = dated(sprint) ? movesTouching(stories, sprint.id) : [];
-  if (moves.some((m) => !m.change.carriedOver)) {
-    const { start, end } = daysOf(sprint);
+  const { start, end } = daysOf(sprint);
+  if (moves.some((m) => !m.change.carriedOver && m.day !== null && m.day <= end)) {
     const during = (day: string | null) => day !== null && day > start && day <= end;
     let added = 0;
     let removed = 0;

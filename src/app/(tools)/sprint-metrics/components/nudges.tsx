@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,24 +38,69 @@ function Nudge({ children, actions }: { children: React.ReactNode; actions: Reac
 const linkCls =
   "inline-flex h-8 items-center rounded-md border border-border px-3 text-sm text-text hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+/** The checks on screen, in order, one key per nudge. */
+const nudgeKeys = (items: readonly SprintNudge[]) =>
+  items.flatMap(({ sprint, kinds }) => kinds.map((k) => `${sprint.id}-${k}`));
+
 /**
  * Data-quality checks across the sprints, each with its fix: a finished
  * sprint without completed points (it drops out of velocity and the trend),
  * placeholder dates, and sprints made from old tool data. Dates and details
  * are edited in the cockpit's header now; points are added here.
+ *
+ * Fixing a check removes it, and the button that fixed it with it, so
+ * focus moves to the next check (or the heading once none is left) rather
+ * than falling back to the page.
  */
 export function Nudges({ items, onAddPoints, onLooksRight }: NudgesProps) {
   const headingId = useId();
+  const listId = useId();
   const [all, setAll] = useState(false);
-  if (items.length === 0) return null;
+  // Once a check was shown, the section stays (saying none is left) so
+  // focus has somewhere to go when the last one is fixed.
+  const [shownOnce, setShownOnce] = useState(items.length > 0);
+  if (items.length > 0 && !shownOnce) setShownOnce(true);
+
+  const listRef = useRef<HTMLUListElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const keys = nudgeKeys(items);
+  const keyList = keys.join("\u0000");
+  const before = useRef(keys);
+  useEffect(() => {
+    const prev = before.current;
+    before.current = keyList ? keyList.split("\u0000") : [];
+    const now = new Set(before.current);
+    const gone = prev.findIndex((k) => !now.has(k));
+    if (gone === -1) return;
+    // Only when focus went with the removed check: never take it from
+    // somewhere the user moved it. The close dialog hands focus back after
+    // it unmounts (on a timer), so look once that has happened.
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      const rows = listRef.current?.querySelectorAll<HTMLElement>(":scope > li") ?? [];
+      const row = rows[Math.min(gone, rows.length - 1)];
+      const target = row?.querySelector<HTMLElement>("button, a[href]") ?? headingRef.current;
+      target?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [keyList]);
+
+  if (items.length === 0 && !shownOnce) return null;
   const shown = all ? items : items.slice(0, SHOWN);
 
   return (
     <section aria-labelledby={headingId} className="space-y-2">
-      <h2 id={headingId} className="text-sm font-semibold text-text">
+      <h2
+        id={headingId}
+        ref={headingRef}
+        tabIndex={-1}
+        className="text-sm font-semibold text-text focus:outline-none"
+      >
         Worth checking
       </h2>
-      <ul className="space-y-2">
+      {items.length === 0 && <p className="text-sm text-sub">Nothing left to check.</p>}
+      <ul id={listId} ref={listRef} className="space-y-2">
         {shown.flatMap(({ sprint, series, kinds }) => [
           ...(kinds.includes("no-points")
             ? [
@@ -131,7 +176,14 @@ export function Nudges({ items, onAddPoints, onLooksRight }: NudgesProps) {
         ])}
       </ul>
       {items.length > SHOWN && (
-        <Button type="button" size="sm" variant="ghost" onClick={() => setAll((v) => !v)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setAll((v) => !v)}
+          aria-expanded={all}
+          aria-controls={listId}
+        >
           {all ? "Show fewer" : `Show all ${items.length} sprints to check`}
         </Button>
       )}

@@ -44,7 +44,7 @@ export const SPRINT_TOOLS: Record<SprintToolId, ToolLink> = {
   "sprint-compare": {
     path: "/sprint-compare",
     name: "Sprint Comparison",
-    blurb: "Rate sprints and compare them side by side",
+    blurb: "Six scores per sprint, read from your data, side by side",
     icon: GitCompare,
   },
   "release-planner": {

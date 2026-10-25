@@ -75,20 +75,24 @@ const CHECKED_CAP = 200;
 
 const isOpen = (s: Sprint) => s.status === "planned" || s.status === "active";
 
-const COLUMNS: DataTableColumn<SprintTrendRow>[] = [
+/** The trend table; in the example preview the names are plain text (its sprints aren't the team's). */
+const columnsFor = (preview: boolean): DataTableColumn<SprintTrendRow>[] => [
   {
     key: "sprint",
     header: "Sprint",
     primary: true,
-    cell: (r) => (
-      <Link
-        href={sprintHref("/sprint", r.sprint.id)}
-        aria-label={`${r.sprint.name} (open in the cockpit)`}
-        className="font-medium text-text underline-offset-2 hover:text-accent hover:underline"
-      >
-        {r.sprint.name}
-      </Link>
-    ),
+    cell: (r) =>
+      preview ? (
+        <span className="font-medium text-text">{r.sprint.name}</span>
+      ) : (
+        <Link
+          href={sprintHref("/sprint", r.sprint.id)}
+          aria-label={`${r.sprint.name} (open in the cockpit)`}
+          className="font-medium text-text underline-offset-2 hover:text-accent hover:underline"
+        >
+          {r.sprint.name}
+        </Link>
+      ),
   },
   { key: "committed", header: "Committed", align: "right", cell: (r) => r.committed },
   { key: "completed", header: "Completed", align: "right", cell: (r) => r.completed ?? "—" },
@@ -145,6 +149,7 @@ export function SprintMetricsClient() {
   const windowGroup = useId();
 
   const preview = example !== null;
+  const columns = useMemo(() => columnsFor(preview), [preview]);
   const viewSprints = example ? example.sprints : sprints;
   const viewStories = example ? example.stories : stories;
   const viewSeries = example ? example.series : allSeries;
@@ -377,7 +382,9 @@ export function SprintMetricsClient() {
         />
       )}
 
-      <Nudges items={nudges} onAddPoints={(s) => setPointsFor(s.id)} onLooksRight={markChecked} />
+      {!preview && (
+        <Nudges items={nudges} onAddPoints={(s) => setPointsFor(s.id)} onLooksRight={markChecked} />
+      )}
 
       {charts && (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -410,9 +417,9 @@ export function SprintMetricsClient() {
             {summary.window === null
               ? `All ${n} finished sprints`
               : `The last ${n} of ${summary.finishedCount} finished sprints`}
-            , oldest first by end date. Each opens in the cockpit.
+            , oldest first by end date.{preview ? "" : " Each opens in the cockpit."}
           </p>
-          <DataTable columns={COLUMNS} rows={summary.rows} rowKey={(r) => r.sprint.id} />
+          <DataTable columns={columns} rows={summary.rows} rowKey={(r) => r.sprint.id} />
           {charts && (
             <dl className="mt-4 grid gap-3 border-t border-border pt-3 text-sm sm:grid-cols-3">
               <div>
