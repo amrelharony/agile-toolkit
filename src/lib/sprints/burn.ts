@@ -16,6 +16,10 @@
  *     status history), so a story done on day d counts from day d, one done
  *     and reopened stops counting, and one done after the last day counts
  *     on it. A story removed while open lowers the scope, not as burn.
+ *     Moves made before the work began (the first day a story in the sprint
+ *     was past To do) are the plan: they read as the scope on day 0, so a
+ *     sprint whose dates were set after its stories were planned in (it can
+ *     be backdated) doesn't read its planning as scope added.
  *   - "log": no pointed stories, but the typed daily log (SprintSeries) has
  *     a reading on or before today: Burndown's remaining, Burnup's done and
  *     scope, each worked out from the other where only one was typed.
@@ -23,8 +27,9 @@
  *
  * A closed sprint is read from its log, as it was recorded: closing can
  * move its unfinished stories on, so the board no longer holds what it
- * committed. Asking for "stories" (`prefer`) shows its board anyway when
- * the stories' sprint moves can rebuild it.
+ * committed. Without a log (a team that only used the board never types
+ * one) it is read off its board when the stories' sprint moves can rebuild
+ * it, and asking for "stories" (`prefer`) shows that board anyway.
  *
  * Days are calendar days: day 0 is the start date and the last day is the
  * end date, as the log is stored and "Day N of L" reads. The ideal line, the
@@ -35,7 +40,7 @@
  */
 
 import type { Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
-import { stageOn, storyItems, type FlowItem } from "@/lib/flow";
+import { SPRINT_WORKFLOW, stageOf, stageOn, storyItems, type FlowItem } from "@/lib/flow";
 import { countWorkingDays, isoDayNumber, isWorkingDay, type WorkingCalendar } from "./calendar";
 import { fmt, points } from "./hub-view";
 import {
@@ -99,6 +104,13 @@ export interface BurnDay {
   ideal: number;
   /** Points left at the end of the day; null on a day not reached or not logged. */
   remaining: number | null;
+  /**
+   * `remaining` against the ideal line that day (lib/sprints/metrics gap,
+   * positive behind), worked out from the exact ideal, not the rounded one,
+   * so a chart's text, a prompt and the tiles quote one gap; null with no
+   * `remaining`.
+   */
+  gap: number | null;
   /** Points done by the end of the day; null on a day not reached or not logged. */
   done: number | null;
   /** Points in scope that day; null on a day the board hasn't reached. */
@@ -178,6 +190,13 @@ export interface BurnInput {
   today: string;
   /** Show this source when it holds anything (a page's switch); absent, the rule decides. */
   prefer?: "stories" | "log";
+  /**
+   * Read a closed sprint only as it was recorded, from its log, never off
+   * its board (the cockpit, whose tiles quote the points confirmed at the
+   * close). Absent, a closed sprint without a log reads its board when the
+   * stories' sprint moves can rebuild it.
+   */
+  recordedOnly?: boolean;
 }
 
 /** The line the ideal burndown starts from: the commitment, else the scope on day 0. */
@@ -241,11 +260,14 @@ const clampDay = (d: number, length: number) => Math.min(length, Math.max(0, d))
 
 /**
  * When `story` was in `sprint`, as day numbers, from its sprint moves. A
- * move out at the close (a carry-over) or after the last day leaves it in
- * scope to the end, as this sprint's unfinished work. A story in the sprint
- * now with no recorded join counts from day 0. A stretch that ended weighs
- * the points recorded with the move out; the one it is in now, its points
- * now, so the last day matches the board.
+ * move out at the close (a carry-over), or after the last day of a sprint
+ * since closed (Sprint Planning's carry-over isn't flagged), leaves it in
+ * scope to the end, as this sprint's unfinished work. While an ended sprint
+ * is still open its last day is the board now, as its done points are
+ * (`boardDays`), so a story moved out since leaves on the last day. A story
+ * in the sprint now with no recorded join counts from day 0. A stretch that
+ * ended weighs the points recorded with the move out; the one it is in now,
+ * its points now, so the last day matches the board.
  */
 function staysOf(
   story: Story,
@@ -253,6 +275,7 @@ function staysOf(
   length: number
 ): { stays: Stay[]; knownJoin: boolean } {
   const stays: Stay[] = [];
+  const closed = sprint.status === "completed";
   let open: { join: number } | null = null;
   let knownJoin = false;
   for (const c of sprintMoves(story)) {
@@ -260,7 +283,7 @@ function staysOf(
     const day = date === null ? null : dayForDate(sprint, date);
     if (day === null) continue;
     if (c.from === sprint.id) {
-      const left = c.carriedOver || day > length ? null : Math.max(0, day);
+      const left = c.carriedOver || (day > length && closed) ? null : clampDay(day, length);
       const pts = typeof c.points === "number" && Number.isFinite(c.points) ? c.points : null;
       stays.push({ join: open ? open.join : 0, left, points: pts ?? storyPoints(story) });
       if (open) knownJoin = true;
@@ -322,10 +345,32 @@ interface BoardDays {
   undatedDone: number;
 }
 
+const queued = (stage: string | null) =>
+  stage === null || stageOf(SPRINT_WORKFLOW, stage)?.kind === "queue";
+
+/**
+ * The first day of days 0 … `last` a story in the sprint that day was past
+ * To do (in progress, in review or done): the day the work began. Until
+ * then the team was still planning, so the stories that joined or left by
+ * then make the scope it started with. `last` when no work has begun yet.
+ */
+function workBeganOn(
+  members: readonly Member[],
+  last: number,
+  stageAt: (item: FlowItem, day: number) => string | null
+): number {
+  for (let day = 0; day < last; day++) {
+    if (members.some((m) => stayOn(m.stays, day) && !queued(stageAt(m.item, day)))) return day;
+  }
+  return Math.max(0, last);
+}
+
 /**
  * The board's scope and done points for days 0 … `last`. `pastEnd`: today
  * is after the last day, so the last day counts what is done now (a story
- * done after the end still counts on it).
+ * done after the end still counts on it). The days before the work began
+ * (`workBeganOn`) read the scope as it stood that day, so planning isn't
+ * scope added.
  */
 function boardDays(
   sprint: Sprint,
@@ -343,18 +388,24 @@ function boardDays(
     removed: zeros(),
     undatedDone: 0,
   };
+  const stageAt = (item: FlowItem, day: number): string | null => {
+    if (day === length && pastEnd) return item.stage;
+    const date = dayDate(sprint, day);
+    return date === null ? null : stageOn(item, date);
+  };
+  const began = n > 0 ? workBeganOn(members, last, stageAt) : 0;
+  // The day whose membership a day reads: the plan as it stood once the work began.
+  const inScopeOn = (day: number) => Math.max(day, began);
   for (const { item, stays } of members) {
     let counted = false;
     for (let day = 0; day < n; day++) {
-      const stay = stayOn(stays, day);
-      const before = day > 0 ? stayOn(stays, day - 1) : null;
+      const stay = stayOn(stays, inScopeOn(day));
+      const before = day > 0 ? stayOn(stays, inScopeOn(day - 1)) : null;
       if (day > 0 && stay && !before) out.added[day] += stay.points;
       if (day > 0 && !stay && before) out.removed[day] += before.points;
       if (!stay) continue;
       out.scope[day] += stay.points;
-      const date = dayDate(sprint, day);
-      const stage =
-        day === length && pastEnd ? item.stage : date === null ? null : stageOn(item, date);
+      const stage = stageAt(item, day);
       if (stage === "done") {
         out.done[day] += stay.points;
         counted = true;
@@ -454,12 +505,16 @@ function prepare(input: BurnInput) {
 export function burnSeries(input: BurnInput): BurnSeries {
   const { sprint, series, stories, today, prefer } = input;
   const { base, cal, members, unknownJoin, closed } = prepare(input);
+  const rule = remainingToday({ sprint, stories: closed ? [] : stories, series, today }).source;
   const source: BurnSource =
     prefer === "stories" && base.available.stories
       ? "stories"
       : prefer === "log" && base.available.log
         ? remainingToday({ sprint, stories: [], series, today }).source
-        : remainingToday({ sprint, stories: closed ? [] : stories, series, today }).source;
+        : // A closed sprint with nothing logged: its board, when the sprint moves rebuild it.
+          rule === "none" && closed && base.available.stories && !input.recordedOnly
+          ? "stories"
+          : rule;
   return source === "stories"
     ? fromBoard(input, base, members, unknownJoin, cal)
     : fromLog(input, base, source, cal);
@@ -514,13 +569,20 @@ function fromBoard(
   const now = storyProgress(stories, sprint.id);
   const lastDay = last >= 0 ? last : null;
   const initialScope = lastDay === null ? now.scope : board.scope[0];
-  const ideal = idealLine(sprint, idealBase(sprint, initialScope), calendar);
+  // Without a commitment, and with every point arriving after day 0 (all of
+  // it scope added once the work began), the line starts from the first
+  // scope there was rather than lying flat at 0.
+  const startScope = initialScope > 0 ? initialScope : (board.scope.find((s) => s > 0) ?? 0);
+  const lineBase = idealBase(sprint, startScope);
+  const ideal = idealLine(sprint, lineBase, calendar);
   const days: BurnDay[] = [];
   for (let day = 0; day <= length; day++) {
     const read = day <= last;
+    const remaining = read ? round1(board.scope[day] - board.done[day]) : null;
     days.push({
       ...dayShell(sprint, day, ideal, calendar),
-      remaining: read ? round1(board.scope[day] - board.done[day]) : null,
+      remaining,
+      gap: remaining === null ? null : gapOf(remaining, ideal[day] ?? 0),
       done: read ? board.done[day] : null,
       scope: read ? board.scope[day] : null,
       added: read ? board.added[day] : 0,
@@ -532,7 +594,7 @@ function fromBoard(
   return {
     source: "stories",
     ...base,
-    base: idealBase(sprint, initialScope),
+    base: lineBase,
     workingDays: sprintWorkingDays(sprint, calendar),
     lastDay,
     days,
@@ -566,20 +628,16 @@ function fromLog(
   const ideal = idealLine(sprint, idealBase(sprint, initialScope), calendar);
   const days: BurnDay[] = [];
   let lastReading: number | null = null;
-  let added = 0;
-  let removed = 0;
   for (let day = 0; day <= length; day++) {
     const log = logDay(sprint, series, day);
     const scope = scopeAt(sprint, series, day);
     const step = day > 0 ? round1(scope - scopeAt(sprint, series, day - 1)) : 0;
-    if (day <= limit) {
-      if (log.reading) lastReading = day;
-      if (step > 0) added += step;
-      if (step < 0) removed -= step;
-    }
+    if (day <= limit && log.reading) lastReading = day;
+    const remaining = log.remaining === null ? null : round1(log.remaining);
     days.push({
       ...dayShell(sprint, day, ideal, calendar),
-      remaining: log.remaining === null ? null : round1(log.remaining),
+      remaining,
+      gap: remaining === null ? null : gapOf(remaining, ideal[day] ?? 0),
       done: log.done === null ? null : round1(log.done),
       scope: round1(scope),
       added: Math.max(0, step),
@@ -589,6 +647,10 @@ function fromLog(
     });
   }
   const lastDay = source === "log" ? lastReading : null;
+  // The scope's moves up to the day the rest is read on, so the churn, the
+  // scope now, the done points and the % all describe one day (a scope typed
+  // on a later day counts once that day has a reading).
+  const read = lastDay === null ? [] : days.slice(1, lastDay + 1);
   const progress = storyProgress(stories, sprint.id);
   return {
     source,
@@ -600,8 +662,8 @@ function fromLog(
     committed: sprint.pointsPlanned,
     initialScope,
     scopeNow: round1(scopeAt(sprint, series, lastDay ?? 0)),
-    scopeAdded: round1(added),
-    scopeRemoved: round1(removed),
+    scopeAdded: sum(read.map((d) => d.added)),
+    scopeRemoved: sum(read.map((d) => d.removed)),
     done: lastDay === null ? null : days[lastDay].done,
     remaining: lastDay === null ? null : days[lastDay].remaining,
     unpointedOpen: 0,
@@ -685,7 +747,11 @@ export function burnStatus(burn: BurnSeries, sprint: Sprint): BurnStatus {
   const left = burn.remaining;
   const idealRaw =
     at !== null && left !== null ? idealRemainingAt(sprint, burn.base, at, cal) : null;
-  const gap = idealRaw !== null && left !== null ? gapOf(left, idealRaw) : null;
+  // The day's own gap (BurnDay.gap), the one the chart's text quotes too.
+  const gap =
+    idealRaw !== null && left !== null
+      ? (burn.days[at as number]?.gap ?? gapOf(left, idealRaw))
+      : null;
   const cantTell = burn.source === "stories" && burn.unpointedOpen > 0 && (left ?? 0) <= 0;
 
   const numbers: StatusNumbers = {
@@ -752,12 +818,19 @@ function leadIn(
     const days = plural(-(burn.todayAt as number), "day");
     return { sentence: `${name} starts in ${days} with ${points(planned)} planned.` };
   }
-  const lead =
+  const when =
     burn.phase === "running"
       ? `Day ${burn.todayDay} of ${burn.lengthDays}`
       : sprint.status === "completed"
         ? `${name} is closed`
         : `${name} ended ${plural((burn.todayAt as number) - burn.lengthDays, "day")} ago`;
+  // The log's numbers are its last reading's: name that day when it isn't
+  // the one the sentence opens with, so a missed day doesn't read as today.
+  const readOn = burn.phase === "running" ? burn.todayDay : burn.lengthDays;
+  const lead =
+    burn.lastDay !== null && readOn !== null && burn.lastDay < readOn
+      ? `${when} (last logged day ${burn.lastDay})`
+      : when;
   if (burn.source === "none" || burn.done === null || burn.remaining === null) {
     return {
       sentence:
@@ -881,6 +954,7 @@ export interface BurnReport {
       | "off"
       | "ideal"
       | "remaining"
+      | "gap"
       | "done"
       | "scope"
       | "added"
@@ -924,7 +998,7 @@ export function burnReport(input: BurnInput): BurnReport {
     willMeetOnTime: s.willMeetOnTime,
     cantTell: s.cantTell,
     unpointedOpen: burn.unpointedOpen,
-    caveats: burnCaveats(burn),
+    caveats: burnCaveats(burn, input.sprint),
     verdict: s.verdict,
     scopeVerdict: s.scopeVerdict,
     days: burn.days.map((d) => ({
@@ -934,6 +1008,7 @@ export function burnReport(input: BurnInput): BurnReport {
       off: d.off,
       ideal: d.ideal,
       remaining: d.remaining,
+      gap: d.gap,
       done: d.done,
       scope: d.scope,
       added: d.added,
@@ -943,18 +1018,39 @@ export function burnReport(input: BurnInput): BurnReport {
   };
 }
 
-/** What an agent should read with the numbers: what they leave out or guess. */
-export function burnCaveats(burn: BurnSeries): string[] {
+/**
+ * What an agent should read with the numbers: what they leave out or guess,
+ * and why this source (`sprint`: whether it is closed decides that).
+ */
+export function burnCaveats(burn: BurnSeries, sprint?: Pick<Sprint, "status">): string[] {
   const out: string[] = [];
+  const closed = sprint?.status === "completed";
   if (!burn.dated) out.push("The sprint has no real dates, so its days can't be charted.");
+  if (burn.source === "stories" && closed) {
+    out.push(
+      burn.available.log
+        ? "Rebuilt from the stories' sprint moves, as asked: the sprint is closed, and its typed daily log holds what was recorded."
+        : "Rebuilt from the stories' sprint moves: the sprint is closed and no daily log was typed for it."
+    );
+  }
   if (burn.source === "log") {
     out.push(
       burn.available.stories
-        ? "Read from the typed daily log, as the sprint is closed (closing can move its stories)."
-        : "Read from the typed daily log: the sprint has no pointed stories."
+        ? closed
+          ? "Read from the typed daily log, as the sprint is closed (closing can move its stories)."
+          : "Read from the typed daily log, as asked; the board has pointed stories too."
+        : closed
+          ? "Read from the typed daily log: the sprint is closed, and its stories' sprint moves can't rebuild its board."
+          : "Read from the typed daily log: the sprint has no pointed stories."
     );
   }
-  if (burn.source === "none") out.push("Nothing is recorded yet: no pointed stories, no log.");
+  if (burn.source === "none") {
+    out.push(
+      closed
+        ? "Nothing is recorded: no daily log was typed, and the stories' sprint moves can't rebuild the board."
+        : "Nothing is recorded yet: no pointed stories, no log."
+    );
+  }
   if (burn.unpointedOpen > 0) {
     out.push(
       `${plural(burn.unpointedOpen, "open story", "open stories")} without points: the board's points left are a floor.`

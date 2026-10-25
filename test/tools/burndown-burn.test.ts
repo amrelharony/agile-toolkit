@@ -17,6 +17,7 @@ import {
 import { remainingToday, storyProgress } from "@/lib/sprints/progress";
 import { sprintStatus } from "@/lib/sprints/metrics";
 import { exampleBurndown } from "@/app/(tools)/burndown/example";
+import { cockpitBurndown, cockpitChartText } from "@/app/(tools)/sprint/view";
 
 /**
  * lib/sprints/burn: the one burn model Burndown, Burnup, the cockpit and
@@ -195,15 +196,42 @@ describe("the board as the source", () => {
     };
     const closed: Sprint = { ...SPRINT, status: "completed", pointsCompleted: 13 };
     const stories = [BOARD[0], BOARD[1], carried];
-    // A closed sprint reads its log, as recorded…
-    expect(burnSeries(input({ sprint: closed, stories, today: "2026-10-21" })).source).toBe("none");
-    // …and its board when asked, which the sprint moves can rebuild.
-    const b = burnSeries(
-      input({ sprint: closed, stories, today: "2026-10-21", prefer: "stories" })
-    );
+    // With no daily log typed, a closed sprint is rebuilt from its board…
+    const b = burnSeries(input({ sprint: closed, stories, today: "2026-10-21" }));
     expect(b.source).toBe("stories");
     expect(b.days[14]).toMatchObject({ scope: 23, done: 13, remaining: 10, removed: 0 });
     expect(b.scopeRemoved).toBe(0);
+    expect(burnCaveats(b, closed)).toContain(
+      "Rebuilt from the stories' sprint moves: the sprint is closed and no daily log was typed for it."
+    );
+    expect(burnStatus(b, closed).verdict).toMatch(/^Sprint 7 is closed: 13 of 23 points done/);
+    // …the cockpit reads it only as recorded…
+    expect(
+      burnSeries(input({ sprint: closed, stories, today: "2026-10-21", recordedOnly: true })).source
+    ).toBe("none");
+    // …and with a log, the log is what was recorded; the board on request.
+    const log: SprintSeries = { id: "s1", days: [{ day: 14, remaining: 12 }] };
+    const logged = burnSeries(input({ sprint: closed, stories, series: log, today: "2026-10-21" }));
+    expect(logged.source).toBe("log");
+    expect(burnCaveats(logged, closed)[0]).toBe(
+      "Read from the typed daily log, as the sprint is closed (closing can move its stories)."
+    );
+    const asked = burnSeries(
+      input({ sprint: closed, stories, series: log, today: "2026-10-21", prefer: "stories" })
+    );
+    expect(asked).toMatchObject({ source: "stories", remaining: 10 });
+  });
+
+  it("says nothing is recorded for a closed sprint only when neither source holds anything", () => {
+    const closed: Sprint = { ...SPRINT, status: "completed" };
+    // No sprint moves: the board can't be rebuilt, and nothing was logged.
+    const stories: Story[] = [{ id: "z", title: "Z", points: 5, status: "done", sprintId: "s1" }];
+    const b = burnSeries(input({ sprint: closed, stories, today: "2026-10-21" }));
+    expect(b).toMatchObject({ source: "none", available: { stories: false, log: false } });
+    expect(burnStatus(b, closed).verdict).toBe("Sprint 7 is closed with nothing recorded.");
+    expect(burnCaveats(b, closed)).toContain(
+      "Nothing is recorded: no daily log was typed, and the stories' sprint moves can't rebuild the board."
+    );
   });
 });
 
@@ -392,8 +420,8 @@ describe("edges", () => {
 
   it("reads the board whatever the rule says, for the cockpit's board rows", () => {
     const closed: Sprint = { ...SPRINT, status: "completed" };
-    expect(burnSeries(input({ sprint: closed })).source).toBe("none");
-    expect(boardBurn(input({ sprint: closed })).source).toBe("stories");
+    expect(burnSeries(input({ sprint: closed, recordedOnly: true })).source).toBe("none");
+    expect(boardBurn(input({ sprint: closed, recordedOnly: true })).source).toBe("stories");
   });
 
   it("words the scope churn", () => {
@@ -406,6 +434,232 @@ describe("edges", () => {
     expect(churnLine({ scopeAdded: 0, scopeRemoved: 1 })).toBe(
       "the scope lost 1 point since day 0"
     );
+  });
+});
+
+describe("review fixes", () => {
+  const history = (status: Story["status"], from: Story["status"], day: string) => ({
+    status,
+    from,
+    at: at(day),
+  });
+
+  it("reads the log's churn, scope, done and % on one day: its last reading", () => {
+    const sprint = { ...SPRINT, pointsPlanned: 40 };
+    // Scope typed on day 4 (Friday, today) with no done figure yet.
+    const series: SprintSeries = {
+      id: "s1",
+      days: [
+        { day: 3, completed: 13 },
+        { day: 4, scope: 45 },
+      ],
+    };
+    const b = burnSeries(input({ sprint, series, stories: [], today: "2026-10-09" }));
+    expect(b).toMatchObject({ lastDay: 3, scopeNow: 40, scopeAdded: 0, done: 13 });
+    // The chart still draws the rise on day 4.
+    expect(b.days[4]).toMatchObject({ scope: 45, added: 5 });
+    expect(burnStatus(b, sprint).scopeVerdict).toMatch(
+      /^Day 4 of 14 \(last logged day 3\): 13 of 40 points done \(33%\); the scope hasn't changed since day 0/
+    );
+    // Once day 4 has a done figure, everything moves to it together.
+    const later = burnSeries(
+      input({
+        sprint,
+        stories: [],
+        today: "2026-10-09",
+        series: {
+          id: "s1",
+          days: [
+            { day: 3, completed: 13 },
+            { day: 4, scope: 45, completed: 15 },
+          ],
+        },
+      })
+    );
+    expect(later).toMatchObject({ lastDay: 4, scopeNow: 45, scopeAdded: 5, done: 15 });
+    expect(burnStatus(later, sprint).completionPct).toBe(33);
+  });
+
+  it("names the last logged day when the log's numbers are older than the sentence's day", () => {
+    const series: SprintSeries = { id: "s1", days: [{ day: 9, remaining: 12 }] };
+    const over = burnSeries(input({ series, stories: [], today: "2026-10-21" }));
+    expect(burnStatus(over, SPRINT).verdict).toMatch(
+      /^Sprint 7 ended 2 days ago \(last logged day 9\): 26 of 38 points done/
+    );
+    // A reading on the day itself needs no aside, and the board never has one.
+    const today = burnSeries(input({ series, stories: [], today: "2026-10-14" }));
+    expect(burnStatus(today, SPRINT).verdict).toMatch(/^Day 9 of 14: 26 of 38 points done/);
+    expect(burnStatus(burnSeries(input()), SPRINT).verdict).toMatch(/^Day 7 of 14: /);
+  });
+
+  it("reads stories planned in before the work began as the starting scope (a backdated sprint)", () => {
+    // Created on Thursday (day 3) with Monday as its first day; nothing moved yet.
+    const planned: Story[] = ["p", "q", "r", "s"].map((id) => ({
+      id,
+      title: id,
+      points: 10,
+      status: "todo",
+      sprintId: "s1",
+      sprintHistory: [joined("2026-10-08", 10)],
+    }));
+    const b = burnSeries(input({ stories: planned, today: "2026-10-08" }));
+    expect(b.days.slice(0, 4).map((d) => d.scope)).toEqual([40, 40, 40, 40]);
+    expect(b.days.slice(0, 4).map((d) => d.remaining)).toEqual([40, 40, 40, 40]);
+    expect(b).toMatchObject({ initialScope: 40, scopeAdded: 0, scopeRemoved: 0 });
+    // Without a commitment the ideal starts from that scope, not from 0.
+    const uncommitted = { ...SPRINT, pointsPlanned: 0 };
+    const u = burnSeries(input({ sprint: uncommitted, stories: planned, today: "2026-10-08" }));
+    expect(u.base).toBe(40);
+    expect(u.days[0].ideal).toBe(40);
+
+    // A story planned in and taken out again before anyone started isn't churn either.
+    const dropped: Story = {
+      id: "t",
+      title: "t",
+      points: 5,
+      status: "backlog",
+      sprintHistory: [joined("2026-10-06", 5), { from: "s1", at: at("2026-10-07"), points: 5 }],
+    };
+    const d = burnSeries(input({ stories: [...planned, dropped], today: "2026-10-08" }));
+    expect(d).toMatchObject({ initialScope: 40, scopeAdded: 0, scopeRemoved: 0 });
+  });
+
+  it("still counts scope added once the work has begun", () => {
+    const stories: Story[] = [
+      {
+        id: "a",
+        title: "A",
+        points: 10,
+        status: "in_progress",
+        sprintId: "s1",
+        sprintHistory: [joined("2026-10-05", 10)],
+        statusHistory: [history("in_progress", "todo", "2026-10-06")],
+      },
+      {
+        id: "b",
+        title: "B",
+        points: 10,
+        status: "todo",
+        sprintId: "s1",
+        sprintHistory: [joined("2026-10-05", 10)],
+      },
+      {
+        id: "c",
+        title: "C",
+        points: 7,
+        status: "todo",
+        sprintId: "s1",
+        sprintHistory: [joined("2026-10-08", 7)],
+      },
+    ];
+    const b = burnSeries(input({ stories, today: "2026-10-08" }));
+    expect(b.days.slice(0, 4).map((d) => d.scope)).toEqual([20, 20, 20, 27]);
+    expect(b).toMatchObject({ initialScope: 20, scopeAdded: 7 });
+  });
+
+  it("starts the ideal from the first scope when day 0 had none and nothing was committed", () => {
+    const sprint = { ...SPRINT, pointsPlanned: 0 };
+    const stories: Story[] = [
+      // Unsized work started on day 0, so the work began then…
+      { id: "u", title: "Spike", status: "in_progress", sprintId: "s1" },
+      // …and the pointed story arrived on day 2: scope added.
+      {
+        id: "p",
+        title: "P",
+        points: 10,
+        status: "todo",
+        sprintId: "s1",
+        sprintHistory: [joined("2026-10-07", 10)],
+      },
+    ];
+    const b = burnSeries(input({ sprint, stories, today: "2026-10-08" }));
+    expect(b).toMatchObject({ initialScope: 0, scopeAdded: 10, base: 10 });
+    expect(b.days[0].ideal).toBe(10);
+  });
+
+  it("reads an ended, still open sprint's last day as the board now", () => {
+    const stories: Story[] = [
+      {
+        id: "x",
+        title: "X",
+        points: 10,
+        status: "in_progress",
+        sprintId: "s1",
+        sprintHistory: [joined("2026-10-05", 10)],
+        statusHistory: [history("in_progress", "todo", "2026-10-06")],
+      },
+      {
+        id: "y",
+        title: "Y",
+        points: 5,
+        status: "backlog",
+        // Moved back to the backlog on day 15, after the end, before the close.
+        sprintHistory: [joined("2026-10-05", 5), { from: "s1", at: at("2026-10-20"), points: 5 }],
+      },
+    ];
+    const open = burnSeries(input({ stories, today: "2026-10-21" }));
+    expect(open.remaining).toBe(storyProgress(stories, "s1").remaining);
+    expect(open.days[14]).toMatchObject({ scope: 10, remaining: 10, removed: 5 });
+    expect(burnStatus(open, SPRINT).gapLabel).toBe("Behind by 10 points");
+    // Once it is closed, a move after the end (Sprint Planning's carry-over) is its unfinished work.
+    const closed = { ...SPRINT, status: "completed" as const };
+    const after = burnSeries(input({ sprint: closed, stories, today: "2026-10-21" }));
+    expect(after.days[14]).toMatchObject({ scope: 15, remaining: 15, removed: 0 });
+  });
+
+  it("works each day's gap out from the exact ideal, as the tiles do", () => {
+    // Mon 5 → Thu 15 Oct: 8 working days, so day 1's ideal is 26.25 (26.3 on the chart).
+    const sprint: Sprint = { ...SPRINT, endDate: "2026-10-15", pointsPlanned: 30 };
+    const series: SprintSeries = {
+      id: "s1",
+      days: [
+        { day: 0, remaining: 30 },
+        { day: 1, remaining: 26 },
+      ],
+    };
+    const b = burnSeries(input({ sprint, series, stories: [], today: "2026-10-06" }));
+    const s = burnStatus(b, sprint);
+    expect(b.days[1]).toMatchObject({ ideal: 26.3, remaining: 26, gap: -0.2 });
+    expect(s).toMatchObject({ gap: -0.2, gapLabel: "Ahead by 0.2 points" });
+    expect(
+      burnReport({ sprint, series, stories: [], calendar: DEFAULT_CALENDAR, today: "2026-10-06" })
+        .days[1].gap
+    ).toBe(-0.2);
+  });
+
+  it("keeps the cockpit on what a closed sprint recorded, and its chart text on the day's gap", () => {
+    const closed: Sprint = { ...SPRINT, status: "completed", pointsCompleted: 13 };
+    const recorded = cockpitBurndown(
+      closed,
+      undefined,
+      BOARD,
+      "2026-10-21",
+      undefined,
+      DEFAULT_CALENDAR
+    );
+    expect(recorded.source).toBe("none");
+
+    const sprint: Sprint = { ...SPRINT, endDate: "2026-10-15", pointsPlanned: 30 };
+    const series: SprintSeries = {
+      id: "s1",
+      days: [
+        { day: 0, remaining: 30 },
+        { day: 1, remaining: 26 },
+      ],
+    };
+    const cockpit = cockpitBurndown(sprint, series, [], "2026-10-06", undefined, DEFAULT_CALENDAR);
+    expect(cockpit.burnStatus.gapLabel).toBe("Ahead by 0.2 points");
+    expect(cockpitChartText(cockpit).summary).toMatch(/0\.2 points ahead of the ideal line/);
+  });
+
+  it("says why an open sprint is read from its log", () => {
+    const series: SprintSeries = { id: "s1", days: [{ day: 2, remaining: 30 }] };
+    const asked = burnSeries(input({ series, prefer: "log" }));
+    expect(asked.source).toBe("log");
+    expect(burnCaveats(asked, SPRINT)).toContain(
+      "Read from the typed daily log, as asked; the board has pointed stories too."
+    );
+    expect(burnCaveats(asked, SPRINT).join(" ")).not.toMatch(/closed/);
   });
 });
 

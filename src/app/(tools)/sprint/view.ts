@@ -32,7 +32,6 @@ import {
   completedSprints,
   fmt,
   hubTiles,
-  points,
   type Tile,
   type TileId,
 } from "@/lib/sprints/hub-view";
@@ -60,7 +59,7 @@ import { RETRO_CURRENT_ID, collectRetroActions, type RetroAction } from "@/lib/r
 import { retroFor } from "@/lib/retro/board";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
-import { burndownChartText } from "@/app/(tools)/burndown/chart-text";
+import { burnChartText } from "@/app/(tools)/burndown/chart-text";
 import type { BurndownChartRow } from "@/app/(tools)/burndown/charts";
 
 export { RETRO_CURRENT_ID };
@@ -588,8 +587,9 @@ export function cockpitBurndown(
 ): CockpitBurndown {
   const closed = sprint.status === "completed";
   const remaining = remainingToday({ sprint, stories: closed ? [] : stories, series, today });
-  // The same rule as `remaining`: the board while it has pointed stories, a closed sprint's log.
-  const burn = burnSeries({ sprint, series, stories, calendar, today });
+  // The same rule as `remaining`: the board while it has pointed stories, a
+  // closed sprint's log only (its tiles quote what was confirmed at close).
+  const burn = burnSeries({ sprint, series, stories, calendar, today, recordedOnly: true });
   return {
     source: burn.source,
     remaining,
@@ -606,37 +606,22 @@ export function cockpitBurndown(
 }
 
 /**
- * The burndown in words: Burndown's own summary and table, with the board's
- * wording where Burndown's would mislead. Nothing is typed on the board, so
- * it never says "No days logged" (before the start, on day 0, or without
- * dates). While open stories have no points it says the board can't show
- * all that's left, and with every pointed story done it claims no pace.
+ * The burndown in words: Burndown's (burnChartText), with the board's
+ * wording when the board is the source, and each day's gap from the burn,
+ * so the summary quotes the gap the tiles do.
  */
 export function cockpitChartText(burndown: CockpitBurndown): ChartText {
-  const text = burndownChartText(burndown.rows);
-  const { rows, unpointedOpen: n } = burndown;
-  if (burndown.source !== "stories" || rows.length === 0) return text;
-  const read = rows.filter(
-    (r): r is BurndownChartRow & { actual: number } => typeof r.actual === "number"
+  const days = burndown.burn.days;
+  return burnChartText(
+    burndown.rows.map((r) => ({ ...r, gap: days[r.day]?.gap ?? null })),
+    {
+      source: burndown.source,
+      dated: burndown.dated,
+      unpointedOpen: burndown.unpointedOpen,
+      done: burndown.progress.done,
+      scope: burndown.progress.scope,
+    }
   );
-  const falls = `the ideal line falls from ${fmt(rows[0].ideal)} points to 0 by day ${
-    rows[rows.length - 1].day
-  }`;
-  const end = read[read.length - 1];
-  let summary: string;
-  if (read.length === 0) {
-    summary = burndown.dated
-      ? `Nothing has burned down yet; ${falls}.`
-      : `${fmt(burndown.progress.done)} of ${points(burndown.progress.scope)} done; set the sprint's dates to see the burndown by day.`;
-  } else if (read.length === 1 && end.day === 0) {
-    summary = `${points(end.actual)} left on day 0; ${falls}.`;
-  } else if (n > 0 && end.actual <= 0) {
-    summary = `No pointed work left on day ${end.day}.`;
-  } else {
-    summary = text.summary;
-  }
-  const caveat = n > 0 ? ` ${noPointsLine(n)}, so the board can't show all that's left.` : "";
-  return { ...text, summary: `${summary}${caveat}` };
 }
 
 /**

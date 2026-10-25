@@ -140,7 +140,13 @@ describe("tool.burndown.status", () => {
       today: "2026-10-12",
     });
     expect(log).toMatchObject({ source: "log", remaining: 15, lastDay: 2 });
-    expect(log.scopeVerdict).toMatch(/^Day 7 of 14: 5 of 20 points done \(25%\)/);
+    // The log's last reading is day 2: the sentence says so.
+    expect(log.scopeVerdict).toMatch(
+      /^Day 7 of 14 \(last logged day 2\): 5 of 20 points done \(25%\)/
+    );
+    expect(log.caveats).toContain(
+      "Read from the typed daily log, as asked; the board has pointed stories too."
+    );
     const old = await run("tool.burndown.status", { sprintId: "s0", today: "2026-10-12" });
     expect(old).toMatchObject({ found: true, sprintId: "s0", source: "none", phase: "over" });
     expect(await run("tool.burndown.status", { sprintId: "nope" })).toEqual({
