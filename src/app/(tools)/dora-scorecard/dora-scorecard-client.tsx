@@ -1,7 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import {
+  AlertTriangle,
+  BarChart3,
+  Clock,
+  Gauge,
+  Plus,
+  Rocket,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -9,322 +19,358 @@ import { ActionRow } from "@/components/shared/action-row";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { StatCard } from "@/components/shared/stat-card";
 import { SectionCard } from "@/components/shared/section-card";
-import { ChartCard } from "@/components/shared/chart-card";
-import { SmartInput } from "@/components/shared/smart-input";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "@/lib/utils/toast";
-import { Plus, Trash2, Rocket, Clock, AlertTriangle, Wrench } from "lucide-react";
-import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
-import { xmrLimits } from "@/lib/analytics/control-chart";
-import { cusum } from "@/lib/analytics/changepoint";
-import { mannKendall } from "@/lib/analytics/trend-test";
-import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { EmptyState } from "@/components/shared/empty-state";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { ResetButton } from "@/components/shared/reset-button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { generateDoraPrompts } from "@/lib/ai-prompts/dora-scorecard";
-import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { DoraSample } from "@/lib/stores/workspace-types";
+import {
+  KANBAN_BOARD_ID,
+  type DoraDerivedFrom,
+  type DoraSample,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DORA_ACTIONS } from "@/lib/history/event-actions";
-import { doraTrendText } from "./chart-text";
+import { todayIso } from "@/lib/sprints/series";
+import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
+import { RELEASE_DOC_ID } from "@/lib/releases/gates";
+import { cardItems, storyItems } from "@/lib/flow";
+import { quarterIndex } from "@/lib/roadmap/quarters";
+import {
+  DORA_BANDS,
+  DORA_BAND_ORDER,
+  DORA_METRICS,
+  DORA_METRIC_LABEL,
+  bandRanges,
+  bandsCitation,
+  doraBand,
+  formatMetric,
+  type DoraBand,
+  type DoraMetric,
+} from "@/lib/dora/bands";
+import { DORA_DOC_ID, latestSample, sortSamples, usableSamples } from "@/lib/dora/samples";
+import { INCIDENT_DOC_ID, deriveDoraSample } from "@/lib/dora/derive";
+import { doraVerdict } from "@/lib/dora/verdict";
+import { metricTrendText, type DoraTrendRow } from "./chart-text";
+import { analyseDora } from "./analysis";
+import { DoraAdvanced } from "./advanced";
+import { buildExample } from "./example";
+import {
+  applyValues,
+  newSample,
+  nextQuarterToLog,
+  restorable,
+  type DoraDraft,
+  type DoraValues,
+} from "./form";
+import { LogForm } from "./log-form";
+import { BAND_TEXT, SampleRow, type RefillResult } from "./sample-row";
+import { toMarkdown } from "./markdown";
 
-// Recharts loads with the trend chart, not the page. ChartCard reserves the
-// chart's height while the chunk loads.
-const DoraTrendChart = dynamic(() => import("./charts").then((m) => m.DoraTrendChart), {
+export const TOOL_ID = "dora-scorecard";
+
+// Recharts loads with the charts, not the page; the figure reserves the space.
+const MetricTrendChart = dynamic(() => import("./charts").then((m) => m.MetricTrendChart), {
   ssr: false,
 });
 
-type Band = "Elite" | "High" | "Medium" | "Low";
+const NO_SAMPLES: DoraSample[] = [];
 
-interface DoraState {
-  samples: DoraSample[];
-}
+const ICON: Record<DoraMetric, LucideIcon> = {
+  deployFreqPerWeek: Rocket,
+  leadTimeHours: Clock,
+  changeFailRate: AlertTriangle,
+  mttrHours: Wrench,
+};
 
-const DEFAULT_STATE: DoraState = { samples: [] };
-
-const DS_ID = "doraScorecard:current"; // MUST match DS_ID in dora-scorecard.ts.
-
-// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
-// sample writes round-trip into the UI. Drop-in [state, setState].
-function useDoraScorecard(): [DoraState, (u: DoraState | ((p: DoraState) => DoraState)) => void] {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.doraScorecards ?? []).find((d) => d.id === DS_ID))
-  );
-  const upsert = useWorkspaceStore((s) => s.upsertDoraScorecard);
-  const state: DoraState = doc ? { samples: doc.samples } : DEFAULT_STATE;
-  const setState = (u: DoraState | ((p: DoraState) => DoraState)) => {
-    const cur = (useWorkspaceStore.getState().doraScorecards ?? []).find((d) => d.id === DS_ID);
-    const curState: DoraState = cur ? { samples: cur.samples } : DEFAULT_STATE;
-    const next = typeof u === "function" ? u(curState) : u;
-    upsert({ id: DS_ID, samples: next.samples });
-  };
-  return [state, setState];
-}
-
-const BAND_TONE: Record<Band, "success" | "default" | "warning" | "danger"> = {
+const TONE: Record<DoraBand, "success" | "default" | "warning" | "danger"> = {
   Elite: "success",
   High: "default",
   Medium: "warning",
   Low: "danger",
 };
 
-/* ── Banding helpers ────────────────────────────────────────────────────── */
-// Per Accelerate / DORA 2023 report. Upper bounds are inclusive (`<=`) so
-// boundary values (e.g. exactly 24h lead time) fall into the better band.
-// Negative/NaN inputs default to the Low band (the safe pessimistic choice).
-function bandDeploy(perWeek: number): Band {
-  if (!Number.isFinite(perWeek) || perWeek < 0) return "Low";
-  // Elite: multiple deploys per day (~≥14/wk = 2/weekday). High: weekly to daily.
-  // Medium: monthly (~0.25/wk) to weekly. Low: less than monthly.
-  if (perWeek >= 14) return "Elite";
-  if (perWeek >= 1) return "High";
-  if (perWeek >= 0.25) return "Medium";
-  return "Low";
-}
-function bandLead(hours: number): Band {
-  if (!Number.isFinite(hours) || hours < 0) return "Low";
-  // Elite: less than one day. High: one day to one week. Medium: one week to
-  // one month. Low: more than one month.
-  if (hours <= 24) return "Elite";
-  if (hours <= 24 * 7) return "High";
-  if (hours <= 24 * 30) return "Medium";
-  return "Low";
-}
-function bandCfr(rate: number): Band {
-  if (!Number.isFinite(rate) || rate < 0) return "Low";
-  if (rate <= 0.15) return "Elite";
-  if (rate <= 0.3) return "High";
-  if (rate <= 0.45) return "Medium";
-  return "Low";
-}
-function bandMttr(hours: number): Band {
-  if (!Number.isFinite(hours) || hours < 0) return "Low";
-  // Elite: less than one hour. High: less than one day. Medium: less than
-  // one week. Low: more than one week (per DORA 2023).
-  if (hours <= 1) return "Elite";
-  if (hours <= 24) return "High";
-  if (hours <= 24 * 7) return "Medium";
-  return "Low";
-}
+/** Charts need two quarters to show a direction. */
+const CHART_MIN_QUARTERS = 2;
 
-/* ── Default-quarter helper (e.g. "2026-Q2") ────────────────────────────── */
-function defaultQuarter(): string {
-  const d = new Date();
-  const q = Math.floor(d.getMonth() / 3) + 1;
-  return `${d.getFullYear()}-Q${q}`;
-}
+type SampleUpdate = (fn: (list: readonly DoraSample[]) => DoraSample[]) => void;
 
-interface DraftState {
-  quarter: string;
-  deployFreqPerWeek: string;
-  leadTimeHours: string;
-  changeFailRatePct: string; // user enters % (0-100); we store 0-1
-  mttrHours: string;
-  description: string;
-}
+/** Writes the scorecard document the agent's tool.dora_scorecard reads too. */
+const writeStore: SampleUpdate = (fn) => {
+  const { doraScorecards, upsertDoraScorecard } = useWorkspaceStore.getState();
+  const cur = (doraScorecards ?? []).find((d) => d.id === DORA_DOC_ID);
+  const list = Array.isArray(cur?.samples) ? cur.samples : [];
+  upsertDoraScorecard({ ...(cur ?? {}), id: DORA_DOC_ID, samples: fn(list) });
+};
 
-function makeDraft(): DraftState {
-  return {
-    quarter: defaultQuarter(),
-    deployFreqPerWeek: "",
-    leadTimeHours: "",
-    changeFailRatePct: "",
-    mttrHours: "",
-    description: "",
-  };
-}
+const trendRow = (s: DoraSample): DoraTrendRow => ({
+  quarter: s.quarter,
+  deployFreqPerWeek: s.deployFreqPerWeek,
+  leadTimeHours: s.leadTimeHours,
+  changeFailRatePct: s.changeFailRate * 100,
+  mttrHours: s.mttrHours,
+});
 
+/**
+ * DORA Scorecard: one sample per quarter of the four DORA metrics, banded
+ * by the 2023 Accelerate State of DevOps Report's clusters (lib/dora/bands),
+ * typed or filled from the team's releases, boards and incidents, edited in
+ * place and deleted with Undo. Charts per metric, each in its own unit; the
+ * trend tests and control limits wait for enough quarters, collapsed.
+ */
 export function DoraScorecardClient() {
-  const [state, setState] = useDoraScorecard();
-  const [draft, setDraft] = useState<DraftState>(makeDraft);
-  const { log } = useHistoryLogger("dora-scorecard");
-
-  // Numeric draft commits — clamp on blur, never mid-edit. We store the raw
-  // string in `draft` and resolve to a number only inside `addSample`.
-  // BUG-T2-dora-scorecard-2: reject empty strings explicitly so a blank
-  // field doesn't parse to 0 (which would silently band as Elite for
-  // CFR / MTTR / lead-time and Low for deploy-freq, producing a
-  // "phantom Elite" sample that misrepresents missing data as best-
-  // in-class data).
-  const parsePositive = (v: string): number | null => {
-    if (v.trim() === "") return null;
-    const n = Number(v);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  };
-  const parsePercent = (v: string): number | null => {
-    if (v.trim() === "") return null;
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    return Math.min(1, Math.max(0, n / 100));
-  };
-
-  const addSample = () => {
-    const deploy = parsePositive(draft.deployFreqPerWeek);
-    const lead = parsePositive(draft.leadTimeHours);
-    const cfr = parsePercent(draft.changeFailRatePct);
-    const mttr = parsePositive(draft.mttrHours);
-    if (deploy === null || lead === null || cfr === null || mttr === null) {
-      toast.error("All metric fields must be valid non-negative numbers.");
-      return;
-    }
-    const quarterTrimmed = draft.quarter.trim();
-    if (!quarterTrimmed) {
-      toast.error("Quarter is required.");
-      return;
-    }
-    // R5: enforce YYYY-Q[1-4] so localeCompare sorts chronologically.
-    // Free-text like "Q1 2026" or "2026-Q10" sorted wrong + duplicates
-    // broke the chart x-axis (Recharts treats dup keys as one point).
-    // BUG-RD3-dora-scorecard-1: surface the rejection. The prior
-    // silent `return` made the Add button do nothing visible, and
-    // users had no idea their typed "Q1 2026" / "2026-Q10" was being
-    // rejected by the format check.
-    if (!/^\d{4}-Q[1-4]$/.test(quarterTrimmed)) {
-      toast.error(`Quarter must be YYYY-Q[1-4] (e.g. 2026-Q2). Got "${quarterTrimmed}".`);
-      return;
-    }
-    if (state.samples.some((s) => s.quarter === quarterTrimmed)) {
-      toast.error(`A sample for ${quarterTrimmed} already exists. Remove it first to re-add.`);
-      return;
-    }
-    const sample: DoraSample = {
-      id: crypto.randomUUID(),
-      quarter: quarterTrimmed,
-      deployFreqPerWeek: deploy,
-      leadTimeHours: lead,
-      changeFailRate: cfr,
-      mttrHours: mttr,
-      description: draft.description.trim() || undefined,
-    };
-    setState((s) => ({ samples: [...s.samples, sample] }));
-    log(DORA_ACTIONS.SAMPLE_LOGGED, {
-      sampleId: sample.id,
-      quarter: sample.quarter,
-      deployFreqPerWeek: sample.deployFreqPerWeek,
-      leadTimeHours: sample.leadTimeHours,
-      changeFailRate: sample.changeFailRate,
-      mttrHours: sample.mttrHours,
-      description: sample.description,
-    });
-    setDraft(makeDraft());
-  };
-
-  const removeSample = (id: string) => {
-    const sample = state.samples.find((s) => s.id === id);
-    setState((s) => ({ samples: s.samples.filter((x) => x.id !== id) }));
-    log(DORA_ACTIONS.SAMPLE_REMOVED, {
-      sampleId: id,
-      quarter: sample?.quarter,
-      description: sample?.description,
-    });
-  };
-
-  // Sort samples chronologically by quarter string for the chart.
-  const sorted = useMemo(
-    () => [...state.samples].sort((a, b) => a.quarter.localeCompare(b.quarter)),
-    [state.samples]
+  const hydrated = useWorkspaceHydrated();
+  const doc = useWorkspaceStore((s) => (s.doraScorecards ?? []).find((d) => d.id === DORA_DOC_ID));
+  const releases = useWorkspaceStore((s) =>
+    (s.releaseReadinesses ?? []).find((d) => d.id === RELEASE_DOC_ID)
   );
-  const latest = sorted[sorted.length - 1];
+  const stories = useWorkspaceStore((s) => s.stories);
+  const flowBoard = useWorkspaceStore((s) =>
+    (s.kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID)
+  );
+  const incidents = useWorkspaceStore((s) =>
+    (s.incidentCommanders ?? []).find((d) => d.id === INCIDENT_DOC_ID)
+  );
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const { refFor, returnTo } = useReturnFocus();
+  const [now] = useState(() => new Date());
+  const today = todayIso(now);
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<DoraSample[] | null>(null);
+  // The row being edited, and what the log form had typed when its
+  // "Edit 2026-Q3" opened it.
+  const [editing, setEditing] = useState<{ id: string; seed?: Partial<DoraDraft> } | null>(null);
+  const editingId = editing?.id ?? null;
+  const setEditingId = (id: string | null) => setEditing(id ? { id } : null);
+  const preview = example !== null;
 
-  const chartData = useMemo(
-    () =>
-      sorted.map((s) => ({
-        quarter: s.quarter,
-        deployFreqPerWeek: Number(s.deployFreqPerWeek.toFixed(2)),
-        leadTimeHours: Number(s.leadTimeHours.toFixed(1)),
-        changeFailRatePct: Number((s.changeFailRate * 100).toFixed(1)),
-        mttrHours: Number(s.mttrHours.toFixed(1)),
-      })),
+  const stored = useMemo(() => usableSamples(doc, { includeExamples: true }), [doc]);
+  const samples = example ?? stored ?? NO_SAMPLES;
+  // What Undo checks against: the list as it is when Undo is clicked, not
+  // when the toast opened.
+  const latestSamples = useRef(samples);
+  latestSamples.current = samples;
+  const sorted = useMemo(() => sortSamples(samples), [samples]);
+  const newestFirst = useMemo(() => [...sorted].reverse(), [sorted]);
+  const latest = latestSample(samples);
+  const verdict = doraVerdict(samples);
+  const rows = useMemo(
+    () => sorted.filter((s) => quarterIndex(s.quarter) !== 0).map(trendRow),
     [sorted]
   );
+  const analysis = useMemo(() => analyseDora(rows), [rows]);
+  const markdown = useMemo(() => toMarkdown(samples), [samples]);
+  const storedExamples = !preview && hasExampleItems(stored);
 
-  // The trend chart in words: a summary sentence and the series as a table.
-  const chartText = useMemo(() => doraTrendText(chartData), [chartData]);
+  const update: SampleUpdate = preview
+    ? (fn) => setExample((ex) => (ex ? fn(ex) : ex))
+    : writeStore;
+  // The example's edits aren't the team's history, so they aren't logged.
+  const record: typeof log = preview ? () => undefined : log;
 
-  // ── XmR control limits on deploy frequency (most actionable DORA SPC) ──
-  // Anchors UCL / CenterLine / LCL on the trend chart so out-of-control
-  // quarters are visible at a glance. Returns null when n < 4 — limits are
-  // unstable on tiny series.
-  const deployControl = useMemo(() => {
-    const series = sorted.map((s) => s.deployFreqPerWeek);
-    if (series.length < 4) return null;
-    // Deploys-per-week is a non-negative count; clamp LCL at 0.
-    return xmrLimits(series, true);
-  }, [sorted]);
+  const derive = (quarter: string) =>
+    deriveDoraSample({
+      quarter,
+      releases,
+      items: [...storyItems(stories ?? []), ...cardItems(flowBoard?.cards ?? [])],
+      incidents,
+      today,
+    });
 
-  // ── CUSUM markers on the deploy-frequency series ────────────────────────
-  // Each detected changepoint becomes a CausalLine on the chart so DORA
-  // banding regime shifts ("we crossed into Elite at Q3") are obvious.
-  // Filtered to only changepoints whose quarter is on the chart's x-axis
-  // — `ifOverflow="extendDomain"` would otherwise distort the chart with
-  // phantom ticks for off-domain markers.
-  const deployChangepoints = useMemo<CausalAnnotationData[]>(() => {
-    const series = sorted.map((s) => s.deployFreqPerWeek);
-    if (series.length < 4) return [];
-    const xValuesInChart = new Set(sorted.map((s) => s.quarter));
-    return cusum(series)
-      .map((cp): CausalAnnotationData | null => {
-        const sample = sorted[cp.index];
-        if (!sample) return null;
-        return {
-          x: sample.quarter,
-          label: `Deploy regime ${cp.direction === "up" ? "↑" : "↓"}`,
-          detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in deploy frequency at ${sample.quarter}.`,
-          // Reflect the magnitude of the cumulative statistic — strong signals
-          // should read differently than borderline ones (matches cycle-time/CFD).
-          // CUSUM is signed: downward regime shifts produce negative values
-          // that the prior `>= 6` test always classified "moderate". abs()
-          // restores the symmetric intent.
-          confidence: Math.abs(cp.cumulativeStat) >= 6 ? "strong" : "moderate",
-        };
-      })
-      .filter((a): a is CausalAnnotationData => a !== null && xValuesInChart.has(a.x as string));
-  }, [sorted]);
+  /* ── Changes ──────────────────────────────────────────────────────── */
 
-  // ── Mann-Kendall trend chips for each of the four DORA metrics ─────────
-  // Renders muted when the test is non-significant or sample is too small.
-  const trends = useMemo(() => {
-    if (sorted.length < 5) return null;
-    return {
-      deploy: mannKendall(sorted.map((s) => s.deployFreqPerWeek)),
-      lead: mannKendall(sorted.map((s) => s.leadTimeHours)),
-      cfr: mannKendall(sorted.map((s) => s.changeFailRate)),
-      mttr: mannKendall(sorted.map((s) => s.mttrHours)),
-    };
-  }, [sorted]);
+  const add = (values: DoraValues, derived?: { quarter: string; derivedFrom: DoraDerivedFrom }) => {
+    const sample = newSample(values, crypto.randomUUID(), derived, new Date().toISOString());
+    undoable({
+      label: `Logged ${sample.quarter}`,
+      apply: () => {
+        update((list) => [...list, sample]);
+        record(
+          sample.source === "derived" ? DORA_ACTIONS.SAMPLE_DERIVED : DORA_ACTIONS.SAMPLE_LOGGED,
+          {
+            sampleId: sample.id,
+            quarter: sample.quarter,
+            deployFreqPerWeek: sample.deployFreqPerWeek,
+            leadTimeHours: sample.leadTimeHours,
+            changeFailRate: sample.changeFailRate,
+            mttrHours: sample.mttrHours,
+            ...(sample.derivedFrom ? { derivedFrom: sample.derivedFrom } : {}),
+          }
+        );
+      },
+      revert: () => update((list) => list.filter((s) => s.id !== sample.id)),
+    });
+    announce(`Logged ${sample.quarter}`);
+  };
 
-  // ── Smart-default predictor for the deploy-frequency input ─────────────
-  const deployPrediction = usePredictedDefault<number>("dora-scorecard", "deploysPerWeekTarget", 0);
+  const startEdit = (s: DoraSample, seed?: Partial<DoraDraft>) =>
+    setEditing({ id: s.id, ...(seed && Object.keys(seed).length > 0 ? { seed } : {}) });
+
+  const saveEdit = (s: DoraSample, values: DoraValues, refill?: RefillResult) => {
+    const next = applyValues(s, values, new Date().toISOString(), refill);
+    if (next !== s) {
+      update((list) => list.map((x) => (x.id === s.id ? next : x)));
+      record(DORA_ACTIONS.SAMPLE_UPDATED, { sampleId: s.id, quarter: next.quarter });
+      announce(`Saved ${next.quarter}`);
+    }
+    setEditingId(null);
+    returnTo(`edit:${s.id}`);
+  };
+
+  const cancelEdit = (s: DoraSample) => {
+    setEditingId(null);
+    returnTo(`edit:${s.id}`);
+  };
+
+  /** Undo found a quarter logged again since: say so rather than make it two. */
+  const keptOutNotice = (kept: readonly DoraSample[]) => {
+    const quarters = kept.map((k) => k.quarter).join(", ");
+    const message = `Not put back: ${quarters} ${kept.length === 1 ? "has" : "have"} a new sample since, and a quarter keeps one.`;
+    toast(message, { description: "Edit the new sample to change its numbers." });
+    announce(message);
+  };
+
+  const remove = (s: DoraSample) => {
+    // Focus moves to the next row on screen (or the one before) as this one
+    // goes; with none left, to the log form's quarter.
+    const at = newestFirst.findIndex((x) => x.id === s.id);
+    const neighbour = newestFirst[at + 1] ?? newestFirst[at - 1];
+    if (editingId === s.id) setEditingId(null);
+    let removed: { item: DoraSample; index: number } | null = null;
+    undoable({
+      label: `Deleted the ${s.quarter || "undated"} sample`,
+      apply: () =>
+        update((list) => {
+          // Reset first: React may run an updater twice (StrictMode).
+          removed = null;
+          const index = list.findIndex((x) => x.id === s.id);
+          if (index >= 0) removed = { item: list[index], index };
+          return list.filter((x) => x.id !== s.id);
+        }),
+      // Like removeWithUndo, back at its old place, but never next to a
+      // sample logged for the same quarter since (one quarter, one sample).
+      revert: () => {
+        const back = removed;
+        if (!back) return;
+        const { restore, keptOut } = restorable(latestSamples.current, [back.item]);
+        if (keptOut.length > 0) return keptOutNotice(keptOut);
+        if (restore.length === 0) return;
+        update((list) => {
+          const next = [...list];
+          if (!next.some((x) => x.id === back.item.id)) {
+            next.splice(Math.min(back.index, next.length), 0, back.item);
+          }
+          return next;
+        });
+      },
+    });
+    record(DORA_ACTIONS.SAMPLE_REMOVED, { sampleId: s.id, quarter: s.quarter });
+    returnTo(neighbour ? `delete:${neighbour.id}` : "log:quarter");
+    announce(`Deleted the ${s.quarter || "undated"} sample`);
+  };
+
+  // Captured when the reset runs (a ref: the Undo toast keeps the closure of
+  // the render the dialog opened in), so Undo puts back exactly what went.
+  const cleared = useRef<{ samples: DoraSample[]; update: SampleUpdate } | null>(null);
+  const clearAll = () => {
+    const before = [...samples];
+    cleared.current = { samples: before, update };
+    setEditingId(null);
+    update((list) => list.filter((s) => !before.some((b) => b.id === s.id)));
+    record(DORA_ACTIONS.DORA_RESET, { samples: before.length });
+    // The Quarters list and its button go: focus waits on the log form.
+    returnTo("log:quarter");
+    announce(`Cleared ${before.length === 1 ? "1 sample" : `${before.length} samples`}`);
+  };
+  const undoClear = () => {
+    const c = cleared.current;
+    if (!c) return;
+    cleared.current = null;
+    // Back where it was cleared from, keeping any sample logged since; a
+    // quarter logged again since keeps its new sample.
+    const { keptOut } = restorable(latestSamples.current, c.samples);
+    c.update((list) => [...restorable(list, c.samples).restore, ...list]);
+    if (keptOut.length > 0) keptOutNotice(keptOut);
+  };
+
+  const loadExample = () => {
+    setExample(buildExample(now));
+    setEditingId(null);
+  };
+  const clearExample = () => {
+    if (preview) setExample(null);
+    else writeStore((list) => list.filter((s) => !isExampleId(s.id)));
+    setEditingId(null);
+  };
 
   const promptConfig = useMemo(
-    () => ({
-      toolName: "DORA Scorecard",
-      prompts: generateDoraPrompts({ samples: sorted }),
-    }),
+    () => ({ toolName: "DORA Scorecard", prompts: generateDoraPrompts({ samples: sorted }) }),
     [sorted]
   );
+
+  if (!hydrated) {
+    return (
+      <ToolPageWrapper
+        toolId={TOOL_ID}
+        title="DORA Scorecard"
+        description="The four DORA metrics quarter by quarter, banded by the 2023 State of DevOps Report."
+        category="Engineering Excellence"
+      >
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading the scorecard…
+        </p>
+      </ToolPageWrapper>
+    );
+  }
 
   return (
     <ToolPageWrapper
-      toolId="dora-scorecard"
+      toolId={TOOL_ID}
       title="DORA Scorecard"
-      description="Quarterly DORA samples (deploy frequency, lead time, change-failure rate, MTTR) with Elite/High/Medium/Low banding and trend."
+      description="The four DORA metrics quarter by quarter, typed or filled from your releases, boards and incidents, banded by the 2023 State of DevOps Report."
       category="Engineering Excellence"
     >
+      {(preview || storedExamples) && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          {preview && (
+            <p className="-mt-2 mb-4 text-xs text-sub">
+              Example: six quarters of a team moving to trunk-based delivery. Nothing in it is
+              saved; your own scorecard stays as it is.
+            </p>
+          )}
+        </div>
+      )}
+
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="dora-scorecard"
+          markdown={markdown}
+          clipboardText={markdown}
           csvData={{
             headers: [
               "Quarter",
-              "Deploy/wk",
-              "Lead (h)",
-              "Change Fail Rate",
-              "MTTR (h)",
+              "Deploys a week",
+              "Lead time (h)",
+              "Change failure rate",
+              "Time to restore (h)",
+              "Source",
               "Description",
             ],
             rows: sorted.map((s) => [
@@ -333,332 +379,186 @@ export function DoraScorecardClient() {
               s.leadTimeHours,
               s.changeFailRate,
               s.mttrHours,
+              s.source ?? "manual",
               s.description ?? "",
             ]),
           }}
-          jsonData={state}
+          jsonData={{ samples: sorted }}
         />
       </ActionRow>
 
       {latest ? (
-        <>
+        <section aria-labelledby="dora-latest" className="space-y-2">
+          <p id="dora-latest" className="text-sm font-medium text-text" aria-live="polite">
+            {verdict}
+          </p>
           <KpiGrid cols={4} gap="lg">
-            <StatCard
-              variant="compact"
-              icon={Rocket}
-              label="Deploy/wk"
-              value={latest.deployFreqPerWeek.toFixed(2)}
-              hint={bandDeploy(latest.deployFreqPerWeek)}
-              tone={BAND_TONE[bandDeploy(latest.deployFreqPerWeek)]}
-            />
-            <StatCard
-              variant="compact"
-              icon={Clock}
-              label="Lead time"
-              value={`${latest.leadTimeHours.toFixed(1)}h`}
-              hint={bandLead(latest.leadTimeHours)}
-              tone={BAND_TONE[bandLead(latest.leadTimeHours)]}
-            />
-            <StatCard
-              variant="compact"
-              icon={AlertTriangle}
-              label="Change-fail rate"
-              value={`${(latest.changeFailRate * 100).toFixed(1)}%`}
-              hint={bandCfr(latest.changeFailRate)}
-              tone={BAND_TONE[bandCfr(latest.changeFailRate)]}
-            />
-            <StatCard
-              variant="compact"
-              icon={Wrench}
-              label="MTTR"
-              value={`${latest.mttrHours.toFixed(1)}h`}
-              hint={bandMttr(latest.mttrHours)}
-              tone={BAND_TONE[bandMttr(latest.mttrHours)]}
-            />
+            {DORA_METRICS.map((m) => {
+              const band = doraBand(m, latest[m]);
+              return (
+                <StatCard
+                  key={m}
+                  variant="compact"
+                  icon={ICON[m]}
+                  label={DORA_METRIC_LABEL[m]}
+                  value={formatMetric(m, latest[m])}
+                  hint={band ? `${band} · ${latest.quarter}` : latest.quarter}
+                  tone={band ? TONE[band] : "default"}
+                />
+              );
+            })}
           </KpiGrid>
-          {trends && (
-            <div
-              role="group"
-              className="flex flex-wrap gap-2 -mt-2 mb-2"
-              aria-label="DORA metric trends"
-            >
-              <TrendChip
-                label="Deploy/wk"
-                trend={trends.deploy.trend}
-                significant={trends.deploy.significant}
-              />
-              <TrendChip
-                label="Lead time"
-                trend={trends.lead.trend}
-                significant={trends.lead.significant}
-                betterDown
-              />
-              <TrendChip
-                label="CFR"
-                trend={trends.cfr.trend}
-                significant={trends.cfr.significant}
-                betterDown
-              />
-              <TrendChip
-                label="MTTR"
-                trend={trends.mttr.trend}
-                significant={trends.mttr.significant}
-                betterDown
-              />
-            </div>
-          )}
-        </>
+          <BandsNote />
+        </section>
       ) : (
-        <KpiGrid cols={4} gap="lg">
-          <StatCard variant="compact" label="Deploy/wk" value="—" hint="No data" />
-          <StatCard variant="compact" label="Lead time" value="—" hint="No data" />
-          <StatCard variant="compact" label="Change-fail rate" value="—" hint="No data" />
-          <StatCard variant="compact" label="MTTR" value="—" hint="No data" />
-        </KpiGrid>
+        <EmptyState
+          icon={Gauge}
+          action={!preview ? <LoadExampleButton onLoad={loadExample} /> : undefined}
+        >
+          No quarters logged yet. Log the last quarter below: type the four numbers, or fill them
+          from your releases (Release Readiness), your Sprint and Flow boards and your incidents.
+        </EmptyState>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <SectionCard title="Log a quarterly sample" icon={Plus} titleSize="lg">
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="dora-quarter" className="text-xs text-sub">
-                Quarter
-              </Label>
-              <Input
-                id="dora-quarter"
-                value={draft.quarter}
-                onChange={(e) => setDraft((d) => ({ ...d, quarter: e.target.value }))}
-                placeholder="2026-Q1"
-                className="bg-surface border-border"
-              />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <SmartInput<number>
-                predicted={deployPrediction}
-                onAccept={(v) => setDraft((d) => ({ ...d, deployFreqPerWeek: String(v) }))}
-                render={({ chip }) => (
-                  <div>
-                    <NumericField
-                      id="dora-deploy"
-                      label="Deploys / week"
-                      value={draft.deployFreqPerWeek}
-                      onChange={(v) => setDraft((d) => ({ ...d, deployFreqPerWeek: v }))}
-                      placeholder="e.g. 12"
-                    />
-                    {chip}
-                  </div>
-                )}
-              />
-              <NumericField
-                id="dora-lead"
-                label="Lead time (hours)"
-                value={draft.leadTimeHours}
-                onChange={(v) => setDraft((d) => ({ ...d, leadTimeHours: v }))}
-                placeholder="e.g. 8"
-              />
-              <NumericField
-                id="dora-cfr"
-                label="Change-fail rate (%)"
-                value={draft.changeFailRatePct}
-                onChange={(v) => setDraft((d) => ({ ...d, changeFailRatePct: v }))}
-                placeholder="e.g. 12"
-              />
-              <NumericField
-                id="dora-mttr"
-                label="MTTR (hours)"
-                value={draft.mttrHours}
-                onChange={(v) => setDraft((d) => ({ ...d, mttrHours: v }))}
-                placeholder="e.g. 2"
-              />
-            </div>
-            <div>
-              <Label htmlFor="dora-desc" className="text-xs text-sub">
-                Description (optional)
-              </Label>
-              <Textarea
-                id="dora-desc"
-                value={draft.description}
-                onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                placeholder="What changed this quarter? Notable releases, incidents, etc."
-                rows={3}
-                className="bg-surface border-border resize-none text-xs"
-              />
-            </div>
-            <Button
-              // R11-fix: commit any in-progress NumericField draft
-              // BEFORE the click handler reads parent state. The
-              // inner NumericField components commit-on-blur via
-              // setState, but click handlers in the same event loop
-              // read the OLD closure (React batches the queued
-              // setState until after the handler returns). Pressing
-              // Add without first Tab-ing away would silently drop
-              // the typed value. Using onMouseDown to blur the
-              // active element FIRST flushes the commit into draft
-              // before the click handler runs.
-              onMouseDown={() => {
-                const active = document.activeElement as HTMLElement | null;
-                if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
-                  active.blur();
-                }
-              }}
-              onClick={addSample}
-              className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
-            >
-              <Plus className="w-4 h-4" aria-hidden="true" />
-              Add sample
-            </Button>
-          </div>
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <SectionCard title="Log a quarter" icon={Plus} titleSize="lg">
+          <LogForm
+            samples={samples}
+            defaultQuarter={nextQuarterToLog(samples, now)}
+            now={now}
+            today={today}
+            derive={derive}
+            onAdd={add}
+            onEdit={startEdit}
+            quarterRef={refFor("log:quarter")}
+          />
         </SectionCard>
 
-        <ChartCard
-          title="Trend across quarters"
-          height={320}
-          summary={chartText.summary}
-          table={chartText.table}
-        >
-          <DoraTrendChart
-            data={chartData}
-            deployControl={deployControl}
-            deployChangepoints={deployChangepoints}
-          />
-        </ChartCard>
+        <SectionCard title="Trend across quarters" icon={BarChart3} titleSize="lg">
+          {rows.length >= CHART_MIN_QUARTERS ? (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              {DORA_METRICS.map((m) => {
+                const text = metricTrendText(m, rows);
+                return (
+                  <div key={m}>
+                    <h3 className="mb-1 text-sm font-semibold text-text">{DORA_METRIC_LABEL[m]}</h3>
+                    <ChartFigure
+                      label={`${DORA_METRIC_LABEL[m]} by quarter`}
+                      summary={text.summary}
+                      table={text.table}
+                      plotClassName="h-[180px]"
+                    >
+                      <MetricTrendChart metric={m} data={rows} />
+                    </ChartFigure>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <NotEnoughData
+              have={rows.length}
+              need={CHART_MIN_QUARTERS}
+              unit={["quarter", "quarters"]}
+              action="Log"
+              what="each metric's trend"
+            />
+          )}
+        </SectionCard>
       </div>
 
-      {sorted.length > 0 && (
-        <SectionCard title="Samples" titleSize="lg" className="mt-6">
-          <div className="table-wrap-responsive -mx-4 px-4">
-            <table className="w-full text-xs min-w-full md:min-w-[640px]">
-              <thead>
-                <tr className="text-left text-sub border-b border-border">
-                  <th className="py-2 pr-3">Quarter</th>
-                  <th className="py-2 pr-3">Deploy/wk</th>
-                  <th className="py-2 pr-3">Lead (h)</th>
-                  <th className="py-2 pr-3">CFR</th>
-                  <th className="py-2 pr-3">MTTR (h)</th>
-                  <th className="py-2 pr-3">Description</th>
-                  <th className="py-2 pr-3 w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...sorted].reverse().map((s) => (
-                  <tr key={s.id} className="border-b border-border">
-                    <td className="py-2 pr-3 font-data text-text">{s.quarter}</td>
-                    <td className="py-2 pr-3 font-data">{s.deployFreqPerWeek.toFixed(2)}</td>
-                    <td className="py-2 pr-3 font-data">{s.leadTimeHours.toFixed(1)}</td>
-                    <td className="py-2 pr-3 font-data">{(s.changeFailRate * 100).toFixed(1)}%</td>
-                    <td className="py-2 pr-3 font-data">{s.mttrHours.toFixed(1)}</td>
-                    <td className="py-2 pr-3 text-sub max-w-[260px]">
-                      <span className="line-clamp-2 break-words whitespace-pre-wrap">
-                        {s.description ?? "—"}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeSample(s.id)}
-                        aria-label={`Remove sample for ${s.quarter}`}
-                        className="h-7 w-7 p-0 text-sub hover:text-danger"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {newestFirst.length > 0 && (
+        <SectionCard
+          title="Quarters"
+          titleSize="lg"
+          className="mt-6"
+          actions={
+            <ResetButton
+              label="Clear all samples"
+              title="Clear every quarter from the scorecard?"
+              description={`All ${samples.length === 1 ? "1 sample" : `${samples.length} samples`} go, with their notes.`}
+              confirmLabel="Clear samples"
+              doneLabel="Cleared the scorecard"
+              onReset={clearAll}
+              onUndo={undoClear}
+            />
+          }
+        >
+          <ul className="space-y-2" aria-label="Quarters, newest first">
+            {newestFirst.map((s) => (
+              <SampleRow
+                key={s.id}
+                sample={s}
+                samples={samples}
+                editing={editingId === s.id}
+                seed={editingId === s.id ? editing?.seed : undefined}
+                now={now}
+                today={today}
+                derive={derive}
+                refFor={refFor}
+                onEdit={startEdit}
+                onSave={saveEdit}
+                onCancel={cancelEdit}
+                onDelete={remove}
+              />
+            ))}
+          </ul>
         </SectionCard>
+      )}
+
+      {rows.length > 0 && (
+        <div className="mt-6">
+          <DoraAdvanced analysis={analysis} />
+        </div>
       )}
     </ToolPageWrapper>
   );
 }
 
-/**
- * Mann-Kendall trend chip. Renders an arrow with directionality color-coded
- * for whether the trend is desirable (deploy/wk up = good; lead time, CFR,
- * MTTR up = bad). Muted when the test isn't significant.
- */
-function TrendChip({
-  label,
-  trend,
-  significant,
-  betterDown = false,
-}: {
-  label: string;
-  trend: "up" | "down" | "none";
-  significant: boolean;
-  betterDown?: boolean;
-}) {
-  if (!significant || trend === "none") {
-    return (
-      <Badge
-        variant="outline"
-        className="font-mono text-xs tracking-wider uppercase text-sub border-border"
-      >
-        {label} flat
-      </Badge>
-    );
-  }
-  const isFavorable = betterDown ? trend === "down" : trend === "up";
-  const arrow = trend === "up" ? "↗" : "↘";
-  const tone = isFavorable
-    ? "border-success/40 text-success bg-success/10"
-    : "border-warning/40 text-warning bg-warning/10";
+/** Whose bands these are, and each band's range, behind a disclosure. */
+function BandsNote() {
   return (
-    <Badge variant="outline" className={`font-mono text-xs tracking-wider uppercase ${tone}`}>
-      {label} {arrow} significant
-    </Badge>
-  );
-}
-
-/**
- * String-draft numeric field. Keeps the raw value in state so users can
- * delete/retype freely without an in-flight clamp snapping the cursor.
- */
-function NumericField({
-  id,
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  // BUG-T2-dora-scorecard-1: commit to the parent on EVERY keystroke,
-  // not on blur. The prior buffered-on-blur pattern combined with an
-  // onMouseDown blur-flush trick on the Add button didn't actually
-  // flush because React's setState from the blur handler queues until
-  // the next render, but the click handler reads parent state from the
-  // SAME render (the previous render's closure). Result: clicking Add
-  // without first Tab-ing away silently dropped the in-progress value.
-  // Per-keystroke commit eliminates the race; the cost is one extra
-  // parent setState per keystroke, which is negligible for a 5-field
-  // form.
-  return (
-    <div>
-      <Label htmlFor={id} className="text-xs text-sub">
-        {label}
-      </Label>
-      <Input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        placeholder={placeholder}
-        className="bg-surface border-border font-data"
-      />
-    </div>
+    <details className="group rounded-lg border border-border bg-card px-3 py-2 text-xs text-sub">
+      <summary className="cursor-pointer select-none text-sub">
+        Bands: {bandsCitation()}. How they&apos;re set
+      </summary>
+      <div className="scroll-x-snap relative mt-2">
+        <table className="w-full min-w-[520px] text-left">
+          <caption className="sr-only">
+            DORA bands by metric, {DORA_BANDS.report} {DORA_BANDS.year}
+          </caption>
+          <thead>
+            <tr className="border-b border-border">
+              <th scope="col" className="py-1 pr-3 font-medium">
+                Band
+              </th>
+              {DORA_METRICS.map((m) => (
+                <th key={m} scope="col" className="py-1 pr-3 font-medium">
+                  {DORA_METRIC_LABEL[m]}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {DORA_BAND_ORDER.map((band, i) => (
+              <tr key={band} className="border-b border-border last:border-0">
+                <th scope="row" className={`py-1 pr-3 font-medium ${BAND_TEXT[band]}`}>
+                  {band}
+                </th>
+                {DORA_METRICS.map((m) => {
+                  const r = bandRanges(m)[i];
+                  return (
+                    <td key={m} className="py-1 pr-3 text-text">
+                      {r.range}
+                      <span className="block text-sub">report: {r.cluster}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2">{DORA_BANDS.note}</p>
+    </details>
   );
 }

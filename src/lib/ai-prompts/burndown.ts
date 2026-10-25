@@ -1,36 +1,66 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import { gap } from "@/lib/sprints/metrics";
+import { endDateFor, idealRemainingAt } from "@/lib/sprints/series";
 
 interface BurndownData {
   config: { totalPoints: number; sprintDays: number; sprintStartDate: string };
-  entries: { day: number; remaining: number | null; scopeChange: boolean; description?: string }[];
+  /**
+   * `ideal`: the ideal points left that day as the page draws it (lib/sprints/burn,
+   * on the team's working days). Without it, the shared ideal line on calendar days.
+   * `gap`: the day's gap as the page quotes it (BurnDay.gap, from the exact
+   * ideal); without it, worked out from the rounded ideal.
+   */
+  entries: {
+    day: number;
+    remaining: number | null;
+    scopeChange: boolean;
+    description?: string;
+    ideal?: number;
+    gap?: number | null;
+  }[];
+  /** Where the numbers came from: "From the sprint board", "Typed in the daily log". */
+  source?: string;
 }
 
 export function generateBurndownPrompts(data: BurndownData): PromptDefinition[] {
   const filledEntries = data.entries.filter((e) => e.remaining !== null);
   if (filledEntries.length === 0 || data.config.sprintDays <= 0) return [];
 
-  const ideal = (day: number) =>
-    Math.round((data.config.totalPoints * (data.config.sprintDays - day)) / data.config.sprintDays * 10) / 10;
+  const sprint = {
+    startDate: data.config.sprintStartDate,
+    endDate: endDateFor(data.config.sprintStartDate, data.config.sprintDays),
+  };
+  const ideal = (e: BurndownData["entries"][number]) =>
+    Math.round((e.ideal ?? idealRemainingAt(sprint, data.config.totalPoints, e.day)) * 10) / 10;
+  const variance = (e: BurndownData["entries"][number]) =>
+    typeof e.gap === "number" ? e.gap : gap(e.remaining!, ideal(e));
 
   const table = formatTable(
     ["Day", "Remaining", "Ideal", "Variance", "Scope Change", "Note"],
     filledEntries.map((e) => {
-      const id = ideal(e.day);
-      return [e.day, e.remaining!, id, Math.round((e.remaining! - id) * 10) / 10, e.scopeChange ? "Yes" : "", (e.description ?? "—").slice(0, 80)];
+      return [
+        e.day,
+        e.remaining!,
+        ideal(e),
+        variance(e),
+        e.scopeChange ? "Yes" : "",
+        (e.description ?? "—").slice(0, 80),
+      ];
     })
   );
 
   const scopeChanges = filledEntries.filter((e) => e.scopeChange).length;
   const lastEntry = filledEntries[filledEntries.length - 1];
-  const currentVariance = lastEntry ? lastEntry.remaining! - ideal(lastEntry.day) : 0;
+  const currentVariance = lastEntry ? variance(lastEntry) : 0;
 
   const context = [
     `Sprint: ${data.config.sprintDays} days, ${data.config.totalPoints} story points planned`,
     `Start Date: ${data.config.sprintStartDate}`,
     `Latest data: Day ${lastEntry?.day ?? 0}, ${lastEntry?.remaining ?? "N/A"} pts remaining`,
-    `Current variance from ideal: ${currentVariance > 0 ? "+" : ""}${Math.round(currentVariance * 10) / 10} pts`,
+    `Current variance from ideal: ${currentVariance > 0 ? "+" : ""}${currentVariance} pts (positive: behind)`,
     `Scope changes recorded: ${scopeChanges}`,
+    ...(data.source ? [`Source: ${data.source}`] : []),
   ].join("\n");
 
   return [
@@ -39,7 +69,10 @@ export function generateBurndownPrompts(data: BurndownData): PromptDefinition[] 
       title: "Sprint Progress Analysis",
       description: "Deep dive into whether the sprint is on track and what to do about it.",
       prompt:
-        buildPreamble("Burndown Chart", "It tracks remaining story points day by day against an ideal linear burn.") +
+        buildPreamble(
+          "Burndown Chart",
+          "It tracks remaining story points day by day against an ideal linear burn."
+        ) +
         `## Sprint Configuration\n\n${context}\n\n## Day-by-Day Data\n\n${table}\n\n## Questions\n\n1. Is this sprint on track, ahead, or behind? By how much?\n2. What does the burn pattern tell you — is work being completed steadily or in bursts?\n3. Are there any plateau periods where no work was completed? What might cause this?\n4. Based on the current trajectory, will the team complete all planned work by sprint end?\n5. What mid-sprint corrections would you recommend right now?`,
     },
     {

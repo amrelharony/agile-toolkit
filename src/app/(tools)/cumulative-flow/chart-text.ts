@@ -1,50 +1,47 @@
 /**
  * The cumulative flow and WIP control charts in words: one-sentence summaries
  * and the plotted series as tables, built from the data the charts draw.
+ * Rows are keyed by stage id (a renamed column keeps its band), and the
+ * stages carry their labels and kinds.
  */
 
 import { fmt, move, plural, type ChartText } from "@/lib/charts/chart-text";
-import type { StatusColumn, WipSeriesPoint, WipSignal } from "./types";
+import type { FlowDay, FlowStage } from "@/lib/flow";
+import type { WipSeriesPoint, WipSignal } from "./types";
 
-type FlowRow = Record<string, string | number>;
-
-const count = (row: FlowRow, name: string): number => {
-  const v = row[name];
+const count = (day: FlowDay, id: string): number => {
+  const v = day.counts[id];
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 };
 
-export function flowChartText(
-  rows: readonly FlowRow[],
-  columns: readonly StatusColumn[]
-): ChartText {
+export function flowChartText(days: readonly FlowDay[], stages: readonly FlowStage[]): ChartText {
   let summary: string;
-  const done = columns[columns.length - 1];
-  if (rows.length === 0 || !done) {
-    summary = "No snapshots yet.";
+  const done = stages.find((s) => s.kind === "done") ?? stages[stages.length - 1];
+  if (days.length === 0 || !done) {
+    summary = "Nothing charted yet.";
   } else {
-    const first = rows[0];
-    const last = rows[rows.length - 1];
-    const total = columns.reduce((s, c) => s + count(last, c.name), 0);
-    // In progress: every column but the first (to do) and the last (done).
-    const middle = columns.length >= 3 ? columns.slice(1, -1) : [];
-    const wip = middle.reduce((s, c) => s + count(last, c.name), 0);
-    const wipClause = middle.length > 0 ? `; ${plural(wip, "item")} in progress` : "";
+    const first = days[0];
+    const last = days[days.length - 1];
+    const total = stages.reduce((s, st) => s + count(last, st.id), 0);
+    const active = stages.filter((s) => s.kind === "active");
+    const wip = active.reduce((s, st) => s + count(last, st.id), 0);
+    const wipClause = active.length > 0 ? `; ${plural(wip, "item")} in progress` : "";
     summary =
-      rows.length === 1
-        ? `One snapshot on ${String(last.date)}: ${plural(total, "item")}, ${fmt(
-            count(last, done.name)
-          )} in ${done.name}${wipClause}.`
-        : `${done.name} ${move(count(first, done.name), count(last, done.name))} items between ${String(
+      days.length === 1
+        ? `One day, ${last.date}: ${plural(total, "item")}, ${fmt(count(last, done.id))} in ${
+            done.label
+          }${wipClause}.`
+        : `${done.label} ${move(count(first, done.id), count(last, done.id))} items between ${
             first.date
-          )} and ${String(last.date)}${wipClause ? `${wipClause} on the last day` : ""}.`;
+          } and ${last.date}${wipClause ? `${wipClause} on the last day` : ""}.`;
   }
 
   return {
     summary,
     table: {
-      caption: "Items in each column by date",
-      columns: ["Date", ...columns.map((c) => c.name)],
-      rows: rows.map((r) => [String(r.date), ...columns.map((c) => count(r, c.name))]),
+      caption: "Items in each stage by date",
+      columns: ["Date", ...stages.map((s) => s.label)],
+      rows: days.map((d) => [d.date, ...stages.map((s) => count(d, s.id))]),
     },
   };
 }
@@ -52,19 +49,21 @@ export function flowChartText(
 export function wipChartText(
   series: readonly WipSeriesPoint[],
   signals: readonly WipSignal[],
-  wipLimit: number | null
+  wipLimit: number | null,
+  unit: readonly [string, string] = ["snapshot", "snapshots"]
 ): ChartText {
   let summary: string;
   if (series.length === 0) {
-    summary = "No snapshots yet.";
+    summary = "Nothing charted yet.";
   } else {
     const values = series.map((p) => p.value);
     const first = values[0];
     const last = values[values.length - 1];
+    const points = plural(series.length, unit[0], unit[1]);
     const parts = [
-      `WIP ${move(first, last)} over ${plural(series.length, "snapshot")}, ranging from ${fmt(
-        Math.min(...values)
-      )} to ${fmt(Math.max(...values))}`,
+      `WIP ${move(first, last)} over ${points}, ranging from ${fmt(Math.min(...values))} to ${fmt(
+        Math.max(...values)
+      )}`,
     ];
     // One point can break several rules; count it once.
     const flagged = new Set(signals.map((s) => s.index)).size;
@@ -73,7 +72,7 @@ export function wipChartText(
       const over = values.filter((v) => v > wipLimit).length;
       parts.push(
         over > 0
-          ? `above the WIP limit of ${fmt(wipLimit)} on ${plural(over, "snapshot")}`
+          ? `above the WIP limit of ${fmt(wipLimit)} on ${plural(over, unit[0], unit[1])}`
           : `never above the WIP limit of ${fmt(wipLimit)}`
       );
     }

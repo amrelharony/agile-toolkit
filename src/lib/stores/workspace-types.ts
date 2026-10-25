@@ -63,6 +63,9 @@ export const CEREMONY_CADENCE_ID = "ceremony-cadence:current";
 /** The story map's one document id (Story Mapper, its agent actions, Canvas's live story map). */
 export const STORY_MAP_ID = "story-mapper:current";
 
+/** The Kanban Flow board's one document id (the page, its agent actions, hand-offs, next steps). */
+export const KANBAN_BOARD_ID = "kanban:current";
+
 /**
  * The team's ceremony cadence as a workspace document: when the Daily Scrum,
  * Planning, Refinement, Review and Retro happen relative to a sprint's dates
@@ -84,6 +87,24 @@ export interface StoryStatusChange {
   /** The status it left (absent for a story created in `status`). */
   from?: StoryStatus;
   at: ISODateString;
+}
+
+/**
+ * One move of a story into or out of a sprint, as the workspace store
+ * records it whenever a story's sprint changes (lib/sprints/story-status.ts
+ * stampStoryMembership), so burnup, scope churn and carry-over can tell when
+ * a story joined or left a sprint.
+ */
+export interface StorySprintChange {
+  /** The sprint it joined; absent when it went back to the backlog. */
+  sprintId?: string;
+  /** The sprint it left; absent when it came from the backlog (or was created in `sprintId`). */
+  from?: string;
+  at: ISODateString;
+  /** Its points at the move, so added or removed scope weighs what it had then. */
+  points?: number;
+  /** Moved because `from` was closed (the close dialog's carry-over). */
+  carriedOver?: boolean;
 }
 
 export interface Story {
@@ -110,6 +131,11 @@ export interface Story {
   /** Status changes, oldest first; only the latest
    *  `STORY_STATUS_HISTORY_CAP` (lib/sprints/story-status.ts) are kept. */
   statusHistory?: StoryStatusChange[];
+  /** When the story was first saved (stamped by the store; absent on older stories). */
+  createdAt?: ISODateString;
+  /** Sprint moves, oldest first; only the latest
+   *  `STORY_SPRINT_HISTORY_CAP` (lib/sprints/story-status.ts) are kept. */
+  sprintHistory?: StorySprintChange[];
   /** The item this was sent from (review feedback, a tech-debt item). */
   sourceRef?: HandoffRef;
   /** Definition-of-Ready checks from a refinement session. */
@@ -605,6 +631,18 @@ export interface CodeReviewLog {
  * S7 — Engineering Excellence entities (singleton-doc per tool, like kanban).
  * ────────────────────────────────────────────────────────────────── */
 
+/** What a derived DORA sample was worked out from. */
+export interface DoraDerivedFrom {
+  /** Releases that went out in the quarter. */
+  releases: number;
+  /** Of them, rolled back. */
+  rolledBack: number;
+  /** Finished stories and cards the lead time is measured over. */
+  items: number;
+  /** Incidents the time to restore is measured over. */
+  incidents: number;
+}
+
 export interface DoraSample {
   id: string;
   quarter: string;
@@ -614,6 +652,10 @@ export interface DoraSample {
   changeFailRate: number;
   mttrHours: number;
   description?: string;
+  /** Typed by hand (absent reads as manual), or derived from the toolkit's data. */
+  source?: "manual" | "derived";
+  derivedFrom?: DoraDerivedFrom;
+  updatedAt?: ISODateString;
 }
 
 export interface DoraScorecard {
@@ -910,22 +952,56 @@ export const RELEASE_GATE_IDS: GateId[] = [
   "feature_flag_ready",
 ];
 
+/** A gate the toolkit can check by itself: the release's feature flags, or the Definition of Done. */
+export type ReleaseGateAuto = "flags" | "dod";
+
+/** A readiness gate in the team's list: one of the built-ins (`GateId`) or the team's own. */
+export interface ReleaseGateDef {
+  id: string;
+  label: string;
+  description?: string;
+  auto?: ReleaseGateAuto;
+  /** Taken off the list; kept so shipped releases still name it. */
+  archived?: boolean;
+}
+
+/** An earlier ship of a release that was reopened, kept so the stats still count it. */
+export interface ReleaseShip {
+  shippedDate: string;
+  rolledBackAt?: string;
+  /** The gates that applied, frozen at ship. */
+  gateIds?: string[];
+  gates?: Record<string, boolean>;
+  gatesOpenAtShip?: number;
+}
+
 export interface Release {
   id: string;
   name: string;
   plannedDate: string;
   status: ReleaseStatus;
   shippedDate?: string;
-  gates: Record<GateId, boolean>;
+  /** Gate id → passed. A built-in gate is a `GateId`; a missing key is open. */
+  gates: Record<string, boolean>;
   /** Open-gate count snapshotted at ship time (kept for historical p-charts). */
   gatesOpenAtShip?: number;
   description?: string;
+  /** The gates that applied, frozen at ship (absent: the built-in `RELEASE_GATE_IDS`). */
+  gateIds?: string[];
+  /** When it was rolled back (YYYY-MM-DD). */
+  rolledBackAt?: string;
+  /** Earlier ships, oldest first, kept when a shipped release is reopened. */
+  previousShips?: ReleaseShip[];
+  /** Stories it ships, for an exact DORA lead time. */
+  storyIds?: string[];
 }
 
 /** release-readiness singleton: launch gates + ship/rollback tracking. */
 export interface ReleaseReadiness {
   id: string;
   releases: Release[];
+  /** The team's gate list, in order; absent: the built-in gates. */
+  gates?: ReleaseGateDef[];
 }
 
 export type OncallSeverity = "sev1" | "sev2" | "sev3" | "sev4";
@@ -1950,6 +2026,16 @@ export interface KanbanCard {
   blocked?: boolean;
   /** When it entered its current column, for its age there. */
   columnSince?: ISODateString;
+  /** Column moves, oldest first; only the latest `KANBAN_HISTORY_CAP`
+   *  (lib/kanban/flow.ts) are kept. Absent on cards from before it. */
+  history?: KanbanColumnChange[];
+}
+
+/** One move of a Flow-board card, as `movedCard` (lib/kanban/flow.ts) records it. */
+export interface KanbanColumnChange {
+  column: KanbanColumnId;
+  from?: KanbanColumnId;
+  at: ISODateString;
 }
 
 /** The kanban board — a singleton document (cards + per-column WIP limits). */
@@ -2009,6 +2095,66 @@ export interface ValueStreamStage {
   processTime: number;
   leadTime: number;
   completeAccurate: number;
+  /** Position in its map, 0 first; absent on stages saved before reordering
+   *  (they keep their stored order, after the numbered ones). */
+  order?: number;
+  /** Which map it belongs to; absent reads as "current". */
+  state?: ValueStreamState;
+}
+
+export type ValueStreamState = "current" | "future";
+
+/* ── Health dashboard settings (singleton) ── */
+
+/** The health dashboard's one settings document id. */
+export const HEALTH_DASHBOARD_ID = "healthDashboard:current";
+
+/** Where a KPI turns amber and red. Whether higher is better is the KPI's own. */
+export interface KpiThreshold {
+  /** Green up to (or, for a higher-is-better KPI, from) here. */
+  green: number;
+  /** Amber up to (or from) here; beyond is red. */
+  amber: number;
+}
+
+/** The team's health dashboard settings: thresholds and the windows the KPIs read. */
+export interface HealthDashboardConfig {
+  id: string;
+  /** Per KPI id (lib/health-dashboard); a KPI left out uses the default. */
+  thresholds?: Record<string, KpiThreshold>;
+  /** Pointed sprints predictability looks at. */
+  sprintWindow?: number;
+  /** Days a standup blocker stays recent. */
+  blockerWindowDays?: number;
+  /** Days of finished work cycle time looks at. */
+  cycleWindowDays?: number;
+  updatedAt?: ISODateString;
+}
+
+/* ── Feature flags ── */
+
+export type FeatureFlagStatus = "on" | "off" | "retired";
+export type FeatureFlagPurpose = "rollout" | "experiment" | "kill_switch" | "permission";
+export type FeatureFlagEnv = "dev" | "staging" | "prod" | "all";
+
+/** A feature flag the team tracks until it is removed from the code. */
+export interface FeatureFlag {
+  id: string;
+  name: string;
+  owner?: string;
+  status: FeatureFlagStatus;
+  purpose: FeatureFlagPurpose;
+  environment?: FeatureFlagEnv;
+  /** YYYY-MM-DD; editable, so an older flag can be backdated. */
+  createdAt: string;
+  /** The day the team plans to remove it (YYYY-MM-DD). */
+  removeBy?: string;
+  /** Set when retired (YYYY-MM-DD); absent on a legacy retirement with no date. */
+  retiredAt?: string;
+  /** The Release Readiness release it ships behind. */
+  releaseId?: string;
+  description?: string;
+  sentTo?: HandoffLink[];
 }
 
 // ──────── S4 — Team Health & Maturity (singleton docs) ────────
@@ -2216,6 +2362,8 @@ export interface Workspace {
   codeReviewLogs?: CodeReviewLog[];
   // S7 — Engineering Excellence (singleton docs)
   doraScorecards?: DoraScorecard[];
+  healthDashboards?: HealthDashboardConfig[];
+  featureFlags?: FeatureFlag[];
   sloBuilders?: SloBuilder[];
   spacePulses?: SpacePulse[];
   devexSurveys?: DevexSurvey[];
@@ -2455,6 +2603,8 @@ export const emptyWorkspace = {
   codeReviewLogs: [],
   // S7 — Engineering Excellence
   doraScorecards: [],
+  healthDashboards: [],
+  featureFlags: [],
   sloBuilders: [],
   spacePulses: [],
   devexSurveys: [],

@@ -8,7 +8,23 @@
  * overhead).
  */
 
-import type { CapacityMember, CapacityConfig, CapacityPlan } from "@/lib/stores/workspace-types";
+import type {
+  CapacityMember,
+  CapacityConfig,
+  CapacityPlan,
+  Sprint,
+} from "@/lib/stores/workspace-types";
+import { velocity, type VelocityOptions } from "./metrics";
+
+/**
+ * A Capacity Planner example row: an `example-` id, the rule of
+ * components/tool-frame/example-data isExampleId (a test holds the two
+ * together). Not imported from there: that is a "use client" module, and
+ * in the MCP route handler its exports are client references that throw
+ * when an agent action calls them (as lib/flow notes).
+ */
+const isExampleId = (id: string | null | undefined) =>
+  typeof id === "string" && id.startsWith("example-");
 
 export type CapacityMemberInput = Pick<CapacityMember, "availability" | "daysOff">;
 export type CapacityConfigInput = Pick<
@@ -108,4 +124,80 @@ export function pointsForecast(
       ? Math.round(velocity * ratio)
       : null;
   return { ratio: ratio === null ? null : Math.round(ratio * 100) / 100, points };
+}
+
+/* ── Velocity per available person-day ───────────────────────────────── */
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * The person-days a plan's team had: each member's working days (the
+ * plan's sprint days, which already leave out team holidays, minus their
+ * days off) times their availability. The Capacity Planner's example rows
+ * (`example-` ids) don't count, unless `includeExamples` (a tool's own
+ * in-memory example). To one decimal.
+ */
+export function availablePersonDays(
+  plan: Pick<CapacityPlan, "members" | "config">,
+  { includeExamples = false }: { includeExamples?: boolean } = {}
+): number {
+  const days = Number.isFinite(plan.config?.sprintDays) ? plan.config.sprintDays : 0;
+  let total = 0;
+  for (const m of plan.members ?? []) {
+    if (!includeExamples && isExampleId(m.id)) continue;
+    const off = Number.isFinite(m.daysOff) ? m.daysOff : 0;
+    const share = Number.isFinite(m.availability) ? Math.max(0, m.availability) / 100 : 0;
+    total += Math.max(days - off, 0) * share;
+  }
+  return round1(total);
+}
+
+export interface PerPersonDay {
+  sprintId: string;
+  /** Completed points. */
+  points: number;
+  personDays: number;
+  /** Points per available person-day, to two decimals. */
+  perDay: number;
+}
+
+export interface VelocityPerPersonDay {
+  /** The finished sprints in the window that had their own capacity plan, oldest first. */
+  perSprint: PerPersonDay[];
+  /** Σ points ÷ Σ person-days over them, to two decimals; null with none. */
+  average: number | null;
+  /** How many sprints went into it. */
+  count: number;
+}
+
+/**
+ * Completed points per available person-day, over the finished sprints in
+ * velocity's window (`opts`, as `velocity` takes it) that had their own
+ * capacity plan. The `capacity-planner:current` fallback isn't that
+ * sprint's plan, so it doesn't count; nor does a plan with no person-days.
+ * The average is a ratio of sums, so a short sprint doesn't weigh as much
+ * as a full one.
+ */
+export function velocityPerPersonDay(
+  sprints: readonly Sprint[],
+  plans: readonly CapacityPlan[] | undefined,
+  { includeExamples = false, ...opts }: VelocityOptions & { includeExamples?: boolean } = {}
+): VelocityPerPersonDay {
+  const v = velocity(sprints, opts);
+  const perSprint: PerPersonDay[] = [];
+  v.sprintIds.forEach((sprintId, i) => {
+    const found = findCapacityPlan(plans, sprintId);
+    if (!found?.perSprint) return;
+    const personDays = availablePersonDays(found.plan, { includeExamples });
+    if (!(personDays > 0)) return;
+    const points = v.points[i];
+    perSprint.push({ sprintId, points, personDays, perDay: round2(points / personDays) });
+  });
+  const days = perSprint.reduce((a, p) => a + p.personDays, 0);
+  const done = perSprint.reduce((a, p) => a + p.points, 0);
+  return {
+    perSprint,
+    average: perSprint.length > 0 && days > 0 ? round2(done / days) : null,
+    count: perSprint.length,
+  };
 }

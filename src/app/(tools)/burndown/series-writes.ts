@@ -6,23 +6,30 @@
  *
  * Each tool stores only what the user typed in it: Burndown the points
  * remaining and the scope-change flag, Burnup the scope and points done.
- * Notes are shared. The other tool's number is worked out on read.
+ * Notes are shared. The other tool's number is worked out on read. How one
+ * day merges is lib/sprints/day-writes, shared with the agents' log_day.
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, SprintDay, SprintSeries } from "@/lib/stores/workspace-types";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import {
-  dayEntry,
-  endDateFor,
-  scopeFromRise,
-  sprintLengthDays,
-  withDay,
-  withoutDay,
-} from "@/lib/sprints/series";
+  withBurndownDay,
+  withBurnupDay,
+  type BurndownDayPatch,
+  type BurnupDayPatch,
+} from "@/lib/sprints/day-writes";
+import { dayEntry, endDateFor, sprintLengthDays, withoutDay } from "@/lib/sprints/series";
 
 // Shared with the legacy-data migration, so both apply the same rule.
 export { remainingBefore, scopeFromRise } from "@/lib/sprints/series";
+export {
+  toDayPatch,
+  withBurndownDay,
+  withBurnupDay,
+  type BurndownDayPatch,
+  type BurnupDayPatch,
+} from "@/lib/sprints/day-writes";
 import { updateSeries, updateSprint } from "@/lib/sprints/store";
 
 /** The stored sprint, or undefined for an example or a deleted sprint. */
@@ -70,65 +77,8 @@ export function setSprintDates(
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Day patches                                                                */
+/*  Day writes                                                                 */
 /* -------------------------------------------------------------------------- */
-
-export interface BurndownDayPatch {
-  remaining?: number | null;
-  scopeChange?: boolean;
-  note?: string | null;
-}
-
-export interface BurnupDayPatch {
-  scope?: number | null;
-  completed?: number | null;
-  note?: string | null;
-}
-
-/** Only the keys present in `patch`; blank values become `undefined` (removed). */
-function toDayPatch(patch: BurndownDayPatch & BurnupDayPatch): Partial<Omit<SprintDay, "day">> {
-  const out: Partial<Omit<SprintDay, "day">> = {};
-  if ("remaining" in patch) out.remaining = patch.remaining ?? undefined;
-  if ("completed" in patch) out.completed = patch.completed ?? undefined;
-  if ("scope" in patch) out.scope = patch.scope ?? undefined;
-  if ("scopeChange" in patch) out.scopeChange = patch.scopeChange ? true : undefined;
-  if ("note" in patch) out.note = patch.note && patch.note.trim() ? patch.note : undefined;
-  return out;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Burndown: scope changes                                                    */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Apply a Burndown edit to one day. On a day flagged as a scope change where
- * remaining rose, Burndown also keeps that day's `scope` in step (so
- * Burnup's scope line rises too), and takes it back off when the flag goes.
- * A scope Burnup typed is never touched: Burndown only manages a scope it
- * could have written itself.
- */
-export function withBurndownDay(
-  sprint: Pick<Sprint, "pointsPlanned">,
-  series: SprintSeries,
-  day: number,
-  patch: BurndownDayPatch,
-  now: string = new Date().toISOString()
-): SprintSeries {
-  const before = dayEntry(series, day);
-  const storedScope = before?.scope ?? null;
-  const wasFlagged = Boolean(before?.scopeChange);
-  const ownsScope =
-    storedScope === null || (wasFlagged && storedScope === scopeFromRise(sprint, series, day));
-
-  let next = withDay(series, day, toDayPatch(patch), now);
-  if (!ownsScope) return next;
-
-  const flagged = Boolean(dayEntry(next, day)?.scopeChange);
-  const scope = flagged ? scopeFromRise(sprint, next, day) : null;
-  if (scope !== null) next = withDay(next, day, { scope }, now);
-  else if (storedScope !== null) next = withDay(next, day, { scope: undefined }, now);
-  return next;
-}
 
 export interface DayWrite {
   /** The day as it was (undefined when nothing was stored). */
@@ -171,7 +121,7 @@ export function writeBurnupDay(
   const out: DayWrite = {};
   updateSeries(sprintId, (series) => {
     out.before = dayEntry(series, day);
-    const next = withDay(series, day, toDayPatch(patch));
+    const next = withBurnupDay(series, day, patch);
     out.after = dayEntry(next, day);
     return next;
   });

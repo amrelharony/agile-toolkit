@@ -81,6 +81,18 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "user-interviews": { name: "user interviews", href: "/user-interviews" },
   "risk-register": { name: "Risk Register", href: "/risk-register" },
   "tech-debt": { name: "tech debt", href: "/tech-debt" },
+  // Track delivery
+  burndown: { name: "burndown", href: "/burndown" },
+  burnup: { name: "burnup", href: "/burnup" },
+  velocity: { name: "velocity", href: "/velocity" },
+  "sprint-metrics": { name: "Sprint Metrics", href: "/sprint-metrics" },
+  "cumulative-flow": { name: "cumulative flow", href: "/cumulative-flow" },
+  "cycle-time": { name: "cycle time", href: "/cycle-time" },
+  "value-stream": { name: "value stream map", href: "/value-stream" },
+  "health-dashboard": { name: "health dashboard", href: "/health-dashboard" },
+  "dora-scorecard": { name: "DORA scorecard", href: "/dora-scorecard" },
+  "release-readiness": { name: "Release Readiness", href: "/release-readiness" },
+  "feature-flag-tracker": { name: "feature flag tracker", href: "/feature-flag-tracker" },
 };
 
 /** The sending tool, or undefined for one not listed (never an inherited key like "constructor"). */

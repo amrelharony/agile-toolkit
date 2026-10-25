@@ -126,7 +126,8 @@ export function DataTable<Row>({
     <div className={className}>
       {/* Desktop / tablet: proper table */}
       <div className="hidden md:block">
-        <div className="overflow-x-auto">
+        {/* relative: a containing block, so sr-only text in cells can't widen the page. */}
+        <div className="relative overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-sub">

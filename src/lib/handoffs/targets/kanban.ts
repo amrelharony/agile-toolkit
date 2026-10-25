@@ -1,18 +1,18 @@
 /**
  * Hand-off target: a card in the Kanban backlog.
  *
- * Appends to the board singleton (`kanban:current`) the same card
+ * Appends to the board singleton (`KANBAN_BOARD_ID`) the same card
  * `tool.kanban.add_card` makes with its defaults (backlog column, standard
  * class, date-only createdAt), plus `sourceRef`. The board is read fresh
  * right before the write, so a card added a moment ago isn't dropped.
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { KanbanBoard, KanbanCard } from "@/lib/stores/workspace-types";
+import { KANBAN_BOARD_ID, type KanbanBoard, type KanbanCard } from "@/lib/stores/workspace-types";
 import type { HandoffRoute, HandoffSource } from "../types";
 
-/** MUST match KB_ID in kanban-client.tsx and src/lib/actions/tools/kanban.ts. */
-export const KANBAN_BOARD_ID = "kanban:current";
+/** The board's id, defined once in workspace-types (re-exported for older imports). */
+export { KANBAN_BOARD_ID };
 
 function emptyBoard(): KanbanBoard {
   return {

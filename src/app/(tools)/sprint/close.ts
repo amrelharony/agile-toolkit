@@ -2,12 +2,13 @@
  * Closing a sprint from the cockpit: the sprint becomes "Done" with its
  * completed points, and its unfinished stories go where the close dialog
  * said, as one change with one Undo. Stories move the way Sprint Planning
- * moves them (its writer), so their flow stamps agree.
+ * moves them (its writer), so their flow stamps agree, and each move is
+ * recorded as a carry-over in the story's sprint history.
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, Story } from "@/lib/stores/workspace-types";
-import { createSprint, updateSprint } from "@/lib/sprints/store";
+import { createSprint, setStorySprint, updateSprint } from "@/lib/sprints/store";
 import type { CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
 import { liveWriter, placeStory, restoreStories } from "@/app/(tools)/sprint-planning/writer";
 
@@ -72,11 +73,16 @@ export function closeSprint(
     if (!movedTo && plan.newSprint) movedTo = created = createSprint(plan.newSprint);
     if (movedTo) {
       for (const s of stories) {
+        // Recorded as a carry-over, so the trends can tell it from a descope.
+        setStorySprint(s.id, movedTo.id, { carriedOver: true });
         placeStory(liveWriter, s.id, movedTo.id, s.status === "backlog" ? "todo" : s.status);
       }
     }
   } else if (plan?.target === "backlog") {
-    for (const s of stories) placeStory(liveWriter, s.id, undefined, "backlog");
+    for (const s of stories) {
+      setStorySprint(s.id, undefined, { carriedOver: true });
+      placeStory(liveWriter, s.id, undefined, "backlog");
+    }
   }
   const moved = movedTo || plan?.target === "backlog" ? stories.length : 0;
 

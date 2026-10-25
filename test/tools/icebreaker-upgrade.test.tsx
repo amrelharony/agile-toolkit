@@ -587,6 +587,9 @@ describe("the page", () => {
   });
 
   it("hides what was used recently from the grid and from Random Pick", async () => {
+    // "Used yesterday" is counted from today: pin today to the uses' NOW.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     vi.spyOn(window, "matchMedia").mockImplementation(
       (q: string) =>
         ({
@@ -610,6 +613,7 @@ describe("the page", () => {
       expect(useIcebreakerSession.getState().selectedId).not.toBe("q-1");
       expect(useIcebreakerSession.getState().selectedId).not.toBeNull();
     }
+    vi.useRealTimers();
   });
 
   it("spins through the matches, then lands on one and announces it", async () => {

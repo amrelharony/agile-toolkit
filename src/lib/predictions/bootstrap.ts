@@ -157,12 +157,6 @@ export function bootstrapPredictions(): void {
     return { value: 43, confidence: "medium", source: "99.9% SLO over 30-day window" };
   });
 
-  // ── dora-scorecard ───────────────────────────────────────────────────
-  registerPredictor<number>("dora-scorecard", "deploysPerWeekTarget", () => {
-    // Industry "high" threshold: 7 deploys/week.
-    return { value: 7, confidence: "low", source: "DORA 'High' performer threshold" };
-  });
-
   // ── sprint-goal ──────────────────────────────────────────────────────
   registerPredictor<number>("sprint-goal", "successThresholdPct", (ctx) => {
     const completed = ctx.workspace.sprints.filter(

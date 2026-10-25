@@ -18,13 +18,14 @@ import type {
   SprintGoalOutcome,
   Story,
 } from "@/lib/stores/workspace-types";
-import { isExampleId } from "@/components/tool-frame/example-data";
-import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { isExampleId } from "@/lib/utils/example-id";
+import { doneOn } from "@/lib/flow";
 import { dayOf, impedimentStatus } from "@/lib/impediments/model";
 import { storyPoints } from "@/lib/sprints/plan";
 import { reviewFacts } from "@/lib/sprints/review-doc";
 import { hasSyntheticDates } from "@/lib/sprints/series";
 import type { SayDo } from "@/lib/sprints/metrics";
+import { moodDuring } from "@/lib/team/mood";
 import { followThroughByRetro, type RetroFollowThrough } from "./actions";
 import { isArchivedRetroOf, localDay, retroWindow } from "./board";
 
@@ -83,16 +84,6 @@ export interface RetroFactsInput {
 /** A done share at or above this, in the sprint's last third, reads as a late finish. */
 export const LATE_SHARE = 0.6;
 
-/** When a done story was done: `doneAt`, else its last move into done. */
-function doneDay(story: Story): string | null {
-  if (story.doneAt) return localDay(story.doneAt);
-  const history = story.statusHistory ?? [];
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].status === "done") return localDay(history[i].at);
-  }
-  return null;
-}
-
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 /**
@@ -120,7 +111,8 @@ export function burndownShape(
   const lastThird = startMs + ((endMs - startMs) * 2) / 3;
   let late = 0;
   for (const s of done) {
-    const day = doneDay(s);
+    // The one day-a-story-was-done rule: `doneAt`, else its last move into done.
+    const day = doneOn(s);
     const t = day ? Date.parse(`${day}T00:00:00Z`) : NaN;
     if (!Number.isFinite(t) || t >= lastThird) late += storyPoints(s);
   }
@@ -162,15 +154,7 @@ export function retroFacts(input: RetroFactsInput): RetroFacts {
       if (status !== "resolved") impediments.stillOpen++;
       if (i.escalatedAt) impediments.escalated++;
     }
-    const checkIns = (input.moodEntries ?? []).filter(
-      (m) => !m.isPlaceholder && !isExampleId(m.id) && inWindow(dayOf(m.date), start, end)
-    );
-    mood.checkIns = checkIns.length;
-    mood.people = new Set(checkIns.map((m) => m.memberId)).size;
-    if (checkIns.length >= MIN_SAMPLE.average) {
-      const mean = checkIns.reduce((sum, m) => sum + m.score, 0) / checkIns.length;
-      mood.average = Math.round(mean * 10) / 10;
-    }
+    Object.assign(mood, moodDuring(input.moodEntries, start, end));
     kudos = (input.kudos ?? [])
       .filter((k) => !isExampleId(k.id) && inWindow(localDay(k.sentAt), start, end))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt))

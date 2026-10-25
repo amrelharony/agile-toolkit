@@ -44,7 +44,7 @@ export const SPRINT_TOOLS: Record<SprintToolId, ToolLink> = {
   "sprint-compare": {
     path: "/sprint-compare",
     name: "Sprint Comparison",
-    blurb: "Rate sprints and compare them side by side",
+    blurb: "Six scores per sprint, read from your data, side by side",
     icon: GitCompare,
   },
   "release-planner": {
@@ -96,16 +96,16 @@ function ToolCard({ tool, href, status }: { tool: ToolLink; href: string; status
 }
 
 /**
- * The sprint tools, each opening on this sprint, with one line of status.
- * `sprintId` is left off for an example preview, so the tools open on the
- * user's own sprints.
+ * The sprint tools, each opening on this sprint, with an optional line of
+ * status. `sprintId` is left off for an example preview, so the tools open
+ * on the user's own sprints.
  */
 export function SprintToolCards({
   sprintId,
   status,
 }: {
   sprintId: string | undefined;
-  status: Record<SprintToolId, string>;
+  status?: Partial<Record<SprintToolId, string>>;
 }) {
   const headingId = useId();
   return (
@@ -119,7 +119,7 @@ export function SprintToolCards({
             <ToolCard
               tool={SPRINT_TOOLS[id]}
               href={sprintHref(SPRINT_TOOLS[id].path, sprintId)}
-              status={status[id]}
+              status={status?.[id]}
             />
           </li>
         ))}

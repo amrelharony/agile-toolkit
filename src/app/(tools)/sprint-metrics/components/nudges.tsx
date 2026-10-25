@@ -1,26 +1,29 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
 import { migratedSourceNames, type NudgeKind } from "@/lib/sprints/hub-view";
+import { sprintHref } from "@/lib/sprints/use-selected-sprint";
 
-export interface NudgesProps {
+export interface SprintNudge {
   sprint: Sprint;
   series: SprintSeries | undefined;
-  nudges: NudgeKind[];
-  /** Other sprints with something to check. */
-  others: Sprint[];
-  onAddPoints: () => void;
-  onSetDates: () => void;
-  onCheckDetails: () => void;
-  onLooksRight: () => void;
-  onSelect: (id: string) => void;
+  kinds: NudgeKind[];
 }
 
-/** Other sprints listed by name; the rest are counted. */
-const MAX_OTHERS = 5;
+export interface NudgesProps {
+  items: SprintNudge[];
+  /** Add the completed points a finished sprint is missing (the close dialog's points mode). */
+  onAddPoints: (sprint: Sprint) => void;
+  /** A migrated sprint the user has checked. */
+  onLooksRight: (sprint: Sprint) => void;
+}
+
+/** Sprints listed in full; the rest wait behind "Show all". */
+const SHOWN = 5;
 
 function Nudge({ children, actions }: { children: React.ReactNode; actions: React.ReactNode }) {
   return (
@@ -32,89 +35,157 @@ function Nudge({ children, actions }: { children: React.ReactNode; actions: Reac
   );
 }
 
+const linkCls =
+  "inline-flex h-8 items-center rounded-md border border-border px-3 text-sm text-text hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** The checks on screen, in order, one key per nudge. */
+const nudgeKeys = (items: readonly SprintNudge[]) =>
+  items.flatMap(({ sprint, kinds }) => kinds.map((k) => `${sprint.id}-${k}`));
+
 /**
- * Data-quality checks, each with its fix: a finished sprint without
- * completed points, placeholder dates, and sprints made from old tool data.
+ * Data-quality checks across the sprints, each with its fix: a finished
+ * sprint without completed points (it drops out of velocity and the trend),
+ * placeholder dates, and sprints made from old tool data. Dates and details
+ * are edited in the cockpit's header now; points are added here.
+ *
+ * Fixing a check removes it, and the button that fixed it with it, so
+ * focus moves to the next check (or the heading once none is left) rather
+ * than falling back to the page.
  */
-export function Nudges({
-  sprint,
-  series,
-  nudges,
-  others,
-  onAddPoints,
-  onSetDates,
-  onCheckDetails,
-  onLooksRight,
-  onSelect,
-}: NudgesProps) {
+export function Nudges({ items, onAddPoints, onLooksRight }: NudgesProps) {
   const headingId = useId();
-  if (nudges.length === 0 && others.length === 0) return null;
+  const listId = useId();
+  const [all, setAll] = useState(false);
+  // Once a check was shown, the section stays (saying none is left) so
+  // focus has somewhere to go when the last one is fixed.
+  const [shownOnce, setShownOnce] = useState(items.length > 0);
+  if (items.length > 0 && !shownOnce) setShownOnce(true);
+
+  const listRef = useRef<HTMLUListElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const keys = nudgeKeys(items);
+  const keyList = keys.join("\u0000");
+  const before = useRef(keys);
+  useEffect(() => {
+    const prev = before.current;
+    before.current = keyList ? keyList.split("\u0000") : [];
+    const now = new Set(before.current);
+    const gone = prev.findIndex((k) => !now.has(k));
+    if (gone === -1) return;
+    // Only when focus went with the removed check: never take it from
+    // somewhere the user moved it. The close dialog hands focus back after
+    // it unmounts (on a timer), so look once that has happened.
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      const rows = listRef.current?.querySelectorAll<HTMLElement>(":scope > li") ?? [];
+      const row = rows[Math.min(gone, rows.length - 1)];
+      const target = row?.querySelector<HTMLElement>("button, a[href]") ?? headingRef.current;
+      target?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [keyList]);
+
+  if (items.length === 0 && !shownOnce) return null;
+  const shown = all ? items : items.slice(0, SHOWN);
 
   return (
     <section aria-labelledby={headingId} className="space-y-2">
-      <h2 id={headingId} className="text-sm font-semibold text-text">
+      <h2
+        id={headingId}
+        ref={headingRef}
+        tabIndex={-1}
+        className="text-sm font-semibold text-text focus:outline-none"
+      >
         Worth checking
       </h2>
-      {nudges.length > 0 && (
-        <ul className="space-y-2">
-          {nudges.includes("no-points") && (
-            <Nudge
-              actions={
-                <Button type="button" size="sm" variant="outline" onClick={onAddPoints}>
-                  Add completed points
-                </Button>
-              }
-            >
-              {sprint.name} is done but has no completed points, so Velocity and forecasts skip it.
-            </Nudge>
-          )}
-          {nudges.includes("synthetic-dates") && (
-            <Nudge
-              actions={
-                <Button type="button" size="sm" variant="outline" onClick={onSetDates}>
-                  Set real dates
-                </Button>
-              }
-            >
-              {sprint.name} has no real dates, so its days can&apos;t line up with the calendar.
-            </Nudge>
-          )}
-          {nudges.includes("migrated") && (
-            <Nudge
-              actions={
-                <>
-                  <Button type="button" size="sm" variant="outline" onClick={onCheckDetails}>
-                    Check this sprint&apos;s details
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={onLooksRight}>
-                    Looks right
-                  </Button>
-                </>
-              }
-            >
-              {sprint.name} was made from your earlier {migratedSourceNames(series?.migratedFrom)}{" "}
-              data. Check its name, dates and points.
-            </Nudge>
-          )}
-        </ul>
-      )}
-      {others.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-sub">
-          <span>{nudges.length > 0 ? "Other sprints to check:" : "Sprints to check:"}</span>
-          {others.slice(0, MAX_OTHERS).map((s) => (
-            <Button
-              key={s.id}
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-auto px-2 py-1 text-accent underline-offset-2 hover:underline"
-              onClick={() => onSelect(s.id)}
-            >
-              {s.name}
-            </Button>
-          ))}
-          {others.length > MAX_OTHERS && <span>and {others.length - MAX_OTHERS} more</span>}
-        </div>
+      {items.length === 0 && <p className="text-sm text-sub">Nothing left to check.</p>}
+      <ul id={listId} ref={listRef} className="space-y-2">
+        {shown.flatMap(({ sprint, series, kinds }) => [
+          ...(kinds.includes("no-points")
+            ? [
+                <Nudge
+                  key={`${sprint.id}-points`}
+                  actions={
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onAddPoints(sprint)}
+                      aria-label={`Add completed points to ${sprint.name}`}
+                    >
+                      Add completed points
+                    </Button>
+                  }
+                >
+                  {sprint.name} is done but has no completed points, so Velocity, the trend and
+                  forecasts skip it.
+                </Nudge>,
+              ]
+            : []),
+          ...(kinds.includes("synthetic-dates")
+            ? [
+                <Nudge
+                  key={`${sprint.id}-dates`}
+                  actions={
+                    <Link
+                      href={sprintHref("/sprint", sprint.id)}
+                      aria-label={`Set real dates for ${sprint.name}`}
+                      className={linkCls}
+                    >
+                      Set real dates
+                    </Link>
+                  }
+                >
+                  {sprint.name} has no real dates, so its days can&apos;t line up with the calendar.
+                  Edit its details in the cockpit.
+                </Nudge>,
+              ]
+            : []),
+          ...(kinds.includes("migrated")
+            ? [
+                <Nudge
+                  key={`${sprint.id}-migrated`}
+                  actions={
+                    <>
+                      <Link
+                        href={sprintHref("/sprint", sprint.id)}
+                        aria-label={`Check the details of ${sprint.name}`}
+                        className={linkCls}
+                      >
+                        Check its details
+                      </Link>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onLooksRight(sprint)}
+                        aria-label={`${sprint.name} looks right`}
+                      >
+                        Looks right
+                      </Button>
+                    </>
+                  }
+                >
+                  {sprint.name} was made from your earlier{" "}
+                  {migratedSourceNames(series?.migratedFrom)} data. Check its name, dates and
+                  points.
+                </Nudge>,
+              ]
+            : []),
+        ])}
+      </ul>
+      {items.length > SHOWN && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setAll((v) => !v)}
+          aria-expanded={all}
+          aria-controls={listId}
+        >
+          {all ? "Show fewer" : `Show all ${items.length} sprints to check`}
+        </Button>
       )}
     </section>
   );

@@ -1,16 +1,17 @@
 "use client";
 
 /**
- * Scatter view: per-item cycle time vs insertion order, with P50/P85/P95
- * reference lines and CUSUM regime-shift markers.
+ * Scatter view: each finished item's cycle time at its finish date, with
+ * P50/P85/P95 reference lines (once they may be quoted) and CUSUM
+ * regime-shift markers (from Advanced analysis' sample floor).
  */
 
 import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { ChartFigure } from "@/components/shared/chart-card";
-import { scatterText } from "../chart-text";
-import type { CycleStats, ScatterDatum } from "../types";
+import { scatterText, type QuotedPercentiles } from "../chart-text";
+import type { ScatterDatum } from "../types";
 
 // Recharts loads with the chart, not the page. The placeholder keeps the
 // chart's 380px height while the chunk loads.
@@ -27,21 +28,21 @@ const CycleTimeScatterChart = dynamic(
 export function ScatterTab({
   scatterData,
   stats,
-  percentileMap,
   cusumAnnotations,
 }: {
   scatterData: ScatterDatum[];
-  stats: CycleStats;
-  percentileMap: Record<number, number>;
+  stats: QuotedPercentiles;
   cusumAnnotations: CausalAnnotationData[];
 }) {
-  const text = useMemo(() => scatterText(scatterData, stats), [scatterData, stats]);
+  const text = useMemo(
+    () => scatterText(scatterData, stats, cusumAnnotations),
+    [scatterData, stats, cusumAnnotations]
+  );
   return (
-    <ChartFigure label="Cycle time scatter plot" summary={text.summary} table={text.table}>
+    <ChartFigure label="Cycle time by completion date" summary={text.summary} table={text.table}>
       <CycleTimeScatterChart
         scatterData={scatterData}
         stats={stats}
-        percentileMap={percentileMap}
         cusumAnnotations={cusumAnnotations}
       />
     </ChartFigure>

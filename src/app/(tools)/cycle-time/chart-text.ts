@@ -4,14 +4,21 @@
  */
 
 import { fmt, plural, type ChartText } from "@/lib/charts/chart-text";
-import type { CycleStats, HistogramDatum, ScatterDatum } from "./types";
+import type { HistogramDatum, ScatterDatum } from "./types";
+import { SOURCE_LABEL } from "./helpers";
 
 const days = (n: number) => plural(n, "day");
 
+/** The percentiles a summary quotes; null until there are enough items. */
+export interface QuotedPercentiles {
+  median: number | null;
+  p85: number | null;
+  p95: number | null;
+}
+
 export function histogramText(
   bars: readonly HistogramDatum[],
-  stats: Pick<CycleStats, "median" | "p85">,
-  p95: number
+  stats: QuotedPercentiles
 ): ChartText {
   const total = bars.reduce((s, b) => s + b.count, 0);
   let summary: string;
@@ -20,9 +27,13 @@ export function histogramText(
   } else {
     // The tallest bar; the first one wins a tie.
     const mode = bars.reduce((best, b) => (b.count > best.count ? b : best), bars[0]);
-    summary = `${plural(total, "item")}: half finished within ${days(stats.median)}, 85% within ${fmt(
-      stats.p85
-    )} and 95% within ${fmt(p95)}; the most common range is ${mode.bucket} (${plural(
+    const spread =
+      stats.median !== null && stats.p85 !== null && stats.p95 !== null
+        ? `half finished within ${days(stats.median)}, 85% within ${fmt(stats.p85)} and 95% within ${fmt(
+            stats.p95
+          )}; `
+        : "";
+    summary = `${plural(total, "item")}: ${spread}the most common range is ${mode.bucket} (${plural(
       mode.count,
       "item"
     )}).`;
@@ -38,9 +49,15 @@ export function histogramText(
   };
 }
 
+/**
+ * The scatter in words. `shifts` are the change points drawn on it (from
+ * Advanced analysis' sample floor): the summary names them too, so the
+ * text says what the lines on the plot say.
+ */
 export function scatterText(
   points: readonly ScatterDatum[],
-  stats: Pick<CycleStats, "median" | "p85">
+  stats: QuotedPercentiles,
+  shifts: readonly { detail: string }[] = []
 ): ChartText {
   let summary: string;
   if (points.length === 0) {
@@ -49,22 +66,34 @@ export function scatterText(
     const values = points.map((p) => p.cycleTime);
     const min = Math.min(...values);
     const max = Math.max(...values);
+    const first = points[0].doneOn;
+    const last = points[points.length - 1].doneOn;
+    const quoted =
+      stats.median !== null && stats.p85 !== null
+        ? `; the median is ${days(stats.median)} and 85% took ${days(stats.p85)} or less`
+        : "";
     summary =
       points.length === 1
-        ? `One item, with a cycle time of ${days(values[0])}.`
-        : `Cycle times of ${plural(points.length, "item")}, in the order added, range from ${fmt(
+        ? `One item, finished on ${first}, with a cycle time of ${days(values[0])}.`
+        : `Cycle times of ${plural(points.length, "item")} finished from ${first} to ${last}, in order of completion, range from ${fmt(
             min
-          )} to ${days(max)}; the median is ${days(stats.median)} and 85% took ${days(
-            stats.p85
-          )} or less.`;
+          )} to ${days(max)}${quoted}.`;
+    if (shifts.length > 0) {
+      summary = `${summary} Marked on the chart: ${shifts.map((s) => s.detail).join(" ")}`;
+    }
   }
 
   return {
     summary,
     table: {
-      caption: "Cycle time of each item, in the order added",
-      columns: ["Item #", "Item", "Cycle time (days)"],
-      rows: points.map((p) => [p.idx, p.name.trim() || "Untitled", p.cycleTime]),
+      caption: "Cycle time of each item, in order of completion",
+      columns: ["Finished", "Item", "Source", "Cycle time (days)"],
+      rows: points.map((p) => [
+        p.doneOn,
+        p.name.trim() || "Untitled",
+        SOURCE_LABEL[p.source],
+        p.cycleTime,
+      ]),
     },
   };
 }

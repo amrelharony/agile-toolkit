@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
- * Feature Flag Tracker: choosing Deprecated from the status dropdown retires
- * the flag like the Retire button does (records today's date, so it counts
- * toward "Retired this quarter"); moving it back to a live status clears the
- * date again.
+ * Feature Flag Tracker: retiring a flag records the day it was retired (so
+ * it counts toward "Retired this quarter"), and bringing it back clears the
+ * day again. Retiring used to be either the Retire button or the
+ * "Deprecated" status; it is now one action, with a day, and the flags live
+ * in the workspace (workspace.featureFlags) rather than the page's own key.
  */
 
+const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
+vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
@@ -31,68 +35,64 @@ beforeAll(() => {
       disconnect() {}
     }
   );
-  // Radix Select calls these; jsdom doesn't implement them.
-  Element.prototype.scrollIntoView = () => {};
-  Element.prototype.hasPointerCapture = () => false;
-  Element.prototype.releasePointerCapture = () => {};
 });
 
 import { FeatureFlagTrackerClient } from "@/app/(tools)/feature-flag-tracker/feature-flag-tracker-client";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { FeatureFlag } from "@/lib/stores/workspace-types";
+import { todayIso } from "@/lib/sprints/series";
 
-const KEY = "agile-toolkit:feature-flag-tracker";
+const FLAG: FeatureFlag = {
+  id: "f1",
+  name: "new-checkout",
+  status: "on",
+  createdAt: "2026-09-01",
+  environment: "prod",
+  purpose: "rollout",
+};
 
 beforeEach(() => {
-  localStorage.setItem(
-    KEY,
-    JSON.stringify([
-      {
-        id: "f1",
-        name: "new-checkout",
-        status: "on",
-        createdAt: "2026-09-01",
-        environment: "prod",
-        purpose: "rollout",
-      },
-    ])
-  );
+  toastSpy.mockReset();
+  useWorkspaceStore.setState({ featureFlags: [FLAG] });
 });
 
-const saved = () => JSON.parse(localStorage.getItem(KEY) ?? "[]")[0];
+const saved = () => useWorkspaceStore.getState().featureFlags?.[0];
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <FeatureFlagTrackerClient />
+    </TooltipProvider>
+  );
 
-function chooseStatus(label: string) {
-  const trigger = screen.getByRole("combobox", { name: "Status for new-checkout" });
-  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
-  const listbox = screen.getByRole("listbox");
-  fireEvent.click(within(listbox).getByRole("option", { name: label }));
-}
+describe("Feature Flag Tracker retiring", () => {
+  it("records the retired day (today unless moved back)", async () => {
+    renderPage();
+    const card = await screen.findByRole("article", { name: "new-checkout" });
+    fireEvent.click(within(card).getByRole("button", { name: "Retire new-checkout" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Retire flag" }));
 
-describe("Feature Flag Tracker status", () => {
-  it("records a retired date when the status is set to Deprecated", async () => {
-    render(<FeatureFlagTrackerClient />);
-    await screen.findByText("new-checkout");
-    expect(screen.getByRole("button", { name: /Retire/ })).toBeInTheDocument();
-
-    chooseStatus("Deprecated");
-
-    expect(await screen.findByText(`retired ${todayLocalISO()}`)).toBeInTheDocument();
-    expect(saved()).toMatchObject({ status: "deprecated", retiredAt: todayLocalISO() });
-    // Already retired, so no Retire button.
-    expect(screen.queryByRole("button", { name: /Retire/ })).not.toBeInTheDocument();
+    expect(saved()).toMatchObject({ status: "retired", retiredAt: todayIso() });
+    // Retired, so no Retire button: Bring back instead.
+    const after = screen.getByRole("article", { name: "new-checkout" });
+    expect(
+      within(after).queryByRole("button", { name: "Retire new-checkout" })
+    ).not.toBeInTheDocument();
+    expect(
+      within(after).getByRole("button", { name: "Bring back new-checkout" })
+    ).toBeInTheDocument();
   });
 
-  it("clears the retired date when a deprecated flag goes back to a live status", async () => {
-    localStorage.setItem(
-      KEY,
-      JSON.stringify([{ ...saved(), status: "deprecated", retiredAt: "2026-10-01" }])
-    );
-    render(<FeatureFlagTrackerClient />);
-    expect(await screen.findByText("retired 2026-10-01")).toBeInTheDocument();
+  it("clears the retired day when a retired flag is brought back", async () => {
+    useWorkspaceStore.setState({
+      featureFlags: [{ ...FLAG, status: "retired", retiredAt: "2026-10-01" }],
+    });
+    renderPage();
+    const card = await screen.findByRole("article", { name: "new-checkout" });
+    expect(within(card).getByText(/1 Oct 2026/)).toBeInTheDocument();
 
-    chooseStatus("Active");
+    fireEvent.click(within(card).getByRole("button", { name: "Bring back new-checkout" }));
 
-    expect(screen.queryByText(/^retired /)).not.toBeInTheDocument();
-    expect(saved().status).toBe("active");
-    expect(saved().retiredAt).toBeUndefined();
+    expect(saved()?.status).toBe("on");
+    expect(saved()?.retiredAt).toBeUndefined();
   });
 });

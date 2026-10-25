@@ -101,7 +101,7 @@ describe("tool.kanban.list_state", () => {
       count: 3,
       limit: 2,
     });
-    expect(r.avgCycleTimeDays).toBe(4); // 2026-01-01 → 2026-01-05
+    expect(r.avgCycleTimeDays).toBe(5); // 2026-01-01 → 2026-01-05, both days counted
   });
 });
 
@@ -138,6 +138,11 @@ describe("tool.kanban add_card / move_card", () => {
     card = (useWorkspaceStore.getState().kanbanBoards ?? [])[0].cards[0];
     expect(card.column).toBe("done");
     expect(card.completedAt).toBeTruthy();
+    // Each move is recorded, as the page records it, for the flow charts.
+    expect(card.history).toEqual([
+      { column: "in_progress", from: "backlog", at: card.startedAt },
+      { column: "done", from: "in_progress", at: card.completedAt },
+    ]);
   });
 
   it("move_card returns {updated:false} for an unknown card", async () => {

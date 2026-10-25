@@ -1,59 +1,137 @@
 /**
- * Cycle Time Analyzer — pure stats/date helpers + histogram buckets. No React.
+ * Cycle Time Analyzer — the finished items from every source and the
+ * numbers read off them. Pure, so the page, its export, the tests and
+ * tool.cycle_time.* (which runs the same lib/flow pipeline on the server)
+ * agree to the day.
+ *
+ * One day convention for every source (lib/flow cycleDays): whole local
+ * calendar days with the start and the finish both counted, so an item
+ * started and finished on the same day took 1 day, not 0. Percentiles are
+ * the shared nearest-rank `percentile` (lib/sprints/metrics, through
+ * lib/flow cycleSummary), so the page, the Flow board and the agent quote
+ * one P85.
  */
 
-// R5: `new Date("YYYY-MM-DD")` parses as UTC midnight; subtracting two
-// UTC midnights and dividing by 86_400_000 SHOULD be exact, but if the
-// input is `YYYY-MM-DDTHH:mm` (datetime-local), the parse is in LOCAL
-// time. Mixing the two formats produces a tz-offset-shifted delta that
-// rounds the wrong way at DST transitions. Parse as local-date when
-// the string matches the date-only shape, else parse as-is.
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+import {
+  ageingWip,
+  cardItems,
+  cycleDays,
+  cycleSummary,
+  finishedItems,
+  storyItems,
+  weekOf,
+  type AgeingItem,
+  type CycleSummary,
+} from "@/lib/flow";
+import { enoughData } from "@/lib/analytics/min-sample";
+import { percentile } from "@/lib/sprints/metrics";
+import { isoDayNumber } from "@/lib/sprints/calendar";
+import type { KanbanCard, Story } from "@/lib/stores/workspace-types";
+import type { CycleRow, CycleSource, HistogramDatum, ScatterDatum, WorkItem } from "./types";
 
-function parseLocalOrIso(s: string): number {
-  if (DATE_ONLY.test(s)) {
-    const [y, m, d] = s.split("-").map(Number);
-    return new Date(y, m - 1, d).getTime();
+export const SOURCE_LABEL: Record<CycleSource, string> = {
+  story: "Sprint board",
+  card: "Flow board",
+  typed: "Typed",
+};
+
+/** The finished stories and Flow-board cards with a start and a finish, as cycle-time rows. */
+export function boardRows(
+  stories: readonly Story[],
+  cards: readonly KanbanCard[],
+  opts: { includeExamples?: boolean } = {}
+): CycleRow[] {
+  const items = [...storyItems(stories, opts), ...cardItems(cards, opts)];
+  return finishedItems(items).map((f) => ({
+    id: f.id,
+    title: f.title,
+    source: f.kind === "story" ? "story" : f.kind === "card" ? "card" : "typed",
+    startedOn: f.startedOn,
+    doneOn: f.doneOn,
+    days: f.days,
+  }));
+}
+
+/** A typed item's cycle time, counted like the boards'; null while a date is missing or backwards. */
+export function typedDays(item: Pick<WorkItem, "startDate" | "endDate">): number | null {
+  return cycleDays(item.startDate, item.endDate);
+}
+
+/** The typed items that have both dates the right way round. */
+export function typedRows(items: readonly WorkItem[]): CycleRow[] {
+  const out: CycleRow[] = [];
+  for (const i of items) {
+    const days = typedDays(i);
+    if (days === null) continue;
+    out.push({
+      id: i.id,
+      title: i.name.trim() || "Untitled",
+      source: "typed",
+      startedOn: i.startDate,
+      doneOn: i.endDate,
+      days,
+    });
   }
-  return new Date(s).getTime();
+  return out;
 }
 
-export function calcCycleTime(start: string, end: string): number | null {
-  if (!start || !end) return null;
-  const s = parseLocalOrIso(start);
-  const e = parseLocalOrIso(end);
-  if (isNaN(s) || isNaN(e) || e < s) return null;
-  return Math.round((e - s) / (1000 * 60 * 60 * 24));
+/** Every row from the sources picked, in order of completion (oldest finish first). */
+export function rowsFrom(rows: readonly CycleRow[], sources: ReadonlySet<CycleSource>): CycleRow[] {
+  return rows
+    .filter((r) => sources.has(r.source))
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (a.r.doneOn < b.r.doneOn ? -1 : a.r.doneOn > b.r.doneOn ? 1 : a.i - b.i))
+    .map(({ r }) => r);
 }
 
-export function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  const idx = Math.ceil((sorted.length * p) / 100) - 1;
-  return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
+/** The percentiles in the SLE table. */
+export const PERCENTILE_KEYS = [50, 75, 85, 90, 95] as const;
+
+export interface CycleStats {
+  summary: CycleSummary;
+  /** Whether the average may be quoted (MIN_SAMPLE.average). */
+  averageQuoted: boolean;
+  /** Whether the median, percentiles, spread and histogram may be quoted (MIN_SAMPLE.distribution). */
+  distributionQuoted: boolean;
+  percentiles: Record<(typeof PERCENTILE_KEYS)[number], number | null>;
 }
 
-export function stdDev(values: number[]): number {
-  if (values.length < 2) return 0;
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
-  return Math.sqrt(variance);
+export function cycleStats(rows: readonly CycleRow[]): CycleStats {
+  const days = rows.map((r) => r.days);
+  const summary = cycleSummary(days);
+  const distributionQuoted = enoughData(summary.count, "distribution");
+  return {
+    summary,
+    averageQuoted: enoughData(summary.count, "average"),
+    distributionQuoted,
+    percentiles: Object.fromEntries(
+      PERCENTILE_KEYS.map((p) => [p, distributionQuoted ? percentile(days, p) : null])
+    ) as CycleStats["percentiles"],
+  };
 }
 
-export function round(v: number, d = 1) {
-  return Math.round(v * 10 ** d) / 10 ** d;
+/** The SLE at a percentile: "P% of items finish within N days"; null below the sample floor. */
+export function sleDays(rows: readonly CycleRow[], pct: number): number | null {
+  return enoughData(rows.length, "distribution")
+    ? percentile(
+        rows.map((r) => r.days),
+        pct
+      )
+    : null;
 }
 
+/** How many finished items made it within `target` days. */
+export function withinTarget(
+  rows: readonly CycleRow[],
+  target: number
+): { within: number; total: number; pct: number | null } {
+  const within = rows.filter((r) => r.days <= target).length;
+  return { within, total: rows.length, pct: rows.length ? (within / rows.length) * 100 : null };
+}
+
+/** Day buckets for the histogram; a same-day item (1 day) is the first. */
 export const BUCKETS: { label: string; min: number; max: number }[] = [
-  // Includes 0 in the "1 day" bucket so same-day tasks (start === end,
-  // cycle time = 0) aren't silently dropped from the histogram while
-  // still counted in the "X / Y with cycle time" stats line. Without
-  // the min:0 lower bound, a workspace where every task closes on the
-  // same day showed an empty histogram + a non-zero N — a visible
-  // contradiction.
-  // BUG-T2-cycle-time-1: use the unicode "≤" character. SVG <text>
-  // doesn't interpret HTML entities; the chart axis was rendering the
-  // literal "&le;1 day".
-  { label: "≤1 day", min: 0, max: 1 },
+  { label: "1 day", min: 1, max: 1 },
   { label: "2 days", min: 2, max: 2 },
   { label: "3-4 days", min: 3, max: 4 },
   { label: "5-7 days", min: 5, max: 7 },
@@ -61,4 +139,55 @@ export const BUCKETS: { label: string; min: number; max: number }[] = [
   { label: "15+ days", min: 15, max: Infinity },
 ];
 
-export const PERCENTILE_KEYS = [50, 75, 85, 90, 95, 99] as const;
+export function histogram(rows: readonly CycleRow[]): HistogramDatum[] {
+  return BUCKETS.map((b) => ({
+    bucket: b.label,
+    count: rows.filter((r) => r.days >= b.min && r.days <= b.max).length,
+  }));
+}
+
+/** One point per finished item at its finish day, in order of completion. */
+export function scatterPoints(rows: readonly CycleRow[]): ScatterDatum[] {
+  return rows.map((r) => ({
+    x: isoDayNumber(r.doneOn) as number,
+    doneOn: r.doneOn,
+    cycleTime: r.days,
+    name: r.title,
+    source: r.source,
+  }));
+}
+
+/**
+ * The mean cycle time per ISO week of completion, for the trend test, in
+ * week order. Weeks with nothing finished have no mean and are skipped.
+ */
+export function weeklyMeans(rows: readonly CycleRow[]): { week: string; mean: number }[] {
+  const byWeek = new Map<string, number[]>();
+  for (const r of rows) {
+    const week = weekOf(r.doneOn);
+    if (!week) continue;
+    byWeek.set(week, [...(byWeek.get(week) ?? []), r.days]);
+  }
+  return Array.from(byWeek.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, xs]) => ({ week, mean: xs.reduce((a, b) => a + b, 0) / xs.length }));
+}
+
+/**
+ * The work in progress on both boards, oldest first, aged like a cycle
+ * time (the start day is 1) and flagged against the P85 once that may be
+ * quoted (MIN_SAMPLE.distribution finished items).
+ */
+export function ageingRows(
+  stories: readonly Story[],
+  cards: readonly KanbanCard[],
+  today: string,
+  p85: number | null,
+  opts: { includeExamples?: boolean } = {}
+): AgeingItem[] {
+  return ageingWip([...storyItems(stories, opts), ...cardItems(cards, opts)], today, p85);
+}
+
+export function round(v: number, d = 1) {
+  return Math.round(v * 10 ** d) / 10 ** d;
+}

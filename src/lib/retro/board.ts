@@ -11,8 +11,8 @@
 
 import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
 import type { RetroFormat } from "@/lib/constants/retro-formats";
-import { isExampleId } from "@/components/tool-frame/example-data";
-import { hasSyntheticDates, todayIso } from "@/lib/sprints/series";
+import { isExampleId } from "@/lib/utils/example-id";
+import { hasSyntheticDates, localDay } from "@/lib/sprints/series";
 import { addDays, dayOf, daysBetween } from "@/lib/impediments/model";
 
 /** The current board's id. MUST match RB_ID in src/app/(tools)/retro/retro-client.tsx. */
@@ -24,13 +24,8 @@ export const RETRO_GRACE_DAYS = 7;
 /** How long a card's text can be, on the board, from a hand-off or an agent. */
 export const RETRO_CARD_MAX = 500;
 
-/** The local calendar day of a timestamp (or a plain "YYYY-MM-DD" as it is). */
-export function localDay(value: string | undefined | null): string | null {
-  if (!value) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const t = Date.parse(value);
-  return Number.isFinite(t) ? todayIso(new Date(t)) : dayOf(value);
-}
+// The local calendar day of a timestamp, shared with the flow charts.
+export { localDay };
 
 /** The days `sprint`'s retro can fall in: its first day to a week after its last. */
 export function retroWindow(

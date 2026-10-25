@@ -332,8 +332,9 @@ describe("tool.kanban stamps like the Flow board", () => {
     const r = await call<Record<string, unknown>>("tool.kanban.list_state");
     expect(r).toMatchObject({
       blockedByColumn: { in_progress: 1, review: 0 },
-      avgCycleTimeDays: 4,
-      p85CycleTimeDays: 4,
+      // 1 to 5 October, both days counted.
+      avgCycleTimeDays: 5,
+      p85CycleTimeDays: 5,
       cycleTimeSample: 1,
     });
   });

@@ -1370,8 +1370,10 @@ describe("the cockpit page", () => {
   it("says where the sprint stands and reads the numbers off the board", () => {
     seed();
     const { container } = render(<SprintCockpit />);
+    // The page counts the team's working days: 5 of the sprint's 7 are done
+    // by day 7, so the ideal is 8.6 left (the pure view's calendar days say 9).
     expect(container.querySelector("[data-cockpit-verdict]")).toHaveTextContent(
-      "Day 7 of 10: 13 of 30 points done, behind by 8 points (not counting 1 story without points), and 5 blockers are open."
+      "Day 7 of 10: 13 of 30 points done, behind by 8.4 points (not counting 1 story without points), and 5 blockers are open."
     );
     expect(container.querySelector('[data-tile="done"]')).toHaveTextContent("13");
     expect(container.querySelector('[data-tile="remaining"]')).toHaveTextContent("17");
@@ -1510,8 +1512,10 @@ describe("the cockpit page", () => {
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     // The shared notice invites editing; this example can't be, and says so.
     expect(screen.getByText(/This example is a read-only preview/)).toBeInTheDocument();
+    // On working days: the example started on a Saturday, so by day 5 only
+    // 3 of its 10 working days are done (an ideal of 24.5 left, not 22.5).
     expect(container.querySelector("[data-cockpit-verdict]")).toHaveTextContent(
-      "Day 5 of 14: 13 of 32 points done, ahead by 3.5 points (not counting 1 story without points), and 3 blockers are open."
+      "Day 5 of 14: 13 of 32 points done, ahead by 5.5 points (not counting 1 story without points), and 3 blockers are open."
     );
     expect(screen.queryByRole("button", { name: "Close sprint" })).toBeNull();
     expect(screen.queryByLabelText(/Points left/)).toBeNull();

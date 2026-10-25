@@ -8,21 +8,58 @@ import {
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
+  Polygon,
   Legend,
   Tooltip,
 } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "#1a1f36",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "8px",
-  color: "#e2e8f0",
-};
+/** A point of a sprint's shape as Recharts hands it over: where, and the score (null = not scored). */
+interface RadarVertex {
+  x: number;
+  y: number;
+  value?: unknown;
+}
+
+/** The vertices of the dimensions the sprint has a score for. */
+export function scoredVertices<T extends RadarVertex>(points: readonly T[] | undefined): T[] {
+  return (points ?? []).filter((p) => typeof p.value === "number" && Number.isFinite(p.value));
+}
+
+/**
+ * A sprint's shape through its scored dimensions only. Recharts puts a
+ * missing value at the centre, which would draw "not scored" as the worst
+ * score; this skips it, so the outline joins the scores either side.
+ */
+export function ScoredRadarShape({
+  points,
+  stroke,
+  fill,
+  fillOpacity,
+  strokeWidth,
+}: {
+  points?: RadarVertex[];
+  stroke?: string;
+  fill?: string;
+  fillOpacity?: number;
+  strokeWidth?: number;
+}) {
+  return (
+    <Polygon
+      className="recharts-radar-polygon"
+      points={scoredVertices(points)}
+      stroke={stroke}
+      fill={fill}
+      fillOpacity={fillOpacity}
+      strokeWidth={strokeWidth}
+    />
+  );
+}
 
 interface SprintRadarChartProps {
-  /** One row per dimension; each sprint's rating keyed by its id (null = not rated). */
+  /** One row per dimension; each sprint's score keyed by its id (null = not scored). */
   data: Record<string, string | number | null>[];
-  /** Sprints to overlay, in order, each with its colour. */
+  /** Sprints to overlay, in order, each with its theme colour. */
   series: { id: string; name: string; color: string }[];
   width?: number;
   height?: number;
@@ -39,17 +76,17 @@ export function SprintRadarChart({ data, series, width, height }: SprintRadarCha
       // table, so the SVG mustn't be a tab stop.
       accessibilityLayer={false}
     >
-      <PolarGrid stroke="rgba(255,255,255,0.1)" />
-      <PolarAngleAxis dataKey="dimension" tick={{ fill: "#94a3b8", fontSize: 12 }} />
+      <PolarGrid stroke={chartTheme.gridColor} />
+      <PolarAngleAxis dataKey="dimension" tick={{ fill: chartTheme.axisColor, fontSize: 12 }} />
       <PolarRadiusAxis
         domain={[0, 10]}
-        tick={{ fill: "#94a3b8", fontSize: 10 }}
+        tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
         tickCount={6}
-        stroke="rgba(255,255,255,0.05)"
+        stroke={chartTheme.gridColor}
       />
       <Tooltip
-        contentStyle={TOOLTIP_STYLE}
-        formatter={(value) => (value == null ? "Not rated" : value)}
+        contentStyle={chartTheme.tooltipStyle}
+        formatter={(value) => (value == null ? "Not scored" : value)}
       />
       {series.map((sp) => (
         <Radar
@@ -60,9 +97,10 @@ export function SprintRadarChart({ data, series, width, height }: SprintRadarCha
           fill={sp.color}
           fillOpacity={0.15}
           strokeWidth={2}
+          shape={ScoredRadarShape}
         />
       ))}
-      <Legend wrapperStyle={{ paddingTop: "12px", color: "#94a3b8", fontSize: 12 }} />
+      <Legend wrapperStyle={{ paddingTop: "12px", ...chartTheme.legendStyle }} />
     </RadarChart>
   );
 }

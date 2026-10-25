@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
 import { denseSeries, sprintStatus, velocity } from "@/lib/sprints/metrics";
+import { DEFAULT_CALENDAR } from "@/lib/sprints/calendar";
 
 import "@/lib/actions/tools/burndown";
 import "@/lib/actions/tools/burnup";
@@ -58,6 +59,31 @@ describe("sprint status", () => {
       willFinishOnTime: boolean;
     };
     expect(status.lengthDays).toBe(10);
+    expect(status.idealRemaining).toBe(mcp.idealRemainingNow);
+    expect(status.gap).toBe(mcp.gap);
+    expect(status.onTrack).toBe(mcp.onTrack);
+    expect(status.projectedFinishDay).toBe(mcp.projectedCompletionDay);
+    expect(status.willFinishOnTime).toBe(mcp.willFinishOnTime);
+  });
+
+  it("on the team's working days, matches tool.burndown.compute given the sprint's dates", async () => {
+    const status = sprintStatus(SPRINT, SERIES, { calendar: DEFAULT_CALENDAR });
+    const d = denseSeries(SPRINT, SERIES);
+    const mcp = (await registry.get("tool.burndown.compute")!.handler(
+      {
+        totalPoints: SPRINT.pointsPlanned,
+        remaining: d.remaining,
+        startDate: SPRINT.startDate,
+        endDate: SPRINT.endDate,
+      },
+      ctx()
+    )) as {
+      idealRemainingNow: number;
+      gap: number;
+      onTrack: boolean;
+      projectedCompletionDay: number | null;
+      willFinishOnTime: boolean;
+    };
     expect(status.idealRemaining).toBe(mcp.idealRemainingNow);
     expect(status.gap).toBe(mcp.gap);
     expect(status.onTrack).toBe(mcp.onTrack);

@@ -19,6 +19,7 @@ import { CEREMONY_CADENCE_ID, HANDOFF_ROUTE_IDS } from "@/lib/stores/workspace-t
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import {
   STORY_STATUSES,
+  STORY_SPRINT_HISTORY_CAP,
   STORY_STATUS_HISTORY_CAP,
   stampStoryWrite,
 } from "@/lib/sprints/story-status";
@@ -60,6 +61,8 @@ import type {
   CodeReviewLog,
   // S7 — Engineering Excellence
   DoraScorecard,
+  FeatureFlag,
+  HealthDashboardConfig,
   SloBuilder,
   SpacePulse,
   DevexSurvey,
@@ -196,6 +199,22 @@ const StorySchema = z.object({
     .max(STORY_STATUS_HISTORY_CAP)
     .optional()
     .describe("Status changes, oldest first (latest 50). Appended on a status change."),
+  createdAt: z.string().optional().describe("When the story was first saved (ISO). Stamped."),
+  sprintHistory: z
+    .array(
+      z.object({
+        sprintId: z.string().optional(),
+        from: z.string().optional(),
+        at: z.string(),
+        points: z.number().optional(),
+        carriedOver: z.boolean().optional(),
+      })
+    )
+    .max(STORY_SPRINT_HISTORY_CAP)
+    .optional()
+    .describe(
+      "Sprint moves, oldest first (latest 20): {sprintId (joined; absent: back to the backlog), from (left), at, points, carriedOver}. Appended when sprintId changes."
+    ),
   sourceRef: HandoffRefSchema.optional(),
   readiness: z
     .object({
@@ -951,6 +970,16 @@ const DoraSampleSchema = z.object({
   changeFailRate: z.number(),
   mttrHours: z.number(),
   description: z.string().optional(),
+  source: z.enum(["manual", "derived"]).optional(),
+  derivedFrom: z
+    .object({
+      releases: z.number(),
+      rolledBack: z.number(),
+      items: z.number(),
+      incidents: z.number(),
+    })
+    .optional(),
+  updatedAt: z.string().optional(),
 });
 
 const DoraScorecardSchema = z.object({
@@ -1019,7 +1048,7 @@ const PlatformMaturitySchema = z.object({
 
 defineCrudActions<DoraScorecard>({
   toolId: "workspace.dora_scorecard",
-  entityName: "DORA scorecard",
+  entityName: "DORA scorecard (singleton id doraScorecard:current)",
   schema: DoraScorecardSchema,
   selectAll: () => ws().doraScorecards ?? [],
   upsert: (x) => ws().upsertDoraScorecard(x),
@@ -1411,6 +1440,14 @@ const RunbookScorerSchema = z.object({
   runbooks: z.array(RunbookSchema),
 }) as unknown as z.ZodType<RunbookScorer>;
 
+const ReleaseShipSchema = z.object({
+  shippedDate: z.string(),
+  rolledBackAt: z.string().optional(),
+  gateIds: z.array(z.string()).optional(),
+  gates: z.record(z.string(), z.boolean()).optional(),
+  gatesOpenAtShip: z.number().optional(),
+});
+
 const ReleaseSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -1420,11 +1457,24 @@ const ReleaseSchema = z.object({
   gates: z.record(z.string(), z.boolean()),
   gatesOpenAtShip: z.number().optional(),
   description: z.string().optional(),
+  gateIds: z.array(z.string()).optional().describe("Gates that applied, frozen at ship."),
+  rolledBackAt: z.string().optional(),
+  previousShips: z.array(ReleaseShipSchema).optional(),
+  storyIds: z.array(z.string()).optional(),
+});
+
+const ReleaseGateDefSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  auto: z.enum(["flags", "dod"]).optional(),
+  archived: z.boolean().optional(),
 });
 
 const ReleaseReadinessSchema = z.object({
   id: z.string(),
   releases: z.array(ReleaseSchema),
+  gates: z.array(ReleaseGateDefSchema).optional(),
 }) as unknown as z.ZodType<ReleaseReadiness>;
 
 const OncallShiftSchema = z.object({
@@ -1977,7 +2027,57 @@ const ValueStreamStageSchema = z.object({
   processTime: z.number(),
   leadTime: z.number(),
   completeAccurate: z.number(),
+  order: z.number().int().min(0).optional().describe("Position in its map, 0 first."),
+  state: z.enum(["current", "future"]).optional().describe("Which map; absent reads as current."),
 }) as unknown as z.ZodType<ValueStreamStage>;
+
+const KpiThresholdSchema = z.object({ green: z.number(), amber: z.number() });
+
+const HealthDashboardConfigSchema = z.object({
+  id: z.string(),
+  thresholds: z.record(z.string(), KpiThresholdSchema).optional(),
+  sprintWindow: z.number().int().min(1).optional(),
+  blockerWindowDays: z.number().int().min(1).optional(),
+  cycleWindowDays: z.number().int().min(1).optional(),
+  updatedAt: z.string().optional(),
+}) as unknown as z.ZodType<HealthDashboardConfig>;
+
+const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+
+const FeatureFlagSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  owner: z.string().optional(),
+  status: z.enum(["on", "off", "retired"]),
+  purpose: z.enum(["rollout", "experiment", "kill_switch", "permission"]),
+  environment: z.enum(["dev", "staging", "prod", "all"]).optional(),
+  createdAt: IsoDay,
+  removeBy: IsoDay.optional(),
+  retiredAt: IsoDay.optional(),
+  releaseId: z.string().optional(),
+  description: z.string().optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
+}) as unknown as z.ZodType<FeatureFlag>;
+
+defineCrudActions<HealthDashboardConfig>({
+  toolId: "workspace.health_dashboard",
+  entityName: "health dashboard settings (singleton id healthDashboard:current)",
+  schema: HealthDashboardConfigSchema,
+  selectAll: () => ws().healthDashboards ?? [],
+  upsert: (x) => ws().upsertHealthDashboard(x),
+  remove: (id) => ws().removeHealthDashboard(id),
+  generateId: () => "healthDashboard:current",
+});
+
+defineCrudActions<FeatureFlag>({
+  toolId: "workspace.feature_flag",
+  entityName: "feature flag",
+  schema: FeatureFlagSchema,
+  selectAll: () => ws().featureFlags ?? [],
+  upsert: (x) => ws().upsertFeatureFlag(x),
+  remove: (id) => ws().removeFeatureFlag(id),
+  generateId: () => `featureFlag_${nanoid(8)}`,
+});
 
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",

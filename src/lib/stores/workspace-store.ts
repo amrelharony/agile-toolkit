@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { stampStoryMembership, withStorySprint } from "@/lib/sprints/story-status";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
 import type {
@@ -44,6 +45,8 @@ import type {
   CodeReviewLog,
   // S7 — Engineering Excellence
   DoraScorecard,
+  FeatureFlag,
+  HealthDashboardConfig,
   SloBuilder,
   SpacePulse,
   DevexSurvey,
@@ -186,6 +189,10 @@ interface WorkspaceActions {
   removeCodeReviewLog: (id: string) => void;
   upsertDoraScorecard: (x: DoraScorecard) => void;
   removeDoraScorecard: (id: string) => void;
+  upsertHealthDashboard: (x: HealthDashboardConfig) => void;
+  removeHealthDashboard: (id: string) => void;
+  upsertFeatureFlag: (x: FeatureFlag) => void;
+  removeFeatureFlag: (id: string) => void;
   upsertSloBuilder: (x: SloBuilder) => void;
   removeSloBuilder: (id: string) => void;
   upsertSpacePulse: (x: SpacePulse) => void;
@@ -484,8 +491,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             next.sprintSeries = (s.sprintSeries ?? []).filter((x) => x.id !== id);
           }
           if (storyAffected) {
+            const at = new Date().toISOString();
             next.stories = s.stories.map((st) =>
-              st.sprintId === id ? { ...st, sprintId: undefined } : st
+              st.sprintId === id ? withStorySprint(st, undefined, at) : st
             );
           }
           if (wbAffected) {
@@ -502,7 +510,19 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           }
           return next;
         }),
-      upsertStory: (s) => set((_st) => ({ stories: replaceById(_st.stories, s) })),
+      // Every local write of a story records when it was created and any
+      // change of its sprint (lib/sprints/story-status.ts); synced rows from
+      // other devices arrive through setEntities and keep their own stamps.
+      upsertStory: (s) =>
+        set((_st) => ({
+          stories: replaceById(
+            _st.stories,
+            stampStoryMembership(
+              s,
+              _st.stories.find((x) => x.id === s.id)
+            )
+          ),
+        })),
       removeStory: (id) =>
         set((s) => {
           // Phase 26 cascade: any canvas object pinned to this Story via
@@ -896,6 +916,14 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ doraScorecards: replaceById(_st.doraScorecards ?? [], x) })),
       removeDoraScorecard: (id) =>
         set((s) => ({ doraScorecards: (s.doraScorecards ?? []).filter((y) => y.id !== id) })),
+      upsertHealthDashboard: (x) =>
+        set((_st) => ({ healthDashboards: replaceById(_st.healthDashboards ?? [], x) })),
+      removeHealthDashboard: (id) =>
+        set((s) => ({ healthDashboards: (s.healthDashboards ?? []).filter((y) => y.id !== id) })),
+      upsertFeatureFlag: (x) =>
+        set((_st) => ({ featureFlags: replaceById(_st.featureFlags ?? [], x) })),
+      removeFeatureFlag: (id) =>
+        set((s) => ({ featureFlags: (s.featureFlags ?? []).filter((y) => y.id !== id) })),
       upsertSloBuilder: (x) =>
         set((_st) => ({ sloBuilders: replaceById(_st.sloBuilders ?? [], x) })),
       removeSloBuilder: (id) =>
@@ -1430,6 +1458,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           flakyTestBoards: s.flakyTestBoards,
           codeReviewLogs: s.codeReviewLogs,
           doraScorecards: s.doraScorecards,
+          healthDashboards: s.healthDashboards,
+          featureFlags: s.featureFlags,
           sloBuilders: s.sloBuilders,
           spacePulses: s.spacePulses,
           devexSurveys: s.devexSurveys,
@@ -1566,6 +1596,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           flakyTestBoards: arr("flakyTestBoards"),
           codeReviewLogs: arr("codeReviewLogs"),
           doraScorecards: arr("doraScorecards"),
+          healthDashboards: arr("healthDashboards"),
+          featureFlags: arr("featureFlags"),
           sloBuilders: arr("sloBuilders"),
           spacePulses: arr("spacePulses"),
           devexSurveys: arr("devexSurveys"),
@@ -1898,6 +1930,8 @@ if (typeof window !== "undefined") {
     registerCollection("flakyTestBoard", "flakyTestBoards");
     registerCollection("codeReviewLog", "codeReviewLogs");
     registerCollection("doraScorecard", "doraScorecards");
+    registerCollection("healthDashboard", "healthDashboards");
+    registerCollection("featureFlag", "featureFlags");
     registerCollection("sloBuilder", "sloBuilders");
     registerCollection("spacePulse", "spacePulses");
     registerCollection("devexSurvey", "devexSurveys");
@@ -2049,6 +2083,8 @@ export function getWorkspaceSnapshot(): Workspace {
     flakyTestBoards: state.flakyTestBoards,
     codeReviewLogs: state.codeReviewLogs,
     doraScorecards: state.doraScorecards,
+    healthDashboards: state.healthDashboards,
+    featureFlags: state.featureFlags,
     sloBuilders: state.sloBuilders,
     spacePulses: state.spacePulses,
     devexSurveys: state.devexSurveys,

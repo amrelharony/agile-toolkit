@@ -12,6 +12,8 @@ export interface DodDocItem {
   description?: string;
   category: string;
   required: boolean;
+  /** Ticked for the current sprint (Release Readiness's DoD gate reads it). */
+  done?: boolean;
 }
 
 export interface DodDocSnapshot {

@@ -430,7 +430,7 @@ export const tools: ToolDefinition[] = [
     code: "B1",
     name: "Burndown Generator",
     description:
-      "Interactive burndown chart with ideal line, actual line, and scope change markers",
+      "Chart the points left each day against an ideal line on working days, read off the sprint board or a typed daily log",
     category: "Metrics & Dashboards",
     path: "/burndown",
     icon: BarChart3,
@@ -455,7 +455,7 @@ export const tools: ToolDefinition[] = [
     code: "B2",
     name: "Burnup Generator",
     description:
-      "Burnup chart showing total scope vs. completed work with scope creep visualization",
+      "Watch the points done climb towards the scope, read off the sprint board or a typed log, with every scope addition and removal marked",
     category: "Metrics & Dashboards",
     path: "/burnup",
     icon: BarChart2,
@@ -476,7 +476,8 @@ export const tools: ToolDefinition[] = [
     id: "velocity",
     code: "B3",
     name: "Velocity Tracker",
-    description: "Velocity chart with rolling average, trend line, and predictability score",
+    description:
+      "Track velocity over the last three finished sprints, grade each on say/do, see points per person-day and plan the next sprint",
     category: "Metrics & Dashboards",
     path: "/velocity",
     icon: Activity,
@@ -500,7 +501,8 @@ export const tools: ToolDefinition[] = [
     id: "cumulative-flow",
     code: "B4",
     name: "Cumulative Flow Diagram",
-    description: "Stacked area chart for flow efficiency, bottleneck detection, and WIP analysis",
+    description:
+      "Stacked chart of items in each stage by day, from your Sprint or Flow board's moves, with WIP, throughput and a Little's Law lead time",
     category: "Metrics & Dashboards",
     path: "/cumulative-flow",
     icon: Layers,
@@ -518,7 +520,8 @@ export const tools: ToolDefinition[] = [
     id: "cycle-time",
     code: "B5",
     name: "Cycle Time Analyzer",
-    description: "Histogram, scatter plot, and percentile analysis with SLE calculator",
+    description:
+      "Cycle times read from the Sprint and Flow boards or typed in: histogram, SLE by percentile, and ageing work in progress",
     category: "Metrics & Dashboards",
     path: "/cycle-time",
     icon: Clock,
@@ -537,7 +540,8 @@ export const tools: ToolDefinition[] = [
     id: "sprint-compare",
     code: "B6",
     name: "Sprint Comparison",
-    description: "Side-by-side radar chart comparing sprints across 6 dimensions",
+    description:
+      "Up to five sprints side by side on six scores: four from each sprint's data, two suggested by Mood Tracker and the Squad Health Check",
     category: "Metrics & Dashboards",
     path: "/sprint-compare",
     icon: GitCompare,
@@ -555,7 +559,8 @@ export const tools: ToolDefinition[] = [
     id: "health-dashboard",
     code: "B7",
     name: "Team Dashboard",
-    description: "Aggregate insights hub with anti-pattern detection, forecasts, and team KPIs",
+    description:
+      "Six team KPIs from sprints, health checks, impediments, standups and the boards, lit green, amber or red against your own thresholds",
     category: "Metrics & Dashboards",
     path: "/health-dashboard",
     icon: LayoutDashboard,
@@ -1045,7 +1050,8 @@ export const tools: ToolDefinition[] = [
     id: "value-stream",
     code: "B9",
     name: "Value Stream Map",
-    description: "Process stages with lead time, %C/A, flow efficiency end-to-end",
+    description:
+      "Map each stage's process time, lead time and %C/A to see flow efficiency, the bottleneck, and current vs future state",
     category: "Flow & Delivery",
     path: "/value-stream",
     icon: Waves,
@@ -1083,7 +1089,7 @@ export const tools: ToolDefinition[] = [
     code: "B10",
     name: "Sprint Metrics",
     description:
-      "Every sprint in one place: progress against the plan and the ideal line, data checks, and links into each sprint tool",
+      "How your sprints went over time: say/do, carry-over and scope churn across the last finished sprints, with data checks and links into each sprint tool",
     category: "Metrics & Dashboards",
     path: "/sprint-metrics",
     icon: Gauge,
@@ -1189,7 +1195,7 @@ export const tools: ToolDefinition[] = [
     code: "J1",
     name: "DORA Scorecard",
     description:
-      "Manual-input dashboard for the 4 DORA keys with quarterly trend and Elite/High/Medium/Low banding",
+      "The 4 DORA keys per quarter, typed or filled from releases, boards and incidents, banded Elite to Low by the 2023 State of DevOps Report",
     category: "Engineering Excellence",
     path: "/dora-scorecard",
     icon: Activity,
@@ -1200,9 +1206,6 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["forecast", "anomaly"],
     audience: "engineering-leader",
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "deploysPerWeekTarget", description: "DORA High/Elite threshold" },
-    ],
     crossToolSubscriptions: [
       {
         kinds: ["deploy.recorded", "incident.opened"],
@@ -1354,7 +1357,7 @@ export const tools: ToolDefinition[] = [
     code: "K4",
     name: "Release Readiness Checklist",
     description:
-      "Pre-release gates across a11y, perf, observability, and rollback with per-release pass rate",
+      "Your team's pre-release gates, with a feature flag check and an optional Definition of Done gate, dated ships and rollbacks, on-time rate and most-skipped gates",
     category: "Incidents & Reliability",
     path: "/release-readiness",
     icon: Rocket,
@@ -1775,7 +1778,8 @@ export const tools: ToolDefinition[] = [
     id: "feature-flag-tracker",
     code: "H4",
     name: "Feature Flag Tracker",
-    description: "Active flags catalog with age, owner, and stale-flag anti-pattern alerts",
+    description:
+      "Flags catalog with owner and removal date, stale alerts by purpose (kill switches never), dated retirement and the release each flag ships behind",
     category: "Flow & Delivery",
     path: "/feature-flag-tracker",
     icon: ToggleLeft,

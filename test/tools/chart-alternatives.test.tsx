@@ -30,6 +30,7 @@ vi.mock("recharts", () => {
     Line: Nothing,
     Area: Nothing,
     ReferenceLine: Nothing,
+    ReferenceArea: Nothing,
     ReferenceDot: Nothing,
   };
 });
@@ -83,13 +84,22 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
   useSprintMigrationStore.setState({ status: "idle" });
   useWorkspaceStore.setState({ sprints: [SPRINT], sprintSeries: [LOG] });
+  // Eight typed snapshots: the WIP control chart (under Advanced analysis)
+  // draws from MIN_SAMPLE.changePoint points.
   useCFDStore.setState({
     columns: DEFAULT_COLUMNS,
     entries: [
       { id: "a", date: "2026-10-01", counts: counts(10, 3, 1, 2) },
       { id: "b", date: "2026-10-02", counts: counts(8, 4, 2, 10) },
+      { id: "c", date: "2026-10-03", counts: counts(8, 3, 2, 11) },
+      { id: "d", date: "2026-10-04", counts: counts(7, 3, 2, 12) },
+      { id: "e", date: "2026-10-05", counts: counts(7, 4, 2, 13) },
+      { id: "f", date: "2026-10-06", counts: counts(7, 2, 2, 14) },
+      { id: "g", date: "2026-10-07", counts: counts(6, 3, 2, 15) },
+      { id: "h", date: "2026-10-08", counts: counts(5, 4, 2, 16) },
     ],
     wipLimit: null,
+    source: "typed",
   });
 });
 
@@ -101,8 +111,9 @@ describe("Burnup chart text alternative", () => {
       </TooltipProvider>
     );
     const figure = screen.getByRole("figure", { name: "Burnup chart" });
+    // The sprint has weekends, shaded now that the chart counts working days.
     expect(figure).toHaveAccessibleDescription(
-      "11 of 30 points done by day 2 (37%); scope stayed at 30 points."
+      "11 of 30 points done by day 2 (37%); scope stayed at 30 points. Days off are shaded."
     );
 
     const toggle = within(figure).getByRole("button", { name: "View as table" });
@@ -122,21 +133,28 @@ describe("Burnup chart text alternative", () => {
 });
 
 describe("Cumulative flow chart text alternatives", () => {
-  it("names both charts by their headings and describes them", () => {
-    render(<CFDClient />);
-    expect(screen.getByRole("figure", { name: "Flow Diagram" })).toHaveAccessibleDescription(
-      "Done rose from 2 to 10 items between 2026-10-01 and 2026-10-02; 6 items in progress on the last day."
+  const renderCfd = () =>
+    render(
+      <TooltipProvider>
+        <CFDClient />
+      </TooltipProvider>
     );
-    expect(screen.getByRole("figure", { name: "WIP control chart" })).toHaveAccessibleDescription(
-      "WIP rose from 4 to 6 over 2 snapshots, ranging from 4 to 6."
+
+  it("names both charts by their headings and describes them", () => {
+    renderCfd();
+    expect(screen.getByRole("figure", { name: "Flow Diagram" })).toHaveAccessibleDescription(
+      "Done rose from 2 to 16 items between 2026-10-01 and 2026-10-08; 6 items in progress on the last day."
+    );
+    expect(screen.getByRole("figure", { name: /WIP control chart/ })).toHaveAccessibleDescription(
+      "WIP rose from 4 to 6 over 8 snapshots, ranging from 4 to 6."
     );
   });
 
   it("swaps the flow diagram for a table of the snapshots", () => {
-    render(<CFDClient />);
+    renderCfd();
     const figure = screen.getByRole("figure", { name: "Flow Diagram" });
     fireEvent.click(within(figure).getByRole("button", { name: "View as table" }));
-    const table = within(figure).getByRole("table", { name: "Items in each column by date" });
+    const table = within(figure).getByRole("table", { name: "Items in each stage by date" });
     expect(
       within(table)
         .getAllByRole("columnheader")
@@ -146,6 +164,15 @@ describe("Cumulative flow chart text alternatives", () => {
       within(table)
         .getAllByRole("rowheader")
         .map((th) => th.textContent)
-    ).toEqual(["2026-10-01", "2026-10-02"]);
+    ).toEqual([
+      "2026-10-01",
+      "2026-10-02",
+      "2026-10-03",
+      "2026-10-04",
+      "2026-10-05",
+      "2026-10-06",
+      "2026-10-07",
+      "2026-10-08",
+    ]);
   });
 });

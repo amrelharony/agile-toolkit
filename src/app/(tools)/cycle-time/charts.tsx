@@ -16,19 +16,35 @@ import {
   Label as RechartsLabel,
 } from "recharts";
 import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
-import type { CycleStats, HistogramDatum, ScatterDatum } from "./types";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { isoFromDayNumber } from "@/lib/sprints/calendar";
+import type { HistogramDatum, ScatterDatum } from "./types";
+import type { QuotedPercentiles } from "./chart-text";
 import { BUCKETS } from "./helpers";
 import { HistogramTooltip, ScatterTooltip } from "./components/chart-tooltips";
+
+const { colors } = chartTheme;
+
+/** The percentile lines, in the theme's colours: median, the usual SLE, the near-worst case. */
+const MARKERS = [
+  { key: "median", label: "P50", color: colors.cyan },
+  { key: "p85", label: "P85", color: colors.amber },
+  { key: "p95", label: "P95", color: colors.red },
+] as const;
+
+/** "5 Oct" for a day number on the time axis. */
+export function shortDay(n: number): string {
+  const [y, m, d] = isoFromDayNumber(n).split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
 
 /** Cycle-time distribution across fixed day-buckets with P50/P85/P95 markers. */
 export function CycleTimeHistogramChart({
   histogramData,
   stats,
-  percentileMap,
 }: {
   histogramData: HistogramDatum[];
-  stats: CycleStats;
-  percentileMap: Record<number, number>;
+  stats: QuotedPercentiles;
 }) {
   return (
     <ResponsiveContainer width="100%" height={380}>
@@ -39,105 +55,78 @@ export function CycleTimeHistogramChart({
         margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
         accessibilityLayer={false}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
         <XAxis
           dataKey="bucket"
-          tick={{ fill: "#94a3b8", fontSize: 11 }}
-          axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
           tickLine={false}
         />
         <YAxis
-          tick={{ fill: "#94a3b8", fontSize: 12 }}
-          axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
           tickLine={false}
           allowDecimals={false}
           label={{
             value: "Items",
             angle: -90,
             position: "insideLeft",
-            fill: "#94a3b8",
+            fill: chartTheme.axisColor,
             fontSize: 12,
           }}
         />
         <Tooltip content={<HistogramTooltip />} />
-        <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.8} radius={[4, 4, 0, 0]} />
-        {/* Each percentile marker is rendered ONLY when its
-              value lands inside a defined histogram bucket. The
-              previous version passed `x={undefined}` to Recharts
-              when no bucket matched (e.g. all items completed in
-              0d, P95 falls below the 1-day bucket), which threw
-              console warnings and rendered phantom lines. */}
-        {(() => {
-          const idx = BUCKETS.findIndex((b) => stats.median >= b.min && stats.median <= b.max);
-          return idx >= 0 ? (
+        <Bar dataKey="count" fill={colors.cyan} fillOpacity={0.8} radius={[4, 4, 0, 0]} />
+        {/* A marker only where its percentile lands in a bucket (and once it may be quoted). */}
+        {MARKERS.map((m) => {
+          const v = stats[m.key];
+          const bucket = v === null ? undefined : BUCKETS.find((b) => v >= b.min && v <= b.max);
+          return bucket ? (
             <ReferenceLine
-              x={BUCKETS[idx].label}
-              stroke="#00f0ff"
+              key={m.key}
+              x={bucket.label}
+              stroke={m.color}
               strokeDasharray="4 2"
-              label={{ value: "P50", fill: "#00f0ff", fontSize: 10 }}
+              label={{ value: m.label, fill: m.color, fontSize: 12 }}
             />
           ) : null;
-        })()}
-        {(() => {
-          const idx = BUCKETS.findIndex((b) => stats.p85 >= b.min && stats.p85 <= b.max);
-          return idx >= 0 ? (
-            <ReferenceLine
-              x={BUCKETS[idx].label}
-              stroke="#f59e0b"
-              strokeDasharray="4 2"
-              label={{ value: "P85", fill: "#f59e0b", fontSize: 10 }}
-            />
-          ) : null;
-        })()}
-        {(() => {
-          const idx = BUCKETS.findIndex(
-            (b) => percentileMap[95] >= b.min && percentileMap[95] <= b.max
-          );
-          return idx >= 0 ? (
-            <ReferenceLine
-              x={BUCKETS[idx].label}
-              stroke="#ef4444"
-              strokeDasharray="4 2"
-              label={{ value: "P95", fill: "#ef4444", fontSize: 10 }}
-            />
-          ) : null;
-        })()}
+        })}
       </BarChart>
     </ResponsiveContainer>
   );
 }
 
-/** Per-item cycle time vs insertion order, with percentile and CUSUM markers. */
+/** Each item's cycle time at its finish date, with percentile and CUSUM markers. */
 export function CycleTimeScatterChart({
   scatterData,
   stats,
-  percentileMap,
   cusumAnnotations,
 }: {
   scatterData: ScatterDatum[];
-  stats: CycleStats;
-  percentileMap: Record<number, number>;
+  stats: QuotedPercentiles;
   cusumAnnotations: CausalAnnotationData[];
 }) {
   return (
     <ResponsiveContainer width="100%" height={380}>
       {/* ChartFigure hides the plot from assistive tech (see above). */}
       <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 20 }} accessibilityLayer={false}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
         <XAxis
-          dataKey="idx"
+          dataKey="x"
           type="number"
-          name="Item #"
-          tick={{ fill: "#94a3b8", fontSize: 12 }}
-          axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+          name="Finished"
+          domain={["dataMin", "dataMax"]}
+          tickFormatter={shortDay}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
           tickLine={false}
           allowDecimals={false}
         >
           <RechartsLabel
-            value="Item #"
+            value="Finished"
             offset={-10}
             position="insideBottom"
-            fill="#94a3b8"
+            fill={chartTheme.axisColor}
             fontSize={12}
           />
         </XAxis>
@@ -145,55 +134,39 @@ export function CycleTimeScatterChart({
           dataKey="cycleTime"
           type="number"
           name="Days"
-          tick={{ fill: "#94a3b8", fontSize: 12 }}
-          axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
           tickLine={false}
           label={{
-            value: "Cycle Time (days)",
+            value: "Cycle time (days)",
             angle: -90,
             position: "insideLeft",
-            fill: "#94a3b8",
+            fill: chartTheme.axisColor,
             fontSize: 12,
           }}
         />
         <Tooltip content={<ScatterTooltip />} />
-        <ReferenceLine
-          y={stats.median}
-          stroke="#00f0ff"
-          strokeDasharray="5 3"
-          label={{
-            value: `P50 (${stats.median}d)`,
-            fill: "#00f0ff",
-            fontSize: 10,
-            position: "right",
-          }}
-        />
-        <ReferenceLine
-          y={stats.p85}
-          stroke="#f59e0b"
-          strokeDasharray="5 3"
-          label={{
-            value: `P85 (${stats.p85}d)`,
-            fill: "#f59e0b",
-            fontSize: 10,
-            position: "right",
-          }}
-        />
-        <ReferenceLine
-          y={percentileMap[95]}
-          stroke="#ef4444"
-          strokeDasharray="5 3"
-          label={{
-            value: `P95 (${percentileMap[95]}d)`,
-            fill: "#ef4444",
-            fontSize: 10,
-            position: "right",
-          }}
-        />
+        {MARKERS.map((m) => {
+          const v = stats[m.key];
+          return v === null ? null : (
+            <ReferenceLine
+              key={m.key}
+              y={v}
+              stroke={m.color}
+              strokeDasharray="5 3"
+              label={{
+                value: `${m.label} (${v}d)`,
+                fill: m.color,
+                fontSize: 12,
+                position: "right",
+              }}
+            />
+          );
+        })}
         {cusumAnnotations.map((a, i) => (
           <CausalLine key={i} annotation={a} />
         ))}
-        <Scatter data={scatterData} fill="#00f0ff" fillOpacity={0.8} />
+        <Scatter data={scatterData} fill={colors.cyan} fillOpacity={0.8} />
       </ScatterChart>
     </ResponsiveContainer>
   );

@@ -4,7 +4,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
 import type { Sprint, Story } from "@/lib/stores/workspace-types";
 import { selectStoriesForCapacity } from "@/lib/sprints/plan";
-import { withStoryStatus } from "@/lib/sprints/story-status";
+import { withStoryStatus, withStorySprint } from "@/lib/sprints/story-status";
 
 /**
  * Compose-action: capacity-based sprint planner.
@@ -39,11 +39,11 @@ registry.register({
 
     if (params.commit) {
       for (const story of selected) {
-        // Stamped like the app's setStoryStatus: backlog → to do is logged.
-        useWorkspaceStore.getState().upsertStory({
-          ...withStoryStatus(story, "todo"),
-          sprintId: params.sprintId,
-        });
+        // Stamped like the app's setStoryStatus (backlog → to do is logged),
+        // and the move into the sprint is recorded.
+        useWorkspaceStore
+          .getState()
+          .upsertStory(withStorySprint(withStoryStatus(story, "todo"), params.sprintId));
       }
     }
 
@@ -64,10 +64,11 @@ registry.register({
     const { selected, totalPoints } = selectStoriesForCapacity(stories, params.capacityPoints);
     if (params.commit) {
       for (const story of selected) {
-        await serverUpsertEntity<Story>(ctx.userId, "workspace:story", {
-          ...withStoryStatus(story, "todo"),
-          sprintId: params.sprintId,
-        });
+        await serverUpsertEntity<Story>(
+          ctx.userId,
+          "workspace:story",
+          withStorySprint(withStoryStatus(story, "todo"), params.sprintId)
+        );
       }
     }
     return {
