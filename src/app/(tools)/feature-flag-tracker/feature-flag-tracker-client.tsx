@@ -168,7 +168,7 @@ export function FeatureFlagTrackerClient() {
   const ageText = ageChartText(buckets, flags, today);
   const survival = useMemo(() => flagSurvival(flags, today), [flags, today]);
   const retiredDated = retiredWithDays(flags, today);
-  const weeks = useMemo(() => createdPerWeek(flags), [flags]);
+  const weeks = useMemo(() => createdPerWeek(flags, today), [flags, today]);
   const trend = creationTrend(weeks);
   const markdown = toMarkdown(flags, today, releaseName);
 
@@ -431,9 +431,8 @@ export function FeatureFlagTrackerClient() {
               {summary.noOwner > 0 && (
                 <p className="text-xs text-sub">
                   {summary.noOwner === 1
-                    ? "1 live flag has no owner."
-                    : `${summary.noOwner} live flags have no owner.`}{" "}
-                  Somebody has to remove it: pick one with Edit.
+                    ? "1 live flag has no owner. Somebody has to remove it: pick one with Edit."
+                    : `${summary.noOwner} live flags have no owner. Somebody has to remove them: pick an owner with Edit.`}
                 </p>
               )}
             </div>

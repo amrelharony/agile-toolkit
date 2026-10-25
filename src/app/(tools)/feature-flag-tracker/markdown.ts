@@ -38,6 +38,8 @@ export function toMarkdown(
   const sorted = [...flags].sort((a, b) => compareFlags(a, b, today));
   const live = sorted.filter((f) => f.status !== "retired");
   const retired = sorted.filter((f) => f.status === "retired");
+  // Days with their year, as on the cards: flags often outlive the year they were added in.
+  const day = (v: string | undefined) => dayLabel(v, true);
   const lines = [
     title,
     "",
@@ -60,7 +62,7 @@ export function toMarkdown(
         (f) =>
           `| ${md(f.name)} | ${STATUS_LABEL[f.status]} | ${PURPOSE_LABEL[f.purpose]} | ${orDash(f.owner)} | ${
             f.environment ? ENV_LABEL[f.environment] : NO_VALUE
-          } | ${dayLabel(f.createdAt)} | ${dayLabel(f.removeBy)} | ${orDash(
+          } | ${day(f.createdAt)} | ${day(f.removeBy)} | ${orDash(
             f.releaseId ? releaseName(f.releaseId) : undefined
           )} | ${md(stalenessText(flagStaleness(f, today), f.purpose))} |`
       )
@@ -75,9 +77,9 @@ export function toMarkdown(
       "|---|---|---|---|---|",
       ...retired.map(
         (f) =>
-          `| ${md(f.name)} | ${PURPOSE_LABEL[f.purpose]} | ${orDash(f.owner)} | ${dayLabel(
+          `| ${md(f.name)} | ${PURPOSE_LABEL[f.purpose]} | ${orDash(f.owner)} | ${day(
             f.createdAt
-          )} | ${f.retiredAt ? dayLabel(f.retiredAt) : "Day not recorded"} |`
+          )} | ${f.retiredAt ? day(f.retiredAt) : "Day not recorded"} |`
       )
     );
   }

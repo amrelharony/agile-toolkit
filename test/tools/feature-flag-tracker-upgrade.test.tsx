@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -18,10 +18,18 @@ import type { FeatureFlag } from "@/lib/stores/workspace-types";
 
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
 const migrationMode = vi.hoisted(() => ({ value: "off" as string }));
+// The owner signed in (cloud mode), and the cloud's copy of the old blobs.
+const signedIn = vi.hoisted(() => ({ value: null as { user: { id: string } } | null }));
+const cloudRead = vi.hoisted(() => vi.fn(async () => null as Map<string, unknown> | null));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/lib/data/use-legacy-migration-mode", () => ({
   useLegacyMigrationMode: () => migrationMode.value,
 }));
+vi.mock("@/lib/auth/auth-provider", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/auth-provider")>()),
+  useAuthOptional: () => signedIn.value,
+}));
+vi.mock("@/app/(tools)/feature-flag-tracker/cloud-rows", () => ({ readCloudBlobs: cloudRead }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
@@ -62,8 +70,11 @@ import {
   createdPerWeek,
   creationTrend,
   flagSurvival,
+  trendSentence,
 } from "@/app/(tools)/feature-flag-tracker/analysis";
-import { stalenessText } from "@/app/(tools)/feature-flag-tracker/text";
+import { dayLabel, stalenessText } from "@/app/(tools)/feature-flag-tracker/text";
+import { weekOf } from "@/lib/flow";
+import { syncEngine } from "@/lib/sync/engine";
 import {
   FLAGS_LEGACY_KEY,
   FLAGS_MOVED_KEY,
@@ -122,6 +133,9 @@ const run = <T,>(verb: string, params: Record<string, unknown>) =>
 beforeEach(() => {
   toastSpy.mockReset();
   migrationMode.value = "off";
+  signedIn.value = null;
+  cloudRead.mockReset();
+  cloudRead.mockResolvedValue(null);
   window.localStorage.removeItem(FLAGS_LEGACY_KEY);
   window.localStorage.removeItem(FLAGS_MOVED_KEY);
   useWorkspaceStore.setState({ featureFlags: [], releaseReadinesses: [], stories: [] });
@@ -513,12 +527,12 @@ describe("analysis", () => {
   it("reads a creation trend only from six weeks, three of them with flags", () => {
     const weekly = (weeks: number) =>
       Array.from({ length: weeks }, (_, i) => flag({ id: `w${i}`, createdAt: on(-7 * i) }));
-    expect(creationTrend(createdPerWeek(weekly(5)))).toBeNull();
-    expect(creationTrend(createdPerWeek(weekly(6)))).not.toBeNull();
+    expect(creationTrend(createdPerWeek(weekly(5), TODAY))).toBeNull();
+    expect(creationTrend(createdPerWeek(weekly(6), TODAY))).not.toBeNull();
     // Six weeks, but flags in only two of them.
     expect(
       creationTrend(
-        createdPerWeek([flag({ createdAt: on(-42) }), flag({ id: "b", createdAt: TODAY })])
+        createdPerWeek([flag({ createdAt: on(-42) }), flag({ id: "b", createdAt: TODAY })], TODAY)
       )
     ).toBeNull();
   });
@@ -694,5 +708,191 @@ describe("tool.feature_flag_tracker, the same numbers as the page", () => {
       [...ex].sort((a, b) => compareFlags(a, b, TODAY)).map((f) => f.id)
     );
     for (const f of state.flags) expect(f.staleness).toEqual(flagStaleness(f, TODAY));
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+describe("the old blob's move, for the owner", () => {
+  it("plans on the cloud's copy, not this device's older one", async () => {
+    const local = [
+      { id: "A", name: "old_name", status: "active", createdAt: on(-50), purpose: "rollout" },
+      { id: "B", name: "deleted_elsewhere", status: "on", createdAt: on(-40), purpose: "rollout" },
+    ];
+    const cloud = [
+      {
+        id: "A",
+        name: "renamed",
+        status: "deprecated",
+        createdAt: on(-50),
+        retiredAt: on(-3),
+        purpose: "rollout",
+      },
+      {
+        id: "C",
+        name: "added_elsewhere",
+        status: "off",
+        createdAt: on(-20),
+        purpose: "experiment",
+      },
+    ];
+    window.localStorage.setItem(FLAGS_LEGACY_KEY, JSON.stringify(local));
+    cloudRead.mockResolvedValue(new Map<string, unknown>([[FLAGS_LEGACY_KEY, cloud]]));
+    migrationMode.value = "cloud";
+    signedIn.value = { user: { id: "owner" } };
+    const ready = vi.spyOn(syncEngine, "whenReady").mockResolvedValue(undefined);
+    try {
+      renderPage();
+      await waitFor(() =>
+        expect(
+          stored()
+            .map((f) => f.id)
+            .sort()
+        ).toEqual(["A", "C"])
+      );
+      expect(cloudRead).toHaveBeenCalledWith("owner", [FLAGS_LEGACY_KEY, FLAGS_MOVED_KEY]);
+      expect(stored().find((f) => f.id === "A")).toMatchObject({
+        name: "renamed",
+        status: "retired",
+        retiredAt: on(-3),
+      });
+      // The blob stays as this device had it, the backup.
+      expect(JSON.parse(window.localStorage.getItem(FLAGS_LEGACY_KEY)!)).toEqual(local);
+    } finally {
+      ready.mockRestore();
+    }
+  });
+
+  it("doesn't bring back flags moved and deleted on another device, whose record only the cloud has", async () => {
+    const blob = [
+      { id: "A", name: "a", status: "on", createdAt: on(-50), purpose: "rollout" },
+      { id: "B", name: "b", status: "on", createdAt: on(-40), purpose: "rollout" },
+    ];
+    window.localStorage.setItem(FLAGS_LEGACY_KEY, JSON.stringify(blob));
+    cloudRead.mockResolvedValue(
+      new Map<string, unknown>([
+        [FLAGS_LEGACY_KEY, blob],
+        [FLAGS_MOVED_KEY, ["A", "B"]],
+      ])
+    );
+    migrationMode.value = "cloud";
+    signedIn.value = { user: { id: "owner" } };
+    const ready = vi.spyOn(syncEngine, "whenReady").mockResolvedValue(undefined);
+    try {
+      renderPage();
+      await waitFor(() =>
+        expect(JSON.parse(window.localStorage.getItem(FLAGS_MOVED_KEY) ?? "[]")).toEqual(["A", "B"])
+      );
+      expect(stored()).toEqual([]);
+    } finally {
+      ready.mockRestore();
+    }
+  });
+
+  it("moves what this device holds when the cloud can't be read", async () => {
+    const blob = [{ id: "A", name: "a", status: "on", createdAt: on(-50), purpose: "rollout" }];
+    window.localStorage.setItem(FLAGS_LEGACY_KEY, JSON.stringify(blob));
+    migrationMode.value = "cloud";
+    signedIn.value = { user: { id: "owner" } };
+    const ready = vi.spyOn(syncEngine, "whenReady").mockResolvedValue(undefined);
+    try {
+      renderPage();
+      await waitFor(() => expect(stored().map((f) => f.id)).toEqual(["A"]));
+    } finally {
+      ready.mockRestore();
+    }
+  });
+});
+
+describe("the creation trend, up to today", () => {
+  it("runs to this week, with the quiet weeks since the last flag as 0", () => {
+    // A flag a week for six weeks, then nothing for fourteen weeks.
+    const old = Array.from({ length: 6 }, (_, i) =>
+      flag({ id: `w${i}`, createdAt: on(-100 - 7 * i) })
+    );
+    const weeks = createdPerWeek(old, TODAY);
+    expect(weeks[weeks.length - 1]).toEqual({ label: weekOf(TODAY), value: 0 });
+    // The stand-in for today isn't counted, and every flag is.
+    expect(weeks.reduce((a, w) => a + w.value, 0)).toBe(6);
+    expect(creationTrend(weeks)).toMatchObject({ significant: true, trend: "down" });
+    expect(trendSentence(creationTrend(weeks)!, weeks.length)).toMatch(/more slowly/);
+  });
+
+  it("counts a flag created today once, leaves out a future day, and reads nothing from no flags", () => {
+    const weeks = createdPerWeek(
+      [flag({ createdAt: TODAY }), flag({ id: "x", createdAt: on(5) })],
+      TODAY
+    );
+    expect(weeks).toEqual([{ label: weekOf(TODAY), value: 1 }]);
+    expect(createdPerWeek([], TODAY)).toEqual([]);
+    // Never more than the latest 26 weeks.
+    expect(createdPerWeek([flag({ createdAt: on(-400) })], TODAY)).toHaveLength(26);
+  });
+});
+
+describe("the agent's dates, as the page judges them", () => {
+  it("edits and retires a flag created after midnight east of UTC (tomorrow on the server)", async () => {
+    seed(flag({ createdAt: on(1) }));
+    expect(await run("update_flag", { flagId: "f1", owner: "Sam" })).toMatchObject({
+      updated: true,
+    });
+    expect(await run("retire_flag", { flagId: "f1" })).toEqual({ retired: true, retiredAt: on(1) });
+    // Two days ahead isn't a time zone: still refused.
+    seed(flag({ id: "f2", createdAt: on(-5) }));
+    expect(await run("update_flag", { flagId: "f2", createdAt: on(2) })).toMatchObject({
+      updated: false,
+      reason: "It can't be created in the future.",
+    });
+  });
+
+  it("doesn't re-judge dates left alone: an old row with no created day still takes an owner", async () => {
+    useWorkspaceStore.setState({
+      featureFlags: [{ ...flag(), createdAt: "" }],
+    });
+    expect(await run("update_flag", { flagId: "f1", owner: "Sam" })).toMatchObject({
+      updated: true,
+    });
+    expect(stored()[0]).toMatchObject({ owner: "Sam", createdAt: "" });
+  });
+
+  it("checks a new created day against the retired and removal days", async () => {
+    seed(flag({ status: "retired", createdAt: on(-30), retiredAt: on(-10) }));
+    expect(await run("update_flag", { flagId: "f1", createdAt: on(-5) })).toMatchObject({
+      updated: false,
+      reason: "It can't be retired before it was created.",
+    });
+    seed(flag({ createdAt: on(-30), removeBy: on(-10) }));
+    expect(await run("update_flag", { flagId: "f1", createdAt: on(-5) })).toMatchObject({
+      updated: false,
+      reason: "It can't be removed before it was created.",
+    });
+    expect(await run("update_flag", { flagId: "f1", removeBy: on(-40) })).toMatchObject({
+      updated: false,
+      reason: "It can't be removed before it was created.",
+    });
+    expect(stored()[0]).toMatchObject({ createdAt: on(-30), removeBy: on(-10) });
+  });
+});
+
+describe("the page's words", () => {
+  it("says 'them' when several live flags have no owner", () => {
+    seed(flag({ id: "a", name: "a" }), flag({ id: "b", name: "b" }));
+    renderPage();
+    expect(
+      screen.getByText(
+        "2 live flags have no owner. Somebody has to remove them: pick an owner with Edit."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("exports days with their year", () => {
+    const ex = buildExample(TODAY);
+    const md = toMarkdown(ex, TODAY, () => undefined);
+    const live = ex.find((f) => f.status !== "retired" && f.removeBy)!;
+    expect(md).toContain(
+      `| ${dayLabel(live.createdAt, true)} | ${dayLabel(live.removeBy, true)} |`
+    );
+    const retired = ex.find((f) => f.status === "retired" && f.retiredAt)!;
+    expect(md).toContain(`| ${dayLabel(retired.retiredAt, true)} |`);
   });
 });

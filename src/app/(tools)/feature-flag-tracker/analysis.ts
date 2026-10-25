@@ -13,7 +13,7 @@ import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { mannKendall, type MannKendallResult } from "@/lib/analytics/trend-test";
 import { enoughData } from "@/lib/analytics/min-sample";
 import { fmt, plural, type ChartText } from "@/lib/charts/chart-text";
-import { throughputByWeek, type ThroughputPoint } from "@/lib/flow";
+import { throughputByWeek, weekOf, type ThroughputPoint } from "@/lib/flow";
 
 /** The live flags' age bands, in days, both ends included. */
 export const AGE_BUCKETS = [
@@ -148,11 +148,22 @@ export function survivalChartText(s: Survival): ChartText {
 /** The latest weeks the trend reads. */
 export const TREND_WEEKS = 26;
 
-/** Flags created per ISO week (quiet weeks as 0), the latest `TREND_WEEKS`. */
-export function createdPerWeek(flags: readonly FeatureFlag[]): ThroughputPoint[] {
-  return throughputByWeek(
-    flags.filter((f) => f.createdAt).map((f) => ({ doneOn: f.createdAt }))
-  ).slice(-TREND_WEEKS);
+/**
+ * Flags created per ISO week (quiet weeks as 0), the latest `TREND_WEEKS`
+ * up to `today`'s week. lib/flow's weekly series ends at the last week
+ * with an item, which would leave out the quiet weeks since the last flag
+ * and read a team that stopped adding flags as having no trend; one
+ * stand-in item dated today stretches it to this week, then comes off.
+ */
+export function createdPerWeek(flags: readonly FeatureFlag[], today: string): ThroughputPoint[] {
+  const created = flags
+    .filter((f) => f.createdAt && f.createdAt <= today)
+    .map((f) => ({ doneOn: f.createdAt }));
+  if (created.length === 0) return [];
+  const thisWeek = weekOf(today);
+  return throughputByWeek([...created, { doneOn: today }])
+    .map((w) => (w.label === thisWeek ? { ...w, value: w.value - 1 } : w))
+    .slice(-TREND_WEEKS);
 }
 
 /**

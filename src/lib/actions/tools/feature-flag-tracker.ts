@@ -52,6 +52,7 @@ import {
   withRetired,
 } from "@/lib/flags/model";
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
+import { addDays } from "@/lib/flow";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import { todayIso } from "@/lib/sprints/series";
 
@@ -103,6 +104,18 @@ const IsoDay = z
 
 const firstError = (errors: Partial<Record<string, string>>) =>
   Object.values(errors).find(Boolean) ?? null;
+
+/**
+ * The latest "today" can be for the person whose flag this is, when the
+ * server says `today`. The server's day is UTC: someone east of UTC who
+ * added a flag after their midnight stored what is tomorrow in UTC, which
+ * their page took as today. A created day at most one day ahead is that,
+ * not a mistake, so it isn't "in the future" for edits and retirements.
+ */
+function todayFor(f: Pick<FeatureFlag, "createdAt">, today: string): string {
+  const tomorrow = addDays(today, 1);
+  return tomorrow && f.createdAt > today && f.createdAt <= tomorrow ? f.createdAt : today;
+}
 
 /* ── list_state ─────────────────────────────────────────────────────── */
 
@@ -226,7 +239,7 @@ const updateParams = z.object({
 async function updateFlag(store: FlagStore, params: z.infer<typeof updateParams>) {
   const f = await store.get(params.flagId);
   if (!f) return { updated: false as const, reason: "No flag with that id." };
-  const today = todayIso();
+  const today = todayFor(f, todayIso());
   const next: FeatureFlag = { ...f };
   if (params.name !== undefined) next.name = params.name.trim();
   if (!next.name) return { updated: false as const, reason: "A flag needs a name." };
@@ -248,16 +261,28 @@ async function updateFlag(store: FlagStore, params: z.infer<typeof updateParams>
     if (v === null || v === "") delete next[key];
     else (next as unknown as Record<string, string>)[key] = v;
   }
-  const error = firstError(
-    flagDateErrors(
-      {
-        createdAt: next.createdAt,
-        removeBy: next.removeBy,
-        ...(params.retiredAt !== undefined ? { retiredAt: next.retiredAt } : {}),
-      },
-      today
-    )
+  // Only the dates this call changes are judged, as on the page, whose
+  // editor leaves alone the dates it opened with: a stored day was checked
+  // when it was written, and an old row with no created day mustn't block
+  // an owner change. A new created day is checked against the others too,
+  // the retired day included.
+  const createdChanged = params.createdAt !== undefined && params.createdAt !== f.createdAt;
+  const removeChanged =
+    params.removeBy !== undefined && (next.removeBy ?? "") !== (f.removeBy ?? "");
+  const retiredChanged = params.retiredAt !== undefined && params.retiredAt !== f.retiredAt;
+  const dates = flagDateErrors(
+    {
+      createdAt: next.createdAt,
+      removeBy: next.removeBy,
+      ...(next.status === "retired" ? { retiredAt: next.retiredAt } : {}),
+    },
+    today
   );
+  const error =
+    (createdChanged && dates.createdAt) ||
+    ((createdChanged || removeChanged) && dates.removeBy) ||
+    ((createdChanged || retiredChanged) && dates.retiredAt) ||
+    null;
   if (error) return { updated: false as const, reason: error };
   if (params.releaseId && !(await store.releases()).has(params.releaseId))
     return { updated: false as const, reason: "No Release Readiness release with that id." };
@@ -272,7 +297,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Edit a flag in place. Params: flagId, and any of name, purpose, createdAt (YYYY-MM-DD, not after today), removeBy (null clears), retiredAt (a retired flag only), owner (null clears), environment (null clears), releaseId (null unlinks), description (null clears). Status changes go through set_status / retire_flag. Returns {updated: true, staleness} or {updated: false, reason}.",
+    "Edit a flag in place. Params: flagId, and any of name, purpose, createdAt (YYYY-MM-DD, not after today), removeBy (null clears), retiredAt (a retired flag only), owner (null clears), environment (null clears), releaseId (null unlinks), description (null clears). Only the dates the call changes are checked (a new createdAt also against the removal and retired days); dates left alone stay as they are. Status changes go through set_status / retire_flag. Returns {updated: true, staleness} or {updated: false, reason}.",
   paramsSchema: updateParams,
   handler: async (params) => updateFlag(browserStore, params),
   mcpHandler: async (params, ctx) => updateFlag(serverStore(ctx.userId), params),
@@ -319,7 +344,7 @@ async function retireFlag(store: FlagStore, params: z.infer<typeof retireParams>
       retired: false as const,
       reason: "It is retired already: update_flag retiredAt re-dates it.",
     };
-  const today = todayIso();
+  const today = todayFor(f, todayIso());
   const day = params.retiredAt ?? today;
   const error = flagDateErrors({ createdAt: f.createdAt, retiredAt: day }, today, {
     retiring: true,
