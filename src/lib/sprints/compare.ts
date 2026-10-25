@@ -165,6 +165,28 @@ export function sprintHealthCheck(
 export const MIN_SCORE = 1;
 export const MAX_SCORE = 10;
 
+/** How many sprints Sprint Comparison shows side by side. */
+export const MAX_COMPARED = 5;
+/** How many of the newest sprints it compares by default while none is finished. */
+export const DEFAULT_OPEN_COMPARED = 3;
+
+/**
+ * Which sprints Sprint Comparison compares when nothing is pinned: the
+ * five newest that `include` (the page and the agent pass "finished"),
+ * else the three newest. `sprints` newest first. Finished sprints, not
+ * "scored" ones: a rating typed into a running sprint must not pull it
+ * into the comparison (and move its row) while someone is still rating it.
+ */
+export function defaultComparedIds(
+  sprints: readonly Sprint[],
+  include: (s: Sprint) => boolean
+): string[] {
+  const picked = sprints.filter(include);
+  const pick =
+    picked.length > 0 ? picked.slice(0, MAX_COMPARED) : sprints.slice(0, DEFAULT_OPEN_COMPARED);
+  return pick.map((s) => s.id);
+}
+
 /**
  *   computed  from the sprint's own data; read-only.
  *   prefilled from another tool's data, until someone types a rating.
@@ -322,7 +344,8 @@ function prefilledOr(
   };
 }
 
-const isFinishedSprint = (s: Sprint) =>
+/** A finished sprint: done, with completed points (the rule velocity counts by). */
+export const isFinishedSprint = (s: Pick<Sprint, "status" | "pointsCompleted">) =>
   s.status === "completed" &&
   typeof s.pointsCompleted === "number" &&
   Number.isFinite(s.pointsCompleted);
@@ -380,10 +403,13 @@ function velocityScore(sprint: Sprint, sprints: readonly Sprint[]) {
 function goalScore(sprint: Sprint, goals: readonly SprintGoal[] | undefined) {
   const doc = goals?.find((g) => g.id === goalDocId(sprint.id));
   const outcome = doc?.outcome;
+  // The Sprint Goal document's wording, else the goal typed on the sprint
+  // itself (Velocity's goal field, the cockpit's header).
+  const goal = doc?.goal?.trim() || sprint.goal?.trim() || "";
   if (!outcome || !(outcome.met in GOAL_OUTCOME_SCORE)) {
     return {
       missing: "goal" as const,
-      basis: doc?.goal?.trim()
+      basis: goal
         ? "No answer to “Did we meet the goal?” yet."
         : "No sprint goal recorded for this sprint.",
     };
@@ -391,7 +417,7 @@ function goalScore(sprint: Sprint, goals: readonly SprintGoal[] | undefined) {
   return {
     value: GOAL_OUTCOME_SCORE[outcome.met],
     from: "Sprint Goal",
-    basis: `Goal ${GOAL_OUTCOME_LABEL[outcome.met].toLowerCase()}${doc?.goal?.trim() ? `: “${doc.goal.trim()}”` : ""}`,
+    basis: `Goal ${GOAL_OUTCOME_LABEL[outcome.met].toLowerCase()}${goal ? `: “${goal}”` : ""}`,
   };
 }
 
@@ -400,6 +426,12 @@ function scopeScore(
   stories: readonly Story[],
   series: readonly SprintSeries[] | undefined
 ) {
+  // Like Velocity and Predictability, only once the sprint is closed: a
+  // planned sprint's stories joined before its first day, which reads as
+  // no churn at all, and a running sprint's scope can still change.
+  if (!isFinishedSprint(sprint)) {
+    return { missing: "points" as const, basis: "Close the sprint with its completed points." };
+  }
   if (!(sprint.pointsPlanned > 0)) {
     return {
       missing: "commitment" as const,

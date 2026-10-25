@@ -12,11 +12,14 @@ import {
   MAX_SCORE,
   MIN_SCORE,
   averageScore,
+  isFinishedSprint,
   sprintScores,
   type CompareInput,
   type SprintScores,
 } from "@/lib/sprints/compare";
 import { SPRINT_RATING_DIMENSIONS, type SprintRatingDimension } from "@/lib/sprints/series";
+
+export { isFinishedSprint };
 
 export const DIMENSIONS = SPRINT_RATING_DIMENSIONS;
 export type Dimension = SprintRatingDimension;
@@ -112,15 +115,6 @@ export function scoredValues(scores: SprintScores): Partial<Record<Dimension, nu
     if (v !== null) out[dim] = v;
   }
   return out;
-}
-
-/** A finished sprint: done, with completed points (the rule velocity counts by). */
-export function isFinishedSprint(s: Pick<Sprint, "status" | "pointsCompleted">): boolean {
-  return (
-    s.status === "completed" &&
-    typeof s.pointsCompleted === "number" &&
-    Number.isFinite(s.pointsCompleted)
-  );
 }
 
 /** "29 of 34 points" for a finished sprint, else null (a running sprint's typed points don't count). */

@@ -8,10 +8,53 @@ import {
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
+  Polygon,
   Legend,
   Tooltip,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
+
+/** A point of a sprint's shape as Recharts hands it over: where, and the score (null = not scored). */
+interface RadarVertex {
+  x: number;
+  y: number;
+  value?: unknown;
+}
+
+/** The vertices of the dimensions the sprint has a score for. */
+export function scoredVertices<T extends RadarVertex>(points: readonly T[] | undefined): T[] {
+  return (points ?? []).filter((p) => typeof p.value === "number" && Number.isFinite(p.value));
+}
+
+/**
+ * A sprint's shape through its scored dimensions only. Recharts puts a
+ * missing value at the centre, which would draw "not scored" as the worst
+ * score; this skips it, so the outline joins the scores either side.
+ */
+export function ScoredRadarShape({
+  points,
+  stroke,
+  fill,
+  fillOpacity,
+  strokeWidth,
+}: {
+  points?: RadarVertex[];
+  stroke?: string;
+  fill?: string;
+  fillOpacity?: number;
+  strokeWidth?: number;
+}) {
+  return (
+    <Polygon
+      className="recharts-radar-polygon"
+      points={scoredVertices(points)}
+      stroke={stroke}
+      fill={fill}
+      fillOpacity={fillOpacity}
+      strokeWidth={strokeWidth}
+    />
+  );
+}
 
 interface SprintRadarChartProps {
   /** One row per dimension; each sprint's score keyed by its id (null = not scored). */
@@ -54,6 +97,7 @@ export function SprintRadarChart({ data, series, width, height }: SprintRadarCha
           fill={sp.color}
           fillOpacity={0.15}
           strokeWidth={2}
+          shape={ScoredRadarShape}
         />
       ))}
       <Legend wrapperStyle={{ paddingTop: "12px", ...chartTheme.legendStyle }} />

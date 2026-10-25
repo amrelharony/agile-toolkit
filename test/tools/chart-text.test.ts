@@ -149,7 +149,7 @@ describe("sprint compare", () => {
   it("names the highest and lowest average", () => {
     const text = sprintRadarText(rows, [a, b]);
     expect(text.summary).toBe(
-      "2 sprints compared; Sprint 8 has the highest average score (8.5 out of 10) and Sprint 7 the lowest (7)."
+      "2 sprints compared; Sprint 8 has the highest average score (8.5 out of 10) and Sprint 7 the lowest (7). Each shape leaves out the dimensions its sprint has no score for."
     );
     expect(text.table.columns).toEqual(["Dimension", "Sprint 7", "Sprint 8"]);
     expect(text.table.rows[2]).toEqual(["Morale", 8, "Not scored"]);

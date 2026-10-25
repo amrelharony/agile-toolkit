@@ -22,8 +22,11 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { MoodEntry, Sprint, SprintGoal, SprintSeries } from "@/lib/stores/workspace-types";
-import { averageScore, sprintScores } from "@/lib/sprints/compare";
+import { averageScore, isFinishedSprint, sprintScores } from "@/lib/sprints/compare";
 import { goalDocId } from "@/lib/sprints/goal-doc";
+import { sprintsNewestFirst } from "@/lib/sprints/series";
+import { EXAMPLE_SPRINT_PREFIX } from "@/lib/sprints/example";
+import { defaultPins } from "@/app/(tools)/sprint-compare/pins";
 import "@/lib/actions/tools/sprint-compare";
 
 function ctx(source: "agent" | "mcp" = "agent") {
@@ -156,9 +159,12 @@ describe("tool.sprint_compare.list_state", () => {
     expect(action?.mcpHandler).toBeTypeOf("function");
   });
 
-  it("scores the newest finished sprints by default, as the page does", async () => {
+  it("scores the page's default comparison: the newest finished sprints", async () => {
     const r = (await registry.get("tool.sprint_compare.list_state")!.handler({}, ctx())) as Listed;
     expect(r.sprints.map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
+    // The same ids the page compares with nothing pinned (newest first there).
+    const newest = sprintsNewestFirst(SPRINTS);
+    expect(defaultPins(newest, SERIES, isFinishedSprint)).toEqual(["s3", "s2", "s1"]);
     const s3 = r.sprints[2];
     // 27 of 30 committed: met; the team's best is 30.
     expect(s3.scores.Predictability).toMatchObject({ value: 9.1, source: "computed" });
@@ -188,6 +194,22 @@ describe("tool.sprint_compare.list_state", () => {
       expect(s3.scores[dim].value, dim).toBe(score.value);
       expect(s3.scores[dim].basis, dim).toBe(score.basis);
     }
+  });
+
+  it("falls back to the three newest sprints while none is finished, as the page does", async () => {
+    const open = [1, 2, 3, 4].map((n) => sprint(n, undefined, n === 4 ? "active" : "planned"));
+    useWorkspaceStore.setState({ sprints: open });
+    const r = (await registry.get("tool.sprint_compare.list_state")!.handler({}, ctx())) as Listed;
+    expect(r.sprints.map((s) => s.id)).toEqual(["s2", "s3", "s4"]);
+    expect(defaultPins(sprintsNewestFirst(open), [], isFinishedSprint)).toEqual(["s4", "s3", "s2"]);
+    // Example sprints never count.
+    useWorkspaceStore.setState({
+      sprints: [...SPRINTS, { ...sprint(5, 30), id: `${EXAMPLE_SPRINT_PREFIX}5` }],
+    });
+    const again = (await registry
+      .get("tool.sprint_compare.list_state")!
+      .handler({}, ctx())) as Listed;
+    expect(again.sprints.map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
   });
 
   it("scores the sprints asked for, and says which don't exist", async () => {

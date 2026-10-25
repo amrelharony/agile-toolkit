@@ -20,12 +20,20 @@ export const COMPARE_PINS_KEY = SPRINT_COMPARE_PINS_KEY;
 
 const listeners = new Set<() => void>();
 
+/**
+ * The value last written when storage refused it (private mode, full
+ * storage): the pins then last until the page reloads instead of a pin
+ * click doing nothing. Undefined while storage takes the writes.
+ */
+let unsaved: string | null | undefined;
+
 function emit(): void {
   listeners.forEach((l) => l());
 }
 
 /** The stored value as written, or null when there is none (or storage is blocked). */
 export function readComparePinsRaw(): string | null {
+  if (unsaved !== undefined) return unsaved;
   try {
     return window.localStorage.getItem(COMPARE_PINS_KEY);
   } catch {
@@ -52,10 +60,13 @@ export function readComparePins(): string[] | null {
 
 /** Save the pinned ids (a plain JSON array). */
 export function writeComparePins(ids: readonly string[]): void {
+  const raw = JSON.stringify([...ids]);
   try {
-    window.localStorage.setItem(COMPARE_PINS_KEY, JSON.stringify([...ids]));
+    window.localStorage.setItem(COMPARE_PINS_KEY, raw);
+    unsaved = undefined;
   } catch {
-    /* private mode or full storage: the pins last until the page reloads */
+    // Private mode or full storage: kept in memory until the page reloads.
+    unsaved = raw;
   }
   emit();
 }
@@ -64,8 +75,10 @@ export function writeComparePins(ids: readonly string[]): void {
 export function clearComparePins(): void {
   try {
     window.localStorage.removeItem(COMPARE_PINS_KEY);
+    unsaved = undefined;
   } catch {
-    /* nothing stored that we can reach */
+    // Nothing stored that we can reach: forget the in-memory copy at least.
+    unsaved = null;
   }
   emit();
 }
@@ -73,7 +86,10 @@ export function clearComparePins(): void {
 function subscribe(onChange: () => void): () => void {
   listeners.add(onChange);
   const onStorage = (e: StorageEvent) => {
-    if (e.key === COMPARE_PINS_KEY || e.key === null) onChange();
+    if (e.key !== COMPARE_PINS_KEY && e.key !== null) return;
+    // Another tab saved the pins: storage is newer than the copy in memory.
+    unsaved = undefined;
+    onChange();
   };
   window.addEventListener("storage", onStorage);
   return () => {

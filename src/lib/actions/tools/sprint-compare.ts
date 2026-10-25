@@ -14,8 +14,9 @@
  *   2. compute    — pure: compare sprints scored by the caller.
  *
  * Which sprints the page compares is a per-browser choice (its pins), so
- * list_state takes the ids to score and defaults to the five newest
- * finished sprints by end date.
+ * list_state takes the ids to score and defaults to what the page compares
+ * when nothing is pinned (lib/sprints/compare defaultComparedIds): the
+ * five newest finished sprints, else the three newest sprints.
  */
 
 import { z } from "zod";
@@ -30,10 +31,16 @@ import type {
   SprintSeries,
   Story,
 } from "@/lib/stores/workspace-types";
-import { averageScore, sprintScores, type SprintScores } from "@/lib/sprints/compare";
+import {
+  averageScore,
+  defaultComparedIds,
+  isFinishedSprint,
+  sprintScores,
+  type SprintScores,
+} from "@/lib/sprints/compare";
 import { isExampleSprintId } from "@/lib/sprints/example";
-import { velocity } from "@/lib/sprints/metrics";
-import { SPRINT_RATING_DIMENSIONS } from "@/lib/sprints/series";
+import { sprintsByEndDate } from "@/lib/sprints/metrics";
+import { SPRINT_RATING_DIMENSIONS, sprintsNewestFirst } from "@/lib/sprints/series";
 
 /** MUST match the registerCollection(...) names in workspace-store.ts. */
 const KIND = {
@@ -44,9 +51,6 @@ const KIND = {
   mood: "workspace:moodEntry",
   health: "workspace:healthCheck",
 } as const;
-
-/** How many finished sprints list_state scores when no ids are given (the page's pin limit). */
-const DEFAULT_COMPARED = 5;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -106,9 +110,12 @@ function serializeScores(scores: SprintScores) {
 function listState(rows: CompareRows, sprintIds: string[] | undefined) {
   const sprints = rows.sprints.filter((s) => !isExampleSprintId(s.id));
   const byId = new Map(sprints.map((s) => [s.id, s]));
-  const ids = sprintIds?.length
-    ? sprintIds
-    : velocity(sprints, { window: DEFAULT_COMPARED }).sprintIds;
+  // The page's default comparison, oldest first by end date as velocity reads them.
+  const defaults = (): string[] => {
+    const picked = new Set(defaultComparedIds(sprintsNewestFirst(sprints), isFinishedSprint));
+    return sprintsByEndDate(sprints.filter((s) => picked.has(s.id))).map((s) => s.id);
+  };
+  const ids = sprintIds?.length ? sprintIds : defaults();
   const missing = ids.filter((id) => !byId.has(id));
   const out = ids.flatMap((id) => {
     const sprint = byId.get(id);
@@ -144,13 +151,15 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Sprint Comparison's six scores (1–10, one decimal) for the given sprints, as the page shows them. Params: {sprintIds?: string[]} (default: the five newest finished sprints by end date). Returns {sprints: {id, name, startDate, endDate, status, scores: {[dimension]: {value (null = not scored), source: computed | prefilled | typed | none, from? (the tool it was read from), basis (how it was worked out, in words), editable (true for Team Happiness and Quality, which a typed rating overrides), typed? (the stored rating, kept even when unused), missing? (points | commitment | history | goal | scope | mood | health | dates: what the score needs)}}, average (mean of the scored dimensions; null when none)}[], notFound?: string[]}. Dimensions: Velocity (completed ÷ the team's best, from 3 finished sprints), Quality (Squad Health Check code and release lights, yellow = half), Scope Stability (1 − churn after day 0), Team Happiness (Mood Tracker check-ins during the sprint, from 3), Goal Achievement (met 10, partly 5.5, not met 1), Predictability (graded say/do). To rate Team Happiness or Quality, write SprintSeries.ratings[dimension] via workspace.sprint_series.update. Read only.",
+    "Sprint Comparison's six scores (1–10, one decimal) for the given sprints, as the page shows them. Params: {sprintIds?: string[]} (default: what the page compares when nothing is pinned — the five newest finished sprints, else the three newest sprints — oldest first by end date). Returns {sprints: {id, name, startDate, endDate, status, scores: {[dimension]: {value (null = not scored), source: computed | prefilled | typed | none, from? (the tool it was read from), basis (how it was worked out, in words), editable (true for Team Happiness and Quality, which a typed rating overrides), typed? (the stored rating, kept even when unused), missing? (points | commitment | history | goal | scope | mood | health | dates: what the score needs)}}, average (mean of the scored dimensions; null when none)}[], notFound?: string[]}. Dimensions: Velocity (completed ÷ the team's best, from 3 finished sprints), Quality (Squad Health Check code and release lights, yellow = half), Scope Stability (1 − churn after day 0), Team Happiness (Mood Tracker check-ins during the sprint, from 3), Goal Achievement (met 10, partly 5.5, not met 1), Predictability (graded say/do). To rate Team Happiness or Quality, write SprintSeries.ratings[dimension] via workspace.sprint_series.update. Read only.",
   paramsSchema: z.object({
     sprintIds: z
       .array(z.string().min(1).max(128))
       .max(20)
       .optional()
-      .describe("Sprints to score, in order. Omit for the five newest finished sprints."),
+      .describe(
+        "Sprints to score, in order. Omit for the page's default: the five newest finished sprints, else the three newest."
+      ),
   }),
   handler: async (params) => listState(await browserRows(), params.sprintIds),
   mcpHandler: async (params, ctx) => listState(await serverRows(ctx.userId), params.sprintIds),

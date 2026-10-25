@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { GitCompare, Pin, PinOff, Plus } from "lucide-react";
@@ -47,6 +47,7 @@ import {
   MIN_RATING,
   UNPINNED_COLOR,
   buildRows,
+  isFinishedSprint,
   pointsDone,
   radarData,
   scoredValues,
@@ -249,7 +250,13 @@ function ScoreField({
   const prefill = score.source === "prefilled" ? score.value : null;
   return (
     <div className="min-w-0 space-y-1.5" data-dimension={dim}>
-      <Field label={label} error={error ?? undefined}>
+      {/* The suggestion as text too, tied to the box: a placeholder alone is
+          faint, and a screen reader announces the box as blank. */}
+      <Field
+        label={label}
+        hint={prefill === null ? undefined : `Suggested: ${prefill}`}
+        error={error ?? undefined}
+      >
         {(control) => (
           <RatingInput
             {...control}
@@ -360,18 +367,13 @@ export function SprintCompareClient() {
     [example, stories, series, goals, moodEntries, healthChecks]
   );
   const scores = useMemo(() => scoresBySprint(viewSprints, sources), [viewSprints, sources]);
-  const hasScore = useCallback(
-    (s: Sprint) => {
-      const sc = scores.get(s.id);
-      return sc ? averageScore(sc) !== null : false;
-    },
-    [scores]
-  );
 
-  const { pins, isDefault } = useComparePins(sprints, series, hasScore);
+  // With nothing pinned, the newest finished sprints: a rating can't change
+  // which sprints are compared, so rating one doesn't move its row mid-entry.
+  const { pins, isDefault } = useComparePins(sprints, series, isFinishedSprint);
   const viewPins = useMemo(
-    () => (example ? defaultPins(exampleSprintsNewest, example.series, hasScore) : pins),
-    [example, exampleSprintsNewest, hasScore, pins]
+    () => (example ? defaultPins(exampleSprintsNewest, example.series, isFinishedSprint) : pins),
+    [example, exampleSprintsNewest, pins]
   );
   const rows = useMemo(
     () => buildRows(viewPins, viewSprints, scores),
@@ -409,7 +411,7 @@ export function SprintCompareClient() {
     const before = readPins();
     if (before === null) return;
     undoable({
-      label: "Showing the newest scored sprints",
+      label: "Showing the newest finished sprints",
       apply: () => clearPins(),
       revert: () => writePins(before),
     });

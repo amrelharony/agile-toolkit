@@ -4,7 +4,7 @@
  * data the radar draws.
  */
 
-import { fmt, mean, plural, type ChartText } from "@/lib/charts/chart-text";
+import { fmt, listAnd, mean, plural, type ChartText } from "@/lib/charts/chart-text";
 
 type RadarRow = Record<string, string | number | null>;
 type Series = { id: string; name: string };
@@ -47,6 +47,19 @@ export function sprintRadarText(rows: readonly RadarRow[], series: readonly Seri
         : `${plural(scored.length, "sprint")} compared; ${best.name} has the highest average score (${fmt(
             best.avg
           )} out of 10) and ${worst.name} the lowest (${fmt(worst.avg)}).`;
+  }
+
+  // The radar keeps all six axes and skips a sprint's unscored ones, so say so.
+  if (scored.length > 0) {
+    const nobody = rows
+      .filter((r) => series.every((s) => score(r, s.id) === null))
+      .map((r) => String(r.dimension));
+    const gaps = rows.some((r) => series.some((s) => score(r, s.id) === null));
+    if (gaps) {
+      summary += ` Each shape leaves out the dimensions its sprint has no score for${
+        nobody.length > 0 ? `; none has a score for ${listAnd(nobody)}` : ""
+      }.`;
+    }
   }
 
   return {

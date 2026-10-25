@@ -21,6 +21,8 @@ import {
   HEALTH_CHECK_DOC_ID,
   QUALITY_DIMENSIONS as QUALITY_TWIN,
   averageScore,
+  defaultComparedIds,
+  isFinishedSprint,
   moodToScore,
   qualityShare,
   shareToScore,
@@ -86,7 +88,8 @@ import {
   validateRating,
 } from "@/app/(tools)/sprint-compare/sprint-compare-client";
 import { buildExample } from "@/app/(tools)/sprint-compare/example";
-import { buildRows, scoresBySprint } from "@/app/(tools)/sprint-compare/view";
+import { buildRows, radarData, scoresBySprint } from "@/app/(tools)/sprint-compare/view";
+import { sprintRadarText } from "@/app/(tools)/sprint-compare/chart-text";
 import { compareVerdict, weakestDimension } from "@/app/(tools)/sprint-compare/verdict";
 import { toMarkdown } from "@/app/(tools)/sprint-compare/markdown";
 import { PINS_KEY, defaultPins } from "@/app/(tools)/sprint-compare/pins";
@@ -264,6 +267,65 @@ describe("computed scores", () => {
       missing: "scope",
     });
   });
+
+  it("Scope Stability waits for the close, like Velocity and Predictability", () => {
+    // Stories planned into a sprint that hasn't started: their joins come
+    // before its first day, which would read as no churn at all (a 10).
+    const planned = sprint(4, { status: "planned", pointsCompleted: undefined });
+    const stories: Story[] = [
+      {
+        id: "p1",
+        title: "Planned ahead",
+        points: 8,
+        status: "todo",
+        sprintId: "s4",
+        sprintHistory: [{ sprintId: "s4", at: "2026-03-20T09:00:00", points: 8 }],
+      },
+    ];
+    const all = [...SPRINTS, planned];
+    const notYet = sprintScores(input({ sprint: planned, sprints: all, stories }))[
+      "Scope Stability"
+    ];
+    expect(notYet).toMatchObject({ value: null, source: "none", missing: "points" });
+    expect(notYet.basis).toBe("Close the sprint with its completed points.");
+    // A running one, even with a scope log: its scope can still change.
+    const running = { ...planned, status: "active" as const };
+    const series: SprintSeries[] = [{ id: "s4", days: [{ day: 2, scope: 30 }] }];
+    expect(
+      sprintScores(input({ sprint: running, sprints: [...SPRINTS, running], stories, series }))[
+        "Scope Stability"
+      ].value
+    ).toBeNull();
+    // So an unstarted sprint has no average to take a default pin with.
+    expect(
+      averageScore(sprintScores(input({ sprint: planned, sprints: all, stories })))
+    ).toBeNull();
+  });
+
+  it("Goal Achievement knows a goal typed on the sprint itself", () => {
+    const withGoal = { ...S3, goal: "Ship guest checkout" };
+    expect(
+      sprintScores(input({ sprint: withGoal, sprints: [S1, S2, withGoal] }))["Goal Achievement"]
+        .basis
+    ).toBe("No answer to “Did we meet the goal?” yet.");
+    expect(sprintScores(input())["Goal Achievement"].basis).toBe(
+      "No sprint goal recorded for this sprint."
+    );
+    const answered: SprintGoal = {
+      id: goalDocId("s3"),
+      sprintId: "s3",
+      businessObjective: "",
+      goal: "",
+      criteria: [],
+      keyResults: [],
+      outcome: { met: "met", decidedAt: "2026-03-14T12:00:00.000Z" },
+    };
+    expect(
+      sprintScores(input({ sprint: withGoal, sprints: [S1, S2, withGoal], goals: [answered] }))[
+        "Goal Achievement"
+      ].basis
+    ).toBe("Goal met: “Ship guest checkout”");
+  });
 });
 
 /* ── Prefilled scores ───────────────────────────────────────────────── */
@@ -440,12 +502,58 @@ describe("pins", () => {
     expect(readComparePins()).toBeNull();
   });
 
-  it("default to the newest sprints with a score", () => {
+  it("default to the newest sprints that pass the page's rule", () => {
     const open = sprint(4, { status: "active", pointsCompleted: undefined });
     const newest = [open, S3, S2, S1];
     const scores = scoresBySprint(newest, { stories: [] });
     const scored = (s: Sprint) => averageScore(scores.get(s.id)!) !== null;
     expect(defaultPins(newest, [], scored)).toEqual(["s3", "s2", "s1"]);
+    // The page's rule: finished sprints, whatever has a score.
+    expect(defaultPins(newest, [], isFinishedSprint)).toEqual(["s3", "s2", "s1"]);
+    expect(defaultComparedIds([open], isFinishedSprint)).toEqual(["s4"]);
+  });
+
+  it("keep in memory what storage refuses, so a pin click still pins", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    try {
+      writeComparePins(["s2"]);
+      expect(readComparePins()).toEqual(["s2"]);
+      expect(window.localStorage.getItem(COMPARE_PINS_KEY)).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
+    // Once storage takes a write, it is the source again.
+    writeComparePins(["s1"]);
+    expect(window.localStorage.getItem(COMPARE_PINS_KEY)).toBe('["s1"]');
+    clearComparePins();
+    expect(readComparePins()).toBeNull();
+  });
+});
+
+describe("the default comparison while rating", () => {
+  it("doesn't take in a running sprint once it's rated, so its row stays put", () => {
+    // Nothing pinned: the three finished sprints are compared.
+    const running = sprint(4, { status: "active", pointsCompleted: undefined });
+    useWorkspaceStore.setState({ sprints: [...SPRINTS, running], sprintSeries: [] });
+    render(<SprintCompareClient />);
+    // The running sprint is the shared selection: rated here, outside the comparison.
+    expect(screen.getByText("3 of 5 compared")).toBeInTheDocument();
+    expect(screen.getByText("Not in the comparison")).toBeInTheDocument();
+    const happiness = screen.getByRole("spinbutton", { name: "Team Happiness for Sprint 4" });
+    const block = happiness.closest("div.space-y-3");
+    happiness.focus();
+    fireEvent.change(happiness, { target: { value: "7" } });
+    fireEvent.keyDown(happiness, { key: "Tab" });
+    fireEvent.blur(happiness);
+    expect(seriesOf("s4")?.ratings).toEqual({ "Team Happiness": 7 });
+    // Still outside the comparison, in the same place, with the same boxes.
+    expect(screen.getByText("3 of 5 compared")).toBeInTheDocument();
+    expect(screen.getByText("Not in the comparison")).toBeInTheDocument();
+    const quality = screen.getByRole("spinbutton", { name: "Quality for Sprint 4" });
+    expect(quality.closest("div.space-y-3")).toBe(block);
+    expect(window.localStorage.getItem(PINS_KEY)).toBeNull();
   });
 });
 
@@ -472,9 +580,17 @@ describe("the page", () => {
       "href",
       "/sprint-goal?sprint=s3"
     );
-    // The prefill shows as the suggestion until someone rates it.
+    // The prefill shows as the suggestion until someone rates it: in the
+    // box, and as text the box is described by (a placeholder alone reads
+    // as blank to a screen reader).
     expect(happiness).toHaveAttribute("placeholder", "7.8");
     expect(happiness).toHaveValue(null);
+    expect(happiness).toHaveAccessibleDescription("Suggested: 7.8");
+    // Rated: the suggestion moves into the basis line instead.
+    fireEvent.change(happiness, { target: { value: "6" } });
+    fireEvent.blur(happiness);
+    expect(happiness).not.toHaveAccessibleDescription();
+    expect(screen.getAllByText(/Mood Tracker suggested 7.8/).length).toBeGreaterThan(0);
   });
 
   it("saves a rating only when it's 1 to 10, and clearing brings the prefill back", () => {
@@ -529,6 +645,54 @@ describe("the page", () => {
     expect(validateRating("10")).toEqual({ ok: true, value: 10 });
     expect(validateRating("11")).toEqual({ ok: false, error: "Rate 1 to 10." });
     expect(validateRating("x")).toEqual({ ok: false, error: "Rate 1 to 10." });
+  });
+});
+
+/* ── The radar ──────────────────────────────────────────────────────── */
+
+describe("the radar", () => {
+  it("skips a sprint's unscored dimensions instead of drawing them at the centre", async () => {
+    const charts = await vi.importActual<typeof import("@/app/(tools)/sprint-compare/charts")>(
+      "@/app/(tools)/sprint-compare/charts"
+    );
+    // Recharts puts a missing value at the centre (here 50,50).
+    const points = [
+      { x: 90, y: 50, value: 8 },
+      { x: 50, y: 50, value: null },
+      { x: 50, y: 10, value: 6 },
+      { x: 20, y: 70, value: 4 },
+    ];
+    expect(charts.scoredVertices(points)).toEqual([points[0], points[2], points[3]]);
+    expect(charts.scoredVertices(undefined)).toEqual([]);
+    const { container } = render(
+      <svg>
+        {charts.ScoredRadarShape({
+          points,
+          stroke: "var(--accent)",
+          fill: "var(--accent)",
+          fillOpacity: 0.15,
+          strokeWidth: 2,
+        })}
+      </svg>
+    );
+    const d = container.querySelector("path")?.getAttribute("d") ?? "";
+    expect(d).toMatch(/^M90,50L50,10L20,70/);
+    expect(d).not.toContain("50,50");
+    // Loading the real Recharts is slow under a parallel run.
+  }, 30_000);
+
+  it("says in words which dimensions have no score", () => {
+    const scores = scoresBySprint(SPRINTS, { stories: [] });
+    const rows = buildRows(["s2", "s3"], SPRINTS, scores);
+    const text = sprintRadarText(
+      radarData(rows),
+      rows.map((r) => ({ id: r.id, name: r.name }))
+    );
+    expect(text.summary).toContain(
+      "Each shape leaves out the dimensions its sprint has no score for; none has a score for Quality, Scope Stability, Team Happiness and Goal Achievement."
+    );
+    // The table still lists all six.
+    expect(text.table.rows).toHaveLength(6);
   });
 });
 
