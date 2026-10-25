@@ -195,7 +195,8 @@ export interface CfdMetrics {
   /** Whether there are enough points to quote throughput and lead time (MIN_SAMPLE.average). */
   enough: boolean;
   /**
-   * Little's Law over the points, by elapsed days: null below the sample
+   * Little's Law over the points, by elapsed days, its lead time counted
+   * like a cycle time (see `sameDayLeadTime`): null below the sample
    * floor, or when nothing was finished in the range.
    */
   littles: LittlesLaw | null;
@@ -204,6 +205,20 @@ export interface CfdMetrics {
   /** The measured cycle time of the board's finished items (board sources), for a cross-check. */
   measured: CycleSummary | null;
   doneDrops: DoneDrop[];
+}
+
+/**
+ * Little's Law with its lead time on the toolkit's day rule (lib/flow
+ * cycleDays: start and finish both counted, a same-day item is 1). WIP is
+ * counted at the end of each day (or when a snapshot was typed), so an
+ * item started on day s and done on day d is in it d − s times, one short
+ * of its d − s + 1 days: avg WIP ÷ throughput reads a day under the
+ * measured cycle time shown beside it ("≈ 0 days" for same-day work). One
+ * day added puts the two on the same rule. tool.cumulative_flow.* adds it
+ * the same way.
+ */
+export function sameDayLeadTime(law: LittlesLaw): LittlesLaw {
+  return { ...law, leadTimeDays: law.leadTimeDays + 1 };
 }
 
 export function cfdMetrics(view: CfdView): CfdMetrics {
@@ -217,7 +232,7 @@ export function cfdMetrics(view: CfdView): CfdMetrics {
     ? littlesLaw(totals.map((t) => ({ date: t.date, wip: t.wip ?? 0, done: t.done })))
     : null;
   // Little's Law needs work in progress to say anything about lead time.
-  const littles = law && hasWip ? law : null;
+  const littles = law && hasWip ? sameDayLeadTime(law) : null;
   const doneDrops: DoneDrop[] = [];
   for (let i = 1; i < totals.length; i++) {
     if (totals[i].done < totals[i - 1].done) {

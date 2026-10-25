@@ -28,7 +28,8 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { todayIso } from "@/lib/sprints/series";
 import { parseNumber } from "@/lib/utils/form";
-import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
 import { DEFAULT_FLOW_RANGE, FLOW_RANGES, type FlowRangeDays } from "./constants";
 import { useCFDStore } from "./use-cfd-store";
@@ -58,6 +59,42 @@ const SOURCES: { id: CfdSource; label: string }[] = [
 const DAYS = ["day", "days"] as const;
 const SNAPSHOTS = ["snapshot", "snapshots"] as const;
 
+/** The values of every `data-<name>` on the page, in page order, each once. */
+function dataValues(name: string): string[] {
+  const values = Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).map(
+    (el) => el.getAttribute(`data-${name}`) ?? ""
+  );
+  return Array.from(new Set(values));
+}
+
+/** The `data-<name>` value after `value` on the page, else the one before it. */
+function neighbourOf(name: string, value: string): string | undefined {
+  const all = dataValues(name);
+  const at = all.indexOf(value);
+  return at >= 0 ? (all[at + 1] ?? all[at - 1]) : undefined;
+}
+
+/**
+ * The element whose `data-<name>` is `value`, the one on screen: a table
+ * draws each row twice (a table from md up, cards below it), one hidden.
+ * Ids go in no selector, so need no escaping.
+ */
+function onScreen(name: string, value: string): HTMLElement | undefined {
+  const all = Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).filter(
+    (el) => el.getAttribute(`data-${name}`) === value
+  );
+  return all.find((el) => el.getClientRects().length > 0) ?? all[0];
+}
+
+/**
+ * Focus what `find` returns once React has re-rendered: deleting a
+ * snapshot or a column unmounts the button that had focus, and focus
+ * would otherwise drop to <body>.
+ */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
 /**
  * Cumulative Flow Diagram: how many items sat in each stage, day by day.
  * Generated from the Sprint board's status history (the selected sprint's
@@ -86,6 +123,7 @@ export function CFDClient() {
     setColumnDescription,
     addEntry,
     updateEntry,
+    restoreEntry,
     updateEntryCount,
     setWipLimit,
     reset,
@@ -99,6 +137,7 @@ export function CFDClient() {
   const [example, setExample] = useState<CfdExample | null>(null);
   const preview = example !== null;
   const resetSnapshot = useRef<TypedSnapshotState | null>(null);
+  const snapshotFormRef = useRef<HTMLDivElement>(null);
   const flowTitleId = useId();
 
   const sprintV = useMemo(
@@ -120,7 +159,9 @@ export function CFDClient() {
   const view = source === "sprint" ? sprintV : source === "flow" ? flowV : source ? typedV : null;
   const metrics = useMemo(() => (view ? cfdMetrics(view) : null), [view]);
   const analysis = useMemo(() => analyseWip(metrics?.wipSeries ?? []), [metrics]);
-  const limit = source === "typed" ? wipLimit : source ? boardWipLimit(board) : null;
+  // The example is no one's board: the user's Flow board limits don't apply to it.
+  const limit = source === "typed" ? wipLimit : source && !preview ? boardWipLimit(board) : null;
+  const hasActiveStage = view?.workflow.stages.some((s) => s.kind === "active") ?? false;
   const sprintName = preview ? example?.sprint.name : selected?.name;
   const verdict = view && metrics ? cfdVerdict(view, metrics) : "";
   const markdown =
@@ -152,13 +193,30 @@ export function CFDClient() {
   };
 
   const removeEntry = (entry: DataEntry) => {
-    removeWithUndo<DataEntry>({
+    // Focus moves on to the next snapshot's Delete as the table shows them
+    // (else the previous one's), or to the Add a snapshot form.
+    const neighbour = neighbourOf("snapshot-delete", entry.id);
+    const index = useCFDStore.getState().entries.findIndex((e) => e.id === entry.id);
+    undoable({
       label: `Deleted the snapshot from ${entry.date}`,
-      update: (fn) => useCFDStore.setState((s) => ({ entries: fn(s.entries) })),
-      match: (e) => e.id === entry.id,
+      apply: () =>
+        useCFDStore.setState((s) => ({ entries: s.entries.filter((e) => e.id !== entry.id) })),
+      // Through the store's one-per-date rule: a snapshot typed for this
+      // date during the Undo window stays, and this one doesn't come back.
+      revert: () => {
+        if (!restoreEntry(entry, index)) {
+          toast(`Kept the snapshot typed for ${entry.date} since: one date has one snapshot.`);
+          announce(`Not restored: ${entry.date} already has a snapshot`);
+        }
+      },
     });
     log(CFD_ACTIONS.SNAPSHOT_REMOVED, { date: entry.date });
     announce(`Deleted the snapshot from ${entry.date}`);
+    focusSoon(() =>
+      neighbour
+        ? onScreen("snapshot-delete", neighbour)
+        : snapshotFormRef.current?.querySelector<HTMLElement>("input")
+    );
   };
 
   const removeCol = (column: StatusColumn) => {
@@ -169,6 +227,9 @@ export function CFDClient() {
         .filter((e) => e.counts[column.id] !== undefined)
         .map((e) => [e.id, e.counts[column.id]])
     );
+    // Focus goes to the next column (else the previous one): its Remove,
+    // or its name once two columns are left and Remove is gone.
+    const next = columns[index + 1] ?? columns[index - 1];
     undoable({
       label: `Removed the ${column.name} column`,
       apply: () => removeColumn(column.id),
@@ -176,6 +237,13 @@ export function CFDClient() {
     });
     log(CFD_ACTIONS.COLUMN_REMOVED, { name: column.name });
     announce(`Removed the ${column.name} column`);
+    if (next) {
+      focusSoon(
+        () =>
+          onScreen("column-remove", next.id) ??
+          document.getElementById(`cfd-column-name-${next.id}`)
+      );
+    }
   };
 
   const addCol = (name: string, description?: string) => {
@@ -370,7 +438,9 @@ export function CFDClient() {
                     value={latest?.wip ?? "—"}
                     unit={
                       latest?.wip == null
-                        ? view.source === "typed"
+                        ? // Only when there's no column to count it in; with no snapshot
+                          // yet, the line under the tiles says what's missing.
+                          view.source === "typed" && !hasActiveStage
                           ? "add a middle column"
                           : undefined
                         : limit !== null
@@ -394,7 +464,7 @@ export function CFDClient() {
                       measured && measured.average !== null && enoughData(measured.count, "average")
                         ? `Measured: ${fmt(measured.average)} days over ${measured.count} finished`
                         : view.source === "typed"
-                          ? "Average WIP ÷ throughput"
+                          ? "Average WIP ÷ throughput, a same-day item as 1 day"
                           : undefined
                     }
                   />
@@ -488,7 +558,7 @@ export function CFDClient() {
                       check that snapshot&apos;s counts.
                     </p>
                   ))}
-                  {view.source !== "typed" && (
+                  {view.source !== "typed" && !preview && (
                     <p className="mt-3 text-xs text-sub">
                       {limit !== null
                         ? `WIP limit ${limit} (In progress and Review together), from the board. `
@@ -497,7 +567,7 @@ export function CFDClient() {
                         href="/kanban"
                         className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
                       >
-                        {preview ? "Kanban board" : "Change it on the Kanban board"}
+                        Change it on the Kanban board
                         <ArrowRight className="h-3 w-3" aria-hidden="true" />
                       </Link>
                     </p>
@@ -553,18 +623,20 @@ export function CFDClient() {
                     For a board the toolkit can&apos;t read: count the items in each column on a
                     day. Done is a running total.
                   </p>
-                  <SnapshotForm
-                    columns={columns}
-                    entries={entries}
-                    today={today}
-                    onAdd={addSnapshot}
-                  />
+                  <div ref={snapshotFormRef}>
+                    <SnapshotForm
+                      columns={columns}
+                      entries={entries}
+                      today={today}
+                      onAdd={addSnapshot}
+                    />
+                  </div>
                 </SectionCard>
 
                 {entries.length > 0 && (
                   <SectionCard title="Snapshots" icon={Layers}>
                     <DataEntryTable
-                      sortedEntries={[...entries].sort((a, b) => a.date.localeCompare(b.date))}
+                      entries={entries}
                       columns={columns}
                       today={today}
                       onUpdateDate={(e, date) => updateEntry(e.id, { date })}

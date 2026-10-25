@@ -5,7 +5,10 @@
  * on a phone, so nothing scrolls sideways), a count per column, a note and
  * Delete (with Undo, from the page). A count edit commits on blur; a blank
  * or impossible count isn't saved (clearing a field used to write 0). A
- * date already used by another snapshot is refused with a message.
+ * date already used by another snapshot is refused with a message. The
+ * rows go by date, and stay put while a date is edited (Tab from a date
+ * into that row's counts mustn't move the row away), with a "Re-sort"
+ * chip once the order is stale.
  */
 
 import { useEffect, useId, useState } from "react";
@@ -14,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
 import { BlurInput } from "@/components/shared/blur-fields";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { useStableOrder } from "@/hooks/use-stable-order";
 import type { DataEntry, StatusColumn } from "../types";
 import { countError, dateError } from "../form";
 
@@ -138,7 +143,7 @@ function DateCell({
 }
 
 export function DataEntryTable({
-  sortedEntries,
+  entries,
   columns,
   today,
   onUpdateDate,
@@ -146,7 +151,8 @@ export function DataEntryTable({
   onUpdateCount,
   onRemoveEntry,
 }: {
-  sortedEntries: DataEntry[];
+  /** In any order: shown by date. */
+  entries: DataEntry[];
   columns: StatusColumn[];
   today: string;
   onUpdateDate: (entry: DataEntry, date: string) => boolean;
@@ -154,6 +160,11 @@ export function DataEntryTable({
   onUpdateCount: (entry: DataEntry, columnId: string, count: number) => void;
   onRemoveEntry: (entry: DataEntry) => void;
 }) {
+  const { ordered, isStale, resort } = useStableOrder(
+    entries,
+    (e) => e.id,
+    (a, b) => a.date.localeCompare(b.date)
+  );
   const tableColumns: DataTableColumn<DataEntry>[] = [
     {
       key: "date",
@@ -162,7 +173,7 @@ export function DataEntryTable({
       cell: (e) => (
         <DateCell
           entry={e}
-          entries={sortedEntries}
+          entries={entries}
           today={today}
           onCommit={(date) => onUpdateDate(e, date)}
         />
@@ -200,9 +211,16 @@ export function DataEntryTable({
           icon={<Trash2 aria-hidden="true" />}
           onClick={() => onRemoveEntry(e)}
           className="text-sub hover:text-danger"
+          // Lets the page put focus on the next snapshot's Delete after this one goes.
+          data-snapshot-delete={e.id}
         />
       ),
     },
   ];
-  return <DataTable columns={tableColumns} rows={sortedEntries} rowKey={(e) => e.id} />;
+  return (
+    <>
+      <ResortChip isStale={isStale} onResort={resort} what="Dates" />
+      <DataTable columns={tableColumns} rows={ordered} rowKey={(e) => e.id} />
+    </>
+  );
 }

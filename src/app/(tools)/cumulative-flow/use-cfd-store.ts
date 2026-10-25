@@ -7,8 +7,9 @@
  * (lib/flow), never copied here. Created once at module load so every
  * consumer shares the same instance.
  *
- * Writes are validated: one snapshot per date (on add and on a date edit,
- * checked inside the reducer so a double click can't slip past), counts
+ * Writes are validated: one snapshot per date (on add, on a date edit and
+ * on the Undo of a delete, checked inside the reducer so a double click
+ * can't slip past), counts
  * only as whole numbers from 0, and a new column goes before Done so the
  * last column stays the done one.
  */
@@ -156,6 +157,20 @@ export const useCFDStore = create<CFDStore>()(
         set((s) => ({
           entries: s.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
         }));
+        return true;
+      },
+
+      restoreEntry: (entry, index) => {
+        // The one-per-date rule holds for an Undo too: a snapshot typed for
+        // that date in the meantime stays, and this one isn't put back.
+        const { entries } = get();
+        if (entries.some((e) => e.id === entry.id)) return true;
+        if (entries.some((e) => e.date === entry.date)) return false;
+        set((s) => {
+          const next = [...s.entries];
+          next.splice(Math.max(0, Math.min(index, next.length)), 0, entry);
+          return { entries: next };
+        });
         return true;
       },
 

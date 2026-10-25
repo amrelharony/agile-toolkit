@@ -75,6 +75,7 @@ export function ColumnsCard({
                   aria-hidden="true"
                 />
                 <BlurInput
+                  id={`cfd-column-name-${col.id}`}
                   key={nameKeys[col.id] ?? 0}
                   value={col.name}
                   onCommit={(v) => {
@@ -99,6 +100,8 @@ export function ColumnsCard({
                     icon={<Trash2 aria-hidden="true" />}
                     onClick={() => onRemove(col)}
                     className="text-sub hover:text-danger"
+                    // Lets the page put focus on a neighbour after this column goes.
+                    data-column-remove={col.id}
                   />
                 )}
               </div>

@@ -21,6 +21,7 @@ type Result = {
   avgWip: number | null;
   throughputPerDay: number | null;
   littlesLawCycleTimeDays: number | null;
+  leadTimeDays: number | null;
   wipControlLimits: { centerLine: number; ucl: number; lcl: number } | null;
   wipStable: boolean | null;
 };
@@ -40,6 +41,8 @@ describe("tool.cumulative_flow.compute", () => {
     expect(r.avgWip).toBe(5);
     expect(r.throughputPerDay).toBe(3); // 12 done over 4 elapsed days
     expect(r.littlesLawCycleTimeDays).toBeCloseTo(1.67, 1);
+    // The page's reading: one more day, as a same-day item counts 1.
+    expect(r.leadTimeDays).toBeCloseTo(2.67, 1);
     // Control limits wait for MIN_SAMPLE.changePoint (8) points, as on the page.
     expect(r.wipControlLimits).toBeNull();
     expect(r.wipStable).toBeNull();
@@ -49,6 +52,7 @@ describe("tool.cumulative_flow.compute", () => {
     const r = await compute({ wip: [4, 4, 4], done: [3, 3, 3] });
     expect(r.throughputPerDay).toBe(0);
     expect(r.littlesLawCycleTimeDays).toBeNull();
+    expect(r.leadTimeDays).toBeNull();
   });
 
   it("quotes nothing from two points, as the page shows —", async () => {
@@ -247,5 +251,40 @@ describe("tool.cumulative_flow.list_state", () => {
     const r = await list({ sprintId: "s-2" });
     expect(r.source).toBe("sprint");
     expect(r.range).toBeNull();
+  });
+
+  it("says a sprint asked for by id isn't there, rather than charting another", async () => {
+    useWorkspaceStore.setState({
+      sprints: [SPRINT],
+      stories: [story("a", [["in_progress", 2]])],
+    });
+    expect(await list({ sprintId: "s-typo" })).toEqual({
+      found: false,
+      reason: "sprint_not_found",
+      sprintId: "s-typo",
+    });
+    // The Flow board takes no sprint: the id is ignored there.
+    expect(await list({ sprintId: "s-typo", source: "flow" })).toMatchObject({
+      found: true,
+      source: "flow",
+    });
+    expect(await list({ sprintId: "s-1" })).toMatchObject({ found: true, sprintId: "s-1" });
+  });
+
+  it("puts Little's Law on the cycle-time day rule, as the page does", async () => {
+    // Started and finished the same day, every day: ≈ 1 day, not 0.
+    useWorkspaceStore.setState({
+      sprints: [SPRINT],
+      stories: [3, 2, 1, 0].map((n) =>
+        story(`s${n}`, [
+          ["in_progress", n],
+          ["done", n],
+        ])
+      ),
+    });
+    const r = await list();
+    expect(r.avgWip).toBe(0);
+    expect(r.littlesLawDays).toBe(1);
+    expect(r.measuredCycleTime.averageDays).toBe(1);
   });
 });

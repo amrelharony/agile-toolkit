@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -312,7 +312,30 @@ describe("throughput and Little's Law", () => {
     // 29 finished over 29 elapsed days, not 2 snapshots.
     expect(m.throughputPerDay).toBe(1);
     expect(m.littles?.avgWip).toBe(3);
-    expect(m.littles?.leadTimeDays).toBe(3);
+    // 3 ÷ 1, plus the day end-of-day WIP misses (a same-day item is 1 day).
+    expect(m.littles?.leadTimeDays).toBe(4);
+  });
+
+  it("reads Little's Law on the cycle-time day rule: same-day work is ≈ 1 day", async () => {
+    // One story started and finished each day, nothing left in progress overnight.
+    const stories = [4, 3, 2, 1, 0].map((n) =>
+      story(`s${n}`, [
+        ["in_progress", n],
+        ["done", n],
+      ])
+    );
+    const m = cfdMetrics(sprintView(stories, SPRINT, TODAY));
+    expect(m.littles?.avgWip).toBe(0);
+    expect(m.littles?.leadTimeDays).toBe(1);
+    // The measured cycle time beside it agrees.
+    expect(m.measured?.average).toBe(1);
+    useWorkspaceStore.setState({ sprints: [SPRINT], stories });
+    const agent = (await registry.get("tool.cumulative_flow.list_state")!.handler({}, ctx)) as {
+      littlesLawDays: number | null;
+      measuredCycleTime: { averageDays: number | null };
+    };
+    expect(agent.littlesLawDays).toBe(1);
+    expect(agent.measuredCycleTime.averageDays).toBe(1);
   });
 
   it("quotes nothing below MIN_SAMPLE.average points, and no lead time without throughput", () => {
@@ -409,7 +432,7 @@ describe("the verdict", () => {
       entry("c", "2026-10-03", [5, 2, 0, 2]),
     ]);
     expect(cfdVerdict(steady, cfdMetrics(steady))).toBe(
-      "About 1 items finished a day; at that pace an item takes ≈ 2 days from start to done (Little's Law)."
+      "About 1 items finished a day; at that pace an item takes ≈ 3 days from start to done (Little's Law)."
     );
     const short = typedView(DEFAULT_COLUMNS, [entry("a", "2026-10-01", [5, 2, 0, 0])]);
     expect(cfdVerdict(short, cfdMetrics(short))).toBe(
@@ -542,6 +565,92 @@ describe("typed snapshots", () => {
     expect(useCFDStore.getState().entries.map((e) => e.id)).toEqual(["a"]);
   });
 
+  it("won't Undo a delete into a date that has had a snapshot since", () => {
+    useCFDStore.setState({
+      source: "typed",
+      entries: [entry("a", "2026-10-01", [5, 2, 1, 3]), entry("b", "2026-10-02", [4, 2, 1, 4])],
+    });
+    renderPage();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Delete the snapshot from 2026-10-01" })[0]
+    );
+    const undo = toastSpy.mock.calls[toastSpy.mock.calls.length - 1][1];
+    act(() => {
+      useCFDStore.getState().addEntry({ date: "2026-10-01", counts: { "col-4": 9 } });
+    });
+    act(() => undo.action.onClick());
+    const dates = useCFDStore.getState().entries.map((e) => e.date);
+    expect(dates.filter((d) => d === "2026-10-01")).toHaveLength(1);
+    expect(useCFDStore.getState().entries.find((e) => e.id === "a")).toBeUndefined();
+    expect(toastSpy).toHaveBeenLastCalledWith(
+      "Kept the snapshot typed for 2026-10-01 since: one date has one snapshot."
+    );
+    // Without a clash it goes back in its place, and a second restore is a no-op.
+    const z = entry("z", "2026-10-09", [1, 1, 1, 1]);
+    act(() => {
+      expect(useCFDStore.getState().restoreEntry(z, 0)).toBe(true);
+      expect(useCFDStore.getState().restoreEntry(z, 0)).toBe(true);
+    });
+    expect(useCFDStore.getState().entries.filter((e) => e.id === "z")).toHaveLength(1);
+    expect(useCFDStore.getState().entries[0].id).toBe("z");
+  });
+
+  it("keeps a row in place while its date is edited, with a Re-sort chip", () => {
+    useCFDStore.setState({
+      source: "typed",
+      entries: [entry("a", "2026-10-01", [5, 2, 1, 3]), entry("b", "2026-10-02", [4, 2, 1, 4])],
+    });
+    renderPage();
+    const date = screen.getAllByLabelText("Date of the snapshot from 2026-10-01")[0];
+    fireEvent.change(date, { target: { value: "2026-10-03" } });
+    fireEvent.blur(date);
+    expect(useCFDStore.getState().entries.find((e) => e.id === "a")?.date).toBe("2026-10-03");
+    // Still the first row, so Tab goes on into its own counts.
+    const firstRow = () =>
+      screen.getAllByLabelText(/^Date of the snapshot from/)[0].getAttribute("aria-label");
+    expect(firstRow()).toBe("Date of the snapshot from 2026-10-03");
+    expect(screen.getByText(/Dates changed since the last sort/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Re-sort" }));
+    expect(firstRow()).toBe("Date of the snapshot from 2026-10-02");
+  });
+
+  it("moves focus to the next snapshot after a delete, then to the form", async () => {
+    useCFDStore.setState({
+      source: "typed",
+      entries: [entry("a", "2026-10-01", [5, 2, 1, 3]), entry("b", "2026-10-02", [4, 2, 1, 4])],
+    });
+    renderPage();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Delete the snapshot from 2026-10-01" })[0]
+    );
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: "Delete the snapshot from 2026-10-02" })[0]
+      ).toHaveFocus()
+    );
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Delete the snapshot from 2026-10-02" })[0]
+    );
+    const form = screen.getByRole("button", { name: "Add snapshot" }).closest("form")!;
+    await waitFor(() => expect(within(form).getByLabelText(/^Date/)).toHaveFocus());
+  });
+
+  it("asks for a middle column only when there's none to count WIP in", () => {
+    useCFDStore.setState({ source: "typed" });
+    const { unmount } = renderPage();
+    const tile = () => screen.getByText("Work in progress").parentElement!;
+    // The default columns have two in progress: nothing typed yet is all that's missing.
+    expect(tile()).not.toHaveTextContent("add a middle column");
+    unmount();
+    useCFDStore.setState({
+      source: "typed",
+      columns: [DEFAULT_COLUMNS[0], DEFAULT_COLUMNS[3]],
+      entries: [entry("a", "2026-10-01", [1, 0, 0, 2])],
+    });
+    renderPage();
+    expect(tile()).toHaveTextContent("add a middle column");
+  });
+
   it("clears the snapshots after a confirm, keeps the columns, and undoes", () => {
     const renamed = DEFAULT_COLUMNS.map((c, i) => (i === 0 ? { ...c, name: "Queue" } : c));
     useCFDStore.setState({
@@ -564,7 +673,7 @@ describe("typed snapshots", () => {
     expect(useCFDStore.getState().wipLimit).toBe(4);
   });
 
-  it("adds a column before Done, and a removed column comes back with its counts", () => {
+  it("adds a column before Done, and a removed column comes back with its counts", async () => {
     useCFDStore.setState({ source: "typed", entries: [entry("a", "2026-10-01", [5, 2, 1, 3])] });
     renderPage();
     fireEvent.change(screen.getByLabelText(/^New column/), { target: { value: "Blocked" } });
@@ -583,6 +692,10 @@ describe("typed snapshots", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove column In Review" }));
     expect(names()).not.toContain("In Review");
     expect(useCFDStore.getState().entries[0].counts["col-3"]).toBeUndefined();
+    // Focus moves on to the next column's Remove, not to <body>.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove column Blocked" })).toHaveFocus()
+    );
     undoLast();
     expect(names()).toEqual(["To Do", "In Progress", "In Review", "Blocked", "Done"]);
     expect(useCFDStore.getState().entries[0].counts["col-3"]).toBe(1);
@@ -630,6 +743,24 @@ describe("Cumulative Flow page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Type snapshots instead" }));
     expect(useCFDStore.getState().source).toBe("typed");
     expect(screen.getByRole("button", { name: "Add snapshot" })).toBeInTheDocument();
+  });
+
+  it("leaves the user's own board limits out of the example", () => {
+    useWorkspaceStore.setState({
+      kanbanBoards: [
+        {
+          id: KANBAN_BOARD_ID,
+          cards: [],
+          wipLimits: { backlog: 0, ready: 5, in_progress: 1, review: 1, done: 0 },
+        },
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(screen.queryByText(/from the board/)).not.toBeInTheDocument();
+    const tile = screen.getByText("Work in progress").parentElement!;
+    expect(tile).not.toHaveTextContent("allowed");
+    expect(screen.queryByText(/over the limit/)).not.toBeInTheDocument();
   });
 
   it("shows the example in memory and clears it", () => {

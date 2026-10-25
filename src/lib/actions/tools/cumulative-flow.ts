@@ -109,6 +109,14 @@ function flowRange(items: readonly FlowItem[], today: string, days: number) {
   return { from: isoFromDayNumber(Math.min(now, Math.max(back, first))), to: today };
 }
 
+/**
+ * Little's Law's lead time on the toolkit's day rule, as the page reads it
+ * (cumulative-flow/view sameDayLeadTime): WIP counted at the end of each
+ * day misses each item's last day, so avg WIP ÷ throughput is one day
+ * under lib/flow cycleDays, which counts a same-day item as 1.
+ */
+const sameDayLeadTime = (rawDays: number) => rawDays + 1;
+
 /** Sum of the In progress and Review limits, only when both are set (the page's boardWipLimit). */
 function boardWipLimit(board: KanbanBoard | null): number | null {
   const l = board?.wipLimits;
@@ -139,6 +147,19 @@ const ListParams = z.object({
 });
 
 function listState(data: FlowData, params: z.infer<typeof ListParams>, today: string) {
+  // A sprint asked for by id must exist: falling back to the active one
+  // would report another sprint's flow as the one asked about.
+  if (
+    params.sprintId &&
+    params.source !== "flow" &&
+    !data.sprints.some((s) => s.id === params.sprintId)
+  ) {
+    return {
+      found: false as const,
+      reason: "sprint_not_found" as const,
+      sprintId: params.sprintId,
+    };
+  }
   const sprint = pickDefaultSprint(data.sprints, params.sprintId);
   const sprintItems = sprint ? storyItems(data.stories, { sprint }) : [];
   const source = params.source ?? (sprintItems.length > 0 ? "sprint" : "flow");
@@ -162,6 +183,7 @@ function listState(data: FlowData, params: z.infer<typeof ListParams>, today: st
   const finished = range ? finishedItems(items, range) : [];
   const measured = cycleSummary(finished.map((f) => f.days));
   return {
+    found: true as const,
     source,
     sprintId: source === "sprint" ? (sprint?.id ?? null) : null,
     sprintName: source === "sprint" ? (sprint?.name ?? null) : null,
@@ -174,7 +196,7 @@ function listState(data: FlowData, params: z.infer<typeof ListParams>, today: st
     minDays: MIN_SAMPLE.average,
     avgWip: law ? round2(law.avgWip) : null,
     throughputPerDay: law ? round2(law.throughputPerDay) : enough && totals.length >= 2 ? 0 : null,
-    littlesLawDays: law ? round2(law.leadTimeDays) : null,
+    littlesLawDays: law ? round2(sameDayLeadTime(law.leadTimeDays)) : null,
     measuredCycleTime: {
       count: measured.count,
       averageDays: enoughData(measured.count, "average") ? round2OrNull(measured.average) : null,
@@ -191,7 +213,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "The cumulative flow the page draws from a board, read live: the sprint's stories by status (To do, In progress, Review, Done) or the Flow board's cards by column, one point per calendar day (local days; done is the running total). Params: source? 'sprint' | 'flow' (default: the sprint when it has stories, else the Flow board), sprintId? (default: the active sprint, else the newest), days? 7–180 (Flow board range back from today, default 30). Returns {source, sprintId, sprintName, range {from, to} | null (null before the sprint starts or without cards), itemCount, stages: {id, label, kind 'queue' | 'active' | 'done'}[], days: {date, counts: {stageId: n}}[], latest {date, total, wip, done} | null, enoughDays, minDays (3), avgWip, throughputPerDay (items finished per elapsed day), littlesLawDays (≈ days from start to done = avg WIP ÷ throughput) — all three null below minDays days, littlesLawDays also null with no throughput — measuredCycleTime {count, averageDays (null below 3 finished)}, approximateItems (placed from start/done stamps because their move history wasn't kept), wipLimit (In progress + Review limits from the board, null unless both are set)}. Typed snapshots stay on the device that typed them.",
+    "The cumulative flow the page draws from a board, read live: the sprint's stories by status (To do, In progress, Review, Done) or the Flow board's cards by column, one point per calendar day (local days; done is the running total). Params: source? 'sprint' | 'flow' (default: the sprint when it has stories, else the Flow board), sprintId? (default: the active sprint, else the newest; an id that matches no sprint returns {found: false, reason: 'sprint_not_found', sprintId} instead of another sprint's flow), days? 7–180 (Flow board range back from today, default 30). Returns {found: true, source, sprintId, sprintName, range {from, to} | null (null before the sprint starts or without cards), itemCount, stages: {id, label, kind 'queue' | 'active' | 'done'}[], days: {date, counts: {stageId: n}}[], latest {date, total, wip, done} | null, enoughDays, minDays (3), avgWip, throughputPerDay (items finished per elapsed day), littlesLawDays (≈ days from start to done = avg WIP ÷ throughput + 1, on the page's day rule where a same-day item is 1 day, so it compares with measuredCycleTime) — all three null below minDays days, littlesLawDays also null with no throughput — measuredCycleTime {count, averageDays (null below 3 finished)}, approximateItems (placed from start/done stamps because their move history wasn't kept), wipLimit (In progress + Review limits from the board, null unless both are set)}. Typed snapshots stay on the device that typed them.",
   paramsSchema: ListParams,
   handler: async (params) => listState(await browserData(), params, todayIso()),
   mcpHandler: async (params, ctx) => listState(await serverData(ctx.userId), params, todayIso()),
@@ -204,7 +226,7 @@ registry.register({
   name: "compute",
   category: "read",
   description:
-    "Compute flow metrics from a CFD series the agent passes. Params: wip[] (in-progress count per point) and done[] (CUMULATIVE completed count per point), oldest first, equal length; dates? (YYYY-MM-DD per point, same length) so throughput is per elapsed day between uneven dates (without dates the points are taken as consecutive days). Returns {days (points), elapsedDays, avgWip, throughputPerDay, littlesLawCycleTimeDays (avgWip ÷ throughput; null without throughput), wipControlLimits {centerLine, ucl, lcl} | null, wipStable (all WIP within the limits) | null}. As on the page: avgWip, throughput and Little's Law are null below 3 points, and the control limits and wipStable below 8. Pure.",
+    "Compute flow metrics from a CFD series the agent passes. Params: wip[] (in-progress count per point) and done[] (CUMULATIVE completed count per point), oldest first, equal length; dates? (YYYY-MM-DD per point, same length) so throughput is per elapsed day between uneven dates (without dates the points are taken as consecutive days). Returns {days (points), elapsedDays, avgWip, throughputPerDay, littlesLawCycleTimeDays (avgWip ÷ throughput; null without throughput), leadTimeDays (littlesLawCycleTimeDays + 1: the page's reading for WIP counted at the end of each day, where a same-day item is 1 day, as list_state's littlesLawDays; null without throughput), wipControlLimits {centerLine, ucl, lcl} | null, wipStable (all WIP within the limits) | null}. As on the page: avgWip, throughput and Little's Law are null below 3 points, and the control limits and wipStable below 8. Pure.",
   paramsSchema: z
     .object({
       wip: z
@@ -243,6 +265,7 @@ registry.register({
       avgWip: enough ? round2(wip.reduce((a, b) => a + b, 0) / n) : null,
       throughputPerDay: law ? round2(law.throughputPerDay) : enough ? 0 : null,
       littlesLawCycleTimeDays: law ? round2(law.leadTimeDays) : null,
+      leadTimeDays: law ? round2(sameDayLeadTime(law.leadTimeDays)) : null,
       wipControlLimits: limits
         ? {
             centerLine: round2(limits.centerLine),

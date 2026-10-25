@@ -58,6 +58,11 @@ export interface CFDStore extends TypedSnapshotState {
   addEntry: (entry: Omit<DataEntry, "id">) => boolean;
   /** False (and nothing saved) when the change would give two snapshots one date. */
   updateEntry: (id: string, updates: Partial<Omit<DataEntry, "id">>) => boolean;
+  /**
+   * Put a deleted snapshot back at `index` (Undo of a delete). False, and
+   * nothing saved, when its date has had another snapshot since.
+   */
+  restoreEntry: (entry: DataEntry, index: number) => boolean;
   /** Sets a count; anything but a whole number from 0 is ignored. */
   updateEntryCount: (entryId: string, statusId: string, count: number) => void;
   setWipLimit: (limit: number | null) => void;
