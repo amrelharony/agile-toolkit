@@ -818,10 +818,17 @@ export function cockpitTiles(
     "sprint" | "status" | "progress" | "burndown" | "openImpediments" | "blockedStories"
   >,
   sprints: readonly Sprint[],
-  today: string
+  today: string,
+  /** Sprint Comparison's computed average (lib/sprints/compare); absent: the typed ratings'. */
+  { rating }: { rating?: number | null } = {}
 ): Tile[] {
   const { sprint, status } = data;
-  const hub = hubTiles(sprint, status, averageVelocity(completedSprints(sprints), sprint.id));
+  const hub = hubTiles(
+    sprint,
+    status,
+    averageVelocity(completedSprints(sprints), sprint.id),
+    rating !== undefined ? { rating } : {}
+  );
   const overrides: Partial<Record<TileId, Tile>> =
     data.burndown.source === "stories"
       ? boardTiles(sprint, data.progress, data.burndown, today)
