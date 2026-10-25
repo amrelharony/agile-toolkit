@@ -63,8 +63,11 @@ export function KpiCard({ kpi, icon: Icon }: { kpi: HealthKpi; icon: LucideIcon 
             what={kpi.need.what}
           />
         ) : (
-          <p className="font-data text-2xl text-sub" aria-label="No value">
-            —
+          // aria-label on a <p> is ignored by screen readers: the dash is
+          // hidden from them and the words are read instead.
+          <p className="font-data text-2xl text-sub">
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">No value</span>
           </p>
         )}
       </div>

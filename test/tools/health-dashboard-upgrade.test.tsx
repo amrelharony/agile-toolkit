@@ -37,7 +37,12 @@ vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+// The prompt's text, so a test can read the KPI table it hands the AI.
+vi.mock("@/components/shared/ai-prompt-generator", () => ({
+  AiPromptGenerator: ({ config }: { config: { prompts: { prompt: string }[] } }) => (
+    <pre data-testid="ai-prompt">{config.prompts[0]?.prompt ?? ""}</pre>
+  ),
+}));
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: ({ markdown }: { markdown?: string }) => (
     <pre data-testid="export-markdown">{markdown}</pre>
@@ -308,7 +313,8 @@ describe("predictability", () => {
     expect(three.value).toBe(67); // a and c met (90–110%), b missed
     expect(three.status).toBe("amber");
     expect(three.series).toEqual([100, 50, 90]);
-    expect(three.basis).toContain("1 unpointed sprint left out");
+    // Named for what it is: not unpointed, closed without a number.
+    expect(three.basis).toContain("(1 closed without a completed number left out)");
   });
 
   it("reads the latest sprints by end date, in the configured window", () => {
@@ -733,5 +739,216 @@ describe("the page", () => {
 
   it("keeps every KPI id it lists", () => {
     expect(dashboardKpis({ today: TODAY }).map((k) => k.id)).toEqual([...HEALTH_KPI_IDS]);
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+describe("the KPIs, as reviewed", () => {
+  // Rising say/do: 50%, 60%, … 160%, two weeks apart, the latest 2 weeks ago.
+  const rising = Array.from({ length: 12 }, (_, i) => sprint(`r${i}`, 10, 5 + i, (12 - i) * 14));
+
+  it("tests the predictability trend over every pointed sprint, not the window", async () => {
+    const k = kpiOf({ sprints: rising }, "predictability");
+    expect(k.n).toBe(6); // the headline reads the window
+    expect(k.series).toHaveLength(12);
+    // The shared test confirms a trend from 10 points: the window of 6 never could.
+    expect(k.trend).toBe("up");
+    expect(kpiOf({ sprints: rising.slice(-5) }, "predictability").trend).toBeUndefined();
+    const flat = rising.map((s) => ({ ...s, pointsCompleted: 10 }));
+    expect(kpiOf({ sprints: flat }, "predictability").trend).toBe("same");
+    // The agent reads the same trend.
+    useWorkspaceStore.setState({ sprints: rising });
+    const r = (await registry
+      .get("tool.health_dashboard.get_summary")!
+      .handler({}, { userId: "u", source: "agent", squadProfileIds: [] })) as {
+      kpis: { id: string; trend: string | null }[];
+    };
+    expect(r.kpis.find((x) => x.id === "predictability")?.trend).toBe("up");
+    expect(r.kpis.find((x) => x.id === "open-impediments")?.trend).toBeNull();
+  });
+
+  it("names only the sprints left out inside the window's span, for what they are", () => {
+    const sprints = [
+      sprint("long-ago", 0, 0, 400), // before the span the window reads: not named
+      sprint("p1", 10, 10, 44),
+      sprint("p2", 10, 10, 30),
+      sprint("zero", 0, 3, 23),
+      sprint("p3", 10, 10, 16),
+      sprint("open", 10, undefined, 2),
+    ];
+    expect(kpiOf({ sprints }, "predictability").basis).toContain(
+      "(1 unpointed sprint and 1 closed without a completed number left out)"
+    );
+    expect(
+      kpiOf({ sprints: [sprint("z", 0, 0, 3), sprint("o", 10, undefined, 2)] }, "predictability")
+        .basis
+    ).toBe(
+      "None of the 2 finished sprints is pointed: 1 unpointed sprint and 1 closed without a completed number."
+    );
+  });
+
+  it("counts the blockers already raised as impediments only while they're still mentioned", () => {
+    const raised = (at: number) => ({
+      sentTo: [{ route: "impediment" as const, targetId: "i", at: ago(at) }],
+    });
+    const entries: StandupEntry[] = [
+      entry("1", "Ana", 40, "Old VPN", raised(40)),
+      entry("2", "Ben", 50, "Old CI", raised(50)),
+      entry("3", "Cy", 20, "Proxy", raised(20)),
+      entry("4", "Cy", 1, "Proxy"), // repeated this week: still the impediment's
+      entry("5", "Dee", 1, "Design"),
+    ];
+    expect(countBlockers(entries, [], TODAY, 7)).toEqual({
+      recent: 1,
+      olderOpen: 0,
+      raised: 1,
+      entries: 5,
+    });
+    const k = kpiOf({ standupEntries: entries }, "open-blockers");
+    expect(k.value).toBe(1);
+    expect(k.basis).toContain(" 1 more is already an impediment.");
+  });
+
+  it("says what cycle time needs without repeating itself", () => {
+    const k = kpiOf({ stories: [story("s1", 5, 5)] }, "cycle-time-p85");
+    expect(k.need?.unit).toEqual(["item with a start date", "items with start dates"]);
+  });
+
+  it("gives team health its direction from the check before", () => {
+    const hc: HealthCheck = {
+      id: "healthCheck:current",
+      current: { sprintName: "", scores: lights(8, 0, 0) },
+      history: [
+        { id: "h1", sprintName: "S1", date: "2026-02-01", scores: lights(6, 2, 0) },
+        { id: "h2", sprintName: "S2", date: "2026-03-01", scores: lights(2, 2, 4) },
+      ],
+    };
+    expect(kpiOf({ healthChecks: [hc] }, "team-health").trend).toBe("down");
+    expect(
+      kpiOf({ healthChecks: [{ ...hc, history: hc.history.slice(0, 1) }] }, "team-health").trend
+    ).toBeUndefined();
+  });
+});
+
+describe("the page, as reviewed", () => {
+  const groupIn = (form: HTMLElement, name: string) => within(form).getByRole("group", { name });
+  const thresholdsForm = () =>
+    screen.getByRole("button", { name: "Save thresholds" }).closest("form")!;
+
+  it("brings the form in line with another write, keeping an unsaved edit on top", () => {
+    useWorkspaceStore.setState({
+      impediments: [{ id: "1", title: "a", severity: "low", raisedAt: ago(1) }],
+    });
+    renderPage();
+    const form = thresholdsForm();
+    const predGreen = () => within(groupIn(form, "Predictability")).getByLabelText(/^Green from/);
+    const openGreen = () =>
+      within(groupIn(form, "Open impediments")).getByLabelText(/^Green up to/);
+
+    // Nothing edited: the form just follows the agent's write.
+    act(() => {
+      useWorkspaceStore.setState({
+        healthDashboards: [
+          { id: HEALTH_DASHBOARD_ID, thresholds: { predictability: { green: 90, amber: 70 } } },
+        ],
+      });
+    });
+    expect(predGreen()).toHaveValue("90");
+    expect(screen.queryByText(/The thresholds changed elsewhere/)).toBeNull();
+
+    // An edit not saved yet stays; the other change comes in, and it says so.
+    fireEvent.change(openGreen(), { target: { value: "1" } });
+    act(() => {
+      useWorkspaceStore.setState({
+        healthDashboards: [
+          {
+            id: HEALTH_DASHBOARD_ID,
+            thresholds: { predictability: { green: 85, amber: 70 } },
+            blockerWindowDays: 3,
+          },
+        ],
+      });
+    });
+    expect(predGreen()).toHaveValue("85");
+    expect(openGreen()).toHaveValue("1");
+    expect(within(form).getByLabelText(/^Days a standup blocker/)).toHaveValue("3");
+    expect(screen.getByText(/The thresholds changed elsewhere/)).toBeInTheDocument();
+
+    // Save keeps both: the old set isn't written back over the other change.
+    fireEvent.click(screen.getByRole("button", { name: "Save thresholds" }));
+    expect(config()).toMatchObject({
+      thresholds: {
+        predictability: { green: 85, amber: 70 },
+        "open-impediments": { green: 1, amber: 3 },
+      },
+      blockerWindowDays: 3,
+    });
+    expect(screen.queryByText(/The thresholds changed elsewhere/)).toBeNull();
+    // The form wasn't remounted by its own save.
+    expect(thresholdsForm()).toBe(form);
+  });
+
+  it("hands focus to the first limit after a reset, not to the page", async () => {
+    useWorkspaceStore.setState({
+      impediments: [{ id: "1", title: "a", severity: "low", raisedAt: ago(1) }],
+      healthDashboards: [
+        { id: HEALTH_DASHBOARD_ID, thresholds: { "open-impediments": { green: 1, amber: 3 } } },
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Reset thresholds" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Reset thresholds" })
+    );
+    // Past the dialog's own focus restore (a timeout after it closes).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    const form = thresholdsForm();
+    expect(document.activeElement).toBe(
+      within(groupIn(form, "Predictability")).getByLabelText(/^Green from/)
+    );
+    expect(within(groupIn(form, "Open impediments")).getByLabelText(/^Green up to/)).toHaveValue(
+      "0"
+    );
+  });
+
+  it("names a light without a value as its card does, and reads the dash as words", () => {
+    useWorkspaceStore.setState({
+      stories: [story("s1", 5, 5)],
+      impediments: [{ id: "1", title: "a", severity: "low", raisedAt: ago(1) }],
+    });
+    renderPage();
+    const lights = screen.getByRole("list", { name: "Each KPI's light" });
+    // Cycle time has a finished item, too few to quote: not "No data".
+    expect(within(lights).getByRole("img", { name: "Not enough data" })).toBeInTheDocument();
+    expect(within(lights).getAllByRole("img", { name: "No data" }).length).toBeGreaterThan(0);
+    const team = screen.getByRole("article", { name: "Team health" });
+    expect(within(team).getByText("No value")).toHaveClass("sr-only");
+    expect(screen.getByRole("article", { name: "Cycle time P85" })).toHaveTextContent(
+      "Finish 4 more items with start dates to see the cycle time P85."
+    );
+  });
+
+  it("hands the AI each KPI's real trend, and says when there is none", () => {
+    useWorkspaceStore.setState({
+      impediments: [{ id: "1", title: "a", severity: "low", raisedAt: ago(1) }],
+      healthChecks: [
+        {
+          id: "healthCheck:current",
+          current: { sprintName: "", scores: lights(8, 0, 0) },
+          history: [
+            { id: "h1", sprintName: "S1", date: "2026-02-01", scores: lights(8, 0, 0) },
+            { id: "h2", sprintName: "S2", date: "2026-03-01", scores: lights(2, 2, 4) },
+          ],
+        },
+      ],
+    });
+    renderPage();
+    const prompt = screen.getByTestId("ai-prompt").textContent ?? "";
+    expect(prompt).toMatch(/Team health \|[^\n]*\| ↓ \|/);
+    expect(prompt).toContain("Open impediments (no trend data)");
+    expect(prompt).not.toMatch(/Team health \(no trend data\)/);
   });
 });

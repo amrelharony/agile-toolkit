@@ -95,6 +95,7 @@ const kpiRow = (k: HealthKpi) => ({
   enough: k.enough,
   basis: k.basis,
   detail: k.detail ?? null,
+  trend: k.trend ?? null,
   threshold: k.threshold,
   source: k.source.href,
   ...(k.olderOpen !== undefined ? { olderOpen: k.olderOpen } : {}),
@@ -204,7 +205,7 @@ registry.register({
   name: "get_summary",
   category: "read",
   description:
-    "The team dashboard as the page shows it, from the synced workspace (example- rows left out). Returns {kpis: [{id (predictability | team-health | open-impediments | critical-impediments | open-blockers | cycle-time-p85), name, unit (percent|count|days), higherIsBetter, value (null without data or below the minimum sample), status (green|amber|red, null without a value), n, hasData, enough, basis (where it comes from), detail, threshold {green, amber}, source (the tool's path), olderOpen (blockers only)}], overall {score (% of the lit KPIs' lights, green 100 / amber 50 / red 0), status, counted, total}, verdict (one sentence), thresholds {kpiId: {green, amber}}, windows {sprintWindow, blockerWindowDays, cycleWindowDays}, sprints {total, active, completed, predictability (% of the latest pointed sprints that met their commitment, 90–110%)}, stories {total, done, inProgress, completionPct}, impediments {total, open (incl. escalated), critical, overdue}, risks {total, open, high (exposure >= 15)}, okrs {total, avgProgress}, healthCheck {exists, healthPct (latest saved check: green 1, yellow ½, red 0)}, flags: one per KPI that isn't green (low_predictability, low_team_health, open_impediments_high, critical_impediments_open, open_blockers_high, cycle_time_high), plus high_risks_open and low_story_completion}.",
+    "The team dashboard as the page shows it, from the synced workspace (example- rows left out). Returns {kpis: [{id (predictability | team-health | open-impediments | critical-impediments | open-blockers | cycle-time-p85), name, unit (percent|count|days), higherIsBetter, value (null without data or below the minimum sample), status (green|amber|red, null without a value), n, hasData, enough, basis (where it comes from), detail, trend (up|down|same, null with nothing to compare: team health against the check before; predictability by a Mann-Kendall test over every pointed sprint, from 6 of them, \"same\" until it confirms a direction), threshold {green, amber}, source (the tool's path), olderOpen (blockers only)}], overall {score (% of the lit KPIs' lights, green 100 / amber 50 / red 0), status, counted, total}, verdict (one sentence), thresholds {kpiId: {green, amber}}, windows {sprintWindow, blockerWindowDays, cycleWindowDays}, sprints {total, active, completed, predictability (% of the latest pointed sprints that met their commitment, 90–110%)}, stories {total, done, inProgress, completionPct}, impediments {total, open (incl. escalated), critical, overdue}, risks {total, open, high (exposure >= 15)}, okrs {total, avgProgress}, healthCheck {exists, healthPct (latest saved check: green 1, yellow ½, red 0)}, flags: one per KPI that isn't green (low_predictability, low_team_health, open_impediments_high, critical_impediments_open, open_blockers_high, cycle_time_high), plus high_risks_open and low_story_completion}.",
   paramsSchema: z.object({}),
   handler: async () => {
     const s = useWorkspaceStore.getState();

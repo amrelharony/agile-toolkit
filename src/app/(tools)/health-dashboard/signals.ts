@@ -2,10 +2,13 @@
 
 /**
  * Cross-tool signals: event streams from the workspace history that tend to
- * move together (a blocker spike around a velocity update, tech debt before
- * a mood dip, new risks after sprint-goal changes). Hints to look into, not
- * proof of cause, so the dashboard shows them in Advanced analysis only, and
- * only once a pair of streams crosses the confidence floor below.
+ * happen close together (impediments raised around velocity updates, tech
+ * debt logged near mood check-ins, new risks after sprint-goal saves). Only
+ * how often two kinds of event fall within a few days of each other is
+ * measured, never the values (no velocity dip or mood drop), so the labels
+ * name the events. Hints to look into, not proof of cause: the dashboard
+ * shows them in Advanced analysis only, once a pair of streams crosses the
+ * confidence floor below.
  */
 
 import { useMemo } from "react";
@@ -35,8 +38,8 @@ export function useCrossToolSignals(): CausalAnnotationData[] {
     if (velImp.withinLagCount >= MIN_WITHIN_LAG && velImp.pairs >= MIN_PAIRS) {
       out.push({
         x: 0,
-        label: "Velocity dip aligned with blocker spike",
-        detail: `Across ${velImp.pairs} sampled pairs, ${velImp.withinLagCount} blockers were raised within 3 days of a velocity update (mean lag ${velImp.meanLagDays.toFixed(1)} days). Inspect the Impediments and Velocity tools for the underlying sprints.`,
+        label: "Impediments raised around velocity updates",
+        detail: `Across ${velImp.pairs} sampled pairs, ${velImp.withinLagCount} impediments were raised within 3 days of a velocity update (mean lag ${velImp.meanLagDays.toFixed(1)} days). Inspect the Impediments and Velocity tools for the underlying sprints.`,
         link: { toolId: "impediments" },
         confidence: confidence(velImp.withinLagCount),
       });
@@ -50,8 +53,8 @@ export function useCrossToolSignals(): CausalAnnotationData[] {
     if (debtMood.withinLagCount >= MIN_WITHIN_LAG && debtMood.pairs >= MIN_PAIRS) {
       out.push({
         x: 1,
-        label: "Tech-debt spike correlates with team mood dip",
-        detail: `${debtMood.withinLagCount} of ${debtMood.pairs} tech-debt entries fell within 14 days of a mood log (mean lag ${debtMood.meanLagDays.toFixed(1)} days). Long-term debt often comes before morale signals — worth exploring in the Tech Debt and Mood Tracker tools.`,
+        label: "Tech-debt items logged near mood check-ins",
+        detail: `${debtMood.withinLagCount} of ${debtMood.pairs} tech-debt entries fell within 14 days of a mood log (mean lag ${debtMood.meanLagDays.toFixed(1)} days). The timing only, not the mood itself: worth a look in the Tech Debt and Mood Tracker tools.`,
         link: { toolId: "tech-debt" },
         confidence: confidence(debtMood.withinLagCount),
       });
@@ -67,7 +70,7 @@ export function useCrossToolSignals(): CausalAnnotationData[] {
     if (goalRisk.withinLagCount >= MIN_WITHIN_LAG && goalRisk.pairs >= MIN_PAIRS) {
       out.push({
         x: 2,
-        label: "Open risks rose after sprint-goal events",
+        label: "Risks logged after sprint-goal saves",
         detail: `${goalRisk.withinLagCount} of ${goalRisk.pairs} new risks landed within 14 days of a sprint-goal save (mean lag ${goalRisk.meanLagDays.toFixed(1)} days). Inspect the Risk Register for context.`,
         link: { toolId: "risk-register" },
         confidence: confidence(goalRisk.withinLagCount),

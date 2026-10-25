@@ -145,8 +145,8 @@ export function HealthDashboardClient() {
 
   /* ── Settings ─────────────────────────────────────────────────────── */
 
-  // Bumped after a save, a reset or its Undo, so the form shows the stored values.
-  const [formKey, setFormKey] = useState(0);
+  // The form follows the stored settings itself (an Undo, the agent, another
+  // device), so nothing here remounts it and takes the keyboard focus away.
   const before = useRef<HealthDashboardConfig | null>(null);
 
   const saveSettings = (next: HealthSettings) => {
@@ -163,10 +163,7 @@ export function HealthDashboardClient() {
           cycleWindowDays: next.windows.cycleWindowDays,
         });
       },
-      revert: () => {
-        writeConfig(prev);
-        setFormKey((k) => k + 1);
-      },
+      revert: () => writeConfig(prev),
     });
     announce("Saved the thresholds. The lights now follow them.");
   };
@@ -175,14 +172,12 @@ export function HealthDashboardClient() {
     before.current = config ?? null;
     writeConfig(configFor(settingsOf(null), new Date().toISOString()));
     log(HEALTH_DASHBOARD_ACTIONS.THRESHOLDS_UPDATED, { reset: true });
-    setFormKey((k) => k + 1);
     announce("Reset the thresholds to the defaults.");
   };
 
   const undoReset = () => {
     writeConfig(before.current);
     before.current = null;
-    setFormKey((k) => k + 1);
   };
 
   const promptConfig = useMemo(
@@ -195,11 +190,13 @@ export function HealthDashboardClient() {
               k.value !== null && k.status !== null
           )
           .map((k) => ({
-            name: k.name,
+            // The prompt's Trend column has no "unknown": a KPI without a
+            // history says so in its name instead of passing as flat.
+            name: k.trend ? k.name : `${k.name} (no trend data)`,
             value: k.value,
             unit: k.unit === "percent" ? "%" : k.unit === "days" ? " days" : "",
             status: k.status,
-            trend: "same" as const,
+            trend: k.trend ?? "same",
             sourceName: k.source.label,
             description: k.basis,
           })),
@@ -286,7 +283,11 @@ export function HealthDashboardClient() {
             <ul className="mb-5 flex flex-wrap gap-4" aria-label="Each KPI's light">
               {kpis.map((k) => (
                 <li key={k.id} className="flex w-20 flex-col items-center gap-2">
-                  <TrafficCircle status={k.status} labelled />
+                  <TrafficCircle
+                    status={k.status}
+                    labelled
+                    emptyLabel={k.hasData ? "Not enough data" : "No data"}
+                  />
                   <span className="text-center text-xs leading-tight text-sub">{k.name}</span>
                 </li>
               ))}
@@ -340,7 +341,6 @@ export function HealthDashboardClient() {
               same limits.
             </p>
             <ThresholdsForm
-              key={formKey}
               settings={settings}
               custom={!isDefaultSettings(settings)}
               onSave={saveSettings}

@@ -40,6 +40,7 @@ import { impedimentSummary } from "@/lib/impediments/model";
 import { allStandupEntries, hasBlocker } from "@/lib/standup/entries";
 import { addDays, cardItems, cycleSummary, finishedItems, storyItems } from "@/lib/flow";
 import { enoughData, type SampleKind } from "@/lib/analytics/min-sample";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import {
   HEALTH_KPI_IDS,
   KPI_DEFINITIONS,
@@ -85,6 +86,9 @@ export interface DashboardOptions {
   includeExamples?: boolean;
 }
 
+/** Which way a KPI's history moves: "same" when the test finds no direction. */
+export type KpiTrend = "up" | "down" | "same";
+
 /** One KPI as the page, the export and the agent show it. */
 export interface HealthKpi {
   id: HealthKpiId;
@@ -105,8 +109,17 @@ export interface HealthKpi {
   basis: string;
   /** A second line: velocity, overdue and oldest, older blockers, the median. */
   detail?: string;
-  /** Oldest first: each pointed sprint's say/do %, each saved check's health %. */
+  /**
+   * Oldest first: every pointed sprint's say/do % (not just the window's),
+   * each saved check's health %.
+   */
   series?: number[];
+  /**
+   * The direction of that history, absent with nothing to compare: team
+   * health against the check before; predictability by the Mann-Kendall
+   * test from MIN_SAMPLE.trend sprints ("same" until it confirms one).
+   */
+  trend?: KpiTrend;
   /** Below the minimum sample: what to add, for NotEnoughData. */
   need?: {
     have: number;
@@ -147,19 +160,49 @@ function kpi(
 
 /* ── Predictability ─────────────────────────────────────────────────── */
 
+/**
+ * A series' direction by the shared Mann-Kendall test, once MIN_SAMPLE.trend
+ * points exist: "same" while it confirms none (it can from 10 points).
+ */
+function seriesTrend(series: readonly number[]): KpiTrend | undefined {
+  if (!enoughData(series.length, "trend")) return undefined;
+  const r = mannKendall([...series]);
+  return r.significant && r.trend !== "none" ? r.trend : "same";
+}
+
+const noCompletedNumber = (s: Sprint) =>
+  typeof s.pointsCompleted !== "number" || !Number.isFinite(s.pointsCompleted);
+
 function predictabilityKpi(sprints: readonly Sprint[], settings: HealthSettings): HealthKpi {
   const p = predictability(sprints, { window: settings.windows.sprintWindow });
+  // The trend reads every pointed sprint: cut to the window (6 by default),
+  // the shared test, which confirms a trend from 10 points, never could.
+  const history = predictability(sprints, { window: Number.POSITIVE_INFINITY }).sprints.map(
+    (s) => s.pct
+  );
   const finished = sprints.filter((s) => s.status === "completed");
-  const unpointed = finished.filter((s) => !isPointedSprint(s)).length;
+  // Name only the sprints left out of the span the window read (from its
+  // oldest sprint on), not every one the team ever closed without points.
+  const from = p.sprints[0]?.endDate;
+  const skipped = finished.filter(
+    (s) => !isPointedSprint(s) && (from === undefined || (s.endDate ?? "") >= from)
+  );
+  const noNumber = skipped.filter(noCompletedNumber).length;
+  const unpointed = skipped.length - noNumber;
+  const reasons = [
+    unpointed > 0 ? plural(unpointed, "unpointed sprint") : null,
+    noNumber > 0 ? `${noNumber} closed without a completed number` : null,
+  ].filter((r): r is string => r !== null);
   const v = velocity(sprints.filter(isPointedSprint));
   const enough = enoughData(p.count, "average");
-  const leftOut = unpointed > 0 ? ` (${plural(unpointed, "unpointed sprint")} left out)` : "";
+  const leftOut = reasons.length > 0 ? ` (${reasons.join(" and ")} left out)` : "";
   const basis =
     p.count > 0
       ? `From the latest ${plural(p.count, "pointed sprint")}${leftOut}: the share that delivered 90–110% of what they committed.`
       : finished.length > 0
-        ? `None of the ${plural(finished.length, "finished sprint")} had committed points.`
+        ? `None of the ${plural(finished.length, "finished sprint")} is pointed: ${reasons.join(" and ")}.`
         : "No finished sprints yet.";
+  const trend = seriesTrend(history);
   const detail =
     v.average !== null
       ? `Velocity ${v.average} points (latest ${plural(v.count, "sprint")})${
@@ -173,7 +216,8 @@ function predictabilityKpi(sprints: readonly Sprint[], settings: HealthSettings)
     enough,
     basis,
     ...(detail ? { detail } : {}),
-    series: p.sprints.map((s) => s.pct),
+    series: history,
+    ...(trend ? { trend } : {}),
     ...(enough
       ? {}
       : {
@@ -255,8 +299,10 @@ function teamHealthKpi(
     ? `From the health check for “${name}”${on}: green 1, yellow ½, red 0.`
     : `From the health check${on}: green 1, yellow ½, red 0.`;
   let detail: string | undefined;
+  let trend: KpiTrend | undefined;
   if (before) {
     const diff = latest.pct - before.pct;
+    trend = diff > 0 ? "up" : diff < 0 ? "down" : "same";
     detail =
       diff === 0
         ? "The same as the check before."
@@ -270,6 +316,7 @@ function teamHealthKpi(
     basis,
     ...(detail ? { detail } : {}),
     series: scored.map((x) => x.pct),
+    ...(trend ? { trend } : {}),
   });
 }
 
@@ -327,7 +374,11 @@ export interface BlockerCount {
   recent: number;
   /** Open ones dated before the window (and not repeated inside it). */
   olderOpen: number;
-  /** Open ones already raised as impediments: counted under impediments. */
+  /**
+   * Open ones mentioned in the window that were raised as impediments (on
+   * any day): counted under impediments. One raised long ago and never
+   * mentioned since isn't counted here, so the number doesn't only grow.
+   */
   raised: number;
   /** Entries read (live and async). */
   entries: number;
@@ -344,27 +395,30 @@ export function countBlockers(
     (e) => includeExamples || !isExampleRow(e.id)
   );
   const from = addDays(today, -(windowDays - 1)) ?? today;
+  // Open blockers mentioned in the window, and only before it.
   const recent = new Set<string>();
   const older = new Set<string>();
+  // Every blocker raised as an impediment, whenever: one raised on one day
+  // and repeated on another is the impediment's now.
   const raised = new Set<string>();
   for (const e of entries) {
     if (!hasBlocker(e) || e.blockerResolved) continue;
     const key = blockerKey(e);
     if (raisedAsImpediment(e)) raised.add(key);
-    else if ((e.date ?? "") >= from) recent.add(key);
+    if ((e.date ?? "") >= from) recent.add(key);
     else older.add(key);
   }
   let olderOpen = 0;
   older.forEach((k) => {
     if (!recent.has(k) && !raised.has(k)) olderOpen++;
   });
-  // A blocker raised as an impediment on one day and repeated on another is
-  // the impediment's now.
   let counted = 0;
+  let raisedRecent = 0;
   recent.forEach((k) => {
-    if (!raised.has(k)) counted++;
+    if (raised.has(k)) raisedRecent++;
+    else counted++;
   });
-  return { recent: counted, olderOpen, raised: raised.size, entries: entries.length };
+  return { recent: counted, olderOpen, raised: raisedRecent, entries: entries.length };
 }
 
 function blockersKpi(src: DashboardSources, settings: HealthSettings, opts: DashboardOptions) {
@@ -421,7 +475,8 @@ function cycleKpi(src: DashboardSources, settings: HealthSettings, opts: Dashboa
           need: {
             have: summary.count,
             need: "distribution" as const,
-            unit: ["finished item with a start date", "finished items with start dates"] as const,
+            // "Finish 3 more items with start dates…" (not "finished items").
+            unit: ["item with a start date", "items with start dates"] as const,
             action: "Finish",
             what: "the cycle time P85",
           },

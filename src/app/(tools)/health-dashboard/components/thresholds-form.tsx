@@ -6,8 +6,14 @@
  * agent's set_thresholds runs too (lib/health-dashboard/settings), and the
  * first wrong field gets focus. Reset goes back to the defaults, with a
  * confirm and Undo.
+ *
+ * The draft follows the stored settings: when the agent's set_thresholds
+ * or another device changes them, the form shows the new values, keeping
+ * any unsaved edit on top (and saying so), so a later Save can't quietly
+ * write the old set back over the other change.
  */
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Save } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -21,6 +27,7 @@ import {
   WINDOW_LIMITS,
   limitText,
   settingsDraft,
+  settingsOf,
   validateThresholds,
   type HealthSettings,
   type HealthWindowKey,
@@ -44,6 +51,15 @@ const WINDOW_LABEL: Record<HealthWindowKey, { label: string; hint: string }> = {
     hint: `Stories and cards finished in this many days; default ${DEFAULT_WINDOWS.cycleWindowDays}.`,
   },
 };
+
+/** Two typed values that read as the same number ("1" and "1.0"), or the same text. */
+function sameValue(a: string, b: string): boolean {
+  const x = a.trim();
+  const y = b.trim();
+  return x === y || (x !== "" && y !== "" && Number(x) === Number(y));
+}
+
+const FIELDS = (d: SettingsDraft) => Object.keys(d) as ThresholdField[];
 
 function NumberInput({
   form,
@@ -87,12 +103,54 @@ export function ThresholdsForm({
   onReset: () => void;
   onUndoReset: () => void;
 }) {
+  const stored = useMemo(() => settingsDraft(settings), [settings]);
+  const [changedElsewhere, setChangedElsewhere] = useState(false);
   const form = useItemForm<SettingsDraft, HealthSettings, ThresholdField>({
-    initial: () => settingsDraft(settings),
+    initial: () => stored,
     validate: validateThresholds,
-    onSave: (values) => onSave(values),
+    onSave: (values) => {
+      setChangedElsewhere(false);
+      onSave(values);
+    },
     resetOnSave: false,
   });
+  const { draft, reset, formRef } = form;
+
+  // The stored settings the draft was last brought in line with.
+  const base = useRef(stored);
+  useEffect(() => {
+    const before = base.current;
+    if (FIELDS(stored).every((f) => sameValue(before[f], stored[f]))) return;
+    base.current = stored;
+    // Edits not saved yet: changed since `before` and not what is stored now
+    // (after this form's own Save, the draft already matches).
+    const pending = FIELDS(stored).filter(
+      (f) => !sameValue(draft[f], before[f]) && !sameValue(draft[f], stored[f])
+    );
+    const next = { ...stored };
+    for (const f of pending) next[f] = draft[f];
+    reset(next);
+    setChangedElsewhere(pending.length > 0);
+  }, [stored, draft, reset]);
+
+  // After a reset, focus goes to the first limit: the Reset button the
+  // dialog would hand it back to is disabled by then (nothing to reset).
+  const focusFirst = useRef(false);
+  useEffect(() => {
+    if (!focusFirst.current) return;
+    focusFirst.current = false;
+    formRef.current?.querySelector<HTMLElement>("input")?.focus();
+  });
+
+  const resetToDefaults = () => {
+    const defaults = settingsDraft(settingsOf(null));
+    base.current = defaults;
+    reset(defaults);
+    setChangedElsewhere(false);
+    focusFirst.current = true;
+    onReset();
+  };
+
   return (
     <ItemForm
       form={form}
@@ -105,12 +163,21 @@ export function ThresholdsForm({
           description="Every KPI goes back to the default limits, and the windows to 6 sprints, 7 days and 90 days."
           confirmLabel="Reset thresholds"
           doneLabel="Reset the thresholds"
-          onReset={onReset}
+          onReset={resetToDefaults}
           onUndo={onUndoReset}
           disabled={!custom}
         />
       }
     >
+      {changedElsewhere && (
+        <p
+          role="status"
+          className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-text"
+        >
+          The thresholds changed elsewhere (the agent or another device). The form shows them now,
+          with your unsaved edits kept on top: Save to keep your edits, or change them back.
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {HEALTH_KPI_IDS.map((id) => {
           const def = KPI_DEFINITIONS[id];

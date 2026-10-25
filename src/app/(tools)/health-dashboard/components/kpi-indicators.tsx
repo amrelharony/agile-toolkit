@@ -62,14 +62,17 @@ export function TrafficCircle({
   status,
   size = "md",
   labelled = false,
+  emptyLabel = "No data",
 }: {
   status: TrafficStatus | null;
   size?: keyof typeof SIZE;
   /** Name the circle by its status ("On track"); otherwise it's decoration. */
   labelled?: boolean;
+  /** Its name without a light, as the KPI's card words it ("Not enough data"). */
+  emptyLabel?: string;
 }) {
   const a11y = labelled
-    ? { role: "img" as const, "aria-label": status ? STATUS_LABEL[status] : "No data" }
+    ? { role: "img" as const, "aria-label": status ? STATUS_LABEL[status] : emptyLabel }
     : { "aria-hidden": true as const };
   if (!status) {
     return (
