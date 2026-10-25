@@ -117,12 +117,14 @@ export const StatusParams = z.object({
     .max(128)
     .optional()
     .describe("The sprint; defaults to the active sprint, else the newest (as the page opens)."),
-  today: ISO_DATE.optional().describe("Read the sprint as of this day; defaults to today."),
+  today: ISO_DATE.optional().describe(
+    "Read the sprint as of this day; defaults to today. Through the MCP server, the default today and the day each story move falls on are read in the server's time zone, so a move made near the user's midnight can land on a neighbouring day: pass the user's today so at least today is theirs."
+  ),
   source: z
     .enum(["stories", "log"])
     .optional()
     .describe(
-      "Show this source when it holds anything (the page's switch); absent, the rule decides: the board while the sprint has pointed stories, else the typed log."
+      "Show this source when it holds anything (the page's switch); absent, the rule decides: the board while the sprint has pointed stories, else the typed log; a closed sprint reads its log, else its board when the stories' sprint moves can rebuild it."
     ),
 });
 
@@ -155,7 +157,7 @@ export async function readBurn(store: BurnStore, params: z.infer<typeof StatusPa
 
 /** The status actions' return shape, described once for both tools. */
 export const STATUS_RETURNS =
-  "Returns {found: false, reason: 'no_sprints' | 'not_found'} or {found: true, sprintId, sprintName, sprintStatus, source ('stories': read off the sprint board's pointed stories; 'log': the typed daily log; 'none'), available: {stories, log}, phase ('before' | 'running' | 'over' | 'undated'), lengthDays (the last day's number; day 0 is the start date), workingDays, onWorkingDays, todayDay, lastDay (the last day read), committed, base (what the ideal line starts from), initialScope, scopeNow, scopeAdded, scopeRemoved (points that joined or left after day 0), done, remaining, completionPct (of the current scope), idealRemaining, gap (remaining − ideal; positive = behind), gapLabel ('Behind by 3 points'), projectedFinishDay (calendar day the points left reach 0 at this pace; may be past lengthDays), willFinishOnTime, projectedMeetDay (calendar day the points done reach the current scope), willMeetOnTime, cantTell (open stories have no points, so the pace can't be read), unpointedOpen, caveats: string[], verdict (the burndown's sentence), scopeVerdict (the burnup's), days: {day, date, working, off ('weekend' | 'holiday' | null), ideal, remaining, done, scope, added, removed, from ('stories' | 'typed' | 'derived' | 'plan' | null)}[]}. The ideal line and the projections count the team's working days (the cadence's workingDays and holidays); 'Day N' stays a calendar day. The same numbers as the page.";
+  "Returns {found: false, reason: 'no_sprints' | 'not_found'} or {found: true, sprintId, sprintName, sprintStatus, source ('stories': read off the sprint board's pointed stories; 'log': the typed daily log; 'none'), available: {stories, log}, phase ('before' | 'running' | 'over' | 'undated'), lengthDays (the last day's number; day 0 is the start date), workingDays, onWorkingDays, todayDay, lastDay (the last day read), committed, base (what the ideal line starts from), initialScope, scopeNow, scopeAdded, scopeRemoved (points that joined or left after day 0), done, remaining, completionPct (of the current scope), idealRemaining, gap (remaining − ideal; positive = behind), gapLabel ('Behind by 3 points'), projectedFinishDay (calendar day the points left reach 0 at this pace; may be past lengthDays), willFinishOnTime, projectedMeetDay (calendar day the points done reach the current scope), willMeetOnTime, cantTell (open stories have no points, so the pace can't be read), unpointedOpen, caveats: string[], verdict (the burndown's sentence), scopeVerdict (the burnup's), days: {day, date, working, off ('weekend' | 'holiday' | null), ideal, remaining, gap (that day's remaining − ideal; null without remaining), done, scope, added, removed, from ('stories' | 'typed' | 'derived' | 'plan' | null)}[]}. On the log, done, remaining, scopeNow and the scope added and removed are all read on lastDay, the last day with a reading (the verdict names it when it isn't today); a story planned in before the work began counts in the scope on day 0. The ideal line and the projections count the team's working days (the cadence's workingDays and holidays); 'Day N' stays a calendar day. The same numbers as the page.";
 
 /* ── tool.burndown.compute ────────────────────────────────────────────── */
 

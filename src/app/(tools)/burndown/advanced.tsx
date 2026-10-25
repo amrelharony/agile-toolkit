@@ -37,6 +37,8 @@ export function BurnAdvanced({
   const offDays = useMemo(() => offDayRanges(burn), [burn]);
   const n = analysis.samples.length;
   const name = pick === "remaining" ? "Points left" : "Points done";
+  // The board fills its days in itself: there is nothing to log, only days to wait for.
+  const action = burn.source === "stories" ? "Wait for" : "Log";
 
   return (
     <AdvancedAnalysis summary="Advanced analysis: forecast and pace shifts">
@@ -61,7 +63,7 @@ export function BurnAdvanced({
             have={n}
             need="forecast"
             unit={WORKING_DAYS}
-            action="Log"
+            action={action}
             what="a forecast"
           />
         )}
@@ -81,7 +83,7 @@ export function BurnAdvanced({
             have={n}
             need="changePoint"
             unit={WORKING_DAYS}
-            action="Log"
+            action={action}
             what="pace shifts"
           />
         )}
@@ -102,7 +104,7 @@ export function BurnAdvanced({
               have={n}
               need="trend"
               unit={WORKING_DAYS}
-              action="Log"
+              action={action}
               what="a trend test"
             />
           )}

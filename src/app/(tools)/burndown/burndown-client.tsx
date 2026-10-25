@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { BarChart3, Flag, ListChecks, Trash2, TrendingDown } from "lucide-react";
+import { BarChart3, ChevronDown, Flag, ListChecks, Trash2, TrendingDown } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ChartCard } from "@/components/shared/chart-card";
@@ -25,7 +25,7 @@ import type { Sprint, SprintDay } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
 import { BurnAdvanced } from "./advanced";
 import { BurnTiles, SourceBadge, SourceBar, offLabel } from "./burn-ui";
-import { burndownChartText, type BurndownTextRow } from "./chart-text";
+import { burnChartText, type BurndownTextRow } from "./chart-text";
 import { exampleBurndown } from "./example";
 import { burndownMarkdown, sourceLine } from "./markdown";
 import {
@@ -116,8 +116,12 @@ function DailyLog({
     if (on) sonify("scope-change");
   };
 
+  const inputId = (day: number) => `${rowsId}-input-${day}`;
+
   const clearOneDay = (day: number) => {
     if (readOnly) return;
+    // The button disables once its day is empty: focus goes to the day's input, not the page top.
+    document.getElementById(inputId(day))?.focus();
     let removed: SprintDay | undefined;
     undoable({
       label: `Cleared day ${day}`,
@@ -214,9 +218,11 @@ function DailyLog({
 
               <div className="col-span-2 sm:col-span-1">
                 <DraftInput
+                  id={inputId(e.day)}
                   type="number"
                   inputMode="decimal"
                   min={0}
+                  badInputMessage="Enter the points left as a number."
                   aria-label={`Remaining points on day ${e.day}`}
                   aria-describedby={describedBy}
                   placeholder={from && e.remaining !== null ? formatPoints(e.remaining) : "— pts"}
@@ -410,13 +416,24 @@ function BurndownSprint({
         day: d.day,
         ideal: d.ideal,
         actual: d.remaining,
+        gap: d.gap,
         off: d.off,
         added: d.added,
         removed: d.removed,
       })),
     [burn]
   );
-  const chartText = useMemo(() => burndownChartText(rows), [rows]);
+  const chartText = useMemo(
+    () =>
+      burnChartText(rows, {
+        source: burn.source,
+        dated: burn.dated,
+        unpointedOpen: burn.unpointedOpen,
+        done: burn.done ?? 0,
+        scope: burn.scopeNow,
+      }),
+    [rows, burn]
+  );
   const offDays = useMemo(() => offDayRanges(burn), [burn]);
   const scopeMoves = useMemo(
     () =>
@@ -474,6 +491,7 @@ function BurndownSprint({
       remaining: d.remaining,
       scopeChange: Boolean(d.scopeChangeFlag || d.added || d.removed),
       ideal: d.ideal,
+      gap: d.gap,
       ...(d.note ? { description: d.note } : {}),
     }));
     return {
@@ -548,6 +566,10 @@ function BurndownSprint({
             <summary className="flex min-h-11 cursor-pointer select-none list-none items-center gap-2 px-3 py-2 text-sm font-medium text-text [&::-webkit-details-marker]:hidden">
               <ListChecks className="h-4 w-4 text-sub" aria-hidden="true" />
               Daily log (fallback)
+              <ChevronDown
+                className="ml-auto h-4 w-4 shrink-0 text-sub transition-transform group-open:rotate-180"
+                aria-hidden="true"
+              />
             </summary>
             <div className="border-t border-border p-3">
               <DailyLog

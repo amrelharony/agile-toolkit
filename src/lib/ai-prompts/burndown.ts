@@ -8,6 +8,8 @@ interface BurndownData {
   /**
    * `ideal`: the ideal points left that day as the page draws it (lib/sprints/burn,
    * on the team's working days). Without it, the shared ideal line on calendar days.
+   * `gap`: the day's gap as the page quotes it (BurnDay.gap, from the exact
+   * ideal); without it, worked out from the rounded ideal.
    */
   entries: {
     day: number;
@@ -15,6 +17,7 @@ interface BurndownData {
     scopeChange: boolean;
     description?: string;
     ideal?: number;
+    gap?: number | null;
   }[];
   /** Where the numbers came from: "From the sprint board", "Typed in the daily log". */
   source?: string;
@@ -30,16 +33,17 @@ export function generateBurndownPrompts(data: BurndownData): PromptDefinition[] 
   };
   const ideal = (e: BurndownData["entries"][number]) =>
     Math.round((e.ideal ?? idealRemainingAt(sprint, data.config.totalPoints, e.day)) * 10) / 10;
+  const variance = (e: BurndownData["entries"][number]) =>
+    typeof e.gap === "number" ? e.gap : gap(e.remaining!, ideal(e));
 
   const table = formatTable(
     ["Day", "Remaining", "Ideal", "Variance", "Scope Change", "Note"],
     filledEntries.map((e) => {
-      const id = ideal(e);
       return [
         e.day,
         e.remaining!,
-        id,
-        gap(e.remaining!, id),
+        ideal(e),
+        variance(e),
         e.scopeChange ? "Yes" : "",
         (e.description ?? "—").slice(0, 80),
       ];
@@ -48,7 +52,7 @@ export function generateBurndownPrompts(data: BurndownData): PromptDefinition[] 
 
   const scopeChanges = filledEntries.filter((e) => e.scopeChange).length;
   const lastEntry = filledEntries[filledEntries.length - 1];
-  const currentVariance = lastEntry ? gap(lastEntry.remaining!, ideal(lastEntry)) : 0;
+  const currentVariance = lastEntry ? variance(lastEntry) : 0;
 
   const context = [
     `Sprint: ${data.config.sprintDays} days, ${data.config.totalPoints} story points planned`,

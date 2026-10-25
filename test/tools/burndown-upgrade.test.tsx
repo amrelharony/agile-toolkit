@@ -7,6 +7,10 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { useSprintMigrationStore } from "@/lib/sprints/migration-status";
+import { burnSeries, burnStatus } from "@/lib/sprints/burn";
+import { DEFAULT_CALENDAR } from "@/lib/sprints/calendar";
+import { generateBurndownPrompts } from "@/lib/ai-prompts/burndown";
+import { burnChartText, burndownChartText } from "@/app/(tools)/burndown/chart-text";
 import "@/lib/actions/tools/burndown";
 
 /**
@@ -50,6 +54,17 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 vi.mock("@/lib/sonification/use-sonification", () => ({
   useToolSonification: () => () => {},
 }));
+const toastSpy = vi.hoisted(() =>
+  Object.assign(vi.fn(), {
+    dismiss: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    warning: vi.fn(),
+    message: vi.fn(),
+  })
+);
+vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -309,7 +324,10 @@ describe("the typed log, the labelled fallback", () => {
     );
     expect(tile(container, "remaining")).toHaveTextContent("20");
     expect(tile(container, "remaining")).toHaveTextContent("On day 2 · from the typed log");
-    expect(verdict(container)).toMatch(/^Day 7 of 14: 18 of 38 points done, ahead by 10\.4 points/);
+    // The numbers are day 2's, the last reading: the sentence names that day.
+    expect(verdict(container)).toMatch(
+      /^Day 7 of 14 \(last logged day 2\): 18 of 38 points done, ahead by 10\.4 points/
+    );
     expect(spy.logs).toContainEqual(["source_switched", { sprintId: "s1", source: "log" }]);
     // In the log view the log is the section, not a disclosure.
     expect(screen.queryByText("Daily log (fallback)")).toBeNull();
@@ -406,10 +424,10 @@ describe("Advanced analysis", () => {
     const details = summary.closest("details") as HTMLDetailsElement;
     expect(details.open).toBe(false);
     expect(
-      within(details).getByText("Log 1 more working day to see a forecast.")
+      within(details).getByText("Wait for 1 more working day to see a forecast.")
     ).toBeInTheDocument();
     expect(
-      within(details).getByText("Log 5 more working days to see pace shifts.")
+      within(details).getByText("Wait for 5 more working days to see pace shifts.")
     ).toBeInTheDocument();
     // Nothing statistical on the main chart's text.
     const figure = screen.getByRole("figure", { name: "Burndown chart" });
@@ -430,7 +448,7 @@ describe("Advanced analysis", () => {
       /^Holt's forecast from 6 working days: about [\d.]+ points left on day 14/
     );
     expect(
-      within(details).getByText("Log 2 more working days to see pace shifts.")
+      within(details).getByText("Wait for 2 more working days to see pace shifts.")
     ).toBeInTheDocument();
   });
 });
@@ -454,5 +472,136 @@ describe("edges", () => {
     renderBurndown();
     expect(screen.getByText("Set this sprint's dates to chart it")).toBeInTheDocument();
     expect(screen.getByLabelText(/^Last day/)).toHaveValue("2026-10-26");
+  });
+});
+
+describe("review fixes", () => {
+  it("shows a closed sprint run on the board, with no log typed, from its board", () => {
+    setToday(2026, 10, 21);
+    useWorkspaceStore.setState({
+      sprints: [{ ...SPRINT, status: "completed", pointsCompleted: 13 }],
+    });
+    const { container } = renderBurndown();
+    expect(verdict(container)).toMatch(/^Sprint 7 is closed: 13 of 40 points done, behind by 27/);
+    expect(tile(container, "remaining")).toHaveTextContent("27");
+    expect(tile(container, "remaining")).toHaveTextContent("from the board");
+    expect(
+      screen.getByText(
+        "Rebuilt from the stories' sprint moves: the sprint is closed and no daily log was typed for it."
+      )
+    ).toBeInTheDocument();
+    // A closed sprint's board can't be moved on: no link to it, and no claim of nothing recorded.
+    expect(screen.queryByRole("link", { name: /Move stories on the sprint board/ })).toBeNull();
+    expect(container.textContent).not.toMatch(/nothing recorded|typed log is what was recorded/i);
+  });
+
+  it("refuses text a number field can't read instead of clearing the day", () => {
+    useWorkspaceStore.setState({
+      stories: [],
+      sprintSeries: [{ id: "s1", days: [{ day: 1, remaining: 33 }] }],
+    });
+    renderBurndown();
+    const input = remaining(1);
+    // "5-" in a number field: the browser reports the value as "" and badInput.
+    Object.defineProperty(input, "validity", { value: { badInput: true }, configurable: true });
+    commit(input, "");
+    expect(seriesDays()).toEqual([{ day: 1, remaining: 33 }]);
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAccessibleDescription("Enter the points left as a number.");
+    // Announced: the field has lost focus by the time it is refused.
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter the points left as a number.");
+    Object.defineProperty(input, "validity", { value: { badInput: false }, configurable: true });
+    commit(input, "30");
+    expect(seriesDays()).toEqual([{ day: 1, remaining: 30 }]);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("moves focus to the row's input when a day is cleared, and offers Undo", () => {
+    toastSpy.mockClear();
+    useWorkspaceStore.setState({
+      stories: [],
+      sprintSeries: [{ id: "s1", days: [{ day: 1, remaining: 33 }] }],
+    });
+    renderBurndown();
+    fireEvent.click(screen.getByRole("button", { name: "Clear day 1" }));
+    expect(seriesDays() ?? []).toEqual([]);
+    expect(document.activeElement).toBe(remaining(1));
+    expect(toastSpy).toHaveBeenCalledWith("Cleared day 1", expect.anything());
+  });
+
+  it("moves focus to the view that replaces the control: the example's notice, then the empty state", () => {
+    useWorkspaceStore.setState({ sprints: [], stories: [] });
+    renderBurndown();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(document.activeElement?.textContent).toMatch(/Example data\./);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(
+      within(document.activeElement as HTMLElement).getByRole("heading", { name: "No sprints yet" })
+    ).toBeInTheDocument();
+  });
+
+  it("words the board's empty days as the board's, not a log's", () => {
+    setToday(2026, 10, 1); // four days before the start
+    const { container } = renderBurndown();
+    expect(tile(container, "remaining")).toHaveTextContent("Not started yet");
+    expect(tile(container, "finish")).toHaveTextContent("Fills in once the sprint starts");
+    const advanced = screen
+      .getByText("Advanced analysis: forecast and pace shifts")
+      .closest("details") as HTMLElement;
+    expect(within(advanced).getByText(/^Wait for \d+ more working days to see a forecast\.$/));
+    expect(within(advanced).queryByText(/^Log /)).toBeNull();
+    expect(screen.getByRole("figure", { name: "Burndown chart" })).toHaveAccessibleDescription(
+      "Nothing has burned down yet; the ideal line falls from 38 points to 0 by day 14. Days off are shaded: the ideal line stays flat across them."
+    );
+  });
+
+  it("marks the fallback log's disclosure open or closed", () => {
+    renderBurndown();
+    const summary = screen.getByText("Daily log (fallback)").closest("summary") as HTMLElement;
+    expect(summary.querySelector(".group-open\\:rotate-180")).not.toBeNull();
+  });
+
+  it("quotes one gap in the chart's text, the prompt and the tiles", () => {
+    // Mon 5 → Thu 15 Oct: 8 working days, so day 1's ideal is 26.25 (26.3 drawn).
+    const sprint: Sprint = { ...SPRINT, endDate: "2026-10-15", pointsPlanned: 30 };
+    const series: SprintSeries = {
+      id: "s1",
+      days: [
+        { day: 0, remaining: 30 },
+        { day: 1, remaining: 26 },
+      ],
+    };
+    const burn = burnSeries({
+      sprint,
+      series,
+      stories: [],
+      calendar: DEFAULT_CALENDAR,
+      today: "2026-10-06",
+    });
+    const rows = burn.days.map((d) => ({
+      day: d.day,
+      ideal: d.ideal,
+      actual: d.remaining,
+      gap: d.gap,
+      off: d.off,
+    }));
+    expect(burnStatus(burn, sprint).gapLabel).toBe("Ahead by 0.2 points");
+    const ctx = { source: burn.source, dated: true, unpointedOpen: 0, done: 4, scope: 30 };
+    expect(burnChartText(rows, ctx).summary).toMatch(/; 0\.2 points ahead of the ideal line\./);
+    // Without the day's gap the rounded ideal would give 0.3.
+    expect(burndownChartText(rows.map((r) => ({ ...r, gap: undefined }))).summary).toMatch(
+      /; 0\.3 points ahead of the ideal line\./
+    );
+    const prompt = generateBurndownPrompts({
+      config: { totalPoints: 30, sprintDays: 10, sprintStartDate: "2026-10-05" },
+      entries: burn.days.map((d) => ({
+        day: d.day,
+        remaining: d.remaining,
+        scopeChange: false,
+        ideal: d.ideal,
+        gap: d.gap,
+      })),
+    })[0].prompt;
+    expect(prompt).toContain("Current variance from ideal: -0.2 pts");
   });
 });

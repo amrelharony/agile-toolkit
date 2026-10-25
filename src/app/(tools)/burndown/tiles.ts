@@ -40,6 +40,23 @@ export function fromWhere(burn: Pick<BurnSeries, "source">): string {
 
 const CANT_TELL = "Open stories have no points";
 
+/**
+ * A tile's "nothing to read yet", in the source's words: nothing is typed
+ * on the board, so it never asks for a log there.
+ */
+export function notYet(burn: Pick<BurnSeries, "source" | "phase">): string {
+  if (burn.source !== "stories") return "Not logged yet";
+  return burn.phase === "before" ? "Not started yet" : "Nothing yet";
+}
+
+/** Why there's no trend yet, before a second day can be read. */
+function needsSecondDay(burn: Pick<BurnSeries, "source" | "lastDay">): string {
+  if (burn.source !== "stories") return "Needs a second day with a number";
+  return burn.lastDay === null
+    ? "Fills in once the sprint starts"
+    : "Needs a second day of the sprint";
+}
+
 /** The projected-finish tile for a projected calendar day (Burnup's meet day too). */
 export function projectionTile(
   id: string,
@@ -59,8 +76,7 @@ export function projectionTile(
       id,
       label,
       value: "No trend yet",
-      hint:
-        burn.lastDay === null || burn.lastDay < 1 ? "Needs a second day with a number" : noTrend,
+      hint: burn.lastDay === null || burn.lastDay < 1 ? needsSecondDay(burn) : noTrend,
       tone: "default",
       empty: true,
     };
@@ -88,7 +104,7 @@ export function burndownTiles(sprint: Sprint, burn: BurnSeries, status: BurnStat
       ? {
           id: "remaining",
           label: "Remaining",
-          value: "Not logged yet",
+          value: notYet(burn),
           tone: "default",
           empty: true,
         }

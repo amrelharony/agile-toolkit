@@ -10,7 +10,15 @@
  * workspace's stories and the team's working days.
  */
 
-import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { CalendarDays, Settings2 } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { SmartInput } from "@/components/shared/smart-input";
@@ -87,13 +95,17 @@ export interface DraftInputProps extends Omit<
   onCommit: (value: string) => string | null | void;
   /** Classes for the wrapper (grid placement); `className` styles the input. */
   wrapperClassName?: string;
+  /** The refusal for text a number field can't read ("5-", "1e"). */
+  badInputMessage?: string;
 }
 
 /**
  * An input that keeps keystrokes local and saves once, on blur or Enter.
  * Saving every keystroke would write half-typed numbers ("3" on the way to
  * "36") to the shared sprint, log them, and resize nothing for a reason.
- * Escape drops the draft (and its error).
+ * Escape drops the draft (and its error). A number field reports text it
+ * can't read as "" (validity.badInput), which would clear the saved day:
+ * that is refused instead, and the refusal is announced, as Field's is.
  */
 export function DraftInput({
   value,
@@ -101,13 +113,19 @@ export function DraftInput({
   onBlur,
   onKeyDown,
   wrapperClassName,
+  badInputMessage = "Enter a number.",
   ...rest
 }: DraftInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [badInput, setBadInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorId = useId();
   const commit = () => {
     if (draft === null) return;
+    if (badInput) {
+      setError(badInputMessage);
+      return;
+    }
     if (draft === value) {
       setDraft(null);
       setError(null);
@@ -131,7 +149,9 @@ export function DraftInput({
         aria-invalid={error ? true : rest["aria-invalid"]}
         value={draft ?? value}
         onChange={(e) => {
-          if (!rest.readOnly) setDraft(e.target.value);
+          if (rest.readOnly) return;
+          setDraft(e.target.value);
+          setBadInput(e.currentTarget.validity?.badInput === true);
         }}
         onBlur={(e) => {
           commit();
@@ -145,12 +165,13 @@ export function DraftInput({
             commit();
           } else if (e.key === "Escape" && draft !== null) {
             setDraft(null);
+            setBadInput(false);
             setError(null);
           }
         }}
       />
       {error && (
-        <p id={errorId} className="mt-1 text-xs text-danger">
+        <p id={errorId} className="mt-1 text-xs text-danger" role="alert">
           {error}
         </p>
       )}
@@ -446,6 +467,20 @@ export function SprintToolShell({
   const [preview, setPreview] = useState(false);
   const [creating, setCreating] = useState(false);
   const headingId = useId();
+  // Loading or clearing the example, and starting a sprint, swap out the
+  // view the focused control was in: focus moves to the view that replaced
+  // it (the example's notice, the empty state, the sprint), not the page top.
+  const viewRef = useRef<HTMLDivElement>(null);
+  const focusView = useRef(false);
+  useEffect(() => {
+    if (!focusView.current) return;
+    focusView.current = false;
+    viewRef.current?.focus();
+  });
+  const showPreview = (on: boolean) => {
+    focusView.current = true;
+    setPreview(on);
+  };
 
   // Built in memory each time the preview opens; never written anywhere.
   const example = useMemo(
@@ -465,7 +500,7 @@ export function SprintToolShell({
       defaultLengthDays={cadence.sprintLengthDays}
       onCreated={(sprint) => {
         select(sprint.id);
-        setPreview(false);
+        showPreview(false);
       }}
     />
   );
@@ -475,7 +510,9 @@ export function SprintToolShell({
   if (example) {
     return (
       <div className="space-y-6">
-        {renderNotice({ onStart: () => setCreating(true), onClear: () => setPreview(false) })}
+        <div ref={viewRef} tabIndex={-1} className="outline-none">
+          {renderNotice({ onStart: () => setCreating(true), onClear: () => showPreview(false) })}
+        </div>
         {children({
           sprint: example.current,
           series: seriesFor(example.series, example.current.id),
@@ -492,7 +529,12 @@ export function SprintToolShell({
   if (!selected || !series) {
     return (
       <>
-        {renderEmpty({ onCreate: () => setCreating(true), onLoadExample: () => setPreview(true) })}
+        <div ref={viewRef} tabIndex={-1} className="outline-none">
+          {renderEmpty({
+            onCreate: () => setCreating(true),
+            onLoadExample: () => showPreview(true),
+          })}
+        </div>
         {dialog}
       </>
     );
@@ -500,7 +542,7 @@ export function SprintToolShell({
 
   return (
     <div className="space-y-6">
-      <section aria-labelledby={headingId}>
+      <section ref={viewRef} tabIndex={-1} aria-labelledby={headingId} className="outline-none">
         <h2 id={headingId} className="sr-only">
           Which sprint
         </h2>
