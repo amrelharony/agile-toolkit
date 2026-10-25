@@ -49,6 +49,19 @@ const UPGRADED_TOOLS = [
   "liberating-structures",
   "six-hats",
   "design-sprint",
+  // Phase 5: Track delivery.
+  "burndown",
+  "burnup",
+  "velocity",
+  "sprint-compare",
+  "sprint-metrics",
+  "cumulative-flow",
+  "cycle-time",
+  "value-stream",
+  "health-dashboard",
+  "dora-scorecard",
+  "release-readiness",
+  "feature-flag-tracker",
 ];
 
 /**
@@ -74,20 +87,15 @@ const MERGED_INTO: Record<string, string> = {
  */
 const CREATES_NOTHING: Record<string, string> = {
   "estimation-guide": "edits the notes of a fixed set of cards in place; nothing is created",
+  "sprint-metrics":
+    "a read-only trend view of the shared sprints; a new sprint goes through the shared NewSprintDialog, which validates",
 };
 
-/** Main tools still calling the browser's confirm(); Phase 5 replaces the last one. */
-const CONFIRM_OFFENDERS = ["release-readiness"];
+/** Main tools still calling the browser's confirm(): none since Phase 5; keep it that way. */
+const CONFIRM_OFFENDERS: string[] = [];
 
 /** Main tools reading localStorage directly instead of a persisted store. */
-const LOCAL_STORAGE_OFFENDERS = [
-  "agile-at-work",
-  "canvas",
-  "health-dashboard",
-  "planning-poker",
-  "sprint-compare",
-  "sprint-metrics",
-];
+const LOCAL_STORAGE_OFFENDERS = ["agile-at-work", "canvas", "planning-poker"];
 
 const TOOLS_DIR = path.resolve(__dirname, "../../src/app/(tools)");
 const TESTS_DIR = path.resolve(__dirname);
