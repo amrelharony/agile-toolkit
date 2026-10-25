@@ -103,6 +103,8 @@ describe("backlog-story", () => {
         status: "backlog",
         owner: "Priya",
         sourceRef: { tool: "sprint-review", id: "fb-1", doc: "sprint-review:s2" },
+        // The store stamps when a story is first saved.
+        createdAt: expect.any(String),
       },
     ]);
     expect(link.targetId).toMatch(/^story_/);
