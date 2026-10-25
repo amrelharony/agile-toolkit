@@ -16,6 +16,8 @@ export const MAX_QUARTERS_SPAN = 40;
 /** Years either side of now that the pickers offer (stored quarters outside are added). */
 const YEARS_BACK = 2;
 const YEARS_AHEAD = 5;
+/** The furthest back a picker may be asked to reach (`yearsBack`). */
+const MAX_YEARS_BACK = 20;
 
 /** The quarter's index, or 0 when it isn't a "YYYY Qn" (or "YYYY-Qn") between 1900 and 2200. */
 export function quarterIndex(q: string | null | undefined): number {
@@ -105,11 +107,21 @@ export function requestedSpan(from: string, to: string): number {
  * ahead, plus the whole year of any stored quarter (`also`) outside that,
  * so an old epic's dates still show as picked. Only those years are added,
  * not the gap to them, so a stray "1950 Q1" adds four options, not 300.
+ * `yearsBack` reaches further back (the DORA Scorecard offers six years of
+ * history to backdate), up to 20.
  */
-export function quarterOptions(now: Date, also: readonly string[] = []): string[] {
+export function quarterOptions(
+  now: Date,
+  also: readonly string[] = [],
+  { yearsBack = YEARS_BACK }: { yearsBack?: number } = {}
+): string[] {
   const year = now.getFullYear();
+  const back =
+    Number.isInteger(yearsBack) && yearsBack >= 0
+      ? Math.min(yearsBack, MAX_YEARS_BACK)
+      : YEARS_BACK;
   const years = new Set<number>();
-  for (let y = year - YEARS_BACK; y <= year + YEARS_AHEAD; y++) years.add(y);
+  for (let y = year - back; y <= year + YEARS_AHEAD; y++) years.add(y);
   for (const q of also) {
     const i = quarterIndex(q);
     if (i !== 0) years.add(Math.floor((i - 1) / 4));

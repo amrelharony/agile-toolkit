@@ -14,6 +14,7 @@ import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { KANBAN_BOARD_ID, type DoraSample } from "@/lib/stores/workspace-types";
 import { currentQuarterIndex, dashQuarter } from "@/lib/roadmap/quarters";
+import { editedSource } from "@/lib/dora/derive";
 
 import "@/lib/actions/tools/dora-scorecard";
 
@@ -313,5 +314,87 @@ describe("tool.dora_scorecard.derive_sample", () => {
     expect(r.derivedFrom).toEqual({ releases: 2, rolledBack: 1, items: 3, incidents: 1 });
     expect(r.logged).toBeNull();
     expect(samples()).toEqual([]);
+  });
+});
+
+describe("tool.dora_scorecard — where the numbers came from", () => {
+  const from = { releases: 3, rolledBack: 1, items: 4, incidents: 2 };
+  const derived: DoraSample = {
+    id: "d",
+    ...sample("2026-Q1", 2),
+    source: "derived",
+    derivedFrom: from,
+  };
+  beforeEach(() =>
+    useWorkspaceStore.setState({ doraScorecards: [{ id: DS_ID, samples: [derived] }] })
+  );
+
+  it("makes a changed derived number typed, by the page editor's rule", async () => {
+    await run("tool.dora_scorecard.update_sample", { id: "d", patch: { mttrHours: 9 } });
+    expect(samples()[0]).toMatchObject({
+      source: "derived",
+      derivedFrom: { ...from, incidents: 0 },
+    });
+    expect(samples()[0].derivedFrom).toEqual(
+      editedSource(derived, { ...derived, mttrHours: 9 }).derivedFrom
+    );
+    // Every number changed: typed.
+    await run("tool.dora_scorecard.update_sample", {
+      id: "d",
+      patch: { deployFreqPerWeek: 7, leadTimeHours: 7 },
+    });
+    expect(samples()[0].source).toBe("manual");
+    expect(samples()[0].derivedFrom).toBeUndefined();
+  });
+
+  it("takes a refill's source and derivedFrom, and can mark the numbers typed", async () => {
+    await run("tool.dora_scorecard.update_sample", {
+      id: "d",
+      patch: {
+        deployFreqPerWeek: 5,
+        source: "derived",
+        derivedFrom: { releases: 6, rolledBack: 0, items: 0, incidents: 0 },
+      },
+    });
+    expect(samples()[0]).toMatchObject({
+      deployFreqPerWeek: 5,
+      source: "derived",
+      derivedFrom: { releases: 6, rolledBack: 0, items: 0, incidents: 0 },
+    });
+    await run("tool.dora_scorecard.update_sample", { id: "d", patch: { source: "manual" } });
+    expect(samples()[0].source).toBe("manual");
+    expect(samples()[0].derivedFrom).toBeUndefined();
+  });
+
+  it("saves an add with nothing from the data as manual, and stamps it", async () => {
+    useWorkspaceStore.setState({ doraScorecards: [] });
+    await run("tool.dora_scorecard.add_sample", {
+      ...sample("2026-Q2", 1),
+      source: "derived",
+      derivedFrom: { releases: 0, rolledBack: 0, items: 0, incidents: 0 },
+    });
+    expect(samples()[0].source).toBe("manual");
+    expect(samples()[0].derivedFrom).toBeUndefined();
+    expect(samples()[0].updatedAt).toBeTruthy();
+  });
+
+  it("list_state names the partial samples and where each one's numbers came from", async () => {
+    const thisQ = dashQuarter(currentQuarterIndex());
+    useWorkspaceStore.setState({
+      doraScorecards: [{ id: DS_ID, samples: [derived, { id: "now", ...sample(thisQ, 1) }] }],
+    });
+    const r = (await run("tool.dora_scorecard.list_state")) as {
+      partial: { id: string; quarter: string; coverage: string }[];
+      origins: { id: string; origin: string; fromData: string[] }[];
+    };
+    expect(r.partial).toEqual([{ id: "now", quarter: thisQ, coverage: "running" }]);
+    expect(r.origins).toEqual([
+      {
+        id: "d",
+        origin: "derived",
+        fromData: ["deployFreqPerWeek", "leadTimeHours", "changeFailRate", "mttrHours"],
+      },
+      { id: "now", origin: "typed", fromData: [] },
+    ]);
   });
 });

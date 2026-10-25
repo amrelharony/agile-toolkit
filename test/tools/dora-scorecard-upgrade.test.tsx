@@ -21,8 +21,9 @@ import {
   normalizeQuarter,
   quarterBounds,
   quarterIndex,
+  quarterOptions,
 } from "@/lib/roadmap/quarters";
-import { cardItems, storyItems, type FlowItem } from "@/lib/flow";
+import { addDays, cardItems, storyItems, type FlowItem } from "@/lib/flow";
 
 /**
  * DORA Scorecard: bands from one named report (the 2023 Accelerate State of
@@ -71,6 +72,10 @@ import {
   draftWithDerivation,
   emptyDraft,
   newSample,
+  nextQuarterToLog,
+  restorable,
+  savedProvenance,
+  typedOverrides,
   validateDoraDraft,
   type DoraDraft,
 } from "@/app/(tools)/dora-scorecard/form";
@@ -81,12 +86,22 @@ import {
   latestSample,
   numberErrors,
   quarterError,
+  sampleCoverage,
   sampleFor,
   scorecardSummary,
   sortSamples,
   usableSamples,
 } from "@/lib/dora/samples";
-import { deriveDoraSample, leadBasisText, provenanceText } from "@/lib/dora/derive";
+import {
+  deriveDoraSample,
+  derivedMetrics,
+  editedSource,
+  keptProvenance,
+  leadBasisText,
+  provenanceText,
+  sampleOrigin,
+  sampleSourceText,
+} from "@/lib/dora/derive";
 import { doraVerdict } from "@/lib/dora/verdict";
 import { todayIso } from "@/lib/sprints/series";
 
@@ -574,9 +589,8 @@ describe("deriving a sample", () => {
     })!;
     expect(d.mttrHours).toBe(3);
     expect(d.derivedFrom.incidents).toBe(2);
-    expect(provenanceText(d.derivedFrom)).toBe(
-      "From 0 releases, 0 finished items and 2 incidents."
-    );
+    // Only the sources that gave a number are named.
+    expect(provenanceText(d.derivedFrom)).toBe("From 2 incidents.");
   });
 
   it("measures the quarter in progress over the weeks so far", () => {
@@ -788,8 +802,8 @@ describe("the page", () => {
   it("logs a quarter only when valid, showing each error in place", () => {
     renderPage();
     const form = logForm();
-    // The latest quarter without a sample is picked to start with.
-    expect(within(form).getByLabelText(/^Quarter/)).toHaveValue(THIS_Q);
+    // The latest finished quarter without a sample is picked to start with.
+    expect(within(form).getByLabelText(/^Quarter/)).toHaveValue(LAST_Q);
     fireEvent.click(within(form).getByRole("button", { name: "Save quarter" }));
     const deploys = within(form).getByLabelText(/^Deploys a week/);
     expect(deploys).toHaveAttribute("aria-invalid", "true");
@@ -914,7 +928,7 @@ describe("the page", () => {
     fireEvent.change(within(form).getByLabelText(/^Quarter/), { target: { value: LAST_Q } });
     fireEvent.click(within(form).getByRole("button", { name: /Fill from your data/ }));
     expect(
-      within(form).getByText("From 2 releases (1 rolled back), 3 finished items and 0 incidents.")
+      within(form).getByText("From 2 releases (1 rolled back) and 3 finished items.")
     ).toBeInTheDocument();
     expect(within(form).getByLabelText(/^Change failure rate/)).toHaveValue("50");
     expect(within(form).getByText(`No incident was resolved in ${LAST_Q}.`)).toBeInTheDocument();
@@ -929,5 +943,363 @@ describe("the page", () => {
       mttrHours: 1,
     });
     expect(logs.at(-1)?.action).toBe("sample_derived");
+    // The row says which number was typed.
+    expect(screen.getByRole("listitem", { name: LAST_Q })).toHaveTextContent(
+      "Partly from your data"
+    );
+    expect(screen.getByRole("listitem", { name: LAST_Q })).toHaveTextContent(
+      "From 2 releases (1 rolled back) and 3 finished items. Time to restore typed."
+    );
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+describe("deriving, as reviewed", () => {
+  const release = (id: string, shippedDate: string): Release => ({
+    id,
+    name: id,
+    plannedDate: shippedDate,
+    status: "shipped",
+    shippedDate,
+    gates: {},
+  });
+  const story = (id: string, start: string, done: string): Story => ({
+    id,
+    title: id,
+    status: "done",
+    startedAt: `${start}T10:00:00`,
+    doneAt: `${done}T16:00:00`,
+  });
+
+  it("counts lead time in the quarter the work shipped in, as the deploys are", () => {
+    const releases: ReleaseReadiness = {
+      id: "releaseReadiness:current",
+      releases: [release("a", "2026-04-05")],
+    };
+    const items = storyItems([
+      story("s1", "2026-03-20", "2026-03-30"),
+      story("s2", "2026-03-25", "2026-03-31"),
+      story("s3", "2026-03-01", "2026-03-29"),
+    ]);
+    const q1 = deriveDoraSample({ quarter: "2026-Q1", releases, items, today: TODAY })!;
+    expect(q1.lead.measured).toBe(0);
+    expect(q1.leadTimeHours).toBeNull();
+    expect(q1.missing.leadTimeHours).toBe("No story or card with a start date shipped in 2026-Q1.");
+    // Not lost between the two quarters: Q2 shipped it.
+    const q2 = deriveDoraSample({ quarter: "2026-Q2", releases, items, today: TODAY })!;
+    expect(q2.lead.measured).toBe(3);
+    expect(q2.derivedFrom).toMatchObject({ releases: 1, items: 3 });
+    expect(q2.leadTimeHours).toBe(17 * 24); // 17, 12 and 36 days
+  });
+
+  it("credits no items when there were too few for a lead time", () => {
+    const two = deriveDoraSample({
+      quarter: "2026-Q1",
+      items: storyItems([
+        story("s1", "2026-01-05", "2026-01-05"),
+        story("s2", "2026-01-06", "2026-01-09"),
+      ]),
+      today: TODAY,
+    })!;
+    expect(two.leadTimeHours).toBeNull();
+    expect(two.lead.measured).toBe(2);
+    expect(two.derivedFrom.items).toBe(0);
+    expect(derivedMetrics(two.derivedFrom)).toEqual([]);
+    expect(provenanceText(two.derivedFrom)).toBe("Nothing in your data gave a number.");
+  });
+
+  it("keeps as the data's only the numbers saved as they were filled", () => {
+    const x = {
+      ...deriveDoraSample({ quarter: LAST_Q, items: [], today: TODAY })!,
+      deployFreqPerWeek: 2.5,
+      changeFailRate: 0.1,
+      leadTimeHours: 30,
+      mttrHours: null,
+      derivedFrom: { releases: 4, rolledBack: 0, items: 5, incidents: 0 },
+    };
+    const v = {
+      quarter: LAST_Q,
+      deployFreqPerWeek: 2.5,
+      changeFailRate: 0.1,
+      leadTimeHours: 30,
+      mttrHours: 2,
+    };
+    expect(savedProvenance(x, v)).toEqual({ releases: 4, rolledBack: 0, items: 5, incidents: 0 });
+    // Lead time typed over: its count goes.
+    expect(savedProvenance(x, { ...v, leadTimeHours: 31 })).toEqual({
+      releases: 4,
+      rolledBack: 0,
+      items: 0,
+      incidents: 0,
+    });
+    // Deploys typed over: the releases go (they are the basis of the failure rate too).
+    expect(savedProvenance(x, { ...v, deployFreqPerWeek: 3 })).toEqual({
+      releases: 0,
+      rolledBack: 0,
+      items: 5,
+      incidents: 0,
+    });
+    // A Fill that found nothing, or another quarter: typed.
+    const none = deriveDoraSample({ quarter: LAST_Q, items: [], today: TODAY })!;
+    expect(savedProvenance(none, v)).toBeNull();
+    expect(savedProvenance(x, { ...v, quarter: THIS_Q })).toBeNull();
+    expect(keptProvenance(x.derivedFrom, () => false)).toBeNull();
+  });
+
+  it("makes an edited derived number typed, and the sample typed with none left", () => {
+    const from = { releases: 3, rolledBack: 1, items: 4, incidents: 2 };
+    const d = s("a", LAST_Q, { source: "derived", derivedFrom: from });
+    expect(editedSource(d, { ...d })).toEqual({ source: "derived", derivedFrom: from });
+    expect(editedSource(d, { ...d, mttrHours: 9 })).toEqual({
+      source: "derived",
+      derivedFrom: { ...from, incidents: 0 },
+    });
+    expect(editedSource(d, { ...d, quarter: THIS_Q })).toEqual({ source: "manual" });
+    expect(editedSource(d, { ...d, deployFreqPerWeek: 9, leadTimeHours: 9, mttrHours: 9 })).toEqual(
+      { source: "manual" }
+    );
+    expect(editedSource(s("m", LAST_Q), { ...s("m", LAST_Q), mttrHours: 1 })).toEqual({});
+    // The editor saves by it.
+    const values = {
+      quarter: LAST_Q,
+      deployFreqPerWeek: 2,
+      leadTimeHours: 48,
+      changeFailRate: 0.08,
+      mttrHours: 9,
+    };
+    expect(applyValues(d, values, "t")).toMatchObject({
+      source: "derived",
+      derivedFrom: { ...from, incidents: 0 },
+      updatedAt: "t",
+    });
+    // A refill replaces what it came from; one that kept nothing makes it typed.
+    expect(applyValues(d, values, "t", { quarter: LAST_Q, derivedFrom: null })).toMatchObject({
+      source: "manual",
+    });
+    expect(applyValues(d, values, "t", { quarter: LAST_Q, derivedFrom: null }).derivedFrom).toBe(
+      undefined
+    );
+  });
+
+  it("words where a saved sample's numbers came from", () => {
+    expect(sampleOrigin(s("a", LAST_Q))).toBe("typed");
+    expect(sampleOrigin(s("a", LAST_Q, { source: "derived" }))).toBe("derived");
+    const partly = {
+      source: "derived" as const,
+      derivedFrom: { releases: 0, rolledBack: 0, items: 4, incidents: 0 },
+    };
+    expect(sampleOrigin(partly)).toBe("partly");
+    expect(sampleSourceText(partly)).toBe(
+      "From 4 finished items. Deploy frequency, change failure rate and time to restore typed."
+    );
+    const zero = { ...partly, derivedFrom: { ...partly.derivedFrom, items: 0 } };
+    expect(sampleOrigin(zero)).toBe("typed");
+    expect(sampleSourceText(zero)).toBe("Typed");
+  });
+});
+
+describe("quarters and samples, as reviewed", () => {
+  it("starts the log form on the latest finished quarter without a sample", () => {
+    expect(nextQuarterToLog([], NOW)).toBe(LAST_Q);
+    expect(nextQuarterToLog([s("a", LAST_Q)], NOW)).toBe(dashQuarter(currentQuarterIndex(NOW) - 2));
+  });
+
+  it("marks a sample saved while its quarter ran", () => {
+    const end = quarterBounds(LAST_Q)!.end;
+    expect(sampleCoverage({ quarter: THIS_Q }, TODAY)).toBe("running");
+    expect(sampleCoverage({ quarter: LAST_Q, updatedAt: `${end}T12:00:00` }, TODAY)).toBe("early");
+    expect(
+      sampleCoverage({ quarter: LAST_Q, updatedAt: `${addDays(end, 1)}T12:00:00` }, TODAY)
+    ).toBeNull();
+    // An older sample without a stamp: can't tell, so nothing is claimed.
+    expect(sampleCoverage({ quarter: LAST_Q }, TODAY)).toBeNull();
+    expect(newSample(s("x", LAST_Q), "n", undefined, "2026-01-01T00:00:00Z").updatedAt).toBe(
+      "2026-01-01T00:00:00Z"
+    );
+  });
+
+  it("puts back on Undo only what doesn't take a quarter logged since", () => {
+    const { restore, keptOut } = restorable(
+      [s("new", LAST_Q)],
+      [s("old", LAST_Q), s("b", THIS_Q), s("new", LAST_Q)]
+    );
+    expect(restore.map((x) => x.id)).toEqual(["b"]);
+    expect(keptOut.map((x) => x.id)).toEqual(["old"]);
+  });
+
+  it("carries only what was typed", () => {
+    expect(typedOverrides({ ...emptyDraft(LAST_Q), mttrHours: " 2 ", description: "x" })).toEqual({
+      mttrHours: " 2 ",
+      description: "x",
+    });
+    expect(typedOverrides(emptyDraft(LAST_Q))).toEqual({});
+  });
+
+  it("offers six years of quarters to backdate, the roadmap still two", () => {
+    const year = NOW.getFullYear();
+    expect(quarterOptions(NOW)[0]).toBe(`${year - 2} Q1`);
+    expect(quarterOptions(NOW, [], { yearsBack: 6 })[0]).toBe(`${year - 6} Q1`);
+    expect(quarterOptions(NOW, [], { yearsBack: -1 })[0]).toBe(`${year - 2} Q1`);
+  });
+});
+
+describe("the page, as reviewed", () => {
+  const typeAll = (form: HTMLElement) => {
+    fill(form, /^Deploys a week/, "3");
+    fill(form, /^Lead time/, "40");
+    fill(form, /^Change failure rate/, "12");
+    fill(form, /^Time to restore/, "2");
+  };
+  const quarterOf = (form: HTMLElement) => within(form).getByLabelText(/^Quarter/);
+  const tick = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+  it("keeps focus in the form after a save, starting on the next quarter", () => {
+    renderPage();
+    const form = logForm();
+    typeAll(form);
+    const save = within(form).getByRole("button", { name: "Save quarter" });
+    save.focus();
+    fireEvent.click(save);
+    expect(stored()).toHaveLength(1);
+    expect(logForm()).toBe(form); // not remounted
+    expect(document.activeElement).toBe(save);
+    expect(quarterOf(form)).toHaveValue(dashQuarter(currentQuarterIndex(NOW) - 2));
+    expect(within(form).getByLabelText(/^Deploys a week/)).toHaveValue("");
+    // The running quarter is offered, marked; six years back too.
+    expect(within(form).getByRole("option", { name: `${THIS_Q} (in progress)` })).toBeTruthy();
+    expect(within(form).getByRole("option", { name: `${NOW.getFullYear() - 6}-Q1` })).toBeTruthy();
+  });
+
+  it("saves as typed when Fill from your data found nothing", () => {
+    renderPage();
+    const form = logForm();
+    fireEvent.click(within(form).getByRole("button", { name: /Fill from your data/ }));
+    expect(within(form).getByText("Nothing in your data gave a number.")).toBeInTheDocument();
+    typeAll(form);
+    fireEvent.submit(form);
+    expect(stored()[0]).toMatchObject({ quarter: LAST_Q, source: "manual" });
+    expect(stored()[0].derivedFrom).toBeUndefined();
+    expect(logs.at(-1)?.action).toBe("sample_logged");
+    expect(screen.getByRole("listitem", { name: LAST_Q })).toHaveTextContent("Typed");
+  });
+
+  it("opens a logged quarter's editor with what was typed, and focuses it", () => {
+    seed(s("a", LAST_Q));
+    renderPage();
+    const form = logForm();
+    fireEvent.change(quarterOf(form), { target: { value: LAST_Q } });
+    fill(form, /^Time to restore/, "0.25");
+    fireEvent.click(
+      within(form).getByRole("button", { name: `Edit ${LAST_Q} with these numbers` })
+    );
+    const editor = screen.getByRole("listitem", { name: LAST_Q }).querySelector("form")!;
+    expect(within(editor).getByLabelText(/^Time to restore/)).toHaveValue("0.25");
+    expect(within(editor).getByLabelText(/^Lead time/)).toHaveValue("48");
+    expect(within(editor).getByText(/The numbers you typed in Log a quarter are in/)).toBeTruthy();
+    expect(document.activeElement).toBe(quarterOf(editor));
+    fireEvent.submit(editor);
+    expect(stored()[0].mttrHours).toBe(0.25);
+  });
+
+  it("focuses a row's editor when its Edit button opens it", () => {
+    seed(s("a", LAST_Q));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${LAST_Q}` }));
+    const editor = screen.getByRole("listitem", { name: LAST_Q }).querySelector("form")!;
+    expect(document.activeElement).toBe(quarterOf(editor));
+  });
+
+  it("refuses to Undo a delete into a quarter logged again since", () => {
+    seed(s("a", LAST_Q), s("b", THIS_Q));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: `Delete ${LAST_Q}` }));
+    const undoDelete = (lastToast()[1] as { action: { onClick: () => void } }).action.onClick;
+    const form = logForm();
+    fireEvent.change(quarterOf(form), { target: { value: LAST_Q } });
+    typeAll(form);
+    fireEvent.submit(form);
+    act(() => undoDelete());
+    const inLastQ = stored().filter((x) => x.quarter === LAST_Q);
+    expect(inLastQ).toHaveLength(1);
+    expect(inLastQ[0].id).not.toBe("a");
+    expect(lastToast()[0]).toBe(
+      `Not put back: ${LAST_Q} has a new sample since, and a quarter keeps one.`
+    );
+  });
+
+  it("sends focus to the log form when the last row goes or all are cleared", async () => {
+    seed(s("a", LAST_Q));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: `Delete ${LAST_Q}` }));
+    expect(document.activeElement).toBe(quarterOf(logForm()));
+
+    undoLast();
+    fireEvent.click(screen.getByRole("button", { name: "Clear all samples" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Clear samples" })
+    );
+    await tick();
+    expect(document.activeElement).toBe(quarterOf(logForm()));
+    // Undo of the clear keeps a quarter logged since.
+    const undoClear = (lastToast()[1] as { action: { onClick: () => void } }).action.onClick;
+    const form = logForm();
+    fireEvent.change(quarterOf(form), { target: { value: LAST_Q } });
+    typeAll(form);
+    fireEvent.submit(form);
+    act(() => undoClear());
+    expect(stored().filter((x) => x.quarter === LAST_Q)).toHaveLength(1);
+    expect(stored().some((x) => x.id === "a")).toBe(false);
+  });
+
+  it("marks a sample still running or saved before its quarter ended", () => {
+    const end = quarterBounds(LAST_Q)!.end;
+    seed(s("now", THIS_Q), s("early", LAST_Q, { updatedAt: `${end}T09:00:00` }));
+    renderPage();
+    expect(screen.getByRole("listitem", { name: THIS_Q })).toHaveTextContent("In progress");
+    expect(screen.getByRole("listitem", { name: LAST_Q })).toHaveTextContent("Partial quarter");
+    expect(screen.getByRole("listitem", { name: LAST_Q })).toHaveTextContent(
+      `Saved ${end}, before ${LAST_Q} ended`
+    );
+  });
+
+  it("refills a logged quarter from the data in its editor", () => {
+    const q = quarterBounds(LAST_Q)!;
+    const day = (n: number) => addDays(q.start, n) as string;
+    useWorkspaceStore.setState({
+      releaseReadinesses: [
+        {
+          id: "releaseReadiness:current",
+          releases: [
+            {
+              id: "r1",
+              name: "1",
+              plannedDate: day(30),
+              status: "shipped",
+              shippedDate: day(30),
+              gates: {},
+            },
+          ],
+        },
+      ],
+    });
+    seed(s("a", LAST_Q, { updatedAt: `${day(10)}T09:00:00` }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${LAST_Q}` }));
+    const editor = screen.getByRole("listitem", { name: LAST_Q }).querySelector("form")!;
+    fireEvent.click(within(editor).getByRole("button", { name: /Refill from your data/ }));
+    expect(within(editor).getByText("From 1 release.")).toBeInTheDocument();
+    expect(within(editor).getByLabelText(/^Change failure rate/)).toHaveValue("0");
+    fireEvent.submit(editor);
+    expect(stored()[0]).toMatchObject({
+      source: "derived",
+      derivedFrom: { releases: 1, rolledBack: 0, items: 0, incidents: 0 },
+      changeFailRate: 0,
+    });
+    // Saved after the quarter ended: no longer partial.
+    expect(screen.getByRole("listitem", { name: LAST_Q })).not.toHaveTextContent("Partial quarter");
   });
 });

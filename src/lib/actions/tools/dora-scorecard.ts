@@ -51,12 +51,20 @@ import {
   DORA_DOC_ID,
   numberErrors,
   quarterError,
+  sampleCoverage,
   sampleFor,
   scorecardSummary,
   usableSamples,
   weakestMetrics,
 } from "@/lib/dora/samples";
-import { INCIDENT_DOC_ID, deriveDoraSample, type DoraDerivation } from "@/lib/dora/derive";
+import {
+  INCIDENT_DOC_ID,
+  deriveDoraSample,
+  derivedMetrics,
+  editedSource,
+  sampleOrigin,
+  type DoraDerivation,
+} from "@/lib/dora/derive";
 import { doraVerdict } from "@/lib/dora/verdict";
 
 const KIND_DORA = "workspace:doraScorecard";
@@ -135,12 +143,27 @@ function listState(doc: DoraScorecard | null) {
   const weakest = summary.latest ? weakestMetrics(summary.latest) : { metrics: [], band: null };
   const bandTable = {} as Record<DoraMetric, ReturnType<typeof bandRanges>>;
   for (const m of DORA_METRICS) bandTable[m] = bandRanges(m);
+  const today = todayLocalISO();
+  // The samples that cover part of their quarter, and where each one's
+  // numbers came from, as the page's rows say.
+  const partial = summary.samples.flatMap((s) => {
+    const coverage = sampleCoverage(s, today);
+    return coverage ? [{ id: s.id, quarter: s.quarter, coverage }] : [];
+  });
+  const origins = summary.samples.map((s) => {
+    const origin = sampleOrigin(s);
+    const fromData =
+      origin === "typed" ? [] : s.derivedFrom ? derivedMetrics(s.derivedFrom) : [...DORA_METRICS];
+    return { id: s.id, origin, fromData };
+  });
   return {
     ...summary,
     weakest,
     verdict: doraVerdict(summary.samples),
     bandsSource: { ...summary.bandsSource, citation: bandsCitation(), cut: DORA_BANDS.cut },
     bandTable,
+    partial,
+    origins,
   };
 }
 
@@ -150,7 +173,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the DORA scorecard as the page shows it. Returns {exists, total, latest (the sample for the latest QUARTER, not the last added; null when none), averages: {deployFreqPerWeek, leadTimeHours, changeFailRate (0..1), mttrHours} (null each when there are no samples), samples (oldest quarter first; example- rows left out), examplesLeftOut, bands (the latest sample's Elite|High|Medium|Low per metric, null for a missing value; null with no latest), weakest {metrics[], band}, verdict (the page's one sentence), bandsSource {report, publisher, year, note, citation, cut (where each band starts per metric: deploys a week, hours, a 0..1 rate)}, bandTable (per metric: [{band, range, cluster}] best first)}.",
+    'Summarise the DORA scorecard as the page shows it. Returns {exists, total, latest (the sample for the latest QUARTER, not the last added; null when none), averages: {deployFreqPerWeek, leadTimeHours, changeFailRate (0..1), mttrHours} (null each when there are no samples), samples (oldest quarter first; example- rows left out), examplesLeftOut, bands (the latest sample\'s Elite|High|Medium|Low per metric, null for a missing value; null with no latest), weakest {metrics[], band}, verdict (the page\'s one sentence), bandsSource {report, publisher, year, note, citation, cut (where each band starts per metric: deploys a week, hours, a 0..1 rate)}, bandTable (per metric: [{band, range, cluster}] best first), partial ([{id, quarter, coverage: "running" (the quarter is still on: numbers so far) | "early" (last saved before its quarter ended)}]), origins ([{id, origin: "derived" | "partly" | "typed", fromData: the metrics worked out from the data}])}.',
   paramsSchema: z.object({}),
   handler: async () => listState(await browserStore.getDoc()),
   mcpHandler: async (_params, ctx) => listState(await serverStore(ctx.userId).getDoc()),
@@ -182,7 +205,7 @@ const AddParams = z.object({
     .optional()
     .describe('"derived" when the numbers came from derive_sample; default "manual".'),
   derivedFrom: DerivedFromSchema.optional().describe(
-    "derive_sample's derivedFrom, with source derived."
+    "derive_sample's derivedFrom, with source derived. Set a count to 0 for a number you typed instead of taking derive_sample's (releases covers deploy frequency and change failure rate, items lead time, incidents time to restore); with every count 0 the sample is saved as manual."
   ),
 });
 
@@ -205,7 +228,11 @@ async function addSample(store: DoraStore, params: AddInput) {
   const why = quarterError(params.quarter, usable, today);
   if (why) return { added: false as const, reason: "not_started" as const, message: why };
   const description = params.description?.trim();
-  const derived = params.source === "derived";
+  // As the page saves it: derived only with something from the data (a
+  // derivedFrom with every count 0 is a typed sample).
+  const derived =
+    params.source === "derived" &&
+    (!params.derivedFrom || derivedMetrics(params.derivedFrom).length > 0);
   const sample: DoraSample = {
     id: crypto.randomUUID(),
     quarter: params.quarter,
@@ -216,6 +243,8 @@ async function addSample(store: DoraStore, params: AddInput) {
     ...(description ? { description } : {}),
     source: derived ? "derived" : "manual",
     ...(derived && params.derivedFrom ? { derivedFrom: params.derivedFrom } : {}),
+    // When it was saved: a quarter still running is partial (list_state's `partial`).
+    updatedAt: new Date().toISOString(),
   };
   await putSamples(store, doc, [...samples, sample]);
   return { added: true as const, id: sample.id };
@@ -228,7 +257,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    'Log a quarter\'s DORA sample. quarter = "YYYY-Qn" (a quarter that has started); deployFreqPerWeek = deployments a week; leadTimeHours = commit → production; changeFailRate = 0..1; mttrHours = hours to restore; optional description, and source "derived" + derivedFrom when the numbers came from derive_sample. One sample per quarter. Creates the doc if absent. Returns {added: true, id}, or {added: false, reason: "duplicate", id (the existing sample: edit it with update_sample), message} or {added: false, reason: "not_started", message}.',
+    'Log a quarter\'s DORA sample. quarter = "YYYY-Qn" (a quarter that has started); deployFreqPerWeek = deployments a week; leadTimeHours = commit → production; changeFailRate = 0..1; mttrHours = hours to restore; optional description, and source "derived" + derivedFrom when the numbers came from derive_sample (a count 0 for each number typed instead). One sample per quarter; stamps updatedAt (a quarter still running reads as partial). Creates the doc if absent. Returns {added: true, id}, or {added: false, reason: "duplicate", id (the existing sample: edit it with update_sample), message} or {added: false, reason: "not_started", message}.',
   paramsSchema: AddParams,
   handler: async (params) => addSample(browserStore, params),
   mcpHandler: async (params, ctx) => addSample(serverStore(ctx.userId), params),
@@ -251,11 +280,43 @@ const UpdateParams = z.object({
         .nullable()
         .optional()
         .describe("null or an empty string removes it."),
+      source: z
+        .enum(["manual", "derived"])
+        .optional()
+        .describe(
+          'Where the numbers come from now: "derived" with derivedFrom after a fresh derive_sample, "manual" to mark them typed.'
+        ),
+      derivedFrom: DerivedFromSchema.optional().describe(
+        "derive_sample's derivedFrom for the saved numbers (0 for each one typed instead)."
+      ),
     })
-    .describe("Only the fields to change."),
+    .describe(
+      "Only the fields to change. Without source/derivedFrom, a derived number that changes counts as typed from then on (its derivedFrom count goes to 0), as on the page."
+    ),
 });
 
 type UpdateInput = z.infer<typeof UpdateParams>;
+
+/**
+ * Where an updated sample's numbers come from: as the patch says (after a
+ * fresh derive_sample), else as the edit leaves them (lib/dora/derive
+ * editedSource, the page editor's rule). Derived needs a count above 0.
+ */
+function patchedOrigin(
+  current: DoraSample,
+  next: DoraSample,
+  source: DoraSample["source"],
+  derivedFrom: DoraSample["derivedFrom"]
+): Pick<DoraSample, "source" | "derivedFrom"> {
+  if (source === undefined && derivedFrom === undefined) return editedSource(current, next);
+  // derivedFrom alone means derived.
+  if ((source ?? "derived") === "manual") return { source: "manual" };
+  const from = derivedFrom ?? current.derivedFrom;
+  if (!from) return { source: "derived" };
+  return derivedMetrics(from).length > 0
+    ? { source: "derived", derivedFrom: from }
+    : { source: "manual" };
+}
 
 async function updateSample(store: DoraStore, { id, patch }: UpdateInput) {
   const doc = await store.getDoc();
@@ -263,13 +324,17 @@ async function updateSample(store: DoraStore, { id, patch }: UpdateInput) {
   const at = samples.findIndex((s) => s && typeof s === "object" && s.id === id);
   if (at < 0) return { updated: false as const, reason: "not_found" as const };
   const current = samples[at];
-  const { description: newDescription, ...numbers } = patch;
+  const { description: newDescription, source, derivedFrom, ...numbers } = patch;
   const next: DoraSample = { ...current, ...numbers };
   if (newDescription !== undefined) {
     const d = (newDescription ?? "").trim();
     if (d) next.description = d;
     else delete next.description;
   }
+  const origin = patchedOrigin(current, next, source, derivedFrom);
+  delete next.source;
+  delete next.derivedFrom;
+  Object.assign(next, origin);
   const errors: Record<string, string> = { ...numberErrors(next) };
   // A quarter left as stored isn't judged again (an old free-text one stays until changed).
   if (patch.quarter !== undefined) {
@@ -300,7 +365,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    'Edit a sample in place: {id, patch: {quarter? ("YYYY-Qn", started, not another sample\'s), deployFreqPerWeek?, leadTimeHours?, changeFailRate? (0..1), mttrHours?, description? (null clears)}}, checked as the page checks it; stamps updatedAt, keeps its source. Returns {updated: true, sample}, {updated: false, reason: "not_found"} or {updated: false, reason: "invalid", errors: {field: message}}.',
+    'Edit a sample in place: {id, patch: {quarter? ("YYYY-Qn", started, not another sample\'s), deployFreqPerWeek?, leadTimeHours?, changeFailRate? (0..1), mttrHours?, description? (null clears), source? ("manual" | "derived"), derivedFrom? (from derive_sample, 0 for a number typed instead)}}, checked as the page checks it; stamps updatedAt. Without source/derivedFrom, a derived number that changes becomes typed (its count goes to 0; a new quarter makes them all typed; none left: source "manual"), as the editor on the page does. Returns {updated: true, sample}, {updated: false, reason: "not_found"} or {updated: false, reason: "invalid", errors: {field: message}}.',
   paramsSchema: UpdateParams,
   handler: async (params) => updateSample(browserStore, params),
   mcpHandler: async (params, ctx) => updateSample(serverStore(ctx.userId), params),
@@ -371,7 +436,7 @@ registry.register({
   name: "derive_sample",
   category: "read",
   description:
-    'Work a quarter\'s DORA numbers out from the workspace, as the page\'s "Fill from your data" does; writes nothing. {quarter: "YYYY-Qn"}. Deploy frequency = ships in the quarter (Release Readiness, reopened releases\' earlier ships included) per week elapsed; change failure rate = rolled back ÷ shipped; lead time = median hours from the start of work to the release that shipped it (Release.storyIds, else the first ship on/after done; start to done when no releases are tracked; needs 3 items); time to restore = mean hours opened → resolved of incidents resolved in the quarter (Incident Commander). Returns {derived: true, quarter, from, to, inProgress, weeks, deployFreqPerWeek, changeFailRate, leadTimeHours, mttrHours (null each when the data can\'t give it), missing {metric: why}, derivedFrom {releases, rolledBack, items, incidents}, lead {basis, measured, linked, notShipped}, bands, logged ({id} of the sample already logged for the quarter, or null)}, or {derived: false, reason: "bad_quarter"}. Save with add_sample (source "derived", derivedFrom) or update_sample.',
+    'Work a quarter\'s DORA numbers out from the workspace, as the page\'s "Fill from your data" does; writes nothing. {quarter: "YYYY-Qn"}. Deploy frequency = ships in the quarter (Release Readiness, reopened releases\' earlier ships included) per week elapsed; change failure rate = rolled back ÷ shipped; lead time = median hours from the start of work to the release that shipped it, over the work SHIPPED in the quarter (by ship day, as deploys are counted; Release.storyIds, else the first ship on/after done; start to done over the work done in the quarter when no releases are tracked; needs 3 items, and derivedFrom.items is 0 without a lead time); time to restore = mean hours opened → resolved of incidents resolved in the quarter (Incident Commander). Returns {derived: true, quarter, from, to, inProgress, weeks, deployFreqPerWeek, changeFailRate, leadTimeHours, mttrHours (null each when the data can\'t give it), missing {metric: why}, derivedFrom {releases, rolledBack, items, incidents}, lead {basis, measured, linked, notShipped}, bands, logged ({id} of the sample already logged for the quarter, or null)}, or {derived: false, reason: "bad_quarter"}. A count of 0 in derivedFrom means that number wasn\'t worked out. Save with add_sample, or update_sample for a quarter already logged, passing source "derived" and derivedFrom (set the count of any number you change to 0).',
   paramsSchema: z.object({ quarter: Quarter }),
   handler: async (params) => deriveSample(browserStore, params.quarter),
   mcpHandler: async (params, ctx) => deriveSample(serverStore(ctx.userId), params.quarter),

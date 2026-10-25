@@ -8,6 +8,7 @@
 
 import type { DoraSample, DoraScorecard } from "@/lib/stores/workspace-types";
 import { dashQuarter, isDashQuarter, quarterBounds, quarterIndex } from "@/lib/roadmap/quarters";
+import { localDay } from "@/lib/sprints/series";
 import {
   DORA_BANDS,
   DORA_METRICS,
@@ -146,6 +147,27 @@ export function numberErrors(values: DoraNumbers): Partial<Record<DoraMetric, st
     else if (m === "changeFailRate" && v > 1) errors[m] = "Use a rate from 0% to 100%.";
   }
   return errors;
+}
+
+/** How a sample falls short of its whole quarter (see `sampleCoverage`). */
+export type SampleCoverage = "running" | "early";
+
+/**
+ * Whether a sample covers only part of its quarter: "running" while the
+ * quarter is still on (its numbers are the weeks so far), "early" once it
+ * has ended if the sample was last saved before that (`updatedAt`, stamped
+ * on every save), null when it covers the whole quarter or can't tell (an
+ * older sample without a stamp).
+ */
+export function sampleCoverage(
+  s: Pick<DoraSample, "quarter" | "updatedAt">,
+  today: string
+): SampleCoverage | null {
+  const bounds = quarterBounds(s.quarter);
+  if (!bounds || today < bounds.start) return null;
+  if (today <= bounds.end) return "running";
+  const saved = localDay(s.updatedAt);
+  return saved !== null && saved <= bounds.end ? "early" : null;
 }
 
 /** Each metric's band for a sample. */

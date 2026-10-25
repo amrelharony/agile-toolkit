@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { Field } from "@/components/ui/field";
 import { currentQuarter, dashQuarter, quarterIndex, quarterOptions } from "@/lib/roadmap/quarters";
 
@@ -20,6 +20,8 @@ const written = (index: number, format: QuarterFormat, space: string) =>
  * quarter `onChange` gets are in `format`; `marked` tags quarters that
  * already hold something ("2026-Q2 · logged"), and `latest` leaves out the
  * quarters after it (a quarter that hasn't started can't be measured).
+ * `yearsBack` reaches further back than the usual two years (history to
+ * backdate), and `currentLabel` names the current quarter ("in progress").
  */
 export function QuarterPicker({
   label,
@@ -31,6 +33,9 @@ export function QuarterPicker({
   marked,
   markLabel = "logged",
   latest,
+  yearsBack,
+  currentLabel = "this quarter",
+  selectRef,
   hint,
   error,
   required,
@@ -49,6 +54,11 @@ export function QuarterPicker({
   markLabel?: string;
   /** The last quarter offered, in either format; later ones are left out. */
   latest?: string;
+  /** Years before this one to offer (default 2). */
+  yearsBack?: number;
+  /** The note on the current quarter's option. */
+  currentLabel?: string;
+  selectRef?: Ref<HTMLSelectElement>;
   hint?: ReactNode;
   error?: ReactNode;
   required?: boolean;
@@ -56,7 +66,7 @@ export function QuarterPicker({
 }) {
   const last = latest ? quarterIndex(latest) : 0;
   const thisQuarter = quarterIndex(currentQuarter(now));
-  const options = quarterOptions(now, [value, ...also])
+  const options = quarterOptions(now, [value, ...also], { yearsBack })
     .map((q) => ({ index: quarterIndex(q), space: q }))
     .filter((o) => last === 0 || o.index <= last)
     .map((o) => ({ index: o.index, value: written(o.index, format, o.space) }));
@@ -70,6 +80,7 @@ export function QuarterPicker({
       {(props) => (
         <select
           {...props}
+          ref={selectRef}
           className={SELECT_CLASS}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -81,7 +92,7 @@ export function QuarterPicker({
           )}
           {options.map((o) => {
             const notes = [
-              o.index === thisQuarter ? "this quarter" : null,
+              o.index === thisQuarter ? currentLabel : null,
               marked?.has(o.value) ? markLabel : null,
             ].filter(Boolean);
             return (

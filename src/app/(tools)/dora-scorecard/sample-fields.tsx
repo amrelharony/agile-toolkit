@@ -10,6 +10,9 @@ import { DORA_DESCRIPTION_MAX } from "@/lib/dora/samples";
 import { currentQuarterIndex, dashQuarter } from "@/lib/roadmap/quarters";
 import type { DoraDraft, DoraDraftField } from "./form";
 
+/** How many years back the quarter picker reaches. */
+export const DORA_YEARS_BACK = 6;
+
 /** One numeric field: text with a decimal keypad, so a typed "1." isn't snapped away mid-edit. */
 function NumberField({
   form,
@@ -54,6 +57,7 @@ export function SampleFields({
   logged,
   quarterNote,
   metricNote,
+  quarterRef,
 }: {
   form: ItemFormState<DoraDraft, DoraDraftField>;
   now: Date;
@@ -61,6 +65,7 @@ export function SampleFields({
   logged: ReadonlySet<string>;
   quarterNote?: ReactNode;
   metricNote?: (field: DoraDraftField) => ReactNode;
+  quarterRef?: (el: HTMLSelectElement | null) => void;
 }) {
   const note = (field: DoraDraftField, hint: ReactNode) => {
     const extra = metricNote?.(field);
@@ -81,8 +86,13 @@ export function SampleFields({
           value={form.draft.quarter}
           onChange={(quarter) => form.update({ quarter })}
           now={now}
-          // A quarter that hasn't started can't be measured.
+          // A quarter that hasn't started can't be measured; the one still
+          // running can, over the weeks so far, and says so.
           latest={dashQuarter(currentQuarterIndex(now))}
+          currentLabel="in progress"
+          // Six years of history to backdate (the roadmap's pickers offer two).
+          yearsBack={DORA_YEARS_BACK}
+          selectRef={quarterRef}
           also={Array.from(logged)}
           marked={logged}
           markLabel="logged"

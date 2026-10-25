@@ -1,44 +1,35 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Database, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import type { DoraDerivedFrom, DoraSample } from "@/lib/stores/workspace-types";
-import { loggedQuarters, sampleFor } from "@/lib/dora/samples";
-import { leadBasisText, provenanceText, type DoraDerivation } from "@/lib/dora/derive";
-import type { DoraMetric } from "@/lib/dora/bands";
+import { loggedQuarters, sampleCoverage, sampleFor } from "@/lib/dora/samples";
+import type { DoraDerivation } from "@/lib/dora/derive";
 import {
   draftWithDerivation,
   emptyDraft,
+  nextQuarterToLog,
+  savedProvenance,
+  typedOverrides,
   validateDoraDraft,
-  type DoraDraftField,
+  type DoraDraft,
   type DoraValues,
 } from "./form";
+import { DerivationPanel, metricNoteFor } from "./derivation-note";
 import { SampleFields } from "./sample-fields";
 
-/** Where to go for the data a metric couldn't be worked out from. */
-const FIX: Record<DoraMetric, { href: string; label: string }> = {
-  deployFreqPerWeek: { href: "/release-readiness", label: "Release Readiness" },
-  changeFailRate: { href: "/release-readiness", label: "Release Readiness" },
-  leadTimeHours: { href: "/kanban", label: "Kanban" },
-  mttrHours: { href: "/incident-commander", label: "Incident Commander" },
-};
-
-const FIELD_METRIC: Partial<Record<DoraDraftField, DoraMetric>> = {
-  deployFreqPerWeek: "deployFreqPerWeek",
-  leadTimeHours: "leadTimeHours",
-  changeFailRatePct: "changeFailRate",
-  mttrHours: "mttrHours",
-};
-
 /**
- * "Log a quarter": pick the quarter (the latest without a sample is
- * picked to start with), type the four numbers or fill them from the
- * team's releases, boards and incidents, and save. Every derived number
+ * "Log a quarter": pick the quarter (the latest finished one without a
+ * sample is picked to start with), type the four numbers or fill them from
+ * the team's releases, boards and incidents, and save. Every derived number
  * stays editable; a metric the data can't give stays empty, with a link to
- * where its data lives. A quarter already logged offers its row's editor.
+ * where its data lives. A quarter already logged offers its row's editor,
+ * carrying over what was typed here.
+ *
+ * The form stays mounted after a save (it starts again on the next quarter
+ * to log in place), so keyboard focus stays where it was.
  */
 export function LogForm({
   samples,
@@ -48,6 +39,7 @@ export function LogForm({
   derive,
   onAdd,
   onEdit,
+  quarterRef,
 }: {
   samples: readonly DoraSample[];
   defaultQuarter: string;
@@ -55,48 +47,39 @@ export function LogForm({
   today: string;
   derive: (quarter: string) => DoraDerivation | null;
   onAdd: (values: DoraValues, derived?: { quarter: string; derivedFrom: DoraDerivedFrom }) => void;
-  /** Open the editor of an existing sample. */
-  onEdit: (sample: DoraSample) => void;
+  /** Open the editor of an existing sample, with what was typed here in it. */
+  onEdit: (sample: DoraSample, typed: Partial<DoraDraft>) => void;
+  /** The quarter picker, for focus to land on when the last row goes. */
+  quarterRef?: (el: HTMLElement | null) => void;
 }) {
   const [derivation, setDerivation] = useState<DoraDerivation | null>(null);
   const form = useItemForm({
     initial: () => emptyDraft(defaultQuarter),
     validate: (d) => validateDoraDraft(d, { samples, today }),
     onSave: (values) => {
-      onAdd(
-        values,
-        derivation && derivation.quarter === values.quarter
-          ? { quarter: derivation.quarter, derivedFrom: derivation.derivedFrom }
-          : undefined
-      );
+      const from = derivation ? savedProvenance(derivation, values) : null;
+      onAdd(values, from ? { quarter: values.quarter, derivedFrom: from } : undefined);
       setDerivation(null);
+      // Start again on the next quarter to log, counting the one just saved.
+      form.reset(emptyDraft(nextQuarterToLog([...samples, { id: "", ...values }], now)));
     },
+    resetOnSave: false,
   });
-  // The form starts again on the next quarter to log once this one is saved.
-  const reset = form.reset;
   const logged = loggedQuarters(samples);
   const existing = form.draft.quarter ? sampleFor(samples, form.draft.quarter) : undefined;
   const shown = derivation && derivation.quarter === form.draft.quarter ? derivation : null;
+  const running =
+    !existing &&
+    form.draft.quarter !== "" &&
+    sampleCoverage({ quarter: form.draft.quarter }, today) === "running";
+  const typed = typedOverrides(form.draft);
+  const carries = Object.keys(typed).length > 0;
 
   const fill = () => {
     const d = derive(form.draft.quarter);
     if (!d) return;
     setDerivation(d);
     form.update(draftWithDerivation(form.draft, d));
-  };
-
-  const metricNote = (field: DoraDraftField) => {
-    const metric = FIELD_METRIC[field];
-    const why = shown && metric ? shown.missing[metric] : undefined;
-    if (!why || !metric) return null;
-    return (
-      <span className="text-warning">
-        {why}{" "}
-        <Link href={FIX[metric].href} className="font-medium text-accent hover:underline">
-          {FIX[metric].label}
-        </Link>
-      </span>
-    );
   };
 
   return (
@@ -121,7 +104,8 @@ export function LogForm({
         form={form}
         now={now}
         logged={logged}
-        metricNote={metricNote}
+        quarterRef={quarterRef}
+        metricNote={metricNoteFor(shown)}
         quarterNote={
           existing ? (
             <p className="mt-1.5 text-xs text-sub">
@@ -130,31 +114,24 @@ export function LogForm({
                 type="button"
                 className="font-medium text-accent underline-offset-2 hover:underline"
                 onClick={() => {
-                  onEdit(existing);
-                  reset();
+                  onEdit(existing, typed);
+                  form.reset();
                 }}
               >
-                Edit {form.draft.quarter}
+                {carries
+                  ? `Edit ${form.draft.quarter} with these numbers`
+                  : `Edit ${form.draft.quarter}`}
               </button>
+            </p>
+          ) : running ? (
+            <p className="mt-1.5 text-xs text-sub">
+              {form.draft.quarter} is still running: its numbers cover the weeks so far. Saved now,
+              its row says so until you save it again after the quarter ends.
             </p>
           ) : null
         }
       />
-      {shown && (
-        <div
-          role="status"
-          className="rounded-lg border border-border bg-surface p-3 text-xs text-sub"
-        >
-          <p className="font-medium text-text">{provenanceText(shown.derivedFrom)}</p>
-          <p className="mt-1">{leadBasisText(shown)}</p>
-          {shown.inProgress && (
-            <p className="mt-1">
-              {shown.quarter} is still running: deploys a week are over the{" "}
-              {Math.round(shown.weeks * 10) / 10} weeks so far.
-            </p>
-          )}
-        </div>
-      )}
+      {shown && <DerivationPanel shown={shown} />}
     </ItemForm>
   );
 }

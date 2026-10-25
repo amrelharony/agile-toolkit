@@ -11,15 +11,22 @@
  */
 
 import type { DoraDerivedFrom, DoraSample } from "@/lib/stores/workspace-types";
-import { dashQuarter, isDashQuarter, quarterIndex } from "@/lib/roadmap/quarters";
+import {
+  currentQuarterIndex,
+  dashQuarter,
+  isDashQuarter,
+  quarterIndex,
+} from "@/lib/roadmap/quarters";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import {
   DORA_DESCRIPTION_MAX,
   numberErrors,
   quarterError,
+  sampleFor,
   type DoraNumbers,
 } from "@/lib/dora/samples";
-import type { DoraDerivation } from "@/lib/dora/derive";
+import { editedSource, keptProvenance, type DoraDerivation } from "@/lib/dora/derive";
+import { DORA_METRICS, type DoraMetric } from "@/lib/dora/bands";
 
 export interface DoraDraft {
   /** "2026-Q3", or "" when none is picked. */
@@ -50,6 +57,21 @@ const shown = (n: number | null | undefined, digits = 4): string => {
   const f = 10 ** digits;
   return String(Math.round(n * f) / f);
 };
+
+/**
+ * The quarter "Log a quarter" starts on: the latest finished quarter
+ * without a sample (a quarter still running would be measured over the
+ * weeks so far), else this quarter. The picker still offers this quarter,
+ * marked in progress.
+ */
+export function nextQuarterToLog(samples: readonly DoraSample[], now: Date): string {
+  const current = currentQuarterIndex(now);
+  for (let i = current - 1; i > current - 40; i--) {
+    const q = dashQuarter(i);
+    if (!sampleFor(samples, q)) return q;
+  }
+  return dashQuarter(current);
+}
 
 /** A blank form for `quarter` (a visible pick, which the user can change). */
 export function emptyDraft(quarter: string): DoraDraft {
@@ -110,6 +132,49 @@ const typed = (raw: string): number | undefined => {
   return t === "" ? undefined : Number(t);
 };
 
+const NUMBER_FIELDS = [
+  "deployFreqPerWeek",
+  "leadTimeHours",
+  "changeFailRatePct",
+  "mttrHours",
+] as const;
+
+/**
+ * What was typed into a draft, for carrying it to another form (the log
+ * form's "Edit 2026-Q3" opens that row's editor with these numbers in it,
+ * instead of dropping them): the filled numbers and the note.
+ */
+export function typedOverrides(d: DoraDraft): Partial<DoraDraft> {
+  const out: Partial<DoraDraft> = {};
+  for (const f of NUMBER_FIELDS) if (d[f].trim() !== "") out[f] = d[f];
+  if (d.description.trim() !== "") out.description = d.description;
+  return out;
+}
+
+/** Each number as "Fill from your data" puts it in the draft, read back as the form reads it. */
+function filledValues(x: DoraDerivation): Record<DoraMetric, number | null> {
+  const d = draftWithDerivation(emptyDraft(x.quarter), x);
+  const pct = typed(d.changeFailRatePct);
+  return {
+    deployFreqPerWeek: x.deployFreqPerWeek === null ? null : (typed(d.deployFreqPerWeek) ?? null),
+    leadTimeHours: x.leadTimeHours === null ? null : (typed(d.leadTimeHours) ?? null),
+    changeFailRate: x.changeFailRate === null || pct === undefined ? null : pct / 100,
+    mttrHours: x.mttrHours === null ? null : (typed(d.mttrHours) ?? null),
+  };
+}
+
+/**
+ * What a sample saved after "Fill from your data" may say it came from:
+ * the counts behind each number still as it was filled, 0 for one the data
+ * couldn't give or that was typed over; null when none is left, so it is
+ * saved as typed (a Fill that found nothing doesn't make a sample derived).
+ */
+export function savedProvenance(x: DoraDerivation, v: DoraValues): DoraDerivedFrom | null {
+  if (x.quarter !== v.quarter) return null;
+  const filled = filledValues(x);
+  return keptProvenance(x.derivedFrom, (m) => filled[m] !== null && filled[m] === v[m]);
+}
+
 /**
  * Check a draft. Blanks are errors, never a silent 0 (a blank lead time
  * used to band as Elite); a percentage over 100 is an error, not a clamp.
@@ -162,11 +227,17 @@ export function validateDoraDraft(
   };
 }
 
-/** A new sample; `derived` when "Fill from your data" filled it for this quarter. */
+/**
+ * A new sample; `derived` when "Fill from your data" filled it for this
+ * quarter (`savedProvenance` says what of it is the data's). `savedAt`
+ * stamps `updatedAt`, which says whether it was saved before its quarter
+ * ended (lib/dora/samples sampleCoverage).
+ */
 export function newSample(
   v: DoraValues,
   id: string,
-  derived?: { quarter: string; derivedFrom: DoraDerivedFrom }
+  derived?: { quarter: string; derivedFrom: DoraDerivedFrom },
+  savedAt?: string
 ): DoraSample {
   const fromData = derived && derived.quarter === v.quarter;
   return {
@@ -174,24 +245,68 @@ export function newSample(
     ...v,
     source: fromData ? "derived" : "manual",
     ...(fromData ? { derivedFrom: derived.derivedFrom } : {}),
+    ...(savedAt ? { updatedAt: savedAt } : {}),
   };
 }
 
+const sameFrom = (a: DoraDerivedFrom | undefined, b: DoraDerivedFrom | undefined) =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.releases === b.releases &&
+    a.rolledBack === b.rolledBack &&
+    a.items === b.items &&
+    a.incidents === b.incidents);
+
 /**
- * `s` with the editor's values and a fresh `updatedAt`; its id, source and
- * what it was derived from stay. A description cleared is removed.
- * Unchanged values: the same object.
+ * `s` with the editor's values and a fresh `updatedAt`, its id kept. Where
+ * its numbers come from follows the edit (lib/dora/derive editedSource: a
+ * derived number changed is typed now), unless the editor refilled it from
+ * the data for this quarter (`refill`: what `savedProvenance` kept, null
+ * for nothing). A description cleared is removed. Nothing changed: the same
+ * object.
  */
-export function applyValues(s: DoraSample, v: DoraValues, updatedAt: string): DoraSample {
+export function applyValues(
+  s: DoraSample,
+  v: DoraValues,
+  updatedAt: string,
+  refill?: { quarter: string; derivedFrom: DoraDerivedFrom | null }
+): DoraSample {
+  const origin: Pick<DoraSample, "source" | "derivedFrom"> =
+    refill && refill.quarter === v.quarter
+      ? refill.derivedFrom
+        ? { source: "derived", derivedFrom: refill.derivedFrom }
+        : { source: "manual" }
+      : editedSource(s, v);
   const same =
     s.quarter === v.quarter &&
-    s.deployFreqPerWeek === v.deployFreqPerWeek &&
-    s.leadTimeHours === v.leadTimeHours &&
-    s.changeFailRate === v.changeFailRate &&
-    s.mttrHours === v.mttrHours &&
-    (s.description ?? "") === (v.description ?? "");
+    DORA_METRICS.every((m) => s[m] === v[m]) &&
+    (s.description ?? "") === (v.description ?? "") &&
+    s.source === origin.source &&
+    sameFrom(s.derivedFrom, origin.derivedFrom);
   if (same) return s;
-  const { description, ...rest } = s;
+  const { description, source, derivedFrom, ...rest } = s;
   void description;
-  return { ...rest, ...v, updatedAt };
+  void source;
+  void derivedFrom;
+  return { ...rest, ...v, ...origin, updatedAt };
+}
+
+/**
+ * The samples Undo may put back into `current`: those not there already
+ * and whose quarter has no other sample since (one quarter, one sample);
+ * the rest are `keptOut`, for the message saying so.
+ */
+export function restorable(
+  current: readonly DoraSample[],
+  back: readonly DoraSample[]
+): { restore: DoraSample[]; keptOut: DoraSample[] } {
+  const restore: DoraSample[] = [];
+  const keptOut: DoraSample[] = [];
+  for (const b of back) {
+    if (current.some((s) => s.id === b.id)) continue;
+    if (sampleFor([...current, ...restore], b.quarter, b.id)) keptOut.push(b);
+    else restore.push(b);
+  }
+  return { restore, keptOut };
 }

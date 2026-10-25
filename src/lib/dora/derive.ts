@@ -7,24 +7,34 @@
  *     reopened release's earlier ship counts, as Release Readiness counts
  *     it) per week, over the weeks elapsed for the quarter in progress.
  *   - Change failure rate: of those ships, the share rolled back.
- *   - Lead time: the median, over the stories and Flow-board cards finished
- *     in the quarter, of the days from the start of work to the release
- *     that shipped it (lib/flow leadTimeHours, whole days, a same-day item
- *     is 24 hours). The release is the one listing the story
+ *   - Lead time: the median, over the stories and Flow-board cards that
+ *     SHIPPED in the quarter, of the days from the start of work to the
+ *     release that shipped it (lib/flow leadTimeHours, whole days, a
+ *     same-day item is 24 hours). The release is the one listing the story
  *     (`Release.storyIds`), else the first ship on or after the day it was
- *     done. DORA measures from commit to production; the start of work is
- *     the nearest stamp the boards have, and the result says so. Work done
- *     but not shipped yet isn't in production, so it is left out; a team
- *     that tracks no releases at all is measured from start to done.
+ *     done. Like the deploy count, it goes by the ship day (DORA measures
+ *     lead time per deployment): work done on Mar 30 and shipped on Apr 5
+ *     is Q2's, never lost between two quarters. DORA measures from commit to
+ *     production; the start of work is the nearest stamp the boards have,
+ *     and the result says so. Work done but not shipped yet isn't in
+ *     production, so it is left out; a team that tracks no releases at all
+ *     is measured from start to done, over the work done in the quarter.
  *   - Time to restore: the mean of opened → resolved over the incidents
  *     resolved in the quarter (Incident Commander), its own definition.
  *
  * A metric with nothing to go on stays null, with the reason in `missing`,
  * never 0. Example rows (`example-` ids) are left out.
+ *
+ * What a saved sample came from is its `derivedFrom` counts, one per
+ * source: releases (deploy frequency and change failure rate), items (lead
+ * time), incidents (time to restore). A count of 0 means that number wasn't
+ * worked out from the data (it found none, or the number was typed over),
+ * so a sample with every count 0 is typed, whatever its `source` says.
  */
 
 import type {
   DoraDerivedFrom,
+  DoraSample,
   Incident,
   IncidentCommander,
   ReleaseReadiness,
@@ -35,7 +45,7 @@ import { percentile } from "@/lib/sprints/metrics";
 import { localDay } from "@/lib/sprints/series";
 import { MIN_SAMPLE, needMore } from "@/lib/analytics/min-sample";
 import { isDashQuarter, quarterBounds } from "@/lib/roadmap/quarters";
-import type { DoraMetric } from "./bands";
+import { DORA_METRICS, type DoraMetric } from "./bands";
 
 /** MUST match IC_ID in incident-commander/constants.ts. */
 export const INCIDENT_DOC_ID = "incidentCommander:current";
@@ -61,7 +71,7 @@ export interface DoraDerivation {
   lead: {
     /** "start-to-ship" when the team tracks releases, else "start-to-done". */
     basis: "start-to-ship" | "start-to-done";
-    /** Items measured. */
+    /** Items measured: shipped in the quarter (done in it, start to done). */
     measured: number;
     /** Of them, tied to their release by `Release.storyIds`. */
     linked: number;
@@ -181,41 +191,49 @@ export function deriveDoraSample(input: DeriveInput): DoraDerivation | null {
   /* Lead time. */
   const tracksReleases = events.length > 0;
   const links = linkedShips(doc, events);
-  const finished = input.items.filter((item) => {
-    const done = localDay(item.doneOn);
-    return done !== null && item.startedOn && done >= from && done <= to;
-  });
+  // Everything done by the quarter's end: work done before it can ship in it.
+  const done = input.items
+    .filter((item) => item.startedOn)
+    .map((item) => ({ item, day: localDay(item.doneOn) }))
+    .filter((x): x is { item: FlowItem; day: string } => x.day !== null && x.day <= to);
+  const finished = done.filter((x) => x.day >= from).length;
   const hours: number[] = [];
   let linked = 0;
   let notShipped = 0;
-  for (const item of finished) {
-    const done = localDay(item.doneOn) as string;
+  for (const { item, day } of done) {
     if (!tracksReleases) {
+      // Start to done: the quarter the work was done in.
+      if (day < from) continue;
       const h = leadTimeHours(item);
       if (h !== null) hours.push(h);
       continue;
     }
     const own = item.kind === "story" ? links.get(item.id) : undefined;
-    const exact = own ? firstOnOrAfter(own, done) : undefined;
+    const exact = own ? firstOnOrAfter(own, day) : undefined;
     // A release listing the story that shipped before it was done is a
     // stale link: the first ship after it stands in, as for unlisted work.
     // One listing it that hasn't gone out means it isn't out yet.
-    const ship = exact ?? (own && own.length === 0 ? undefined : firstOnOrAfter(events, done));
+    const ship = exact ?? (own && own.length === 0 ? undefined : firstOnOrAfter(events, day));
     if (!ship) {
-      notShipped++;
+      if (day >= from) notShipped++;
       continue;
     }
-    const h = leadTimeHours(item, ship.shippedDate.slice(0, 10));
+    // Start to ship: the quarter it shipped in, as deploys are counted.
+    const shipped = ship.shippedDate.slice(0, 10);
+    if (shipped < from || shipped > to) continue;
+    const h = leadTimeHours(item, shipped);
     if (h === null) continue;
     hours.push(h);
     if (exact) linked++;
   }
   const enoughLead = hours.length >= MIN_SAMPLE.average;
   if (!enoughLead) {
-    if (finished.length === 0) {
+    if (hours.length === 0 && notShipped > 0) {
+      missing.leadTimeHours = `None of the ${plural(finished, "item")} finished in ${quarter} has shipped yet.`;
+    } else if (hours.length === 0 && tracksReleases) {
+      missing.leadTimeHours = `No story or card with a start date shipped in ${quarter}.`;
+    } else if (hours.length === 0) {
       missing.leadTimeHours = `No story or card with a start date was finished in ${quarter}.`;
-    } else if (hours.length === 0 && notShipped > 0) {
-      missing.leadTimeHours = `None of the ${plural(finished.length, "item")} finished in ${quarter} has shipped yet.`;
     } else {
       const more = needMore(hours.length, "average");
       missing.leadTimeHours = `Only ${plural(hours.length, "item")} to measure in ${quarter}; ${more} more needed for a median.`;
@@ -250,7 +268,8 @@ export function deriveDoraSample(input: DeriveInput): DoraDerivation | null {
     derivedFrom: {
       releases: inQuarter.length,
       rolledBack,
-      items: hours.length,
+      // Too few for a median: no lead time came from them.
+      items: enoughLead ? hours.length : 0,
       incidents: restores.length,
     },
     lead: {
@@ -262,17 +281,116 @@ export function deriveDoraSample(input: DeriveInput): DoraDerivation | null {
   };
 }
 
+/* ── What a sample came from ────────────────────────────────────────── */
+
+/** A stored count, 0 when it isn't a usable number (a hand-edited doc). */
+const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+
+const listText = (xs: readonly string[]) =>
+  xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+
+const METRIC_WORDS: Record<DoraMetric, string> = {
+  deployFreqPerWeek: "deploy frequency",
+  leadTimeHours: "lead time",
+  changeFailRate: "change failure rate",
+  mttrHours: "time to restore",
+};
+
+/** The numbers `from` says came from the data, in the scorecard's order. */
+export function derivedMetrics(from: DoraDerivedFrom | null | undefined): DoraMetric[] {
+  if (!from) return [];
+  const has: Record<DoraMetric, boolean> = {
+    deployFreqPerWeek: count(from.releases) > 0,
+    changeFailRate: count(from.releases) > 0,
+    leadTimeHours: count(from.items) > 0,
+    mttrHours: count(from.incidents) > 0,
+  };
+  return DORA_METRICS.filter((m) => has[m]);
+}
+
+/**
+ * `from` with the count of every number `kept` says isn't the data's any
+ * more set to 0, or null when none is left (the sample is typed). The
+ * releases go unless deploy frequency and change failure rate are both
+ * kept: they are the basis of both, and naming them for a typed number
+ * would claim more than the data gave.
+ */
+export function keptProvenance(
+  from: DoraDerivedFrom,
+  kept: (metric: DoraMetric) => boolean
+): DoraDerivedFrom | null {
+  const releases = count(from.releases) > 0 && kept("deployFreqPerWeek") && kept("changeFailRate");
+  const next: DoraDerivedFrom = {
+    releases: releases ? count(from.releases) : 0,
+    rolledBack: releases ? count(from.rolledBack) : 0,
+    items: kept("leadTimeHours") ? count(from.items) : 0,
+    incidents: kept("mttrHours") ? count(from.incidents) : 0,
+  };
+  return derivedMetrics(next).length > 0 ? next : null;
+}
+
+/**
+ * Where an edited sample's numbers come from now: a number changed is
+ * typed (its count goes), a new quarter makes them all typed (the counts
+ * were that quarter's), and with no count left the sample is typed. The page's
+ * editor and tool.dora_scorecard.update_sample both judge by this.
+ */
+export function editedSource(
+  before: DoraSample,
+  next: Pick<DoraSample, DoraMetric | "quarter">
+): Pick<DoraSample, "source" | "derivedFrom"> {
+  if (before.source !== "derived") return before.source ? { source: before.source } : {};
+  const kept = (m: DoraMetric) => before.quarter === next.quarter && before[m] === next[m];
+  // Derived without counts (an agent's write): it stays so only untouched.
+  if (!before.derivedFrom) return { source: DORA_METRICS.every(kept) ? "derived" : "manual" };
+  const from = keptProvenance(before.derivedFrom, kept);
+  return from ? { source: "derived", derivedFrom: from } : { source: "manual" };
+}
+
+/** Whether a sample's numbers came from the data: all of them, some, or none. */
+export type SampleOrigin = "derived" | "partly" | "typed";
+
+export function sampleOrigin(s: Pick<DoraSample, "source" | "derivedFrom">): SampleOrigin {
+  if (s.source !== "derived") return "typed";
+  if (!s.derivedFrom) return "derived";
+  const n = derivedMetrics(s.derivedFrom).length;
+  return n === 0 ? "typed" : n === DORA_METRICS.length ? "derived" : "partly";
+}
+
 /**
  * "From 6 releases (1 rolled back), 14 finished items and 2 incidents.":
- * what a derived sample was worked out from.
+ * what a derivation was worked out from, naming only the sources that gave
+ * a number ("From 2 incidents.", not "From 0 releases, 0 finished items…").
  */
 export function provenanceText(from: DoraDerivedFrom): string {
+  const releases = count(from.releases);
+  const rolledBack = count(from.rolledBack);
   const parts = [
-    `${plural(from.releases, "release")}${from.rolledBack > 0 ? ` (${from.rolledBack} rolled back)` : ""}`,
-    plural(from.items, "finished item"),
-    plural(from.incidents, "incident"),
-  ];
-  return `From ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}.`;
+    releases > 0
+      ? `${plural(releases, "release")}${rolledBack > 0 ? ` (${rolledBack} rolled back)` : ""}`
+      : null,
+    count(from.items) > 0 ? plural(count(from.items), "finished item") : null,
+    count(from.incidents) > 0 ? plural(count(from.incidents), "incident") : null,
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return "Nothing in your data gave a number.";
+  return `From ${listText(parts)}.`;
+}
+
+/**
+ * Where a saved sample's numbers came from, for its row and the export:
+ * "Typed", or what the data gave and which numbers were typed ("From 4
+ * releases. Lead time and time to restore typed.").
+ */
+export function sampleSourceText(s: Pick<DoraSample, "source" | "derivedFrom">): string {
+  const origin = sampleOrigin(s);
+  if (origin === "typed") return "Typed";
+  if (!s.derivedFrom) return "From the data";
+  const fromData = derivedMetrics(s.derivedFrom);
+  const typed = DORA_METRICS.filter((m) => !fromData.includes(m)).map((m) => METRIC_WORDS[m]);
+  const text = provenanceText(s.derivedFrom);
+  if (typed.length === 0) return text;
+  const words = listText(typed);
+  return `${text} ${words[0].toUpperCase()}${words.slice(1)} typed.`;
 }
 
 /** How the lead time was measured, in a sentence. */

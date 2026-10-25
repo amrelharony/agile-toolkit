@@ -10,7 +10,7 @@ import {
   formatMetric,
 } from "@/lib/dora/bands";
 import { latestSample, sortSamples } from "@/lib/dora/samples";
-import { provenanceText } from "@/lib/dora/derive";
+import { sampleSourceText } from "@/lib/dora/derive";
 import { doraVerdict } from "@/lib/dora/verdict";
 
 /** A table cell: one line, pipes escaped. */
@@ -21,12 +21,8 @@ function md(v: unknown): string {
     .trim();
 }
 
-const sourceOf = (s: DoraSample) =>
-  s.source === "derived"
-    ? s.derivedFrom
-      ? provenanceText(s.derivedFrom)
-      : "From the data"
-    : "Typed";
+// What the data gave and which numbers were typed, as the row says it.
+const sourceOf = (s: DoraSample) => sampleSourceText(s);
 
 /**
  * The scorecard for a quarterly review: the verdict, the latest quarter's

@@ -42,10 +42,11 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DORA_ACTIONS } from "@/lib/history/event-actions";
 import { todayIso } from "@/lib/sprints/series";
-import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { cardItems, storyItems } from "@/lib/flow";
-import { currentQuarterIndex, dashQuarter, quarterIndex } from "@/lib/roadmap/quarters";
+import { quarterIndex } from "@/lib/roadmap/quarters";
 import {
   DORA_BANDS,
   DORA_BAND_ORDER,
@@ -58,22 +59,23 @@ import {
   type DoraBand,
   type DoraMetric,
 } from "@/lib/dora/bands";
-import {
-  DORA_DOC_ID,
-  latestSample,
-  sampleFor,
-  sortSamples,
-  usableSamples,
-} from "@/lib/dora/samples";
+import { DORA_DOC_ID, latestSample, sortSamples, usableSamples } from "@/lib/dora/samples";
 import { INCIDENT_DOC_ID, deriveDoraSample } from "@/lib/dora/derive";
 import { doraVerdict } from "@/lib/dora/verdict";
 import { metricTrendText, type DoraTrendRow } from "./chart-text";
 import { analyseDora } from "./analysis";
 import { DoraAdvanced } from "./advanced";
 import { buildExample } from "./example";
-import { newSample, applyValues, type DoraValues } from "./form";
+import {
+  applyValues,
+  newSample,
+  nextQuarterToLog,
+  restorable,
+  type DoraDraft,
+  type DoraValues,
+} from "./form";
 import { LogForm } from "./log-form";
-import { BAND_TEXT, SampleRow } from "./sample-row";
+import { BAND_TEXT, SampleRow, type RefillResult } from "./sample-row";
 import { toMarkdown } from "./markdown";
 
 export const TOOL_ID = "dora-scorecard";
@@ -112,16 +114,6 @@ const writeStore: SampleUpdate = (fn) => {
   upsertDoraScorecard({ ...(cur ?? {}), id: DORA_DOC_ID, samples: fn(list) });
 };
 
-/** The latest quarter, up to this one, that has no sample yet. */
-function nextQuarterToLog(samples: readonly DoraSample[], now: Date): string {
-  const current = currentQuarterIndex(now);
-  for (let i = current; i > current - 40; i--) {
-    const q = dashQuarter(i);
-    if (!sampleFor(samples, q)) return q;
-  }
-  return dashQuarter(current);
-}
-
 const trendRow = (s: DoraSample): DoraTrendRow => ({
   quarter: s.quarter,
   deployFreqPerWeek: s.deployFreqPerWeek,
@@ -157,13 +149,19 @@ export function DoraScorecardClient() {
   const today = todayIso(now);
   // The example lives here only: nothing in it reaches the workspace.
   const [example, setExample] = useState<DoraSample[] | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  // Bumped after a save so the form starts again on the next quarter to log.
-  const [formKey, setFormKey] = useState(0);
+  // The row being edited, and what the log form had typed when its
+  // "Edit 2026-Q3" opened it.
+  const [editing, setEditing] = useState<{ id: string; seed?: Partial<DoraDraft> } | null>(null);
+  const editingId = editing?.id ?? null;
+  const setEditingId = (id: string | null) => setEditing(id ? { id } : null);
   const preview = example !== null;
 
   const stored = useMemo(() => usableSamples(doc, { includeExamples: true }), [doc]);
   const samples = example ?? stored ?? NO_SAMPLES;
+  // What Undo checks against: the list as it is when Undo is clicked, not
+  // when the toast opened.
+  const latestSamples = useRef(samples);
+  latestSamples.current = samples;
   const sorted = useMemo(() => sortSamples(samples), [samples]);
   const newestFirst = useMemo(() => [...sorted].reverse(), [sorted]);
   const latest = latestSample(samples);
@@ -194,7 +192,7 @@ export function DoraScorecardClient() {
   /* ── Changes ──────────────────────────────────────────────────────── */
 
   const add = (values: DoraValues, derived?: { quarter: string; derivedFrom: DoraDerivedFrom }) => {
-    const sample = newSample(values, crypto.randomUUID(), derived);
+    const sample = newSample(values, crypto.randomUUID(), derived, new Date().toISOString());
     undoable({
       label: `Logged ${sample.quarter}`,
       apply: () => {
@@ -214,14 +212,14 @@ export function DoraScorecardClient() {
       },
       revert: () => update((list) => list.filter((s) => s.id !== sample.id)),
     });
-    setFormKey((k) => k + 1);
     announce(`Logged ${sample.quarter}`);
   };
 
-  const startEdit = (s: DoraSample) => setEditingId(s.id);
+  const startEdit = (s: DoraSample, seed?: Partial<DoraDraft>) =>
+    setEditing({ id: s.id, ...(seed && Object.keys(seed).length > 0 ? { seed } : {}) });
 
-  const saveEdit = (s: DoraSample, values: DoraValues) => {
-    const next = applyValues(s, values, new Date().toISOString());
+  const saveEdit = (s: DoraSample, values: DoraValues, refill?: RefillResult) => {
+    const next = applyValues(s, values, new Date().toISOString(), refill);
     if (next !== s) {
       update((list) => list.map((x) => (x.id === s.id ? next : x)));
       record(DORA_ACTIONS.SAMPLE_UPDATED, { sampleId: s.id, quarter: next.quarter });
@@ -236,18 +234,50 @@ export function DoraScorecardClient() {
     returnTo(`edit:${s.id}`);
   };
 
+  /** Undo found a quarter logged again since: say so rather than make it two. */
+  const keptOutNotice = (kept: readonly DoraSample[]) => {
+    const quarters = kept.map((k) => k.quarter).join(", ");
+    const message = `Not put back: ${quarters} ${kept.length === 1 ? "has" : "have"} a new sample since, and a quarter keeps one.`;
+    toast(message, { description: "Edit the new sample to change its numbers." });
+    announce(message);
+  };
+
   const remove = (s: DoraSample) => {
-    // Focus moves to the next row on screen (or the one before) as this one goes.
+    // Focus moves to the next row on screen (or the one before) as this one
+    // goes; with none left, to the log form's quarter.
     const at = newestFirst.findIndex((x) => x.id === s.id);
     const neighbour = newestFirst[at + 1] ?? newestFirst[at - 1];
     if (editingId === s.id) setEditingId(null);
-    removeWithUndo<DoraSample>({
+    let removed: { item: DoraSample; index: number } | null = null;
+    undoable({
       label: `Deleted the ${s.quarter || "undated"} sample`,
-      update,
-      match: (x) => x.id === s.id,
+      apply: () =>
+        update((list) => {
+          // Reset first: React may run an updater twice (StrictMode).
+          removed = null;
+          const index = list.findIndex((x) => x.id === s.id);
+          if (index >= 0) removed = { item: list[index], index };
+          return list.filter((x) => x.id !== s.id);
+        }),
+      // Like removeWithUndo, back at its old place, but never next to a
+      // sample logged for the same quarter since (one quarter, one sample).
+      revert: () => {
+        const back = removed;
+        if (!back) return;
+        const { restore, keptOut } = restorable(latestSamples.current, [back.item]);
+        if (keptOut.length > 0) return keptOutNotice(keptOut);
+        if (restore.length === 0) return;
+        update((list) => {
+          const next = [...list];
+          if (!next.some((x) => x.id === back.item.id)) {
+            next.splice(Math.min(back.index, next.length), 0, back.item);
+          }
+          return next;
+        });
+      },
     });
     record(DORA_ACTIONS.SAMPLE_REMOVED, { sampleId: s.id, quarter: s.quarter });
-    if (neighbour) returnTo(`delete:${neighbour.id}`);
+    returnTo(neighbour ? `delete:${neighbour.id}` : "log:quarter");
     announce(`Deleted the ${s.quarter || "undated"} sample`);
   };
 
@@ -260,14 +290,19 @@ export function DoraScorecardClient() {
     setEditingId(null);
     update((list) => list.filter((s) => !before.some((b) => b.id === s.id)));
     record(DORA_ACTIONS.DORA_RESET, { samples: before.length });
+    // The Quarters list and its button go: focus waits on the log form.
+    returnTo("log:quarter");
     announce(`Cleared ${before.length === 1 ? "1 sample" : `${before.length} samples`}`);
   };
   const undoClear = () => {
     const c = cleared.current;
     if (!c) return;
-    // Back where it was cleared from, keeping any sample logged since.
-    c.update((list) => [...c.samples.filter((b) => !list.some((s) => s.id === b.id)), ...list]);
     cleared.current = null;
+    // Back where it was cleared from, keeping any sample logged since; a
+    // quarter logged again since keeps its new sample.
+    const { keptOut } = restorable(latestSamples.current, c.samples);
+    c.update((list) => [...restorable(list, c.samples).restore, ...list]);
+    if (keptOut.length > 0) keptOutNotice(keptOut);
   };
 
   const loadExample = () => {
@@ -388,7 +423,6 @@ export function DoraScorecardClient() {
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
         <SectionCard title="Log a quarter" icon={Plus} titleSize="lg">
           <LogForm
-            key={formKey}
             samples={samples}
             defaultQuarter={nextQuarterToLog(samples, now)}
             now={now}
@@ -396,6 +430,7 @@ export function DoraScorecardClient() {
             derive={derive}
             onAdd={add}
             onEdit={startEdit}
+            quarterRef={refFor("log:quarter")}
           />
         </SectionCard>
 
@@ -455,8 +490,10 @@ export function DoraScorecardClient() {
                 sample={s}
                 samples={samples}
                 editing={editingId === s.id}
+                seed={editingId === s.id ? editing?.seed : undefined}
                 now={now}
                 today={today}
+                derive={derive}
                 refFor={refFor}
                 onEdit={startEdit}
                 onSave={saveEdit}
