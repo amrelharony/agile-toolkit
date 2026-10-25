@@ -34,7 +34,10 @@ export function ScatterTab({
   stats: QuotedPercentiles;
   cusumAnnotations: CausalAnnotationData[];
 }) {
-  const text = useMemo(() => scatterText(scatterData, stats), [scatterData, stats]);
+  const text = useMemo(
+    () => scatterText(scatterData, stats, cusumAnnotations),
+    [scatterData, stats, cusumAnnotations]
+  );
   return (
     <ChartFigure label="Cycle time by completion date" summary={text.summary} table={text.table}>
       <CycleTimeScatterChart

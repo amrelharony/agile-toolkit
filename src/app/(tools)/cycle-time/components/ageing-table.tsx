@@ -19,6 +19,14 @@ import type { HandoffLink } from "@/lib/handoffs/types";
 import { cn } from "@/lib/utils";
 
 const STAGE_LABEL: Record<string, string> = { in_progress: "In progress", review: "Review" };
+/** Where an item is, as a phrase: "is blocked (in review for 3 days)". */
+const STAGE_PHRASE: Record<string, string> = { in_progress: "in progress", review: "in review" };
+
+/** The impediment raised from a blocked item: its title, stage and age. */
+export function blockedTitle(a: Pick<AgeingItem, "title" | "stage" | "ageDays">): string {
+  const age = a.ageDays === 1 ? "1 day" : `${a.ageDays} days`;
+  return `${a.title} is blocked (${STAGE_PHRASE[a.stage] ?? "in progress"} for ${age})`;
+}
 const KIND_LABEL = { story: "Sprint board", card: "Flow board" } as const;
 
 export const CYCLE_TIME_TOOL = "cycle-time";
@@ -93,7 +101,7 @@ export function AgeingTable({
           <SendToMenu
             routes={["impediment"]}
             item={{
-              title: `${a.title} is blocked (in ${STAGE_LABEL[a.stage]?.toLowerCase() ?? "progress"} for ${a.ageDays} days)`,
+              title: blockedTitle(a),
               ...(a.owner ? { owner: a.owner, raisedBy: a.owner } : {}),
               sourceRef: { tool: CYCLE_TIME_TOOL, id: a.id },
             }}

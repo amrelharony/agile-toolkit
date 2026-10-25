@@ -49,6 +49,29 @@ export function dateErrors(
   return errors;
 }
 
+/**
+ * Why a date edited in place on a typed item can't be saved, or null. A
+ * start moved past the finish is refused on the start itself: dateErrors
+ * files the order on the finish, so checking only the edited field let it
+ * through, and the item dropped out of every statistic with a "—".
+ */
+export function editDateError(
+  item: Pick<WorkItem, "startDate" | "endDate">,
+  field: "startDate" | "endDate",
+  value: string,
+  today: string
+): string | null {
+  const next = { ...item, [field]: value };
+  const errors = dateErrors(next.startDate, next.endDate, today);
+  if (errors[field]) return errors[field];
+  const start = isoDayNumber(next.startDate);
+  const end = isoDayNumber(next.endDate);
+  if (field === "startDate" && start !== null && end !== null && start > end) {
+    return `The start can't be after the finish (${item.endDate}).`;
+  }
+  return null;
+}
+
 export function validateItem(
   draft: ItemDraft,
   today: string

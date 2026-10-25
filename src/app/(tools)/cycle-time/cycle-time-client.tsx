@@ -12,7 +12,7 @@ import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { ResetButton } from "@/components/shared/reset-button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
-import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
@@ -72,6 +72,18 @@ const INTERPRETATION: Record<(typeof PERCENTILE_KEYS)[number], string> = {
 };
 
 /**
+ * The element whose `data-<name>` is `value`, the one on screen: the table
+ * draws each row twice (a table from md up, cards below it), one hidden.
+ * Ids go in no selector, so need no escaping.
+ */
+function onScreen(name: string, value: string): HTMLElement | undefined {
+  const all = Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).filter(
+    (el) => el.getAttribute(`data-${name}`) === value
+  );
+  return all.find((el) => el.getClientRects().length > 0) ?? all[0];
+}
+
+/**
  * Cycle Time Analyzer: how long work takes from start to finish. Finished
  * stories (Sprint board) and cards (Flow board) are read live from their
  * start and done times through lib/flow, with items typed by hand as the
@@ -104,6 +116,7 @@ export function CycleTimeClient() {
   const [example, setExample] = useState<CycleTimeExample | null>(null);
   const preview = example !== null;
   const resetSnapshot = useRef<WorkItem[]>([]);
+  const addRef = useRef<HTMLDivElement>(null);
   const pctId = useId();
   const [targetDraft, setTargetDraft] = useState<string | null>(null);
   const [targetError, setTargetError] = useState<string | null>(null);
@@ -122,13 +135,11 @@ export function CycleTimeClient() {
   const rows = useMemo(() => rowsFrom(allRows, sources), [allRows, sources]);
   const stats = useMemo(() => cycleStats(rows), [rows]);
   const p85 = stats.distributionQuoted ? stats.summary.p85 : null;
-  const ageing = useMemo(
-    () =>
-      ageingRows(boardStories, boardCards, today, p85, { includeExamples: preview }).filter((a) =>
-        sources.has(a.kind)
-      ),
-    [boardStories, boardCards, today, p85, preview, sources]
+  const allAgeing = useMemo(
+    () => ageingRows(boardStories, boardCards, today, p85, { includeExamples: preview }),
+    [boardStories, boardCards, today, p85, preview]
   );
+  const ageing = useMemo(() => allAgeing.filter((a) => sources.has(a.kind)), [allAgeing, sources]);
   const sle = { pct: targetPct, days: sleDays(rows, targetPct) };
   const analysis = useMemo(() => analyseCycleTimes(rows), [rows]);
   const verdict = cycleTimeVerdict(stats, ageing, sle);
@@ -145,7 +156,9 @@ export function CycleTimeClient() {
     ALL_SOURCES.map((s) => [s, allRows.filter((r) => r.source === s).length])
   ) as Record<CycleSource, number>;
   const markdown = cycleTimeToMarkdown({ today, rows, sources, stats, ageing, sle });
-  const empty = allRows.length === 0 && typedItems.length === 0 && ageing.length === 0;
+  // From every source, not the ones picked: switching the only source with
+  // data off mustn't swap the page for the first-run state, chips and all.
+  const empty = allRows.length === 0 && typedItems.length === 0 && allAgeing.length === 0;
 
   /* ── Typed items: the store, or the example's copy while it shows ─── */
 
@@ -155,11 +168,10 @@ export function CycleTimeClient() {
   };
   const record: typeof log = preview ? () => undefined : log;
 
+  // The form is hidden while the example shows, so an add is always the user's own.
   const add = (values: Omit<WorkItem, "id">) => {
-    if (preview)
-      writeTyped((list) => [...list, { ...values, id: exampleId(`cycle-typed-${Date.now()}`) }]);
-    else addItem(values);
-    record(CYCLE_TIME_ACTIONS.ITEM_ADDED, { name: values.name });
+    addItem(values);
+    log(CYCLE_TIME_ACTIONS.ITEM_ADDED, { name: values.name });
     announce(`Added ${values.name}`);
   };
   const rename = (item: WorkItem, name: string) => {
@@ -175,6 +187,17 @@ export function CycleTimeClient() {
   };
   const remove = (item: WorkItem) => {
     const name = item.name.trim() || "the item";
+    // Focus moves on to the next typed item's Delete as the table shows
+    // them (else the previous one's), or to the form once none is left.
+    const shown = Array.from(
+      new Set(
+        Array.from(document.querySelectorAll<HTMLElement>("[data-item-delete]")).map(
+          (el) => el.dataset.itemDelete ?? ""
+        )
+      )
+    );
+    const at = shown.indexOf(item.id);
+    const neighbour = at >= 0 ? (shown[at + 1] ?? shown[at - 1]) : undefined;
     removeWithUndo<WorkItem>({
       label: `Deleted “${name}”`,
       update: writeTyped,
@@ -182,6 +205,12 @@ export function CycleTimeClient() {
     });
     record(CYCLE_TIME_ACTIONS.ITEM_REMOVED, { itemId: item.id });
     announce(`Deleted ${name}`);
+    requestAnimationFrame(() =>
+      (neighbour
+        ? onScreen("item-delete", neighbour)
+        : addRef.current?.querySelector<HTMLElement>("input")
+      )?.focus()
+    );
   };
 
   const toggleSource = (s: CycleSource) => {
@@ -312,7 +341,11 @@ export function CycleTimeClient() {
                         : s === "card"
                           ? "Flow board cards"
                           : "Typed"}
-                      <span className="ml-1 font-mono text-xs opacity-80">{counts[s]}</span>
+                      {/* Read as ", 3 finished", not run into the label ("stories3"). */}
+                      <span className="ml-1 font-mono text-xs opacity-80" aria-hidden="true">
+                        {counts[s]}
+                      </span>
+                      <span className="sr-only">, {counts[s]} finished</span>
                     </Button>
                   ))}
                 </div>
@@ -632,33 +665,40 @@ export function CycleTimeClient() {
           </>
         )}
 
-        <SectionCard
-          title="Type an item"
-          icon={Keyboard}
-          actions={
-            !preview && items.length > 0 ? (
-              <ResetButton
-                label="Clear typed items"
-                title="Clear every typed item?"
-                description={`All ${items.length} items you typed go; stories and cards on the boards stay. You can undo this for a few seconds.`}
-                confirmLabel="Clear typed items"
-                doneLabel="Cleared the typed items"
-                onReset={() => {
-                  resetSnapshot.current = useCycleTimeStore.getState().items;
-                  reset();
-                  log(CYCLE_TIME_ACTIONS.CYCLE_TIME_RESET, { items: resetSnapshot.current.length });
-                }}
-                onUndo={() => restoreItems(resetSnapshot.current)}
-              />
-            ) : undefined
-          }
-        >
-          <p className="mb-3 text-xs text-sub">
-            For work tracked somewhere the toolkit can&apos;t read. Stories and cards on the boards
-            are counted on their own.
-          </p>
-          <AddItemForm today={today} onAdd={add} />
-        </SectionCard>
+        {/* Not while the example shows: an item typed in would go with Clear example. */}
+        {!preview && (
+          <SectionCard
+            title="Type an item"
+            icon={Keyboard}
+            actions={
+              items.length > 0 ? (
+                <ResetButton
+                  label="Clear typed items"
+                  title="Clear every typed item?"
+                  description={`All ${items.length} items you typed go; stories and cards on the boards stay. You can undo this for a few seconds.`}
+                  confirmLabel="Clear typed items"
+                  doneLabel="Cleared the typed items"
+                  onReset={() => {
+                    resetSnapshot.current = useCycleTimeStore.getState().items;
+                    reset();
+                    log(CYCLE_TIME_ACTIONS.CYCLE_TIME_RESET, {
+                      items: resetSnapshot.current.length,
+                    });
+                  }}
+                  onUndo={() => restoreItems(resetSnapshot.current)}
+                />
+              ) : undefined
+            }
+          >
+            <p className="mb-3 text-xs text-sub">
+              For work tracked somewhere the toolkit can&apos;t read. Stories and cards on the
+              boards are counted on their own.
+            </p>
+            <div ref={addRef}>
+              <AddItemForm today={today} onAdd={add} />
+            </div>
+          </SectionCard>
+        )}
       </div>
     </ToolPageWrapper>
   );

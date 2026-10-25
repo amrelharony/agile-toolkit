@@ -49,7 +49,16 @@ export function histogramText(
   };
 }
 
-export function scatterText(points: readonly ScatterDatum[], stats: QuotedPercentiles): ChartText {
+/**
+ * The scatter in words. `shifts` are the change points drawn on it (from
+ * Advanced analysis' sample floor): the summary names them too, so the
+ * text says what the lines on the plot say.
+ */
+export function scatterText(
+  points: readonly ScatterDatum[],
+  stats: QuotedPercentiles,
+  shifts: readonly { detail: string }[] = []
+): ChartText {
   let summary: string;
   if (points.length === 0) {
     summary = "No items with a cycle time yet.";
@@ -69,6 +78,9 @@ export function scatterText(points: readonly ScatterDatum[], stats: QuotedPercen
         : `Cycle times of ${plural(points.length, "item")} finished from ${first} to ${last}, in order of completion, range from ${fmt(
             min
           )} to ${days(max)}${quoted}.`;
+    if (shifts.length > 0) {
+      summary = `${summary} Marked on the chart: ${shifts.map((s) => s.detail).join(" ")}`;
+    }
   }
 
   return {

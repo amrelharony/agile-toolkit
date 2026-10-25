@@ -20,7 +20,7 @@ import { ResortChip } from "@/components/shared/resort-chip";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import type { CycleSource, WorkItem } from "../types";
 import { SOURCE_LABEL, typedDays } from "../helpers";
-import { ITEM_NAME_MAX, dateErrors } from "../form";
+import { ITEM_NAME_MAX, editDateError } from "../form";
 
 /** A row of the table: a finished board item, or a typed item (complete or not). */
 export interface ItemRow {
@@ -58,8 +58,7 @@ function DateCell({
       setError(null);
       return;
     }
-    const next = { ...item, [field]: draft };
-    const err = dateErrors(next.startDate, next.endDate, today)[field] ?? null;
+    const err = editDateError(item, field, draft, today);
     setError(err);
     if (!err) onCommit(draft);
   };
@@ -120,7 +119,7 @@ function TitleCell({
         value={item.name}
         maxLength={ITEM_NAME_MAX}
         onCommit={(v) => (v.trim() ? onRename(item, v.trim()) : setNameKey((k) => k + 1))}
-        aria-label="Item name"
+        aria-label={`Name of ${item.name.trim() || "item"}`}
         className="h-8 min-w-[10rem] flex-1 input-toolkit"
       />
       <Badge variant="outline" className="border-border text-xs text-sub">
@@ -212,6 +211,8 @@ export function WorkItemsTable({
             icon={<Trash2 aria-hidden="true" />}
             onClick={() => onRemove(r.typed!)}
             className="text-sub hover:text-danger"
+            // Lets the page put focus on the next item's Delete after this one goes.
+            data-item-delete={r.typed.id}
           />
         ) : (
           <Link href="/kanban" className="text-xs font-medium text-accent hover:underline">

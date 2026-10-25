@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -69,8 +69,9 @@ import { analyseCycleTimes } from "@/app/(tools)/cycle-time/analysis";
 import { cycleTimeVerdict } from "@/app/(tools)/cycle-time/verdict";
 import { cycleTimeToMarkdown } from "@/app/(tools)/cycle-time/markdown";
 import { buildExample } from "@/app/(tools)/cycle-time/example";
-import { validateItem } from "@/app/(tools)/cycle-time/form";
+import { editDateError, validateItem } from "@/app/(tools)/cycle-time/form";
 import { scatterText } from "@/app/(tools)/cycle-time/chart-text";
+import { blockedTitle } from "@/app/(tools)/cycle-time/components/ageing-table";
 import type { CycleRow, CycleSource } from "@/app/(tools)/cycle-time/types";
 
 const TODAY = todayIso();
@@ -287,12 +288,21 @@ describe("ageing work in progress", () => {
     const imps = useWorkspaceStore.getState().impediments ?? [];
     expect(imps).toHaveLength(1);
     expect(imps[0]).toMatchObject({
-      title: "Wallet payments is blocked (in in progress for 7 days)",
+      title: "Wallet payments is blocked (in progress for 7 days)",
       sourceRef: { tool: "cycle-time", id: "s" },
       owner: "Chloé",
     });
     // The link is read back from the impediment, so it shows as sent.
     expect(screen.getAllByRole("button", { name: /\(sent\)$/ }).length).toBeGreaterThan(0);
+  });
+
+  it("words the impediment's stage and age as a phrase", () => {
+    expect(blockedTitle({ title: "Login", stage: "review", ageDays: 1 })).toBe(
+      "Login is blocked (in review for 1 day)"
+    );
+    expect(blockedTitle({ title: "Login", stage: "in_progress", ageDays: 12 })).toBe(
+      "Login is blocked (in progress for 12 days)"
+    );
   });
 });
 
@@ -416,6 +426,48 @@ describe("typed items", () => {
     expect(screen.getAllByText("The finish can't be before the start.").length).toBeGreaterThan(0);
   });
 
+  it("refuses a start edited to after the finish, on the start itself", () => {
+    useCycleTimeStore.setState({
+      items: [{ id: "a", name: "A", startDate: day(4), endDate: day(2) }],
+    });
+    renderPage();
+    const start = screen.getAllByLabelText("Start of A")[0];
+    fireEvent.change(start, { target: { value: day(1) } });
+    fireEvent.blur(start);
+    // Saved, it would have no cycle time and leave every statistic with a "—".
+    expect(useCycleTimeStore.getState().items[0].startDate).toBe(day(4));
+    expect(start).toHaveAttribute("aria-invalid", "true");
+    expect(
+      screen.getAllByText(`The start can't be after the finish (${day(2)}).`).length
+    ).toBeGreaterThan(0);
+    // The same day is fine (1 day).
+    fireEvent.change(start, { target: { value: day(2) } });
+    fireEvent.blur(start);
+    expect(useCycleTimeStore.getState().items[0].startDate).toBe(day(2));
+    expect(editDateError({ startDate: day(4), endDate: day(2) }, "endDate", day(5), TODAY)).toBe(
+      "The finish can't be before the start."
+    );
+    expect(editDateError({ startDate: "", endDate: "" }, "startDate", day(3), TODAY)).toBeNull();
+  });
+
+  it("moves focus to the next typed item after a delete, then to the form", async () => {
+    useCycleTimeStore.setState({
+      items: [
+        { id: "a", name: "A", startDate: day(6), endDate: day(4) },
+        { id: "b", name: "B", startDate: day(3), endDate: day(2) },
+      ],
+    });
+    renderPage();
+    expect(screen.getAllByLabelText("Name of A").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete A" })[0]);
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "Delete B" })[0]).toHaveFocus()
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete B" })[0]);
+    expect(useCycleTimeStore.getState().items).toEqual([]);
+    await waitFor(() => expect(screen.getByLabelText(/^Item/)).toHaveFocus());
+  });
+
   it("clears the typed items after a confirm, leaving the boards, with Undo", () => {
     useCycleTimeStore.setState({
       items: [{ id: "a", name: "A", startDate: day(4), endDate: day(2) }],
@@ -448,8 +500,44 @@ describe("Cycle Time page", () => {
     expect(useWorkspaceStore.getState().kanbanBoards).toEqual([]);
     const ex = buildExample(TODAY);
     expect([...ex.cards, ...ex.items].every((x) => isExampleId(x.id))).toBe(true);
+    // No Type an item form: an item typed in would go with Clear example.
+    expect(screen.queryByRole("button", { name: "Add item" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.getByText(/No finished work yet/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add item" })).toBeInTheDocument();
+  });
+
+  it("keeps the Include chips when the only source with data is switched off", () => {
+    // Work in progress on the Flow board, nothing finished or typed.
+    useWorkspaceStore.setState({
+      kanbanBoards: [board([card("k", { column: "in_progress", startedAt: at(3) })])],
+    });
+    renderPage();
+    const flow = screen.getByRole("button", { name: "Flow board cards, 0 finished" });
+    fireEvent.click(flow);
+    expect(flow).toHaveAttribute("aria-pressed", "false");
+    // Not the first-run empty state: the chip is still there to switch back.
+    expect(screen.queryByText(/No finished work yet/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Flow board cards, 0 finished" }));
+    expect(screen.getByText("Ageing work in progress")).toBeInTheDocument();
+  });
+
+  it("says in the scatter's text where the change points it draws are", () => {
+    const rows = [2, 3, 9, 8].map((d, i) => row(`r${i}`, d, addDays("2026-09-01", i) as string));
+    // As analyseCycleTimes words a shift, for the lines ScatterTab draws.
+    const shifts = [
+      {
+        detail:
+          "CUSUM detected a sustained increase in cycle time from the item finished on 2026-09-03.",
+      },
+    ];
+    const text = scatterText(scatterPoints(rows), { median: null, p85: null, p95: null }, shifts);
+    expect(text.summary).toContain(
+      "Marked on the chart: CUSUM detected a sustained increase in cycle time from the item finished on 2026-09-03."
+    );
+    expect(
+      scatterText(scatterPoints(rows), { median: null, p85: null, p95: null }).summary
+    ).not.toContain("Marked on the chart");
   });
 
   it("shows — and what's missing below the sample floor, never 0", () => {
