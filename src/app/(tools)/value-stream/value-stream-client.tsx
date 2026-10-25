@@ -46,13 +46,15 @@ import {
   compareStates,
   comparisonVerdict,
   copyToFuture,
+  headlineVerdict,
   leadOf,
   moveStage,
+  orderKnown,
   orderedStages,
+  pinOrder,
   processOf,
   stageState,
   vsmSummary,
-  vsmVerdict,
   waitOf,
   type ValueStreamState,
 } from "@/lib/value-stream/summary";
@@ -93,6 +95,50 @@ const writeStore: Write = (update) => {
   for (const s of before) if (!kept.has(s.id)) ws.removeValueStreamStage(s.id);
   for (const s of changedStages(before, after)) ws.upsertValueStreamStage(s);
 };
+
+/** A map toggle's count, read as ", 5 stages" rather than run into the label ("Current state5"). */
+function MapCount({ n }: { n: number }) {
+  return (
+    <>
+      <span className="ml-1 font-mono text-xs opacity-80" aria-hidden="true">
+        {n}
+      </span>
+      <span className="sr-only">, {n === 1 ? "1 stage" : `${n} stages`}</span>
+    </>
+  );
+}
+
+/** The element whose `data-<name>` is `value`; ids go in no selector, so need no escaping. */
+function byData(name: string, value: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).find(
+    (el) => el.getAttribute(`data-${name}`) === value
+  );
+}
+
+/**
+ * Focus what `find` returns once React has re-rendered. Deleting a stage,
+ * keeping a map's order or starting the future state unmounts the control
+ * that had focus, and focus would otherwise drop to <body>.
+ */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+/**
+ * After a move, keep focus on the moved stage's arrow (focusing it scrolls
+ * its card into view in the sideways list); at either end that arrow is
+ * disabled, so focus its other one.
+ */
+function focusMoved(id: string, delta: -1 | 1) {
+  const arrow = (d: -1 | 1) =>
+    byData("stage-move", `${id}:${d === -1 ? "earlier" : "later"}`) as
+      | HTMLButtonElement
+      | undefined;
+  focusSoon(() => {
+    const el = arrow(delta);
+    return el && !el.disabled ? el : arrow(delta === -1 ? 1 : -1);
+  });
+}
 
 /**
  * Where a stage was sent as a retro topic: the cards on the current retro
@@ -147,6 +193,8 @@ export function ValueStreamClient() {
   const [example, setExample] = useState<ValueStreamStage[] | null>(null);
   // The map a Clear took away, for its Undo.
   const cleared = useRef<ValueStreamStage[]>([]);
+  const listRef = useRef<HTMLUListElement>(null);
+  const addRef = useRef<HTMLDivElement>(null);
   const preview = example !== null;
   const stages = example ?? stored;
 
@@ -163,9 +211,11 @@ export function ValueStreamClient() {
   const shown = view === "current" ? current : future;
   const summary = vsmSummary(shown);
   const neck = bottleneck(shown);
+  // The retro hand-off is about the map as it is today, never the planned one.
+  const currentNeck = bottleneck(current);
   const comparison = compareStates(current, future);
   const compared = comparisonVerdict(comparison);
-  const verdict = vsmVerdict(current);
+  const verdict = headlineVerdict(current, future);
   const mapLabel = STATE_LABEL[view].toLowerCase();
   const chart = stageChartText(shown, STATE_LABEL[view]);
   const markdown = valueStreamToMarkdown(stages, today);
@@ -217,10 +267,29 @@ export function ValueStreamClient() {
     write((list) => moveStage(list, stage.id, to));
     record(VALUE_STREAM_ACTIONS.STAGE_MOVED, { stageId: stage.id, from: index, to });
     announce(`Moved ${stage.name.trim() || "the stage"} to position ${to + 1} of ${shown.length}`);
+    focusMoved(stage.id, delta);
+  };
+
+  /** The first stage card's name field: where focus goes when the control that had it is gone. */
+  const firstStageField = () => listRef.current?.querySelector<HTMLElement>("input");
+
+  /**
+   * Number a map saved before stages kept a position, in the order shown
+   * here: asked of the person looking at it, since a device that pulled
+   * the rows got them by id and can't know the order they were built in.
+   */
+  const keepOrder = () => {
+    write((list) => pinOrder(list, view));
+    announce(`Kept this order of the ${mapLabel} for every device`);
+    focusSoon(firstStageField);
   };
 
   const remove = (stage: ValueStreamStage) => {
     const name = stage.name.trim() || "Unnamed stage";
+    // Focus moves on to the next stage's Delete (else the previous one's),
+    // or to the Add stage form once the map is empty.
+    const at = shown.findIndex((s) => s.id === stage.id);
+    const neighbour = at >= 0 ? (shown[at + 1] ?? shown[at - 1]) : undefined;
     removeWithUndo<ValueStreamStage>({
       label: `Deleted “${name}”`,
       update: write,
@@ -228,6 +297,11 @@ export function ValueStreamClient() {
     });
     record(VALUE_STREAM_ACTIONS.STAGE_REMOVED, { stageId: stage.id, name: stage.name });
     announce(`Deleted ${name}`);
+    focusSoon(() =>
+      neighbour
+        ? byData("stage-delete", neighbour.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
   };
 
   const startFuture = () => {
@@ -242,6 +316,8 @@ export function ValueStreamClient() {
     record(VALUE_STREAM_ACTIONS.FUTURE_STATE_STARTED, { stages: copies.length });
     setView("future");
     announce(`Copied ${copies.length} stages into the future state`);
+    // The button goes once the copies land: focus the first future stage.
+    focusSoon(firstStageField);
   };
 
   /** Clear one map; Undo puts its stages back as they were. */
@@ -267,6 +343,26 @@ export function ValueStreamClient() {
   };
 
   const empty = current.length === 0 && future.length === 0;
+
+  // The workspace loads after the first paint: until then "No stages yet"
+  // and Load example would flash for someone who has a map.
+  if (!hydrated) {
+    return (
+      <ToolPageWrapper
+        toolId={TOOL_ID}
+        title="Value Stream Map"
+        description="Map your process stages with lead time, process time, and %C/A. Auto-computes flow efficiency."
+        category="Flow & Delivery"
+      >
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading the map…
+        </p>
+      </ToolPageWrapper>
+    );
+  }
 
   return (
     <ToolPageWrapper
@@ -355,9 +451,7 @@ export function ValueStreamClient() {
               onClick={() => setView(state)}
             >
               {STATE_LABEL[state]}
-              <span className="ml-1 font-mono text-xs opacity-80">
-                {state === "current" ? current.length : future.length}
-              </span>
+              <MapCount n={state === "current" ? current.length : future.length} />
             </Button>
           ))}
         </div>
@@ -413,7 +507,20 @@ export function ValueStreamClient() {
             />
           </KpiGrid>
 
+          {!preview && shown.length >= 2 && !orderKnown(stages, view) && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-sub">
+              <span>
+                These stages were saved before the map kept its order across devices, so another
+                device may list them differently. If this order is right, keep it.
+              </span>
+              <Button type="button" size="sm" variant="outline" onClick={keepOrder}>
+                Keep this order
+              </Button>
+            </div>
+          )}
+
           <ul
+            ref={listRef}
             aria-label={`${STATE_LABEL[view]} stages, in order`}
             className="scroll-x-snap items-stretch pb-4"
           >
@@ -441,24 +548,24 @@ export function ValueStreamClient() {
             ))}
           </ul>
 
-          {neck && !preview && (
+          {view === "current" && currentNeck && !preview && (
             <div className="flex flex-wrap items-center gap-2 text-sm text-sub">
               <span>
-                Take the {neck.stage.name.trim() || "bottleneck"} wait to the team&apos;s next
-                retro:
+                Take the {currentNeck.stage.name.trim() || "bottleneck"} wait to the team&apos;s
+                next retro:
               </span>
               <SendToMenu
                 routes={["retro-topic"]}
                 item={{
-                  title: `Work waits ${fmt(neck.waitDays)} days in ${
-                    neck.stage.name.trim() || "one stage"
-                  } (${fmt(neck.sharePct, 0)}% of our lead time)`,
+                  title: `Work waits ${fmt(currentNeck.waitDays)} days in ${
+                    currentNeck.stage.name.trim() || "one stage"
+                  } (${fmt(currentNeck.sharePct, 0)}% of our lead time)`,
                   description: verdict,
-                  sourceRef: { tool: TOOL_ID, id: neck.stage.id },
+                  sourceRef: { tool: TOOL_ID, id: currentNeck.stage.id },
                 }}
-                sentTo={retroLinks(retroBoards, neck.stage.id)}
+                sentTo={retroLinks(retroBoards, currentNeck.stage.id)}
                 getLinks={() =>
-                  retroLinks(useWorkspaceStore.getState().retroBoards ?? [], neck.stage.id)
+                  retroLinks(useWorkspaceStore.getState().retroBoards ?? [], currentNeck.stage.id)
                 }
                 // The links are read back from the retro board, so there is nothing to store.
                 onLinksChange={() => undefined}
@@ -488,28 +595,33 @@ export function ValueStreamClient() {
         </SectionCard>
       )}
 
-      <SectionCard
-        title={`Add a stage to the ${mapLabel}`}
-        icon={Plus}
-        className="mt-4"
-        actions={
-          shown.length > 0 ? (
-            <ResetButton
-              label={view === "current" ? "Clear the current state" : "Clear the future state"}
-              title={`Clear the ${mapLabel}?`}
-              description={`All ${shown.length} of its stages go${
-                view === "current" && future.length > 0 ? "; the future state stays" : ""
-              }. You can undo this for a few seconds.`}
-              confirmLabel="Clear stages"
-              doneLabel={`Cleared the ${mapLabel}`}
-              onReset={resetMap}
-              onUndo={undoReset}
-            />
-          ) : undefined
-        }
-      >
-        <AddStageForm mapLabel={mapLabel} onAdd={add} />
-      </SectionCard>
+      {/* Not while the example shows: a stage typed into it would go with Clear example. */}
+      {!preview && (
+        <SectionCard
+          title={`Add a stage to the ${mapLabel}`}
+          icon={Plus}
+          className="mt-4"
+          actions={
+            shown.length > 0 ? (
+              <ResetButton
+                label={view === "current" ? "Clear the current state" : "Clear the future state"}
+                title={`Clear the ${mapLabel}?`}
+                description={`All ${shown.length} of its stages go${
+                  view === "current" && future.length > 0 ? "; the future state stays" : ""
+                }. You can undo this for a few seconds.`}
+                confirmLabel="Clear stages"
+                doneLabel={`Cleared the ${mapLabel}`}
+                onReset={resetMap}
+                onUndo={undoReset}
+              />
+            ) : undefined
+          }
+        >
+          <div ref={addRef}>
+            <AddStageForm mapLabel={mapLabel} onAdd={add} />
+          </div>
+        </SectionCard>
+      )}
     </ToolPageWrapper>
   );
 }

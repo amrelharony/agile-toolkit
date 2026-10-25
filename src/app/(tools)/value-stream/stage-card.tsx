@@ -23,12 +23,15 @@ type NumberField = "processTime" | "leadTime" | "completeAccurate";
  */
 function NumberCell({
   label,
+  subject,
   value,
   check,
   onCommit,
   max,
 }: {
   label: string;
+  /** The stage's name, so the field is named "Lead time (days) of Code review", not one of many alike. */
+  subject: string;
   value: number;
   /** Why the typed text can't be saved, or null. */
   check: (raw: string) => string | null;
@@ -56,6 +59,7 @@ function NumberCell({
     <div>
       <label htmlFor={id} className="block text-xs text-sub">
         {label}
+        <span className="sr-only"> of {subject}</span>
       </label>
       <Input
         id={id}
@@ -135,12 +139,14 @@ export function StageCard({
             {index + 1}/{count}
           </span>
           <div className="ml-auto flex items-center">
+            {/* The data attributes let the page put focus back after a move or a delete. */}
             <IconButton
               label={`Move ${name} earlier`}
               icon={<ArrowLeft aria-hidden="true" />}
               disabled={index === 0}
               onClick={() => onMove(-1)}
               className="text-sub"
+              data-stage-move={`${stage.id}:earlier`}
             />
             <IconButton
               label={`Move ${name} later`}
@@ -148,12 +154,14 @@ export function StageCard({
               disabled={index === count - 1}
               onClick={() => onMove(1)}
               className="text-sub"
+              data-stage-move={`${stage.id}:later`}
             />
             <IconButton
               label={`Delete stage ${name}`}
               icon={<Trash2 aria-hidden="true" />}
               onClick={onDelete}
               className="text-sub hover:text-danger"
+              data-stage-delete={stage.id}
             />
           </div>
         </div>
@@ -186,18 +194,21 @@ export function StageCard({
         />
         <NumberCell
           label="Process time (days)"
+          subject={name}
           value={stage.processTime}
           check={(raw) => editError(stage, "processTime", raw)}
           onCommit={(n) => onNumber("processTime", n)}
         />
         <NumberCell
           label="Lead time (days)"
+          subject={name}
           value={stage.leadTime}
           check={(raw) => editError(stage, "leadTime", raw)}
           onCommit={(n) => onNumber("leadTime", n)}
         />
         <NumberCell
           label="%C/A"
+          subject={name}
           value={stage.completeAccurate}
           max={100}
           check={(raw) => editError(stage, "completeAccurate", raw)}

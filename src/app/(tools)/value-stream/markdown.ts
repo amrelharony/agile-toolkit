@@ -6,11 +6,11 @@ import {
   bottleneck,
   compareStates,
   comparisonVerdict,
+  headlineVerdict,
   leadOf,
   orderedStages,
   processOf,
   vsmSummary,
-  vsmVerdict,
   waitOf,
   type ValueStreamState,
 } from "@/lib/value-stream/summary";
@@ -67,7 +67,7 @@ export function valueStreamToMarkdown(stages: readonly ValueStreamStage[], today
   const title = `# Value stream map — ${today}`;
   if (current.length === 0 && future.length === 0) return `${title}\n\nNo stages mapped yet.\n`;
   const comparison = compareStates(current, future);
-  const lines = [title, "", `**${vsmVerdict(current)}**`];
+  const lines = [title, "", `**${headlineVerdict(current, future)}**`];
   const compared = comparisonVerdict(comparison);
   if (compared) lines.push("", compared);
   if (current.length > 0) lines.push("", ...mapSection(current, "current"));

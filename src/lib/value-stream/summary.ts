@@ -6,9 +6,13 @@
  * A map is the stages of one state ("current" or "future"), in `order`.
  * Stages saved before reordering have no `order`: they keep their stored
  * position, after the numbered ones. Stored order alone isn't enough: a
- * fresh device pulls the rows sorted by id, so a map without `order` comes
- * back shuffled there. Every reorder, add and future-state copy writes
- * `order` for the whole map, which pins it everywhere.
+ * device that pulls the rows (and the MCP server) gets them sorted by id,
+ * so a map without `order` comes back shuffled there. Only the device that
+ * built the map holds its true order, and nothing can tell which device
+ * that is, so a map is numbered only when someone looks at it and says so:
+ * a reorder on the page, or its "Keep this order". An add never numbers a
+ * map whose order isn't known (`orderKnown`): the new stage simply goes
+ * last, which every device agrees on.
  *
  * Stored values aren't always what the types say (a hand edit, an agent
  * write from before the bounds), so every number is read clamped: times
@@ -78,6 +82,20 @@ export function orderedStages(
     .sort((a, b) => (a.stage.order as number) - (b.stage.order as number) || a.index - b.index);
   const rest = inMap.filter(({ stage }) => !hasOrder(stage));
   return [...numbered, ...rest].map(({ stage }) => stage);
+}
+
+/**
+ * Whether every device shows this map in the same order: at most one of
+ * its stages has no saved `order` (one alone can only go last). With two
+ * or more, their order is the device's own: the one that built the map
+ * has it, one that pulled the rows got them by id. Until then, the server
+ * mustn't renumber the map from what it reads.
+ */
+export function orderKnown(
+  stages: readonly ValueStreamStage[] | null | undefined,
+  state: ValueStreamState = "current"
+): boolean {
+  return rows(stages).filter((s) => stageState(s) === state && !hasOrder(s)).length <= 1;
 }
 
 export interface VsmSummary {
@@ -219,18 +237,39 @@ export function moveStage(
 }
 
 /**
- * `stages` with `stage` added at the end of its map, the map numbered
- * (stages saved before reordering get their position written down, so the
- * new one can't jump ahead of them).
+ * `stages` with one map numbered in the order it reads here: the page's
+ * "Keep this order", for a map saved before stages kept a position. Only
+ * from a person looking at the map, never on load: a device that pulled
+ * the rows by id would pin a shuffled order for good.
+ */
+export function pinOrder(
+  stages: readonly ValueStreamStage[],
+  state: ValueStreamState
+): ValueStreamStage[] {
+  return renumber(stages, state, orderedStages(stages, state));
+}
+
+/**
+ * `stages` with `stage` added at the end of its map. A map whose order is
+ * known is numbered (a lone stage saved before reordering gets its
+ * position written down, so the new one can't jump ahead of it). Otherwise
+ * the new stage gets no `order` either: it is stored last, and a device
+ * appends a row it pulls, so it reads last everywhere without writing
+ * down this device's order of the rest.
  */
 export function appendStage(
   stages: readonly ValueStreamStage[],
   stage: ValueStreamStage
 ): ValueStreamStage[] {
   const state = stageState(stage);
-  const ordered = orderedStages(stages, state).filter((s) => s.id !== stage.id);
-  const added: ValueStreamStage = { ...stage, order: ordered.length };
-  return [...renumber(stages, state, ordered).filter((s) => s.id !== stage.id), added];
+  const rest = rows(stages).filter((s) => s.id !== stage.id);
+  if (!orderKnown(rest, state)) {
+    const added: ValueStreamStage = { ...stage };
+    delete added.order;
+    return [...rest, added];
+  }
+  const ordered = orderedStages(rest, state);
+  return [...renumber(rest, state, ordered), { ...stage, order: ordered.length }];
 }
 
 /**
@@ -290,6 +329,21 @@ export function vsmVerdict(stages: readonly ValueStreamStage[]): string {
   if (b)
     return `${head}; ${b.stage.name.trim() || "An unnamed stage"} waits longest (${days(b.waitDays)}).`;
   return list.length === 1 ? `${head}; map the next stage to see where work waits.` : `${head}.`;
+}
+
+/**
+ * The page's headline (and list_state's verdict): the current map's
+ * verdict, or, when only the future map has stages (the current one was
+ * cleared, or never mapped), what's missing to compare it with.
+ */
+export function headlineVerdict(
+  current: readonly ValueStreamStage[],
+  future: readonly ValueStreamStage[]
+): string {
+  if (rows(current).length === 0 && rows(future).length > 0) {
+    return "No current state mapped: add the stages work goes through today to compare with the future state.";
+  }
+  return vsmVerdict(current);
 }
 
 /**

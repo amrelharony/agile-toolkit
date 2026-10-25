@@ -161,23 +161,56 @@ describe("tool.value_stream.add_stage", () => {
     expect(stored[0].name).toBe("Build");
   });
 
-  it("goes after the stages saved before reordering, numbering them", async () => {
+  it("goes after the stages saved before reordering, without numbering them", async () => {
     useWorkspaceStore.setState({
       valueStreamStages: [stage({ id: "old1" }), stage({ id: "old2" })],
     });
-    const r = await run<{ order: number }>("add_stage", {
+    const r = await run<{ order: number; orderKnown: boolean }>("add_stage", {
       name: "Release",
       processTime: 0,
       leadTime: 1,
       completeAccurate: 100,
     });
-    expect(r.order).toBe(2);
+    expect(r).toMatchObject({ order: 2, orderKnown: false });
+    // Last, as on the page: the old stages' order isn't written down from here.
+    const ordered = orderedStages(useWorkspaceStore.getState().valueStreamStages);
+    expect(ordered.map((s) => [s.name, s.order])).toEqual([
+      ["old1", undefined],
+      ["old2", undefined],
+      ["Release", undefined],
+    ]);
+  });
+
+  it("numbers a lone stage saved before reordering, which can only be first", async () => {
+    useWorkspaceStore.setState({ valueStreamStages: [stage({ id: "old1" })] });
+    const r = await run<{ order: number; orderKnown: boolean }>("add_stage", {
+      name: "Release",
+      processTime: 0,
+      leadTime: 1,
+      completeAccurate: 100,
+    });
+    expect(r).toMatchObject({ order: 1, orderKnown: true });
     const ordered = orderedStages(useWorkspaceStore.getState().valueStreamStages);
     expect(ordered.map((s) => [s.name, s.order])).toEqual([
       ["old1", 0],
-      ["old2", 1],
-      ["Release", 2],
+      ["Release", 1],
     ]);
+  });
+
+  it("refuses what the page's Add stage refuses", () => {
+    const schema = registry.get("tool.value_stream.add_stage")!.paramsSchema as {
+      safeParse: (v: unknown) => { success: boolean; error?: { issues: { message: string }[] } };
+    };
+    const base = { name: "Build", processTime: 1, leadTime: 3, completeAccurate: 90 };
+    expect(schema.safeParse(base).success).toBe(true);
+    const zero = schema.safeParse({ ...base, processTime: 0, leadTime: 0 });
+    expect(zero.success).toBe(false);
+    expect(zero.error?.issues[0].message).toMatch(/leadTime must be more than 0/);
+    const over = schema.safeParse({ ...base, processTime: 5 });
+    expect(over.success).toBe(false);
+    expect(over.error?.issues[0].message).toMatch(/can't be longer than leadTime/);
+    // Process equal to lead is fine: nothing waits.
+    expect(schema.safeParse({ ...base, processTime: 3 }).success).toBe(true);
   });
 
   it("adds to the future map when asked", async () => {

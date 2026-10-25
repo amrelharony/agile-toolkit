@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { renderToString } from "react-dom/server";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isExampleId } from "@/components/tool-frame/example-data";
@@ -16,8 +17,11 @@ import {
   compareStates,
   comparisonVerdict,
   copyToFuture,
+  headlineVerdict,
   moveStage,
+  orderKnown,
   orderedStages,
+  pinOrder,
   stageState,
   vsmSummary,
   vsmVerdict,
@@ -187,11 +191,20 @@ describe("lib/value-stream/summary", () => {
 
   it("appends after stages saved before reordering, and copies the future map once", () => {
     const legacy = [stage("a", 1, 2), stage("b", 1, 2)];
-    const added = appendStage(legacy, stage("new", 1, 2));
+    // Two stages with no saved position: this device's order may not be the
+    // one the map was built in, so nothing is numbered; the new stage goes last.
+    const added = appendStage(legacy, stage("new", 1, 2, { order: 7 }));
     expect(orderedStages(added).map((s) => [s.id, s.order])).toEqual([
+      ["a", undefined],
+      ["b", undefined],
+      ["new", undefined],
+    ]);
+    expect(changedStages(legacy, added).map((s) => s.id)).toEqual(["new"]);
+    // A lone unnumbered stage can only be first: numbering it is safe.
+    const lone = appendStage([stage("a", 1, 2)], stage("new", 1, 2));
+    expect(orderedStages(lone).map((s) => [s.id, s.order])).toEqual([
       ["a", 0],
-      ["b", 1],
-      ["new", 2],
+      ["new", 1],
     ]);
     let n = 0;
     const copies = copyToFuture(added, () => `copy-${n++}`);
@@ -202,6 +215,37 @@ describe("lib/value-stream/summary", () => {
     ]);
     // Run twice: the second copy finds the future map and adds nothing.
     expect(copyToFuture([...added, ...copies], () => "again")).toEqual([]);
+  });
+
+  it("knows a map's order once at most one stage lacks a position, and pins it on request", () => {
+    expect(orderKnown([])).toBe(true);
+    expect(orderKnown([stage("a", 1, 2)])).toBe(true);
+    expect(orderKnown([stage("n0", 1, 2, { order: 0 }), stage("a", 1, 2)])).toBe(true);
+    const legacy = [stage("b", 1, 2), stage("a", 1, 2), stage("f", 1, 2, { state: "future" })];
+    expect(orderKnown(legacy)).toBe(false);
+    // The future map is another map.
+    expect(orderKnown(legacy, "future")).toBe(true);
+    // Keep this order: numbered as shown, the other map untouched; twice is a no-op.
+    const pinned = pinOrder(legacy, "current");
+    expect(pinned.map((s) => [s.id, s.order])).toEqual([
+      ["b", 0],
+      ["a", 1],
+      ["f", undefined],
+    ]);
+    expect(orderKnown(pinned)).toBe(true);
+    expect(changedStages(pinned, pinOrder(pinned, "current"))).toEqual([]);
+    // Pinned, a fresh device's id order no longer matters.
+    const byId = [...pinned].sort((x, y) => x.id.localeCompare(y.id));
+    expect(orderedStages(byId).map((s) => s.id)).toEqual(["b", "a"]);
+  });
+
+  it("heads the page with the missing current state when only a future map exists", () => {
+    const future = [stage("a", 1, 2, { state: "future" })];
+    expect(headlineVerdict([], future)).toBe(
+      "No current state mapped: add the stages work goes through today to compare with the future state."
+    );
+    expect(headlineVerdict([], [])).toBe("No stages mapped yet.");
+    expect(headlineVerdict([stage("Dev", 3, 5)], future)).toBe(vsmVerdict([stage("Dev", 3, 5)]));
   });
 
   it("compares the maps in one sentence", () => {
@@ -309,6 +353,8 @@ describe("Value Stream page", () => {
     // Edits stay in the example too.
     fireEvent.click(screen.getByRole("button", { name: "Move Development later" }));
     expect(stored()).toEqual([]);
+    // No Add stage form: a stage typed in would go with Clear example.
+    expect(screen.queryByRole("button", { name: "Add stage" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.getByText(/No stages yet/)).toBeInTheDocument();
     expect(logs).toEqual([]);
@@ -370,6 +416,141 @@ describe("Value Stream page", () => {
     expect(logs.find((l) => l.action === "stage_moved")?.payload).toMatchObject({ from: 2, to: 1 });
   });
 
+  it("keeps focus on the moved stage's arrow, its other one at either end", async () => {
+    useWorkspaceStore.setState({
+      valueStreamStages: [
+        stage("a", 1, 2, { order: 0 }),
+        stage("b", 1, 2, { order: 1 }),
+        stage("c", 1, 2, { order: 2 }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Move c earlier" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Move c earlier" })).toHaveFocus()
+    );
+    // First now: its Move earlier is disabled, so focus goes to Move later.
+    fireEvent.click(screen.getByRole("button", { name: "Move c earlier" }));
+    expect(orderedStages(stored()).map((s) => s.id)).toEqual(["c", "a", "b"]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Move c later" })).toHaveFocus());
+  });
+
+  it("asks before pinning the order of a map saved before stages kept a position", async () => {
+    useWorkspaceStore.setState({ valueStreamStages: [stage("b", 1, 2), stage("a", 1, 2)] });
+    renderPage();
+    // Nothing is written on load: this device can't tell its order is the built one.
+    expect(stored().every((s) => s.order === undefined)).toBe(true);
+    expect(screen.getByText(/saved before the map kept its order/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep this order" }));
+    expect(stored().map((s) => [s.id, s.order])).toEqual([
+      ["b", 0],
+      ["a", 1],
+    ]);
+    expect(screen.queryByRole("button", { name: "Keep this order" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Name of stage 1")).toHaveFocus());
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Kept this order of the current state for every device"
+      )
+    );
+  });
+
+  it("adds to such a map last, without writing down this device's order", () => {
+    useWorkspaceStore.setState({ valueStreamStages: [stage("b", 1, 2), stage("a", 1, 2)] });
+    renderPage();
+    const form = screen.getByRole("button", { name: "Add stage" }).closest("form")!;
+    const type = (label: RegExp, value: string) =>
+      fireEvent.change(within(form).getByLabelText(label), { target: { value } });
+    type(/^Stage name/, "Release");
+    type(/^Process time/, "1");
+    type(/^Lead time/, "2");
+    type(/^%C\/A/, "100");
+    fireEvent.click(within(form).getByRole("button", { name: "Add stage" }));
+    expect(orderedStages(stored()).map((s) => [s.name, s.order])).toEqual([
+      ["b", undefined],
+      ["a", undefined],
+      ["Release", undefined],
+    ]);
+  });
+
+  it("moves focus to the next stage after a delete, else the previous one, else the form", async () => {
+    useWorkspaceStore.setState({
+      valueStreamStages: [
+        stage("a", 1, 2, { order: 0 }),
+        stage("b", 1, 2, { order: 1 }),
+        stage("c", 1, 2, { order: 2 }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete stage b" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Delete stage c" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete stage c" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Delete stage a" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete stage a" }));
+    expect(stored()).toEqual([]);
+    await waitFor(() => expect(screen.getByLabelText(/^Stage name/)).toHaveFocus());
+  });
+
+  it("names the map toggles with their counts apart", () => {
+    useWorkspaceStore.setState({
+      valueStreamStages: [stage("a", 1, 2, { order: 0 }), stage("b", 1, 2, { order: 1 })],
+    });
+    renderPage();
+    expect(screen.getByRole("button", { name: "Current state, 2 stages" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Future state, 0 stages" })).toBeInTheDocument();
+    expect(screen.getByLabelText("%C/A of b")).toBeInTheDocument();
+  });
+
+  it("sends only the current map's bottleneck to the retro", () => {
+    useWorkspaceStore.setState({
+      valueStreamStages: [
+        stage("Analysis", 1, 3, { order: 0 }),
+        stage("Review", 1, 9, { order: 1 }),
+        stage("Planned analysis", 1, 2, { order: 0, state: "future" }),
+        stage("Planned review", 1, 6, { order: 1, state: "future" }),
+      ],
+    });
+    renderPage();
+    expect(screen.getByText(/Take the Review wait to the team/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Future state/ }));
+    // The planned map's wait isn't something the team has seen happen.
+    expect(screen.getByText(/Bottleneck: waits 5 d/)).toBeInTheDocument();
+    expect(screen.queryByText(/to the team.s next retro/)).not.toBeInTheDocument();
+  });
+
+  it("leads with the missing current state when only the future map has stages", () => {
+    useWorkspaceStore.setState({
+      valueStreamStages: [stage("f", 1, 2, { order: 0, state: "future" })],
+    });
+    renderPage();
+    expect(
+      screen.getByText(
+        "No current state mapped: add the stages work goes through today to compare with the future state."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "**No current state mapped: add the stages"
+    );
+  });
+
+  it("holds back the empty state until the workspace has loaded", () => {
+    useWorkspaceStore.setState({ valueStreamStages: [stage("a", 1, 2, { order: 0 })] });
+    // The server render (and the first paint) can't know the saved map yet.
+    const html = renderToString(
+      <LiveAnnouncerProvider>
+        <TooltipProvider>
+          <ValueStreamClient />
+        </TooltipProvider>
+      </LiveAnnouncerProvider>
+    );
+    expect(html).toContain("Loading the map…");
+    expect(html).not.toContain("No stages yet");
+  });
+
   it("deletes with Undo, back in its place", () => {
     useWorkspaceStore.setState({
       valueStreamStages: [stage("a", 1, 2, { order: 0 }), stage("b", 1, 2, { order: 1 })],
@@ -406,7 +587,8 @@ describe("Value Stream page", () => {
   it("never writes 0 for a cleared number", () => {
     useWorkspaceStore.setState({ valueStreamStages: [stage("a", 1, 4, { order: 0 })] });
     renderPage();
-    const lead = screen.getByLabelText("Lead time (days)");
+    // Each card's fields carry the stage's name.
+    const lead = screen.getByLabelText("Lead time (days) of a");
     fireEvent.change(lead, { target: { value: "" } });
     fireEvent.blur(lead);
     expect(stored()[0].leadTime).toBe(4);
@@ -419,7 +601,7 @@ describe("Value Stream page", () => {
     });
   });
 
-  it("starts the future state from the current one and compares them", () => {
+  it("starts the future state from the current one and compares them", async () => {
     useWorkspaceStore.setState({
       valueStreamStages: [stage("a", 2, 10, { order: 0 }), stage("b", 3, 10, { order: 1 })],
     });
@@ -433,6 +615,8 @@ describe("Value Stream page", () => {
     const future = orderedStages(stored(), "future");
     expect(future.map((s) => s.name)).toEqual(["a", "b"]);
     expect(logs.map((l) => l.action)).toContain("future_state_started");
+    // The button went with the copy: focus lands on the first future stage.
+    await waitFor(() => expect(screen.getByLabelText("Name of stage 1")).toHaveFocus());
     // The copy compares equal until it's edited.
     expect(screen.getAllByText("No change").length).toBeGreaterThan(0);
     undoLast();
