@@ -1048,7 +1048,7 @@ const PlatformMaturitySchema = z.object({
 
 defineCrudActions<DoraScorecard>({
   toolId: "workspace.dora_scorecard",
-  entityName: "DORA scorecard",
+  entityName: "DORA scorecard (singleton id doraScorecard:current)",
   schema: DoraScorecardSchema,
   selectAll: () => ws().doraScorecards ?? [],
   upsert: (x) => ws().upsertDoraScorecard(x),

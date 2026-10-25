@@ -1200,9 +1200,6 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["forecast", "anomaly"],
     audience: "engineering-leader",
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "deploysPerWeekTarget", description: "DORA High/Elite threshold" },
-    ],
     crossToolSubscriptions: [
       {
         kinds: ["deploy.recorded", "incident.opened"],

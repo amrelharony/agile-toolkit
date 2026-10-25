@@ -394,9 +394,16 @@ export function loggedDayCount(series: SprintSeries | undefined): number {
   return (series?.days ?? NO_DAYS).filter((d) => d.remaining != null || d.completed != null).length;
 }
 
-/** Mean of the ratings, rounded to one decimal, or null when there are none. */
+/**
+ * Mean of the Sprint Comparison ratings, rounded to one decimal, or null
+ * when there are none. Only its six dimensions count: a stray key (a hand
+ * edit, an older client) must not move the average.
+ */
 export function averageRating(series: SprintSeries | undefined): number | null {
-  const values = Object.values(series?.ratings ?? {}).filter((v) => Number.isFinite(v));
+  const ratings = series?.ratings ?? {};
+  const values = SPRINT_RATING_DIMENSIONS.map((d) => ratings[d]).filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v)
+  );
   if (values.length === 0) return null;
   return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
 }

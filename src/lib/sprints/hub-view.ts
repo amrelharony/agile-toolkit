@@ -267,8 +267,8 @@ export function hubTiles(
       id: "finish",
       label: "Projected finish",
       value: `Day ${Math.ceil(status.projectedFinishDay)}`,
-      // Say which method: Burnup's "Projected done" uses the recent pace of
-      // completed work, so the two can differ after a scope change.
+      // Say which line: Burnup's "Projected done" projects the done points
+      // up to the current scope, so the two can differ after a scope change.
       hint: `Trend of points left · last day is day ${status.lengthDays}`,
       tone: status.willFinishOnTime ? "success" : "warning",
     });
