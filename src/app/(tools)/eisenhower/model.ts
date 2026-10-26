@@ -210,16 +210,3 @@ export function toCsv(
     }),
   };
 }
-
-/** The tasks as the AI prompt reads them: grouped by pane label, with their derived panes. */
-export function promptGroups(
-  rows: readonly RankedRow[],
-  today: string
-): Record<string, PrioritizationItem[]> {
-  const out: Record<string, PrioritizationItem[]> = {};
-  for (const g of eisGroups(rows, today)) {
-    if (g.id === UNSORTED && g.tasks.length === 0) continue;
-    out[g.label] = g.tasks.map((t) => t.ranked.row);
-  }
-  return out;
-}

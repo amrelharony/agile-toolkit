@@ -68,7 +68,6 @@ import {
   compareTasks,
   eisGroups,
   eisRows,
-  promptGroups,
   shortName,
   toCsv,
   type EisGroup,
@@ -171,7 +170,8 @@ export function EisenhowerClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Eisenhower Matrix",
-      prompts: generateEisenhowerPrompts({ grouped: promptGroups(ranked, today) }, workspace),
+      // Panes derived today (the due date included), with each task's reason and delegate.
+      prompts: generateEisenhowerPrompts({ rows: ranked, today }, workspace),
     }),
     [ranked, today, workspace]
   );
