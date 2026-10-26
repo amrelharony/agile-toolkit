@@ -79,15 +79,6 @@ export const MOSCOW_TOOL: MethodToolConfig = {
       ];
     }),
   }),
-  prompts: (rows, workspace) =>
-    generateMoscowPrompts(
-      {
-        grouped: Object.fromEntries(
-          moscowGroups(rows).map((g) => [g.label, g.rows.map((r) => r.row)])
-        ),
-      },
-      workspace
-    ),
   Inputs: MoscowInputs,
   RowValues,
   rowScore: false,
@@ -96,14 +87,15 @@ export const MOSCOW_TOOL: MethodToolConfig = {
 };
 
 export function MoscowClient() {
-  // The verdict and the export count a linked item's job size, so they
-  // read the backlog too.
+  // The verdict, the export and the AI prompt count a linked item's job
+  // size, so they read the backlog too.
   const items = useWorkspaceStore((s) => s.backlogItems) ?? NO_ITEMS;
   const config = useMemo<MethodToolConfig>(
     () => ({
       ...MOSCOW_TOOL,
       verdict: (rows) => moscowVerdict(rows, items),
       toMarkdown: (rows) => toMarkdown(rows, items),
+      prompts: (rows, workspace) => generateMoscowPrompts({ rows, items }, workspace),
     }),
     [items]
   );
