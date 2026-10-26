@@ -69,6 +69,20 @@ export function cleanText(raw: unknown, max: number): string | null {
   return text;
 }
 
+const CONTROL_OR_BIDI_GLOBAL = new RegExp(CONTROL_OR_BIDI_RE.source, "g");
+
+/**
+ * The host's own text made safe to share with a room: one line, hidden
+ * characters stripped (not refused: it's the host's text, typed or pasted
+ * in its own tool), cut to `max`. "" when nothing is left. Peers still
+ * check what they receive with `cleanText`; this keeps the host from
+ * sending something they would refuse.
+ */
+export function shareableText(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").replace(CONTROL_OR_BIDI_GLOBAL, "");
+  return cleanText(flat, max) ?? "";
+}
+
 /**
  * Whether `value` serialises to at most `maxChars` JSON characters. False
  * for anything that can't be serialised. Use on inbound broadcasts before

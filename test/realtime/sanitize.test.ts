@@ -7,8 +7,20 @@ import {
   cleanText,
   hasControlOrBidi,
   isWithinJsonSize,
+  shareableText,
 } from "@/lib/realtime/sanitize";
 import * as players from "@/app/(tools)/planning-poker/players";
+
+describe("shareableText (the host's own text, before it is shared)", () => {
+  it("strips hidden characters instead of refusing, keeps one line, and cuts to max", () => {
+    expect(shareableText("Fun‮ at\n\twork⁦", 80)).toBe("Fun at work");
+    expect(shareableText("a".repeat(50), 10)).toBe("a".repeat(10));
+    expect(shareableText("‮⁩  ", 80)).toBe("");
+    // What it returns, a peer's cleanText accepts unchanged.
+    const shared = shareableText("Ship\u0007 it  ‏ now", 80);
+    expect(cleanText(shared, 80)).toBe(shared);
+  });
+});
 
 const UNSAFE = [
   ["NUL", "\u0000"],
