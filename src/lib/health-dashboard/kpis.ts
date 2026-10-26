@@ -33,9 +33,10 @@ import type {
   StandupEntry,
   Story,
 } from "@/lib/stores/workspace-types";
-import { KANBAN_BOARD_ID } from "@/lib/stores/workspace-types";
+import { HEALTH_CHECK_ID, KANBAN_BOARD_ID } from "@/lib/stores/workspace-types";
 import { isPointedSprint, predictability, velocity } from "@/lib/sprints/metrics";
-import { healthShare } from "@/lib/health-check/score";
+import { checksByDate, entryShare } from "@/lib/health-check/score";
+import { isExampleId } from "@/lib/utils/example-id";
 import { impedimentSummary } from "@/lib/impediments/model";
 import { allStandupEntries, hasBlocker } from "@/lib/standup/entries";
 import { addDays, cardItems, cycleSummary, finishedItems, storyItems } from "@/lib/flow";
@@ -53,18 +54,11 @@ import {
   type TrafficStatus,
 } from "./settings";
 
-/** MUST match HEALTH_CHECK_ID in health-check-client.tsx (the one squad health check doc). */
-export const HEALTH_CHECK_DOC_ID = "healthCheck:current";
+/** The one squad health check doc's id (kept under this name for older imports). */
+export const HEALTH_CHECK_DOC_ID = HEALTH_CHECK_ID;
 
-/**
- * Whether a row came from a tool's "Load an example": the `example-` id rule
- * of components/tool-frame/example-data isExampleId, which a test holds this
- * to. Not imported from there: that is a "use client" module, and in the MCP
- * route's server bundle its exports are client references an agent action
- * can't call (lib/flow keeps its own copy for the same reason).
- */
-const isExampleRow = (id: string | null | undefined) =>
-  typeof id === "string" && id.startsWith("example-");
+/** Whether a row came from a tool's "Load an example" (server-safe: lib/utils/example-id). */
+const isExampleRow = isExampleId;
 
 /** What the dashboard reads. Every list is optional: a tool never used reads as empty. */
 export interface DashboardSources {
@@ -236,39 +230,32 @@ function predictabilityKpi(sprints: readonly Sprint[], settings: HealthSettings)
 
 /** The squad health check doc: the singleton, else the first one stored. */
 function healthDoc(docs: readonly HealthCheck[]): HealthCheck | undefined {
-  return docs.find((d) => d.id === HEALTH_CHECK_DOC_ID) ?? docs[0];
+  return docs.find((d) => d.id === HEALTH_CHECK_ID) ?? docs[0];
 }
 
 /**
  * The saved checks, oldest first by date (stable, so of two on one day the
- * later saved is last): the history, never the draft `current`. The last
- * one is lib/health-check/score latestSavedCheck's pick, which a test holds
- * this to (that function can't run in the agent's server bundle; see
- * isExampleRow).
+ * later saved is last): the history, never the draft `current`. The Health
+ * Check page lists them the same way (lib/health-check/score checksByDate).
  */
 export function savedHealthChecks(
   doc: HealthCheck | undefined,
   { includeExamples = false }: DashboardOptions = {}
 ): HealthCheckEntry[] {
-  const history = Array.isArray(doc?.history) ? doc.history : [];
-  return history
-    .filter((e) => e && typeof e === "object" && (includeExamples || !isExampleRow(e.id)))
-    .map((e, i) => ({ e, i }))
-    .sort((a, b) => {
-      const da = a.e.date ?? "";
-      const db = b.e.date ?? "";
-      return da === db ? a.i - b.i : da < db ? -1 : 1;
-    })
-    .map(({ e }) => e);
+  return checksByDate(doc, { includeExamples });
 }
 
+/** A check's health as the Health Check page shows it: built-in and custom lights, yellow half. */
 const healthPct = (e: HealthCheckEntry): number | null => {
-  const share = healthShare(e.scores);
+  const share = entryShare(e);
   return share === null ? null : Math.round(share * 100);
 };
 
+/** The lights the score was read from (built-in and custom). */
 const scoredLights = (e: HealthCheckEntry) =>
-  Object.values(e.scores ?? {}).filter((s) => s && typeof s.light === "string").length;
+  [...Object.values(e.scores ?? {}), ...Object.values(e.customScores ?? {})].filter(
+    (s) => s && (s.light === "green" || s.light === "yellow" || s.light === "red")
+  ).length;
 
 function teamHealthKpi(
   docs: readonly HealthCheck[],
