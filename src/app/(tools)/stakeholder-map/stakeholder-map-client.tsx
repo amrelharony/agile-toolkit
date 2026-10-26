@@ -250,43 +250,14 @@ export function StakeholderMapClient() {
     },
   ];
 
-  const promptConfig = useMemo(() => {
-    // The prompt reads placed, rated stakeholders only: it has no way to
-    // say "not placed yet" or "not set". Its counts come from the same
-    // list, so its headline and its tables agree.
-    const rated = stakeholders.flatMap((s) =>
-      s.interest !== null && s.authority !== null && s.currentSentiment
-        ? [
-            {
-              name: s.name,
-              role: s.role,
-              interest: s.interest,
-              authority: s.authority,
-              sentiment: s.currentSentiment,
-              strategy: s.strategy,
-              description: s.description,
-            },
-          ]
-        : []
-    );
-    const inQuadrant = (q: Quadrant) => rated.filter((s) => quadrantOf(s) === q).length;
-    return {
+  // Every stakeholder, placed or not: the prompt counts them as the cards do.
+  const promptConfig = useMemo(
+    () => ({
       toolName: "Stakeholder Map",
-      prompts: generateStakeholderMapPrompts(
-        {
-          stakeholders: rated,
-          quadrants: {
-            manageClosely: inQuadrant("manageClosely"),
-            keepSatisfied: inQuadrant("keepSatisfied"),
-            keepInformed: inQuadrant("keepInformed"),
-            monitor: inQuadrant("monitor"),
-          },
-          blockers: rated.filter((s) => s.sentiment === "blocker").length,
-        },
-        workspace
-      ),
-    };
-  }, [stakeholders, workspace]);
+      prompts: generateStakeholderMapPrompts({ stakeholders, today }, workspace),
+    }),
+    [stakeholders, today, workspace]
+  );
 
   return (
     <ToolPageWrapper

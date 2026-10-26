@@ -309,7 +309,7 @@ describe("Stakeholder page", () => {
     expect(stored()[0].nextTouchAt).toBe(day(4));
   });
 
-  it("hands the AI prompt counts from the same stakeholders it lists", () => {
+  it("hands the AI prompt every stakeholder, so its counts are the cards'", async () => {
     seed([
       stakeholder("a", {
         name: "Ana",
@@ -317,26 +317,23 @@ describe("Stakeholder page", () => {
         authority: 8,
         currentSentiment: "blocker",
       }),
-      // Not placed, and placed without a sentiment: not in the prompt's list,
-      // so not in its counts either.
+      // Not placed, and placed without a sentiment: in the prompt too, read
+      // as not placed / not set.
       stakeholder("b", { name: "Ben", currentSentiment: "blocker" }),
       stakeholder("c", { name: "Cleo", interest: 9, authority: 9 }),
     ]);
     renderPage();
-    const data = promptData.last as {
-      stakeholders: { name: string }[];
-      quadrants: Record<string, number>;
-      blockers: number;
-    };
-    expect(data.stakeholders.map((s) => s.name)).toEqual(["Ana"]);
-    expect(data.blockers).toBe(1);
-    expect(data.quadrants).toEqual({
-      manageClosely: 1,
-      keepSatisfied: 0,
-      keepInformed: 0,
-      monitor: 0,
-    });
-    // The page's own cards still count everyone it can.
+    const data = promptData.last as { stakeholders: Stakeholder[]; today: string };
+    expect(data.stakeholders.map((s) => s.name)).toEqual(["Ana", "Ben", "Cleo"]);
+    expect(data.today).toBe(TODAY);
+    const actual = await vi.importActual<typeof import("@/lib/ai-prompts/stakeholder-map")>(
+      "@/lib/ai-prompts/stakeholder-map"
+    );
+    const [strategy] = actual.generateStakeholderMapPrompts(data);
+    expect(strategy.prompt).toContain("3 stakeholders (1 not placed on the map yet).");
+    expect(strategy.prompt).toContain("Manage Closely: 2, Keep Satisfied: 0");
+    expect(strategy.prompt).toContain("- Blockers: 2");
+    // The page's own cards say the same.
     expect(card("Blockers")).toContain("2");
     expect(card("Manage Closely")).toBe("Manage Closely2");
   });
