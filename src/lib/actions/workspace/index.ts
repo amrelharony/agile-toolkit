@@ -21,6 +21,7 @@ import {
   CEREMONY_CADENCE_ID,
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
+  HEALTH_DASHBOARD_ID,
   MOOD_TRACKER_ID,
   RACI_ID,
   WORKING_AGREEMENT_ID,
@@ -187,6 +188,14 @@ const HandoffLinkSchema = z.object({
 });
 
 const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+
+// The id of a singleton document: the one id its tool reads. Its CRUD has no
+// `generateId`, so `create` needs this id and defineCrudActions' duplicate
+// guard runs: a second create is an error, never a silent overwrite of the
+// team's document (a generateId returning the fixed id skipped that guard),
+// and no create makes an orphan under another id. The ceremony cadence's
+// CRUD is the precedent.
+const SingletonId = (id: string) => z.literal(id).describe(`Always "${id}", the one document.`);
 
 const StoryStatusSchema = z.enum(STORY_STATUSES as [Story["status"], ...Story["status"][]]);
 
@@ -1189,7 +1198,7 @@ const CharterVersionSchema = z.object({
 });
 
 const WorkingAgreementSchema = z.object({
-  id: z.string(),
+  id: SingletonId(WORKING_AGREEMENT_ID),
   rules: z.array(CharterRuleSchema),
   meta: CharterMetaSchema,
   checkIns: z
@@ -1309,9 +1318,9 @@ defineCrudActions<WorkingAgreement>({
   selectAll: () => ws().workingAgreements ?? [],
   upsert: (x) => ws().upsertWorkingAgreement(x),
   remove: (id) => ws().removeWorkingAgreement(id),
-  // The page and tool.working_agreement.* read only this id; a generated
-  // `workingAgreement_<nanoid>` doc was an orphan nothing showed.
-  generateId: () => WORKING_AGREEMENT_ID,
+  // No generateId: the page and tool.working_agreement.* read only the
+  // singleton id (a generated `workingAgreement_<nanoid>` doc was an orphan
+  // nothing showed), and create must name it so it never overwrites.
 });
 
 defineCrudActions<LiberatingStructures>({
@@ -1606,7 +1615,7 @@ const DodCriterionSchema = z.object({
 });
 
 const DefinitionOfDoneSchema = z.object({
-  id: z.string(),
+  id: SingletonId(DOD_DOC_ID),
   items: z.array(DodCriterionSchema),
   history: z
     .array(
@@ -1621,7 +1630,7 @@ const DefinitionOfDoneSchema = z.object({
 }) as unknown as z.ZodType<DefinitionOfDone>;
 
 const RaciMatrixSchema = z.object({
-  id: z.string(),
+  id: SingletonId(RACI_ID),
   roles: z.array(
     z.object({
       id: z.string(),
@@ -1676,7 +1685,7 @@ const AdkarInitiativeSchema = z.object({
 });
 
 const AdkarDocSchema = z.object({
-  id: z.string(),
+  id: SingletonId(ADKAR_DOC_ID),
   initiatives: z.array(AdkarInitiativeSchema),
 }) as unknown as z.ZodType<AdkarDoc>;
 
@@ -1927,10 +1936,11 @@ defineCrudActions<SkillsMatrix>({
   generateId: () => `skillsMatrix_${nanoid(8)}`,
 });
 
-// Phase 6 singletons: each tool reads only its fixed id, so `create`
-// without an id writes that one document. The toolId suffixes camelCase to
-// the kinds the browser registers (definitionOfDone, raciMatrix, adkarDoc),
-// so no serverKind override is needed.
+// Phase 6 singletons: each tool reads only its fixed id, so the schema's id is
+// that literal and there is no generateId (see SingletonId): create needs the
+// id and refuses when the document exists. The toolId suffixes camelCase to
+// the kinds the browser registers (DOD_KIND, RACI_KIND, ADKAR_KIND), so no
+// serverKind override is needed.
 defineCrudActions<DefinitionOfDone>({
   toolId: "workspace.definition_of_done",
   entityName: `Definition of Done (singleton id ${DOD_DOC_ID})`,
@@ -1938,7 +1948,6 @@ defineCrudActions<DefinitionOfDone>({
   selectAll: () => ws().definitionsOfDone ?? [],
   upsert: (x) => ws().upsertDefinitionOfDone(x),
   remove: (id) => ws().removeDefinitionOfDone(id),
-  generateId: () => DOD_DOC_ID,
 });
 
 defineCrudActions<RaciMatrix>({
@@ -1948,7 +1957,6 @@ defineCrudActions<RaciMatrix>({
   selectAll: () => ws().raciMatrices ?? [],
   upsert: (x) => ws().upsertRaciMatrix(x),
   remove: (id) => ws().removeRaciMatrix(id),
-  generateId: () => RACI_ID,
 });
 
 defineCrudActions<AdkarDoc>({
@@ -1958,7 +1966,6 @@ defineCrudActions<AdkarDoc>({
   selectAll: () => ws().adkarDocs ?? [],
   upsert: (x) => ws().upsertAdkarDoc(x),
   remove: (id) => ws().removeAdkarDoc(id),
-  generateId: () => ADKAR_DOC_ID,
 });
 
 defineCrudActions<PokerEstimationLog>({
@@ -2355,7 +2362,7 @@ const MoodPulseSchema = z.object({
 }) as unknown as z.ZodType<MoodPulse>;
 
 const MoodTrackerDocSchema = z.object({
-  id: z.string(),
+  id: SingletonId(MOOD_TRACKER_ID),
   mode: z
     .enum(["named", "anonymous"])
     .describe("named: each person logs a check-in; anonymous: team pulses only."),
@@ -2397,7 +2404,7 @@ const ValueStreamStageSchema = z.object({
 const KpiThresholdSchema = z.object({ green: z.number(), amber: z.number() });
 
 const HealthDashboardConfigSchema = z.object({
-  id: z.string(),
+  id: SingletonId(HEALTH_DASHBOARD_ID),
   thresholds: z.record(z.string(), KpiThresholdSchema).optional(),
   sprintWindow: z.number().int().min(1).optional(),
   blockerWindowDays: z.number().int().min(1).optional(),
@@ -2422,12 +2429,13 @@ const FeatureFlagSchema = z.object({
 
 defineCrudActions<HealthDashboardConfig>({
   toolId: "workspace.health_dashboard",
-  entityName: "health dashboard settings (singleton id healthDashboard:current)",
+  entityName: `health dashboard settings (singleton id ${HEALTH_DASHBOARD_ID})`,
   schema: HealthDashboardConfigSchema,
   selectAll: () => ws().healthDashboards ?? [],
   upsert: (x) => ws().upsertHealthDashboard(x),
   remove: (id) => ws().removeHealthDashboard(id),
-  generateId: () => "healthDashboard:current",
+  // No generateId: create names the singleton id, so it refuses when the
+  // settings exist instead of replacing them (see SingletonId).
 });
 
 defineCrudActions<FeatureFlag>({
@@ -2650,8 +2658,9 @@ defineCrudActions<MoodPulse>({
   generateId: () => `moodPulse_${nanoid(8)}`,
 });
 
-// Kind workspace:moodTrackerDoc, which is what kindFromToolId derives (the
-// browser registers the same), so no serverKind override.
+// Kind MOOD_TRACKER_KIND (workspace:moodTrackerDoc), which is what
+// kindFromToolId derives (the browser registers the same), so no serverKind
+// override. A singleton: create needs MOOD_TRACKER_ID (see SingletonId).
 defineCrudActions<MoodTrackerDoc>({
   toolId: "workspace.mood_tracker_doc",
   entityName: `mood tracker settings (singleton id ${MOOD_TRACKER_ID})`,
@@ -2659,7 +2668,6 @@ defineCrudActions<MoodTrackerDoc>({
   selectAll: () => ws().moodTrackerDocs ?? [],
   upsert: (x) => ws().upsertMoodTrackerDoc(x),
   remove: (id) => ws().removeMoodTrackerDoc(id),
-  generateId: () => MOOD_TRACKER_ID,
 });
 
 defineCrudActions<KanbanBoard>({

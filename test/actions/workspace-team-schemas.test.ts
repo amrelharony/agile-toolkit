@@ -5,7 +5,8 @@
  * missing from a schema would be erased by every agent update.
  *
  * Also: the new collections' CRUD (ids, singleton ids, the server kind the
- * browser syncs), the tightened bounds, and the maturity level's owner.
+ * browser syncs), a singleton's create never replacing the team's document,
+ * the tightened bounds, and the maturity level's owner.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,9 +29,11 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   ADKAR_DOC_ID,
   DOD_DOC_ID,
+  HEALTH_DASHBOARD_ID,
   MOOD_TRACKER_ID,
   RACI_ID,
   WORKING_AGREEMENT_ID,
+  type HealthDashboardConfig,
   type Workspace,
 } from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
@@ -178,22 +181,110 @@ describe("bounds", () => {
   });
 });
 
-describe("the new collections' CRUD", () => {
-  it.each([
-    ["workspace.definition_of_done", DOD_DOC_ID, { items: [], history: [] }],
-    ["workspace.raci_matrix", RACI_ID, { roles: [], activities: [], cells: {} }],
-    ["workspace.adkar_doc", ADKAR_DOC_ID, { initiatives: [] }],
-    ["workspace.mood_tracker_doc", MOOD_TRACKER_ID, { mode: "named" }],
-    ["workspace.working_agreement", WORKING_AGREEMENT_ID, { rules: [], meta: { version: 0 } }],
-  ])("%s creates its one document under the fixed id", async (toolId, id, entity) => {
-    const result = await action(`${toolId}.create`).handler(
-      { entity: { ...entity } },
-      makeContext("u", "agent")
-    );
-    expect(result).toEqual({ id });
-    expect(action(`${toolId}.create`).description).toContain(id);
-  });
+/** Run `create` the way both transports do: params validated first. */
+async function createViaTransport(toolId: string, entity: unknown, mcp = false) {
+  const a = action(`${toolId}.create`);
+  const parsed = a.paramsSchema.safeParse({ entity });
+  if (!parsed.success) throw new Error(`rejected: ${parsed.error.message}`);
+  return mcp
+    ? a.mcpHandler!(parsed.data, makeContext("u", "mcp"))
+    : a.handler(parsed.data, makeContext("u", "agent"));
+}
 
+const DASHBOARD: HealthDashboardConfig = {
+  id: HEALTH_DASHBOARD_ID,
+  sprintWindow: 4,
+  updatedAt: "2026-10-20T09:00:00.000Z",
+};
+
+// Singletons: [toolId, slice, fixed id, an empty document's other fields, the
+// team's document]. The empty one is what an id-less create used to write over
+// the team's.
+const SINGLETONS: [toolId: string, slice: keyof Workspace, id: string, empty: object, doc: Doc][] =
+  [
+    [
+      "workspace.definition_of_done",
+      "definitionsOfDone",
+      DOD_DOC_ID,
+      { items: [], history: [] },
+      DOD,
+    ],
+    [
+      "workspace.raci_matrix",
+      "raciMatrices",
+      RACI_ID,
+      { roles: [], activities: [], cells: {} },
+      RACI,
+    ],
+    ["workspace.adkar_doc", "adkarDocs", ADKAR_DOC_ID, { initiatives: [] }, ADKAR],
+    ["workspace.mood_tracker_doc", "moodTrackerDocs", MOOD_TRACKER_ID, { mode: "named" }, MOOD_DOC],
+    [
+      "workspace.working_agreement",
+      "workingAgreements",
+      WORKING_AGREEMENT_ID,
+      { rules: [], meta: { version: 0 } },
+      AGREEMENT,
+    ],
+    ["workspace.health_dashboard", "healthDashboards", HEALTH_DASHBOARD_ID, {}, DASHBOARD],
+  ];
+
+describe("singleton CRUD never overwrites the team's document", () => {
+  it.each(SINGLETONS)(
+    "%s creates its one document under the fixed id",
+    async (toolId, slice, id, empty) => {
+      expect(await createViaTransport(toolId, { id, ...empty })).toEqual({ id });
+      expect((useWorkspaceStore.getState()[slice] as Doc[]).map((d) => d.id)).toEqual([id]);
+      expect(action(`${toolId}.create`).description).toContain(id);
+    }
+  );
+
+  it.each(SINGLETONS)(
+    "%s create needs the fixed id: none or another is refused",
+    async (toolId, slice, id, empty) => {
+      await expect(createViaTransport(toolId, { ...empty })).rejects.toThrow(/rejected/);
+      await expect(createViaTransport(toolId, { ...empty, id: `${id}-2` })).rejects.toThrow(
+        /rejected/
+      );
+      expect(useWorkspaceStore.getState()[slice] ?? []).toEqual([]);
+    }
+  );
+
+  it.each(SINGLETONS)(
+    "%s create on an existing document throws and keeps it",
+    async (toolId, slice, id, empty, doc) => {
+      useWorkspaceStore.setState({ [slice]: [doc] } as Partial<Workspace>);
+      await expect(createViaTransport(toolId, { id, ...empty })).rejects.toThrow(/already exists/);
+      await expect(createViaTransport(toolId, { ...empty })).rejects.toThrow(/rejected/);
+      expect(useWorkspaceStore.getState()[slice]).toEqual([doc]);
+    }
+  );
+
+  it.each(SINGLETONS)(
+    "%s MCP create on an existing document throws and writes nothing",
+    async (toolId, _slice, id, empty, doc) => {
+      vi.mocked(serverStore.serverGetEntity).mockResolvedValueOnce(doc);
+      await expect(createViaTransport(toolId, { id, ...empty }, true)).rejects.toThrow(
+        /already exists/
+      );
+      expect(upsertEntity).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(SINGLETONS)(
+    "%s update still works on the document",
+    async (toolId, slice, id, _empty, doc) => {
+      useWorkspaceStore.setState({ [slice]: [doc] } as Partial<Workspace>);
+      const result = await action(`${toolId}.update`).handler(
+        { id, patch: {} },
+        makeContext("u", "agent")
+      );
+      expect(result).toEqual({ updated: true });
+      expect(useWorkspaceStore.getState()[slice]).toEqual([doc]);
+    }
+  );
+});
+
+describe("the new collections' CRUD", () => {
   it("a mood pulse gets its own id", async () => {
     const rest: Omit<typeof PULSE, "id"> = {
       date: PULSE.date,
