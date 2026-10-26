@@ -35,8 +35,9 @@ import { z } from "zod";
 import { registry } from "../registry";
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
 import { methodRow } from "@/lib/prioritization/binding";
-import { method, type Values } from "@/lib/prioritization/methods";
+import { method, scoreCache, type Values } from "@/lib/prioritization/methods";
 import {
+  EMPTY_KANO_COUNTS,
   KANO_ANSWERS,
   KANO_CATEGORIES,
   KANO_CATEGORY_MEANING,
@@ -44,8 +45,13 @@ import {
   KANO_COUNT_KEYS,
   KANO_MIN_RESPONSES,
   KANO_RANK,
+  addCounts,
+  countTotal,
+  countsFromJoint,
   kanoClass,
   kanoCoefficients,
+  kanoCountFields,
+  readKano,
   type KanoCategory,
   type KanoClass,
   type KanoCounts,
@@ -320,4 +326,106 @@ registry.register({
   paramsSchema: PersistSchema,
   handler: async (params) => persistAll(clientStore(), params),
   mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),
+});
+
+// ──────── tool.kano_model.record_round ────────
+// A survey round's totals for one feature, as the page's Save round stores
+// them: the class counts, or the 5×5 joint count of answer pairs that a
+// vote round keeps, folded into class counts by the evaluation table.
+// Totals only: nothing per person is accepted or stored.
+const JointSchema = z
+  .array(z.number().int().min(0))
+  .length(KANO_ANSWERS.length * KANO_ANSWERS.length)
+  .describe(
+    "The 5×5 joint count of answer pairs: joint[first × 5 + second] people answered `first` to 'If it has this, how do you feel?' and `second` to 'If it doesn't?', both in the order like, must, neutral, live_with, dislike (a vote round's PairRoundResult item joint)."
+  );
+
+const RecordRoundSchema = z
+  .object({
+    featureId: z.string().min(1).describe("The Kano feature (list_items ids)"),
+    counts: CountsSchema.optional(),
+    joint: JointSchema.optional(),
+    add: z
+      .boolean()
+      .optional()
+      .describe(
+        "Add to the feature's earlier answers (its counts, or its one answer pair as one answer). Default false: the round's counts REPLACE them, as the page's Save round does."
+      ),
+    source: z
+      .enum(["room", "tally"])
+      .optional()
+      .describe(
+        "Where the totals came from: 'room' (a live vote round) or 'tally' (default: counted by hand or in another survey tool)"
+      ),
+    roundId: z.string().min(1).max(64).optional().describe("The round's id, kept on the feature"),
+    at: z
+      .string()
+      .max(40)
+      .optional()
+      .describe("When the round closed (ISO timestamp); default now"),
+  })
+  .refine((p) => (p.counts === undefined) !== (p.joint === undefined), {
+    message: "Give exactly one of `counts` or `joint`.",
+  });
+
+/** A feature's answers before a round, as counts: its counts, or its one pair as one answer. */
+function earlierCounts(fields: PrioritizationItem["fields"]): KanoCounts | null {
+  const r = readKano(fields);
+  if (r.counts) return r.counts;
+  if (r.pair) {
+    return { ...EMPTY_KANO_COUNTS, [kanoClass(r.pair.functional, r.pair.dysfunctional)]: 1 };
+  }
+  return null;
+}
+
+const recordRound = async (store: MethodStore, p: z.infer<typeof RecordRoundSchema>) => {
+  const row = await store.row(p.featureId);
+  if (!row || row.framework !== FRAMEWORK) {
+    throw new Error(`No Kano feature ${p.featureId}: list them with tool.kano_model.list_items.`);
+  }
+  const fresh = p.counts ?? countsFromJoint(p.joint ?? []);
+  if (!fresh) throw new Error("The joint must hold 25 whole numbers, 0 or more.");
+  if (countTotal(fresh) === 0) throw new Error("The round has no answers for this feature.");
+  const earlier = earlierCounts(row.fields);
+  const counts = p.add && earlier ? addCounts(earlier, fresh) : fresh;
+  const now = new Date().toISOString();
+  const fields = kanoCountFields(row.fields, counts, {
+    source: p.source ?? "tally",
+    roundId: p.roundId,
+    at: p.at ?? now,
+  });
+  const result = KANO.evaluate(KANO.read(fields));
+  const cache = scoreCache(result, row.status);
+  const next: PrioritizationItem = { ...row, fields, status: cache.status, updatedAt: now };
+  if (cache.score === undefined) delete next.score;
+  else next.score = cache.score;
+  await store.putRows([next]);
+  const n = countTotal(counts);
+  const enough = n >= KANO_MIN_RESPONSES;
+  const coefficients = enough ? kanoCoefficients(counts) : null;
+  return {
+    id: row.id,
+    category: (result.bucket as CategoryId | null) ?? null,
+    score: result.score,
+    counts,
+    n,
+    better: coefficients?.better ?? null,
+    worse: coefficients?.worse ?? null,
+    enough,
+    replaced: !p.add && earlier !== null,
+    previous: earlier ? { counts: earlier, n: countTotal(earlier) } : null,
+  };
+};
+
+registry.register({
+  id: "tool.kano_model.record_round",
+  toolId: "tool.kano_model",
+  name: "record_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Record a survey round's totals for one existing Kano feature, as the page's Save round does: give `counts` {A, O, M, I, R, Q} or the round's 5×5 `joint` of answer pairs (folded into class counts by the Kano evaluation table). Totals only, never per-person answers. The round's counts REPLACE the feature's earlier answers unless add: true (then they are added, a single stored answer pair counting as one). The category (most common class; ties M > O > A > I > R > Q) and Better/Worse show from 3 answers. Returns { id, category (null under 3 answers), score, counts, n, better, worse, enough, replaced, previous: {counts, n} | null }.",
+  paramsSchema: RecordRoundSchema,
+  handler: async (params) => recordRound(clientStore(), params),
+  mcpHandler: async (params, ctx) => recordRound(serverStore(ctx.userId), params),
 });
