@@ -13,7 +13,11 @@
 
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { removeBacklogItemWithUndo, renameLinkedRows } from "@/lib/prioritization/backlog-links";
+import {
+  removeBacklogItemWithUndo,
+  renameEverywhere,
+  saveBacklogItem,
+} from "@/lib/prioritization/backlog-links";
 import type { BacklogItem, PrioritizerStore } from "./types";
 import { createDefaultItem } from "./constants";
 import { buildExample, isExampleBacklogId } from "./example";
@@ -27,13 +31,14 @@ export function usePrioritizerStore(): PrioritizerStore {
   return {
     items: raw ?? NO_ITEMS,
     addItem: () => upsert(createDefaultItem()),
+    // Saved through the engine's path (old defaults cleared, stamped), so
+    // the method tools reading through to the item show the edit at once.
     updateItem: (id, updates) => {
       const cur = (useWorkspaceStore.getState().backlogItems ?? []).find((item) => item.id === id);
       if (!cur) return;
-      upsert({ ...cur, ...updates });
-      if (updates.name !== undefined && updates.name !== cur.name) {
-        renameLinkedRows(id, updates.name);
-      }
+      const { name, ...rest } = updates;
+      if (Object.keys(rest).length > 0) saveBacklogItem(id, rest);
+      if (name !== undefined && name !== cur.name) renameEverywhere(id, name);
     },
     removeItem: (id) => removeBacklogItemWithUndo(id),
     loadExample: () => {

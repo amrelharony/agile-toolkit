@@ -4,9 +4,17 @@ import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-typ
 import { tools } from "@/lib/constants/tools";
 
 /**
- * The shared backlog: the framework registry's mappers (both ways), RICE
- * impact snapping, the per-item scores the hub and MCP read, and the
+ * The shared backlog: the framework registry's mappers (both ways, through
+ * the method registry), the per-item scores the hub and MCP read, and the
  * store writes that link method rows to backlog items.
+ *
+ * Phase 7 changed what some of these pin, by decision: the backlog keeps a
+ * RICE impact exactly (no snapping on the way in); Value/Effort's value is
+ * the one value field, businessValue (a row's old 1–10 value reads onto the
+ * Fibonacci step at or above it); a new item has no defaults; scores are
+ * null when not scored; one quadrant rule (value 8+, effort 6+) with the
+ * snake_case keys; and an item holding only the old "Add item" defaults
+ * reads as Not scored in those methods.
  */
 
 const undo = vi.hoisted(() => ({
@@ -29,7 +37,9 @@ import {
   scoreWithHref,
   snapImpact,
 } from "@/lib/prioritization/frameworks";
-import { frameworkScores, latestLinkedRow, matrixQuadrant } from "@/lib/prioritization/scores";
+import { frameworkScores, latestLinkedRow } from "@/lib/prioritization/scores";
+import { veQuadrant } from "@/lib/prioritization/methods/value-effort";
+import { itemPatchChanges } from "@/lib/prioritization/binding";
 import {
   addRowToBacklog,
   linkNewRow,
@@ -153,21 +163,24 @@ describe("mappers", () => {
     matrixEffort: 2,
   });
 
-  it("RICE: same names both ways, impact snapped into the backlog", () => {
+  it("RICE: same names both ways, the exact impact kept, reach per quarter by default", () => {
     expect(f("rice").fromBacklog!(item)).toEqual({
       reach: 500,
+      reachPeriod: "quarter",
       impact: 2,
       confidence: 90,
       effort: 1.5,
     });
     expect(f("rice").toBacklog!({ reach: 800, impact: 1.4, confidence: 60, effort: 2 })).toEqual({
       reach: 800,
-      impact: 1,
+      reachPeriod: "quarter",
+      impact: 1.4,
       confidence: 60,
       effort: 2,
     }); // A row saved by the MCP action keeps its confidence as confidencePct.
     expect(f("rice").toBacklog!({ reach: 10, impact: 2, confidencePct: 80, effort: 1 })).toEqual({
       reach: 10,
+      reachPeriod: "quarter",
       impact: 2,
       confidence: 80,
       effort: 1,
@@ -192,42 +205,59 @@ describe("mappers", () => {
     expect(f("moscow").toBacklog!({ bucket: "maybe" })).toEqual({});
   });
 
-  it("Value/Effort: effort maps to matrixEffort", () => {
-    expect(f("value-effort").fromBacklog!(item)).toEqual({ value: 7, effort: 2 });
+  it("Value/Effort: value is businessValue, effort maps to matrixEffort", () => {
+    // The one value field: the item's businessValue, not the legacy value 7.
+    expect(f("value-effort").fromBacklog!(item)).toEqual({ value: 8, effort: 2 });
+    // An old row's 1–10 value reads onto the Fibonacci step at or above it.
     expect(f("value-effort").toBacklog!({ value: 9, effort: 4, quadrant: "Quick Wins" })).toEqual({
-      value: 9,
+      businessValue: 13,
+      matrixEffort: 4,
+    });
+    expect(f("value-effort").toBacklog!({ businessValue: 5, effort: 4 })).toEqual({
+      businessValue: 5,
       matrixEffort: 4,
     });
   });
 
   it("skips fields that are missing or unreadable", () => {
-    expect(f("rice").toBacklog!({ reach: "lots", effort: 3 })).toEqual({ effort: 3 });
+    expect(f("rice").toBacklog!({ reach: "lots", effort: 3 })).toEqual({
+      effort: 3,
+      reachPeriod: "quarter",
+    });
     expect(f("wsjf").toBacklog!(undefined)).toEqual({});
-    expect(f("rice").toBacklog!({ reach: "1200" })).toEqual({ reach: 1200 });
+    expect(f("rice").toBacklog!({ reach: "1200" })).toEqual({
+      reach: 1200,
+      reachPeriod: "quarter",
+    });
   });
 
   it("round-trips the backlog's own inputs", () => {
     for (const fw of FRAMEWORKS.filter((x) => x.embedded)) {
       const back = fw.toBacklog!(fw.fromBacklog!(item));
-      expect(changedFields(item, back), fw.id).toEqual({});
+      // Against what the item reads as (a missing period reads per quarter).
+      expect(itemPatchChanges(item, back), fw.id).toEqual({});
     }
+    expect(changedFields(item, { reach: 500, effort: 9 })).toEqual({ effort: 9 });
   });
 });
 
 describe("createBacklogItem", () => {
-  it("fills the defaults and keeps business value and matrix value together", () => {
-    const fromWsjf = createBacklogItem("  Search  ", { businessValue: 13, riskReduction: 2 }, "x");
-    expect(fromWsjf).toMatchObject({
+  it("stores only what it is given: no defaults, no copied value, stamped", () => {
+    const fromWsjf = createBacklogItem(
+      "  Search  ",
+      { businessValue: 13, riskReduction: 2, jobSize: undefined },
+      "x",
+      "2026-10-26T09:00:00.000Z"
+    );
+    expect(fromWsjf).toEqual({
       id: "x",
       name: "Search",
       businessValue: 13,
-      value: 10,
       riskReduction: 2,
-      moscow: "should",
-      reach: 100,
+      updatedAt: "2026-10-26T09:00:00.000Z",
     });
-    const fromMatrix = createBacklogItem("Search", { value: 7, matrixEffort: 3 }, "y");
-    expect(fromMatrix).toMatchObject({ value: 7, businessValue: 7, matrixEffort: 3 });
+    const bare = createBacklogItem("New Item", {}, "y");
+    expect(Object.keys(bare).sort()).toEqual(["id", "name", "updatedAt"]);
   });
 });
 
@@ -247,11 +277,16 @@ describe("scores", () => {
       matrixEffort: 3,
     });
     const rows = [
-      row("i-old", "ice", { impact: 5 }, { backlogItemId: "b1", score: 100 }),
+      row(
+        "i-old",
+        "ice",
+        { impact: 5, confidence: 5, ease: 4 },
+        { backlogItemId: "b1", score: 100 }
+      ),
       row(
         "i-new",
         "ice",
-        { impact: 8 },
+        { impact: 8, confidence: 8, ease: 5 },
         { backlogItemId: "b1", score: 320, updatedAt: "2026-10-05T09:00:00.000Z" }
       ),
       row("i-other", "ice", {}, { backlogItemId: "b2", score: 999 }),
@@ -262,18 +297,29 @@ describe("scores", () => {
       moscow: "must",
       wsjf: 8,
       rice: 450,
-      valueEffort: { value: 9, effort: 3, quadrant: "Quick Wins" },
+      valueEffort: { value: 9, effort: 3, quadrant: "quick_wins" },
       ice: 320,
       kano: "attractive",
       costOfDelay: null,
+      cd3: null,
+      urgency: null,
     });
   });
 
-  it("uses the Prioritizer matrix's quadrants", () => {
-    expect(matrixQuadrant(6, 5)).toBe("Quick Wins");
-    expect(matrixQuadrant(6, 6)).toBe("Major Projects");
-    expect(matrixQuadrant(5, 5)).toBe("Fill-ins");
-    expect(matrixQuadrant(5, 6)).toBe("Time Sinks");
+  it("uses the one quadrant rule: value 8 or more, effort 6 or more is high", () => {
+    expect(veQuadrant(8, 5)).toBe("quick_wins");
+    expect(veQuadrant(8, 6)).toBe("big_bets");
+    expect(veQuadrant(5, 5)).toBe("fill_ins");
+    expect(veQuadrant(5, 6)).toBe("time_wasters");
+  });
+
+  it("reads an item holding only the old defaults as Not scored", () => {
+    expect(frameworkScores(backlogItem("b0"), [])).toMatchObject({
+      moscow: undefined,
+      wsjf: null,
+      rice: null,
+      valueEffort: null,
+    });
   });
 });
 
@@ -293,12 +339,22 @@ describe("linkNewRow", () => {
   });
 
   it("writes nothing when the inputs already match, or for methods the backlog doesn't hold", () => {
-    const item = backlogItem("b1");
+    const item = backlogItem("b1", { updatedAt: "2026-10-20T09:00:00.000Z" });
     useWorkspaceStore.setState({ backlogItems: [item] });
     linkNewRow(row("m", "moscow", { bucket: item.moscow! }), "b1");
     linkNewRow(row("i", "ice", { impact: 3, confidence: 3, ease: 3 }), "b1");
     expect(undo.last).toBeNull();
     expect(storedItem("b1")).toEqual(item);
+  });
+
+  it("makes a bucket chosen in the tool real on an item that only held the old default", () => {
+    // "should" was the old default, read as Not sorted; a MoSCoW row choosing it writes it.
+    useWorkspaceStore.setState({ backlogItems: [backlogItem("b1")] });
+    linkNewRow(row("m", "moscow", { bucket: "should" }), "b1");
+    expect(undo.last?.label).toBe("Updated “Item b1” in the backlog");
+    expect(storedItem("b1")).toMatchObject({ moscow: "should" });
+    expect(storedItem("b1")?.updatedAt).toBeTruthy();
+    expect(frameworkScores(storedItem("b1")!, []).moscow).toBe("should");
   });
 
   it("leaves the row unlinked when there is no pending item or it was deleted", () => {

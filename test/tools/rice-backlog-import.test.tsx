@@ -211,11 +211,12 @@ describe("RICE: Add to backlog", () => {
     expect(created).toMatchObject({
       name: "Order tracking",
       reach: 800,
-      impact: 1, // 1.5 snaps to the allowed step below
+      impact: 1.5, // the exact impact is kept (no snapping)
       confidence: 70,
       effort: 2,
-      moscow: "should",
     });
+    // A new item has no other method filled in (no default bucket).
+    expect(created.moscow).toBeUndefined();
     expect(rows()[0].backlogItemId).toBe(created.id);
     expect(undo.last?.label).toBe("Added “Order tracking” to the backlog");
     expect(screen.getByRole("link", { name: /Backlog: linked to Order tracking/ })).toBeVisible();
@@ -324,8 +325,15 @@ describe("every method tool", () => {
   ];
 
   it.each(cases)("$name: a Score-with link preselects, and the new row links", (c) => {
+    // Real (non-default) inputs in every method the backlog holds: an item
+    // left at the old "Add item" defaults reads as Not scored and prefills nothing.
     const item = backlogItem("b1", "Passkey sign-in", {
       moscow: "must",
+      businessValue: 8,
+      timeCriticality: 3,
+      jobSize: 2,
+      reach: 500,
+      confidence: 50,
       value: 8,
       matrixEffort: 3,
     });
