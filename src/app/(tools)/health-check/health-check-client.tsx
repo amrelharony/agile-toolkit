@@ -66,7 +66,7 @@ import {
   scoreOf,
   sharePct,
   storedLight,
-  trendFor,
+  trendSince,
   unratedDimensions,
   withCustomDimension,
   withDate,
@@ -398,26 +398,40 @@ export function HealthCheckClient() {
     )
   );
   const promptConfig = useMemo(() => {
-    // Only rated lights, with their derived trends: a placeholder green is never a rating.
-    const scores = Object.fromEntries(
-      HEALTH_CHECK_DIMENSIONS.flatMap((d) => {
-        const light = draftLight(current, d);
-        return light
-          ? [[d, { light, trend: trendFor(storedLight(prev ?? undefined, d), light) }]]
-          : [];
-      })
-    );
+    // Only rated lights, built-in and custom alike (a placeholder green is
+    // never a rating), each with its trend since the previous saved check,
+    // as the rows show it: null when there is nothing to compare against.
+    const s = doc.current;
+    const dimensions = activeDimensions(doc).flatMap((d) => {
+      const light = draftLight(s, d.key);
+      if (!light) return [];
+      const note = scoreOf(s, d.key)?.note;
+      return [
+        {
+          name: d.name,
+          light,
+          trend: trendSince(prev, d.key, light),
+          ...(d.custom ? { custom: true } : {}),
+          ...(note ? { note } : {}),
+        },
+      ];
+    });
     return {
       toolName: "Team Health Check",
       prompts: generateHealthCheckPrompts(
         {
-          current: { sprintName: current.sprintName, scores },
-          history: checks.map((e) => ({ sprintName: checkLabel(e), scores: e.scores })),
+          current: {
+            label: checkLabel({ sprintName: s.sprintName, date: draftDate }),
+            dimensions,
+            unrated: unratedDimensions(doc).map((d) => d.name),
+            healthPct: sharePct(draftShare(doc)),
+          },
+          ...(prev ? { previousLabel: checkLabel(prev) } : {}),
         },
         workspace
       ),
     };
-  }, [current, prev, checks, workspace]);
+  }, [doc, prev, draftDate, workspace]);
 
   /* ── Chart ──────────────────────────────────────────────────────────── */
 
