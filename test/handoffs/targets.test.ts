@@ -428,6 +428,24 @@ describe("decision", () => {
     expect(route().exists("blob-only")).toBe(false);
   });
 
+  it("removing a record an old send wrote to both copies sticks: the blob's copy is marked moved", () => {
+    ws().upsertDecision({
+      id: "both",
+      title: "Both",
+      decision: "",
+      status: "proposed",
+      date: "2026-09-01",
+    });
+    seedBlob([{ id: "both", title: "Both", status: "accepted", date: "2026-09-01" }]);
+    expect(route().exists("both")).toBe(true);
+    route().remove("both");
+    expect(route().exists("both")).toBe(false);
+    expect(route().isDone?.("both")).toBe(false);
+    expect(JSON.parse(localStorage.getItem(DECISION_LOG_MOVED_KEY) ?? "[]")).toEqual(["both"]);
+    // The blob, the backup, is untouched.
+    expect(decisionBlob().map((d) => d.id)).toEqual(["both"]);
+  });
+
   it("Undo of a send removes only what the send added", () => {
     useWorkspaceStore.setState({
       daciDecisions: [{ id: "daci-1", title: "Vendor", status: "open", date: "2026-10-02" }],

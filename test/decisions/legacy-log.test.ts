@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   DECISION_LOG_KEY,
   DECISION_LOG_MOVED_KEY,
+  isPendingDecisionLogRow,
   planDecisionLogMove,
   readDecisionLogRows,
   withPendingDecisionLog,
@@ -254,6 +255,16 @@ describe("planDecisionLogMove", () => {
     });
     const blob = [rec({ status: "proposed", decision: "", title: "Use Postgres" })];
     expect(planDecisionLogMove(blob, [ws], []).toFill).toEqual([]);
+  });
+});
+
+describe("isPendingDecisionLogRow", () => {
+  it("is a blob row the move hasn't handled yet", () => {
+    const blob = [rec({ id: "a" }), rec({ id: "b" })];
+    expect(isPendingDecisionLogRow("a", blob, [])).toBe(true);
+    expect(isPendingDecisionLogRow("b", blob, ["b"])).toBe(false);
+    expect(isPendingDecisionLogRow("c", blob, [])).toBe(false);
+    expect(isPendingDecisionLogRow("a", null, [])).toBe(false);
   });
 });
 

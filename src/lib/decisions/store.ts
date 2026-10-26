@@ -8,7 +8,8 @@
  * read through (lib/decisions/model allDecisions) until its first save,
  * which writes a Decision under the same id and leaves the old row behind
  * as the backup; a delete removes the id from all three collections, so a
- * read-through row can't come back.
+ * read-through row can't come back, and marks a row of the Decision Log's
+ * old blob moved, so the page's one-time move doesn't bring it back either.
  */
 
 import { nanoid } from "nanoid";
@@ -19,8 +20,14 @@ import type {
   RAPIDDecision,
   WhiteboardObject,
 } from "@/lib/stores/workspace-types";
+import { setCloudPersistedValue } from "@/lib/sync/use-cloud-persisted";
 import { allDecisions, nextDecisionNumber } from "./model";
-import { DECISION_LOG_KEY, DECISION_LOG_MOVED_KEY, withPendingDecisionLog } from "./legacy-log";
+import {
+  DECISION_LOG_KEY,
+  DECISION_LOG_MOVED_KEY,
+  isPendingDecisionLogRow,
+  withPendingDecisionLog,
+} from "./legacy-log";
 
 /** A new record's id (the shape the Decision Log and hand-offs always used). */
 export function newDecisionId(): string {
@@ -101,6 +108,11 @@ export interface DecisionRecordSnapshot {
   decision?: Decision;
   daci?: DACIDecision;
   rapid?: RAPIDDecision;
+  /**
+   * Set when the id was a row of the Decision Log's old blob still waiting
+   * for the page's move, which the delete marked moved: Undo unmarks it.
+   */
+  pendingBlobRow?: true;
   /** Canvas cards the removes unpinned, with the link each had. */
   cards: { id: string; sourceRef: NonNullable<WhiteboardObject["sourceRef"]> }[];
 }
@@ -111,8 +123,12 @@ const CARD_TOOLS = new Set(["decision", "daci", "rapid"]);
 /**
  * Remove a record from all three collections (the record, and the old DACI
  * or RAPID row under its id, so a read-through row can't come back) and
- * return what went, for `restoreDecisionRecord`. Canvas cards pinned to it
- * are unpinned by the removes; the snapshot keeps their links.
+ * return what went, for `restoreDecisionRecord`. A row of the Decision
+ * Log's old blob the move hasn't handled yet (only in the blob, or in both
+ * through Push or an old hand-off) is marked moved, so neither the list
+ * nor the move brings it back; the blob itself, the backup, is untouched.
+ * Canvas cards pinned to it are unpinned by the removes; the snapshot
+ * keeps their links.
  */
 export function removeDecisionRecord(id: string): DecisionRecordSnapshot {
   const ws = useWorkspaceStore.getState();
@@ -124,6 +140,10 @@ export function removeDecisionRecord(id: string): DecisionRecordSnapshot {
       ? [{ id: o.id, sourceRef: o.sourceRef }]
       : []
   );
+  const moved = idsOf(readLocal(DECISION_LOG_MOVED_KEY));
+  const pendingBlobRow = isPendingDecisionLogRow(id, readLocal(DECISION_LOG_KEY), moved);
+  // Marked first, so no reader sees the blob's copy come back in between.
+  if (pendingBlobRow) setCloudPersistedValue(DECISION_LOG_MOVED_KEY, [...moved, id]);
   if (decision) ws.removeDecision(id);
   if (daci) ws.removeDACIDecision(id);
   if (rapid) ws.removeRAPIDDecision(id);
@@ -132,6 +152,7 @@ export function removeDecisionRecord(id: string): DecisionRecordSnapshot {
     ...(decision ? { decision } : {}),
     ...(daci ? { daci } : {}),
     ...(rapid ? { rapid } : {}),
+    ...(pendingBlobRow ? { pendingBlobRow: true as const } : {}),
     cards,
   };
 }
@@ -139,14 +160,24 @@ export function removeDecisionRecord(id: string): DecisionRecordSnapshot {
 /**
  * Put back what `removeDecisionRecord` took (Undo). A row that came back
  * under the id since (another device's copy) is left as it is, and a card
- * is re-pinned only while it is still there and unpinned.
+ * is re-pinned only while it is still there and unpinned. A blob row the
+ * delete marked moved is waiting for the move again.
  */
 export function restoreDecisionRecord(snapshot: DecisionRecordSnapshot): void {
   const ws = useWorkspaceStore.getState();
-  const { id, decision, daci, rapid, cards } = snapshot;
+  const { id, decision, daci, rapid, pendingBlobRow, cards } = snapshot;
   if (decision && !ws.decisions.some((d) => d.id === id)) ws.upsertDecision(decision);
   if (daci && !(ws.daciDecisions ?? []).some((d) => d.id === id)) ws.upsertDACIDecision(daci);
   if (rapid && !(ws.rapidDecisions ?? []).some((r) => r.id === id)) ws.upsertRAPIDDecision(rapid);
+  if (pendingBlobRow) {
+    const moved = idsOf(readLocal(DECISION_LOG_MOVED_KEY));
+    if (moved.includes(id)) {
+      setCloudPersistedValue(
+        DECISION_LOG_MOVED_KEY,
+        moved.filter((m) => m !== id)
+      );
+    }
+  }
   if (cards.length === 0) return;
   const objects = new Map(
     (useWorkspaceStore.getState().whiteboardObjects ?? []).map((o) => [o.id, o])

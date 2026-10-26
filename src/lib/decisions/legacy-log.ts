@@ -15,8 +15,9 @@
  * the newer one. Text both hold differently is kept as the workspace has
  * it and reported (`conflicts`), so the page can offer the old page's
  * text. A moved-ids record (`agile-toolkit:decision-log:moved`) remembers
- * what has been handled, so a record deleted after the move stays deleted.
- * The blob is never deleted: it is the backup.
+ * what has been handled, so a record deleted after the move stays deleted;
+ * one deleted before it is marked moved by the delete
+ * (isPendingDecisionLogRow). The blob is never deleted: it is the backup.
  *
  * Unlike the flags' move there is no "moved elsewhere" guess: Push and the
  * hand-offs put blob ids into the workspace on purpose, so a shared id
@@ -57,6 +58,23 @@ export function readDecisionLogRows(raw: unknown): Decision[] {
     rows.push(d);
   }
   return rows;
+}
+
+/**
+ * Whether `id` is a row of the blob the move hasn't handled yet, which the
+ * Decision Log lists as it will read once moved (withPendingDecisionLog).
+ * Deleting one has to mark it moved as well, or the move brings it back:
+ * lib/decisions/store's removeDecisionRecord does that in the browser; the
+ * agent actions, which read the moved-ids record but can't write it, can
+ * refuse such a delete instead.
+ */
+export function isPendingDecisionLogRow(
+  id: string,
+  raw: unknown,
+  moved: readonly string[]
+): boolean {
+  if (Array.isArray(moved) && moved.includes(id)) return false;
+  return readDecisionLogRows(raw).some((d) => d.id === id);
 }
 
 /** Whether a stored field holds nothing: absent, blank text or an empty list. */

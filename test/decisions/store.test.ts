@@ -9,7 +9,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Decision, WhiteboardObject } from "@/lib/stores/workspace-types";
-import { DECISION_LOG_KEY, DECISION_LOG_MOVED_KEY } from "@/lib/decisions/legacy-log";
+import {
+  DECISION_LOG_KEY,
+  DECISION_LOG_MOVED_KEY,
+  planDecisionLogMove,
+} from "@/lib/decisions/legacy-log";
 import { fromDaci } from "@/lib/decisions/model";
 import {
   createDecision,
@@ -196,5 +200,41 @@ describe("delete with Undo", () => {
     ws().upsertDecision(rec({ id: "x", title: "From another device" }));
     restoreDecisionRecord(snap);
     expect(ws().decisions.map((d) => d.title)).toEqual(["From another device"]);
+  });
+
+  it("a record deleted before the old blob's move stays deleted: the delete marks it moved", () => {
+    const moved = () => JSON.parse(localStorage.getItem(DECISION_LOG_MOVED_KEY) ?? "[]");
+    // "both" was Pushed (or sent by an old hand-off); "blob-only" is in the blob alone.
+    useWorkspaceStore.setState({ decisions: [rec({ id: "both" })] });
+    const blob = [
+      rec({ id: "both", status: "accepted", decision: "Go" }),
+      rec({ id: "blob-only", title: "From the old page" }),
+      rec({ id: "done", title: "Moved already" }),
+    ];
+    localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(blob));
+    localStorage.setItem(DECISION_LOG_MOVED_KEY, JSON.stringify(["done"]));
+
+    const snapBlob = removeDecisionRecord("blob-only");
+    expect(snapBlob).toEqual({ id: "blob-only", pendingBlobRow: true, cards: [] });
+    const snapBoth = removeDecisionRecord("both");
+    expect(currentDecisions()).toEqual([]);
+    expect(moved()).toEqual(["done", "blob-only", "both"]);
+    // The page's move then has nothing to bring back.
+    const plan = planDecisionLogMove(blob, ws().decisions, moved());
+    expect(plan.toAdd).toEqual([]);
+    expect(plan.toFill).toEqual([]);
+
+    // Undo: both wait for the move again, as before the delete.
+    restoreDecisionRecord(snapBoth);
+    restoreDecisionRecord(snapBlob);
+    expect(moved()).toEqual(["done"]);
+    expect(currentDecisions().map((d) => [d.id, d.status])).toEqual([
+      ["both", "accepted"],
+      ["blob-only", "proposed"],
+    ]);
+    // A record only in the workspace isn't marked.
+    useWorkspaceStore.setState({ decisions: [rec({ id: "new" })] });
+    expect(removeDecisionRecord("new").pendingBlobRow).toBeUndefined();
+    expect(moved()).toEqual(["done"]);
   });
 });
