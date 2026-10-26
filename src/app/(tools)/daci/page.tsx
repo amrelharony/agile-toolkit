@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
-import { DaciClient } from "./daci-client";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
+import { DecisionLogClient } from "@/app/(tools)/decision-log/decision-log-client";
 
-export const metadata: Metadata = {
-  title: "DACI Decision Doc",
-  description:
-    "Driver / Approver / Contributors / Informed assignment for each decision (Atlassian/Intuit).",
-};
+/**
+ * DACI is the Decision Log raised in the DACI form: the same records,
+ * opened with DACI as the default for New. The page keeps its own title so
+ * old links and bookmarks land where they did.
+ */
+export const metadata: Metadata = toolMetadata("daci");
 
 export default function Page() {
-  return <DaciClient />;
+  return <DecisionLogClient template="daci" />;
 }

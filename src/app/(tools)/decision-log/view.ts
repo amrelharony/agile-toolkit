@@ -1,0 +1,258 @@
+/**
+ * What the Decision Log page shows, per route and per record: which tool a
+ * route is, the template filter, the list order, the links between records
+ * and the exports. Pure: the records come from lib/decisions.
+ */
+
+import type {
+  DACIDecision,
+  Decision,
+  DecisionTemplate,
+  RAPIDDecision,
+} from "@/lib/stores/workspace-types";
+import {
+  DECISION_TEXT_MAX,
+  DECISION_TITLE_MAX,
+  decisionLabel,
+  legacyStatusOf,
+  optionsOf,
+  roleHolders,
+  templateOf,
+} from "@/lib/decisions/model";
+import { TEMPLATES } from "@/lib/decisions/templates";
+import { isIsoDate } from "@/lib/sprints/calendar";
+import { isExampleId } from "@/lib/utils/example-id";
+import { DACI_ACTIONS, DECISION_ACTIONS, RAPID_ACTIONS } from "@/lib/history/event-actions";
+
+export { DECISION_TEXT_MAX, DECISION_TITLE_MAX };
+
+/** A person's name, as the pickers keep it. */
+export const NAME_MAX = 120;
+
+/**
+ * Each route is its own tool page (its own title, history and next steps),
+ * opening the merged log with its template as the default for New, as the
+ * standup's two modes keep their two pages.
+ */
+export const PAGE: Readonly<
+  Record<DecisionTemplate, { toolId: string; title: string; description: string }>
+> = {
+  adr: {
+    toolId: "decision-log",
+    title: "Decision Log (ADR)",
+    description:
+      "Record architecture and product decisions with their options, outcome and consequences, numbered, so the team's reasoning outlives any one person.",
+  },
+  daci: {
+    toolId: "daci",
+    title: "DACI Decision Doc",
+    description:
+      "Name a Driver, an Approver, Contributors and Informed for each decision. The same records as the Decision Log, raised in the DACI form.",
+  },
+  rapid: {
+    toolId: "rapid-decision",
+    title: "RAPID Decision Matrix",
+    description:
+      "Name who Recommends, Agrees, Performs, gives Input and Decides. The same records as the Decision Log, raised in the RAPID form.",
+  },
+};
+
+/** The history events each route logs (the three tools' own vocabularies). */
+export const HISTORY: Readonly<
+  Record<DecisionTemplate, { added: string; updated: string; removed: string; decided: string }>
+> = {
+  adr: {
+    added: DECISION_ACTIONS.DECISION_ADDED,
+    updated: DECISION_ACTIONS.DECISION_UPDATED,
+    removed: DECISION_ACTIONS.DECISION_REMOVED,
+    decided: DECISION_ACTIONS.STATUS_CHANGED,
+  },
+  daci: {
+    added: DACI_ACTIONS.DECISION_ADDED,
+    updated: DACI_ACTIONS.DECISION_UPDATED,
+    removed: DACI_ACTIONS.DECISION_REMOVED,
+    decided: DACI_ACTIONS.DECISION_DECIDED,
+  },
+  rapid: {
+    added: RAPID_ACTIONS.DECISION_ADDED,
+    updated: RAPID_ACTIONS.DECISION_UPDATED,
+    removed: RAPID_ACTIONS.DECISION_REMOVED,
+    decided: RAPID_ACTIONS.DECISION_DECIDED,
+  },
+};
+
+/** The template filter: every record, or one template's. */
+export type TemplateFilter = "all" | DecisionTemplate;
+
+export function matchesTemplate(d: Decision, filter: TemplateFilter): boolean {
+  return filter === "all" || templateOf(d) === filter;
+}
+
+/** Records per template, for the filter chips' counts. */
+export function countByTemplate(list: readonly Decision[]): Record<TemplateFilter, number> {
+  const out: Record<TemplateFilter, number> = { all: list.length, adr: 0, daci: 0, rapid: 0 };
+  for (const d of list) out[templateOf(d)] += 1;
+  return out;
+}
+
+/**
+ * The log's order: newest number first (the number is fixed once given,
+ * so editing never moves a record); records still waiting for a number
+ * after them, newest day first.
+ */
+export function byNumberDesc(a: Decision, b: Decision): number {
+  const na = a.number ?? 0;
+  const nb = b.number ?? 0;
+  if (na !== nb) return nb - na;
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** The records `d` replaced (their supersededBy is d). */
+export function supersededRecords(list: readonly Decision[], id: string): Decision[] {
+  return list.filter((x) => x.supersededBy === id && x.id !== id);
+}
+
+/**
+ * The records that can replace `d`: any other one of the same kind (an
+ * example record only by another example, a team's only by the team's),
+ * newest first.
+ */
+export function replacementsFor(list: readonly Decision[], d: Decision): Decision[] {
+  const example = isExampleId(d.id);
+  return list.filter((x) => x.id !== d.id && isExampleId(x.id) === example).sort(byNumberDesc);
+}
+
+/** "ADR-0004 · Host on AWS" for a picker or a link; the id when it isn't in the list. */
+export function recordName(list: readonly Decision[], id: string): string {
+  const d = list.find((x) => x.id === id);
+  return d ? `${decisionLabel(d)} · ${d.title || "Untitled"}` : id;
+}
+
+/** Why a typed day can't be the day a record was raised, or null. */
+export function raisedDayError(day: string, today: string): string | null {
+  if (!day || !isIsoDate(day)) return "Pick the day it was raised.";
+  if (day > today) return "Pick today or an earlier day.";
+  return null;
+}
+
+/** Why a typed day can't be the day it was decided, or null. */
+export function decidedDayError(day: string, raised: string, today: string): string | null {
+  if (!day || !isIsoDate(day)) return "Pick the day it was decided.";
+  if (day > today) return "Pick today or an earlier day.";
+  if (raised && isIsoDate(raised) && day < raised)
+    return "It can't be decided before it was raised.";
+  return null;
+}
+
+/** Why a typed day can't be the day it was carried out, or null. */
+export function implementedDayError(day: string, d: Decision, today: string): string | null {
+  if (!day || !isIsoDate(day)) return "Pick the day it was carried out.";
+  if (day > today) return "Pick today or an earlier day.";
+  const from = d.decidedAt ?? d.date;
+  if (from && isIsoDate(from) && day < from)
+    return "It can't be carried out before it was decided.";
+  return null;
+}
+
+/* ── Exports ─────────────────────────────────────────────────────────── */
+
+const roleText = (d: Decision, role: Parameters<typeof roleHolders>[1]) =>
+  roleHolders(d, role).join("; ");
+
+/** The CSV: one row per record, every field the three forms hold. */
+export function decisionsCsv(list: readonly Decision[]): {
+  headers: string[];
+  rows: string[][];
+} {
+  return {
+    headers: [
+      "Number",
+      "Template",
+      "Title",
+      "Status",
+      "Date",
+      "Decided",
+      "Implemented",
+      "Decider",
+      "Driver",
+      "Contributors",
+      "Informed",
+      "Recommend",
+      "Agree",
+      "Perform",
+      "Input",
+      "Context",
+      "Options",
+      "Chosen option",
+      "Recommendation",
+      "Outcome",
+      "Consequences",
+      "Superseded by",
+      "ID",
+    ],
+    rows: list.map((d) => {
+      const options = optionsOf(d);
+      return [
+        decisionLabel(d),
+        TEMPLATES[templateOf(d)].label,
+        d.title,
+        d.status,
+        d.date,
+        d.decidedAt ?? "",
+        d.implementedAt ?? "",
+        d.decider ?? "",
+        roleText(d, "driver"),
+        roleText(d, "contributor"),
+        roleText(d, "informed"),
+        roleText(d, "recommend"),
+        roleText(d, "agree"),
+        roleText(d, "perform"),
+        roleText(d, "input"),
+        d.context ?? "",
+        // "; " keeps each cell on one line for tools that expect that.
+        options.map((o) => o.text).join("; "),
+        options.find((o) => o.id === d.chosenOptionId)?.text ?? "",
+        d.recommendation ?? "",
+        d.decision,
+        d.consequences ?? "",
+        d.supersededBy ? recordName(list, d.supersededBy) : "",
+        d.id,
+      ];
+    }),
+  };
+}
+
+/** A DACI record in the old DACI tool's shape, for its AI prompts. */
+export function toDaciRow(d: Decision): DACIDecision {
+  return {
+    id: d.id,
+    title: d.title,
+    ...(d.context ? { context: d.context } : {}),
+    driver: roleHolders(d, "driver")[0],
+    approver: d.decider,
+    contributors: roleHolders(d, "contributor"),
+    informed: roleHolders(d, "informed"),
+    options: optionsOf(d).map((o) => o.text),
+    ...(d.recommendation ? { recommendation: d.recommendation } : {}),
+    status: legacyStatusOf(d, "daci"),
+    date: d.date,
+  };
+}
+
+/** A RAPID record in the old RAPID tool's shape, for its AI prompts. */
+export function toRapidRow(d: Decision): RAPIDDecision {
+  const status = legacyStatusOf(d, "rapid");
+  return {
+    id: d.id,
+    title: d.title,
+    ...(d.context ? { context: d.context } : {}),
+    recommend: roleHolders(d, "recommend")[0],
+    agree: roleHolders(d, "agree"),
+    perform: roleHolders(d, "perform"),
+    input: roleHolders(d, "input"),
+    decide: d.decider,
+    status: status === "revisit" ? "open" : status,
+    date: d.date,
+  };
+}
