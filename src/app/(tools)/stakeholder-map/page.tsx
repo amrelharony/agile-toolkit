@@ -1,9 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { StakeholderMapClient } from "./stakeholder-map-client";
 
-export const metadata = {
-  title: "Stakeholder Map",
-  description: "Interest × Authority matrix with engagement strategy per quadrant.",
-};
+export const metadata: Metadata = toolMetadata("stakeholder-map");
 
 export default function Page() {
   return <StakeholderMapClient />;

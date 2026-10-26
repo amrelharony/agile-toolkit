@@ -1,9 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { DodBuilderClient } from "./dod-builder-client";
 
-export const metadata = {
-  title: "Definition of Done Builder",
-  description: "Build your team's Definition of Done and track per-sprint adherence.",
-};
+export const metadata: Metadata = toolMetadata("dod-builder");
 
 export default function Page() {
   return <DodBuilderClient />;

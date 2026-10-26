@@ -720,7 +720,8 @@ export const tools: ToolDefinition[] = [
     id: "health-check",
     code: "D1",
     name: "Squad Health Check",
-    description: "Spotify-model health check with traffic lights and historical trends",
+    description:
+      "Traffic-light squad health check: rate each dimension green, yellow or red, by hand or by anonymous vote, with the trend since the last check and reds sent to the retro",
     category: "Team Health & Maturity",
     path: "/health-check",
     icon: HeartPulse,
@@ -1159,7 +1160,8 @@ export const tools: ToolDefinition[] = [
     id: "mood-tracker",
     code: "D11",
     name: "Team Mood Tracker",
-    description: "Daily mood check-in with a team heatmap and trend",
+    description:
+      "Daily mood check-ins, by name with a team heatmap or as anonymous pulses, with the trend and low-mood runs raised at the retro",
     category: "Outcomes & Pulse",
     path: "/mood-tracker",
     icon: Smile,
@@ -1686,7 +1688,8 @@ export const tools: ToolDefinition[] = [
     id: "psych-safety",
     code: "D13",
     name: "Psychological Safety Assessment",
-    description: "Edmondson 7-question survey with team-vs-org benchmark",
+    description:
+      "Edmondson's seven-statement survey in anonymous rounds: a team score from five responses, compared round by round",
     category: "Team Health & Maturity",
     path: "/psych-safety",
     icon: Heart,
