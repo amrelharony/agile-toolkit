@@ -369,22 +369,10 @@ export function OneOnOneClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "1:1 Meeting Tracker",
-      prompts: generateOneOnOnePrompts(
-        {
-          // The prompt predates Done: a done item reads as discussed
-          // (settled), so it isn't listed as an open action.
-          meetings: meetings.map((m) => ({
-            ...m,
-            agenda: m.agenda.map((a) => ({
-              ...a,
-              status: a.status === "done" ? ("discussed" as const) : a.status,
-            })),
-          })),
-        },
-        workspace
-      ),
+      // The page's cadence rows and today, so the prompt states its numbers.
+      prompts: generateOneOnOnePrompts({ meetings, reports, today }, workspace),
     }),
-    [meetings, workspace]
+    [meetings, reports, today, workspace]
   );
 
   const csvData = useMemo(
