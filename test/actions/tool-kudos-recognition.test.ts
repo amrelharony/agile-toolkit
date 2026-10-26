@@ -15,7 +15,9 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   return {
     ...actual,
     serverListEntities: vi.fn(async (_u: string, kind: string) =>
-      [...rows.entries()].filter(([k]) => k.startsWith(`${kind}/`)).map(([, v]) => v)
+      Array.from(rows.entries())
+        .filter(([k]) => k.startsWith(`${kind}/`))
+        .map(([, v]) => v)
     ),
     serverGetEntity: vi.fn(async (_u: string, kind: string, id: string) => {
       return rows.get(`${kind}/${id}`) ?? null;
