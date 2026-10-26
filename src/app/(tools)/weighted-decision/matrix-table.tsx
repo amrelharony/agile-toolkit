@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
@@ -23,9 +23,23 @@ import {
   type MatrixResult,
   type OptionResult,
 } from "@/lib/weighted/model";
+import { FieldInPlace } from "./field-in-place";
 
 export interface OptionDraft {
   name: string;
+}
+
+/**
+ * Why an option can't be called `name` (trimmed), or null: the add form and
+ * a rename in place share the rule (`taken`: the other options' names).
+ */
+export function optionNameError(name: string, taken: readonly string[]): string | null {
+  if (!name) return "Name the option.";
+  if (name.length > OPTION_NAME_MAX) return `Keep the name to ${OPTION_NAME_MAX} characters.`;
+  if (taken.some((t) => t.trim().toLowerCase() === name.toLowerCase())) {
+    return "This matrix already has an option with that name.";
+  }
+  return null;
 }
 
 /** An option needs a name the matrix doesn't already have. */
@@ -35,12 +49,8 @@ export function validateOption(
 ): Validation<{ name: string }, "name"> {
   const errors: FormErrors<"name"> = {};
   const name = d.name.trim();
-  if (!name) errors.name = "Name the option.";
-  else if (name.length > OPTION_NAME_MAX) {
-    errors.name = `Keep the name to ${OPTION_NAME_MAX} characters.`;
-  } else if (taken.some((t) => t.trim().toLowerCase() === name.toLowerCase())) {
-    errors.name = "This matrix already has an option with that name.";
-  }
+  const why = optionNameError(name, taken);
+  if (why) errors.name = why;
   return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, values: { name } };
 }
 
@@ -189,6 +199,20 @@ export function MatrixTable({
   );
   const rows = new Map(options.map((o) => [o.id, o]));
   const starred = new Set(result.tie ? result.tie.ids : result.leaderId ? [result.leaderId] : []);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const deleteRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  // Focus moves to the next row's delete button on screen (or the one
+  // before, or the add form's name field) as this row goes.
+  const remove = (o: WeightedOption) => {
+    const at = ordered.findIndex((r) => r.id === o.id);
+    const next = ordered[at + 1] ?? ordered[at - 1];
+    onDelete(o);
+    const target = next
+      ? deleteRefs.current.get(next.id)
+      : boxRef.current?.querySelector<HTMLInputElement>("input");
+    target?.focus();
+  };
   const rejectedText = (() => {
     if (!rejected) return null;
     const o = rows.get(rejected.optionId);
@@ -197,7 +221,7 @@ export function MatrixTable({
   })();
 
   return (
-    <div className="space-y-3">
+    <div ref={boxRef} className="space-y-3">
       <ItemForm
         form={form}
         submitLabel="Add option"
@@ -256,15 +280,22 @@ export function MatrixTable({
                         className="sticky left-0 z-10 min-w-36 bg-card p-2 text-left font-normal"
                       >
                         <div className="flex items-center">
-                          <BlurInput
-                            aria-label={`Name of the option ${o.name}`}
+                          <FieldInPlace
+                            label={`Name of the option ${o.name}`}
+                            hideLabel
                             value={o.name}
                             maxLength={OPTION_NAME_MAX}
-                            className="h-8 min-w-0 text-sm"
-                            onCommit={(next) => {
-                              const name = next.trim();
-                              if (name && name !== o.name) onRename(o, name);
+                            className="min-w-0 flex-1 gap-1"
+                            inputClassName="h-8 min-w-0 text-sm"
+                            // The add form's rules: not blank, not a name the matrix has.
+                            check={(name) => {
+                              const why = optionNameError(
+                                name,
+                                options.filter((x) => x.id !== o.id).map((x) => x.name)
+                              );
+                              return why ? `${why} It's still called “${o.name}”.` : null;
                             }}
+                            onSave={(name) => onRename(o, name)}
                           />
                           {star && <Star tied={Boolean(result.tie)} />}
                         </div>
@@ -303,10 +334,14 @@ export function MatrixTable({
                       </td>
                       <td className="p-2">
                         <IconButton
+                          ref={(el) => {
+                            if (el) deleteRefs.current.set(o.id, el);
+                            else deleteRefs.current.delete(o.id);
+                          }}
                           label={`Delete the option ${o.name}`}
                           icon={<Trash2 className="h-4 w-4" />}
                           className="text-sub hover:text-danger"
-                          onClick={() => onDelete(o)}
+                          onClick={() => remove(o)}
                         />
                       </td>
                     </tr>

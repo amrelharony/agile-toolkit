@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
-import { BlurInput } from "@/components/shared/blur-fields";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import type { WeightedMatrix } from "@/lib/stores/workspace-types";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import { DEFAULT_MATRIX_NAME, MATRIX_NAME_MAX, MATRIX_QUESTION_MAX } from "@/lib/weighted/model";
+import { FieldInPlace } from "./field-in-place";
 
 export interface MatrixDraft {
   name: string;
@@ -118,7 +118,6 @@ export function MatrixPicker({
   const selectId = useId();
   const [creating, setCreating] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
 
   return (
     <div className="space-y-3">
@@ -169,35 +168,26 @@ export function MatrixPicker({
 
       {selected && (
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] sm:items-end">
-          <Field label="Name" error={nameError ?? undefined}>
-            {(props) => (
-              <BlurInput
-                id={props.id}
-                value={selected.name}
-                maxLength={MATRIX_NAME_MAX}
-                onCommit={(next) => {
-                  const name = next.trim();
-                  if (!name) {
-                    setNameError("A matrix needs a name.");
-                    return;
-                  }
-                  setNameError(null);
-                  if (name !== selected.name) onRename(selected, name);
-                }}
-              />
-            )}
-          </Field>
-          <Field label="What are you deciding?" hint="Becomes the decision record's title.">
-            {(props) => (
-              <BlurInput
-                id={props.id}
-                value={selected.question ?? ""}
-                maxLength={MATRIX_QUESTION_MAX}
-                placeholder="e.g. Which vendor do we pick?"
-                onCommit={(next) => onQuestion(selected, next.trim())}
-              />
-            )}
-          </Field>
+          <FieldInPlace
+            // A new matrix starts with its own field (and no error from the last one).
+            key={`name-${selected.id}`}
+            label="Name"
+            value={selected.name}
+            maxLength={MATRIX_NAME_MAX}
+            check={(name) =>
+              name ? null : `A matrix needs a name: it's still “${selected.name}”.`
+            }
+            onSave={(name) => onRename(selected, name)}
+          />
+          <FieldInPlace
+            key={`question-${selected.id}`}
+            label="What are you deciding?"
+            hint="Becomes the decision record's title."
+            value={selected.question ?? ""}
+            maxLength={MATRIX_QUESTION_MAX}
+            placeholder="e.g. Which vendor do we pick?"
+            onSave={(question) => onQuestion(selected, question)}
+          />
           <IconButton
             label={`Delete the matrix ${selected.name}`}
             icon={<Trash2 className="h-4 w-4" />}

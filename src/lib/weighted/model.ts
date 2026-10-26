@@ -13,7 +13,11 @@
  *     once every active criterion has a score on the 1–10 scale, and until
  *     then it reads as a partial total with the cells still to fill.
  *   - The leader (the star) is the highest complete Total; an incomplete
- *     option never gets it, however high its partial sum.
+ *     option never gets it, however high its partial sum. But an
+ *     incomplete option whose lowest possible Total (its scores so far
+ *     plus SCORE_MIN on every empty cell) already beats the leader's is
+ *     certain to overtake it: the verdict says so, and the result can't go
+ *     to a decision record until that option is scored.
  *   - A tie: complete options within TIE_MARGIN (5 %) of the leader's Total.
  *   - Sensitivity: the smallest change to one criterion's weight, within
  *     ±SENSITIVITY_LIMIT (50 %), that hands the lead to another option.
@@ -198,6 +202,18 @@ export interface SensitivityFlip {
   newLeader: string;
 }
 
+/** An unfinished option certain to finish above the leader, however its empty cells are scored. */
+export interface Overtaker {
+  id: string;
+  name: string;
+  /** Σ score × weight over its cells scored so far. */
+  partialTotal: number;
+  /** Its lowest possible Total: partialTotal + SCORE_MIN × the weight of every empty cell. */
+  minTotal: number;
+  /** The active criteria it still needs a score on (ids). */
+  unscored: string[];
+}
+
 export interface MatrixResult {
   matrixId: string;
   /** Σ of the active weights. */
@@ -209,6 +225,8 @@ export interface MatrixResult {
   leaderId: string | null;
   /** Complete options within TIE_MARGIN of the leader (the leader first), and the gap to the next. */
   tie: { ids: string[]; gap: number } | null;
+  /** Unfinished options certain to overtake the leader once scored, surest first (none without a leader). */
+  overtakers: Overtaker[];
   /** Per criterion, the smallest weight change within ±50 % that flips the leader (smallest first). */
   sensitivity: SensitivityFlip[];
   /** Whether sensitivity was worked out (2+ complete options and 2+ weighted criteria). */
@@ -308,6 +326,29 @@ export function matrixResult(
     if (close.length > 1) tie = { ids: close.map((r) => r.id), gap: lead - (close[1].total ?? 0) };
   }
 
+  // An empty cell will score at least SCORE_MIN, so an unfinished option's
+  // lowest possible Total is known now; one already above the leader's
+  // Total is certain to take the lead once it is scored.
+  const weightOf = new Map(active.map((c) => [c.id, c.weight]));
+  const lead = leader?.total ?? null;
+  const overtakers: Overtaker[] =
+    lead === null
+      ? []
+      : results
+          .filter((r) => !r.complete)
+          .map((r) => ({
+            id: r.id,
+            name: r.name,
+            partialTotal: r.partialTotal,
+            minTotal: r.unscored.reduce(
+              (sum, id) => sum + (weightOf.get(id) ?? 0) * SCORE_MIN,
+              r.partialTotal
+            ),
+            unscored: r.unscored,
+          }))
+          .filter((o) => o.minTotal > lead && !same(o.minTotal, lead))
+          .sort((a, b) => b.minTotal - a.minTotal || byName(a, b));
+
   const sensitivityChecked = complete.length >= 2 && active.length >= 2;
   const sensitivity =
     sensitivityChecked && leader ? flips(leader, complete, active, optionRows) : [];
@@ -319,6 +360,7 @@ export function matrixResult(
     options: results,
     leaderId: leader?.id ?? null,
     tie,
+    overtakers,
     sensitivity,
     sensitivityChecked,
     emptyCells,
@@ -402,6 +444,7 @@ function matrixVerdict(r: Omit<MatrixResult, "verdict">): string {
     return `No option is fully scored yet: ${plural(r.emptyCells, "cell is", "cells are")} empty.`;
   }
   const incomplete = r.options.filter((o) => !o.complete).length;
+  if (r.overtakers.length > 0) return overtakeVerdict(r, leader.name, leader.total, incomplete);
   const rest =
     incomplete > 0
       ? ` ${plural(incomplete, "option isn't", "options aren't")} fully scored yet.`
@@ -423,6 +466,29 @@ function matrixVerdict(r: Omit<MatrixResult, "verdict">): string {
   return `${lead}${gap}${sens}.${rest}`;
 }
 
+/**
+ * "Alpha will overtake Bravo once Speed is scored: its scores so far (30)
+ * already beat Bravo's Total of 20." The lead isn't the result yet.
+ */
+function overtakeVerdict(
+  r: Omit<MatrixResult, "verdict">,
+  leader: string,
+  total: number,
+  incomplete: number
+): string {
+  const [first] = r.overtakers;
+  const others = incomplete - r.overtakers.length;
+  const rest =
+    others > 0
+      ? ` ${plural(others, "other option isn't", "other options aren't")} fully scored yet.`
+      : "";
+  if (r.overtakers.length === 1) {
+    const names = r.criteria.filter((c) => first.unscored.includes(c.id)).map((c) => c.name);
+    return `${first.name} will overtake ${leader} once ${joinNames(names)} ${names.length === 1 ? "is" : "are"} scored: its scores so far (${formatTotal(first.partialTotal)}) already beat ${leader}'s Total of ${formatTotal(total)}.${rest}`;
+  }
+  return `${joinNames(r.overtakers.map((o) => o.name))} will overtake ${leader} once their empty cells are scored: their scores so far already beat ${leader}'s Total of ${formatTotal(total)}.${rest}`;
+}
+
 function joinNames(names: readonly string[]): string {
   if (names.length <= 1) return names.join("");
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
@@ -441,24 +507,70 @@ export function rankingText(r: MatrixResult): string {
     .join(" · ");
 }
 
+/** Why a matrix can't go to a decision record yet: a code for the agent, a sentence for the page. */
+export interface SendBlock {
+  reason: "example" | "no_leader" | "overtaken";
+  message: string;
+}
+
 /**
- * Why the matrix can't go to a decision record yet, or null: it needs a
- * complete leader, and example matrices stay out of the Decision Log.
+ * Why the matrix can't go to a decision record yet, or null: example
+ * matrices stay out of the Decision Log; it needs a complete leader; and
+ * not one an unfinished option is certain to overtake (the record would
+ * recommend the option that loses).
  */
-export function sendError(matrix: Pick<WeightedMatrix, "id">, r: MatrixResult): string | null {
-  if (isExampleId(matrix.id)) return "Example matrices stay out of the Decision Log.";
-  if (!r.leaderId) return "Score every cell of one option first: the record needs a leader.";
+export function sendBlock(matrix: Pick<WeightedMatrix, "id">, r: MatrixResult): SendBlock | null {
+  if (isExampleId(matrix.id)) {
+    return { reason: "example", message: "Example matrices stay out of the Decision Log." };
+  }
+  if (!r.leaderId) {
+    return {
+      reason: "no_leader",
+      message: "Score every cell of one option first: the record needs a leader.",
+    };
+  }
+  const [first] = r.overtakers;
+  if (first) {
+    return {
+      reason: "overtaken",
+      message: `Score ${first.name}'s empty cells first: it will overtake the leader.`,
+    };
+  }
   return null;
+}
+
+/** sendBlock's sentence, or null. */
+export function sendError(matrix: Pick<WeightedMatrix, "id">, r: MatrixResult): string | null {
+  return sendBlock(matrix, r)?.message ?? null;
+}
+
+/**
+ * What the record recommends: the leader with its Total, or in a tie the
+ * tied options with theirs (alphabetical order among near-equal totals is
+ * no reason to name one of them). Undefined without a leader.
+ */
+export function recommendationOf(r: MatrixResult): string | undefined {
+  if (r.tie) {
+    const tied = r.tie.ids.flatMap((id) => {
+      const o = r.options.find((x) => x.id === id);
+      return o && o.total !== null ? [`${o.name} (${formatTotal(o.total)})`] : [];
+    });
+    return `Too close to call: ${joinNames(tied)} are within ${Math.round(TIE_MARGIN * 100)}% of each other. Talk it through.`;
+  }
+  const leader = r.options.find((o) => o.id === r.leaderId);
+  return leader && leader.total !== null
+    ? `${leader.name} (weighted total ${formatTotal(leader.total)})`
+    : undefined;
 }
 
 /**
  * The proposed decision record a matrix becomes: the question as its
  * title, the verdict and the ranking as its context, the options in rank
- * order, and the leader as the recommendation. The outcome is left to the
- * team.
+ * order, and the leader as the recommendation (the tied options in a tie:
+ * recommendationOf). The outcome is left to the team.
  */
 export function decisionSourceOf(matrix: WeightedMatrix, r: MatrixResult): HandoffSource {
-  const leader = r.options.find((o) => o.id === r.leaderId);
+  const recommendation = recommendationOf(r);
   const sourceRef: HandoffRef = { tool: "weighted-decision", id: matrix.id, doc: matrix.id };
   return {
     title: matrixTitle(matrix),
@@ -467,9 +579,7 @@ export function decisionSourceOf(matrix: WeightedMatrix, r: MatrixResult): Hando
     decision: {
       template: "adr",
       options: r.options.map((o) => o.name),
-      ...(leader && leader.total !== null
-        ? { recommendation: `${leader.name} (weighted total ${formatTotal(leader.total)})` }
-        : {}),
+      ...(recommendation ? { recommendation } : {}),
     },
   };
 }
@@ -485,6 +595,26 @@ export function withSentLink(
 /** The decision record a matrix was sent to (its last link on the "decision" route), if any. */
 export function decisionLinkOf(matrix: Pick<WeightedMatrix, "sentTo">): HandoffLink | undefined {
   return (matrix.sentTo ?? []).find((l) => l.route === "decision");
+}
+
+/**
+ * The decision record a matrix's result went to, while it still exists in
+ * `records` (the Decision Log's list): a link to a deleted record reads as
+ * not sent, so the matrix can be sent again, as the page's link does.
+ */
+export function sentDecisionOf<D extends { id: string }>(
+  matrix: Pick<WeightedMatrix, "sentTo">,
+  records: readonly D[]
+): D | undefined {
+  const link = decisionLinkOf(matrix);
+  return link ? records.find((d) => d.id === link.targetId) : undefined;
+}
+
+/** Where the result went, for the export: proposed, or decided since in the Decision Log. */
+export function sentText(decided: boolean): string {
+  return decided
+    ? "Sent to the Decision Log, where it has since been decided."
+    : "Sent to the Decision Log as a proposed decision.";
 }
 
 /* ── Saving ──────────────────────────────────────────────────────────── */

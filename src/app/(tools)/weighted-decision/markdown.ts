@@ -49,6 +49,8 @@ export function matrixToMarkdown(
 
   if (r.options.length > 0 && r.criteria.length > 0) {
     const byId = new Map(options.map((o) => [o.id, o]));
+    // Every tied option is starred, as the page's table stars them.
+    const starred = new Set(r.tie ? r.tie.ids : r.leaderId ? [r.leaderId] : []);
     out.push(
       "## Scores",
       "",
@@ -65,7 +67,7 @@ export function matrixToMarkdown(
             ? `${cell.value} (off scale)`
             : "—";
       });
-      const star = o.id === r.leaderId ? " ★" : "";
+      const star = starred.has(o.id) ? " ★" : "";
       const total =
         o.total !== null
           ? `${formatTotal(o.total)}${star}`

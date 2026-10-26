@@ -167,11 +167,11 @@ export function ResultCard({
           onLinksChange={onLinksChange}
           getLinks={getLinks}
           itemLabels={{ decision: "Decision record (proposed)" }}
-          disabled={why !== null}
+          // Once sent, the menu's "Sent · Open" stays reachable whatever the
+          // matrix says now; the reason only stops a first send.
+          disabled={why !== null && !link}
         />
-        {why ? (
-          <span className="text-xs text-sub">{why}</span>
-        ) : link ? (
+        {link ? (
           <Link
             href={getHandoffRoute("decision").targetHref(link.targetId)}
             className="inline-flex items-center gap-1 text-xs text-success underline-offset-2 hover:underline"
@@ -179,6 +179,8 @@ export function ResultCard({
             <BookCheck className="h-3.5 w-3.5" aria-hidden="true" />
             {decided ? "Decided in the Decision Log · Open" : "Proposed in the Decision Log · Open"}
           </Link>
+        ) : why ? (
+          <span className="text-xs text-sub">{why}</span>
         ) : (
           <span className="text-xs text-sub">
             Send the result to a decision record: the team writes down what it decides.

@@ -8,6 +8,7 @@ import type {
   WeightedCriterion,
   WeightedMatrix,
   WeightedOption,
+  WhiteboardObject,
 } from "@/lib/stores/workspace-types";
 import {
   DEFAULT_MATRIX_NAME,
@@ -17,10 +18,12 @@ import {
   matricesOf,
   matrixResult,
   mergeOption,
+  recommendationOf,
   rowsOf,
   scoreInputError,
   sendError,
   sensitivityText,
+  sentText,
   weightError,
 } from "@/lib/weighted/model";
 import { registry } from "@/lib/actions/registry";
@@ -164,20 +167,69 @@ describe("totals, the leader and ties", () => {
 
   it("an unscored cell is not 0: a partial total, and never the leader", () => {
     const r = matrixResult(M, c, [
-      opt("a", "A", { cost: 10 }), // partial 30, would 'win' if empty were 0
+      opt("a", "A", { cost: 6 }), // partial 18: at least 19 once Speed is scored
       opt("b", "B", { cost: 5, speed: 5 }), // 20, complete
     ]);
     const a = r.options.find((o) => o.id === "a")!;
     expect(a).toMatchObject({
       total: null,
-      partialTotal: 30,
+      partialTotal: 18,
       unscored: ["speed"],
       complete: false,
       rank: null,
     });
     expect(r.leaderId).toBe("b");
     expect(r.options.map((o) => o.id)).toEqual(["b", "a"]);
+    // A could still finish below B (19 with a 1), so B's lead stands.
+    expect(r.overtakers).toEqual([]);
     expect(r.verdict).toBe("B leads with 20. 1 option isn't fully scored yet.");
+  });
+
+  it("names an unfinished option certain to overtake the leader, and holds the send", () => {
+    const r = matrixResult(M, c, [
+      opt("a", "A", { cost: 10 }), // partial 30: at least 31, whatever Speed gets
+      opt("b", "B", { cost: 5, speed: 5 }), // 20, complete
+    ]);
+    // The star rule stands (only a complete option leads)…
+    expect(r.leaderId).toBe("b");
+    expect(r.options.find((o) => o.id === "a")?.total).toBeNull();
+    // …but the lead isn't the result.
+    expect(r.overtakers).toEqual([
+      { id: "a", name: "A", partialTotal: 30, minTotal: 31, unscored: ["speed"] },
+    ]);
+    expect(r.verdict).toBe(
+      "A will overtake B once Speed is scored: its scores so far (30) already beat B's Total of 20."
+    );
+    expect(sendError(matrix, r)).toBe("Score A's empty cells first: it will overtake the leader.");
+    // A minimum that only draws level isn't certain to overtake.
+    const level = matrixResult(
+      M,
+      [crit("cost", "Cost", 1), crit("speed", "Speed", 1)],
+      [
+        opt("a", "A", { cost: 9 }), // 9 + at least 1 = 10
+        opt("b", "B", { cost: 5, speed: 5 }), // 10
+      ]
+    );
+    expect(level.overtakers).toEqual([]);
+    expect(sendError(matrix, level)).toBeNull();
+    // Two of them, and another unfinished option that could still lose.
+    const many = matrixResult(
+      M,
+      [crit("cost", "Cost", 3), crit("speed", "Speed", 1), crit("risk", "Risk", 1)],
+      [
+        opt("a", "A", { cost: 9 }), // 27 + 2 = 29
+        opt("b", "B", { cost: 3, speed: 3, risk: 3 }), // 15
+        opt("c", "C", { cost: 8, speed: 1 }), // 25 + 1 = 26
+        opt("d", "D", { cost: 1 }), // 3 + 2 = 5
+      ]
+    );
+    expect(many.overtakers.map((o) => [o.id, o.minTotal])).toEqual([
+      ["a", 29],
+      ["c", 26],
+    ]);
+    expect(many.verdict).toBe(
+      "A and C will overtake B once their empty cells are scored: their scores so far already beat B's Total of 15. 1 other option isn't fully scored yet."
+    );
   });
 
   it("no complete option: no leader, and the verdict counts the empty cells", () => {
@@ -601,5 +653,296 @@ describe("the agent computes what the page shows", () => {
       criteriaWeights: { c: 1, d: 0 },
     });
     expect(one).toMatchObject({ complete: true, unscored: [] });
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+const card = (id: string, sourceRef?: { tool: string; entityId: string }): WhiteboardObject =>
+  ({
+    id,
+    boardId: "b",
+    type: "card",
+    x: 0,
+    y: 0,
+    w: 10,
+    h: 10,
+    z: 0,
+    version: 1,
+    createdAt: "2026-10-01T00:00:00Z",
+    updatedAt: "2026-10-01T00:00:00Z",
+    title: "Card",
+    ...(sourceRef ? { sourceRef } : {}),
+  }) as unknown as WhiteboardObject;
+
+describe("review fixes: the result and the record", () => {
+  const c = [crit("cost", "Cost", 3), crit("speed", "Speed", 1)];
+
+  it("the agent refuses to send a matrix whose leader is certain to be overtaken", async () => {
+    seed([matrix], c, [opt("a", "A", { cost: 10 }), opt("b", "B", { cost: 5, speed: 5 })]);
+    expect(await run("send_to_decision", { matrixId: M })).toMatchObject({
+      sent: false,
+      reason: "overtaken",
+      message: "Score A's empty cells first: it will overtake the leader.",
+    });
+    expect(ws().decisions).toEqual([]);
+    // The page says the same, and keeps the send closed.
+    renderPage();
+    expect(
+      screen.getByText(/^A will overtake B once Speed is scored/, { selector: "p" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Send to…/ })).toBeDisabled();
+    expect(
+      screen.getByText("Score A's empty cells first: it will overtake the leader.")
+    ).toBeInTheDocument();
+  });
+
+  it("a tie recommends the tied options, not the alphabetically first", () => {
+    const ex = buildExample("2026-10-27T00:00:00.000Z");
+    const r = matrixResult(ex.matrix.id, ex.criteria, ex.options);
+    expect(r.tie).not.toBeNull();
+    expect(recommendationOf(r)).toBe(
+      "Too close to call: Unleash (59) and LaunchDarkly (58) are within 5% of each other. Talk it through."
+    );
+    expect(decisionSourceOf(ex.matrix, r).decision?.recommendation).toBe(recommendationOf(r));
+    // No tie: the leader with its Total.
+    const clear = matrixResult(M, c, [
+      opt("a", "A", { cost: 5, speed: 5 }),
+      opt("b", "B", { cost: 1, speed: 1 }),
+    ]);
+    expect(recommendationOf(clear)).toBe("A (weighted total 20)");
+    expect(recommendationOf(matrixResult(M, c, []))).toBeUndefined();
+  });
+
+  it("the export stars every tied option, as the table does", () => {
+    const ex = buildExample("2026-10-27T00:00:00.000Z");
+    const md = matrixToMarkdown(
+      ex.matrix,
+      matrixResult(ex.matrix.id, ex.criteria, ex.options),
+      ex.options
+    );
+    expect(md).toContain("| Unleash | 8 | 7 | 9 | 3 | 59 ★ |");
+    expect(md).toMatch(/\| LaunchDarkly \|[^\n]*\| 58 ★ \|/);
+  });
+
+  it("once sent, the record's link stays when the matrix loses its leader", () => {
+    seed([matrix], c, [opt("a", "Alpha", { cost: 5, speed: 5 }), opt("b", "Bravo", { cost: 4 })]);
+    renderPage();
+    fireEvent.keyDown(screen.getByRole("button", { name: /^Send to…/ }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Decision record (proposed)" }));
+    const id = ws().decisions[0].id;
+    // A new criterion leaves every option partly scored: no leader any more.
+    fireEvent.change(screen.getByLabelText(/^Criterion name/), { target: { value: "Risk" } });
+    fireEvent.change(screen.getByLabelText(/^Criterion weight/), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add criterion" }));
+    expect(
+      screen.getByRole("link", { name: /Proposed in the Decision Log · Open/ })
+    ).toHaveAttribute("href", `/decision-log?id=${encodeURIComponent(id)}`);
+    expect(
+      screen.queryByText("Score every cell of one option first: the record needs a leader.")
+    ).not.toBeInTheDocument();
+    // The menu, with its "Sent · Open", stays reachable.
+    expect(screen.getByRole("button", { name: /^Send to…/ })).toBeEnabled();
+  });
+
+  it("a deleted record reads as not sent, to the agent and in the export, as on the page", async () => {
+    seed([matrix], c, [opt("a", "Alpha", { cost: 5, speed: 5 })]);
+    const sent = await run<{ decisionId: string }>("send_to_decision", { matrixId: M });
+    const state = await run<{
+      matrices: { sentToDecision: string | null; sentDecision: unknown }[];
+    }>("list_state", { matrixId: M });
+    expect(state.matrices[0].sentToDecision).toBe(sent.decisionId);
+    expect(state.matrices[0].sentDecision).toMatchObject({
+      id: sent.decisionId,
+      label: "ADR-0001",
+      status: "proposed",
+      decided: false,
+    });
+
+    // Decided in the Decision Log: the export says so.
+    act(() =>
+      useWorkspaceStore.setState((s) => ({
+        decisions: s.decisions.map((d) => ({ ...d, status: "accepted" as const })),
+      }))
+    );
+    const view = renderPage();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(sentText(true));
+    expect(
+      (
+        await run<{ matrices: { sentDecision: { decided: boolean } }[] }>("list_state", {
+          matrixId: M,
+        })
+      ).matrices[0].sentDecision.decided
+    ).toBe(true);
+    view.unmount();
+
+    // Deleted: not sent, anywhere.
+    act(() => useWorkspaceStore.setState({ decisions: [] }));
+    renderPage();
+    expect(screen.getByTestId("export-markdown").textContent).not.toContain(
+      "Sent to the Decision Log"
+    );
+    const after = await run<{
+      matrices: { sentToDecision: string | null; sentDecision: unknown }[];
+    }>("list_state", { matrixId: M });
+    expect(after.matrices[0]).toMatchObject({ sentToDecision: null, sentDecision: null });
+    expect(await run("send_to_decision", { matrixId: M })).toMatchObject({ sent: true });
+  });
+});
+
+describe("review fixes: agent writes land in a matrix", () => {
+  it("score_and_persist_option and persist_options refuse an unknown matrixId, writing nothing", async () => {
+    seed([matrix], [crit("cost", "Cost", 1)], [opt("a", "Alpha", {})]);
+    expect(
+      await run("score_and_persist_option", {
+        name: "Ghost",
+        scores: { cost: 3 },
+        matrixId: "weightedMatrix_nope",
+      })
+    ).toEqual({ persisted: false, reason: "matrix_not_found", matrixId: "weightedMatrix_nope" });
+    expect(
+      await run("persist_options", {
+        options: [
+          { id: "a", name: "Alpha", scores: { cost: 4 } },
+          { name: "Ghost", scores: {}, matrixId: "weightedMatrix_nope" },
+        ],
+      })
+    ).toMatchObject({
+      written: [],
+      count: 0,
+      persisted: false,
+      reason: "matrix_not_found",
+      matrixIds: ["weightedMatrix_nope"],
+    });
+    // All or nothing: Alpha wasn't re-scored either.
+    expect(ws().weightedOptions).toEqual([opt("a", "Alpha", {})]);
+    // A known matrix, or the default one, is fine.
+    const ok = await run<{ id: string }>("score_and_persist_option", {
+      name: "Beta",
+      scores: { cost: 2 },
+      matrixId: M,
+    });
+    expect(ws().weightedOptions?.find((o) => o.id === ok.id)?.matrixId).toBe(M);
+    const legacy = await run<{ written: string[] }>("persist_options", {
+      options: [{ name: "Old", scores: {}, matrixId: DEFAULT_WEIGHTED_MATRIX_ID }],
+    });
+    expect(ws().weightedOptions?.find((o) => o.id === legacy.written[0])?.matrixId).toBeUndefined();
+  });
+});
+
+describe("review fixes: editing in place", () => {
+  const c = [crit("cost", "Cost", 3), crit("speed", "Speed", 1)];
+  const o = [opt("a", "Alpha", { cost: 5, speed: 5 }), opt("b", "Bravo", { cost: 4, speed: 4 })];
+
+  it("a blanked or repeated option name isn't saved: the field shows the stored name and why", () => {
+    seed([matrix], c, o);
+    renderPage();
+    const name = screen.getByLabelText("Name of the option Bravo") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "  " } });
+    fireEvent.blur(name);
+    expect(name.value).toBe("Bravo");
+    expect(screen.getByText("Name the option. It's still called “Bravo”.")).toBeInTheDocument();
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name.getAttribute("aria-describedby")).toBe(
+      screen.getByText("Name the option. It's still called “Bravo”.").id
+    );
+    fireEvent.change(name, { target: { value: "alpha" } });
+    fireEvent.blur(name);
+    expect(name.value).toBe("Bravo");
+    expect(
+      screen.getByText(
+        "This matrix already has an option with that name. It's still called “Bravo”."
+      )
+    ).toBeInTheDocument();
+    expect(ws().weightedOptions?.find((x) => x.id === "b")?.name).toBe("Bravo");
+    fireEvent.change(name, { target: { value: "Bravo 2" } });
+    fireEvent.blur(name);
+    expect(ws().weightedOptions?.find((x) => x.id === "b")?.name).toBe("Bravo 2");
+    expect(screen.queryByText(/It's still called/)).not.toBeInTheDocument();
+  });
+
+  it("a criterion's rename and weight follow the add form's rules, with the error tied to the field", () => {
+    seed([matrix], c, o);
+    renderPage();
+    const name = screen.getByLabelText("Name of the criterion Speed") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "COST" } });
+    fireEvent.blur(name);
+    expect(name.value).toBe("Speed");
+    expect(
+      screen.getByText(
+        "This matrix already has a criterion with that name. It's still called “Speed”."
+      )
+    ).toBeInTheDocument();
+    expect(ws().weightedCriteria?.find((x) => x.id === "speed")?.name).toBe("Speed");
+
+    const weight = screen.getByLabelText("Weight of Cost") as HTMLInputElement;
+    fireEvent.change(weight, { target: { value: "" } });
+    fireEvent.blur(weight);
+    expect(weight.value).toBe("3");
+    const error = screen.getByText("Give it a weight (0 or more). It stays at 3.");
+    expect(weight.getAttribute("aria-describedby")).toBe(error.id);
+    expect(ws().weightedCriteria?.find((x) => x.id === "cost")?.weight).toBe(3);
+    fireEvent.change(weight, { target: { value: "4" } });
+    fireEvent.blur(weight);
+    expect(ws().weightedCriteria?.find((x) => x.id === "cost")?.weight).toBe(4);
+  });
+
+  it("the matrix's question hint is tied to its field, and a blanked name says why", () => {
+    seed([matrix], c, o);
+    renderPage();
+    const question = screen.getByLabelText("What are you deciding?");
+    expect(question.getAttribute("aria-describedby")).toBe(
+      screen.getByText("Becomes the decision record's title.").id
+    );
+    const name = screen.getByLabelText("Name") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "" } });
+    fireEvent.blur(name);
+    expect(name.value).toBe("Hosting");
+    expect(screen.getByText("A matrix needs a name: it's still “Hosting”.")).toBeInTheDocument();
+  });
+});
+
+describe("review fixes: focus and Undo after a delete", () => {
+  const c = [crit("cost", "Cost", 3), crit("speed", "Speed", 1)];
+  const o = [opt("a", "Alpha", { cost: 5, speed: 5 }), opt("b", "Bravo", { cost: 4, speed: 4 })];
+
+  it("deleting an option or a criterion moves focus to its neighbour, then to the add field", () => {
+    seed([matrix], c, o);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete the option Alpha" }));
+    expect(screen.getByRole("button", { name: "Delete the option Bravo" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete the option Bravo" }));
+    expect(screen.getByLabelText(/^Option name/)).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete the criterion Speed" }));
+    expect(screen.getByRole("button", { name: "Delete the criterion Cost" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete the criterion Cost" }));
+    expect(screen.getByLabelText(/^Criterion name/)).toHaveFocus();
+  });
+
+  it("Undo of an option delete, or a matrix delete, pins the canvas cards back", () => {
+    seed([matrix], c, o);
+    act(() =>
+      useWorkspaceStore.setState({
+        whiteboardObjects: [
+          card("k1", { tool: "weightedOption", entityId: "a" }),
+          card("k2", { tool: "weightedOption", entityId: "b" }),
+          card("k3"),
+        ],
+      })
+    );
+    renderPage();
+    const linkOf = (id: string) =>
+      ws().whiteboardObjects?.find((x) => x.id === id)?.sourceRef?.entityId;
+    fireEvent.click(screen.getByRole("button", { name: "Delete the option Alpha" }));
+    expect(linkOf("k1")).toBeUndefined();
+    undoLast();
+    expect(linkOf("k1")).toBe("a");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete the matrix Hosting" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete matrix" }));
+    expect([linkOf("k1"), linkOf("k2")]).toEqual([undefined, undefined]);
+    undoLast();
+    expect([linkOf("k1"), linkOf("k2"), linkOf("k3")]).toEqual(["a", "b", undefined]);
   });
 });

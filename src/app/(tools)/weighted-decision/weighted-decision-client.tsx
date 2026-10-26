@@ -17,6 +17,7 @@ import {
 import { generateWeightedPrompts } from "@/lib/ai-prompts/weighted-decision";
 import { WEIGHTED_DECISION_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
@@ -29,12 +30,13 @@ import { undoable } from "@/lib/utils/undoable";
 import {
   DEFAULT_WEIGHTED_MATRIX_ID,
   cellOf,
-  decisionLinkOf,
   findMatrix,
   matricesOf,
   matrixResult,
   rowsOf,
+  sentText,
 } from "@/lib/weighted/model";
+import { optionCardLinks, repinCards } from "./card-links";
 import { CriteriaPanel, type NewCriterion } from "./criteria-panel";
 import { buildExample } from "./example";
 import { matrixToMarkdown } from "./markdown";
@@ -157,6 +159,7 @@ export function WeightedDecisionClient() {
       criteria: rowsOf(m.id, s.weightedCriteria),
     };
     const goneCriteria = new Set(gone.criteria.map((c) => c.id));
+    const cards = optionCardLinks(gone.options.map((o) => o.id));
     // Other matrices' options can't score these criteria in the page, but an
     // agent's might: keep what the delete strips so Undo puts it back.
     const stripped = (s.weightedOptions ?? [])
@@ -182,6 +185,7 @@ export function WeightedDecisionClient() {
           if (o)
             ws().upsertWeightedOption({ ...o, scores: { ...o.scores, [x.criterionId]: x.value } });
         }
+        repinCards(cards);
         select(m.id);
       },
     });
@@ -274,13 +278,18 @@ export function WeightedDecisionClient() {
   };
 
   const deleteOption = (o: WeightedOption) => {
+    // The store unpins the option's canvas cards; Undo pins them back.
+    const cards = optionCardLinks([o.id]);
     undoable({
       label: `Deleted the option “${o.name}”`,
       apply: () => {
         ws().removeWeightedOption(o.id);
         record(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id, name: o.name });
       },
-      revert: () => ws().upsertWeightedOption(o),
+      revert: () => {
+        ws().upsertWeightedOption(o);
+        repinCards(cards);
+      },
     });
     announce(`Deleted the option ${o.name}`);
   };
@@ -312,11 +321,14 @@ export function WeightedDecisionClient() {
 
   /* ── Exports ──────────────────────────────────────────────────────── */
 
-  const sent = selected ? decisionLinkOf(selected) : undefined;
+  // As the result card says it: a record deleted since reads as not sent.
+  const sent = selected ? liveLink(selected.sentTo, "decision") : undefined;
   const markdown =
     selected && result
       ? matrixToMarkdown(selected, result, ownOptions, {
-          sentLabel: sent ? "Sent to the Decision Log as a proposed decision." : undefined,
+          sentLabel: sent
+            ? sentText(getHandoffRoute("decision").isDone?.(sent.targetId) === true)
+            : undefined,
         })
       : "";
   const csvData =

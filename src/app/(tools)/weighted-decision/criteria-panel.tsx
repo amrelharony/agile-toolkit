@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
@@ -15,6 +15,7 @@ import {
   weightError,
   type CriterionShare,
 } from "@/lib/weighted/model";
+import { FieldInPlace } from "./field-in-place";
 
 export interface CriterionDraft {
   name: string;
@@ -42,12 +43,8 @@ export function validateCriterion(
 ): Validation<NewCriterion, keyof CriterionDraft> {
   const errors: FormErrors<keyof CriterionDraft> = {};
   const name = d.name.trim();
-  if (!name) errors.name = "Name the criterion.";
-  else if (name.length > CRITERION_NAME_MAX) {
-    errors.name = `Keep the name to ${CRITERION_NAME_MAX} characters.`;
-  } else if (taken.some((t) => t.trim().toLowerCase() === name.toLowerCase())) {
-    errors.name = "This matrix already has a criterion with that name.";
-  }
+  const nameError = criterionNameError(name, taken);
+  if (nameError) errors.name = nameError;
   const w = weightError(d.weight);
   if (w) errors.weight = w;
   if (d.low.trim().length > MEANING_MAX) errors.low = `Keep it to ${MEANING_MAX} characters.`;
@@ -61,9 +58,26 @@ export function validateCriterion(
   };
 }
 
+/**
+ * Why a criterion can't be called `name` (trimmed), or null: the add form
+ * and a rename in place share the rule, so a rename can't blank a name or
+ * repeat one the matrix has (`taken`: the other criteria's names).
+ */
+export function criterionNameError(name: string, taken: readonly string[]): string | null {
+  if (!name) return "Name the criterion.";
+  if (name.length > CRITERION_NAME_MAX) return `Keep the name to ${CRITERION_NAME_MAX} characters.`;
+  if (taken.some((t) => t.trim().toLowerCase() === name.toLowerCase())) {
+    return "This matrix already has a criterion with that name.";
+  }
+  return null;
+}
+
 const EMPTY: CriterionDraft = { name: "", weight: "", low: "", high: "" };
 
-/** One criterion's weight, edited in place; an invalid one isn't saved and says why. */
+/**
+ * One criterion's weight, edited in place; an invalid one isn't saved,
+ * the field goes back to the stored weight, and it says why.
+ */
 function WeightInPlace({
   criterion,
   onSave,
@@ -71,28 +85,22 @@ function WeightInPlace({
   criterion: WeightedCriterion;
   onSave: (weight: number) => void;
 }) {
-  const [error, setError] = useState<string | null>(null);
   return (
-    <Field
+    <FieldInPlace
       label={`Weight of ${criterion.name}`}
       hideLabel
-      error={error ?? undefined}
+      value={String(criterion.weight)}
+      inputMode="decimal"
       className="w-24 gap-1"
-    >
-      {(props) => (
-        <BlurInput
-          id={props.id}
-          aria-label={`Weight of ${criterion.name}`}
-          value={String(criterion.weight)}
-          className="h-9"
-          onCommit={(next) => {
-            const why = weightError(next);
-            setError(why);
-            if (!why && Number(next) !== criterion.weight) onSave(Number(next));
-          }}
-        />
-      )}
-    </Field>
+      inputClassName="h-9"
+      check={(next) => {
+        const why = weightError(next);
+        return why ? `${why} It stays at ${criterion.weight}.` : null;
+      }}
+      onSave={(next) => {
+        if (Number(next) !== criterion.weight) onSave(Number(next));
+      }}
+    />
   );
 }
 
@@ -128,9 +136,23 @@ export function CriteriaPanel({
   });
   const { draft, update, errors } = form;
   const shareOf = (id: string) => shares.find((s) => s.id === id);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const deleteRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  // Focus moves to the next criterion's delete button (or the one before,
+  // or the name field of the add form) as this one goes, never to the page.
+  const remove = (c: WeightedCriterion) => {
+    const at = criteria.findIndex((x) => x.id === c.id);
+    const next = criteria[at + 1] ?? criteria[at - 1];
+    onDelete(c);
+    const target = next
+      ? deleteRefs.current.get(next.id)
+      : boxRef.current?.querySelector<HTMLInputElement>("input");
+    target?.focus();
+  };
 
   return (
-    <div className="space-y-4">
+    <div ref={boxRef} className="space-y-4">
       <ItemForm
         form={form}
         submitLabel="Add criterion"
@@ -209,15 +231,22 @@ export function CriteriaPanel({
                   key={c.id}
                   className="flex flex-wrap items-start gap-2 rounded-md border border-border bg-surface-deep p-2"
                 >
-                  <BlurInput
-                    aria-label={`Name of the criterion ${c.name}`}
+                  <FieldInPlace
+                    label={`Name of the criterion ${c.name}`}
+                    hideLabel
                     value={c.name}
                     maxLength={CRITERION_NAME_MAX}
-                    className="h-9 min-w-0 flex-1 basis-40"
-                    onCommit={(next) => {
-                      const name = next.trim();
-                      if (name && name !== c.name) onPatch(c, { name }, "Renamed a criterion");
+                    className="min-w-0 flex-1 basis-40 gap-1"
+                    inputClassName="h-9 min-w-0"
+                    // The add form's rules: not blank, not a name the matrix has.
+                    check={(name) => {
+                      const why = criterionNameError(
+                        name,
+                        criteria.filter((x) => x.id !== c.id).map((x) => x.name)
+                      );
+                      return why ? `${why} It's still called “${c.name}”.` : null;
                     }}
+                    onSave={(name) => onPatch(c, { name }, "Renamed a criterion")}
                   />
                   <WeightInPlace
                     criterion={c}
@@ -227,10 +256,14 @@ export function CriteriaPanel({
                     {share?.active ? `${Math.round(share.share * 100)}%` : "not counted"}
                   </span>
                   <IconButton
+                    ref={(el) => {
+                      if (el) deleteRefs.current.set(c.id, el);
+                      else deleteRefs.current.delete(c.id);
+                    }}
                     label={`Delete the criterion ${c.name}`}
                     icon={<Trash2 className="h-4 w-4" />}
                     className="text-sub hover:text-danger"
-                    onClick={() => onDelete(c)}
+                    onClick={() => remove(c)}
                   />
                   <div className="grid w-full gap-2 sm:grid-cols-2">
                     <BlurInput

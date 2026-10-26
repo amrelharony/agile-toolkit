@@ -29,7 +29,8 @@
  *                         weights; optionally one matrix's.
  *   11. score_and_persist_option / 12. persist_options — write options' raw
  *                         scores; every other stored field (the matrix, the
- *                         note) is kept, and off-scale scores are flagged.
+ *                         note) is kept, off-scale scores are flagged, and a
+ *                         matrixId naming no matrix is refused.
  *
  * Entity kinds "workspace:weightedMatrix", "workspace:weightedOption",
  * "workspace:weightedCriterion" and "workspace:decision" match the browser
@@ -56,7 +57,7 @@ import {
   type WeightedMatrix,
   type WeightedOption,
 } from "@/lib/stores/workspace-types";
-import { buildDecision, decisionLabel } from "@/lib/decisions/model";
+import { buildDecision, decisionLabel, isDecided } from "@/lib/decisions/model";
 import {
   CRITERION_NAME_MAX,
   DEFAULT_WEIGHTED_MATRIX_ID,
@@ -68,7 +69,6 @@ import {
   SCORE_MAX,
   SCORE_MIN,
   WEIGHT_MAX,
-  decisionLinkOf,
   decisionSourceOf,
   findMatrix,
   isOnScale,
@@ -77,7 +77,8 @@ import {
   mergeOption,
   offScaleScores,
   rowsOf,
-  sendError,
+  sendBlock,
+  sentDecisionOf,
   withSentLink,
 } from "@/lib/weighted/model";
 import {
@@ -179,21 +180,32 @@ const matrixIdFor = (id: string) => (id === DEFAULT_WEIGHTED_MATRIX_ID ? {} : { 
 /* ── list_state ──────────────────────────────────────────────────────── */
 
 async function listState(store: WeightedStore, matrixId?: string) {
-  const [stored, options, criteria] = await Promise.all([
+  const [stored, options, criteria, { records }] = await Promise.all([
     store.matrices(),
     store.options(),
     store.criteria(),
+    store.decisions.list(),
   ]);
   const all = matricesOf(stored, options, criteria);
   const picked = matrixId ? all.filter((m) => m.id === matrixId) : all;
   return {
     matrices: picked.map((m) => {
       const result = matrixResult(m.id, criteria, options);
+      // As the page's link: a record deleted since reads as not sent.
+      const sent = sentDecisionOf(m, records);
       return {
         ...m,
         ...result,
         criteria: result.criteria,
-        sentToDecision: decisionLinkOf(m)?.targetId ?? null,
+        sentToDecision: sent?.id ?? null,
+        sentDecision: sent
+          ? {
+              id: sent.id,
+              label: decisionLabel(sent),
+              status: sent.status,
+              decided: isDecided(sent.status),
+            }
+          : null,
       };
     }),
     count: picked.length,
@@ -206,7 +218,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List the weighted-decision matrices with the same numbers the page shows. Params: matrixId? (one matrix; 'weightedMatrix:default' is the matrix of rows from before names). Returns {matrices: (WeightedMatrix & {weightSum, criteria [{id,name,weight,active,share,low?,high?}], options [{id,name,total (null until every weighted cell is scored), partialTotal, unscored, offScale, complete, rank}], leaderId (the highest complete total; never an incomplete option), tie {ids, gap} | null (within 5% of the leader), sensitivity [{criterionId, criterion, changePct, direction, weightAt, newLeaderId, newLeader}] (the smallest weight change within ±50% that flips the leader), sensitivityChecked, emptyCells, verdict, sentToDecision})[], count}.",
+    "List the weighted-decision matrices with the same numbers the page shows. Params: matrixId? (one matrix; 'weightedMatrix:default' is the matrix of rows from before names). Returns {matrices: (WeightedMatrix & {weightSum, criteria [{id,name,weight,active,share,low?,high?}], options [{id,name,total (null until every weighted cell is scored), partialTotal, unscored, offScale, complete, rank}], leaderId (the highest complete total; never an incomplete option), tie {ids, gap} | null (within 5% of the leader), overtakers [{id, name, partialTotal, minTotal, unscored}] (unfinished options whose lowest possible total, every empty cell at 1, already beats the leader's: the lead isn't the result yet), sensitivity [{criterionId, criterion, changePct, direction, weightAt, newLeaderId, newLeader}] (the smallest weight change within ±50% that flips the leader), sensitivityChecked, emptyCells, verdict, sentToDecision (the record's id while it exists, else null), sentDecision {id, label, status, decided} | null})[], count}.",
   paramsSchema: z.object({ matrixId: z.string().optional() }),
   handler: async (params) => listState(browserStore, params.matrixId),
   mcpHandler: async (params, ctx) => listState(serverStore(ctx.userId), params.matrixId),
@@ -410,11 +422,10 @@ async function sendToDecision(store: WeightedStore, matrixId: string) {
     findMatrix(stored, matrixId);
   if (!matrix) return { sent: false, reason: "matrix_not_found" };
   const result = matrixResult(matrix.id, criteria, options);
-  const why = sendError(matrix, result);
-  if (why) return { sent: false, reason: result.leaderId ? "example" : "no_leader", message: why };
+  const why = sendBlock(matrix, result);
+  if (why) return { sent: false, reason: why.reason, message: why.message };
   const { records } = await store.decisions.list();
-  const link = decisionLinkOf(matrix);
-  const existing = link ? records.find((d) => d.id === link.targetId) : undefined;
+  const existing = sentDecisionOf(matrix, records);
   if (existing) {
     return {
       sent: false,
@@ -447,7 +458,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record a matrix's result as a PROPOSED decision record in the Decision Log (as the page's 'Send to decision record'): the question as its title, the verdict and ranking as its context, the options in rank order, and the leader as the recommendation; the outcome is left to the team. Needs a fully scored leader; once per matrix while that record exists. Params: matrixId. Returns {sent: true, decisionId, label, status: 'proposed'} or {sent: false, reason: 'matrix_not_found' | 'no_leader' | 'example' | 'already_sent', message?, decisionId?}.",
+    "Record a matrix's result as a PROPOSED decision record in the Decision Log (as the page's 'Send to decision record'): the question as its title, the verdict and ranking as its context, the options in rank order, and the leader as the recommendation (in a tie, the tied options and 'talk it through'); the outcome is left to the team. Needs a fully scored leader that no unfinished option is certain to overtake; once per matrix while that record exists. Params: matrixId. Returns {sent: true, decisionId, label, status: 'proposed'} or {sent: false, reason: 'matrix_not_found' | 'no_leader' | 'overtaken' | 'example' | 'already_sent', message?, decisionId?}.",
   paramsSchema: z.object({ matrixId: z.string() }),
   handler: async (params) => sendToDecision(browserStore, params.matrixId),
   mcpHandler: async (params, ctx) => sendToDecision(serverStore(ctx.userId), params.matrixId),
@@ -580,7 +591,24 @@ function optionToWrite(
   return next;
 }
 
+/**
+ * The matrixIds among `list` that name no matrix (neither a stored one nor
+ * the default): an option written there would sit in no matrix the page
+ * or list_state shows, so the write is refused instead.
+ */
+async function unknownMatrices(
+  store: WeightedStore,
+  list: readonly { matrixId?: string }[]
+): Promise<string[]> {
+  const asked = Array.from(new Set(list.flatMap((o) => (o.matrixId ? [o.matrixId] : []))));
+  const known = await Promise.all(asked.map((id) => knownMatrix(store, id)));
+  return asked.filter((_, i) => known[i] === null);
+}
+
 async function persistOne(store: WeightedStore, p: z.infer<typeof WeightedOptionInputSchema>) {
+  const unknown = await unknownMatrices(store, [p]);
+  if (unknown.length > 0)
+    return { persisted: false, reason: "matrix_not_found", matrixId: p.matrixId };
   const stored = p.id ? (await store.options()).find((x) => x.id === p.id) : undefined;
   const option = optionToWrite(stored, p);
   await store.putOption(option);
@@ -593,10 +621,14 @@ registry.register({
   name: "score_and_persist_option",
   category: "write",
   description:
-    "Persist a WeightedOption's name and raw per-criterion scores (replacing its scores). Every other stored field is kept (its matrix, its note); matrixId? places a new option (default: the default matrix) or moves an existing one. No total is stored: totals are worked out from the criteria on read. Scores off the 1–10 scale are stored but flagged and don't count. Returns {id, offScale: criterionIds}.",
+    "Persist a WeightedOption's name and raw per-criterion scores (replacing its scores). Every other stored field is kept (its matrix, its note); matrixId? places a new option (default: the default matrix) or moves an existing one, and must name an existing matrix. No total is stored: totals are worked out from the criteria on read. Scores off the 1–10 scale are stored but flagged and don't count. Returns {id, offScale: criterionIds} or {persisted: false, reason: 'matrix_not_found', matrixId} (nothing written).",
   paramsSchema: WeightedOptionInputSchema,
   handler: async (params) => persistOne(browserStore, params),
   mcpHandler: async (params, ctx) => {
+    const unknown = await unknownMatrices(serverStore(ctx.userId), [params]);
+    if (unknown.length > 0) {
+      return { persisted: false, reason: "matrix_not_found", matrixId: params.matrixId };
+    }
     const stored = params.id
       ? await serverGetEntity<WeightedOption>(ctx.userId, WEIGHTED_OPTION_KIND, params.id)
       : null;
@@ -610,6 +642,17 @@ async function persistMany(
   store: WeightedStore,
   list: z.infer<typeof WeightedOptionInputSchema>[]
 ) {
+  // All or nothing: one unknown matrix refuses the batch, so no option of it lands nowhere.
+  const unknown = await unknownMatrices(store, list);
+  if (unknown.length > 0) {
+    return {
+      written: [],
+      count: 0,
+      persisted: false,
+      reason: "matrix_not_found",
+      matrixIds: unknown,
+    };
+  }
   const byId = new Map((await store.options()).map((o) => [o.id, o]));
   const options = list.map((o) => optionToWrite(o.id ? byId.get(o.id) : undefined, o));
   await store.putOptions(options);
@@ -631,7 +674,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of WeightedOption rows (upsert by id; items without an id get one). Each keeps every stored field besides its name and scores (its matrix, its note). Does not clear the collection. Returns {written: ids, count, offScale: {optionId: criterionIds}} (off-scale scores are stored but don't count).",
+    "Persist a batch of WeightedOption rows (upsert by id; items without an id get one). Each keeps every stored field besides its name and scores (its matrix, its note); a matrixId must name an existing matrix. Does not clear the collection. Returns {written: ids, count, offScale: {optionId: criterionIds}} (off-scale scores are stored but don't count), or {written: [], count: 0, persisted: false, reason: 'matrix_not_found', matrixIds} when any matrixId is unknown (nothing written).",
   paramsSchema: z.object({
     options: z.array(WeightedOptionInputSchema).min(1).max(500),
   }),
