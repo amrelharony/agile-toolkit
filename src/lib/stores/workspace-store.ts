@@ -2011,7 +2011,9 @@ if (typeof window !== "undefined") {
     // Phase 6 — Team & people. Each kind is what kindFromToolId derives from
     // its workspace.* CRUD (workspace.definition_of_done → definitionOfDone,
     // workspace.mood_tracker_doc → moodTrackerDoc, …), so the agents' CRUD
-    // needs no serverKind override.
+    // needs no serverKind override. Server-side code names them by the
+    // workspace-types constants DOD_KIND, RACI_KIND, ADKAR_KIND,
+    // MOOD_TRACKER_KIND and MOOD_PULSE_KIND; a test keeps the three in step.
     registerCollection("definitionOfDone", "definitionsOfDone");
     registerCollection("raciMatrix", "raciMatrices");
     registerCollection("adkarDoc", "adkarDocs");

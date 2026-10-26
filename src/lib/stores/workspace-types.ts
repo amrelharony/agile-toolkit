@@ -2099,6 +2099,16 @@ export interface MoodPulse {
 /** The mood tracker's one document id. */
 export const MOOD_TRACKER_ID = "moodTracker:current";
 
+/**
+ * The `user_entities` kinds the mood settings and the anonymous pulses sync
+ * under, for server-side code (tool.mood_tracker.*, the retro and sprint
+ * comparison loaders). They are what kindFromToolId derives from
+ * workspace.mood_tracker_doc and workspace.mood_pulse and what the store
+ * registers; a kind that differs is one the browser never syncs.
+ */
+export const MOOD_TRACKER_KIND = "workspace:moodTrackerDoc";
+export const MOOD_PULSE_KIND = "workspace:moodPulse";
+
 /** A run of low team-mood days, and where it was sent. */
 export interface MoodStreak {
   /** YYYY-MM-DD, first and last day of the run. */
@@ -2518,6 +2528,9 @@ export function defaultSkillsMatrix(id: string): SkillsMatrix {
 /** The Definition of Done's one document id. */
 export const DOD_DOC_ID = "definitionOfDone:current";
 
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const DOD_KIND = "workspace:definitionOfDone";
+
 export type DodCategory = "code" | "testing" | "docs" | "performance" | "security" | "other";
 
 export interface DodCriterion {
@@ -2553,6 +2566,9 @@ export interface DefinitionOfDone {
 
 /** The RACI matrix's one document id. */
 export const RACI_ID = "raciMatrix:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const RACI_KIND = "workspace:raciMatrix";
 
 export type RaciLetter = "R" | "A" | "C" | "I";
 
@@ -2631,6 +2647,9 @@ export interface AdkarInitiative {
 
 /** The ADKAR tool's one document id. */
 export const ADKAR_DOC_ID = "adkar:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const ADKAR_KIND = "workspace:adkarDoc";
 
 export interface AdkarDoc {
   id: string;

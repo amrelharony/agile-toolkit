@@ -34,18 +34,29 @@ vi.mock("@/lib/sync/register", () => ({
 
 import { getWorkspaceSnapshot, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { kindFromToolId } from "@/lib/actions/server-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import {
+  ADKAR_KIND,
+  DOD_KIND,
+  MOOD_PULSE_KIND,
+  MOOD_TRACKER_KIND,
+  RACI_KIND,
+  type Workspace,
+} from "@/lib/stores/workspace-types";
 import { ADKAR, DOD, MOOD_DOC, PULSE, RACI } from "./phase6-fixtures";
 
 type Doc = { id: string };
 
-/** Each new collection: its slice, store actions, a full document, its CRUD toolId. */
+/**
+ * Each new collection: its slice, store actions, a full document, its CRUD
+ * toolId and the exported kind server-side code names it by.
+ */
 const COLLECTIONS: {
   slice: keyof Workspace;
   doc: Doc;
   upsert: (x: never) => void;
   remove: (id: string) => void;
   toolId: string;
+  kind: string;
 }[] = [
   {
     slice: "definitionsOfDone",
@@ -53,6 +64,7 @@ const COLLECTIONS: {
     upsert: (x) => useWorkspaceStore.getState().upsertDefinitionOfDone(x),
     remove: (id) => useWorkspaceStore.getState().removeDefinitionOfDone(id),
     toolId: "workspace.definition_of_done",
+    kind: DOD_KIND,
   },
   {
     slice: "raciMatrices",
@@ -60,6 +72,7 @@ const COLLECTIONS: {
     upsert: (x) => useWorkspaceStore.getState().upsertRaciMatrix(x),
     remove: (id) => useWorkspaceStore.getState().removeRaciMatrix(id),
     toolId: "workspace.raci_matrix",
+    kind: RACI_KIND,
   },
   {
     slice: "adkarDocs",
@@ -67,6 +80,7 @@ const COLLECTIONS: {
     upsert: (x) => useWorkspaceStore.getState().upsertAdkarDoc(x),
     remove: (id) => useWorkspaceStore.getState().removeAdkarDoc(id),
     toolId: "workspace.adkar_doc",
+    kind: ADKAR_KIND,
   },
   {
     slice: "moodTrackerDocs",
@@ -74,6 +88,7 @@ const COLLECTIONS: {
     upsert: (x) => useWorkspaceStore.getState().upsertMoodTrackerDoc(x),
     remove: (id) => useWorkspaceStore.getState().removeMoodTrackerDoc(id),
     toolId: "workspace.mood_tracker_doc",
+    kind: MOOD_TRACKER_KIND,
   },
   {
     slice: "moodPulses",
@@ -81,6 +96,7 @@ const COLLECTIONS: {
     upsert: (x) => useWorkspaceStore.getState().upsertMoodPulse(x),
     remove: (id) => useWorkspaceStore.getState().removeMoodPulse(id),
     toolId: "workspace.mood_pulse",
+    kind: MOOD_PULSE_KIND,
   },
 ];
 
@@ -135,9 +151,10 @@ describe("the Team & people collections", () => {
   });
 
   it.each(COLLECTIONS.map((c) => [c.toolId, c] as const))(
-    "%s syncs under the kind its CRUD derives",
+    "%s syncs under the kind its CRUD derives and the exported constant names",
     (_, c) => {
       const kind = kindFromToolId(c.toolId);
+      expect(c.kind, "exported kind").toBe(kind);
       const target = registered.entities.filter((e) => e.kind === kind);
       expect(target, kind).toHaveLength(1);
       // The sync target reads and writes this collection.
