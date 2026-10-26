@@ -171,10 +171,11 @@ export const CORE_GUIDES: ToolGuide[] = [
       "When several stakeholders disagree on what comes first.",
     ],
     steps: [
-      "Score each item's business value, time criticality and risk reduction relative to the others.",
-      "Cost of delay = business value + time criticality + risk reduction.",
-      "Score job size relative to the others.",
-      "WSJF = cost of delay ÷ job size. Highest first.",
+      "Add each feature by its Feature title. A title alone is enough: it waits in Score by column.",
+      "Press Score by column and pick a column (BV, TC, RR/OE or Size). Find the smallest feature and give it a 1, then size the others against it on 1, 2, 3, 5, 8, 13, 20.",
+      "Use Next column until all four are done. Each pick saves at once, and a feature's WSJF shows once its four parts are set.",
+      "Or score all four in the add form, and change them later with Edit on the row.",
+      "The list ranks by WSJF = cost of delay ÷ job size, where cost of delay = business value + time criticality + RR/OE. Re-sort catches the order up after edits.",
     ],
     scales: [
       {
@@ -187,21 +188,21 @@ export const CORE_GUIDES: ToolGuide[] = [
       },
     ],
     tips: [
-      "Score one column at a time across all items — relative comparison is the point.",
-      "Give the smallest item a 1 in each column and size the others against it.",
+      "If a column has no 1, the tool says so: relative scores only work against the smallest item.",
+      "Linked rows read and write the backlog item, so the Backlog Prioritizer shows the same WSJF.",
     ],
   },
   {
     toolId: "rice-scoring",
     summary:
-      "RICE scores ideas by Reach × Impact × Confidence ÷ Effort, to compare very different ideas on one scale.",
+      "RICE scores initiatives by Reach × Impact × Confidence ÷ Effort, with reach compared per quarter, so very different ideas land on one scale.",
     whenToUse: ["Comparing product ideas or features with a data-informed estimate of value."],
     steps: [
-      "Reach: how many people it affects in a period (e.g. users per quarter).",
-      "Impact: how much it moves the goal for each of them (use the scale below).",
-      "Confidence: how sure you are of the other numbers.",
-      "Effort: person-months of work.",
-      "RICE = Reach × Impact × Confidence ÷ Effort. Highest first.",
+      "Type the Initiative title, or use Import from backlog: an item RICE already scored opens its row to edit instead.",
+      "Enter Reach and pick its Reach period (per week, month, quarter or year). The form starts on the period you used last; for any other period than a quarter, a line under Reach shows it per quarter.",
+      "Pick Impact (3x massive to 0.25x minimal) and Confidence (100%, 80% or 50%). How sure? See examples helps you pick.",
+      "Enter Effort in person-months, 0.5 or more, then click Add & score.",
+      "The list ranks by RICE, unscored initiatives last. Use Edit or Delete (with Undo) on a row; a row linked to the backlog saves to the backlog item too.",
     ],
     scales: [
       {
@@ -222,6 +223,10 @@ export const CORE_GUIDES: ToolGuide[] = [
           { value: "50%", meaning: "mostly a guess" },
         ],
       },
+    ],
+    tips: [
+      "Under 50% confidence is a moonshot: write it up in the Hypothesis Tracker and test it first.",
+      "Outlier checks appear under Advanced analysis once five initiatives are scored.",
     ],
   },
   {

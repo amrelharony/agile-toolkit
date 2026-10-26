@@ -5,57 +5,42 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "prioritizer",
     summary:
-      "The Backlog Prioritizer scores one list of items four ways: MoSCoW, WSJF, RICE and Value vs. Effort. You see where the frameworks agree and where they don't.",
+      "The shared backlog every prioritization method scores, and the one place the team decides its order. Sprint Planning imports the backlog in that order.",
     whenToUse: [
       "Ordering a backlog when you want to compare several methods side by side.",
-      "When stakeholders favor different frameworks and you want one shared set of inputs.",
+      "When stakeholders favor different frameworks and you need one agreed order.",
     ],
     steps: [
-      "Click Add Item for each backlog item and give it a name and an optional description.",
-      "Pick its MoSCoW bucket, then score Value and Effort from 1 to 10. Value also counts as the WSJF business value.",
-      "Fill in the WSJF inputs (Time Crit, Risk Red, Job Size, each 1–10) and the RICE inputs (Reach, Impact, Conf %, and RICE Eff in person-months).",
-      "Open the MoSCoW, WSJF, RICE and Value vs Effort tabs to see the items grouped, ranked and plotted.",
-      "Talk through items that rank high in one tab and low in another before you settle the order.",
-    ],
-    scales: [
-      {
-        name: "RICE Impact",
-        values: [
-          { value: "3 / 2", meaning: "massive / high" },
-          { value: "1", meaning: "medium" },
-          { value: "0.5 / 0.25", meaning: "low / minimal" },
-        ],
-      },
-      {
-        name: "Value vs Effort quadrants",
-        values: [
-          { value: "Quick Wins", meaning: "value above 5, effort 5 or less" },
-          { value: "Major Projects", meaning: "value above 5, effort above 5" },
-          { value: "Fill-ins", meaning: "value 5 or less, effort 5 or less" },
-          { value: "Time Sinks", meaning: "value 5 or less, effort above 5" },
-        ],
-      },
+      "Under Add an item, type the Item (a description is optional) and press Add item. Every method starts Not scored, and the item is Not ordered yet.",
+      "In Backlog items, press an item's MoSCoW, WSJF, RICE or Value/Effort cell to score it in place, then Save. Clear all leaves that method Not scored.",
+      "For ICE, Kano and Cost of Delay, open the All methods tab and follow a cell's Score with link: the method's tool opens with the item picked.",
+      "Open Decide order. Read each method's place for every item, the Consensus, Scored in and Agreement (Methods disagree marks items to talk through). Turn a method's chip off to leave it out.",
+      "Under 2. Your order, press Use the consensus. Then drag rows by their grip, or focus the grip and use the arrow keys (Home and End jump to the ends), Move up, Move down or the position menu. Add to the order brings in an item; the X takes one out.",
+      "Press Save order (Undo is in the toast). Sprint Planning imports in this order, and a new item stays Not ordered yet until you save again.",
+      "In the MoSCoW tab, reorder an ordered item within its bucket: it saves at once, with Undo.",
     ],
     tips: [
-      "Score one column at a time across all items. Relative scores are more honest than absolute ones.",
-      "The frameworks feed a conversation, not a verdict. Agree up front which one breaks ties.",
-      "To go deeper on one method, use the WSJF Calculator or the RICE Scoring Calculator.",
+      "Value is one field: WSJF's business value and the matrix's value. Clearing Value/Effort keeps the value WSJF uses.",
+      "WSJF parts run 1, 2, 3, 5, 8, 13, 20: give the smallest item a 1 and size the others against it.",
+      "RICE reach can count per week, month, quarter or year; the score compares it per quarter.",
+      "A sorted column holds its rows still while you edit: press Re-sort to catch up.",
+      "Export gives Markdown with the decided order and each method's places.",
     ],
   },
   {
     toolId: "moscow",
     summary:
-      "MoSCoW sorts scope into Must have, Should have, Could have and Won't have (this time), so everyone agrees what's in a release and what's out.",
+      "MoSCoW sorts scope into Must have, Should have, Could have and Won't have (this time), and keeps the Musts to about 60% of the planned effort.",
     whenToUse: [
       "Agreeing the scope of a release, MVP or fixed-date project.",
       "When stakeholders treat everything as top priority.",
     ],
     steps: [
       "Agree the release or timebox you're scoping. MoSCoW only works against a deadline.",
-      "Type each scope item, pick its bucket and click Add.",
-      "Challenge every Must have: would the release fail without it? If not, move it down with its bucket menu.",
-      "Check that the Musts fit well within capacity, leaving room for Shoulds and Coulds.",
-      "Keep Won't have items on the board so leaving them out is an explicit decision, and revisit them next release.",
+      "Type the Scope item, pick its Bucket (none is picked for you) and, if you like, an Effort in points, then click Add.",
+      "Challenge every Must have: would the release fail without it? Use Move on a row to change its bucket. Items without one wait under Not sorted yet: use Sort to file them.",
+      "Watch the Must budget: the Musts' share of the planned Must + Should + Could effort, against a marker at 60% (Won't is left out). Over the limit, it says how much Must effort to move down.",
+      "A row linked to the backlog uses the item's job size as its effort, and a move writes to the backlog item too.",
     ],
     scales: [
       {
@@ -69,8 +54,8 @@ export const GUIDES: ToolGuide[] = [
       },
     ],
     tips: [
-      "A common rule of thumb: Musts take no more than about 60% of the effort, so Coulds can absorb surprises.",
-      "Won't have means not this time, not never.",
+      "The budget shows once three planned items have an effort.",
+      "Won't have means not this time, not never: keep those items on the board and revisit them next release.",
       "To order items inside a bucket, score them in the WSJF Calculator or RICE Scoring Calculator.",
     ],
   },
@@ -83,11 +68,10 @@ export const GUIDES: ToolGuide[] = [
       "Triaging a long list of small ideas where RICE would be overkill.",
     ],
     steps: [
-      "Type the idea's Title.",
-      "Score Impact: how much it would move your goal if it works.",
-      "Score Confidence: how much evidence you have that it will work.",
-      "Score Ease: how quickly and cheaply you can try it. Then click Add & score.",
-      "The list sorts by Score (up to 1,000). Run the top few, then re-score with what you learned.",
+      "Type the Idea or experiment, or use Import from backlog.",
+      "Pick Impact (how much it would move your goal), Confidence (how much evidence you have) and Ease (how quickly you can try it). Hover a value to see what it means, then click Add & score.",
+      "The list ranks by ICE (up to 1,000), and the sentence above it says what to do first.",
+      "Use Edit on a row to re-score it in place, or Delete (with Undo). Run the top few, then re-score with what you learned.",
     ],
     scales: [
       {
@@ -102,151 +86,156 @@ export const GUIDES: ToolGuide[] = [
     tips: [
       "Agree what 1, 5 and 10 mean for your goal before scoring, or scores drift between people.",
       "Keep Confidence honest: an untested opinion is a 2 or 3, not an 8.",
-      "All three scores are required. To re-score an idea, remove it and add it again.",
+      "Check the front-runners with RICE before committing.",
     ],
   },
   {
     toolId: "value-effort-matrix",
     summary:
-      "A Value vs Effort matrix plots each item by the value it brings and the work it takes, sorting items into Quick Wins, Big Bets, Fill-Ins and Time Wasters.",
+      "A Value vs Effort matrix places each item by the value it brings and the work it takes, sorting it into Quick Wins, Big Bets, Fill-Ins or Time Wasters.",
     whenToUse: [
       "Sorting a list of ideas or backlog items quickly in a workshop.",
       "Finding cheap, valuable work to start with.",
     ],
     steps: [
-      "Type an Item title, score Value and Effort from 1 to 10, and click Plot.",
-      "Score each item against the others, not in absolute terms.",
-      "Read the Matrix: Value runs up, Effort runs across, and both split at 5.",
-      "Start with Quick Wins, plan Big Bets deliberately, fit Fill-Ins into slack time and drop Time Wasters.",
+      "Type an Item title, pick a Value (1, 2, 3, 5, 8, 13 or 20, against the other items) and an Effort (1 under a day to 10 months across teams), and click Add. A title alone waits under Not placed yet.",
+      "Place or move items on the Matrix: drag a dot or a chip from Not placed yet, pick a quadrant from a chip's Place in…, or focus a dot and use the arrow keys (Left and Right change effort, Up and Down value, Shift moves 3). A move saves when you let go, press Enter or move away.",
+      "Start with Quick Wins (best value ÷ effort first), plan Big Bets, fit Fill-Ins into slack time and drop Time Wasters.",
+      "Use Edit on an item to change its title or scores in place; clearing both sends it back to Not placed yet. Delete and Clear matrix offer Undo.",
+      "Import from backlog scores a backlog item: its value and effort are saved to the item.",
     ],
     scales: [
       {
-        name: "Quadrants",
+        name: "Quadrants (value 8 or more, effort 6 or more count as high)",
         values: [
-          { value: "Quick Wins", meaning: "value 5 or more, effort below 5" },
-          { value: "Big Bets", meaning: "value 5 or more, effort 5 or more" },
-          { value: "Fill-Ins", meaning: "value below 5, effort below 5" },
-          { value: "Time Wasters", meaning: "value below 5, effort 5 or more" },
+          { value: "Quick Wins", meaning: "high value, low effort" },
+          { value: "Big Bets", meaning: "high value, high effort" },
+          { value: "Fill-Ins", meaning: "low value, low effort" },
+          { value: "Time Wasters", meaning: "low value, high effort" },
         ],
       },
     ],
     tips: [
-      "Estimate effort with the people who will do the work.",
+      "Value is the backlog's one value field, WSJF's business value too: scoring it here scores it there.",
       "Lots of Big Bets? Split them; smaller pieces often turn into Quick Wins.",
-      "Items can't be edited once plotted. Remove and re-plot them when estimates change.",
+      "Estimate effort with the people who will do the work.",
     ],
   },
   {
     toolId: "kano-model",
     summary:
-      "The Kano model sorts features by how customers react to them: some are expected, some satisfy more the more you do, and some delight. It helps you balance the basics against what sets you apart.",
+      "The Kano model sorts features by how customers react to them: some are expected, some satisfy more the better they are, and some delight. Two questions per feature, read through the Kano evaluation table, give the category and Better and Worse scores.",
     whenToUse: [
       "Planning a release or roadmap and weighing basics against differentiators.",
-      "After customer interviews or a Kano survey, to record what you learned.",
+      "Surveying customers about a list of features, live or on paper.",
     ],
     steps: [
-      "Type the Feature title.",
-      "Find out how customers would feel if the feature were present, and if it were absent. A Kano survey asks both questions for each feature.",
-      "Pick the Kano category that matches their answers.",
-      "Optionally record Sat if present and Dissat if absent (0–5); they're kept with the feature and in the export. Click Add.",
-      "Review the Categories: cover every Must-be first, invest in Performance and add a few Attractive features.",
+      "Type the Feature title. Under How you have the answers, pick One person's answers and answer both questions (If it has this, how do you feel? and If it doesn't have this, how do you feel?), or pick Survey counts and enter how many answer pairs came out A, O, M, I, R and Q. Click Add.",
+      "To survey customers, under Ask customers press Run a live round, give your name, tick the consent and share the link with Copy link. Everyone answers on their own phone, anonymously; press Reveal results once 3 have answered, then Save round.",
+      "With paper answers, press Enter counts instead, tick each answer pair into the feature's 5 × 5 grid, then Show totals and Save round. A round replaces a feature's earlier counts unless Add to earlier answers is on; Undo puts them back.",
+      "Read the lists: a feature's category is its most common answer from 3 answers, with Better (having it helps) and Worse (missing it hurts), plotted in Better vs Worse.",
+      "Cover every Must-be first, invest in Performance, add a few Attractive features, and reword the question for anything Questionable.",
     ],
     scales: [
       {
         name: "Kano categories",
         values: [
           { value: "Must-be", meaning: "expected; missing it causes dissatisfaction" },
-          { value: "Performance", meaning: "the more you do, the happier customers are" },
+          { value: "Performance", meaning: "the more and better, the happier customers are" },
           { value: "Attractive", meaning: "delights when present; not missed when absent" },
           { value: "Indifferent", meaning: "customers don't care either way" },
           { value: "Reverse", meaning: "some customers are put off when it's present" },
+          { value: "Questionable", meaning: "the answers contradict each other" },
         ],
       },
     ],
     tips: [
-      "Ask real customers. Team guesses tend to label too much as Attractive.",
-      "Attractive features become Must-be over time as customers get used to them. Re-check every year or so.",
-      "Keep interview notes in the User Interview Log.",
+      "A round keeps only each feature's totals, never who answered what.",
+      "Questionable means someone liked both having and not having it: the question was probably unclear.",
+      "Features picked by hand on the old page show Picked by hand: click Add answers to give them real ones.",
+      "Open How the category is found to see the evaluation table.",
     ],
   },
   {
     toolId: "cost-of-delay",
     summary:
-      "Cost of delay is the value you lose for each week an initiative isn't delivered. Putting a dollar figure on it makes waiting visible and helps you order work by its economic impact.",
+      "Cost of Delay orders work by CD3: what a week of waiting costs, divided by the weeks the work takes, inside urgency lanes. Putting a number on waiting makes it visible.",
     whenToUse: [
       "Making the case for doing one initiative before another.",
       "When work waits in queues and nobody sees what the wait costs.",
     ],
     steps: [
-      "Type the Initiative.",
-      "Estimate Cost per week ($): the revenue, savings or avoided risk you lose for each week it isn't live.",
-      "Enter Weeks delayed: how long it will wait, or has waited, before delivery. Then click Add.",
-      "Total = cost per week × weeks delayed. The Total CoD this period figure adds up all items.",
-      "Use the Top 10 by total cost chart and the Items table to see where waiting hurts most. Update estimates as plans change.",
+      "Type the Initiative title.",
+      "Enter Cost of delay ($ per week): the revenue, savings or avoided risk lost each week it isn't live. Enter Duration (weeks), half a week at least. The CD3 they make shows as you type.",
+      "Pick an Urgency profile: Expedite, Fixed date, Standard or Intangible (the line under it says what each means). For Fixed date, enter the Date it must land by. Then click Add.",
+      "The list runs in lanes: Expedite first, then Fixed date by latest start (Start by … to land by …, marked late once that start has passed), then Standard and Intangible by CD3.",
+      "Older items without a duration wait under Not scored: add a duration. Use Edit to add one.",
     ],
     tips: [
       "A rough range beats no number. Write down your assumptions so others can challenge them.",
-      "To order work, divide cost per week by how long the work takes (CD3). The WSJF Calculator does a relative version of this.",
-      "Some costs jump on a date, such as a regulation or a season. Note those deadlines next to the weekly figure.",
+      "Waiting costs $N per week is what one more week of the whole queue costs.",
+      "Cross-check with the WSJF Calculator, which sizes the same trade-off relatively.",
     ],
   },
   {
     toolId: "buy-a-feature",
     summary:
-      "Buy-a-Feature is an innovation game: players get a limited budget of play money to spend on priced features. No one can afford everything, so they negotiate, and that shows what they value most.",
+      "Buy-a-Feature is an innovation game: players get a limited budget of play money to spend on priced features. The pool can't buy everything, so they negotiate, and that shows what they value most.",
     whenToUse: [
       "Prioritizing with customers or stakeholders who all want different things.",
       "When ranking exercises keep ending in “everything is important”.",
     ],
     steps: [
-      "Add each feature with a Price that reflects its rough cost, for example its size in weeks.",
-      "Give each player a budget so the whole group can afford only about half of the total price. The tool doesn't track player budgets, so note them separately.",
-      "Players discuss and pool money. Enter each purchase in the amount box on the feature and click Buy.",
-      "Watch the Marketplace progress bars. A feature at 100% is funded.",
-      "Ask buyers why they chose what they did. The reasons matter as much as the result.",
+      "Add each feature with a Price that reflects its rough cost, such as its size in team-days. A price is a whole number, and every feature needs one.",
+      "Under The game, set Players and Budget per player. The pool is the two multiplied and should stay below the sum of the prices (about half is usual). Use the team's N people and About half the prices offer numbers; nothing is set until you pick.",
+      "To buy at the table, type an amount on a feature and press Buy. A purchase is capped at what the feature still needs and at what's left in the pool; Undo is in the toast.",
+      "Or under Play a round, press Run a live round, give your name, tick the consent and share the link: each player splits their share on their phone, and you Reveal results once 3 have answered. With paper, press Enter counts instead and type the splits or the totals. Save round adds the totals; what a feature doesn't need goes back to the pool.",
+      "At the end, Refund unfunded features gives the money of short features back. Then Add N funded features to the backlog makes each one a backlog story.",
     ],
     tips: [
+      "A round keeps each feature's total, and from 5 answers how many backed it and the spread, never anyone's split.",
+      "A later round's budget is what's left in the pool, split evenly.",
       "Price some features above any single player's budget, so people have to pool money.",
-      "Purchases can't be undone, so check the amount before clicking Buy.",
-      "For a quick vote by one person or group, use the $100 Test instead.",
+      "For a quick vote on how much each item matters, use the $100 Test instead.",
     ],
     timebox: "45–90 minutes",
   },
   {
     toolId: "hundred-dollar-test",
     summary:
-      "In the $100 Test (cumulative voting) you split $100 across competing items. Giving more to one item means giving less to another, so it shows how strongly you prefer each item, not just the order.",
+      "In the $100 Test (cumulative voting) you split $100 across competing items. Giving more to one item means giving less to another, so it shows how strongly people prefer each item, not just the order.",
     whenToUse: [
       "Comparing a short list of options, roughly 3 to 10, with stakeholders.",
       "When a simple ranking hides how much more one item matters than another.",
     ],
     steps: [
-      "Add each Item to vote on.",
-      "Type a dollar amount next to each item. The total can't go above $100.",
-      "Keep going until Remaining shows $0. A banner warns you while money is left.",
-      "The list sorts by amount. Discuss the big gaps and any item that got nothing.",
-      "The tool holds one $100 budget. With a group, agree the split together, or run one round per person, export each and add them up.",
+      "Add each Item to vote on with Add item.",
+      "Under The agreed split, type the group's amount next to each item. It saves when you leave the box or press Enter, can't take the split past $100, and a note says when it was capped.",
+      "Keep going until Left to give shows $0. The list holds still while you type: Re-sort puts the biggest amounts first.",
+      "Under Ask the team, press Run a live round, give your name, tick the consent and share the link: everyone splits their own $100 on their phone, anonymously. Press Reveal results once 3 have answered, then Save round. With paper, press Enter counts instead and type each split or the totals.",
+      "Team results shows each item's team average beside the agreed split, and from 5 answers how the amounts were spread. Discuss the biggest gaps.",
     ],
     tips: [
-      "To move money between items, lower one first. An amount is capped at what's still unallocated, and a note under the item says so.",
-      "Watch for people putting everything on their favorite, and ask why.",
+      "A round keeps each item's total, how many backed it and the spread, never anyone's split or who answered.",
+      "Clear all amounts empties the agreed split; saved rounds stay.",
+      "Watch for an item the team rates far above or below the agreed split, and ask why.",
       "For a long list, shortlist first with the MoSCoW Matrix.",
     ],
   },
   {
     toolId: "eisenhower",
     summary:
-      "The Eisenhower Matrix sorts tasks by whether they're urgent and whether they're important. That gives four actions: Do, Schedule, Delegate or Delete.",
+      "The Eisenhower Matrix sorts tasks by whether they're urgent and whether they're important into four actions: Do, Schedule, Delegate or Delete. A task due within two days counts as urgent.",
     whenToUse: [
       "Planning your own or the team's week when there's more to do than time.",
       "Clearing a pile of requests and interruptions.",
     ],
     steps: [
-      "Type a Task.",
-      "Ask two questions: is it important (does it move our goals)? Is it urgent (will waiting cause harm soon)?",
-      "Pick the matching quadrant and click Add.",
-      "Do the Do tasks now, put Schedule tasks in the calendar, hand Delegate tasks to someone better placed, and drop Delete tasks.",
-      "Review weekly and move tasks with their quadrant menu as things change.",
+      "Type a Task and answer Important? (does it move a goal) and Urgent? (does waiting cause harm soon) with Yes or No. Both are needed.",
+      "Set Due if it has a due date; it can be in the past. Due within 2 days, or overdue, makes it urgent, and the line under the form says why (“Urgent because it's due tomorrow”).",
+      "When the answers say Delegate, pick Who takes it? from your team. Click Add task.",
+      "Do the Do tasks now, put Schedule tasks in the calendar, hand Delegate tasks over and drop Delete tasks.",
+      "Use Edit on a task to change its answers, date or who takes it, and it moves to its new pane. Tasks missing an answer wait under Not sorted yet. Delete and Clear matrix offer Undo.",
     ],
     scales: [
       {
@@ -268,17 +257,18 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "decision-log",
     summary:
-      "A decision log keeps Architecture Decision Records (ADRs): short notes on what was decided, why, and with what trade-offs. Future team members can read the reasoning instead of guessing it.",
+      "One log of decision records for the whole team, in three forms: ADR (context, options, outcome and consequences), DACI and RAPID. Every record gets the next number (ADR-0003, DACI-0004) and the same lifecycle.",
     whenToUse: [
       "Decisions that are costly to reverse: architecture, tools, data or key product rules.",
       "When the team keeps reopening the same debate, or new joiners ask why things are the way they are.",
     ],
     steps: [
-      "Click New ADR and give it a numbered Title, such as “ADR-0001: Use Postgres for event log”.",
-      "Write the Context (problem and constraints), the Decision (“We will…”) and the Consequences (what gets easier or harder).",
-      "List the Alternatives considered, one per line, with why each was rejected.",
-      "Set the Status to proposed while it's discussed and accepted once agreed.",
-      "Don't rewrite old ADRs. When a decision changes, add a new one and mark the old one deprecated or superseded.",
+      "Press New ADR (or pick DACI or RAPID under Form), give it a Title, backdate Raised on if it started earlier, and add the Context and the Options considered.",
+      "Pick the Decider from the team if you know them (optional for an ADR), then press Add ADR record.",
+      "Open a record to edit any field in place. What it still needs (no decider, no outcome written, proposed for over 14 days) shows as a warning on it.",
+      "Press Record the decision: write What was decided, pick the Option chosen, who decided and the day.",
+      "When a later record replaces it, pick that one under Superseded by… and press Supersede: both records link to each other. Reopen takes a decision back to proposed; Deprecate retires it.",
+      "Filter with the All, ADR, DACI and RAPID chips under Show. Export gives Markdown: one record from its card, or the whole log.",
     ],
     scales: [
       {
@@ -287,93 +277,92 @@ export const GUIDES: ToolGuide[] = [
           { value: "proposed", meaning: "under discussion" },
           { value: "accepted", meaning: "agreed and in force" },
           { value: "deprecated", meaning: "no longer applies" },
-          { value: "superseded", meaning: "replaced by a newer ADR" },
+          { value: "superseded", meaning: "replaced by a newer record" },
         ],
       },
     ],
     tips: [
-      "Write the ADR when you decide, while the reasons are fresh. A few short paragraphs is enough.",
-      "Review accepted ADRs every quarter or so and mark the ones that no longer hold.",
-      "Run bigger proposals through the RFC Tracker first, then push the outcome here.",
+      "Every status change and every delete can be undone from the toast.",
+      "Decisions sent from Six Hats, RFC Tracker and the Weighted Decision Matrix land here as proposed records.",
+      "How long decisions take shows under Advanced analysis once three records are decided.",
     ],
   },
   {
     toolId: "daci",
     summary:
-      "DACI gives each decision clear roles: one Driver who runs the process, one Approver who makes the call, Contributors who give input and Informed people who hear the outcome. Clear roles stop decisions stalling or being reopened.",
+      "The Decision Log raised in the DACI form: the same records, with one Driver who runs the decision, one Approver who makes the call, Contributors who advise and Informed people who hear the outcome.",
     whenToUse: [
       "Cross-team decisions where it's unclear who has the final say.",
       "When decisions drag on or get reversed after the fact.",
     ],
     steps: [
-      "Under Draft new decision, enter a Decision title and the Context: why are we deciding this?",
-      "Name one Driver and one Approver, then list the Contributors and Informed people, separated by commas.",
-      "Add the Options considered (one per line) and the Driver's Recommendation, then click Add decision.",
-      "When the Approver decides, click the tick to mark it decided.",
-      "Set the status to implemented once it's done, or revisit if new facts appear.",
+      "Press New DACI, give it a Title and Context, and list the Options considered.",
+      "Pick the Approver and the Driver from the team, then add Contributors and Informed with Add or Enter.",
+      "Write the Driver's Recommendation and press Add DACI record.",
+      "When the Approver decides, open the record and press Record the decision (it asks for the Approver if none is named).",
+      "Once it's carried out, press Mark carried out; to revisit it, press Reopen.",
     ],
     tips: [
       "Exactly one Approver. If two people must both say yes, the decision isn't set up yet.",
+      "Every page lists every record: use the DACI chip to see only the DACI ones.",
       "Tell the Informed group as soon as it's decided. Surprises are what reopen decisions.",
-      "Record the final call and its reasons in the Decision Log (ADR).",
     ],
   },
   {
     toolId: "rapid-decision",
     summary:
-      "RAPID, from Bain & Company, assigns five decision roles: Recommend, Agree, Perform, Input and Decide. It makes clear who proposes, who can block, who advises, who has the final say and who carries it out.",
+      "The Decision Log raised in the RAPID form, from Bain & Company: the same records, naming who Recommends, who must Agree, who Performs, who gives Input and who Decides.",
     whenToUse: [
       "Decisions that need sign-off from legal, compliance, finance or another function.",
       "Large organizations where many people assume they have a veto.",
     ],
     steps: [
-      "Enter a Decision title and Context.",
-      "Name the Recommend (R) owner, who gathers input and writes the proposal, and the one Decide (D) person with the final say.",
-      "List the Agree (A), Perform (P) and Input (I) people, separated by commas, and click Add.",
-      "The Recommender consults Input, gets Agree sign-off, then the Decider makes the call. Click the tick to mark it decided.",
-      "Set the status to implemented once the Perform people have delivered it.",
+      "Press New RAPID, give it a Title and Context, and list the Options considered.",
+      "Pick Decide (D) and Recommend (R), one person each, then add Agree (A), Perform (P) and Input (I) with Add or Enter.",
+      "Write the Recommendation and press Add RAPID record.",
+      "When the Decider makes the call, open the record and press Record the decision. Press Mark carried out once the Perform people have done it.",
     ],
     tips: [
-      "Keep Agree for people with a real veto, such as legal or compliance. Every extra name slows the decision.",
+      "Keep Agree for people with a real veto, such as legal or compliance: more than three shows a warning on the record.",
       "Input is advice, not a vote. The Decider weighs it but isn't bound by it.",
-      "For lighter decisions, the DACI Decision Doc is simpler.",
+      "For lighter decisions, the DACI form is simpler.",
     ],
   },
   {
     toolId: "weighted-decision",
     summary:
-      "A weighted decision matrix scores each option against the criteria that matter, with important criteria weighted higher. The totals turn a gut feeling into a choice you can explain.",
+      "A weighted decision matrix scores each option from 1 to 10 against the criteria that matter, with important criteria weighted higher. A Total needs every weighted cell scored: an empty cell is not 0.",
     whenToUse: [
       "Choosing between a few similar options, such as vendors, tools or designs.",
       "When a group needs to show how it reached a choice.",
     ],
     steps: [
-      "Agree the criteria before discussing options. Add each with a weight. Weights are relative: a weight of 2 counts twice as much as 1, and each criterion shows its share of the total.",
-      "Add each option.",
-      "In the Scoring matrix, score every option against each criterion from 1 (poor) to 10 (excellent). A cell left empty counts as not scored.",
-      "Total = the sum of score × weight. The top option is starred and the Total score chart shows the gaps.",
-      "If the top two are close, treat it as a tie and discuss what the numbers miss.",
+      "Press New matrix, give it a Matrix name and write What are you deciding? (it becomes the decision record's title), then press Create matrix.",
+      "Agree the criteria before discussing options. Add criterion with a name and a weight (relative: 2 counts twice as much as 1; 0 keeps it without counting), and if you like what a score of 1 and of 10 mean.",
+      "Add option for each choice, then type a score in each cell; it saves when you leave the cell. Rows keep their place while you score: press Re-sort when it shows.",
+      "Read the Result: the verdict, a tie when the top totals are within 5%, or the weight change that would flip the winner (every criterion under How sensitive is the result?).",
+      "Use Send to… → Decision record (proposed) to put the result in the Decision Log, with the options ranked and the leader as the recommendation.",
     ],
     tips: [
-      "Define what a low and a high score mean for each criterion before scoring.",
-      "Score one criterion across all options at a time to keep scores consistent.",
-      "If the result feels wrong, a criterion is probably missing. Name it before overriding the numbers.",
+      "An option reading Partial has cells not scored: it has no Total yet and can't get the star.",
+      "Deleting a criterion takes its scores; Undo brings both back.",
+      "Rows from before named matrices open as the Untitled matrix: give it a name.",
     ],
   },
   {
     toolId: "cynefin",
     summary:
-      "Cynefin (Dave Snowden) helps you work out what kind of situation you're in before deciding how to act. Each domain calls for a different way of deciding.",
+      "Cynefin (Dave Snowden) helps you work out what kind of situation you're in before deciding how to act. A few questions suggest a domain; the team decides.",
     whenToUse: [
       "Before choosing whether to plan, analyze or experiment your way through a problem.",
       "When the team disagrees on whether something needs a detailed plan or a quick experiment.",
     ],
     steps: [
-      "Type the Problem / decision.",
-      "Ask how cause and effect work: obvious to anyone (Clear), knowable with expert analysis (Complicated), only clear in hindsight (Complex), or not visible at all (Chaotic).",
-      "Pick the Cynefin domain, write your Rationale and click Classify. The recipe for that domain shows next to the menu.",
-      "If you can't agree, choose Confused and break the problem into parts you can classify.",
-      "Reclassify items with their domain menu as you learn more. Situations move between domains.",
+      "Describe the Problem, then answer the questions under Make sense of it with Yes, No or Not sure.",
+      "Read the suggested domain and the reason; press Use the suggestion, or pick another Domain yourself. Nothing is placed until a domain is picked.",
+      "Add Why this domain if you like, and press Place it.",
+      "On the board, edit a problem's title or reason in place, or move it with its domain picker (a plan written for it stays). Situations move between domains as you learn.",
+      "For a complex problem, press Turn into a hypothesis: it goes to the Hypothesis Tracker to test, and the card shows Testing, then Tested.",
     ],
     scales: [
       {
@@ -389,7 +378,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     tips: [
       "The most common mistake is treating a Complex problem as Complicated and analyzing instead of experimenting.",
-      "Most product work is Complex. Track your experiments in the Hypothesis Tracker.",
+      "Example items stay out of the Hypothesis Tracker.",
     ],
   },
   {
