@@ -24,10 +24,7 @@ import {
   defaultComparedIds,
   isFinishedSprint,
   moodToScore,
-  qualityShare,
   shareToScore,
-  sprintHealthCheck,
-  sprintMood,
   sprintScores,
   type CompareInput,
 } from "@/lib/sprints/compare";
@@ -432,9 +429,13 @@ describe("averages agree with the cockpit's rating tile", () => {
   });
 });
 
-/* ── Server-safe twins ──────────────────────────────────────────────── */
+/* ── One number with the shared readers ────────────────────────────── */
 
-describe("the server-safe twins agree with the shared readers", () => {
+// The twins compare.ts once kept (server-safe copies of moodDuring,
+// healthShare and healthCheckFor) are gone: it calls the shared readers,
+// so Team Happiness and Quality are the numbers the Mood Tracker and the
+// Health Check pages show.
+describe("Team Happiness and Quality read the shared readers", () => {
   const entries = [
     mood("1", "2026-03-02", 4),
     mood("2", "2026-03-03T18:30:00.000Z", 5),
@@ -445,46 +446,60 @@ describe("the server-safe twins agree with the shared readers", () => {
     mood("7", "not a date", 3),
   ];
 
-  it("mood over a sprint", () => {
-    for (const [start, end] of [
-      ["2026-03-01", "2026-03-14"],
-      ["2026-03-02", "2026-03-02"],
-      ["2026-05-01", "2026-05-14"],
-    ]) {
-      expect(sprintMood(entries, start, end)).toEqual(moodDuring(entries, start, end));
-    }
-    expect(sprintMood(undefined, "2026-03-01", "2026-03-14")).toEqual(
-      moodDuring(undefined, "2026-03-01", "2026-03-14")
+  it("mood over a sprint, anonymous pulses counted as check-ins", () => {
+    const named = sprintScores(input({ moodEntries: entries }))["Team Happiness"];
+    const window = moodDuring(entries, "2026-03-01", "2026-03-14");
+    expect(named.value).toBe(moodToScore(window.average as number));
+    expect(named.basis).toBe("3.7/5 from 3 check-ins by 3 people");
+
+    const pulses = [
+      {
+        id: "moodPulse_a",
+        date: "2026-03-10",
+        counts: { 1: 0, 2: 1, 3: 2, 4: 0, 5: 0 },
+        source: "room" as const,
+        createdAt: "2026-03-10T09:00:00.000Z",
+      },
+    ];
+    const both = sprintScores(input({ moodEntries: entries, moodPulses: pulses }))[
+      "Team Happiness"
+    ];
+    const withPulses = moodDuring(entries, "2026-03-01", "2026-03-14", pulses);
+    expect(withPulses).toEqual({ average: 3.2, checkIns: 6, people: 3, anonymous: 3 });
+    expect(both.value).toBe(moodToScore(3.2));
+    expect(both.basis).toBe("3.2/5 from 6 check-ins (3 anonymous, 3 by 3 people)");
+    expect(sprintScores(input({ moodPulses: pulses }))["Team Happiness"].basis).toBe(
+      "2.7/5 from 3 check-ins, all anonymous"
     );
   });
 
-  it("health share and the quality dimensions", () => {
+  it("the quality dimensions and the health check for a sprint", () => {
     expect(QUALITY_TWIN).toEqual(QUALITY_DIMENSIONS);
-    const scores = lights("x", "2026-03-15", {
-      "Easy to Release": "yellow",
-      "Health of Codebase": "red",
-      Fun: "yellow",
-    }).scores;
-    expect(qualityShare(scores, QUALITY_DIMENSIONS)).toBe(healthShare(scores, QUALITY_DIMENSIONS));
-    expect(qualityShare(scores)).toBe(healthShare(scores));
-    expect(qualityShare({})).toBe(healthShare({}));
-  });
-
-  it("the health check for a sprint", () => {
     const cancelled = sprint(4, { status: "cancelled" });
     const all = [...SPRINTS, cancelled, sprint(5, { id: "example-s5", name: "Sprint 5" })];
     const doc = healthDoc([
-      lights("Sprint 1", "2026-01-10", {}),
-      lights("sprint 1", "2026-01-12", {}, "h-later"),
+      lights("Sprint 1", "2026-01-10", { "Easy to Release": "yellow" }),
+      lights("sprint 1", "2026-01-12", { "Health of Codebase": "red" }, "h-later"),
       lights("Q1", "2026-03-18", {}),
       lights("Q1 again", "2026-03-20", {}, "h-q1b"),
       lights("April", "2026-04-17", {}),
       lights("Sprint 2", "2026-02-10", {}, "example-h"),
     ]);
     for (const s of all) {
-      expect(sprintHealthCheck(doc, s, all), s.id).toEqual(healthCheckFor(doc, s, all));
+      const quality = sprintScores(input({ sprint: s, sprints: all, healthChecks: [doc] })).Quality;
+      const entry = healthCheckFor(doc, s, all);
+      const share = entry ? healthShare(entry.scores, QUALITY_DIMENSIONS) : null;
+      expect(quality.value ?? null, s.id).toBe(share === null ? null : shareToScore(share));
     }
-    expect(sprintHealthCheck(undefined, S1, all)).toEqual(healthCheckFor(undefined, S1, all));
+    // A check saved for a sprint matches it by id, whatever its name says.
+    const tagged = healthDoc([
+      { ...lights("Renamed", "2026-05-20", { "Easy to Release": "red" }, "h-tag"), sprintId: "s1" },
+      lights("Sprint 1", "2026-01-10", {}),
+    ]);
+    expect(healthCheckFor(tagged, S1, SPRINTS)?.id).toBe("h-tag");
+    expect(sprintScores(input({ sprint: S1, healthChecks: [tagged] })).Quality.value).toBe(
+      shareToScore(0.5)
+    );
   });
 });
 

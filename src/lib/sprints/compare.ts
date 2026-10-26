@@ -29,20 +29,18 @@
 
 import type {
   HealthCheck,
-  HealthCheckEntry,
-  HealthDimension,
-  HealthDimensionScore,
-  HealthTrafficLight,
   MoodEntry,
+  MoodPulse,
   Sprint,
   SprintGoal,
   SprintGoalOutcome,
   SprintSeries,
   Story,
 } from "@/lib/stores/workspace-types";
-import { HEALTH_CHECK_DIMENSIONS } from "@/lib/stores/workspace-types";
+import { HEALTH_CHECK_ID } from "@/lib/stores/workspace-types";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
-import { addDays, dayOf, daysBetween } from "@/lib/impediments/model";
+import { QUALITY_DIMENSIONS, healthCheckFor, healthShare } from "@/lib/health-check/score";
+import { moodDuring } from "@/lib/team/mood";
 import { GOAL_OUTCOME_LABEL, goalDocId } from "./goal-doc";
 import { SAY_DO_GRADE_LABEL, sayDoRatio, velocity } from "./metrics";
 import {
@@ -53,113 +51,14 @@ import {
 } from "./series";
 import { SCOPE_SOURCE_LABEL, sprintScope } from "./trends";
 
-/** MUST match HC_ID in lib/actions/tools/health-check.ts: the one health-check document. */
-export const HEALTH_CHECK_DOC_ID = "healthCheck:current";
+/** The one health-check document's id (kept under this name for older imports). */
+export const HEALTH_CHECK_DOC_ID = HEALTH_CHECK_ID;
 
-/* ── Server-safe twins ────────────────────────────────────────────────
- *
- * lib/team/mood (moodDuring), lib/health-check/score (healthShare,
- * healthCheckFor) and lib/retro/board (retroSprintFor) read `isExampleId`
- * from components/tool-frame/example-data, a "use client" module. In the
- * MCP route handler its exports are client references that throw when
- * called, so tool.sprint_compare.list_state couldn't run them. Until that
- * helper moves to a server-safe module, these twins apply exactly the same
- * rules, and a test holds each equal to its original; then they go and the
- * originals are called here.
- */
-
-const isExampleRow = (id: string | null | undefined) =>
-  typeof id === "string" && id.startsWith("example-");
-
-/** Twin of lib/team/mood moodDuring: check-ins dated `start`–`end`, placeholders and examples out. */
-export function sprintMood(
-  entries: readonly MoodEntry[] | undefined,
-  start: string,
-  end: string
-): { average: number | null; checkIns: number; people: number } {
-  const checkIns = (entries ?? []).filter((m) => {
-    if (m.isPlaceholder || isExampleRow(m.id)) return false;
-    const day = dayOf(m.date);
-    return Boolean(day && day >= start && day <= end);
-  });
-  const average =
-    checkIns.length >= MIN_SAMPLE.average
-      ? Math.round((checkIns.reduce((sum, m) => sum + m.score, 0) / checkIns.length) * 10) / 10
-      : null;
-  return {
-    average,
-    checkIns: checkIns.length,
-    people: new Set(checkIns.map((m) => m.memberId)).size,
-  };
-}
-
-/** Twin of lib/health-check/score LIGHT_VALUE: yellow counts half. */
-const LIGHT: Readonly<Record<HealthTrafficLight, number>> = { green: 1, yellow: 0.5, red: 0 };
-
-/** Twin of lib/health-check/score QUALITY_DIMENSIONS: the code and how easily it ships. */
-export const QUALITY_DIMENSIONS: readonly HealthDimension[] = [
-  "Health of Codebase",
-  "Easy to Release",
-];
-
-/** Twin of lib/health-check/score healthShare: the mean light value of the scored dims, 0–1. */
-export function qualityShare(
-  scores: Partial<Record<HealthDimension, HealthDimensionScore>> | undefined,
-  dims: readonly HealthDimension[] = HEALTH_CHECK_DIMENSIONS
-): number | null {
-  let sum = 0;
-  let n = 0;
-  for (const d of dims) {
-    const light = scores?.[d]?.light;
-    if (light === undefined || !(light in LIGHT)) continue;
-    sum += LIGHT[light];
-    n++;
-  }
-  return n === 0 ? null : sum / n;
-}
-
-/** Twin of lib/retro/board retroSprintFor: the sprint whose retro window holds `day`, nearest end. */
-function retroSprint(day: string, sprints: readonly Sprint[]): Sprint | undefined {
-  let best: { sprint: Sprint; distance: number; ended: boolean } | null = null;
-  for (const s of sprints) {
-    if (s.status === "cancelled" || isExampleRow(s.id) || hasSyntheticDates(s)) continue;
-    const start = dayOf(s.startDate);
-    const end = dayOf(s.endDate);
-    if (!start || !end || day < start || day > addDays(end, 7)) continue;
-    const distance = Math.abs(daysBetween(end, day));
-    const ended = end <= day;
-    if (!best || distance < best.distance || (distance === best.distance && ended && !best.ended)) {
-      best = { sprint: s, distance, ended };
-    }
-  }
-  return best?.sprint;
-}
-
-const nameKey = (name: string | undefined) => (name ?? "").trim().toLowerCase();
-
-/**
- * Twin of lib/health-check/score healthCheckFor: the saved check (never the
- * draft, no examples) named like the sprint, else one taken in its retro
- * window; the newest if several match.
- */
-export function sprintHealthCheck(
-  doc: HealthCheck | undefined,
-  sprint: Pick<Sprint, "id" | "name">,
-  sprints: readonly Sprint[]
-): HealthCheckEntry | undefined {
-  const checks = (doc?.history ?? []).filter((e) => !isExampleRow(e.id));
-  const newest = (xs: HealthCheckEntry[]) =>
-    xs.reduce<HealthCheckEntry | undefined>(
-      (best, e) => (!best || (e.date ?? "") >= (best.date ?? "") ? e : best),
-      undefined
-    );
-  const key = nameKey(sprint.name);
-  const named = key ? checks.filter((e) => nameKey(e.sprintName) === key) : [];
-  if (named.length > 0) return newest(named);
-  return newest(
-    checks.filter((e) => e.date && retroSprint(e.date.slice(0, 10), sprints)?.id === sprint.id)
-  );
-}
+// The scores read the shared libraries directly: lib/team/mood for Team
+// Happiness and lib/health-check/score for Quality, both server-safe, so
+// the page, the agent and the cockpit quote the numbers the Mood Tracker
+// and the Health Check pages show.
+export { QUALITY_DIMENSIONS };
 
 /** Lowest and highest score. */
 export const MIN_SCORE = 1;
@@ -239,6 +138,8 @@ export interface CompareInput {
   series?: readonly SprintSeries[];
   goals?: readonly SprintGoal[];
   moodEntries?: readonly MoodEntry[];
+  /** Anonymous mood pulses: their answers count as check-ins, as on the Mood Tracker. */
+  moodPulses?: readonly MoodPulse[];
   healthChecks?: readonly HealthCheck[];
 }
 
@@ -453,14 +354,35 @@ function scopeScore(
   };
 }
 
-function happinessScore(sprint: Sprint, moodEntries: readonly MoodEntry[] | undefined) {
+/** "3.4/5 from 9 check-ins by 4 people" (plus the anonymous answers when there are some). */
+function moodBasis(average: number, checkIns: number, people: number, anonymous: number): string {
+  const named = checkIns - anonymous;
+  const who =
+    anonymous === 0
+      ? ` by ${people} ${people === 1 ? "person" : "people"}`
+      : named === 0
+        ? ", all anonymous"
+        : ` (${anonymous} anonymous, ${named} by ${people} ${people === 1 ? "person" : "people"})`;
+  return `${fmt(average)}/5 from ${checkIns} check-ins${who}`;
+}
+
+function happinessScore(
+  sprint: Sprint,
+  moodEntries: readonly MoodEntry[] | undefined,
+  moodPulses: readonly MoodPulse[] | undefined
+) {
   if (hasSyntheticDates(sprint)) {
     return {
       missing: "dates" as const,
       basis: "The sprint has no real dates to match check-ins to.",
     };
   }
-  const mood = sprintMood(moodEntries, sprint.startDate.slice(0, 10), sprint.endDate.slice(0, 10));
+  const mood = moodDuring(
+    moodEntries,
+    sprint.startDate.slice(0, 10),
+    sprint.endDate.slice(0, 10),
+    moodPulses
+  );
   if (mood.average === null) {
     return {
       missing: "mood" as const,
@@ -473,7 +395,7 @@ function happinessScore(sprint: Sprint, moodEntries: readonly MoodEntry[] | unde
   return {
     value: moodToScore(mood.average),
     from: "Mood Tracker",
-    basis: `${fmt(mood.average)}/5 from ${mood.checkIns} check-ins by ${mood.people} ${mood.people === 1 ? "person" : "people"}`,
+    basis: moodBasis(mood.average, mood.checkIns, mood.people, mood.anonymous ?? 0),
   };
 }
 
@@ -492,9 +414,9 @@ function qualityScore(
   sprints: readonly Sprint[],
   healthChecks: readonly HealthCheck[] | undefined
 ) {
-  const doc = healthChecks?.find((d) => d.id === HEALTH_CHECK_DOC_ID) ?? healthChecks?.[0];
-  const entry = sprintHealthCheck(doc, sprint, sprints);
-  const share = entry ? qualityShare(entry.scores, QUALITY_DIMENSIONS) : null;
+  const doc = healthChecks?.find((d) => d.id === HEALTH_CHECK_ID) ?? healthChecks?.[0];
+  const entry = healthCheckFor(doc, sprint, sprints);
+  const share = entry ? healthShare(entry.scores, QUALITY_DIMENSIONS) : null;
   if (!entry || share === null) {
     return { missing: "health" as const, basis: "No Squad Health Check saved for this sprint." };
   }
@@ -511,14 +433,17 @@ function qualityScore(
 
 /** The six scores for one sprint (see the file comment for each). */
 export function sprintScores(input: CompareInput): SprintScores {
-  const { sprint, sprints, stories, series, goals, moodEntries, healthChecks } = input;
+  const { sprint, sprints, stories, series, goals, moodEntries, moodPulses, healthChecks } = input;
   const ratings = seriesFor(series, sprint.id).ratings;
   const typed = (dim: SprintRatingDimension) => typedRating(ratings, dim);
   return {
     Velocity: computedOr(velocityScore(sprint, sprints), typed("Velocity")),
     Quality: prefilledOr(qualityScore(sprint, sprints, healthChecks), typed("Quality")),
     "Scope Stability": computedOr(scopeScore(sprint, stories, series), typed("Scope Stability")),
-    "Team Happiness": prefilledOr(happinessScore(sprint, moodEntries), typed("Team Happiness")),
+    "Team Happiness": prefilledOr(
+      happinessScore(sprint, moodEntries, moodPulses),
+      typed("Team Happiness")
+    ),
     "Goal Achievement": computedOr(goalScore(sprint, goals), typed("Goal Achievement")),
     Predictability: computedOr(predictabilityScore(sprint), typed("Predictability")),
   };
