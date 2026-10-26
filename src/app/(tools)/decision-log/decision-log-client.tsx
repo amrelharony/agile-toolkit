@@ -62,8 +62,6 @@ import {
   countByTemplate,
   decisionsCsv,
   matchesTemplate,
-  toDaciRow,
-  toRapidRow,
   type TemplateFilter,
 } from "./view";
 
@@ -150,17 +148,18 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
   });
 
   const promptConfig = useMemo(() => {
+    // The records themselves (numbers, lifecycle, the template's roles), as the cards show them.
     const own = records.filter((d) => templateOf(d) === template);
     return {
       toolName: page.title,
       prompts:
         template === "daci"
-          ? generateDaciPrompts({ items: own.map(toDaciRow) })
+          ? generateDaciPrompts({ decisions: own, today })
           : template === "rapid"
-            ? generateRapidPrompts({ items: own.map(toRapidRow) })
-            : generateDecisionLogPrompts({ decisions: own.length > 0 ? own : records }),
+            ? generateRapidPrompts({ decisions: own, today })
+            : generateDecisionLogPrompts({ decisions: own.length > 0 ? own : records, today }),
     };
-  }, [records, template, page.title]);
+  }, [records, template, page.title, today]);
 
   /* ── Changes ──────────────────────────────────────────────────────── */
 

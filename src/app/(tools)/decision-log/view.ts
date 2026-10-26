@@ -4,17 +4,11 @@
  * and the exports. Pure: the records come from lib/decisions.
  */
 
-import type {
-  DACIDecision,
-  Decision,
-  DecisionTemplate,
-  RAPIDDecision,
-} from "@/lib/stores/workspace-types";
+import type { Decision, DecisionTemplate } from "@/lib/stores/workspace-types";
 import {
   DECISION_TEXT_MAX,
   DECISION_TITLE_MAX,
   decisionLabel,
-  legacyStatusOf,
   optionsOf,
   roleHolders,
   templateOf,
@@ -279,39 +273,5 @@ export function decisionsCsv(
         d.id,
       ];
     }),
-  };
-}
-
-/** A DACI record in the old DACI tool's shape, for its AI prompts. */
-export function toDaciRow(d: Decision): DACIDecision {
-  return {
-    id: d.id,
-    title: d.title,
-    ...(d.context ? { context: d.context } : {}),
-    driver: roleHolders(d, "driver")[0],
-    approver: d.decider,
-    contributors: roleHolders(d, "contributor"),
-    informed: roleHolders(d, "informed"),
-    options: optionsOf(d).map((o) => o.text),
-    ...(d.recommendation ? { recommendation: d.recommendation } : {}),
-    status: legacyStatusOf(d, "daci"),
-    date: d.date,
-  };
-}
-
-/** A RAPID record in the old RAPID tool's shape, for its AI prompts. */
-export function toRapidRow(d: Decision): RAPIDDecision {
-  const status = legacyStatusOf(d, "rapid");
-  return {
-    id: d.id,
-    title: d.title,
-    ...(d.context ? { context: d.context } : {}),
-    recommend: roleHolders(d, "recommend")[0],
-    agree: roleHolders(d, "agree"),
-    perform: roleHolders(d, "perform"),
-    input: roleHolders(d, "input"),
-    decide: d.decider,
-    status: status === "revisit" ? "open" : status,
-    date: d.date,
   };
 }

@@ -73,9 +73,9 @@ import {
   reopenedDayError,
   replacementError,
   replacementsFor,
-  toDaciRow,
-  toRapidRow,
 } from "@/app/(tools)/decision-log/view";
+import { generateDaciPrompts } from "@/lib/ai-prompts/daci";
+import { generateRapidPrompts } from "@/lib/ai-prompts/rapid-decision";
 import {
   validateDecisionDraft,
   emptyDecisionDraft,
@@ -664,19 +664,16 @@ describe("?id=, Markdown, the verdict and the time to decide", () => {
     expect(csv.rows[0][0]).toBe("ADR-0001");
   });
 
-  it("keeps the old tools' shapes for their AI prompts", () => {
+  it("gives the DACI and RAPID prompts each record's number, lifecycle and roles", () => {
     const [, daci, rapid] = buildExample(TODAY);
-    expect(toDaciRow(daci)).toMatchObject({
-      driver: "Ana",
-      approver: "Ben",
-      status: "open",
-      options: ["LaunchDarkly", "Unleash", "Build our own"],
-    });
-    expect(toRapidRow(rapid)).toMatchObject({
-      recommend: "Priya",
-      decide: "Morgan",
-      status: "implemented",
-    });
+    const [daciPrompt] = generateDaciPrompts({ decisions: [daci], today: TODAY });
+    expect(daciPrompt.prompt).toContain(
+      "| DACI-0002 | Pick a feature-flag service | Proposed | Ana | Ben | Chen, Dee | Support team | 5 days |"
+    );
+    const [rapidPrompt] = generateRapidPrompts({ decisions: [rapid], today: TODAY });
+    expect(rapidPrompt.prompt).toContain(
+      `| RAPID-0003 | Move releases to weekly | Accepted, carried out ${rapid.implementedAt} | Priya | Sam | Release team | Support, QA | Morgan | — |`
+    );
   });
 
   it("shows the time to decide only from 3 decided records", () => {
