@@ -102,6 +102,13 @@ export function consensusMethods(
   return { used, skipped };
 }
 
+/**
+ * Above this spread (an item's best normalised place minus its worst, 0–1)
+ * the methods disagree on the item: the Prioritizer's Decide order and
+ * verdict, and tool.prioritizer.decide_order's `disagree`, read this one.
+ */
+export const DISAGREE_SPREAD = 0.5;
+
 export interface ConsensusRow {
   itemId: string;
   /** Mean normalised rank over the methods that scored it, 0–1 (1 = top); null when none did. */

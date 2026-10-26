@@ -41,6 +41,7 @@ import {
 } from "@/lib/prioritization/methods";
 import { frameworkScores } from "@/lib/prioritization/scores";
 import {
+  DISAGREE_SPREAD,
   bordaConsensus,
   consensusMethods,
   decidedOrder,
@@ -52,14 +53,6 @@ import {
   isFibonacci,
 } from "@/lib/prioritization/methods/fibonacci";
 import { clientStore, serverStore, type MethodStore } from "./_method-rows";
-
-/**
- * Above this spread (an item's best normalised place minus its worst) the
- * methods disagree on the item: the Prioritizer's Decide order chip and
- * verdict use the same threshold (DISAGREE_SPREAD in its verdict.ts; the
- * Prioritizer's upgrade test holds the two flags to the same items).
- */
-const DISAGREE_SPREAD = 0.5;
 
 /** One method's result for an item, as list_state reports it. */
 const resultOf = (s: MethodScore) => ({

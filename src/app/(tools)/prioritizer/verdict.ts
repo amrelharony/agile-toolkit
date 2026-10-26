@@ -10,6 +10,7 @@
 
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import {
+  DISAGREE_SPREAD,
   bordaConsensus,
   consensusMethods,
   type ConsensusRow,
@@ -20,11 +21,11 @@ import { HUB_METHODS, countText, itemName, listText } from "./method-text";
 import { placeWord, rankOf } from "./order";
 
 /**
- * Above this spread (an item's best normalised place minus its worst, 0–1)
- * the methods disagree on the item. tool.prioritizer.decide_order flags the
- * same items (`disagree`).
+ * The spread above which the methods disagree on an item: one constant in
+ * lib/prioritization/rank, so tool.prioritizer.decide_order flags the same
+ * items (`disagree`). Decide order reads it from here.
  */
-export const DISAGREE_SPREAD = 0.5;
+export { DISAGREE_SPREAD };
 
 export interface OrderAnalysis {
   /** The methods the consensus uses: each with 2 or more items scored (and picked). */

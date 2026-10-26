@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
+import { DISAGREE_SPREAD as PAGE_SPREAD } from "@/app/(tools)/prioritizer/verdict";
 import {
+  DISAGREE_SPREAD,
   bordaConsensus,
   consensusMethods,
   decidedOrder,
@@ -192,5 +196,18 @@ describe("rankMethodRows", () => {
       live: false,
       result: { score: 1 },
     });
+  });
+});
+
+describe("DISAGREE_SPREAD", () => {
+  const source = (file: string) => readFileSync(path.resolve(__dirname, "../../src", file), "utf8");
+
+  it("is defined once, in rank: the hub's verdict and the agent read the same threshold", () => {
+    expect(DISAGREE_SPREAD).toBe(0.5);
+    expect(PAGE_SPREAD).toBe(DISAGREE_SPREAD);
+    for (const file of ["app/(tools)/prioritizer/verdict.ts", "lib/actions/tools/prioritizer.ts"]) {
+      expect(source(file)).not.toMatch(/DISAGREE_SPREAD\s*=/);
+      expect(source(file)).toMatch(/DISAGREE_SPREAD,[^;]*from "@\/lib\/prioritization\/rank"/);
+    }
   });
 });
