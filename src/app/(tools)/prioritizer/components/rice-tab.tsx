@@ -7,12 +7,20 @@
 import { useMemo } from "react";
 import { SectionCard } from "@/components/shared/section-card";
 import type { BacklogItem } from "../types";
+import { readBacklogItem } from "@/lib/prioritization/defaults";
+import { method } from "@/lib/prioritization/methods";
+import { REACH_PERIOD_LABEL } from "@/lib/prioritization/methods/rice";
 import { riceScore } from "../scoring";
 import { ScoreBadge } from "./cells";
 
 export function RICETab({ items }: { items: BacklogItem[] }) {
   const sorted = useMemo(
-    () => [...items].map((i) => ({ ...i, score: riceScore(i) })).sort((a, b) => b.score - a.score),
+    () =>
+      [...items]
+        // The engine's reading: an item that isn't RICE-scored shows "Not
+        // scored" and sorts last.
+        .map((i) => ({ ...readBacklogItem(i), score: riceScore(i) }))
+        .sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity)),
     [items]
   );
 
@@ -62,12 +70,26 @@ export function RICETab({ items }: { items: BacklogItem[] }) {
                     </div>
                   )}
                 </td>
-                <td className="py-3 px-2 text-center font-data text-sub">{item.reach}</td>
-                <td className="py-3 px-2 text-center font-data text-sub">{item.impact}x</td>
-                <td className="py-3 px-2 text-center font-data text-sub">{item.confidence}%</td>
-                <td className="py-3 px-2 text-center font-data text-sub">{item.effort} pm</td>
+                <td className="py-3 px-2 text-center font-data text-sub">
+                  {item.reach === undefined
+                    ? "—"
+                    : `${item.reach} ${REACH_PERIOD_LABEL[item.reachPeriod ?? "quarter"]}`}
+                </td>
+                <td className="py-3 px-2 text-center font-data text-sub">
+                  {item.impact === undefined ? "—" : `${item.impact}x`}
+                </td>
+                <td className="py-3 px-2 text-center font-data text-sub">
+                  {item.confidence === undefined ? "—" : `${item.confidence}%`}
+                </td>
+                <td className="py-3 px-2 text-center font-data text-sub">
+                  {item.effort === undefined ? "—" : `${item.effort} pm`}
+                </td>
                 <td className="py-3 px-2 text-center">
-                  <ScoreBadge value={item.score} color="#00f0ff" />
+                  {item.score === null ? (
+                    <span className="text-xs text-sub">Not scored</span>
+                  ) : (
+                    <ScoreBadge value={method("rice").format(item.score)} color="#00f0ff" />
+                  )}
                 </td>
               </tr>
             ))}

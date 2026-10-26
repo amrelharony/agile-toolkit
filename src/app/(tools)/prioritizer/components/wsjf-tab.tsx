@@ -7,7 +7,8 @@
 
 import { useMemo } from "react";
 import { SectionCard } from "@/components/shared/section-card";
-import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
+import { readBacklogItem } from "@/lib/prioritization/defaults";
+import { method } from "@/lib/prioritization/methods";
 import type { BacklogItem } from "../types";
 import { wsjfScore } from "../scoring";
 import { ScoreBadge } from "./cells";
@@ -16,9 +17,10 @@ export function WSJFTab({ items }: { items: BacklogItem[] }) {
   const sorted = useMemo(
     () =>
       [...items]
-        // Phase 7 engine replaces this: a missing part shows its old default.
-        .map((i) => ({ ...withBacklogDefaults(i), score: wsjfScore(i) }))
-        .sort((a, b) => b.score - a.score),
+        // The engine's reading: a missing part shows blank, and an item that
+        // isn't WSJF-scored shows "Not scored" and sorts last.
+        .map((i) => ({ ...readBacklogItem(i), score: wsjfScore(i) }))
+        .sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity)),
     [items]
   );
 
@@ -75,14 +77,26 @@ export function WSJFTab({ items }: { items: BacklogItem[] }) {
                 <td className="py-3 px-2 text-center font-data text-sub">{item.timeCriticality}</td>
                 <td className="py-3 px-2 text-center font-data text-sub">{item.riskReduction}</td>
                 <td className="py-3 px-2 text-center">
-                  <ScoreBadge
-                    value={item.businessValue + item.timeCriticality + item.riskReduction}
-                    color="#ffaa00"
-                  />
+                  {item.score === null ? (
+                    <span className="text-xs text-sub">—</span>
+                  ) : (
+                    <ScoreBadge
+                      value={
+                        (item.businessValue ?? 0) +
+                        (item.timeCriticality ?? 0) +
+                        (item.riskReduction ?? 0)
+                      }
+                      color="#ffaa00"
+                    />
+                  )}
                 </td>
                 <td className="py-3 px-2 text-center font-data text-sub">{item.jobSize}</td>
                 <td className="py-3 px-2 text-center">
-                  <ScoreBadge value={item.score} color="#00f0ff" />
+                  {item.score === null ? (
+                    <span className="text-xs text-sub">Not scored</span>
+                  ) : (
+                    <ScoreBadge value={method("wsjf").format(item.score)} color="#00f0ff" />
+                  )}
                 </td>
               </tr>
             ))}

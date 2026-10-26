@@ -77,15 +77,24 @@ describe("tool.rice_scoring.compute_score — pure formula", () => {
     expect(result.score).toBe(40);
   });
 
-  it("floors effort at 0.5 (defuses user-entered 0)", async () => {
+  // Phase 7 decision: effort is at least 0.5 person-months. An effort of 0
+  // is Not scored (it was floored to 0.5); a legacy value under 0.5 counts
+  // as 0.5 and says so.
+  it("scores an effort of 0 as Not scored, and under 0.5 as 0.5 with a warning", async () => {
     const action = registry.get("tool.rice_scoring.compute_score");
-    const result = (await action!.handler(
+    const zero = (await action!.handler(
       { reach: 50, impact: 1, confidencePct: 50, effort: 0 },
       ctx()
-    )) as { score: number };
-    // (50 * 1 * 0.5) / 0.5 = 50 (NOT Infinity)
-    expect(result.score).toBe(50);
-    expect(Number.isFinite(result.score)).toBe(true);
+    )) as { score: number | null; missing: string[] };
+    expect(zero.score).toBeNull();
+    expect(zero.missing).toEqual(["effort"]);
+    const low = (await action!.handler(
+      { reach: 50, impact: 1, confidencePct: 50, effort: 0.25 },
+      ctx()
+    )) as { score: number; warnings: string[] };
+    // (50 * 1 * 0.5) / 0.5 = 50 (NOT 100)
+    expect(low.score).toBe(50);
+    expect(low.warnings).toHaveLength(1);
   });
 
   it("treats confidencePct as a 0-100 percentage (not a 0-1 fraction)", async () => {

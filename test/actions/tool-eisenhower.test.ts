@@ -175,10 +175,9 @@ describe("tool.eisenhower.list_items — framework filter + bucketing", () => {
     expect(result.delete.map((x) => x.id)).toEqual(["p4"]);
   });
 
-  it("falls back unknown / missing quadrants to 'do' (matches client behaviour)", async () => {
-    // Stale persisted quadrant value — the client coerces it to "do"
-    // at eisenhower-client.tsx:84 to avoid `m[unknown].push` crashes,
-    // and so should the agent surface.
+  // Phase 7 decision: no default quadrant. A row with no answers (and an
+  // unknown legacy quadrant) is "Not sorted yet", never Do.
+  it("lists unknown / missing quadrants under unsorted, never Do", async () => {
     useWorkspaceStore.getState().upsertPrioritization({
       id: "stale",
       framework: "eisenhower",
@@ -192,11 +191,12 @@ describe("tool.eisenhower.list_items — framework filter + bucketing", () => {
     const action = registry.get("tool.eisenhower.list_items");
     const result = (await action!.handler({}, ctx())) as {
       do: PrioritizationItem[];
-      schedule: PrioritizationItem[];
+      unsorted: PrioritizationItem[];
       total: number;
     };
     expect(result.total).toBe(1);
-    expect(result.do.map((x) => x.id)).toEqual(["stale"]);
+    expect(result.do).toEqual([]);
+    expect(result.unsorted.map((x) => x.id)).toEqual(["stale"]);
   });
 });
 
@@ -224,7 +224,8 @@ describe("tool.eisenhower.classify_and_persist — classify + write roundtrip", 
     expect(row.framework).toBe("eisenhower");
     expect(row.title).toBe("Production outage triage");
     expect(row.score).toBe(4);
-    expect(row.fields?.quadrant).toBe("do");
+    // The quadrant is derived from the answers, never stored (Phase 7).
+    expect(row.fields?.quadrant).toBeUndefined();
     // Booleans coerced to strings — PrioritizationItem.fields can't
     // hold raw booleans (Record<string, number | string>).
     expect(row.fields?.urgent).toBe("true");
@@ -287,29 +288,36 @@ describe("tool.eisenhower.persist_to_prioritization — bulk write", () => {
     expect(useWorkspaceStore.getState().prioritizations).toHaveLength(3);
   });
 
-  it("honours an explicit quadrant override (skips re-classification)", async () => {
+  // Phase 7 decision: the quadrant is derived. A quadrant given to a persist
+  // is turned into the answers it stands for; one that contradicts the
+  // answers given is refused (it used to be stored over them).
+  it("turns an explicit quadrant into its answers, and refuses a contradiction", async () => {
     const action = registry.get("tool.eisenhower.persist_to_prioritization");
-    // Inputs say (true, true) which would normally classify as "do",
-    // but the explicit `quadrant: "delete"` overrides — useful when the
-    // agent has already decided upstream and just wants a bulk-persist.
     const result = (await action!.handler(
-      {
-        items: [
-          {
-            id: "override",
-            title: "Manually pinned to delete",
-            fields: { urgent: true, important: true },
-            quadrant: "delete",
-          },
-        ],
-      },
+      { items: [{ id: "q", title: "Manually pinned to delete", quadrant: "delete" }] },
       ctx()
     )) as { written: Array<{ id: string; quadrant: string; score: number }> };
 
     expect(result.written[0].quadrant).toBe("delete");
     expect(result.written[0].score).toBe(1);
     const stored = useWorkspaceStore.getState().prioritizations;
-    expect(stored![0].fields?.quadrant).toBe("delete");
+    expect(stored![0].fields).toEqual({ urgent: "false", important: "false" });
     expect(stored![0].score).toBe(1);
+
+    await expect(
+      action!.handler(
+        {
+          items: [
+            {
+              id: "override",
+              title: "Manually pinned to delete",
+              fields: { urgent: true, important: true },
+              quadrant: "delete",
+            },
+          ],
+        },
+        ctx()
+      )
+    ).rejects.toThrow(/contradicts/);
   });
 });

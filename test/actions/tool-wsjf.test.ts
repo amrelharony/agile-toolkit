@@ -74,15 +74,23 @@ describe("tool.wsjf.compute_score — pure formula", () => {
     expect(result.score).toBe(4);
   });
 
-  it("floors jobSize at 0.5 (defuses user-entered 0)", async () => {
+  // Phase 7 decision: the job size floor is 1 (the bottom of the Fibonacci
+  // scale), the same in the tool, the hub and here; a job size of 0 is Not
+  // scored instead of floored.
+  it("scores a job size of 0 as Not scored, and under 1 as 1", async () => {
     const action = registry.get("tool.wsjf.compute_score");
-    const result = (await action!.handler(
+    const zero = (await action!.handler(
       { businessValue: 5, timeCriticality: 5, rrOe: 0, jobSize: 0 },
       ctx()
+    )) as { score: number | null; missing: string[] };
+    expect(zero.score).toBeNull();
+    expect(zero.missing).toEqual(["jobSize"]);
+    const half = (await action!.handler(
+      { businessValue: 5, timeCriticality: 5, rrOe: 0, jobSize: 0.5 },
+      ctx()
     )) as { score: number };
-    // (5 + 5 + 0) / 0.5 = 20 (NOT Infinity)
-    expect(result.score).toBe(20);
-    expect(Number.isFinite(result.score)).toBe(true);
+    // (5 + 5 + 0) / 1 = 10 (NOT 20)
+    expect(half.score).toBe(10);
   });
 });
 

@@ -1,13 +1,9 @@
 /**
- * Cost-of-Delay (CD3) — tool-local actions.
+ * Cost of Delay (CD3) — tool-local actions.
  *
  * Category: Prioritization Frameworks (squad S13)
- * Tool:     Reinertsen's CD3 = Cost-of-Delay ÷ Job Size.
- *           UI collects per-week dollars + weeks delayed; the action set
- *           extends that with `jobSize` so the canonical CD3 formula can
- *           run end-to-end. When `jobSize` is omitted on a compute call
- *           we fall back to 1 (effectively "raw cost of delay" — equal
- *           to what the in-app form shows on its KPI strip).
+ * Tool:     Reinertsen's CD3 = cost of delay per week ÷ duration in weeks,
+ *           ordered by urgency profile.
  *
  * Agent surface: tool.cost_of_delay.*  (snake_case per registry naming)
  * Backing CRUD : workspace.prioritization.* (shared with wsjf/rice/ice/…)
@@ -16,78 +12,105 @@
  *
  * Mirrors src/lib/actions/tools/wsjf.ts beat-for-beat (the squad-13
  * canonical pattern). Five actions: 3 reads (pure compute, batch+rank,
- * list_scored) and 2 writes (compute+persist one, bulk-upsert pre-scored).
+ * list_scored) and 2 writes (compute+persist one, bulk-upsert).
  *
- * Formula is inlined here rather than added to scoring-rubric.ts because
- * the rubric module is S0-protected; CoD is short enough that an inline
- * helper carries no maintenance cost. Job size is floored at 0.5 to
- * defuse divide-by-zero (matches wsjfScore semantics).
+ * The score is the method registry's (lib/prioritization/methods/
+ * cost-of-delay), the code the page uses:
+ * - CD3 = perWeekUsd ÷ durationWeeks, the duration at least half a week;
+ *   no duration is Not scored (`score: null`), never a default;
+ * - the urgency profile (expedite | fixed_date | standard | intangible)
+ *   orders the lanes: expedite first, then fixed date by latest start
+ *   (the date it must land by less its duration), then standard by CD3,
+ *   then intangible by CD3; a row with no profile yet comes after standard;
+ * - `jobSize` is a deprecated alias of `durationWeeks` for one release;
+ *   `weeksDelayed` is the old model's input, kept on the row for
+ *   reference and never part of the score.
  */
 
 import { z } from "zod";
 import { registry } from "../registry";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverListEntities, serverUpsertEntity, serverBulkUpsertEntities } from "../server-store";
-import { rank } from "@/lib/analytics/scoring-rubric";
-import type { PrioritizationItem } from "@/lib/stores/workspace-types";
+import { method, type Values } from "@/lib/prioritization/methods";
+import { COD_URGENCIES } from "@/lib/prioritization/methods/cost-of-delay";
+import {
+  candidateId,
+  clientStore,
+  listMethodRows,
+  persistMethodRows,
+  rankCandidates,
+  serverStore,
+  type MethodStore,
+} from "./_method-rows";
 
-const KIND_PRIORITIZATION = "workspace:prioritization";
 const FRAMEWORK = "cost-of-delay" as const;
+const COD = method(FRAMEWORK);
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-/** Coerce to a finite number; NaN/Infinity/null fall back to 0. */
-function num(v: unknown, fallback = 0): number {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-/**
- * CD3 = cost-of-delay ÷ job size.
- *
- * `costOfDelay` is precomputed by the caller from per-week × weeks, OR
- * supplied directly as a single number when the agent already knows the
- * total $-impact of a delay. `jobSize` is floored at 0.5 so a user
- * entering 0 ("guessing later") still produces a finite score instead
- * of Infinity. All components are clamped to ≥ 0 to refuse negative
- * inputs.
- */
-function cd3Score(costOfDelay: number, jobSize: number): number {
-  const size = Math.max(0.5, num(jobSize, 0.5));
-  return Math.max(0, num(costOfDelay)) / size;
-}
-
-/** Shared input shape for one CD3 candidate.
- *
- *  Matches what the cost-of-delay client form collects (`perWeekUsd`,
- *  `weeksDelayed`) and adds `jobSize` (story points / weeks of effort)
- *  to complete the canonical CD3 ratio. Cost-of-delay is derived as
- *  `perWeekUsd * weeksDelayed`. */
+/** Shared input shape for one CD3 candidate. */
 const CostOfDelayFieldsSchema = z.object({
   perWeekUsd: z
     .number()
     .min(0)
-    .describe("Estimated revenue / cost impact per week of delay, in USD (≥ 0)"),
+    .describe("What a week of waiting costs, in USD (revenue lost, cost incurred) (≥ 0)"),
+  durationWeeks: z
+    .number()
+    .positive()
+    .optional()
+    .describe("How long the work takes, in weeks (half a week at least). Without it: Not scored."),
+  urgency: z
+    .enum(COD_URGENCIES)
+    .optional()
+    .describe(
+      "Urgency profile: 'expedite' (do now), 'fixed_date' (cost jumps on a date; give fixedDate), 'standard' (cost grows steadily) or 'intangible' (little cost now). Orders the lanes."
+    ),
+  fixedDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe(
+      "For 'fixed_date': the YYYY-MM-DD it must land by. latestStart = this date − the duration."
+    ),
   weeksDelayed: z
     .number()
     .min(0)
-    .describe("Number of weeks the initiative is (or would be) delayed (≥ 0)"),
+    .optional()
+    .describe(
+      "Deprecated (the old total-cost model): kept on the row for reference, not part of CD3"
+    ),
   jobSize: z
     .number()
     .min(0)
-    .default(1)
-    .describe(
-      "Job size in story points or weeks of effort (≥ 0; floored at 0.5). Defaults to 1 so the score equals the raw total cost of delay when size is unknown."
-    ),
+    .optional()
+    .describe("Deprecated alias of durationWeeks, used only when durationWeeks is absent"),
 });
+
+type CodFields = z.infer<typeof CostOfDelayFieldsSchema>;
 
 const CostOfDelayItemInputSchema = z.object({
   id: z.string().optional().describe("Stable identifier; auto-generated if omitted on persist"),
   title: z.string().min(1).max(200),
   fields: CostOfDelayFieldsSchema,
+  backlogItemId: z
+    .string()
+    .optional()
+    .describe(
+      "Link the row to this backlog item, so the Prioritizer's Cost of Delay column shows it"
+    ),
 });
+
+/** The API's fields as the method's inputs (jobSize standing in for a missing duration). */
+const valuesOf = (f: CodFields): Values => ({
+  perWeekUsd: f.perWeekUsd,
+  durationWeeks:
+    f.durationWeeks ?? (f.jobSize !== undefined && f.jobSize > 0 ? f.jobSize : undefined),
+  urgency: f.urgency,
+  fixedDate: f.fixedDate,
+});
+
+/** The old total (per week × weeks delayed), when the caller still gives weeksDelayed. */
+const legacyTotal = (f: CodFields): number | null =>
+  f.weeksDelayed === undefined ? null : Math.max(0, f.perWeekUsd) * Math.max(0, f.weeksDelayed);
+
+/** Agents that called before the urgency profile existed may leave it out. */
+const MAY_OMIT = ["urgency"];
 
 // ──────── tool.cost_of_delay.compute_cd3 ────────
 // Pure: compute one CD3 score. No persistence, no side effects.
@@ -97,148 +120,140 @@ registry.register({
   name: "compute_cd3",
   category: "read",
   description:
-    "Compute the CD3 score (perWeekUsd × weeksDelayed) ÷ jobSize for a single initiative. Pure — no persistence. jobSize defaults to 1 (raw cost-of-delay) when omitted.",
+    "Compute CD3 = perWeekUsd ÷ durationWeeks (the duration at least half a week) for a single initiative, as the Cost of Delay page does. Returns { score (null without a duration: Not scored), lane (the urgency profile), latestStart (fixed date − duration), costOfDelay (deprecated: perWeekUsd × weeksDelayed when given, else null), formula, missing, warnings }. Pure — no persistence.",
   paramsSchema: CostOfDelayFieldsSchema,
   handler: async (params) => {
-    const costOfDelay = Math.max(0, num(params.perWeekUsd)) * Math.max(0, num(params.weeksDelayed));
-    // zod's `.default(1)` only applies when the schema is parsed; direct
-    // handler invocation (test path, in-process composition) skips parse
-    // so we normalise here too. `?? 1` (not `|| 1`) so an intentional 0
-    // still hits cd3Score where it's floored at 0.5.
-    const jobSize = params.jobSize ?? 1;
-    const score = cd3Score(costOfDelay, jobSize);
+    const r = COD.evaluate(valuesOf(params));
     return {
-      score,
-      costOfDelay,
-      formula: "(perWeekUsd * weeksDelayed) / jobSize",
+      score: r.score,
+      lane: r.bucket,
+      latestStart: r.extra?.latestStart ?? null,
+      costOfDelay: legacyTotal(params),
+      formula: "perWeekUsd / durationWeeks",
+      missing: r.missing,
+      warnings: r.warnings,
     };
   },
   // No mcpHandler — pure compute runs identically on server and client.
 });
 
 // ──────── tool.cost_of_delay.compute_and_rank ────────
-// Pure batch: compute + dense-rank a list of candidates.
+// Pure batch: compute + rank a list of candidates by lane, then CD3.
 registry.register({
   id: "tool.cost_of_delay.compute_and_rank",
   toolId: "tool.cost_of_delay",
   name: "compute_and_rank",
   category: "read",
   description:
-    "Score a batch of initiatives by CD3 and return them ranked descending. Ties get the same rank (dense rank) so 'top decile' exports are stable.",
+    "Score a batch of initiatives by CD3 and return them in the page's order: expedite first, then fixed date by latest start, then standard by CD3, then intangible by CD3 (a row with no profile comes after standard). Ties share a rank (dense rank); an initiative without a duration has score null and comes last.",
   paramsSchema: z.object({
     items: z.array(CostOfDelayItemInputSchema).min(1).max(500),
   }),
   handler: async (params) => {
-    const scored = params.items.map((it) => {
-      const costOfDelay =
-        Math.max(0, num(it.fields.perWeekUsd)) * Math.max(0, num(it.fields.weeksDelayed));
-      const jobSize = it.fields.jobSize ?? 1;
-      return {
-        id: it.id ?? `cd3_${Math.random().toString(36).slice(2, 10)}`,
+    const ranked = rankCandidates(
+      FRAMEWORK,
+      params.items.map((it) => ({
+        id: it.id ?? candidateId("cod"),
         title: it.title,
         fields: it.fields,
-        score: cd3Score(costOfDelay, jobSize),
-      };
-    });
-    const ranked = rank(scored);
+        values: valuesOf(it.fields),
+      }))
+    );
     return { ranked, count: ranked.length };
   },
 });
 
 // ──────── tool.cost_of_delay.list_scored ────────
-// Read-only snapshot of cost-of-delay items currently in the workspace.
+// Read-only snapshot of CoD items currently in the workspace.
+const listScored = async (store: MethodStore) => {
+  const items = await listMethodRows(store, FRAMEWORK);
+  return { items, count: items.length };
+};
+
 registry.register({
   id: "tool.cost_of_delay.list_scored",
   toolId: "tool.cost_of_delay",
   name: "list_scored",
   category: "read",
   description:
-    "List all prioritization items in the workspace scored by cost-of-delay, ranked descending. Filtered to framework='cost-of-delay' so other frameworks (WSJF, RICE…) don't leak through.",
+    "List all prioritization items in the workspace scored by Cost of Delay, in the page's lane order, with the page's numbers. Each item: {id, title, fields, values, score (CD3, or null: a row from before CD3 has no duration and reads 'Not scored: add a duration'), rank, bucket (the lane), missing, warnings, extra: {latestStart, totalCost (the old total, kept for reference)}}. Filtered to framework='cost-of-delay'.",
   paramsSchema: z.object({}),
-  handler: async () => {
-    const all = useWorkspaceStore.getState().prioritizations ?? [];
-    const items = all.filter((x) => x.framework === FRAMEWORK);
-    const ranked = rank(
-      items.map((x) => ({
-        id: x.id,
-        title: x.title,
-        fields: x.fields ?? {},
-        score: x.score ?? 0,
-      }))
-    );
-    return { items: ranked, count: ranked.length };
-  },
-  mcpHandler: async (_params, ctx) => {
-    const all = await serverListEntities<PrioritizationItem>(ctx.userId, KIND_PRIORITIZATION);
-    const items = all.filter((x) => x.framework === FRAMEWORK);
-    const ranked = rank(
-      items.map((x) => ({
-        id: x.id,
-        title: x.title,
-        fields: x.fields ?? {},
-        score: x.score ?? 0,
-      }))
-    );
-    return { items: ranked, count: ranked.length };
-  },
+  handler: async () => listScored(clientStore()),
+  mcpHandler: async (_params, ctx) => listScored(serverStore(ctx.userId)),
 });
 
 // ──────── tool.cost_of_delay.score_and_persist ────────
 // Convenience: compute one CD3 score AND save it to the workspace.
-// Common agent intent: "score this initiative and add it to my CoD tracker."
+const persistInput = (it: {
+  id?: string;
+  title: string;
+  fields: CodFields;
+  backlogItemId?: string;
+}) => {
+  // The old model's weeksDelayed stays on the row for reference (never scored).
+  const values: Values = { ...valuesOf(it.fields), weeksDelayed: it.fields.weeksDelayed };
+  return { id: it.id, title: it.title, values, backlogItemId: it.backlogItemId };
+};
+
+const scoreAndPersist = async (
+  store: MethodStore,
+  params: z.infer<typeof CostOfDelayItemInputSchema>
+) => {
+  const [saved] = await persistMethodRows(store, FRAMEWORK, [persistInput(params)], {
+    mayOmit: MAY_OMIT,
+  });
+  return {
+    id: saved.row.id,
+    score: saved.score,
+    lane: saved.bucket,
+    backlogItemId: saved.backlogItemId,
+  };
+};
+
 registry.register({
   id: "tool.cost_of_delay.score_and_persist",
   toolId: "tool.cost_of_delay",
   name: "score_and_persist",
   category: "write",
   description:
-    "Compute a CD3 score for one initiative and persist it to workspace.prioritization with framework='cost-of-delay'. Returns the saved item's id and score.",
+    "Compute a CD3 score for one initiative and persist it to workspace.prioritization with framework='cost-of-delay' (a duration under half a week, or a fixed_date profile without its date, is refused). An existing id keeps its other fields and its backlog link. Returns { id, score, lane, backlogItemId }.",
   paramsSchema: CostOfDelayItemInputSchema,
-  handler: async (params) => {
-    const costOfDelay =
-      Math.max(0, num(params.fields.perWeekUsd)) * Math.max(0, num(params.fields.weeksDelayed));
-    const jobSize = params.fields.jobSize ?? 1;
-    const score = cd3Score(costOfDelay, jobSize);
-    const item: PrioritizationItem = {
-      id: params.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-      framework: FRAMEWORK,
-      title: params.title.slice(0, 200),
-      score,
-      // Preserve totalCost alongside the raw inputs — the in-app form
-      // writes it on every add, so keeping it here means rows added via
-      // the agent surface display identically in the existing table.
-      fields: { ...params.fields, jobSize, totalCost: costOfDelay },
-      status: "scored",
-      updatedAt: nowIso(),
-    };
-    useWorkspaceStore.getState().upsertPrioritization(item);
-    return { id: item.id, score };
-  },
-  mcpHandler: async (params, ctx) => {
-    const costOfDelay =
-      Math.max(0, num(params.fields.perWeekUsd)) * Math.max(0, num(params.fields.weeksDelayed));
-    const jobSize = params.fields.jobSize ?? 1;
-    const score = cd3Score(costOfDelay, jobSize);
-    const item: PrioritizationItem = {
-      id: params.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-      framework: FRAMEWORK,
-      title: params.title.slice(0, 200),
-      score,
-      fields: { ...params.fields, jobSize, totalCost: costOfDelay },
-      status: "scored",
-      updatedAt: nowIso(),
-    };
-    await serverUpsertEntity<PrioritizationItem>(ctx.userId, KIND_PRIORITIZATION, item);
-    return { id: item.id, score };
-  },
+  handler: async (params) => scoreAndPersist(clientStore(), params),
+  mcpHandler: async (params, ctx) => scoreAndPersist(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.cost_of_delay.persist_to_prioritization ────────
-// Bulk write of pre-scored items (typically the output of compute_and_rank).
-// Destructive in the sense that it overwrites items with matching ids,
-// but additive at the workspace level — does NOT clear existing CoD
-// items. requiresConfirmation:false because each upsert is idempotent
-// and the agent is expected to compose this after a compute_and_rank step.
+// Bulk write of candidates (typically the output of compute_and_rank).
+// requiresConfirmation:false because each upsert is idempotent by id.
+const PersistSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        title: z.string().min(1).max(200),
+        score: z
+          .number()
+          .optional()
+          .describe("Ignored: CD3 is recomputed from the fields, as the page does"),
+        fields: CostOfDelayFieldsSchema,
+        backlogItemId: z.string().optional().describe("Link the row to this backlog item"),
+      })
+    )
+    .min(1)
+    .max(500),
+});
+
+const persistAll = async (store: MethodStore, params: z.infer<typeof PersistSchema>) => {
+  const saved = await persistMethodRows(store, FRAMEWORK, params.items.map(persistInput), {
+    mayOmit: MAY_OMIT,
+  });
+  return {
+    written: saved.map((s) => s.row.id),
+    count: saved.length,
+    scores: saved.map((s) => ({ id: s.row.id, score: s.score, lane: s.bucket })),
+  };
+};
+
 registry.register({
   id: "tool.cost_of_delay.persist_to_prioritization",
   toolId: "tool.cost_of_delay",
@@ -246,61 +261,8 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of pre-scored cost-of-delay items to workspace.prioritization. Items without an id get one generated. Items with an existing id are overwritten (upsert by id).",
-  paramsSchema: z.object({
-    items: z
-      .array(
-        z.object({
-          id: z.string().optional(),
-          title: z.string().min(1).max(200),
-          score: z.number().describe("Pre-computed CD3 score from compute_and_rank"),
-          fields: CostOfDelayFieldsSchema,
-        })
-      )
-      .min(1)
-      .max(500),
-  }),
-  handler: async (params) => {
-    const upsert = useWorkspaceStore.getState().upsertPrioritization;
-    const written: string[] = [];
-    const now = nowIso();
-    for (const it of params.items) {
-      const totalCost =
-        Math.max(0, num(it.fields.perWeekUsd)) * Math.max(0, num(it.fields.weeksDelayed));
-      const jobSize = it.fields.jobSize ?? 1;
-      const item: PrioritizationItem = {
-        id: it.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-        framework: FRAMEWORK,
-        title: it.title.slice(0, 200),
-        score: it.score,
-        fields: { ...it.fields, jobSize, totalCost },
-        status: "scored",
-        updatedAt: now,
-      };
-      upsert(item);
-      written.push(item.id);
-    }
-    return { written, count: written.length };
-  },
-  mcpHandler: async (params, ctx) => {
-    const now = nowIso();
-    const items: PrioritizationItem[] = params.items.map((it) => {
-      const totalCost =
-        Math.max(0, num(it.fields.perWeekUsd)) * Math.max(0, num(it.fields.weeksDelayed));
-      const jobSize = it.fields.jobSize ?? 1;
-      return {
-        id: it.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-        framework: FRAMEWORK,
-        title: it.title.slice(0, 200),
-        score: it.score,
-        fields: { ...it.fields, jobSize, totalCost },
-        status: "scored",
-        updatedAt: now,
-      };
-    });
-    // Single round-trip for the batch — much faster than N individual
-    // upserts when the agent is loading a backlog of 50+ items.
-    await serverBulkUpsertEntities<PrioritizationItem>(ctx.userId, KIND_PRIORITIZATION, items);
-    return { written: items.map((i) => i.id), count: items.length };
-  },
+    "Persist a batch of Cost of Delay items to workspace.prioritization. CD3 is recomputed from the fields (a supplied score is ignored); an invalid item is refused and nothing is written. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
+  paramsSchema: PersistSchema,
+  handler: async (params) => persistAll(clientStore(), params),
+  mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),
 });

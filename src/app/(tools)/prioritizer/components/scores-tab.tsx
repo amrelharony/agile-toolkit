@@ -19,6 +19,9 @@ import {
   type PrioritizationFramework,
 } from "@/lib/prioritization/frameworks";
 import { KANO_LABELS, frameworkScores, type FrameworkScores } from "@/lib/prioritization/scores";
+import { method } from "@/lib/prioritization/methods";
+import { VE_LABEL } from "@/lib/prioritization/methods/value-effort";
+import { COD_URGENCY_LABEL } from "@/lib/prioritization/methods/cost-of-delay";
 import type { BacklogItem } from "../types";
 import { MOSCOW_CONFIG } from "../constants";
 
@@ -34,15 +37,15 @@ function scoreFor(f: PrioritizationFramework, s: FrameworkScores): React.ReactNo
     case "moscow":
       return s.moscow ? (MOSCOW_CONFIG[s.moscow]?.label ?? null) : null;
     case "wsjf":
-      return finite(s.wsjf) ? s.wsjf.toFixed(2) : null;
+      return finite(s.wsjf) ? method("wsjf").format(s.wsjf) : null;
     case "rice":
-      return finite(s.rice) ? s.rice.toLocaleString("en-US") : null;
+      return finite(s.rice) ? method("rice").format(s.rice) : null;
     case "value-effort": {
+      if (!s.valueEffort) return null;
       const { value, effort, quadrant } = s.valueEffort;
-      if (!finite(value) || !finite(effort)) return null;
       return (
         <>
-          {quadrant}
+          {VE_LABEL[quadrant]}
           <span className="block text-xs text-sub">
             Value {value} · Effort {effort}
           </span>
@@ -50,11 +53,19 @@ function scoreFor(f: PrioritizationFramework, s: FrameworkScores): React.ReactNo
       );
     }
     case "ice":
-      return finite(s.ice) ? s.ice.toLocaleString("en-US") : null;
+      return finite(s.ice) ? method("ice").format(s.ice) : null;
     case "kano":
       return s.kano ? (KANO_LABELS[s.kano] ?? s.kano) : null;
     case "cost-of-delay":
-      return finite(s.costOfDelay) ? `$${Math.round(s.costOfDelay).toLocaleString("en-US")}` : null;
+      if (!finite(s.cd3)) return null;
+      return (
+        <>
+          CD3 {method("cost-of-delay").format(s.cd3)}
+          {s.urgency && (
+            <span className="block text-xs text-sub">{COD_URGENCY_LABEL[s.urgency]}</span>
+          )}
+        </>
+      );
     default:
       return null;
   }

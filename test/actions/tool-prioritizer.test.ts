@@ -152,10 +152,24 @@ describe("tool.prioritizer.list_state frameworkScores", () => {
     useWorkspaceStore.getState().upsertBacklogItem(item({ id: "b", name: "Dark mode" }));
     useWorkspaceStore.setState({
       prioritizations: [
-        row("ice-1", "ice", { backlogItemId: "a", score: 100 }),
-        row("ice-2", "ice", { backlogItemId: "a", score: 320, updatedAt: "2026-10-09T00:00:00Z" }),
+        // Scores come from the fields (the engine recomputes; a cached score is never read).
+        row("ice-1", "ice", {
+          backlogItemId: "a",
+          score: 100,
+          fields: { impact: 5, confidence: 5, ease: 4 },
+        }),
+        row("ice-2", "ice", {
+          backlogItemId: "a",
+          score: 320,
+          fields: { impact: 8, confidence: 8, ease: 5 },
+          updatedAt: "2026-10-09T00:00:00Z",
+        }),
         row("kano-1", "kano", { backlogItemId: "a", fields: { category: "attractive" } }),
-        row("cod-1", "cost-of-delay", { backlogItemId: "a", score: 12000 }),
+        row("cod-1", "cost-of-delay", {
+          backlogItemId: "a",
+          score: 12000,
+          fields: { perWeekUsd: 3000, durationWeeks: 4, urgency: "standard" },
+        }),
         row("cod-unlinked", "cost-of-delay", { score: 99 }),
       ],
     });
@@ -166,14 +180,18 @@ describe("tool.prioritizer.list_state frameworkScores", () => {
       rankedByWsjf: { id: string; frameworkScores: unknown }[];
     };
     const a = r.items.find((i) => i.id === "a")!;
+    // Phase 7: one quadrant rule with snake_case keys; Cost of Delay is CD3
+    // (per week ÷ duration) with its urgency, costOfDelay the deprecated old total.
     expect(a.frameworkScores).toEqual({
       moscow: "must",
       wsjf: 8,
       rice: 450,
-      valueEffort: { value: 9, effort: 3, quadrant: "Quick Wins" },
+      valueEffort: { value: 9, effort: 3, quadrant: "quick_wins" },
       ice: 320,
       kano: "attractive",
-      costOfDelay: 12000,
+      costOfDelay: null,
+      cd3: 750,
+      urgency: "standard",
     });
     // The existing fields are unchanged.
     expect(a.wsjf).toBeCloseTo(8.0, 2);
@@ -188,13 +206,14 @@ describe("tool.prioritizer.add_item", () => {
     useWorkspaceStore.setState({ backlogItems: [] });
   });
 
-  it("appends with defaults", async () => {
+  // Phase 7 decision: no mid-range defaults; a method it isn't given is Not scored.
+  it("appends with nothing scored it wasn't given", async () => {
     const action = registry.get("tool.prioritizer.add_item");
     const r = (await action!.handler({ name: "Search" }, ctx())) as { added: boolean; id: string };
     expect(r.added).toBe(true);
     const stored = (useWorkspaceStore.getState().backlogItems ?? []).find((i) => i.id === r.id);
     expect(stored?.name).toBe("Search");
-    expect(stored?.moscow).toBe("should");
-    expect(stored?.jobSize).toBe(5);
+    expect(stored?.moscow).toBeUndefined();
+    expect(stored?.jobSize).toBeUndefined();
   });
 });

@@ -178,10 +178,9 @@ describe("tool.moscow.list_items — framework filter + bucketing", () => {
     expect(result.wont.map((x) => x.id)).toEqual(["p4"]);
   });
 
-  it("falls back unknown / missing buckets to 'must' (matches client behaviour)", async () => {
-    // Stale persisted bucket value — the client coerces it to "must"
-    // at moscow-client.tsx:80 to avoid `m[unknown].push` crashes, and so
-    // should the agent surface.
+  // Phase 7 decision: no default bucket. A row with no (or an unknown)
+  // bucket is "Not sorted yet", never Must.
+  it("lists unknown / missing buckets under unsorted, never Must", async () => {
     useWorkspaceStore.getState().upsertPrioritization({
       id: "stale",
       framework: "moscow",
@@ -195,11 +194,12 @@ describe("tool.moscow.list_items — framework filter + bucketing", () => {
     const action = registry.get("tool.moscow.list_items");
     const result = (await action!.handler({}, ctx())) as {
       must: PrioritizationItem[];
-      should: PrioritizationItem[];
+      unsorted: PrioritizationItem[];
       total: number;
     };
     expect(result.total).toBe(1);
-    expect(result.must.map((x) => x.id)).toEqual(["stale"]);
+    expect(result.must).toEqual([]);
+    expect(result.unsorted.map((x) => x.id)).toEqual(["stale"]);
   });
 });
 

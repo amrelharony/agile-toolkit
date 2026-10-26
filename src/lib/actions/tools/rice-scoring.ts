@@ -11,54 +11,97 @@
  *
  * Follows the squad-13 canonical pattern locked in by tool.wsjf.* — same
  * five-action shape, same "compute is read / persist is write" split,
- * same framework-filter on list_scored. Only the formula and framework
- * tag differ. See src/lib/actions/tools/wsjf.ts for the rationale on
- * each design choice.
+ * same framework-filter on list_scored.
  *
- * Formula note: confidencePct here is a PERCENTAGE in 0..100 (the form
- * shows "Confidence 0-100%"), not a 0..1 fraction. The shared
- * `riceScore` helper does the /100 conversion internally and clamps
- * effort at 0.5 to defuse div-by-zero on typos.
+ * The score is the method registry's (lib/prioritization/methods/rice), the
+ * code the page uses:
+ * - reach counts per `reachPeriod` (week, month, quarter or year; default
+ *   quarter) and is normalised to per quarter, so periods compare;
+ * - confidencePct is a PERCENTAGE 0..100, not a 0..1 fraction;
+ * - effort is person-months, at least 0.5. A persist refuses less (as the
+ *   form does); compute reports a legacy 0 < effort < 0.5 scored as 0.5
+ *   with a warning, and an effort of 0 as Not scored (`score: null`).
+ * Persist verbs recompute the score (a caller's `score` is ignored), keep
+ * an existing row's link, and with `backlogItemId` link the row and write
+ * its inputs through to that backlog item, as the page does.
  */
 
 import { z } from "zod";
 import { registry } from "../registry";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverListEntities, serverUpsertEntity, serverBulkUpsertEntities } from "../server-store";
-import { riceScore, rank } from "@/lib/analytics/scoring-rubric";
-import type { PrioritizationItem } from "@/lib/stores/workspace-types";
+import { method } from "@/lib/prioritization/methods";
+import { REACH_PERIODS, type ReachPeriod } from "@/lib/prioritization/methods/rice";
+import type { Values } from "@/lib/prioritization/methods";
+import {
+  candidateId,
+  clientStore,
+  listMethodRows,
+  persistMethodRows,
+  rankCandidates,
+  serverStore,
+  type MethodStore,
+} from "./_method-rows";
 
-const KIND_PRIORITIZATION = "workspace:prioritization";
 const FRAMEWORK = "rice" as const;
+const RICE = method(FRAMEWORK);
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-/** Shared input shape for one RICE candidate. All four inputs are
- *  non-negative; the shared helper clamps confidence to [0, 100] and
- *  floors effort at 0.5 anyway, but we mirror those bounds in the
- *  schema so agents get clear validation errors instead of silent
- *  clamping when they pass garbage. */
+/** Shared input shape for one RICE candidate. The schema says the ranges;
+ *  a persist also refuses an effort under 0.5, as the form does. */
 const RiceFieldsSchema = z.object({
-  reach: z.number().min(0).describe("People/accounts reached per period (e.g. per quarter)"),
-  impact: z.number().min(0).describe("Per-user impact, typically 0.25 (minimal) to 3.0 (massive)"),
+  reach: z
+    .number()
+    .min(0)
+    .describe("People/accounts reached per reachPeriod (default per quarter)"),
+  reachPeriod: z
+    .enum(REACH_PERIODS)
+    .optional()
+    .describe(
+      "The period reach counts over: week, month, quarter (default) or year. The score normalises reach to per quarter (week ×13, month ×3, year ÷4)."
+    ),
+  impact: z
+    .number()
+    .min(0)
+    .describe(
+      "Per-person impact: 3 massive, 2 high, 1 medium, 0.5 low, 0.25 minimal (exact value kept)"
+    ),
   confidencePct: z
     .number()
     .min(0)
     .max(100)
-    .describe("Confidence in the estimate as a percentage 0-100 (NOT 0-1)"),
+    .describe(
+      "Confidence as a percentage 0-100 (NOT 0-1): 100 backed by data, 80 some evidence, 50 mostly a guess; under 50 is a moonshot to test first"
+    ),
   effort: z
     .number()
     .min(0)
-    .describe("Effort in person-months, floored at 0.5 to defuse div-by-zero"),
+    .describe(
+      "Effort in person-months, 0.5 at least (persist refuses less; 0 is Not scored, never floored)"
+    ),
 });
+
+type RiceFields = z.infer<typeof RiceFieldsSchema>;
 
 const RiceItemInputSchema = z.object({
   id: z.string().optional().describe("Stable identifier; auto-generated if omitted on persist"),
   title: z.string().min(1).max(200),
   fields: RiceFieldsSchema,
+  backlogItemId: z
+    .string()
+    .optional()
+    .describe(
+      "Link the row to this backlog item (tool.prioritizer.list_state ids); its RICE inputs are written to the item"
+    ),
 });
+
+/** The API's fields as the method's inputs. */
+const valuesOf = (f: RiceFields): Values => ({
+  reach: f.reach,
+  reachPeriod: (f.reachPeriod ?? "quarter") satisfies ReachPeriod,
+  impact: f.impact,
+  confidence: f.confidencePct,
+  effort: f.effort,
+});
+
+const FORMULA = "(Reach per quarter * Impact * Confidence%) / Effort";
 
 // ──────── tool.rice_scoring.compute_score ────────
 // Pure: compute one RICE score. No persistence, no side effects.
@@ -68,11 +111,17 @@ registry.register({
   name: "compute_score",
   category: "read",
   description:
-    "Compute the RICE score (Reach × Impact × Confidence%) ÷ Effort for a single candidate. Confidence is a percentage 0-100, not a 0-1 fraction. Pure — no persistence.",
+    "Compute the RICE score (Reach per quarter × Impact × Confidence%) ÷ Effort for a single candidate, as the RICE page scores it. Confidence is a percentage 0-100, not a 0-1 fraction; reach is normalised from its reachPeriod to per quarter. Returns {score, formula, reachPerQuarter, missing, warnings}: score is null (Not scored) for an effort of 0; an effort under 0.5 counts as 0.5 with a warning. Pure — no persistence.",
   paramsSchema: RiceFieldsSchema,
   handler: async (params) => {
-    const score = riceScore(params.reach, params.impact, params.confidencePct, params.effort);
-    return { score, formula: "(Reach * Impact * Confidence%) / Effort" };
+    const r = RICE.evaluate(valuesOf(params));
+    return {
+      score: r.score,
+      formula: FORMULA,
+      reachPerQuarter: r.extra?.reachPerQuarter ?? null,
+      missing: r.missing,
+      warnings: r.warnings,
+    };
   },
   // No mcpHandler — pure compute runs identically on server and client.
 });
@@ -85,123 +134,118 @@ registry.register({
   name: "compute_and_rank",
   category: "read",
   description:
-    "Score a batch of candidates by RICE and return them ranked descending. Ties get the same rank (dense rank) so 'top decile' exports are stable.",
+    "Score a batch of candidates by RICE and return them ranked descending. Ties get the same rank (dense rank) so 'top decile' exports are stable; a candidate that can't be scored (effort 0) has score null and comes last.",
   paramsSchema: z.object({
     items: z.array(RiceItemInputSchema).min(1).max(500),
   }),
   handler: async (params) => {
-    const scored = params.items.map((it) => ({
-      id: it.id ?? `rice_${Math.random().toString(36).slice(2, 10)}`,
-      title: it.title,
-      fields: it.fields,
-      score: riceScore(
-        it.fields.reach,
-        it.fields.impact,
-        it.fields.confidencePct,
-        it.fields.effort
-      ),
-    }));
-    const ranked = rank(scored);
+    const ranked = rankCandidates(
+      FRAMEWORK,
+      params.items.map((it) => ({
+        id: it.id ?? candidateId("rice"),
+        title: it.title,
+        fields: it.fields,
+        values: valuesOf(it.fields),
+      }))
+    );
     return { ranked, count: ranked.length };
   },
 });
 
 // ──────── tool.rice_scoring.list_scored ────────
 // Read-only snapshot of RICE items currently in the workspace.
+const listScored = async (store: MethodStore) => {
+  const items = await listMethodRows(store, FRAMEWORK);
+  return { items, count: items.length };
+};
+
 registry.register({
   id: "tool.rice_scoring.list_scored",
   toolId: "tool.rice_scoring",
   name: "list_scored",
   category: "read",
   description:
-    "List all prioritization items in the workspace scored by RICE, ranked descending. Filtered to framework='rice' so other frameworks (WSJF, ICE…) don't leak through.",
+    "List all prioritization items in the workspace scored by RICE, ranked descending, with the page's numbers: a row linked to a backlog item reads its inputs from that item. Each item: {id, title, fields, values, score, rank, percentile, missing, warnings, backlogItemId, live, extra: {reachPerQuarter}}; a row missing an input has score null and comes last. Filtered to framework='rice' so other frameworks (WSJF, ICE…) don't leak through.",
   paramsSchema: z.object({}),
-  handler: async () => {
-    const all = useWorkspaceStore.getState().prioritizations ?? [];
-    const items = all.filter((x) => x.framework === FRAMEWORK);
-    const ranked = rank(
-      items.map((x) => ({
-        id: x.id,
-        title: x.title,
-        fields: x.fields ?? {},
-        score: x.score ?? 0,
-      }))
-    );
-    return { items: ranked, count: ranked.length };
-  },
-  mcpHandler: async (_params, ctx) => {
-    const all = await serverListEntities<PrioritizationItem>(ctx.userId, KIND_PRIORITIZATION);
-    const items = all.filter((x) => x.framework === FRAMEWORK);
-    const ranked = rank(
-      items.map((x) => ({
-        id: x.id,
-        title: x.title,
-        fields: x.fields ?? {},
-        score: x.score ?? 0,
-      }))
-    );
-    return { items: ranked, count: ranked.length };
-  },
+  handler: async () => listScored(clientStore()),
+  mcpHandler: async (_params, ctx) => listScored(serverStore(ctx.userId)),
 });
 
 // ──────── tool.rice_scoring.score_and_persist ────────
 // Convenience: compute one RICE score AND save it to the workspace.
 // Common agent intent: "score this initiative and add it to my backlog."
+const scoreAndPersist = async (store: MethodStore, params: z.infer<typeof RiceItemInputSchema>) => {
+  const [saved] = await persistMethodRows(store, FRAMEWORK, [
+    {
+      id: params.id,
+      title: params.title,
+      values: valuesOf(params.fields),
+      backlogItemId: params.backlogItemId,
+    },
+  ]);
+  return {
+    id: saved.row.id,
+    score: saved.score,
+    backlogItemId: saved.backlogItemId,
+    backlogUpdated: saved.backlogUpdated,
+  };
+};
+
 registry.register({
   id: "tool.rice_scoring.score_and_persist",
   toolId: "tool.rice_scoring",
   name: "score_and_persist",
   category: "write",
   description:
-    "Compute a RICE score for one candidate and persist it to workspace.prioritization with framework='rice'. Returns the saved item's id and score.",
+    "Compute a RICE score for one candidate and persist it to workspace.prioritization with framework='rice' (an effort under 0.5 person-months is refused). An existing id keeps its other fields and its backlog link. backlogItemId links the row and writes its inputs to that backlog item. Returns {id, score, backlogItemId, backlogUpdated}.",
   paramsSchema: RiceItemInputSchema,
-  handler: async (params) => {
-    const score = riceScore(
-      params.fields.reach,
-      params.fields.impact,
-      params.fields.confidencePct,
-      params.fields.effort
-    );
-    const item: PrioritizationItem = {
-      id: params.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-      framework: FRAMEWORK,
-      title: params.title.slice(0, 200),
-      score,
-      fields: { ...params.fields },
-      status: "scored",
-      updatedAt: nowIso(),
-    };
-    useWorkspaceStore.getState().upsertPrioritization(item);
-    return { id: item.id, score };
-  },
-  mcpHandler: async (params, ctx) => {
-    const score = riceScore(
-      params.fields.reach,
-      params.fields.impact,
-      params.fields.confidencePct,
-      params.fields.effort
-    );
-    const item: PrioritizationItem = {
-      id: params.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-      framework: FRAMEWORK,
-      title: params.title.slice(0, 200),
-      score,
-      fields: { ...params.fields },
-      status: "scored",
-      updatedAt: nowIso(),
-    };
-    await serverUpsertEntity<PrioritizationItem>(ctx.userId, KIND_PRIORITIZATION, item);
-    return { id: item.id, score };
-  },
+  handler: async (params) => scoreAndPersist(clientStore(), params),
+  mcpHandler: async (params, ctx) => scoreAndPersist(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.rice_scoring.persist_to_prioritization ────────
-// Bulk write of pre-scored items (typically the output of compute_and_rank).
+// Bulk write of candidates (typically the output of compute_and_rank).
 // Destructive in the sense that it overwrites items with matching ids,
 // but additive at the workspace level — does NOT clear existing RICE
 // items. requiresConfirmation:false because each item upsert is
 // idempotent and the agent is expected to compose this after a
 // compute_and_rank step.
+const PersistSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        title: z.string().min(1).max(200),
+        score: z
+          .number()
+          .optional()
+          .describe("Ignored: the score is recomputed from the fields, as the page does"),
+        fields: RiceFieldsSchema,
+        backlogItemId: z.string().optional().describe("Link the row to this backlog item"),
+      })
+    )
+    .min(1)
+    .max(500),
+});
+
+const persistAll = async (store: MethodStore, params: z.infer<typeof PersistSchema>) => {
+  const saved = await persistMethodRows(
+    store,
+    FRAMEWORK,
+    params.items.map((it) => ({
+      id: it.id,
+      title: it.title,
+      values: valuesOf(it.fields),
+      backlogItemId: it.backlogItemId,
+    }))
+  );
+  return {
+    written: saved.map((s) => s.row.id),
+    count: saved.length,
+    scores: saved.map((s) => ({ id: s.row.id, score: s.score })),
+  };
+};
+
 registry.register({
   id: "tool.rice_scoring.persist_to_prioritization",
   toolId: "tool.rice_scoring",
@@ -209,53 +253,8 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of pre-scored RICE items to workspace.prioritization. Items without an id get one generated. Items with an existing id are overwritten (upsert by id).",
-  paramsSchema: z.object({
-    items: z
-      .array(
-        z.object({
-          id: z.string().optional(),
-          title: z.string().min(1).max(200),
-          score: z.number().describe("Pre-computed RICE score from compute_and_rank"),
-          fields: RiceFieldsSchema,
-        })
-      )
-      .min(1)
-      .max(500),
-  }),
-  handler: async (params) => {
-    const upsert = useWorkspaceStore.getState().upsertPrioritization;
-    const written: string[] = [];
-    const now = nowIso();
-    for (const it of params.items) {
-      const item: PrioritizationItem = {
-        id: it.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-        framework: FRAMEWORK,
-        title: it.title.slice(0, 200),
-        score: it.score,
-        fields: { ...it.fields },
-        status: "scored",
-        updatedAt: now,
-      };
-      upsert(item);
-      written.push(item.id);
-    }
-    return { written, count: written.length };
-  },
-  mcpHandler: async (params, ctx) => {
-    const now = nowIso();
-    const items: PrioritizationItem[] = params.items.map((it) => ({
-      id: it.id ?? `prio_${Math.random().toString(36).slice(2, 10)}`,
-      framework: FRAMEWORK,
-      title: it.title.slice(0, 200),
-      score: it.score,
-      fields: { ...it.fields },
-      status: "scored",
-      updatedAt: now,
-    }));
-    // Single round-trip for the batch — much faster than N individual
-    // upserts when the agent is loading a backlog of 50+ items.
-    await serverBulkUpsertEntities<PrioritizationItem>(ctx.userId, KIND_PRIORITIZATION, items);
-    return { written: items.map((i) => i.id), count: items.length };
-  },
+    "Persist a batch of RICE items to workspace.prioritization. Each score is recomputed from its fields (a supplied score is ignored); an effort under 0.5 is refused and nothing is written. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
+  paramsSchema: PersistSchema,
+  handler: async (params) => persistAll(clientStore(), params),
+  mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),
 });

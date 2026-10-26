@@ -8,7 +8,7 @@ import { generatePrioritizerPrompts } from "@/lib/ai-prompts/prioritizer";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
-import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
+import { readBacklogItem } from "@/lib/prioritization/defaults";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PRIORITIZER_ACTIONS } from "@/lib/history/event-actions";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
@@ -84,30 +84,17 @@ export function PrioritizerClient() {
       })
     )
   );
-  // Phase 7 engine replaces this: the CSV and the prompts show what the
-  // scores use, as the items table does (withBacklogDefaults).
-  const filled = useMemo(() => items.map(withBacklogDefaults), [items]);
+  // The CSV shows the items as the engine reads them, as the table does: a
+  // method nobody scored (or an old "Add item" default) exports blank.
+  const filled = useMemo(() => items.map(readBacklogItem), [items]);
   const promptConfig = useMemo(
     () => ({
       toolName: "Backlog Prioritizer",
-      // The prompt's table needs every input: an item without a bucket reads
-      // "not sorted", and a missing RICE input reads as backlogRice scores it
-      // (0, effort 1), so the prompt's RICE is the RICE tab's.
-      prompts: generatePrioritizerPrompts(
-        {
-          items: filled.map((i) => ({
-            ...i,
-            moscow: i.moscow ?? "not sorted",
-            reach: i.reach ?? 0,
-            impact: i.impact ?? 0,
-            confidence: i.confidence ?? 0,
-            effort: i.effort ?? 1,
-          })),
-        },
-        workspace
-      ),
+      // Scored by the method registry, with "Not scored" where a method has
+      // no inputs: the prompt quotes the numbers on screen.
+      prompts: generatePrioritizerPrompts({ items, rows }, workspace),
     }),
-    [filled, workspace]
+    [items, rows, workspace]
   );
 
   const csvData = useMemo(
@@ -134,18 +121,18 @@ export function PrioritizerClient() {
         i.name,
         i.description ?? "",
         i.moscow ? MOSCOW_CONFIG[i.moscow].label : "",
-        i.businessValue,
-        i.timeCriticality,
-        i.riskReduction,
-        i.jobSize,
-        wsjfScore(i),
+        i.businessValue ?? "",
+        i.timeCriticality ?? "",
+        i.riskReduction ?? "",
+        i.jobSize ?? "",
+        wsjfScore(i) ?? "",
         i.reach ?? "",
         i.impact ?? "",
         i.confidence ?? "",
         i.effort ?? "",
-        riceScore(i),
-        i.value,
-        i.matrixEffort,
+        riceScore(i) ?? "",
+        i.businessValue ?? "",
+        i.matrixEffort ?? "",
       ]),
     }),
     [filled]

@@ -68,36 +68,57 @@ describe("tool.cost_of_delay — registration", () => {
   });
 });
 
+// Phase 7 decision: CD3 is cost of delay PER WEEK ÷ duration in weeks (it
+// was the total, per week × weeks delayed, ÷ a job size defaulting to 1).
+// jobSize stays as a deprecated alias of durationWeeks for one release.
 describe("tool.cost_of_delay.compute_cd3 — pure formula", () => {
-  it("computes (perWeekUsd * weeksDelayed) / jobSize", async () => {
+  it("computes perWeekUsd / durationWeeks, jobSize standing in for a missing duration", async () => {
     const action = registry.get("tool.cost_of_delay.compute_cd3");
     const result = (await action!.handler(
+      { perWeekUsd: 10000, durationWeeks: 8, urgency: "standard" },
+      ctx()
+    )) as { score: number; lane: string; costOfDelay: number | null };
+    // 10000 / 8 = 1250
+    expect(result.score).toBe(1250);
+    expect(result.lane).toBe("standard");
+    expect(result.costOfDelay).toBeNull();
+    const legacy = (await action!.handler(
       { perWeekUsd: 10000, weeksDelayed: 4, jobSize: 8 },
       ctx()
     )) as { score: number; costOfDelay: number };
-    // (10000 * 4) / 8 = 5000
-    expect(result.score).toBe(5000);
-    expect(result.costOfDelay).toBe(40000);
+    expect(legacy.score).toBe(1250);
+    // The old total, still reported for reference.
+    expect(legacy.costOfDelay).toBe(40000);
   });
 
-  it("defaults jobSize to 1 (raw cost-of-delay) when omitted", async () => {
+  it("is Not scored without a duration (no default)", async () => {
     const action = registry.get("tool.cost_of_delay.compute_cd3");
     const result = (await action!.handler({ perWeekUsd: 2500, weeksDelayed: 6 }, ctx())) as {
-      score: number;
+      score: number | null;
+      missing: string[];
     };
-    // (2500 * 6) / 1 = 15000
-    expect(result.score).toBe(15000);
+    expect(result.score).toBeNull();
+    expect(result.missing).toEqual(["durationWeeks"]);
   });
 
-  it("floors jobSize at 0.5 (defuses user-entered 0)", async () => {
+  it("floors the duration at half a week", async () => {
     const action = registry.get("tool.cost_of_delay.compute_cd3");
     const result = (await action!.handler(
-      { perWeekUsd: 1000, weeksDelayed: 2, jobSize: 0 },
+      { perWeekUsd: 1000, durationWeeks: 0.25, urgency: "standard" },
       ctx()
-    )) as { score: number };
-    // (1000 * 2) / 0.5 = 4000 (NOT Infinity)
-    expect(result.score).toBe(4000);
-    expect(Number.isFinite(result.score)).toBe(true);
+    )) as { score: number; warnings: string[] };
+    // 1000 / 0.5 = 2000 (NOT 4000)
+    expect(result.score).toBe(2000);
+    expect(result.warnings[0]).toMatch(/half a week/);
+  });
+
+  it("dates a fixed date's latest start", async () => {
+    const action = registry.get("tool.cost_of_delay.compute_cd3");
+    const result = (await action!.handler(
+      { perWeekUsd: 1000, durationWeeks: 4, urgency: "fixed_date", fixedDate: "2026-12-01" },
+      ctx()
+    )) as { latestStart: string };
+    expect(result.latestStart).toBe("2026-11-03");
   });
 });
 
@@ -107,12 +128,24 @@ describe("tool.cost_of_delay.compute_and_rank — batch + dense rank", () => {
     const result = (await action!.handler(
       {
         items: [
-          // (10000 * 4) / 8 = 5000
-          { id: "a", title: "A", fields: { perWeekUsd: 10000, weeksDelayed: 4, jobSize: 8 } },
-          // (10000 * 4) / 8 = 5000 — tie with A → rank 1
-          { id: "b", title: "B", fields: { perWeekUsd: 10000, weeksDelayed: 4, jobSize: 8 } },
-          // (1000 * 2) / 4 = 500
-          { id: "c", title: "C", fields: { perWeekUsd: 1000, weeksDelayed: 2, jobSize: 4 } },
+          // 10000 / 2 = 5000
+          {
+            id: "a",
+            title: "A",
+            fields: { perWeekUsd: 10000, durationWeeks: 2, urgency: "standard" },
+          },
+          // 10000 / 2 = 5000 — tie with A → rank 1
+          {
+            id: "b",
+            title: "B",
+            fields: { perWeekUsd: 10000, durationWeeks: 2, urgency: "standard" },
+          },
+          // 1000 / 2 = 500
+          {
+            id: "c",
+            title: "C",
+            fields: { perWeekUsd: 1000, durationWeeks: 2, urgency: "standard" },
+          },
         ],
       },
       ctx()
@@ -188,20 +221,25 @@ describe("tool.cost_of_delay.score_and_persist — compute + write roundtrip", (
     const result = (await action!.handler(
       {
         title: "Migrate billing platform",
-        fields: { perWeekUsd: 10000, weeksDelayed: 4, jobSize: 8 },
+        fields: { perWeekUsd: 10000, durationWeeks: 2, urgency: "standard", weeksDelayed: 4 },
       },
       ctx()
-    )) as { id: string; score: number };
+    )) as { id: string; score: number; lane: string };
 
     expect(result.score).toBe(5000);
+    expect(result.lane).toBe("standard");
     const stored = useWorkspaceStore.getState().prioritizations;
     expect(stored).toHaveLength(1);
     expect(stored![0].framework).toBe("cost-of-delay");
     expect(stored![0].title).toBe("Migrate billing platform");
     expect(stored![0].score).toBe(5000);
-    // The form-compatibility totalCost field is preserved so rows added
-    // via the agent surface render identically in the existing UI table.
-    expect(stored![0].fields?.totalCost).toBe(40000);
+    // CD3 needs no total; the old weeksDelayed stays on the row for reference.
+    expect(stored![0].fields).toEqual({
+      perWeekUsd: 10000,
+      durationWeeks: 2,
+      urgency: "standard",
+      weeksDelayed: 4,
+    });
   });
 
   it("uses the supplied id when provided", async () => {

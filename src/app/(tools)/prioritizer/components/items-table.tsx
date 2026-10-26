@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowUpDown, Plus, Trash2 } from "lucide-react";
-import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
+import { readBacklogItem } from "@/lib/prioritization/defaults";
 import {
   type BacklogItem,
   type ImpactValue,
@@ -110,10 +110,9 @@ export function ItemsTable({
               </tr>
             </thead>
             <tbody>
-              {/* Phase 7 engine replaces this: a missing WSJF part or Value/Effort
-                  input shows the number the scores use; a missing RICE input
-                  or bucket shows blank, as RICE and MoSCoW read it. */}
-              {items.map(withBacklogDefaults).map((item) => (
+              {/* The item as the method engine reads it: an input nobody set
+                  (or an old "Add item" default) shows blank, Not scored. */}
+              {items.map(readBacklogItem).map((item) => (
                 <tr key={item.id} className="border-b border-border group">
                   <td className="py-2 pr-3 align-top">
                     <div className="flex flex-col gap-1.5 min-w-[140px]">
@@ -157,14 +156,14 @@ export function ItemsTable({
                       </SelectContent>
                     </Select>
                   </td>
-                  {/* Value (shared for WSJF business value + matrix value) */}
+                  {/* Value: the one value field, WSJF business value and the matrix value */}
                   <td className="py-2 px-2">
                     <NumCell
                       value={item.businessValue}
                       min={1}
-                      max={10}
-                      aria-label={`Value (1–10) for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { businessValue: n, value: n })}
+                      max={20}
+                      aria-label={`Value (Fibonacci 1–20) for ${item.name || "unnamed item"}`}
+                      onCommit={(n) => updateItem(item.id, { businessValue: n })}
                       className={inputCls + " w-16 text-center"}
                     />
                   </td>
@@ -184,7 +183,7 @@ export function ItemsTable({
                     <NumCell
                       value={item.timeCriticality}
                       min={1}
-                      max={10}
+                      max={20}
                       aria-label={`Time criticality for ${item.name || "unnamed item"}`}
                       onCommit={(n) => updateItem(item.id, { timeCriticality: n })}
                       className={inputCls + " w-16 text-center"}
@@ -195,7 +194,7 @@ export function ItemsTable({
                     <NumCell
                       value={item.riskReduction}
                       min={1}
-                      max={10}
+                      max={20}
                       aria-label={`Risk reduction for ${item.name || "unnamed item"}`}
                       onCommit={(n) => updateItem(item.id, { riskReduction: n })}
                       className={inputCls + " w-16 text-center"}
@@ -206,7 +205,7 @@ export function ItemsTable({
                     <NumCell
                       value={item.jobSize}
                       min={1}
-                      max={10}
+                      max={20}
                       aria-label={`Job size for ${item.name || "unnamed item"}`}
                       onCommit={(n) => updateItem(item.id, { jobSize: n })}
                       className={inputCls + " w-16 text-center"}
@@ -260,8 +259,8 @@ export function ItemsTable({
                   <td className="py-2 px-2">
                     <NumCell
                       value={item.effort}
-                      min={0.1}
-                      step={0.1}
+                      min={0.5}
+                      step={0.5}
                       aria-label={`RICE effort (person-months) for ${item.name || "unnamed item"}`}
                       onCommit={(n) => updateItem(item.id, { effort: n })}
                       className={inputCls + " w-16 text-center"}
@@ -285,8 +284,9 @@ export function ItemsTable({
         </div>
       )}
       <p className="mt-3 text-xs text-sub">
-        Value (1-10) is used for WSJF Business Value and the matrix Y-axis. Effort (1-10) is the
-        matrix X-axis. RICE Effort is in person-months.
+        Value (Fibonacci 1, 2, 3, 5, 8, 13, 20) is WSJF&apos;s business value and the matrix&apos;s
+        value axis (8 or more is high). Effort (1-10) is the matrix X-axis (6 or more is high). WSJF
+        parts run 1-20. RICE Effort is in person-months, 0.5 at least.
       </p>
     </SectionCard>
   );

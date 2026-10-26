@@ -168,10 +168,16 @@ describe("All methods tab", () => {
         backlogItem("b2", "Dark mode"),
       ],
       prioritizations: [
-        row("ice-old", "ice", { backlogItemId: "b1", score: 100 }),
+        // Scores come from the fields (the engine recomputes; a cached score is never read).
+        row("ice-old", "ice", {
+          backlogItemId: "b1",
+          score: 100,
+          fields: { impact: 5, confidence: 5, ease: 4 },
+        }),
         row("ice-new", "ice", {
           backlogItemId: "b1",
           score: 320,
+          fields: { impact: 8, confidence: 8, ease: 5 },
           updatedAt: "2026-10-09T09:00:00.000Z",
         }),
         row("kano", "kano", { backlogItemId: "b1", fields: { category: "must-be" } }),
@@ -221,11 +227,16 @@ describe("All methods tab", () => {
   it("offers Score-with links for the methods an item hasn't been scored in", () => {
     render(<PrioritizerClient />);
     const table = screen.getByRole("table", { name: /score in every method/ });
+    // "Dark mode" holds only the old "Add item" defaults: Not scored in every method.
     const dark = within(table).getByRole("row", { name: /^Dark mode/ });
     const links = within(dark)
       .getAllByRole("link")
       .map((a) => a.getAttribute("href"));
     expect(links).toEqual([
+      "/moscow?backlogItem=b2",
+      "/wsjf?backlogItem=b2",
+      "/rice-scoring?backlogItem=b2",
+      "/value-effort-matrix?backlogItem=b2",
       "/ice-score?backlogItem=b2",
       "/kano-model?backlogItem=b2",
       "/cost-of-delay?backlogItem=b2",
