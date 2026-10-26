@@ -1,7 +1,9 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { CheckCircle2, Clock, Flag, Plus, Sparkles, TrendingUp } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -10,70 +12,67 @@ import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Plus, Trash2, ArrowRight, Sparkles, TrendingUp, CheckCircle2, Clock } from "lucide-react";
-import { usePersisted } from "@/lib/utils/use-persisted";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SectionCard } from "@/components/shared/section-card";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ADKAR_ACTIONS } from "@/lib/history/event-actions";
 import { generateAdkarPrompts } from "@/lib/ai-prompts/adkar";
-import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
-import { cn } from "@/lib/utils";
+import type {
+  AdkarDoc,
+  AdkarElement,
+  AdkarGroup,
+  AdkarInitiative,
+  AdkarScore,
+  AdkarStageEntry,
+  Workspace,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { needMore } from "@/lib/analytics/min-sample";
+import { todayIso } from "@/lib/sprints/series";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import {
+  ADKAR_DOC_ID,
+  ADKAR_ELEMENTS,
+  ELEMENT_LABEL,
+  adkarVerdict,
+  advance,
+  barrierPoint,
+  completedStages,
+  daysInStage,
+  initiativeBarrier,
+  longestInCurrentStage,
+  medianDaysInStage,
+  newGroup,
+  newInitiative,
+  normalizeAdkarDoc,
+  stageCounts,
+  stepBack,
+  withDetails,
+  withGroupPatch,
+  withGroupScore,
+  withInitiative,
+  withStartDate,
+  type NewInitiative,
+} from "@/lib/adkar/model";
+import { buildExample, type AdkarExample } from "./example";
+import { InitiativeCard } from "./initiative-card";
+import { InitiativeForm } from "./initiative-form";
+import { adkarToMarkdown, stageChartText } from "./markdown";
+import { useLegacyAdkarMove } from "./use-legacy-adkar";
 
-type Stage = "awareness" | "desire" | "knowledge" | "ability" | "reinforcement";
+export const TOOL_ID = "adkar";
 
-interface StageTransition {
-  stage: Stage;
-  enteredAt: string;
-}
+/**
+ * Logged when an initiative steps back a stage. Not in ADKAR_ACTIONS
+ * (lib/history/event-actions.ts) yet; named like the events that are.
+ */
+const STAGE_STEPPED_BACK = "stage_stepped_back";
 
-interface Initiative {
-  id: string;
-  name: string;
-  currentStage: Stage;
-  stagesCompleted: Stage[];
-  // Stage-entry timeline drives the avg-days-per-stage stat. Each entry
-  // is the date the initiative *entered* that stage — the next entry's
-  // delta is the time spent in the prior stage.
-  stageHistory: StageTransition[];
-  owner?: string;
-  startDate: string;
-  description?: string;
-}
-
-const STAGES: Stage[] = ["awareness", "desire", "knowledge", "ability", "reinforcement"];
-
-const STAGE_LABEL: Record<Stage, string> = {
-  awareness: "Awareness",
-  desire: "Desire",
-  knowledge: "Knowledge",
-  ability: "Ability",
-  reinforcement: "Reinforcement",
-};
-
-const STAGE_BLURB: Record<Stage, string> = {
-  awareness: "People understand the need for change and the risks of doing nothing.",
-  desire: "People are motivated to participate — incentives are aligned with the change.",
-  knowledge: "People know how to change — training, processes, and tooling are available.",
-  ability: "People can demonstrate the new behavior in real work, with support nearby.",
-  reinforcement: "Mechanisms (rituals, metrics, rewards) sustain the change so it sticks.",
-};
-
-const STAGE_COLOR: Record<Stage, string> = {
-  awareness: "#a78bfa",
-  desire: "#60a5fa",
-  knowledge: "#22d3ee",
-  ability: "#34d399",
-  reinforcement: "#fbbf24",
-};
-
-// Recharts loads with the funnel chart, not the page.
+// Recharts loads with the chart, not the page.
 const AdkarStageFunnelChart = dynamic(
   () => import("./charts").then((m) => m.AdkarStageFunnelChart),
   {
@@ -84,16 +83,206 @@ const AdkarStageFunnelChart = dynamic(
   }
 );
 
-/** Parse YYYY-MM-DD as local date so day-deltas don't drift across timezones. */
-function parseLocalDate(iso: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+/** A change to the doc. */
+type DocUpdate = (doc: AdkarDoc) => AdkarDoc;
+
+/** Writes to the workspace: the doc the next steps and tool.adkar.* read. */
+function writeStore(update: DocUpdate) {
+  const { adkarDocs, upsertAdkarDoc } = useWorkspaceStore.getState();
+  const current = normalizeAdkarDoc(
+    (adkarDocs ?? []).find((d) => d.id === ADKAR_DOC_ID),
+    todayIso()
+  );
+  upsertAdkarDoc({ ...update(current), id: ADKAR_DOC_ID });
+}
+
+/**
+ * Undo for a stage move: take back the entry the move added, when it is
+ * still the last one, and the stage it left. Other edits made since stay.
+ */
+function undoMove(i: AdkarInitiative, entry: AdkarStageEntry, from: AdkarElement): AdkarInitiative {
+  const last = i.stageHistory[i.stageHistory.length - 1];
+  if (!last || last.stage !== entry.stage || last.enteredAt !== entry.enteredAt) return i;
+  return { ...i, currentStage: from, stageHistory: i.stageHistory.slice(0, -1) };
 }
 
 export function AdkarClient() {
-  const [initiatives, setInitiatives] = usePersisted<Initiative[]>("agile-toolkit:adkar", []);
-  const { log } = useHistoryLogger("adkar");
+  return (
+    <ToolPageWrapper
+      toolId={TOOL_ID}
+      title="ADKAR Change Tracker"
+      description="Move each change initiative through Awareness → Desire → Knowledge → Ability → Reinforcement, and score the groups it affects to find where adoption is stuck."
+      category="Outcomes & Pulse"
+    >
+      <AdkarTool />
+    </ToolPageWrapper>
+  );
+}
+
+/**
+ * ADKAR: initiatives on dated stage moves (forward and back) from their
+ * start date, groups scored per element with the barrier point named, the
+ * time spent per stage, and the verdict on what's held up. The data lives
+ * in the workspace (adkarDocs), moved once from the old blob; the example
+ * lives in this page's memory only.
+ */
+export function AdkarTool() {
+  const hydrated = useWorkspaceHydrated();
+  const stored = useWorkspaceStore((s) => (s.adkarDocs ?? []).find((d) => d.id === ADKAR_DOC_ID));
+  const moving = useLegacyAdkarMove(stored);
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<AdkarExample | null>(null);
+  const preview = example !== null;
+  const doc = useMemo(
+    () => normalizeAdkarDoc(example?.doc ?? stored, today),
+    [example, stored, today]
+  );
+  const initiatives = doc.initiatives;
+  const resetBefore = useRef<AdkarDoc | undefined>(undefined);
+
+  // Fixed for the render an edit starts in, so its Undo goes back to the
+  // same place even if the example is loaded or cleared in between.
+  const write = (update: DocUpdate) => {
+    if (!preview) return writeStore(update);
+    setExample((ex) => ex && { doc: update(normalizeAdkarDoc(ex.doc, today)) });
+  };
+  const record: typeof log = preview ? () => undefined : log;
+  const change = (id: string, fn: (i: AdkarInitiative) => AdkarInitiative | null) =>
+    write((d) => withInitiative(d, id, fn));
+
+  /* ── Initiatives ─────────────────────────────────────────────────── */
+
+  const add = (values: NewInitiative) => {
+    const i = newInitiative(values, crypto.randomUUID());
+    write((d) => ({ ...d, initiatives: [i, ...d.initiatives] }));
+    record(ADKAR_ACTIONS.INITIATIVE_ADDED, { initiativeId: i.id, name: i.name, owner: i.owner });
+    announce(`Added ${i.name} at Awareness`);
+  };
+
+  const edit = (i: AdkarInitiative, values: NewInitiative) => {
+    change(i.id, (x) => {
+      const next = withDetails(x, {
+        name: values.name,
+        owner: values.owner ?? null,
+        description: values.description ?? null,
+      });
+      return values.startDate === x.startDate
+        ? next
+        : (withStartDate(next, values.startDate, today) ?? next);
+    });
+    announce(`Saved ${values.name}`);
+  };
+
+  const move = (i: AdkarInitiative, direction: "advance" | "back", on: string) => {
+    const next = direction === "advance" ? advance(i, on, today) : stepBack(i, on, today);
+    if (!next) return;
+    const entry = next.stageHistory[next.stageHistory.length - 1];
+    const label = `${i.name}: ${direction === "advance" ? "moved on" : "stepped back"} to ${ELEMENT_LABEL[next.currentStage]}`;
+    undoable({
+      label,
+      apply: () => {
+        change(i.id, (x) =>
+          x.currentStage === i.currentStage
+            ? direction === "advance"
+              ? advance(x, on, today)
+              : stepBack(x, on, today)
+            : null
+        );
+        record(direction === "advance" ? ADKAR_ACTIONS.STAGE_ADVANCED : STAGE_STEPPED_BACK, {
+          initiativeId: i.id,
+          from: i.currentStage,
+          to: next.currentStage,
+          on,
+        });
+      },
+      revert: () => change(i.id, (x) => undoMove(x, entry, i.currentStage)),
+    });
+    announce(label);
+  };
+
+  const remove = (i: AdkarInitiative) => {
+    removeWithUndo<AdkarInitiative>({
+      label: `Deleted “${i.name}”`,
+      update: (fn) => write((d) => ({ ...d, initiatives: fn(d.initiatives) })),
+      match: (x) => x.id === i.id,
+    });
+    record(ADKAR_ACTIONS.INITIATIVE_REMOVED, { initiativeId: i.id, name: i.name });
+    announce(`Deleted ${i.name}`);
+  };
+
+  /* ── Groups ──────────────────────────────────────────────────────── */
+
+  const addGroup = (i: AdkarInitiative, name: string) => {
+    const group = newGroup(name, crypto.randomUUID());
+    change(i.id, (x) => ({ ...x, groups: [...(x.groups ?? []), group] }));
+    announce(`Added the group ${group.name} to ${i.name}`);
+  };
+
+  const score = (
+    i: AdkarInitiative,
+    groupId: string,
+    element: AdkarElement,
+    value: AdkarScore | null
+  ) => {
+    let barrier = "";
+    change(i.id, (x) => {
+      const next = withGroupScore(x, groupId, element, value, today);
+      const g = next.groups?.find((y) => y.id === groupId);
+      const b = barrierPoint(g?.scores);
+      barrier = b.element ? ` Barrier: ${ELEMENT_LABEL[b.element]}.` : "";
+      return next;
+    });
+    const group = i.groups?.find((g) => g.id === groupId)?.name ?? "The group";
+    announce(
+      `${group}, ${ELEMENT_LABEL[element]}: ${value === null ? "not scored" : `${value} of 5`}.${barrier}`
+    );
+  };
+
+  const patchGroup = (
+    i: AdkarInitiative,
+    groupId: string,
+    patch: Parameters<typeof withGroupPatch>[2]
+  ) => change(i.id, (x) => withGroupPatch(x, groupId, patch));
+
+  const removeGroup = (i: AdkarInitiative, g: AdkarGroup) => {
+    removeWithUndo<AdkarGroup>({
+      label: `Deleted the group “${g.name}”`,
+      update: (fn) => change(i.id, (x) => ({ ...x, groups: fn(x.groups ?? []) })),
+      match: (y) => y.id === g.id,
+    });
+    announce(`Deleted the group ${g.name}`);
+  };
+
+  /* ── Reset and the example ───────────────────────────────────────── */
+
+  const reset = () => {
+    const { adkarDocs, upsertAdkarDoc } = useWorkspaceStore.getState();
+    resetBefore.current = (adkarDocs ?? []).find((d) => d.id === ADKAR_DOC_ID);
+    upsertAdkarDoc({ id: ADKAR_DOC_ID, initiatives: [] });
+    log(ADKAR_ACTIONS.ADKAR_RESET, {});
+    announce("Cleared every initiative");
+  };
+  const undoReset = () => {
+    const before = resetBefore.current;
+    if (before) useWorkspaceStore.getState().upsertAdkarDoc(before);
+  };
+
+  const loadExample = () => setExample(buildExample());
+  const clearExample = () => setExample(null);
+
+  /* ── Numbers, exports and prompts ────────────────────────────────── */
+
+  const counts = stageCounts(initiatives);
+  const held = initiatives.filter((i) => initiativeBarrier(i) !== null).length;
+  const median = medianDaysInStage(initiatives, today);
+  const longest = longestInCurrentStage(initiatives, today);
+  const verdict = adkarVerdict(initiatives, today);
+  const chart = stageChartText(initiatives);
+  const markdown = adkarToMarkdown(initiatives, today);
+
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -110,133 +299,6 @@ export function AdkarClient() {
       })
     )
   );
-
-  const uid = useId();
-  const [name, setName] = useState("");
-  const [owner, setOwner] = useState("");
-  const [startDate, setStartDate] = useState(todayLocalISO());
-  const [description, setDescription] = useState("");
-
-  const addInitiative = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const init: Initiative = {
-      id: crypto.randomUUID(),
-      name: trimmed,
-      currentStage: "awareness",
-      stagesCompleted: [],
-      stageHistory: [{ stage: "awareness", enteredAt: todayLocalISO() }],
-      owner: owner.trim() || undefined,
-      startDate: startDate || todayLocalISO(),
-      description: description.trim() || undefined,
-    };
-    setInitiatives((prev) => [init, ...prev]);
-    log(ADKAR_ACTIONS.INITIATIVE_ADDED, {
-      initiativeId: init.id,
-      name: init.name,
-      owner: init.owner,
-    });
-    setName("");
-    setOwner("");
-    setStartDate(todayLocalISO());
-    setDescription("");
-  };
-
-  const removeInitiative = (id: string) => {
-    const init = initiatives.find((i) => i.id === id);
-    setInitiatives((prev) => prev.filter((i) => i.id !== id));
-    log(ADKAR_ACTIONS.INITIATIVE_REMOVED, {
-      initiativeId: id,
-      name: init?.name,
-    });
-  };
-
-  const advanceStage = (id: string) => {
-    // Compute the transition BEFORE calling setState so React StrictMode
-    // (which may invoke updaters twice) doesn't cause double-logging or stale
-    // closure issues.
-    const target = initiatives.find((i) => i.id === id);
-    if (!target) return;
-    const idx = STAGES.indexOf(target.currentStage);
-    if (idx === STAGES.length - 1) return;
-    const from = target.currentStage;
-    const to = STAGES[idx + 1]!;
-    setInitiatives((prev) =>
-      prev.map((i) => {
-        if (i.id !== id) return i;
-        if (i.currentStage !== from) return i;
-        // R5: previously only pushed `currentStage` (the OUT-going stage)
-        // — when the user reached the final stage `reinforcement`, no
-        // subsequent advance pushed it in. The final stage was never
-        // marked complete. Push BOTH the outgoing AND the incoming stage
-        // so the final stage gets credited when the user lands on it.
-        const isFinal = to === "reinforcement";
-        const completedNext = Array.from(
-          new Set([...i.stagesCompleted, i.currentStage, ...(isFinal ? [to] : [])])
-        );
-        return {
-          ...i,
-          currentStage: to,
-          stagesCompleted: completedNext,
-          stageHistory: [...i.stageHistory, { stage: to, enteredAt: todayLocalISO() }],
-        };
-      })
-    );
-    log(ADKAR_ACTIONS.STAGE_ADVANCED, {
-      initiativeId: id,
-      from,
-      to,
-    });
-  };
-
-  const perStage = useMemo(() => {
-    const c: Record<Stage, number> = {
-      awareness: 0,
-      desire: 0,
-      knowledge: 0,
-      ability: 0,
-      reinforcement: 0,
-    };
-    // Guard against legacy / imported initiatives whose currentStage
-    // falls outside the known set. Without this, `c[i.currentStage] += 1`
-    // becomes `undefined + 1 = NaN`, NaN-poisoning the funnel chart,
-    // pctReinforcement KPI, and avg-days metric.
-    for (const i of initiatives) {
-      if (i.currentStage in c) c[i.currentStage] += 1;
-    }
-    return c;
-  }, [initiatives]);
-
-  const pctReinforcement = initiatives.length > 0 ? perStage.reinforcement / initiatives.length : 0;
-
-  const avgDaysPerStage = useMemo(() => {
-    const deltas: number[] = [];
-    for (const i of initiatives) {
-      const h = i.stageHistory;
-      for (let k = 1; k < h.length; k++) {
-        const aDate = parseLocalDate(h[k - 1]!.enteredAt);
-        const bDate = parseLocalDate(h[k]!.enteredAt);
-        if (!aDate || !bDate) continue;
-        const a = aDate.getTime();
-        const b = bDate.getTime();
-        const d = (b - a) / (1000 * 60 * 60 * 24);
-        if (Number.isFinite(d) && d >= 0) deltas.push(d);
-      }
-    }
-    if (deltas.length === 0) return null;
-    return deltas.reduce((a, b) => a + b, 0) / deltas.length;
-  }, [initiatives]);
-
-  const funnelData = useMemo(
-    () =>
-      STAGES.map((s) => ({
-        stage: STAGE_LABEL[s],
-        count: perStage[s],
-        color: STAGE_COLOR[s],
-      })),
-    [perStage]
-  );
-
   const promptConfig = useMemo(
     () => ({
       toolName: "ADKAR Change Tracker",
@@ -245,249 +307,203 @@ export function AdkarClient() {
           initiatives: initiatives.map((i) => ({
             name: i.name,
             currentStage: i.currentStage,
-            stagesCompleted: i.stagesCompleted,
+            stagesCompleted: completedStages(i),
             owner: i.owner,
             startDate: i.startDate,
             description: i.description,
           })),
-          perStage,
-          pctReinforcement,
-          avgDaysPerStage,
+          perStage: counts,
+          pctReinforcement: initiatives.length > 0 ? counts.reinforcement / initiatives.length : 0,
+          avgDaysPerStage: median.median,
         },
         workspace
       ),
     }),
-    [initiatives, perStage, pctReinforcement, avgDaysPerStage, workspace]
+    [initiatives, counts, median.median, workspace]
   );
 
+  if (!hydrated) {
+    return (
+      <p
+        role="status"
+        className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+      >
+        Loading the change initiatives…
+      </p>
+    );
+  }
+
+  const storedHasData = (stored?.initiatives?.length ?? 0) > 0;
+
   return (
-    <ToolPageWrapper
-      toolId="adkar"
-      title="ADKAR Change Tracker"
-      description="Move each change initiative through Awareness → Desire → Knowledge → Ability → Reinforcement."
-      category="Outcomes & Pulse"
-    >
+    <div className="space-y-6">
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 text-xs text-sub">
+            Example: three changes a platform team is rolling out. Nothing in it is saved, and your
+            own initiatives stay as they are.
+          </p>
+        </div>
+      )}
+
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="adkar"
+          markdown={markdown}
+          clipboardText={markdown}
           csvData={{
             headers: [
               "Name",
               "Current stage",
+              "Days in stage",
               "Owner",
               "Start date",
-              "Stages completed",
+              "Barrier",
               "Description",
             ],
-            rows: initiatives.map((i) => [
-              i.name,
-              i.currentStage,
-              i.owner ?? "",
-              i.startDate,
-              i.stagesCompleted.join("; "),
-              (i.description ?? "").replace(/\n/g, " "),
-            ]),
+            rows: initiatives.map((i) => {
+              const b = initiativeBarrier(i);
+              return [
+                i.name,
+                ELEMENT_LABEL[i.currentStage],
+                daysInStage(i, today),
+                i.owner ?? "",
+                i.startDate,
+                b ? `${ELEMENT_LABEL[b.element]} (${b.groupName}: ${b.score}/5)` : "",
+                (i.description ?? "").replace(/\n/g, " "),
+              ];
+            }),
           }}
           jsonData={initiatives}
         />
+        {!preview && (
+          <ResetButton
+            label="Clear all"
+            title="Clear every initiative?"
+            description="Every initiative, its groups and its history go."
+            confirmLabel="Clear initiatives"
+            doneLabel="Cleared every initiative"
+            disabled={!storedHasData}
+            onReset={reset}
+            onUndo={undoReset}
+          />
+        )}
       </ActionRow>
+
+      <p className="text-sm font-medium text-text">{verdict}</p>
 
       <KpiGrid cols={4} gap="lg">
         <StatCard
           variant="compact"
           icon={Sparkles}
-          label="Total initiatives"
+          label="Initiatives"
           value={initiatives.length}
           valueClassName="text-accent"
         />
-        <StatCard variant="compact" icon={TrendingUp} label="In Ability" value={perStage.ability} />
         <StatCard
           variant="compact"
-          icon={CheckCircle2}
-          label="At Reinforcement"
-          value={`${(pctReinforcement * 100).toFixed(0)}%`}
-          hint={`${perStage.reinforcement} initiative${perStage.reinforcement === 1 ? "" : "s"}`}
+          icon={Flag}
+          label="Held at a barrier"
+          value={initiatives.length > 0 ? `${held}/${initiatives.length}` : "—"}
+          tone={held > 0 ? "warning" : "default"}
         />
         <StatCard
           variant="compact"
           icon={Clock}
-          label="Avg days / stage"
-          value={avgDaysPerStage !== null ? `${avgDaysPerStage.toFixed(1)}d` : "—"}
+          label="Median days in a stage"
+          value={median.median !== null ? `${median.median}d` : "—"}
+          hint={
+            median.median !== null
+              ? `over ${median.periods} finished stages`
+              : `${needMore(median.periods, "average")} more finished ${needMore(median.periods, "average") === 1 ? "stage" : "stages"} needed`
+          }
+        />
+        <StatCard
+          variant="compact"
+          icon={CheckCircle2}
+          label="Longest in its stage"
+          value={longest ? `${longest.days}d` : "—"}
+          hint={
+            longest
+              ? `${longest.initiative.name} · ${ELEMENT_LABEL[longest.initiative.currentStage]}`
+              : undefined
+          }
         />
       </KpiGrid>
 
-      <CalloutAlert tone="info" className="mb-4">
-        <strong>ADKAR</strong>: <em>Awareness</em> — understand the need. <em>Desire</em> — choose
-        to participate. <em>Knowledge</em> — know how to change. <em>Ability</em> — apply the change
-        in real work. <em>Reinforcement</em> — sustain it so it sticks.
+      <CalloutAlert tone="info">
+        <strong>ADKAR</strong>: <em>Awareness</em> of the need, <em>Desire</em> to take part,{" "}
+        <em>Knowledge</em> of how, <em>Ability</em> in real work, <em>Reinforcement</em> so it
+        sticks. Score each affected group 1-5 per element; the first element at 3 or lower is its
+        barrier point.
       </CalloutAlert>
 
-      {/* Add-initiative form */}
-      <Card className="bg-surface border-border mb-4">
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-[1fr_1fr_180px_auto] gap-2">
-            <div>
-              <Label htmlFor={`${uid}-name`} className="text-xs text-sub">
-                Initiative
-              </Label>
-              <Input
-                id={`${uid}-name`}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Adopt trunk-based development"
-                className="bg-bg border-border"
-              />
-            </div>
-            <div>
-              <Label htmlFor={`${uid}-owner`} className="text-xs text-sub">
-                Owner
-              </Label>
-              <Input
-                id={`${uid}-owner`}
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                placeholder="Owner (optional)"
-                className="bg-bg border-border"
-              />
-            </div>
-            <div>
-              <Label htmlFor={`${uid}-start`} className="text-xs text-sub">
-                Start date
-              </Label>
-              <Input
-                id={`${uid}-start`}
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="bg-bg border-border"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                onClick={addInitiative}
-                className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
-              >
-                <Plus className="w-4 h-4" />
-                Add
-              </Button>
-            </div>
-          </div>
-          <div className="mt-2">
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Description (optional)..."
-              rows={2}
-              className="bg-bg border-border resize-none text-xs"
-              aria-label="Description"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <SectionCard title="Add an initiative" icon={Plus}>
+        <InitiativeForm
+          today={today}
+          onSave={add}
+          submitLabel="Add initiative"
+          submitIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
+          offerAddToRoster={!preview}
+        />
+      </SectionCard>
 
       {initiatives.length === 0 ? (
-        <EmptyState icon={Sparkles}>
-          No initiatives yet. Add the first change you&apos;re tracking above.
-        </EmptyState>
+        moving ? (
+          <p
+            role="status"
+            className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+          >
+            Moving your initiatives into the workspace…
+          </p>
+        ) : (
+          <EmptyState
+            icon={Sparkles}
+            action={!preview ? <LoadExampleButton onLoad={loadExample} /> : undefined}
+          >
+            No initiatives yet. Add the first change you&apos;re tracking above; it starts at
+            Awareness on its start date.
+          </EmptyState>
+        )
       ) : (
         <>
-          <div className="space-y-3 mb-6">
-            {initiatives.map((i) => {
-              const idx = STAGES.indexOf(i.currentStage);
-              const isLast = idx === STAGES.length - 1;
-              return (
-                <Card key={i.id} className="bg-surface border-border">
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex flex-col xs:flex-row xs:items-start xs:justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-text">{i.name}</div>
-                        <div className="text-xs text-sub mt-0.5">
-                          {i.owner && `${i.owner} · `}started {i.startDate}
-                        </div>
-                        {i.description && (
-                          <div className="text-xs text-sub mt-1 whitespace-pre-wrap">
-                            {i.description}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => advanceStage(i.id)}
-                          disabled={isLast}
-                          className="gap-1.5 border-accent/40 text-accent hover:bg-accent/10 disabled:opacity-50"
-                        >
-                          <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                          {isLast ? "At final stage" : "Advance stage"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeInitiative(i.id)}
-                          className="text-sub hover:text-danger"
-                          aria-label={`Remove ${i.name}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        </Button>
-                      </div>
-                    </div>
-                    {/* 5-stage progress bar */}
-                    <div className="flex gap-1">
-                      {STAGES.map((s, sIdx) => {
-                        const completed = i.stagesCompleted.includes(s);
-                        const isCurrent = i.currentStage === s;
-                        return (
-                          <div
-                            key={s}
-                            aria-current={isCurrent ? "step" : undefined}
-                            className={cn(
-                              "flex-1 rounded-md border px-1.5 py-1 text-xs uppercase tracking-wider text-center",
-                              completed
-                                ? "border-success/50 bg-success/10 text-success"
-                                : isCurrent
-                                  ? "border-accent/60 bg-accent/10 text-accent font-semibold"
-                                  : "border-border bg-bg text-sub"
-                            )}
-                          >
-                            {sIdx + 1}. {STAGE_LABEL[s]}
-                            {/* State is otherwise colour-only. */}
-                            <span className="sr-only">
-                              {completed ? " (completed)" : isCurrent ? " (current)" : ""}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          <ul className="space-y-3">
+            {initiatives.map((i) => (
+              <li key={i.id}>
+                <InitiativeCard
+                  initiative={i}
+                  today={today}
+                  preview={preview}
+                  handlers={{
+                    onEdit: (values) => edit(i, values),
+                    onMove: (direction, on) => move(i, direction, on),
+                    onRemove: () => remove(i),
+                    onAddGroup: (name) => addGroup(i, name),
+                    onScore: (groupId, element, value) => score(i, groupId, element, value),
+                    onGroupPatch: (groupId, patch) => patchGroup(i, groupId, patch),
+                    onRemoveGroup: (g) => removeGroup(i, g),
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
 
-          {/* Funnel chart (counts by stage) */}
-          <Card className="bg-surface border-border">
-            <CardContent className="p-4">
-              <div className="text-sm font-semibold text-text mb-3 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-accent" />
-                Initiatives by current stage
-              </div>
-              <div className="h-64 -mx-2">
-                <AdkarStageFunnelChart data={funnelData} />
-              </div>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {STAGES.map((s) => (
-                  <div key={s} className="text-xs text-sub">
-                    <span className="font-semibold text-text">{STAGE_LABEL[s]}:</span>{" "}
-                    {STAGE_BLURB[s]}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <SectionCard title="Initiatives by current stage" icon={TrendingUp}>
+            <ChartFigure
+              label="Initiatives by current stage"
+              summary={chart.summary}
+              table={chart.table}
+              plotClassName="h-64"
+            >
+              <AdkarStageFunnelChart
+                data={ADKAR_ELEMENTS.map((el) => ({ stage: ELEMENT_LABEL[el], count: counts[el] }))}
+              />
+            </ChartFigure>
+          </SectionCard>
         </>
       )}
-    </ToolPageWrapper>
+    </div>
   );
 }
