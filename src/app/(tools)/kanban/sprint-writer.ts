@@ -11,8 +11,9 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, Story, StoryStatus } from "@/lib/stores/workspace-types";
-import { setStoryBlocked, setStoryStatus } from "@/lib/sprints/store";
+import { setStoryBlocked, setStoryDodCheck, setStoryStatus } from "@/lib/sprints/store";
 import { withStoryBlocked, withStoryStatus } from "@/lib/sprints/story-status";
+import { withStoryDodCheck } from "@/lib/dod/model";
 
 export interface SprintBoardWriter {
   /** The story as stored right now. */
@@ -22,6 +23,8 @@ export interface SprintBoardWriter {
   setBlocked(id: string, blocked: boolean): void;
   /** Set or clear (empty name) who is working on it. */
   setOwner(id: string, owner: string): void;
+  /** Tick or untick a Definition-of-Done criterion on its card (`setStoryDodCheck`). */
+  setDodCheck(id: string, criterionId: string, checked: boolean): void;
   /** Put a story back as given (an Undo). */
   restore(story: Story): void;
 }
@@ -53,6 +56,9 @@ export const liveSprintWriter: SprintBoardWriter = {
     const next = withOwner(current, owner);
     if (next !== current) useWorkspaceStore.getState().upsertStory(next);
   },
+  setDodCheck: (id, criterionId, checked) => {
+    setStoryDodCheck(id, criterionId, checked);
+  },
   restore: (story) => useWorkspaceStore.getState().upsertStory(story),
 };
 
@@ -82,6 +88,8 @@ export function exampleSprintWriter(store: ExampleBoardStore): SprintBoardWriter
     setStatus: (id, status) => update(id, (s) => withStoryStatus(s, status)),
     setBlocked: (id, blocked) => update(id, (s) => withStoryBlocked(s, blocked)),
     setOwner: (id, owner) => update(id, (s) => withOwner(s, owner)),
+    setDodCheck: (id, criterionId, checked) =>
+      update(id, (s) => withStoryDodCheck(s, criterionId, checked, new Date().toISOString())),
     restore: (story) => update(story.id, () => story),
   };
 }

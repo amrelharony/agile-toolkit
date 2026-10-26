@@ -153,10 +153,34 @@ export function wipNudge(b: SprintBreach): string {
   return `${b.label} has ${stories(b.count)}, limit ${b.limit}: finish something before starting more.`;
 }
 
-/** "Moved “Pay by card” to Review." plus the nudge when the move went over the limit. */
-export function moveMessage(title: string, to: SprintColumnId, breach?: SprintBreach): string {
+/**
+ * "DoD not met: Code reviewed and Tests pass in CI are still open." A
+ * nudge, never a block: a story moved to Done with required criteria
+ * unticked is done, and the DoD page counts it as missing them.
+ */
+export function dodNudge(open: readonly string[]): string {
+  const names =
+    open.length <= 1
+      ? open.join("")
+      : `${open.slice(0, -1).join(", ")} and ${open[open.length - 1]}`;
+  return `DoD not met: ${names} ${open.length === 1 ? "is" : "are"} still open.`;
+}
+
+/**
+ * "Moved “Pay by card” to Review." plus the nudge when the move went over
+ * the limit, and for a move to Done, the DoD criteria still open.
+ */
+export function moveMessage(
+  title: string,
+  to: SprintColumnId,
+  breach?: SprintBreach,
+  dodOpen?: readonly string[]
+): string {
   const moved = `Moved “${title.trim() || "story"}” to ${SPRINT_COLUMN_LABEL[to]}.`;
-  return breach ? `${moved} ${wipNudge(breach)}` : moved;
+  const parts = [moved];
+  if (breach) parts.push(wipNudge(breach));
+  if (to === "done" && dodOpen && dodOpen.length > 0) parts.push(dodNudge(dodOpen));
+  return parts.join(" ");
 }
 
 const pointsText = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "points"}`;

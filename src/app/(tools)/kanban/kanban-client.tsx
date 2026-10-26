@@ -11,11 +11,12 @@ import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup } from "@/components/ui/toggle-group";
-import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
+import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
 import { generateKanbanPrompts } from "@/lib/ai-prompts/kanban";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Story } from "@/lib/stores/workspace-types";
+import type { DodCriterion, Story } from "@/lib/stores/workspace-types";
+import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { SPRINT_PARAM, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { isExampleSprintId } from "@/lib/sprints/example";
@@ -49,6 +50,13 @@ const NO_EXAMPLE: ExampleBoardStore = createExampleBoardStore({
   stories: [],
 });
 
+/** The example board's Definition of Done: its cards can be ticked, in memory. */
+const EXAMPLE_DOD: readonly DodCriterion[] = [
+  { id: exampleId("dod-review"), label: "Code reviewed", category: "code", required: true },
+  { id: exampleId("dod-tests"), label: "Tests pass in CI", category: "testing", required: true },
+  { id: exampleId("dod-docs"), label: "Docs updated", category: "docs", required: false },
+];
+
 const BOARD_OPTIONS: { value: BoardView; label: string; description: string }[] = [
   {
     value: "sprint",
@@ -79,6 +87,9 @@ export function KanbanClient() {
   const { sprints, selected, select } = useSelectedSprint();
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const [stored, setStored] = usePersistedLocal<BoardView | null>(BOARD_VIEW_KEY, null);
+  // The team's DoD (or the DoD builder's old blob until it moves in): each
+  // card on the Sprint board gets its checklist.
+  const { doc: dod } = useDefinitionOfDone();
   const [linked, setLinked] = useState<BoardView | null>(null);
   // The address bar is only readable after mount (the page is prerendered).
   useEffect(() => setLinked(linkedBoard(window.location.search)), []);
@@ -227,6 +238,7 @@ export function KanbanClient() {
           writer={exampleWriter}
           wipLimits={DEFAULT_WIP_LIMITS}
           example
+          dod={EXAMPLE_DOD}
           picker={
             <p className="text-sm text-sub">
               <span className="font-medium text-text">{exampleState.sprint.name}</span> · example
@@ -266,6 +278,7 @@ export function KanbanClient() {
         wipLimits={board.wipLimits}
         onWipChange={setWip}
         onExample={openExample}
+        dod={dod.items}
         picker={<SprintPicker sprints={sprints} selectedId={selected.id} onSelect={select} />}
       />
     );

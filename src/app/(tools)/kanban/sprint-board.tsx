@@ -24,14 +24,15 @@ import { completionPct } from "@/lib/sprints/metrics";
 import { todayIso } from "@/lib/sprints/series";
 import { storyProgress } from "@/lib/sprints/progress";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
-import type { KanbanColumnId, Sprint, Story } from "@/lib/stores/workspace-types";
+import type { DodCriterion, KanbanColumnId, Sprint, Story } from "@/lib/stores/workspace-types";
+import { checkedOf, openCriteria } from "@/lib/dod/model";
 import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
 import { useReturnFocus } from "@/hooks/use-return-focus";
-import { AgeBadge, BlockedBadge, BlockedToggle, PersonInPlace } from "./card-parts";
+import { AgeBadge, BlockedBadge, BlockedToggle, DodChecklist, PersonInPlace } from "./card-parts";
 import { BoardDnd, DragPreview, DraggableCard, DropColumn } from "./board-dnd";
 import { WipLimitInput, clampWipLimit } from "./wip-limit-input";
 import { useNow } from "./use-now";
@@ -41,6 +42,7 @@ import {
   SPRINT_COLUMN_LABEL,
   closedBoardNote,
   daysInColumn,
+  dodNudge,
   isClosedSprint,
   isSprintColumnId,
   moveMessage,
@@ -62,6 +64,8 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+const NO_CRITERIA: readonly DodCriterion[] = [];
+
 const pointsLabel = (p: number | undefined) =>
   typeof p === "number" && Number.isFinite(p) ? `${fmt(p)} ${p === 1 ? "pt" : "pts"}` : null;
 
@@ -80,6 +84,11 @@ export interface SprintBoardProps {
   onExample?: () => void;
   /** The example board: nothing is logged or sonified. */
   example?: boolean;
+  /**
+   * The team's Definition of Done: each card gets its checklist, and a move
+   * to Done with required criteria open says so (it never blocks).
+   */
+  dod?: readonly DodCriterion[];
 }
 
 /**
@@ -98,6 +107,7 @@ export function SprintBoard({
   picker,
   onExample,
   example = false,
+  dod = NO_CRITERIA,
 }: SprintBoardProps) {
   const announce = useAnnounce();
   const { log } = useHistoryLogger("kanban");
@@ -130,8 +140,10 @@ export function SprintBoard({
     const breach: SprintBreach | undefined =
       limit > 0 && count > limit ? { column: to, label: target.label, count, limit } : undefined;
     const title = shortName(before.title);
+    const dodOpen = to === "done" ? openCriteria(before, { items: dod }).map((c) => c.label) : [];
     undoable({
       label: `Moved “${title}” to ${target.label}`,
+      ...(dodOpen.length > 0 ? { description: dodNudge(dodOpen) } : {}),
       apply: () => writer.setStatus(id, target.status),
       // Only the move comes back: an owner set since stays, and a story
       // that has moved again since is left where it is.
@@ -143,7 +155,7 @@ export function SprintBoard({
         announce(`Moved “${title}” back to ${SPRINT_COLUMN_LABEL[from]}.`);
       },
     });
-    announce(moveMessage(title, to, breach));
+    announce(moveMessage(title, to, breach, dodOpen));
     if (refocus) returnTo(`move:${id}`);
     if (example) return;
     sonify("kanban", to === "done" ? "card-done" : "card-move");
@@ -162,6 +174,24 @@ export function SprintBoard({
     const title = shortName(story.title);
     announce(blocked ? `Flagged “${title}” as blocked.` : `“${title}” is no longer blocked.`);
     if (!example) log(KANBAN_ACTIONS.CARD_UPDATED, { storyId: story.id, blocked, board: "sprint" });
+  };
+
+  const setDodCheck = (story: Story, criterion: DodCriterion, checked: boolean) => {
+    writer.setDodCheck(story.id, criterion.id, checked);
+    const title = shortName(story.title);
+    announce(
+      checked
+        ? `Ticked “${criterion.label}” on “${title}”.`
+        : `Unticked “${criterion.label}” on “${title}”.`
+    );
+    if (!example) {
+      log(KANBAN_ACTIONS.CARD_UPDATED, {
+        storyId: story.id,
+        dodCheck: criterion.id,
+        checked,
+        board: "sprint",
+      });
+    }
   };
 
   const setOwner = (story: Story, name: string) => {
@@ -334,6 +364,11 @@ export function SprintBoard({
                       onMove={(to) => move(story.id, to)}
                       onToggleBlocked={() => toggleBlocked(story)}
                       onOwner={(name) => setOwner(story, name)}
+                      dod={dod}
+                      onDodCheck={(id, checked) => {
+                        const criterion = dod.find((c) => c.id === id);
+                        if (criterion) setDodCheck(story, criterion, checked);
+                      }}
                     />
                   ))}
                 </DropColumn>
@@ -356,6 +391,8 @@ function StoryCard({
   onMove,
   onToggleBlocked,
   onOwner,
+  dod,
+  onDodCheck,
 }: {
   story: Story;
   readOnly: boolean;
@@ -366,6 +403,8 @@ function StoryCard({
   onMove: (to: SprintColumnId) => void;
   onToggleBlocked: () => void;
   onOwner: (name: string) => void;
+  dod: readonly DodCriterion[];
+  onDodCheck: (criterionId: string, checked: boolean) => void;
 }) {
   const column = sprintColumnOf(story.status);
   const blocked = Boolean(story.blocked) && column !== "done";
@@ -409,6 +448,17 @@ function StoryCard({
               onSave={onOwner}
             />
           </div>
+          {dod.length > 0 && (
+            <div className="mb-1.5">
+              <DodChecklist
+                criteria={dod}
+                checked={checkedOf(story)}
+                itemTitle={story.title}
+                readOnly={readOnly}
+                onCheck={onDodCheck}
+              />
+            </div>
+          )}
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-1">
               <MoveMenu story={story} column={column} triggerRef={moveRef} onMove={onMove} />
