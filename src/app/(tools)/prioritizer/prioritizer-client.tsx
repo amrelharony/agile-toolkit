@@ -187,9 +187,9 @@ export function PrioritizerClient() {
       toolName: "Backlog Prioritizer",
       // Scored by the method registry, with "Not scored" where a method has
       // no inputs, in the decided order: the prompt quotes the screen.
-      prompts: generatePrioritizerPrompts({ items, rows }, workspace),
+      prompts: generatePrioritizerPrompts({ items, rows, verdict }, workspace),
     }),
-    [items, rows, workspace]
+    [items, rows, verdict, workspace]
   );
   const markdown = useMemo(
     () => toMarkdown({ items, rows, analysis, verdict }),
