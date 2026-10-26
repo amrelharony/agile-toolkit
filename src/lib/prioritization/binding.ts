@@ -10,8 +10,12 @@
  * - A save in a method tool WRITES THROUGH: the row and the item's owned
  *   fields in one step (`ownedPatch` + `applyItemPatch`).
  * - Nothing fans writes out to rows, so there is no loop to guard.
+ * - A save names what it clears: an input present as undefined is a clear
+ *   (`clearedKeys`), written through to the item like any other value; an
+ *   input the save leaves out keeps what the row shows.
  * - When the item goes, its rows FREEZE a copy of the values they showed
- *   (`frozenRow`) before they are unlinked.
+ *   (`frozenRow`) before they are unlinked (`rowsUnlinkedFrom`), however it
+ *   is deleted: the hub, the store, the agent's CRUD on either transport.
  *
  * Cross-device sync is whole-entity last-writer-wins (lib/sync/lww): two
  * devices editing different fields of one item at once keep one side. That
@@ -49,17 +53,37 @@ export function effectiveFields(row: PrioritizationItem, item?: BacklogItem): Ro
 }
 
 /**
+ * The input keys a save clears on purpose: present in `values` as
+ * undefined (a form's blanked input). A key left out is not one of them.
+ */
+export function clearedKeys(values: Values): string[] {
+  return Object.keys(values).filter((k) => values[k] === undefined);
+}
+
+/**
  * The backlog fields a method's inputs set: only the set ones, as entered
  * (an exact custom impact is kept). An unset input is not a clear: a
  * Value/Effort row without a value never wipes WSJF's business value.
+ * Only the inputs named in `cleared` (see clearedKeys) clear their backlog
+ * field, present in the patch as undefined: the user blanked the value the
+ * row read through, so the item, which owns it, drops it too.
  */
-export function ownedPatch(id: MethodId, v: Values): Partial<BacklogItem> {
+export function ownedPatch(
+  id: MethodId,
+  v: Values,
+  cleared: readonly string[] = []
+): Partial<BacklogItem> {
   const m = method(id);
   if (!m.embedded || !m.toBacklog || !m.owns) return {};
   const patch = m.toBacklog(v);
   const out: Partial<BacklogItem> = {};
   for (const key of m.owns) {
     if (patch[key] !== undefined) (out as Record<string, unknown>)[key] = patch[key];
+  }
+  for (const input of m.inputs) {
+    const key = input.backlogKey;
+    if (!key || !cleared.includes(input.key) || !m.owns.includes(key)) continue;
+    if (out[key] === undefined) (out as Record<string, unknown>)[key] = undefined;
   }
   return out;
 }
@@ -72,7 +96,9 @@ const same = (a: unknown, b: unknown) => a === b;
  * equal to what the item already reads as is no change, so a backlog
  * import that saves the item's own values writes nothing. A value the old
  * defaults hid (a stored "should" read as Not sorted) is a change; a
- * business value the legacy 1–10 value already reads as is not.
+ * business value the legacy 1–10 value already reads as is not. A key set
+ * to undefined (a clear) is a change only while the item reads a value
+ * there.
  */
 export function itemPatchChanges(
   item: BacklogItem,
@@ -83,6 +109,10 @@ export function itemPatchChanges(
   for (const key of Object.keys(patch) as (keyof BacklogItem)[]) {
     const next = patch[key];
     let cur: unknown = read[key];
+    if (next === undefined) {
+      if (cur !== undefined) (out as Record<string, unknown>)[key] = undefined;
+      continue;
+    }
     // A row or item without a period counts per quarter.
     if (key === "reachPeriod" && cur === undefined) cur = "quarter";
     if (!same(next, cur)) (out as Record<string, unknown>)[key] = next;
@@ -95,6 +125,11 @@ export function itemPatchChanges(
  * to unset (so they can't come back as values), `patch` applied (a key set
  * to undefined is removed: the hub's Clear) and `updatedAt` stamped, which
  * marks every value as chosen from now on (lib/prioritization/defaults).
+ *
+ * A patch that writes or clears `businessValue` also drops the legacy 1–10
+ * `value`: it is read only while businessValue is missing, so a cleared
+ * business value would otherwise come back as the old value's Fibonacci
+ * step, and a written one leaves it dead.
  */
 export function applyItemPatch(
   item: BacklogItem,
@@ -107,6 +142,7 @@ export function applyItemPatch(
     if (v === undefined) delete next[key];
     else (next as unknown as Record<string, unknown>)[key] = v;
   }
+  if ("businessValue" in patch) delete next.value;
   next.updatedAt = now;
   return next;
 }
@@ -148,9 +184,8 @@ export function methodRow(input: {
 /**
  * The row as it should stay once its item is deleted: the values it read
  * through copied into its own fields, the score cache recomputed and
- * `updatedAt` stamped. The link itself is cleared by the caller (the
- * store's removeBacklogItem). Rows of methods the item holds nothing for
- * come back unchanged.
+ * `updatedAt` stamped. The link itself is cleared by rowsUnlinkedFrom.
+ * Rows of methods the item holds nothing for come back unchanged.
  */
 export function frozenRow(
   row: PrioritizationItem,
@@ -165,4 +200,26 @@ export function frozenRow(
   if (cache.score === undefined) delete next.score;
   else next.score = cache.score;
   return next;
+}
+
+/**
+ * The rows linked to backlog item `id`, as they stay once it is deleted:
+ * each frozen with the values it showed (frozenRow, when the item is still
+ * at hand), unlinked and stamped. Only those rows come back. The store's
+ * removeBacklogItem and the agent's server delete both apply it, so a
+ * delete from anywhere keeps a WSJF row's scores.
+ */
+export function rowsUnlinkedFrom(
+  rows: readonly PrioritizationItem[],
+  id: string,
+  item?: BacklogItem,
+  now: string = new Date().toISOString()
+): PrioritizationItem[] {
+  return rows
+    .filter((r) => r.backlogItemId === id)
+    .map((r) => {
+      const next: PrioritizationItem = { ...(item ? frozenRow(r, item, now) : r), updatedAt: now };
+      delete next.backlogItemId;
+      return next;
+    });
 }

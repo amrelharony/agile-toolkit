@@ -39,7 +39,13 @@ import {
   weightedMatrixRemoval,
   withoutWeightedScores,
 } from "@/lib/stores/workspace-types";
-import { serverBulkUpsertEntities, serverDeleteEntity, serverListEntities } from "../server-store";
+import {
+  serverBulkUpsertEntities,
+  serverDeleteEntity,
+  serverGetEntity,
+  serverListEntities,
+} from "../server-store";
+import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
@@ -3002,6 +3008,14 @@ defineCrudActions<StoryMap>({
   generateId: () => `storyMap_${nanoid(8)}`,
 });
 
+// The kinds kindFromToolId derives for workspace.backlog_item and
+// workspace.prioritization (the method tools' rows).
+const BACKLOG_ITEM_KIND = "workspace:backlogItem";
+const PRIORITIZATION_KIND = "workspace:prioritization";
+
+// Delete keeps the method rows that scored the item on both transports:
+// removeBacklogItem in the tab, the same rowsUnlinkedFrom server-side, each
+// row frozen with the values it read through to the item, then unlinked.
 defineCrudActions<BacklogItem>({
   toolId: "workspace.backlog_item",
   entityName: "backlog item",
@@ -3010,6 +3024,21 @@ defineCrudActions<BacklogItem>({
   upsert: (x) => ws().upsertBacklogItem(x),
   remove: (id) => ws().removeBacklogItem(id),
   generateId: () => `backlog_${nanoid(8)}`,
+  cascade: {
+    describe:
+      "The method rows that scored it (RICE, WSJF, MoSCoW, …) stay, unlinked, each keeping the values it showed.",
+    server: async (userId, id) => {
+      const [item, rows] = await Promise.all([
+        serverGetEntity<BacklogItem>(userId, BACKLOG_ITEM_KIND, id),
+        serverListEntities<PrioritizationItem>(userId, PRIORITIZATION_KIND),
+      ]);
+      const unlinked = rowsUnlinkedFrom(rows, id, item ?? undefined);
+      if (unlinked.length > 0) {
+        await serverBulkUpsertEntities(userId, PRIORITIZATION_KIND, unlinked);
+      }
+      await serverDeleteEntity(userId, BACKLOG_ITEM_KIND, id);
+    },
+  },
 });
 
 defineCrudActions<NpsResponse>({

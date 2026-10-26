@@ -28,6 +28,7 @@ import {
   linkedItem,
   methodRow,
   ownedPatch,
+  rowsUnlinkedFrom,
 } from "@/lib/prioritization/binding";
 import {
   linkNewRow,
@@ -305,6 +306,191 @@ describe("saveMethodRow (write-through)", () => {
     expect(storedRow("m1")?.title).toBe("Passkeys");
     expect(storedRow("i1")?.title).toBe("Passkeys");
   });
+
+  it("merges a partial save over what the row shows, never its stale copy", () => {
+    // The row and the item both started at confidence 80; the hub then set 100.
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { reach: 500, impact: 2, confidence: 100, effort: 1 })],
+      prioritizations: [
+        row(
+          "r1",
+          "rice",
+          { reach: 500, impact: 2, confidence: 80, effort: 1 },
+          { backlogItemId: "b1" }
+        ),
+      ],
+    });
+    saveMethodRow("r1", { effort: 3 });
+    expect(storedItem("b1")).toMatchObject({ confidence: 100, effort: 3 });
+    expect(storedRow("r1")?.fields).toMatchObject({ confidence: 100, effort: 3 });
+    expect(storedRow("r1")?.score).toBeCloseTo((500 * 2 * 1) / 3, 6);
+  });
+
+  it("a title-only save writes nothing stale to the item", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { businessValue: 13, matrixEffort: 2 })],
+      prioritizations: [
+        row("v1", "value-effort", { businessValue: 5, effort: 2 }, { backlogItemId: "b1" }),
+      ],
+    });
+    saveMethodRow("v1", {}, { title: "Renamed" });
+    expect(storedItem("b1")).toMatchObject({ businessValue: 13, matrixEffort: 2 });
+    expect(storedRow("v1")?.fields).toEqual({ businessValue: 13, effort: 2 });
+  });
+
+  it("clears an input present as undefined, on the row and on a linked item", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { businessValue: 13, matrixEffort: 2, timeCriticality: 3 })],
+      prioritizations: [
+        row("m1", "moscow", { bucket: "must", effort: 3 }),
+        row("e1", "eisenhower", {
+          urgent: "true",
+          important: "false",
+          dueAt: "2026-11-01",
+          delegateTo: "Ana",
+        }),
+        row("v1", "value-effort", {}, { backlogItemId: "b1" }),
+      ],
+    });
+    // An unlinked row's optional inputs.
+    saveMethodRow("m1", { bucket: "must", effort: undefined });
+    expect(storedRow("m1")?.fields).toEqual({ bucket: "must" });
+    saveMethodRow("e1", { dueAt: undefined, delegateTo: undefined });
+    expect(storedRow("e1")?.fields).not.toHaveProperty("dueAt");
+    expect(storedRow("e1")?.fields).not.toHaveProperty("delegateTo");
+
+    // Both Value/Effort inputs cleared on a linked row: back to Not placed yet.
+    saveMethodRow("v1", { value: undefined, effort: undefined });
+    expect(storedItem("b1")).not.toHaveProperty("businessValue");
+    expect(storedItem("b1")).not.toHaveProperty("matrixEffort");
+    expect(storedItem("b1")?.timeCriticality).toBe(3);
+    expect(evaluateRow(storedRow("v1")!, storedItem("b1"))).toMatchObject({ score: null });
+    lastUndo().revert();
+    expect(storedItem("b1")).toMatchObject({ businessValue: 13, matrixEffort: 2 });
+  });
+
+  it("a cleared business value stays cleared, the legacy value with it", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { businessValue: 7, value: 7, matrixEffort: 3 })],
+      prioritizations: [row("v1", "value-effort", {}, { backlogItemId: "b1" })],
+    });
+    saveMethodRow("v1", { value: undefined, effort: undefined });
+    const saved = storedItem("b1")!;
+    expect(saved).not.toHaveProperty("businessValue");
+    expect(saved).not.toHaveProperty("value");
+    expect(evaluateRow(storedRow("v1")!, saved).score).toBeNull();
+    // The hub's Clear does the same, and a written business value drops the dead one.
+    useWorkspaceStore.setState({ backlogItems: [item("b2", { businessValue: 7, value: 7 })] });
+    saveBacklogItem("b2", { businessValue: undefined });
+    expect(storedItem("b2")).not.toHaveProperty("value");
+    expect(applyItemPatch(item("b3", { value: 4 }), { businessValue: 8 }, "T")).toEqual({
+      id: "b3",
+      name: "Item b3",
+      businessValue: 8,
+      updatedAt: "T",
+    });
+  });
+
+  it("links a new row, a value blanked from the import's prefill clearing the item's", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { businessValue: 8, matrixEffort: 4, jobSize: 5 })],
+    });
+    const values = { value: undefined, effort: undefined };
+    const linked = linkNewRow(
+      methodRow({ id: "v1", framework: "value-effort", title: "Tray", values }),
+      "b1",
+      values
+    );
+    expect(linked.backlogItemId).toBe("b1");
+    expect(storedItem("b1")).not.toHaveProperty("businessValue");
+    expect(storedItem("b1")?.jobSize).toBe(5);
+    // Without `values`, nothing the row lacks is a clear.
+    useWorkspaceStore.setState({ backlogItems: [item("b2", { businessValue: 8 })] });
+    linkNewRow(methodRow({ id: "v2", framework: "value-effort", title: "T", values: {} }), "b2");
+    expect(storedItem("b2")?.businessValue).toBe(8);
+  });
+});
+
+describe("Undo of a save", () => {
+  it("never brings an old default back as a chosen score once the item was saved since", () => {
+    const legacy = { ...OLD_BACKLOG_DEFAULTS, id: "b1", name: "Search" } as BacklogItem;
+    useWorkspaceStore.setState({
+      backlogItems: [legacy],
+      prioritizations: [row("m1", "moscow", {}, { backlogItemId: "b1" })],
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-21T10:00:00.000Z"));
+      saveMethodRow("m1", { bucket: "must" });
+      // A hub rename inside the Undo window stamps the item again.
+      vi.setSystemTime(new Date("2026-10-21T10:00:05.000Z"));
+      saveBacklogItem("b1", { name: "Site search" });
+    } finally {
+      vi.useRealTimers();
+    }
+    lastUndo().revert();
+    const after = storedItem("b1")!;
+    expect(after.name).toBe("Site search");
+    expect(after.updatedAt).toBeTruthy();
+    // MoSCoW, WSJF, RICE and Value/Effort all read Not scored, as before the save.
+    expect(after.moscow).toBeUndefined();
+    expect(after.businessValue).toBeUndefined();
+    expect(after.reach).toBeUndefined();
+    expect(after.matrixEffort).toBeUndefined();
+    expect(evaluateRow(storedRow("m1")!, after).bucket).toBeNull();
+  });
+
+  it("puts a legacy item back exactly when nobody saved it since", () => {
+    const legacy = { ...OLD_BACKLOG_DEFAULTS, id: "b1", name: "Search" } as BacklogItem;
+    useWorkspaceStore.setState({
+      backlogItems: [legacy],
+      prioritizations: [row("m1", "moscow", {}, { backlogItemId: "b1" })],
+    });
+    saveMethodRow("m1", { bucket: "must" });
+    lastUndo().revert();
+    expect(storedItem("b1")).toEqual(legacy);
+  });
+
+  it("puts back the names of the item's other rows a rename reached", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { moscow: "could", name: "Passkeys" })],
+      prioritizations: [
+        row("m1", "moscow", { bucket: "could" }, { backlogItemId: "b1", title: "Passkeys" }),
+        row("i1", "ice", { impact: 2, confidence: 2, ease: 2 }, { backlogItemId: "b1" }),
+        row("w1", "wsjf", {}, { backlogItemId: "b1", title: "Passkeys" }),
+      ],
+    });
+    const iceBefore = storedRow("i1");
+    saveMethodRow("m1", { bucket: "must" }, { title: "Passkey sign-in" });
+    expect(storedRow("i1")?.title).toBe("Passkey sign-in");
+    expect(storedRow("w1")?.title).toBe("Passkey sign-in");
+    lastUndo().revert();
+    expect(storedItem("b1")?.name).toBe("Passkeys");
+    expect(storedRow("m1")?.title).toBe("Passkeys");
+    expect(storedRow("i1")).toEqual(iceBefore);
+    expect(storedRow("w1")?.title).toBe("Passkeys");
+  });
+
+  it("leaves a renamed row someone saved since", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { moscow: "could" })],
+      prioritizations: [
+        row("m1", "moscow", { bucket: "could" }, { backlogItemId: "b1" }),
+        row("i1", "ice", { impact: 2, confidence: 2, ease: 2 }, { backlogItemId: "b1" }),
+      ],
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-21T10:00:00.000Z"));
+      saveMethodRow("m1", { bucket: "must" }, { title: "New name" });
+      vi.setSystemTime(new Date("2026-10-21T10:00:05.000Z"));
+      saveMethodRow("i1", { impact: 9 });
+    } finally {
+      vi.useRealTimers();
+    }
+    lastUndo().revert();
+    expect(storedRow("i1")).toMatchObject({ title: "New name", score: 36 });
+  });
 });
 
 describe("hub saves, renames and deletes", () => {
@@ -368,6 +554,49 @@ describe("hub saves, renames and deletes", () => {
     expect(storedItem("b1")).toEqual(b1);
     expect(storedRow("w1")?.backlogItemId).toBe("b1");
     expect(storedRow("i1")?.backlogItemId).toBe("b1");
+  });
+
+  it("freezes and unlinks the rows on the store's own delete too (the agent's path)", () => {
+    const b1 = item("b1", { moscow: "must", jobSize: 3 });
+    useWorkspaceStore.setState({
+      backlogItems: [b1],
+      prioritizations: [
+        row("m1", "moscow", {}, { backlogItemId: "b1" }),
+        row("i1", "ice", { impact: 2, confidence: 2, ease: 2 }, { backlogItemId: "b1" }),
+        row("other", "moscow", { bucket: "could" }),
+      ],
+    });
+    const other = storedRow("other");
+    state().removeBacklogItem("b1");
+    expect(storedRow("m1")).toMatchObject({ fields: { bucket: "must" }, score: 4 });
+    expect(storedRow("m1")).not.toHaveProperty("backlogItemId");
+    expect(storedRow("m1")?.updatedAt).not.toBe(STAMP);
+    expect(storedRow("i1")).toMatchObject({ fields: { impact: 2, confidence: 2, ease: 2 } });
+    expect(storedRow("i1")).not.toHaveProperty("backlogItemId");
+    expect(storedRow("other")).toBe(other);
+  });
+
+  it("unlinks rows from an item that is already gone, keeping their own values", () => {
+    const rows = [
+      row(
+        "w1",
+        "wsjf",
+        { businessValue: 1, timeCriticality: 1, rrOe: 1, jobSize: 1 },
+        {
+          backlogItemId: "gone",
+        }
+      ),
+      row("w2", "wsjf", {}),
+    ];
+    const out = rowsUnlinkedFrom(rows, "gone", undefined, "T");
+    expect(out).toEqual([
+      {
+        ...rows[0],
+        backlogItemId: undefined,
+        updatedAt: "T",
+      },
+    ]);
+    expect(out[0]).not.toHaveProperty("backlogItemId");
   });
 
   it("links a new row and writes only the inputs that change the item", () => {

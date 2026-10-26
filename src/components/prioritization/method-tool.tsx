@@ -147,6 +147,18 @@ function inputsOf(d: MethodDraft): Values {
   return rest;
 }
 
+/**
+ * A checked draft as it is saved: every input of the method present, a
+ * blank one as undefined. Validation drops blanks, and saveMethodRow reads
+ * an input left out as "keep what the row shows", so without this a
+ * cleared due date, effort or value would come straight back.
+ */
+export function withClears(m: PrioritizationMethod, d: MethodDraft): MethodDraft {
+  const out: MethodDraft = { ...d };
+  for (const input of m.inputs) if (!(input.key in out)) out[input.key] = undefined;
+  return out;
+}
+
 const isBlank = (v: unknown) => v === undefined || (typeof v === "string" && v.trim() === "");
 
 /** Check a draft: the title, then the method's own rules (blanks are errors). */
@@ -180,9 +192,17 @@ function customOf(m: PrioritizationMethod, values: Values): Values {
 /* ── Actions ───────────────────────────────────────────────────────── */
 
 export interface MethodActions {
-  /** Add a row (linked to `backlogItemId` when given). */
+  /**
+   * Add a row (linked to `backlogItemId` when given). An input present as
+   * undefined (withClears) is one blanked from the import's prefill: it
+   * clears the linked item's field too.
+   */
   add: (draft: MethodDraft, backlogItemId?: string | null) => PrioritizationItem;
-  /** Save a row's edit: the row and its linked item, in one undoable. */
+  /**
+   * Save a row's edit: the row and its linked item, in one undoable. An
+   * input left out keeps what the row shows; one present as undefined
+   * (withClears) is cleared.
+   */
   save: (rowId: string, draft: MethodDraft) => void;
   /** Delete with Undo. */
   remove: (row: PrioritizationItem) => void;
@@ -206,14 +226,11 @@ export function useMethodActions(config: MethodToolConfig): MethodActions {
 
   return {
     add(draft, backlogItemId) {
+      const values = inputsOf(draft);
       const row = linkNewRow(
-        methodRow({
-          id: crypto.randomUUID(),
-          framework: m.id,
-          title: draft.title,
-          values: inputsOf(draft),
-        }),
-        backlogItemId
+        methodRow({ id: crypto.randomUUID(), framework: m.id, title: draft.title, values }),
+        backlogItemId,
+        values
       );
       upsert(row);
       log(config.history.ITEM_ADDED, { title: row.title, score: row.score ?? null });
@@ -316,7 +333,8 @@ export function MethodRowEditor({
   const form = useItemForm<MethodDraft, MethodDraft, string>({
     initial: start,
     validate: (d) => validateMethodDraft(m, d, config.allowTitleOnly),
-    onSave,
+    // Every input goes to the save, a blanked one as a clear.
+    onSave: (values) => onSave(withClears(m, values)),
     resetOnSave: false,
   });
   const { formRef } = form;
@@ -466,7 +484,7 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
     initial: { title: "" },
     validate: (d) => validateMethodDraft(m, d, config.allowTitleOnly),
     onSave: (values) => {
-      actions.add(values, backlog.pending?.id);
+      actions.add(withClears(m, values), backlog.pending?.id);
       backlog.clear();
     },
   });

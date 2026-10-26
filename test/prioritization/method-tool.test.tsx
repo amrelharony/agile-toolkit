@@ -223,6 +223,62 @@ describe("MethodTool", () => {
     expect(rows()).toEqual([]);
   });
 
+  it("clears an optional input in the editor, never bringing the old value back", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [
+        {
+          id: "m1",
+          framework: "moscow",
+          title: "Passkeys",
+          fields: { bucket: "must", effort: 3 },
+          updatedAt: STAMP,
+        },
+      ],
+    });
+    renderTool({ ...CONFIG, methodId: "moscow", toolId: "moscow", listLabel: "Items" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Passkeys" }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+    fireEvent.change(within(editor).getByLabelText(/^Effort/), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(rows()[0].fields).toEqual({ bucket: "must" });
+  });
+
+  it("clears both Value/Effort inputs on a linked row: back to Not placed yet, item too", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        { id: "b1", name: "Dark mode", businessValue: 13, matrixEffort: 2, updatedAt: STAMP },
+      ],
+      prioritizations: [
+        {
+          id: "v1",
+          framework: "value-effort",
+          title: "Dark mode",
+          fields: { businessValue: 5, effort: 2 },
+          backlogItemId: "b1",
+          updatedAt: STAMP,
+        },
+      ],
+    });
+    renderTool({
+      ...CONFIG,
+      methodId: "value-effort",
+      toolId: "value-effort-matrix",
+      listLabel: "Items",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Dark mode" }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+    fireEvent.click(within(editor).getByRole("button", { name: "Clear Value" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "Clear Effort" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(storedItem("b1")).not.toHaveProperty("businessValue");
+    expect(storedItem("b1")).not.toHaveProperty("matrixEffort");
+    expect(rows()[0].fields).toEqual({});
+    const list = screen.getByRole("list", { name: "Items" });
+    expect(within(list).getByText("Not scored")).toBeInTheDocument();
+    act(() => undo.last!.revert());
+    expect(storedItem("b1")).toMatchObject({ businessValue: 13, matrixEffort: 2 });
+  });
+
   it("saves a title-only row when the tool allows it", () => {
     renderTool({ ...CONFIG, allowTitleOnly: true });
     fireEvent.change(screen.getByLabelText(/Feature title/), { target: { value: "Later" } });

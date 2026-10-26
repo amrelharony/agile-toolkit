@@ -29,6 +29,9 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
     serverBulkUpsertEntities: vi.fn(async (_u: string, kind: string, list: { id: string }[]) => {
       for (const e of list) server.rows.set(key(kind, e.id), e);
     }),
+    serverDeleteEntity: vi.fn(async (_u: string, kind: string, id: string) => {
+      server.rows.delete(key(kind, id));
+    }),
   };
 });
 
@@ -42,6 +45,7 @@ import "@/lib/actions/tools/value-effort-matrix";
 import "@/lib/actions/tools/eisenhower";
 import "@/lib/actions/tools/cost-of-delay";
 import "@/lib/actions/tools/kano-model";
+import "@/lib/actions/workspace";
 
 const ctx = () => ({ userId: "u", source: "mcp" as const, squadProfileIds: [] as string[] });
 const browser = async <T>(id: string, params: unknown = {}) =>
@@ -336,5 +340,46 @@ describe("tool.prioritizer", () => {
       ["c", 2],
       ["a", null],
     ]);
+  });
+});
+
+describe("workspace.backlog_item.delete", () => {
+  const b1: BacklogItem = {
+    id: "b1",
+    name: "Passkeys",
+    businessValue: 13,
+    timeCriticality: 8,
+    riskReduction: 2,
+    jobSize: 3,
+    updatedAt: STAMP,
+  };
+  const linked: PrioritizationItem = {
+    id: "w1",
+    framework: "wsjf",
+    title: "Passkeys",
+    fields: {},
+    backlogItemId: "b1",
+    updatedAt: STAMP,
+  };
+
+  it("freezes and unlinks the item's rows on the server, then deletes it", async () => {
+    server.rows.set("workspace:backlogItem/b1", b1);
+    server.rows.set("workspace:prioritization/w1", linked);
+    await mcp("workspace.backlog_item.delete", { id: "b1" });
+    expect(server.rows.has("workspace:backlogItem/b1")).toBe(false);
+    const row = server.rows.get("workspace:prioritization/w1") as PrioritizationItem;
+    expect(row.backlogItemId).toBeUndefined();
+    expect(row.fields).toEqual({ businessValue: 13, timeCriticality: 8, rrOe: 2, jobSize: 3 });
+    expect(row.score).toBeCloseTo(23 / 3, 6);
+  });
+
+  it("does the same in the browser", async () => {
+    useWorkspaceStore.setState({ backlogItems: [b1], prioritizations: [linked] });
+    await browser("workspace.backlog_item.delete", { id: "b1" });
+    expect(state().backlogItems).toEqual([]);
+    expect(storedRow("w1")).toMatchObject({
+      fields: { businessValue: 13, timeCriticality: 8, rrOe: 2, jobSize: 3 },
+    });
+    expect(storedRow("w1")?.backlogItemId).toBeUndefined();
   });
 });

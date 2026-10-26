@@ -18,12 +18,14 @@ import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-typ
 import { undoable } from "@/lib/utils/undoable";
 import {
   applyItemPatch,
-  frozenRow,
+  clearedKeys,
+  effectiveFields,
   itemPatchChanges,
   linkedItem,
   methodRow,
   ownedPatch,
 } from "./binding";
+import { withoutOldDefaults } from "./defaults";
 import { createBacklogItem } from "./frameworks";
 import { methodFor, type Values } from "./methods";
 
@@ -48,11 +50,19 @@ export function linkedBacklogItem(
   return linkedItem(row, items);
 }
 
-/** The backlog fields a row's stored inputs set, limited to the ones that change the item. */
-function inputChanges(item: BacklogItem, row: PrioritizationItem): Partial<BacklogItem> {
+/**
+ * The backlog fields a row's stored inputs set, limited to the ones that
+ * change the item; `cleared` names inputs the user blanked (clearedKeys),
+ * which clear the item's field too.
+ */
+function inputChanges(
+  item: BacklogItem,
+  row: PrioritizationItem,
+  cleared: readonly string[] = []
+): Partial<BacklogItem> {
   const m = methodFor(row.framework);
   if (!m || !m.embedded) return {};
-  return itemPatchChanges(item, ownedPatch(m.id, m.read(row.fields)));
+  return itemPatchChanges(item, ownedPatch(m.id, m.read(row.fields), cleared));
 }
 
 const hasChanges = (changes: Partial<BacklogItem>) => Object.keys(changes).length > 0;
@@ -70,20 +80,29 @@ function applyInputs(item: BacklogItem, changes: Partial<BacklogItem>): BacklogI
  * Put back the fields `written` overwrote, as they were on `before`, but
  * only those whose current value is still what was written: an edit made
  * since (in the hub, by an agent) is never clobbered.
+ *
+ * The save also unset the old-default fingerprints and stamped `updatedAt`
+ * (applyItemPatch), and those two go back only together. While the stamp
+ * is still ours, nobody saved the item since and it returns to exactly
+ * what it was, fingerprints and all (they read as Not scored again).
+ * Once someone has saved it, the stamp stays, so the item is read as
+ * chosen: the baseline is then `before` as the engine read it (the
+ * fingerprints unset), never an old default brought back as a score.
  */
 function restoreInputs(before: BacklogItem, written: BacklogItem | undefined): void {
   if (!written) return;
   const cur = findBacklogItem(before.id);
   if (!cur) return;
+  const base = cur.updatedAt === written.updatedAt ? before : withoutOldDefaults(before);
   const back: Record<string, unknown> = { ...cur };
   let changed = false;
-  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(written)]));
+  const keys = Array.from(new Set([...Object.keys(base), ...Object.keys(written)]));
   for (const key of keys) {
     if (key === "id") continue;
     const k = key as keyof BacklogItem;
-    if (written[k] === before[k] || cur[k] !== written[k]) continue;
-    if (before[k] === undefined) delete back[key];
-    else back[key] = before[k];
+    if (written[k] === base[k] || cur[k] !== written[k]) continue;
+    if (base[k] === undefined) delete back[key];
+    else back[key] = base[k];
     changed = true;
   }
   if (changed) ws().upsertBacklogItem(back as unknown as BacklogItem);
@@ -122,15 +141,21 @@ export function saveBacklogItem(id: string, patch: Partial<BacklogItem>): Backlo
  * from then on the row reads through to the item and later saves write
  * back (saveMethodRow). That write is undoable. A missing item leaves the
  * row unlinked.
+ *
+ * `values`, when given, are the inputs as the form saved them: one present
+ * as undefined is a value the user blanked from the import's prefill, and
+ * it clears the item's field too (the row reads through, so a value left
+ * on the item would come straight back).
  */
 export function linkNewRow(
   row: PrioritizationItem,
-  backlogItemId: string | null | undefined
+  backlogItemId: string | null | undefined,
+  values?: Values
 ): PrioritizationItem {
   if (!backlogItemId) return row;
   const item = findBacklogItem(backlogItemId);
   if (!item) return row;
-  const changes = inputChanges(item, row);
+  const changes = inputChanges(item, row, values ? clearedKeys(values) : []);
   if (hasChanges(changes)) {
     let written: BacklogItem | undefined;
     undoable({
@@ -146,11 +171,18 @@ export function linkNewRow(
 
 /**
  * Save a method row's inputs (a tool's edit, a drag on the matrix): the row
- * with `values` written over its fields and the engine's score cached, and,
- * when it is linked to a backlog item and the method is one the backlog
- * holds, the item's owned fields written through, both in one undoable.
- * Undo puts back only what is still as written. An unlinked row (or a
- * method the backlog doesn't hold) is a plain save with no toast.
+ * with `values` written over what it shows and the engine's score cached,
+ * and, when it is linked to a backlog item and the method is one the
+ * backlog holds, the item's owned fields written through, both in one
+ * undoable. Undo puts back only what is still as written (the item, the
+ * row and any other row the rename reached). An unlinked row (or a method
+ * the backlog doesn't hold) is a plain save with no toast.
+ *
+ * `values` merge over the inputs the row shows, read through to its item
+ * (effectiveFields), never over the row's own stale copy: an input left
+ * out keeps what the hub or an agent last wrote. An input present as
+ * undefined is a clear (a form's blanked input): the row drops it and, for
+ * a linked row of a method the backlog holds, so does the item.
  *
  * `title`, when given, renames the row (and its item, renameEverywhere).
  * Returns the stored row, or undefined when the row is gone.
@@ -165,17 +197,20 @@ export function saveMethodRow(
   if (!cur || !m) return undefined;
   const now = new Date().toISOString();
   const title = opts.title?.trim() ? opts.title : cur.title;
+  const item = linkedItem(cur, ws().backlogItems ?? []);
+  const merged: Values = { ...m.read(effectiveFields(cur, item)), ...values };
   const nextRow = methodRow({
     id: cur.id,
     framework: m.id,
     title,
-    values: { ...m.read(cur.fields), ...values },
+    values: merged,
     prev: cur,
     now,
   });
-  const item = linkedItem(cur, ws().backlogItems ?? []);
   const changes: Partial<BacklogItem> =
-    item && m.embedded ? itemPatchChanges(item, ownedPatch(m.id, m.read(nextRow.fields))) : {};
+    item && m.embedded
+      ? itemPatchChanges(item, ownedPatch(m.id, m.read(nextRow.fields), clearedKeys(values)))
+      : {};
   const renamed = item && nextRow.title !== cur.title ? nextRow.title : undefined;
   if (renamed && item && renamed !== item.name) changes.name = renamed;
 
@@ -186,18 +221,20 @@ export function saveMethodRow(
   }
 
   let written: BacklogItem | undefined;
+  let siblings: RenamedRow[] = [];
   undoable({
     label: opts.label ?? `Updated “${shortName(item.name)}” in the backlog`,
     apply: () => {
       ws().upsertPrioritization(nextRow);
       written = applyInputs(item, changes);
-      if (renamed) renameLinkedRows(item.id, renamed, rowId);
+      siblings = renamed ? renameLinkedRows(item.id, renamed, rowId) : [];
     },
     revert: () => {
       restoreInputs(item, written);
       const now2 = findRow(rowId);
       // The row goes back only if nobody saved it since.
       if (now2 && now2.updatedAt === nextRow.updatedAt) ws().upsertPrioritization(cur);
+      restoreRenamedRows(siblings);
     },
   });
   return nextRow;
@@ -253,19 +290,41 @@ export function addRowToBacklog(row: PrioritizationItem): string {
   return item.id;
 }
 
+/** A row renameLinkedRows retitled: as it was, and the stamp the rename wrote. */
+export interface RenamedRow {
+  before: PrioritizationItem;
+  updatedAt: string;
+}
+
 /**
  * After a backlog item is renamed, give its linked rows the new title
- * (`except` is a row already saved with it).
+ * (`except` is a row already saved with it). Returns the rows it changed,
+ * so an Undo can put their old titles back (restoreRenamedRows).
  */
-export function renameLinkedRows(backlogItemId: string, name: string, except?: string): void {
+export function renameLinkedRows(
+  backlogItemId: string,
+  name: string,
+  except?: string
+): RenamedRow[] {
   const title = name.trim().slice(0, 200);
-  if (!title) return;
+  if (!title) return [];
   const now = new Date().toISOString();
+  const out: RenamedRow[] = [];
   for (const row of ws().prioritizations ?? []) {
     if (row.id === except) continue;
     if (row.backlogItemId === backlogItemId && row.title !== title) {
       ws().upsertPrioritization({ ...row, title, updatedAt: now });
+      out.push({ before: row, updatedAt: now });
     }
+  }
+  return out;
+}
+
+/** Undo renameLinkedRows: each row back as it was, unless someone saved it since. */
+function restoreRenamedRows(renamed: readonly RenamedRow[]): void {
+  for (const r of renamed) {
+    const now = findRow(r.before.id);
+    if (now && now.updatedAt === r.updatedAt) ws().upsertPrioritization(r.before);
   }
 }
 
@@ -282,9 +341,9 @@ export function renameEverywhere(backlogItemId: string, name: string): void {
 }
 
 /**
- * Delete a backlog item with Undo. Each row that read through to it first
- * freezes a copy of the values it showed (so a WSJF row keeps its scores),
- * then the store unlinks the rows; Undo brings the item back and re-links
+ * Delete a backlog item with Undo. The store's removeBacklogItem freezes a
+ * copy of the values each linked row showed (so a WSJF row keeps its
+ * scores) and unlinks the rows; Undo brings the item back and re-links
  * those rows.
  */
 export function removeBacklogItemWithUndo(id: string, onRemoved?: () => void): void {
@@ -296,13 +355,6 @@ export function removeBacklogItemWithUndo(id: string, onRemoved?: () => void): v
   undoable({
     label: `Deleted “${shortName(item.name)}”`,
     apply: () => {
-      const fresh = findBacklogItem(id) ?? item;
-      const now = new Date().toISOString();
-      for (const row of ws().prioritizations ?? []) {
-        if (row.backlogItemId !== id) continue;
-        const frozen = frozenRow(row, fresh, now);
-        if (frozen !== row) ws().upsertPrioritization(frozen);
-      }
       ws().removeBacklogItem(id);
       onRemoved?.();
     },

@@ -128,6 +128,7 @@ import type {
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
+import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -1486,15 +1487,18 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ backlogItems: replaceById(_st.backlogItems ?? [], x) })),
       removeBacklogItem: (id) =>
         set((s) => {
-          // Framework rows that scored this item stay, unlinked.
-          const linked = (s.prioritizations ?? []).some((p) => p.backlogItemId === id);
+          // Framework rows that scored this item stay, unlinked, each with
+          // a frozen copy of the values it read through to the item (so a
+          // WSJF row keeps its scores), whoever deletes it: the hub, Undo
+          // of an add, the agent's workspace.backlog_item.delete.
+          const item = (s.backlogItems ?? []).find((y) => y.id === id);
+          const unlinked = rowsUnlinkedFrom(s.prioritizations ?? [], id, item);
+          const byId = new Map(unlinked.map((p) => [p.id, p]));
           return {
             backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id),
-            ...(linked
+            ...(unlinked.length > 0
               ? {
-                  prioritizations: (s.prioritizations ?? []).map((p) =>
-                    p.backlogItemId === id ? { ...p, backlogItemId: undefined } : p
-                  ),
+                  prioritizations: (s.prioritizations ?? []).map((p) => byId.get(p.id) ?? p),
                 }
               : {}),
           };
