@@ -24,7 +24,10 @@ vi.mock("@/lib/realtime/supabase-client", async () => {
 });
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {} }));
 
-import { VoteRoundPanel } from "@/components/collab/vote-room/vote-round-panel";
+import {
+  VoteRoundPanel,
+  type ScaleVoteRoundPanelProps,
+} from "@/components/collab/vote-room/vote-round-panel";
 
 const ON_THEIR_OWN =
   /[Pp]ress Enter counts instead \(where live rounds aren't available, the count boxes show on their own\)/;
@@ -42,7 +45,7 @@ const PULSE_GUIDES = [
 ] as const;
 
 function renderPanel(
-  props: Partial<Parameters<typeof VoteRoundPanel>[0]> = {},
+  props: Partial<ScaleVoteRoundPanelProps> = {},
   wrap: (n: ReactNode) => ReactNode = (n) => n
 ) {
   render(

@@ -13,7 +13,7 @@
  * so an edit can't quietly become a second saved round.
  */
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Calculator, Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -45,6 +45,8 @@ export interface FacilitatorTallyProps {
    * toast, or false when nothing was stored (the boxes stay open).
    */
   onSave: SaveVoteRound;
+  /** Shown under the results, before Save round. */
+  renderResults?: (result: VoteRoundResult) => ReactNode;
 }
 
 type Cells = Record<string, string[]>;
@@ -57,7 +59,13 @@ const COUNT_ERROR = "Enter a whole number, 0 or more.";
 const OVER_CAP_ERROR = `At most ${VOTE_LIMITS.maxTallyBallots}.`;
 const WHOLE_RE = /^\d+$/;
 
-export function FacilitatorTally({ tool, questionnaire, minN, onSave }: FacilitatorTallyProps) {
+export function FacilitatorTally({
+  tool,
+  questionnaire,
+  minN,
+  onSave,
+  renderResults,
+}: FacilitatorTallyProps) {
   const need = effectiveMinN(minN, tool);
   const [cells, setCells] = useState<Cells>(() => blankCells(questionnaire));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -233,6 +241,7 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
             minN={result.minN}
             ballots={result.ballots}
           />
+          {renderResults?.(result)}
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
