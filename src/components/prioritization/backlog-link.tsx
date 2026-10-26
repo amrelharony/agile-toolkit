@@ -8,7 +8,9 @@
  *   "Score with…" link (`?backlogItem=<id>`) preselects the item on load.
  *   The menu lists the backlog in its decided order (rank first). With
  *   `onEdit`, an item this method already scored opens that row for
- *   editing instead of adding a second row for the same item.
+ *   editing instead of adding a second row for the same item (`pick`
+ *   says which happened; ImportFromBacklog's `onRoutedToEdit` gets focus
+ *   into the editor once the menu has closed).
  * - `AddToBacklogButton`: create a backlog item from an unlinked row.
  * - `LinkedChip`: the row is linked; links to the Backlog Prioritizer.
  * - `BacklogRowLink`: whichever of the two a row needs.
@@ -52,7 +54,11 @@ export interface BacklogImport {
   items: BacklogItem[];
   /** The item the next added row will link to. */
   pending: BacklogItem | null;
-  pick: (item: BacklogItem) => void;
+  /**
+   * Pick an item: "edit" when it opened the row this method already has
+   * for it (`onEdit`), "prefill" when it filled the add form.
+   */
+  pick: (item: BacklogItem) => "edit" | "prefill";
   clear: () => void;
   /** Backlog items that already have a row in this method. */
   scoredIds: ReadonlySet<string>;
@@ -108,16 +114,17 @@ export function useBacklogImport(
   });
 
   const pick = useCallback(
-    (item: BacklogItem) => {
+    (item: BacklogItem): "edit" | "prefill" => {
       const existing = scoredRowsRef.current.get(item.id);
       if (existing && onEditRef.current) {
         // Already scored in this method: edit that row, never a duplicate.
         setPendingId(null);
         onEditRef.current(existing, item);
-        return;
+        return "edit";
       }
       setPendingId(item.id);
       onPickRef.current(item, frameworkFor(framework)?.fromBacklog?.(item) ?? {});
+      return "prefill";
     },
     [framework]
   );
@@ -156,9 +163,24 @@ export function useBacklogImport(
   };
 }
 
-/** "Import from backlog" menu, plus a chip naming the item the next row links to. */
-export function ImportFromBacklog({ link }: { link: BacklogImport }) {
+/**
+ * "Import from backlog" menu, plus a chip naming the item the next row links to.
+ *
+ * When a pick opens an already-scored row for editing, the menu must not
+ * hand focus back to its trigger as it closes (Radix does, after the
+ * editor has mounted): `onRoutedToEdit` runs instead, once the menu is
+ * gone, so the tool can put focus in the editor.
+ */
+export function ImportFromBacklog({
+  link,
+  onRoutedToEdit,
+}: {
+  link: BacklogImport;
+  /** Called after the menu closes on a pick that opened a row's editor. */
+  onRoutedToEdit?: () => void;
+}) {
   const { items, pending, pick, clear, scoredIds, routesToEdit } = link;
+  const routed = useRef(false);
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div aria-live="polite" className="flex min-w-0 items-center">
@@ -183,7 +205,17 @@ export function ImportFromBacklog({ link }: { link: BacklogImport }) {
             Import from backlog
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-72 max-h-80 overflow-y-auto">
+        <DropdownMenuContent
+          align="end"
+          className="w-72 max-h-80 overflow-y-auto"
+          onCloseAutoFocus={(e) => {
+            if (!routed.current) return;
+            routed.current = false;
+            // The editor that opened takes focus, not the trigger.
+            e.preventDefault();
+            onRoutedToEdit?.();
+          }}
+        >
           <DropdownMenuLabel className="text-xs font-normal text-sub">
             {items.length === 0 ? "Your backlog is empty" : "Pick a backlog item to score"}
           </DropdownMenuLabel>
@@ -193,7 +225,12 @@ export function ImportFromBacklog({ link }: { link: BacklogImport }) {
             </DropdownMenuItem>
           ) : (
             items.map((item) => (
-              <DropdownMenuItem key={item.id} onSelect={() => pick(item)}>
+              <DropdownMenuItem
+                key={item.id}
+                onSelect={() => {
+                  routed.current = pick(item) === "edit";
+                }}
+              >
                 <span className="min-w-0 flex-1 truncate">{itemName(item)}</span>
                 {scoredIds.has(item.id) && (
                   <span className="text-xs text-sub">

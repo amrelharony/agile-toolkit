@@ -8,10 +8,13 @@
  *
  * - add: a draft-then-save form (useItemForm + the method's validate, a
  *   blank input is an error, never a default), linked to the backlog item
- *   it was imported from (linkNewRow);
+ *   it was imported from (linkNewRow); `initialDraft` and `remember` seed
+ *   it with a shown, editable start (RICE's reach period, the last one
+ *   picked), never a mid-range score;
  * - import: "Import from backlog" lists the backlog in its decided order,
  *   and an item this method already scored opens its row for editing
- *   instead of adding a duplicate;
+ *   instead of adding a duplicate (focus moves into that editor, and it
+ *   is announced);
  * - edit in place: MethodRowEditor, saved through saveMethodRow (the row
  *   and, for a method the backlog holds, the linked item in one undoable);
  * - rows read through to their linked items (rankMethodRows), so a hub
@@ -19,7 +22,8 @@
  *   last; the order holds still while editing (useStableOrder + ResortChip);
  * - delete with an undoable toast; first run with EmptyState +
  *   LoadExampleButton and an ExampleNotice; export with Markdown, CSV and
- *   JSON; the verdict sentence; the AI prompts.
+ *   JSON, all three as the screen reads (exportRows); the verdict
+ *   sentence; the AI prompts.
  *
  * Plain <ol> rows (the ICE layout), not a DataTable: a DataTable renders
  * the table and its phone cards both, so every inline editor would exist
@@ -29,6 +33,7 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Pencil, Plus, Trash2, type LucideIcon } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -51,9 +56,11 @@ import { undoable } from "@/lib/utils/undoable";
 import { hasExampleItems, isExampleId } from "@/lib/utils/example-id";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import { linkNewRow, saveMethodRow } from "@/lib/prioritization/backlog-links";
-import { methodRow } from "@/lib/prioritization/binding";
+import { linkedItem, methodRow } from "@/lib/prioritization/binding";
 import {
   method as methodById,
+  readThrough,
+  scoreCache,
   type MethodId,
   type PrioritizationMethod,
   type Values,
@@ -109,6 +116,19 @@ export interface MethodToolConfig {
   history: { ITEM_ADDED: string; ITEM_UPDATED: string; ITEM_REMOVED: string };
   /** A row may be saved with only its title (WSJF column mode, the Value/Effort tray). */
   allowTitleOnly?: boolean;
+  /**
+   * What the add form starts with besides the title, shown and editable,
+   * never hidden (RICE: `{ reachPeriod: "quarter" }`). Nothing that would
+   * be a mid-range score: a default here is a unit or a period, never a
+   * value of the method's scale.
+   */
+  initialDraft?: Values;
+  /**
+   * Input keys the add form remembers: each starts at the value of the
+   * most recently saved row of this method that has one (read through to
+   * its item), else at `initialDraft` (RICE remembers its reach period).
+   */
+  remember?: readonly string[];
   /** The example rows (ids from exampleId), for "Load an example". */
   buildExample?: () => PrioritizationItem[];
   /** One sentence over the list. Default: the top scored row. */
@@ -138,6 +158,35 @@ export function useMethodRows(methodId: MethodId): RankedRow[] {
 /** The draft for a row (its inputs as read through) or an empty one. */
 export function draftFrom(title: string, values: Values = {}): MethodDraft {
   return { ...values, title };
+}
+
+/**
+ * The add form's first draft: `initialDraft`, then each `remember` key at
+ * the newest saved row's value for it (read through to its item). Reads
+ * the store when called, so the draft after an add starts from that add.
+ */
+export function startDraft(
+  m: PrioritizationMethod,
+  config: Pick<MethodToolConfig, "initialDraft" | "remember">,
+  rows: readonly PrioritizationItem[],
+  items: readonly BacklogItem[]
+): MethodDraft {
+  const out: MethodDraft = { ...config.initialDraft, title: "" };
+  if (!config.remember?.length) return out;
+  const newestFirst = rows
+    .filter((r) => r.framework === m.id)
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  for (const key of config.remember) {
+    for (const row of newestFirst) {
+      const item = m.embedded ? linkedItem(row, items) : undefined;
+      const v = m.read(readThrough(row, item))[key];
+      if (v !== undefined) {
+        out[key] = v;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /** The method's inputs of a draft (the title left out). */
@@ -478,19 +527,45 @@ function defaultCsv(m: PrioritizationMethod, rows: readonly RankedRow[]) {
   };
 }
 
+/**
+ * The JSON export: each row as the tool shows it. A linked row of a method
+ * the backlog holds reads through to its item, and hub or agent edits are
+ * never copied back to the row, so the stored fields and score can be
+ * stale: the export writes the shown inputs over them and recomputes the
+ * score cache, as the screen, the CSV and the Markdown read.
+ */
+export function exportRows(
+  m: PrioritizationMethod,
+  ranked: readonly RankedRow[]
+): PrioritizationItem[] {
+  return ranked.map((r) => {
+    const cache = scoreCache(r.result, r.row.status);
+    const out: PrioritizationItem = {
+      ...r.row,
+      fields: m.write(r.row.fields, r.values),
+      status: cache.status,
+    };
+    if (cache.score === undefined) delete out.score;
+    else out.score = cache.score;
+    return out;
+  });
+}
+
 /* ── The tool ──────────────────────────────────────────────────────── */
 
 export function MethodTool({ config }: { config: MethodToolConfig }) {
   const m = methodById(config.methodId);
   const ranked = useMethodRows(config.methodId);
   const actions = useMethodActions(config);
+  const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLLIElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // "Import from backlog" (or a "Score with…" link) fills the add form; an
-  // item this method already scored opens its row instead of a second one.
-  // It comes before the form: the item it links to decides what the form
-  // may keep (formRef reaches the form from the pick).
+  // item this method already scored opens its row instead of a second one,
+  // and says so. It comes before the form: the item it links to decides
+  // what the form may keep (formRef reaches the form from the pick).
   const formRef = useRef<ItemFormState<MethodDraft, string> | null>(null);
   const backlog = useBacklogImport(
     m.id,
@@ -499,8 +574,16 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
         ...(m.fromBacklog ? definedValues(m.fromBacklog(picked)) : {}),
         title: picked.name,
       }),
-    { onEdit: (row) => setEditingId(row.id) }
+    {
+      onEdit: (row) => {
+        setEditingId(row.id);
+        announce(`Editing “${shortName(row.title)}”: already scored with ${m.label}.`);
+      },
+    }
   );
+  // After the menu closes on such a pick: focus the editor's title (the
+  // editor's own focus on mount lost to the menu's focus handling).
+  const focusEditor = () => editorRef.current?.querySelector<HTMLElement>("input")?.focus();
   // What the imported item already holds: an off-scale value of it stays
   // valid in the add form ("Custom"), as it would in the row's editor.
   const pending = backlog.pending;
@@ -509,7 +592,11 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
     [pending, m]
   );
   const form = useItemForm<MethodDraft, MethodDraft, string>({
-    initial: { title: "" },
+    // Called again on every reset, so a remembered input follows the last add.
+    initial: () => {
+      const s = useWorkspaceStore.getState();
+      return startDraft(m, config, s.prioritizations ?? NO_ROWS, s.backlogItems ?? NO_ITEMS);
+    },
     validate: (d) => validateMethodDraft(m, d, config.allowTitleOnly, held),
     onSave: (values) => {
       actions.add(withClears(m, values), backlog.pending?.id);
@@ -547,7 +634,7 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
   const rows = ranked.map((r) => r.row);
 
   const renderRow = (r: RankedRow) => (
-    <li key={r.row.id} className="py-3">
+    <li key={r.row.id} ref={editingId === r.row.id ? editorRef : undefined} className="py-3">
       {editingId === r.row.id ? (
         <MethodRowEditor
           config={config}
@@ -581,7 +668,7 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
             form={form}
             submitLabel={config.submitLabel ?? "Add & score"}
             submitIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
-            footer={<ImportFromBacklog link={backlog} />}
+            footer={<ImportFromBacklog link={backlog} onRoutedToEdit={focusEditor} />}
           >
             <DraftFields
               config={config}
@@ -622,7 +709,7 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
                 <ExportButton
                   filename={config.toolId}
                   csvData={(config.csv ?? ((x) => defaultCsv(m, x)))(ranked)}
-                  jsonData={rows}
+                  jsonData={exportRows(m, ranked)}
                   markdown={config.toMarkdown?.(ranked)}
                   targetRef={exportRef}
                 />

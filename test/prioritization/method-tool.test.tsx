@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { Scale } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -35,8 +35,24 @@ vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
 
-import { MethodTool, type MethodToolConfig } from "@/components/prioritization/method-tool";
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+);
+
+import {
+  MethodTool,
+  exportRows,
+  type MethodToolConfig,
+} from "@/components/prioritization/method-tool";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WSJF } from "@/lib/prioritization/methods";
+import { rankMethodRows } from "@/lib/prioritization/rank";
 
 const STAMP = "2026-10-20T09:00:00.000Z";
 const CONFIG: MethodToolConfig = {
@@ -277,6 +293,118 @@ describe("MethodTool", () => {
     expect(within(list).getByText("Not scored")).toBeInTheDocument();
     act(() => undo.last!.revert());
     expect(storedItem("b1")).toMatchObject({ businessValue: 13, matrixEffort: 2 });
+  });
+
+  it("moves focus into the editor when the import menu opens a scored row, and says so", async () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        {
+          id: "b1",
+          name: "Passkeys",
+          businessValue: 3,
+          timeCriticality: 3,
+          riskReduction: 3,
+          jobSize: 3,
+          updatedAt: STAMP,
+        },
+      ],
+      prioritizations: [
+        {
+          id: "w1",
+          framework: "wsjf",
+          title: "Passkeys",
+          fields: {},
+          backlogItemId: "b1",
+          updatedAt: STAMP,
+        },
+      ],
+    });
+    render(
+      <LiveAnnouncerProvider>
+        <TooltipProvider>
+          <MethodTool config={CONFIG} />
+        </TooltipProvider>
+      </LiveAnnouncerProvider>
+    );
+    const trigger = screen.getByRole("button", { name: "Import from backlog" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Passkeys/ }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+    const title = within(editor).getByLabelText(/Feature title/);
+    await waitFor(() => expect(title).toHaveFocus());
+    expect(trigger).not.toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Editing “Passkeys”: already scored with WSJF."
+      )
+    );
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("starts the add form from initialDraft, then the last value picked", () => {
+    renderTool({
+      ...CONFIG,
+      methodId: "rice",
+      toolId: "rice-scoring",
+      listLabel: "Items",
+      initialDraft: { reachPeriod: "quarter" },
+      remember: ["reachPeriod"],
+    });
+    const period = () => screen.getByRole("radiogroup", { name: "Reach period" });
+    // Shown, never hidden: the period starts on "per quarter".
+    expect(within(period()).getByRole("radio", { name: "per quarter" })).toBeChecked();
+    fireEvent.change(screen.getByLabelText(/Feature title/), { target: { value: "Search" } });
+    fireEvent.change(screen.getByLabelText(/^Reach \(people\)/), { target: { value: "300" } });
+    fireEvent.click(within(period()).getByRole("radio", { name: "per month" }));
+    for (const group of ["Impact", "Confidence"]) {
+      fireEvent.click(
+        within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", {
+          name: /Medium/,
+        })
+      );
+    }
+    fireEvent.change(screen.getByLabelText(/^Effort/), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
+    expect(rows()[0]).toMatchObject({ fields: { reachPeriod: "month", reach: 300 } });
+    // The next add starts on the period just used.
+    expect(within(period()).getByRole("radio", { name: "per month" })).toBeChecked();
+    expect(screen.getByLabelText(/Feature title/)).toHaveValue("");
+  });
+
+  it("exports JSON as the screen reads it, read through to the item", () => {
+    const item: BacklogItem = {
+      id: "b1",
+      name: "Item",
+      businessValue: 20,
+      timeCriticality: 20,
+      riskReduction: 20,
+      jobSize: 1,
+      updatedAt: STAMP,
+    };
+    const stored: PrioritizationItem = {
+      id: "y",
+      framework: "wsjf",
+      title: "Linked",
+      fields: { businessValue: 1, timeCriticality: 1, rrOe: 1, jobSize: 1, note: "keep" },
+      score: 3,
+      status: "scored",
+      backlogItemId: "b1",
+      updatedAt: STAMP,
+    };
+    const [out] = exportRows(WSJF, rankMethodRows("wsjf", [stored], [item]));
+    expect(out).toMatchObject({
+      id: "y",
+      backlogItemId: "b1",
+      fields: { businessValue: 20, timeCriticality: 20, rrOe: 20, jobSize: 1, note: "keep" },
+      score: 60,
+      status: "scored",
+    });
+    const [blank] = exportRows(
+      WSJF,
+      rankMethodRows("wsjf", [{ ...stored, backlogItemId: undefined, fields: {} }], [])
+    );
+    expect(blank).toMatchObject({ status: "open" });
+    expect(blank).not.toHaveProperty("score");
   });
 
   it("saves a title-only row when the tool allows it", () => {
