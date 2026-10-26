@@ -392,7 +392,9 @@ function hasNumber<T extends Pick<Decision, "number">>(d: T): d is T & { number:
  * The number the next record gets: one past the highest in the log, across
  * every template. Example rows don't count: they carry their own numbers
  * and go when the example is cleared, so the team's own sequence never
- * skips past them.
+ * skips past them. Nothing remembers a deleted record, so deleting the
+ * highest-numbered one frees its number for the next record (a number in
+ * use is never given twice; see withFreeNumber for an Undo).
  */
 export function nextDecisionNumber(list: readonly Pick<Decision, "id" | "number">[]): number {
   let max = 0;
@@ -401,12 +403,28 @@ export function nextDecisionNumber(list: readonly Pick<Decision, "id" | "number"
 }
 
 /**
+ * `d` with a number no other record in `list` holds: its own, or the next
+ * one when another record has taken it meanwhile (a deleted top record's
+ * number went to a new one before the delete was undone), so two records
+ * never share a label. An unnumbered record stays unnumbered (the
+ * Decision Log's move numbers it), and an example row keeps its own.
+ */
+export function withFreeNumber(
+  d: Decision,
+  list: readonly Pick<Decision, "id" | "number">[]
+): Decision {
+  if (!hasNumber(d) || isExampleId(d.id)) return d;
+  const taken = list.some((o) => o.id !== d.id && !isExampleId(o.id) && o.number === d.number);
+  return taken ? { ...d, number: nextDecisionNumber(list.filter((o) => o.id !== d.id)) } : d;
+}
+
+/**
  * Numbers for the records that have none (rows from before numbering,
  * DACI/RAPID rows copied in, records an agent or the generic CRUD created),
  * oldest day first, then by id, after the highest number in use: a number
- * already given is never changed or reused. Records with no known day go
- * last. Returns only the records it numbered, ready to save. Example rows
- * are left as they are.
+ * already given is never changed, and none in use is given again. Records
+ * with no known day go last. Returns only the records it numbered, ready
+ * to save. Example rows are left as they are.
  */
 export function numberUnnumbered(list: readonly Decision[]): Decision[] {
   let next = nextDecisionNumber(list);

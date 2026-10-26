@@ -237,4 +237,23 @@ describe("delete with Undo", () => {
     expect(removeDecisionRecord("new").pendingBlobRow).toBeUndefined();
     expect(moved()).toEqual(["done"]);
   });
+
+  it("delete, a new record, then Undo: the record comes back with the next number, not a shared one", () => {
+    useWorkspaceStore.setState({
+      decisions: [rec({ id: "a", number: 4 }), rec({ id: "top", number: 5 })],
+    });
+    const snap = removeDecisionRecord("top");
+    // The freed top number goes to the next record.
+    expect(createDecision(rec({ id: "new" })).number).toBe(5);
+    restoreDecisionRecord(snap);
+    expect(ws().decisions.map((d) => [d.id, d.number])).toEqual([
+      ["a", 4],
+      ["new", 5],
+      ["top", 6],
+    ]);
+    // Undone before anything took it: the record keeps its number.
+    const again = removeDecisionRecord("top");
+    restoreDecisionRecord(again);
+    expect(ws().decisions.find((d) => d.id === "top")?.number).toBe(6);
+  });
 });

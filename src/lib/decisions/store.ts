@@ -21,7 +21,7 @@ import type {
   WhiteboardObject,
 } from "@/lib/stores/workspace-types";
 import { setCloudPersistedValue } from "@/lib/sync/use-cloud-persisted";
-import { allDecisions, nextDecisionNumber } from "./model";
+import { allDecisions, nextDecisionNumber, withFreeNumber } from "./model";
 import {
   DECISION_LOG_KEY,
   DECISION_LOG_MOVED_KEY,
@@ -92,8 +92,10 @@ export function saveDecisions(list: readonly Decision[]): void {
 
 /**
  * Save a new record with the next number in the log (one sequence across
- * the templates, never reused): one past the highest in `all`, which
- * defaults to the records as they are now. Returns the record as saved.
+ * the templates): one past the highest in `all`, which defaults to the
+ * records as they are now. A number in use is never given again, but a
+ * deleted top record's number is (restoreDecisionRecord renumbers that
+ * record if its Undo comes later). Returns the record as saved.
  */
 export function createDecision(
   input: Omit<Decision, "number">,
@@ -161,12 +163,16 @@ export function removeDecisionRecord(id: string): DecisionRecordSnapshot {
  * Put back what `removeDecisionRecord` took (Undo). A row that came back
  * under the id since (another device's copy) is left as it is, and a card
  * is re-pinned only while it is still there and unpinned. A blob row the
- * delete marked moved is waiting for the move again.
+ * delete marked moved is waiting for the move again. A record whose number
+ * a new record took meanwhile gets the next one (withFreeNumber), so two
+ * records never share a label.
  */
 export function restoreDecisionRecord(snapshot: DecisionRecordSnapshot): void {
   const ws = useWorkspaceStore.getState();
   const { id, decision, daci, rapid, pendingBlobRow, cards } = snapshot;
-  if (decision && !ws.decisions.some((d) => d.id === id)) ws.upsertDecision(decision);
+  if (decision && !ws.decisions.some((d) => d.id === id)) {
+    ws.upsertDecision(withFreeNumber(decision, currentDecisions()));
+  }
   if (daci && !(ws.daciDecisions ?? []).some((d) => d.id === id)) ws.upsertDACIDecision(daci);
   if (rapid && !(ws.rapidDecisions ?? []).some((r) => r.id === id)) ws.upsertRAPIDDecision(rapid);
   if (pendingBlobRow) {

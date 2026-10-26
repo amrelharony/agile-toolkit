@@ -368,7 +368,9 @@ export interface Decision {
   /** The form it was raised with; absent: "adr" (every record from before templates). */
   template?: DecisionTemplate;
   /** One numbering sequence for the whole log, across templates (ADR-0003,
-   *  DACI-0004): assigned once and never reused. Absent: not numbered yet. */
+   *  DACI-0004): assigned once, never changed, and never held by two records
+   *  (only a deleted top record's number is given again). Absent: not
+   *  numbered yet. */
   number?: number;
   /** The options weighed. Absent on a pre-template ADR, whose `alternatives` are read instead. */
   options?: DecisionOption[];

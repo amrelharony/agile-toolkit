@@ -389,7 +389,9 @@ const DecisionSchema = z.object({
     .int()
     .positive()
     .optional()
-    .describe("One numbering sequence across templates (ADR-0003, DACI-0004); never reused."),
+    .describe(
+      "One numbering sequence across templates (ADR-0003, DACI-0004); never changed, and no two records share one."
+    ),
   options: z
     .array(z.object({ id: z.string(), text: z.string(), note: z.string().optional() }))
     .optional()

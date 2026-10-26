@@ -34,6 +34,7 @@ import {
   supersede,
   templateOf,
   timeToDecide,
+  withFreeNumber,
   withLegacyStatus,
 } from "@/lib/decisions/model";
 import { SINGLE_ROLES, TEMPLATES } from "@/lib/decisions/templates";
@@ -331,6 +332,22 @@ describe("numbers", () => {
     // Numbers given are never changed: nothing left to number.
     const numbered = list.map((d) => numberUnnumbered(list).find((n) => n.id === d.id) ?? d);
     expect(numberUnnumbered(numbered)).toEqual([]);
+  });
+
+  it("withFreeNumber keeps a record's number unless another record now holds it", () => {
+    const back = rec({ id: "x", number: 5 });
+    // The delete freed 5 and a new record took it before the Undo.
+    const list = [rec({ id: "a", number: 4 }), rec({ id: "new", number: 5 })];
+    expect(withFreeNumber(back, list)).toEqual({ ...back, number: 6 });
+    // Nobody took it, or only the record itself (or an example row) holds it.
+    const free = [rec({ id: "a", number: 4 }), rec({ id: "example-e", number: 5 })];
+    expect(withFreeNumber(back, free)).toBe(back);
+    expect(withFreeNumber(back, [...free, back])).toBe(back);
+    // Unnumbered records and example rows stay as they are.
+    const bare = rec({ id: "y" });
+    expect(withFreeNumber(bare, list)).toBe(bare);
+    const example = rec({ id: "example-z", number: 5 });
+    expect(withFreeNumber(example, list)).toBe(example);
   });
 
   it("labels a record by its template and number", () => {
