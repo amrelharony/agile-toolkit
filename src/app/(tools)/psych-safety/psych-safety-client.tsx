@@ -1,6 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+import { nanoid } from "nanoid";
+import { AlertTriangle, GitCompare, Heart, ListChecks, Radio, Users } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -9,152 +12,229 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 import { StatCard } from "@/components/shared/stat-card";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Button } from "@/components/ui/button";
+import { SectionCard } from "@/components/shared/section-card";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { SprintPicker } from "@/components/sprints/sprint-picker";
+import { VoteRoundPanel } from "@/components/collab/vote-room";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
-import { Heart, Plus, Trash2, AlertTriangle, Users } from "lucide-react";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { PsychSafetyLog, PsychSafetyRound, Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PSYCH_SAFETY_ACTIONS } from "@/lib/history/event-actions";
-import { generatePsychSafetyPrompts } from "@/lib/ai-prompts/psych-safety";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type {
-  Workspace,
-  PsychSafetyResponse as Response,
-  PsychSafetyQuestionId as QuestionId,
-} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { todayIso } from "@/lib/sprints/series";
+import { fmt } from "@/lib/charts/chart-text";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
+import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
+import {
+  ANOMALY_DROP,
+  LEGACY_ROUND_ID,
+  PSYCH_SAFETY_ID,
+  PSYCH_SAFETY_MIN_RESPONSES,
+  PSYCH_SAFETY_QUESTIONS,
+  ROUND_NAME_MAX,
+  compareRounds,
+  countsFromVoteResult,
+  defaultRoundName,
+  emptyPsychSafetyLog,
+  psychSafetyQuestionnaire,
+  questionLabel,
+  questionMeta,
+  roundDateProblem,
+  roundResult,
+  roundsOf,
+  withRound,
+  withRoundPatch,
+} from "@/lib/psych-safety/instrument";
+import { DayField } from "../health-check/day-field";
+import { radarText } from "./chart-text";
+import { validateRoundDetails, type RoundDetails } from "./details";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
+import { psychSafetyPrompts } from "./prompts";
+import { PsychSafetyRadar } from "./radar";
+import { RoundList } from "./rounds";
+import { psychSafetyVerdict } from "./verdict";
 
-interface QuestionMeta {
-  id: QuestionId;
-  text: string;
-  reversed: boolean;
-}
+/** Logged when a round is deleted: its id only. */
+const ROUND_REMOVED = "round_removed";
 
-const QUESTIONS: QuestionMeta[] = [
-  {
-    id: "q1",
-    text: "If I make a mistake on this team, it is held against me.",
-    reversed: true,
-  },
-  {
-    id: "q2",
-    text: "Members of this team are able to bring up problems and tough issues.",
-    reversed: false,
-  },
-  {
-    id: "q3",
-    text: "People on this team sometimes reject others for being different.",
-    reversed: true,
-  },
-  {
-    id: "q4",
-    text: "It is safe to take a risk on this team.",
-    reversed: false,
-  },
-  {
-    id: "q5",
-    text: "It is difficult to ask other members of this team for help.",
-    reversed: true,
-  },
-  {
-    id: "q6",
-    text: "No one on this team would deliberately act in a way that undermines my efforts.",
-    reversed: false,
-  },
-  {
-    id: "q7",
-    text: "Working with members of this team, my unique skills and talents are valued and utilized.",
-    reversed: false,
-  },
-];
+const QUESTIONNAIRE = psychSafetyQuestionnaire();
 
-const PS_ID = "psychSafety:current"; // MUST match PS_ID in psych-safety.ts.
-const EMPTY_RESPONSES: Response[] = [];
-const ORG_BENCHMARK = 4.0;
-
-// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
-// the responses[] array. Drop-in [state, setState] (structural types) so the
-// component body below is unchanged.
-function usePsychSafetyResponses(): [
-  Response[],
-  (u: Response[] | ((p: Response[]) => Response[])) => void,
-] {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.psychSafetyLogs ?? []).find((d) => d.id === PS_ID))
+function peekLog(): PsychSafetyLog | null {
+  return (
+    (useWorkspaceStore.getState().psychSafetyLogs ?? []).find((d) => d.id === PSYCH_SAFETY_ID) ??
+    null
   );
-  const upsert = useWorkspaceStore((s) => s.upsertPsychSafetyLog);
-  const responses = doc?.responses ?? EMPTY_RESPONSES;
-  const setResponses = (u: Response[] | ((p: Response[]) => Response[])) => {
-    const cur =
-      (useWorkspaceStore.getState().psychSafetyLogs ?? []).find((d) => d.id === PS_ID)?.responses ??
-      [];
-    const next = typeof u === "function" ? u(cur) : u;
-    upsert({ id: PS_ID, responses: next });
-  };
-  return [responses, setResponses];
 }
 
-function adjustedScore(raw: number, reversed: boolean): number {
-  return reversed ? 6 - raw : raw;
-}
-
-function defaultScores(): Record<QuestionId, number> {
-  return QUESTIONS.reduce((acc, q) => ({ ...acc, [q.id]: 3 }), {} as Record<QuestionId, number>);
-}
-
-interface RadarPoint {
-  cx: number;
-  cy: number;
-  px: number;
-  py: number;
-  benchPx: number;
-  benchPy: number;
-}
+const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${fmt(Math.abs(n), 2)}`;
 
 /**
- * Project a 7-axis radar chart into 300x300 SVG coordinates. Returns axes
- * (one per question) plus the polygon points for the team and benchmark.
+ * Psychological Safety: Edmondson's seven statements, answered in
+ * anonymous rounds (a live round on people's phones, or counts from paper)
+ * and kept only as counts per statement. A round's results show from five
+ * responses; two rounds compare statement by statement, and a statement
+ * whose score falls by more than half a point is flagged. The example is a
+ * read-only preview.
  */
-function projectRadar(
-  perQ: { id: QuestionId; reversedScore: number }[],
-  benchmark: number,
-  size = 300
-): {
-  cx: number;
-  cy: number;
-  radius: number;
-  axes: RadarPoint[];
-  teamPolygon: string;
-  benchPolygon: string;
-} {
-  const cx = size / 2;
-  const cy = size / 2;
-  const radius = (size / 2) * 0.78;
-  const n = perQ.length;
-  const axes = perQ.map((q, i) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
-    const norm = Math.max(0, Math.min(1, (q.reversedScore - 1) / 4));
-    const r = radius * norm;
-    const benchNorm = Math.max(0, Math.min(1, (benchmark - 1) / 4));
-    const br = radius * benchNorm;
-    return {
-      cx: cx + Math.cos(angle) * radius,
-      cy: cy + Math.sin(angle) * radius,
-      px: cx + Math.cos(angle) * r,
-      py: cy + Math.sin(angle) * r,
-      benchPx: cx + Math.cos(angle) * br,
-      benchPy: cy + Math.sin(angle) * br,
-    };
-  });
-  const teamPolygon = axes.map((a) => `${a.px},${a.py}`).join(" ");
-  const benchPolygon = axes.map((a) => `${a.benchPx},${a.benchPy}`).join(" ");
-  return { cx, cy, radius, axes, teamPolygon, benchPolygon };
-}
-
 export function PsychSafetyClient() {
-  const [responses, setResponses] = usePsychSafetyResponses();
-  const { log } = useHistoryLogger("psych-safety");
+  const hydrated = useWorkspaceHydrated();
+  const stored = useWorkspaceStore(
+    useShallow((s) => (s.psychSafetyLogs ?? []).find((d) => d.id === PSYCH_SAFETY_ID))
+  );
+  const [example, setExample] = useState<PsychSafetyLog | null>(null);
+  const preview = example !== null;
+  const log = example ?? stored ?? null;
+  const rounds = useMemo(() => roundsOf(log), [log]);
+  const { sprints } = useSelectedSprint();
+  const { log: logEvent } = useHistoryLogger("psych-safety");
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const [details, setDetails] = useState<RoundDetails>({ name: "", date: today });
+  const detailsRef = useRef(details);
+  detailsRef.current = details;
+  const [shownId, setShownId] = useState<string | null>(null);
+  const [fromId, setFromId] = useState<string | null>(null);
+  const [toId, setToId] = useState<string | null>(null);
+  const resultsTitleId = useId();
+  const roundSelectId = useId();
+  const fromSelectId = useId();
+  const toSelectId = useId();
+
+  const latest = rounds[rounds.length - 1] ?? null;
+  const shown = rounds.find((r) => r.id === shownId) ?? latest;
+  const shownAt = shown ? rounds.indexOf(shown) : -1;
+  const before = shownAt > 0 ? rounds[shownAt - 1] : null;
+  const result = roundResult(shown);
+  const beforeResult = roundResult(before);
+  const shownCmp = compareRounds(before, shown);
+
+  const to = rounds.find((r) => r.id === toId) ?? latest;
+  const from =
+    rounds.find((r) => r.id === fromId) ?? (to ? (rounds[rounds.indexOf(to) - 1] ?? null) : null);
+  const cmp = from && to && from.id !== to.id ? compareRounds(from, to) : null;
+
+  const verdict = psychSafetyVerdict(rounds);
+
+  /* ── Writes ─────────────────────────────────────────────────────────── */
+
+  const write = (fn: (l: PsychSafetyLog) => PsychSafetyLog | null): boolean => {
+    if (preview) return false;
+    const next = fn(peekLog() ?? emptyPsychSafetyLog());
+    if (!next) return false;
+    useWorkspaceStore.getState().upsertPsychSafetyLog(next);
+    return true;
+  };
+
+  const saveRound = (vote: VoteRoundResult) => {
+    const checked = validateRoundDetails(detailsRef.current, { today: todayIso(), log: peekLog() });
+    if (!checked.ok) {
+      // The day field only passes a valid day on, so this is a clock that moved back.
+      toast.error(checked.errors.date ?? checked.errors.name ?? "Check the round's details.");
+      return;
+    }
+    const d = checked.values;
+    const round: PsychSafetyRound = {
+      id: `psRound_${nanoid(8)}`,
+      name: d.name,
+      date: d.date,
+      ...(d.sprintId ? { sprintId: d.sprintId } : {}),
+      source: vote.source === "live" ? "room" : "facilitator",
+      responses: vote.ballots,
+      counts: countsFromVoteResult(vote),
+      createdAt: new Date().toISOString(),
+    };
+    if (!write((l) => withRound(l, round))) return;
+    // Counts only: never who answered, or what.
+    logEvent(PSYCH_SAFETY_ACTIONS.ASSESSMENT_SAVED, {
+      roundId: round.id,
+      responses: round.responses,
+    });
+    setDetails((x) => ({ ...x, name: "" }));
+    setShownId(round.id);
+    setToId(null);
+    setFromId(null);
+    announce(`Saved ${round.name}: ${round.responses} responses`);
+    return () => {
+      write((l) => ({ ...l, rounds: (l.rounds ?? []).filter((r) => r.id !== round.id) }));
+    };
+  };
+
+  const remove = (r: PsychSafetyRound) => {
+    if (r.id === LEGACY_ROUND_ID) {
+      const sheets = peekLog()?.responses ?? [];
+      undoable({
+        label: `Deleted ${r.name}`,
+        description: `${sheets.length} answer ${sheets.length === 1 ? "sheet" : "sheets"} from before rounds.`,
+        apply: () => {
+          write((l) => ({ ...l, responses: [] }));
+        },
+        revert: () => {
+          write((l) => ({ ...l, responses: [...sheets, ...(l.responses ?? [])] }));
+        },
+      });
+    } else {
+      removeWithUndo<PsychSafetyRound>({
+        label: `Deleted ${r.name}`,
+        update: (fn) => {
+          write((l) => ({ ...l, rounds: fn(l.rounds ?? []) }));
+        },
+        match: (x) => x.id === r.id,
+      });
+    }
+    logEvent(ROUND_REMOVED, { roundId: r.id });
+    if (shownId === r.id) setShownId(null);
+    announce(`Deleted ${r.name}`);
+  };
+
+  /* ── Exports and prompts ────────────────────────────────────────────── */
+
+  const markdown = useMemo(
+    () => toMarkdown(rounds, { verdict, shown, compared: before }),
+    [rounds, verdict, shown, before]
+  );
+  const csvData = useMemo(
+    () => ({
+      headers: [
+        "Round",
+        "Date",
+        "Responses",
+        "Statement",
+        "Reverse-scored",
+        "Answered 1",
+        "Answered 2",
+        "Answered 3",
+        "Answered 4",
+        "Answered 5",
+        "Score",
+      ],
+      rows: rounds.flatMap((r) => {
+        const res = roundResult(r);
+        return PSYCH_SAFETY_QUESTIONS.map((q) => {
+          const c = r.counts?.[q.id] ?? [0, 0, 0, 0, 0];
+          const score = res?.perQuestion.find((x) => x.id === q.id)?.adjusted ?? null;
+          return [
+            r.name,
+            r.date,
+            r.responses,
+            `${questionLabel(q.id)}. ${q.text}`,
+            q.reversed ? "yes" : "no",
+            ...c,
+            score === null ? "—" : Math.round(score * 100) / 100,
+          ];
+        });
+      }),
+    }),
+    [rounds]
+  );
+
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -171,419 +251,390 @@ export function PsychSafetyClient() {
       })
     )
   );
-
-  const [draftScores, setDraftScores] = useState<Record<QuestionId, number>>(defaultScores);
-  const [respondent, setRespondent] = useState("");
-  const [description, setDescription] = useState("");
-
-  const submitResponse = () => {
-    const id = crypto.randomUUID();
-    const desc = description.trim();
-    const trimmedRespondent = respondent.trim();
-    const r: Response = {
-      id,
-      ts: new Date().toISOString(),
-      scores: { ...draftScores },
-      respondent: trimmedRespondent.length > 0 ? trimmedRespondent : undefined,
-      description: desc.length > 0 ? desc : undefined,
-    };
-    setResponses((s) => [...s, r]);
-    log(PSYCH_SAFETY_ACTIONS.RESPONSE_LOGGED, {
-      responseId: id,
-      respondent: r.respondent,
-      description: r.description,
-    });
-    log(PSYCH_SAFETY_ACTIONS.ASSESSMENT_SAVED, {
-      responseId: id,
-      scores: r.scores,
-    });
-    setDraftScores(defaultScores());
-    setRespondent("");
-    setDescription("");
-  };
-
-  const removeResponse = (id: string) => {
-    setResponses((s) => s.filter((r) => r.id !== id));
-    log(PSYCH_SAFETY_ACTIONS.RESPONSE_LOGGED, {
-      responseId: id,
-      removed: true,
-    });
-  };
-
-  // Per-question average (raw and reversed-adjusted).
-  const perQuestion = useMemo(() => {
-    return QUESTIONS.map((q) => {
-      const vals = responses.map((r) => r.scores[q.id]);
-      if (vals.length === 0) {
-        return { id: q.id, text: q.text, reversed: q.reversed, avg: 0, reversedScore: 0 };
-      }
-      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-      return {
-        id: q.id,
-        text: q.text,
-        reversed: q.reversed,
-        avg,
-        reversedScore: adjustedScore(avg, q.reversed),
-      };
-    });
-  }, [responses]);
-
-  // Team score = mean of all reversed-adjusted per-question averages.
-  const teamScore = useMemo(() => {
-    if (responses.length === 0) return 0;
-    const sum = perQuestion.reduce((acc, q) => acc + q.reversedScore, 0);
-    return sum / perQuestion.length;
-  }, [perQuestion, responses.length]);
-
-  const lowest = useMemo(() => {
-    if (responses.length === 0) return undefined;
-    return perQuestion.reduce(
-      (acc, q) => (acc === undefined || q.reversedScore < acc.reversedScore ? q : acc),
-      undefined as undefined | (typeof perQuestion)[number]
-    );
-  }, [perQuestion, responses.length]);
-
-  // Anomaly: split responses by halves; compare team scores to detect a >0.5 drop.
-  const { delta, anomaly } = useMemo(() => {
-    if (responses.length < 4) return { delta: undefined, anomaly: false };
-    const sorted = [...responses].sort((a, b) => a.ts.localeCompare(b.ts));
-    const mid = Math.floor(sorted.length / 2);
-    const prior = sorted.slice(0, mid);
-    const recent = sorted.slice(mid);
-    const meanScore = (rs: Response[]) => {
-      if (rs.length === 0) return 0;
-      const perQ = QUESTIONS.map((q) => {
-        const vals = rs.map((r) => r.scores[q.id]);
-        if (vals.length === 0) return 0;
-        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-        return adjustedScore(avg, q.reversed);
-      });
-      return perQ.reduce((a, b) => a + b, 0) / perQ.length;
-    };
-    const priorScore = meanScore(prior);
-    const recentScore = meanScore(recent);
-    const d = recentScore - priorScore;
-    return { delta: d, anomaly: d < -0.5 };
-  }, [responses]);
-
-  const radar = useMemo(() => projectRadar(perQuestion, ORG_BENCHMARK), [perQuestion]);
-
   const promptConfig = useMemo(
-    () => ({
-      toolName: "Psychological Safety Assessment",
-      prompts: generatePsychSafetyPrompts(
+    () =>
+      psychSafetyPrompts(
         {
-          questions: QUESTIONS.map((q) => ({
-            id: q.id,
-            text: q.text,
-            reversed: q.reversed,
-          })),
-          perQuestionAvg: perQuestion.map((q) => ({
-            id: q.id,
-            avg: q.avg,
-            reversedScore: q.reversedScore,
-          })),
-          teamScore,
-          benchmark: ORG_BENCHMARK,
-          responseCount: responses.length,
-          lowestQuestionId: lowest?.id,
-          delta,
+          roundName: shown?.name ?? "",
+          result,
+          previousName: before?.name,
+          comparison: shownCmp,
         },
         workspace
       ),
-    }),
-    [perQuestion, teamScore, responses.length, lowest, delta, workspace]
+    [shown, result, before, shownCmp, workspace]
   );
 
-  const csvData = useMemo(
-    () => ({
-      headers: ["Timestamp", "Respondent", ...QUESTIONS.map((q) => q.id), "Description"],
-      rows: responses.map((r) => [
-        r.ts,
-        r.respondent ?? "",
-        ...QUESTIONS.map((q) => r.scores[q.id]),
-        r.description ?? "",
-      ]),
-    }),
-    [responses]
-  );
+  const title = "Psychological Safety Assessment";
+  const description =
+    "Edmondson's seven statements in anonymous rounds: a team score from five responses, and how it moves between rounds.";
+
+  if (!hydrated) {
+    return (
+      <ToolPageWrapper
+        toolId="psych-safety"
+        title={title}
+        description={description}
+        category="Team Health & Maturity"
+      >
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading the survey…
+        </p>
+      </ToolPageWrapper>
+    );
+  }
+
+  const lowest = result?.lowest ? result.perQuestion.find((q) => q.id === result.lowest) : null;
 
   return (
     <ToolPageWrapper
       toolId="psych-safety"
-      title="Psychological Safety Assessment"
-      description="Edmondson 7-question survey with team-vs-org benchmark and per-question radar."
+      title={title}
+      description={description}
       category="Team Health & Maturity"
     >
+      {preview && (
+        <div>
+          <ExampleNotice onClear={() => setExample(null)} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: a product team&apos;s two rounds, the second after an incident. It&apos;s a
+            read-only preview: nothing is saved.
+          </p>
+        </div>
+      )}
+
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
-        <ExportButton filename="psych-safety" csvData={csvData} jsonData={responses} />
+        <ExportButton filename="psych-safety" csvData={csvData} markdown={markdown} />
       </ActionRow>
 
-      <KpiGrid cols={4} gap="lg">
-        <StatCard
-          variant="compact"
-          icon={Heart}
-          label="Team score"
-          value={responses.length === 0 ? "—" : `${teamScore.toFixed(2)}`}
-          unit="/5"
-          hint={`benchmark ${ORG_BENCHMARK.toFixed(1)}`}
-          valueClassName="text-accent"
-        />
-        <StatCard variant="compact" icon={Users} label="Responses" value={responses.length} />
-        <StatCard
-          variant="compact"
-          label="Lowest question"
-          value={lowest ? `Q${lowest.id.slice(1)}` : "—"}
-          hint={lowest ? `${lowest.reversedScore.toFixed(2)}/5` : ""}
-        />
-        <StatCard
-          variant="compact"
-          icon={AlertTriangle}
-          label="Anomaly"
-          value={anomaly ? "drop" : "ok"}
-          hint={
-            delta !== undefined
-              ? `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} vs prior half`
-              : "needs ≥ 4 responses"
-          }
-          tone={anomaly ? "danger" : "default"}
-        />
-      </KpiGrid>
+      <p className="mb-4 text-sm font-medium text-text" data-testid="psych-safety-verdict">
+        {verdict}
+      </p>
 
-      {anomaly && (
-        <CalloutAlert tone="danger" className="mb-4">
-          <strong>Score dropped &gt; 0.5</strong> compared to the prior half of responses —
-          investigate which dimensions slipped.
-        </CalloutAlert>
-      )}
-
-      <div className="rounded-lg border border-border bg-surface p-4 mb-4">
-        <div className="text-xs uppercase tracking-wider text-sub mb-3">Log a response</div>
-        <div className="space-y-3">
-          {QUESTIONS.map((q) => (
-            <div key={q.id} className="rounded-md border border-border bg-bg p-3 space-y-2">
-              <div className="text-xs text-text">
-                <span className="text-sub mr-1">Q{q.id.slice(1)}.</span>
-                {q.text}
-                {q.reversed && (
-                  <span className="ml-2 text-xs uppercase tracking-wider text-warning">
-                    reversed
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <Slider
-                  min={1}
-                  max={5}
-                  step={1}
-                  value={[draftScores[q.id]]}
-                  onValueChange={(v) => setDraftScores((s) => ({ ...s, [q.id]: v[0] ?? 3 }))}
-                  className="flex-1"
-                  aria-label={`Score for ${q.text}`}
+      <div className="space-y-6">
+        <SectionCard title="Run a round" icon={Radio} contentClassName="space-y-4">
+          {preview ? (
+            <p className="text-sm text-sub">Clear the example to run a round with your team.</p>
+          ) : (
+            <>
+              <p className="text-sm text-sub">
+                Everyone answers the seven statements on their own, anonymously. Only how many chose
+                each answer is kept, and the results show from {PSYCH_SAFETY_MIN_RESPONSES}{" "}
+                responses, so no one&apos;s answers can be singled out.
+              </p>
+              <div className="flex flex-wrap items-end gap-4">
+                <Field
+                  label="Round name"
+                  hint={`Leave blank to call it ${defaultRoundName(log)}.`}
+                  className="min-w-0 max-w-xs flex-1"
+                >
+                  {(props) => (
+                    <Input
+                      {...props}
+                      value={details.name}
+                      maxLength={ROUND_NAME_MAX}
+                      placeholder={defaultRoundName(log)}
+                      onChange={(e) => setDetails((x) => ({ ...x, name: e.target.value }))}
+                    />
+                  )}
+                </Field>
+                <DayField
+                  label="Taken on"
+                  value={details.date}
+                  max={today}
+                  problem={(day) => roundDateProblem(day, today)}
+                  onChange={(day) => setDetails((x) => ({ ...x, date: day }))}
                 />
-                <span className="font-data text-sm text-accent w-8 text-right">
-                  {draftScores[q.id]}
-                </span>
-              </div>
-            </div>
-          ))}
-          {/* BUG-T6-psych-safety-1: be HONEST about what happens with
-              the respondent field. "anonymous-friendly" implied it was
-              stripped; in reality it's persisted, exported in CSV, and
-              shown to every viewer. Either rephrase OR remove the field
-              entirely. Here: rephrase + add a warning. */}
-          <Input
-            value={respondent}
-            onChange={(e) => setRespondent(e.target.value)}
-            placeholder="Respondent name (visible to anyone with workspace access)"
-            className="bg-bg border-border text-sm"
-            aria-label="Respondent"
-            aria-describedby="psych-safety-respondent-note"
-          />
-          <p id="psych-safety-respondent-note" className="text-xs text-warning -mt-1">
-            Edmondson&rsquo;s instrument relies on anonymity for honest answers. Leave blank to
-            preserve it.
-          </p>
-          <Textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description / additional context (optional)..."
-            rows={2}
-            className="bg-bg border-border text-sm resize-none"
-            aria-label="Description"
-          />
-          <div className="flex justify-end">
-            <Button onClick={submitResponse} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-              <Plus className="w-4 h-4" aria-hidden="true" />
-              Submit response
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {responses.length === 0 ? (
-        <EmptyState icon={Heart}>
-          No responses yet. Submit the first one above to see the radar and team score.
-        </EmptyState>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          {/* Radar */}
-          <div className="rounded-lg border border-border bg-surface p-4">
-            <div className="text-xs uppercase tracking-wider text-sub mb-2">
-              Per-question radar (1-5 reversed-adjusted)
-            </div>
-            <div className="flex justify-center">
-              <svg
-                viewBox="0 0 300 300"
-                className="w-full max-w-[300px] h-auto"
-                role="img"
-                aria-label="Psychological safety radar chart"
-              >
-                {/* Concentric reference rings at 1, 2, 3, 4, 5. */}
-                {[1, 2, 3, 4, 5].map((lvl) => (
-                  <circle
-                    key={lvl}
-                    cx={radar.cx}
-                    cy={radar.cy}
-                    r={radar.radius * ((lvl - 1) / 4)}
-                    fill="none"
-                    stroke="rgba(255,255,255,0.08)"
-                    strokeWidth={1}
+                {sprints.length > 0 && (
+                  <SprintPicker
+                    sprints={sprints}
+                    selectedId={details.sprintId}
+                    onSelect={(id) => setDetails((x) => ({ ...x, sprintId: id }))}
+                    label="Sprint (optional)"
+                    allowCreate={false}
                   />
-                ))}
-                {/* Axis lines + labels */}
-                {radar.axes.map((a, i) => (
-                  <g key={i}>
-                    <line
-                      x1={radar.cx}
-                      y1={radar.cy}
-                      x2={a.cx}
-                      y2={a.cy}
-                      stroke="rgba(255,255,255,0.08)"
-                    />
-                    <text
-                      x={a.cx}
-                      y={a.cy}
-                      dx={a.cx > radar.cx ? 6 : a.cx < radar.cx ? -6 : 0}
-                      dy={a.cy > radar.cy ? 12 : a.cy < radar.cy ? -4 : 4}
-                      fontSize={10}
-                      fill="#94a3b8"
-                      textAnchor={
-                        Math.abs(a.cx - radar.cx) < 4 ? "middle" : a.cx > radar.cx ? "start" : "end"
-                      }
-                      className="font-data"
-                    >
-                      Q{i + 1}
-                    </text>
-                  </g>
-                ))}
-                {/* Benchmark polygon */}
-                <polygon
-                  points={radar.benchPolygon}
-                  fill="rgba(168, 85, 247, 0.10)"
-                  stroke="rgba(168, 85, 247, 0.6)"
-                  strokeDasharray="3 3"
-                  strokeWidth={1.5}
-                />
-                {/* Team polygon */}
-                <polygon
-                  points={radar.teamPolygon}
-                  fill="rgba(0, 240, 255, 0.18)"
-                  stroke="#00f0ff"
-                  strokeWidth={2}
-                />
-              </svg>
-            </div>
-            <div className="flex items-center justify-center gap-4 mt-2 text-xs text-sub">
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-2 rounded" style={{ background: "#00f0ff" }} />
-                Team
-              </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="inline-block w-3 h-2 rounded"
-                  style={{
-                    background: "rgba(168,85,247,0.4)",
-                    border: "1px dashed rgba(168,85,247,0.7)",
-                  }}
-                />
-                Org benchmark ({ORG_BENCHMARK.toFixed(1)})
-              </span>
-            </div>
-          </div>
-
-          {/* Per-question avg */}
-          <div className="rounded-lg border border-border bg-surface p-4">
-            <div className="text-xs uppercase tracking-wider text-sub mb-2">
-              Per-question averages
-            </div>
-            <div className="space-y-2">
-              {perQuestion.map((q, i) => (
-                <div key={q.id} className="text-xs">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <span className="text-text break-words">
-                      <span className="text-sub mr-1">Q{i + 1}.</span>
-                      {q.text}
-                    </span>
-                    <span className="font-data text-accent shrink-0">
-                      {q.reversedScore.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-bg overflow-hidden">
-                    <div
-                      className="h-full"
-                      style={{
-                        // Clamp to [0, 100] so an empty-response state
-                        // (reversedScore = 0) doesn't produce a negative
-                        // width percent that some browsers render unevenly.
-                        width: `${Math.max(0, Math.min(100, ((q.reversedScore - 1) / 4) * 100))}%`,
-                        background: "var(--accent)",
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {responses.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs uppercase tracking-wider text-sub">
-            Responses ({responses.length})
-          </div>
-          {responses.map((r) => (
-            <div
-              key={r.id}
-              className="rounded-md border border-border bg-bg p-2 text-xs flex items-start justify-between gap-2"
-            >
-              <div className="min-w-0">
-                <div className="text-sub">
-                  {new Date(r.ts).toLocaleString()}
-                  {r.respondent && ` · ${r.respondent}`}
-                </div>
-                <div className="text-text font-data">
-                  {QUESTIONS.map((q) => `Q${q.id.slice(1)}=${r.scores[q.id]}`).join(" · ")}
-                </div>
-                {r.description && (
-                  <div className="text-sub whitespace-pre-wrap">{r.description}</div>
                 )}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => removeResponse(r.id)}
-                className="h-6 w-6 p-0 text-sub hover:text-danger shrink-0"
-                aria-label={`Remove response from ${new Date(r.ts).toLocaleString()}`}
-              >
-                <Trash2 className="w-3 h-3" aria-hidden="true" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
+              <VoteRoundPanel
+                tool="psych-safety"
+                toolName="Psych Safety"
+                questionnaire={QUESTIONNAIRE}
+                minN={PSYCH_SAFETY_MIN_RESPONSES}
+                onSave={saveRound}
+              />
+            </>
+          )}
+        </SectionCard>
+
+        {rounds.length === 0 ? (
+          <EmptyState
+            icon={Heart}
+            action={
+              <LoadExampleButton onLoad={() => setExample(buildExample())} className="mt-4" />
+            }
+          >
+            No rounds yet. Run one above: a live round on people&apos;s phones, or the counts from
+            paper answers.
+          </EmptyState>
+        ) : (
+          <>
+            <SectionCard
+              title={<span id={resultsTitleId}>Results</span>}
+              icon={Heart}
+              titleSize="lg"
+              contentClassName="space-y-4"
+            >
+              <div className="flex min-w-0 flex-col gap-1">
+                <label htmlFor={roundSelectId} className="text-xs font-medium text-sub">
+                  Round
+                </label>
+                <select
+                  id={roundSelectId}
+                  value={shown?.id ?? ""}
+                  onChange={(e) => setShownId(e.target.value)}
+                  className="flex h-9 max-w-full rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-sm"
+                >
+                  {[...rounds].reverse().map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} · {r.date}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <KpiGrid cols={4} gap="lg">
+                <StatCard
+                  variant="compact"
+                  icon={Heart}
+                  label="Team score"
+                  value={result?.teamScore != null ? fmt(result.teamScore, 2) : "—"}
+                  unit={result?.teamScore != null ? "/5" : undefined}
+                  hint="Higher is safer"
+                  valueClassName="text-accent"
+                />
+                <StatCard
+                  variant="compact"
+                  icon={Users}
+                  label="Responses"
+                  value={shown?.responses ?? "—"}
+                />
+                <StatCard
+                  variant="compact"
+                  label="Lowest statement"
+                  value={lowest ? questionLabel(lowest.id) : "—"}
+                  hint={lowest?.adjusted != null ? `${fmt(lowest.adjusted, 2)}/5` : undefined}
+                />
+                <StatCard
+                  variant="compact"
+                  icon={AlertTriangle}
+                  label={before ? `Change since ${before.name}` : "Change"}
+                  value={shownCmp?.delta != null ? signed(shownCmp.delta) : "—"}
+                  hint={before ? undefined : "First round"}
+                  tone={shownCmp?.anomaly ? "danger" : "default"}
+                />
+              </KpiGrid>
+
+              {!result ? (
+                <NotEnoughData
+                  have={shown?.responses ?? 0}
+                  need={PSYCH_SAFETY_MIN_RESPONSES}
+                  unit={["response", "responses"]}
+                  action="That round needed"
+                  what="its results"
+                />
+              ) : (
+                <>
+                  {shownCmp?.anomaly && before && (
+                    <CalloutAlert tone="danger">
+                      <strong>
+                        {shownCmp.dropped.length === 1
+                          ? "One statement fell"
+                          : `${shownCmp.dropped.length} statements fell`}{" "}
+                        by more than {ANOMALY_DROP} since {before.name}:
+                      </strong>{" "}
+                      {shownCmp.dropped.map((id) => `“${questionMeta(id)?.text}”`).join(", ")}.
+                      Worth talking through at the retro, without asking who answered what.
+                    </CalloutAlert>
+                  )}
+                  {result.withheld.length === 0 ? (
+                    <ChartFigure
+                      labelledBy={resultsTitleId}
+                      {...radarText(result, shown?.name ?? "", beforeResult, before?.name ?? null)}
+                    >
+                      <PsychSafetyRadar cur={result.perQuestion} prev={beforeResult?.perQuestion} />
+                    </ChartFigure>
+                  ) : (
+                    <p className="text-sm text-sub">
+                      {result.withheld.map(questionLabel).join(", ")} had fewer than{" "}
+                      {PSYCH_SAFETY_MIN_RESPONSES} answers, so{" "}
+                      {result.withheld.length === 1 ? "it is" : "they are"} withheld.
+                    </p>
+                  )}
+                  <ul className="space-y-2" aria-label="Score per statement">
+                    {result.perQuestion.map((q) => (
+                      <li key={q.id} className="text-xs">
+                        <div className="mb-1 flex items-start justify-between gap-2">
+                          <span className="break-words text-text">
+                            <span className="mr-1 text-sub">{questionLabel(q.id)}.</span>
+                            {q.text}
+                            {q.reversed && (
+                              <span className="ml-2 text-xs text-warning">reverse-scored</span>
+                            )}
+                          </span>
+                          <span className="shrink-0 font-data text-accent">
+                            {q.adjusted === null ? "Withheld" : fmt(q.adjusted, 2)}
+                          </span>
+                        </div>
+                        <div
+                          className="h-1.5 overflow-hidden rounded-full bg-card-hover"
+                          aria-hidden="true"
+                        >
+                          {q.adjusted !== null && (
+                            <div
+                              className="h-full bg-accent"
+                              style={{ width: `${((q.adjusted - 1) / 4) * 100}%` }}
+                            />
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </SectionCard>
+
+            {rounds.length >= 2 && (
+              <SectionCard title="Compare rounds" icon={GitCompare} contentClassName="space-y-4">
+                <div className="flex flex-wrap items-end gap-3">
+                  {[
+                    { id: fromSelectId, label: "From", value: from?.id, set: setFromId },
+                    { id: toSelectId, label: "To", value: to?.id, set: setToId },
+                  ].map((s) => (
+                    <div key={s.label} className="flex min-w-0 flex-col gap-1">
+                      <label htmlFor={s.id} className="text-xs font-medium text-sub">
+                        {s.label}
+                      </label>
+                      <select
+                        id={s.id}
+                        value={s.value ?? ""}
+                        onChange={(e) => s.set(e.target.value)}
+                        className="flex h-9 max-w-full rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {rounds.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name} · {r.date}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                {!cmp ? (
+                  <p
+                    className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-sub"
+                    role="status"
+                  >
+                    {from && to && from.id === to.id
+                      ? "Pick two different rounds."
+                      : `Both rounds need ${PSYCH_SAFETY_MIN_RESPONSES} responses to compare: a change between thinner rounds is noise.`}
+                  </p>
+                ) : (
+                  <>
+                    {cmp.anomaly ? (
+                      <CalloutAlert tone="danger">
+                        <strong>Fell by more than {ANOMALY_DROP}:</strong>{" "}
+                        {cmp.dropped.map((id) => questionLabel(id)).join(", ")}.
+                      </CalloutAlert>
+                    ) : (
+                      <p className="text-sm text-sub">
+                        No statement fell by more than {ANOMALY_DROP}.
+                      </p>
+                    )}
+                    {/* relative: a containing block, so the sr-only caption can't widen the page. */}
+                    <div className="relative overflow-x-auto">
+                      <table className="w-full min-w-[20rem] text-sm">
+                        <caption className="sr-only">
+                          Score per statement, {from?.name} to {to?.name}
+                        </caption>
+                        <thead>
+                          <tr className="border-b border-border text-left text-xs text-sub">
+                            <th scope="col" className="py-1 pr-3 font-medium">
+                              Statement
+                            </th>
+                            <th scope="col" className="py-1 pr-3 text-right font-medium">
+                              {from?.name}
+                            </th>
+                            <th scope="col" className="py-1 pr-3 text-right font-medium">
+                              {to?.name}
+                            </th>
+                            <th scope="col" className="py-1 text-right font-medium">
+                              Change
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {PSYCH_SAFETY_QUESTIONS.map((q) => {
+                            const a =
+                              roundResult(from)?.perQuestion.find((x) => x.id === q.id)?.adjusted ??
+                              null;
+                            const b =
+                              roundResult(to)?.perQuestion.find((x) => x.id === q.id)?.adjusted ??
+                              null;
+                            const d = cmp.perQuestion.find((x) => x.id === q.id)?.delta ?? null;
+                            return (
+                              <tr key={q.id} className="border-b border-border last:border-0">
+                                <th
+                                  scope="row"
+                                  className="py-1 pr-3 text-left font-normal text-text"
+                                >
+                                  {questionLabel(q.id)}
+                                </th>
+                                <td className="py-1 pr-3 text-right font-data">
+                                  {a === null ? "—" : fmt(a, 2)}
+                                </td>
+                                <td className="py-1 pr-3 text-right font-data">
+                                  {b === null ? "—" : fmt(b, 2)}
+                                </td>
+                                <td
+                                  className={`py-1 text-right font-data ${d !== null && d < -ANOMALY_DROP ? "text-danger" : ""}`}
+                                >
+                                  {d === null ? "—" : signed(d)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </SectionCard>
+            )}
+
+            <SectionCard title="Rounds" icon={ListChecks} contentClassName="space-y-3">
+              <RoundList
+                rounds={rounds}
+                sprints={sprints}
+                today={today}
+                readOnly={preview}
+                onRename={(r, name) => write((l) => withRoundPatch(l, r.id, { name }))}
+                onRedate={(r, date) => write((l) => withRoundPatch(l, r.id, { date }))}
+                onRemove={remove}
+              />
+              {!preview && rounds.some((r) => r.source === "legacy") && (
+                <p className="text-xs text-sub">
+                  “Earlier responses” are the answer sheets this tool kept one by one before rounds.
+                  They count only as totals now; delete the round to remove the sheets.
+                </p>
+              )}
+            </SectionCard>
+          </>
+        )}
+      </div>
     </ToolPageWrapper>
   );
 }
