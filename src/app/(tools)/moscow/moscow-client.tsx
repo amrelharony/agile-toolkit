@@ -48,7 +48,8 @@ function RowValues({ ranked }: { ranked: RankedRow }) {
  * none is picked to start with), edit in place, Undo, the example, the
  * export and the live backlog binding come from MethodTool; the bucket and
  * its 4 / 3 / 2 / 1 priority from the method registry. The list groups by
- * bucket with a Move menu per row, and the Must budget sits under it.
+ * bucket with a Move menu per row (no rank or score on a row: the bucket
+ * is the answer), and the Must budget sits under it.
  */
 export const MOSCOW_TOOL: MethodToolConfig = {
   methodId: "moscow",
@@ -89,6 +90,7 @@ export const MOSCOW_TOOL: MethodToolConfig = {
     ),
   Inputs: MoscowInputs,
   RowValues,
+  rowScore: false,
   groups: moscowGroups,
   Panels: MustBudgetPanel,
 };

@@ -25,6 +25,7 @@ import {
   MOSCOW_BUCKETS,
   MOSCOW_LABEL,
   MOSCOW_MEANING,
+  moscowEffort,
   type MoscowBucket,
 } from "@/lib/prioritization/methods/moscow";
 import type { RankedRow } from "@/lib/prioritization/rank";
@@ -35,7 +36,9 @@ const NO_ITEMS: BacklogItem[] = [];
 /**
  * MoSCoW's inputs in the method-tool shell: the bucket (required, never a
  * default: the form starts with none picked) and an optional effort for
- * the Must budget, which a linked backlog item's job size replaces.
+ * the Must budget. A linked backlog item's job size replaces the effort,
+ * so for a row (or an import) whose item has one, the job size shows in
+ * its place, read-only: it's changed in the Backlog Prioritizer.
  */
 export function MoscowInputs({
   method,
@@ -44,17 +47,28 @@ export function MoscowInputs({
   errors,
   custom,
   size,
+  item,
 }: MethodInputsSlotProps) {
+  const jobSize = item ? moscowEffort(undefined, item) : null;
   return (
-    <MethodInputs
-      method={method}
-      draft={draft}
-      update={update}
-      errors={errors}
-      custom={custom}
-      size={size}
-      labels={{ effort: "Effort (points, optional)" }}
-    />
+    <>
+      <MethodInputs
+        method={method}
+        draft={draft}
+        update={update}
+        errors={errors}
+        custom={custom}
+        size={size}
+        hide={jobSize !== null ? ["effort"] : undefined}
+        labels={{ effort: "Effort (points, optional)" }}
+      />
+      {jobSize !== null && (
+        <p className="text-sm text-sub">
+          Effort: <span className="font-mono text-text">{formatNumber(jobSize, 2)}</span>{" "}
+          {jobSize === 1 ? "point" : "points"} from the backlog job size.
+        </p>
+      )}
+    </>
   );
 }
 

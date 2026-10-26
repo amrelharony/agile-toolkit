@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 
@@ -371,6 +372,100 @@ describe("MoSCoW live binding", () => {
     expect(label).toBe("Deleted “Gift wrap”");
     act(() => opts.action.onClick());
     expect(rows().map((r) => r.id)).toEqual(["a"]);
+  });
+});
+
+describe("MoSCoW rows and the row editor", () => {
+  const editorOf = () =>
+    screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+  const EFFORT = /^Effort \(points, optional\)/;
+
+  it("shows no rank or score on a row, and no Re-sort after a move", async () => {
+    useWorkspaceStore.setState({
+      prioritizations: [
+        row("a", "Alpha", { bucket: "should" }, { score: 3 }),
+        row("b", "Beta", { bucket: "must" }, { score: 4 }),
+      ],
+    });
+    render(<MoscowClient />);
+    expect(screen.queryByLabelText(/^Rank \d/)).toBeNull();
+    expect(screen.queryByLabelText("Not ranked")).toBeNull();
+    for (const g of ["Must have", "Should have"]) {
+      expect(within(group(g)).queryByText(/^[1-4](\.00)?$/)).toBeNull();
+    }
+    await moveTo("Alpha", /^Must have/);
+    expect(within(group("Must have")).getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Re-sort" })).toBeNull();
+  });
+
+  it("announces a bucket changed in the row editor, and keeps focus on the row", async () => {
+    useWorkspaceStore.setState({ prioritizations: [row("a", "Gift wrap", { bucket: "could" })] });
+    render(
+      <LiveAnnouncerProvider>
+        <MoscowClient />
+      </LiveAnnouncerProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit Gift wrap" }));
+    fireEvent.click(within(editorOf()).getByRole("radio", { name: "Won't have (this time)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(stored("a")?.fields).toEqual({ bucket: "wont" });
+    expect(
+      within(group("Won't have (this time)")).getByRole("button", { name: "Edit Gift wrap" })
+    ).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Moved “Gift wrap” to Won't have (this time)."
+      )
+    );
+  });
+
+  it("shows a linked item's job size in place of the Effort input", () => {
+    const sizedItem: BacklogItem = {
+      id: "b1",
+      name: "Card payments",
+      jobSize: 8,
+      updatedAt: "2026-10-20T09:00:00.000Z",
+    };
+    useWorkspaceStore.setState({
+      backlogItems: [sizedItem],
+      prioritizations: [
+        row("l", "Card payments", { bucket: "must", effort: 2 }, { backlogItemId: "b1" }),
+        row("u", "Gift wrap", { bucket: "could", effort: 3 }),
+      ],
+    });
+    render(<MoscowClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Card payments" }));
+    let editor = editorOf();
+    expect(within(editor).queryByLabelText(EFFORT)).toBeNull();
+    expect(editor).toHaveTextContent("Effort: 8 points from the backlog job size.");
+    // Saving leaves the row's own effort as it was (the job size counts while it's linked).
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(stored("l")?.fields).toEqual({ bucket: "must", effort: 2 });
+
+    // An unlinked row edits its own effort.
+    fireEvent.click(screen.getByRole("button", { name: "Edit Gift wrap" }));
+    editor = editorOf();
+    expect(within(editor).getByLabelText(EFFORT)).toHaveValue(3);
+    expect(editor).not.toHaveTextContent("from the backlog job size");
+  });
+
+  it("shows the job size in the add form for an item imported with one", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        { id: "b2", name: "Passkeys", jobSize: 1, updatedAt: "2026-10-20T09:00:00.000Z" },
+      ],
+    });
+    window.history.replaceState({}, "", "/moscow?backlogItem=b2");
+    try {
+      render(<MoscowClient />);
+      expect(screen.getByLabelText(TITLE)).toHaveValue("Passkeys");
+      expect(screen.queryByLabelText(EFFORT)).toBeNull();
+      expect(screen.getByText(/from the backlog job size\./)).toHaveTextContent(
+        "Effort: 1 point from the backlog job size."
+      );
+    } finally {
+      window.history.replaceState({}, "", "/moscow");
+    }
   });
 });
 
