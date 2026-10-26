@@ -35,6 +35,7 @@ import {
 } from "@/lib/realtime/vote-room/allocation";
 import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import { listAnd } from "@/lib/charts/chart-text";
+import { isIsoDate } from "@/lib/sprints/calendar";
 
 /** The budget everyone splits. */
 export const HUNDRED = 100;
@@ -202,6 +203,15 @@ export function isAllocationRoundTool(v: unknown): v is AllocationRoundTool {
 }
 
 /**
+ * A saved round as these tools write it: an `AllocationRound`, plus
+ * `spreadKnown: false` when its totals were typed by hand. The record's
+ * other fields can't tell typed totals from a spread withheld under 5
+ * answers (both have no bands), so the flag is written for typed totals
+ * only; a round without it reads as before (`spreadKnownOf`).
+ */
+export type AllocationRoundRecord = AllocationRound & { spreadKnown?: boolean };
+
+/**
  * A closed round as the workspace keeps it: the kit's aggregates-only
  * result, under `id`, for the day `date` (YYYY-MM-DD). Nothing per person
  * is in the result, so nothing per person can reach the record.
@@ -209,7 +219,7 @@ export function isAllocationRoundTool(v: unknown): v is AllocationRoundTool {
 export function allocationRoundFrom(
   result: AllocationRoundResult,
   meta: { id: string; date: string }
-): AllocationRound {
+): AllocationRoundRecord {
   return {
     id: meta.id,
     tool: result.tool,
@@ -223,6 +233,7 @@ export function allocationRoundFrom(
     minN: result.minN,
     ballots: result.ballots,
     source: result.source === "live" ? "room" : "facilitator",
+    ...(result.spreadKnown ? {} : { spreadKnown: false }),
     bandEdges: result.bandEdges.slice(),
     items: result.items.map((x) => ({
       itemId: x.id,
@@ -236,12 +247,14 @@ export function allocationRoundFrom(
 }
 
 /**
- * Whether a saved round knew how the amounts were spread. The record has
- * no flag for it: a round with any bands knew; one without bands from 5
- * answers had its totals typed in by hand (a live round or paper splits
- * would have kept them); under 5 the spread was withheld, not unknown.
+ * Whether a saved round knew how the amounts were spread. Typed totals
+ * carry `spreadKnown: false` (any count). A round without the flag (all
+ * others, and rows saved before it) is read from its bands: any bands, it
+ * knew; none from 5 answers, its totals were typed in (a live round or
+ * paper splits would have kept them); under 5 the spread was withheld.
  */
-export function spreadKnownOf(round: AllocationRound): boolean {
+export function spreadKnownOf(round: AllocationRoundRecord): boolean {
+  if (typeof round.spreadKnown === "boolean") return round.spreadKnown;
   if (round.items.some((x) => x.bands !== null)) return true;
   return round.ballots < Math.max(round.minN, VOTE_LIMITS.minNSpread);
 }
@@ -257,7 +270,10 @@ export function kitResultOf(round: AllocationRound): AllocationRoundResult {
     budget: round.budget,
     unit: round.unit,
     spendAll: round.spendAll,
-    closedAt: round.closedAt,
+    // The kit's Markdown prints closedAt's day, but a round's day is `date`
+    // (backdated, or a local day its UTC timestamp disagrees with).
+    closedAt:
+      round.closedAt.slice(0, 10) === round.date ? round.closedAt : `${round.date}T12:00:00.000Z`,
     minN: round.minN,
     ballots: round.ballots,
     source: round.source === "room" ? "live" : "facilitator",
@@ -303,6 +319,34 @@ export function roundsFor(
         b.closedAt.localeCompare(a.closedAt) ||
         b.id.localeCompare(a.id)
     );
+}
+
+/** "20 Oct 2026" for a YYYY-MM-DD day. */
+function dayText(day: string): string {
+  const d = new Date(`${day}T12:00:00`);
+  return Number.isNaN(d.getTime())
+    ? day
+    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * Why `day` can't date a saved round, in one sentence, or null when it
+ * can: a real YYYY-MM-DD (paper rounds can be backdated), not after
+ * `latest` (today; the server allows its tomorrow, since its day isn't the
+ * user's) and, for a game whose rounds follow each other (Buy-a-Feature),
+ * not before `earliest`, the last saved round's day.
+ */
+export function roundDayProblem(
+  day: string,
+  latest: string,
+  earliest?: string | null
+): string | null {
+  if (!isIsoDate(day) || day.length !== 10) return "Pick a day.";
+  if (day > latest) return "A round can't be dated in the future.";
+  if (earliest && day < earliest) {
+    return `A round can't be dated before the last one, on ${dayText(earliest)}.`;
+  }
+  return null;
 }
 
 /**
@@ -412,12 +456,18 @@ export function compareSplit(
   return out;
 }
 
-/** "the team mostly agrees on it", "the team is split on it", or nothing in between. */
-function agreementClause(agreement: number | null, many: boolean): string {
-  if (agreement === null) return "";
-  const it = many ? "them" : "it";
-  if (agreement >= AGREE_SHARE) return `, and the team mostly agrees on ${it}`;
-  if (agreement <= SPLIT_SHARE) return `, but the team is split on ${it}`;
+/**
+ * What the spread says about the leader: most people gave it nothing (a
+ * few big amounts carried its average), the team mostly agrees on it, the
+ * team is split on it, or nothing in between. Most people in the $0 band
+ * is never "agreement" on an item that leads.
+ */
+function agreementClause(a: TeamAverage, ballots: number): string {
+  if (!a.bands || ballots <= 0) return "";
+  if (a.bands[0] / ballots > 0.5) return ", but most people gave it nothing";
+  if (a.agreement === null) return "";
+  if (a.agreement >= AGREE_SHARE) return ", and the team mostly agrees on it";
+  if (a.agreement <= SPLIT_SHARE) return ", but the team is split on it";
   return "";
 }
 
@@ -438,7 +488,7 @@ export function hundredDollarVerdict(
     const head = `${latest.ballots} ${latest.ballots === 1 ? "person" : "people"} split ${allocationAmount(latest.budget, latest.unit)} each`;
     const money = allocationAmount(top, latest.unit);
     if (leaders.length === 1) {
-      return `${head}: ${leaders[0].text} leads with ${money} on average${agreementClause(leaders[0].agreement, false)}.`;
+      return `${head}: ${leaders[0].text} leads with ${money} on average${agreementClause(leaders[0], latest.ballots)}.`;
     }
     return `${head}: ${listAnd(leaders.map((a) => a.text))} lead with ${money} each on average.`;
   }

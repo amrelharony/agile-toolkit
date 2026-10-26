@@ -158,7 +158,7 @@ export function TeamResults({
           </ul>
         </ChartFigure>
         <p className="text-xs text-sub">
-          The bar is the team&apos;s average; the dark tick is the agreed split.
+          The bar is the team&apos;s average; the tick marks the agreed split.
         </p>
       </div>
 

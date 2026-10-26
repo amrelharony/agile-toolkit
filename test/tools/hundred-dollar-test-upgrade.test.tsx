@@ -12,7 +12,9 @@ import {
 } from "@/lib/stores/workspace-types";
 import {
   addAllocation,
+  allocationRoundMarkdown,
   emptyAllocationTally,
+  foldAllocationTotals,
   revealAllocation,
   toAllocationResult,
 } from "@/lib/realtime/vote-room/allocation";
@@ -25,11 +27,15 @@ import {
   hundredDollarSheet,
   hundredDollarVerdict,
   kitResultOf,
+  roundDayProblem,
   spreadKnownOf,
   spreadReason,
   splitSummary,
   teamAverages,
+  type AllocationRoundRecord,
 } from "@/lib/hundred-dollar/allocation";
+import { todayIso } from "@/lib/sprints/series";
+import { addDays } from "@/lib/impediments/model";
 import { registry } from "@/lib/actions/registry";
 import { exampleId } from "@/lib/utils/example-id";
 
@@ -774,4 +780,162 @@ describe("the libraries the agent actions use", () => {
       }
     }
   );
+});
+
+/* ── After review ───────────────────────────────────────────────────── */
+
+describe("$100 Test, after review", () => {
+  const three = () => [row("a", "Search"), row("b", "Exports"), row("c", "Themes")];
+  const TITLES = ["Search", "Exports", "Themes"];
+  const call = (verb: string, params: Record<string, unknown> = {}) =>
+    registry.get(`tool.hundred_dollar_test.${verb}`)?.handler(params, ctx()) as Promise<
+      Record<string, unknown>
+    >;
+
+  /** Totals typed by hand for `people`, as the kit's count entry folds them. */
+  function typedRound(people: number, totals: number[]): AllocationRoundRecord {
+    const sheet = hundredDollarSheet(three());
+    if (!sheet) throw new Error("no sheet");
+    const t = foldAllocationTotals(emptyAllocationTally("t", sheet), totals, people, sheet);
+    const revealed = t ? revealAllocation(t, 3) : null;
+    const result = revealed
+      ? toAllocationResult(sheet, revealed, {
+          tool: "hundred-dollar-test",
+          roundId: "tally-1",
+          closedAt: "2026-10-20T10:00:00.000Z",
+          minN: 3,
+          ballots: people,
+          source: "facilitator",
+          spreadKnown: t?.spreadKnown,
+        })
+      : null;
+    if (!result) throw new Error("no result");
+    return allocationRoundFrom(result, { id: "allocationRound_typed", date: "2026-10-20" });
+  }
+
+  it("keeps typed totals' spread as unknown at any count; old rows read as before", () => {
+    for (const people of [3, 4, 6]) {
+      const typed = typedRound(people, [people * 50, people * 30, people * 20]);
+      expect(typed.spreadKnown, `${people} people`).toBe(false);
+      expect(spreadKnownOf(typed)).toBe(false);
+      expect(spreadReason(typed)).toBe(
+        "The totals were typed in, so how the amounts were spread isn't known."
+      );
+      expect(allocationRoundMarkdown(kitResultOf(typed))).toContain(
+        "The spread isn't known: the totals were entered by hand."
+      );
+    }
+    // A row saved without the flag is read from its bands, as before.
+    const old: AllocationRoundRecord = { ...typedRound(4, [200, 120, 80]) };
+    delete old.spreadKnown;
+    expect(spreadKnownOf(old)).toBe(true);
+    // Splits (live or paper) keep the record as it was: no flag.
+    expect("spreadKnown" in foldedRound(three(), SPLITS.slice(0, 4))).toBe(false);
+  });
+
+  it("records an agent's typed totals from 3 people as a spread nobody knows", async () => {
+    useWorkspaceStore.setState({ prioritizations: three() });
+    const typed = await call("record_round", { totals: { a: 150, b: 100, c: 50 }, people: 3 });
+    expect(typed).toMatchObject({
+      saved: true,
+      ballots: 3,
+      spreadKnown: false,
+      spreadNote: "The totals were typed in, so how the amounts were spread isn't known.",
+    });
+    const state = (await call("list_state")) as { rounds: { spreadKnown: boolean }[] };
+    expect(state.rounds[0].spreadKnown).toBe(false);
+  });
+
+  it("shows typed totals from 4 people as typed in, not as needing more answers", () => {
+    useWorkspaceStore.setState({ prioritizations: three() });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Totals only" }));
+    [200, 120, 80].forEach((n, i) =>
+      fireEvent.change(screen.getByLabelText(`${i + 1}. ${TITLES[i]}`), {
+        target: { value: String(n) },
+      })
+    );
+    fireEvent.change(screen.getByLabelText("People who split the budget"), {
+      target: { value: "4" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Show totals" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(roundsInStore()[0]).toMatchObject({ ballots: 4, spreadKnown: false });
+    expect(
+      screen.getAllByText("The totals were typed in, so how the amounts were spread isn't known.")
+        .length
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/It needed 1 more answer/)).toBeNull();
+  });
+
+  it("says when most people gave the leader nothing, never that they agree on it", () => {
+    const polarised = foldedRound(three(), [
+      [0, 50, 50],
+      [0, 50, 50],
+      [0, 50, 50],
+      [85, 10, 5],
+      [85, 5, 10],
+    ]);
+    expect(teamAverages(polarised)[0]).toMatchObject({ mean: 34, bands: [3, 0, 0, 0, 2] });
+    expect(hundredDollarVerdict(three(), polarised)).toBe(
+      "5 people split $100 each: Search leads with $34 on average, but most people gave it nothing."
+    );
+  });
+
+  it("exports a backdated round under its own day", () => {
+    const r = { ...foldedRound(three(), SPLITS), date: "2026-10-18" };
+    const md = toMarkdown(three(), [r], new Date("2026-10-26T12:00:00"));
+    expect(md).toContain("5 people split anonymously in a live round, 2026-10-18, with $100 each");
+    expect(md).not.toContain("2026-10-20");
+  });
+
+  it("refuses a day that doesn't exist, is in the future, or comes before the last round", () => {
+    expect(roundDayProblem("2026-02-30", "2026-10-27")).toBe("Pick a day.");
+    expect(roundDayProblem("", "2026-10-27")).toBe("Pick a day.");
+    expect(roundDayProblem("2026-10-28", "2026-10-27")).toBe(
+      "A round can't be dated in the future."
+    );
+    expect(roundDayProblem("2026-10-19", "2026-10-27", "2026-10-20")).toBe(
+      "A round can't be dated before the last one, on 20 Oct 2026."
+    );
+    expect(roundDayProblem("2026-10-20", "2026-10-27", "2026-10-20")).toBeNull();
+  });
+
+  it("saves a round on the day picked, and names the agreed split's marker without a colour", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [row("a", "Search", 50), row("b", "Exports", 30), row("c", "Themes", 20)],
+    });
+    renderPage();
+    const day = addDays(todayIso(), -2);
+    fireEvent.change(screen.getByLabelText("Round held on"), { target: { value: day } });
+    for (const s of SPLITS) {
+      s.forEach((n, i) =>
+        fireEvent.change(screen.getByLabelText(`${i + 1}. ${TITLES[i]}`), {
+          target: { value: String(n) },
+        })
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Add split" }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Show totals" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(roundsInStore()[0].date).toBe(day);
+    expect(
+      screen.getByText("The bar is the team's average; the tick marks the agreed split.")
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Round held on"), {
+      target: { value: addDays(todayIso(), 1) },
+    });
+    expect(screen.getByText("A round can't be dated in the future.")).toBeInTheDocument();
+  });
+
+  it("refuses an agent's round on a day that doesn't exist", async () => {
+    useWorkspaceStore.setState({ prioritizations: three() });
+    expect(
+      await call("record_round", {
+        totals: { a: 150, b: 100, c: 50 },
+        people: 3,
+        date: "2026-02-30",
+      })
+    ).toEqual({ saved: false, reason: "Pick a day." });
+  });
 });

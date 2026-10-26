@@ -34,12 +34,15 @@ import {
   hundredDollarSheet,
   hundredDollarVerdict,
   hundredRows,
+  roundDayProblem,
   roundsFor,
   splitSummary,
   teamAverages,
   withAllocation,
   withoutAllocation,
 } from "@/lib/hundred-dollar/allocation";
+import { DayField } from "../health-check/day-field";
+import { useDayPick, useToday } from "../health-check/use-today";
 import { AddItemForm } from "./add-item-form";
 import { buildExample, type HundredDollarExample } from "./example";
 import { ItemRow } from "./item-row";
@@ -83,6 +86,9 @@ export function HundredDollarTestClient() {
   const [pickedRound, setPickedRound] = useState<string | null>(null);
   // For Clear all amounts' Undo: the rows as they were.
   const beforeReset = useRef<PrioritizationItem[]>([]);
+  const today = useToday();
+  // The day a team round is saved under: today unless picked (paper splits collected earlier).
+  const [roundDay, setRoundDay] = useDayPick(today);
 
   const round = rounds.find((r) => r.id === pickedRound) ?? rounds[0] ?? null;
   const latest = rounds[0] ?? null;
@@ -150,9 +156,14 @@ export function HundredDollarTestClient() {
       toast.error("Every item in the round has since been deleted, so nothing was saved.");
       return false;
     }
+    const dayProblem = roundDayProblem(roundDay, todayIso());
+    if (dayProblem) {
+      toast.error(`${dayProblem} Nothing was saved.`);
+      return false;
+    }
     const saved = allocationRoundFrom(result, {
       id: `allocationRound_${nanoid(8)}`,
-      date: todayIso(),
+      date: roundDay,
     });
     ws().upsertAllocationRound(saved);
     setPickedRound(saved.id);
@@ -357,6 +368,15 @@ export function HundredDollarTestClient() {
             each band of the $100, never anyone&apos;s split or who answered. Averages show from 3
             answers; who backed what and the spread from 5.
           </p>
+          <DayField
+            label="Round held on"
+            value={roundDay}
+            max={today}
+            problem={(d) => roundDayProblem(d, today)}
+            onChange={setRoundDay}
+            hint={roundDay !== today ? "Backdated" : "Paper rounds can be backdated."}
+            disabled={preview}
+          />
           <VoteRoundPanel
             tool="hundred-dollar-test"
             toolName="$100 Test"

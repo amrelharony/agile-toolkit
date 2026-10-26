@@ -62,6 +62,7 @@ import {
   hundredDollarSheet,
   hundredDollarVerdict,
   hundredRows,
+  roundDayProblem,
   roundsFor,
   splitSummary,
   spreadKnownOf,
@@ -272,7 +273,8 @@ async function recordRound(
   // The server's day (UTC on a typical deploy) isn't the user's: allow the day after it.
   const latest = onServer ? addDays(today, 1) : today;
   const date = params.date ?? today;
-  if (date > latest) return { saved: false, reason: "The round's date can't be in the future." };
+  const dayProblem = roundDayProblem(date, latest);
+  if (dayProblem) return { saved: false, reason: dayProblem };
   const ids = new Set(sheet.items.map((x) => x.id));
   const keys = [
     ...(params.splits ?? []).flatMap((s) => Object.keys(s)),
