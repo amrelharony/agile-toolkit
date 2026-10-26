@@ -64,9 +64,13 @@ describe("VisitorRoomConsent", () => {
     expect(VOTE_ROOM_CONSENT_TEXT).toBe(
       "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
         "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
-        "Everyone in the room sees each name and who has answered, never what they answered. " +
+        "Others in the room see your name and whether you've answered, not what. " +
+        "After the host reveals the results, everyone in the room sees the totals, for questions " +
+        "with enough answers; if everyone gives the same answer, the totals show it. " +
         "Share the link only with your team."
     );
+    // It promises no more than the round can keep.
+    expect(VOTE_ROOM_CONSENT_TEXT).not.toMatch(/never|anonymous/i);
     expect(dialog).toHaveAccessibleDescription(VOTE_ROOM_CONSENT_TEXT);
     expect(dialog).not.toHaveTextContent(VISITOR_ROOM_CONSENT_TEXT);
     expect(
