@@ -137,7 +137,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Add your team on the Team page first: each person becomes a column. People from an older matrix whose names match the team are merged; anyone else shows as Not on the team, with Add to the team or remove.",
-      "Under Add a skill, type the Skill and click Add skill. Set Target people and At level when it needs more than one person, for example 2 at Advanced or above. Skills listed on the Team page but missing here are offered with Add all.",
+      "Under Add a skill, type the Skill and click Add skill. Set Target people and At level when it needs more than one person, for example 2 at Advanced or above. Skills listed on the Team page but missing here are offered with Add all (Add it for one).",
       "Each person rates themselves: click their cell and pick a level. Clear takes a rating back to Not rated, which never counts.",
       "Read each skill's row: Gap means nobody is at Intermediate or above, Single point of failure names the one person who is, and Below target compares with the target.",
       "Under Cross-training plan, click Add to plan on a suggested pair, or add your own with a Learner, an optional Mentor (none means outside help), the level and a Due day. Click Done once the learner has got there.",
@@ -374,7 +374,7 @@ export const GUIDES: ToolGuide[] = [
       "Pick each item's status. For an Action, fill in the action, Owner and due date. Done records today; change Done on to backdate it.",
       "Click an item's text to edit it, use Edit details for the people, date or description, and write Notes (saved when you click out of the box).",
       "Under Cadence per report, pick each report's Cadence (every 1 to 4 weeks). Without one, their usual gap counts once they've had four 1:1s. A late 1:1 shows “→ N days overdue”, and the timeline shows the rhythm.",
-      "Delete a 1:1 or an item with Undo. Export gives the cadence and the 1:1s as Markdown or CSV.",
+      "Delete a 1:1 or an item with Undo. Export gives the cadence and the 1:1s as Markdown, or each 1:1's agenda and actions as CSV.",
     ],
     scales: [
       {

@@ -48,6 +48,14 @@ describe("Team guides match their pages", () => {
     expect(allText(g)).not.toMatch(/growth themes/i);
   });
 
+  it("1:1s: only the Markdown export carries the cadence; the CSV is one row per agenda item", () => {
+    const text = allText(guide("one-on-one"));
+    expect(text).not.toMatch(/Markdown or CSV/);
+    expect(text).toContain(
+      "the cadence and the 1:1s as Markdown, or each 1:1's agenda and actions as CSV"
+    );
+  });
+
   it("Onboarding: the built-ins and the KPIs' minimum", () => {
     const text = allText(guide("onboarding-tracker"));
     expect(text).toContain(`the ${WORDS[BUILT_IN_TEMPLATES.length]} defaults`);
@@ -89,6 +97,11 @@ describe("Team guides match their pages", () => {
     expect(scaleValues(g, "Proficiency")).toEqual(PROFICIENCY_STEPS.map((s) => s.name));
     expect(allText(g)).toContain("at Intermediate or above");
     expect(allText(g)).not.toMatch(/bus factor/i);
+  });
+
+  it("Skills Matrix: the add-listed-skills button reads Add it for one skill", () => {
+    // skills-matrix-client: "Add it" for one missing skill, "Add all N" for more.
+    expect(allText(guide("skills-matrix"))).toContain("offered with Add all (Add it for one)");
   });
 
   it("Maturity: the levels are the model's, and the trend starts at TREND_MIN_ASSESSMENTS", () => {
