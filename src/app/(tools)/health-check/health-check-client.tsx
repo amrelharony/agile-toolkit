@@ -101,7 +101,6 @@ const HealthTrendChart = dynamic(() => import("./charts").then((m) => m.HealthTr
 export const TREND_MIN_CHECKS = 2;
 
 /** Logged when a vote round fills the draft: counts only, never who voted what. */
-const ROUND_SAVED = HEALTH_CHECK_ACTIONS.ROUND_SAVED;
 
 /** The stored doc, normalised, read synchronously (no stale closures in setters). */
 function peekDoc(): HealthCheck {
@@ -333,7 +332,11 @@ export function HealthCheckClient() {
       );
       return false;
     }
-    log(ROUND_SAVED, { ballots: result.ballots, dimensions: keys.length, source: result.source });
+    log(HEALTH_CHECK_ACTIONS.ROUND_SAVED, {
+      ballots: result.ballots,
+      dimensions: keys.length,
+      source: result.source,
+    });
     announce(
       `${keys.length} ${keys.length === 1 ? "dimension" : "dimensions"} rated from ${result.ballots} votes`
     );

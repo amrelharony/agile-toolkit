@@ -2302,7 +2302,7 @@ export type PsychSafetyCounts = [number, number, number, number, number];
 /**
  * One survey round, as counts per question: from a vote room, typed in by
  * the facilitator, or folded from the per-response list the tool kept
- * before rounds ("legacy"). Nothing per person is kept.
+ * before rounds ("legacy"). A round holds counts only, nothing per person.
  */
 export interface PsychSafetyRound {
   /** "psRound_<nanoid(8)>". */

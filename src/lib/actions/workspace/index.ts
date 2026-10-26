@@ -1471,7 +1471,9 @@ const PsychSafetyLogSchema = z.object({
   id: z.string(),
   responses: z
     .array(PsychSafetyResponseSchema)
-    .describe("The per-response list from before rounds (read once, then emptied)."),
+    .describe(
+      "The answer sheets the tool kept one by one before rounds, each one person's answers. They are read as one legacy round and stay until the team deletes that round."
+    ),
   rounds: z
     .array(PsychSafetyRoundSchema)
     .optional()
