@@ -9,7 +9,9 @@
  * Advanced analysis.
  *
  * The grid is plain markup in `.scroll-x-snap` (it scrolls at 375 px), the
- * cell shading a theme token at an opacity by share.
+ * cell shading a theme token at an opacity by share (`pairCellFill`),
+ * capped so the count on it keeps 4.5:1 in every theme. The answer labels
+ * wrap rather than cut off ("I can live with it" in a 3rem column).
  */
 
 import { useEffect, useId, useRef } from "react";
@@ -32,6 +34,22 @@ export interface PairResultsProps {
   ballots: number;
   /** Move focus to the "Results" heading on mount: Reveal just replaced the control that had it. */
   focusHeading?: boolean;
+}
+
+/**
+ * The most a cell's accent shading may cover. The count sits on it in
+ * `--text`: at 0.4 the busiest cell is about 5.3:1 in the dark theme
+ * (#00e1ff over the card) and 5.8:1 in high contrast (#ffd400), and the
+ * light theme's dark text passes at any fill. At 0.75 the dark theme was
+ * about 2.3:1.
+ */
+export const PAIR_CELL_MAX_FILL = 0.4;
+const PAIR_CELL_MIN_FILL = 0.1;
+
+/** A cell's shading for `n` of the busiest cell's `top`: none for 0, up to `PAIR_CELL_MAX_FILL`. */
+export function pairCellFill(n: number, top: number): number {
+  if (n <= 0 || top <= 0) return 0;
+  return PAIR_CELL_MIN_FILL + (PAIR_CELL_MAX_FILL - PAIR_CELL_MIN_FILL) * Math.min(1, n / top);
 }
 
 /** "Most common pair: I like it / I dislike it (4 of 7)." or the tie, said as such. */
@@ -220,13 +238,13 @@ function ItemResult({
           >
             <span />
             {sheet.answers.map((a) => (
-              <span key={a} className="truncate text-center text-sub">
+              <span key={a} className="self-end break-words text-center leading-tight text-sub">
                 {a}
               </span>
             ))}
             {sheet.answers.map((a, f) => (
               <div key={a} className="contents">
-                <span className="truncate self-center text-sub">{a}</span>
+                <span className="self-center break-words leading-tight text-sub">{a}</span>
                 {sheet.answers.map((b, g) => {
                   const n = pairCount(joint, points, f, g);
                   return (
@@ -236,9 +254,18 @@ function ItemResult({
                     >
                       <span
                         className="absolute inset-0 bg-accent"
-                        style={{ opacity: n === 0 ? 0 : 0.15 + 0.6 * (n / top) }}
+                        data-pair-fill=""
+                        style={{ opacity: pairCellFill(n, top) }}
                       />
-                      <span className="relative font-data text-text">{n}</span>
+                      <span
+                        className={
+                          n === top && n > 0
+                            ? "relative font-data font-semibold text-text"
+                            : "relative font-data text-text"
+                        }
+                      >
+                        {n}
+                      </span>
                     </span>
                   );
                 })}

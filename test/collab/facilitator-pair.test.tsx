@@ -52,6 +52,39 @@ describe("FacilitatorPair", () => {
     expect(cell("CSV export", "I like it", "I like it")).toHaveAttribute("aria-invalid", "true");
   });
 
+  it("ties each feature's error to its boxes", () => {
+    const { type, show, cell } = setup();
+    type("CSV export", "I like it", "I like it", "1.5");
+    show();
+    const box = cell("CSV export", "I like it", "I like it");
+    expect(box).toHaveAccessibleDescription("Enter whole numbers, 0 or more, in every box.");
+    // A box that's fine isn't described by the error.
+    expect(cell("CSV export", "I like it", "I expect it")).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("marks a box over the cap on the box, with focus on it", () => {
+    const { type, show, cell } = setup();
+    type("Dark mode", "I like it", "I like it", "3");
+    type("CSV export", "I expect it", "I dislike it", "1000");
+    show();
+    const box = cell("CSV export", "I expect it", "I dislike it");
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    expect(box).toHaveFocus();
+    expect(box).toHaveAccessibleDescription("At most 999 in a box.");
+    expect(screen.getByRole("alert")).toHaveTextContent("At most 999 in a box.");
+    expect(screen.queryByRole("button", { name: "Save round" })).toBeNull();
+  });
+
+  it("says both when a feature has an unreadable box and one over the cap", () => {
+    const { type, show } = setup();
+    type("Dark mode", "I like it", "I like it", "1.5");
+    type("Dark mode", "I like it", "I expect it", "1000");
+    show();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter whole numbers, 0 or more, in every box. At most 999 in a box."
+    );
+  });
+
   it("applies the minN rule before showing anything", () => {
     const { type, show } = setup();
     type("Dark mode", "I like it", "I dislike it", "2");

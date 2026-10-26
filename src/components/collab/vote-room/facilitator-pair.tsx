@@ -10,11 +10,14 @@
  * fold), same minN rule (never under the tool's floor) and the same
  * `onSave`, with `source: "facilitator"`. Only counts are entered, never who
  * answered what. A blank box counts as nobody; text a number box can't read
- * is refused, not read as blank. Once a round is saved its boxes lock until
- * "Enter another round" (or Undo).
+ * is refused, not read as blank, and so is a box over
+ * `VOTE_LIMITS.maxTallyBallots`: each such box is marked invalid and
+ * described by its item's error, and focus goes to the first, as in
+ * `FacilitatorTally`. Once a round is saved its boxes lock until "Enter
+ * another round" (or Undo).
  */
 
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Calculator, Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,8 +52,15 @@ export interface FacilitatorPairProps {
 
 type Cells = Record<string, string[]>;
 
+/** An item's boxes to fix (joint indexes) and what to say under its grid. */
+interface BadCells {
+  cells: number[];
+  message: string;
+}
+
 const WHOLE_RE = /^\d+$/;
 const COUNT_ERROR = "Enter whole numbers, 0 or more, in every box.";
+const OVER_CAP_ERROR = `At most ${VOTE_LIMITS.maxTallyBallots} in a box.`;
 
 function blankCells(sheet: PairSheet): Cells {
   const width = sheet.answers.length * sheet.answers.length;
@@ -67,8 +77,10 @@ export function FacilitatorPair({
   const need = effectiveMinN(minN, tool);
   const points = sheet.answers.length;
   const [cells, setCells] = useState<Cells>(() => blankCells(sheet));
-  /** Item id → the boxes (joint indexes) that can't be read. */
-  const [bad, setBad] = useState<Record<string, number[]>>({});
+  /** Item id → the boxes that can't be read or are over the cap, and why. */
+  const [bad, setBad] = useState<Record<string, BadCells>>({});
+  const errorBase = useId();
+  const errorId = (i: number) => `${errorBase}-item-${i}-error`;
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<PairRoundResult | null>(null);
   const [focusPending, setFocusPending] = useState(false);
@@ -95,8 +107,8 @@ export function FacilitatorPair({
     if (saved) return;
     setCells((c) => ({ ...c, [itemId]: c[itemId].map((v, k) => (k === j ? value : v)) }));
     setBad((b) => {
-      if (!b[itemId]?.includes(j)) return b;
-      return { ...b, [itemId]: b[itemId].filter((k) => k !== j) };
+      if (!b[itemId]?.cells.includes(j)) return b;
+      return { ...b, [itemId]: { ...b[itemId], cells: b[itemId].cells.filter((k) => k !== j) } };
     });
     // Changed counts: the totals shown are stale.
     setResult(null);
@@ -112,20 +124,30 @@ export function FacilitatorPair({
       if (el.validity?.badInput === true && el.dataset.pairCell)
         unreadable.add(el.dataset.pairCell);
     });
-    const nextBad: Record<string, number[]> = {};
-    let overCap = false;
-    const joints = sheet.items.map((item) =>
-      (cells[item.id] ?? []).map((raw, j) => {
+    const nextBad: Record<string, BadCells> = {};
+    const joints = sheet.items.map((item) => {
+      const unread: number[] = [];
+      const over: number[] = [];
+      const row = (cells[item.id] ?? []).map((raw, j) => {
         const trimmed = raw.trim();
         if (unreadable.has(`${item.id}:${j}`) || (trimmed !== "" && !WHOLE_RE.test(trimmed))) {
-          nextBad[item.id] = [...(nextBad[item.id] ?? []), j];
+          unread.push(j);
           return 0;
         }
         const n = trimmed === "" ? 0 : Number(trimmed);
-        if (n > VOTE_LIMITS.maxTallyBallots) overCap = true;
+        if (n > VOTE_LIMITS.maxTallyBallots) over.push(j);
         return n;
-      })
-    );
+      });
+      if (unread.length > 0 || over.length > 0) {
+        nextBad[item.id] = {
+          cells: [...unread, ...over].sort((a, b) => a - b),
+          message: [unread.length > 0 ? COUNT_ERROR : null, over.length > 0 ? OVER_CAP_ERROR : null]
+            .filter(Boolean)
+            .join(" "),
+        };
+      }
+      return row;
+    });
     setBad(nextBad);
     if (Object.keys(nextBad).length > 0) {
       setFormError(null);
@@ -134,9 +156,7 @@ export function FacilitatorPair({
     }
     // People who answered: the item with the most answer pairs.
     const ballots = Math.max(0, ...joints.map((row) => row.reduce((a, b) => a + b, 0)));
-    const tally = overCap
-      ? null
-      : foldPairCounts(emptyPairTally("facilitator", sheet), joints, ballots);
+    const tally = foldPairCounts(emptyPairTally("facilitator", sheet), joints, ballots);
     if (!tally) {
       setFormError(`Enter at most ${VOTE_LIMITS.maxTallyBallots} people.`);
       return;
@@ -219,7 +239,7 @@ export function FacilitatorPair({
                           </th>
                           {sheet.answers.map((b, g) => {
                             const j = jointIndex(f, g, points);
-                            const invalid = bad[item.id]?.includes(j) === true;
+                            const invalid = bad[item.id]?.cells.includes(j) === true;
                             return (
                               <td key={b} className="px-1 py-1">
                                 <Input
@@ -231,6 +251,7 @@ export function FacilitatorPair({
                                   className="w-16"
                                   aria-label={`${item.text}: ${a}, then ${b}`}
                                   aria-invalid={invalid || undefined}
+                                  aria-describedby={invalid ? errorId(i) : undefined}
                                   data-pair-cell={`${item.id}:${j}`}
                                   value={cells[item.id]?.[j] ?? ""}
                                   onChange={(e) => setCell(item.id, j, e.target.value)}
@@ -243,9 +264,9 @@ export function FacilitatorPair({
                     </tbody>
                   </table>
                 </div>
-                {bad[item.id]?.length ? (
-                  <p className="text-xs text-danger" role="alert">
-                    {COUNT_ERROR}
+                {bad[item.id]?.cells.length ? (
+                  <p id={errorId(i)} className="text-xs text-danger" role="alert">
+                    {bad[item.id].message}
                   </p>
                 ) : null}
               </fieldset>

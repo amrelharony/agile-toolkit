@@ -12,12 +12,19 @@
  * both, or leave both blank to skip."). Errors show inline on the missing
  * half, focus goes to the first, and Enter on a scale sends. The draft
  * lives here only and is cleared once sent. Callers key it by round id.
+ *
+ * Every item asks the same two questions, so each scale's accessible name
+ * carries its item ("Dark mode: If it has this, how do you feel?"), and so
+ * does its Clear button: a screen reader moving between controls (or
+ * VoiceOver on iOS, which reads legends unreliably) hears which feature it
+ * is on. The visible label stays the question alone.
  */
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScalePicker, focusFirstInvalid } from "@/components/shared/scale-picker";
+import { ToggleGroup } from "@/components/ui/toggle-group";
+import { focusFirstInvalid } from "@/lib/utils/form";
 import {
   pairDraftKey,
   pairItemProblem,
@@ -46,6 +53,70 @@ function emptyDraft(sheet: PairSheet): PairDraft {
     out[pairDraftKey(item.id, "second")] = null;
   }
   return out;
+}
+
+/**
+ * One of an item's two questions as a segmented control. Like the shared
+ * `ScalePicker` (radio semantics, one tab stop, `data-scale-invalid` for
+ * `focusFirstInvalid`, the error describing the group), except that the
+ * group is named `name` while the visible label is `label`: ScalePicker
+ * names the group by its visible label, which is the same for every item.
+ */
+function PairQuestion({
+  name,
+  label,
+  answers,
+  value,
+  onValueChange,
+  onClear,
+  error,
+}: {
+  /** The group's accessible name: the item and the question. */
+  name: string;
+  /** The visible label: the question. */
+  label: string;
+  answers: readonly string[];
+  value: number | null;
+  onValueChange: (value: number) => void;
+  /** Offer "Clear" while an answer is picked (optional items only). */
+  onClear?: () => void;
+  error?: string;
+}) {
+  const id = useId();
+  const errorId = error ? `${id}-error` : undefined;
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5" data-scale-invalid={error ? "true" : undefined}>
+      <div className="flex min-h-6 items-center justify-between gap-2">
+        {/* The radio group carries `name`; this is the visible label. */}
+        <span className="text-sm text-text" aria-hidden="true">
+          {label}
+        </span>
+        {onClear && value !== null && (
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label={`Clear ${name}`}
+            className="min-touch-coarse rounded text-xs text-sub underline-offset-2 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <ToggleGroup
+        label={name}
+        className="flex-wrap"
+        options={answers.map((a, i) => ({ value: i, label: a }))}
+        value={value}
+        onValueChange={onValueChange}
+        aria-describedby={errorId}
+      />
+      {error && (
+        <p id={errorId} className="text-xs text-danger" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function PairAnswerForm({
@@ -147,9 +218,6 @@ export function PairAnswerForm({
     }
   };
 
-  const steps = sheet.answers.map((_, i) => ({ value: i }));
-  const labelFor = (v: number) => sheet.answers[v] ?? String(v);
-
   return (
     // Enter on a scale is a shortcut on top of the visible Send button.
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
@@ -188,25 +256,23 @@ export function PairAnswerForm({
                       .join(" ")}
                   </p>
                 )}
-                <ScalePicker
+                <PairQuestion
+                  name={`${item.text}: ${sheet.prompts.first}`}
                   label={sheet.prompts.first}
-                  steps={steps}
-                  format={labelFor}
+                  answers={sheet.answers}
                   value={draft[first] ?? null}
                   onValueChange={(v) => pick(first, v)}
                   onClear={clear(first)}
                   error={errors[first]}
-                  optionsClassName="flex-wrap"
                 />
-                <ScalePicker
+                <PairQuestion
+                  name={`${item.text}: ${sheet.prompts.second}`}
                   label={sheet.prompts.second}
-                  steps={steps}
-                  format={labelFor}
+                  answers={sheet.answers}
                   value={draft[second] ?? null}
                   onValueChange={(v) => pick(second, v)}
                   onClear={clear(second)}
                   error={errors[second]}
-                  optionsClassName="flex-wrap"
                 />
               </fieldset>
             </li>

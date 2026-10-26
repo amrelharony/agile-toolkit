@@ -30,13 +30,20 @@ function setup(result: VoteSubmitResult = "sent") {
 describe("PairAnswerForm", () => {
   it("asks both questions about every feature, with nothing picked", () => {
     const { feature, half } = setup();
-    for (const name of [/Dark mode/, /CSV export/, /Emoji reactions \(optional\)/]) {
+    for (const [name, text] of [
+      [/Dark mode/, "Dark mode"],
+      [/CSV export/, "CSV export"],
+      [/Emoji reactions \(optional\)/, "Emoji reactions"],
+    ] as const) {
+      // Each scale is named with its feature: the two questions are the same for every one.
       expect(
-        within(feature(name)).getByRole("radiogroup", { name: "If it has this, how do you feel?" })
+        within(feature(name)).getByRole("radiogroup", {
+          name: `${text}: If it has this, how do you feel?`,
+        })
       ).toBeInTheDocument();
       expect(
         within(feature(name)).getByRole("radiogroup", {
-          name: "If it doesn't have this, how do you feel?",
+          name: `${text}: If it doesn't have this, how do you feel?`,
         })
       ).toBeInTheDocument();
       for (const which of [0, 1] as const) {
@@ -53,6 +60,19 @@ describe("PairAnswerForm", () => {
     }
     expect(screen.getByText("Across the whole app")).toBeInTheDocument();
     expect(screen.getByText("Leave both blank to skip.")).toBeInTheDocument();
+    // The visible label stays the question alone.
+    expect(screen.getAllByText("If it has this, how do you feel?")).toHaveLength(3);
+  });
+
+  it("names an optional feature's Clear buttons with the feature too", () => {
+    const { pick } = setup();
+    pick(/Emoji/, 0, "I'm neutral");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Clear Emoji reactions: If it has this, how do you feel?",
+      })
+    );
+    expect(screen.queryByRole("button", { name: /^Clear/ })).toBeNull();
   });
 
   it("marks the missing halves of required features, focusing the first", async () => {

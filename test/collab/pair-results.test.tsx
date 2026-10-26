@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import {
+  PAIR_CELL_MAX_FILL,
   PairResults,
+  pairCellFill,
   pairResultsVerdict,
   pairSummary,
 } from "@/components/collab/vote-room/pair-results";
@@ -97,5 +99,28 @@ describe("PairResults", () => {
       <PairResults sheet={PAIR_SHEET} revealed={REVEALED} minN={3} ballots={7} focusHeading />
     );
     expect(screen.getByRole("heading", { name: "Results" })).toHaveFocus();
+  });
+
+  it("caps a cell's shading so the count on it stays readable in every theme", () => {
+    expect(pairCellFill(0, 4)).toBe(0);
+    expect(pairCellFill(4, 4)).toBe(PAIR_CELL_MAX_FILL);
+    expect(PAIR_CELL_MAX_FILL).toBeLessThanOrEqual(0.4);
+    expect(pairCellFill(1, 4)).toBeGreaterThan(0);
+    expect(pairCellFill(1, 4)).toBeLessThan(pairCellFill(2, 4));
+    render(<PairResults sheet={PAIR_SHEET} revealed={REVEALED} minN={3} ballots={7} />);
+    const fills = within(screen.getByRole("figure", { name: "1. Dark mode" }))
+      .getAllByText((_, el) => el?.hasAttribute("data-pair-fill") === true)
+      .map((el) => Number((el as HTMLElement).style.opacity));
+    expect(fills).toHaveLength(25);
+    expect(Math.max(...fills)).toBe(PAIR_CELL_MAX_FILL);
+  });
+
+  it("wraps the answer labels instead of cutting them off at phone width", () => {
+    render(<PairResults sheet={PAIR_SHEET} revealed={[REVEALED[0]]} minN={3} ballots={7} />);
+    const figure = screen.getByRole("figure", { name: "1. Dark mode" });
+    const labels = within(figure).getAllByText("I can live with it");
+    // A column header and a row label, both whole.
+    expect(labels).toHaveLength(2);
+    for (const el of labels) expect(el).not.toHaveClass("truncate");
   });
 });
