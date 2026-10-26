@@ -69,39 +69,42 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "kudos",
     summary:
-      "A kudos wall is a shared place to thank teammates in public. Each kudos is a themed card with a short message, so recognition becomes a regular habit instead of an afterthought.",
+      "A kudos wall is a shared place to thank teammates in public. Each kudos is a themed card with a short message, and Recognition received shows who the team's kudos reach, so recognition becomes a fair, regular habit.",
     whenToUse: [
       "Right after someone helps you, unblocks the team or goes beyond their role.",
-      "At the end of a sprint or retro, to close on appreciation.",
+      "At the end of a sprint, to bring appreciation to the retro.",
       "In remote teams, where good work is easy to miss.",
     ],
     steps: [
       "Pick a Kudos type, such as Thank You or Great Job.",
-      "Choose the person in To, or pick “Type a name…” for someone who isn't listed. Add a Team if you like.",
-      "Write a Message of up to 50 words that says what they did and why it mattered. Check the Live preview.",
-      "Click Send kudos to post it to Recent kudos, or Download PNG to share it outside the toolkit.",
-      "React with an emoji or reply to cards others send. Use Invite squad so the whole team can see the wall.",
+      "Choose the person in To. Nobody is picked for you, though a Suggested name may appear. Pick “Type a name…” for someone who isn't listed; a name that isn't on the team offers Add to the team.",
+      "Write a Message of up to 50 words that says what they did and why it mattered, then click Send kudos or press Ctrl+Enter. If something is missing, the form says what.",
+      "Under Recognition received, pick the Window (Sprint, Last 30 days or All time) to see how many kudos each person received. View as table adds from how many people, and when the last one came.",
+      "From 5 kudos, with two or more people on the team, a hint names teammates who haven't received one. Click Send to <name> to write them one.",
+      "Click Add to retro on a card to put it in the current retro's appreciations; it then shows On the retro board. React or reply to a card, and use Export for Markdown, CSV or a PNG of the wall.",
     ],
     tips: [
       "Be specific. “Your test fixes halved our build time” means more than “Great job”.",
-      "Spread it around. Quiet work like reviews, docs and support often goes unthanked.",
-      "Add a short kudos round to the end of your retro.",
+      "Spread it around. Quiet work like reviews, docs and support often goes unthanked; the hints help you notice it.",
+      "Replies thank the sender and don't count as kudos for anyone.",
+      "Example kudos are never posted, shared with the room or added to the retro.",
     ],
   },
   {
     toolId: "maturity",
     summary:
-      "An agile maturity assessment rates how established the team's practices are across eight areas, such as Scrum Practices and Technical Excellence. You get a radar of strengths and gaps and a roadmap toward a target level.",
+      "An agile maturity assessment rates how established the team's practices are across eight areas, such as Scrum Practices and Technical Excellence. Each saved, dated assessment gives a level and an overall score from 0% to 100%, a trend over time and a roadmap toward a target level.",
     whenToUse: [
       "When a team wants a baseline at the start of its agile journey.",
       "Every 3–6 months, to choose where to focus improvement.",
     ],
     steps: [
-      "As a team, read the description under each dimension and move its slider to the level that matches today, not where you'd like to be.",
+      "As a team, pick each dimension's level as it is today, not where you'd like to be; the text under it says what that level looks like. A dimension stays Not scored until you pick, and Clear takes a pick back.",
       "If people disagree, discuss the evidence. When in doubt, pick the lower level.",
-      "Look at the Maturity Radar for the weakest dimensions.",
-      "Set a Target level. The Improvement Roadmap lists each dimension below it, with what the next level looks like.",
-      "Pick one or two roadmap items to work on. The tool keeps one current assessment, so export it before you re-score in a few months.",
+      "Set Taken on to the day you scored it (backdate if needed) and click Save assessment. It saves once all eight are scored.",
+      "Read the latest assessment: the radar against the previous one, and what changed since. From two assessments, Trend charts the overall score.",
+      "Pick a Target level. The Improvement roadmap lists a step for each dimension below it, weakest first; Send to… → Retro action makes a step a retro action to follow up.",
+      "Re-score every 3–6 months: Start from the last assessment copies its scores into the new draft. Edit a saved assessment's day or note in place, or delete it with Undo.",
     ],
     scales: [
       {
@@ -118,6 +121,7 @@ export const GUIDES: ToolGuide[] = [
     tips: [
       "It's a conversation starter, not a grade. Scores used as targets get inflated.",
       "Move one level at a time. Jumping from 1 to 4 rarely sticks.",
+      "Until an assessment is saved, the team has no maturity level, so other tools don't assume level 1.",
       "Pair it with the Squad Health Check to hear how the team feels about its work.",
     ],
     timebox: "45–60 minutes",
@@ -125,23 +129,25 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "skills-matrix",
     summary:
-      "A skills matrix maps who knows what on the team. It shows knowledge gaps and skills that depend on a single person (a bus factor of 1), so you can plan pairing and learning.",
+      "A skills matrix maps who on the team can do what. It shows the skills nobody can do (gaps) and the ones that hang on one person (single points of failure), and plans who learns what.",
     whenToUse: [
       "When planning cross-training or onboarding.",
       "Before someone leaves, goes on long leave or changes team.",
       "When work keeps queuing behind one specialist.",
     ],
     steps: [
-      "Add skills as rows with Add Skill and people as columns with the + button. Click a name to rename it.",
-      "Each person rates themselves. Click a cell to step through None, Beginner, Intermediate, Advanced and Expert.",
-      "Check the Risk Analysis. A knowledge gap means nobody is Intermediate or above; bus factor 1 means only one person is Advanced or above.",
-      "Plan pairing, shadowing or training for the flagged skills, starting with the work the team needs most.",
-      "Review the matrix every quarter and whenever someone joins or leaves.",
+      "Add your team on the Team page first: each person becomes a column. People from an older matrix whose names match the team are merged; anyone else shows as Not on the team, with Add to the team or remove.",
+      "Under Add a skill, type the Skill and click Add skill. Set Target people and At level when it needs more than one person, for example 2 at Advanced or above. Skills listed on the Team page but missing here are offered with Add all.",
+      "Each person rates themselves: click their cell and pick a level. Clear takes a rating back to Not rated, which never counts.",
+      "Read each skill's row: Gap means nobody is at Intermediate or above, Single point of failure names the one person who is, and Below target compares with the target.",
+      "Under Cross-training plan, click Add to plan on a suggested pair, or add your own with a Learner, an optional Mentor (none means outside help), the level and a Due day. Click Done once the learner has got there.",
+      "Review it every quarter and whenever someone joins or leaves. Reset clears the skills, ratings and plan after you confirm, with Undo; the team stays.",
     ],
     scales: [
       {
         name: "Proficiency",
         values: [
+          { value: "None", meaning: "hasn't worked with it" },
           { value: "Beginner", meaning: "learning; needs help" },
           { value: "Intermediate", meaning: "handles routine work alone" },
           { value: "Advanced", meaning: "handles complex work and helps others" },
@@ -151,25 +157,25 @@ export const GUIDES: ToolGuide[] = [
     ],
     tips: [
       "Agree what each level means for your team before rating, since self-ratings vary.",
-      "Coverage counts any filled cell, so a high percentage can still hide a bus factor.",
-      "Turn each flag into an action, such as a pairing rotation or a learning goal next sprint.",
+      "A single point of failure is one person at Intermediate or above, even if they're only Intermediate.",
+      "When a learner's rating reaches the level, the plan asks “mark it done?”. Done is never ticked for you.",
     ],
   },
   {
     toolId: "raci",
     summary:
-      "A RACI matrix makes clear who does what for each activity: who is Responsible for doing the work, who is Accountable for the result, who is Consulted and who is Informed.",
+      "A RACI matrix makes clear who does what for each activity: who is Responsible for doing the work, who is Accountable for the result, who is Consulted and who is Informed. Your teammates or group roles are the columns, and the checks show where the load piles up.",
     whenToUse: [
       "When ownership is unclear or work falls between roles.",
       "When setting up a new team, project or process that involves several roles.",
       "After a handoff went wrong because someone wasn't told.",
     ],
     steps: [
-      "List the activities as rows and the roles as columns. Use Add Activity and Add role, and click a name to rename it.",
-      "In each cell, pick R, A, C, I or None.",
-      "Give every activity exactly one A and at least one R. The validation box flags any activity with no A, more than one A, or no R.",
-      "Keep the C and I lists short.",
-      "Review the matrix with everyone named in it, and update it when roles change.",
+      "Under Add to the matrix, pick a teammate in Person or role (or type a group like Dev Team) and click Add column. Add everyone on the team adds the rest of the roster. An empty matrix offers Start from the Scrum roles.",
+      "Name an Activity and click Add activity for each piece of work.",
+      "In each cell, press R, A, C or I; press it again to clear it. A and R can go together (A/R); C or I stands alone.",
+      "Give every activity exactly one A and at least one R. Checks flags any that don't, and load warnings: someone Accountable for more than half of 4 or more activities, or more than 3 roles consulted on one.",
+      "Letters per role counts each role's R, A, C and I. Review the matrix with everyone named in it, and update it when roles change.",
     ],
     scales: [
       {
@@ -184,30 +190,32 @@ export const GUIDES: ToolGuide[] = [
     ],
     tips: [
       "Too many Cs slows everything down. Consult only people whose input changes the result.",
-      "A role with an A on most rows is a bottleneck. Spread accountability where you can.",
-      "For a one-off decision rather than ongoing work, try the DACI Decision Doc.",
+      "Click a name to rename it; a column renamed to a teammate's name links to them.",
+      "Delete a row or a column with Undo. Clear the matrix asks first and can be undone too.",
+      "An activity with no letters yet is not assigned, not an error.",
     ],
     timebox: "30–60 minutes",
   },
   {
     toolId: "onboarding-tracker",
     summary:
-      "The onboarding tracker follows each new hire through six milestones, from first commit to mentoring a peer. It shows time-to-first-PR, time-to-productivity and an average ramp curve, so you can see where onboarding slows down.",
+      "The onboarding tracker follows each new joiner through milestones from a template you can edit, from first commit to mentoring a peer. It shows the time to a first PR and to productivity, and a ramp curve that counts each day only for the people who have been there that long.",
     whenToUse: [
       "From a new team member's first day.",
       "When ramp-up feels slow and you want to see where people get stuck.",
       "To check whether onboarding changes, like better docs or a buddy, actually help.",
     ],
     steps: [
-      "Enter the person's name, role and Start date, then click Add. The six milestones appear with target days.",
-      "Tick a milestone on the day it's reached. The tool records today's date and shows “done in Xd”.",
-      "Add a short note to a milestone when something helped or got in the way.",
-      "Check weekly. A milestone shows “at risk” once half its target time has passed and “overdue” after the target.",
-      "Compare the average time-to-first-PR, time-to-productivity (Independent feature) and the ramp curve across hires.",
+      "Under Add a new joiner, pick their Name from the team (or type it and choose Add to the team), their Role, an optional Buddy and their Start date (backdating is fine), then click Add onboardee.",
+      "Tick a milestone when it's reached. It records today; change Reached on to the day it really happened.",
+      "Click a milestone's name to rename it, or change its target days, for that person only. Add a note when something helped or got in the way.",
+      "Check weekly. A milestone is “at risk” once more than half its target time has passed, and “overdue” after the target.",
+      "Read the KPIs: each average shows once 3 people have reached that milestone.",
+      "Under Milestone template, rename, retarget, add or remove (with Undo) the milestones new joiners start with, and set KPI to mark which one counts as the First PR or as Productive. Use the built-ins goes back to the six defaults.",
     ],
     scales: [
       {
-        name: "Milestone targets (days from start)",
+        name: "Built-in targets (days from start)",
         values: [
           { value: "3–7", meaning: "first commit, first PR" },
           { value: "14–30", meaning: "first merge, first production deploy" },
@@ -216,9 +224,10 @@ export const GUIDES: ToolGuide[] = [
       },
     ],
     tips: [
-      "Tick milestones on the day they happen. Ticking later records the wrong date.",
+      "Template changes apply to people you add afterwards; everyone already here keeps their own copy.",
+      "The KPIs follow the milestone marked First PR or Productive, so renaming it never breaks them.",
       "A slow first PR usually points to setup and access problems. Fix them before the next hire.",
-      "Give each new hire a buddy. The Team Skills Matrix helps you pick one.",
+      "Give each new joiner a buddy. The Team Skills Matrix helps you pick one.",
     ],
   },
   {
@@ -331,39 +340,41 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "dod-builder",
     summary:
-      "The Definition of Done (DoD) is the shared checklist every backlog item must meet before the team calls it done. This builder assembles the checklist by category and tracks how well the team kept to it each sprint.",
+      "The Definition of Done (DoD) is the shared checklist every backlog item must meet before the team calls it done. Write the criteria here, tick them on each story's Sprint board card, and see how many done stories meet them, sprint by sprint.",
     whenToUse: [
       "Forming a new team, or when “done” means different things to different people.",
       "When bugs or rework keep coming back from work that was marked done.",
       "At a retro, to check whether the team is living up to its own quality bar.",
     ],
     steps: [
-      "Start from the starter items and add your own under the tabs: Code, Testing, Docs, Performance, Security and Other.",
-      "Mark each item Required or Optional. Only Required items count toward adherence.",
-      "During the sprint, tick the done checkbox for each item the team actually met for its work.",
-      "At sprint end, type the Sprint name and click Snapshot this sprint. This saves the score and clears the ticks for the next sprint.",
-      "After four or more snapshots, watch the adherence chart. A point below the LCL line means the DoD slipped more than normal variation.",
+      "Write a Criterion, pick a Category and keep Required ticked unless it's optional, then click Add criterion. With none yet, Start from common criteria adds a starter set.",
+      "On the Kanban Sprint board, open DoD on a story's card (“DoD 3 of 5”) and tick each criterion the story meets. Moving a story to Done with required criteria open says so; it never blocks.",
+      "Pick a Sprint. The sentence, Meeting the DoD and Adherence say how many of its done stories meet every required criterion, and Done stories in <sprint> lists what each still needs, with Tick them on the Sprint board.",
+      "Adherence by sprint charts it from 2 sprints with done stories. Its Advanced analysis adds a trend test from 6 sprints and control limits from 8.",
+      "On Release Readiness, Add the Definition of Done gate to check the done stories each release links against these criteria.",
     ],
     tips: [
-      "Keep the Required list short enough that the team really meets it every time. Add items as the team's skills grow.",
+      "Keep the Required list short enough that the team really meets it every time. Add criteria as the team's skills grow.",
+      "Click a criterion's words to edit it. Delete has Undo, and the stories keep their ticks; Clear the criteria asks first.",
+      "Every sprint is checked against today's required criteria, so a criterion added later counts against earlier sprints too.",
       "The DoD applies to every item; acceptance criteria apply to one story. You need both.",
-      "Pair it with the Refinement Checklist, which covers whether work is ready to start.",
     ],
   },
   {
     toolId: "one-on-one",
     summary:
-      "A 1:1 is a regular private conversation between a manager and a team member about their work, wellbeing and growth. The tracker keeps a rolling agenda, so open topics carry over and agreed actions get followed up.",
+      "A 1:1 is a regular private conversation between a manager and a team member about their work, wellbeing and growth. The tracker keeps a rolling agenda per pair, follows actions through to Done and flags a report whose next 1:1 is late. No agent can read the notes.",
     whenToUse: [
       "Every week or two between a manager and each direct report.",
       "When follow-ups from past 1:1s keep getting lost.",
     ],
     steps: [
-      "Enter the Manager, Report and Date, then click Start meeting. Open items and Actions from your last 1:1 with the same person carry over automatically.",
+      "Under Start a new 1:1, pick the Manager and the Report from the team (or type them) and the Date (backdate it to log a past 1:1), then click Start meeting. Open items and Actions from your last 1:1 with the same person carry over.",
       "Add agenda items before or during the meeting. Let the report bring most of them.",
-      "Click an item's status to cycle it from Open to Discussed to Action. For an Action, fill in the action, Owner and due date.",
-      "Write Notes as you talk. They save when you click out of the box.",
-      "Before the next 1:1, check Action items overdue and open the last meeting under Past meetings to follow up.",
+      "Pick each item's status. For an Action, fill in the action, Owner and due date. Done records today; change Done on to backdate it.",
+      "Click an item's text to edit it, use Edit details for the people, date or description, and write Notes (saved when you click out of the box).",
+      "Under Cadence per report, pick each report's Cadence (every 1 to 4 weeks). Without one, their usual gap counts once they've had four 1:1s. A late 1:1 shows “→ N days overdue”, and the timeline shows the rhythm.",
+      "Delete a 1:1 or an item with Undo. Export gives the cadence and the 1:1s as Markdown or CSV.",
     ],
     scales: [
       {
@@ -371,68 +382,57 @@ export const GUIDES: ToolGuide[] = [
         values: [
           { value: "Open", meaning: "not covered yet; carries over to the next 1:1" },
           { value: "Discussed", meaning: "covered, nothing more to do" },
-          {
-            value: "Action",
-            meaning:
-              "needs follow-up with an owner and due date; carries over until set to Discussed",
-          },
+          { value: "Action", meaning: "needs follow-up by an owner; carries over until done" },
+          { value: "Done", meaning: "the follow-up is finished, on the day in Done on" },
         ],
       },
     ],
     tips: [
       "It's the report's meeting. Talk about growth and blockers, not a status update.",
-      "Actions carry over with their owner and due date. When one is done, set it to Discussed so it stops carrying over.",
-      "Mention “growth” in career topics; the Growth themes count picks up that word.",
+      "Mark a finished action Done: it's never overdue and never carried over again.",
+      "A carried-over action counts once, in the 1:1 it was carried to.",
     ],
     timebox: "30–60 minutes",
   },
   {
     toolId: "working-agreement",
     summary:
-      "A working agreement is a short set of rules the team writes together about how it communicates, meets, decides and handles conflict. Because the team wrote it, the team can hold itself to it.",
+      "A working agreement is a short set of rules the team writes together about how it communicates, meets, decides and handles conflict. The builder records each person's consent, saves check-ins on whether the rules work in practice, and keeps published versions you can compare.",
     whenToUse: [
       "When a new team forms or several people join.",
       "When the same friction keeps coming up in retros, like slow reviews or meetings without agendas.",
       "Every few months, to check the rules still fit.",
     ],
     steps: [
-      "Add a Team name and purpose, then pick rules from the Starter catalog or add your own under Add custom rule.",
-      "Discuss each rule and reword it until everyone can live with it. Remove rules nobody will follow.",
-      "Enter names in Agreed by, then click Publish to save a new version (v1, v2…).",
-      "Every month or so, run a check-in: click New check-in round to reset every status to Check in, then click each rule's status to mark it Working or Not working, and watch Adherence.",
-      "Rewrite or drop the rules that aren't working and publish the next version.",
-    ],
-    scales: [
-      {
-        name: "Check-in status",
-        values: [
-          { value: "Check in", meaning: "not reviewed yet" },
-          { value: "Working", meaning: "the team follows it and it helps" },
-          { value: "Not working", meaning: "ignored, or no longer useful" },
-        ],
-      },
+      "Under Add a rule, pick a Category, write the Rule (and an optional Description) and click Add rule, or pick one from the Starter catalog.",
+      "Open a rule's Consent and answer for each teammate: Consent, Concern (with a note) or Object. For someone not on the team, type them under Someone else, pick Their answer and click Record answer.",
+      "Every month or so, mark each rule Working or Not working on its card, then under Check-in round set the Day of the check-in (and a Sprint) and click Save check-in round.",
+      "Adherence by check-in charts the saved rounds from two; its Advanced analysis adds a trend test from six.",
+      "Under Publish and versions, add the team name and purpose and click Publish vN to keep the rules as a version. Changes since vN lists what moved, and Compare … with … shows any two versions or the draft.",
     ],
     tips: [
       "Keep it short. Five to ten rules people remember beat thirty nobody reads.",
       "Write behaviors (“PRs reviewed within one working day”), not values (“be respectful”).",
-      "A check-in fits well at the start of a retro.",
+      "A concern still counts as consent; one objection means the rule doesn't have everyone's consent.",
+      "A rule not working in the last check-in can go to the retro with Send to… → Retro topic.",
+      "Delete a rule or a saved round with Undo. Clear the charter asks first and can be undone too.",
     ],
     timebox: "60–90 minutes for the first version",
   },
   {
     toolId: "stakeholder-map",
     summary:
-      "A stakeholder map places people on an Interest × Authority grid, often called a power/interest grid. Each quadrant suggests how closely to engage that person.",
+      "A stakeholder map places people on an Interest × Authority grid, often called a power/interest grid. Each quadrant suggests how closely to engage that person, and each stakeholder's card compares how they feel now with how you need them to feel.",
     whenToUse: [
       "At the start of a project, product or change initiative.",
       "When decisions stall or someone keeps being surprised by plans.",
     ],
     steps: [
-      "Add each stakeholder with their Name and Role.",
-      "Set Interest (how much the work matters to them) and Authority (how much they can shape or block it), each from 0 to 10.",
-      "Choose their Sentiment, from Champion to Blocker, and write an Engagement strategy: who owns the relationship and how often you'll talk.",
-      "Use the matrix and the quadrant cards to plan who gets what level of attention.",
-      "Review the map monthly or at each milestone, because interest, authority and sentiment change.",
+      "Under Add a stakeholder, type the Stakeholder name and Role. Optionally set Place in, Sentiment now and Sentiment you need, then click Add stakeholder. Nobody lands in a quadrant until you place them.",
+      "Place the people under Not placed yet by dragging them onto the map, or with Place in…. Drag a dot to move it, or focus it and use the arrow keys (Shift moves 3).",
+      "Tap a dot to see their details beside the map. The quadrant cards count only placed stakeholders.",
+      "On each stakeholder's card, set Now and Need to see the gap, such as “2 steps short”. Log the Last contact and plan the Next touch, or click Contacted today.",
+      "Check Touches due for who to reach out to next, and review the map monthly or at each milestone. All stakeholders is the full table; Export gives it as Markdown or CSV.",
     ],
     scales: [
       {
@@ -455,24 +455,26 @@ export const GUIDES: ToolGuide[] = [
       },
     ],
     tips: [
-      "Give Skeptics and Blockers in Manage Closely the most attention; find out what they need.",
+      "Start with the Manage Closely stakeholders who are short of where you need them.",
+      "A next touch is due within 7 days, and overdue once its day has passed.",
       "Be careful where you share the map. Sentiment labels can hurt if the wrong person reads them.",
-      "Once you know who matters, agree who does what with the RACI Matrix Builder.",
+      "Remove a stakeholder with Undo. Clear all asks first and can be undone too.",
     ],
   },
   {
     toolId: "adkar",
     summary:
-      "ADKAR (from Prosci) names five things people need for a change to stick: Awareness, Desire, Knowledge, Ability and Reinforcement. The tracker moves each change initiative through these stages so you can see where adoption stalls.",
+      "ADKAR (from Prosci) names five things people need for a change to stick: Awareness, Desire, Knowledge, Ability and Reinforcement. The tracker moves each change through these stages on dated moves, and scores the groups it affects to find each group's barrier point: where adoption is stuck, and for whom.",
     whenToUse: [
       "Rolling out a new process, tool or way of working.",
       "When a change has been announced but people aren't adopting it.",
     ],
     steps: [
-      "Add the Initiative with an Owner, Start date and a short description of the change.",
-      "Each initiative starts at Awareness. Agree what would show that the people affected have reached the current stage.",
-      "Click Advance stage when most of them have, and plan actions for the next stage.",
-      "Review every few weeks. Avg days / stage and the Initiatives by current stage chart show where changes get stuck.",
+      "Under Add an initiative, name the change, pick an Owner from the team and set the Start date (backdate it if it started earlier). It starts at Awareness on that day.",
+      "Under Groups, add each group the change affects with Add group, and score it 1–5 on the five elements. Clear takes a score back.",
+      "Read the barrier: a group's first element scored 3 or lower is its barrier point, named on the card. Work on it before the later elements; an unscored element before it needs a score first.",
+      "When most people have reached the next stage, set Moved on to the day it happened and click Advance stage. If adoption slips, click Step back. Undo takes a move back.",
+      "Review every few weeks. Stage history shows the days spent in each stage, and the cards say how long each change has been in its stage. Click Edit to change an initiative's details.",
       "Keep going until Reinforcement, and keep reinforcing after that so people don't slip back.",
     ],
     scales: [
@@ -489,8 +491,8 @@ export const GUIDES: ToolGuide[] = [
     ],
     tips: [
       "Don't skip stages: training (Knowledge) won't help if people don't want the change (Desire).",
-      "The tracker only moves forward, so advance with care. If adoption slips, work on the earliest weak stage again.",
-      "ADKAR describes individuals. For a group, advance when most people are there and follow up with the rest.",
+      "If the tracker warns that the change is past a group's barrier, step back or work on that element with them.",
+      "ADKAR describes individuals. Score a group by how many people in it are there, and follow up with the rest.",
     ],
   },
 ];
