@@ -2,6 +2,7 @@ import type { PsychSafetyRound } from "@/lib/stores/workspace-types";
 import {
   PSYCH_SAFETY_MIN_RESPONSES,
   compareRounds,
+  coveredLabel,
   questionLabel,
   roundResult,
 } from "@/lib/psych-safety/instrument";
@@ -72,8 +73,9 @@ export function toMarkdown(
       `_Results show from ${PSYCH_SAFETY_MIN_RESPONSES} responses, so no one's answers can be singled out._`
     );
   } else {
+    const covers = coveredLabel(result);
     lines.push(
-      `**Team score:** ${num(result.teamScore)}/5 (the mean of the statements' scores; the three worded negatively count 6 − the answer)`,
+      `**Team score:** ${num(result.teamScore)}/5 (the mean of the statements' scores${covers ? `, over ${covers}: the others are withheld` : ""}; the three worded negatively count 6 − the answer)`,
       "",
       `| Statement | Reverse-scored | Answers | Mean answer | Score |${other ? ` vs ${cell(other.name)} |` : ""}`,
       `|---|---|---:|---:|---:|${other ? "---:|" : ""}`,
@@ -99,7 +101,8 @@ export function toMarkdown(
     "|---|---|---:|---:|",
     ...rounds.map((r) => {
       const res = roundResult(r);
-      return `| ${cell(r.name)} | ${cell(r.date)} | ${r.responses} | ${res ? num(res.teamScore) : "—"} |`;
+      const covers = coveredLabel(res);
+      return `| ${cell(r.name)} | ${cell(r.date)} | ${r.responses} | ${res ? `${num(res.teamScore)}${covers ? ` (${covers})` : ""}` : "—"} |`;
     })
   );
   return `${lines.join("\n")}\n`;

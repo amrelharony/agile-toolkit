@@ -27,6 +27,9 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 import { registry } from "@/lib/actions/registry";
 import * as serverStore from "@/lib/actions/server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { PsychSafetyRound } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { addDays } from "@/lib/impediments/model";
 
 import "@/lib/actions/tools/psych-safety";
 
@@ -162,5 +165,68 @@ describe("tool.psych_safety on the server", () => {
       "workspace:psychSafety",
       expect.objectContaining({ id: PS_ID, responses: [] })
     );
+  });
+
+  it("log_round takes the user's day a day ahead of the server's (its day is UTC), not two", async () => {
+    const today = todayLocalISO();
+    const logRound = registry.get("tool.psych_safety.log_round")!;
+    expect(
+      await logRound.mcpHandler!(
+        { name: "R", date: addDays(today, 1), counts: counts(5, 4) },
+        ctx()
+      )
+    ).toMatchObject({ added: true });
+    expect(
+      await logRound.mcpHandler!(
+        { name: "R", date: addDays(today, 2), counts: counts(5, 4) },
+        ctx()
+      )
+    ).toMatchObject({ added: false, reason: "A round can't be dated in the future." });
+    // In the browser the day is the user's own: tomorrow is refused.
+    expect(
+      await logRound.handler({ name: "R", date: addDays(today, 1), counts: counts(5, 4) }, ctx())
+    ).toMatchObject({ added: false });
+  });
+
+  it("list_state says how many statements a score covers and what a change is over", async () => {
+    type Counts = PsychSafetyRound["counts"];
+    const all = counts(5, 4) as unknown as Counts;
+    const six = { ...all, q7: [0, 0, 0, 4, 0] } as Counts;
+    useWorkspaceStore.setState({
+      psychSafetyLogs: [
+        {
+          id: PS_ID,
+          responses: [],
+          rounds: [
+            {
+              id: "a",
+              name: "A",
+              date: "2026-10-01",
+              source: "facilitator",
+              responses: 5,
+              counts: all,
+              createdAt: "2026-10-01T10:00:00.000Z",
+            },
+            {
+              id: "b",
+              name: "B",
+              date: "2026-10-15",
+              source: "facilitator",
+              responses: 5,
+              counts: six,
+              createdAt: "2026-10-15T10:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+    const r = (await registry.get("tool.psych_safety.list_state")!.handler({}, ctx())) as {
+      rounds: { statementsCovered: number | null }[];
+      comparison: { common: string[]; delta: number };
+    };
+    expect(r.rounds.map((x) => x.statementsCovered)).toEqual([7, 6]);
+    expect(r.comparison.common).toEqual(["q1", "q2", "q3", "q4", "q5", "q6"]);
+    // The same answers on the six shared statements: no change, whatever q7 did.
+    expect(r.comparison.delta).toBe(0);
   });
 });

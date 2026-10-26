@@ -1,8 +1,8 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import { AlertTriangle, GitCompare, Heart, ListChecks, Radio, Users } from "lucide-react";
+import { AlertTriangle, GitCompare, Heart, ListChecks, Radio, Users, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -17,7 +17,9 @@ import { ChartFigure } from "@/components/shared/chart-card";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
 import { VoteRoundPanel } from "@/components/collab/vote-room";
+import { SendToMenu } from "@/components/handoff/send-to-menu";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
@@ -41,6 +43,7 @@ import {
   ROUND_NAME_MAX,
   compareRounds,
   countsFromVoteResult,
+  coveredLabel,
   defaultRoundName,
   emptyPsychSafetyLog,
   psychSafetyQuestionnaire,
@@ -49,10 +52,13 @@ import {
   roundDateProblem,
   roundResult,
   roundsOf,
+  shownCounts,
   withRound,
   withRoundPatch,
 } from "@/lib/psych-safety/instrument";
 import { DayField } from "../health-check/day-field";
+import { neighbourKeys, useFocusAfter } from "../health-check/use-focus-after";
+import { useToday } from "../health-check/use-today";
 import { radarText } from "./chart-text";
 import { validateRoundDetails, type RoundDetails } from "./details";
 import { buildExample } from "./example";
@@ -60,7 +66,7 @@ import { toMarkdown } from "./markdown";
 import { psychSafetyPrompts } from "./prompts";
 import { PsychSafetyRadar } from "./radar";
 import { RoundList } from "./rounds";
-import { psychSafetyVerdict } from "./verdict";
+import { anomalyTopic, psychSafetyVerdict } from "./verdict";
 
 /** Logged when a round is deleted: its id only. */
 const ROUND_REMOVED = "round_removed";
@@ -96,10 +102,19 @@ export function PsychSafetyClient() {
   const { sprints } = useSelectedSprint();
   const { log: logEvent } = useHistoryLogger("psych-safety");
   const announce = useAnnounce();
-  const [today] = useState(() => todayIso());
+  const today = useToday();
   const [details, setDetails] = useState<RoundDetails>({ name: "", date: today });
   const detailsRef = useRef(details);
   detailsRef.current = details;
+  // A round dated today stays today's past midnight; a day picked by hand stays.
+  const wasToday = useRef(today);
+  useEffect(() => {
+    const before = wasToday.current;
+    wasToday.current = today;
+    if (before !== today) setDetails((x) => (x.date === before ? { ...x, date: today } : x));
+  }, [today]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useFocusAfter(rootRef);
   const [shownId, setShownId] = useState<string | null>(null);
   const [fromId, setFromId] = useState<string | null>(null);
   const [toId, setToId] = useState<string | null>(null);
@@ -157,7 +172,8 @@ export function PsychSafetyClient() {
       roundId: round.id,
       responses: round.responses,
     });
-    setDetails((x) => ({ ...x, name: "" }));
+    // The next round is likely another sprint's: its name and sprint start blank again.
+    setDetails((x) => ({ name: "", date: x.date }));
     setShownId(round.id);
     setToId(null);
     setFromId(null);
@@ -168,6 +184,15 @@ export function PsychSafetyClient() {
   };
 
   const remove = (r: PsychSafetyRound) => {
+    // The list is newest first: the next row down, else the one above, else the round name.
+    focusAfter(
+      ...neighbourKeys(
+        [...rounds].reverse().map((x) => x.id),
+        r.id,
+        "delete:"
+      ),
+      "round-name"
+    );
     if (r.id === LEGACY_ROUND_ID) {
       const sheets = peekLog()?.responses ?? [];
       undoable({
@@ -218,7 +243,8 @@ export function PsychSafetyClient() {
       rows: rounds.flatMap((r) => {
         const res = roundResult(r);
         return PSYCH_SAFETY_QUESTIONS.map((q) => {
-          const c = r.counts?.[q.id] ?? [0, 0, 0, 0, 0];
+          // Withheld as on the page: a thin round's counts would show what a person answered.
+          const c = shownCounts(r, q.id) ?? ["—", "—", "—", "—", "—"];
           const score = res?.perQuestion.find((x) => x.id === q.id)?.adjusted ?? null;
           return [
             r.name,
@@ -315,7 +341,7 @@ export function PsychSafetyClient() {
         {verdict}
       </p>
 
-      <div className="space-y-6">
+      <div ref={rootRef} className="space-y-6">
         <SectionCard title="Run a round" icon={Radio} contentClassName="space-y-4">
           {preview ? (
             <p className="text-sm text-sub">Clear the example to run a round with your team.</p>
@@ -326,7 +352,7 @@ export function PsychSafetyClient() {
                 each answer is kept, and the results show from {PSYCH_SAFETY_MIN_RESPONSES}{" "}
                 responses, so no one&apos;s answers can be singled out.
               </p>
-              <div className="flex flex-wrap items-end gap-4">
+              <div className="flex flex-wrap items-end gap-4" data-focus-key="round-name">
                 <Field
                   label="Round name"
                   hint={`Leave blank to call it ${defaultRoundName(log)}.`}
@@ -350,13 +376,33 @@ export function PsychSafetyClient() {
                   onChange={(day) => setDetails((x) => ({ ...x, date: day }))}
                 />
                 {sprints.length > 0 && (
-                  <SprintPicker
-                    sprints={sprints}
-                    selectedId={details.sprintId}
-                    onSelect={(id) => setDetails((x) => ({ ...x, sprintId: id }))}
-                    label="Sprint (optional)"
-                    allowCreate={false}
-                  />
+                  <div className="flex flex-wrap items-end gap-2" data-focus-key="sprint">
+                    <SprintPicker
+                      sprints={sprints}
+                      // "" rather than undefined keeps the picker controlled, so after
+                      // "No sprint" it shows none and the same sprint can be picked again.
+                      selectedId={details.sprintId ?? ""}
+                      onSelect={(id) => setDetails((x) => ({ ...x, sprintId: id || undefined }))}
+                      label="Sprint (optional)"
+                      allowCreate={false}
+                    />
+                    {details.sprintId && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1"
+                        onClick={() => {
+                          // The button goes with the sprint: focus moves to the picker.
+                          focusAfter("sprint");
+                          setDetails((x) => ({ name: x.name, date: x.date }));
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        No sprint
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
               <VoteRoundPanel
@@ -413,7 +459,11 @@ export function PsychSafetyClient() {
                   label="Team score"
                   value={result?.teamScore != null ? fmt(result.teamScore, 2) : "—"}
                   unit={result?.teamScore != null ? "/5" : undefined}
-                  hint="Higher is safer"
+                  hint={
+                    coveredLabel(result)
+                      ? `Over ${coveredLabel(result)}; higher is safer`
+                      : "Higher is safer"
+                  }
                   valueClassName="text-accent"
                 />
                 <StatCard
@@ -433,7 +483,13 @@ export function PsychSafetyClient() {
                   icon={AlertTriangle}
                   label={before ? `Change since ${before.name}` : "Change"}
                   value={shownCmp?.delta != null ? signed(shownCmp.delta) : "—"}
-                  hint={before ? undefined : "First round"}
+                  hint={
+                    !before
+                      ? "First round"
+                      : shownCmp && shownCmp.common.length < PSYCH_SAFETY_QUESTIONS.length
+                        ? `Over the ${shownCmp.common.length} statements both show`
+                        : undefined
+                  }
                   tone={shownCmp?.anomaly ? "danger" : "default"}
                 />
               </KpiGrid>
@@ -448,16 +504,42 @@ export function PsychSafetyClient() {
                 />
               ) : (
                 <>
-                  {shownCmp?.anomaly && before && (
+                  {shownCmp?.anomaly && before && shown && (
                     <CalloutAlert tone="danger">
-                      <strong>
-                        {shownCmp.dropped.length === 1
-                          ? "One statement fell"
-                          : `${shownCmp.dropped.length} statements fell`}{" "}
-                        by more than {ANOMALY_DROP} since {before.name}:
-                      </strong>{" "}
-                      {shownCmp.dropped.map((id) => `“${questionMeta(id)?.text}”`).join(", ")}.
-                      Worth talking through at the retro, without asking who answered what.
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <span className="min-w-0">
+                          <strong>
+                            {shownCmp.dropped.length === 1
+                              ? "One statement fell"
+                              : `${shownCmp.dropped.length} statements fell`}{" "}
+                            by more than {ANOMALY_DROP} since {before.name}:
+                          </strong>{" "}
+                          {shownCmp.dropped.map((id) => `“${questionMeta(id)?.text}”`).join(", ")}.
+                          Worth talking through at the retro, without asking who answered what.
+                        </span>
+                        {/* Team level only: the topic names the statements, never a person. */}
+                        <SendToMenu
+                          routes={["retro-topic"]}
+                          item={{
+                            title: anomalyTopic(shown, before, shownCmp.dropped),
+                            tone: "concern",
+                            sourceRef: { tool: "psych-safety", id: shown.id, doc: PSYCH_SAFETY_ID },
+                          }}
+                          sentTo={preview ? undefined : shown.sentTo}
+                          getLinks={() =>
+                            (peekLog()?.rounds ?? []).find((r) => r.id === shown.id)?.sentTo
+                          }
+                          // The legacy round is read-only: nowhere to keep its links.
+                          disabled={preview || shown.source === "legacy"}
+                          onLinksChange={(update) => {
+                            write((l) => {
+                              const fresh = (l.rounds ?? []).find((r) => r.id === shown.id);
+                              return withRoundPatch(l, shown.id, { sentTo: update(fresh?.sentTo) });
+                            });
+                          }}
+                          itemLabels={{ "retro-topic": "Retro topic (no names)" }}
+                        />
+                      </div>
                     </CalloutAlert>
                   )}
                   {result.withheld.length === 0 ? (
@@ -524,6 +606,12 @@ export function PsychSafetyClient() {
                         onChange={(e) => s.set(e.target.value)}
                         className="flex h-9 max-w-full rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
+                        {/* "To" on the first round leaves no round before it: say so, not a blank box. */}
+                        {!s.value && (
+                          <option value="" disabled>
+                            Pick a round
+                          </option>
+                        )}
                         {rounds.map((r) => (
                           <option key={r.id} value={r.id}>
                             {r.name} · {r.date}
@@ -538,9 +626,11 @@ export function PsychSafetyClient() {
                     className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-sub"
                     role="status"
                   >
-                    {from && to && from.id === to.id
-                      ? "Pick two different rounds."
-                      : `Both rounds need ${PSYCH_SAFETY_MIN_RESPONSES} responses to compare: a change between thinner rounds is noise.`}
+                    {!from || !to
+                      ? "Pick a round to compare from."
+                      : from.id === to.id
+                        ? "Pick two different rounds."
+                        : `Both rounds need ${PSYCH_SAFETY_MIN_RESPONSES} responses to compare: a change between thinner rounds is noise.`}
                   </p>
                 ) : (
                   <>
@@ -621,7 +711,12 @@ export function PsychSafetyClient() {
                 sprints={sprints}
                 today={today}
                 readOnly={preview}
-                onRename={(r, name) => write((l) => withRoundPatch(l, r.id, { name }))}
+                onRename={(r, name) => {
+                  const clean = name.trim();
+                  if (!clean) return "Name the round.";
+                  write((l) => withRoundPatch(l, r.id, { name: clean.slice(0, ROUND_NAME_MAX) }));
+                  return null;
+                }}
                 onRedate={(r, date) => write((l) => withRoundPatch(l, r.id, { date }))}
                 onRemove={remove}
               />

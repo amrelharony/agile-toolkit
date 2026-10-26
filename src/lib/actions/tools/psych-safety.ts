@@ -32,6 +32,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { addDays } from "@/lib/impediments/model";
 import type { PsychSafetyLog, PsychSafetyRound, Sprint } from "@/lib/stores/workspace-types";
 import {
   PSYCH_SAFETY_ID,
@@ -91,6 +92,7 @@ function roundRow(r: PsychSafetyRound) {
     source: r.source,
     responses: r.responses,
     teamScore: result ? round2(result.teamScore) : null,
+    statementsCovered: result ? result.covered : null,
     perQuestion: result
       ? result.perQuestion.map((q) => ({
           id: q.id,
@@ -126,6 +128,7 @@ function summarize(doc: PsychSafetyLog | null) {
     comparison: cmp
       ? {
           delta: round2(cmp.delta),
+          common: cmp.common,
           perQuestion: cmp.perQuestion.map((q) => ({ id: q.id, delta: round2(q.delta) })),
           anomaly: cmp.anomaly,
           dropped: cmp.dropped,
@@ -147,7 +150,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the psychological-safety survey as the page shows it: rounds of counts, never answers per person, and no benchmark. Returns {exists, minResponses (5), questions: {id q1-q7, text, reversed}[], scale: {value 1-5, label}[], rounds: {id, name, date, sprintId|null, source: room|facilitator|legacy, responses, teamScore (1-5, reverse-scored mean)|null, perQuestion: {id, n, mean (raw 1-5)|null, adjusted (reverse-scored; higher is safer)|null}[]|null, lowestQuestionId|null, withheld: string[]|null, readOnly}[] oldest first (results are null below 5 responses; a question below 5 answers is withheld), latestId, previousId, comparison: {delta, perQuestion: {id, delta}[], anomaly (a question fell by more than 0.5), dropped: string[]}|null (latest vs previous, both from 5 responses), totalResponses (all rounds), teamScore, perQuestion, lowestQuestionId (the latest round's), delta, anomaly}.",
+    "Summarise the psychological-safety survey as the page shows it: rounds of counts, never answers per person, and no benchmark. Returns {exists, minResponses (5), questions: {id q1-q7, text, reversed}[], scale: {value 1-5, label}[], rounds: {id, name, date, sprintId|null, source: room|facilitator|legacy, responses, teamScore (1-5, the reverse-scored mean of the statements that show)|null, statementsCovered (how many of the 7 the team score covers; say so when it is fewer)|null, perQuestion: {id, n, mean (raw 1-5)|null, adjusted (reverse-scored; higher is safer)|null}[]|null, lowestQuestionId|null, withheld: string[]|null, readOnly}[] oldest first (results are null below 5 responses; a question below 5 answers is withheld), latestId, previousId, comparison: {delta (the mean change over the statements both rounds show, so a withheld one never moves it), common: string[] (those statements), perQuestion: {id, delta}[], anomaly (a question fell by more than 0.5), dropped: string[]}|null (latest vs previous, both from 5 responses), totalResponses (all rounds), teamScore, perQuestion, lowestQuestionId (the latest round's), delta, anomaly}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.getDoc()),
   mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).getDoc()),
@@ -186,10 +189,15 @@ const logRoundParams = z.object({
     .describe("People who answered; default the question with the most answers."),
 });
 
-async function logRound(store: PsychSafetyStore, params: z.infer<typeof logRoundParams>) {
+async function logRound(
+  store: PsychSafetyStore,
+  params: z.infer<typeof logRoundParams>,
+  onServer: boolean
+) {
   const today = todayLocalISO();
   const date = params.date ?? today;
-  const dateProblem = roundDateProblem(date, today);
+  // The server's day (UTC on a typical deploy) isn't the user's: allow the day after it.
+  const dateProblem = roundDateProblem(date, onServer ? addDays(today, 1) : today);
   if (dateProblem) return { added: false, reason: dateProblem };
   if (params.sprintId) {
     const sprints = await store.listSprints();
@@ -227,10 +235,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Save a survey round as totals only (answers counted by hand or on paper), as the page's count entry does. Params: {name (≤80), date?: YYYY-MM-DD (not in the future; default today), sprintId? (an existing sprint), counts: {q1..q7: [n1, n2, n3, n4, n5]} (how many answered 1-5, raw), responses? (people who answered; default the most answers any question has)}. Needs at least 5 people (so no one's answers can be singled out) and no question with more answers than people; a question with fewer than 5 answers is kept as unanswered. Returns {added: true, id, teamScore, withheld} or {added: false, reason}.",
+    "Save a survey round as totals only (answers counted by hand or on paper), as the page's count entry does. Params: {name (≤80), date?: YYYY-MM-DD (not in the future; default today; pass the user's local date: over MCP the default is the server's (UTC) day, and the day after it is still accepted), sprintId? (an existing sprint), counts: {q1..q7: [n1, n2, n3, n4, n5]} (how many answered 1-5, raw), responses? (people who answered; default the most answers any question has)}. Needs at least 5 people (so no one's answers can be singled out) and no question with more answers than people; a question with fewer than 5 answers is kept as unanswered. Returns {added: true, id, teamScore, withheld} or {added: false, reason}.",
   paramsSchema: logRoundParams,
-  handler: (params) => logRound(browserStore, params),
-  mcpHandler: (params, ctx) => logRound(serverStore(ctx.userId), params),
+  handler: (params) => logRound(browserStore, params, false),
+  mcpHandler: (params, ctx) => logRound(serverStore(ctx.userId), params, true),
 });
 
 /* ── remove_round ───────────────────────────────────────────────────── */

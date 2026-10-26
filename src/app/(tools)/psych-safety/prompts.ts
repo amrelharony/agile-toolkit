@@ -11,7 +11,12 @@ import type { PromptDefinition, ToolPromptConfig } from "@/lib/ai-prompts/types"
 import { buildPreamble, formatTable } from "@/lib/ai-prompts/prompt-utils";
 import { buildWorkspaceContext } from "@/lib/ai-prompts/cross-tool-context";
 import type { Workspace } from "@/lib/stores/workspace-types";
-import type { RoundComparison, RoundResult } from "@/lib/psych-safety/instrument";
+import {
+  PSYCH_SAFETY_QUESTIONS,
+  coveredLabel,
+  type RoundComparison,
+  type RoundResult,
+} from "@/lib/psych-safety/instrument";
 
 const two = (n: number | null) => (n === null ? "—" : n.toFixed(2));
 
@@ -48,10 +53,16 @@ export function psychSafetyPrompts(
     ])
   );
   const lowest = result.perQuestion.find((q) => q.id === result.lowest);
+  const covers = coveredLabel(result);
+  const cmp = data.comparison;
+  const over =
+    cmp && cmp.common.length < PSYCH_SAFETY_QUESTIONS.length
+      ? ` (over the ${cmp.common.length} statements both rounds show)`
+      : "";
   const context =
-    `Edmondson 7-statement survey, round "${data.roundName}": team score ${result.teamScore.toFixed(2)}/5 from ${result.responses} anonymous responses.` +
-    (data.comparison && data.comparison.delta !== null && data.previousName
-      ? ` Change since "${data.previousName}": ${data.comparison.delta >= 0 ? "+" : ""}${data.comparison.delta.toFixed(2)}.`
+    `Edmondson 7-statement survey, round "${data.roundName}": team score ${result.teamScore.toFixed(2)}/5${covers ? ` over ${covers} (the others had too few answers to show)` : ""} from ${result.responses} anonymous responses.` +
+    (cmp && cmp.delta !== null && data.previousName
+      ? ` Change since "${data.previousName}": ${cmp.delta >= 0 ? "+" : ""}${cmp.delta.toFixed(2)}${over}.`
       : "");
 
   const prompts: PromptDefinition[] = [

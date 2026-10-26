@@ -472,3 +472,200 @@ describe("tool.psych_safety", () => {
     expect(stored()!.responses).toEqual([]);
   });
 });
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+/** Six statements from 5 people; q7 has 4 answers (one blank paper), so it is withheld. */
+const sixShown = (point = 4): Counts => ({ ...flat(5, point), q7: [0, 0, 0, 4, 0] });
+
+const csvRows = () =>
+  (JSON.parse(screen.getByTestId("export-csv").textContent ?? "{}") as { rows: unknown[][] }).rows;
+
+describe("review fixes", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = () => {};
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.releasePointerCapture = () => {};
+  });
+
+  it("the CSV withholds the counts the page withholds: a thin round, a thin statement", () => {
+    seed({
+      id: PSYCH_SAFETY_ID,
+      // Two answer sheets from before rounds: their counts would be two people's answers.
+      responses: [
+        sheet("s1", "2026-09-01T09:00:00.000Z", 2),
+        sheet("s2", "2026-09-02T09:00:00.000Z", 5),
+      ],
+      rounds: [round("r1", "2026-10-01", sixShown(), 5)],
+    });
+    renderPage();
+    const rows = csvRows();
+    const legacy = rows.filter((r) => r[0] === "Earlier responses");
+    expect(legacy).toHaveLength(7);
+    for (const r of legacy) expect(r.slice(5, 10)).toEqual(["—", "—", "—", "—", "—"]);
+    const r1 = rows.filter((r) => r[0] === "Round r1");
+    expect(r1[0].slice(5, 10)).toEqual([0, 0, 0, 5, 0]);
+    // q7 had 4 answers: withheld, like its score.
+    expect(r1[6].slice(5, 11)).toEqual(["—", "—", "—", "—", "—", "—"]);
+  });
+
+  it("scores the statements that show and says how many; compares over the shared ones", () => {
+    const full = round("a", "2026-10-01", flat(5, 4), 5);
+    const six = round("b", "2026-10-15", sixShown(3), 5);
+    const res = roundResult(six)!;
+    expect(res.covered).toBe(6);
+    const cmp = compareRounds(full, six)!;
+    expect(cmp.common).toEqual(IDS.slice(0, 6));
+    // Each shared statement's change averaged: q1, q3, q5 reverse-scored go up by 1, the rest down by 1.
+    const expected =
+      cmp.perQuestion.filter((q) => q.delta !== null).reduce((s, q) => s + (q.delta as number), 0) /
+      6;
+    expect(cmp.delta).toBeCloseTo(expected);
+    // All seven in both: exactly the change in team score.
+    const both = compareRounds(full, round("c", "2026-10-20", flat(5, 5), 5))!;
+    expect(both.delta).toBeCloseTo(
+      roundResult(round("c", "2026-10-20", flat(5, 5), 5))!.teamScore! -
+        roundResult(full)!.teamScore!
+    );
+    expect(both.common).toHaveLength(7);
+
+    expect(psychSafetyVerdict([full, six])).toMatch(
+      /^Team score [\d.]+\/5 \(6 of 7 statements\) from 5 responses, (down|up|level).* \(over the 6 statements both show\)/
+    );
+    seed({ id: PSYCH_SAFETY_ID, responses: [], rounds: [full, six] });
+    renderPage();
+    expect(screen.getByText("Over 6 of 7 statements; higher is safer")).toBeInTheDocument();
+    expect(screen.getByText("Over the 6 statements both show")).toBeInTheDocument();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "over 6 of 7 statements: the others are withheld"
+    );
+  });
+
+  it("sends a fall to the retro as a team-level topic, once", () => {
+    const ex = buildExample(new Date(2026, 9, 26)).rounds!;
+    seed({ id: PSYCH_SAFETY_ID, responses: [], rounds: ex });
+    renderPage();
+    const send = screen.getByRole("button", { name: /^Send to… Psych safety:/ });
+    fireEvent.keyDown(send, { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Retro topic (no names)" }));
+    const cards = useWorkspaceStore.getState().retroBoards?.[0]?.cards ?? [];
+    expect(cards).toHaveLength(1);
+    expect(cards[0].text).toMatch(/^Psych safety: .* fell by more than 0\.5 since /);
+    expect(cards[0].sourceRef).toMatchObject({ tool: "psych-safety", id: ex[ex.length - 1].id });
+    const latest = stored()!.rounds!.find((r) => r.id === ex[ex.length - 1].id)!;
+    expect(latest.sentTo).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /\(sent\)$/ })).toBeInTheDocument();
+  });
+
+  it("keeps a round's day as typed until the field is left, so the list doesn't move", () => {
+    seed({
+      id: PSYCH_SAFETY_ID,
+      responses: [],
+      rounds: [round("r1", "2026-10-01", flat(5), 5), round("r2", "2026-10-10", flat(5), 5)],
+    });
+    renderPage();
+    const day = screen.getByLabelText(/Date of the round Round r1/);
+    fireEvent.change(day, { target: { value: "2026-10-20" } });
+    // Not stored while typing: the order stays.
+    expect(stored()!.rounds!.find((r) => r.id === "r1")!.date).toBe("2026-10-01");
+    fireEvent.blur(day);
+    expect(stored()!.rounds!.find((r) => r.id === "r1")!.date).toBe("2026-10-20");
+    const r2 = screen.getByLabelText(/Date of the round Round r2/);
+    fireEvent.change(r2, { target: { value: "2026-11-02" } });
+    fireEvent.keyDown(r2, { key: "Enter" });
+    expect(stored()!.rounds!.find((r) => r.id === "r2")!.date).toBe("2026-10-10");
+    expect(screen.getByText("A round can't be dated in the future.")).toBeInTheDocument();
+  });
+
+  it("says why a cleared round name isn't kept", () => {
+    seed({ id: PSYCH_SAFETY_ID, responses: [], rounds: [round("r1", "2026-10-01", flat(5), 5)] });
+    renderPage();
+    const name = screen.getByRole("textbox", { name: "Name of the round Round r1" });
+    fireEvent.change(name, { target: { value: "  " } });
+    fireEvent.blur(name);
+    expect(screen.getByText("Name the round.")).toBeInTheDocument();
+    expect(stored()!.rounds![0].name).toBe("Round r1");
+  });
+
+  it("asks for a round to compare from when To is the first round", () => {
+    seed({
+      id: PSYCH_SAFETY_ID,
+      responses: [],
+      rounds: [round("r1", "2026-10-01", flat(5), 5), round("r2", "2026-10-10", flat(5), 5)],
+    });
+    renderPage();
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "r1" } });
+    expect(screen.getByText("Pick a round to compare from.")).toBeInTheDocument();
+    expect(screen.getByLabelText("From")).toHaveDisplayValue("Pick a round");
+  });
+
+  it("a round's sprint can be cleared, and the next round starts without it", () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        {
+          id: "s1",
+          name: "Sprint 1",
+          startDate: "2026-10-05",
+          endDate: "2026-10-16",
+          pointsPlanned: 0,
+          pointsCompleted: 0,
+          status: "completed",
+        },
+      ],
+    });
+    renderPage();
+    const pick = () => {
+      fireEvent.pointerDown(screen.getByRole("combobox", { name: "Sprint (optional)" }), {
+        button: 0,
+        ctrlKey: false,
+        pointerType: "mouse",
+      });
+      fireEvent.click(
+        within(screen.getByRole("listbox")).getByRole("option", { name: /^Sprint 1/ })
+      );
+    };
+    pick();
+    fireEvent.click(screen.getByRole("button", { name: "No sprint" }));
+    expect(screen.queryByRole("button", { name: "No sprint" })).toBeNull();
+    const picker = screen.getByRole("combobox", { name: "Sprint (optional)" });
+    expect(picker).toHaveTextContent("Choose a sprint");
+    expect(document.activeElement).toBe(picker);
+    // The same sprint can be picked again.
+    pick();
+    expect(screen.getByRole("button", { name: "No sprint" })).toBeInTheDocument();
+    for (let i = 1; i <= 7; i++)
+      fireEvent.change(tallyGroup(i).getByLabelText("Agree"), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Show totals" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(stored()!.rounds![0].sprintId).toBe("s1");
+    expect(screen.queryByRole("button", { name: "No sprint" })).toBeNull();
+  });
+
+  it("puts focus on the next round after a delete", () => {
+    seed({
+      id: PSYCH_SAFETY_ID,
+      responses: [],
+      rounds: [round("r1", "2026-10-01", flat(5), 5), round("r2", "2026-10-10", flat(5), 5)],
+    });
+    renderPage();
+    // Newest first: deleting r2 moves focus to r1's Delete; the last one to the round name.
+    fireEvent.click(screen.getByRole("button", { name: "Delete the round Round r2" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Delete the round Round r1" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete the round Round r1" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Round name"));
+  });
+
+  it("keeps a round dated today on today past midnight", () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(2026, 9, 26, 23, 59, 30));
+    renderPage();
+    expect(screen.getByLabelText("Taken on")).toHaveValue("2026-10-26");
+    act(() => {
+      vi.setSystemTime(new Date(2026, 9, 27, 0, 0, 40));
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByLabelText("Taken on")).toHaveValue("2026-10-27");
+  });
+});
