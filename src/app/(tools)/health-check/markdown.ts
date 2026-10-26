@@ -12,7 +12,7 @@ import {
   scoreOf,
   sharePct,
   storedLight,
-  trendFor,
+  trendSince,
   votesTotal,
   type CheckOptions,
 } from "@/lib/health-check/score";
@@ -91,11 +91,15 @@ export function toMarkdown(
         v && votesTotal(v) > 0
           ? `${v.green}/${v.yellow}/${v.red}${isSplit(v) ? " (split)" : ""}`
           : "—";
-      const trend = light
-        ? prev
-          ? TREND[trendFor(storedLight(prev, d.key), light)]
-          : "First check"
-        : "—";
+      // As the page says it: nothing to compare against is never "same".
+      const since = prev ? trendSince(prev, d.key, light) : null;
+      const trend = !light
+        ? "—"
+        : !prev
+          ? "First check"
+          : since
+            ? TREND[since]
+            : `New since ${cell(checkLabel(prev))}`;
       lines.push(
         `| ${cell(d.name)} | ${light ? LIGHT[light] : "Not rated"} | ${trend} | ${votes} | ${cell(score?.note) || "—"} |`
       );

@@ -37,6 +37,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { addDays } from "@/lib/impediments/model";
 import type { HealthCheck, HealthCheckEntry, Sprint } from "@/lib/stores/workspace-types";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import {
@@ -63,7 +64,7 @@ import {
   scoreOf,
   sharePct,
   storedLight,
-  trendFor,
+  trendSince,
   trendsFor,
   unratedDimensions,
   votesTotal,
@@ -175,12 +176,8 @@ function summarize(raw: HealthCheck | null) {
         return v ? [[d.key, { ...v, total: votesTotal(v), split: isSplit(v) }]] : [];
       })
     ),
-    trends: Object.fromEntries(
-      dims.map((d) => [
-        d.key,
-        lights[d.key] ? trendFor(storedLight(prev ?? undefined, d.key), lights[d.key]) : null,
-      ])
-    ),
+    // As the page says it: null when there is nothing to compare against.
+    trends: Object.fromEntries(dims.map((d) => [d.key, trendSince(prev, d.key, lights[d.key])])),
     currentHealth: sharePct(draftShare(doc)),
     ratedCount: dims.length - unrated.length,
     unrated: unrated.map((d) => d.name),
@@ -204,7 +201,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the squad health check as the page shows it. Returns {exists, current: {sprintName, sprintId|null, date|null (the day it will be saved under; null = the day it is saved), scores (built-in name -> {light, trend, votes?, note?}; unrated dimensions hold a placeholder green, so read `lights`), customScores, rated: string[] (keys rated), source: room|facilitator|null, responses|null}, lights: {key -> green|yellow|red|null (null = not rated)}, notes: {key -> text}, votes: {key -> {green, yellow, red, total, split}}, trends: {key -> up|same|down|null} (derived against the previous saved check), currentHealth: 0-100|null (rated dimensions only; green 1, yellow 1/2, red 0), ratedCount, unrated: string[] (dimension names still to rate), dimensions: {key, name, custom, description?}[] (built-in keys are their names; custom keys are ids), archivedDimensions: {key, name}[], checkCount, history: {id, label, sprintName, sprintId|null, date, scores, customScores, health (same rule), trends, source, responses, reds: {key, name, sent}[]}[] oldest first by date}.",
+    "Summarise the squad health check as the page shows it. Returns {exists, current: {sprintName, sprintId|null, date|null (the day it will be saved under; null = the day it is saved), scores (built-in name -> {light, trend, votes?, note?}; unrated dimensions hold a placeholder green, so read `lights`), customScores, rated: string[] (keys rated), source: room|facilitator|null, responses|null}, lights: {key -> green|yellow|red|null (null = not rated)}, notes: {key -> text}, votes: {key -> {green, yellow, red, total, split}}, trends: {key -> up|same|down|null} (derived against the previous saved check; null when the dimension isn't rated, or when there is nothing to compare against: no previous check (a first check) or no light for it in that check (a dimension added since); never report a null as 'same'), currentHealth: 0-100|null (rated dimensions only; green 1, yellow 1/2, red 0), ratedCount, unrated: string[] (dimension names still to rate), dimensions: {key, name, custom, description?}[] (built-in keys are their names; custom keys are ids), archivedDimensions: {key, name}[], checkCount, history: {id, label, sprintName, sprintId|null, date, scores (their stored trend reads 'same' where there was nothing to compare; quote trends instead), customScores, health (same rule), trends (key -> up|same|down|null, the same rule as above), source, responses, reds: {key, name, sent}[]}[] oldest first by date}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.getDoc()),
   mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).getDoc()),
@@ -252,7 +249,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Say which shared sprint the check in progress is for (it is saved with the check, and Sprint Comparison reads the check for that sprint). Params: {sprintId: string | null (null clears it)}. Returns {set: true, sprintId, sprintName} or {set: false, reason} for an unknown sprint.",
+    "Say which shared sprint the check in progress is for (it is saved with the check, and Sprint Comparison reads the check for that sprint). Params: {sprintId: string | null (null clears it, and the sprint's name with it, so the check isn't still read as that sprint's)}. Returns {set: true, sprintId, sprintName} or {set: false, reason} for an unknown sprint.",
   paramsSchema: z.object({ sprintId: z.string().max(128).nullable() }),
   handler: (params) => setSprint(browserStore, params.sprintId),
   mcpHandler: (params, ctx) => setSprint(serverStore(ctx.userId), params.sprintId),
@@ -327,7 +324,7 @@ registry.register({
 
 /* ── save_check ─────────────────────────────────────────────────────── */
 
-async function save(store: HealthCheckStore, date: string | undefined) {
+async function save(store: HealthCheckStore, date: string | undefined, onServer: boolean) {
   const doc = await load(store);
   const today = todayLocalISO();
   const dated = date ? { ...doc, current: { ...doc.current, date } } : doc;
@@ -335,6 +332,8 @@ async function save(store: HealthCheckStore, date: string | undefined) {
     id: crypto.randomUUID(),
     today,
     sprints: await store.listSprints(),
+    // The server's day (UTC on a typical deploy) isn't the user's: allow the day after it.
+    ...(onServer ? { latest: addDays(today, 1) } : {}),
   });
   if (!result.ok) {
     return {
@@ -360,15 +359,15 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Save the check in progress and start a new one. Refused while any active dimension is unrated. Params: {date?: YYYY-MM-DD (backdate; not in the future; default the draft's date, else today)}. Each dimension's trend is stamped against the previous saved check. Returns {saved: true, id, date, health (0-100, yellow 1/2), checkCount} or {saved: false, unrated: string[] (names), reason?}.",
+    "Save the check in progress and start a new one. Refused while any active dimension is unrated. Params: {date?: YYYY-MM-DD (backdate; not in the future; default the draft's date, else today). Pass the user's local date: over MCP the default 'today' is the server's (UTC) day, and the day after it is still accepted, since the user's day may be ahead}. Each dimension's trend is stamped against the previous saved check. Returns {saved: true, id, date, health (0-100, yellow 1/2), checkCount} or {saved: false, unrated: string[] (names), reason?}.",
   paramsSchema: z.object({
     date: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional(),
   }),
-  handler: (params) => save(browserStore, params.date),
-  mcpHandler: (params, ctx) => save(serverStore(ctx.userId), params.date),
+  handler: (params) => save(browserStore, params.date, false),
+  mcpHandler: (params, ctx) => save(serverStore(ctx.userId), params.date, true),
 });
 
 /* ── remove_check ───────────────────────────────────────────────────── */

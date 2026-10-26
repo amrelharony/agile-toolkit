@@ -84,6 +84,8 @@ import { DimensionRow } from "./dimension-row";
 import { buildExample } from "./example";
 import { HealthHistory, unsentReds } from "./history";
 import { toMarkdown } from "./markdown";
+import { neighbourKeys, useFocusAfter } from "./use-focus-after";
+import { useToday } from "./use-today";
 import { healthVerdict } from "./verdict";
 
 // Recharts loads with the trend chart, not the page. The placeholder keeps
@@ -132,10 +134,16 @@ export function HealthCheckClient() {
   const { sprints } = useSelectedSprint();
   const { log } = useHistoryLogger("health-check");
   const announce = useAnnounce();
-  const [today] = useState(() => todayIso());
+  const today = useToday();
   const [attempted, setAttempted] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The day field's own error: while it shows, Save check refuses rather
+  // than saving under the last good day.
+  const [dateError, setDateError] = useState<string | null>(null);
+  const dateRef = useRef<HTMLInputElement>(null);
   const dimsRef = useRef<HTMLOListElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useFocusAfter(rootRef);
   const trendTitleId = useId();
   const opts = { includeExamples: preview };
 
@@ -178,7 +186,17 @@ export function HealthCheckClient() {
   };
 
   const save = () => {
-    const result = saveDraft(peekDoc(), { id: crypto.randomUUID(), today, sprints });
+    if (dateError) {
+      setSaveError(`Fix the day first: ${dateError}`);
+      dateRef.current?.focus();
+      return;
+    }
+    // The clock now, not the render's: a check saved just past midnight is today's.
+    const result = saveDraft(peekDoc(), {
+      id: crypto.randomUUID(),
+      today: todayIso(),
+      sprints,
+    });
     if (!result.ok) {
       setAttempted(true);
       const names = result.unrated.map((d) => d.name);
@@ -210,6 +228,15 @@ export function HealthCheckClient() {
   };
 
   const deleteCheck = (e: HealthCheckEntry) => {
+    // The next check's Delete, else the one before, else Save check.
+    focusAfter(
+      ...neighbourKeys(
+        checks.map((x) => x.id),
+        e.id,
+        "delete:"
+      ),
+      "save-check"
+    );
     removeWithUndo<HealthCheckEntry>({
       label: `Deleted the check ${checkLabel(e)}`,
       update: (fn) => {
@@ -222,9 +249,13 @@ export function HealthCheckClient() {
   };
 
   const sendReds = (e: HealthCheckEntry) => {
+    // An example row an older build saved: its reds never reach the real retro.
+    if (preview || isExampleId(e.id)) return;
     const fresh = () => peekDoc().history.find((x) => x.id === e.id);
     const reds = unsentReds(e, doc);
     if (reds.length === 0) return;
+    // The button becomes "Sent · Open retro": focus moves onto it.
+    focusAfter(`reds:${e.id}`, `delete:${e.id}`);
     const sent = sendHandoffBatch(
       "retro-topic",
       reds.map((dim) => ({
@@ -263,6 +294,8 @@ export function HealthCheckClient() {
   };
 
   const archiveDimension = (key: string, name: string) => {
+    // Its row goes: focus its Restore button, which also undoes it.
+    focusAfter(`restore:${key}`, "save-check");
     undoable({
       label: `Archived “${name}”`,
       description: "Saved checks keep its lights.",
@@ -444,7 +477,7 @@ export function HealthCheckClient() {
         {verdict}
       </p>
 
-      <div className="space-y-6">
+      <div ref={rootRef} className="space-y-6">
         {/* ---- Current check ---- */}
         <SectionCard
           title="Current check"
@@ -459,9 +492,11 @@ export function HealthCheckClient() {
                   {health === null ? "—" : `${health}%`}
                 </span>
               </div>
-              <Button size="sm" variant="toolkit" onClick={save} disabled={preview}>
-                Save check
-              </Button>
+              <span data-focus-key="save-check">
+                <Button size="sm" variant="toolkit" onClick={save} disabled={preview}>
+                  Save check
+                </Button>
+              </span>
             </>
           }
           contentClassName="space-y-4"
@@ -479,13 +514,19 @@ export function HealthCheckClient() {
             )}
 
             <div className="flex flex-wrap items-end gap-4">
-              {sprints.length > 0 ? (
-                <div className="flex flex-wrap items-end gap-2">
+              {sprints.length > 0 && (
+                <div className="flex flex-wrap items-end gap-2" data-focus-key="sprint">
                   <SprintPicker
                     sprints={sprints}
-                    selectedId={current.sprintId}
+                    // "" rather than undefined keeps the picker controlled, so after
+                    // "No sprint" it shows none and the same sprint can be picked again.
+                    selectedId={current.sprintId ?? ""}
                     onSelect={(id) => {
-                      const sprint = sprints.find((s) => s.id === id);
+                      // From the store, not this render: a sprint just made with
+                      // "New sprint" isn't in `sprints` yet.
+                      const sprint = (useWorkspaceStore.getState().sprints ?? []).find(
+                        (s) => s.id === id
+                      );
                       if (sprint) write((d) => withSprint(d, sprint));
                     }}
                     label="Sprint this check is for"
@@ -497,14 +538,20 @@ export function HealthCheckClient() {
                       size="sm"
                       variant="ghost"
                       className="gap-1"
-                      onClick={() => write((d) => withSprint(d, null))}
+                      onClick={() => {
+                        // The button goes with the sprint: focus moves to the picker.
+                        focusAfter("sprint");
+                        write((d) => withSprint(d, null));
+                      }}
                     >
                       <X className="h-3.5 w-3.5" aria-hidden="true" />
                       No sprint
                     </Button>
                   )}
                 </div>
-              ) : (
+              )}
+              {/* A check for no sprint can still be named, and its name is always on screen. */}
+              {!current.sprintId && (
                 <div className="flex min-w-0 flex-col gap-1">
                   <label htmlFor="health-check-name" className="text-xs font-medium text-sub">
                     Check name
@@ -524,6 +571,11 @@ export function HealthCheckClient() {
                 max={today}
                 problem={(day) => checkDateProblem(day, today)}
                 onChange={(day) => write((d) => withDate(d, day))}
+                onProblem={(why) => {
+                  setDateError(why);
+                  if (!why) setSaveError((e) => (e?.startsWith("Fix the day first") ? null : e));
+                }}
+                inputRef={dateRef}
                 hint={current.date && current.date !== today ? "Backdated" : undefined}
               />
             </div>
@@ -567,8 +619,9 @@ export function HealthCheckClient() {
             <>
               <p className="text-sm text-sub">
                 Each person picks a light per dimension on their own phone. A dimension&apos;s votes
-                show from {MIN_SAMPLE.anonymous} answers and set its light (mostly green reads
-                green, mostly red reads red); you can still change it by hand.
+                show from {MIN_SAMPLE.anonymous} answers and set its light, counting green 1, yellow
+                ½ and red 0: green when the votes average ¾ or more, red below ¼, yellow in between.
+                You can still change it by hand.
               </p>
               <VoteRoundPanel
                 tool="health-check"
@@ -594,7 +647,11 @@ export function HealthCheckClient() {
           {archived.length > 0 && (
             <ul className="space-y-1 text-sm" aria-label="Archived dimensions">
               {archived.map((d) => (
-                <li key={d.key} className="flex items-center gap-2 text-sub">
+                <li
+                  key={d.key}
+                  className="flex items-center gap-2 text-sub"
+                  data-focus-key={`restore:${d.key}`}
+                >
                   <span>{d.name} (archived)</span>
                   <Button
                     type="button"

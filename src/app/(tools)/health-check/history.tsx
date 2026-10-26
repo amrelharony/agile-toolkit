@@ -7,6 +7,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { liveLink } from "@/lib/handoffs/registry";
 import type { HealthCheck, HealthCheckEntry } from "@/lib/stores/workspace-types";
+import { isExampleId } from "@/lib/utils/example-id";
 import {
   allDimensions,
   checkLabel,
@@ -62,6 +63,10 @@ function SendReds({
 }) {
   const reds = redDimensions(entry, doc);
   if (reds.length === 0) return <span className="text-xs text-sub">No reds</span>;
+  // An example row an older build wrote into the history: its reds aren't the team's.
+  if (isExampleId(entry.id)) {
+    return <span className="text-xs text-sub">Example check: clear the example first</span>;
+  }
   const unsent = unsentReds(entry, doc);
   if (unsent.length === 0) {
     return (
@@ -90,6 +95,8 @@ function SendReds({
  * The saved checks, newest first: each dimension's light, health (yellow
  * counts half), and per check "Send reds to retro" and Delete (with Undo).
  * A table from md up; cards below, so nothing scrolls sideways on a phone.
+ * The controls are marked `data-focus-key` ("reds:<id>", "delete:<id>") so
+ * the page can put focus back after a send or a delete.
  */
 export function HealthHistory({ doc, checks, readOnly, onSendReds, onDelete }: HistoryProps) {
   const dims = allDimensions(doc).filter((d) => checks.some((e) => storedLight(e, d.key) !== null));
@@ -141,13 +148,17 @@ export function HealthHistory({ doc, checks, readOnly, onSendReds, onDelete }: H
       align: "right",
       cell: (e) => (
         <span className="flex items-center justify-end gap-1">
-          <SendReds entry={e} doc={doc} readOnly={readOnly} onSendReds={onSendReds} />
-          <IconButton
-            label={`Delete the check ${checkLabel(e)}`}
-            icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
-            disabled={readOnly}
-            onClick={() => onDelete(e)}
-          />
+          <span data-focus-key={`reds:${e.id}`}>
+            <SendReds entry={e} doc={doc} readOnly={readOnly} onSendReds={onSendReds} />
+          </span>
+          <span data-focus-key={`delete:${e.id}`}>
+            <IconButton
+              label={`Delete the check ${checkLabel(e)}`}
+              icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+              disabled={readOnly}
+              onClick={() => onDelete(e)}
+            />
+          </span>
         </span>
       ),
     },
@@ -180,13 +191,17 @@ export function HealthHistory({ doc, checks, readOnly, onSendReds, onDelete }: H
               ))}
             </ul>
             <div className="flex items-center justify-end gap-1">
-              <SendReds entry={e} doc={doc} readOnly={readOnly} onSendReds={onSendReds} />
-              <IconButton
-                label={`Delete the check ${checkLabel(e)}`}
-                icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
-                disabled={readOnly}
-                onClick={() => onDelete(e)}
-              />
+              <span data-focus-key={`reds:${e.id}`}>
+                <SendReds entry={e} doc={doc} readOnly={readOnly} onSendReds={onSendReds} />
+              </span>
+              <span data-focus-key={`delete:${e.id}`}>
+                <IconButton
+                  label={`Delete the check ${checkLabel(e)}`}
+                  icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                  disabled={readOnly}
+                  onClick={() => onDelete(e)}
+                />
+              </span>
             </div>
           </div>
         );

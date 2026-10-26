@@ -1,9 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Archive, ArrowDown, ArrowRight, ArrowUp } from "lucide-react";
-import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
 import { BlurInput } from "@/components/shared/blur-fields";
 import { cn } from "@/lib/utils";
@@ -21,6 +18,7 @@ import {
   votesTotal,
   type HealthDimensionInfo,
 } from "@/lib/health-check/score";
+import { NameField } from "./name-field";
 
 const LIGHT_LABEL: Record<HealthTrafficLight, string> = {
   green: "Green",
@@ -132,50 +130,6 @@ export function VotesBar({ votes }: { votes: HealthVotes }) {
   );
 }
 
-/** A custom dimension's name, edited in place: checked on blur, kept as typed until it is valid. */
-function NameField({
-  name,
-  onRename,
-}: {
-  name: string;
-  onRename: (next: string) => string | null;
-}) {
-  const [draft, setDraft] = useState(name);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    setDraft(name);
-    setError(null);
-  }, [name]);
-  const commit = () => {
-    if (draft.trim() === name) {
-      setDraft(name);
-      setError(null);
-      return;
-    }
-    setError(onRename(draft));
-  };
-  return (
-    <Field label="Dimension name" hideLabel error={error ?? undefined}>
-      {(props) => (
-        <Input
-          {...props}
-          value={draft}
-          maxLength={DIMENSION_NAME_MAX}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              commit();
-            }
-          }}
-          className="h-8 max-w-xs text-sm font-medium"
-        />
-      )}
-    </Field>
-  );
-}
-
 export interface DimensionRowProps {
   dim: HealthDimensionInfo;
   /** Its rated light, or null while it isn't rated. */
@@ -215,7 +169,12 @@ export function DimensionRow({
       <div className="flex flex-col gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,11rem)] md:items-center md:gap-3">
         <div className="min-w-0">
           {dim.custom && onRename ? (
-            <NameField name={dim.name} onRename={onRename} />
+            <NameField
+              name={dim.name}
+              label={`Name of the dimension ${dim.name}`}
+              maxLength={DIMENSION_NAME_MAX}
+              onRename={onRename}
+            />
           ) : (
             <span className="text-sm font-medium text-text">{dim.name}</span>
           )}

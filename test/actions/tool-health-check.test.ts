@@ -27,6 +27,8 @@ import { registry } from "@/lib/actions/registry";
 import * as serverStore from "@/lib/actions/server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { HEALTH_CHECK_DIMENSIONS, HEALTH_CHECK_ID } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { addDays } from "@/lib/impediments/model";
 
 import "@/lib/actions/tools/health-check";
 
@@ -175,5 +177,39 @@ describe("tool.health_check on the server", () => {
     };
     expect(written.current.scores.Fun.note).toBe("Good week");
     expect(written.current.rated).toEqual(["Fun"]);
+  });
+
+  it("save_check takes the user's day a day ahead of the server's, not two", async () => {
+    // A draft with every dimension rated, as the server would read it.
+    const rated = {
+      id: HEALTH_CHECK_ID,
+      current: {
+        sprintName: "",
+        scores: Object.fromEntries(
+          HEALTH_CHECK_DIMENSIONS.map((d) => [d, { light: "green", trend: "same" }])
+        ),
+        rated: [...HEALTH_CHECK_DIMENSIONS],
+      },
+      history: [],
+    };
+    vi.mocked(serverStore.serverGetEntity).mockImplementation(async () => rated as never);
+    const save = registry.get("tool.health_check.save_check")!;
+    const today = todayLocalISO();
+    try {
+      // Ahead of UTC, the user's today is the server's tomorrow: accepted.
+      expect(await save.mcpHandler!({ date: addDays(today, 1) }, ctx())).toMatchObject({
+        saved: true,
+        date: addDays(today, 1),
+      });
+      expect(await save.mcpHandler!({ date: addDays(today, 2) }, ctx())).toMatchObject({
+        saved: false,
+        reason: "A check can't be dated in the future.",
+      });
+    } finally {
+      vi.mocked(serverStore.serverGetEntity).mockImplementation(async () => null);
+    }
+    // In the browser, today is the user's own: tomorrow is refused.
+    useWorkspaceStore.setState({ healthChecks: [rated as never] });
+    expect(await save.handler({ date: addDays(today, 1) }, ctx())).toMatchObject({ saved: false });
   });
 });

@@ -20,10 +20,10 @@ const are = (names: string[]) => `${listAnd(names)} ${names.length === 1 ? "is" 
 /**
  * The health check in one sentence: the check in progress once something
  * is rated, else the latest saved one. Health (yellow counts half), what is
- * red, and what moved since the check before.
+ * red, and what moved since the check before, slips first.
  *
- *   "Health 69% (yellow counts half): Health of Codebase is red; Easy to
- *    Release improved since Sprint 14."
+ *   "Health 69% (yellow counts half): Health of Codebase is red; Fun
+ *    slipped, Easy to Release improved since Sprint 14."
  */
 export function healthVerdict(
   doc: HealthCheck,
@@ -68,11 +68,11 @@ export function healthVerdict(
     : `The last saved check, ${checkLabel(latest!)}, read health ${pct}%`;
   const red = reds.length > 0 ? `${are(reds)} red` : "nothing is red";
   const since = prev ? ` since ${checkLabel(prev)}` : "";
-  const trend =
-    up.length > 0
-      ? `; ${listAnd(up)} improved${since}`
-      : down.length > 0
-        ? `; ${listAnd(down)} slipped${since}`
-        : "";
+  // Slips first: a gain elsewhere never hides one.
+  const moves = [
+    ...(down.length > 0 ? [`${listAnd(down)} slipped`] : []),
+    ...(up.length > 0 ? [`${listAnd(up)} improved`] : []),
+  ];
+  const trend = moves.length > 0 ? `; ${moves.join(", ")}${since}` : "";
   return `${lead} (yellow counts half): ${red}${trend}.`;
 }

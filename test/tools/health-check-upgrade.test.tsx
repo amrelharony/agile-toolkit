@@ -34,6 +34,7 @@ import {
   revertHealthRound,
   saveDraft,
   trendFor,
+  trendSince,
   votesFromDistribution,
   withCustomDimension,
   withDimensionPatch,
@@ -46,6 +47,7 @@ import {
 } from "@/lib/health-check/score";
 import { registry } from "@/lib/actions/registry";
 import { RETRO_CURRENT_ID } from "@/lib/retro/board";
+import { exampleId } from "@/lib/utils/example-id";
 
 /**
  * Squad Health Check, upgraded: yellow counts half everywhere (the page,
@@ -466,14 +468,31 @@ describe("the page", () => {
     expect(stored()?.current.date).toBe("2026-10-20");
   });
 
-  it("offers the shared sprints, and a free name only without them", () => {
+  it("offers the shared sprints, and a free name for a check with no sprint", () => {
     const { unmount } = renderPage();
     expect(screen.getByLabelText("Check name")).toBeInTheDocument();
     unmount();
     useWorkspaceStore.setState({ sprints: [sprint("s1", "Sprint 1", "2026-10-12", "2026-10-23")] });
+    seed(withSprint(doc(), { id: "s1", name: "Sprint 1" }));
     renderPage();
+    // A check for a sprint takes the sprint's name.
     expect(screen.queryByLabelText("Check name")).toBeNull();
     expect(screen.getByText("Sprint this check is for")).toBeInTheDocument();
+    // "No sprint" clears the sprint's name too, and the name is back on screen.
+    fireEvent.click(screen.getByRole("button", { name: "No sprint" }));
+    expect(stored()?.current.sprintId).toBeUndefined();
+    expect(stored()?.current.sprintName).toBe("");
+    expect(screen.getByLabelText("Check name")).toHaveValue("");
+    // The picker shows no sprint, takes focus, and the same sprint can be picked again.
+    const picker = screen.getByRole("combobox", { name: "Sprint this check is for" });
+    expect(picker).toHaveTextContent("Choose a sprint");
+    expect(document.activeElement).toBe(picker);
+    Element.prototype.scrollIntoView = () => {};
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.releasePointerCapture = () => {};
+    fireEvent.pointerDown(picker, { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: /^Sprint 1/ }));
+    expect(stored()?.current).toMatchObject({ sprintId: "s1", sprintName: "Sprint 1" });
   });
 
   it("keeps a note per dimension", () => {
@@ -764,5 +783,163 @@ describe("tool.health_check", () => {
       .get("workspace.health_check.update")!
       .handler({ id: HEALTH_CHECK_ID, patch: {} }, ctx());
     expect(stored()).toEqual(d);
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+describe("review fixes", () => {
+  const call = async <T,>(verb: string, params: Record<string, unknown> = {}) =>
+    (await registry.get(`tool.health_check.${verb}`)!.handler(params, ctx())) as T;
+  const rateAll = (light = "Green") => {
+    for (const d of D) fireEvent.click(lightButton(d, light));
+  };
+
+  it("puts the check on a sprint made with the picker's New sprint", () => {
+    useWorkspaceStore.setState({ sprints: [sprint("s1", "Sprint 1", "2026-10-01", "2026-10-12")] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "New sprint" }));
+    const dialog = screen.getByRole("dialog", { name: "New sprint" });
+    fireEvent.change(within(dialog).getByLabelText(/^Name/), { target: { value: "Sprint 2" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Create sprint/ }));
+    const created = useWorkspaceStore.getState().sprints?.find((s) => s.name === "Sprint 2");
+    expect(created).toBeTruthy();
+    expect(stored()?.current).toMatchObject({ sprintId: created!.id, sprintName: "Sprint 2" });
+  });
+
+  it("No sprint clears the sprint's name, on the page's lib and for an agent", async () => {
+    const tagged = withSprint(doc(), { id: "s1", name: "Sprint 1" });
+    const cleared = withSprint(tagged, null);
+    expect(cleared.current.sprintId).toBeUndefined();
+    expect(cleared.current.sprintName).toBe("");
+    // A name typed for a check with no sprint stays.
+    const named = withSprint({ ...doc(), current: { ...doc().current, sprintName: "Q4" } }, null);
+    expect(named.current.sprintName).toBe("Q4");
+
+    useWorkspaceStore.setState({ sprints: [sprint("s1", "Sprint 1", "2026-10-12", "2026-10-23")] });
+    await call("set_sprint", { sprintId: "s1" });
+    expect(await call("set_sprint", { sprintId: null })).toMatchObject({ set: true });
+    expect(stored()?.current.sprintName).toBe("");
+  });
+
+  it("a trend with nothing to compare is null for the agent and said so in the export", async () => {
+    expect(trendSince(undefined, "Fun", "green")).toBeNull();
+    expect(trendSince(entry("p", "2026-10-01", { Fun: "red" }), "Fun", "green")).toBe("up");
+    expect(trendSince(entry("p", "2026-10-01"), "custom-x", "green")).toBeNull();
+    expect(trendSince(entry("p", "2026-10-01"), "Fun", null)).toBeNull();
+
+    // A first check: its trends are null, never "same".
+    seed(withRating(doc(), "Fun", "green"));
+    const first = await call<{ trends: Record<string, string | null> }>("list_state");
+    expect(first.trends.Fun).toBeNull();
+
+    // A dimension added since the previous check.
+    let d = withCustomDimension(doc(), { id: "custom-x", name: "Pairing" });
+    d = {
+      ...d,
+      history: [entry("prev", "2026-10-01", { Fun: "red" }, { sprintName: "Sprint 9" })],
+    };
+    d = withRating(withRating(d, "Fun", "green"), "custom-x", "yellow");
+    seed(d);
+    const r = await call<{
+      trends: Record<string, string | null>;
+      history: { trends: Record<string, string | null> }[];
+    }>("list_state");
+    expect(r.trends.Fun).toBe("up");
+    expect(r.trends["custom-x"]).toBeNull();
+    // The first saved check had nothing before it.
+    expect(Object.values(r.history[0].trends).every((t) => t === null)).toBe(true);
+
+    const md = toMarkdown(d, { now: new Date(2026, 9, 26) });
+    expect(md).toContain("| Pairing | 🟡 Yellow | New since Sprint 9 |");
+    expect(md).toContain("| Fun | 🟢 Green | ↑ Up |");
+    const md1 = toMarkdown(withRating(doc(), "Fun", "green"), { now: new Date(2026, 9, 26) });
+    expect(md1).toContain("| Fun | 🟢 Green | First check |");
+  });
+
+  it("refuses Save check while the day shows an error, and says which day it keeps", () => {
+    renderPage();
+    rateAll();
+    const day = screen.getByLabelText("Taken on");
+    fireEvent.change(day, { target: { value: "2026-10-30" } });
+    expect(screen.getByText("Keeps 26 Oct 2026 until a valid day is picked.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save check" }));
+    expect(stored()?.history ?? []).toHaveLength(0);
+    expect(screen.getByText(/^Fix the day first: A check can't be dated/)).toBeInTheDocument();
+    expect(document.activeElement).toBe(day);
+    // A good day again: the refusal goes, and the check saves under it.
+    fireEvent.change(day, { target: { value: "2026-10-21" } });
+    expect(screen.queryByText(/^Fix the day first/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save check" }));
+    expect(stored()?.history[0].date).toBe("2026-10-21");
+  });
+
+  it("dates a check saved just past midnight today's, not the day the page opened", () => {
+    vi.setSystemTime(new Date(2026, 9, 26, 23, 59, 0));
+    renderPage();
+    rateAll();
+    vi.setSystemTime(new Date(2026, 9, 27, 0, 1, 0));
+    fireEvent.click(screen.getByRole("button", { name: "Save check" }));
+    expect(stored()?.history[0].date).toBe("2026-10-27");
+  });
+
+  it("never sends an older build's example row to the retro", () => {
+    seed(doc({ history: [entry(exampleId("hc"), "2026-10-20", { Fun: "red" })] }));
+    renderPage();
+    expect(screen.getAllByText("Example check: clear the example first").length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole("button", { name: /Send 1 red dimension/ })).toHaveLength(0);
+  });
+
+  it("the verdict reports what slipped as well as what improved, slips first", () => {
+    const d = doc({
+      history: [
+        entry("p", "2026-10-01", { Speed: "red" }, { sprintName: "Sprint 14" }),
+        entry("c", "2026-10-15", { Fun: "red", Teamwork: "yellow" }, { sprintName: "Sprint 15" }),
+      ],
+    });
+    expect(healthVerdict(d, { today: "2026-10-26" })).toBe(
+      "The last saved check, Sprint 15, read health 81% (yellow counts half): Fun is red; Fun and Teamwork slipped, Speed improved since Sprint 14."
+    );
+  });
+
+  it("says the votes' rule as it is", () => {
+    renderPage();
+    expect(
+      screen.getByText(/green when the votes average ¾ or more, red below ¼, yellow in between/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/mostly green reads green/)).toBeNull();
+  });
+
+  it("puts focus back after a delete, a send and an archive", () => {
+    let d = withCustomDimension(doc(), { id: "custom-x", name: "Pairing" });
+    d = {
+      ...d,
+      history: [
+        entry("a", "2026-10-01", { Fun: "red" }, { sprintName: "Sprint 1" }),
+        entry("b", "2026-10-15", {}, { sprintName: "Sprint 2" }),
+      ],
+    };
+    seed(d);
+    renderPage();
+    // Newest first: deleting Sprint 2 moves focus to Sprint 1's Delete.
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete the check Sprint 2" })[0]);
+    expect(document.activeElement).toBe(
+      screen.getAllByRole("button", { name: "Delete the check Sprint 1" })[0]
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /Send 1 red dimension/ })[0]);
+    expect(document.activeElement).toBe(screen.getAllByText("Sent · Open retro")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Archive Pairing" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Restore Pairing" }));
+    // The last check gone: focus lands on Save check.
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete the check Sprint 1" })[0]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save check" }));
+  });
+
+  it("names each custom dimension's name field after it", () => {
+    seed(withCustomDimension(doc(), { id: "custom-x", name: "Pairing" }));
+    renderPage();
+    expect(
+      screen.getByRole("textbox", { name: "Name of the dimension Pairing" })
+    ).toBeInTheDocument();
   });
 });
