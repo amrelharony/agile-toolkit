@@ -593,6 +593,198 @@ One document (`adkar:current`, kind `workspace:adkarDoc`). It moves once from th
 | `advance` / `step_back` | `id`, `on?` (default today)                                                            | `{moved, from, stage, enteredAt, pastBarrier}`, or `reason: not_found \| invalid_date \| at_final_stage` (`at_first_stage` for `step_back`)                                                                                                                                                                                                                                                                                                                                                                                               |
 | `remove_initiative`     | `id`                                                                                   | `{removed}`, or `reason: not_moved_yet`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
+### Prioritize & decide
+
+The Prioritize & decide tools read and write the same data as their pages, through the same pure code (the method registry `lib/prioritization/methods` with `lib/prioritization/rank`, `lib/buy-a-feature/game`, `lib/hundred-dollar/allocation`, `lib/decisions`, `lib/weighted/model`, `lib/cynefin/model`), so an agent's numbers match the screen.
+
+- **One backlog, one value field, one decided order.** Backlog items (`workspace.backlog_item`) hold the MoSCoW, WSJF, RICE and Value/Effort inputs. `businessValue` is the item's one value field: WSJF's business value and the Value/Effort value, on 1, 2, 3, 5, 8, 13, 20. The old 1–10 `value` is read only while `businessValue` is missing (mapped up to the next step) and is never written. `rank` (1 first) is the decided order: only `tool.prioritizer.set_order` (the page's Save order) sets it, a new item has none (Not ordered yet), and Sprint Planning imports the backlog in that order.
+- **Not scored is never a default.** A method that hasn't scored an item reads `null` (`score: null` on a row, listed last), never 0 or a mid value. An item still holding every one of a method's old "Add item" defaults (`moscow: "should"`; WSJF 5/5/5/5; RICE reach 100, impact 1, confidence 80, effort 1; `value` 5 with `matrixEffort` 5) reads as not scored in that method.
+- **Method rows read through.** Each method tool's rows are `workspace.prioritization` rows with a `framework`. A row linked to a backlog item (`backlogItemId`) in a method the backlog holds (MoSCoW, WSJF, RICE, Value/Effort) reads its inputs from the item, and its writes go to the item too. ICE, Kano and Cost of Delay rows only link; the Prioritizer shows each item's latest linked row. Scores are stored unrounded; the pages round them.
+- **Persist verbs check like the forms.** They recompute the score (a supplied `score` is ignored), keep an existing row's other fields and its link, and refuse a batch at its first invalid item, writing nothing. Prefer them to the generic `workspace.prioritization.*` CRUD, which checks only the row's shape, not its inputs, and writes nothing through to the backlog item.
+- **Live rounds run in the browser.** A Kano, Buy-a-Feature or $100 Test live round runs between the host's tab and the participants' phones, encrypted so only the host's tab can read the answers, and no action opens, answers or reveals one. Nothing reaches the workspace until the host presses Save round, and then only its totals. Agents record totals counted by hand (`tool.kano_model.record_round`, `tool.buy_a_feature.record_round`, `tool.hundred_dollar_test.record_round`) under the same minimums: results from 3 people, who backed what and the spread from 5. No action takes or returns anyone's answers or split.
+- **Example rows never count.** Rows from a page's Load an example have `example-` ids.
+
+```jsonc
+// Score candidates with WSJF (pure), then persist the chosen one, linked to its backlog item
+{"method":"tools/call","params":{"name":"tool.wsjf.compute_and_rank","arguments":{
+  "items": [
+    {"id":"f1","title":"Single sign-on","fields":{"businessValue":8,"timeCriticality":5,"rrOe":3,"jobSize":2}},
+    {"id":"f2","title":"Audit log export","fields":{"businessValue":3,"timeCriticality":1,"rrOe":1,"jobSize":1}}
+  ]
+}}}
+// → {"ranked": [{"id": "f1", "score": 8, "rank": 1, ...}, {"id": "f2", "score": 5, "rank": 2, ...}],
+//    "count": 2, "columnsWithoutOne": ["businessValue"]}
+{"method":"tools/call","params":{"name":"tool.wsjf.persist_to_prioritization","arguments":{
+  "items": [{"title":"Single sign-on","fields":{"businessValue":8,"timeCriticality":5,"rrOe":3,"jobSize":2},"backlogItemId":"bk_123"}]
+}}}
+// → {"written": ["prio_x"], "count": 1, "scores": [{"id": "prio_x", "score": 8}]}
+
+// Decide the order: read the consensus, agree it with the team, then save it
+{"method":"tools/call","params":{"name":"tool.prioritizer.decide_order","arguments":{}}}
+// → {"methods": ["moscow", "wsjf", "rice"], "consensus": [...], "suggestedOrder": ["bk_123", "bk_7"], "unscored": ["bk_9"], ...}
+{"method":"tools/call","params":{"name":"tool.prioritizer.set_order","arguments":{"ids":["bk_123","bk_7"]}}}
+// → {"ranked": 2, "unranked": 1, "changed": 3}
+```
+
+#### Backlog Prioritizer — `tool.prioritizer.*`
+
+- **`list_state`** (read) `{}` — `{total, byMoscow, notSorted, items[], rankedByWsjf[], ordered[], rankedMethods[]}`.
+  - Each item is `{id, name, moscow, wsjf, rice, rank, frameworkScores, methods, methodRanks, consensus, coverage, disagree}`. `rank` is the decided place (1 first), `null` while Not ordered yet.
+  - `frameworkScores` holds `{moscow, wsjf, rice, valueEffort: {value, effort, quadrant} | null}` from the item's own inputs, plus `{ice, kano, cd3, urgency}` from the latest row linked to it in those tools (`costOfDelay` is deprecated: the old total). `methods` is each hub method's `{score, bucket, missing, warnings}`.
+  - `rankedMethods` are the hub methods with 2 or more items scored. `methodRanks` is the item's place in each of them (tied items share the average place, so two tied for 2nd both read 2.5); `consensus` is the Borda score over them, 0–100 (100: first in every method that scored it), `null` when none did; `coverage` counts the methods that scored it; `disagree` means its places are more than half the list apart.
+  - `ordered` lists the items in the decided order: ranked items first, then the ones not ordered yet, in stored order. `byMoscow` counts only items with a bucket; `notSorted` counts the rest.
+- **`add_item`** (write) `{name, description?, moscow?, businessValue?, timeCriticality?, riskReduction?, jobSize?, reach?, reachPeriod?, impact?, confidence?, effort?, matrixEffort?}` — returns `{added: true, id}`.
+  - Only the inputs given are stored: every other method starts Not scored, and the item Not ordered yet.
+  - The WSJF parts (`businessValue` included) must be steps of 1, 2, 3, 5, 8, 13, 20: refused otherwise, never clamped.
+  - RICE: `reachPeriod` week | month | quarter | year, `confidence` above 0 and up to 100, `effort` 0.5 person-months at least. `matrixEffort` is 1–10. A refused input adds nothing.
+- **`decide_order`** (read) `{methods?}` — `{methods, skipped[{method, label, scored, reason}], consensus[{id, name, rank, borda, coverage, spread, disagree, perMethod}], suggestedOrder, unscored}`: the page's Decide order step, each method's places and the Borda consensus. Methods with fewer than 2 scored items are skipped, with the reason; unscored items come last. It writes nothing.
+- **`set_order`** (write, asks first) `{ids}` — `{ranked, unranked, changed}`. Ranks 1..N go to `ids` in the order given, and every other item goes back to Not ordered yet. An unknown id is refused and nothing changes.
+
+Typical flow: `list_state`, then `decide_order`, agree the order with the team, then `set_order` with `suggestedOrder` or the team's version. To score an item, use a method tool's persist verbs with `backlogItemId`.
+
+#### RICE, WSJF, ICE, MoSCoW and Cost of Delay
+
+Each has the calculator shape: a pure compute (`compute_score`; MoSCoW `classify`; Cost of Delay `compute_cd3`), a pure `compute_and_rank` (not MoSCoW), the workspace list (`list_scored`; MoSCoW `list_items`), a one-row `score_and_persist` (MoSCoW `classify_and_persist`) and a batch `persist_to_prioritization`. Items are `{id?, title, fields, backlogItemId?}`. Listed rows are `{id, title, fields, values, score, rank, percentile, bucket, missing, warnings, backlogItemId, live, updatedAt, extra?}`, in the page's order with unscored rows last (dense rank: ties share one). A batch persist returns `{written, count, scores}`.
+
+- **RICE** (`tool.rice_scoring.*`) `fields {reach, reachPeriod?, impact, confidencePct, effort}`.
+  - `reachPeriod` is week | month | quarter (default) | year. The score normalises reach to per quarter (week ×13, month ×3, year ÷4), so mixed periods compare; `compute_score` returns `{score, formula, reachPerQuarter, missing, warnings}` and rows carry `extra.reachPerQuarter`.
+  - `confidencePct` is a percentage, 0–100: 100 backed by data, 80 some evidence, 50 mostly a guess; under 50 is a moonshot to test first. `impact` is kept exactly (3, 2, 1, 0.5, 0.25).
+  - `effort` is person-months: a persist refuses less than 0.5. On a read, 0 is Not scored, and a legacy value under 0.5 counts as 0.5 with a warning.
+  - With `backlogItemId`, the persists write the inputs to the item.
+- **WSJF** (`tool.wsjf.*`) `fields {businessValue, timeCriticality, rrOe, jobSize}`, all four (`rrOe` is the item's `riskReduction`).
+  - Every part is on 1, 2, 3, 5, 8, 13, 20, relative to the other items; nothing clamps to 10. A persist refuses a part off the scale (unless the row already holds it) and a job size below 1. A pure compute scores any number, dividing by at least 1; a job size of 0 is Not scored.
+  - `list_scored` and `compute_and_rank` return `columnsWithoutOne`: the parts with 2 or more values where no item has a 1. Give the smallest a 1 and size the others against it. A title-only row (the page's column scoring) lists with `score: null`.
+- **ICE** (`tool.ice_score.*`) `fields {impact, confidence, ease}`, each 1–10; the score runs up to 1,000. `backlogItemId` only links the row.
+- **MoSCoW** (`tool.moscow.*`) `fields {category, effort?}`. `category` is must | should | could | wont, required, with no default.
+  - `classify` returns `{category, priority (must 4 … wont 1), description}`. The persists store the bucket and the priority as the row's score, and with `backlogItemId` write the bucket to the item: `classify_and_persist` returns `{id, category, priority, backlogItemId, backlogUpdated}`, `persist_to_prioritization` `{written[{id, category, priority}], count}`.
+  - `list_items` returns `{must, should, could, wont, unsorted, total, budget}`, each group newest first. A row with no bucket, or an unknown one, is under `unsorted`, never Must.
+  - `budget` is the Must budget `{mustEffort, plannedEffort, share, over, excess, sized, unsized, unsizedMusts, limit: 0.6}`: Musts should take at most about 60% of the Must + Should + Could effort, counting a linked item's job size first, else the row's `effort`. `share` is null below 3 sized items, and while `unsizedMusts` is above 0 it is a lower bound.
+- **Cost of Delay** (`tool.cost_of_delay.*`) `fields {perWeekUsd, durationWeeks?, urgency?, fixedDate?, weeksDelayed?, jobSize?}`.
+  - CD3 = `perWeekUsd` ÷ `durationWeeks`, with a duration of half a week at least. `urgency` is expedite | fixed_date | standard | intangible, and `fixed_date` needs `fixedDate` (YYYY-MM-DD); `latestStart` = that date − the duration.
+  - Lists run in the page's lanes (`bucket` is the lane): expedite, fixed date by latest start, standard by CD3, rows with no profile yet, then intangible by CD3.
+  - A row without a duration is saved and listed Not scored ("add a duration"). `weeksDelayed` (the old per week × weeks delayed model) stays on the row for reference, with the old total in `extra.totalCost`, and is never part of CD3. `jobSize` is a deprecated alias of `durationWeeks` for one release.
+  - `compute_cd3` returns `{score, lane, latestStart, costOfDelay (deprecated: the old total, or null), formula, missing, warnings}`; the persists return the `lane` too. `backlogItemId` only links the row.
+
+#### Value vs Effort — `tool.value_effort_matrix.*`
+
+One rule on the page, in the Prioritizer and here: value is the backlog's one value field on 1, 2, 3, 5, 8, 13, 20 (8 or more is high; the same field as WSJF's business value), and effort is 1–10 (6 or more is high). The quadrant (`quick_wins`, `big_bets`, `fill_ins`, `time_wasters`) is derived, never stored; a stored legacy `quadrant` is ignored. The sort score is value ÷ effort, and lists go quadrant by quadrant in do-first order. A write refuses a value off the scale unless the row or its item already holds it.
+
+- **`compute_quadrant`** (read, pure) `{value, effort}` — `{quadrant, score, quadrantScore (Quick Wins 4 … Time Wasters 1), missing, thresholds {value: 8, effort: 6}}`. `valueThreshold` and `effortThreshold` are deprecated and ignored, here and on `compute_and_rank`, `classify_and_persist` and `persist_to_prioritization`.
+- **`compute_and_rank`** (read, pure) `{items[]}` — `{ranked[{id, title, fields, score, quadrant, quadrantScore}], count, thresholds}`.
+- **`list_items`** (read) — `{groups {quick_wins, big_bets, fill_ins, time_wasters}, unplaced, count, quadrants, thresholds}`. Each row carries `{value, effort, quadrant}` as the page shows it (a linked row's from its item); `unplaced` is the page's Not placed yet.
+- **`classify_and_persist`** (write) `{id?, title, fields {value, effort}, backlogItemId?}` — `{id, quadrant, score, quadrantScore, backlogItemId, backlogUpdated}`. **`persist_to_prioritization`** `{items[{id?, title, fields?: {value?, effort?}, backlogItemId?}]}` — `{written, count, placed[{id, quadrant, score}]}`, each item with both value and effort, or neither (Not placed yet). Only value and effort are stored; with `backlogItemId` they're written to the item (`businessValue`, `matrixEffort`).
+- **`place_item`** (write) `{id, value, effort}` moves one item, as dragging it does — `{id, quadrant, score, backlogItemId, backlogUpdated}`.
+- **`set_position`** (write) `{id, value | null, effort | null, clearBacklog?}` places or moves an item, or with both `null` sends it back to Not placed yet; one without the other is refused. Un-placing a linked row clears only the item's effort (`matrixEffort`), as the page does: its value stays, being WSJF's business value too, unless `clearBacklog: true`. Returns `{id, quadrant, score, placed, backlogItemId, backlogUpdated}` (the item fields changed).
+
+#### Eisenhower — `tool.eisenhower.*`
+
+Tasks store `urgent` and `important` (`"true"` / `"false"`), `dueAt` (YYYY-MM-DD, past days allowed) and `delegateTo` (a roster name). Urgent means the answer is yes or the task is due within 2 days, overdue included. The quadrant (do, schedule, delegate, delete) is derived for `today` (default: the server's date) and never stored. A task missing an answer is `unsorted` (Not sorted yet), never Do, and a legacy row still holding a stored quadrant reads as that quadrant's answers, as the page shows it.
+
+- **`classify`** (read, pure) `{urgent, important, dueAt?, delegateTo?, today?}` — `{quadrant, score (4/3/2/1), urgentBecause ('toggle' | 'due' | null), daysToDue, rule}`.
+- **`list_items`** (read) `{today?}` — `{do, schedule, delegate, delete, unsorted, total, today}`, each group newest first. Rows carry `values {urgent, important, dueAt, delegateTo}` and `extra {urgentBecause, daysToDue}`.
+- **`classify_and_persist`** (write) `{id?, title, fields {urgent, important, dueAt?, delegateTo?}}` and **`update_task`** `{id, title?, urgent?, important?, dueAt?: string | null, delegateTo?: string | null}` (`null` clears) — `{id, quadrant, score, urgentBecause}`.
+- **`persist_to_prioritization`** (write) `{items[{id?, title, fields?, quadrant?}]}` — `{written[{id, quadrant, score}], count}`. A `quadrant` is turned into its answers; one that contradicts the answers given is refused, and nothing is written.
+
+#### Kano — `tool.kano_model.*`
+
+A feature holds one person's answer pair (`functional` and `dysfunctional`, each like | must | neutral | live_with | dislike) or survey counts per class (`kanoA` … `kanoQ` with `kanoN`, and `kanoSource` pair | counts | room | tally). The Kano evaluation table maps a pair to A (attractive), O (performance), M (must-be), I (indifferent), R (reverse) or Q (questionable); (like, like) and (dislike, dislike) are Questionable. With counts, the category is the most common class (ties M > O > A > I > R > Q), from 3 answers. Better = (A+O)/(A+O+M+I) and Worse = −(O+M)/(A+O+M+I), `null` until 3 answers that aren't R or Q. The score is Decide order's ranking: must-be 5, performance 4, attractive 3, indifferent 2, reverse 1, questionable 0. The category is never stored; `category` alone is deprecated and stored as Picked by hand.
+
+- **`classify`** (read, pure) `{functional + dysfunctional | counts {A, O, M, I, R, Q} | category}` — `{class, category (null under 3 answers), score, explanation, counts, n, better, worse, enough, picked}`.
+- **`list_items`** (read) — `{"must-be", performance, attractive, indifferent, reverse, questionable, needs_more, unanswered, total}`, each group newest first. Survey counts under 3 answers are under `needs_more` (the page's Needs more answers; `extra.n` says how many), and a feature with no answers under `unanswered`. Rows carry `extra {n, better, worse, source, A, O, M, I, R, Q}`; `source: "pair"` is one person's answers, not a survey.
+- **`classify_and_persist`** (write) `{id?, title, fields, backlogItemId?}` — `{id, category, score, explanation, class, n, better, worse, enough}`. **`persist_to_prioritization`** `{items[]}` — `{written[{id, category, score}], count}`. Both store the answers or the counts.
+- **`record_round`** (write) `{featureId, counts | joint, add?, source?, roundId?, at?}` — a survey round's totals for one existing feature, as the page's Save round stores them.
+  - Give exactly one of `counts` `{A, O, M, I, R, Q}` or `joint`, the 25-cell count of answer pairs (`joint[first × 5 + second]`, both in the order like, must, neutral, live_with, dislike).
+  - The round replaces the feature's earlier answers unless `add: true` (then it is added, a single stored pair counting as one), and a hand-picked category goes. `source` is room | tally (default).
+  - A `roundId` the feature already holds is never counted twice: nothing is written, and its stored totals come back with `alreadyRecorded: true`.
+  - Returns `{id, category (null under 3 answers), score, counts, n, better, worse, enough, replaced, previous: {counts, n} | null, alreadyRecorded}`. Totals only: it takes no per-person answers.
+
+#### Buy-a-Feature — `tool.buy_a_feature.*`
+
+Features are prioritization rows (framework `buy-feature`) with a whole `price` and what was `raised` toward it. The game document (`workspace.buy_a_feature_game`, id `buyAFeature:current`) holds the players and each one's budget; the pool is the two multiplied. Money moves at pool level, never per player. Every number comes from `lib/buy-a-feature/game`, the code the page uses: a purchase is capped at what a feature still needs, a legacy row over its price counts only its price, and a price of 0 or a fraction reads as Not priced. Rounds (`workspace.allocation_round`, tool `buy-a-feature`) keep per-feature totals only, never anyone's split.
+
+- **`list_state`** (read) `{}` — `{unit, game, pool, budgetCheck, nextRound, features, counts, rounds, verdict}`.
+  - `game` is `{players, budgetPerPlayer, unit}`, each `null` until set. Never assume the team's size.
+  - `pool` is `{players, budgetPerPlayer, pool, spent, left, overspent}`, or `null` until both are set. `spent` is what the features raised, each capped at its price.
+  - `budgetCheck` is `{ok, pool, sumOfPrices, sharePct, suggestedBudget, budgetBelow, text, problem}`. `ok` means the pool is below the sum of the prices, so nobody can buy everything; `problem` names the budget each player must stay below.
+  - `nextRound` is `{number, budgetPerPlayer, features[{id, cap}], blocked}`. Round 1 uses the budget per player; later rounds use what's left in the pool, split evenly. Each feature's `cap` is what it still needs, and `blocked` says why a round can't run.
+  - `features` are `{id, title, price, raised, remaining, funded, pctFunded, inBacklog, storyId}` (a `null` price is Not priced); `counts` is `{features, priced, funded, fundedNotInBacklog}`.
+  - `rounds` run newest first: `{id, title, date, ballots, budget, source, spreadKnown, items[{featureId, text, cap, total, average, backers, middleHalf}]}`. `total` is before capping.
+- **`add_feature`** (write) `{title, price}` — a whole price from 1 to 1,000,000,000. Returns `{added: true, id, title, price}`.
+- **`set_game`** (write) `{players?, budgetPerPlayer?, unit?}` — players 1–999, budget 10–9,999, a unit of up to 4 characters; `null` clears one and an omitted one stays. Returns `{set: true, game, pool, problem}`.
+- **`record_purchase`** (write) `{id, amount}` — a purchase at the table, capped at what the feature still needs (the rest is `refunded`). Refused above what's left in the pool, for a funded or unpriced feature, and before the pool is set. Returns `{recorded: true, applied, refunded, raised, remaining, funded}` or `{recorded: false, reason}`.
+- **`refund`** (write) `{id}` gives one feature's money back to the pool — `{refunded: true, amount}` or `{refunded: false, reason}`. **`refund_unfunded`** (asks first) gives back the money of every feature that fell short — `{refunded, amount, ids}`. The page offers Undo; an agent's refund is final.
+- **`record_round`** (write) `{totals: {featureId: total}, players, date?}` — a round added up from paper: each of `players` (3 or more) split `nextRound.budgetPerPlayer` across `nextRound.features`.
+  - Each total is capped at what its feature needs, and the rest goes back to the pool. A feature that falls short keeps its pledge.
+  - `date` backdates (YYYY-MM-DD, not in the future, not before the game's last round); over MCP the server's day plus one is accepted, so pass the user's local date.
+  - The round is saved with totals only; typed totals never show a spread.
+  - Refused when `nextRound.blocked` is set, when the totals can't come from that many splits, or when it would spend more than the pool has left.
+  - Returns `{saved: true, id, round, date, budgetPerPlayer, spent, refunded, funded[{id, title}], short[{id, title, by}], outcome}` or `{saved: false, reason}`.
+- Funded features go to the backlog on the page, through the `backlog-story` hand-off with `sourceRef {tool: "buy-a-feature", id}`, each once.
+
+#### $100 Test — `tool.hundred_dollar_test.*`
+
+Items are prioritization rows (framework `hundred-dollar`). Each holds its amount in the agreed split, `fields.allocation`: whole dollars, the group's split or one person's. A new item has none, which is different from $0. Team rounds (`workspace.allocation_round`, tool `hundred-dollar-test`) are everyone's own $100, split anonymously, and keep only aggregates: each item's total, how many people gave it something, and how many fell in each of five bands of the $100 ($0, $1–10, $11–25, $26–50, $51–100). A round never holds anyone's split or who answered. Every number comes from `lib/hundred-dollar/allocation` and the vote-room kit's counting: averages from 3 people, backers and bands from 5.
+
+- **`list_state`** (read) `{}` — `{items, split, canRunRound, rounds, latestBesideSplit, verdict}`.
+  - `items` are `{id, title, allocation}`, where `allocation` is `null` until an amount is given.
+  - `split` is `{total, remaining, full, given}`; `remaining` is negative only for a legacy split over $100.
+  - `rounds` run newest first: `{id, title, date, ballots, source, spreadKnown, spreadNote, items[{itemId, text, total, average, backers, bands, middleHalf}]}`. `average` is total ÷ ballots; `backers` and `bands` are `null` below 5 answers and for typed totals, and `spreadNote` says which.
+  - `latestBesideSplit` sets the latest round beside the agreed split: `{itemId, text, agreed, teamAverage, backers, current}`, where `current` is false for an item deleted since the round.
+- **`add_item`** (write) `{title}` — an item with no amount. Returns `{added: true, id, title}`.
+- **`set_allocation`** (write) `{id, amount}` — whole dollars, 0–100, capped as on the page so the split never passes $100. Returns `{set: true, saved, note, remaining}` (`note` says why `saved` differs from `amount`) or `{set: false, reason}`.
+- **`record_round`** (write) `{splits?, totals?, people?, date?}` — a round counted on paper, over every current item.
+  - `splits` is one `{itemId: dollars}` per person, each exactly $100; they are folded and dropped. Or `totals` with `people`, and the spread is then unknown.
+  - At least 3 people. `date` backdates, never into the future; over MCP the server's day plus one is accepted, so pass the user's local date.
+  - Returns `{saved: true, id, title, date, ballots, source, spreadKnown, spreadNote, items, verdict}` or `{saved: false, reason}`.
+- **`remove_round`** (write) `{id}` deletes one saved round — `{removed: true}` or `{removed: false, reason}`. The page offers Undo; an agent's delete is final.
+
+#### Decision Log, DACI and RAPID — `tool.decision_log.*`
+
+One entity, `workspace.decision`, holds every record the Decision Log, DACI and RAPID pages list. `template` is the form a record was raised in (`adr` | `daci` | `rapid`; absent = `adr`). Every record follows the ADR lifecycle (proposed → accepted → deprecated or superseded); DACI and RAPID's "implemented" and "revisit" are the dates `implementedAt` and `reopenedAt`.
+
+- **One numbering sequence** runs across the forms, labelled by form (`ADR-0003`, `DACI-0004`, `RAPID-0005`): a new record gets one past the highest number in the log. Example rows don't count, and deleting the highest-numbered record frees its number for the next one.
+- **Reads list what the page lists**: the stored records, the old DACI and RAPID rows read through as records under their own ids, and the old Decision Log page's rows not moved in yet (`pending`, read only). A write saves a record under the same id and leaves an old row behind as a backup. Names use the roster's spelling when the person is on the team.
+
+- **`list_state`** (read) `{template?, status?}` — `{total, byStatus, byTemplate, pending, items, verdict, timeToDecide}`.
+  - Each item is the record plus `template`, `label`, `options [{id, text, note?}]`, `issues [{kind, message}]`, `supersedes` (ids), `onTeam {name: boolean}`, `example` and `pending`.
+  - `issues` kinds: `no_decider`, `no_driver`, `no_recommend`, `many_agree` (more than 3 Agree), `accepted_no_outcome`, `stale_proposed` (proposed for over 14 days).
+  - `timeToDecide` is `{medianDays, n}` from 3 decided records, else `null`.
+- **`add_decision`** (write) `{template?, title, context?, options?, recommendation?, decider?, roles?, date?}` — `{created: true, id, number, label}`, or `{created: false, reason: future_day | not_a_day | role_not_in_template | duplicate_option}`. `roles` takes only the form's roles (DACI: `driver` (one), `contributor`, `informed`; RAPID: `recommend` (one), `agree`, `perform`, `input`). `date` (raised on) can be backdated, not set in the future.
+- **`decide`** (write) `{id, outcome, chosenOption?, decider?, date?}` — accepts the record with its outcome: `{decided: true, label, decidedAt}`, or `{decided: false, reason: not_found | future_day | before_raised | unknown_option | invalid, message?}`. A DACI or RAPID record needs its Approver / Decide (D) named, here or already. `chosenOption` is an option id or its exact text.
+- **`supersede`** (write) `{id, supersededBy, reason?}` — `{superseded: true, label, by}`. The replacement must be another record still in force (proposed or accepted), an example only for an example, and not one this record already replaced, directly or down a chain; `reason` is added to the old record's consequences. A repeat returns `{superseded: false, alreadySuperseded: true}`; refusals are `not_found`, `replacement_not_found`, `example_mismatch`, `replacement_not_in_force` and `supersede_loop`.
+- **`reopen`** (write) `{id, date?}` — back to proposed (DACI's revisit): `{reopened: true, label}`, or `reason: not_found | already_proposed | future_day`.
+- **`set_status`** (write) `{id, status, supersededBy?}` — `{updated, confirmed?, reason?, message?}`. `proposed` reopens; `accepted` from proposed dates `decidedAt` today (use `decide` to write the outcome) and needs a DACI or RAPID decider first (`no_decider`). `deprecated` and `superseded` ask for confirmation when the caller can confirm.
+- **`add_option`** (write) `{id, text, note?}` — `{added: true, optionId}`, or `reason: not_found | already_listed`. **`add_alternative`** `{id, alternative}` is kept for old callers — `{added}`.
+- **`assign_role`** (write) `{id, role, person, replace?}` — `{assigned: true, role, person}`. `driver` and `recommend` hold one person: `replace: true` swaps, else `single_role_taken` with the `holder`. **`set_decider`** `{id, person}` — `{updated, decider}`.
+- **`delete`** (write, asks first) `{id}` — `{deleted: true, id, label}`, or `{deleted: false, reason: not_found | pending_move}`. It removes the id from the records and from the old DACI and RAPID collections, as the page's delete does. A `pending_move` row moves in when the Decision Log is opened once.
+
+**Aliases, kept for old callers.**
+
+- `tool.daci.{list_state, set_status, add_contributor, add_informed}` and `tool.rapid_decision.{list_state, set_status, assign_role, set_decider, set_recommend}` act on the DACI and RAPID records of the same log, in their old shapes and status words, with `number`, `label`, `lifecycle`, the outcome (`decision`) and `issues` added. DACI: open = proposed, decided = accepted, implemented = accepted with `implementedAt`, revisit = proposed again with `reopenedAt`. RAPID: the same without revisit, and its `implemented` asks for confirmation when the caller can confirm. Deciding through either needs the Approver / Decide (D) named first (`no_decider`).
+- The generic CRUD stays: `workspace.decision.*` reads and writes the stored records, and `workspace.daci_decision.*` and `workspace.rapid_decision.*` the old DACI and RAPID rows. An old row shows in the log as its record until that record is first saved; after that it is a backup and may hold out-of-date text.
+- **Delete with `tool.decision_log.delete`, not `workspace.decision.delete`.** The generic delete removes only the stored record, so a record that started as an old DACI or RAPID row reads back in from that row, with its pre-merge text. Prefer the `tool.decision_log.*` verbs throughout.
+
+#### Weighted Decision Matrix — `tool.weighted_decision.*`
+
+Named matrices (`workspace.weighted_matrix`); options and criteria carry `matrixId`, and rows without one belong to the default matrix `weightedMatrix:default` (the rows from before names, shown as the Untitled matrix). Every number comes from `lib/weighted/model`, as on the page: scores are 1–10; an empty cell is not scored, never 0; an option's `total` exists only once every criterion with a weight above 0 is scored (else `partialTotal` and `unscored`); the leader is the highest complete total, so an incomplete option never leads; a `tie` is complete options within 5% of the leader; and `sensitivity` lists, per criterion, the smallest weight change within ±50% that hands the lead to another option.
+
+- **`list_state`** (read) `{matrixId?}` — `{matrices, count}`. Each matrix adds `weightSum`, `criteria [{id, name, weight, active, share, low?, high?}]`, `options [{id, name, total, partialTotal, unscored, offScale, complete, rank}]`, `leaderId`, `tie {ids, gap} | null`, `overtakers` (unfinished options whose lowest possible total already beats the leader's), `sensitivity [{criterionId, criterion, changePct, direction, weightAt, newLeaderId, newLeader}]`, `sensitivityChecked`, `emptyCells`, `verdict`, `sentToDecision` and `sentDecision {id, label, status, decided} | null`.
+- **`create_matrix`** (write) `{name, question?}` — `{id}`; the question becomes the decision record's title.
+- **`add_criterion`** `{matrixId?, name, weight, low?, high?}` and **`add_option`** `{matrixId?, name, note?}` — `{added: true, id, matrixId}`, or `reason: matrix_not_found | name_taken`. **`set_weight`** `{criterionId, weight}`: 0 keeps a criterion listed without counting it.
+- **`set_score`** `{optionId, criterionId, score: 1–10 | null}` — `{updated: true}`, or `reason: off_scale | option_not_found | criterion_not_found | different_matrix`.
+- **`send_to_decision`** `{matrixId}` — `{sent: true, decisionId, label, status: "proposed"}`: a PROPOSED decision record with the question as its title, the verdict and ranking as its context, the options in rank order and the leader as the recommendation; the outcome is the team's. It needs a fully scored leader that no unfinished option is sure to overtake, and goes once per matrix while that record exists. Refusals: `matrix_not_found`, `no_leader`, `overtaken`, `example`, `already_sent`.
+- Kept for old callers: `compute_option_score` and `compute_and_rank` (the pure raw Σ score × weight for a caller's rubric, now with `complete` and `unscored`), `list_options {criteriaWeights?, matrixId?}`, and `score_and_persist_option` / `persist_options`, which replace an option's name and scores, keep every other stored field (its `matrixId`, its `note`) and return `offScale`.
+
+#### Cynefin Decision Picker — `tool.cynefin.*`
+
+The guided questions (`crisis`, `known`, `analysable`, `emergent`, `disagree`; answers yes | no | unsure), the suggestion and each domain's recipe come from `lib/cynefin/model`, as on the page. A suggestion is never a decision: the team confirms the domain.
+
+- **`classify`** (read, pure) `{title, signals?, answers?}` — `{recommendedDomain | null, rationale, recommendedAction, from: answers | signals, questions}`. Answers win over signals; fewer than 2 answers suggest nothing.
+- **`list_state`** (read) — `{clear, complicated, complex, chaotic, confused, total, verdict, complexNotTested, questions}`. Each item adds `plan`, `customPlan` and `hypothesis` (none | testing | tested); an unknown or legacy domain reads as confused.
+- **`record_domain`** (write) `{id? | title, domain, rationale?, answers?}` — `{recorded: true, id, domain, created}`: files a problem under the domain the team confirmed, or moves one (a plan written for it survives the move). `domain` is required.
+- **`classify_and_persist`** (write, kept) files a new item from an explicit `domain`, or from `answers` / `signals`. Nothing is filed under a default: `{persisted: false, reason: "no_suggestion"}` comes back when they point nowhere. **`set_recommended_action`** `{id, recommendedAction}` writes the item's own plan.
+- **`send_to_hypothesis`** (write) `{id}` — `{sent: true, hypothesisId, believe}`: a drafted hypothesis in the Hypothesis Tracker ("We believe <title>", the rationale as what to learn), linked both ways. Complex items only, once, and not for examples.
+
 ### Run a retro for a sprint (composed intent)
 
 ```jsonc
@@ -607,20 +799,6 @@ One document (`adkar:current`, kind `workspace:adkarDoc`). It moves once from th
 }
 // → returns boardId; agent UI navigates to /canvas?b={boardId}
 // This makes a Canvas whiteboard. The Retro tool's own board is tool.retro.start.
-```
-
-### Score a backlog with WSJF then persist top items
-
-```jsonc
-// 1. compute scores
-{"method":"tools/call","params":{"name":"tool.wsjf.compute_scores","arguments":{
-  "items": [{"id":"f1","businessValue":8,"timeCriticality":5,"riskReduction":3,"jobSize":3}]
-}}}
-
-// 2. persist top-N to workspace prioritization
-{"method":"tools/call","params":{"name":"tool.wsjf.persist_to_prioritization","arguments":{
-  "items": [/* scored items from step 1 */], "framework": "wsjf"
-}}}
 ```
 
 ## 8. Rate limits
