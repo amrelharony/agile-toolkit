@@ -47,12 +47,17 @@ vi.stubGlobal(
 import {
   MethodTool,
   exportRows,
+  validateMethodDraft,
+  validatePartialDraft,
+  type MethodInputsSlotProps,
   type MethodToolConfig,
 } from "@/components/prioritization/method-tool";
+import { MethodInputControl, MethodInputs } from "@/components/prioritization/method-inputs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { WSJF } from "@/lib/prioritization/methods";
-import { rankMethodRows } from "@/lib/prioritization/rank";
+import { MOSCOW_BUCKETS, MOSCOW_LABEL } from "@/lib/prioritization/methods/moscow";
+import { rankMethodRows, type RankedRow } from "@/lib/prioritization/rank";
 
 const STAMP = "2026-10-20T09:00:00.000Z";
 const CONFIG: MethodToolConfig = {
@@ -413,5 +418,340 @@ describe("MethodTool", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
     expect(rows()[0]).toMatchObject({ title: "Later", status: "open", fields: {} });
     expect((rows()[0] as PrioritizationItem).score).toBeUndefined();
+  });
+});
+
+/* ── Focus, groups, partial rows, slots ─────────────────────────────── */
+
+const wsjfRow = (
+  id: string,
+  title: string,
+  fields: Record<string, number>,
+  extra: Partial<PrioritizationItem> = {}
+): PrioritizationItem => ({
+  id,
+  framework: "wsjf",
+  title,
+  fields,
+  status: "scored",
+  updatedAt: STAMP,
+  ...extra,
+});
+const full = (bv: number) => ({ businessValue: bv, timeCriticality: 1, rrOe: 1, jobSize: 1 });
+const moscowRow = (id: string, title: string, bucket: string): PrioritizationItem => ({
+  id,
+  framework: "moscow",
+  title,
+  fields: { bucket },
+  status: "scored",
+  updatedAt: STAMP,
+});
+/** MoSCoW-style groups: one per bucket, in bucket order. */
+const byBucket = (list: readonly RankedRow[]) =>
+  MOSCOW_BUCKETS.map((b) => ({
+    id: b,
+    label: MOSCOW_LABEL[b],
+    rows: list.filter((r) => r.result.bucket === b),
+  }));
+const MOSCOW_CONFIG: MethodToolConfig = {
+  ...CONFIG,
+  methodId: "moscow",
+  toolId: "moscow",
+  listLabel: "Items",
+  groups: byBucket,
+};
+const editorForm = () =>
+  screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+const renderAnnounced = (config: MethodToolConfig) =>
+  render(
+    <LiveAnnouncerProvider>
+      <TooltipProvider>
+        <MethodTool config={config} />
+      </TooltipProvider>
+    </LiveAnnouncerProvider>
+  );
+
+describe("MethodTool focus", () => {
+  it("hands focus back to the row's Edit button after Save and after Cancel", () => {
+    useWorkspaceStore.setState({ prioritizations: [wsjfRow("w1", "Fix", full(3))] });
+    renderTool();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Fix" }));
+    fireEvent.change(within(editorForm()).getByLabelText(/Feature title/), {
+      target: { value: "Fix login" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(rows()[0].title).toBe("Fix login");
+    expect(screen.getByRole("button", { name: "Edit Fix login" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Fix login" }));
+    fireEvent.keyDown(within(editorForm()).getByLabelText(/Feature title/), { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit Fix login" })).toHaveFocus();
+  });
+
+  it("moves focus after a delete to the next row, else the one before, else the add form", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [
+        wsjfRow("a", "Alpha", full(13)),
+        wsjfRow("b", "Beta", full(8)),
+        wsjfRow("c", "Gamma", full(3)),
+      ],
+    });
+    renderTool();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Beta" }));
+    expect(screen.getByRole("button", { name: "Edit Gamma" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Gamma" }));
+    expect(screen.getByRole("button", { name: "Edit Alpha" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Alpha" }));
+    expect(rows()).toEqual([]);
+    expect(screen.getByLabelText(/Feature title/)).toHaveFocus();
+  });
+
+  it("skips the row open in the editor when it picks where focus goes after a delete", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [wsjfRow("a", "Alpha", full(13)), wsjfRow("b", "Beta", full(8))],
+    });
+    renderTool();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Beta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Alpha" }));
+    // Beta's Edit button isn't on screen (its editor is): the add form's title takes focus.
+    const [addTitle, editorTitle] = screen.getAllByLabelText(/Feature title/);
+    expect(editorTitle.closest("li")).not.toBeNull();
+    expect(addTitle).toHaveFocus();
+  });
+});
+
+describe("MethodTool groups", () => {
+  it("announces an editor save that moves a row to another group, and follows it there", async () => {
+    useWorkspaceStore.setState({
+      prioritizations: [moscowRow("m1", "Passkeys", "must"), moscowRow("m2", "SSO", "should")],
+    });
+    renderAnnounced(MOSCOW_CONFIG);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Passkeys" }));
+    fireEvent.click(within(editorForm()).getByRole("radio", { name: "Could have" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(rows().find((r) => r.id === "m1")?.fields).toEqual({ bucket: "could" });
+    const could = screen.getByRole("region", { name: "Could have" });
+    expect(within(could).getByRole("button", { name: "Edit Passkeys" })).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent("Moved “Passkeys” to Could have.")
+    );
+  });
+
+  it("says nothing when the save keeps the row in its group", async () => {
+    useWorkspaceStore.setState({ prioritizations: [moscowRow("m1", "Passkeys", "must")] });
+    renderAnnounced(MOSCOW_CONFIG);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Passkeys" }));
+    fireEvent.change(within(editorForm()).getByLabelText(/Feature title/), {
+      target: { value: "Passkeys login" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(rows()[0].title).toBe("Passkeys login");
+    expect(screen.getByRole("button", { name: "Edit Passkeys login" })).toHaveFocus();
+    // Past the announcer's 50 ms delay.
+    await act(() => new Promise((done) => setTimeout(done, 120)));
+    expect(screen.getByTestId("live-polite")).not.toHaveTextContent(/Moved/);
+  });
+
+  it("rowScore: false shows no rank or score on a row and never offers Re-sort", () => {
+    const start = [moscowRow("a", "Alpha", "should"), moscowRow("b", "Beta", "must")];
+    // The default: a rank and a score on each row, and a move leaves the order stale.
+    useWorkspaceStore.setState({ prioritizations: start });
+    const first = renderTool(MOSCOW_CONFIG);
+    expect(screen.getByLabelText("Rank 1")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Alpha" }));
+    fireEvent.click(within(editorForm()).getByRole("radio", { name: "Must have" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("button", { name: "Re-sort" })).toBeInTheDocument();
+    first.unmount();
+
+    useWorkspaceStore.setState({ prioritizations: start });
+    renderTool({ ...MOSCOW_CONFIG, rowScore: false });
+    expect(screen.queryByLabelText(/^Rank \d/)).toBeNull();
+    expect(screen.queryByLabelText("Not ranked")).toBeNull();
+    expect(screen.queryByText("4")).toBeNull();
+    expect(screen.queryByText("3")).toBeNull();
+    // (The default verdict over the list still names the method; the rows don't.)
+    for (const g of ["Must have", "Should have"]) {
+      expect(within(screen.getByRole("region", { name: g })).queryByText(/MoSCoW/)).toBeNull();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Edit Alpha" }));
+    fireEvent.click(within(editorForm()).getByRole("radio", { name: "Must have" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      within(screen.getByRole("region", { name: "Must have" })).getByText("Alpha")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Re-sort" })).toBeNull();
+  });
+});
+
+describe("MethodTool validate hook", () => {
+  const partialConfig: MethodToolConfig = {
+    ...CONFIG,
+    allowTitleOnly: true,
+    validate: (d, { editing, keep }) =>
+      editing ? validatePartialDraft(WSJF, d, keep) : validateMethodDraft(WSJF, d, true, keep),
+  };
+
+  it("lets a partial row be renamed and re-scored in place, and tells the hook which row", () => {
+    const spy = vi.fn(partialConfig.validate!);
+    useWorkspaceStore.setState({
+      prioritizations: [
+        wsjfRow("w1", "Later", { businessValue: 8, jobSize: 2 }, { status: "open" }),
+      ],
+    });
+    renderTool({ ...partialConfig, validate: spy });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Later" }));
+    const editor = editorForm();
+    fireEvent.change(within(editor).getByLabelText(/Feature title/), {
+      target: { value: "Later, sooner" },
+    });
+    fireEvent.click(
+      within(within(editor).getByRole("radiogroup", { name: "Job size" })).getByRole("radio", {
+        name: "3",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(rows()[0]).toMatchObject({
+      title: "Later, sooner",
+      status: "open",
+      fields: { businessValue: 8, jobSize: 3 },
+    });
+    // The editor's checks name its row and what it holds; the add form's name none.
+    const contexts = spy.mock.calls.map(([, ctx]) => ctx);
+    const editing = contexts.filter((ctx) => ctx.editing);
+    expect(editing.length).toBeGreaterThan(0);
+    expect(editing.every((ctx) => ctx.editing?.row.id === "w1")).toBe(true);
+    expect(editing[0].keep).toEqual(expect.objectContaining({ businessValue: 8, jobSize: 2 }));
+    expect(contexts.some((ctx) => ctx.editing === undefined)).toBe(true);
+  });
+
+  it("still refuses a partial add (the hook gets no row)", () => {
+    renderTool(partialConfig);
+    fireEvent.change(screen.getByLabelText(/Feature title/), { target: { value: "Half" } });
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Business value" })).getByRole("radio", {
+        name: "8",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
+    expect(rows()).toEqual([]);
+    expect(screen.getByText("Pick a job size.")).toBeInTheDocument();
+  });
+
+  it("validatePartialDraft checks only the set inputs, and a full or title-only draft as usual", () => {
+    expect(validatePartialDraft(WSJF, { title: "  A  b ", businessValue: 8 })).toEqual({
+      ok: true,
+      values: { title: "A b", businessValue: 8 },
+    });
+    // A set value off the scale is still an error; a blank one isn't.
+    const off = validatePartialDraft(WSJF, { title: "A", businessValue: 4 });
+    expect(off.ok).toBe(false);
+    if (!off.ok) {
+      expect(Object.keys(off.errors)).toEqual(["businessValue"]);
+    }
+    // …unless the row already held it ("Custom").
+    expect(
+      validatePartialDraft(WSJF, { title: "A", businessValue: 4 }, { businessValue: 4 })
+    ).toMatchObject({ ok: true });
+    const untitled = validatePartialDraft(WSJF, { title: " ", businessValue: 8 });
+    expect(untitled.ok).toBe(false);
+    if (!untitled.ok) expect(untitled.errors.title).toBe("Enter a title.");
+    expect(validatePartialDraft(WSJF, { title: "A" })).toEqual({
+      ok: true,
+      values: { title: "A" },
+    });
+    expect(validatePartialDraft(WSJF, { title: "A", ...full(5) })).toEqual(
+      validateMethodDraft(WSJF, { title: "A", ...full(5) })
+    );
+  });
+});
+
+describe("MethodTool slots", () => {
+  it("tells the Inputs slot the edited row and its linked item, and the add form's import", () => {
+    const seen: { row?: string; item?: string }[] = [];
+    function Spy(props: MethodInputsSlotProps) {
+      seen.push({ row: props.row?.id, item: props.item?.id });
+      return <MethodInputs {...props} />;
+    }
+    useWorkspaceStore.setState({
+      backlogItems: [
+        { id: "b1", name: "Passkeys", jobSize: 3, updatedAt: STAMP },
+        { id: "b2", name: "Dark mode", updatedAt: STAMP },
+      ],
+      prioritizations: [wsjfRow("w1", "Passkeys", full(3), { backlogItemId: "b1" })],
+    });
+    window.history.replaceState({}, "", "/wsjf?backlogItem=b2");
+    renderTool({ ...CONFIG, Inputs: Spy });
+    // The add form, filled from the "Score with…" link: no row, the import's item.
+    expect(screen.getByLabelText(/Feature title/)).toHaveValue("Dark mode");
+    expect(seen[seen.length - 1]).toEqual({ row: undefined, item: "b2" });
+
+    seen.length = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Edit Passkeys" }));
+    expect(seen).toContainEqual({ row: "w1", item: "b1" });
+  });
+
+  it("renders BeforeList between the add form and the list, once there are rows", () => {
+    function Before({ rows: shown }: { rows: readonly RankedRow[] }) {
+      return <p>Before the list: {shown.length}</p>;
+    }
+    const config = { ...CONFIG, BeforeList: Before };
+    const empty = renderTool(config);
+    expect(screen.queryByText(/Before the list/)).toBeNull();
+    empty.unmount();
+
+    useWorkspaceStore.setState({ prioritizations: [wsjfRow("w1", "Fix", full(3))] });
+    renderTool(config);
+    const before = screen.getByText("Before the list: 1");
+    const list = screen.getByRole("list", { name: "Features, highest WSJF first" });
+    const add = screen.getByRole("button", { name: /Add & score/ });
+    expect(add.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(before.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("Choice inputs", () => {
+  const choice = {
+    key: "bucket",
+    kind: "choice" as const,
+    label: "Bucket",
+    hint: "Pick one.",
+    missing: "Pick a bucket.",
+    options: [
+      { id: "a", label: "A" },
+      { id: "b", label: "B" },
+    ],
+  };
+
+  it("marks a required choice as Field does, and leaves an optional one unmarked", () => {
+    const { container, rerender } = render(
+      <MethodInputControl input={choice} value={undefined} onChange={() => {}} />
+    );
+    expect(screen.getByRole("radiogroup", { name: "Bucket" })).toHaveAttribute(
+      "aria-required",
+      "true"
+    );
+    expect(container).toHaveTextContent("Bucket*");
+
+    rerender(
+      <MethodInputControl
+        input={{ ...choice, optional: true }}
+        value={undefined}
+        onChange={() => {}}
+      />
+    );
+    expect(screen.getByRole("radiogroup", { name: "Bucket" })).not.toHaveAttribute("aria-required");
+    expect(container).not.toHaveTextContent("Bucket*");
+  });
+
+  it("marks MoSCoW's bucket required in the tool's add form", () => {
+    renderTool(MOSCOW_CONFIG);
+    expect(screen.getByRole("radiogroup", { name: "Bucket" })).toHaveAttribute(
+      "aria-required",
+      "true"
+    );
   });
 });

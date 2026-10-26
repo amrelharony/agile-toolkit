@@ -203,7 +203,7 @@ describe("RICE: editing a row", () => {
     expect(screen.getByRole("button", { name: "Edit Saved filters" })).toBeInTheDocument();
   });
 
-  it("edits a score and rescores", () => {
+  it("edits a score, rescores, and hands focus back to the Edit button", () => {
     useWorkspaceStore.setState({ prioritizations: [r1] });
     render(<RiceScoringClient />);
     fireEvent.click(screen.getByRole("button", { name: "Edit Saved searches" }));
@@ -228,9 +228,12 @@ describe("RICE: editing a row", () => {
     expect(saved.backlogItemId).toBe("b1");
     expect(saved.updatedAt).not.toBe(r1.updatedAt);
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Edit Saved searches" })
+    );
   });
 
-  it("Escape cancels without saving", () => {
+  it("Escape cancels without saving, focus back on the Edit button", () => {
     useWorkspaceStore.setState({ prioritizations: [r1] });
     render(<RiceScoringClient />);
     fireEvent.click(screen.getByRole("button", { name: "Edit Saved searches" }));
@@ -240,6 +243,9 @@ describe("RICE: editing a row", () => {
 
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(stored("r1")).toEqual(r1);
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Edit Saved searches" })
+    );
   });
 
   it("blocks clearing a required input in the editor", () => {
@@ -425,7 +431,7 @@ describe("WSJF: editing a row", () => {
     expect(stored("w1")).toMatchObject({ title: "SAML sign-on", fields: w1.fields, score: 8 });
   });
 
-  it("edits a score and rescores", () => {
+  it("edits a score, rescores, and hands focus back to the Edit button", () => {
     useWorkspaceStore.setState({ prioritizations: [w1] });
     render(<WsjfClient />);
     fireEvent.click(screen.getByRole("button", { name: "Edit Single sign-on" }));
@@ -442,6 +448,9 @@ describe("WSJF: editing a row", () => {
       score: 16 / 13,
     });
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Edit Single sign-on" })
+    );
   });
 
   it("shows an off-scale value as Custom and leaves it alone on an untouched save", () => {

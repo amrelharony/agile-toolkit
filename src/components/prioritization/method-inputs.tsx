@@ -13,7 +13,7 @@
  * editor use it, so the same input reads the same everywhere.
  */
 
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup } from "@/components/ui/toggle-group";
@@ -153,6 +153,7 @@ export function MethodInputControl({
           hint={input.hint}
           error={error}
           size={size}
+          required={!input.optional}
           options={input.options}
           value={typeof value === "string" ? value : undefined}
           onChange={onChange}
@@ -185,12 +186,17 @@ export function MethodInputControl({
   }
 }
 
-/** A choice input: a segmented control with its label, hint, error and a Clear. */
+/**
+ * A choice input: a segmented control with its label, hint, error and a
+ * Clear. A required one shows Field's marker by its label and is
+ * aria-required, as a Field's control is.
+ */
 function ChoiceControl({
   label,
   hint,
   error,
   size,
+  required = false,
   options,
   value,
   onChange,
@@ -199,6 +205,7 @@ function ChoiceControl({
   hint: string;
   error?: string;
   size: "sm" | "md";
+  required?: boolean;
   options: readonly { id: string; label: string; meaning?: string }[];
   value: string | undefined;
   onChange: (value: string | undefined) => void;
@@ -206,12 +213,25 @@ function ChoiceControl({
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = error ? `${id}-error` : undefined;
+  const rootRef = useRef<HTMLDivElement>(null);
+  // ToggleGroup has no aria-required of its own, so its radio group gets
+  // it here (the group element stays the same one across renders).
+  useEffect(() => {
+    const group = rootRef.current?.querySelector('[role="radiogroup"]');
+    if (required) group?.setAttribute("aria-required", "true");
+    else group?.removeAttribute("aria-required");
+  }, [required]);
   return (
-    <div className="flex min-w-0 flex-col gap-1.5" data-scale-invalid={error ? "true" : undefined}>
+    <div
+      ref={rootRef}
+      className="flex min-w-0 flex-col gap-1.5"
+      data-scale-invalid={error ? "true" : undefined}
+    >
       <div className="flex min-h-6 items-center justify-between gap-2">
         {/* The radio group carries the same name; this is the visible label. */}
         <span className="text-sm text-text" aria-hidden="true">
           {label}
+          {required && <span className="ml-0.5 text-danger">*</span>}
         </span>
         {value !== undefined && (
           <button

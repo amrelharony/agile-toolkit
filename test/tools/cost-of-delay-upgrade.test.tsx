@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 
@@ -193,6 +194,28 @@ describe("Cost of Delay lanes", () => {
     ]);
     expect(codVerdict(rankMethodRows("cost-of-delay", list), TODAY)).toBe(
       "Expedite “Item e” now. “Item f-soon” must start by 2 Nov to land by 30 Nov. Of the rest, do “Item s2” first (CD3 9,000). 1 initiative has no urgency profile yet. 1 initiative not scored yet: add a duration."
+    );
+  });
+
+  it("announces an edit that moves a row to another lane, and keeps focus on the row", async () => {
+    useWorkspaceStore.setState({ prioritizations: [scored("a", 1000, 2, "standard")] });
+    render(
+      <LiveAnnouncerProvider>
+        <CostOfDelayClient />
+      </LiveAnnouncerProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit Item a" }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+    const profile = within(editor).getByRole("radiogroup", { name: "Urgency profile" });
+    expect(profile).toHaveAttribute("aria-required", "true");
+    fireEvent.click(within(profile).getByRole("radio", { name: "Expedite" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(stored("a")?.fields).toMatchObject({ urgency: "expedite" });
+    expect(within(lane(/^Expedite/)).getByRole("button", { name: "Edit Item a" })).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Moved “Item a” to Expedite: do now."
+      )
     );
   });
 
