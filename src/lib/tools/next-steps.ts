@@ -127,9 +127,61 @@ import {
   roundsOf,
 } from "@/lib/psych-safety/instrument";
 import { MOOD_TRACKER_ID, lowMoodStreak, moodDuring, streakLinks } from "@/lib/team/mood";
-import { fmt } from "@/lib/charts/chart-text";
+import { fmt, listAnd } from "@/lib/charts/chart-text";
+import { nameKey } from "@/lib/team/names";
+import { linkedItem } from "@/lib/prioritization/binding";
+import { BACKLOG_ITEM_PARAM } from "@/lib/prioritization/frameworks";
+import { evaluateItemIn, readThrough } from "@/lib/prioritization/methods";
+import { toChoice } from "@/lib/prioritization/methods/fields";
+import { dueText } from "@/lib/prioritization/methods/eisenhower";
+import {
+  MOSCOW_BUCKETS,
+  MUST_BUDGET_SHARE,
+  moscowEffort,
+  mustBudget,
+} from "@/lib/prioritization/methods/moscow";
+import { consensusMethods, rankMethodRows } from "@/lib/prioritization/rank";
+import { eisRows, taskView } from "@/app/(tools)/eisenhower/model";
+import {
+  STALE_PROPOSED_DAYS,
+  type DecisionIssueKind,
+  allDecisions,
+  daysWaiting,
+  decisionHref,
+  decisionIssues,
+  decisionLabel,
+  templateOf,
+} from "@/lib/decisions/model";
+import { TEMPLATES } from "@/lib/decisions/templates";
+import {
+  budgetProblem,
+  featureLedger,
+  featureRows,
+  gameCheck,
+  isFunded,
+  pricesOf,
+  unitOf,
+} from "@/lib/buy-a-feature/game";
+import {
+  dollars,
+  hundredRows,
+  roundsFor,
+  splitSummary,
+  teamAverages,
+} from "@/lib/hundred-dollar/allocation";
+import {
+  matricesOf,
+  matrixResult,
+  matrixTitle,
+  sendBlock,
+  sentDecisionOf,
+} from "@/lib/weighted/model";
+import { complexNotTested, hypothesisStateOf, normalizeDomain } from "@/lib/cynefin/model";
+import { BUY_A_FEATURE_ID } from "@/lib/stores/workspace-types";
 import type {
   AdkarElement,
+  BacklogItem,
+  Decision,
   DefinitionOfDone,
   HandoffLink,
   RetroBoard,
@@ -427,6 +479,67 @@ const missingPoints = (sprints: readonly Sprint[] | undefined) =>
     (s) => !(typeof s.pointsCompleted === "number" && Number.isFinite(s.pointsCompleted))
   );
 
+/** MUST match BACKLOG_SOURCE_TOOL in app/(tools)/sprint-planning/view.ts: the tool a story pulled from the backlog names. */
+const BACKLOG_SOURCE_TOOL = "prioritizer";
+
+/** MUST match DECIDE_ORDER_HASH in app/(tools)/prioritizer/prioritizer-client.tsx: it opens the Decide order step. */
+const DECIDE_ORDER_HREF = "/prioritizer#decide-order";
+
+/** WSJF with the backlog item preselected (lib/prioritization/frameworks scoreWithHref). */
+const scoreWithWsjf = (itemId: string) =>
+  `/wsjf?${BACKLOG_ITEM_PARAM}=${encodeURIComponent(itemId)}`;
+
+/** MUST match MATRIX_PARAM in app/(tools)/weighted-decision/weighted-decision-client.tsx: it opens one matrix. */
+const matrixHref = (id: string) => `/weighted-decision?matrix=${encodeURIComponent(id)}`;
+
+/** How soon a fixed-date item's latest start has to be for planning it to be the next step. */
+const FIXED_DATE_LEAD_DAYS = 14;
+
+/** A RICE confidence at or under this ("mostly a guess") is worth testing before building. */
+const LOW_CONFIDENCE = 50;
+
+/** In the decided order: BacklogItem.rank, set only by the Prioritizer's Decide order. */
+const isRanked = (item: BacklogItem) =>
+  typeof item.rank === "number" && Number.isFinite(item.rank) && item.rank > 0;
+
+/** An effort the Must budget counts (mustBudget's rule: a finite number, 0 or more). */
+const isSized = (effort: number | null) =>
+  effort !== null && Number.isFinite(effort) && effort >= 0;
+
+/**
+ * Backlog items Sprint Planning can still import, as its importCandidates
+ * reads them: named, with no story pulled from them and none of the same
+ * name (every story counts, as there).
+ */
+function notPulled(
+  items: readonly BacklogItem[],
+  stories: readonly Story[] | undefined
+): BacklogItem[] {
+  const all = stories ?? [];
+  const taken = new Set(all.map((s) => nameKey(s.title)));
+  const pulled = new Set(
+    all.filter((s) => fromTool(s, BACKLOG_SOURCE_TOOL)).map((s) => s.sourceRef?.id)
+  );
+  return items.filter((b) => b.name.trim() && !taken.has(nameKey(b.name)) && !pulled.has(b.id));
+}
+
+/**
+ * Whether the link on `route` points at a target still among `ids`: the
+ * hand-offs' liveLink, read from the slices (a deleted target doesn't
+ * count, so the item can be sent again).
+ */
+function linkedTo(
+  links: readonly HandoffLink[] | undefined,
+  route: HandoffLink["route"],
+  ids: ReadonlySet<string>
+): boolean {
+  const link = (links ?? []).find((l) => l.route === route);
+  return link !== undefined && ids.has(link.targetId);
+}
+
+/** “Title”, or what to call an item without one. */
+const quote = (title: string | undefined, untitled: string) => `“${title?.trim() || untitled}”`;
+
 /** Live and async standups are one tool with one next step. */
 const standupRule = rule({
   select: (ws) => ({ impediments: ws.impediments, sprints: ws.sprints, stories: ws.stories }),
@@ -461,6 +574,66 @@ const standupRule = rule({
         label: "Update the sprint board",
         detail: `Move ${sprint.name}'s stories to where they are now, so the burndown and the cockpit read the board.`,
         href: sprintHref("/kanban", sprint.id),
+      });
+    }
+    return steps;
+  },
+});
+
+/**
+ * The Decision Log, DACI and RAPID are one decision record with one next
+ * step: every record, old DACI and RAPID rows read through (the Decision
+ * Log's old blob isn't a slice: its rows count once the page has moved
+ * them in), checked the way the record's own issues are.
+ */
+const decisionRule = rule({
+  select: (ws) => ({
+    decisions: ws.decisions,
+    daci: ws.daciDecisions,
+    rapid: ws.rapidDecisions,
+  }),
+  steps: ({ decisions, daci, rapid }) => {
+    const today = todayIso();
+    const records = real(allDecisions(decisions, daci, rapid));
+    const titleOf = (d: Decision) => quote(d.title, decisionLabel(d));
+    const has = (d: Decision, kind: DecisionIssueKind) =>
+      decisionIssues(d, today).some((i) => i.kind === kind);
+    const steps: NextStep[] = [];
+    // Waiting longest first.
+    const stale = records
+      .flatMap((d) => {
+        const days = daysWaiting(d, today);
+        return days !== null && days > STALE_PROPOSED_DAYS ? [{ d, days }] : [];
+      })
+      .sort((a, b) => b.days - a.days);
+    const [oldest] = stale;
+    if (oldest) {
+      const more = stale.length - 1;
+      steps.push({
+        id: "decision-stale",
+        label: `Decide on ${titleOf(oldest.d)}: proposed ${plural(oldest.days, "day")} ago`,
+        detail: `${more > 0 ? `${plural(more, "other proposal")} ${be(more)} waiting over two weeks too. ` : ""}An open proposal holds up the work that waits on it: accept it, or record why not.`,
+        href: decisionHref(oldest.d.id),
+      });
+    }
+    const blank = records.find((d) => has(d, "accepted_no_outcome"));
+    if (blank) {
+      steps.push({
+        id: "decision-outcome",
+        label: `Write down what was decided on ${titleOf(blank)}`,
+        detail:
+          "It's accepted, but the outcome isn't written down, so nobody can check what was agreed.",
+        href: decisionHref(blank.id),
+      });
+    }
+    const noDecider = records.find((d) => has(d, "no_decider"));
+    if (noDecider) {
+      const spec = TEMPLATES[templateOf(noDecider)];
+      steps.push({
+        id: "decision-decider",
+        label: `Name the ${spec.deciderLabel} for ${titleOf(noDecider)}`,
+        detail: `A ${spec.label} decision needs the one person who makes the call named before it can be decided.`,
+        href: decisionHref(noDecider.id),
       });
     }
     return steps;
@@ -1705,6 +1878,541 @@ const RULES: Record<string, NextStepRule<object>> = {
           detail:
             "ICE is a quick filter. Put the top few on the backlog and score them with RICE's reach and effort before committing.",
           href: "/rice-scoring",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // Prioritize & decide. Scores come from the method registry
+  // (lib/prioritization/methods), read through to the backlog items as the
+  // tools read them; a backlog link counts only while its item exists.
+  prioritizer: rule({
+    select: (ws) => ({ items: ws.backlogItems, rows: ws.prioritizations, stories: ws.stories }),
+    steps: ({ items, rows, stories }) => {
+      const backlog = real(items);
+      const steps: NextStep[] = [];
+      const unscored = backlog.filter(
+        (b) =>
+          evaluateItemIn(b, [], "wsjf").score === null &&
+          evaluateItemIn(b, [], "rice").score === null
+      );
+      const [first] = unscored;
+      if (first) {
+        steps.push({
+          id: "prioritizer-score",
+          label: `Score ${plural(unscored.length, "item")} with WSJF`,
+          detail: `${plural(unscored.length, "backlog item")} ${unscored.length === 1 ? "has" : "have"} no WSJF or RICE score yet, starting with ${quote(first.name, "an untitled item")}. A value-for-size score lets the order weigh ${unscored.length === 1 ? "it" : "them"} against the rest.`,
+          href: scoreWithWsjf(first.id),
+        });
+      }
+      // The methods Decide order can use: 2 or more items scored in each.
+      const { used } = consensusMethods(backlog, real(rows));
+      const unordered = backlog.filter(
+        (b) => !isRanked(b) && used.some((m) => m.position.has(b.id))
+      ).length;
+      if (unordered > 0) {
+        steps.push({
+          id: "prioritizer-decide-order",
+          label: "Decide the order",
+          detail: `${plural(unordered, "scored item")} ${unordered === 1 ? "isn't" : "aren't"} in the backlog order yet. Compare the methods and save one order.`,
+          href: DECIDE_ORDER_HREF,
+        });
+      }
+      const toImport = notPulled(backlog.filter(isRanked), stories).length;
+      if (toImport > 0) {
+        steps.push({
+          id: "prioritizer-import",
+          label: `Import ${plural(toImport, "ordered item")} into Sprint Planning`,
+          detail:
+            "“Import from the backlog” lists them in the decided order, top of the backlog first.",
+          href: "/sprint-planning",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "rice-scoring": rule({
+    select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
+    steps: ({ rows, items }) => {
+      const ranked = rankMethodRows("rice", real(rows), real(items));
+      const steps: NextStep[] = [];
+      const lead = ranked.find((r) => r.rank === 1);
+      const confidence = lead?.values.confidence;
+      if (lead && typeof confidence === "number" && confidence <= LOW_CONFIDENCE) {
+        steps.push({
+          id: "rice-test-front-runner",
+          label: "Test the front-runner before building",
+          detail: `${quote(lead.row.title, "The top initiative")} leads on RICE at only ${fmt(confidence)}% confidence. Write it up as a hypothesis and test it first.`,
+          href: "/hypothesis-tracker",
+        });
+      }
+      const linked = ranked.filter((r) => r.live).length;
+      if (linked > 0) {
+        steps.push({
+          id: "rice-compare",
+          label: "Compare across methods",
+          detail: `${plural(linked, "RICE initiative")} ${be(linked)} on the backlog. See how ${linked === 1 ? "it ranks" : "they rank"} under WSJF and MoSCoW, then decide the order.`,
+          href: "/prioritizer",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  wsjf: rule({
+    select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
+    steps: ({ rows, items }) => {
+      const backlog = real(items);
+      const scored = rankMethodRows("wsjf", real(rows), backlog).filter(
+        (r) => r.result.score !== null
+      );
+      const linked = scored.flatMap((r) => {
+        const item = linkedItem(r.row, backlog);
+        return item ? [item] : [];
+      });
+      const steps: NextStep[] = [];
+      // Decide order ranks a method from 2 scored items.
+      const onBacklog = new Set(linked.map((b) => b.id)).size;
+      const unordered = new Set(linked.filter((b) => !isRanked(b)).map((b) => b.id)).size;
+      if (onBacklog >= 2 && unordered > 0) {
+        steps.push({
+          id: "wsjf-decide-order",
+          label: "Decide the backlog order",
+          detail: `${plural(unordered, "scored feature")} ${unordered === 1 ? "has" : "have"} no place in the backlog order yet. Decide the order so Sprint Planning pulls them in that order.`,
+          href: DECIDE_ORDER_HREF,
+        });
+      }
+      if (scored.length >= 3 && linked.length === 0) {
+        steps.push({
+          id: "wsjf-backlog",
+          label: "Put the top features on the backlog",
+          detail: `${plural(scored.length, "feature")} ${be(scored.length)} scored and none is on the backlog. Add the top ones from their rows, so the Backlog Prioritizer can order them and Sprint Planning can pull them.`,
+          href: "/wsjf",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  moscow: rule({
+    select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
+    steps: ({ rows, items }) => {
+      const backlog = real(items);
+      // The Must budget as the page reads it: a linked item's job size, else the row's effort.
+      const entries = rankMethodRows("moscow", real(rows), backlog).map((r) => {
+        const item = linkedItem(r.row, backlog);
+        return {
+          bucket: toChoice(MOSCOW_BUCKETS, r.result.bucket) ?? null,
+          effort: moscowEffort(readThrough(r.row, item), item),
+          linked: item !== undefined,
+        };
+      });
+      const budget = mustBudget(entries);
+      const steps: NextStep[] = [];
+      if (budget.over && budget.share !== null) {
+        steps.push({
+          id: "moscow-over-budget",
+          label: "Order the Musts with WSJF",
+          detail: `Musts take ${Math.round(budget.share * 100)}% of the planned effort, over the limit of about ${Math.round(MUST_BUDGET_SHARE * 100)}%. Score them with WSJF to see which can drop to Should.`,
+          href: "/wsjf",
+        });
+      }
+      const unsized = entries.filter(
+        (e) => e.linked && e.bucket !== null && e.bucket !== "wont" && !isSized(e.effort)
+      ).length;
+      if (unsized > 0) {
+        steps.push({
+          id: "moscow-size",
+          label: "Size the unsized backlog items",
+          detail: `${plural(unsized, "planned backlog item")} ${unsized === 1 ? "has" : "have"} no job size, so the Must budget can't count ${unsized === 1 ? "it" : "them"}. Set ${unsized === 1 ? "its" : "their"} job size in the Backlog Prioritizer.`,
+          href: "/prioritizer",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "cost-of-delay": rule({
+    select: (ws) => ({ rows: ws.prioritizations }),
+    steps: ({ rows }) => {
+      const today = todayIso();
+      const soon = addDays(today, FIXED_DATE_LEAD_DAYS) ?? today;
+      const scored = rankMethodRows("cost-of-delay", real(rows)).filter(
+        (r) => r.result.score !== null
+      );
+      const steps: NextStep[] = [];
+      // The fixed-date item that has to start soonest (or should have started).
+      const [fixed] = scored
+        .flatMap((r) => {
+          const start = r.result.extra?.latestStart;
+          const due = r.values.fixedDate;
+          return r.result.bucket === "fixed_date" &&
+            typeof start === "string" &&
+            typeof due === "string" &&
+            start <= soon
+            ? [{ r, start, due }]
+            : [];
+        })
+        .sort((a, b) => a.start.localeCompare(b.start));
+      if (fixed) {
+        const what = quote(fixed.r.row.title, "A fixed-date item");
+        steps.push({
+          id: "cod-fixed-date",
+          label: "Plan the fixed-date work now",
+          detail:
+            fixed.start < today
+              ? `${what} should have started by ${dayLabel(fixed.start)} to land by ${dayLabel(fixed.due)}: it's already late. Pull it into the next sprint, or agree a new date.`
+              : `${what} must start by ${dayLabel(fixed.start)} to land by ${dayLabel(fixed.due)}. Pull it into the next sprint.`,
+          href: "/sprint-planning",
+        });
+      }
+      if (scored.length >= 2) {
+        steps.push({
+          id: "cod-wsjf",
+          label: "Cross-check with WSJF",
+          detail:
+            "CD3 puts money on waiting; WSJF sizes the same trade-off relatively. A big disagreement between them is worth a conversation.",
+          href: "/wsjf",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "value-effort-matrix": rule({
+    select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems, stories: ws.stories }),
+    steps: ({ rows, items, stories }) => {
+      const backlog = real(items);
+      const wins = rankMethodRows("value-effort", real(rows), backlog).filter(
+        (r) => r.result.bucket === "quick_wins"
+      );
+      const steps: NextStep[] = [];
+      const onBacklog = new Map(
+        wins.flatMap((r) => {
+          const item = linkedItem(r.row, backlog);
+          return item ? [[item.id, item] as const] : [];
+        })
+      );
+      const toPlan = notPulled(Array.from(onBacklog.values()), stories).length;
+      if (toPlan > 0) {
+        steps.push({
+          id: "value-effort-plan",
+          label: "Plan the quick wins",
+          detail: `${plural(toPlan, "Quick Win")} ${be(toPlan)} on the backlog and not in Sprint Planning yet. Pull ${toPlan === 1 ? "it" : "them"} into the next sprint.`,
+          href: "/sprint-planning",
+        });
+      }
+      const off = wins.filter((r) => !r.live).length;
+      if (off > 0) {
+        steps.push({
+          id: "value-effort-backlog",
+          label: "Put the quick wins on the backlog",
+          detail: `${plural(off, "Quick Win")} ${off === 1 ? "isn't" : "aren't"} on the backlog yet. Add ${off === 1 ? "it from its row" : "them from their rows"}, so Sprint Planning can pull ${off === 1 ? "it" : "them"}.`,
+          href: "/value-effort-matrix",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  eisenhower: rule({
+    select: (ws) => ({ rows: ws.prioritizations, members: ws.teamMembers }),
+    steps: ({ rows, members }) => {
+      const today = todayIso();
+      // The panes as the page derives them today (a legacy quadrant read first).
+      const tasks = eisRows(real(rows), today).map((r) => taskView(r, today));
+      const steps: NextStep[] = [];
+      const dueNow = tasks
+        .flatMap((t) => {
+          const days = t.urgency.daysToDue;
+          return t.quadrant === "do" && days !== null && days <= 0 ? [{ t, days }] : [];
+        })
+        .sort((a, b) => a.days - b.days);
+      const [worst] = dueNow;
+      if (worst) {
+        const n = dueNow.length;
+        steps.push({
+          id: "eisenhower-due",
+          label:
+            n === 1
+              ? "Raise the Do task due now at the standup"
+              : `Raise the ${n} Do tasks due now at the standup`,
+          detail: `${quote(worst.t.ranked.row.title, "A Do task")} is ${dueText(worst.days)}${n > 1 ? `, and ${plural(n - 1, "other Do task")} ${n === 2 ? "is" : "are"} due or past due` : ""}. Say at the Daily Scrum what ${n === 1 ? "it needs" : "they need"} to get done.`,
+          href: "/standup",
+        });
+      }
+      const unassigned = tasks.filter((t) => t.quadrant === "delegate" && !t.delegateTo);
+      const [nobody] = unassigned;
+      if (nobody) {
+        const n = unassigned.length;
+        steps.push(
+          real(members).length === 0
+            ? {
+                id: "eisenhower-team",
+                label: "Add your team to delegate to",
+                detail: `${plural(n, "Delegate task")} ${n === 1 ? "has" : "have"} nobody named. With the team on the Team page, “Who takes it?” picks from them.`,
+                href: "/team",
+              }
+            : {
+                id: "eisenhower-delegate",
+                label: `Name who takes ${n === 1 ? "the Delegate task" : `the ${n} Delegate tasks`}`,
+                detail: `${quote(nobody.ranked.row.title, "A Delegate task")}${n > 1 ? ` and ${plural(n - 1, "other")}` : ""} ${n === 1 ? "has" : "have"} nobody named yet: a task delegated to nobody stays yours.`,
+                href: "/eisenhower",
+              }
+        );
+      }
+      return steps;
+    },
+  }),
+
+  "kano-model": rule({
+    select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
+    steps: ({ rows, items }) => {
+      const backlog = real(items);
+      const features = rankMethodRows("kano", real(rows));
+      // Categories from answers: a legacy one picked by hand says nothing about customers.
+      const answered = features.filter((r) => r.result.extra?.source !== "picked");
+      const steps: NextStep[] = [];
+      const mustBe = answered.filter(
+        (r) => r.result.bucket === "must-be" && !linkedItem(r.row, backlog)
+      );
+      if (mustBe.length > 0) {
+        const n = mustBe.length;
+        steps.push({
+          id: "kano-must-be",
+          label: "Put the must-haves on the backlog",
+          detail: `${listNames(mustBe.map((r) => quote(r.row.title, "an untitled feature")))} came out Must-be: customers expect ${n === 1 ? "it" : "them"}, and ${n === 1 ? "it isn't" : "they aren't"} on the backlog yet. Add ${n === 1 ? "it from its row" : "them from their rows"}.`,
+          href: "/kano-model",
+        });
+      }
+      const questionable = answered.filter((r) => r.result.bucket === "questionable");
+      if (questionable.length > 0) {
+        const n = questionable.length;
+        steps.push({
+          id: "kano-questionable",
+          label:
+            n === 1
+              ? `Find out why the answers on ${quote(questionable[0].row.title, "a feature")} contradict`
+              : `Find out why the answers on ${n} features contradict`,
+          detail: `Questionable means the two answers contradict each other. Ask about ${n === 1 ? "it" : "them"} in your next customer interview, then reword the ${n === 1 ? "question" : "questions"}.`,
+          href: "/user-interviews",
+        });
+      }
+      const linked = features.filter((r) => linkedItem(r.row, backlog)).length;
+      if (linked > 0) {
+        steps.push({
+          id: "kano-compare",
+          label: "Compare across methods",
+          detail: `${plural(linked, "Kano feature")} ${be(linked)} on the backlog. See ${linked === 1 ? "its" : "their"} Kano category next to WSJF and RICE for the same ${linked === 1 ? "item" : "items"}.`,
+          href: "/prioritizer",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "buy-a-feature": rule({
+    select: (ws) => ({
+      rows: ws.prioritizations,
+      games: ws.buyAFeatureGames,
+      stories: ws.stories,
+    }),
+    steps: ({ rows, games, stories }) => {
+      const features = featureRows(real(rows)).map((row) => ({ row, f: featureLedger(row) }));
+      const storyIds = new Set((stories ?? []).map((s) => s.id));
+      const steps: NextStep[] = [];
+      const unsent = features.filter(
+        ({ row, f }) => isFunded(f) && !linkedTo(row.sentTo, "backlog-story", storyIds)
+      ).length;
+      if (unsent > 0) {
+        steps.push({
+          id: "buy-a-feature-push",
+          label: "Push the funded features to the backlog",
+          detail: `${plural(unsent, "funded feature")} ${unsent === 1 ? "isn't" : "aren't"} on the backlog yet. “Add ${plural(unsent, "funded feature")} to the backlog” under Funded makes ${unsent === 1 ? "it a story" : "each one a story"}.`,
+          href: "/buy-a-feature",
+        });
+      }
+      const unsized = real(stories).filter(
+        (s) => fromTool(s, "buy-a-feature") && inBacklog(s) && unestimated(s)
+      ).length;
+      if (unsized > 0) {
+        steps.push({
+          id: "buy-a-feature-size",
+          label: "Size the funded stories",
+          detail: `${plural(unsized, "story", "stories")} from Buy-a-Feature ${unsized === 1 ? "has" : "have"} no points yet.`,
+          href: "/planning-poker",
+        });
+      }
+      // Setting the game up: prices first, then a pool that can't buy everything.
+      const ledgers = features.map((x) => x.f);
+      const unpriced = ledgers.filter((f) => f.price === null).length;
+      const game = (games ?? []).find((g) => g.id === BUY_A_FEATURE_ID) ?? null;
+      const check = gameCheck(game, ledgers);
+      const problem = check && budgetProblem(check, unitOf(game));
+      if (unpriced > 0) {
+        steps.push({
+          id: "buy-a-feature-price",
+          label: `Price ${plural(unpriced, "feature")}`,
+          detail: `${unpriced === 1 ? "It has" : "They have"} no whole price, so ${unpriced === 1 ? "it's" : "they're"} left out of rounds and the budget check.`,
+          href: "/buy-a-feature",
+        });
+      } else if (pricesOf(ledgers).length >= 2 && (!check || problem)) {
+        steps.push({
+          id: "buy-a-feature-pool",
+          label: "Set the players and their budget",
+          detail:
+            problem ||
+            "The pool is the players times each one's budget. Keep it to about half of the prices, so nobody can have everything.",
+          href: "/buy-a-feature",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "hundred-dollar-test": rule({
+    select: (ws) => ({ rows: ws.prioritizations, rounds: ws.allocationRounds }),
+    steps: ({ rows, rounds }) => {
+      const items = hundredRows(real(rows));
+      const [latest] = roundsFor(real(rounds), "hundred-dollar-test");
+      const steps: NextStep[] = [];
+      // Team level only: a round keeps totals, never anyone's split.
+      const money = latest ? latest.budget * latest.ballots : 0;
+      if (latest && money > 0 && latest.items.length >= 2) {
+        const top = [...teamAverages(latest)].sort((a, b) => b.total - a.total).slice(0, 2);
+        const share = (top[0].total + top[1].total) / money;
+        steps.push({
+          id: "hundred-dollar-score",
+          label: "Score the front-runners in the Backlog Prioritizer",
+          detail: `${listAnd(top.map((a) => quote(a.text, "an untitled item")))} got ${Math.round(share * 100)}% of the team's money in the round of ${dayLabel(latest.date)}. Put them on the backlog and score them, so the decided order reflects it.`,
+          href: "/prioritizer",
+        });
+      }
+      if (!latest && items.length >= 2) {
+        steps.push({
+          id: "hundred-dollar-round",
+          label: "Run a team round",
+          detail:
+            "Let everyone split their own $100 anonymously, then compare the team's averages with the agreed split.",
+          href: "/hundred-dollar-test",
+        });
+      }
+      const split = splitSummary(items);
+      if (split.given > 0 && !split.full && split.remaining > 0) {
+        steps.push({
+          id: "hundred-dollar-split",
+          label: `Give out the last ${dollars(split.remaining)}`,
+          detail:
+            "The $100 Test only works when the whole budget is split: money left over hides the trade-offs.",
+          href: "/hundred-dollar-test",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "decision-log": decisionRule,
+  daci: decisionRule,
+  "rapid-decision": decisionRule,
+
+  "weighted-decision": rule({
+    select: (ws) => ({
+      matrices: ws.weightedMatrices,
+      options: ws.weightedOptions,
+      criteria: ws.weightedCriteria,
+      decisions: ws.decisions,
+      daci: ws.daciDecisions,
+      rapid: ws.rapidDecisions,
+    }),
+    steps: ({ matrices, options, criteria, decisions, daci, rapid }) => {
+      const opts = real(options);
+      const crits = real(criteria);
+      const records = allDecisions(decisions, daci, rapid);
+      // Newest first, as the page opens the newest.
+      const results = matricesOf(real(matrices), opts, crits)
+        .reverse()
+        .map((m) => ({
+          m,
+          r: matrixResult(m.id, crits, opts),
+          sent: sentDecisionOf(m, records) !== undefined,
+        }));
+      const steps: NextStep[] = [];
+      const ready = results.find((x) => !x.sent && !x.r.tie && sendBlock(x.m, x.r) === null);
+      if (ready) {
+        steps.push({
+          id: "weighted-record",
+          label: `Record the decision on “${matrixTitle(ready.m)}”`,
+          detail: `${ready.r.verdict} Use “Send to…” → “Decision record (proposed)” under the result: the team writes down what it decides.`,
+          href: matrixHref(ready.m.id),
+        });
+      }
+      const tied = results.find((x) => !x.sent && x.r.tie);
+      if (tied) {
+        steps.push({
+          id: "weighted-tie",
+          label: `“${matrixTitle(tied.m)}” is too close to call: talk it through before deciding`,
+          detail: tied.r.verdict,
+          href: matrixHref(tied.m.id),
+        });
+      }
+      const empty = results.find((x) => x.r.emptyCells > 0);
+      if (empty) {
+        steps.push({
+          id: "weighted-empty-cells",
+          label: `Score the ${plural(empty.r.emptyCells, "empty cell")} in “${matrixTitle(empty.m)}”`,
+          detail:
+            "An empty cell isn't 0: an option gets a total, and can lead, only once every weighted criterion is scored.",
+          href: matrixHref(empty.m.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
+  cynefin: rule({
+    select: (ws) => ({ items: ws.cynefinItems, trackers: ws.hypothesisTrackers }),
+    steps: ({ items, trackers }) => {
+      const board = real(items);
+      const hypotheses = (trackers ?? []).find((t) => t.id === HYPOTHESIS_TRACKER_ID)?.hypotheses;
+      const steps: NextStep[] = [];
+      // Something going wrong now comes before learning.
+      const chaotic = board.filter((it) => normalizeDomain(it.domain) === "chaotic");
+      if (chaotic.length > 0) {
+        const n = chaotic.length;
+        steps.push({
+          id: "cynefin-chaotic",
+          label:
+            n === 1 ? "Stabilise the chaotic item first" : `Stabilise the ${n} chaotic items first`,
+          detail: `${quote(chaotic[0].title, "A chaotic item")}${n > 1 ? ` and ${plural(n - 1, "other")}` : ""} ${n === 1 ? "needs" : "need"} action before analysis: act to stop the harm, then sense where ${n === 1 ? "it stands and move it" : "each stands and move it"} to its new domain.`,
+          href: "/cynefin",
+        });
+      }
+      const untested = complexNotTested(board, hypotheses);
+      if (untested.length > 0) {
+        const n = untested.length;
+        steps.push({
+          id: "cynefin-hypotheses",
+          label:
+            n === 1
+              ? "Turn the complex item into a hypothesis to test"
+              : `Turn the ${n} complex items into hypotheses to test`,
+          detail: `Only trying will tell with complex work. “Turn into a hypothesis” on ${n === 1 ? "its card" : "each card"} sends it to the Hypothesis Tracker, starting with ${quote(untested[0].title, "an untitled item")}.`,
+          href: "/cynefin",
+        });
+      }
+      const tested = board.find(
+        (it) =>
+          normalizeDomain(it.domain) === "complex" && hypothesisStateOf(it, hypotheses) === "tested"
+      );
+      if (tested) {
+        steps.push({
+          id: "cynefin-results",
+          label: `See what the test of ${quote(tested.title, "a complex item")} found`,
+          detail:
+            "Its hypothesis has a result. Act on what it showed, or move the item if it isn't complex any more.",
+          href: "/hypothesis-tracker",
         });
       }
       return steps;
