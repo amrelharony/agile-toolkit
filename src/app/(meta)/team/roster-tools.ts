@@ -11,4 +11,7 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "canvas", use: "Suggests names for card assignees and @mentions." },
   { toolId: "health-dashboard", use: "Counts the team for standup participation." },
   { toolId: "sprint", use: "Counts who has posted today's standup update." },
+  { toolId: "working-agreement", use: "Asks each person for consent to every rule." },
+  { toolId: "raci", use: "Offers teammates as columns of the matrix." },
+  { toolId: "skills-matrix", use: "Gives each person a column to rate their skills." },
 ];
