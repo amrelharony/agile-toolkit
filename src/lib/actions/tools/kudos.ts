@@ -9,9 +9,16 @@
  *
  * Agent surface: tool.kudos.*
  *   1. list_state         — the wall (newest first) + count.
- *   2. recognition_stats  — per-recipient / per-sender / theme / sentiment tally.
+ *   2. recognition_stats  — kudos received per person (the page's chart and
+ *                           table), fairness hints from the roster, and the
+ *                           per-recipient / per-sender / theme / sentiment
+ *                           tallies, over a sprint or a date range.
  *   3. post_kudos         — add a kudo (validated through canonical parseKudos).
  *   4. remove_kudos       — delete a kudo by id.
+ *
+ * recognition_stats counts what the page counts, through the same pure
+ * lib/kudos/recognition (replies and example kudos left out, a roster
+ * member matched by toMemberId, else by name).
  *
  * post_kudos routes through parseKudos — the SAME validator the realtime wire
  * and the store's upsertKudos use — so an agent can't smuggle a malformed card
@@ -30,9 +37,20 @@ import {
   serverDeleteEntity,
 } from "../server-store";
 import { parseKudos } from "@/lib/kudos/parse";
-import type { Kudos } from "@/lib/stores/workspace-types";
+import {
+  fairnessHints,
+  isRecognition,
+  recognitionReceived,
+  sentIn,
+  sprintWindow,
+  type RecognitionWindow,
+} from "@/lib/kudos/recognition";
+import { localDay, todayIso } from "@/lib/sprints/series";
+import type { Kudos, Sprint, TeamMember } from "@/lib/stores/workspace-types";
 
 const KIND_K = "workspace:kudos";
+const KIND_TEAM = "workspace:teamMember";
+const KIND_SPRINT = "workspace:sprint";
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -41,31 +59,109 @@ function summarize(kudos: Kudos[]) {
   return { total: sorted.length, kudos: sorted };
 }
 
-function computeStats(kudos: Kudos[]) {
+/* ── recognition_stats ─────────────────────────────────────────────── */
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+const statsParams = z.object({
+  from: z.string().regex(ISO_DAY, "YYYY-MM-DD").optional(),
+  to: z.string().regex(ISO_DAY, "YYYY-MM-DD").optional(),
+  sprintId: z.string().min(1).max(128).optional(),
+});
+type StatsParams = z.infer<typeof statsParams>;
+
+/** The window the stats cover, as returned: null for all time. */
+interface StatsWindow extends RecognitionWindow {
+  sprintId?: string;
+  sprintName?: string;
+}
+
+type WindowPick =
+  | { ok: true; window: StatsWindow | null; label: string }
+  | { ok: false; error: "unknown_sprint" | "sprint_has_no_dates" | "from_after_to" };
+
+/**
+ * A sprint's days (as the page's Sprint window reads them), or `from`..`to`
+ * (to defaults to today, from to the first kudos), or all time.
+ */
+function pickWindow(
+  params: StatsParams,
+  kudos: readonly Kudos[],
+  sprints: readonly Sprint[]
+): WindowPick {
+  if (params.sprintId) {
+    const sprint = sprints.find((s) => s.id === params.sprintId);
+    if (!sprint) return { ok: false, error: "unknown_sprint" };
+    const w = sprintWindow(sprint);
+    if (!w) return { ok: false, error: "sprint_has_no_dates" };
+    return {
+      ok: true,
+      window: { ...w, sprintId: sprint.id, sprintName: sprint.name },
+      label: `in ${sprint.name}`,
+    };
+  }
+  if (params.from || params.to) {
+    const to = params.to ?? todayIso();
+    const first = kudos
+      .map((k) => localDay(k.sentAt))
+      .filter((d): d is string => Boolean(d))
+      .sort()[0];
+    const from = params.from ?? (first && first < to ? first : to);
+    if (from > to) return { ok: false, error: "from_after_to" };
+    return { ok: true, window: { from, to }, label: `from ${from} to ${to}` };
+  }
+  return { ok: true, window: null, label: "so far" };
+}
+
+function computeStats(
+  kudos: readonly Kudos[],
+  roster: readonly TeamMember[],
+  window: StatsWindow | null,
+  label: string
+) {
+  const summary = recognitionReceived(kudos, roster, window);
+  // The legacy tallies, over the same kudos: recognition only, in the window.
+  const counted = kudos.filter((k) => isRecognition(k) && sentIn(k, window));
   const byRecipient: Record<string, number> = {};
+  for (const r of summary.recipients) byRecipient[r.name] = r.count;
   const bySender: Record<string, number> = {};
   const themeCounts: Record<string, number> = {};
   const sentimentCounts: Record<string, number> = {};
-  for (const k of kudos) {
-    byRecipient[k.toName] = (byRecipient[k.toName] ?? 0) + 1;
+  for (const k of counted) {
     bySender[k.fromName] = (bySender[k.fromName] ?? 0) + 1;
     const themeId = typeof k.theme === "string" ? k.theme : k.theme.id;
     themeCounts[themeId] = (themeCounts[themeId] ?? 0) + 1;
     if (k.sentiment)
       sentimentCounts[k.sentiment.label] = (sentimentCounts[k.sentiment.label] ?? 0) + 1;
   }
-  const topRecipients = Object.entries(byRecipient)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count);
   return {
-    total: kudos.length,
+    total: summary.total,
     byRecipient,
     bySender,
     themeCounts,
     sentimentCounts,
-    topRecipients,
+    topRecipients: summary.recipients.map((r) => ({ name: r.name, count: r.count })),
+    received: summary.recipients,
+    rosterWithNone: summary.rosterWithNone,
+    topShare: summary.topShare,
+    enough: summary.enough,
+    hints: fairnessHints(summary, roster.length, { windowLabel: label }),
+    window,
   };
 }
+
+async function statsFor(
+  params: StatsParams,
+  kudos: readonly Kudos[],
+  roster: readonly TeamMember[],
+  sprints: () => Promise<readonly Sprint[]> | readonly Sprint[]
+) {
+  const pick = pickWindow(params, kudos, params.sprintId ? await sprints() : []);
+  if (!pick.ok) return { error: pick.error };
+  return computeStats(kudos, roster, pick.window, pick.label);
+}
+
+/* ── post_kudos ────────────────────────────────────────────────────── */
 
 /** Assemble the raw kudo for parseKudos (omits empty optionals it would reject). */
 function buildKudo(params: {
@@ -75,6 +171,7 @@ function buildKudo(params: {
   theme?: string;
   teamName?: string;
   toProfileId?: string;
+  toMemberId?: string;
   fromProfileId?: string;
 }): unknown {
   const raw: Record<string, unknown> = {
@@ -87,6 +184,7 @@ function buildKudo(params: {
   };
   if (params.teamName) raw.teamName = params.teamName;
   if (params.toProfileId) raw.toProfileId = params.toProfileId;
+  if (params.toMemberId) raw.toMemberId = params.toMemberId;
   if (params.fromProfileId) raw.fromProfileId = params.fromProfileId;
   return raw;
 }
@@ -98,7 +196,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Read the kudos wall, newest first. Returns {total, kudos: {id, theme, toName, fromName, message, sentAt, ...}[]}.",
+    "Read the kudos wall, newest first. Returns {total, kudos: {id, theme, toName, toMemberId?, fromName, message, sentAt, replyTo?, ...}[]}. Replies carry replyTo (the kudos they answer).",
   paramsSchema: z.object({}),
   handler: async () => summarize(ws().kudos ?? []),
   mcpHandler: async (_params, ctx) =>
@@ -112,11 +210,19 @@ registry.register({
   name: "recognition_stats",
   category: "read",
   description:
-    "Recognition analytics over the wall. Returns {total, byRecipient (name -> count), bySender, themeCounts, sentimentCounts (positive/neutral/backhanded), topRecipients: {name, count}[] (desc)}. Compare byRecipient against the team roster to spot under-recognised members.",
-  paramsSchema: z.object({}),
-  handler: async () => computeStats(ws().kudos ?? []),
-  mcpHandler: async (_params, ctx) =>
-    computeStats(await serverListEntities<Kudos>(ctx.userId, KIND_K)),
+    "Kudos received per person, as the Kudos page's Recognition chart counts them: replies and example kudos are left out, and a kudos counts for a roster member by toMemberId, else by name (trimmed, case-insensitive). Params (all optional): sprintId (that sprint's start to end day), or from/to (YYYY-MM-DD local days, both included; to defaults to today, from to the first kudos); none = all time. Returns {total, byRecipient (name -> count), bySender (name -> count), themeCounts, sentimentCounts (positive/neutral/backhanded), topRecipients: {name, count}[] (desc), received: {key, name, memberId?, onRoster, count, fromPeople, lastAt}[] (most first), rosterWithNone: {memberId, name}[] (roster members with no kudos in the window), topShare (0-1, the top recipient's share; null with none), enough (total >= 5, the minimum before shares and hints mean anything), hints: {kind: 'none-received' | 'concentrated', memberIds, names, sentence}[] (empty until enough and a roster of 2+), window: {from, to, sprintId?, sprintName?} | null}, or {error: 'unknown_sprint' | 'sprint_has_no_dates' | 'from_after_to'}.",
+  paramsSchema: statsParams,
+  handler: async (params) =>
+    statsFor(params, ws().kudos ?? [], ws().teamMembers ?? [], () => ws().sprints ?? []),
+  mcpHandler: async (params, ctx) => {
+    const [kudos, roster] = await Promise.all([
+      serverListEntities<Kudos>(ctx.userId, KIND_K),
+      serverListEntities<TeamMember>(ctx.userId, KIND_TEAM),
+    ]);
+    return statsFor(params, kudos, roster, () =>
+      serverListEntities<Sprint>(ctx.userId, KIND_SPRINT)
+    );
+  },
 });
 
 // ──────── tool.kudos.post_kudos ────────
@@ -127,7 +233,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Post a kudo to the wall. theme is a built-in id (awesome, thank-you, great-job, congratulations, very-happy, you-rock, well-done; default awesome). fromName defaults to 'AI Assistant'. Validated via parseKudos. Returns {posted: false, error} on a rejected shape, else {posted: true, id}.",
+    "Post a kudo to the wall. theme is a built-in id (awesome, thank-you, great-job, congratulations, very-happy, you-rock, well-done; default awesome). fromName defaults to 'AI Assistant'. toMemberId (optional) is the roster member (TeamMember.id) it is for, so a later rename keeps it counted for them; it must be on the roster. Validated via parseKudos. Returns {posted: false, error} on a rejected shape (error 'unknown_member' for a toMemberId off the roster), else {posted: true, id}.",
   paramsSchema: z.object({
     toName: z.string().min(1).max(80),
     message: z.string().min(1).max(2000),
@@ -135,15 +241,25 @@ registry.register({
     theme: z.string().max(64).optional(),
     teamName: z.string().min(1).max(80).optional(),
     toProfileId: z.string().min(1).max(64).optional(),
+    toMemberId: z.string().min(1).max(64).optional(),
     fromProfileId: z.string().min(1).max(64).optional(),
   }),
   handler: async (params) => {
+    if (params.toMemberId && !(ws().teamMembers ?? []).some((m) => m.id === params.toMemberId)) {
+      return { posted: false, error: "unknown_member" };
+    }
     const parsed = parseKudos(buildKudo(params));
     if (!parsed.ok) return { posted: false, error: parsed.error };
     ws().upsertKudos(parsed.kudos);
     return { posted: true, id: parsed.kudos.id };
   },
   mcpHandler: async (params, ctx) => {
+    if (
+      params.toMemberId &&
+      !(await serverGetEntity<TeamMember>(ctx.userId, KIND_TEAM, params.toMemberId))
+    ) {
+      return { posted: false, error: "unknown_member" };
+    }
     const parsed = parseKudos(buildKudo(params));
     if (!parsed.ok) return { posted: false, error: parsed.error };
     await serverUpsertEntity<Kudos>(ctx.userId, KIND_K, parsed.kudos);
