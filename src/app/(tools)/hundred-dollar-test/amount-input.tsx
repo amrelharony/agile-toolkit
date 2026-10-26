@@ -16,8 +16,10 @@ import { cn } from "@/lib/utils";
  *  - `onCommit` returns what was actually saved (the page caps it), and the
  *    box shows that, even when it equals what was there before.
  *
- * BlurInput can't carry aria-describedby (the cap note) or a number
- * keyboard, hence this local twin.
+ * BlurInput now carries the cap note (aria-describedby) and a number
+ * keyboard, but not the rest: it commits a cleared box, has no Escape, and
+ * keeps showing what was typed when the capped amount equals the saved
+ * one. Hence this local twin.
  */
 export function AmountInput({
   value,

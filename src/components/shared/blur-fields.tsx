@@ -17,7 +17,7 @@
  *    aren't clobbered by a stale local draft)
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type InputHTMLAttributes } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -30,6 +30,14 @@ interface BlurInputProps {
   maxLength?: number;
   id?: string;
   "aria-label"?: string;
+  /** A note or error that explains the box (e.g. why a value was changed). */
+  "aria-describedby"?: string;
+  /** The on-screen keyboard, e.g. "numeric" for whole numbers. */
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
+  /** Bounds and step for a number box: hints for the browser, not a check of what's committed. */
+  min?: number | string;
+  max?: number | string;
+  step?: number | string;
 }
 
 export function BlurInput(props: BlurInputProps) {
@@ -52,7 +60,12 @@ export function BlurInput(props: BlurInputProps) {
       placeholder={props.placeholder}
       className={props.className}
       maxLength={props.maxLength}
+      inputMode={props.inputMode}
+      min={props.min}
+      max={props.max}
+      step={props.step}
       aria-label={props["aria-label"]}
+      aria-describedby={props["aria-describedby"]}
     />
   );
 }
