@@ -513,11 +513,30 @@ describe("MethodTool focus", () => {
     });
     renderTool();
     fireEvent.click(screen.getByRole("button", { name: "Edit Beta" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Alpha" }));
-    // Beta's Edit button isn't on screen (its editor is): the add form's title takes focus.
+    // The keyboard user is on Alpha's Delete when they press it.
+    const del = screen.getByRole("button", { name: "Delete Alpha" });
+    del.focus();
+    fireEvent.click(del);
+    // Beta's Edit button isn't on screen (its editor is): the edit in
+    // progress keeps the keyboard, on the editor's title.
     const [addTitle, editorTitle] = screen.getAllByLabelText(/Feature title/);
     expect(editorTitle.closest("li")).not.toBeNull();
-    expect(addTitle).toHaveFocus();
+    expect(editorTitle).toHaveFocus();
+    expect(addTitle).not.toHaveFocus();
+  });
+
+  it("still moves to a neighbour's Edit button before the open editor", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [
+        wsjfRow("a", "Alpha", full(13)),
+        wsjfRow("b", "Beta", full(8)),
+        wsjfRow("c", "Gamma", full(5)),
+      ],
+    });
+    renderTool();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Gamma" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Alpha" }));
+    expect(screen.getByRole("button", { name: "Edit Beta" })).toHaveFocus();
   });
 });
 

@@ -82,6 +82,8 @@ const NO_ROWS: PrioritizationItem[] = [];
 const NO_ITEMS: BacklogItem[] = [];
 /** The add form's title, as a useReturnFocus key. */
 const ADD_TITLE = "add:title";
+/** The open row editor's title (one editor is open at a time). */
+const EDITOR_TITLE = "editor:title";
 
 /** A name short enough for a one-line toast. */
 export function shortName(name: string, max = 40): string {
@@ -474,11 +476,14 @@ export function MethodRowEditor({
   ranked,
   onSave,
   onCancel,
+  titleRef,
 }: {
   config: MethodToolConfig;
   ranked: RankedRow;
   onSave: (draft: MethodDraft) => void;
   onCancel: () => void;
+  /** The title input, for focus that comes back to the editor. */
+  titleRef?: (el: HTMLElement | null) => void;
 }) {
   const m = methodById(config.methodId);
   const items = useWorkspaceStore((s) => s.backlogItems) ?? NO_ITEMS;
@@ -505,6 +510,7 @@ export function MethodRowEditor({
         size="sm"
         row={ranked.row}
         item={linkedItem(ranked.row, items)}
+        titleRef={titleRef}
       />
     </ItemForm>
   );
@@ -676,7 +682,8 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
   const editorRef = useRef<HTMLLIElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   // Focus after the editor closes (the row's Edit button) or a delete (a
-  // neighbour's, or the add form's title once the list is empty).
+  // neighbour's, the open editor's title when only its row is left, or the
+  // add form's title once the list is empty).
   const { refFor, returnTo } = useReturnFocus();
 
   // "Import from backlog" (or a "Score with…" link) fills the add form; an
@@ -783,13 +790,16 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
     returnTo(`edit:${r.row.id}`);
   };
   // Delete: focus moves to the next row's Edit button, else the one
-  // before, else (the list is empty now) the add form's title.
+  // before, else the open editor's title (the one row left is being
+  // edited), else (the list is empty now) the add form's title.
   const removeRow = (r: RankedRow) => {
     // (Not the row in the editor: its Edit button isn't on screen.)
     const others = shown.filter((x) => x.row.id !== editingId);
     const at = others.findIndex((x) => x.row.id === r.row.id);
     const next = others[at + 1] ?? others[at - 1];
-    returnTo(next ? `edit:${next.row.id}` : ADD_TITLE);
+    // (The editor counts while its row is on screen: an agent may have deleted it.)
+    const editorOpen = others.length < shown.length;
+    returnTo(next ? `edit:${next.row.id}` : editorOpen ? EDITOR_TITLE : ADD_TITLE);
     actions.remove(r.row);
   };
 
@@ -801,6 +811,7 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
           ranked={r}
           onSave={(draft) => saveEdit(r, draft)}
           onCancel={() => cancelEdit(r)}
+          titleRef={refFor(EDITOR_TITLE)}
         />
       ) : (
         <MethodRow
