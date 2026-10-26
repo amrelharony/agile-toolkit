@@ -342,6 +342,31 @@ describe("singleton CRUD never overwrites the team's document", () => {
       expect(useWorkspaceStore.getState()[slice]).toEqual([doc]);
     }
   );
+
+  it.each([
+    ["workspace.skills_matrix", "skillsMatrices", "skillsMatrix_abc12345", SKILLS],
+    [
+      "workspace.maturity_assessment",
+      "maturityAssessments",
+      "maturityAssessment_abc12345",
+      MATURITY,
+    ],
+  ] as const)(
+    "%s lists such an orphan but refuses to update it (only delete clears it)",
+    async (toolId, slice, orphanId, doc) => {
+      const orphan = { ...doc, id: orphanId };
+      useWorkspaceStore.setState({ [slice]: [doc, orphan] } as Partial<Workspace>);
+      const listed = (await action(`${toolId}.list`).handler({}, makeContext("u", "agent"))) as {
+        items: Doc[];
+      };
+      expect(listed.items.map((x) => x.id)).toEqual([doc.id, orphanId]);
+      // The merged doc keeps the orphan's id, which the singleton schema refuses.
+      await expect(
+        action(`${toolId}.update`).handler({ id: orphanId, patch: {} }, makeContext("u", "agent"))
+      ).rejects.toThrow(/Patch produces invalid/);
+      expect(useWorkspaceStore.getState()[slice]).toEqual([doc, orphan]);
+    }
+  );
 });
 
 describe("the new collections' CRUD", () => {

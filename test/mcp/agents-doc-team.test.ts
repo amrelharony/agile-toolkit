@@ -1,7 +1,8 @@
 /**
  * docs/MCP-AGENTS.md against the code it describes, for the Team & people
  * work: which singleton CRUDs need the fixed id on create (and which still
- * mint a document no page shows without it), and every case the Release
+ * mint a document no page shows without it), what to do with such a document
+ * an older create minted, and every case the Release
  * Readiness "Definition of Done met" check leaves to a manual tick. The
  * answers come from the registry and checkDodGate, so a change on either
  * side fails here instead of leaving the doc wrong.
@@ -65,6 +66,29 @@ describe("MCP-AGENTS.md: the Team & people singletons", () => {
       expect(said).toMatch(/needs the fixed id on create/);
     }
   });
+
+  it.each([
+    ["workspace.skills_matrix", "skillsMatrix_", SKILLS],
+    ["workspace.maturity_assessment", "maturityAssessment_", MATURITY],
+  ] as const)(
+    "%s: says what to do with a document an older id-less create minted",
+    (toolId, prefix, doc) => {
+      const said = sentences.filter((s) => s.includes(`\`${prefix}…\``)).join(" ");
+      expect(said, `${prefix}… isn't named`).not.toBe("");
+      expect(said).toMatch(/no page shows it/);
+
+      // Its id isn't the fixed one, so the schema (which update checks the
+      // merged document against, under its own id) refuses it; delete takes any id.
+      const orphan = `${prefix}abc12345`;
+      const create = registry.get(`${toolId}.create`);
+      const remove = registry.get(`${toolId}.delete`);
+      if (!create || !remove) throw new Error(`missing action ${toolId}.create or .delete`);
+      expect(create.paramsSchema.safeParse({ entity: { ...doc, id: orphan } }).success).toBe(false);
+      expect(said).toMatch(/`update` refuses it/);
+      expect(remove.paramsSchema.safeParse({ id: orphan }).success).toBe(true);
+      expect(said).toMatch(/`delete` it/);
+    }
+  );
 });
 
 describe("MCP-AGENTS.md: the Release Readiness DoD gate", () => {
