@@ -177,6 +177,12 @@ export interface StateOverrides {
 
 export const ROUND = "round_000001";
 
+/**
+ * A scale round's state as the host builds it. `endsAt` defaults to 3 h
+ * from the clock, as the v2 fixtures' do: tests on fake timers (set to
+ * `NOW`) get `NOW` + 3 h as before, and a participant test on the real
+ * clock no longer sees the room closed once 13:00 UTC on 2026-10-26 passes.
+ */
 export function stateBody(by: string, keys: HostKeyPair, o: StateOverrides = {}): VoteStateBody {
   return {
     v: 1,
@@ -184,7 +190,7 @@ export function stateBody(by: string, keys: HostKeyPair, o: StateOverrides = {})
     seq: o.seq ?? 1,
     tool: o.tool ?? "health-check",
     roundId: o.roundId ?? ROUND,
-    endsAt: o.endsAt ?? NOW + 3 * 60 * 60 * 1000,
+    endsAt: o.endsAt ?? Date.now() + 3 * 60 * 60 * 1000,
     minN: o.minN ?? 3,
     questionnaire: o.questionnaire ?? QUESTIONNAIRE,
     keys: keys.publicKeys,
