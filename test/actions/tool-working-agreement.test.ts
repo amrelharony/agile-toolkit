@@ -23,7 +23,9 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
       return rows.get(`${kind}/${id}`) ?? null;
     }),
     serverListEntities: vi.fn(async (_u: string, kind: string) =>
-      [...rows.entries()].filter(([k]) => k.startsWith(`${kind}/`)).map(([, v]) => v)
+      Array.from(rows.entries())
+        .filter(([k]) => k.startsWith(`${kind}/`))
+        .map(([, v]) => v)
     ),
     serverUpsertEntity: vi.fn(async (_u: string, kind: string, entity: { id: string }) => {
       rows.set(`${kind}/${entity.id}`, entity);
