@@ -22,4 +22,10 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
     use: "Offers teammates as manager and report, and lists anyone with no 1:1 yet.",
   },
   { toolId: "onboarding-tracker", use: "Offers teammates as new joiners and their buddies." },
+  {
+    toolId: "decision-log",
+    use: "Offers teammates as each decision's decider and its DACI or RAPID roles.",
+  },
+  { toolId: "eisenhower", use: "Offers teammates as who takes a Delegate task." },
+  { toolId: "buy-a-feature", use: "Offers the team's size as the number of players." },
 ];
