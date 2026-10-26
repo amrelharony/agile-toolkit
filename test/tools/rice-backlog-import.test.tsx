@@ -272,7 +272,7 @@ describe("every method tool", () => {
       name: "WSJF",
       Client: WsjfClient,
       path: "/wsjf",
-      titleLabel: "Feature title",
+      titleLabel: /Feature title/,
       add: /Add & score/,
       framework: "wsjf",
     },

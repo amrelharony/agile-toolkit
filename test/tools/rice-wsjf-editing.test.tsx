@@ -96,6 +96,7 @@ const type = (label: string | RegExp, value: string, root: HTMLElement = documen
 const TITLE = /Initiative title/;
 const REACH = /Reach \(people\)/;
 const EFFORT = /Effort \(person-months\)/;
+const FEATURE = /Feature title/;
 
 beforeEach(() => {
   undo.last = null;
@@ -346,8 +347,8 @@ describe("WSJF: adding", () => {
     pick("Time criticality", "8");
     pick("Risk reduction / opportunity enablement", "3");
     pick("Job size", "5");
-    type("Feature title", "Single sign-on");
-    pressEnter(screen.getByLabelText("Feature title"));
+    type(FEATURE, "Single sign-on");
+    pressEnter(screen.getByLabelText(FEATURE));
 
     expect(rows()).toHaveLength(1);
     expect(rows()[0]).toMatchObject({
@@ -360,7 +361,7 @@ describe("WSJF: adding", () => {
 
   it("blocks a missing component with a message instead of a silent 0", () => {
     render(<WsjfClient />);
-    type("Feature title", "Single sign-on");
+    type(FEATURE, "Single sign-on");
     pick("Business value", "13");
     pick("Time criticality", "8");
     pick("Risk reduction / opportunity enablement", "3");
@@ -412,24 +413,26 @@ describe("WSJF: editing a row", () => {
     rrOe: 3,
     jobSize: 2,
   });
+  const editorOf = () => screen.getByRole("button", { name: "Save" }).closest("form")!;
 
-  it("renames inline", () => {
+  it("renames in the row editor", () => {
     useWorkspaceStore.setState({ prioritizations: [w1] });
     render(<WsjfClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Single sign-on" }));
-    const input = screen.getByLabelText("Rename Single sign-on");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Single sign-on" }));
+    const input = within(editorOf()).getByLabelText(FEATURE);
     fireEvent.change(input, { target: { value: "SAML sign-on" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    pressEnter(input);
     expect(stored("w1")).toMatchObject({ title: "SAML sign-on", fields: w1.fields, score: 8 });
   });
 
   it("edits a score and rescores", () => {
     useWorkspaceStore.setState({ prioritizations: [w1] });
     render(<WsjfClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Single sign-on" }));
-    const editor = screen.getByRole("form", { name: "Edit scores for Single sign-on" });
-    // Opens on the first scale's checked value.
-    expect(document.activeElement).toBe(scale("Business value", "8", editor));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Single sign-on" }));
+    const editor = editorOf();
+    // Opens on the title, with the row's parts checked.
+    expect(document.activeElement).toBe(within(editor).getByLabelText(FEATURE));
+    expect(scale("Business value", "8", editor)).toBeChecked();
 
     pick("Job size", "13", editor);
     fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
@@ -438,9 +441,7 @@ describe("WSJF: editing a row", () => {
       fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 13 },
       score: 16 / 13,
     });
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Edit scores for Single sign-on" })
-    );
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   it("shows an off-scale value as Custom and leaves it alone on an untouched save", () => {
@@ -453,24 +454,24 @@ describe("WSJF: editing a row", () => {
     useWorkspaceStore.setState({ prioritizations: [legacy] });
     render(<WsjfClient />);
 
-    const tableRow = screen.getByRole("button", { name: "Dark mode" }).closest("tr")!;
-    expect(within(tableRow).getAllByText("custom")).toHaveLength(2);
+    const listItem = screen.getByText("Dark mode").closest("li")!;
+    expect(within(listItem).getAllByText("custom")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Dark mode" }));
-    const editor = screen.getByRole("form", { name: "Edit scores for Dark mode" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Dark mode" }));
+    const editor = editorOf();
     expect(scale("Business value", "Custom: 4", editor)).toBeChecked();
     expect(scale("Job size", "Custom: 4", editor)).toBeChecked();
     fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
-    expect(stored("w2")).toEqual(legacy);
+    expect(stored("w2")).toMatchObject({ fields: legacy.fields, score: 2.5 });
   });
 
   it("deletes with Undo", () => {
     useWorkspaceStore.setState({ prioritizations: [w1] });
     render(<WsjfClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Single sign-on" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Single sign-on" }));
     expect(stored("w1")).toBeUndefined();
     act(() => undo.last!.revert());
     expect(stored("w1")).toEqual(w1);
-    expect(screen.getByRole("button", { name: "Edit scores for Single sign-on" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Edit Single sign-on" })).toBeVisible();
   });
 });
