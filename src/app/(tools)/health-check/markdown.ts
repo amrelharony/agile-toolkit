@@ -1,11 +1,22 @@
+import type { HealthCheck, HealthTrafficLight, HealthTrend } from "@/lib/stores/workspace-types";
 import {
-  HEALTH_CHECK_DIMENSIONS as DIMENSIONS,
-  type HealthCheckEntry,
-  type HealthCheckSnapshot,
-  type HealthDimension,
-  type HealthTrafficLight,
-  type HealthTrend,
-} from "@/lib/stores/workspace-types";
+  activeDimensions,
+  allDimensions,
+  checkLabel,
+  checksByDate,
+  draftLight,
+  draftShare,
+  entryShare,
+  isSplit,
+  previousSavedCheck,
+  scoreOf,
+  sharePct,
+  storedLight,
+  trendFor,
+  votesTotal,
+  type CheckOptions,
+} from "@/lib/health-check/score";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -30,88 +41,101 @@ const TREND: Record<HealthTrend, string> = { up: "↑ Up", same: "→ Same", dow
 /** History columns kept in a pasted table. */
 const MAX_HISTORY = 6;
 
-const isLight = (v: unknown): v is HealthTrafficLight =>
-  v === "green" || v === "yellow" || v === "red";
+const SCORE_RULE = "green 1, yellow ½, red 0";
 
 /**
  * The health check as Markdown, for a retro page or the team channel: the
- * current check, one row per dimension with its light and trend, then the
- * last few saved checks side by side, oldest first.
- *
- * `lights` is the current check as the page shows it, with null for a
- * dimension not rated yet (the stored draft holds a placeholder green). If
- * it's left out, every stored light counts as rated.
+ * verdict, the check in progress (one row per dimension with its light,
+ * the trend against the previous saved check, the votes and the note),
+ * then the last few saved checks side by side, oldest first. Health is the
+ * page's: rated dimensions only, yellow counting half.
  */
 export function toMarkdown(
-  {
-    current,
-    history,
-    lights,
-  }: {
-    current: HealthCheckSnapshot;
-    history: readonly HealthCheckEntry[];
-    lights?: Record<HealthDimension, HealthTrafficLight | null>;
-  },
-  now: Date = new Date()
+  doc: HealthCheck,
+  { now = new Date(), verdict, ...opts }: CheckOptions & { now?: Date; verdict?: string } = {}
 ): string {
   const title = `# Squad Health Check — ${mdDate(now)}`;
-  const lightOf = (d: HealthDimension): HealthTrafficLight | null => {
-    const l = lights ? lights[d] : current.scores?.[d]?.light;
-    return isLight(l) ? l : null;
-  };
-  const rated = DIMENSIONS.filter((d) => lightOf(d) !== null);
+  const current = doc.current;
+  const dims = activeDimensions(doc);
+  const rated = dims.filter((d) => draftLight(current, d.key) !== null);
+  const history = checksByDate(doc, opts);
   if (rated.length === 0 && history.length === 0) {
     return `${title}\n\nNo health checks yet.\n`;
   }
 
+  const lines = [title, ""];
+  if (verdict) lines.push(verdict, "");
   const name = cell(current.sprintName);
-  const lines = [title, "", `## Current check${name ? `: ${name}` : ""}`, ""];
+  lines.push(`## Current check${name ? `: ${name}` : ""}`, "");
   if (rated.length === 0) {
     lines.push("_Not rated yet._");
   } else {
-    const greens = rated.filter((d) => lightOf(d) === "green").length;
+    const health = sharePct(draftShare(doc));
+    const prev = previousSavedCheck(doc, { date: current.date ?? todayLocalISO(now) }, opts);
     lines.push(
-      // Same reading as the page: the share of the RATED dimensions that are green.
-      `**Health:** ${Math.round((greens / rated.length) * 100)}% (` +
-        (rated.length === DIMENSIONS.length
-          ? `${greens} of ${DIMENSIONS.length} dimensions green)`
-          : `${greens} of ${rated.length} rated green; ${DIMENSIONS.length - rated.length} not rated yet)`),
-      "",
-      "| Dimension | Status | Trend |",
-      "|---|---|---|",
-      ...DIMENSIONS.map((d) => {
-        const light = lightOf(d);
-        return light
-          ? `| ${d} | ${LIGHT[light]} | ${TREND[current.scores?.[d]?.trend ?? "same"]} |`
-          : `| ${d} | Not rated | — |`;
-      })
+      `**Health:** ${health}% (${SCORE_RULE}; ` +
+        (rated.length === dims.length
+          ? `all ${dims.length} dimensions rated)`
+          : `${rated.length} of ${dims.length} rated so far)`),
+      ""
     );
+    if (current.source === "room" && typeof current.responses === "number") {
+      lines.push(`${current.responses} people voted anonymously.`, "");
+    }
+    lines.push("| Dimension | Status | Trend | Votes (G/Y/R) | Note |", "|---|---|---|---|---|");
+    for (const d of dims) {
+      const light = draftLight(current, d.key);
+      const score = scoreOf(current, d.key);
+      const v = score?.votes;
+      const votes =
+        v && votesTotal(v) > 0
+          ? `${v.green}/${v.yellow}/${v.red}${isSplit(v) ? " (split)" : ""}`
+          : "—";
+      const trend = light
+        ? prev
+          ? TREND[trendFor(storedLight(prev, d.key), light)]
+          : "First check"
+        : "—";
+      lines.push(
+        `| ${cell(d.name)} | ${light ? LIGHT[light] : "Not rated"} | ${trend} | ${votes} | ${cell(score?.note) || "—"} |`
+      );
+    }
   }
 
   if (history.length > 0) {
     const shown = history.slice(-MAX_HISTORY);
-    const health = (h: HealthCheckEntry) =>
-      Math.round(
-        (DIMENSIONS.filter((d) => h.scores?.[d]?.light === "green").length / DIMENSIONS.length) *
-          100
-      );
+    const keys = allDimensions(doc).filter((d) =>
+      shown.some((e) => storedLight(e, d.key) !== null)
+    );
     lines.push(
       "",
       shown.length < history.length
         ? `## History (last ${shown.length} of ${history.length})`
         : "## History",
       "",
-      `| Dimension | ${shown.map((h) => `${cell(h.sprintName) || "—"} (${cell(h.date)})`).join(" | ")} |`,
+      `| Dimension | ${shown.map((h) => `${cell(checkLabel(h))} (${cell(h.date)})`).join(" | ")} |`,
       `|---|${shown.map(() => "---").join("|")}|`,
-      ...DIMENSIONS.map((d) => {
+      ...keys.map((d) => {
         const row = shown.map((h) => {
-          const l = h.scores?.[d]?.light;
-          return isLight(l) ? LIGHT[l] : "—";
+          const l = storedLight(h, d.key);
+          return l ? LIGHT[l] : "—";
         });
-        return `| ${d} | ${row.join(" | ")} |`;
+        return `| ${cell(d.name)} | ${row.join(" | ")} |`;
       }),
-      `| **Health** | ${shown.map((h) => `**${health(h)}%**`).join(" | ")} |`
+      `| **Health** | ${shown
+        .map((h) => {
+          const pct = sharePct(entryShare(h));
+          return `**${pct === null ? "—" : `${pct}%`}**`;
+        })
+        .join(" | ")} |`
     );
+    const notes = shown.flatMap((h) =>
+      keys.flatMap((d) => {
+        const note = scoreOf(h, d.key)?.note;
+        return note ? [`- ${cell(checkLabel(h))}, ${cell(d.name)}: ${cell(note)}`] : [];
+      })
+    );
+    if (notes.length > 0) lines.push("", "### Notes", "", ...notes);
   }
   return `${lines.join("\n")}\n`;
 }

@@ -1,22 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import {
-  HEALTH_CHECK_DIMENSIONS,
-  type HealthDimension,
-  type HealthTrafficLight,
-} from "@/lib/stores/workspace-types";
+import { HEALTH_CHECK_DIMENSIONS, type HealthCheck } from "@/lib/stores/workspace-types";
+import { emptyHealthCheck, withRating } from "@/lib/health-check/score";
 
 /**
- * Health check: "Load an example" adds three saved checks and a rated
- * current check to a blank tool, "Clear example" removes only the example
- * checks (and the current check if it is still the example's), and the
- * checks export as Markdown.
+ * Health check: "Load an example" shows three saved checks and a rated
+ * check in progress as a read-only preview (nothing reaches the
+ * workspace), "Clear example" goes back to the team's own check, an older
+ * build's example rows can still be cleared, and the checks export as
+ * Markdown with yellow counting half.
  */
 
 vi.mock("@/lib/utils/undoable", () => ({
   undoable: (a: { apply: () => void }) => a.apply(),
+  removeWithUndo: () => undefined,
 }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -30,6 +30,7 @@ vi.mock("@/components/shared/export-button", () => ({
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
+vi.mock("@/app/(tools)/health-check/charts", () => ({ HealthTrendChart: () => null }));
 // Recharts' ResponsiveContainer needs it; jsdom doesn't ship one.
 vi.stubGlobal(
   "ResizeObserver",
@@ -45,137 +46,127 @@ import { buildExample } from "@/app/(tools)/health-check/example";
 import { toMarkdown } from "@/app/(tools)/health-check/markdown";
 
 const NOW = new Date(2026, 9, 18);
-const doc = () =>
-  useWorkspaceStore.getState().healthChecks?.find((d) => d.id === "healthCheck:current");
 const notice = () => screen.queryByText("Example data.");
 const score = () => screen.getByTestId("health-check-score");
 const allGreen = Object.fromEntries(
   HEALTH_CHECK_DIMENSIONS.map((d) => [d, { light: "green", trend: "same" }])
 ) as never;
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <HealthCheckClient />
+    </TooltipProvider>
+  );
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ healthChecks: [] });
+  useWorkspaceStore.setState({ healthChecks: [], sprints: [] });
 });
 
 describe("Health check Markdown", () => {
-  it("shows the current check per dimension, then the history side by side", () => {
-    const md = toMarkdown(buildExample(NOW), NOW);
+  it("shows the check in progress per dimension, then the history side by side", () => {
+    const md = toMarkdown(buildExample(NOW), { now: NOW, includeExamples: true });
     expect(md).toMatch(/^# Squad Health Check — 18 Oct 2026\n/);
     expect(md).toContain("## Current check: Sprint 15");
-    expect(md).toContain("**Health:** 63% (5 of 8 dimensions green)");
-    expect(md).toContain("| Dimension | Status | Trend |");
-    expect(md).toContain("| Easy to Release | 🟢 Green | ↑ Up |");
-    expect(md).toContain("| Health of Codebase | 🔴 Red | ↓ Down |");
+    expect(md).toContain("**Health:** 72% (green 1, yellow ½, red 0; all 9 dimensions rated)");
+    expect(md).toContain("| Dimension | Status | Trend | Votes (G/Y/R) | Note |");
+    expect(md).toContain(
+      "| Easy to Release | 🟢 Green | ↑ Up | 6/1/0 | The new pipeline ships every merge to staging. |"
+    );
     expect(md).toContain("## History");
     expect(md).toContain(
       "| Dimension | Sprint 12 (2026-09-06) | Sprint 13 (2026-09-20) | Sprint 14 (2026-10-04) |"
     );
     expect(md).toContain("| Easy to Release | 🔴 Red | 🔴 Red | 🟡 Yellow |");
-    expect(md).toContain("| **Health** | **50%** | **50%** | **38%** |");
+    // Yellow counts half: 4 green and 4 yellow of 9 is 67%, not the old 50%.
+    expect(md).toContain("| **Health** | **67%** | **61%** | **50%** |");
   });
 
-  it("marks dimensions the page shows as not rated", () => {
-    const { current } = buildExample(NOW);
-    const lights = Object.fromEntries(
-      HEALTH_CHECK_DIMENSIONS.map((d) => [d, d === "Fun" ? "yellow" : null])
-    ) as Record<HealthDimension, HealthTrafficLight | null>;
-    const md = toMarkdown({ current, history: [], lights }, NOW);
-    expect(md).toContain("**Health:** 0% (0 of 1 rated green; 7 not rated yet)");
-    expect(md).toContain("| Fun | 🟡 Yellow | → Same |");
-    expect(md).toContain("| Teamwork | Not rated | — |");
+  it("marks the dimensions not rated yet", () => {
+    const d = withRating(emptyHealthCheck(), "Fun", "yellow");
+    const md = toMarkdown(d, { now: NOW });
+    expect(md).toContain("**Health:** 50% (green 1, yellow ½, red 0; 1 of 8 rated so far)");
+    expect(md).toContain("| Fun | 🟡 Yellow | First check | — | — |");
+    expect(md).toContain("| Teamwork | Not rated | — | — | — |");
     expect(md).not.toContain("## History");
   });
 
   it("escapes pipes in sprint names", () => {
-    const md = toMarkdown(
-      {
-        current: { sprintName: "S2 | hotfix", scores: allGreen },
-        history: [{ id: "h1", sprintName: "S1 | patch", date: "2026-10-01", scores: allGreen }],
-      },
-      NOW
-    );
+    const d: HealthCheck = {
+      ...withRating(emptyHealthCheck(), "Fun", "green"),
+      history: [{ id: "h1", sprintName: "S1 | patch", date: "2026-10-01", scores: allGreen }],
+    };
+    d.current.sprintName = "S2 | hotfix";
+    const md = toMarkdown(d, { now: NOW });
     expect(md).toContain("## Current check: S2 \\| hotfix");
     expect(md).toContain("| Dimension | S1 \\| patch (2026-10-01) |");
   });
 
   it("says there are no checks yet", () => {
-    const lights = Object.fromEntries(HEALTH_CHECK_DIMENSIONS.map((d) => [d, null])) as Record<
-      HealthDimension,
-      null
-    >;
-    expect(
-      toMarkdown({ current: { sprintName: "", scores: allGreen }, history: [], lights }, NOW)
-    ).toBe("# Squad Health Check — 18 Oct 2026\n\nNo health checks yet.\n");
+    expect(toMarkdown(emptyHealthCheck(), { now: NOW })).toBe(
+      "# Squad Health Check — 18 Oct 2026\n\nNo health checks yet.\n"
+    );
   });
 });
 
 describe("Health check example", () => {
-  it("loads into a blank tool and clears only the example checks", () => {
-    render(<HealthCheckClient />);
+  it("previews without writing, and Clear example goes back to a blank tool", () => {
+    renderPage();
     expect(notice()).toBeNull();
-
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(notice()).toBeInTheDocument();
-    expect(doc()?.history.map((h) => h.sprintName)).toEqual([
-      "Sprint 12",
-      "Sprint 13",
-      "Sprint 14",
-    ]);
-    expect(doc()?.history.every((h) => h.id.startsWith("example-"))).toBe(true);
-    expect(screen.getByRole("textbox", { name: "Sprint name" })).toHaveValue("Sprint 15");
-    // Every dimension counts as rated, greens included.
-    expect(score()).toHaveTextContent("63%");
-    expect(screen.getByRole("button", { name: "Save Check" })).toBeEnabled();
-
-    // The user saves a check of their own.
-    fireEvent.click(screen.getByRole("button", { name: "Save Check" }));
-    expect(doc()?.history).toHaveLength(4);
+    expect(useWorkspaceStore.getState().healthChecks).toEqual([]);
+    // Every example dimension is rated, greens included.
+    expect(score()).toHaveTextContent("72%");
+    expect(screen.getAllByText("Sprint 14").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
-    expect(doc()?.history.map((h) => h.sprintName)).toEqual(["Sprint 15"]);
-    expect(doc()?.history[0].id.startsWith("example-")).toBe(false);
     expect(notice()).toBeNull();
-    expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
-  });
-
-  it("goes back to a blank tool when nothing was changed", () => {
-    render(<HealthCheckClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
-    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
-
-    expect(doc()?.history).toEqual([]);
-    expect(screen.getByRole("textbox", { name: "Sprint name" })).toHaveValue("");
     expect(score()).toHaveTextContent("—");
     expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
   });
 
-  it("keeps an edited current check, still rated", () => {
-    render(<HealthCheckClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
-    fireEvent.click(
-      within(screen.getByRole("group", { name: "Fun status" })).getByRole("button", {
-        name: "Green",
-      })
-    );
-    expect(score()).toHaveTextContent("75%");
+  it("keeps the team's own check in progress while the example shows", () => {
+    useWorkspaceStore.setState({ healthChecks: [withRating(emptyHealthCheck(), "Fun", "red")] });
+    renderPage();
+    // Something is rated, so the tool isn't blank: no example on offer.
+    expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
+    expect(score()).toHaveTextContent("0%");
+  });
 
+  it("clears an older build's example checks from the workspace, keeping the team's own", () => {
+    useWorkspaceStore.setState({
+      healthChecks: [
+        {
+          ...emptyHealthCheck(),
+          history: [
+            {
+              id: "example-check-1",
+              sprintName: "Sprint 12",
+              date: "2026-09-06",
+              scores: allGreen,
+            },
+            { id: "h1", sprintName: "S1", date: "2026-10-01", scores: allGreen },
+          ],
+        },
+      ],
+    });
+    renderPage();
+    expect(notice()).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
-    expect(doc()?.history).toEqual([]);
-    expect(screen.getByRole("textbox", { name: "Sprint name" })).toHaveValue("Sprint 15");
-    expect(score()).toHaveTextContent("75%");
+    expect(useWorkspaceStore.getState().healthChecks?.[0].history.map((h) => h.id)).toEqual(["h1"]);
+    expect(notice()).toBeNull();
   });
 
   it("doesn't offer the example once there are saved checks", () => {
     useWorkspaceStore.setState({
       healthChecks: [
         {
-          id: "healthCheck:current",
-          current: { sprintName: "", scores: allGreen },
+          ...emptyHealthCheck(),
           history: [{ id: "h1", sprintName: "S1", date: "2026-10-01", scores: allGreen }],
         },
       ],
     });
-    render(<HealthCheckClient />);
+    renderPage();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(notice()).toBeNull();
   });

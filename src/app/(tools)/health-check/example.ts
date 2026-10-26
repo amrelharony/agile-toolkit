@@ -1,13 +1,16 @@
 import { exampleId } from "@/components/tool-frame/example-data";
 import {
   HEALTH_CHECK_DIMENSIONS,
+  HEALTH_CHECK_ID,
+  type HealthCheck,
   type HealthCheckEntry,
   type HealthCheckSnapshot,
   type HealthDimension,
   type HealthDimensionScore,
   type HealthTrafficLight,
-  type HealthTrend,
+  type HealthVotes,
 } from "@/lib/stores/workspace-types";
+import { lightFromVotes, trendFor } from "@/lib/health-check/score";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 /** Lights in HEALTH_CHECK_DIMENSIONS order: Delivering Value, Easy to
@@ -35,59 +38,85 @@ const HISTORY: [sprintName: string, lights: Row][] = [
 
 export const EXAMPLE_CURRENT_SPRINT = "Sprint 15";
 
-const CURRENT: [HealthTrafficLight, HealthTrend][] = [
-  [G, "up"],
-  [G, "up"],
-  [Y, "same"],
-  [R, "down"],
-  [G, "same"],
-  [G, "same"],
-  [Y, "up"],
-  [G, "same"],
-];
+/** The team's own dimension in the example. */
+export const EXAMPLE_CUSTOM_ID = "custom-example1";
+const EXAMPLE_CUSTOM_NAME = "On-call load";
+
+/** This sprint's vote counts (seven people voted) for the dimensions they voted on. */
+const VOTES: Partial<Record<HealthDimension, HealthVotes>> = {
+  "Easy to Release": { green: 6, yellow: 1, red: 0 },
+  "Health of Codebase": { green: 1, yellow: 1, red: 5 },
+  Speed: { green: 2, yellow: 3, red: 2 },
+};
+
+const CURRENT: Row = [G, G, Y, R, G, G, Y, G];
+
+const NOTES: Partial<Record<HealthDimension, string>> = {
+  "Health of Codebase": "Flaky checkout tests block a merge most days.",
+  "Easy to Release": "The new pipeline ships every merge to staging.",
+};
 
 function scores(
-  pick: (i: number) => HealthDimensionScore
+  pick: (d: HealthDimension, i: number) => HealthDimensionScore
 ): Record<HealthDimension, HealthDimensionScore> {
-  return Object.fromEntries(HEALTH_CHECK_DIMENSIONS.map((d, i) => [d, pick(i)])) as Record<
+  return Object.fromEntries(HEALTH_CHECK_DIMENSIONS.map((d, i) => [d, pick(d, i)])) as Record<
     HealthDimension,
     HealthDimensionScore
   >;
 }
 
-const RANK: Record<HealthTrafficLight, number> = { red: 0, yellow: 1, green: 2 };
-
-/** A saved check's trend: its light against the check before. */
-function trendFrom(prev: HealthTrafficLight | undefined, light: HealthTrafficLight): HealthTrend {
-  if (!prev || RANK[prev] === RANK[light]) return "same";
-  return RANK[light] > RANK[prev] ? "up" : "down";
-}
-
 /**
  * A mobile checkout squad's last three checks, a fortnight apart, and this
- * sprint's check, fully rated. The surprise: a new release pipeline turned
- * Easy to Release from red to green, while the codebase slid to red under
- * flaky tests. Teamwork and Mission stay green throughout.
+ * sprint's check, fully rated: three dimensions from an anonymous vote,
+ * the rest agreed aloud. The surprise: a new release pipeline turned Easy
+ * to Release from red to green, while the codebase slid to red under flaky
+ * tests. Teamwork and Mission stay green throughout.
+ *
+ * The whole document is the example (every saved check's id is an
+ * `exampleId`): the page shows it as a read-only preview and never writes
+ * it into the workspace.
  */
-export function buildExample(now: Date = new Date()): {
-  current: HealthCheckSnapshot;
-  history: HealthCheckEntry[];
-} {
+export function buildExample(now: Date = new Date()): HealthCheck {
   const weeksAgo = (n: number) =>
     todayLocalISO(new Date(now.getFullYear(), now.getMonth(), now.getDate() - n * 7));
-  return {
-    current: {
-      sprintName: EXAMPLE_CURRENT_SPRINT,
-      scores: scores((d) => ({ light: CURRENT[d][0], trend: CURRENT[d][1] })),
-    },
-    history: HISTORY.map(([sprintName, lights], i) => ({
-      id: exampleId(`check-${i + 1}`),
-      sprintName,
-      date: weeksAgo(2 * (HISTORY.length - i)),
-      scores: scores((d) => ({
-        light: lights[d],
-        trend: trendFrom(HISTORY[i - 1]?.[1][d], lights[d]),
-      })),
+  const history: HealthCheckEntry[] = HISTORY.map(([sprintName, lights], i) => ({
+    id: exampleId(`check-${i + 1}`),
+    sprintName,
+    date: weeksAgo(2 * (HISTORY.length - i)),
+    scores: scores((_d, k) => ({
+      light: lights[k],
+      trend: trendFor(HISTORY[i - 1]?.[1][k], lights[k]),
     })),
+    customScores: {
+      [EXAMPLE_CUSTOM_ID]: { light: i === 2 ? R : Y, trend: i === 2 ? "down" : "same" },
+    },
+  }));
+  const current: HealthCheckSnapshot = {
+    sprintName: EXAMPLE_CURRENT_SPRINT,
+    scores: scores((d, k) => {
+      const votes = VOTES[d];
+      return {
+        light: (votes && lightFromVotes(votes)) || CURRENT[k],
+        trend: "same",
+        ...(votes ? { votes } : {}),
+        ...(NOTES[d] ? { note: NOTES[d] } : {}),
+      };
+    }),
+    customScores: { [EXAMPLE_CUSTOM_ID]: { light: Y, trend: "same" } },
+    rated: [...HEALTH_CHECK_DIMENSIONS, EXAMPLE_CUSTOM_ID],
+    source: "room",
+    responses: 7,
+  };
+  return {
+    id: HEALTH_CHECK_ID,
+    current,
+    history,
+    customDimensions: [
+      {
+        id: EXAMPLE_CUSTOM_ID,
+        name: EXAMPLE_CUSTOM_NAME,
+        description: "Nights and weekends on call stay bearable.",
+      },
+    ],
   };
 }
