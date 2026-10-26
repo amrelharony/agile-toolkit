@@ -132,7 +132,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Type the Feature title. Under How you have the answers, pick One person's answers and answer both questions (If it has this, how do you feel? and If it doesn't have this, how do you feel?), or pick Survey counts and enter how many answer pairs came out A, O, M, I, R and Q. Click Add.",
       "To survey customers, under Ask customers press Run a live round, give your name, tick the consent and share the link with Copy link. Everyone answers on their own phone, anonymously; press Reveal results once 3 have answered, then Save round.",
-      "With paper answers, press Enter counts instead, tick each answer pair into the feature's 5 × 5 grid, then Show totals and Save round. A round replaces a feature's earlier counts unless Add to earlier answers is on; Undo puts them back.",
+      "With paper answers, press Enter counts instead and type how many people gave each answer pair into the feature's 5 × 5 grid (first answer down, second across), then Show totals and Save round. A round replaces a feature's earlier counts unless Add to earlier answers is on; Undo puts them back.",
       "Read the lists: a feature's category is its most common answer from 3 answers, with Better (having it helps) and Worse (missing it hurts), plotted in Better vs Worse.",
       "Cover every Must-be first, invest in Performance, add a few Attractive features, and reword the question for anything Questionable.",
     ],
@@ -216,7 +216,7 @@ export const GUIDES: ToolGuide[] = [
       "Team results shows each item's team average beside the agreed split, and from 5 answers how the amounts were spread. Discuss the biggest gaps.",
     ],
     tips: [
-      "A round keeps each item's total, how many backed it and the spread, never anyone's split or who answered.",
+      "A round keeps each item's total and, from 5 answers, how many backed it and the spread; never anyone's split or who answered.",
       "Clear all amounts empties the agreed split; saved rounds stay.",
       "Watch for an item the team rates far above or below the agreed split, and ask why.",
       "For a long list, shortlist first with the MoSCoW Matrix.",

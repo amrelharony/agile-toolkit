@@ -111,7 +111,7 @@ const KIT = source(
 describe("the Prioritize & decide guides describe the pages as they are now", () => {
   it.each([
     ["value-effort-matrix", /split at 5|click Plot|can't be edited|re-plot/i],
-    ["kano-model", /Pick the Kano category|Sat if present|Dissat/i],
+    ["kano-model", /Pick the Kano category|Sat if present|Dissat|tick each answer/i],
     ["eisenhower", /Pick the matching quadrant|quadrant menu/i],
     ["cost-of-delay", /weeks delayed|Total CoD|Top 10/i],
     ["ice-score", /remove it and add it again/i],
@@ -277,10 +277,29 @@ describe("the survey and vote tools run their rounds as the kit does", () => {
     }
   });
 
+  it("Kano: paper answers are counts typed into the pair grid, first answer down", () => {
+    const grid = source("src/components/collab/vote-room/facilitator-pair.tsx");
+    expect(grid).toContain('type="number"');
+    expect(grid).toContain("First ↓, second →");
+    expect(allText(guide("kano-model"))).toContain(
+      "type how many people gave each answer pair into the feature's 5 × 5 grid (first answer down, second across)"
+    );
+  });
+
   it("Buy-a-Feature and the $100 Test: the spread shows from MIN_SAMPLE.distribution", () => {
     expect(allText(guide("buy-a-feature"))).toContain(
       `from ${MIN_SAMPLE.distribution} answers how many backed it and the spread`
     );
+    // Every line saying a round keeps who backed an item says from how many answers.
+    for (const id of ["buy-a-feature", "hundred-dollar-test"]) {
+      const backed = allText(guide(id))
+        .split("\n")
+        .filter((l) => l.includes("backed it"));
+      expect(backed.length, id).toBeGreaterThan(0);
+      for (const line of backed) {
+        expect(line, id).toContain(`from ${MIN_SAMPLE.distribution} answers`);
+      }
+    }
     expect(allText(guide("hundred-dollar-test"))).toContain(
       `from ${MIN_SAMPLE.distribution} answers how the amounts were spread`
     );
