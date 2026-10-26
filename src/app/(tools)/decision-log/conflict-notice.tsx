@@ -4,7 +4,7 @@ import { History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Decision } from "@/lib/stores/workspace-types";
 import type { DecisionLogConflict, DecisionLogTextField } from "@/lib/decisions/legacy-log";
-import { decisionLabel } from "@/lib/decisions/model";
+import { decisionLabel, optionsOf } from "@/lib/decisions/model";
 
 const FIELD_LABEL: Readonly<Record<DecisionLogTextField, string>> = {
   title: "Title",
@@ -18,17 +18,23 @@ const text = (v: string | string[]) => (Array.isArray(v) ? v.join("\n") : v);
 
 /**
  * The record with the old Decision Log page's text for one field. For the
- * options, the old page's lines become the options (a choice still on one
- * of them is kept; one on an option that is gone is dropped).
+ * options, the old page's lines become the options, read as optionsOf
+ * reads alternatives (blank lines dropped, ids by place). The choice
+ * follows its text, not its place: it stays on the option with the same
+ * text wherever that now sits, and is dropped when no line says it any
+ * more (an id by place would point at whatever line now sits there).
  */
 export function withOldText(d: Decision, c: DecisionLogConflict): Decision {
   if (c.field !== "alternatives") return { ...d, [c.field]: text(c.blob) };
   const lines = Array.isArray(c.blob) ? c.blob : [c.blob];
-  const options = lines.map((t, i) => ({ id: `${d.id}-a${i}`, text: t }));
+  const options = optionsOf({ id: d.id, alternatives: lines });
   const next: Decision = { ...d, alternatives: lines };
   if (d.options) next.options = options;
-  const keep = (next.options ?? options).some((o) => o.id === d.chosenOptionId);
-  if (!keep) delete next.chosenOptionId;
+  const key = (s: string) => s.trim().toLowerCase();
+  const chosen = optionsOf(d).find((o) => o.id === d.chosenOptionId);
+  const same = chosen ? options.find((o) => key(o.text) === key(chosen.text)) : undefined;
+  if (same) next.chosenOptionId = same.id;
+  else delete next.chosenOptionId;
   return next;
 }
 
@@ -64,7 +70,8 @@ export function ConflictNotice({
           : `${shown.length} fields were edited on the old Decision Log page`}
       </h2>
       <p className="text-xs text-sub">
-        The log kept the text below on the left. Keep it, or use the old page&apos;s text instead.
+        The log kept the text under &ldquo;In the log now&rdquo;. Keep it, or use the old
+        page&apos;s text instead.
       </p>
       <ul className="space-y-3">
         {shown.map((c) => {

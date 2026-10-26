@@ -113,20 +113,72 @@ export function supersededRecords(list: readonly Decision[], id: string): Decisi
   return list.filter((x) => x.supersededBy === id && x.id !== id);
 }
 
-/**
- * The records that can replace `d`: any other one of the same kind (an
- * example record only by another example, a team's only by the team's),
- * newest first.
- */
-export function replacementsFor(list: readonly Decision[], d: Decision): Decision[] {
-  const example = isExampleId(d.id);
-  return list.filter((x) => x.id !== d.id && isExampleId(x.id) === example).sort(byNumberDesc);
+/** Why one record can't replace another (replacementError). */
+export type ReplacementError = "self" | "not_found" | "example_mismatch" | "not_in_force" | "loop";
+
+/** Whether following `from`'s "superseded by" links reaches `id`. */
+function leadsTo(list: readonly Decision[], from: Decision, id: string): boolean {
+  const seen = new Set<string>();
+  let at: Decision | undefined = from;
+  while (at?.supersededBy && !seen.has(at.id)) {
+    if (at.supersededBy === id) return true;
+    seen.add(at.id);
+    const next: string = at.supersededBy;
+    at = list.find((x) => x.id === next);
+  }
+  return false;
 }
 
-/** "ADR-0004 · Host on AWS" for a picker or a link; the id when it isn't in the list. */
+/**
+ * Why the record `byId` can't replace `d`, or null. A replacement is
+ * another record of the same kind (an example only by an example, a
+ * team's only by the team's: an example's link would break when the
+ * example is cleared), still in force (proposed or accepted: a deprecated
+ * or replaced record replaces nothing), and not one `d` already replaced,
+ * directly or down a chain (A by B, then B by A, would leave nothing in
+ * force). tool.decision_log's supersede and set_status apply the same
+ * rules (lib/actions/tools/decision-log replacementRefusal).
+ */
+export function replacementError(
+  list: readonly Decision[],
+  d: Decision,
+  byId: string
+): ReplacementError | null {
+  if (byId === d.id) return "self";
+  const by = list.find((x) => x.id === byId);
+  if (!by) return "not_found";
+  if (isExampleId(by.id) !== isExampleId(d.id)) return "example_mismatch";
+  if (by.status === "superseded" || by.status === "deprecated") return "not_in_force";
+  if (leadsTo(list, by, d.id)) return "loop";
+  return null;
+}
+
+/** The records that can replace `d` (replacementError), newest first. */
+export function replacementsFor(list: readonly Decision[], d: Decision): Decision[] {
+  return list.filter((x) => replacementError(list, d, x.id) === null).sort(byNumberDesc);
+}
+
+/**
+ * "ADR-0004 · Host on AWS" for a picker or a link; "a deleted record" for
+ * an id no longer in the list (a replacement deleted since keeps its id
+ * on the record it replaced).
+ */
 export function recordName(list: readonly Decision[], id: string): string {
   const d = list.find((x) => x.id === id);
-  return d ? `${decisionLabel(d)} · ${d.title || "Untitled"}` : id;
+  return d ? `${decisionLabel(d)} · ${d.title || "Untitled"}` : "a deleted record";
+}
+
+/** Why a typed day can't be the day a decision was reopened, or null. */
+export function reopenedDayError(day: string, d: Decision, today: string): string | null {
+  if (!day || !isIsoDate(day)) return "Pick the day it was reopened.";
+  if (day > today) return "Pick today or an earlier day.";
+  const from = d.decidedAt ?? d.date;
+  if (from && isIsoDate(from) && day < from) {
+    return d.decidedAt
+      ? "It can't be reopened before it was decided."
+      : "It can't be reopened before it was raised.";
+  }
+  return null;
 }
 
 /** Why a typed day can't be the day a record was raised, or null. */
@@ -160,8 +212,15 @@ export function implementedDayError(day: string, d: Decision, today: string): st
 const roleText = (d: Decision, role: Parameters<typeof roleHolders>[1]) =>
   roleHolders(d, role).join("; ");
 
-/** The CSV: one row per record, every field the three forms hold. */
-export function decisionsCsv(list: readonly Decision[]): {
+/**
+ * The CSV: one row per record of `list`, every field the three forms hold.
+ * `all` names the records they link to (with a filter chip on, a
+ * replacement of another form isn't in `list`).
+ */
+export function decisionsCsv(
+  list: readonly Decision[],
+  all: readonly Decision[] = list
+): {
   headers: string[];
   rows: string[][];
 } {
@@ -216,7 +275,7 @@ export function decisionsCsv(list: readonly Decision[]): {
         d.recommendation ?? "",
         d.decision,
         d.consequences ?? "",
-        d.supersededBy ? recordName(list, d.supersededBy) : "",
+        d.supersededBy ? recordName(all, d.supersededBy) : "",
         d.id,
       ];
     }),

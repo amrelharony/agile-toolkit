@@ -46,6 +46,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import {
   browserDecisionStore,
   changeRecord,
+  deciderRefusal,
   rosterName,
   serverDecisionStore,
   type DecisionStore,
@@ -126,6 +127,11 @@ async function setStatus(
     if (rapidStatus(d) === p.status) {
       return { refuse: { updated: false, reason: "already-in-status" as const } };
     }
+    // Deciding an open record needs its Decide (D), as the page's decide form asks.
+    if (p.status !== "open") {
+      const why = deciderRefusal(d);
+      if (why) return { refuse: { updated: false, ...why } };
+    }
     // The end state confirms on both paths (MCP supplies no confirm, so it proceeds there).
     if (p.status === "implemented" && ctx.confirm) {
       const ok = await ctx.confirm(
@@ -144,7 +150,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a RAPID record's status in RAPID's words: open (proposed), decided (accepted; dated today when it was open), implemented (decided and carried out today; asks for confirmation when the caller can confirm). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'already-in-status' | 'declined' | 'not-rapid'}.",
+    "Set a RAPID record's status in RAPID's words: open (proposed), decided (accepted; dated today when it was open), implemented (decided and carried out today; asks for confirmation when the caller can confirm). Deciding an open record needs its Decide (D) named first, as on the page (set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'already-in-status' | 'declined' | 'not-rapid' | 'no_decider', message?}.",
   paramsSchema: SetStatusSchema,
   handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx),
   mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx),

@@ -148,7 +148,8 @@ describe("tool.rapid_decision.set_status — lifecycle transitions", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({
       decisions: [],
-      rapidDecisions: [seed({ id: "d1", status: "open" })],
+      // Deciding needs the Decide (D) named, as on the page.
+      rapidDecisions: [seed({ id: "d1", status: "open", decide: "Morgan" })],
     });
   });
 

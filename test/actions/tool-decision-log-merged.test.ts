@@ -11,6 +11,7 @@ import type { DACIDecision, Decision, RAPIDDecision } from "@/lib/stores/workspa
 
 const rows = vi.hoisted(() => new Map<string, unknown>());
 const blobs = vi.hoisted(() => new Map<string, unknown>());
+const deleted = vi.hoisted(() => [] as string[]);
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
   return {
@@ -27,6 +28,10 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
       rows.set(`${kind}/${entity.id}`, entity);
     }),
     serverGetUserStateBlob: vi.fn(async (_u: string, key: string) => blobs.get(key) ?? null),
+    serverDeleteEntity: vi.fn(async (_u: string, kind: string, id: string) => {
+      deleted.push(`${kind}/${id}`);
+      rows.delete(`${kind}/${id}`);
+    }),
   };
 });
 
@@ -79,6 +84,7 @@ const rapid: RAPIDDecision = {
 beforeEach(() => {
   rows.clear();
   blobs.clear();
+  deleted.length = 0;
   put("decision", adr);
   put("daciDecision", daci);
   put("rapidDecision", rapid);
@@ -204,5 +210,45 @@ describe("the DACI and RAPID aliases over MCP", () => {
   it("RAPID's set_recommend names the R in the roster's spelling", async () => {
     await mcp("tool.rapid_decision.set_recommend", { id: "rapid-1", recommendation: "ana" });
     expect(get<Decision>("decision", "rapid-1")?.roles?.recommend).toEqual(["Ana"]);
+  });
+});
+
+describe("tool.decision_log.delete over MCP", () => {
+  it("tombstones the id in every collection that holds it, so no old row reads back in", async () => {
+    // A record saved under an old DACI row's id: both go.
+    const shadow: Decision = { ...adr, id: "daci-1", template: "daci", number: 4 };
+    put("decision", shadow);
+    const out = await mcp<{ deleted: boolean; label: string }>("tool.decision_log.delete", {
+      id: "daci-1",
+    });
+    expect(out).toEqual({ deleted: true, id: "daci-1", label: "DACI-0004" });
+    expect(deleted.sort()).toEqual(["workspace:daciDecision/daci-1", "workspace:decision/daci-1"]);
+    const state = await mcp<{ items: { id: string }[] }>("tool.decision_log.list_state");
+    expect(state.items.map((i) => i.id)).not.toContain("daci-1");
+    // A read-through RAPID row has no workspace row: only its own collection.
+    deleted.length = 0;
+    await mcp("tool.decision_log.delete", { id: "rapid-1" });
+    expect(deleted).toEqual(["workspace:rapidDecision/rapid-1"]);
+  });
+
+  it("refuses an old Decision Log row not moved in yet, and an unknown id", async () => {
+    expect(await mcp("tool.decision_log.delete", { id: "blob-1" })).toMatchObject({
+      deleted: false,
+      reason: "pending_move",
+    });
+    expect(await mcp("tool.decision_log.delete", { id: "ghost" })).toEqual({
+      deleted: false,
+      reason: "not_found",
+    });
+    expect(deleted).toEqual([]);
+  });
+
+  it("refuses to accept a DACI proposal with no Approver, as the page does", async () => {
+    const proposal: Decision = { ...adr, id: "daci-2", template: "daci", number: 5 };
+    put("decision", proposal);
+    expect(
+      await mcp("tool.decision_log.set_status", { id: "daci-2", status: "accepted" })
+    ).toMatchObject({ updated: false, reason: "no_decider" });
+    expect(get<Decision>("decision", "daci-2")?.status).toBe("proposed");
   });
 });

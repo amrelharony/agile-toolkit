@@ -46,6 +46,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import {
   browserDecisionStore,
   changeRecord,
+  deciderRefusal,
   rosterName,
   serverDecisionStore,
   withRole,
@@ -117,6 +118,11 @@ async function setStatus(store: DecisionStore, p: z.infer<typeof SetStatusSchema
   const today = todayLocalISO();
   return changeRecord(store, p.id, { updated: false }, (d) => {
     if (!isDaci(d)) return { refuse: { updated: false, reason: "not_daci" } };
+    // Deciding an open record needs its Approver, as the page's decide form asks.
+    if (p.status === "decided" || p.status === "implemented") {
+      const why = deciderRefusal(d);
+      if (why) return { refuse: { updated: false, ...why } };
+    }
     const next = withLegacyStatus(d, p.status, today, "daci");
     return next === d ? { same: { updated: true } } : { next, result: { updated: true } };
   });
@@ -128,7 +134,7 @@ registry.register({
   name: "set_status",
   category: "write",
   description:
-    "Set a DACI record's status in DACI's words: open (proposed), decided (accepted; dated today when it was open), implemented (decided and carried out today), revisit (reopened today). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'not_daci'} (unknown id, or a record in another form).",
+    "Set a DACI record's status in DACI's words: open (proposed), decided (accepted; dated today when it was open), implemented (decided and carried out today), revisit (reopened today). Deciding an open or revisited record needs its Approver named first, as on the page (tool.decision_log.set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'not_daci' | 'no_decider', message?} (no reason: an unknown id).",
   paramsSchema: SetStatusSchema,
   handler: async (params) => setStatus(browserDecisionStore, params),
   mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params),

@@ -23,6 +23,10 @@
  *   8. add_option      — append an option, with a note.
  *   9. assign_role     — put a person in one of the form's roles.
  *  10. set_decider     — the one person with the final say.
+ *  11. delete          — remove a record as the page's delete does: from
+ *                        all three collections, so an old DACI / RAPID row
+ *                        can't read back in (workspace.decision.delete
+ *                        removes the workspace row only).
  *
  * Reads go through lib/decisions exactly as the page does: the stored
  * records, the old DACI and RAPID rows read through as records under their
@@ -43,7 +47,13 @@ import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import type { ActionContext } from "../context";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverGetUserStateBlob, serverListEntities, serverUpsertEntity } from "../server-store";
+import {
+  serverDeleteEntity,
+  serverGetEntity,
+  serverGetUserStateBlob,
+  serverListEntities,
+  serverUpsertEntity,
+} from "../server-store";
 import type {
   DACIDecision,
   Decision,
@@ -116,6 +126,11 @@ export interface DecisionStore {
   list(): Promise<DecisionRecords>;
   /** Save a record under its id. */
   put(d: Decision): Promise<void>;
+  /**
+   * Remove the id from all three collections (the record, and an old DACI
+   * or RAPID row under it, which would otherwise read back in).
+   */
+  remove(id: string): Promise<void>;
   roster(): Promise<TeamMember[]>;
 }
 
@@ -160,6 +175,15 @@ export const browserDecisionStore: DecisionStore = {
     );
   },
   put: async (d) => ws().upsertDecision(d),
+  // As lib/decisions/store removeDecisionRecord does (the store's removes
+  // unpin the canvas cards), without its browser-only blob write: a row
+  // still waiting for the move is refused before this runs.
+  remove: async (id) => {
+    const s = ws();
+    if (s.decisions.some((d) => d.id === id)) s.removeDecision(id);
+    if ((s.daciDecisions ?? []).some((d) => d.id === id)) s.removeDACIDecision(id);
+    if ((s.rapidDecisions ?? []).some((r) => r.id === id)) s.removeRAPIDDecision(id);
+  },
   roster: async () => ws().teamMembers ?? [],
 };
 
@@ -177,6 +201,16 @@ export function serverDecisionStore(userId: string): DecisionStore {
     },
     put: async (d) => {
       await serverUpsertEntity<Decision>(userId, KIND_DECISION, d);
+    },
+    // A tombstone per collection that holds the id (none for one that doesn't).
+    remove: async (id) => {
+      const kinds = [KIND_DECISION, KIND_DACI, KIND_RAPID];
+      const held = await Promise.all(
+        kinds.map((kind) => serverGetEntity<{ id: string }>(userId, kind, id))
+      );
+      await Promise.all(
+        kinds.filter((_, i) => held[i]).map((kind) => serverDeleteEntity(userId, kind, id))
+      );
     },
     roster: async () => serverListEntities<TeamMember>(userId, KIND_MEMBER),
   };
@@ -299,6 +333,61 @@ function futureDay(day: string | undefined, today: string): string | null {
   return day > today ? "future_day" : null;
 }
 
+/**
+ * Why a proposal can't be accepted yet, or null, as the page's decide form
+ * (and decide, through decideError) refuses it: DACI and RAPID need their
+ * Approver / Decide (D) named first, since the role is the point of the
+ * form. For the status verbs (set_status here, the DACI and RAPID
+ * aliases), which accept a record without the decide form. A record
+ * already decided is left alone: carrying it out needs no decider.
+ */
+export function deciderRefusal(d: Decision): { reason: "no_decider"; message: string } | null {
+  if (d.status !== "proposed") return null;
+  const spec = TEMPLATES[templateOf(d)];
+  if (!spec.deciderRequiredToDecide || d.decider?.trim()) return null;
+  return { reason: "no_decider", message: `Name the ${spec.deciderLabel} before deciding.` };
+}
+
+/** Whether following `from`'s "superseded by" links reaches `id`. */
+function leadsTo(all: readonly Decision[], from: Decision, id: string): boolean {
+  const seen = new Set<string>();
+  let at: Decision | undefined = from;
+  while (at?.supersededBy && !seen.has(at.id)) {
+    if (at.supersededBy === id) return true;
+    seen.add(at.id);
+    const next: string = at.supersededBy;
+    at = all.find((x) => x.id === next);
+  }
+  return false;
+}
+
+/**
+ * Why the record `byId` can't replace `d`, or null: the page's rules (its
+ * picker offers only these; src/app/(tools)/decision-log/view.ts
+ * replacementError, which an agent module can't import). Another record of
+ * the same kind (an example only by an example: its link would break when
+ * the example is cleared), still in force (proposed or accepted), and not
+ * one `d` already replaced, directly or down a chain (A by B, then B by A,
+ * would leave nothing in force).
+ */
+function replacementRefusal(
+  all: readonly Decision[],
+  d: Decision,
+  byId: string
+):
+  | "replacement_not_found"
+  | "example_mismatch"
+  | "replacement_not_in_force"
+  | "supersede_loop"
+  | null {
+  const by = all.find((x) => x.id === byId);
+  if (!by || by.id === d.id) return "replacement_not_found";
+  if (isExampleId(by.id) !== isExampleId(d.id)) return "example_mismatch";
+  if (by.status === "superseded" || by.status === "deprecated") return "replacement_not_in_force";
+  if (leadsTo(all, by, d.id)) return "supersede_loop";
+  return null;
+}
+
 /* ── tool.decision_log.list_state ────────────────────────────────────── */
 
 async function listState(
@@ -363,7 +452,9 @@ const AddSchema = z.object({
     .string()
     .max(DECISION_TEXT_MAX)
     .optional()
-    .describe("DACI/RAPID: what the Driver or Recommend proposes"),
+    .describe(
+      "What is proposed: DACI's Driver or RAPID's Recommend; an ADR keeps one too (the page shows it whenever it is set)"
+    ),
   decider: PersonSchema.optional().describe(
     "The one person with the final say (DACI Approver, RAPID Decide)"
   ),
@@ -389,10 +480,18 @@ async function addDecision(store: DecisionStore, p: z.infer<typeof AddSchema>): 
       .filter((n) => n && !seen.has(nameKey(n)) && seen.add(nameKey(n)));
     if (clean.length > 0) roles[role] = clean;
   }
+  // As the page's form: two options that say the same thing are one option.
+  const seenOptions = new Set<string>();
+  for (const text of p.options ?? []) {
+    const key = text.trim().toLowerCase();
+    if (seenOptions.has(key)) return { created: false, reason: "duplicate_option", option: text };
+    seenOptions.add(key);
+  }
   const id = newRecordId();
   const options = (p.options ?? []).map((text, i) => ({ id: `${id}-o${i}`, text: text.trim() }));
   const context = p.context?.trim();
-  const recommendation = template === "adr" ? undefined : p.recommendation?.trim();
+  // Kept on any form: the page shows an ADR's recommendation whenever it is set.
+  const recommendation = p.recommendation?.trim();
   const decider = p.decider ? rosterName(p.decider, roster) : "";
   const d = await createRecord(store, {
     id,
@@ -417,7 +516,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Raise a proposed decision record, numbered in the log's one sequence. Params: template? (adr default | daci | rapid), title, context?, options? (texts in order), recommendation? (daci/rapid), decider?, roles? (only the form's roles; driver and recommend hold one person), date? (YYYY-MM-DD, not in the future). Names on the team are stored with the roster's spelling. Returns {created: true, id, number, label} or {created: false, reason: 'future_day' | 'not_a_day' | 'role_not_in_template'}.",
+    "Raise a proposed decision record, numbered in the log's one sequence. Params: template? (adr default | daci | rapid), title, context?, options? (texts in order; no two alike, ignoring case), recommendation? (what is proposed; any form), decider?, roles? (only the form's roles; driver and recommend hold one person), date? (YYYY-MM-DD, not in the future). Names on the team are stored with the roster's spelling. Returns {created: true, id, number, label} or {created: false, reason: 'future_day' | 'not_a_day' | 'role_not_in_template' | 'duplicate_option', option?}.",
   paramsSchema: AddSchema,
   handler: async (params) => addDecision(browserDecisionStore, params),
   mcpHandler: async (params, ctx) => addDecision(serverDecisionStore(ctx.userId), params),
@@ -493,10 +592,13 @@ const SupersedeSchema = z.object({
 
 async function supersedeRecord(store: DecisionStore, p: z.infer<typeof SupersedeSchema>) {
   return changeRecord(store, p.id, { superseded: false, reason: "not_found" }, (d, all) => {
-    const by = all.find((x) => x.id === p.supersededBy);
-    if (!by || by.id === d.id) {
-      return { refuse: { superseded: false, reason: "replacement_not_found" } };
+    // A repeat is a no-op before the rules: the replacement may be superseded itself by now.
+    if (d.status === "superseded" && d.supersededBy === p.supersededBy) {
+      return { same: { superseded: false, alreadySuperseded: true } };
     }
+    const why = replacementRefusal(all, d, p.supersededBy);
+    if (why) return { refuse: { superseded: false, reason: why } };
+    const by = all.find((x) => x.id === p.supersededBy)!;
     const next = supersede(d, by.id);
     if (!next) return { same: { superseded: false, alreadySuperseded: true } };
     const note = p.reason?.trim();
@@ -519,7 +621,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Mark a record superseded by another record: sets status 'superseded' and supersededBy (the page shows 'Superseded by ADR-0004' and, on the new one, 'Supersedes …'). Params: id (the old record), supersededBy (the new record's id), reason? (added to the old record's consequences). Idempotent. Returns {superseded: true, label, by} or {superseded: false, reason: 'not_found' | 'replacement_not_found'} or {superseded: false, alreadySuperseded: true}.",
+    "Mark a record superseded by another record: sets status 'superseded' and supersededBy (the page shows 'Superseded by ADR-0004' and, on the new one, 'Supersedes …'). The replacement follows the page's rules: another record, an example only for an example (and a team's only for a team's), still in force (proposed or accepted), and not one this record already replaced, directly or down a chain. Params: id (the old record), supersededBy (the new record's id), reason? (added to the old record's consequences). Idempotent. Returns {superseded: true, label, by} or {superseded: false, reason: 'not_found' | 'replacement_not_found' | 'example_mismatch' | 'replacement_not_in_force' | 'supersede_loop'} or {superseded: false, alreadySuperseded: true}.",
   paramsSchema: SupersedeSchema,
   handler: async (params) => supersedeRecord(browserDecisionStore, params),
   mcpHandler: async (params, ctx) => supersedeRecord(serverDecisionStore(ctx.userId), params),
@@ -587,17 +689,25 @@ async function setStatus(
 ) {
   const today = todayLocalISO();
   return changeRecord(store, p.id, { updated: false }, async (d, all) => {
-    if (TERMINAL.has(p.status) && ctx.confirm) {
+    // Refusals first, so nobody is asked to confirm a move that can't happen.
+    if (p.status === "accepted") {
+      const why = deciderRefusal(d);
+      if (why) return { refuse: { updated: false, ...why } };
+    }
+    const repeat =
+      p.status === "superseded" && d.status === "superseded" && d.supersededBy === p.supersededBy;
+    if (p.status === "superseded" && p.supersededBy && !repeat) {
+      const why = replacementRefusal(all, d, p.supersededBy);
+      if (why) return { refuse: { updated: false, reason: why } };
+    }
+    if (TERMINAL.has(p.status) && ctx.confirm && !repeat) {
       const ok = await ctx.confirm(
         `Mark ${decisionLabel(d)} "${d.title || d.id}" as ${p.status}? This is a lifecycle-terminal transition.`
       );
       if (!ok) return { refuse: { updated: false, confirmed: false } };
     }
     if (p.status === "superseded" && p.supersededBy) {
-      if (!all.some((x) => x.id === p.supersededBy && x.id !== d.id)) {
-        return { refuse: { updated: false, reason: "replacement_not_found" } };
-      }
-      const next = supersede(d, p.supersededBy);
+      const next = repeat ? null : supersede(d, p.supersededBy);
       return next ? { next, result: { updated: true } } : { same: { updated: true } };
     }
     const next = withStatus(d, p.status, today);
@@ -612,7 +722,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a record's lifecycle status (proposed | accepted | deprecated | superseded) on any form's record. Proposed reopens it (reopenedAt); accepted from proposed dates decidedAt today (use decide to write the outcome); superseded with supersededBy links the replacement. Deprecated and superseded ask for confirmation when the caller can confirm. Returns {updated: boolean, confirmed?: false, reason?: 'replacement_not_found'}.",
+    "Set a record's lifecycle status (proposed | accepted | deprecated | superseded) on any form's record. Proposed reopens it (reopenedAt); accepted from proposed dates decidedAt today (use decide to write the outcome), and a DACI or RAPID proposal needs its Approver / Decide (D) named first, as on the page; superseded with supersededBy links the replacement (supersede's rules). Deprecated and superseded ask for confirmation when the caller can confirm. Returns {updated: boolean, confirmed?: false, reason?: 'no_decider' | 'replacement_not_found' | 'example_mismatch' | 'replacement_not_in_force' | 'supersede_loop', message?}.",
   paramsSchema: SetStatusSchema,
   handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx),
   mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx),
@@ -763,4 +873,52 @@ registry.register({
   paramsSchema: DeciderSchema,
   handler: async (params) => setDecider(browserDecisionStore, params),
   mcpHandler: async (params, ctx) => setDecider(serverDecisionStore(ctx.userId), params),
+});
+
+/* ── tool.decision_log.delete ────────────────────────────────────────── */
+
+/**
+ * Delete a record the way the page does: from the workspace's records and
+ * the old DACI and RAPID collections alike, so an old row under the id
+ * can't read back in with its pre-merge text (or be copied back by the
+ * page's one-time move, with a new number). A row of the old Decision
+ * Log page still waiting for that move is refused: deleting it has to
+ * mark it moved in this browser's storage, which only the page can do.
+ * Other records' "superseded by" links to it stay, as on the page (they
+ * read as "superseded by a deleted record"), and a deleted top number can
+ * be given to the next record.
+ */
+async function deleteRecord(store: DecisionStore, id: string, ctx: ActionContext): Promise<Out> {
+  const { records, pendingIds } = await store.list();
+  const d = records.find((x) => x.id === id);
+  if (!d) return { deleted: false, reason: "not_found" };
+  if (pendingIds.includes(id)) {
+    return {
+      deleted: false,
+      reason: "pending_move",
+      message:
+        "This record is still moving in from the old Decision Log page: open the Decision Log once, then delete it (or delete it there).",
+    };
+  }
+  if (ctx.confirm) {
+    const ok = await ctx.confirm(
+      `Delete ${decisionLabel(d)} "${d.title || d.id}"? An agent's delete can't be undone.`
+    );
+    if (!ok) return { deleted: false, confirmed: false };
+  }
+  await store.remove(id);
+  return { deleted: true, id, label: decisionLabel(d) };
+}
+
+registry.register({
+  id: "tool.decision_log.delete",
+  toolId: "tool.decision_log",
+  name: "delete",
+  category: "write",
+  requiresConfirmation: true,
+  description:
+    "Delete a decision record of any form, as the page's delete does: removes the id from the records and from the old DACI and RAPID collections, so an old row can't come back. Use this, not workspace.decision.delete (which removes only the workspace row, so an old DACI or RAPID row reads back in). Final for an agent (the page offers Undo): confirm with the user first. Params: id. Returns {deleted: true, id, label} or {deleted: false, reason: 'not_found' | 'pending_move', message?} or {deleted: false, confirmed: false}. 'pending_move': a row of the old Decision Log page not moved in yet; open the Decision Log once, then delete it.",
+  paramsSchema: z.object({ id: z.string().min(1) }),
+  handler: async (params, ctx) => deleteRecord(browserDecisionStore, params.id, ctx),
+  mcpHandler: async (params, ctx) => deleteRecord(serverDecisionStore(ctx.userId), params.id, ctx),
 });

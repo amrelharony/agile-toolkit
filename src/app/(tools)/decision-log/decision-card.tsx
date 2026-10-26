@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { nanoid } from "nanoid";
 import {
   AlertTriangle,
@@ -18,12 +18,13 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
+import { Textarea } from "@/components/ui/textarea";
 import { DayInput } from "@/components/shared/day-input";
 import { ExportButton } from "@/components/shared/export-button";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { SourceLink } from "@/components/handoff/source-link";
 import { PeoplePicker } from "@/components/team/person-picker";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import type {
   Decision,
   DecisionOption,
@@ -55,6 +56,7 @@ import {
   implementedDayError,
   raisedDayError,
   recordName,
+  reopenedDayError,
   replacementsFor,
   supersededRecords,
   decidedDayError,
@@ -82,6 +84,82 @@ export function StatusBadge({ status }: { status: DecisionStatus }) {
     <Badge variant="outline" className={cn("font-normal", STATUS_TONE[status] ?? "text-sub")}>
       {DECISION_STATUS_LABEL[status] ?? status}
     </Badge>
+  );
+}
+
+/**
+ * One option's text, edited in place: saved when it is left or on Enter.
+ * An emptied option, or one that repeats another, isn't saved: the field
+ * shows the stored text again and says why (removing an option is the ×
+ * button's job), so it never sits there looking emptied while the option
+ * stays, as the shared BlurInput's kept draft did.
+ */
+function OptionTextInPlace({
+  label,
+  value,
+  others,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  /** The record's other options' texts. */
+  others: readonly string[];
+  onSave: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
+  // A change from elsewhere (an agent, another tab, an Undo) replaces the draft.
+  useEffect(() => setDraft(value), [value]);
+
+  const commit = () => {
+    const text = draft.trim();
+    if (text === value.trim()) {
+      setDraft(value);
+      setError(null);
+      return;
+    }
+    const why = !text
+      ? "An option needs text: use × to remove it."
+      : others.some((t) => t.trim().toLowerCase() === text.toLowerCase())
+        ? "That option is already listed."
+        : null;
+    setError(why);
+    if (why) {
+      setDraft(value);
+      return;
+    }
+    onSave(text);
+  };
+
+  return (
+    <div className="min-w-0 flex-1">
+      <Input
+        aria-label={label}
+        value={draft}
+        maxLength={DECISION_TEXT_MAX}
+        className="h-9 min-w-0"
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setDraft(value);
+            setError(null);
+          }
+        }}
+      />
+      {error && (
+        <p id={errorId} role="alert" className="mt-1 text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -127,25 +205,23 @@ function OptionsInPlace({
       ) : (
         <ul className="space-y-1.5">
           {options.map((o, i) => (
-            <li key={o.id} className="flex min-w-0 items-center gap-2">
-              <BlurInput
-                aria-label={`Option ${i + 1}`}
+            <li key={o.id} className="flex min-w-0 items-start gap-2">
+              <OptionTextInPlace
+                label={`Option ${i + 1}`}
                 value={o.text}
-                maxLength={DECISION_TEXT_MAX}
-                className="h-9 min-w-0 flex-1"
-                onCommit={(next) => {
-                  const text = next.trim();
-                  // An emptied option reverts: removing it is the button's job.
-                  if (!text || text === o.text) return;
+                others={options.filter((x) => x.id !== o.id).map((x) => x.text)}
+                onSave={(text) =>
                   onSave(
                     options.map((x) => (x.id === o.id ? { ...x, text } : x)),
                     d.chosenOptionId,
                     { label: "Changed an option" }
-                  );
-                }}
+                  )
+                }
               />
               {o.id === d.chosenOptionId && (
-                <span className="shrink-0 text-xs font-medium text-success">Chosen</span>
+                <span className="flex h-9 shrink-0 items-center text-xs font-medium text-success">
+                  Chosen
+                </span>
               )}
               <IconButton
                 label={`Remove the option “${o.text}”`}
@@ -196,7 +272,12 @@ function OptionsInPlace({
   );
 }
 
-/** A long text field of the record, saved when it is left. */
+/**
+ * A long text field of the record, saved when it is left (never per
+ * keystroke). The textarea takes every prop Field hands out, so its hint
+ * is tied to it for screen readers (the shared BlurTextarea takes only
+ * the id).
+ */
 function TextInPlace({
   label,
   hint,
@@ -210,16 +291,20 @@ function TextInPlace({
   rows?: number;
   onSave: (next: string) => void;
 }) {
+  const [draft, setDraft] = useState(value);
+  // A change from elsewhere (an agent, another tab, an Undo) replaces the draft.
+  useEffect(() => setDraft(value), [value]);
   return (
     <Field label={label} hint={hint}>
       {(props) => (
-        <BlurTextarea
-          id={props.id}
+        <Textarea
+          {...props}
           rows={rows}
           maxLength={DECISION_TEXT_MAX}
-          value={value}
-          onCommit={(next) => {
-            if (next.trim() !== value.trim()) onSave(next.trim());
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            if (draft.trim() !== value.trim()) onSave(draft.trim());
           }}
         />
       )}
@@ -270,7 +355,16 @@ export function DecisionCard({
   const replaced = supersededRecords(all, d.id);
   const candidates = replacementsFor(all, d);
   const options = optionsOf(d);
+  const replacedBy = d.supersededBy ? all.find((x) => x.id === d.supersededBy) : undefined;
   const save = (next: Decision, how: ChangeHow) => onChange(d, next, how);
+  // A lifecycle move unmounts the control that made it (Reopen, Deprecate,
+  // the supersede picker, the decide form), so focus goes to the record's
+  // header, which stays; closing the decide form returns it to its button.
+  const { refFor, returnTo } = useReturnFocus();
+  const move = (next: Decision, how: ChangeHow) => {
+    save(next, how);
+    returnTo("head");
+  };
 
   const setRole = (role: DecisionRole, names: string[], what: string) => {
     const roles = { ...(d.roles ?? {}) };
@@ -287,7 +381,7 @@ export function DecisionCard({
   };
   const recordDecision = (input: DecideInput) => {
     setDeciding(false);
-    save(decide(d, input), { label: `Decided ${label}`, undo: true, decided: true });
+    move(decide(d, input), { label: `Decided ${label}`, undo: true, decided: true });
   };
 
   return (
@@ -300,6 +394,7 @@ export function DecisionCard({
     >
       <h3 className="m-0">
         <button
+          ref={refFor("head")}
           type="button"
           aria-expanded={expanded}
           aria-controls={bodyId}
@@ -334,6 +429,7 @@ export function DecisionCard({
               Raised {d.date || "on an unknown day"}
               {d.decidedAt && isDecided(d.status) ? ` · decided ${d.decidedAt}` : ""}
               {d.implementedAt ? ` · carried out ${d.implementedAt}` : ""}
+              {d.status === "proposed" && d.reopenedAt ? ` · reopened ${d.reopenedAt}` : ""}
             </span>
           </span>
         </button>
@@ -405,15 +501,18 @@ export function DecisionCard({
           {(d.sourceRef || d.supersededBy || replaced.length > 0) && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               <SourceLink sourceRef={d.sourceRef} />
-              {d.supersededBy && (
+              {replacedBy ? (
                 <button
                   type="button"
-                  onClick={() => onJump(d.supersededBy!)}
+                  onClick={() => onJump(replacedBy.id)}
                   className="inline-flex items-center gap-1 text-accent underline-offset-2 hover:underline"
                 >
-                  Superseded by {recordName(all, d.supersededBy)}
+                  Superseded by {recordName(all, replacedBy.id)}
                   <ArrowRight className="h-3 w-3" aria-hidden="true" />
                 </button>
+              ) : (
+                // Its replacement was deleted since: nothing to open.
+                d.supersededBy && <span className="text-sub">Superseded by a deleted record</span>
               )}
               {replaced.map((x) => (
                 <button
@@ -450,11 +549,19 @@ export function DecisionCard({
             }}
           />
 
-          {template !== "adr" && (
+          {/* DACI and RAPID always ask for one; an ADR shows the one it came with
+              (a weighted matrix sends its leader), so it can be read and edited. */}
+          {(template !== "adr" || Boolean(d.recommendation?.trim())) && (
             <TextInPlace
               label="Recommendation"
               hint={
-                template === "daci" ? "What the Driver proposes." : "What Recommend (R) proposes."
+                template === "daci"
+                  ? "What the Driver proposes."
+                  : template === "rapid"
+                    ? "What Recommend (R) proposes."
+                    : d.sourceRef?.tool === "weighted-decision"
+                      ? "From the Weighted Decision Matrix: its leader."
+                      : "What was proposed."
               }
               rows={2}
               value={d.recommendation ?? ""}
@@ -511,10 +618,29 @@ export function DecisionCard({
                   roster={roster}
                   offerAddToRoster={!example}
                   onSave={recordDecision}
-                  onCancel={() => setDeciding(false)}
+                  onCancel={() => {
+                    setDeciding(false);
+                    returnTo("decide");
+                  }}
                 />
               ) : (
                 <div className="space-y-2">
+                  {d.reopenedAt && (
+                    <div className="min-w-0 sm:max-w-44">
+                      <span className="text-xs text-sub" aria-hidden="true">
+                        Reopened on
+                      </span>
+                      <DayInput
+                        label={`Day ${label} was reopened`}
+                        value={d.reopenedAt}
+                        max={today}
+                        validate={(day) => reopenedDayError(day, d, today)}
+                        onCommit={(reopenedAt) =>
+                          save({ ...d, reopenedAt }, { label: "Changed the day it was reopened" })
+                        }
+                      />
+                    </div>
+                  )}
                   {d.decision.trim() ? (
                     <p className="whitespace-pre-wrap text-sm text-sub">
                       Last decided: {d.decision}
@@ -523,6 +649,7 @@ export function DecisionCard({
                     <p className="text-sm text-sub">Not decided yet.</p>
                   )}
                   <Button
+                    ref={refFor("decide")}
                     type="button"
                     size="sm"
                     className="gap-1"
@@ -620,7 +747,7 @@ export function DecisionCard({
                 size="sm"
                 variant="outline"
                 className="gap-1"
-                onClick={() => save(reopen(d, today), { label: `Reopened ${label}`, undo: true })}
+                onClick={() => move(reopen(d, today), { label: `Reopened ${label}`, undo: true })}
               >
                 <RotateCcw className="h-4 w-4" aria-hidden="true" />
                 Reopen
@@ -653,7 +780,7 @@ export function DecisionCard({
                 size="sm"
                 variant="outline"
                 onClick={() =>
-                  save({ ...d, status: "deprecated" }, { label: `Deprecated ${label}`, undo: true })
+                  move({ ...d, status: "deprecated" }, { label: `Deprecated ${label}`, undo: true })
                 }
               >
                 Deprecate
@@ -686,7 +813,7 @@ export function DecisionCard({
                     const next = supersede(d, replacement);
                     setReplacement("");
                     if (next) {
-                      save(next, {
+                      move(next, {
                         label: `${label} superseded by ${recordName(all, replacement).split(" · ")[0]}`,
                         undo: true,
                       });

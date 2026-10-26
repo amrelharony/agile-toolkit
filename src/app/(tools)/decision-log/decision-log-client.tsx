@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type Ref } from "react";
 import { FileText, Plus, Timer } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -104,6 +104,8 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
   // The record to scroll to once it is on screen (from ?id= or a "Supersedes" link).
   const [jumpTo, setJumpTo] = useState<string | null>(null);
   const filterId = useId();
+  // The New button at the top, where focus goes back when the form is cancelled.
+  const newRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const id = readRecordParam(window.location.search);
@@ -269,8 +271,9 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
     setOpen(NOTHING_OPEN);
   };
 
-  const newButton = (
+  const newButton = (ref?: Ref<HTMLButtonElement>) => (
     <Button
+      ref={ref}
       type="button"
       size="sm"
       className="gap-1"
@@ -303,12 +306,12 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
                     filename="decision-log"
                     markdown={markdown}
                     clipboardText={markdown}
-                    csvData={decisionsCsv(ordered)}
+                    csvData={decisionsCsv(ordered, records)}
                     jsonData={ordered}
                   />
                 </>
               )}
-              {newButton}
+              {newButton(newRef)}
             </div>
           </div>
 
@@ -344,7 +347,10 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
                 roster={roster}
                 newId={newDecisionId}
                 onSave={create}
-                onCancel={() => setFormOpen(false)}
+                onCancel={() => {
+                  setFormOpen(false);
+                  newRef.current?.focus();
+                }}
               />
             </SectionCard>
           )}
@@ -355,7 +361,7 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
                 icon={FileText}
                 action={
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    {newButton}
+                    {newButton()}
                     <LoadExampleButton onLoad={loadExample} />
                   </div>
                 }

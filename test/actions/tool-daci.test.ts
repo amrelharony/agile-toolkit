@@ -151,9 +151,10 @@ describe("tool.daci.set_status — convenience update", () => {
   });
 
   it("updates an existing decision's status and returns {updated: true}", async () => {
+    // Deciding needs the Approver named, as on the page.
     useWorkspaceStore
       .getState()
-      .upsertDACIDecision(seed({ id: "d1", title: "Pricing", status: "open" }));
+      .upsertDACIDecision(seed({ id: "d1", title: "Pricing", status: "open", approver: "Bob" }));
 
     const action = registry.get("tool.daci.set_status");
     const result = (await action!.handler({ id: "d1", status: "decided" }, ctx())) as {
