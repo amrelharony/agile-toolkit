@@ -355,11 +355,13 @@ export function DodBuilderClient() {
               label="Adherence"
               value={quotableAdherence(adherence) ? `${adherence.pct}%` : "—"}
               hint={
-                adherence.pct === null
-                  ? "no done stories"
-                  : quotableAdherence(adherence)
-                    ? "of done stories"
-                    : "too few done stories for a %"
+                required.length === 0
+                  ? "nothing required yet"
+                  : adherence.pct === null
+                    ? "no done stories"
+                    : quotableAdherence(adherence)
+                      ? "of done stories"
+                      : "too few done stories for a %"
               }
             />
             <StatCard
