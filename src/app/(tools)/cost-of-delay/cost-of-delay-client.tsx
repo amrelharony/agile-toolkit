@@ -11,6 +11,7 @@ import { ChartFigure } from "@/components/shared/chart-card";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SectionCard } from "@/components/shared/section-card";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { generateCostOfDelayPrompts } from "@/lib/ai-prompts/cost-of-delay";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { COD_ACTIONS } from "@/lib/history/event-actions";
 import { COST_OF_DELAY } from "@/lib/prioritization/methods";
@@ -22,7 +23,6 @@ import { CodInputs, CodRowValues } from "./cod-inputs";
 import { buildExample } from "./example";
 import { codGroups, fixedDateStart, laneOf, waitingPerWeek } from "./lanes";
 import { toMarkdown } from "./markdown";
-import { generateCd3Prompts } from "./prompts";
 import { codVerdict } from "./verdict";
 
 // Recharts loads with the chart, not the page; the placeholder fills the
@@ -167,7 +167,8 @@ export const COD_TOOL: MethodToolConfig = {
       }),
     };
   },
-  prompts: (rows, workspace) => generateCd3Prompts(rows, workspace),
+  prompts: (rows, workspace) =>
+    generateCostOfDelayPrompts({ rows, verdict: codVerdict(rows) }, workspace),
   Inputs: CodInputs,
   RowValues: CodRowValues,
   groups: codGroups,

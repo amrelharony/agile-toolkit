@@ -1,27 +1,90 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable } from "./prompt-utils";
-import type { PrioritizationItem, Workspace } from "../stores/workspace-types";
+import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import { buildWorkspaceContext } from "./cross-tool-context";
+import type { Workspace } from "../stores/workspace-types";
+import { COST_OF_DELAY } from "../prioritization/methods";
+import { formatNumber, toNumber } from "../prioritization/methods/fields";
+import { COD_URGENCY_LABEL, type CodUrgency } from "../prioritization/methods/cost-of-delay";
+import type { RankedRow } from "../prioritization/rank";
+import { todayIso } from "../sprints/series";
+import {
+  fixedDateStart,
+  laneOf,
+  startText,
+  waitingPerWeek,
+} from "@/app/(tools)/cost-of-delay/lanes";
 
-export function generateCostOfDelayPrompts(data: { items: PrioritizationItem[]; totalCost: number }, workspace?: Workspace | null): PromptDefinition[] {
-  if (data.items.length === 0) return [];
+/**
+ * The queue as the Cost-of-Delay page reads it: the ranked rows
+ * (rankMethodRows, read through to a linked backlog item), `today` for the
+ * fixed-date starts, and the page's verdict.
+ */
+interface CostOfDelayData {
+  rows: readonly RankedRow[];
+  today?: string;
+  verdict?: string;
+}
+
+/**
+ * The AI prompt over the queue as the page shows it: CD3 = cost of delay
+ * per week ÷ duration in weeks (the registry's score and rounding), the
+ * urgency lanes and the fixed-date starts. A legacy row (per week × weeks
+ * delayed, no duration) reads "Not scored", never a CD3 or a summed total.
+ */
+export function generateCostOfDelayPrompts(
+  data: CostOfDelayData,
+  workspace?: Workspace | null
+): PromptDefinition[] {
+  const { rows } = data;
+  if (rows.length === 0) return [];
+  const today = data.today ?? todayIso();
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const rows = data.items.slice(0, 20).map((it) => [it.title, `$${(Number(it.fields?.perWeekUsd) || 0).toLocaleString()}`, Number(it.fields?.weeksDelayed) || 0, `$${Math.round(it.score ?? 0).toLocaleString()}`]);
-  const table = formatTable(["Title", "$/week", "Weeks", "Total"], rows);
+  const lane = (r: RankedRow) => {
+    const id = laneOf(r);
+    return id === "unscored"
+      ? "Not scored (no duration)"
+      : id === "none"
+        ? "No profile"
+        : COD_URGENCY_LABEL[id as CodUrgency];
+  };
+  const table = formatTable(
+    ["Initiative", "$ per week", "Weeks of work", "CD3", "Lane", "Fixed date"],
+    rows.slice(0, 20).map((r) => {
+      const start = fixedDateStart(r, today);
+      const perWeek = toNumber(r.values.perWeekUsd);
+      const weeks = toNumber(r.values.durationWeeks);
+      return [
+        r.row.title,
+        perWeek === undefined ? "—" : `$${formatNumber(perWeek, 2)}`,
+        weeks === undefined ? "—" : formatNumber(weeks, 2),
+        r.result.score === null ? "—" : COST_OF_DELAY.format(r.result.score),
+        lane(r),
+        start ? startText(start, today) : "",
+      ];
+    })
+  );
+  const note = rows.length > 20 ? `\n(Showing 20 of ${rows.length} initiatives)` : "";
+  const { perWeek, count } = waitingPerWeek(rows);
+  // The verdict names initiatives, so it goes inside the untrusted block.
+  const verdict = data.verdict ? `Verdict: ${sanitizePromptCell(data.verdict, 400)}\n\n` : "";
   return [
     {
-      id: "cod-narrative",
-      title: "Cost-of-Delay Narrative",
-      description: "Build a board-ready narrative around CoD totals.",
+      id: "cod-cd3-sequence",
+      title: "Sequence by CD3",
+      description: "Check the order of work by CD3 and urgency profile, and the fixed-date risks.",
       prompt:
-        buildPreamble("Cost-of-Delay Tracker", "It quantifies the per-week revenue/value loss of delays.") +
-        `Total CoD this period: $${data.totalCost.toLocaleString()}\n\n## Items\n\n${table}\n` + context +
+        buildPreamble(
+          "Cost of Delay (CD3)",
+          "It scores each initiative as CD3 = cost of delay per week ÷ duration in weeks, ordered in lanes: expedite, fixed date by latest start, standard and intangible by CD3."
+        ) +
+        `Waiting costs $${formatNumber(perWeek, 2)} per week across ${count} scored initiatives.\n\n## Initiatives\n\n${wrapUserContent(verdict + table + note)}\n` +
+        context +
         `\n## Questions\n\n` +
-        `1. Draft a 3-sentence narrative for an exec readout: what's the cost, what's at stake, what to do.\n` +
-        `2. Which item would you crash (add resources to) for the best ROI?\n` +
-        `3. Are any per-week estimates over-precise (false confidence)?\n` +
-        `4. What sensitivity range would you put around the total CoD?\n` +
-        `5. Recommend a queue policy that minimises CoD across this set.`,
+        `1. Is the order sensible? Which item would you challenge, and why?\n` +
+        `2. Which per-week costs look over-precise, and what range would you put on them?\n` +
+        `3. Is any fixed date at risk given its latest start? What should start this week?\n` +
+        `4. Are the expedite items truly expedite, or is the lane being used to jump the queue?\n` +
+        `5. Could any long job be split so a smaller slice delivers most of the value sooner (a higher CD3)?`,
     },
   ];
 }
