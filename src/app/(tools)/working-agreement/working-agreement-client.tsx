@@ -47,6 +47,7 @@ import { toast } from "@/lib/utils/toast";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import {
   WA_ID,
+  adherencePhrase,
   agreementConsent,
   agreementVerdict,
   canPublish,
@@ -431,25 +432,25 @@ export function WorkingAgreementClient() {
       })
     )
   );
-  const promptConfig = useMemo(
-    () => ({
+  const promptConfig = useMemo(() => {
+    const latest = lastCheckIn(doc);
+    const a = latest ? checkInAdherence(latest) : null;
+    return {
       toolName: "Working Agreement Builder",
       prompts: generateWorkingAgreementPrompts(
         {
-          // The prompt's table reads a yes/no mark: a rule marked Partly
-          // goes in unmarked until the prompt knows the third answer.
-          rules: doc.rules.map(({ stillWorking, ...r }) =>
-            typeof stillWorking === "boolean" ? { ...r, stillWorking } : r
-          ),
+          // Each rule's mark in the round in progress, Partly included.
+          rules: doc.rules,
           meta: doc.meta,
-          // The prompt takes a number: the last round's, else 0 (the page says "—").
-          adherencePct: lastAdherence?.pct ?? 0,
+          // The last round as the KPI says it: its percentage only when quotable.
+          lastCheckIn: a
+            ? { summary: adherencePhrase(a), pct: quotablePct(a) ? a.pct : null }
+            : null,
         },
         workspace
       ),
-    }),
-    [doc, lastAdherence?.pct, workspace]
-  );
+    };
+  }, [doc, workspace]);
 
   if (!hydrated) {
     return (
