@@ -142,6 +142,7 @@ import {
 } from "@/lib/prioritization/methods/moscow";
 import { consensusMethods, rankMethodRows } from "@/lib/prioritization/rank";
 import { eisRows, taskView } from "@/app/(tools)/eisenhower/model";
+import { isExampleBacklogId } from "@/app/(tools)/prioritizer/example";
 import {
   STALE_PROPOSED_DAYS,
   type DecisionIssueKind,
@@ -184,6 +185,7 @@ import type {
   Decision,
   DefinitionOfDone,
   HandoffLink,
+  PrioritizationItem,
   RetroBoard,
 } from "@/lib/stores/workspace-types";
 
@@ -491,6 +493,24 @@ const scoreWithWsjf = (itemId: string) =>
 
 /** MUST match MATRIX_PARAM in app/(tools)/weighted-decision/weighted-decision-client.tsx: it opens one matrix. */
 const matrixHref = (id: string) => `/weighted-decision?matrix=${encodeURIComponent(id)}`;
+
+/**
+ * The team's backlog and method rows: no example rows, no backlog items
+ * the Prioritizer counts as example (its old `default:item-*` seed too),
+ * and no row linked to one of those (it reads the example's values, and
+ * its tool shows it as on the backlog).
+ */
+function teamBacklog(
+  items: readonly BacklogItem[] | undefined,
+  rows: readonly PrioritizationItem[] | undefined
+): { backlog: BacklogItem[]; rows: PrioritizationItem[] } {
+  const all = items ?? [];
+  const examples = new Set(all.filter((b) => isExampleBacklogId(b.id)).map((b) => b.id));
+  return {
+    backlog: all.filter((b) => !examples.has(b.id)),
+    rows: real(rows).filter((r) => !(r.backlogItemId && examples.has(r.backlogItemId))),
+  };
+}
 
 /** How soon a fixed-date item's latest start has to be for planning it to be the next step. */
 const FIXED_DATE_LEAD_DAYS = 14;
@@ -1890,7 +1910,7 @@ const RULES: Record<string, NextStepRule<object>> = {
   prioritizer: rule({
     select: (ws) => ({ items: ws.backlogItems, rows: ws.prioritizations, stories: ws.stories }),
     steps: ({ items, rows, stories }) => {
-      const backlog = real(items);
+      const { backlog, rows: team } = teamBacklog(items, rows);
       const steps: NextStep[] = [];
       const unscored = backlog.filter(
         (b) =>
@@ -1907,7 +1927,7 @@ const RULES: Record<string, NextStepRule<object>> = {
         });
       }
       // The methods Decide order can use: 2 or more items scored in each.
-      const { used } = consensusMethods(backlog, real(rows));
+      const { used } = consensusMethods(backlog, team);
       const unordered = backlog.filter(
         (b) => !isRanked(b) && used.some((m) => m.position.has(b.id))
       ).length;
@@ -1936,7 +1956,8 @@ const RULES: Record<string, NextStepRule<object>> = {
   "rice-scoring": rule({
     select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
     steps: ({ rows, items }) => {
-      const ranked = rankMethodRows("rice", real(rows), real(items));
+      const team = teamBacklog(items, rows);
+      const ranked = rankMethodRows("rice", team.rows, team.backlog);
       const steps: NextStep[] = [];
       const lead = ranked.find((r) => r.rank === 1);
       const confidence = lead?.values.confidence;
@@ -1964,10 +1985,8 @@ const RULES: Record<string, NextStepRule<object>> = {
   wsjf: rule({
     select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
     steps: ({ rows, items }) => {
-      const backlog = real(items);
-      const scored = rankMethodRows("wsjf", real(rows), backlog).filter(
-        (r) => r.result.score !== null
-      );
+      const { backlog, rows: team } = teamBacklog(items, rows);
+      const scored = rankMethodRows("wsjf", team, backlog).filter((r) => r.result.score !== null);
       const linked = scored.flatMap((r) => {
         const item = linkedItem(r.row, backlog);
         return item ? [item] : [];
@@ -1999,9 +2018,9 @@ const RULES: Record<string, NextStepRule<object>> = {
   moscow: rule({
     select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
     steps: ({ rows, items }) => {
-      const backlog = real(items);
+      const { backlog, rows: team } = teamBacklog(items, rows);
       // The Must budget as the page reads it: a linked item's job size, else the row's effort.
-      const entries = rankMethodRows("moscow", real(rows), backlog).map((r) => {
+      const entries = rankMethodRows("moscow", team, backlog).map((r) => {
         const item = linkedItem(r.row, backlog);
         return {
           bucket: toChoice(MOSCOW_BUCKETS, r.result.bucket) ?? null,
@@ -2084,8 +2103,8 @@ const RULES: Record<string, NextStepRule<object>> = {
   "value-effort-matrix": rule({
     select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems, stories: ws.stories }),
     steps: ({ rows, items, stories }) => {
-      const backlog = real(items);
-      const wins = rankMethodRows("value-effort", real(rows), backlog).filter(
+      const { backlog, rows: team } = teamBacklog(items, rows);
+      const wins = rankMethodRows("value-effort", team, backlog).filter(
         (r) => r.result.bucket === "quick_wins"
       );
       const steps: NextStep[] = [];
@@ -2170,8 +2189,8 @@ const RULES: Record<string, NextStepRule<object>> = {
   "kano-model": rule({
     select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems }),
     steps: ({ rows, items }) => {
-      const backlog = real(items);
-      const features = rankMethodRows("kano", real(rows));
+      const { backlog, rows: team } = teamBacklog(items, rows);
+      const features = rankMethodRows("kano", team);
       // Categories from answers: a legacy one picked by hand says nothing about customers.
       const answered = features.filter((r) => r.result.extra?.source !== "picked");
       const steps: NextStep[] = [];

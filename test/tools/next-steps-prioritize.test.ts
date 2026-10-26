@@ -77,6 +77,19 @@ const link = (route: HandoffLink["route"], targetId: string): HandoffLink => ({
   targetId,
   at: STAMP,
 });
+/** The backlog seed older builds wrote to every new backlog: the hub clears it as example. */
+const SEED = ["auth", "search", "export", "billing", "onboarding"].map((key) =>
+  item(`default:item-${key}`, {
+    ...WSJF_PARTS,
+    reach: 500,
+    reachPeriod: "quarter",
+    impact: 2,
+    confidence: 50,
+    effort: 2,
+    moscow: "must",
+    matrixEffort: 2,
+  })
+);
 
 describe("prioritizer", () => {
   it("scores the items with no WSJF or RICE score first, opening WSJF on the first", () => {
@@ -141,8 +154,17 @@ describe("prioritizer", () => {
     expect(steps("prioritizer", { backlogItems, stories: all })).toEqual([]);
   });
 
-  it("ignores example items", () => {
+  it("ignores example items, and the old seed the hub clears as example", () => {
     expect(steps("prioritizer", { backlogItems: [item("example-a")], stories: [] })).toEqual([]);
+    // Scored in WSJF, RICE and MoSCoW and not ordered: no Decide order step.
+    expect(steps("prioritizer", { backlogItems: SEED, stories: [] })).toEqual([]);
+    // Ordered: nothing to import either.
+    const ranked = SEED.map((b, i) => ({ ...b, rank: i + 1 }));
+    expect(steps("prioritizer", { backlogItems: ranked, stories: [] })).toEqual([]);
+    // Next to the team's own items, the seed isn't counted.
+    expect(steps("prioritizer", { backlogItems: [...SEED, item("Mine")], stories: [] })).toEqual([
+      expect.objectContaining({ id: "prioritizer-score", label: "Score 1 item with WSJF" }),
+    ]);
   });
 });
 
@@ -375,6 +397,46 @@ describe("value-effort-matrix", () => {
 
   it("ignores example rows", () => {
     expect(steps("value-effort-matrix", { prioritizations: [ve("example-a", 13, 1)] })).toEqual([]);
+  });
+});
+
+describe("method rows linked to the old backlog seed", () => {
+  // A row imported from a seed item reads the example's values, and its
+  // tool shows it as on the backlog: like the seed, it's example data.
+  const on = (key: string) => ({ backlogItemId: `default:item-${key}` });
+
+  it("trigger no step", () => {
+    const backlogItems = SEED;
+    const wsjf = ["auth", "search", "export"].map((k) => row(k, "wsjf", {}, on(k)));
+    expect(steps("wsjf", { prioritizations: wsjf, backlogItems })).toEqual([]);
+    const rice = row("Auth", "rice", {}, on("auth"));
+    expect(steps("rice-scoring", { prioritizations: [rice], backlogItems })).toEqual([]);
+    const ve = row("Auth", "value-effort", {}, on("auth"));
+    expect(
+      steps("value-effort-matrix", { prioritizations: [ve], backlogItems, stories: [] })
+    ).toEqual([]);
+    const moscow = ["auth", "search", "export"].map((k) => row(k, "moscow", {}, on(k)));
+    expect(steps("moscow", { prioritizations: moscow, backlogItems })).toEqual([]);
+    const kano = row(
+      "Auth",
+      "kano",
+      { functional: "neutral", dysfunctional: "dislike" },
+      on("auth")
+    );
+    expect(steps("kano-model", { prioritizations: [kano], backlogItems })).toEqual([]);
+  });
+
+  it("count as the team's own once the seed is cleared", () => {
+    // The link dangles: an ordinary row, scored from its own values.
+    const kano = row(
+      "Auth",
+      "kano",
+      { functional: "neutral", dysfunctional: "dislike" },
+      on("auth")
+    );
+    expect(ids("kano-model", { prioritizations: [kano], backlogItems: [] })).toEqual([
+      "kano-must-be",
+    ]);
   });
 });
 
