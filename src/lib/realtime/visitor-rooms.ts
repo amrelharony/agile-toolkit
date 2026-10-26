@@ -4,17 +4,17 @@
  * A visitor (no owner sign-in, no squad invite) can run Planning Poker or
  * a Retro live with their team over a temporary Supabase broadcast and
  * presence channel, and anyone can run an anonymous vote round (Health
- * Check, Psych Safety, Mood Tracker) the same way. Nothing is written to a
- * database. The whole feature is off unless the build sets
- * `NEXT_PUBLIC_VISITOR_ROOMS=1`.
+ * Check, Psych Safety, Mood Tracker; Kano; Buy-a-Feature, the $100 Test)
+ * the same way. Nothing is written to a database. The whole feature is off
+ * unless the build sets `NEXT_PUBLIC_VISITOR_ROOMS=1`.
  *
  * Owners don't run Poker or Retro visitor rooms: strangers' cards and
  * votes would sync into the owner's workspace. Vote rounds are the one,
  * documented exception (RUNBOOK "Live vote rounds"): the owner hosts them
  * here too, because participants following a `/join` link hold only the
- * anon key, and they can send nothing but encrypted scale indexes, of which
- * only the totals reach the workspace, on an explicit Save
- * (`vote-room/protocol.ts`).
+ * anon key, and they can send nothing but encrypted numbers (scale
+ * indexes, answer pairs, or amounts), of which only the totals reach the
+ * workspace, on an explicit Save (`vote-room/protocol.ts`).
  *
  * Security model (see RUNBOOK "Visitor live rooms"): the anon key can open
  * any `visitor:` channel (public, or private through migration 0026/0027's
@@ -47,9 +47,11 @@ export function visitorRoomsEnabled(): boolean {
 // ── Tools and codes ──────────────────────────────────────────────────
 
 /**
- * The tools that can run a visitor room. Migration 0027 lists the same
- * tools in the Realtime policy's visitor branch: change both together
- * (test/realtime/visitor-topic-migration.test.ts checks they agree).
+ * The tools that can run a visitor room. Migration 0028 lists the same
+ * tools, in this order, in the Realtime policy's visitor branch: change
+ * both together, with a new migration (test/realtime/visitor-topic-migration.test.ts
+ * checks the newest one agrees). Kano, Buy-a-Feature and the $100 Test
+ * joined in 0028; until it is pushed, their private channels are refused.
  */
 export const VISITOR_TOOLS = [
   "planning-poker",
@@ -57,6 +59,9 @@ export const VISITOR_TOOLS = [
   "health-check",
   "psych-safety",
   "mood-tracker",
+  "kano-model",
+  "buy-a-feature",
+  "hundred-dollar-test",
 ] as const;
 export type VisitorTool = (typeof VISITOR_TOOLS)[number];
 
@@ -78,6 +83,9 @@ export const VISITOR_ROOM_KIND: Readonly<Record<VisitorTool, VisitorRoomKind>> =
   "health-check": "vote",
   "psych-safety": "vote",
   "mood-tracker": "vote",
+  "kano-model": "vote",
+  "buy-a-feature": "vote",
+  "hundred-dollar-test": "vote",
 };
 
 /** The owner rooms' alphabet: no 0/O, 1/I/L, so codes read aloud cleanly. */

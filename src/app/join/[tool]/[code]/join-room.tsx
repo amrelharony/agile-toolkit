@@ -66,6 +66,9 @@ const TOOL_NAMES: Record<VisitorTool, string> = {
   "health-check": "Health Check",
   "psych-safety": "Psych Safety",
   "mood-tracker": "Mood Tracker",
+  "kano-model": "Kano survey",
+  "buy-a-feature": "Buy-a-Feature",
+  "hundred-dollar-test": "$100 Test",
 };
 
 /** The room each kind of link opens (`VISITOR_ROOM_KIND`). */
