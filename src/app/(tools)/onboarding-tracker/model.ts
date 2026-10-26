@@ -249,7 +249,8 @@ export type MilestoneStatus = "done" | "overdue" | "at-risk" | "on-track";
  * they always agree. An incomplete milestone is "overdue" once the days
  * since start pass its target, and "at risk" once more than half of its
  * target time has passed, until it becomes overdue. At-risk and overdue
- * never overlap. The AI prompt lists both together as at-risk.
+ * never overlap. The AI prompt counts and lists them apart, as the page's
+ * card does.
  */
 export function milestoneStatus(
   elapsedDays: number,
