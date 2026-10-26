@@ -68,7 +68,6 @@ import { ceremonyDates } from "@/lib/sprints/cadence";
 import { sprintsNewestFirst } from "@/lib/sprints/series";
 import { dayNumber } from "@/lib/flow/days";
 import { isRecognition, listNames, sentIn, sprintWindow } from "@/lib/kudos/recognition";
-import { moodDuring } from "@/lib/team/mood";
 import {
   WA_ID,
   agreementConsent,
@@ -127,7 +126,7 @@ import {
   roundResult,
   roundsOf,
 } from "@/lib/psych-safety/instrument";
-import { MOOD_TRACKER_ID, lowMoodStreak, streakLinks } from "@/lib/team/mood";
+import { MOOD_TRACKER_ID, lowMoodStreak, moodDuring, streakLinks } from "@/lib/team/mood";
 import { fmt } from "@/lib/charts/chart-text";
 import type {
   AdkarElement,
