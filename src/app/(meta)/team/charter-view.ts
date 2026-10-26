@@ -231,11 +231,13 @@ function agreementLines(
     .filter(Boolean)
     .join(" · ");
 
+  // Published as the page decides it (agreementVerdict): a version above 0
+  // with its publish day. A version with no day reads as not published there.
   const version = agreement.meta?.version;
   const publishedAt = agreement.meta?.publishedAt;
   const published =
-    typeof version === "number" && version > 0
-      ? `Version ${version}${publishedAt ? `, published ${publishedAt.slice(0, 10)}` : ""}`
+    typeof version === "number" && version > 0 && publishedAt
+      ? `Version ${version}, published ${publishedAt.slice(0, 10)}`
       : "Not published yet";
   const last = lastCheckIn(agreement);
   let checkIn = "";

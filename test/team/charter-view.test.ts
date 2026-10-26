@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CADENCE } from "@/lib/sprints/cadence";
 import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import { agreementVerdict, normalizeAgreement } from "@/lib/working-agreement/model";
 import {
   charterCards,
   charterMarkdown,
@@ -184,6 +185,24 @@ describe("the working agreement card", () => {
     expect(card.detail).toBe(
       "Version 2, published 2026-10-05 · Last check-in 2026-10-20: 2 of 3 rules working"
     );
+  });
+
+  it("counts as published only as the Working Agreement page does: a version with its day", () => {
+    // A version above 0 with no publish day survives normalising when a
+    // snapshot was kept; the page reads it as not published.
+    const doc = normalizeAgreement({
+      id: "workingAgreement:current",
+      rules: [rule("r1", [])],
+      meta: { version: 2 },
+      versions: [{ version: 1, publishedAt: "2026-09-01T09:00:00.000Z", rules: [] }],
+    });
+    expect(doc.meta.version).toBe(2);
+    expect(agreementVerdict(doc, ROSTER)).toMatch(/not published yet/);
+    expect(agreement({ meta: doc.meta, versions: doc.versions }).detail).toBe("Not published yet");
+    // With its day, both say it is published.
+    const dated = { ...doc.meta, publishedAt: "2026-10-05T10:00:00.000Z" };
+    expect(agreementVerdict({ ...doc, meta: dated }, ROSTER)).toMatch(/in v2 \(published/);
+    expect(agreement({ meta: dated }).detail).toBe("Version 2, published 2026-10-05");
   });
 });
 
