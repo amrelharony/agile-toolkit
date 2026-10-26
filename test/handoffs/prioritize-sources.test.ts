@@ -22,19 +22,16 @@ describe("Prioritize & decide back-links", () => {
   });
 
   it("list every tool the Phase 7 code sends with", () => {
-    const sent = new Set<string>();
-    for (const file of [
+    const SENT_RE = /sourceRef(?::\s*HandoffRef)?\s*[:=]\s*\{\s*tool:\s*"([^"]+)"/g;
+    const files = [
       ["app", "(tools)", "buy-a-feature", "buy-a-feature-client.tsx"],
       ["lib", "cynefin", "model.ts"],
       ["lib", "weighted", "model.ts"],
-    ]) {
-      for (const m of src(...file).matchAll(
-        /sourceRef(?::\s*HandoffRef)?\s*[:=]\s*\{\s*tool:\s*"([^"]+)"/g
-      )) {
-        sent.add(m[1]);
-      }
-    }
-    expect([...sent].sort()).toEqual(["buy-a-feature", "cynefin", "weighted-decision"]);
+    ];
+    const sent = Array.from(
+      new Set(files.flatMap((f) => Array.from(src(...f).matchAll(SENT_RE), (m) => m[1])))
+    );
+    expect(sent.sort()).toEqual(["buy-a-feature", "cynefin", "weighted-decision"]);
     for (const tool of [...sent, BACKLOG_SOURCE_TOOL]) {
       expect(Object.prototype.hasOwnProperty.call(SOURCE_TOOLS, tool), tool).toBe(true);
     }
