@@ -69,7 +69,6 @@ import {
   featureView,
   kanoGroups,
   kanoRows,
-  promptGroups,
   shortName,
   toCsv,
 } from "./model";
@@ -207,7 +206,8 @@ export function KanoModelClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Kano Model",
-      prompts: generateKanoPrompts({ grouped: promptGroups(ranked) }, workspace),
+      // Categories, counts and Better / Worse as the lists show them.
+      prompts: generateKanoPrompts({ rows: ranked }, workspace),
     }),
     [ranked, workspace]
   );

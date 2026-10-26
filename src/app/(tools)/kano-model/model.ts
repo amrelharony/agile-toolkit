@@ -267,12 +267,3 @@ export function toCsv(rows: readonly RankedRow[]): {
     }),
   };
 }
-
-/** The features as the AI prompt reads them: grouped by derived category. */
-export function promptGroups(rows: readonly RankedRow[]): Record<string, PrioritizationItem[]> {
-  const out: Record<string, PrioritizationItem[]> = {};
-  for (const g of kanoGroups(rows)) {
-    if (g.features.length > 0) out[g.label] = g.features.map((f) => f.ranked.row);
-  }
-  return out;
-}
