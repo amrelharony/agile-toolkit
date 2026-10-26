@@ -24,6 +24,7 @@ import {
   DECISION_ROLES,
   DECISION_STATUSES,
   DECISION_TEMPLATES,
+  DEFAULT_WEIGHTED_MATRIX_ID,
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
@@ -119,10 +120,12 @@ import type {
   // Phase 7 — Prioritize & decide
   AllocationRound,
   BuyAFeatureGame,
+  WeightedMatrix,
   // Phase 21 — Decision Frameworks
   DACIDecision,
   RAPIDDecision,
   WeightedOption,
+  WeightedCriterion,
   SixHatsThought,
   SixHatsSession,
   OODACycle,
@@ -2273,11 +2276,42 @@ const RAPIDDecisionSchema = z.object({
   date: z.string(),
 }) as unknown as z.ZodType<RAPIDDecision>;
 
+const WeightedMatrixIdField = z
+  .string()
+  .optional()
+  .describe(`The matrix it is in; absent: the default matrix (${DEFAULT_WEIGHTED_MATRIX_ID}).`);
+
 const WeightedOptionSchema = z.object({
   id: z.string(),
   name: z.string(),
   scores: z.record(z.string(), z.number()),
+  matrixId: WeightedMatrixIdField,
+  note: z.string().optional().describe("Why it scored as it did, or a caveat."),
 }) as unknown as z.ZodType<WeightedOption>;
+
+const WeightedCriterionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  weight: z.number().min(0),
+  matrixId: WeightedMatrixIdField,
+  low: z.string().optional().describe("What a score of 1 means on this criterion."),
+  high: z.string().optional().describe("What a score of 10 means on this criterion."),
+}) as unknown as z.ZodType<WeightedCriterion>;
+
+const WeightedMatrixSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  question: z
+    .string()
+    .optional()
+    .describe("What is being decided; becomes the decision record's title."),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where the result went (a decision record)."),
+}) as unknown as z.ZodType<WeightedMatrix>;
 
 const SixHatsHatSchema = z.enum(["white", "red", "black", "yellow", "green", "blue"]);
 
@@ -2681,6 +2715,31 @@ defineCrudActions<WeightedOption>({
   upsert: (x) => ws().upsertWeightedOption(x),
   remove: (id) => ws().removeWeightedOption(id),
   generateId: () => `weightedOpt_${nanoid(8)}`,
+});
+
+// The criteria the page always kept (workspace:weightedCriterion) had no
+// CRUD before Phase 7; kindFromToolId derives the kind the browser syncs.
+defineCrudActions<WeightedCriterion>({
+  toolId: "workspace.weighted_criterion",
+  entityName: "weighted-decision criterion",
+  schema: WeightedCriterionSchema,
+  selectAll: () => ws().weightedCriteria ?? [],
+  upsert: (x) => ws().upsertWeightedCriterion(x),
+  remove: (id) => ws().removeWeightedCriterion(id),
+  generateId: () => `weightedCrit_${nanoid(8)}`,
+});
+
+// Kind WEIGHTED_MATRIX_KIND (workspace:weightedMatrix), which kindFromToolId
+// derives. Delete in the app also removes the matrix's options and criteria
+// (removeWeightedMatrix); the server-side delete removes the matrix row only.
+defineCrudActions<WeightedMatrix>({
+  toolId: "workspace.weighted_matrix",
+  entityName: "weighted-decision matrix",
+  schema: WeightedMatrixSchema,
+  selectAll: () => ws().weightedMatrices ?? [],
+  upsert: (x) => ws().upsertWeightedMatrix(x),
+  remove: (id) => ws().removeWeightedMatrix(id),
+  generateId: () => `weightedMatrix_${nanoid(8)}`,
 });
 
 defineCrudActions<SixHatsThought>({

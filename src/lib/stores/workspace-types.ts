@@ -1477,16 +1477,53 @@ export interface RAPIDDecision {
   date: ISODateString;
 }
 
+/**
+ * The matrix every option and criterion without a `matrixId` belongs to: the
+ * one unnamed matrix from before named matrices (read-time, no migration).
+ */
+export const DEFAULT_WEIGHTED_MATRIX_ID = "weightedMatrix:default";
+
+/** The kind weighted matrices sync under (user_entities), for server-side code. */
+export const WEIGHTED_MATRIX_KIND = "workspace:weightedMatrix";
+
+/**
+ * A named weighted-decision matrix: one question, scored on its own options
+ * and criteria (the rows whose `matrixId` is this id). The default matrix
+ * (`DEFAULT_WEIGHTED_MATRIX_ID`) needs no stored row: legacy rows belong to
+ * it even when none is saved.
+ */
+export interface WeightedMatrix {
+  /** "weightedMatrix_<nanoid(8)>", or DEFAULT_WEIGHTED_MATRIX_ID once the default one is named. */
+  id: string;
+  name: string;
+  /** What is being decided; becomes the decision record's title. */
+  question?: string;
+  createdAt: ISODateString;
+  updatedAt?: ISODateString;
+  /** Where the result went (a decision record). */
+  sentTo?: HandoffLink[];
+}
+
 export interface WeightedOption {
   id: string;
   name: string;
   scores: Record<string, number>; // criterionId -> score
+  /** The matrix this option is in; absent: the default matrix (DEFAULT_WEIGHTED_MATRIX_ID). */
+  matrixId?: string;
+  /** Why it scored as it did, or a caveat. */
+  note?: string;
 }
 
 export interface WeightedCriterion {
   id: string;
   name: string;
   weight: number;
+  /** The matrix this criterion is in; absent: the default matrix (DEFAULT_WEIGHTED_MATRIX_ID). */
+  matrixId?: string;
+  /** What a score of 1 means on this criterion. */
+  low?: string;
+  /** What a score of 10 means on this criterion. */
+  high?: string;
 }
 
 export interface SixHatsThought {
@@ -3020,6 +3057,8 @@ export interface Workspace {
   allocationRounds?: AllocationRound[];
   /** One `BuyAFeatureGame`, id `BUY_A_FEATURE_ID`. */
   buyAFeatureGames?: BuyAFeatureGame[];
+  /** Named weighted-decision matrices (the default one needs no row). */
+  weightedMatrices?: WeightedMatrix[];
   // Phase 21 — Decision Frameworks
   /** Legacy since Phase 7: read through as `decisions` (template "daci"). */
   daciDecisions?: DACIDecision[];
@@ -3275,6 +3314,7 @@ export const emptyWorkspace = {
   // Phase 7 — Prioritize & decide
   allocationRounds: [],
   buyAFeatureGames: [],
+  weightedMatrices: [],
   // Phase 21 — Decision Frameworks
   daciDecisions: [],
   rapidDecisions: [],
