@@ -359,19 +359,12 @@ export function WeightedDecisionClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Weighted Decision Matrix",
-      prompts: generateWeightedPrompts({
-        criteria: ownCriteria,
-        ranked: (result?.options ?? [])
-          .filter((r) => r.total !== null)
-          .map((r) => ({
-            id: r.id,
-            name: r.name,
-            scores: ownOptions.find((o) => o.id === r.id)?.scores ?? {},
-            score: r.total ?? 0,
-          })),
-      }),
+      // Every option as the table shows it: a cell not scored is "—", never 0.
+      prompts: result
+        ? generateWeightedPrompts({ result, options: ownOptions, matrix: selected })
+        : [],
     }),
-    [ownCriteria, ownOptions, result]
+    [ownOptions, result, selected]
   );
 
   return (
