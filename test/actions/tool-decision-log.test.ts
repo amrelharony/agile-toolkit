@@ -44,6 +44,7 @@ function ctx() {
  *  they're exercising to keep the assertions terse. */
 function makeDecision(overrides: Partial<Decision> = {}): Decision {
   return {
+    ...(overrides.number !== undefined ? { number: overrides.number } : {}),
     id: overrides.id ?? "dec_test_1",
     title: overrides.title ?? "Use Postgres for event log",
     context: overrides.context,
@@ -252,9 +253,13 @@ describe("tool.decision_log.set_status — lifecycle transition", () => {
 describe("tool.decision_log.supersede — lifecycle verb", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ decisions: [] });
+    // The replacing record has to exist.
+    useWorkspaceStore
+      .getState()
+      .upsertDecision(makeDecision({ id: "new", status: "accepted", number: 2 }));
   });
 
-  it("marks the old ADR superseded and appends a forward-reference note", async () => {
+  it("marks the old ADR superseded and links the replacement (supersededBy)", async () => {
     useWorkspaceStore
       .getState()
       .upsertDecision(
@@ -269,11 +274,12 @@ describe("tool.decision_log.supersede — lifecycle verb", () => {
     expect(result.superseded).toBe(true);
     const stored = useWorkspaceStore.getState().decisions.find((d) => d.id === "old");
     expect(stored?.status).toBe("superseded");
-    expect(stored?.consequences).toMatch(/Prior consequences text\./);
-    expect(stored?.consequences).toMatch(/Superseded by new/);
+    expect(stored?.supersededBy).toBe("new");
+    // No text trail any more: the consequences are left as written.
+    expect(stored?.consequences).toBe("Prior consequences text.");
   });
 
-  it("includes the optional reason in the appended note", async () => {
+  it("adds the optional reason to the consequences, naming the replacement", async () => {
     useWorkspaceStore.getState().upsertDecision(makeDecision({ id: "old", status: "accepted" }));
 
     const action = registry.get("tool.decision_log.supersede");
@@ -282,21 +288,20 @@ describe("tool.decision_log.supersede — lifecycle verb", () => {
       ctx()
     );
     const stored = useWorkspaceStore.getState().decisions.find((d) => d.id === "old");
-    expect(stored?.consequences).toMatch(/Superseded by new\. Replaced after performance review\./);
+    expect(stored?.consequences).toMatch(
+      /Superseded by ADR-0002\. Replaced after performance review\./
+    );
   });
 
-  it("handles empty consequences without a leading newline", async () => {
-    // Regression: prior shape was `\n\nSuperseded by ...` when there
-    // was no prior text. The leading blank lines would render as a
-    // weird gap in markdown. Builder collapses to bare note when
-    // existing consequences is empty.
+  it("leaves empty consequences empty when no reason is given", async () => {
     useWorkspaceStore
       .getState()
       .upsertDecision(makeDecision({ id: "old", status: "accepted", consequences: undefined }));
     const action = registry.get("tool.decision_log.supersede");
     await action!.handler({ id: "old", supersededBy: "new" }, ctx());
     const stored = useWorkspaceStore.getState().decisions.find((d) => d.id === "old");
-    expect(stored?.consequences).toBe("Superseded by new");
+    expect(stored?.consequences).toBeUndefined();
+    expect(stored?.supersededBy).toBe("new");
   });
 
   it("is idempotent — second call with the same supersededBy is a no-op", async () => {
@@ -307,10 +312,7 @@ describe("tool.decision_log.supersede — lifecycle verb", () => {
       superseded: boolean;
     };
     expect(first.superseded).toBe(true);
-
-    const consequencesAfterFirst = useWorkspaceStore
-      .getState()
-      .decisions.find((d) => d.id === "old")?.consequences;
+    const afterFirst = useWorkspaceStore.getState().decisions.find((d) => d.id === "old");
 
     const second = (await action!.handler({ id: "old", supersededBy: "new" }, ctx())) as {
       superseded: boolean;
@@ -318,12 +320,22 @@ describe("tool.decision_log.supersede — lifecycle verb", () => {
     };
     expect(second.superseded).toBe(false);
     expect(second.alreadySuperseded).toBe(true);
+    expect(useWorkspaceStore.getState().decisions.find((d) => d.id === "old")).toBe(afterFirst);
+  });
 
-    // Consequences MUST be byte-identical — no double-append.
-    const consequencesAfterSecond = useWorkspaceStore
-      .getState()
-      .decisions.find((d) => d.id === "old")?.consequences;
-    expect(consequencesAfterSecond).toBe(consequencesAfterFirst);
+  it("refuses a replacement that isn't a record, or the record itself", async () => {
+    useWorkspaceStore.getState().upsertDecision(makeDecision({ id: "old", status: "accepted" }));
+    const action = registry.get("tool.decision_log.supersede");
+    for (const by of ["ghost", "old"]) {
+      const result = (await action!.handler({ id: "old", supersededBy: by }, ctx())) as {
+        superseded: boolean;
+        reason?: string;
+      };
+      expect(result).toEqual({ superseded: false, reason: "replacement_not_found" });
+    }
+    expect(useWorkspaceStore.getState().decisions.find((d) => d.id === "old")?.status).toBe(
+      "accepted"
+    );
   });
 
   it("returns {superseded:false, reason:'not_found'} for an unknown id", async () => {

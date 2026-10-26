@@ -18,6 +18,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RAPIDDecision } from "@/lib/stores/workspace-types";
+import { allDecisions } from "@/lib/decisions/model";
+import { rapidView } from "@/lib/actions/tools/rapid-decision";
 
 // Side-effect import — registers the actions on the singleton.
 import "@/lib/actions/tools/rapid-decision";
@@ -38,6 +40,18 @@ function ctx() {
     source: "agent" as const,
     squadProfileIds: [] as string[],
   };
+}
+
+/**
+ * The record as the RAPID alias reads it: the merged decision (a Decision
+ * saved under the id shadows the old row) in RAPID's old shape.
+ */
+function stored(id = "d1") {
+  const ws = useWorkspaceStore.getState();
+  const d = allDecisions(ws.decisions, ws.daciDecisions, ws.rapidDecisions).find(
+    (x) => x.id === id
+  );
+  return rapidView(d!, "2026-10-27");
 }
 
 /** Seed factory — a minimally-valid RAPIDDecision with sensible
@@ -95,7 +109,7 @@ describe("tool.rapid_decision — registration", () => {
 
 describe("tool.rapid_decision.list_state — snapshot + status histogram", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ rapidDecisions: [] });
+    useWorkspaceStore.setState({ decisions: [], rapidDecisions: [] });
   });
 
   it("returns empty state when the workspace has no decisions", async () => {
@@ -132,7 +146,10 @@ describe("tool.rapid_decision.list_state — snapshot + status histogram", () =>
 
 describe("tool.rapid_decision.set_status — lifecycle transitions", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ rapidDecisions: [seed({ id: "d1", status: "open" })] });
+    useWorkspaceStore.setState({
+      decisions: [],
+      rapidDecisions: [seed({ id: "d1", status: "open" })],
+    });
   });
 
   it("transitions open → decided", async () => {
@@ -141,8 +158,7 @@ describe("tool.rapid_decision.set_status — lifecycle transitions", () => {
       updated: boolean;
     };
     expect(result.updated).toBe(true);
-    const stored = useWorkspaceStore.getState().rapidDecisions ?? [];
-    expect(stored[0].status).toBe("decided");
+    expect(stored().status).toBe("decided");
   });
 
   it("returns updated=false for an unknown id (idempotent precheck-free)", async () => {
@@ -178,7 +194,7 @@ describe("tool.rapid_decision.set_status — lifecycle transitions", () => {
     )) as { updated: boolean };
     expect(confirmCalls).toBe(1);
     expect(result.updated).toBe(true);
-    expect((useWorkspaceStore.getState().rapidDecisions ?? [])[0].status).toBe("implemented");
+    expect(stored().status).toBe("implemented");
   });
 
   it("declines to transition to 'implemented' when ctx.confirm denies", async () => {
@@ -190,13 +206,14 @@ describe("tool.rapid_decision.set_status — lifecycle transitions", () => {
     expect(result.updated).toBe(false);
     expect(result.reason).toBe("declined");
     // Status must NOT have flipped.
-    expect((useWorkspaceStore.getState().rapidDecisions ?? [])[0].status).toBe("open");
+    expect(stored().status).toBe("open");
   });
 });
 
 describe("tool.rapid_decision.assign_role — idempotent append to A/P/I roles", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({
+      decisions: [],
       rapidDecisions: [seed({ id: "d1", agree: ["Sarah"], perform: [], input: [] })],
     });
   });
@@ -208,8 +225,8 @@ describe("tool.rapid_decision.assign_role — idempotent append to A/P/I roles",
       ctx()
     )) as { added: boolean };
     expect(result.added).toBe(true);
-    const stored = (useWorkspaceStore.getState().rapidDecisions ?? [])[0];
-    expect(stored.agree).toEqual(["Sarah", "Marcus"]);
+    const row = stored();
+    expect(row.agree).toEqual(["Sarah", "Marcus"]);
   });
 
   it("is idempotent: re-assigning the same person returns added=false", async () => {
@@ -221,17 +238,17 @@ describe("tool.rapid_decision.assign_role — idempotent append to A/P/I roles",
     expect(result.added).toBe(false);
     expect(result.reason).toBe("already-assigned");
     // Array must not have been mutated (no duplicate).
-    const stored = (useWorkspaceStore.getState().rapidDecisions ?? [])[0];
-    expect(stored.agree).toEqual(["Sarah"]);
+    const row = stored();
+    expect(row.agree).toEqual(["Sarah"]);
   });
 
   it("works against each array role (perform, input)", async () => {
     const action = registry.get("tool.rapid_decision.assign_role");
     await action!.handler({ id: "d1", role: "perform", person: "Alice" }, ctx());
     await action!.handler({ id: "d1", role: "input", person: "Bob" }, ctx());
-    const stored = (useWorkspaceStore.getState().rapidDecisions ?? [])[0];
-    expect(stored.perform).toEqual(["Alice"]);
-    expect(stored.input).toEqual(["Bob"]);
+    const row = stored();
+    expect(row.perform).toEqual(["Alice"]);
+    expect(row.input).toEqual(["Bob"]);
   });
 
   it("trims whitespace before comparing, so '  Sarah  ' matches 'Sarah'", async () => {
@@ -271,7 +288,10 @@ describe("tool.rapid_decision.assign_role — idempotent append to A/P/I roles",
 
 describe("tool.rapid_decision.set_decider — overwrite singular D role", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ rapidDecisions: [seed({ id: "d1", decide: "Alice" })] });
+    useWorkspaceStore.setState({
+      decisions: [],
+      rapidDecisions: [seed({ id: "d1", decide: "Alice" })],
+    });
   });
 
   it("overwrites the decide field with the new person", async () => {
@@ -280,7 +300,7 @@ describe("tool.rapid_decision.set_decider — overwrite singular D role", () => 
       updated: boolean;
     };
     expect(result.updated).toBe(true);
-    expect((useWorkspaceStore.getState().rapidDecisions ?? [])[0].decide).toBe("Bob");
+    expect(stored().decide).toBe("Bob");
   });
 
   it("returns updated=false when the id is unknown", async () => {
@@ -295,6 +315,7 @@ describe("tool.rapid_decision.set_decider — overwrite singular D role", () => 
 describe("tool.rapid_decision.set_recommend — overwrite R field", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({
+      decisions: [],
       rapidDecisions: [seed({ id: "d1", recommend: "Carol" })],
     });
   });
@@ -306,9 +327,7 @@ describe("tool.rapid_decision.set_recommend — overwrite R field", () => {
       ctx()
     )) as { updated: boolean };
     expect(result.updated).toBe(true);
-    expect((useWorkspaceStore.getState().rapidDecisions ?? [])[0].recommend).toBe(
-      "Dana (Platform Eng)"
-    );
+    expect(stored().recommend).toBe("Dana (Platform Eng)");
   });
 
   it("returns updated=false when the id is unknown", async () => {
