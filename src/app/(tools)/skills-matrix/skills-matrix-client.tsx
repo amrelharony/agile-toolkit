@@ -1,409 +1,345 @@
 "use client";
 
-import { useRef, useMemo, useEffect } from "react";
+import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { AlertTriangle, GraduationCap, Info, Plus, Sparkles, Target, Users } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ActionRow } from "@/components/shared/action-row";
+import { EmptyState } from "@/components/shared/empty-state";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import { Button } from "@/components/ui/button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { generateSkillsMatrixPrompts } from "@/lib/ai-prompts/skills-matrix";
-import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SKILLS_ACTIONS } from "@/lib/history/event-actions";
-import { Button } from "@/components/ui/button";
-import { BlurInput } from "@/components/shared/blur-fields";
-import { SectionCard } from "@/components/shared/section-card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Users,
-  Plus,
-  Trash2,
-  Star,
-  AlertTriangle,
-  AlertCircle,
-  RotateCcw,
-  Info,
-} from "lucide-react";
-import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
-  defaultSkillsMatrix,
-  type Workspace,
+  emptySkillsMatrix,
+  type SkillProficiency,
   type SkillsMatrix,
-  type SkillsMatrixMember as TeamMember,
-  type SkillsMatrixSkill as Skill,
-  type SkillProficiency as Proficiency,
-  type SkillsMatrixGrid as GridData,
+  type SkillsTrainingPair,
+  type Workspace,
 } from "@/lib/stores/workspace-types";
+import { addToRoster, useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { todayIso } from "@/lib/sprints/series";
+import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
+import {
+  SKILLS_MATRIX_ID,
+  coverageCounts,
+  matrixColumns,
+  newSkill,
+  newTrainingPair,
+  normalizeSkillsMatrix,
+  proficiencyName,
+  ratingOf,
+  realRoster,
+  rekeyToRoster,
+  restoreColumn,
+  restoreSkill,
+  rosterSkillsMissing,
+  skillCoverage,
+  skillNameError,
+  skillsVerdict,
+  suggestCrossTraining,
+  withRating,
+  withSkill,
+  withSkillPatch,
+  withTraining,
+  withTrainingPatch,
+  withoutColumn,
+  withoutSkill,
+  withoutTraining,
+  type NewSkill,
+  type NewTrainingPair,
+  type RemovedColumn,
+  type RemovedSkill,
+  type SkillColumn,
+  type SkillTargetLevel,
+  type TrainingSuggestion,
+} from "@/lib/skills/coverage";
+import { buildExample, type SkillsExample } from "./example";
+import { skillsToMarkdown } from "./markdown";
+import { LevelLegend, SkillsGrid } from "./matrix";
+import { SkillForm } from "./skill-form";
+import { TrainingPlan } from "./training";
 
-/* -------------------------------------------------------------------------- */
-/*  Constants (types come from workspace-types, aliased on import)            */
-/* -------------------------------------------------------------------------- */
+export const TOOL_ID = "skills-matrix";
 
-/* -- Proficiency metadata -------------------------------------------------- */
+/** A change to the matrix, given it and its columns as they are now. */
+type MatrixUpdate = (doc: SkillsMatrix, columns: SkillColumn[]) => SkillsMatrix;
 
-const PROF_META: {
-  label: string;
-  shortLabel: string;
-  bg: string;
-  text: string;
-  border: string;
-}[] = [
-  {
-    label: "None",
-    shortLabel: "",
-    bg: "bg-transparent",
-    text: "text-sub",
-    border: "border-border",
-  },
-  {
-    label: "Beginner",
-    shortLabel: "B",
-    bg: "bg-accent/10",
-    text: "text-accent/60",
-    border: "border-accent/15",
-  },
-  {
-    label: "Intermediate",
-    shortLabel: "I",
-    bg: "bg-accent/20",
-    text: "text-accent/80",
-    border: "border-accent/30",
-  },
-  {
-    label: "Advanced",
-    shortLabel: "A",
-    bg: "bg-accent/40",
-    text: "text-accent",
-    border: "border-accent/60",
-  },
-  {
-    label: "Expert",
-    shortLabel: "E",
-    bg: "bg-accent/60",
-    text: "text-[#001a1f]",
-    border: "border-accent",
-  },
-];
-
-/* -- Synced singleton store (was isolated zustand persist/localStorage) ---- */
-
-const SM_ID = "skillsMatrix:current"; // MUST match SM_ID in skills-matrix.ts.
-
-/** Latest doc snapshot, read synchronously (avoids stale closures in setters). */
-function peekDoc(): SkillsMatrix {
-  return (
-    (useWorkspaceStore.getState().skillsMatrices ?? []).find((d) => d.id === SM_ID) ??
-    defaultSkillsMatrix(SM_ID)
+/** The stored matrix as the page reads it, with its columns from the real roster. */
+function storedState() {
+  const { skillsMatrices, teamMembers } = useWorkspaceStore.getState();
+  const doc = normalizeSkillsMatrix(
+    (skillsMatrices ?? []).find((d) => d.id === SKILLS_MATRIX_ID),
+    SKILLS_MATRIX_ID
   );
+  return { doc, columns: matrixColumns(doc, realRoster(teamMembers)) };
 }
 
-/** Lowest unused "<prefix> N" label (avoids same-millisecond collisions). */
-function nextLabel(names: string[], prefix: string): string {
-  const used = new Set(
-    names.map((nm) => parseInt(nm.replace(/\D/g, ""), 10)).filter(Number.isFinite)
-  );
-  let n = 1;
-  while (used.has(n)) n++;
-  return `${prefix} ${n}`;
+/**
+ * Writes to the workspace the way tool.skills_matrix.* does: from the
+ * latest stored doc (upgraded: an older doc's 0s were Not rated), with
+ * people matched to the roster by name moved onto their roster ids.
+ */
+function writeStore(update: MatrixUpdate) {
+  const { doc, columns } = storedState();
+  const next = rekeyToRoster(update(doc, columns), columns);
+  useWorkspaceStore.getState().upsertSkillsMatrix({ ...next, id: SKILLS_MATRIX_ID, version: 2 });
 }
 
-// Mirrors the old useSkillsStore API ({members, skills, grid, addMember,
-// removeMember, updateMemberName, updateMemberDescription, addSkill,
-// removeSkill, updateSkillName, updateSkillDescription, cycleCell, reset})
-// but backed by the synced workspace store, so the component is unchanged.
-function useSkillsMatrix() {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.skillsMatrices ?? []).find((d) => d.id === SM_ID))
-  );
-  const upsert = useWorkspaceStore((s) => s.upsertSkillsMatrix);
-  const view = doc ?? defaultSkillsMatrix(SM_ID);
-  const save = (next: SkillsMatrix) => upsert({ ...next, id: SM_ID });
-  return {
-    members: view.members,
-    skills: view.skills,
-    grid: view.grid,
-    addMember: () => {
-      const c = peekDoc();
-      const member: TeamMember = {
-        id: crypto.randomUUID(),
-        name: nextLabel(
-          c.members.map((m) => m.name),
-          "Member"
-        ),
-      };
-      const grid: GridData = {};
-      for (const sId of Object.keys(c.grid)) grid[sId] = { ...c.grid[sId], [member.id]: 0 };
-      save({ ...c, members: [...c.members, member], grid });
-    },
-    removeMember: (id: string) => {
-      const c = peekDoc();
-      const grid: GridData = {};
-      for (const sId of Object.keys(c.grid)) {
-        const row = { ...c.grid[sId] };
-        delete row[id];
-        grid[sId] = row;
-      }
-      save({ ...c, members: c.members.filter((m) => m.id !== id), grid });
-    },
-    updateMemberName: (id: string, name: string) => {
-      const c = peekDoc();
-      save({ ...c, members: c.members.map((m) => (m.id === id ? { ...m, name } : m)) });
-    },
-    updateMemberDescription: (id: string, description: string) => {
-      const c = peekDoc();
-      save({
-        ...c,
-        members: c.members.map((m) =>
-          m.id === id ? { ...m, description: description.trim() || undefined } : m
-        ),
-      });
-    },
-    addSkill: () => {
-      const c = peekDoc();
-      const skill: Skill = {
-        id: crypto.randomUUID(),
-        name: nextLabel(
-          c.skills.map((s) => s.name),
-          "Skill"
-        ),
-      };
-      const row: Record<string, Proficiency> = {};
-      for (const m of c.members) row[m.id] = 0;
-      save({ ...c, skills: [...c.skills, skill], grid: { ...c.grid, [skill.id]: row } });
-    },
-    removeSkill: (id: string) => {
-      const c = peekDoc();
-      const grid = { ...c.grid };
-      delete grid[id];
-      save({ ...c, skills: c.skills.filter((s) => s.id !== id), grid });
-    },
-    updateSkillName: (id: string, name: string) => {
-      const c = peekDoc();
-      save({ ...c, skills: c.skills.map((s) => (s.id === id ? { ...s, name } : s)) });
-    },
-    updateSkillDescription: (id: string, description: string) => {
-      const c = peekDoc();
-      save({
-        ...c,
-        skills: c.skills.map((s) =>
-          s.id === id ? { ...s, description: description.trim() || undefined } : s
-        ),
-      });
-    },
-    cycleCell: (skillId: string, memberId: string) => {
-      const c = peekDoc();
-      const current = c.grid[skillId]?.[memberId] ?? 0;
-      const next = ((current + 1) % 5) as Proficiency;
-      save({ ...c, grid: { ...c.grid, [skillId]: { ...c.grid[skillId], [memberId]: next } } });
-    },
-    reset: () => save(defaultSkillsMatrix(SM_ID)),
-  };
+/** A pair put back where it was in the plan (its Undo after a delete). */
+function insertPair(doc: SkillsMatrix, pair: SkillsTrainingPair, index: number): SkillsMatrix {
+  const training = (doc.training ?? []).filter((p) => p.id !== pair.id);
+  training.splice(Math.min(index, training.length), 0, pair);
+  return { ...doc, training };
 }
-
-// EditableName moved to @/components/shared/editable-name.
-
-/* -------------------------------------------------------------------------- */
-/*  Proficiency cell                                                          */
-/* -------------------------------------------------------------------------- */
-
-function ProfCell({
-  level,
-  onClick,
-  title,
-}: {
-  level: Proficiency;
-  onClick: () => void;
-  title: string;
-}) {
-  // Clamp on lookup so a corrupt persisted level (out-of-range index from a
-  // schema drift or hand-edited localStorage) doesn't dereference undefined.
-  const meta = PROF_META[Math.min(4, Math.max(0, level))];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={`${title}: ${meta.label} — click to advance`}
-      aria-label={`${title}: ${meta.label}`}
-      className={`w-full h-10 rounded border flex items-center justify-center transition-all hover:opacity-80 active:scale-95 select-none ${meta.bg} ${meta.border}`}
-    >
-      {level === 0 ? (
-        <span className="text-xs text-sub/50">·</span>
-      ) : level === 4 ? (
-        <span className={`flex items-center gap-0.5 text-xs font-bold ${meta.text}`}>
-          <Star className="w-3 h-3 fill-current" />
-          {meta.shortLabel}
-        </span>
-      ) : (
-        <span className={`text-xs font-bold ${meta.text}`}>{meta.shortLabel}</span>
-      )}
-    </button>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Analysis helpers                                                          */
-/* -------------------------------------------------------------------------- */
-
-function analyzeSkills(skills: Skill[], members: TeamMember[], grid: GridData) {
-  return skills.map((skill) => {
-    const row = grid[skill.id] ?? {};
-    const proficient = members.filter((m) => (row[m.id] ?? 0) >= 2).length;
-    const advanced = members.filter((m) => (row[m.id] ?? 0) >= 3).length;
-    const isSPOF = proficient === 0;
-    const isBusFactor = !isSPOF && advanced === 1;
-    return { skill, proficient, advanced, isSPOF, isBusFactor };
-  });
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Main Client                                                               */
-/* -------------------------------------------------------------------------- */
 
 export function SkillsMatrixClient() {
-  const {
-    members,
-    skills,
-    grid,
-    addMember: addMemberRaw,
-    removeMember: removeMemberRaw,
-    updateMemberName,
-    updateMemberDescription,
-    addSkill: addSkillRaw,
-    removeSkill: removeSkillRaw,
-    updateSkillName,
-    updateSkillDescription,
-    cycleCell: cycleCellRaw,
-    reset: resetRaw,
-  } = useSkillsMatrix();
-  const { log } = useHistoryLogger("skills-matrix");
-  // Debounce cycleCell logging — users typically click 3-4 times to find the
-  // right rating. Logging each click would flood the audit log. We schedule
-  // a "settled" log 600ms after the last cycleCell call per (memberId, skillId).
-  const cycleCellTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  useEffect(() => {
-    const timers = cycleCellTimersRef.current;
-    return () => {
-      timers.forEach((t) => clearTimeout(t));
-      timers.clear();
-    };
-  }, []);
-
-  const addMember: typeof addMemberRaw = (...args) => {
-    addMemberRaw(...args);
-    log(SKILLS_ACTIONS.PERSON_ADDED, {});
-  };
-  const removeMember: typeof removeMemberRaw = (id) => {
-    const m = members.find((x) => x.id === id);
-    removeMemberRaw(id);
-    log(SKILLS_ACTIONS.PERSON_REMOVED, { memberId: id, name: m?.name });
-  };
-  const addSkill: typeof addSkillRaw = (...args) => {
-    addSkillRaw(...args);
-    log(SKILLS_ACTIONS.SKILL_ADDED, {});
-  };
-  const removeSkill: typeof removeSkillRaw = (id) => {
-    const s = skills.find((x) => x.id === id);
-    removeSkillRaw(id);
-    log(SKILLS_ACTIONS.SKILL_REMOVED, { skillId: id, name: s?.name });
-  };
-  const cycleCell: typeof cycleCellRaw = (...args) => {
-    cycleCellRaw(...args);
-    const key = `${args[0]}|${args[1]}`;
-    const timers = cycleCellTimersRef.current;
-    const existing = timers.get(key);
-    if (existing) clearTimeout(existing);
-    const handle = setTimeout(() => {
-      timers.delete(key);
-      // Read the *settled* rating from current grid at fire time.
-      // cycleCell(skillId, memberId) — args[0]=skillId, args[1]=memberId.
-      // The prior log payload swapped these labels, corrupting every
-      // rating-change audit entry. Grid lookup was correct because the
-      // store is keyed grid[skillId][memberId].
-      const settled = peekDoc().grid[args[0]]?.[args[1]] ?? null;
-      log(SKILLS_ACTIONS.RATING_CHANGED, {
-        memberId: args[1],
-        skillId: args[0],
-        rating: settled,
-      });
-    }, 600);
-    timers.set(key, handle);
-  };
-  const reset = () => {
-    resetRaw();
-    log(SKILLS_ACTIONS.SKILLS_RESET, {});
-  };
-
-  const exportRef = useRef<HTMLDivElement>(null);
-
-  /* -- Analysis ----------------------------------------------------------- */
-
-  const analysis = useMemo(() => analyzeSkills(skills, members, grid), [skills, members, grid]);
-
-  const spofCount = useMemo(() => analysis.filter((a) => a.isSPOF).length, [analysis]);
-  const busFactorCount = useMemo(() => analysis.filter((a) => a.isBusFactor).length, [analysis]);
-
-  const overallCoverage = useMemo(() => {
-    if (skills.length === 0 || members.length === 0) return 0;
-    let filled = 0;
-    let total = 0;
-    for (const skill of skills) {
-      for (const member of members) {
-        total++;
-        if ((grid[skill.id]?.[member.id] ?? 0) > 0) filled++;
-      }
-    }
-    return total > 0 ? Math.round((filled / total) * 100) : 0;
-  }, [skills, members, grid]);
-
-  /* -- Export -------------------------------------------------------------- */
-
-  const csvData = useMemo(
-    () => ({
-      // Skill descriptions slot in as a second column without breaking the
-      // member-per-column matrix layout.
-      headers: ["Skill", "Description", ...members.map((m) => m.name)],
-      rows: skills.map((skill) => [
-        skill.name,
-        skill.description ?? "",
-        ...members.map((m) => {
-          const l = grid[skill.id]?.[m.id] ?? 0;
-          return l === 0 ? "" : PROF_META[Math.min(4, Math.max(0, l))].label;
-        }),
-      ]),
-    }),
-    [skills, members, grid]
+  return (
+    <ToolPageWrapper
+      toolId={TOOL_ID}
+      title="Team Skills Matrix"
+      description="Rate each person on the team in the skills it depends on, find the skills nobody can do or only one person can, and plan who learns what."
+      category="Team Health & Maturity"
+    >
+      <SkillsMatrixTool />
+    </ToolPageWrapper>
   );
+}
 
-  const clipboardText = useMemo(() => {
-    const header = ["Skill".padEnd(20), ...members.map((m) => m.name.padEnd(14))].join(" | ");
-    const sep = "-".repeat(header.length);
-    const rows = skills.map((skill) => {
-      const cols = [
-        skill.name.padEnd(20),
-        ...members.map((m) => {
-          const l = grid[skill.id]?.[m.id] ?? 0;
-          return (l === 0 ? "-" : PROF_META[Math.min(4, Math.max(0, l))].label).padEnd(14);
-        }),
-      ];
-      return cols.join(" | ");
+/**
+ * The Skills Matrix: the Team page roster as columns, a level picker per
+ * cell (Not rated until someone picks), gaps and single points of failure
+ * by the shared rule (lib/skills/coverage), targets per skill and a
+ * cross-training plan. The example lives in this page's memory only.
+ */
+export function SkillsMatrixTool() {
+  const hydrated = useWorkspaceHydrated();
+  const stored = useWorkspaceStore((s) =>
+    (s.skillsMatrices ?? []).find((d) => d.id === SKILLS_MATRIX_ID)
+  );
+  const rosterAll = useTeamRoster();
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<SkillsExample | null>(null);
+  const preview = example !== null;
+  const roster = useMemo(() => example?.roster ?? realRoster(rosterAll), [example, rosterAll]);
+  const doc = useMemo(
+    () => example?.doc ?? normalizeSkillsMatrix(stored, SKILLS_MATRIX_ID),
+    [example, stored]
+  );
+  const columns = useMemo(() => matrixColumns(doc, roster), [doc, roster]);
+  const coverage = useMemo(() => skillCoverage(doc, columns, roster), [doc, columns, roster]);
+  const suggestions = useMemo(
+    () => suggestCrossTraining(doc, columns, coverage),
+    [doc, columns, coverage]
+  );
+  const counts = coverageCounts(coverage);
+  const verdict = skillsVerdict(coverage, columns);
+  const missingSkills = rosterSkillsMissing(doc, roster);
+  const anyRated = counts.skills * columns.length - counts.unrated > 0;
+  const resetBefore = useRef<SkillsMatrix | undefined>(undefined);
+
+  // Fixed for the render an edit starts in, so its Undo goes back to the
+  // same place even if the example is loaded or cleared in between. The
+  // example's edits aren't the team's history, so they aren't logged.
+  const write = (update: MatrixUpdate) => {
+    if (!preview) return writeStore(update);
+    setExample((ex) => ex && { ...ex, doc: update(ex.doc, matrixColumns(ex.doc, ex.roster)) });
+  };
+  const record: typeof log = preview ? () => undefined : log;
+  const skillName = (id: string) => doc.skills.find((s) => s.id === id)?.name ?? "the skill";
+  const personName = (id: string | undefined) =>
+    columns.find((c) => c.id === id)?.name ?? "Someone";
+
+  /* ── Skills ──────────────────────────────────────────────────────── */
+
+  const addSkill = (values: NewSkill) => {
+    const skill = newSkill(values, crypto.randomUUID());
+    write((d) => withSkill(d, skill));
+    record(SKILLS_ACTIONS.SKILL_ADDED, { skillId: skill.id, name: skill.name });
+    announce(`Added ${skill.name}`);
+  };
+
+  const addListedSkills = (names: readonly string[]) => {
+    const skills = names.map((name) => newSkill({ name }, crypto.randomUUID()));
+    undoable({
+      label:
+        skills.length === 1
+          ? `Added “${skills[0].name}”`
+          : `Added ${skills.length} skills from the Team page`,
+      apply: () => {
+        write((d) => skills.reduce((acc, s) => withSkill(acc, s), d));
+        for (const s of skills) record(SKILLS_ACTIONS.SKILL_ADDED, { skillId: s.id, name: s.name });
+      },
+      revert: () => write((d) => skills.reduce((acc, s) => withoutSkill(acc, s.id)?.doc ?? acc, d)),
     });
-    const flags = analysis
-      .filter((a) => a.isSPOF || a.isBusFactor)
-      .map((a) =>
-        a.isSPOF
-          ? `[KNOWLEDGE GAP] ${a.skill.name}`
-          : `[BUS FACTOR] ${a.skill.name} — only 1 person at Advanced+`
-      );
-    return [
-      "TEAM SKILLS MATRIX",
-      "=".repeat(40),
-      "",
-      header,
-      sep,
-      ...rows,
-      ...(flags.length > 0 ? ["", "RISK FLAGS", "-".repeat(40), ...flags] : []),
-    ].join("\n");
-  }, [skills, members, grid, analysis]);
+    announce(`Added ${skills.map((s) => s.name).join(", ")}`);
+  };
 
+  const rename = (skillId: string, name: string) => {
+    const error = skillNameError(name, doc, skillId);
+    if (error) {
+      toast.error(error);
+      announce(error, "assertive");
+      return;
+    }
+    write((d) => withSkillPatch(d, skillId, { name }));
+  };
+
+  const setTarget = (skillId: string, people: number | null, level: SkillTargetLevel | null) => {
+    write((d) => withSkillPatch(d, skillId, { targetPeople: people, targetLevel: level }));
+    announce(
+      people === null
+        ? `No target for ${skillName(skillId)}`
+        : `Target for ${skillName(skillId)}: ${people} at ${proficiencyName(level ?? 2)} or above`
+    );
+  };
+
+  const removeSkill = (skillId: string) => {
+    const name = skillName(skillId);
+    let removed: RemovedSkill | null = null;
+    undoable({
+      label: `Deleted “${name}”`,
+      apply: () => {
+        write((d) => {
+          const out = withoutSkill(d, skillId);
+          if (!out) return d;
+          removed = out.removed;
+          return out.doc;
+        });
+        record(SKILLS_ACTIONS.SKILL_REMOVED, { skillId, name });
+      },
+      revert: () => {
+        const back = removed;
+        if (back) write((d) => restoreSkill(d, back));
+      },
+    });
+    announce(`Deleted ${name}`);
+  };
+
+  /* ── Ratings and people ──────────────────────────────────────────── */
+
+  const rate = (skillId: string, column: SkillColumn, level: SkillProficiency | null) => {
+    write((d) => withRating(d, skillId, column.id, level));
+    record(SKILLS_ACTIONS.RATING_CHANGED, { skillId, memberId: column.id, rating: level });
+    announce(`${skillName(skillId)}, ${column.name}: ${proficiencyName(level)}`);
+  };
+
+  const addToTeam = (column: SkillColumn) => {
+    const member = addToRoster(column.name);
+    record(SKILLS_ACTIONS.PERSON_ADDED, { memberId: member.id, name: member.name });
+    announce(`Added ${member.name} to the team`);
+  };
+
+  const removeColumn = (column: SkillColumn) => {
+    let removed: RemovedColumn | null = null;
+    undoable({
+      label: `Removed ${column.name} from the matrix`,
+      apply: () => {
+        write((d) => {
+          const out = withoutColumn(d, column.id);
+          if (!out) return d;
+          removed = out.removed;
+          return out.doc;
+        });
+        record(SKILLS_ACTIONS.PERSON_REMOVED, { memberId: column.id, name: column.name });
+      },
+      revert: () => {
+        const back = removed;
+        if (back) write((d) => restoreColumn(d, back));
+      },
+    });
+    announce(`Removed ${column.name} from the matrix`);
+  };
+
+  /* ── Training ────────────────────────────────────────────────────── */
+
+  const addPair = (values: NewTrainingPair, label: string) => {
+    const pair = newTrainingPair(
+      values,
+      `training_${crypto.randomUUID()}`,
+      new Date().toISOString()
+    );
+    undoable({
+      label,
+      apply: () => write((d) => withTraining(d, pair)),
+      revert: () => write((d) => withoutTraining(d, pair.id)),
+    });
+    announce(label);
+  };
+
+  const addSuggestion = (s: TrainingSuggestion) =>
+    addPair(
+      { skillId: s.skillId, learnerId: s.learnerId, mentorId: s.mentorId, toLevel: s.toLevel },
+      `Planned: ${personName(s.learnerId)} learns ${skillName(s.skillId)}`
+    );
+
+  const setDone = (pair: SkillsTrainingPair, done: boolean) => {
+    const before = pair.doneAt ?? null;
+    const what = `${personName(pair.learnerId)} learns ${skillName(pair.skillId)}`;
+    undoable({
+      label: done ? `Done: ${what}` : `Reopened: ${what}`,
+      apply: () => write((d) => withTrainingPatch(d, pair.id, { doneAt: done ? today : null })),
+      revert: () => write((d) => withTrainingPatch(d, pair.id, { doneAt: before })),
+    });
+    announce(done ? `Marked done: ${what}` : `Reopened: ${what}`);
+  };
+
+  const setDue = (pair: SkillsTrainingPair, due: string) =>
+    write((d) => withTrainingPatch(d, pair.id, { due: due || null }));
+
+  const removePair = (pair: SkillsTrainingPair) => {
+    const index = (doc.training ?? []).findIndex((p) => p.id === pair.id);
+    const what = `${personName(pair.learnerId)} learns ${skillName(pair.skillId)}`;
+    undoable({
+      label: `Deleted the pair: ${what}`,
+      apply: () => write((d) => withoutTraining(d, pair.id)),
+      revert: () => write((d) => insertPair(d, pair, index)),
+    });
+    announce(`Deleted the pair: ${what}`);
+  };
+
+  /* ── Reset and the example ───────────────────────────────────────── */
+
+  const reset = () => {
+    const { skillsMatrices, upsertSkillsMatrix } = useWorkspaceStore.getState();
+    resetBefore.current = (skillsMatrices ?? []).find((d) => d.id === SKILLS_MATRIX_ID);
+    upsertSkillsMatrix(emptySkillsMatrix(SKILLS_MATRIX_ID));
+    log(SKILLS_ACTIONS.SKILLS_RESET, {});
+    announce("Reset the skills matrix");
+  };
+  const undoReset = () => {
+    const before = resetBefore.current;
+    if (before) useWorkspaceStore.getState().upsertSkillsMatrix(before);
+  };
+
+  const loadExample = () => setExample(buildExample());
+  const clearExample = () => setExample(null);
+
+  /* ── Exports and prompts ─────────────────────────────────────────── */
+
+  const markdown = skillsToMarkdown({ doc, columns, coverage, suggestions, verdict });
+  const csvData = {
+    headers: ["Skill", "Description", ...columns.map((c) => c.name)],
+    rows: doc.skills.map((s) => [
+      s.name,
+      s.description ?? "",
+      ...columns.map((c) => proficiencyName(ratingOf(doc, s.id, c))),
+    ]),
+  };
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -420,306 +356,202 @@ export function SkillsMatrixClient() {
       })
     )
   );
-
-  const promptConfig = useMemo(
-    () => ({
+  const promptConfig = useMemo(() => {
+    // Rated cells only, under the column ids the page shows.
+    const grid: Record<string, Record<string, number>> = {};
+    for (const s of doc.skills) {
+      grid[s.id] = {};
+      for (const c of columns) {
+        const level = ratingOf(doc, s.id, c);
+        if (level !== null) grid[s.id][c.id] = level;
+      }
+    }
+    return {
       toolName: "Skills Matrix",
-      prompts: generateSkillsMatrixPrompts({ members, skills, grid }, workspace),
-    }),
-    [members, skills, grid, workspace]
-  );
+      prompts: generateSkillsMatrixPrompts(
+        { members: columns.map((c) => ({ id: c.id, name: c.name })), skills: doc.skills, grid },
+        workspace
+      ),
+    };
+  }, [doc, columns, workspace]);
 
-  /* -- Render -------------------------------------------------------------- */
+  if (!hydrated) {
+    return (
+      <p
+        role="status"
+        className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+      >
+        Loading the skills matrix…
+      </p>
+    );
+  }
+
+  const storedHasData =
+    !!stored &&
+    (stored.skills?.length > 0 || stored.members?.length > 0 || (stored.training?.length ?? 0) > 0);
+  const dash = !anyRated;
 
   return (
-    <ToolPageWrapper
-      toolId="skills-matrix"
-      title="Team Skills Matrix"
-      description="Map team proficiency across skills, detect bus factor risks, and identify knowledge gaps at a glance."
-      category="Team Health & Maturity"
-    >
-      <div className="space-y-6">
-        {/* ---- Stats bar -------------------------------------------------- */}
-        <div className="flex flex-wrap gap-3">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent/5 border border-accent/20">
-            <Users className="w-4 h-4 text-accent" />
-            <span className="text-sm text-sub">Coverage</span>
-            <span className="font-data font-bold text-accent">{overallCoverage}%</span>
+    <div className="space-y-6">
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 text-xs text-sub">
+            Example: a checkout team of four. Nothing in it is saved, and your own matrix and team
+            stay as they are.
+          </p>
+        </div>
+      )}
+
+      {!preview && roster.length === 0 && (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/10 px-4 py-2.5 text-sm text-text"
+        >
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" aria-hidden="true" />
+          <span>
+            The matrix rates the people on your team.{" "}
+            <Link href="/team" className="font-medium text-accent hover:underline">
+              Add your team on the Team page
+            </Link>{" "}
+            to give each person a column.
+          </span>
+        </p>
+      )}
+
+      <SectionCard title="Add a skill" icon={Plus}>
+        {missingSkills.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-sub">
+            <Sparkles className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+            <span>
+              {missingSkills.length === 1
+                ? "1 skill is listed on the Team page but not here:"
+                : `${missingSkills.length} skills are listed on the Team page but not here:`}{" "}
+              {missingSkills.join(", ")}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => addListedSkills(missingSkills)}
+            >
+              {missingSkills.length === 1 ? "Add it" : `Add all ${missingSkills.length}`}
+            </Button>
           </div>
-          {busFactorCount > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-warning/5 border border-warning/30">
-              <AlertTriangle className="w-4 h-4 text-warning" />
-              <span className="text-sm text-warning">
-                {busFactorCount} bus factor{busFactorCount > 1 ? "s" : ""}
-              </span>
-            </div>
-          )}
-          {spofCount > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-danger/5 border border-danger/30">
-              <AlertCircle className="w-4 h-4 text-danger" />
-              <span className="text-sm text-danger">
-                {spofCount} knowledge gap{spofCount > 1 ? "s" : ""}
-              </span>
-            </div>
-          )}
-          <div className="ml-auto flex items-center gap-2 flex-wrap">
+        )}
+        <SkillForm doc={doc} teamSize={columns.length} onAdd={addSkill} />
+      </SectionCard>
+
+      {doc.skills.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          action={!preview ? <LoadExampleButton onLoad={loadExample} /> : undefined}
+        >
+          No skills yet. Add the skills your team depends on above, then rate each person. The
+          matrix shows which skills nobody can do and which hang on one person.
+        </EmptyState>
+      ) : (
+        <>
+          <p className="text-sm font-medium text-text">{verdict}</p>
+          <KpiGrid cols={4} gap="lg">
+            <StatCard
+              variant="compact"
+              icon={Target}
+              label="Skills at target"
+              value={counts.withTarget > 0 ? `${counts.atTarget}/${counts.withTarget}` : "—"}
+              hint={counts.withTarget > 0 ? undefined : "No targets set"}
+            />
+            <StatCard
+              variant="compact"
+              icon={AlertTriangle}
+              label="Single points of failure"
+              value={dash ? "—" : counts.spofs}
+              tone={!dash && counts.spofs > 0 ? "warning" : "default"}
+            />
+            <StatCard
+              variant="compact"
+              icon={AlertTriangle}
+              label="Gaps"
+              value={dash ? "—" : counts.gaps}
+              tone={!dash && counts.gaps > 0 ? "danger" : "default"}
+            />
+            <StatCard
+              variant="compact"
+              icon={Users}
+              label="Ratings missing"
+              value={columns.length > 0 ? counts.unrated : "—"}
+            />
+          </KpiGrid>
+
+          <ActionRow>
             <AiPromptGenerator config={promptConfig} />
             <ExportButton
               filename="team-skills-matrix"
-              clipboardText={clipboardText}
+              markdown={markdown}
+              clipboardText={markdown}
               csvData={csvData}
-              targetRef={exportRef}
             />
-            <Button variant="danger-ghost" size="sm" onClick={reset} className="gap-1.5">
-              <RotateCcw className="w-4 h-4" />
-              Reset
-            </Button>
-          </div>
-        </div>
-
-        {/* ---- Matrix ----------------------------------------------------- */}
-        <SectionCard title="Skills Grid" icon={Users} titleSize="lg" headerClassName="pb-4">
-          <div ref={exportRef} className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr>
-                  {/* corner cell */}
-                  <th className="bg-surface-deep border border-border p-2 text-left text-xs text-sub font-medium uppercase tracking-wider min-w-[160px]">
-                    Skill / Member
-                  </th>
-                  {members.map((member) => (
-                    <th
-                      key={member.id}
-                      className="bg-surface-deep border border-border p-2 min-w-[110px]"
-                      title={member.description || undefined}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <EditableName
-                          value={member.name}
-                          onChange={(n) => updateMemberName(member.id, n)}
-                          className="flex-1 font-bold text-text text-xs"
-                        />
-                        {members.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeMember(member.id)}
-                            className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                            title="Remove member"
-                            aria-label={`Remove member ${member.name}`}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                      {/* Compact one-line description input — keeps the
-                            matrix header dense; empty trims to undefined. */}
-                      <BlurInput
-                        value={member.description ?? ""}
-                        onCommit={(v) => updateMemberDescription(member.id, v)}
-                        placeholder="Description (optional)..."
-                        className="mt-1 h-6 text-xs bg-surface border-border font-normal"
-                        aria-label={`Description for member ${member.name}`}
-                      />
-                    </th>
-                  ))}
-                  <th className="bg-surface-deep border border-border p-2 w-10">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={addMember}
-                      className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
-                      title="Add member"
-                      aria-label="Add member"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {analysis.map(({ skill, isSPOF, isBusFactor }) => (
-                  <tr key={skill.id}>
-                    <td
-                      className={`border p-2 bg-surface-deep ${
-                        isSPOF
-                          ? "border-danger/50"
-                          : isBusFactor
-                            ? "border-warning/40"
-                            : "border-border"
-                      }`}
-                      title={skill.description || undefined}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <EditableName
-                          value={skill.name}
-                          onChange={(n) => updateSkillName(skill.id, n)}
-                          className="flex-1 font-medium text-text text-sm"
-                        />
-                        {isSPOF && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs border-danger/50 text-danger bg-danger/10 px-1 py-0 h-4 flex-shrink-0"
-                            title="Knowledge gap: no one has Intermediate+ proficiency"
-                          >
-                            GAP
-                          </Badge>
-                        )}
-                        {isBusFactor && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs border-warning/50 text-warning bg-warning/10 px-1 py-0 h-4 flex-shrink-0"
-                            title="Bus factor risk: only 1 person at Advanced+ level"
-                          >
-                            BUS 1
-                          </Badge>
-                        )}
-                        {skills.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeSkill(skill.id)}
-                            className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                            title="Remove skill"
-                            aria-label={`Remove skill ${skill.name}`}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                      {/* Compact one-line description input keeps the
-                              skill row tidy; empty trims to undefined. */}
-                      <BlurInput
-                        value={skill.description ?? ""}
-                        onCommit={(v) => updateSkillDescription(skill.id, v)}
-                        placeholder="Description (optional)..."
-                        className="mt-1 h-6 text-xs bg-surface border-border"
-                        aria-label={`Description for skill ${skill.name}`}
-                      />
-                    </td>
-                    {members.map((member) => (
-                      <td
-                        key={member.id}
-                        className={`border p-1.5 ${
-                          isSPOF
-                            ? "border-danger/30"
-                            : isBusFactor
-                              ? "border-warning/20"
-                              : "border-border"
-                        }`}
-                      >
-                        <ProfCell
-                          level={grid[skill.id]?.[member.id] ?? 0}
-                          onClick={() => cycleCell(skill.id, member.id)}
-                          title={`${skill.name} / ${member.name}`}
-                        />
-                      </td>
-                    ))}
-                    <td className="border border-border p-1.5" />
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td className="border border-border p-2" colSpan={members.length + 2}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={addSkill}
-                      className="gap-1.5 text-accent hover:bg-accent/10"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Skill
-                    </Button>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </SectionCard>
-
-        {/* ---- Legend + Risk summary -------------------------------------- */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Proficiency legend */}
-          <SectionCard
-            title="Proficiency Levels"
-            icon={Info}
-            titleSize="sm"
-            contentClassName="space-y-2"
-          >
-            {PROF_META.map((meta, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div
-                  className={`w-8 h-6 rounded border flex items-center justify-center flex-shrink-0 ${meta.bg} ${meta.border}`}
-                >
-                  {i === 0 ? (
-                    <span className="text-xs text-sub/50">·</span>
-                  ) : i === 4 ? (
-                    <Star className={`w-3 h-3 fill-current ${meta.text}`} />
-                  ) : (
-                    <span className={`text-xs font-bold ${meta.text}`}>{meta.shortLabel}</span>
-                  )}
-                </div>
-                <div>
-                  <span className="text-sm font-medium text-text">
-                    {i} — {meta.label}
-                  </span>
-                  {i === 0 && (
-                    <span className="text-xs text-sub ml-2">(click a cell to start)</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </SectionCard>
-
-          {/* Risk summary */}
-          <SectionCard
-            title="Risk Analysis"
-            icon={AlertTriangle}
-            titleSize="sm"
-            contentClassName="space-y-3"
-          >
-            {analysis.filter((a) => a.isSPOF || a.isBusFactor).length === 0 ? (
-              <p className="text-sm text-sub">
-                No risks detected. All skills have adequate coverage.
-              </p>
-            ) : (
-              <>
-                {analysis
-                  .filter((a) => a.isSPOF)
-                  .map(({ skill }) => (
-                    <div
-                      key={skill.id}
-                      className="flex items-start gap-2 p-2 rounded-lg bg-danger/5 border border-danger/20"
-                    >
-                      <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-danger">{skill.name}</p>
-                        <p className="text-xs text-sub">
-                          Knowledge gap — nobody has Intermediate+ proficiency.
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                {analysis
-                  .filter((a) => a.isBusFactor)
-                  .map(({ skill }) => (
-                    <div
-                      key={skill.id}
-                      className="flex items-start gap-2 p-2 rounded-lg bg-warning/5 border border-warning/20"
-                    >
-                      <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-warning">{skill.name}</p>
-                        <p className="text-xs text-sub">
-                          Bus factor 1 — only one person at Advanced or Expert level.
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-              </>
+            {!preview && (
+              <ResetButton
+                title="Reset the skills matrix?"
+                description="Every skill, rating and training pair goes. The people on the Team page stay."
+                confirmLabel="Reset matrix"
+                doneLabel="Reset the skills matrix"
+                disabled={!storedHasData}
+                onReset={reset}
+                onUndo={undoReset}
+              />
             )}
+          </ActionRow>
+
+          <SectionCard title="Skills grid" icon={Users} titleSize="lg">
+            <SkillsGrid
+              doc={doc}
+              columns={columns}
+              coverage={coverage}
+              preview={preview}
+              handlers={{
+                onRate: rate,
+                onRename: rename,
+                onTarget: setTarget,
+                onRemoveSkill: removeSkill,
+                onAddToTeam: addToTeam,
+                onRemoveColumn: removeColumn,
+              }}
+            />
+            <details className="mt-4 rounded-lg border border-border bg-card px-4 py-2">
+              <summary className="min-h-9 cursor-pointer py-1 text-sm font-medium text-text">
+                What the levels mean
+              </summary>
+              <div className="pt-2">
+                <LevelLegend />
+              </div>
+            </details>
           </SectionCard>
-        </div>
-      </div>
-    </ToolPageWrapper>
+
+          <SectionCard title="Cross-training plan" icon={GraduationCap} titleSize="lg">
+            <TrainingPlan
+              doc={doc}
+              columns={columns}
+              coverage={coverage}
+              suggestions={suggestions}
+              today={today}
+              preview={preview}
+              handlers={{
+                onAddSuggestion: addSuggestion,
+                onAdd: (values) =>
+                  addPair(
+                    values,
+                    `Planned: ${personName(values.learnerId)} learns ${skillName(values.skillId)}`
+                  ),
+                onDone: setDone,
+                onDue: setDue,
+                onRemove: removePair,
+              }}
+            />
+          </SectionCard>
+        </>
+      )}
+    </div>
   );
 }
