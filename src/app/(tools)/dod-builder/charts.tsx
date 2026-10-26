@@ -1,39 +1,77 @@
 "use client";
 
-// Recharts lives here so the DoD builder loads it only when the adherence
-// chart mounts. Import this module through next/dynamic, never statically.
+// Recharts lives here so the DoD builder loads it only when a chart
+// mounts. Import this module through next/dynamic, never statically.
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
+  Bar,
+  BarChart,
   CartesianGrid,
-  Tooltip,
+  Line,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
+import type { AdherenceControl, AdherencePoint } from "./adherence";
 
-export function DodAdherenceChart({
+const axis = { fill: chartTheme.axisColor, fontSize: 12 };
+
+/** Each sprint's done stories meeting the DoD, as a %, oldest first. */
+export function DodAdherenceChart({ data }: { data: AdherencePoint[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      {/* ChartFigure hides the plot behind its summary and table, so the SVG
+          mustn't be a tab stop. */}
+      <BarChart
+        data={data}
+        margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
+        accessibilityLayer={false}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="name" tick={axis} axisLine={false} tickLine={false} />
+        <YAxis
+          domain={[0, 100]}
+          tick={axis}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v) => `${v}%`}
+        />
+        <Tooltip
+          contentStyle={chartTheme.tooltipStyle}
+          formatter={(v, _n, item) => {
+            const p = (item as { payload?: AdherencePoint } | undefined)?.payload;
+            return [p ? `${v}% (${p.meeting} of ${p.done})` : `${v}%`, "Meeting the DoD"];
+          }}
+        />
+        <Bar dataKey="pct" name="Meeting the DoD" fill={chartTheme.colors.cyan} maxBarSize={48} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** The same series with p-chart limits, for Advanced analysis. */
+export function DodControlChart({
   data,
   control,
 }: {
-  data: Array<{ sprintName: string; adherencePct: number }>;
-  control: { centerLinePct: number; uclPct: number; lclPct: number };
+  data: AdherencePoint[];
+  control: AdherenceControl;
 }) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+    <ResponsiveContainer width="100%" height={200}>
+      <LineChart
+        data={data}
+        margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
+        accessibilityLayer={false}
+      >
         <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
-        <XAxis
-          dataKey="sprintName"
-          tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-          axisLine={false}
-          tickLine={false}
-        />
+        <XAxis dataKey="name" tick={axis} axisLine={false} tickLine={false} />
         <YAxis
           domain={[0, 100]}
-          tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+          tick={axis}
           axisLine={false}
           tickLine={false}
           tickFormatter={(v) => `${v}%`}
@@ -46,49 +84,28 @@ export function DodAdherenceChart({
           y={control.centerLinePct}
           stroke={chartTheme.colors.cyan}
           strokeDasharray="2 4"
-          strokeOpacity={0.55}
-          label={{
-            value: "X̄",
-            fill: chartTheme.colors.cyan,
-            fontSize: 10,
-            position: "right",
-          }}
           ifOverflow="extendDomain"
         />
         <ReferenceLine
           y={control.uclPct}
           stroke={chartTheme.colors.green}
           strokeDasharray="2 4"
-          strokeOpacity={0.55}
-          label={{
-            value: "UCL",
-            fill: chartTheme.colors.green,
-            fontSize: 10,
-            position: "right",
-          }}
           ifOverflow="extendDomain"
         />
         <ReferenceLine
           y={control.lclPct}
           stroke={chartTheme.colors.red}
           strokeDasharray="2 4"
-          strokeOpacity={0.55}
-          label={{
-            value: "LCL",
-            fill: chartTheme.colors.red,
-            fontSize: 10,
-            position: "right",
-          }}
           ifOverflow="extendDomain"
         />
         <Line
           type="monotone"
-          dataKey="adherencePct"
+          dataKey="pct"
           name="Adherence"
           stroke={chartTheme.colors.cyan}
           strokeWidth={2}
           dot={{ fill: chartTheme.colors.cyan, r: 3 }}
-          activeDot={{ r: 5 }}
+          isAnimationActive={false}
         />
       </LineChart>
     </ResponsiveContainer>
