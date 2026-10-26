@@ -11,7 +11,8 @@
  *   due tomorrow"). The agent actions derive it the same way.
  * - Nothing lands in a pane by default: both answers are needed to save,
  *   and a task missing one (a legacy row, an agent's raw write) waits under
- *   "Not sorted yet" with an Edit, never in Do.
+ *   "Not sorted yet" with an Edit, never in Do. A quadrant picked on the
+ *   old page still decides its task's pane until the task is saved again.
  * - A Delegate task names who takes it from the roster (PersonPicker).
  * - Edit in place; an edit that changes an answer or the date moves the
  *   task, while the order inside each pane holds still until "Re-sort".
@@ -42,6 +43,7 @@ import {
   withClears,
   type MethodDraft,
 } from "@/components/prioritization/method-tool";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
@@ -113,10 +115,18 @@ export function EisenhowerClient() {
     },
   });
 
+  // Save and Cancel unmount the editor: focus goes back to the task's Edit
+  // button, in whichever pane the task lands.
+  const { refFor, returnTo } = useReturnFocus();
+  const closeEditor = (id: string) => {
+    setEditingId(null);
+    returnTo(`edit:${id}`);
+  };
+
   const save = (id: string, draft: MethodDraft) => {
     const before = ranked.find((r) => r.row.id === id);
     const from = before ? eisenhowerQuadrant(before.values, today) : null;
-    setEditingId(null);
+    closeEditor(id);
     actions.save(id, draft);
     const to = eisenhowerQuadrant(draft, today);
     // A changed answer or date moves the task: say where to.
@@ -180,7 +190,7 @@ export function EisenhowerClient() {
               config={EIS_CONFIG}
               ranked={t.ranked}
               onSave={(draft) => save(t.ranked.row.id, draft)}
-              onCancel={() => setEditingId(null)}
+              onCancel={() => closeEditor(t.ranked.row.id)}
             />
           ) : (
             <TaskRow
@@ -188,6 +198,7 @@ export function EisenhowerClient() {
               inDelegate={g.id === "delegate"}
               onEdit={() => setEditingId(t.ranked.row.id)}
               onRemove={() => actions.remove(t.ranked.row)}
+              editRef={refFor(`edit:${t.ranked.row.id}`)}
             />
           )}
         </li>

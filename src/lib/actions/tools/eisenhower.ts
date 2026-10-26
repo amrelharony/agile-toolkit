@@ -27,14 +27,17 @@
  * - rows store `urgent` / `important` as "true" / "false", plus `dueAt`
  *   (YYYY-MM-DD) and `delegateTo` (a person's name). A `quadrant` given to a
  *   persist is turned into the pair (an error when it contradicts the
- *   answers given); a legacy stored one is read as the pair.
+ *   answers given); a legacy stored one is read as the pair, over any
+ *   stored answers (it was the old app's pane: see legacyAware).
  * "Today" is the server's date unless the call passes `today`.
  * ─────────────────────────────────────────────────────────────────────
  */
 
 import { z } from "zod";
 import { registry } from "../registry";
+import type { PrioritizationItem } from "@/lib/stores/workspace-types";
 import { method, type Values } from "@/lib/prioritization/methods";
+import { toChoice } from "@/lib/prioritization/methods/fields";
 import {
   EISENHOWER_QUADRANTS,
   EISENHOWER_SCORE,
@@ -98,6 +101,44 @@ const EisenhowerItemInputSchema = z.object({
   title: z.string().min(1).max(200),
   fields: EisenhowerFieldsSchema,
 });
+
+/**
+ * The store with legacy rows read as the old app showed them. Before
+ * Phase 7 the pane WAS the stored `quadrant`: the old page's quadrant menu
+ * changed only it, and these actions stored it beside `urgent` /
+ * `important` (a quadrant the agent decided overriding them). New code
+ * never stores a quadrant (the method's write drops it), so a row that
+ * still holds a valid one is legacy and its quadrant is the user's last
+ * word: its `urgent` / `important` are set aside and the method maps the
+ * quadrant back to its answers. The next write stores those answers.
+ *
+ * The page's legacyQuadrantFirst (eisenhower/model.ts) is the same rule;
+ * an agent module can't import a page, and a parity test holds the two to
+ * the same panes.
+ */
+function legacyAware(store: MethodStore): MethodStore {
+  const read = (row: PrioritizationItem): PrioritizationItem => {
+    if (row.framework !== FRAMEWORK || !toChoice(EISENHOWER_QUADRANTS, row.fields?.quadrant)) {
+      return row;
+    }
+    const fields = { ...row.fields };
+    delete fields.urgent;
+    delete fields.important;
+    return { ...row, fields };
+  };
+  return {
+    ...store,
+    rows: async () => (await store.rows()).map(read),
+    row: async (id) => {
+      const row = await store.row(id);
+      return row ? read(row) : row;
+    },
+  };
+}
+
+/** Where the actions read and write: the browser store or the user's server rows, legacy-aware. */
+const client = () => legacyAware(clientStore());
+const server = (userId: string) => legacyAware(serverStore(userId));
 
 const bool = (b: boolean | undefined) => (b === undefined ? undefined : b ? "true" : "false");
 
@@ -169,11 +210,10 @@ registry.register({
   name: "list_items",
   category: "read",
   description:
-    "List all Eisenhower tasks in the workspace, grouped by quadrant derived today: { do, schedule, delegate, delete, unsorted, total, today }. A task missing an answer is under unsorted (never Do). Each row carries {bucket, score, values: {urgent, important, dueAt, delegateTo}, extra: {urgentBecause, daysToDue}}; each group is newest first. Filtered to framework='eisenhower'.",
+    "List all Eisenhower tasks in the workspace, grouped by quadrant derived today: { do, schedule, delegate, delete, unsorted, total, today }. A task missing an answer is under unsorted (never Do). A legacy row that still holds a stored quadrant (the old page's pick, or an old agent override) is listed in that quadrant, as the page shows it, its answers read from it. Each row carries {bucket, score, values: {urgent, important, dueAt, delegateTo}, extra: {urgentBecause, daysToDue}}; each group is newest first. Filtered to framework='eisenhower'.",
   paramsSchema: TodayParam,
-  handler: async (params) => listItems(clientStore(), params.today ?? todayLocalISO()),
-  mcpHandler: async (params, ctx) =>
-    listItems(serverStore(ctx.userId), params.today ?? todayLocalISO()),
+  handler: async (params) => listItems(client(), params.today ?? todayLocalISO()),
+  mcpHandler: async (params, ctx) => listItems(server(ctx.userId), params.today ?? todayLocalISO()),
 });
 
 // ──────── tool.eisenhower.classify_and_persist ────────
@@ -201,8 +241,8 @@ registry.register({
   description:
     "Classify one task by (urgent, important) and persist it to workspace.prioritization with framework='eisenhower'. The answers (and dueAt / delegateTo) are stored; the quadrant is derived on read, never stored, and the sort score (4/3/2/1) goes on PrioritizationItem.score. An existing id keeps its other fields. Returns { id, quadrant, score, urgentBecause }.",
   paramsSchema: EisenhowerItemInputSchema,
-  handler: async (params) => classifyAndPersist(clientStore(), params),
-  mcpHandler: async (params, ctx) => classifyAndPersist(serverStore(ctx.userId), params),
+  handler: async (params) => classifyAndPersist(client(), params),
+  mcpHandler: async (params, ctx) => classifyAndPersist(server(ctx.userId), params),
 });
 
 // ──────── tool.eisenhower.update_task ────────
@@ -246,8 +286,8 @@ registry.register({
   description:
     "Update one Eisenhower task: its title, urgent / important answers, due date (null clears it) or who takes it (null clears it). The quadrant follows from the answers. Returns { id, quadrant, score, urgentBecause }.",
   paramsSchema: UpdateSchema,
-  handler: async (params) => updateTask(clientStore(), params),
-  mcpHandler: async (params, ctx) => updateTask(serverStore(ctx.userId), params),
+  handler: async (params) => updateTask(client(), params),
+  mcpHandler: async (params, ctx) => updateTask(server(ctx.userId), params),
 });
 
 // ──────── tool.eisenhower.persist_to_prioritization ────────
@@ -316,6 +356,6 @@ registry.register({
   description:
     "Persist a batch of Eisenhower tasks to workspace.prioritization. Each item supplies title + fields ({ urgent, important, dueAt?, delegateTo? }) and/or a quadrant (turned into its answers; a contradiction is refused and nothing is written). The quadrant + numeric sort score (4/3/2/1) are derived. Items without an id get one generated; an existing id is updated in place.",
   paramsSchema: z.object({ items: z.array(PersistItemSchema).min(1).max(500) }),
-  handler: async (params) => persistAll(clientStore(), params),
-  mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),
+  handler: async (params) => persistAll(client(), params),
+  mcpHandler: async (params, ctx) => persistAll(server(ctx.userId), params),
 });

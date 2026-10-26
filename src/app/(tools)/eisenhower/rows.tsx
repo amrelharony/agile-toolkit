@@ -16,18 +16,21 @@ function dueTone(days: number): string {
 /**
  * One task in its pane: the title, a due chip ("2 days overdue", "due in
  * 3 days"), why the date made it urgent, who takes it ("Nobody yet" in
- * Delegate), and Edit and Delete.
+ * Delegate), and Edit and Delete. `editRef` takes the Edit button, where
+ * focus comes back after the task's editor closes.
  */
 export function TaskRow({
   task,
   inDelegate,
   onEdit,
   onRemove,
+  editRef,
 }: {
   task: TaskView;
   inDelegate: boolean;
   onEdit: () => void;
   onRemove: () => void;
+  editRef?: (el: HTMLElement | null) => void;
 }) {
   const { row } = task.ranked;
   const days = task.urgency.daysToDue;
@@ -62,6 +65,7 @@ export function TaskRow({
       </div>
       <span className="flex shrink-0 items-center">
         <IconButton
+          ref={editRef}
           label={`Edit ${row.title}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"

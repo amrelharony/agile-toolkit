@@ -193,19 +193,24 @@ describe("Eisenhower: the quadrant is derived", () => {
         task("sch", "Agent schedule", { urgent: "false", important: "true" }),
         task("del", "Legacy delegate", { quadrant: "delegate" }),
         task("drop", "Legacy delete", { quadrant: "delete" }),
-        // A stored quadrant that contradicts the answers: the answers win.
-        task("stale", "Stale quadrant", { urgent: "false", important: "true", quadrant: "do" }),
+        // A stored quadrant that contradicts the answers (the old page's menu
+        // moved only the quadrant): it was the old app's pane, so it wins.
+        task("stale", "Moved on the old page", {
+          urgent: "false",
+          important: "true",
+          quadrant: "do",
+        }),
         // Junk and a half-answered row: never Do.
         task("junk", "Junk quadrant", { quadrant: "urgentish" }),
         task("half", "Half answered", { important: "true" }),
       ],
     });
     renderPage();
-    expect(inPane("Do")).toEqual([expect.stringContaining("Agent do")]);
-    expect(inPane("Schedule")).toEqual([
-      expect.stringContaining("Agent schedule"),
-      expect.stringContaining("Stale quadrant"),
+    expect(inPane("Do")).toEqual([
+      expect.stringContaining("Agent do"),
+      expect.stringContaining("Moved on the old page"),
     ]);
+    expect(inPane("Schedule")).toEqual([expect.stringContaining("Agent schedule")]);
     expect(inPane("Delegate")).toEqual([expect.stringContaining("Legacy delegate")]);
     expect(inPane("Delete")).toEqual([expect.stringContaining("Legacy delete")]);
     expect(inPane("Not sorted yet")).toEqual([
@@ -237,7 +242,11 @@ describe("Eisenhower: the quadrant is derived", () => {
     expect(previewText({ important: "true" }, TODAY)).toBe(
       "Say whether it's urgent to see where it goes."
     );
+    // The form needs the Urgent answer, so the line asks for it before naming a pane.
     expect(previewText({ important: "true", dueAt: "2026-10-27" }, TODAY)).toBe(
+      "Say whether it's urgent (being due today makes it urgent anyway)."
+    );
+    expect(previewText({ important: "true", urgent: "false", dueAt: "2026-10-27" }, TODAY)).toBe(
       "Urgent because it's due today, so it goes to Do."
     );
   });

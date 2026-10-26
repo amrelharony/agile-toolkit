@@ -7,13 +7,13 @@
  * Pure.
  *
  * The quadrant is derived from the two answers and the due date, never
- * stored: a legacy row holding only a hand-picked `quadrant` reads as the
- * matching answers, and a task missing an answer waits under "Not sorted
- * yet", never in Do.
+ * stored: a legacy row holding a hand-picked `quadrant` reads as the
+ * matching answers (legacyQuadrantFirst), and a task missing an answer
+ * waits under "Not sorted yet", never in Do.
  */
 
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
-import { toDay, toText } from "@/lib/prioritization/methods/fields";
+import { toChoice, toDay, toText } from "@/lib/prioritization/methods/fields";
 import {
   EISENHOWER_LABEL,
   EISENHOWER_MEANING,
@@ -29,6 +29,30 @@ import type { Values } from "@/lib/prioritization/methods";
 
 export const FRAMEWORK = "eisenhower" as const;
 
+/**
+ * A row as the old app showed it. Before Phase 7 the pane WAS the stored
+ * `quadrant`: the old page's quadrant menu changed only it, and the old
+ * agent actions stored it beside `urgent` / `important` (with a quadrant
+ * an agent decided overriding them). New code never stores a quadrant
+ * (the method's write drops it), so a row that still holds a valid one is
+ * legacy and its quadrant is the user's last word: the row reads with
+ * `urgent` / `important` set aside, so the method maps the quadrant back
+ * to its answers. Pure; the stored row is untouched, and the next save
+ * writes the answers the editor showed.
+ *
+ * The agent actions apply the same rule (lib/actions/tools/eisenhower),
+ * as the method's own read() should (it lets the answers win today).
+ */
+export function legacyQuadrantFirst(row: PrioritizationItem): PrioritizationItem {
+  if (row.framework !== FRAMEWORK || !toChoice(EISENHOWER_QUADRANTS, row.fields?.quadrant)) {
+    return row;
+  }
+  const fields = { ...row.fields };
+  delete fields.urgent;
+  delete fields.important;
+  return { ...row, fields };
+}
+
 /** The list for tasks missing an answer (legacy junk, a raw CRUD write). */
 export const UNSORTED = "unsorted" as const;
 export const UNSORTED_LABEL = "Not sorted yet";
@@ -41,9 +65,17 @@ export function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
-/** The tasks, scored by the registry for `today` (YYYY-MM-DD). */
+/**
+ * The tasks, scored by the registry for `today` (YYYY-MM-DD), a legacy
+ * quadrant read first. Each ranked row carries the stored row itself (a
+ * delete's Undo puts back exactly what was there).
+ */
 export function eisRows(rows: readonly PrioritizationItem[], today: string): RankedRow[] {
-  return rankMethodRows(FRAMEWORK, rows, [], { today });
+  const stored = new Map(rows.map((r) => [r.id, r]));
+  return rankMethodRows(FRAMEWORK, rows.map(legacyQuadrantFirst), [], { today }).map((r) => ({
+    ...r,
+    row: stored.get(r.row.id) ?? r.row,
+  }));
 }
 
 /** What a task shows: its pane, why it's urgent, its due date and who takes it. */
@@ -123,19 +155,27 @@ export function urgentReason(u: Urgency): string | null {
   return `Urgent because it's ${dueText(u.daysToDue)}`;
 }
 
+/** Both questions are answered: the form can save (the method needs both). */
+export const bothAnswered = (v: Values): boolean =>
+  v.important !== undefined && v.urgent !== undefined;
+
 /**
  * The form's live line: where the answers put the task today, and why
  * when the due date made it urgent ("Urgent because it's due tomorrow, so
- * it goes to Do."). Says what's missing until both are answered.
+ * it goes to Do."). Says what's missing until both are answered, the same
+ * rule the form saves by: a near due date doesn't stand in for the Urgent
+ * answer, so the line never names a pane the form would then refuse.
  */
 export function previewText(v: Values, today: string): string {
-  const q = eisenhowerQuadrant(v, today);
+  const q = bothAnswered(v) ? eisenhowerQuadrant(v, today) : null;
   if (!q) {
     if (v.important === undefined && v.urgent === undefined) {
       return "Answer both questions to see where it goes.";
     }
-    return v.important === undefined
-      ? "Say whether it's important to see where it goes."
+    if (v.important === undefined) return "Say whether it's important to see where it goes.";
+    const u = urgency(v, today);
+    return u.because === "due" && u.daysToDue !== null
+      ? `Say whether it's urgent (being ${dueText(u.daysToDue)} makes it urgent anyway).`
       : "Say whether it's urgent to see where it goes.";
   }
   const reason = urgentReason(urgency(v, today));
