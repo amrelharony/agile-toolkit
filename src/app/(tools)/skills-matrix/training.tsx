@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
+import { DayInput } from "@/components/shared/day-input";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { PersonPicker } from "@/components/team/person-picker";
 import { findRosterMember } from "@/lib/team/names";
@@ -24,7 +25,6 @@ import {
   type SkillTargetLevel,
   type TrainingSuggestion,
 } from "@/lib/skills/coverage";
-import { DayInput } from "../maturity/day-input";
 
 export interface PairDraft {
   skillId: string;

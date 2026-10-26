@@ -17,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
+import { DayInput } from "@/components/shared/day-input";
 import { EditableName } from "@/components/shared/editable-name";
 import { useInlineEdit } from "@/components/shared/inline-item-editor";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
@@ -51,7 +52,6 @@ import {
   stageIndex,
   type NewInitiative,
 } from "@/lib/adkar/model";
-import { DayInput } from "../maturity/day-input";
 import { InitiativeForm } from "./initiative-form";
 
 const daysWord = (n: number) => (n === 1 ? "1 day" : `${n} days`);

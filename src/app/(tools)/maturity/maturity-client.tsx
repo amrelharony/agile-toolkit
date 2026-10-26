@@ -11,6 +11,7 @@ import { ActionRow } from "@/components/shared/action-row";
 import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { BlurInput } from "@/components/shared/blur-fields";
 import { ChartCard, ChartFigure } from "@/components/shared/chart-card";
+import { DayInput } from "@/components/shared/day-input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { ResetButton } from "@/components/shared/reset-button";
@@ -71,7 +72,6 @@ import {
   trendSlopeText,
   trendText,
 } from "./chart-text";
-import { DayInput } from "./day-input";
 import { buildExample, type MaturityExample } from "./example";
 import { maturityToMarkdown } from "./markdown";
 import { useMaturityLevelSync } from "./use-maturity-level";
