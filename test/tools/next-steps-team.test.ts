@@ -147,6 +147,31 @@ describe("kudos", () => {
     });
   });
 
+  it("past the Write phase, points at each kudos' Add to retro", () => {
+    // The board lists the sprint's kudos in its Write phase only.
+    const ws = (over: Partial<RetroBoard>) => ({
+      kudos: wall,
+      retroBoards: [board("retro:current", [], over)],
+      sprints: [sprint()],
+      teamMembers: TEAM,
+    });
+    expect(steps("kudos", ws({ sprintId: "s2", phase: "vote" }))).toEqual([
+      {
+        id: "kudos-retro",
+        label: "Bring 2 kudos from Sprint 2 to the retro",
+        detail:
+          "The retro is past its Write phase: step back to Write for “Kudos from Sprint 2”, or use “Add to retro” on each kudos.",
+        href: "/retro",
+      },
+    ]);
+    expect(steps("kudos", ws({ phase: "actions" }))[0].detail).toBe(
+      "The retro is past its Write phase: use “Add to retro” on each kudos."
+    );
+    expect(steps("kudos", ws({ sprintId: "s2", phase: "write" }))[0].detail).toBe(
+      "They go in the appreciations column: add them from “Kudos from Sprint 2” on the board."
+    );
+  });
+
   it("ignores replies and example kudos, and asks for the team without a roster", () => {
     const ws = {
       kudos: [wall[2], wall[3]],
@@ -200,20 +225,21 @@ describe("one-on-one", () => {
 });
 
 describe("onboarding tracker", () => {
-  it("asks for the team, then the open sprint's capacity", () => {
-    const out = steps("onboarding-tracker", { teamMembers: [], sprints: [sprint()] });
-    expect(out.map((s) => [s.id, s.href])).toEqual([
-      ["onboarding-team", "/team"],
-      ["onboarding-capacity", "/capacity-planner?sprint=s2"],
-    ]);
-    expect(out[1].label).toBe("Lower a new joiner's capacity in Sprint 2");
+  it("asks for the team without a roster (example members left out)", () => {
+    const out = steps("onboarding-tracker", {
+      teamMembers: [member("example-m", "Sam")],
+      sprints: [sprint()],
+    });
+    expect(out.map((s) => [s.id, s.href])).toEqual([["onboarding-team", "/team"]]);
   });
 
-  it("stays quiet with a team and no open sprint (example sprints left out)", () => {
+  it("never claims a new joiner from an open sprint alone", () => {
+    // Who is new is in the tool's blob: an open sprint says nothing about it.
+    expect(ids("onboarding-tracker", { teamMembers: TEAM, sprints: [sprint()] })).toEqual([]);
     expect(
       ids("onboarding-tracker", {
         teamMembers: TEAM,
-        sprints: [sprint({ id: "example-s" }), sprint({ id: "s1", status: "completed" })],
+        sprints: [sprint({ status: "planned" }), sprint({ id: "s1", status: "completed" })],
       })
     ).toEqual([]);
   });
@@ -425,6 +451,13 @@ describe("Definition of Done", () => {
         href: "/dod-builder",
       },
     ]);
+    // A DoD with criteria, none of them required: mark them, don't write one.
+    expect(steps("kanban", { ...ws, definitionsOfDone: [dod([false, false])] })).toEqual([
+      expect.objectContaining({
+        id: "kanban-dod",
+        label: "Mark the DoD criteria every story must meet",
+      }),
+    ]);
     expect(ids("kanban", { ...ws, definitionsOfDone: [dod()] })).toEqual([]);
   });
 
@@ -625,6 +658,8 @@ describe("maturity", () => {
       "Sent from the roadmap and not done yet, starting with “Maturity: Technical Excellence to level 3”."
     );
     expect(out[1].label).toBe("Work on Continuous Improvement (level 2)");
+    // Tied with the one sent: still the weakest.
+    expect(out[1].detail).toMatch(/^It's the weakest dimension in the latest assessment\./);
     // A done step isn't followed up again.
     expect(
       ids("maturity", {
@@ -632,6 +667,24 @@ describe("maturity", () => {
         retroBoards: [board("retro:current", [sent("technical-excellence:3", true)])],
       })
     ).toEqual(["maturity-weakest"]);
+  });
+
+  it("doesn't call a stronger dimension the weakest while a weaker one waits on a re-assessment", () => {
+    // Technical Excellence at 1 was sent and its card is done; the team hasn't re-assessed.
+    const scores = { ...entry().scores, "technical-excellence": 1 };
+    const out = steps("maturity", {
+      maturityAssessments: doc([entry({ scores })]),
+      retroBoards: [board("retro:current", [sent("technical-excellence:2", true)])],
+    });
+    expect(out).toEqual([
+      {
+        id: "maturity-weakest",
+        label: "Work on Continuous Improvement (level 2)",
+        detail:
+          "It's the weakest dimension not sent to the retro yet. Follow the retro's actions through in Retro Actions.",
+        href: "/retro-actions",
+      },
+    ]);
   });
 
   it("says nothing for an unassessed team or an example assessment", () => {

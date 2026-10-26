@@ -204,7 +204,13 @@ const LOW_MOOD = 2.5;
 /** Days after the last check-in (or the first publish) when the working agreement is due one. */
 const AGREEMENT_CHECK_IN_DAYS = 30;
 
-/** The workspace's Definition of Done, read the way the DoD page reads it. */
+/**
+ * The workspace's Definition of Done, read the way the DoD page reads it.
+ * Until the DoD builder's old blob has moved in (lib/dod/use-definition-of-done:
+ * the owner's first cloud pull, or held by an open merge/discard question),
+ * a page shows the blob while this reads no DoD: a rule can't read the blob.
+ * The gap closes once the move runs.
+ */
 const dodOf = (docs: readonly DefinitionOfDone[] | undefined) =>
   normalizeDefinitionOfDone((docs ?? []).find((d) => d.id === DOD_DOC_ID));
 
@@ -733,8 +739,8 @@ const RULES: Record<string, NextStepRule<object>> = {
       const doc = (readiness ?? []).find((d) => d.id === RELEASE_DOC_ID);
       const releases = real(doc?.releases);
       const today = todayIso();
-      // The DoD gate as the page reads it: the workspace DoD, against the
-      // release's linked stories.
+      // The DoD gate as the page reads it: the workspace DoD (dodOf says
+      // why not the old blob), against the release's linked stories.
       const dod = (dods ?? []).find((d) => d.id === DOD_DOC_ID) ?? null;
       const linkable = real(stories);
       const steps: NextStep[] = [];
@@ -1222,10 +1228,14 @@ const RULES: Record<string, NextStepRule<object>> = {
         });
       }
       const done = planned.filter((s) => s.status === "done").length;
-      if (done > 0 && requiredCriteria(dodOf(dods)).length === 0) {
+      const dod = dodOf(dods);
+      if (done > 0 && requiredCriteria(dod).length === 0) {
         steps.push({
           id: "kanban-dod",
-          label: "Write a Definition of Done for the board's cards",
+          label:
+            dod.items.length === 0
+              ? "Write a Definition of Done for the board's cards"
+              : "Mark the DoD criteria every story must meet",
           detail: `${plural(done, "story", "stories")} on ${sprint.name}'s board ${be(done)} done with no required criteria to check ${done === 1 ? "it" : "them"} against.`,
           href: "/dod-builder",
         });
@@ -1672,11 +1682,18 @@ const RULES: Record<string, NextStepRule<object>> = {
           (k) => isRecognition(k) && sentIn(k, window) && !onBoard.has(k.id)
         ).length;
         if (waiting > 0) {
+          const named = current?.sprintId === sprint.id;
+          // The board lists the sprint's kudos in its Write phase only; a
+          // kudos' own "Add to retro" works in any phase.
+          const pastWrite = (current?.phase ?? "write") !== "write";
           steps.push({
             id: "kudos-retro",
             label: `Bring ${waiting} kudos from ${sprint.name} to the retro`,
-            detail:
-              current?.sprintId === sprint.id
+            detail: pastWrite
+              ? named
+                ? `The retro is past its Write phase: step back to Write for “Kudos from ${sprint.name}”, or use “Add to retro” on each kudos.`
+                : "The retro is past its Write phase: use “Add to retro” on each kudos."
+              : named
                 ? `They go in the appreciations column: add them from “Kudos from ${sprint.name}” on the board.`
                 : `Pick ${sprint.name} on the retro board to add them to the appreciations column.`,
             href: "/retro",
@@ -1721,29 +1738,22 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // No capacity step: who is new is in the tool's blob, and a roster
+  // member has no join date, so it would show for every open sprint.
   "onboarding-tracker": rule({
-    select: (ws) => ({ members: ws.teamMembers, sprints: ws.sprints }),
-    steps: ({ members, sprints }) => {
-      const steps: NextStep[] = [];
-      if (real(members).length === 0) {
-        steps.push({
-          id: "onboarding-team",
-          label: "Add the new joiner to the team",
-          detail: "On the Team page they show up in capacity, standups and their buddy's picker.",
-          href: "/team",
-        });
-      }
-      const sprint = focusSprint(sprints);
-      if (sprint) {
-        steps.push({
-          id: "onboarding-capacity",
-          label: `Lower a new joiner's capacity in ${sprint.name}`,
-          detail: "Someone still ramping up can't take a full share of the sprint's work yet.",
-          href: sprintHref("/capacity-planner", sprint.id),
-        });
-      }
-      return steps;
-    },
+    select: (ws) => ({ members: ws.teamMembers }),
+    steps: ({ members }) =>
+      real(members).length === 0
+        ? [
+            {
+              id: "onboarding-team",
+              label: "Add the new joiner to the team",
+              detail:
+                "On the Team page they show up in capacity, standups and their buddy's picker.",
+              href: "/team",
+            },
+          ]
+        : [],
   }),
 
   "stakeholder-map": rule({
@@ -1968,10 +1978,12 @@ const RULES: Record<string, NextStepRule<object>> = {
       const weakest = roadmap.find((r) => r.cards.length === 0)?.step;
       const tool = weakest && MATURITY_TOOL[weakest.dimensionId];
       if (weakest && tool) {
+        // A weaker one already sent (its card perhaps done) still heads the roadmap.
+        const lowest = weakest.current === roadmap[0].step.current;
         steps.push({
           id: "maturity-weakest",
           label: `Work on ${weakest.name} (level ${weakest.current})`,
-          detail: `It's the weakest dimension in the latest assessment. ${tool.start}`,
+          detail: `It's the weakest dimension ${lowest ? "in the latest assessment" : "not sent to the retro yet"}. ${tool.start}`,
           href: tool.href,
         });
       }
