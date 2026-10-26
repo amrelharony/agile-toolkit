@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -24,8 +24,10 @@ import {
   dayLabel,
   diffVersions,
   draftCheckIn,
+  canPublish,
   emptyAgreement,
   hasUnpublishedChanges,
+  needsSnapshot,
   normalizeAgreement,
   notWorkingStreak,
   published,
@@ -70,6 +72,7 @@ import { adherenceChartText, adherencePoints } from "@/app/(tools)/working-agree
 /* ── Fixtures ───────────────────────────────────────────────────────── */
 
 const TODAY = "2026-10-22";
+const PUBLISHED = "2026-09-12T10:00:00.000Z";
 
 const rule = (id: string, text: string, extra: Partial<CharterRule> = {}): CharterRule => ({
   id,
@@ -142,13 +145,27 @@ describe("reading a stored agreement", () => {
       rules: [
         { id: "r1", category: "work", text: "Pair on hard bugs", agreedBy: ["Ann", " ann "] },
       ],
-      meta: { version: 1 },
+      meta: { version: 1, publishedAt: PUBLISHED },
     });
     expect(doc.rules[0].consent).toEqual([{ name: "Ann", vote: "consent", at: "" }]);
     expect(doc.rules[0].agreedBy).toEqual(["Ann"]);
     expect(doc.checkIns).toEqual([]);
     expect(doc.versions).toEqual([]);
-    expect(doc.meta).toEqual({ version: 1 });
+    expect(doc.meta).toEqual({ version: 1, publishedAt: PUBLISHED });
+  });
+
+  it("reads an agreement the old agent made at version 1, never published, as version 0", () => {
+    const old = { id: WA_ID, rules: [rule("r1", "One")], meta: { version: 1 } };
+    const doc = normalizeAgreement(old);
+    expect(doc.meta).toEqual({ version: 0 });
+    expect(agreementVerdict(doc, [])).toMatch(/^1 rule, not published yet;/);
+    expect(published(doc, PUBLISHED).meta.version).toBe(1);
+    // Read twice, it stays the same.
+    expect(normalizeAgreement(doc)).toEqual(doc);
+    // One the page published keeps its number, with or without snapshots.
+    expect(
+      normalizeAgreement({ ...old, meta: { version: 3, publishedAt: PUBLISHED } }).meta
+    ).toEqual({ version: 3, publishedAt: PUBLISHED });
   });
 
   it("derives agreedBy from consent once consent is recorded", () => {
@@ -397,8 +414,25 @@ describe("published versions", () => {
     expect(hasUnpublishedChanges({ ...v1, rules: [...v1.rules].reverse() })).toBe(true);
   });
 
-  it("treats a charter published before versions were kept as unpublished, and keeps 20 versions", () => {
-    expect(hasUnpublishedChanges({ ...base, meta: { version: 3 } })).toBe(true);
+  it("lets a charter published before versions were kept publish once, without claiming changes", () => {
+    const old: WorkingAgreement = { ...base, meta: { version: 3, publishedAt: PUBLISHED } };
+    expect(needsSnapshot(old)).toBe(true);
+    expect(hasUnpublishedChanges(old)).toBe(false);
+    expect(canPublish(old)).toBe(true);
+    const verdict = agreementVerdict(old, []);
+    expect(verdict).toContain(
+      `2 rules in v3 (published ${dayLabel(PUBLISHED)}, before versions were kept: publish once to keep a snapshot)`
+    );
+    expect(verdict).not.toContain("changes not yet published");
+    const v4 = published(old, "2026-10-01T10:00:00.000Z");
+    expect(v4.meta.version).toBe(4);
+    expect(needsSnapshot(v4)).toBe(false);
+    expect(canPublish(v4)).toBe(false);
+    // Nothing to publish without rules.
+    expect(canPublish({ ...old, rules: [] })).toBe(false);
+  });
+
+  it("keeps the latest 20 versions", () => {
     let doc = base;
     for (let i = 0; i < VERSION_CAP + 3; i++) {
       doc = published(
@@ -543,7 +577,10 @@ describe("the page", () => {
   });
 
   it("saves a backdated round, clears its marks, and Undo puts them back", () => {
-    seed({ rules: [rule("r1", "One"), rule("r2", "Two")], meta: { version: 1 } });
+    seed({
+      rules: [rule("r1", "One"), rule("r2", "Two")],
+      meta: { version: 1, publishedAt: PUBLISHED },
+    });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Save check-in round" }));
     expect(
@@ -638,5 +675,138 @@ describe("the page", () => {
     expect(ex.doc.rules.every((r) => isExampleId(r.id))).toBe(true);
     expect((ex.doc.checkIns ?? []).every((c) => isExampleId(c.id))).toBe(true);
     expect(ex.roster.every((m) => isExampleId(m.id))).toBe(true);
+  });
+});
+
+describe("the page, after review", () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeAll(() => {
+    // Radix Select calls these; jsdom doesn't implement them.
+    Element.prototype.scrollIntoView = () => {};
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.releasePointerCapture = () => {};
+  });
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  /** Runs the frames focusSoon asked for, after React has rendered. */
+  const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+
+  it("says a charter published before versions were kept needs a snapshot, and publishes one", () => {
+    seed({ rules: [rule("r1", "One")], meta: { version: 3, publishedAt: PUBLISHED } });
+    renderPage();
+    expect(screen.getByText("no snapshot kept yet")).toBeInTheDocument();
+    expect(screen.queryByText(/changes not yet published/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Publish v4" }));
+    expect(stored().versions?.map((v) => v.version)).toEqual([4]);
+    expect(screen.getByRole("button", { name: "Publish v5" })).toBeDisabled();
+  });
+
+  it("refuses to reword a rule in place into one the charter already has", () => {
+    seed({ rules: [rule("r1", "One"), rule("r2", "Two")] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Two/ }));
+    const editor = screen.getByLabelText("Rule text");
+    fireEvent.change(editor, { target: { value: " one. " } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+    expect(toastSpy.error).toHaveBeenCalledWith("“one.” is already in the charter.");
+    expect(stored().rules.map((r) => r.text)).toEqual(["One", "Two"]);
+  });
+
+  it("moves focus to the next rule after a delete, then to the add form", () => {
+    seed({ rules: [rule("r1", "One"), rule("r2", "Two")] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete “One”" }));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Two/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Two”" }));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Rule/));
+  });
+
+  it("keeps focus on a rule's category after it moves to another section", () => {
+    seed({ rules: [rule("r1", "One"), rule("r2", "Two")] });
+    renderPage();
+    const trigger = screen.getByRole("combobox", { name: "Category of “Two”" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Meetings" }));
+    nextFrame();
+    expect(stored().rules[1].category).toBe("meetings");
+    expect(document.activeElement).toBe(
+      within(screen.getByRole("region", { name: "Meetings" })).getByRole("combobox", {
+        name: "Category of “Two”",
+      })
+    );
+  });
+
+  it("moves focus to the next saved round after a delete", () => {
+    seed({
+      rules: [rule("r1", "One")],
+      checkIns: [
+        round("c1", "2026-09-01", { r1: "working" }),
+        round("c2", "2026-10-01", { r1: "not_working" }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Delete the check-in of 1 Oct/ }));
+    nextFrame();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: /^Delete the check-in of 1 Sep/ })
+    );
+  });
+
+  it("puts a saved round's day back, saying why, when the edit is in the future or cleared", () => {
+    seed({ rules: [rule("r1", "One")], checkIns: [round("c1", "2026-09-01", { r1: "working" })] });
+    renderPage();
+    const day = screen.getByLabelText(/^Day of the check-in of 1 Sep/);
+    expect(day).toHaveAttribute("max", TODAY);
+    fireEvent.change(day, { target: { value: "2026-11-30" } });
+    fireEvent.blur(day);
+    expect(screen.getByText("Pick today or an earlier day.")).toBeInTheDocument();
+    expect(day).toHaveValue("2026-09-01");
+    expect(day).toHaveAttribute("aria-invalid", "true");
+    expect(stored().checkIns?.[0].date).toBe("2026-09-01");
+    fireEvent.change(day, { target: { value: "" } });
+    fireEvent.blur(day);
+    expect(screen.getByText("Pick the day of the check-in.")).toBeInTheDocument();
+    expect(day).toHaveValue("2026-09-01");
+    fireEvent.change(day, { target: { value: "2026-09-03" } });
+    fireEvent.blur(day);
+    expect(stored().checkIns?.[0].date).toBe("2026-09-03");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("takes focus to the first rule's mark when a round is saved with nothing marked", () => {
+    seed({ rules: [rule("r1", "One"), rule("r2", "Two")] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Save check-in round" }));
+    const first = screen.getByRole("radiogroup", { name: "This round: “One”" });
+    expect(document.activeElement).toBe(within(first).getByRole("radio", { name: "Not checked" }));
+  });
+
+  it("takes focus to the answer when someone else's answer is recorded without one", () => {
+    seed({ rules: [rule("r1", "One")] }, []);
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/^Someone else/), { target: { value: "Zoe" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record answer" }));
+    expect(screen.getByText("Pick their answer.")).toBeInTheDocument();
+    const answer = screen.getByRole("radiogroup", { name: "Their answer" });
+    expect(document.activeElement).toBe(within(answer).getByRole("radio", { name: "Consent" }));
+  });
+
+  it("counts what a reset clears in words that read right for one", () => {
+    seed({
+      rules: [rule("r1", "One")],
+      checkIns: [round("c1", "2026-09-01", { r1: "working" })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Clear the charter" }));
+    expect(
+      screen.getByText(
+        "The one rule and everyone's answers to it, 1 saved check-in and 0 published versions."
+      )
+    ).toBeInTheDocument();
   });
 });

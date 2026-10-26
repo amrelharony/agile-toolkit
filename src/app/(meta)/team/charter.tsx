@@ -15,7 +15,7 @@ import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { todayIso } from "@/lib/sprints/series";
 import { cn } from "@/lib/utils";
 import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
-import { WA_ID } from "@/lib/working-agreement/model";
+import { WA_ID, normalizeAgreement } from "@/lib/working-agreement/model";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
@@ -30,8 +30,14 @@ const NO_STORIES: Story[] = [];
  */
 export function TeamCharter() {
   const members = useTeamRoster();
-  const agreement = useWorkspaceStore((s) =>
+  const storedAgreement = useWorkspaceStore((s) =>
     (s.workingAgreements ?? []).find((d) => d.id === WA_ID)
+  );
+  // Read as the Working Agreement page reads it (consent as agreedBy, an
+  // old agent's never-published "version 1" as version 0).
+  const agreement = useMemo(
+    () => (storedAgreement ? normalizeAgreement(storedAgreement) : undefined),
+    [storedAgreement]
   );
   // The workspace DoD, or the DoD builder's old blob until it has moved in
   // (a team that opens the charter first moves it from here).

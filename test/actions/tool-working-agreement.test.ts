@@ -270,6 +270,41 @@ describe("rules, consent, check-ins and publish", () => {
     expect(listed.versions.map((v) => v.version)).toEqual([1, 2]);
     expect(listed.unpublishedChanges).toBe(false);
   });
+
+  it("reads a charter published before versions were kept as needing a snapshot, not as changed", async () => {
+    useWorkspaceStore.setState({
+      workingAgreements: [
+        {
+          id: WA_ID,
+          rules: [{ id: "r1", category: "work", text: "One", agreedBy: [] }],
+          meta: { version: 3, publishedAt: "2026-09-12T10:00:00.000Z" },
+        },
+      ],
+    });
+    const listed = await call<{
+      unpublishedChanges: boolean;
+      needsSnapshot: boolean;
+      verdict: string;
+    }>("list_state");
+    expect(listed).toMatchObject({ unpublishedChanges: false, needsSnapshot: true });
+    expect(listed.verdict).toContain("before versions were kept: publish once to keep a snapshot");
+    expect(await call("publish")).toMatchObject({ published: true, version: 4, changes: null });
+    expect(await call("list_state")).toMatchObject({ needsSnapshot: false });
+  });
+
+  it("reads an agreement the old agent made at version 1 as never published", async () => {
+    useWorkspaceStore.setState({
+      workingAgreements: [
+        {
+          id: WA_ID,
+          rules: [{ id: "r1", category: "work", text: "One", agreedBy: [] }],
+          meta: { version: 1 },
+        },
+      ],
+    });
+    expect(await call("list_state")).toMatchObject({ meta: { version: 0 }, needsSnapshot: false });
+    expect(await call("publish")).toMatchObject({ published: true, version: 1 });
+  });
 });
 
 describe("the MCP path", () => {

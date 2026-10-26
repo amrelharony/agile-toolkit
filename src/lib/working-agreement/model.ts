@@ -248,11 +248,16 @@ export function normalizeAgreement(raw: unknown): WorkingAgreement {
     .map(normalizeVersion)
     .filter((v): v is CharterVersion => v !== null)
     .sort((a, b) => a.version - b.version);
+  const meta = normalizeMeta(raw.meta);
+  // The old agent created agreements at version 1 with nothing published;
+  // the page always stamped publishedAt when it published. Read such a
+  // document as never published, so the first Publish makes it v1.
+  if (meta.version > 0 && !meta.publishedAt && versions.length === 0) meta.version = 0;
   return {
     ...(raw as Partial<WorkingAgreement>),
     id: WA_ID,
     rules,
-    meta: normalizeMeta(raw.meta),
+    meta,
     checkIns,
     versions,
   };
@@ -615,14 +620,23 @@ export const draftRules = (doc: Pick<WorkingAgreement, "rules">): CharterVersion
   doc.rules.map(versionRule);
 
 /**
- * Whether Publish has anything to publish: the draft differs from the
- * latest version (its rules, team name or description). An agreement
- * published before versions were kept has no snapshot to compare with, so
- * any rules read as unpublished; an empty one never does.
+ * Published before versions were kept: the charter is at v3, but there is
+ * no snapshot of v3, so whether the draft changed since can't be told.
+ * Publishing once keeps one; until then nothing claims there are changes.
+ */
+export function needsSnapshot(doc: Pick<WorkingAgreement, "rules" | "meta" | "versions">): boolean {
+  return doc.meta.version > 0 && !latestVersion(doc) && doc.rules.length > 0;
+}
+
+/**
+ * Whether the draft has changes not yet published: it differs from the
+ * latest version (its rules, team name or description), or it was never
+ * published and has rules. False when it was published before versions
+ * were kept (needsSnapshot): there is nothing to compare it with.
  */
 export function hasUnpublishedChanges(doc: WorkingAgreement): boolean {
   const latest = latestVersion(doc);
-  if (!latest) return doc.rules.length > 0;
+  if (!latest) return doc.meta.version === 0 && doc.rules.length > 0;
   if ((latest.teamName ?? "") !== (doc.meta.teamName ?? "")) return true;
   if ((latest.description ?? "") !== (doc.meta.description ?? "")) return true;
   const diff = diffVersions(latest.rules, draftRules(doc));
@@ -630,6 +644,10 @@ export function hasUnpublishedChanges(doc: WorkingAgreement): boolean {
   // Same rules, another order.
   return latest.rules.map((r) => r.id).join("\u0000") !== doc.rules.map((r) => r.id).join("\u0000");
 }
+
+/** Whether Publish has something to do: changes to publish, or a first snapshot to keep. */
+export const canPublish = (doc: WorkingAgreement): boolean =>
+  hasUnpublishedChanges(doc) || needsSnapshot(doc);
 
 /** `doc` published at `publishedAt`: the snapshot kept (the latest VERSION_CAP), the version bumped. */
 export function published(doc: WorkingAgreement, publishedAt: string): WorkingAgreement {
@@ -691,9 +709,9 @@ export function agreementVerdict(
   const { meta } = doc;
   const isPublished = meta.version > 0 && Boolean(meta.publishedAt);
   const head = isPublished
-    ? `${rulesWord(doc.rules.length)} in v${meta.version} (published ${dayLabel(meta.publishedAt)})${
-        hasUnpublishedChanges(doc) ? ", with changes not yet published" : ""
-      }`
+    ? `${rulesWord(doc.rules.length)} in v${meta.version} (published ${dayLabel(meta.publishedAt)}${
+        needsSnapshot(doc) ? ", before versions were kept: publish once to keep a snapshot" : ""
+      })${hasUnpublishedChanges(doc) ? ", with changes not yet published" : ""}`
     : `${rulesWord(doc.rules.length)}, not published yet`;
   const c = agreementConsent(doc, roster);
   const answered = doc.rules.some((r) => consentEntries(r).length > 0);

@@ -150,7 +150,11 @@ export function ConsentPanel({
             placeholder="Name"
             offerAddToRoster={offerAddToRoster}
           />
-          <div className="flex min-w-0 flex-col gap-1.5">
+          <div
+            className="flex min-w-0 flex-col gap-1.5"
+            // focusFirstInvalid looks for this marker to focus the checked (or first) answer.
+            data-scale-invalid={errors.vote ? "true" : undefined}
+          >
             <span className="text-sm text-text">Their answer</span>
             <ToggleGroup
               label="Their answer"

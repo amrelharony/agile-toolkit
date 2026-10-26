@@ -42,11 +42,14 @@ import type {
   Workspace,
 } from "@/lib/stores/workspace-types";
 import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { plural } from "@/lib/charts/chart-text";
+import { toast } from "@/lib/utils/toast";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import {
   WA_ID,
   agreementConsent,
   agreementVerdict,
+  canPublish,
   checkInAdherence,
   consentEntries,
   dayLabel,
@@ -56,6 +59,7 @@ import {
   hasUnpublishedChanges,
   lastCheckIn,
   latestVersion,
+  needsSnapshot,
   normalizeAgreement,
   notWorkingStreak,
   published,
@@ -105,6 +109,17 @@ function writeStore(update: DocUpdate) {
 
 const noLog = () => undefined;
 
+/** Focus what `find` returns once React has re-rendered (a deleted or moved card took focus with it). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+/** The control that carries `attr` = `id` (data-rule-edit, data-rule-category, data-round-delete). */
+const controlFor = (attr: string, id: string) =>
+  Array.from(document.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
+    (el) => el.getAttribute(attr) === id
+  );
+
 /** `rule` with its text and description as edited; an emptied description goes. */
 function withText(rule: CharterRule, text: string, description: string | undefined): CharterRule {
   const next: CharterRule = { ...rule, text };
@@ -142,6 +157,8 @@ export function WorkingAgreementClient() {
     [preview, sprintList]
   );
   const resetSnapshot = useRef<WorkingAgreement | null>(null);
+  const addRef = useRef<HTMLDivElement>(null);
+  const roundRef = useRef<HTMLDivElement>(null);
 
   // Fixed for the render an edit starts in, so its Undo goes back to the
   // same place even if the example is loaded or cleared in between. The
@@ -177,6 +194,7 @@ export function WorkingAgreementClient() {
   const lastAdherence = last ? checkInAdherence(last) : null;
   const marked = draftCount(doc);
   const unpublished = hasUnpublishedChanges(doc);
+  const noSnapshot = needsSnapshot(doc);
   const markdown = agreementMarkdown(doc, roster, { verdict, sprintName });
   const byCategory = CATEGORIES.map((c) => ({
     ...c,
@@ -211,6 +229,11 @@ export function WorkingAgreementClient() {
     write((d) => ({ ...d, rules: d.rules.map((r) => (r.id === id ? change(r) : r)) }));
 
   const editText = (rule: CharterRule, text: string, description: string | undefined) => {
+    // The add form and update_rule refuse a second copy; so does an edit in place.
+    if (doc.rules.some((r) => r.id !== rule.id && ruleKey(r.text) === ruleKey(text))) {
+      toast.error(`“${text}” is already in the charter.`);
+      return;
+    }
     patchRule(rule.id, (r) => withText(r, text, description));
     record(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, { ruleId: rule.id, text });
   };
@@ -220,6 +243,8 @@ export function WorkingAgreementClient() {
     patchRule(rule.id, (r) => ({ ...r, category }));
     record(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, { ruleId: rule.id, category });
     announce(`Moved “${rule.text}” to ${CATEGORY_LABEL[category]}`);
+    // The card mounts again under its new category; its category stays focused.
+    focusSoon(() => controlFor("data-rule-category", rule.id));
   };
 
   const mark = (rule: CharterRule, stillWorking: boolean | undefined) => {
@@ -246,6 +271,10 @@ export function WorkingAgreementClient() {
   };
 
   const remove = (rule: CharterRule) => {
+    // Focus moves to the next rule as listed (or the one before, or the add form).
+    const listed = byCategory.flatMap((c) => c.rules);
+    const at = listed.findIndex((r) => r.id === rule.id);
+    const near = listed[at + 1] ?? listed[at - 1];
     removeWithUndo<CharterRule>({
       label: `Deleted “${rule.text}”`,
       update: (fn) => write((d) => ({ ...d, rules: fn(d.rules) })),
@@ -253,6 +282,11 @@ export function WorkingAgreementClient() {
     });
     record(WORKING_AGREEMENT_ACTIONS.RULE_REMOVED, { ruleId: rule.id, text: rule.text });
     announce(`Deleted “${rule.text}”`);
+    focusSoon(() =>
+      near
+        ? controlFor("data-rule-edit", near.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
   };
 
   /* ── Check-ins ────────────────────────────────────────────────────── */
@@ -310,6 +344,10 @@ export function WorkingAgreementClient() {
 
   const removeRound = (round: CharterCheckIn) => {
     const label = `Deleted the check-in of ${dayLabel(round.date, true)}`;
+    // Rounds are listed newest first: focus moves to the next one down (or up, or the save form).
+    const listed = [...(doc.checkIns ?? [])].reverse();
+    const at = listed.findIndex((c) => c.id === round.id);
+    const near = listed[at + 1] ?? listed[at - 1];
     undoable({
       label,
       apply: () => {
@@ -319,19 +357,24 @@ export function WorkingAgreementClient() {
       revert: () => write((d) => withCheckIn(d, round, { clearDraft: false })),
     });
     announce(label);
+    focusSoon(() =>
+      near
+        ? controlFor("data-round-delete", near.id)
+        : roundRef.current?.querySelector<HTMLElement>("input")
+    );
   };
 
   /* ── Versions ─────────────────────────────────────────────────────── */
 
   const publish = () => {
-    if (!unpublished) return;
+    if (!canPublish(doc)) return;
     const at = new Date().toISOString();
     const before = { version: doc.meta.version, publishedAt: doc.meta.publishedAt };
     const next = doc.meta.version + 1;
     undoable({
       label: `Published v${next}`,
       apply: () => {
-        write((d) => (hasUnpublishedChanges(d) ? published(d, at) : d));
+        write((d) => (canPublish(d) ? published(d, at) : d));
         record(WORKING_AGREEMENT_ACTIONS.CHARTER_PUBLISHED, {
           version: next,
           ruleCount: doc.rules.length,
@@ -493,9 +536,11 @@ export function WorkingAgreementClient() {
               hint={
                 doc.meta.version === 0
                   ? "not published"
-                  : unpublished
-                    ? "changes not published"
-                    : `published ${dayLabel(doc.meta.publishedAt)}`
+                  : noSnapshot
+                    ? "no snapshot kept yet"
+                    : unpublished
+                      ? "changes not published"
+                      : `published ${dayLabel(doc.meta.publishedAt)}`
               }
             />
             <StatCard
@@ -529,7 +574,9 @@ export function WorkingAgreementClient() {
 
       <div className="space-y-6">
         <SectionCard title="Add a rule" icon={Plus}>
-          <AddRuleForm rules={doc.rules} onAdd={(v) => add(v, "custom")} />
+          <div ref={addRef}>
+            <AddRuleForm rules={doc.rules} onAdd={(v) => add(v, "custom")} />
+          </div>
           {catalog.length > 0 && (
             <details className="mt-4 rounded-md border border-border bg-card">
               <summary className="min-h-10 cursor-pointer px-3 py-2 text-sm font-medium text-text">
@@ -598,14 +645,16 @@ export function WorkingAgreementClient() {
 
         {hasRules && (
           <SectionCard title="Check-in round" icon={CheckCircle2}>
-            <SaveRoundForm
-              marked={marked}
-              total={doc.rules.length}
-              today={today}
-              sprints={sprints}
-              onSave={saveRound}
-              onDiscard={discardMarks}
-            />
+            <div ref={roundRef}>
+              <SaveRoundForm
+                marked={marked}
+                total={doc.rules.length}
+                today={today}
+                sprints={sprints}
+                onSave={saveRound}
+                onDiscard={discardMarks}
+              />
+            </div>
           </SectionCard>
         )}
 
@@ -638,7 +687,14 @@ export function WorkingAgreementClient() {
             <ResetButton
               label="Clear the charter"
               title="Clear the whole working agreement?"
-              description={`All ${doc.rules.length} rules with everyone's consent, ${(doc.checkIns ?? []).length} saved check-ins and ${(doc.versions ?? []).length} published versions.`}
+              description={`${
+                doc.rules.length === 1
+                  ? "The one rule and everyone's answers to it"
+                  : `All ${doc.rules.length} rules and everyone's answers to them`
+              }, ${plural((doc.checkIns ?? []).length, "saved check-in")} and ${plural(
+                (doc.versions ?? []).length,
+                "published version"
+              )}.`}
               confirmLabel="Clear charter"
               doneLabel="Cleared the working agreement"
               onReset={() => {

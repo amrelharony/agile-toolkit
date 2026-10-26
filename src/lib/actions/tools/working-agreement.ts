@@ -46,6 +46,7 @@ import {
   WA_KIND,
   agreementConsent,
   agreementVerdict,
+  canPublish,
   checkInAdherence,
   checkInTrend,
   consentLine,
@@ -58,6 +59,7 @@ import {
   hasUnpublishedChanges,
   lastCheckIn,
   latestVersion,
+  needsSnapshot,
   normalizeAgreement,
   published,
   withCheckIn,
@@ -181,6 +183,7 @@ function summarize(raw: WorkingAgreement | null, roster: readonly TeamMember[]) 
       rules: v.rules.length,
     })),
     unpublishedChanges: hasUnpublishedChanges(doc),
+    needsSnapshot: needsSnapshot(doc),
     changesSinceLatest: latest ? diffVersions(latest.rules, draftRules(doc)) : null,
     verdict: agreementVerdict(doc, roster),
   };
@@ -192,7 +195,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the working agreement with the page's numbers. Returns {exists, total, byCategory: {communication, meetings, decisions, work, conflict, other}, stillWorkingCount and notWorkingCount (the marks of the check-in in progress, not yet saved), meta: {teamName?, version (0 = never published), publishedAt?, description?}, rules: {id, category, text, description?, agreedBy (the names voting consent), consent: {name, vote: 'consent'|'concern'|'object', note?, at}[], stillWorking?, consentSummary: {line, consented, concerns, objections, missing (roster members who haven't answered), full (everyone answered, nobody objects)}}[], consent: {rosterSize, fullyConsented, withObjection, missingPeople, objections: {ruleId, text, names}[]}, lastCheckIn: null | {id, date, version, checked, working, pct}, checkIns: {id, date, version, sprintId?, checked, working, pct (null when nothing was checked)}[] oldest first, versions: {version, publishedAt, rules}[], unpublishedChanges, changesSinceLatest: null | {added, removed, reworded, recategorised, redescribed}, verdict}.",
+    "Summarise the working agreement with the page's numbers. Returns {exists, total, byCategory: {communication, meetings, decisions, work, conflict, other}, stillWorkingCount and notWorkingCount (the marks of the check-in in progress, not yet saved), meta: {teamName?, version (0 = never published), publishedAt?, description?}, rules: {id, category, text, description?, agreedBy (the names voting consent), consent: {name, vote: 'consent'|'concern'|'object', note?, at}[], stillWorking?, consentSummary: {line, consented, concerns, objections, missing (roster members who haven't answered), full (everyone answered, nobody objects)}}[], consent: {rosterSize, fullyConsented, withObjection, missingPeople, objections: {ruleId, text, names}[]}, lastCheckIn: null | {id, date, version, checked, working, pct}, checkIns: {id, date, version, sprintId?, checked, working, pct (null when nothing was checked)}[] oldest first, versions: {version, publishedAt, rules}[], unpublishedChanges (the draft differs from the latest version, or was never published; false when there is no snapshot to compare with), needsSnapshot (published before versions were kept: publish once to keep one), changesSinceLatest: null | {added, removed, reworded, recategorised, redescribed}, verdict}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.getDoc(), await browserStore.roster()),
   mcpHandler: async (_params, ctx) => {
@@ -462,7 +465,7 @@ async function publish(store: AgreementStore) {
   const at = new Date().toISOString();
   return change(store, (doc) => {
     if (doc.rules.length === 0) return { refuse: { published: false, reason: "no_rules" } };
-    if (!hasUnpublishedChanges(doc)) {
+    if (!canPublish(doc)) {
       return { refuse: { published: false, reason: "nothing_changed", version: doc.meta.version } };
     }
     const latest = latestVersion(doc);
@@ -487,7 +490,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Publish the agreement: snapshot the rules (with the team name and description) as the next version, as the page's Publish does. Refused when nothing changed since the latest version, or with no rules. Returns {published: true, version, publishedAt, changes: null | {added, removed, reworded, recategorised, redescribed} (against the previous version)}, or {published: false, reason: 'nothing_changed' (with version) | 'no_rules'}.",
+    "Publish the agreement: snapshot the rules (with the team name and description) as the next version, as the page's Publish does. Refused when nothing changed since the latest version, or with no rules; allowed once for a charter published before versions were kept (needsSnapshot), to keep its first snapshot. Returns {published: true, version, publishedAt, changes: null | {added, removed, reworded, recategorised, redescribed} (against the previous version)}, or {published: false, reason: 'nothing_changed' (with version) | 'no_rules'}.",
   paramsSchema: z.object({}),
   handler: async () => publish(browserStore),
   mcpHandler: async (_params, ctx) => publish(serverStore(ctx.userId)),

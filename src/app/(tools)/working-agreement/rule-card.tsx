@@ -38,6 +38,9 @@ const MARK_OPTIONS: ToggleOption<Mark>[] = [
   { value: "not_working", label: "Not working", description: "It slips, or nobody follows it" },
 ];
 
+/** How each card's "This round" choice is named; the save form finds the first by it. */
+export const MARK_GROUP_PREFIX = "This round: ";
+
 const markOf = (r: Pick<CharterRule, "stillWorking">): Mark =>
   r.stillWorking === true ? "working" : r.stillWorking === false ? "not_working" : "unset";
 
@@ -103,6 +106,8 @@ export function RuleCard({
               ref={edit.triggerRef}
               type="button"
               onClick={edit.start}
+              // Focus finds the card again by these after a delete or a move.
+              data-rule-edit={rule.id}
               title="Click to edit"
               className="block w-full cursor-text break-words rounded-sm text-left text-sm text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
@@ -130,6 +135,7 @@ export function RuleCard({
           onValueChange={(v) => onCategory(rule, v as CharterRuleCategory)}
         >
           <SelectTrigger
+            data-rule-category={rule.id}
             aria-label={`Category of “${rule.text}”`}
             className="h-8 w-auto min-w-[9rem] gap-2 text-xs"
           >
@@ -148,7 +154,7 @@ export function RuleCard({
           </SelectContent>
         </Select>
         <ToggleGroup
-          label={`This round: “${rule.text}”`}
+          label={`${MARK_GROUP_PREFIX}“${rule.text}”`}
           size="sm"
           value={markOf(rule)}
           options={MARK_OPTIONS}

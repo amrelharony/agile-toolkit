@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import type { CharterVersionRule, WorkingAgreement } from "@/lib/stores/workspace-types";
 import {
+  canPublish,
   dayLabel,
   diffIsEmpty,
   diffVersions,
   draftRules,
-  hasUnpublishedChanges,
   latestVersion,
   type VersionDiff,
 } from "@/lib/working-agreement/model";
@@ -75,7 +75,7 @@ export function VersionsPanel({
 }) {
   const versions = doc.versions ?? [];
   const latest = latestVersion(doc);
-  const changed = hasUnpublishedChanges(doc);
+  const changed = canPublish(doc);
   const next = doc.meta.version + 1;
   const reason =
     doc.rules.length === 0
@@ -134,7 +134,7 @@ export function VersionsPanel({
               (latest
                 ? `Snapshots the rules as v${next}; v${latest.version} stays to compare with.`
                 : doc.meta.version > 0
-                  ? `v${doc.meta.version} was published before versions were kept, so there's nothing to compare it with.`
+                  ? `v${doc.meta.version} was published before versions were kept, so there's nothing to compare it with; publishing keeps a snapshot as v${next}.`
                   : "Snapshots the rules as v1, so later versions can be compared with it.")}
           </p>
         </div>

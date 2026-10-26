@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useId, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import { Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import {
   type CheckInField,
   type CheckInValues,
 } from "./form";
+import { MARK_GROUP_PREFIX } from "./rule-card";
 import {
   adherenceChartText,
   adherencePoints,
@@ -64,11 +66,28 @@ export function SaveRoundForm({
   /** Clear the marks without saving (with Undo). */
   onDiscard: () => void;
 }) {
-  const form = useItemForm<CheckInDraft, CheckInValues, CheckInField>({
+  const base = useItemForm<CheckInDraft, CheckInValues, CheckInField>({
     initial: () => ({ date: today, sprintId: "", note: "" }),
     validate: (d) => validateCheckIn(d, marked, today),
     onSave,
   });
+  // "Mark at least one rule" has no field in the form: the marks are on the
+  // rule cards above, so a refused save takes focus to the first one's
+  // "This round" choice (the form then focuses a bad date over it, if any).
+  const form = {
+    ...base,
+    submit: (e?: FormEvent) => {
+      const saved = base.submit(e);
+      if (!saved && marked === 0) {
+        document
+          .querySelector<HTMLElement>(
+            `[role="radiogroup"][aria-label^="${MARK_GROUP_PREFIX}"] [role="radio"][tabindex="0"]`
+          )
+          ?.focus();
+      }
+      return saved;
+    },
+  };
   const { draft, update, errors } = form;
   return (
     <ItemForm
@@ -137,6 +156,60 @@ export function SaveRoundForm({
   );
 }
 
+/**
+ * A saved round's day, edited in place: saved on blur or Enter when it is a
+ * day no later than today. Anything else goes back to the saved day, with a
+ * message saying why, so the field never shows a day that wasn't saved.
+ */
+function RoundDayInput({
+  round,
+  today,
+  onDate,
+}: {
+  round: CharterCheckIn;
+  today: string;
+  onDate: (round: CharterCheckIn, date: string) => void;
+}) {
+  const [draft, setDraft] = useState(round.date);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
+  useEffect(() => setDraft(round.date), [round.date]);
+  const commit = () => {
+    if (draft === round.date || (ISO_DAY.test(draft) && draft <= today)) {
+      setError(null);
+      if (draft !== round.date) onDate(round, draft);
+      return;
+    }
+    setError(
+      ISO_DAY.test(draft) ? "Pick today or an earlier day." : "Pick the day of the check-in."
+    );
+    setDraft(round.date);
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <Input
+        type="date"
+        max={today}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        className="h-9 w-40"
+        aria-label={`Day of the check-in of ${dayLabel(round.date, true)}`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+      />
+      {error && (
+        <p id={errorId} className="text-xs text-danger" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** One saved round: its day and note edited in place, and Delete (with Undo). */
 function RoundRow({
   round,
@@ -157,16 +230,7 @@ function RoundRow({
   const sprint = sprintName(round.sprintId);
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
-      <BlurInput
-        type="date"
-        value={round.date}
-        onCommit={(date) => {
-          // A day after today, or a half-typed one, isn't saved.
-          if (ISO_DAY.test(date) && date <= today) onDate(round, date);
-        }}
-        className="h-9 w-40"
-        aria-label={`Day of the check-in of ${dayLabel(round.date, true)}`}
-      />
+      <RoundDayInput round={round} today={today} onDate={onDate} />
       <span className="min-w-0 flex-1 basis-40 text-sm text-text">
         {a.working} of {a.checked} working
         <span className="text-sub">
@@ -187,6 +251,7 @@ function RoundRow({
         label={`Delete the check-in of ${dayLabel(round.date, true)}`}
         icon={<Trash2 className="h-4 w-4" />}
         className="h-9 w-9 text-sub hover:text-danger"
+        data-round-delete={round.id}
         onClick={() => onDelete(round)}
       />
     </li>
