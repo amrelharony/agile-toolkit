@@ -250,41 +250,43 @@ export function StakeholderMapClient() {
     },
   ];
 
-  const promptConfig = useMemo(
-    () => ({
+  const promptConfig = useMemo(() => {
+    // The prompt reads placed, rated stakeholders only: it has no way to
+    // say "not placed yet" or "not set". Its counts come from the same
+    // list, so its headline and its tables agree.
+    const rated = stakeholders.flatMap((s) =>
+      s.interest !== null && s.authority !== null && s.currentSentiment
+        ? [
+            {
+              name: s.name,
+              role: s.role,
+              interest: s.interest,
+              authority: s.authority,
+              sentiment: s.currentSentiment,
+              strategy: s.strategy,
+              description: s.description,
+            },
+          ]
+        : []
+    );
+    const inQuadrant = (q: Quadrant) => rated.filter((s) => quadrantOf(s) === q).length;
+    return {
       toolName: "Stakeholder Map",
       prompts: generateStakeholderMapPrompts(
         {
-          // The prompt reads placed, rated stakeholders only: it has no
-          // way to say "not placed yet" or "not set".
-          stakeholders: stakeholders.flatMap((s) =>
-            s.interest !== null && s.authority !== null && s.currentSentiment
-              ? [
-                  {
-                    name: s.name,
-                    role: s.role,
-                    interest: s.interest,
-                    authority: s.authority,
-                    sentiment: s.currentSentiment,
-                    strategy: s.strategy,
-                    description: s.description,
-                  },
-                ]
-              : []
-          ),
+          stakeholders: rated,
           quadrants: {
-            manageClosely: quadrants.manageClosely.length,
-            keepSatisfied: quadrants.keepSatisfied.length,
-            keepInformed: quadrants.keepInformed.length,
-            monitor: quadrants.monitor.length,
+            manageClosely: inQuadrant("manageClosely"),
+            keepSatisfied: inQuadrant("keepSatisfied"),
+            keepInformed: inQuadrant("keepInformed"),
+            monitor: inQuadrant("monitor"),
           },
-          blockers,
+          blockers: rated.filter((s) => s.sentiment === "blocker").length,
         },
         workspace
       ),
-    }),
-    [stakeholders, quadrants, blockers, workspace]
-  );
+    };
+  }, [stakeholders, workspace]);
 
   return (
     <ToolPageWrapper
@@ -481,6 +483,7 @@ export function StakeholderMapClient() {
                 stakeholder={s}
                 today={today}
                 onPatch={(patch) => updateStakeholder(s.id, patch)}
+                onPlace={(at) => place(s.id, at, "pick")}
                 onRemove={() => removeStakeholder(s)}
               />
             ))}

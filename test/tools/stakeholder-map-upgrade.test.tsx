@@ -31,6 +31,14 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+// What the page hands the AI prompt, to check its counts against its list.
+const promptData = vi.hoisted(() => ({ last: null as null | Record<string, unknown> }));
+vi.mock("@/lib/ai-prompts/stakeholder-map", () => ({
+  generateStakeholderMapPrompts: (data: Record<string, unknown>) => {
+    promptData.last = data;
+    return [];
+  },
+}));
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: ({ markdown }: { markdown?: string }) => (
     <pre data-testid="export-markdown">{markdown}</pre>
@@ -247,16 +255,90 @@ describe("Stakeholder page", () => {
     expect(within(tray).getByText("Kim Lee")).toBeInTheDocument();
   });
 
-  it("places someone from the tray with the quadrant picker", () => {
+  it("places someone from the tray with the quadrant picker", async () => {
     seed([stakeholder("kim", { name: "Kim" })]);
     renderPage();
     const tray = screen.getByRole("region", { name: "Not placed yet" });
-    fireEvent.change(within(tray).getByLabelText("Place Kim in"), {
-      target: { value: "manageClosely" },
-    });
+    const pick = within(tray).getByLabelText("Place Kim in");
+    act(() => pick.focus());
+    fireEvent.change(pick, { target: { value: "manageClosely" } });
     expect(stored()[0]).toMatchObject({ interest: 8, authority: 8 });
     expect(card("Manage Closely")).toBe("Manage Closely1");
-    expect(screen.getByTestId("live-polite")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Kim: interest 8, authority 8, Manage Closely"
+      )
+    );
+    // The chip (and its select) went: focus is on Kim's new dot.
+    await waitFor(() => expect(within(map()).getByRole("button", { name: /^Kim:/ })).toHaveFocus());
+  });
+
+  it("places someone from their row, announced, with focus on the Interest slider", async () => {
+    seed([stakeholder("kim", { name: "Kim" })]);
+    renderPage();
+    const tray = screen.getByRole("region", { name: "Not placed yet" });
+    const rowPick = screen
+      .getAllByLabelText("Place Kim in")
+      .find((el) => !tray.contains(el)) as HTMLElement;
+    act(() => rowPick.focus());
+    fireEvent.change(rowPick, { target: { value: "monitor" } });
+    expect(stored()[0]).toMatchObject({ interest: 2, authority: 2 });
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Kim: interest 2, authority 2, Monitor"
+      )
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("slider", { name: "Interest for Kim" })).toHaveFocus()
+    );
+  });
+
+  it("never saves a last contact after today, and names each date field", () => {
+    seed([stakeholder("kim", { name: "Kim", lastContactAt: day(-3) })]);
+    renderPage();
+    const last = screen.getByLabelText("Last contact with Kim");
+    fireEvent.change(last, { target: { value: day(2) } });
+    expect(stored()[0].lastContactAt).toBe(day(-3));
+    fireEvent.change(last, { target: { value: day(-1) } });
+    expect(stored()[0].lastContactAt).toBe(day(-1));
+    fireEvent.change(last, { target: { value: "" } });
+    expect(stored()[0]).not.toHaveProperty("lastContactAt");
+    fireEvent.change(screen.getByLabelText("Next touch with Kim"), {
+      target: { value: day(4) },
+    });
+    expect(stored()[0].nextTouchAt).toBe(day(4));
+  });
+
+  it("hands the AI prompt counts from the same stakeholders it lists", () => {
+    seed([
+      stakeholder("a", {
+        name: "Ana",
+        interest: 8,
+        authority: 8,
+        currentSentiment: "blocker",
+      }),
+      // Not placed, and placed without a sentiment: not in the prompt's list,
+      // so not in its counts either.
+      stakeholder("b", { name: "Ben", currentSentiment: "blocker" }),
+      stakeholder("c", { name: "Cleo", interest: 9, authority: 9 }),
+    ]);
+    renderPage();
+    const data = promptData.last as {
+      stakeholders: { name: string }[];
+      quadrants: Record<string, number>;
+      blockers: number;
+    };
+    expect(data.stakeholders.map((s) => s.name)).toEqual(["Ana"]);
+    expect(data.blockers).toBe(1);
+    expect(data.quadrants).toEqual({
+      manageClosely: 1,
+      keepSatisfied: 0,
+      keepInformed: 0,
+      monitor: 0,
+    });
+    // The page's own cards still count everyone it can.
+    expect(card("Blockers")).toContain("2");
+    expect(card("Manage Closely")).toBe("Manage Closely2");
   });
 
   it("moves a dot with the arrow keys, announced, and saves once on blur", async () => {
@@ -411,8 +493,11 @@ describe("Stakeholder page", () => {
       }),
     ]);
     renderPage();
+    expect(screen.getByText(/Tap one to see their details\.$/)).toBeInTheDocument();
     fireEvent.click(within(map()).getByRole("button", { name: /^Lena/ }));
     const detail = screen.getByRole("region", { name: "Selected stakeholder" });
+    // Not a live region: the announcer says what moved, not the whole card.
+    expect(detail).not.toHaveAttribute("aria-live");
     expect(within(detail).getByText("Supporter → Champion (1 step short)")).toBeInTheDocument();
     expect(
       within(detail).getByText("Last contact 12 days ago · No touch planned")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PhoneCall, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -144,15 +144,28 @@ export function StakeholderRow({
   stakeholder: s,
   today,
   onPatch,
+  onPlace,
   onRemove,
 }: {
   stakeholder: Stakeholder;
   today: string;
   onPatch: (patch: Partial<Stakeholder>) => void;
+  /** Place them from "Place in…" (saved and announced as the map's picker is). */
+  onPlace: (at: { interest: number; authority: number }) => void;
   onRemove: () => void;
 }) {
   const gap = sentimentGap(s);
   const touch = touchStatus(s, today);
+  // "Place in…" gives way to the sliders, and the focused select goes with
+  // it: focus moves on to the Interest slider.
+  const slidersRef = useRef<HTMLDivElement>(null);
+  const focusSliders = useRef(false);
+  const placed = isPlaced(s);
+  useEffect(() => {
+    if (!placed || !focusSliders.current) return;
+    focusSliders.current = false;
+    slidersRef.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
+  }, [placed]);
   return (
     <Card className="bg-surface border-border">
       <CardContent className="p-3 space-y-3">
@@ -179,8 +192,8 @@ export function StakeholderRow({
           />
         </div>
 
-        {isPlaced(s) ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {placed ? (
+          <div ref={slidersRef} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <ScoreSlider
               label="Interest"
               name={s.name}
@@ -202,7 +215,9 @@ export function StakeholderRow({
               value=""
               onChange={(e) => {
                 const q = e.target.value as Quadrant;
-                if (q) onPatch(QUADRANT_CENTRE[q]);
+                if (!q) return;
+                focusSliders.current = true;
+                onPlace(QUADRANT_CENTRE[q]);
               }}
               className={SELECT_CLASS}
             >
@@ -251,11 +266,13 @@ export function StakeholderRow({
               type="date"
               value={s.lastContactAt ?? ""}
               max={today}
-              onChange={(e) =>
-                onPatch({
-                  lastContactAt: isIsoDay(e.target.value) ? e.target.value : undefined,
-                })
-              }
+              aria-label={`Last contact with ${s.name}`}
+              onChange={(e) => {
+                const day = e.target.value;
+                // Backdatable, or cleared; a day after today hasn't happened.
+                if (isIsoDay(day) && day > today) return;
+                onPatch({ lastContactAt: isIsoDay(day) ? day : undefined });
+              }}
               className="h-8 w-auto border-border bg-bg text-xs"
             />
           </label>
@@ -264,6 +281,7 @@ export function StakeholderRow({
             <Input
               type="date"
               value={s.nextTouchAt ?? ""}
+              aria-label={`Next touch with ${s.name}`}
               onChange={(e) =>
                 onPatch({ nextTouchAt: isIsoDay(e.target.value) ? e.target.value : undefined })
               }

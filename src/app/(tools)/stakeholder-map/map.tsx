@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { cn } from "@/lib/utils";
 import {
   QUADRANTS,
@@ -82,6 +83,9 @@ export function StakeholderMap({
   onPlace: (id: string, at: { interest: number; authority: number }, how: PlaceHow) => void;
 }) {
   const announce = useAnnounce();
+  // A pick from "Place in…" removes its chip (and the focused select with
+  // it): focus moves to the stakeholder's new dot on the map.
+  const { refFor, returnTo } = useReturnFocus();
   const gridRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const keyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,6 +157,8 @@ export function StakeholderMap({
     const s = byId.get(d.id);
     const p = pendingRef.current;
     if (s && p) announce(`${s.name}: ${positionText(p)}`);
+    // A chip dragged from the tray goes with its focus: on to its new dot.
+    if (s && p && !isPlaced(s)) returnTo(`dot:${s.id}`);
     commit("drag");
   };
   const pointer = (id: string) => ({
@@ -246,6 +252,7 @@ export function StakeholderMap({
                     const q = e.target.value as Quadrant;
                     if (!q) return;
                     // The quadrant's middle: an explicit choice, never a default.
+                    returnTo(`dot:${s.id}`);
                     onPlace(s.id, QUADRANT_CENTRE[q], "pick");
                   }}
                   className="h-8 rounded-md border border-input bg-background px-1 text-xs text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -264,7 +271,8 @@ export function StakeholderMap({
       )}
 
       <p id={helpId} className="text-xs text-sub">
-        Drag a dot, or focus it and use the arrow keys (Shift moves 3). Tap one to see it below.
+        Drag a dot, or focus it and use the arrow keys (Shift moves 3). Tap one to see their
+        details.
       </p>
       <div className="text-xs uppercase tracking-wider text-sub" aria-hidden="true">
         ↑ Authority
@@ -296,6 +304,7 @@ export function StakeholderMap({
           return (
             <button
               key={s.id}
+              ref={refFor(`dot:${s.id}`)}
               type="button"
               className={cn(
                 "absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full shadow-md transition-transform",
@@ -348,7 +357,11 @@ export function StakeholderMap({
   );
 }
 
-/** The selected stakeholder's details beside (or under) the map. */
+/**
+ * The selected stakeholder's details beside (or under) the map. Not a live
+ * region: every move would re-read the whole card over the announcer's
+ * "<name>: interest …", which says what changed.
+ */
 export function StakeholderDetail({
   stakeholder: s,
   lastContactText,
@@ -362,7 +375,6 @@ export function StakeholderDetail({
     return (
       <section
         aria-label="Selected stakeholder"
-        aria-live="polite"
         className="rounded-lg border border-dashed border-border p-3 text-xs text-sub"
       >
         Tap a dot (or press Enter on it) to see who it is.
@@ -373,7 +385,6 @@ export function StakeholderDetail({
   return (
     <section
       aria-label="Selected stakeholder"
-      aria-live="polite"
       className="rounded-lg border border-border bg-card p-3 text-xs"
     >
       <div className="text-sm font-semibold text-text">{s.name}</div>
