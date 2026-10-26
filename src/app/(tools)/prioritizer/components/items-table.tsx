@@ -110,7 +110,9 @@ export function ItemsTable({
               </tr>
             </thead>
             <tbody>
-              {/* Phase 7 engine replaces this: a missing input shows its old default. */}
+              {/* Phase 7 engine replaces this: a missing WSJF part or Value/Effort
+                  input shows the number the scores use; a missing RICE input
+                  or bucket shows blank, as RICE and MoSCoW read it. */}
               {items.map(withBacklogDefaults).map((item) => (
                 <tr key={item.id} className="border-b border-border group">
                   <td className="py-2 pr-3 align-top">
@@ -134,15 +136,17 @@ export function ItemsTable({
                     </div>
                   </td>
                   <td className="py-2 px-2">
+                    {/* "" (no bucket) shows the placeholder, and picking any
+                        bucket, Should included, is a change. */}
                     <Select
-                      value={item.moscow}
+                      value={item.moscow ?? ""}
                       onValueChange={(v) => updateItem(item.id, { moscow: v as MoSCoWCategory })}
                     >
                       <SelectTrigger
                         className={inputCls + " min-w-[110px]"}
                         aria-label={`MoSCoW for ${item.name || "unnamed item"}`}
                       >
-                        <SelectValue />
+                        <SelectValue placeholder="Not sorted yet" />
                       </SelectTrigger>
                       <SelectContent className="bg-surface border-border">
                         {(Object.keys(MOSCOW_CONFIG) as MoSCoWCategory[]).map((k) => (
@@ -221,7 +225,7 @@ export function ItemsTable({
                   {/* Impact */}
                   <td className="py-2 px-2">
                     <Select
-                      value={String(item.impact)}
+                      value={item.impact === undefined ? "" : String(item.impact)}
                       onValueChange={(v) =>
                         updateItem(item.id, { impact: Number(v) as ImpactValue })
                       }

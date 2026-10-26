@@ -5,7 +5,7 @@
  *
  * `ScoreBadge` is the colored pill used in the WSJF/RICE result tables.
  * `NumCell` is a numeric input that defers commit until blur/Enter so editing
- * doesn't snap to clamp bounds mid-keystroke.
+ * doesn't snap to clamp bounds mid-keystroke, and commits only an edit.
  */
 
 import { useEffect, useState } from "react";
@@ -37,7 +37,8 @@ export function NumCell({
   className,
   "aria-label": ariaLabel,
 }: {
-  value: number;
+  /** Absent: the input isn't set, shown blank. */
+  value: number | undefined;
   min: number;
   max?: number;
   step?: number;
@@ -46,15 +47,23 @@ export function NumCell({
   /** Table cells have no visible label: name the field and the row. */
   "aria-label"?: string;
 }) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+  const shown = value === undefined ? "" : String(value);
+  const [draft, setDraft] = useState(shown);
+  useEffect(() => setDraft(shown), [shown]);
 
   const commit = () => {
+    // Tabbing through a cell commits nothing: a blur without an edit must
+    // not write the value back (or stamp an unset input with a number).
+    if (draft === shown) return;
     const n = Number(draft);
     if (Number.isFinite(n)) {
-      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
+      const next = Math.max(min, Math.min(max ?? Infinity, n));
+      onCommit(next);
+      // Show what was kept (a clamped value) even when it equals the stored
+      // one, so no new value arrives to reset the draft.
+      setDraft(String(next));
     } else {
-      setDraft(String(value));
+      setDraft(shown);
     }
   };
 

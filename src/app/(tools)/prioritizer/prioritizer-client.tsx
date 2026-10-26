@@ -84,12 +84,28 @@ export function PrioritizerClient() {
       })
     )
   );
-  // Phase 7 engine replaces this: a missing input exports as its old default.
+  // Phase 7 engine replaces this: the CSV and the prompts show what the
+  // scores use, as the items table does (withBacklogDefaults).
   const filled = useMemo(() => items.map(withBacklogDefaults), [items]);
   const promptConfig = useMemo(
     () => ({
       toolName: "Backlog Prioritizer",
-      prompts: generatePrioritizerPrompts({ items: filled }, workspace),
+      // The prompt's table needs every input: an item without a bucket reads
+      // "not sorted", and a missing RICE input reads as backlogRice scores it
+      // (0, effort 1), so the prompt's RICE is the RICE tab's.
+      prompts: generatePrioritizerPrompts(
+        {
+          items: filled.map((i) => ({
+            ...i,
+            moscow: i.moscow ?? "not sorted",
+            reach: i.reach ?? 0,
+            impact: i.impact ?? 0,
+            confidence: i.confidence ?? 0,
+            effort: i.effort ?? 1,
+          })),
+        },
+        workspace
+      ),
     }),
     [filled, workspace]
   );
@@ -113,26 +129,26 @@ export function PrioritizerClient() {
         "Matrix Value",
         "Matrix Effort",
       ],
-      // The scores come from the stored item, as the tabs show them.
-      rows: filled.map((i, n) => [
+      // A missing bucket or RICE input exports blank, as the table shows it.
+      rows: filled.map((i) => [
         i.name,
         i.description ?? "",
-        MOSCOW_CONFIG[i.moscow].label,
+        i.moscow ? MOSCOW_CONFIG[i.moscow].label : "",
         i.businessValue,
         i.timeCriticality,
         i.riskReduction,
         i.jobSize,
-        wsjfScore(items[n]),
-        i.reach,
-        i.impact,
-        i.confidence,
-        i.effort,
-        riceScore(items[n]),
+        wsjfScore(i),
+        i.reach ?? "",
+        i.impact ?? "",
+        i.confidence ?? "",
+        i.effort ?? "",
+        riceScore(i),
         i.value,
         i.matrixEffort,
       ]),
     }),
-    [filled, items]
+    [filled]
   );
 
   const matrixRef = useRef<HTMLDivElement>(null);

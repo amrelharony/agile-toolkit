@@ -223,8 +223,21 @@ export type BacklogMethodField =
   | "value"
   | "matrixEffort";
 
-/** A backlog item with every method input present. */
-export type FilledBacklogItem = BacklogItem & Required<Pick<BacklogItem, BacklogMethodField>>;
+/**
+ * The inputs `withBacklogDefaults` fills: WSJF's four parts and the
+ * Value/Effort pair, the ones whose scorers had no rule for a missing input.
+ * RICE (a missing input scores 0) and MoSCoW (no bucket) keep their own.
+ */
+export type DefaultedBacklogField =
+  | "businessValue"
+  | "timeCriticality"
+  | "riskReduction"
+  | "jobSize"
+  | "value"
+  | "matrixEffort";
+
+/** A backlog item with WSJF's parts and the Value/Effort pair present. */
+export type FilledBacklogItem = BacklogItem & Required<Pick<BacklogItem, DefaultedBacklogField>>;
 
 /** Defaults for a new backlog item: mid values, matching the Prioritizer's "Add Item". */
 export const BACKLOG_DEFAULTS: Required<Pick<BacklogItem, BacklogMethodField>> = {
@@ -241,25 +254,48 @@ export const BACKLOG_DEFAULTS: Required<Pick<BacklogItem, BacklogMethodField>> =
   matrixEffort: 5,
 };
 
+const DEFAULTED_FIELDS: readonly DefaultedBacklogField[] = [
+  "businessValue",
+  "timeCriticality",
+  "riskReduction",
+  "jobSize",
+  "value",
+  "matrixEffort",
+];
+
+const clamp10 = (n: number) => Math.min(10, Math.max(1, n));
+
 /**
- * `item` with each missing method input read as its BACKLOG_DEFAULTS value
- * (the item itself when none is missing).
+ * `item` with each missing WSJF part and Value/Effort input read as the
+ * value it would have been saved with (the item itself when none is
+ * missing). The RICE inputs and the MoSCoW bucket are left as they are.
  *
  * Phase 7 engine replaces this. The inputs became optional in the data layer
  * (a missing one is Not scored), but until the method registry scores and
- * shows a missing input as Not scored, the code that needs a number (the
- * hub's cells and charts, WSJF in scores.ts and Sprint Planning) reads an
- * item through this, so every item scores and shows as it did before: items
- * were always saved with all their inputs, from these defaults.
+ * shows a missing input as Not scored, the code that needs these numbers
+ * (WSJF in scores.ts and Sprint Planning, the matrix, the hub's cells, which
+ * show what the scores use) reads an item through this, so every item scores
+ * and shows as it did before: items were always saved with all their inputs.
+ * The one Value column wrote businessValue and value together, so a missing
+ * one follows the other the way createBacklogItem stored it, and only when
+ * both are missing does the "Add item" default (5) apply. RICE already
+ * scored a missing input as 0 and MoSCoW put an item without a bucket in
+ * no group, so filling those would show inputs the scores don't use.
  */
 export function withBacklogDefaults(item: BacklogItem): FilledBacklogItem {
-  const keys = Object.keys(BACKLOG_DEFAULTS) as BacklogMethodField[];
-  if (keys.every((k) => item[k] !== undefined)) return item as FilledBacklogItem;
-  const missing = keys.filter((k) => item[k] === undefined).map((k) => [k, BACKLOG_DEFAULTS[k]]);
-  return { ...item, ...Object.fromEntries(missing) } as FilledBacklogItem;
+  if (DEFAULTED_FIELDS.every((k) => item[k] !== undefined)) return item as FilledBacklogItem;
+  return {
+    ...item,
+    businessValue: item.businessValue ?? item.value ?? BACKLOG_DEFAULTS.businessValue,
+    value:
+      item.value ??
+      (item.businessValue !== undefined ? clamp10(item.businessValue) : BACKLOG_DEFAULTS.value),
+    timeCriticality: item.timeCriticality ?? BACKLOG_DEFAULTS.timeCriticality,
+    riskReduction: item.riskReduction ?? BACKLOG_DEFAULTS.riskReduction,
+    jobSize: item.jobSize ?? BACKLOG_DEFAULTS.jobSize,
+    matrixEffort: item.matrixEffort ?? BACKLOG_DEFAULTS.matrixEffort,
+  };
 }
-
-const clamp10 = (n: number) => Math.min(10, Math.max(1, n));
 
 /**
  * A new backlog item named `name` with `patch` over the defaults.
