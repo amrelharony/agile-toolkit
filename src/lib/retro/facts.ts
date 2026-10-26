@@ -12,6 +12,7 @@ import type {
   Impediment,
   Kudos,
   MoodEntry,
+  MoodPulse,
   RetroBoard,
   Sprint,
   SprintGoal,
@@ -58,8 +59,12 @@ export interface RetroFacts {
   mood: {
     /** Mean score (1–5), quoted from MIN_SAMPLE.average check-ins; else null. */
     average: number | null;
+    /** Named check-ins plus anonymous pulse answers. */
     checkIns: number;
+    /** People who checked in by name. */
     people: number;
+    /** Of `checkIns`, the anonymous pulse answers; present only when there are some. */
+    anonymous?: number;
   };
   /** How the previous retro's actions turned out; null when there is none. */
   followThrough: RetroFollowThrough | null;
@@ -74,6 +79,8 @@ export interface RetroFactsInput {
   goals?: readonly SprintGoal[];
   impediments?: readonly Impediment[];
   moodEntries?: readonly MoodEntry[];
+  /** Anonymous mood pulses: their answers count as check-ins. */
+  moodPulses?: readonly MoodPulse[];
   retroBoards?: readonly RetroBoard[];
   kudos?: readonly Kudos[];
   /** "YYYY-MM-DD", local. */
@@ -161,7 +168,7 @@ export function retroFacts(input: RetroFactsInput): RetroFacts {
       if (status !== "resolved") impediments.stillOpen++;
       if (i.escalatedAt) impediments.escalated++;
     }
-    Object.assign(mood, moodDuring(input.moodEntries, start, end));
+    Object.assign(mood, moodDuring(input.moodEntries, start, end, input.moodPulses));
     kudos = (input.kudos ?? [])
       .filter((k) => isRecognition(k) && inWindow(localDay(k.sentAt), start, end))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt))
