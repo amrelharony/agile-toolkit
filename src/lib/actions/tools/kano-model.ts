@@ -119,8 +119,8 @@ const KanoItemInputSchema = z.object({
 function valuesOf(f: KanoFields): Values {
   const v: Values = {};
   if (f.counts) {
+    // New counts are stored as typed-in ("counts"); the same counts as stored keep their source.
     for (const k of KANO_CLASSES) v[KANO_COUNT_KEYS[k]] = f.counts[k];
-    v.kanoSource = "counts";
   } else if (f.functional && f.dysfunctional) {
     v.functional = f.functional;
     v.dysfunctional = f.dysfunctional;

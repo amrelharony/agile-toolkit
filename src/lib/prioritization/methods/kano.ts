@@ -199,7 +199,10 @@ export interface KanoReading {
   pair: { functional: KanoAnswer; dysfunctional: KanoAnswer } | null;
   /** A legacy category picked by hand. */
   picked: KanoCategory | null;
-  /** Answers counted: the counts' total (or n when it's larger), 1 for a pair, 0 otherwise. */
+  /**
+   * Answers counted: the counts' total (a stored `kanoN` is never read: it
+   * could say more answers than the counts hold), 1 for a pair, 0 otherwise.
+   */
   n: number;
 }
 
@@ -219,9 +222,7 @@ export function readKano(fields: Values | undefined): KanoReading {
   const picked = toChoice(PICKED, fields?.category) ?? null;
   const storedSource = toChoice(KANO_SOURCES, fields?.kanoSource);
   if (counts) {
-    const total = countTotal(counts);
-    const n = Math.max(total, Math.floor(toNumber(fields?.kanoN) ?? 0));
-    return { source: storedSource ?? "counts", counts, pair, picked, n: total === 0 ? 0 : n };
+    return { source: storedSource ?? "counts", counts, pair, picked, n: countTotal(counts) };
   }
   if (pair) return { source: "pair", counts: null, pair, picked, n: 1 };
   if (picked) return { source: "picked", counts: null, pair: null, picked, n: 0 };
@@ -264,13 +265,17 @@ const INPUTS: readonly MethodInput[] = [
 /** The row's own count keys. */
 export const KANO_COUNT_KEYS: Record<KanoClass, string> = COUNT_KEY;
 
+/**
+ * A row's inputs, plus where its counts came from (`kanoSource`,
+ * `kanoRoundId`, `kanoAt`) for display. `kanoN` is left out: it is always
+ * the counts' total, so a draft can never carry an old, larger n.
+ */
 function read(fields: Values | undefined): Values {
   const r = readKano(fields);
   const out: Values = {
     functional: toChoice(KANO_ANSWERS, fields?.functional),
     dysfunctional: toChoice(KANO_ANSWERS, fields?.dysfunctional),
     category: r.picked ?? undefined,
-    kanoN: r.counts ? r.n : undefined,
     kanoSource: r.counts ? (r.source ?? undefined) : undefined,
     kanoRoundId: typeof fields?.kanoRoundId === "string" ? fields.kanoRoundId : undefined,
     kanoAt: typeof fields?.kanoAt === "string" ? fields.kanoAt : undefined,
@@ -279,30 +284,34 @@ function read(fields: Values | undefined): Values {
   return out;
 }
 
+/**
+ * `fields` with these answers written. Counts store their total as `kanoN`.
+ * Where they came from is never taken from `v` (a draft carries the old
+ * source back): the same counts as stored keep their source and round;
+ * counts typed in or changed by hand become `kanoSource: "counts"` with no
+ * round. A live round's counts are written by kanoCountFields.
+ */
 function write(fields: RowFields | undefined, v: Values): RowFields {
   const out: RowFields = { ...fields };
   put(out, "functional", toChoice(KANO_ANSWERS, v.functional));
   put(out, "dysfunctional", toChoice(KANO_ANSWERS, v.dysfunctional));
   const hasCounts = KANO_CLASSES.some((k) => toNumber(v[COUNT_KEY[k]]) !== undefined);
+  const stored = readKano(fields).counts;
   let total = 0;
+  let changed = !stored;
   for (const k of KANO_CLASSES) {
     const n = toNumber(v[COUNT_KEY[k]]);
     const kept = hasCounts ? Math.max(0, Math.floor(n ?? 0)) : undefined;
     total += kept ?? 0;
+    if (stored && kept !== stored[k]) changed = true;
     put(out, COUNT_KEY[k], kept);
   }
-  put(out, "kanoN", hasCounts ? Math.max(total, Math.floor(toNumber(v.kanoN) ?? 0)) : undefined);
-  put(
-    out,
-    "kanoSource",
-    hasCounts ? (toChoice(KANO_SOURCES, v.kanoSource) ?? "counts") : undefined
-  );
-  put(
-    out,
-    "kanoRoundId",
-    hasCounts && typeof v.kanoRoundId === "string" ? v.kanoRoundId : undefined
-  );
-  put(out, "kanoAt", hasCounts && typeof v.kanoAt === "string" ? v.kanoAt : undefined);
+  put(out, "kanoN", hasCounts ? total : undefined);
+  if (!hasCounts || changed) {
+    put(out, "kanoSource", hasCounts ? "counts" : undefined);
+    delete out.kanoRoundId;
+    delete out.kanoAt;
+  }
   // Answers replace a hand-picked category; the page never writes one.
   if (
     hasCounts ||
@@ -319,11 +328,12 @@ export function kanoCountFields(
   counts: KanoCounts,
   meta: { source: KanoSource; roundId?: string; at?: string }
 ): RowFields {
-  const v: Values = { kanoSource: meta.source, kanoRoundId: meta.roundId, kanoAt: meta.at };
+  const v: Values = { ...read(fields) };
   for (const k of KANO_CLASSES) v[COUNT_KEY[k]] = counts[k];
-  const out = write(fields, { ...KANO.read(fields), ...v, kanoN: countTotal(counts) });
-  if (!meta.roundId) delete out.kanoRoundId;
-  if (!meta.at) delete out.kanoAt;
+  const out = write(fields, v);
+  put(out, "kanoSource", meta.source);
+  put(out, "kanoRoundId", meta.roundId);
+  put(out, "kanoAt", meta.at);
   return out;
 }
 

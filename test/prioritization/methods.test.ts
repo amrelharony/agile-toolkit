@@ -430,6 +430,45 @@ describe("Kano", () => {
     expect(KANO.evaluate(KANO.read(fields))).toMatchObject({ bucket: "performance" });
   });
 
+  it("counts n from the counts alone: a correction down never keeps the old n", () => {
+    const fields = kanoCountFields(
+      undefined,
+      { A: 0, O: 6, M: 4, I: 0, R: 0, Q: 0 },
+      {
+        source: "room",
+        roundId: "r1",
+        at: "2026-10-26",
+      }
+    );
+    expect(fields.kanoN).toBe(10);
+    // The row editor's draft is KANO.read(fields); a hand correction to 1 answer.
+    const draft = { ...KANO.read(fields), kanoO: 1, kanoM: 0 };
+    expect(draft).not.toHaveProperty("kanoN");
+    const corrected = KANO.write(fields, draft);
+    expect(corrected).toMatchObject({ kanoO: 1, kanoM: 0, kanoN: 1, kanoSource: "counts" });
+    expect(corrected).not.toHaveProperty("kanoRoundId");
+    expect(corrected).not.toHaveProperty("kanoAt");
+    // One answer is below the 3 a result needs: no category, no coefficients.
+    const r = KANO.evaluate(KANO.read(corrected));
+    expect(r).toMatchObject({ score: null, bucket: null });
+    expect(r.extra).not.toHaveProperty("better");
+    // A stored n larger than the counts is never believed.
+    expect(readKano({ kanoO: 1, kanoN: 10 }).n).toBe(1);
+    // The same counts saved again keep where they came from.
+    const same = KANO.write(fields, KANO.read(fields));
+    expect(same).toMatchObject({ kanoSource: "room", kanoRoundId: "r1", kanoN: 10 });
+    // Switching to a pair drops the counts and their source.
+    const pair = KANO.write(fields, {
+      ...KANO.read(fields),
+      ...Object.fromEntries(
+        ["kanoA", "kanoO", "kanoM", "kanoI", "kanoR", "kanoQ"].map((k) => [k, undefined])
+      ),
+      functional: "like",
+      dysfunctional: "dislike",
+    });
+    expect(pair).toEqual({ functional: "like", dysfunctional: "dislike" });
+  });
+
   it("accepts a pair or counts in a form, never half a pair", () => {
     expect(KANO.validate({ functional: "like", dysfunctional: "must" }).ok).toBe(true);
     expect(KANO.validate({ functional: "like" }).ok).toBe(false);
