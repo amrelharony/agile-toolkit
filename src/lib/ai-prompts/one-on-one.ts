@@ -18,6 +18,16 @@ import {
   type ReportCadence,
 } from "@/app/(tools)/one-on-one/model";
 
+/**
+ * A follow-up: an item marked Action, or a Done item that was one (it kept
+ * an action, an owner or a due day). Every item can be marked Done, so a
+ * plain topic closed that way is never read as a closed action.
+ */
+function isFollowUp(a: AgendaItem): boolean {
+  if (a.status === "action_required") return true;
+  return a.status === "done" && Boolean(a.action?.trim() || a.owner?.trim() || a.dueDate);
+}
+
 /** "Overdue" past its due day (as overdueActions counts it), else "Open"; "Done 2026-05-01" once done. */
 function followUpStatus(a: AgendaItem, today: string): string {
   if (a.status === "done") return a.doneAt ? `Done ${a.doneAt}` : "Done";
@@ -71,14 +81,11 @@ export function generateOneOnOnePrompts(
   );
 
   // Follow-ups as the page counts them: an action carried to a later 1:1
-  // is listed once, there. Open ones first, then the done ones.
+  // is listed once, there. Open ones first, then the done ones; a topic
+  // marked Done with no action is no follow-up.
   const superseded = supersededIds(meetings);
   const followUps = meetings.flatMap((m) =>
-    m.agenda
-      .filter(
-        (a) => (a.status === "action_required" || a.status === "done") && !superseded.has(a.id)
-      )
-      .map((a) => ({ m, a }))
+    m.agenda.filter((a) => isFollowUp(a) && !superseded.has(a.id)).map((a) => ({ m, a }))
   );
   followUps.sort((x, y) => Number(x.a.status === "done") - Number(y.a.status === "done"));
   const actionTable =
