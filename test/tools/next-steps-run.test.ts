@@ -60,15 +60,25 @@ describe("kanban", () => {
   });
 
   it("points blocked stories at the Daily Scrum and a finished board at the review", () => {
+    // The team has a Definition of Done, so done stories don't ask for one.
+    const definitionsOfDone = [
+      {
+        id: "definitionOfDone:current",
+        items: [{ id: "d1", label: "Tests pass", category: "testing" as const, required: true }],
+        history: [],
+      },
+    ];
     expect(
       ids("kanban", {
         sprints: [sprint()],
         stories: [story({ id: "a", blocked: true }), story({ id: "b", status: "done" })],
+        definitionsOfDone,
       })
     ).toEqual(["kanban-blocked"]);
     const done = steps("kanban", {
       sprints: [sprint()],
       stories: [story({ id: "a", status: "done" }), story({ id: "b", status: "done" })],
+      definitionsOfDone,
     });
     expect(done.map((s) => [s.id, s.href])).toEqual([
       ["kanban-review", "/sprint-review?sprint=s2"],
