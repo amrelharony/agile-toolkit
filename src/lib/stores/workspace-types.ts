@@ -1572,11 +1572,34 @@ export interface OODACycle {
 export interface CynefinItem {
   id: string;
   title: string;
+  /** The domain the user confirmed (the guided questions only suggest one). */
   domain: "clear" | "complicated" | "complex" | "chaotic" | "confused";
   rationale?: string;
   recommendedAction?: string;
   loggedAt: ISODateString;
+  /** The guided sense-making answers the suggestion came from; absent on
+   *  items placed by hand or from before the questions. */
+  answers?: Partial<Record<CynefinQuestionId, CynefinAnswer>>;
+  /** Where it was sent (a complex item: a hypothesis to test). */
+  sentTo?: HandoffLink[];
 }
+
+export type CynefinDomain = CynefinItem["domain"];
+
+/** The guided sense-making questions (lib/cynefin has their wording). */
+export type CynefinQuestionId = "crisis" | "known" | "analysable" | "emergent" | "disagree";
+
+export const CYNEFIN_QUESTION_IDS = [
+  "crisis",
+  "known",
+  "analysable",
+  "emergent",
+  "disagree",
+] as const satisfies readonly CynefinQuestionId[];
+
+export type CynefinAnswer = "yes" | "no" | "unsure";
+
+export const CYNEFIN_ANSWERS = ["yes", "no", "unsure"] as const satisfies readonly CynefinAnswer[];
 
 export interface StaceyItem {
   id: string;

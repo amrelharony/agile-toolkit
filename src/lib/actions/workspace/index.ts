@@ -21,6 +21,8 @@ import {
   ALLOCATION_ROUND_TOOLS,
   BUY_A_FEATURE_ID,
   CEREMONY_CADENCE_ID,
+  CYNEFIN_ANSWERS,
+  CYNEFIN_QUESTION_IDS,
   DECISION_ROLES,
   DECISION_STATUSES,
   DECISION_TEMPLATES,
@@ -2353,6 +2355,16 @@ const CynefinItemSchema = z.object({
   rationale: z.string().optional(),
   recommendedAction: z.string().optional(),
   loggedAt: z.string(),
+  answers: z
+    .partialRecord(z.enum(CYNEFIN_QUESTION_IDS), z.enum(CYNEFIN_ANSWERS))
+    .optional()
+    .describe(
+      "The guided sense-making answers (crisis, known, analysable, emergent, disagree: yes, no or unsure) the suggested domain came from."
+    ),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where it was sent (a complex item: a hypothesis to test)."),
 }) as unknown as z.ZodType<CynefinItem>;
 
 const PolaritySchema = z.object({
