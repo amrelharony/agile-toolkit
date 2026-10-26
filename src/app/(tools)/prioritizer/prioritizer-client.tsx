@@ -35,14 +35,20 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PRIORITIZER_ACTIONS } from "@/lib/history/event-actions";
-import { evaluateItem, evaluateItemIn, method, type Values } from "@/lib/prioritization/methods";
+import {
+  evaluateItem,
+  evaluateItemIn,
+  method,
+  type MethodId,
+  type Values,
+} from "@/lib/prioritization/methods";
 import { decidedOrder } from "@/lib/prioritization/rank";
 import { usePrioritizerStore } from "./use-prioritizer-store";
 import { isExampleBacklogId } from "./example";
 import type { HubMethodId, NewItemValues } from "./hub-form";
 import { toMarkdown } from "./markdown";
 import { HUB_METHODS, itemName, methodText } from "./method-text";
-import { rankOf } from "./order";
+import { rankOf, sameOrder, savedOrder } from "./order";
 import { analyseOrder, orderVerdict } from "./verdict";
 import { AddItemForm } from "./components/add-item-form";
 import { ItemsTable } from "./components/items-table";
@@ -85,6 +91,17 @@ export function PrioritizerClient() {
   // The item just added: its first score button takes focus once it's on screen.
   const [focusId, setFocusId] = useState<string | null>(null);
   const focused = useCallback(() => setFocusId(null), []);
+  // Decide order's draft and picked methods: held here, because a tab's
+  // panel unmounts while another tab is open, and checking the WSJF tab
+  // mustn't throw away an order the team is building.
+  const [orderDraft, setOrderDraft] = useState<readonly string[] | null>(null);
+  const [orderPicks, setOrderPicks] = useState<MethodId[] | null>(null);
+  const decideTrigger = useRef<HTMLButtonElement>(null);
+  const openDecideOrder = () => {
+    setTab("decide");
+    // The button that asked is in the panel that just closed.
+    decideTrigger.current?.focus();
+  };
 
   // A next step's "Decide order" link opens that tab.
   useEffect(() => {
@@ -102,6 +119,15 @@ export function PrioritizerClient() {
   const analysis = useMemo(() => analyseOrder(items, rows), [items, rows]);
   const verdict = orderVerdict(analysis, nameOf);
   const hasExample = items.some((i) => isExampleBacklogId(i.id));
+  // Decide order's test for an unsaved draft (its items that still exist), for the tab's mark.
+  const orderUnsaved = useMemo(() => {
+    if (orderDraft === null) return false;
+    const ids = new Set(items.map((i) => i.id));
+    return !sameOrder(
+      orderDraft.filter((id) => ids.has(id)),
+      savedOrder(items)
+    );
+  }, [orderDraft, items]);
 
   /* ── Changes ──────────────────────────────────────────────────────── */
 
@@ -113,15 +139,16 @@ export function PrioritizerClient() {
   };
 
   const saveScores = (id: string, methodId: HubMethodId, values: Values) => {
-    const patch = store.saveScores(id, methodId, values);
-    const fields = Object.keys(patch);
+    // Only what the save changed: Save on an editor left as it was logs nothing.
+    const fields = Object.keys(store.saveScores(id, methodId, values));
     if (fields.length > 0) {
       log(PRIORITIZER_ACTIONS.SCORE_UPDATED, { itemId: id, method: methodId, fields });
     }
     const saved = (useWorkspaceStore.getState().backlogItems ?? []).find((i) => i.id === id);
     if (saved) {
       const text = methodText(methodId, evaluateItemIn(saved, [], methodId));
-      announce(`${method(methodId).label} for “${itemName(saved.name)}”: ${text}.`);
+      const what = `${method(methodId).label} for “${itemName(saved.name)}”`;
+      announce(fields.length > 0 ? `${what}: ${text}.` : `No change: ${what} stays ${text}.`);
     }
   };
 
@@ -253,10 +280,20 @@ export function PrioritizerClient() {
               {TABS.map((t) => (
                 <TabsTrigger
                   key={t.value}
+                  ref={t.value === "decide" ? decideTrigger : undefined}
                   value={t.value}
                   className="text-sub data-[state=active]:bg-accent/10 data-[state=active]:text-accent data-[state=active]:shadow-none"
                 >
                   {t.label}
+                  {t.value === "decide" && orderUnsaved && (
+                    <>
+                      <span
+                        className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-warning"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">, order not saved</span>
+                    </>
+                  )}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -266,12 +303,23 @@ export function PrioritizerClient() {
               <WhichMethod />
             </TabsContent>
 
-            <TabsContent value="decide" className="mt-4" id={DECIDE_ORDER_HASH.slice(1)}>
-              <DecideOrder items={items} rows={rows} onSaveOrder={saveOrder} />
+            <TabsContent value="decide" className="mt-4">
+              {/* The anchor is inside: an id on the panel would replace the one its tab's aria-controls names. */}
+              <div id={DECIDE_ORDER_HASH.slice(1)}>
+                <DecideOrder
+                  items={items}
+                  rows={rows}
+                  onSaveOrder={saveOrder}
+                  draft={orderDraft}
+                  onDraftChange={setOrderDraft}
+                  picked={orderPicks}
+                  onPickedChange={setOrderPicks}
+                />
+              </div>
             </TabsContent>
 
             <TabsContent value="moscow" className="mt-4">
-              <MoSCoWTab items={items} onReorder={saveOrder} />
+              <MoSCoWTab items={items} onReorder={saveOrder} onDecideOrder={openDecideOrder} />
             </TabsContent>
 
             <TabsContent value="wsjf" className="mt-4">

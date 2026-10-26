@@ -9,7 +9,7 @@
  * rank.ts.
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { SectionCard } from "@/components/shared/section-card";
 import { readBacklogItem } from "@/lib/prioritization/defaults";
@@ -19,6 +19,7 @@ import { rankByMethod } from "@/lib/prioritization/rank";
 import type { BacklogItem } from "../types";
 import { itemName } from "../method-text";
 import { placeText } from "../order";
+import { useTableName } from "../use-table-name";
 import { ScoreBadge } from "./cells";
 
 interface Row {
@@ -35,6 +36,8 @@ export function RICETab({ items }: { items: readonly BacklogItem[] }) {
   );
   const ranking = useMemo(() => rankByMethod(items, [], "rice"), [items]);
   const m = method("rice");
+  const box = useRef<HTMLDivElement>(null);
+  useTableName(box, "The backlog by RICE");
 
   const columns: DataTableColumn<Row>[] = [
     {
@@ -133,13 +136,17 @@ export function RICETab({ items }: { items: readonly BacklogItem[] }) {
   ];
 
   return (
-    <SectionCard title="RICE Prioritization" titleSuffix="(Reach × Impact × Confidence) ÷ Effort">
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.item.id}
-        defaultSort={{ key: "score", dir: "desc" }}
-      />
+    <SectionCard title="RICE Prioritization">
+      {/* In the body, where it wraps: beside the title it squeezed the title to an ellipsis at 375 px. */}
+      <p className="mb-3 text-xs text-sub">(Reach × Impact × Confidence) ÷ Effort</p>
+      <div ref={box}>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.item.id}
+          defaultSort={{ key: "score", dir: "desc" }}
+        />
+      </div>
       <p className="mt-3 text-xs text-sub">
         Reach counts per quarter in the score, whatever period each item is counted over.
       </p>

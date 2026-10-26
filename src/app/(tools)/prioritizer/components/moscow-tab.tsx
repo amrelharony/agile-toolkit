@@ -2,18 +2,22 @@
 
 /**
  * Tab MoSCoW: the backlog by bucket (Must, Should, Could, Won't have this
- * time), each bucket in the decided order and reorderable (drag a row by
- * its grip, or the arrow keys on it, as in Decide order). Then "Not sorted
- * yet": a bucket is never a default, and an item whose only bucket is the
- * old "Add item" default reads as not sorted (the registry's reading).
+ * time), each bucket in the decided order. Then "Not sorted yet": a bucket
+ * is never a default, and an item whose only bucket is the old "Add item"
+ * default reads as not sorted (the registry's reading).
  *
- * A reorder saves at once, with Undo: the bucket's items swap among the
- * places they hold in the backlog's order, so nothing in another bucket
- * moves (./order groupReorder). A bucket's items that weren't ordered yet
- * get places as they are moved.
+ * A bucket's ordered items are reorderable (drag a row by its grip, or the
+ * arrow keys on it, as in Decide order). A reorder saves at once, with
+ * Undo: they swap among the places they hold in the backlog's order, so
+ * nothing in another bucket moves (./order groupReorder). A bucket's items
+ * not ordered yet follow as a fixed list with a way to Decide order: a move
+ * here can't give them a place against the rest of the backlog (ordering a
+ * Could by moving it would put it ahead of every unordered Must).
  */
 
 import { useMemo } from "react";
+import { ListOrdered } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { evaluateItemIn } from "@/lib/prioritization/methods";
 import { isMoscowBucket } from "@/lib/prioritization/methods/moscow";
 import { decidedOrder } from "@/lib/prioritization/rank";
@@ -27,10 +31,13 @@ import { OrderList } from "./order-list";
 export function MoSCoWTab({
   items,
   onReorder,
+  onDecideOrder,
 }: {
   items: readonly BacklogItem[];
   /** Save a whole-backlog order. Absent: the buckets are lists only. */
   onReorder?: (ids: readonly string[], label: string) => void;
+  /** Open the Decide order step, where items not ordered yet get their places. */
+  onDecideOrder?: () => void;
 }) {
   const { groups, unsorted } = useMemo(() => {
     const result = Object.fromEntries(
@@ -53,7 +60,10 @@ export function MoSCoWTab({
         const cfg = MOSCOW_CONFIG[category];
         const tone = TONE_CLASS[cfg.tone];
         const members = groups[category];
-        const ids = members.map((i) => i.id);
+        // decidedOrder lists the ordered items first, by rank.
+        const ordered = members.filter((i) => rankOf(i) !== undefined);
+        const unordered = members.filter((i) => rankOf(i) === undefined);
+        const ids = ordered.map((i) => i.id);
         return (
           <section
             key={category}
@@ -75,19 +85,17 @@ export function MoSCoWTab({
                 {countText(members.length, "item")}
               </span>
             </h3>
-            {members.length === 0 ? (
+            {members.length === 0 && (
               <p className="mt-2 text-xs italic text-sub">Nothing in this bucket.</p>
-            ) : onReorder && members.length > 1 ? (
+            )}
+            {onReorder && ordered.length > 1 ? (
               <OrderList
                 className="mt-2"
                 ids={ids}
                 label={`${cfg.label}, in order`}
                 where={` in ${cfg.label}`}
                 nameOf={nameOf}
-                meta={(id) => {
-                  const rank = rankOf(byId.get(id) ?? {});
-                  return rank === undefined ? "Not ordered yet" : `Backlog order ${rank}`;
-                }}
+                meta={(id) => `Backlog order ${rankOf(byId.get(id) ?? {})}`}
                 onMove={(id, to) =>
                   onReorder(
                     groupReorder(items, moveTo(ids, id, to)),
@@ -96,13 +104,53 @@ export function MoSCoWTab({
                 }
               />
             ) : (
-              <ol className="mt-2 space-y-1 text-sm text-text">
-                {members.map((i) => (
-                  <li key={i.id} className="break-words">
-                    {nameOf(i.id)}
-                  </li>
-                ))}
-              </ol>
+              ordered.length > 0 && (
+                <ol className="mt-2 space-y-1 text-sm text-text">
+                  {ordered.map((i) => (
+                    <li key={i.id} className="break-words">
+                      {nameOf(i.id)}
+                    </li>
+                  ))}
+                </ol>
+              )
+            )}
+            {unordered.length > 0 && (
+              <div className={cn(ordered.length > 0 && "mt-3 border-t border-border pt-3")}>
+                {ordered.length > 0 && (
+                  <h4 className="text-xs font-medium text-sub">
+                    Not ordered yet ({unordered.length})
+                  </h4>
+                )}
+                <ul
+                  className="mt-2 space-y-1 text-sm text-text"
+                  aria-label={`${cfg.label}, not ordered yet`}
+                >
+                  {unordered.map((i) => (
+                    <li key={i.id} className="break-words">
+                      {nameOf(i.id)}
+                    </li>
+                  ))}
+                </ul>
+                {onReorder && (
+                  <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-sub">
+                    {ordered.length === 0 ? "Not ordered yet: they" : "They"} get their places
+                    against the whole backlog in Decide order.
+                    {onDecideOrder && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1"
+                        aria-label={`Decide order for ${cfg.label}`}
+                        onClick={onDecideOrder}
+                      >
+                        <ListOrdered aria-hidden="true" />
+                        Decide order
+                      </Button>
+                    )}
+                  </p>
+                )}
+              </div>
             )}
           </section>
         );

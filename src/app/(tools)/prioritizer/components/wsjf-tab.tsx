@@ -8,7 +8,7 @@
  * job size and the place come from the method registry and rank.ts.
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { SectionCard } from "@/components/shared/section-card";
 import { ScaleValue } from "@/components/shared/scale-picker";
@@ -19,6 +19,7 @@ import { rankByMethod } from "@/lib/prioritization/rank";
 import type { BacklogItem } from "../types";
 import { itemName } from "../method-text";
 import { placeText } from "../order";
+import { useTableName } from "../use-table-name";
 import { ScoreBadge } from "./cells";
 
 interface Row {
@@ -43,6 +44,8 @@ export function WSJFTab({ items }: { items: readonly BacklogItem[] }) {
   );
   const ranking = useMemo(() => rankByMethod(items, [], "wsjf"), [items]);
   const m = method("wsjf");
+  const box = useRef<HTMLDivElement>(null);
+  useTableName(box, "The backlog by WSJF");
 
   const columns: DataTableColumn<Row>[] = [
     {
@@ -103,16 +106,19 @@ export function WSJFTab({ items }: { items: readonly BacklogItem[] }) {
   ];
 
   return (
-    <SectionCard
-      title="WSJF Prioritization"
-      titleSuffix="(Business value + Time criticality + Risk reduction) ÷ Job size"
-    >
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.item.id}
-        defaultSort={{ key: "score", dir: "desc" }}
-      />
+    <SectionCard title="WSJF Prioritization">
+      {/* In the body, where it wraps: beside the title it was wider than a 375 px screen. */}
+      <p className="mb-3 text-xs text-sub">
+        (Business value + Time criticality + Risk reduction) ÷ Job size
+      </p>
+      <div ref={box}>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.item.id}
+          defaultSort={{ key: "score", dir: "desc" }}
+        />
+      </div>
     </SectionCard>
   );
 }

@@ -11,6 +11,7 @@
  * the cell links to the method's tool with the item preselected.
  */
 
+import { useRef } from "react";
 import Link from "next/link";
 import { LayoutGrid } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
@@ -29,6 +30,7 @@ import {
 } from "@/lib/prioritization/methods";
 import { rankByMethod, decidedOrder } from "@/lib/prioritization/rank";
 import { itemName, methodText } from "../method-text";
+import { useTableName } from "../use-table-name";
 import { methodsVerdict } from "../verdict";
 
 /** Methods whose result is a number, set in the data font. */
@@ -46,6 +48,8 @@ export function ScoresTab({
   items: readonly BacklogItem[];
   rows: readonly PrioritizationItem[];
 }) {
+  const box = useRef<HTMLDivElement>(null);
+  useTableName(box, "Each backlog item's score in every method");
   const tableRows: Row[] = decidedOrder(items).map((item) => ({
     item,
     results: evaluateItem(item, rows),
@@ -107,7 +111,9 @@ export function ScoresTab({
       {items.length === 0 ? (
         <p className="text-sm text-sub">Add backlog items to compare every method side by side.</p>
       ) : (
-        <DataTable columns={columns} rows={tableRows} rowKey={(r) => r.item.id} />
+        <div ref={box}>
+          <DataTable columns={columns} rows={tableRows} rowKey={(r) => r.item.id} />
+        </div>
       )}
     </SectionCard>
   );

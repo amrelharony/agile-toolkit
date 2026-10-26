@@ -17,11 +17,18 @@
  *    Until then the order is a draft, and the saved one stays in force.
  *    New items stay "Not ordered yet" until they are placed and saved.
  *
+ * The draft and the picked methods live in the page (PrioritizerClient):
+ * the tab's panel unmounts while another tab is open, and a look at the
+ * WSJF tab mustn't throw away a hand-built order. Focus never drops to the
+ * page: after a control that disappears (an item added or taken out, Save
+ * order, Discard changes) it goes to the row, the list or the step's first
+ * button.
+ *
  * Every place and consensus comes from lib/prioritization/rank, the code
  * tool.prioritizer.decide_order and set_order run.
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ListOrdered, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,6 +52,7 @@ import {
   savedOrder,
   type ConsensusPlace,
 } from "../order";
+import { useTableName } from "../use-table-name";
 import { DISAGREE_SPREAD, analyseOrder, orderVerdict } from "../verdict";
 import { OrderList } from "./order-list";
 
@@ -57,15 +65,44 @@ export function DecideOrder({
   items,
   rows,
   onSaveOrder,
+  draft,
+  onDraftChange: setDraft,
+  picked,
+  onPickedChange: setPicked,
 }: {
   items: readonly BacklogItem[];
   rows: readonly PrioritizationItem[];
   onSaveOrder: (ids: readonly string[], label: string) => void;
+  /** The team's order while it isn't saved; null: the saved order. */
+  draft: readonly string[] | null;
+  onDraftChange: (draft: readonly string[] | null) => void;
+  /** The methods picked for the consensus; null: every one that can take part. */
+  picked: MethodId[] | null;
+  onPickedChange: (picked: MethodId[] | null) => void;
 }) {
   const announce = useAnnounce();
-  // null: every method that can take part (the default).
-  const [picked, setPicked] = useState<MethodId[] | null>(null);
-  const [draft, setDraft] = useState<readonly string[] | null>(null);
+  // Where focus goes once the control that had it has gone.
+  const [focusGrip, setFocusGrip] = useState<string | null>(null);
+  const gripFocused = useCallback(() => setFocusGrip(null), []);
+  const focusAfter = useRef<"consensus" | "not-ordered" | null>(null);
+  const consensusButton = useRef<HTMLButtonElement>(null);
+  const notOrderedHeading = useRef<HTMLHeadingElement>(null);
+  const stepBox = useRef<HTMLDivElement>(null);
+  const tableBox = useRef<HTMLDivElement>(null);
+  useTableName(tableBox, "Each item's place in every method, and the consensus");
+  useEffect(() => {
+    const target = focusAfter.current;
+    if (!target) return;
+    focusAfter.current = null;
+    // "Use the consensus" is disabled while nothing is scored: then the
+    // list of items not ordered yet, or the step itself.
+    const button = consensusButton.current;
+    const el =
+      target === "consensus" && button && !button.disabled
+        ? button
+        : (notOrderedHeading.current ?? stepBox.current);
+    el?.focus();
+  });
 
   const all = useMemo(() => analyseOrder(items, rows), [items, rows]);
   const analysis = useMemo(
@@ -85,7 +122,7 @@ export function DecideOrder({
   const notOrdered = decidedOrder(items).filter((i) => !inOrder.has(i.id));
   const suggested = places.filter((p) => p.place !== null).map((p) => p.row.itemId);
 
-  const verdict = orderVerdict(analysis, nameOf);
+  const verdict = orderVerdict(analysis, nameOf, { picked: picked !== null });
 
   const toggle = (id: MethodId) => {
     const cur = picked ?? all.used.map((r) => r.method);
@@ -94,6 +131,11 @@ export function DecideOrder({
     setPicked(all.used.map((r) => r.method).filter((m) => next.includes(m)));
   };
   const fillFromConsensus = () => {
+    if (sameOrder(suggested, saved)) {
+      setDraft(null);
+      announce("The saved order already matches the consensus: nothing to save.");
+      return;
+    }
     setDraft(suggested);
     announce(
       `Filled the order from the consensus: ${countText(suggested.length, "item")}. Save order to keep it.`
@@ -102,14 +144,26 @@ export function DecideOrder({
   const save = () => {
     onSaveOrder(order, `Saved the order of ${countText(order.length, "item")}`);
     setDraft(null);
+    focusAfter.current = "consensus";
   };
   const discard = () => {
     setDraft(null);
+    focusAfter.current = "consensus";
     announce("Dropped the changes: the saved order stays.");
   };
   const append = (id: string) => {
     setDraft([...order, id]);
+    setFocusGrip(id);
     announce(`Added “${nameOf(id)}” to the order at ${order.length + 1}.`);
+  };
+  const takeOut = (id: string) => {
+    const at = order.indexOf(id);
+    const next = order.filter((x) => x !== id);
+    setDraft(next);
+    // The row that takes its place, or the one above it at the end.
+    if (next.length > 0) setFocusGrip(next[Math.min(at, next.length - 1)]);
+    else focusAfter.current = "not-ordered";
+    announce(`Took “${nameOf(id)}” out of the order.`);
   };
 
   const columns: DataTableColumn<ConsensusPlace>[] = [
@@ -276,7 +330,9 @@ export function DecideOrder({
             {analysis.used.length === 0 ? (
               <p className="text-sm text-sub">Pick at least one method to see a consensus.</p>
             ) : scoredPlaces.length > 0 ? (
-              <DataTable columns={columns} rows={scoredPlaces} rowKey={(p) => p.row.itemId} />
+              <div ref={tableBox}>
+                <DataTable columns={columns} rows={scoredPlaces} rowKey={(p) => p.row.itemId} />
+              </div>
             ) : null}
           </>
         )}
@@ -313,6 +369,7 @@ export function DecideOrder({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
+              ref={consensusButton}
               type="button"
               size="sm"
               variant="outline"
@@ -334,61 +391,69 @@ export function DecideOrder({
           </div>
         }
       >
-        <p className="mb-3 text-xs text-sub">
-          The order the team agrees, which Sprint Planning imports in. Drag a row by its grip, or
-          focus the grip and press the arrow keys.
-          {dirty && " Not saved yet: the saved order stays until you save."}
-        </p>
-        {order.length === 0 ? (
-          <p className="text-sm text-sub">
-            Nothing is ordered yet. Use the consensus to start, or add items one by one below.
+        {/* Focusable only from code: the last place focus can go when its control goes. */}
+        <div ref={stepBox} tabIndex={-1} className="rounded focus:outline-none">
+          <p className="mb-3 text-xs text-sub">
+            The order the team agrees, which Sprint Planning imports in. Drag a row by its grip, or
+            focus the grip and press the arrow keys.
+            {dirty && " Not saved yet: the saved order stays until you save."}
           </p>
-        ) : (
-          <OrderList
-            ids={order}
-            label="Your order"
-            nameOf={nameOf}
-            meta={(id) => {
-              const p = placeOf.get(id);
-              if (!p || p.place === null) return "No method scored it";
-              const r = p.row;
-              const methods = analysis.used.filter((u) => u.normalized.has(id));
-              const words = methods.map((u) => `${placeWord(u, id)} in ${method(u.method).label}`);
-              return `Consensus ${p.place}${p.tied ? " (tie)" : ""}: ${listText(words)}${r.spread !== null && r.spread > DISAGREE_SPREAD ? ". Methods disagree" : ""}`;
-            }}
-            onMove={(id, to) => setDraft(moveTo(order, id, to))}
-            onRemove={(id) => {
-              setDraft(order.filter((x) => x !== id));
-              announce(`Took “${nameOf(id)}” out of the order.`);
-            }}
-          />
-        )}
-        {notOrdered.length > 0 && (
-          <div className="mt-4">
-            <h3 className="text-xs font-medium uppercase tracking-wider text-sub">
-              Not ordered yet ({notOrdered.length})
-            </h3>
-            <ul className="mt-2 space-y-1.5" aria-label="Not ordered yet">
-              {notOrdered.map((i) => (
-                <li
-                  key={i.id}
-                  className="flex flex-wrap items-center justify-between gap-2 text-sm"
-                >
-                  <span className="min-w-0 break-words text-text">{nameOf(i.id)}</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => append(i.id)}
-                    aria-label={`Add “${nameOf(i.id)}” to the order`}
+          {order.length === 0 ? (
+            <p className="text-sm text-sub">
+              Nothing is ordered yet. Use the consensus to start, or add items one by one below.
+            </p>
+          ) : (
+            <OrderList
+              ids={order}
+              label="Your order"
+              nameOf={nameOf}
+              meta={(id) => {
+                const p = placeOf.get(id);
+                if (!p || p.place === null) return "No method scored it";
+                const r = p.row;
+                const methods = analysis.used.filter((u) => u.normalized.has(id));
+                const words = methods.map(
+                  (u) => `${placeWord(u, id)} in ${method(u.method).label}`
+                );
+                return `Consensus ${p.place}${p.tied ? " (tie)" : ""}: ${listText(words)}${r.spread !== null && r.spread > DISAGREE_SPREAD ? ". Methods disagree" : ""}`;
+              }}
+              onMove={(id, to) => setDraft(moveTo(order, id, to))}
+              onRemove={takeOut}
+              focusId={focusGrip}
+              onFocused={gripFocused}
+            />
+          )}
+          {notOrdered.length > 0 && (
+            <div className="mt-4">
+              <h3
+                ref={notOrderedHeading}
+                tabIndex={-1}
+                className="rounded text-xs font-medium uppercase tracking-wider text-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                Not ordered yet ({notOrdered.length})
+              </h3>
+              <ul className="mt-2 space-y-1.5" aria-label="Not ordered yet">
+                {notOrdered.map((i) => (
+                  <li
+                    key={i.id}
+                    className="flex flex-wrap items-center justify-between gap-2 text-sm"
                   >
-                    Add to the order
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                    <span className="min-w-0 break-words text-text">{nameOf(i.id)}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => append(i.id)}
+                      aria-label={`Add “${nameOf(i.id)}” to the order`}
+                    >
+                      Add to the order
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </SectionCard>
     </div>
   );

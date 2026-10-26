@@ -17,6 +17,7 @@
  * nothing is copied to them.
  */
 
+import { useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
@@ -24,8 +25,10 @@ import {
   renameEverywhere,
   saveBacklogItem,
 } from "@/lib/prioritization/backlog-links";
+import { itemPatchChanges } from "@/lib/prioritization/binding";
 import { createBacklogItem } from "@/lib/prioritization/frameworks";
 import { ranksFromOrder } from "@/lib/prioritization/rank";
+import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import type { BacklogItem, PrioritizerStore } from "./types";
 import { buildExample, isExampleBacklogId } from "./example";
@@ -39,6 +42,8 @@ const current = () => useWorkspaceStore.getState().backlogItems ?? NO_ITEMS;
 export function usePrioritizerStore(): PrioritizerStore {
   const raw = useWorkspaceStore(useShallow((s) => s.backlogItems));
   const upsert = useWorkspaceStore((s) => s.upsertBacklogItem);
+  // The last saved order's Undo toast: a newer order replaces it.
+  const orderToast = useRef<string | number | undefined>(undefined);
 
   return {
     items: raw ?? NO_ITEMS,
@@ -58,16 +63,22 @@ export function usePrioritizerStore(): PrioritizerStore {
       const cur = current().find((item) => item.id === id);
       if (!cur) return {};
       const patch = scorePatch(methodId, values, cur);
+      // What the save changes (saveBacklogItem writes only that): an
+      // editor saved as it was is no change, and nothing to log.
+      const changes = itemPatchChanges(cur, patch);
       saveBacklogItem(id, patch);
-      return patch;
+      return changes;
     },
     removeItem: (id) => removeBacklogItemWithUndo(id),
     saveOrder: (ids, label) => {
       const ranks = ranksFromOrder(ids.filter((id) => current().some((i) => i.id === id)));
       const before = new Map(current().map((i) => [i.id, rankOf(i)]));
-      // What this save wrote, so Undo puts back only ranks nobody has changed since.
+      // What this save wrote, so Undo can tell whether the order changed since.
       const written = new Map<string, number | undefined>();
-      undoable({
+      // Undoing an older order after a newer one would mix the two (two
+      // items on one rank): the newer order's toast replaces the older's.
+      if (orderToast.current !== undefined) toast.dismiss(orderToast.current);
+      orderToast.current = undoable({
         label,
         apply: () => {
           for (const item of current()) {
@@ -78,9 +89,21 @@ export function usePrioritizerStore(): PrioritizerStore {
           }
         },
         revert: () => {
-          for (const [id, rank] of Array.from(written.entries())) {
+          // All or nothing: a rank this save wrote that has changed since
+          // (another order, the agent's set_order) means putting the others
+          // back would leave two items on one rank. A deleted item is no
+          // conflict: it has no rank to clash.
+          const entries = Array.from(written.entries());
+          const changed = entries.some(([id, rank]) => {
             const now = current().find((i) => i.id === id);
-            if (now && rankOf(now) === rank) saveBacklogItem(id, { rank: before.get(id) });
+            return now !== undefined && rankOf(now) !== rank;
+          });
+          if (changed) {
+            toast("Not undone: the order has changed since. Decide order again to change it.");
+            return;
+          }
+          for (const [id] of entries) {
+            if (current().some((i) => i.id === id)) saveBacklogItem(id, { rank: before.get(id) });
           }
         },
       });

@@ -41,6 +41,12 @@ export interface OrderListProps {
   meta?: (id: string) => ReactNode;
   /** Take a row out of the list (back to "Not ordered yet"). */
   onRemove?: (id: string) => void;
+  /**
+   * Focus this row's grip once it is on screen (a row just added, or the
+   * one that took a removed row's place); `onFocused` then clears it.
+   */
+  focusId?: string | null;
+  onFocused?: () => void;
   className?: string;
 }
 
@@ -52,6 +58,8 @@ export function OrderList({
   where = "",
   meta,
   onRemove,
+  focusId,
+  onFocused,
   className,
 }: OrderListProps) {
   const [status, setStatus] = useState("");
@@ -65,6 +73,14 @@ export function OrderList({
     pendingFocus.current = null;
     controls.current.get(key)?.focus();
   });
+
+  useEffect(() => {
+    if (!focusId) return;
+    const grip = controls.current.get(`grip:${focusId}`);
+    if (!grip) return;
+    grip.focus();
+    onFocused?.();
+  }, [focusId, ids, onFocused]);
 
   const register = (control: Control, id: string) => (el: HTMLElement | null) => {
     const key = `${control}:${id}`;

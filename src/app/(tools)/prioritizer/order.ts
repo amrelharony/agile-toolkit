@@ -3,8 +3,9 @@
  * order step and the MoSCoW tab.
  *
  * BacklogItem.rank (1-based, unique among ranked items) is set only by a
- * decided order: the hub's "Save order", a reorder in the MoSCoW tab, or
- * the agent's tool.prioritizer.set_order, all through `ranksFromOrder`. An
+ * decided order: the hub's "Save order", a reorder in the MoSCoW tab (among
+ * a bucket's items already ordered), or the agent's
+ * tool.prioritizer.set_order, all through `ranksFromOrder`. An
  * item without one is "Not ordered yet" and follows the ranked ones in
  * stored order (`decidedOrder`), which is the order Sprint Planning
  * imports in. The per-method places and the consensus come from
@@ -47,30 +48,28 @@ export function moveTo(ids: readonly string[], id: string, to: number): readonly
 
 /**
  * A reorder inside one group (a MoSCoW bucket) as the whole backlog's order
- * to save. The group's items keep the places they hold in the decided order
- * and swap among them, so nothing in another bucket moves. Every item that
- * was ordered stays ordered; the group's items that weren't are ordered by
- * the move (the user just placed them against the others). `next` is the
- * group's new order; a list that isn't the group's members as they are now
- * (stale) changes nothing.
+ * to save. Only the group's ordered items take part: they swap among the
+ * places they hold in the saved order, so nothing in another bucket moves
+ * and nothing is ordered that the team never placed. (Ordering a bucket's
+ * unordered items by the move would put them at the top of an otherwise
+ * unordered backlog, ahead of every unordered Must: their places come from
+ * Decide order.) `next` is the group's ordered items in their new order; a
+ * list that isn't exactly those (stale, or naming an item that isn't
+ * ordered) changes nothing.
  */
 export function groupReorder(items: readonly BacklogItem[], next: readonly string[]): string[] {
-  const global = decidedOrder(items).map((i) => i.id);
+  const saved = savedOrder(items);
   const members = new Set(next);
   const slots: number[] = [];
-  global.forEach((id, i) => {
+  saved.forEach((id, i) => {
     if (members.has(id)) slots.push(i);
   });
-  const ranked = new Set(items.filter((i) => rankOf(i) !== undefined).map((i) => i.id));
-  if (slots.length !== next.length || members.size !== next.length) {
-    return global.filter((id) => ranked.has(id));
-  }
-  const out = [...global];
+  if (slots.length !== next.length || members.size !== next.length) return saved;
+  const out = [...saved];
   slots.forEach((slot, i) => {
     out[slot] = next[i];
   });
-  for (const id of next) ranked.add(id);
-  return out.filter((id) => ranked.has(id));
+  return out;
 }
 
 /* ── Places ───────────────────────────────────────────────────────── */
@@ -156,9 +155,13 @@ export function consensusPlaces(rows: readonly ConsensusRow[]): ConsensusPlace[]
   return out;
 }
 
-/** A consensus as a whole number 0–100 (100 = top in every method that scored it). */
+/**
+ * A consensus as 0–100 with one decimal place (100 = top in every method
+ * that scored it): the number tool.prioritizer.list_state and decide_order
+ * report, so the screen and the agent say 62.5 for the same item.
+ */
 export const consensusScore = (borda: number | null): number | null =>
-  borda === null ? null : Math.round(borda * 100);
+  borda === null ? null : Math.round(borda * 1000) / 10;
 
 /** "Moved “X” to 3 of 12." (`where`: " in Must have"). */
 export function movedText(name: string, position: number, of: number, where = ""): string {

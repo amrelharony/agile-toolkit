@@ -25,7 +25,7 @@ export interface PrioritizerStore {
   /**
    * Save one method's inputs edited in the hub onto the item (a blank one
    * cleared). The method tools' linked rows read them through at once.
-   * Returns the backlog fields it wrote.
+   * Returns the backlog fields it changed (empty: the save changed nothing).
    */
   saveScores: (id: string, methodId: HubMethodId, values: Values) => Partial<BacklogItem>;
   /** Deletes with Undo; the rows that scored it stay, unlinked, with their values. */

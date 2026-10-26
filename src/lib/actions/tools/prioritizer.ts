@@ -37,6 +37,7 @@ import {
   method,
   type MethodId,
   type MethodScore,
+  type Values,
 } from "@/lib/prioritization/methods";
 import { frameworkScores } from "@/lib/prioritization/scores";
 import {
@@ -45,19 +46,20 @@ import {
   decidedOrder,
   ranksFromOrder,
 } from "@/lib/prioritization/rank";
-
-/**
- * Above this spread (an item's best normalised place minus its worst) the
- * methods disagree on the item: the Prioritizer's Decide order chip and
- * verdict use the same threshold.
- */
-const DISAGREE_SPREAD = 0.5;
 import {
   FIBONACCI_TEXT,
   FIBONACCI_VALUES,
   isFibonacci,
 } from "@/lib/prioritization/methods/fibonacci";
 import { clientStore, serverStore, type MethodStore } from "./_method-rows";
+
+/**
+ * Above this spread (an item's best normalised place minus its worst) the
+ * methods disagree on the item: the Prioritizer's Decide order chip and
+ * verdict use the same threshold (DISAGREE_SPREAD in its verdict.ts; the
+ * Prioritizer's upgrade test holds the two flags to the same items).
+ */
+const DISAGREE_SPREAD = 0.5;
 
 /** One method's result for an item, as list_state reports it. */
 const resultOf = (s: MethodScore) => ({
@@ -152,7 +154,8 @@ const FibonacciPart = z.number().optional();
 /** The WSJF parts add_item takes, each checked against the scale. */
 const WSJF_PARTS = ["businessValue", "timeCriticality", "riskReduction", "jobSize"] as const;
 const AddItemSchema = z.object({
-  name: z.string().min(1).max(200),
+  // Trimmed first, as the hub's Add item: a name of spaces is no name.
+  name: z.string().trim().min(1).max(200),
   description: z.string().optional(),
   moscow: z.enum(["must", "should", "could", "wont"]).optional(),
   businessValue: FibonacciPart.describe(
@@ -168,13 +171,50 @@ const AddItemSchema = z.object({
     .positive()
     .optional()
     .describe("RICE impact: 3, 2, 1, 0.5 or 0.25 (exact value kept)"),
-  confidence: z.number().min(0).max(100).optional().describe("RICE confidence, percent"),
+  confidence: z
+    .number()
+    .gt(0)
+    .max(100)
+    .optional()
+    .describe("RICE confidence, percent: more than 0, up to 100"),
   effort: z.number().min(0.5).optional().describe("RICE effort, person-months (0.5 at least)"),
   matrixEffort: z.number().min(1).max(10).optional().describe("Value/Effort effort, 1-10"),
 });
 
+/** The methods whose other inputs add_item takes (WSJF's parts are checked on their own). */
+const CHECKED_METHODS = ["rice", "value-effort"] as const;
+
+/**
+ * The hub editors' rules for the inputs given: each method's own validate
+ * (lib/prioritization/methods), so the agent can't store what the page
+ * refuses (a RICE confidence of 0, which would score 0). A method's inputs
+ * that aren't given are no error here: the method stays Not scored.
+ */
+function inputProblems(inputs: Record<string, unknown>): string[] {
+  const problems: string[] = [];
+  for (const id of CHECKED_METHODS) {
+    const m = method(id);
+    const draft: Values = {};
+    for (const input of m.inputs) {
+      const v = input.backlogKey ? inputs[input.backlogKey] : undefined;
+      if (typeof v === "number" || typeof v === "string") draft[input.key] = v;
+    }
+    if (Object.keys(draft).length === 0) continue;
+    const checked = m.validate(draft);
+    if (checked.ok) continue;
+    for (const input of m.inputs) {
+      const message = checked.errors[input.key];
+      if (message && input.key in draft) problems.push(`${input.backlogKey}: ${message}`);
+    }
+  }
+  return problems;
+}
+
 const addItem = async (store: MethodStore, params: z.infer<typeof AddItemSchema>) => {
-  const { name, description, ...inputs } = params;
+  const { name: given, description, ...inputs } = params;
+  // The schema trims; this holds for a handler called without it too.
+  const name = given.trim();
+  if (!name) throw new Error("name: an item needs a name. Nothing was added.");
   // The rule tool.wsjf and tool.value_effort_matrix writes follow: a step
   // of the scale (a new item holds nothing to keep as Custom).
   const off = WSJF_PARTS.filter((k) => {
@@ -184,6 +224,8 @@ const addItem = async (store: MethodStore, params: z.infer<typeof AddItemSchema>
   if (off.length > 0) {
     throw new Error(`${off.join(", ")}: each WSJF part is one of ${FIBONACCI_TEXT}.`);
   }
+  const problems = inputProblems(inputs);
+  if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was added.`);
   const item = createBacklogItem(name, {
     ...inputs,
     description: description?.trim() || undefined,
@@ -199,7 +241,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add a backlog item, as the Prioritizer's Add item does. Only the inputs given are stored: every method it isn't given starts Not scored (no default bucket, no mid values), and the item is Not ordered yet (no rank) until a decided order is saved (set_order). businessValue is the one value field (WSJF and Value/Effort); each WSJF part is a Fibonacci step 1, 2, 3, 5, 8, 13 or 20 (refused otherwise, no clamp). Returns {added: true, id}.",
+    "Add a backlog item, as the Prioritizer's Add item does. Only the inputs given are stored: every method it isn't given starts Not scored (no default bucket, no mid values), and the item is Not ordered yet (no rank) until a decided order is saved (set_order). businessValue is the one value field (WSJF and Value/Effort); each WSJF part is a Fibonacci step 1, 2, 3, 5, 8, 13 or 20 (refused otherwise, no clamp). The name is trimmed (one of only spaces is refused). The RICE and Value/Effort inputs given are checked with the hub editors' rules (RICE confidence more than 0 and up to 100, effort 0.5 person-months at least; Value/Effort effort 1-10) and refused otherwise, with nothing added; a method given only some of its inputs stays Not scored. Returns {added: true, id}.",
   paramsSchema: AddItemSchema,
   handler: async (params) => addItem(clientStore(), params),
   mcpHandler: async (params, ctx) => addItem(serverStore(ctx.userId), params),

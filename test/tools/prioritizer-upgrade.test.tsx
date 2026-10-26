@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -19,6 +19,11 @@ import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-typ
 
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
+const announced = vi.hoisted(() => [] as string[]);
+vi.mock("@/components/a11y/live-announcer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/a11y/live-announcer")>()),
+  useAnnounce: () => (message: string) => announced.push(message),
+}));
 const logs = vi.hoisted(() => [] as { action: string; data: unknown }[]);
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: (action: string, data: unknown) => logs.push({ action, data }) }),
@@ -58,15 +63,17 @@ import {
 } from "@/app/(tools)/prioritizer/verdict";
 import {
   consensusPlaces,
+  consensusScore,
   groupReorder,
   moveTo,
   ordinal,
   placeText,
   savedOrder,
 } from "@/app/(tools)/prioritizer/order";
+import { usePrioritizerStore } from "@/app/(tools)/prioritizer/use-prioritizer-store";
 import { scorePatch, validateNewItem, validateScores } from "@/app/(tools)/prioritizer/hub-form";
 import { matrixPoints, matrixText, valueAt } from "@/app/(tools)/prioritizer/matrix";
-import { methodText } from "@/app/(tools)/prioritizer/method-text";
+import { itemName as shownName, methodText } from "@/app/(tools)/prioritizer/method-text";
 import { evaluateItemIn, evaluateRow } from "@/lib/prioritization/methods";
 import { bordaConsensus, rankByMethod, rankMethodRows } from "@/lib/prioritization/rank";
 import { importCandidates, storyFromBacklogItem } from "@/app/(tools)/sprint-planning/view";
@@ -118,6 +125,8 @@ const nameOfExample = (key: string) =>
 
 beforeEach(() => {
   toastSpy.mockReset();
+  toastSpy.dismiss.mockReset();
+  announced.length = 0;
   logs.length = 0;
   exported.markdown = undefined;
   useWorkspaceStore.setState({ backlogItems: [], prioritizations: [], stories: [] });
@@ -204,6 +213,31 @@ describe("scores edited in place", () => {
     });
     expect(first("button", /^Edit WSJF for Auth \(17\.00\)/)).toBeInTheDocument();
     expect(logs.at(-1)).toMatchObject({ action: "score_updated", data: { method: "wsjf" } });
+  });
+
+  it("logs a score change only when a save changed something", () => {
+    useWorkspaceStore.setState({ backlogItems: [item("b1", "Auth")] });
+    renderHub();
+    const saveMoscow = (bucket?: string) => {
+      fireEvent.click(first("button", /^Edit MoSCoW for Auth/));
+      const d = dialog("MoSCoW for Auth");
+      if (bucket) fireEvent.click(within(d).getByRole("radio", { name: bucket }));
+      fireEvent.click(within(d).getByRole("button", { name: "Save" }));
+    };
+    const scoreLogs = () => logs.filter((l) => l.action === "score_updated");
+    // Save on a method left blank: nothing changed, nothing logged.
+    saveMoscow();
+    expect(scoreLogs()).toEqual([]);
+    expect(stored("b1")).toEqual(item("b1", "Auth"));
+    expect(announced.at(-1)).toBe("No change: MoSCoW for “Auth” stays Not sorted yet.");
+    saveMoscow("Could have");
+    expect(scoreLogs()).toEqual([
+      { action: "score_updated", data: { itemId: "b1", method: "moscow", fields: ["moscow"] } },
+    ]);
+    expect(announced.at(-1)).toBe("MoSCoW for “Auth”: Could have.");
+    // Saved again as it is: still the one entry.
+    saveMoscow();
+    expect(scoreLogs()).toHaveLength(1);
   });
 
   it("refuses a partly scored method inline, and Clear all saves it Not scored", () => {
@@ -467,6 +501,58 @@ describe("the items table", () => {
     expect(names()).toEqual(["Beta", "Alpha"]);
   });
 
+  it("offers no Re-sort while unsorted, and a new sort uses the values as they are", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        item("a", "Alpha", { businessValue: 8, timeCriticality: 1, riskReduction: 1, jobSize: 1 }),
+        item("b", "Beta", { businessValue: 3, timeCriticality: 1, riskReduction: 1, jobSize: 1 }),
+      ],
+    });
+    renderHub();
+    const table = screen.getByRole("table", { name: "Backlog items" });
+    const names = () =>
+      within(table)
+        .getAllByRole("textbox", { name: /^Name of/ })
+        .map((i) => (i as HTMLInputElement).value);
+    fireEvent.click(within(table).getByRole("button", { name: /^Edit WSJF for Beta/ }));
+    const d = dialog("WSJF for Beta");
+    pick(d, "Business value", "20");
+    fireEvent.click(within(d).getByRole("button", { name: "Save" }));
+    // Unsorted, the table keeps the decided order: nothing is out of date.
+    expect(names()).toEqual(["Alpha", "Beta"]);
+    expect(screen.queryByText(/changed since the last sort/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Re-sort" })).toBeNull();
+    // A sort picked now sorts by the edited WSJF.
+    fireEvent.click(within(table).getByRole("button", { name: /^WSJF, sort/ }));
+    expect(names()).toEqual(["Beta", "Alpha"]);
+    expect(screen.queryByRole("button", { name: "Re-sort" })).toBeNull();
+    // Sorted by WSJF, a rename isn't a change to the sorted column.
+    const alpha = within(table).getByRole("textbox", { name: "Name of Alpha" });
+    fireEvent.change(alpha, { target: { value: "Aardvark" } });
+    fireEvent.blur(alpha);
+    expect(stored("a")?.name).toBe("Aardvark");
+    expect(screen.queryByRole("button", { name: "Re-sort" })).toBeNull();
+    // Sorted by name, it is, and the chip says what changed.
+    fireEvent.click(within(table).getByRole("button", { name: /^Item, sort/ }));
+    const beta = within(table).getByRole("textbox", { name: "Name of Beta" });
+    fireEvent.change(beta, { target: { value: "Zebra" } });
+    fireEvent.blur(beta);
+    expect(screen.getByText(/^Names changed since the last sort/)).toBeInTheDocument();
+  });
+
+  it("moves focus to the next row's Delete after a delete", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", "Auth"), item("b2", "Search"), item("b3", "Billing")],
+    });
+    renderHub();
+    const table = screen.getByRole("table", { name: "Backlog items" });
+    fireEvent.click(within(table).getByRole("button", { name: "Delete Auth" }));
+    expect(within(table).getByRole("button", { name: "Delete Search" })).toHaveFocus();
+    // The last row: the one above it.
+    fireEvent.click(within(table).getByRole("button", { name: "Delete Billing" }));
+    expect(within(table).getByRole("button", { name: "Delete Search" })).toHaveFocus();
+  });
+
   it("gives every item a phone card with the same in-place editors", () => {
     useWorkspaceStore.setState({ backlogItems: [item("b1", "Auth")] });
     renderHub();
@@ -641,24 +727,216 @@ describe("Decide order", () => {
     );
     expect(within(consensusTable()).queryByRole("columnheader", { name: /MoSCoW/ })).toBeNull();
   });
+
+  const yourOrder = () => screen.getByRole("list", { name: "Your order" });
+  const shownOrder = () =>
+    within(yourOrder())
+      .getAllByRole("button", { name: /^Reorder/ })
+      .map((b) => b.getAttribute("aria-label")!.replace(/^Reorder “(.*)”, .*$/, "$1"));
+  const grip = (name: string) =>
+    within(yourOrder()).getByRole("button", { name: new RegExp(`^Reorder “${name}”`) });
+  const chip = (name: RegExp) =>
+    within(screen.getByRole("group", { name: "Methods in the consensus" })).getByRole("button", {
+      name,
+    });
+
+  it("keeps the draft and the picked methods across a tab switch, and says it isn't saved", () => {
+    load();
+    renderHub();
+    openTab("Decide order");
+    fireEvent.click(screen.getByRole("button", { name: "Use the consensus" }));
+    const before = shownOrder();
+    fireEvent.click(within(yourOrder()).getByRole("button", { name: `Move “${before[1]}” up` }));
+    fireEvent.click(chip(/^MoSCoW/));
+
+    openTab("MoSCoW");
+    expect(screen.queryByRole("list", { name: "Your order" })).toBeNull();
+    // The tab says the order isn't saved.
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Decide order, order not saved" }), {
+      button: 0,
+    });
+    expect(shownOrder().slice(0, 2)).toEqual([before[1], before[0]]);
+    expect(screen.getByRole("button", { name: "Save order" })).toBeInTheDocument();
+    expect(chip(/^MoSCoW/)).toHaveAttribute("aria-pressed", "false");
+    expect(items().every((i) => i.rank === undefined)).toBe(true);
+  });
+
+  it("moves focus to a row, the list or the step's first button when its control goes", () => {
+    load();
+    renderHub();
+    openTab("Decide order");
+    fireEvent.click(screen.getByRole("button", { name: "Use the consensus" }));
+    const receipts = nameOfExample("receipts");
+    fireEvent.click(screen.getByRole("button", { name: `Add “${receipts}” to the order` }));
+    expect(grip(receipts)).toHaveFocus();
+
+    const shown = shownOrder();
+    // Taken out: the row that takes its place, or the one above it at the end.
+    fireEvent.click(
+      within(yourOrder()).getByRole("button", { name: `Take “${shown[0]}” out of the order` })
+    );
+    expect(grip(shown[1])).toHaveFocus();
+    fireEvent.click(
+      within(yourOrder()).getByRole("button", { name: `Take “${receipts}” out of the order` })
+    );
+    expect(grip(shown.at(-2)!)).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save order" }));
+    expect(screen.getByRole("button", { name: "Use the consensus" })).toHaveFocus();
+    fireEvent.click(within(yourOrder()).getByRole("button", { name: `Move “${shown[2]}” up` }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByRole("button", { name: "Use the consensus" })).toHaveFocus();
+  });
+
+  it("puts focus on Not ordered yet when the last row is taken out", () => {
+    const wsjf = (bv: number) => ({
+      businessValue: bv,
+      timeCriticality: 1,
+      riskReduction: 1,
+      jobSize: 1,
+    });
+    useWorkspaceStore.setState({
+      backlogItems: [
+        item("a", "A", { ...wsjf(8), rank: 1 }),
+        item("b", "B", { ...wsjf(3), rank: 2 }),
+      ],
+    });
+    renderHub();
+    openTab("Decide order");
+    fireEvent.click(within(yourOrder()).getByRole("button", { name: "Take “A” out of the order" }));
+    expect(grip("B")).toHaveFocus();
+    fireEvent.click(within(yourOrder()).getByRole("button", { name: "Take “B” out of the order" }));
+    expect(screen.getByRole("heading", { name: "Not ordered yet (2)" })).toHaveFocus();
+  });
+
+  it("keeps focus in the step after Discard when Use the consensus is disabled", () => {
+    // Ordered, but no method scores anything: there is no consensus to use.
+    useWorkspaceStore.setState({
+      backlogItems: [item("a", "A", { rank: 1 }), item("b", "B", { rank: 2 })],
+    });
+    renderHub();
+    openTab("Decide order");
+    expect(screen.getByRole("button", { name: "Use the consensus" })).toBeDisabled();
+    fireEvent.click(within(yourOrder()).getByRole("button", { name: "Move “B” up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(shownOrder()).toEqual(["A", "B"]);
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toContainElement(yourOrder());
+  });
+
+  it("says the saved order already matches when the consensus has nothing new", () => {
+    load();
+    renderHub();
+    openTab("Decide order");
+    fireEvent.click(screen.getByRole("button", { name: "Use the consensus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save order" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use the consensus" }));
+    expect(announced.at(-1)).toBe(
+      "The saved order already matches the consensus: nothing to save."
+    );
+    expect(screen.queryByRole("button", { name: "Save order" })).toBeNull();
+  });
+
+  it("words the picked methods' verdict as what is picked, not what is scored", () => {
+    load();
+    renderHub();
+    openTab("Decide order");
+    for (const name of [/^MoSCoW/, /^RICE/, /^Value\/Effort/]) fireEvent.click(chip(name));
+    expect(
+      screen.getByText(
+        "With WSJF: none of the 8 items is ordered yet; only WSJF is picked, so the consensus is its order."
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(chip(/^WSJF/));
+    expect(
+      screen.getByText(
+        "With no method: none of the 8 items is ordered yet; pick a method to see a consensus."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("names its tables, and keeps the panel's id for its tab", () => {
+    load();
+    renderHub();
+    expect(
+      screen.getByRole("table", { name: "Each backlog item's score in every method" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Backlog items" })).toBeInTheDocument();
+    openTab("Decide order");
+    const tab = screen.getByRole("tab", { name: "Decide order" });
+    const panel = document.getElementById(tab.getAttribute("aria-controls")!);
+    expect(panel).toHaveAttribute("role", "tabpanel");
+    // The link anchor is inside the panel.
+    expect(panel!.querySelector("#decide-order")).not.toBeNull();
+    expect(
+      screen.getByRole("table", { name: "Each item's place in every method, and the consensus" })
+    ).toBeInTheDocument();
+    openTab("WSJF");
+    expect(screen.getByRole("table", { name: "The backlog by WSJF" })).toBeInTheDocument();
+    openTab("RICE");
+    expect(screen.getByRole("table", { name: "The backlog by RICE" })).toBeInTheDocument();
+  });
 });
 
 /* ── MoSCoW tab ───────────────────────────────────────────────────── */
 
 describe("MoSCoW tab", () => {
-  it("reorders a bucket at once, with Undo, leaving the other buckets where they are", () => {
-    useWorkspaceStore.setState({ backlogItems: buildExample(NOW) });
+  /** The example with the Musts and Shoulds ordered, and a third Must not ordered yet. */
+  const partlyOrdered = () => {
+    const rank: Record<string, number> = { declined: 1, rebuild: 2, wallet: 3, guest: 4 };
+    return [
+      ...buildExample(NOW).map((i) => {
+        const r = rank[i.id.replace("example-backlog-", "")];
+        return r === undefined ? i : { ...i, rank: r };
+      }),
+      item("fraud", "Fraud checks", { moscow: "must" }),
+    ];
+  };
+
+  it("reorders a bucket's ordered items at once, with Undo, leaving the rest where they are", () => {
+    useWorkspaceStore.setState({ backlogItems: partlyOrdered() });
     renderHub();
     openTab("MoSCoW");
     const must = screen.getByRole("list", { name: "Must have, in order" });
+    expect(within(must).getAllByRole("listitem")).toHaveLength(2);
+    expect(
+      within(screen.getByRole("list", { name: "Must have, not ordered yet" })).getByText(
+        "Fraud checks"
+      )
+    ).toBeInTheDocument();
     const guest = nameOfExample("guest");
     fireEvent.click(within(must).getByRole("button", { name: `Move “${guest}” up` }));
-    expect(stored("example-backlog-guest")?.rank).toBe(1);
-    expect(stored("example-backlog-rebuild")?.rank).toBe(2);
-    // Only the bucket's items were ordered by the move.
-    expect(items().filter((i) => i.rank !== undefined)).toHaveLength(2);
+    // The two Musts swap the places they held (2 and 4); the Shoulds keep 1 and 3.
+    expect(stored("example-backlog-guest")?.rank).toBe(2);
+    expect(stored("example-backlog-rebuild")?.rank).toBe(4);
+    expect(stored("example-backlog-declined")?.rank).toBe(1);
+    expect(stored("example-backlog-wallet")?.rank).toBe(3);
+    // The Must nobody placed stays Not ordered yet, and so does every other bucket.
+    expect(stored("fraud")?.rank).toBeUndefined();
+    expect(items().filter((i) => i.rank !== undefined)).toHaveLength(4);
     expect(lastToast()).toBe(`Moved “${guest}” to 1 of 2 in Must have`);
     undoLast();
+    expect(stored("example-backlog-guest")?.rank).toBe(4);
+    expect(stored("example-backlog-rebuild")?.rank).toBe(2);
+  });
+
+  it("never orders an item by a move: an unordered bucket is a list that leads to Decide order", () => {
+    useWorkspaceStore.setState({ backlogItems: buildExample(NOW) });
+    renderHub();
+    openTab("MoSCoW");
+    // Nothing is ordered: no bucket offers a move, so no Could can jump above the Musts.
+    expect(screen.queryByRole("list", { name: "Could have, in order" })).toBeNull();
+    const could = screen.getByRole("region", { name: "Could have" });
+    expect(within(could).queryByRole("button", { name: /^Move/ })).toBeNull();
+    expect(
+      within(screen.getByRole("list", { name: "Could have, not ordered yet" })).getAllByRole(
+        "listitem"
+      )
+    ).toHaveLength(2);
+    fireEvent.click(within(could).getByRole("button", { name: "Decide order for Could have" }));
+    const tab = screen.getByRole("tab", { name: "Decide order" });
+    expect(tab).toHaveAttribute("aria-selected", "true");
+    expect(tab).toHaveFocus();
     expect(items().every((i) => i.rank === undefined)).toBe(true);
   });
 
@@ -670,7 +948,7 @@ describe("MoSCoW tab", () => {
     expect(within(unsorted).getByText(nameOfExample("receipts"))).toBeInTheDocument();
   });
 
-  it("groupReorder swaps a group among its own places and orders its members", () => {
+  it("groupReorder swaps a group's ordered items among their places and orders nothing new", () => {
     const xs = [
       item("a", "A", { rank: 1 }),
       item("b", "B", { rank: 2 }),
@@ -678,13 +956,64 @@ describe("MoSCoW tab", () => {
       item("d", "D"),
       item("e", "E"),
     ];
-    // Group a, c, d: d to the top takes a's place; b keeps 2; e stays unordered.
-    expect(groupReorder(xs, ["d", "a", "c"])).toEqual(["d", "b", "a", "c"]);
-    // A pair is a group too: d and a swap places.
-    expect(groupReorder(xs, ["d", "a"])).toEqual(["d", "b", "c", "a"]);
+    // Group a, c: they swap places; b keeps 2; d and e stay unordered.
+    expect(groupReorder(xs, ["c", "a"])).toEqual(["c", "b", "a"]);
+    // An item not ordered yet can't get a place from a move: nothing changes.
+    expect(groupReorder(xs, ["d", "a", "c"])).toEqual(["a", "b", "c"]);
     // A list naming an item that isn't there, or one twice, changes nothing.
-    expect(groupReorder(xs, ["d", "zz"])).toEqual(["a", "b", "c"]);
+    expect(groupReorder(xs, ["a", "zz"])).toEqual(["a", "b", "c"]);
     expect(groupReorder(xs, ["a", "a"])).toEqual(["a", "b", "c"]);
+    // Nothing ordered (the example's start): a Could reorder ranks nothing,
+    // so it can't land above the unordered Musts.
+    const none = [
+      item("m", "M", { moscow: "must" }),
+      item("c1", "C1", { moscow: "could" }),
+      item("c2", "C2", { moscow: "could" }),
+    ];
+    expect(groupReorder(none, ["c2", "c1"])).toEqual([]);
+  });
+});
+
+describe("saving an order", () => {
+  const ranks = () => Object.fromEntries(items().map((i) => [i.id, i.rank]));
+
+  it("replaces the older order's Undo, and never undoes into two items on one rank", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        item("a", "A", { rank: 1 }),
+        item("b", "B", { rank: 2 }),
+        item("c", "C", { rank: 3 }),
+      ],
+    });
+    const { result } = renderHook(() => usePrioritizerStore());
+    toastSpy.mockReturnValueOnce("t1");
+    act(() => result.current.saveOrder(["c", "a", "b"], "first"));
+    expect(ranks()).toEqual({ c: 1, a: 2, b: 3 });
+    toastSpy.mockReturnValueOnce("t2");
+    act(() => result.current.saveOrder(["a", "c", "b"], "second"));
+    expect(ranks()).toEqual({ a: 1, c: 2, b: 3 });
+    // The newer order's toast replaces the older's...
+    expect(toastSpy.dismiss).toHaveBeenCalledWith("t1");
+    // ...and the older Undo, if still clicked, sees the change and does nothing.
+    const firstUndo = toastSpy.mock.calls[0] as [string, { action: { onClick: () => void } }];
+    act(() => firstUndo[1].action.onClick());
+    expect(ranks()).toEqual({ a: 1, c: 2, b: 3 });
+    expect(lastToast()).toMatch(/^Not undone: the order has changed since/);
+    // The newer Undo puts its own save back.
+    const secondUndo = toastSpy.mock.calls[1] as [string, { action: { onClick: () => void } }];
+    act(() => secondUndo[1].action.onClick());
+    expect(ranks()).toEqual({ c: 1, a: 2, b: 3 });
+  });
+
+  it("undoes around an item deleted since", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("a", "A"), item("b", "B"), item("c", "C")],
+    });
+    const { result } = renderHook(() => usePrioritizerStore());
+    act(() => result.current.saveOrder(["b", "a", "c"], "saved"));
+    act(() => useWorkspaceStore.getState().removeBacklogItem("c"));
+    undoLast();
+    expect(ranks()).toEqual({ a: undefined, b: undefined });
   });
 });
 
@@ -764,8 +1093,21 @@ describe("the order elsewhere", () => {
     const byId = new Map(page.consensus.map((c) => [c.itemId, c]));
     for (const i of state.items) {
       const c = byId.get(i.id)!;
-      expect(i.consensus).toBe(c.borda === null ? null : Math.round(c.borda * 1000) / 10);
+      // The number the page prints is the one the agent reports (one decimal place).
+      expect(i.consensus).toBe(consensusScore(c.borda));
       expect(i.coverage).toBe(c.coverage);
+    }
+    renderHub();
+    openTab("Decide order");
+    const consensusColumn = 2 + page.used.length; // #, Item, a column per method, Consensus
+    for (const i of state.items.filter((x) => x.consensus !== null)) {
+      const name = shownName(items().find((x) => x.id === i.id)!.name);
+      const row = within(consensusTable())
+        .getAllByRole("row")
+        .find((r) => within(r).queryByText(name))!;
+      expect(within(row).getAllByRole("cell")[consensusColumn].textContent).toBe(
+        String(i.consensus)
+      );
     }
     const flagged = (xs: { id: string; disagree: boolean }[]) =>
       xs
@@ -797,6 +1139,59 @@ describe("the order elsewhere", () => {
         .handler({ name: "X", jobSize: 4 }, makeContext("u", "agent"))
     ).rejects.toThrow(/Fibonacci|one of/);
   });
+
+  it("add_item refuses what the hub's Add item and editors refuse", async () => {
+    const action = registry.get("tool.prioritizer.add_item")!;
+    const add = (params: Record<string, unknown>) =>
+      action.handler(params, makeContext("u", "agent"));
+    // A name of spaces is no name, through the schema and without it.
+    expect(action.paramsSchema.safeParse({ name: "   " }).success).toBe(false);
+    await expect(add({ name: "   " })).rejects.toThrow(/needs a name/);
+    expect(action.paramsSchema.safeParse({ name: "X", confidence: 0 }).success).toBe(false);
+    // RICE's own rule: a confidence of 0 would score 0.
+    await expect(
+      add({ name: "X", reach: 100, impact: 1, confidence: 0, effort: 1 })
+    ).rejects.toThrow(/confidence: Confidence runs from just above 0% to 100%/);
+    await expect(add({ name: "X", matrixEffort: 11 })).rejects.toThrow(/matrixEffort/);
+    expect(items()).toEqual([]);
+    // Some of a method's inputs are fine: that method stays Not scored.
+    const r = (await add({ name: "  Gift cards  ", reach: 100, matrixEffort: 3 })) as {
+      id: string;
+    };
+    const added = stored(r.id)!;
+    expect(added).toMatchObject({ name: "Gift cards", reach: 100, matrixEffort: 3 });
+    expect(evaluateItemIn(added, [], "rice").sortKey).toBeNull();
+    expect(evaluateItemIn(added, [], "value-effort").sortKey).toBeNull();
+  });
+
+  it("flags the same items as disagreeing as the agent, at the 0.5 boundary too", async () => {
+    const wsjf = (bv: number) => ({
+      businessValue: bv,
+      timeCriticality: 1,
+      riskReduction: 1,
+      jobSize: 1,
+    });
+    const rice = (reach: number) => ({ reach, impact: 1, confidence: 100, effort: 1 });
+    // WSJF: X, Z, Y. RICE: Y, X, Z. X and Z are 0.5 apart (not flagged); Y is 1 apart.
+    const xs = [
+      item("x", "X", { ...wsjf(8), ...rice(500) }),
+      item("y", "Y", { ...wsjf(1), ...rice(1000) }),
+      item("z", "Z", { ...wsjf(3), ...rice(100) }),
+    ];
+    useWorkspaceStore.setState({ backlogItems: xs });
+    const page = analyseOrder(xs, []);
+    expect(page.consensus.find((c) => c.itemId === "x")?.spread).toBe(0.5);
+    expect(page.disagree.map((c) => c.itemId)).toEqual(["y"]);
+    const ctx = makeContext("u", "agent");
+    const decided = (await registry.get("tool.prioritizer.decide_order")!.handler({}, ctx)) as {
+      consensus: { id: string; disagree: boolean }[];
+    };
+    const listed = (await registry.get("tool.prioritizer.list_state")!.handler({}, ctx)) as {
+      items: { id: string; disagree: boolean }[];
+    };
+    expect(decided.consensus.filter((c) => c.disagree).map((c) => c.id)).toEqual(["y"]);
+    expect(listed.items.filter((c) => c.disagree).map((c) => c.id)).toEqual(["y"]);
+  });
 });
 
 describe("verdicts", () => {
@@ -827,6 +1222,39 @@ describe("verdicts", () => {
     ];
     expect(orderVerdict(analyseOrder(agree, []), names)).toBe(
       "1 of 2 items are ordered; MoSCoW and WSJF broadly agree."
+    );
+  });
+
+  it("claims agreement only when two methods scored the same item", () => {
+    const wsjf = (bv: number) => ({
+      businessValue: bv,
+      timeCriticality: 1,
+      riskReduction: 1,
+      jobSize: 1,
+    });
+    const rice = (reach: number) => ({ reach, impact: 1, confidence: 100, effort: 1 });
+    // A and B only in WSJF, C and D only in RICE: no spread, but nothing compared.
+    const apart = [
+      item("a", "A", wsjf(8)),
+      item("b", "B", wsjf(3)),
+      item("c", "C", rice(500)),
+      item("d", "D", rice(100)),
+    ];
+    const a = analyseOrder(apart, []);
+    expect(a.used.map((r) => r.method)).toEqual(["wsjf", "rice"]);
+    expect(orderVerdict(a, names)).toBe(
+      "None of the 4 items is ordered yet; WSJF and RICE haven't scored any item in common yet, so there's nothing to compare."
+    );
+  });
+
+  it("words a picked analysis as what is picked", () => {
+    const xs = buildExample(NOW);
+    const name = (id: string) => xs.find((i) => i.id === id)!.name;
+    expect(orderVerdict(analyseOrder(xs, [], ["wsjf"]), name, { picked: true })).toBe(
+      "None of the 8 items is ordered yet; only WSJF is picked, so the consensus is its order."
+    );
+    expect(orderVerdict(analyseOrder(xs, [], []), name, { picked: true })).toBe(
+      "None of the 8 items is ordered yet; pick a method to see a consensus."
     );
   });
 
@@ -932,8 +1360,12 @@ describe("the example", () => {
     renderHub();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(items()).toHaveLength(xs.length);
+    // Loading again adds nothing: the ids are already there.
+    const { result } = renderHook(() => usePrioritizerStore());
+    act(() => result.current.loadExample());
+    expect(items()).toHaveLength(xs.length);
+    // Clear example removes only the example's items.
     act(() => {
-      // Loading again adds nothing (the ids are already there).
       useWorkspaceStore.getState().upsertBacklogItem(item("mine", "Mine"));
     });
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));

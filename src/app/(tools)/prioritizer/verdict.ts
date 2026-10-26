@@ -99,18 +99,37 @@ function orderedText(ordered: number, total: number): string {
 /**
  * One sentence: how many items are ordered and whether the methods agree,
  * naming the item they split on most ("1st in WSJF, 6th in RICE").
+ *
+ * `picked`: the analysis is of the methods picked in Decide order (its
+ * chips), so with none or one method in it the sentence says what is
+ * picked, not what is scored (the others may well have items scored).
+ * Agreement is claimed only on evidence: at least one item scored by two
+ * of the methods.
  */
-export function orderVerdict(a: OrderAnalysis, nameOf: (id: string) => string): string {
+export function orderVerdict(
+  a: OrderAnalysis,
+  nameOf: (id: string) => string,
+  { picked = false }: { picked?: boolean } = {}
+): string {
   if (a.total === 0) return "Nothing to order yet: add an item to the backlog first.";
   const done = orderedText(a.ordered, a.total);
   if (a.used.length === 0) {
-    return `${done}; score 2 or more items in one method to see what the methods say.`;
+    return picked
+      ? `${done}; pick a method to see a consensus.`
+      : `${done}; score 2 or more items in one method to see what the methods say.`;
   }
   const labels = a.used.map((r) => method(r.method).label);
   if (a.used.length === 1) {
-    return `${done}; only ${labels[0]} has 2 or more items scored, so the consensus is its order.`;
+    return picked
+      ? `${done}; only ${labels[0]} is picked, so the consensus is its order.`
+      : `${done}; only ${labels[0]} has 2 or more items scored, so the consensus is its order.`;
   }
-  if (a.disagree.length === 0) return `${done}; ${listText(labels)} broadly agree.`;
+  if (a.disagree.length === 0) {
+    // Spread needs two methods on one item: without any, nothing was compared.
+    return a.consensus.some((c) => c.coverage >= 2)
+      ? `${done}; ${listText(labels)} broadly agree.`
+      : `${done}; ${listText(labels)} haven't scored any item in common yet, so there's nothing to compare.`;
+  }
   const top = a.disagree[0];
   const ends = extremes(a.used, top.itemId);
   const where = ends

@@ -11,10 +11,12 @@
  * every method tool's row linked to it reads the change through. A method
  * nobody scored reads "Not scored" (or "Not sorted yet", "Not placed yet"),
  * never 0. Sorted by a column, the rows hold still while they are edited
- * (useFrozenSort + ResortChip). Delete has Undo.
+ * (useFrozenSort + ResortChip, shown only while a column is sorted and
+ * that column's values changed). Delete has Undo, and focus moves to the
+ * next row's Delete, so the keyboard stays in the table.
  */
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type MouseEvent, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { ResortChip } from "@/components/shared/resort-chip";
@@ -30,11 +32,19 @@ import { decidedOrder } from "@/lib/prioritization/rank";
 import { rememberedPeriod, type HubMethodId } from "../hub-form";
 import { HUB_EDITED, itemName } from "../method-text";
 import { rankOf } from "../order";
-import { useFrozenSort, type SortValues } from "../use-frozen-sort";
+import { useFrozenSort, useTableSort, type SortValues } from "../use-frozen-sort";
+import { useTableName } from "../use-table-name";
 import { MethodCell } from "./score-editor";
 import { NameCell } from "./name-cell";
 
 type View = "table" | "card";
+
+/** The table's columns, in order (useTableSort reads the sorted one by its place). */
+const COLUMN_KEYS: readonly string[] = ["rank", "name", ...HUB_EDITED, "actions"];
+
+/** What the ResortChip says changed, by the sorted column. */
+const changedText = (column: string | undefined) =>
+  column === "rank" ? "Ranks" : column === "name" ? "Names" : "Scores";
 
 interface Row {
   item: BacklogItem;
@@ -84,7 +94,28 @@ export function ItemsTable({
     [items]
   );
   const period = useMemo(() => rememberedPeriod(items), [items]);
-  const frozen = useFrozenSort(rows, (r) => r.item.id, sortValuesOf);
+  const tableBox = useRef<HTMLDivElement>(null);
+  const tableSort = useTableSort(tableBox, COLUMN_KEYS);
+  const frozen = useFrozenSort(rows, (r) => r.item.id, sortValuesOf, tableSort.sort);
+  useTableName(tableBox, "Backlog items");
+
+  // After a delete: the next row's Delete (or the one above), as the rows
+  // read on screen; with none left, the table's own box.
+  const box = useRef<HTMLDivElement>(null);
+  const focusAfterDelete = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = focusAfterDelete.current;
+    if (!el) return;
+    focusAfterDelete.current = null;
+    (el.isConnected ? el : box.current)?.focus();
+  });
+  const remove = (e: MouseEvent<HTMLButtonElement>, id: string) => {
+    const row = e.currentTarget.closest("tr, li");
+    const next = row?.nextElementSibling ?? row?.previousElementSibling;
+    focusAfterDelete.current =
+      next?.querySelector<HTMLElement>("[data-delete-item]") ?? box.current;
+    onRemove(id);
+  };
 
   // The score buttons by view and item: the desktop table and the phone
   // cards are both in the DOM, and focus goes to the one on screen.
@@ -121,7 +152,8 @@ export function ItemsTable({
       label={`Delete ${itemName(r.item.name)}`}
       icon={<Trash2 className="h-4 w-4" />}
       className="text-sub hover:text-danger"
-      onClick={() => onRemove(r.item.id)}
+      data-delete-item=""
+      onClick={(e) => remove(e, r.item.id)}
     />
   );
 
@@ -178,33 +210,49 @@ export function ItemsTable({
     },
   ];
 
-  if (rows.length === 0) return <>{emptyState}</>;
-
   return (
-    <div>
-      <ResortChip isStale={frozen.isStale} onResort={frozen.resort} />
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.item.id}
-        renderCard={(r) => (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              {orderText(r)}
-              {removeButton(r)}
-            </div>
-            {nameCell(r)}
-            <dl className="grid grid-cols-1 gap-1">
-              {HUB_EDITED.map((id) => (
-                <div key={id} className="flex items-center justify-between gap-2">
-                  <dt className="text-xs text-sub">{method(id).label}</dt>
-                  <dd className="min-w-0 text-right">{cellFor(r, id, "card")}</dd>
+    // Focusable only from code: where a delete leaves focus when no row is left.
+    <div ref={box} tabIndex={-1} className="rounded focus:outline-none">
+      {rows.length === 0 ? (
+        emptyState
+      ) : (
+        <>
+          <ResortChip
+            isStale={frozen.isStale}
+            onResort={frozen.resort}
+            what={changedText(tableSort.sort?.key)}
+          />
+          {/* A click or a change inside may be a header or "Sort by": the sort is read again. */}
+          <div
+            ref={tableBox}
+            onClickCapture={tableSort.onClickCapture}
+            onChangeCapture={tableSort.onChangeCapture}
+          >
+            <DataTable
+              columns={columns}
+              rows={rows}
+              rowKey={(r) => r.item.id}
+              renderCard={(r) => (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    {orderText(r)}
+                    {removeButton(r)}
+                  </div>
+                  {nameCell(r)}
+                  <dl className="grid grid-cols-1 gap-1">
+                    {HUB_EDITED.map((id) => (
+                      <div key={id} className="flex items-center justify-between gap-2">
+                        <dt className="text-xs text-sub">{method(id).label}</dt>
+                        <dd className="min-w-0 text-right">{cellFor(r, id, "card")}</dd>
+                      </div>
+                    ))}
+                  </dl>
                 </div>
-              ))}
-            </dl>
+              )}
+            />
           </div>
-        )}
-      />
+        </>
+      )}
     </div>
   );
 }
