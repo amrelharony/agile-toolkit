@@ -46,6 +46,8 @@ import {
   type RecognitionWindow,
 } from "@/lib/kudos/recognition";
 import { localDay, todayIso } from "@/lib/sprints/series";
+import { nameKey } from "@/lib/team/names";
+import { isExampleId } from "@/lib/utils/example-id";
 import type { Kudos, Sprint, TeamMember } from "@/lib/stores/workspace-types";
 
 const KIND_K = "workspace:kudos";
@@ -54,9 +56,20 @@ const KIND_SPRINT = "workspace:sprint";
 
 const ws = () => useWorkspaceStore.getState();
 
+/**
+ * The wall as the page shows it. Example kudos (the page's Load example;
+ * ids start with "example-") stay on the wall until Clear example, so they
+ * are listed, but marked `example: true` and counted apart: recognition_stats,
+ * the retro and the room leave them out.
+ */
 function summarize(kudos: Kudos[]) {
   const sorted = [...kudos].sort((a, b) => b.sentAt.localeCompare(a.sentAt));
-  return { total: sorted.length, kudos: sorted };
+  const examples = sorted.filter((k) => isExampleId(k.id)).length;
+  return {
+    total: sorted.length,
+    examples,
+    kudos: sorted.map((k) => (isExampleId(k.id) ? { ...k, example: true as const } : k)),
+  };
 }
 
 /* ── recognition_stats ─────────────────────────────────────────────── */
@@ -189,6 +202,24 @@ function buildKudo(params: {
   return raw;
 }
 
+type PostParams = Parameters<typeof buildKudo>[0];
+
+/**
+ * A kudos for a roster member names them as the roster does, as the page
+ * stamps them: toName must be that member (trimmed, case-insensitive), and
+ * it is saved in the roster's spelling. A card reading "Kudos to Sam" that
+ * counts for Priya would otherwise slip through.
+ */
+function withMember(
+  params: PostParams,
+  member: TeamMember | undefined
+): { ok: true; params: PostParams } | { ok: false; error: "unknown_member" | "name_mismatch" } {
+  if (!params.toMemberId) return { ok: true, params };
+  if (!member) return { ok: false, error: "unknown_member" };
+  if (nameKey(params.toName) !== nameKey(member.name)) return { ok: false, error: "name_mismatch" };
+  return { ok: true, params: { ...params, toName: member.name.trim() } };
+}
+
 // ──────── tool.kudos.list_state ────────
 registry.register({
   id: "tool.kudos.list_state",
@@ -196,7 +227,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Read the kudos wall, newest first. Returns {total, kudos: {id, theme, toName, toMemberId?, fromName, message, sentAt, replyTo?, ...}[]}. Replies carry replyTo (the kudos they answer).",
+    "Read the kudos wall, newest first. Returns {total (every row, examples included), examples (how many are example kudos), kudos: {id, theme, toName, toMemberId?, fromName, message, sentAt, replyTo?, example?, ...}[]}. Replies carry replyTo (the kudos they answer). Example kudos (loaded by the page's Load example, ids starting with 'example-') carry example: true: they stay on the wall until the user presses Clear example, and recognition_stats leaves them out, so don't treat them as real recognition.",
   paramsSchema: z.object({}),
   handler: async () => summarize(ws().kudos ?? []),
   mcpHandler: async (_params, ctx) =>
@@ -233,7 +264,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Post a kudo to the wall. theme is a built-in id (awesome, thank-you, great-job, congratulations, very-happy, you-rock, well-done; default awesome). fromName defaults to 'AI Assistant'. toMemberId (optional) is the roster member (TeamMember.id) it is for, so a later rename keeps it counted for them; it must be on the roster. Validated via parseKudos. Returns {posted: false, error} on a rejected shape (error 'unknown_member' for a toMemberId off the roster), else {posted: true, id}.",
+    "Post a kudo to the wall. theme is a built-in id (awesome, thank-you, great-job, congratulations, very-happy, you-rock, well-done; default awesome). fromName defaults to 'AI Assistant'. toMemberId (optional) is the roster member (TeamMember.id) it is for, so a later rename keeps it counted for them; it must be on the roster, toName must be that member's name (trimmed, case-insensitive), and the kudos is saved with the roster's spelling. Validated via parseKudos. Returns {posted: false, error} on a rejected shape (error 'unknown_member' for a toMemberId off the roster, 'name_mismatch' when toName isn't that member), else {posted: true, id}.",
   paramsSchema: z.object({
     toName: z.string().min(1).max(80),
     message: z.string().min(1).max(2000),
@@ -245,22 +276,23 @@ registry.register({
     fromProfileId: z.string().min(1).max(64).optional(),
   }),
   handler: async (params) => {
-    if (params.toMemberId && !(ws().teamMembers ?? []).some((m) => m.id === params.toMemberId)) {
-      return { posted: false, error: "unknown_member" };
-    }
-    const parsed = parseKudos(buildKudo(params));
+    const member = params.toMemberId
+      ? (ws().teamMembers ?? []).find((m) => m.id === params.toMemberId)
+      : undefined;
+    const checked = withMember(params, member);
+    if (!checked.ok) return { posted: false, error: checked.error };
+    const parsed = parseKudos(buildKudo(checked.params));
     if (!parsed.ok) return { posted: false, error: parsed.error };
     ws().upsertKudos(parsed.kudos);
     return { posted: true, id: parsed.kudos.id };
   },
   mcpHandler: async (params, ctx) => {
-    if (
-      params.toMemberId &&
-      !(await serverGetEntity<TeamMember>(ctx.userId, KIND_TEAM, params.toMemberId))
-    ) {
-      return { posted: false, error: "unknown_member" };
-    }
-    const parsed = parseKudos(buildKudo(params));
+    const member = params.toMemberId
+      ? await serverGetEntity<TeamMember>(ctx.userId, KIND_TEAM, params.toMemberId)
+      : undefined;
+    const checked = withMember(params, member ?? undefined);
+    if (!checked.ok) return { posted: false, error: checked.error };
+    const parsed = parseKudos(buildKudo(checked.params));
     if (!parsed.ok) return { posted: false, error: parsed.error };
     await serverUpsertEntity<Kudos>(ctx.userId, KIND_K, parsed.kudos);
     return { posted: true, id: parsed.kudos.id };

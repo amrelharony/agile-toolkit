@@ -683,7 +683,9 @@ export function KudosClient() {
     announce(`Added the kudos for ${k.toName} to the retro`);
   };
   const retroAction = (k: Kudos) => {
-    if (isExampleId(k.id)) return null;
+    // A reply whose kudos was removed shows as a card of its own, but it is
+    // still a reply: not an appreciation for the retro.
+    if (isExampleId(k.id) || k.replyTo) return null;
     if (onRetroBoard.has(k.id)) {
       return (
         <Link
@@ -779,8 +781,10 @@ export function KudosClient() {
         <div>
           <ExampleNotice onClear={clearExample} />
           <p className="-mt-2 mb-4 text-xs text-sub">
-            Example: a checkout team&apos;s last three weeks. It isn&apos;t posted, shared with the
-            room or counted anywhere else, and your Team page stays as it is.
+            Example: a checkout team&apos;s last three weeks. It stays on this wall (and in your
+            saved workspace) until you press Clear example, but it is never posted, shared with the
+            room or sent to the retro, the Markdown, CSV and JSON exports leave it out, and your
+            Team page stays as it is.
           </p>
         </div>
       )}

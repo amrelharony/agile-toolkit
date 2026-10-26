@@ -165,6 +165,24 @@ describe("tool.kudos.recognition_stats", () => {
   });
 });
 
+describe("tool.kudos.list_state and example kudos", () => {
+  type Wall = { total: number; examples: number; kudos: (Kudos & { example?: true })[] };
+  const list = () => registry.get("tool.kudos.list_state")!.handler({}, ctx()) as Promise<Wall>;
+  const listServer = () =>
+    registry.get("tool.kudos.list_state")!.mcpHandler!({}, ctx()) as Promise<Wall>;
+
+  it("marks the example rows that recognition_stats leaves out", async () => {
+    const wallRows = await list();
+    expect(wallRows.total).toBe(8);
+    expect(wallRows.examples).toBe(1);
+    const marked = wallRows.kudos.filter((k) => k.example);
+    expect(marked.map((k) => k.id)).toEqual(["example-kudos-1"]);
+    expect(wallRows.kudos.find((k) => k.id === "kud_00000000")).not.toHaveProperty("example");
+    for (const k of wall()) rows.set(`workspace:kudos/${k.id}`, k);
+    expect(await listServer()).toEqual(wallRows);
+  });
+});
+
 describe("tool.kudos.post_kudos with toMemberId", () => {
   const post = (params: Record<string, unknown>) =>
     registry.get("tool.kudos.post_kudos")!.handler(params, ctx()) as Promise<{
@@ -185,6 +203,39 @@ describe("tool.kudos.post_kudos with toMemberId", () => {
     expect(await post({ toName: "Kim", message: "Thanks", toMemberId: "m-kim" })).toEqual({
       posted: false,
       error: "unknown_member",
+    });
+  });
+
+  it("refuses a toName that isn't the member, and saves the roster's spelling", async () => {
+    useWorkspaceStore.setState({ kudos: [] });
+    // "Kudos to Sam" counted for Priya would read wrong on the wall.
+    expect(await post({ toName: "Sam", message: "Thanks", toMemberId: "m-priya" })).toEqual({
+      posted: false,
+      error: "name_mismatch",
+    });
+    expect(useWorkspaceStore.getState().kudos).toEqual([]);
+    const ok = await post({ toName: "  priya ", message: "Thanks", toMemberId: "m-priya" });
+    expect(ok.posted).toBe(true);
+    expect(useWorkspaceStore.getState().kudos?.[0]).toMatchObject({
+      toName: "Priya",
+      toMemberId: "m-priya",
+    });
+  });
+
+  it("checks the name against the server roster's member too", async () => {
+    const server = registry.get("tool.kudos.post_kudos")!.mcpHandler!;
+    rows.set("workspace:teamMember/m-priya", ROSTER[1]);
+    expect(await server({ toName: "Sam", message: "Hi", toMemberId: "m-priya" }, ctx())).toEqual({
+      posted: false,
+      error: "name_mismatch",
+    });
+    const ok = (await server({ toName: "PRIYA", message: "Hi", toMemberId: "m-priya" }, ctx())) as {
+      posted: boolean;
+      id: string;
+    };
+    expect(rows.get(`workspace:kudos/${ok.id}`)).toMatchObject({
+      toName: "Priya",
+      toMemberId: "m-priya",
     });
   });
 

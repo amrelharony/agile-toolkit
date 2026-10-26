@@ -310,6 +310,28 @@ describe("fairnessHints", () => {
     expect(fairnessHints(s, 2)).toEqual([]);
   });
 
+  it("never names one of two people tied at the top, whatever the roster's size", () => {
+    // A roster of four puts the bar at half the kudos: Priya and Sam with 5
+    // each reach it, but neither leads alone.
+    const four: TeamMember[] = [...ROSTER, { id: "m-lee", name: "Lee" }];
+    const s = recognitionReceived(five([...Array(5).fill("Sam"), ...Array(5).fill("Priya")]), four);
+    expect(s.topShare).toBe(0.5);
+    const hints = fairnessHints(s, four.length);
+    expect(hints.map((h) => h.kind)).toEqual(["none-received"]);
+    expect(recognitionVerdict(s, four.length, "so far")).toBe(
+      "Recognition reached 2 of 4 teammates so far; Omar and Lee have none yet."
+    );
+    // One more for Sam and he leads alone: now it reads as concentrated.
+    const ahead = recognitionReceived(
+      five([...Array(6).fill("Sam"), ...Array(5).fill("Priya")]),
+      four
+    );
+    expect(fairnessHints(ahead, four.length).map((h) => h.kind)).toEqual([
+      "none-received",
+      "concentrated",
+    ]);
+  });
+
   it("names up to three teammates, then counts the rest", () => {
     expect(listNames(["Omar"])).toBe("Omar");
     expect(listNames(["Omar", "Lee"])).toBe("Omar and Lee");
@@ -590,6 +612,13 @@ describe("Kudos page: retro appreciations", () => {
     renderPage();
     expect(screen.getAllByRole("button", { name: /to the retro/ })).toHaveLength(1);
   });
+
+  it("offers nothing for a reply whose kudos was removed, though it shows as a card", () => {
+    seed([kudo("Sam", { replyTo: "kud_gone", fromName: "Priya", message: "Seconded!" })]);
+    renderPage();
+    expect(screen.getByText("Seconded!")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /to the retro/ })).toBeNull();
+  });
 });
 
 describe("Kudos page: example", () => {
@@ -608,6 +637,8 @@ describe("Kudos page: example", () => {
     ).toBeInTheDocument();
     // Example cards can't be sent to the retro, reacted to or replied to.
     expect(screen.queryByRole("button", { name: /to the retro/ })).toBeNull();
+    // The notice says it stays on the wall until cleared.
+    expect(screen.getByText(/stays on this wall \(and in your saved workspace\)/)).toBeTruthy();
     // The export is the team's own wall.
     expect(screen.getByTestId("export-markdown").textContent).not.toContain("Untangled");
 
@@ -627,6 +658,23 @@ describe("Kudos settings: custom themes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete theme Ship Day" }));
     expect(useKudosSettingsStore.getState().customThemes).toEqual([b]);
     expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Deleted the “Ship Day” theme");
+    undoLast();
+    expect(useKudosSettingsStore.getState().customThemes).toEqual([a, b]);
+  });
+
+  it("offers the Undo inside the dialog too, focused, and restores once", async () => {
+    const a = { id: "ship-day", title: "Ship Day", emoji: "🚢", hex: "#123456" };
+    const b = { id: "fix-it", title: "Fix It", emoji: "🔧", hex: "#654321" };
+    useKudosSettingsStore.setState({ customThemes: [a, b] });
+    render(<KudosSettings open onOpenChange={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete theme Ship Day" }));
+    const undo = screen.getByRole("button", { name: "Undo deleting the Ship Day theme" });
+    // The toast sits outside the dialog's focus trap; this one is in reach.
+    await waitFor(() => expect(undo).toHaveFocus());
+    fireEvent.click(undo);
+    expect(useKudosSettingsStore.getState().customThemes).toEqual([a, b]);
+    expect(screen.queryByRole("button", { name: /^Undo deleting/ })).toBeNull();
+    // The toast's Undo after it does nothing more: no second copy.
     undoLast();
     expect(useKudosSettingsStore.getState().customThemes).toEqual([a, b]);
   });

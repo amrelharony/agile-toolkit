@@ -29,8 +29,8 @@ export const RECENT_DAYS = 30;
 
 /**
  * A top recipient with at least this share of the kudos reads as
- * concentrated (and at least twice a fair share, so two people splitting
- * the kudos evenly never do).
+ * concentrated (and at least twice a fair share, and ahead of everyone
+ * else, so two people splitting the kudos evenly never do).
  */
 export const CONCENTRATED_SHARE = 0.5;
 
@@ -230,7 +230,10 @@ export function fairnessHints(
 
   const top = summary.recipients[0];
   const threshold = Math.max(CONCENTRATED_SHARE, 2 / rosterSize);
-  if (top && summary.topShare !== null && summary.topShare >= threshold) {
+  // The top recipient must lead alone: a tie (5 and 5 of 10 with a roster
+  // of four reaches the threshold) isn't kudos piling up on one person.
+  const leadsAlone = top !== undefined && (summary.recipients[1]?.count ?? 0) < top.count;
+  if (top && leadsAlone && summary.topShare !== null && summary.topShare >= threshold) {
     hints.push({
       kind: "concentrated",
       memberIds: top.memberId ? [top.memberId] : [],

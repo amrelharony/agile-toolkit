@@ -24,7 +24,7 @@
  * "Couldn't add: …" hint so we never drift from the wire's truth.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -40,7 +40,7 @@ import { Switch } from "@/components/ui/switch";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import { parseKudos } from "@/lib/kudos/parse";
 import type { KudosCustomTheme } from "@/lib/stores/workspace-types";
-import { removeWithUndo } from "@/lib/utils/undoable";
+import { undoable } from "@/lib/utils/undoable";
 
 /**
  * Where the colour picker starts. A custom theme carries its own colour as
@@ -49,13 +49,41 @@ import { removeWithUndo } from "@/lib/utils/undoable";
  */
 const DEFAULT_THEME_HEX = "#00f0ff";
 
-/** Delete a custom theme, with Undo that puts it back in its place. */
-function deleteCustomTheme(theme: KudosCustomTheme) {
-  removeWithUndo<KudosCustomTheme>({
+/** How long the dialog's own Undo row stays, as long as the toast's. */
+const INLINE_UNDO_MS = 8000;
+
+/**
+ * Delete a custom theme, with Undo that puts it back in its place. The
+ * Undo is offered twice: in the toast, and in the dialog (the toast sits
+ * outside the dialog's focus trap, so a keyboard user couldn't reach it).
+ * Returns the restore both share, which puts the theme back once.
+ */
+function deleteCustomTheme(theme: KudosCustomTheme): () => void {
+  const update = (fn: (list: readonly KudosCustomTheme[]) => KudosCustomTheme[]) =>
+    useKudosSettingsStore.setState((s) => ({ customThemes: fn(s.customThemes) }));
+  let index = -1;
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    update((list) => {
+      if (list.some((t) => t.id === theme.id)) return [...list];
+      const next = [...list];
+      next.splice(index < 0 ? next.length : Math.min(index, next.length), 0, theme);
+      return next;
+    });
+  };
+  undoable({
     label: `Deleted the “${theme.title}” theme`,
-    update: (fn) => useKudosSettingsStore.setState((s) => ({ customThemes: fn(s.customThemes) })),
-    match: (t) => t.id === theme.id,
+    durationMs: INLINE_UNDO_MS,
+    apply: () =>
+      update((list) => {
+        index = list.findIndex((t) => t.id === theme.id);
+        return list.filter((t) => t.id !== theme.id);
+      }),
+    revert: restore,
   });
+  return restore;
 }
 
 interface Props {
@@ -179,6 +207,16 @@ function BeaconSection() {
 function CustomThemesSection() {
   const customThemes = useKudosSettingsStore((s) => s.customThemes);
   const upsertCustomTheme = useKudosSettingsStore((s) => s.upsertCustomTheme);
+  // The last delete's Undo, inside the dialog; focus moves to it, since the
+  // Delete button that had focus is gone.
+  const [deleted, setDeleted] = useState<{ title: string; restore: () => void } | null>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!deleted) return;
+    undoRef.current?.focus();
+    const timer = setTimeout(() => setDeleted(null), INLINE_UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [deleted]);
 
   return (
     <section className="flex flex-col gap-3">
@@ -212,7 +250,7 @@ function CustomThemesSection() {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => deleteCustomTheme(t)}
+              onClick={() => setDeleted({ title: t.title, restore: deleteCustomTheme(t) })}
               className="text-sub hover:text-danger"
               aria-label={`Delete theme ${t.title}`}
             >
@@ -221,6 +259,27 @@ function CustomThemesSection() {
           </li>
         ))}
       </ul>
+      {deleted && (
+        <p
+          role="status"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-deep/40 px-3 py-2 text-xs text-sub"
+        >
+          <span className="min-w-0 break-words">Deleted the “{deleted.title}” theme.</span>
+          <Button
+            ref={undoRef}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              deleted.restore();
+              setDeleted(null);
+            }}
+            aria-label={`Undo deleting the ${deleted.title} theme`}
+          >
+            Undo
+          </Button>
+        </p>
+      )}
       <CustomThemeCreator onAdd={upsertCustomTheme} />
     </section>
   );
