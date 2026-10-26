@@ -17,7 +17,6 @@ import { toolsWithNextSteps } from "@/lib/tools/next-steps";
 
 /** Tools that meet the contract. Grows phase by phase. */
 const UPGRADED_TOOLS = [
-  "ice-score",
   // Phase 2: Plan the sprint. Planning Poker joins once its local session
   // stops reading localStorage directly.
   "sprint-goal",
@@ -77,6 +76,25 @@ const UPGRADED_TOOLS = [
   "skills-matrix",
   "maturity",
   "adkar",
+  // Phase 7: Prioritize & decide. ICE was the Phase 1A pilot; the method
+  // tools now run on the shared shell (its source counts as theirs, below),
+  // and DACI and RAPID are the Decision Log's record (MERGED_INTO).
+  "prioritizer",
+  "rice-scoring",
+  "wsjf",
+  "moscow",
+  "ice-score",
+  "value-effort-matrix",
+  "kano-model",
+  "cost-of-delay",
+  "buy-a-feature",
+  "hundred-dollar-test",
+  "eisenhower",
+  "decision-log",
+  "daci",
+  "rapid-decision",
+  "weighted-decision",
+  "cynefin",
 ];
 
 /**
@@ -94,6 +112,8 @@ const SCOPED_UPGRADES: Record<string, string> = {
  */
 const MERGED_INTO: Record<string, string> = {
   "async-standup": "standup",
+  daci: "decision-log",
+  "rapid-decision": "decision-log",
 };
 
 /**
