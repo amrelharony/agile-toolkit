@@ -62,6 +62,18 @@ const UPGRADED_TOOLS = [
   "dora-scorecard",
   "release-readiness",
   "feature-flag-tracker",
+  // Phase 6: Team & people. Health Check, Psych Safety and Mood Tracker join
+  // with the vote room.
+  "kudos",
+  "one-on-one",
+  "onboarding-tracker",
+  "stakeholder-map",
+  "working-agreement",
+  "dod-builder",
+  "raci",
+  "skills-matrix",
+  "maturity",
+  "adkar",
 ];
 
 /**
