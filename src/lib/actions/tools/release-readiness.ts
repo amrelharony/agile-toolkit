@@ -46,7 +46,13 @@ import type {
   ReleaseReadiness,
   Story,
 } from "@/lib/stores/workspace-types";
-import { DOD_DOC_ID, DOD_KIND, DOD_LEGACY_KEY } from "@/lib/dod/model";
+import {
+  DOD_DOC_ID,
+  DOD_KIND,
+  DOD_LEGACY_KEY,
+  DOD_MOVED_KEY,
+  isMovedMarker,
+} from "@/lib/dod/model";
 import { RELEASE_DOC_ID, gatesOf, teamGates } from "@/lib/releases/gates";
 import { releaseStats } from "@/lib/releases/model";
 import {
@@ -92,6 +98,8 @@ interface ReleaseStore {
   /**
    * The Definition of Done: the workspace document, else the DoD builder's
    * old blob until it has moved in (any shape; lib/dod/model reads both).
+   * Once it has moved (DOD_MOVED_KEY), a DoD deleted from the workspace
+   * stays deleted: the blob kept as the backup isn't read again.
    */
   dod(): Promise<unknown>;
   /** The stories, so the DoD gate checks the ones a release links. */
@@ -113,7 +121,8 @@ const browserStore: ReleaseStore = {
   putDoc: async (doc) => ws().upsertReleaseReadiness(doc),
   flags: async () => normalizeFlags(ws().featureFlags ?? []),
   dod: async () =>
-    (ws().definitionsOfDone ?? []).find((d) => d.id === DOD_DOC_ID) ?? browserBlob(DOD_LEGACY_KEY),
+    (ws().definitionsOfDone ?? []).find((d) => d.id === DOD_DOC_ID) ??
+    (isMovedMarker(browserBlob(DOD_MOVED_KEY)) ? null : browserBlob(DOD_LEGACY_KEY)),
   stories: async () => ws().stories ?? [],
 };
 
@@ -127,7 +136,9 @@ function serverStore(userId: string): ReleaseStore {
     flags: async () => normalizeFlags(await serverListEntities<FeatureFlag>(userId, KIND_FLAG)),
     dod: async () =>
       (await serverGetEntity<DefinitionOfDone>(userId, DOD_KIND, DOD_DOC_ID)) ??
-      serverGetUserStateBlob(userId, DOD_LEGACY_KEY),
+      (isMovedMarker(await serverGetUserStateBlob(userId, DOD_MOVED_KEY))
+        ? null
+        : serverGetUserStateBlob(userId, DOD_LEGACY_KEY)),
     stories: async () => serverListEntities<Story>(userId, KIND_STORY),
   };
 }
@@ -222,7 +233,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder: every done story the release links (storyIds) meets the Definition of Done, or with no linked stories the DoD's team-level ticks), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],previousShips:{shippedDate,plannedDate (the plan it went out against),rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime (each ship against the plan it went out against),pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
+    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder: every done story the release links (storyIds) meets the Definition of Done, or with no linked stories the DoD's old team-level ticks while it still has them, else null: the gate takes a manual tick), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],previousShips:{shippedDate,plannedDate (the plan it went out against),rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime (each ship against the plan it went out against),pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),

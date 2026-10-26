@@ -34,6 +34,7 @@ import type {
   Story,
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { toast } from "@/lib/utils/toast";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import {
   DOD_CATEGORIES,
@@ -59,7 +60,7 @@ import {
 import { AddCriterionForm } from "./criterion-form";
 import { CriterionRow } from "./criterion-row";
 import { buildExample, type DodExample } from "./example";
-import type { CriterionValues } from "./form";
+import { labelKey, type CriterionValues } from "./form";
 import { dodMarkdown } from "./markdown";
 import { COMMON_CRITERIA } from "./starter";
 
@@ -80,6 +81,17 @@ type DocUpdate = (doc: DefinitionOfDone) => DefinitionOfDone;
 
 const noLog = () => undefined;
 
+/** Focus what `find` returns once React has re-rendered (a deleted or moved row took focus with it). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+/** The control of criterion `id` that carries `attr` (data-criterion-edit or -category). */
+const criterionControl = (attr: string, id: string) =>
+  Array.from(document.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
+    (el) => el.getAttribute(attr) === id
+  );
+
 /** `c` with its words as edited; an emptied description goes. */
 function withText(c: DodCriterion, label: string, description: string | undefined): DodCriterion {
   const next: DodCriterion = { ...c, label };
@@ -99,7 +111,7 @@ function withText(c: DodCriterion, label: string, description: string | undefine
  */
 export function DodBuilderClient() {
   const hydrated = useWorkspaceHydrated();
-  const { doc: teamDoc, source } = useDefinitionOfDone();
+  const { doc: teamDoc, moving } = useDefinitionOfDone();
   const workspaceStories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const { sprints: workspaceSprints, selected, select } = useSelectedSprint();
   const { log } = useHistoryLogger(TOOL_ID);
@@ -109,6 +121,10 @@ export function DodBuilderClient() {
   const [example, setExample] = useState<DodExample | null>(null);
   const [exampleSprintId, setExampleSprintId] = useState<string | undefined>(undefined);
   const preview = example !== null;
+  // The old blob is read, not edited, until it has moved in (the hook
+  // waits for the owner's first cloud pull): an edit now would be built
+  // from this device's copy and could beat a newer DoD from the cloud.
+  const locked = moving && !preview;
   const doc = example?.doc ?? teamDoc;
   const stories = example?.stories ?? workspaceStories;
   const sprints = example?.sprints ?? workspaceSprints;
@@ -117,6 +133,7 @@ export function DodBuilderClient() {
       pickDefaultSprint(example.sprints, null))
     : selected;
   const resetSnapshot = useRef<DodCriterion[] | null>(null);
+  const addRef = useRef<HTMLDivElement>(null);
 
   // The example counts its own rows; the team's numbers never count example rows.
   const opts = preview ? { examples: true } : undefined;
@@ -145,14 +162,14 @@ export function DodBuilderClient() {
   /* ── Writes ───────────────────────────────────────────────────────── */
 
   /**
-   * Writes the workspace's DoD, read fresh from the store. Before the old
-   * blob has moved in, the first edit moves it: the edit applies to it.
+   * Writes the workspace's DoD, read fresh from the store. The page offers
+   * no edit while the old blob is still moving in (`locked`), so a missing
+   * document here is a new, empty one.
    */
   const writeStore = (update: DocUpdate) => {
     const { definitionsOfDone, upsertDefinitionOfDone } = useWorkspaceStore.getState();
     const current = (definitionsOfDone ?? []).find((d) => d.id === DOD_DOC_ID);
-    const base = current ? normalizeDefinitionOfDone(current) : teamDoc;
-    upsertDefinitionOfDone({ ...update(base), id: DOD_DOC_ID });
+    upsertDefinitionOfDone({ ...update(normalizeDefinitionOfDone(current)), id: DOD_DOC_ID });
   };
   // Fixed for the render an edit starts in, so its Undo goes back to the
   // same place even if the example is loaded or cleared in between. The
@@ -198,6 +215,11 @@ export function DodBuilderClient() {
   };
 
   const editText = (c: DodCriterion, label: string, description: string | undefined) => {
+    // The add form and update_criterion refuse a second copy; so does an edit in place.
+    if (doc.items.some((x) => x.id !== c.id && labelKey(x.label) === labelKey(label))) {
+      toast.error(`“${label}” is already in the Definition of Done.`);
+      return;
+    }
     patch(c.id, (x) => withText(x, label, description));
     record(DOD_ACTIONS.CRITERION_TOGGLED, { itemId: c.id, label });
   };
@@ -212,9 +234,15 @@ export function DodBuilderClient() {
     if (category === c.category) return;
     patch(c.id, (x) => ({ ...x, category }));
     announce(`Moved “${c.label}” to ${DOD_CATEGORY_LABEL[category]}`);
+    // The row mounts again under its new category; its category stays focused.
+    focusSoon(() => criterionControl("data-criterion-category", c.id));
   };
 
   const remove = (c: DodCriterion) => {
+    // Focus moves to the next criterion as listed (or the one before, or the form).
+    const listed = DOD_CATEGORIES.flatMap((cat) => doc.items.filter((x) => x.category === cat));
+    const at = listed.findIndex((x) => x.id === c.id);
+    const near = listed[at + 1] ?? listed[at - 1];
     removeWithUndo<DodCriterion>({
       label: `Deleted “${c.label}”`,
       description: "Stories keep their ticks, so Undo brings it back as it was.",
@@ -223,6 +251,11 @@ export function DodBuilderClient() {
     });
     record(DOD_ACTIONS.CRITERION_REMOVED, { itemId: c.id, label: c.label });
     announce(`Deleted “${c.label}”`);
+    focusSoon(() =>
+      near
+        ? criterionControl("data-criterion-edit", near.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
   };
 
   const loadExample = () => {
@@ -304,10 +337,12 @@ export function DodBuilderClient() {
           className="mb-4"
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Button type="button" size="sm" className="gap-1" onClick={startFromCommon}>
-                <Sparkles className="h-4 w-4" aria-hidden="true" />
-                Start from common criteria
-              </Button>
+              {!locked && (
+                <Button type="button" size="sm" className="gap-1" onClick={startFromCommon}>
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  Start from common criteria
+                </Button>
+              )}
               <LoadExampleButton onLoad={loadExample} />
             </div>
           }
@@ -377,7 +412,16 @@ export function DodBuilderClient() {
 
       <div className="space-y-6">
         <SectionCard title="Criteria" icon={Plus}>
-          <AddCriterionForm criteria={doc.items} onAdd={add} />
+          {locked ? (
+            <p className="text-sm text-sub" role="status">
+              Moving your Definition of Done into the workspace, so the Sprint board and agents can
+              read it; you can edit it once it has moved. Your earlier copy is kept as a backup.
+            </p>
+          ) : (
+            <div ref={addRef}>
+              <AddCriterionForm criteria={doc.items} onAdd={add} />
+            </div>
+          )}
           {groups.length > 0 && (
             <div className="mt-5 space-y-4">
               {groups.map((g) => (
@@ -391,6 +435,7 @@ export function DodBuilderClient() {
                       <CriterionRow
                         key={c.id}
                         criterion={c}
+                        readOnly={locked}
                         onText={editText}
                         onRequired={setRequired}
                         onCategory={setCategory}
@@ -402,12 +447,14 @@ export function DodBuilderClient() {
               ))}
             </div>
           )}
-          {!preview && hasCriteria && (
+          {!preview && !locked && hasCriteria && (
             <div className="mt-4 flex justify-end">
               <ResetButton
                 label="Clear the criteria"
                 title="Clear the Definition of Done?"
-                description={`All ${doc.items.length} criteria. The ticks on stories stay, and come back with Undo.`}
+                description={`${
+                  doc.items.length === 1 ? "The one criterion" : `All ${doc.items.length} criteria`
+                }. The ticks on stories stay, and come back with Undo.`}
                 confirmLabel="Clear criteria"
                 doneLabel="Cleared the Definition of Done"
                 onReset={() => {
@@ -557,13 +604,6 @@ export function DodBuilderClient() {
               </table>
             </div>
           </details>
-        )}
-
-        {source === "legacy" && !preview && (
-          <p className="text-xs text-sub" role="status">
-            Moving your Definition of Done into the workspace, so the Sprint board and agents can
-            read it. Your earlier copy is kept as a backup.
-          </p>
         )}
       </div>
     </>

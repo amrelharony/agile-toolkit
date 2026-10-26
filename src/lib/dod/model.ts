@@ -16,7 +16,8 @@
  *     with no done stories, or with nothing required to meet.
  *   - The pre-Phase-6 team-level ticks (`done` on a criterion) and sprint
  *     snapshots (`history`) are kept and read-only: Release Readiness falls
- *     back to the ticks for a release that links no stories.
+ *     back to the ticks for a release that links no stories, while the DoD
+ *     still carries them (hasLegacyTicks).
  */
 
 import type {
@@ -36,6 +37,16 @@ export { DOD_DOC_ID, DOD_KIND };
 
 /** The DoD builder's old cloud-synced blob, moved into the workspace once and kept as the backup. */
 export const DOD_LEGACY_KEY = "agile-toolkit:dod-builder";
+
+/**
+ * Set (true) once the old blob has moved, or the workspace had a DoD of its
+ * own: the blob stays as the backup, so without this a DoD deleted from the
+ * workspace later would be copied back in from it on the next visit.
+ */
+export const DOD_MOVED_KEY = "agile-toolkit:dod-builder:moved";
+
+/** Whether a stored moved marker says the blob has moved (anything else reads as not yet). */
+export const isMovedMarker = (raw: unknown): boolean => raw === true;
 
 export const DOD_CATEGORIES: readonly DodCategory[] = [
   "code",
@@ -131,6 +142,16 @@ export interface DodCriteria {
 /** The criteria every story must meet. */
 export function requiredCriteria(doc: DodCriteria): DodCriterion[] {
   return doc.items.filter((c) => c.required);
+}
+
+/**
+ * Whether the DoD still carries the team-level ticks from before stories
+ * had their own (`done` on some criterion). Only then is there a tick to
+ * read for a release that links no stories: a DoD written since has none,
+ * and nothing on the page sets them any more.
+ */
+export function hasLegacyTicks(doc: DodCriteria): boolean {
+  return doc.items.some((c) => typeof c.done === "boolean");
 }
 
 /** The criterion ids ticked on a story's card. */

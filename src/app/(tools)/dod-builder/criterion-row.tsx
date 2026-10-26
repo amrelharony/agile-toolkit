@@ -19,25 +19,49 @@ import {
 } from "@/lib/dod/model";
 import { cn } from "@/lib/utils";
 
+/** A criterion shown while the old blob is still moving in: nothing to edit yet. */
+function ReadOnlyCriterion({ criterion }: { criterion: DodCriterion }) {
+  return (
+    <li className="flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg border border-border bg-surface p-3">
+      <div className="min-w-0 flex-1 basis-56 break-words text-sm text-text">
+        <span className="font-medium">{criterion.label}</span>
+        {criterion.description && (
+          <span className="mt-0.5 block whitespace-pre-wrap text-xs text-sub">
+            {criterion.description}
+          </span>
+        )}
+      </div>
+      <span className={cn("text-xs", criterion.required ? "text-accent" : "text-sub")}>
+        {criterion.required ? "Required" : "Optional"}
+      </span>
+    </li>
+  );
+}
+
 /**
  * One criterion: its words and description (click to edit in place; an
  * emptied label reverts), Required or optional, its category, and Delete
- * (with Undo).
+ * (with Undo). `readOnly` shows it without the controls. The edit button
+ * and the category carry the criterion's id, so focus can find this row
+ * again after a delete or a move to another category.
  */
 export function CriterionRow({
   criterion,
+  readOnly = false,
   onText,
   onRequired,
   onCategory,
   onDelete,
 }: {
   criterion: DodCriterion;
+  readOnly?: boolean;
   onText: (c: DodCriterion, label: string, description: string | undefined) => void;
   onRequired: (c: DodCriterion, required: boolean) => void;
   onCategory: (c: DodCriterion, category: DodCategory) => void;
   onDelete: (c: DodCriterion) => void;
 }) {
   const edit = useInlineEdit();
+  if (readOnly) return <ReadOnlyCriterion criterion={criterion} />;
   return (
     <li className="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border border-border bg-surface p-3">
       <div className="min-w-0 flex-1 basis-56">
@@ -61,6 +85,7 @@ export function CriterionRow({
             ref={edit.triggerRef}
             type="button"
             onClick={edit.start}
+            data-criterion-edit={criterion.id}
             title="Click to edit"
             className="block w-full cursor-text break-words rounded-sm text-left text-sm text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           >
@@ -97,6 +122,7 @@ export function CriterionRow({
           onValueChange={(v) => onCategory(criterion, v as DodCategory)}
         >
           <SelectTrigger
+            data-criterion-category={criterion.id}
             aria-label={`Category of “${criterion.label}”`}
             className="h-9 w-auto min-w-[8.5rem] text-xs"
           >

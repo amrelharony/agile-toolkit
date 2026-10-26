@@ -47,10 +47,12 @@ import {
   DOD_DOC_ID,
   DOD_KIND,
   DOD_LEGACY_KEY,
+  DOD_MOVED_KEY,
   adherenceBySprint,
   dodAdherence,
   dodVerdict,
   emptyDefinitionOfDone,
+  isMovedMarker,
   meetsDod,
   normalizeDefinitionOfDone,
   openCriteria,
@@ -78,21 +80,24 @@ interface DodStore {
   putStory(story: Story): Promise<void>;
 }
 
-/** The DoD builder's old blob as the page's usePersisted hydrates it, or null. */
-function browserBlob(): unknown {
+/** A blob as the page's usePersisted hydrates it, or null. */
+function browserBlob(key: string): unknown {
   try {
-    const raw = typeof window === "undefined" ? null : window.localStorage.getItem(DOD_LEGACY_KEY);
+    const raw = typeof window === "undefined" ? null : window.localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
+// Once the old blob has moved (DOD_MOVED_KEY), it is only the backup: a
+// DoD deleted from the workspace stays deleted, as on the page.
 const browserStore: DodStore = {
   getDoc: async () => {
     const doc = (ws().definitionsOfDone ?? []).find((d) => d.id === DOD_DOC_ID);
     if (doc) return { doc, source: "workspace" };
-    const blob = browserBlob();
+    if (isMovedMarker(browserBlob(DOD_MOVED_KEY))) return null;
+    const blob = browserBlob(DOD_LEGACY_KEY);
     return blob ? { doc: blob, source: "legacy" } : null;
   },
   putDoc: async (doc) => ws().upsertDefinitionOfDone(doc),
@@ -107,6 +112,7 @@ function serverStore(userId: string): DodStore {
     getDoc: async () => {
       const doc = await serverGetEntity<DefinitionOfDone>(userId, DOD_KIND, DOD_DOC_ID);
       if (doc) return { doc, source: "workspace" };
+      if (isMovedMarker(await serverGetUserStateBlob(userId, DOD_MOVED_KEY))) return null;
       const blob = await serverGetUserStateBlob(userId, DOD_LEGACY_KEY);
       return blob ? { doc: blob, source: "legacy" } : null;
     },

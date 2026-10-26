@@ -1,16 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { DefinitionOfDone, DodCriterion, Sprint, Story } from "@/lib/stores/workspace-types";
+import type {
+  DefinitionOfDone,
+  DodCriterion,
+  Release,
+  Sprint,
+  Story,
+} from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { syncEngine } from "@/lib/sync/engine";
 import {
   DOD_DOC_ID,
   DOD_LEGACY_KEY,
+  DOD_MOVED_KEY,
   adherenceBySprint,
   dodAdherence,
   dodVerdict,
@@ -19,7 +26,8 @@ import {
   openCriteria,
   withStoryDodCheck,
 } from "@/lib/dod/model";
-import { checkDodGate, releaseChecks } from "@/lib/releases/auto-gates";
+import { checkDodGate, gateResults, releaseChecks } from "@/lib/releases/auto-gates";
+import { DOD_GATE } from "@/lib/releases/gates";
 import { setStoryDodCheck } from "@/lib/sprints/store";
 
 /**
@@ -316,14 +324,50 @@ describe("the release gate", () => {
       detail: "Not met: Pay by card (1 open)",
     });
     expect(checkDodGate(DOD, [stories[2]])).toMatchObject({ passed: null });
-    // No linked stories: the team-level ticks, as before.
+    // No linked stories: the team-level ticks, as before, said to be the old ones.
     const ticks = { items: [crit("rev", "Code reviewed", true, { done: true })] };
-    expect(checkDodGate(ticks)).toMatchObject({ passed: true });
+    expect(checkDodGate(ticks)).toMatchObject({
+      passed: true,
+      detail: "The required criterion is ticked (the DoD's old team-level ticks)",
+    });
     expect(checkDodGate({ items: [] }, stories)).toMatchObject({ passed: null });
     const checks = releaseChecks({ id: "r1", storyIds: ["b"] }, [], DOD, TODAY, stories);
     expect(checks.dod).toMatchObject({ passed: false });
     expect(releaseChecks({ id: "r1" }, [], ticks, TODAY, stories).dod).toMatchObject({
       passed: true,
+    });
+  });
+
+  it("can't tell for a release linking no stories when the DoD has no old ticks", () => {
+    // Every criterion the page makes now: required, no `done`.
+    const check = checkDodGate(DOD);
+    expect(check).toMatchObject({
+      passed: null,
+      detail: "Link the release's stories to check them against the DoD",
+    });
+    expect(releaseChecks({ id: "r1" }, [], DOD, TODAY, [story("a")]).dod?.passed).toBeNull();
+    // So the gate keeps its manual tick instead of reading failed and locked.
+    const release: Release = {
+      id: "r1",
+      name: "v1",
+      plannedDate: TODAY,
+      status: "planning",
+      gates: { dod_met: true },
+    };
+    const gate = gateResults(
+      release,
+      { gates: [DOD_GATE] },
+      releaseChecks(release, [], DOD, TODAY, [])
+    ).find((g) => g.id === DOD_GATE.id);
+    expect(gate).toMatchObject({ passed: true, locked: false });
+    // An unticked old criterion still reads as not ticked, and says where from.
+    expect(
+      checkDodGate({
+        items: [crit("rev", "Code reviewed", true, { done: false }), crit("ci", "CI")],
+      })
+    ).toMatchObject({
+      passed: false,
+      detail: "Not ticked: Code reviewed and CI (the DoD's old team-level ticks)",
     });
   });
 });
@@ -449,8 +493,8 @@ describe("moving the old blob into the workspace", () => {
   it("reads the blob until it can move, then copies it once and keeps the blob", () => {
     window.localStorage.setItem(DOD_LEGACY_KEY, JSON.stringify(blob));
     const first = renderPage();
-    // Not safe to write yet (mode "off"): the page reads the blob.
-    expect(screen.getByRole("button", { name: /^Code reviewed by peer/ })).toBeInTheDocument();
+    // Not safe to write yet (mode "off"): the page reads the blob, read-only.
+    expect(screen.getByText("Code reviewed by peer")).toBeInTheDocument();
     expect(stored()).toBeUndefined();
     first.unmount();
 
@@ -459,6 +503,7 @@ describe("moving the old blob into the workspace", () => {
     expect(stored()).toEqual(normalizeDefinitionOfDone(blob));
     expect(screen.getByText(/Before per-story checks \(1 sprint\)/)).toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem(DOD_LEGACY_KEY)!)).toEqual(blob);
+    expect(JSON.parse(window.localStorage.getItem(DOD_MOVED_KEY)!)).toBe(true);
     second.unmount();
 
     // Emptied later, it stays empty: the move never writes over a workspace DoD.
@@ -480,10 +525,145 @@ describe("moving the old blob into the workspace", () => {
     try {
       renderPage();
       await waitFor(() => expect(stored()?.items.map((i) => i.id)).toEqual(["c1"]));
-      expect(cloudRead).toHaveBeenCalledWith("owner", [DOD_LEGACY_KEY]);
+      expect(cloudRead).toHaveBeenCalledWith("owner", [DOD_LEGACY_KEY, DOD_MOVED_KEY]);
     } finally {
       ready.mockRestore();
     }
+  });
+
+  it("offers no edit while the blob waits to move, so nothing is built from a stale copy", () => {
+    window.localStorage.setItem(DOD_LEGACY_KEY, JSON.stringify(blob));
+    migrationMode.value = "blocked"; // the owner's merge/discard question is open
+    renderPage();
+    expect(screen.getByText(/you can edit it once it has moved/)).toBeInTheDocument();
+    expect(screen.getByText("Code reviewed by peer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add criterion" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Code reviewed by peer/ })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Delete “/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear the criteria" })).not.toBeInTheDocument();
+    expect(stored()).toBeUndefined();
+  });
+
+  it("offers no starter criteria while a blob holding only history waits to move", () => {
+    window.localStorage.setItem(DOD_LEGACY_KEY, JSON.stringify({ ...blob, items: [] }));
+    migrationMode.value = "wait";
+    renderPage();
+    expect(screen.queryByRole("button", { name: "Start from common criteria" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
+  });
+
+  it("keeps a DoD deleted after the move deleted: the backup never comes back", () => {
+    window.localStorage.setItem(DOD_LEGACY_KEY, JSON.stringify(blob));
+    migrationMode.value = "local";
+    const first = renderPage();
+    expect(stored()?.items.map((i) => i.id)).toEqual(["seed-code-review"]);
+    first.unmount();
+
+    act(() => ws().removeDefinitionOfDone(DOD_DOC_ID));
+    renderPage();
+    expect(stored()).toBeUndefined();
+    expect(screen.getByText(/No Definition of Done yet\. Add the criteria/)).toBeInTheDocument();
+    // The blob is still the backup.
+    expect(JSON.parse(window.localStorage.getItem(DOD_LEGACY_KEY)!)).toEqual(blob);
+  });
+
+  it("marks a blob moved when the workspace already has a DoD, and honours the cloud's mark", async () => {
+    window.localStorage.setItem(DOD_LEGACY_KEY, JSON.stringify(blob));
+    seed({ definitionsOfDone: [DOD] });
+    const first = renderPage();
+    expect(JSON.parse(window.localStorage.getItem(DOD_MOVED_KEY)!)).toBe(true);
+    first.unmount();
+
+    // Moved on another device whose DoD was since deleted: nothing comes back here.
+    window.localStorage.removeItem(DOD_MOVED_KEY);
+    seed();
+    cloudRead.mockResolvedValue(
+      new Map<string, unknown>([
+        [DOD_LEGACY_KEY, blob],
+        [DOD_MOVED_KEY, true],
+      ])
+    );
+    migrationMode.value = "cloud";
+    signedIn.value = { user: { id: "owner" } };
+    const ready = vi.spyOn(syncEngine, "whenReady").mockResolvedValue(undefined);
+    try {
+      renderPage();
+      await waitFor(() =>
+        expect(JSON.parse(window.localStorage.getItem(DOD_MOVED_KEY)!)).toBe(true)
+      );
+      expect(stored()).toBeUndefined();
+    } finally {
+      ready.mockRestore();
+    }
+  });
+});
+
+describe("keyboard focus and in-place edits", () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeAll(() => {
+    // Radix Select calls these; jsdom doesn't implement them.
+    Element.prototype.scrollIntoView = () => {};
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.releasePointerCapture = () => {};
+  });
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  /** Runs the frames focusSoon asked for, after React has rendered. */
+  const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+
+  it("moves focus to the next criterion after a delete, then to the add form", () => {
+    seed({ definitionsOfDone: [{ ...DOD, items: DOD.items.slice(0, 2) }] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Code reviewed”" }));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Tests pass in CI/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Tests pass in CI”" }));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Criterion/));
+  });
+
+  it("keeps focus on a criterion's category after it moves to another section", () => {
+    seed({ definitionsOfDone: [DOD] });
+    renderPage();
+    const trigger = screen.getByRole("combobox", { name: "Category of “Docs”" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Docs" }));
+    nextFrame();
+    expect(stored()?.items.find((i) => i.id === "doc")?.category).toBe("docs");
+    expect(document.activeElement).toBe(
+      within(screen.getByRole("region", { name: "Docs" })).getByRole("combobox", {
+        name: "Category of “Docs”",
+      })
+    );
+  });
+
+  it("refuses to rename a criterion in place to one the DoD already has", () => {
+    seed({ definitionsOfDone: [DOD] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Tests pass in CI/ }));
+    const editor = screen.getByLabelText("Criterion");
+    fireEvent.change(editor, { target: { value: "code reviewed." } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+    expect(toastSpy.error).toHaveBeenCalledWith(
+      "“code reviewed.” is already in the Definition of Done."
+    );
+    expect(stored()?.items.map((i) => i.label)).toEqual([
+      "Code reviewed",
+      "Tests pass in CI",
+      "Docs",
+    ]);
+  });
+
+  it("counts the criteria a reset clears in words that read right for one", () => {
+    seed({ definitionsOfDone: [{ ...DOD, items: DOD.items.slice(0, 1) }] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Clear the criteria" }));
+    expect(screen.getByText(/^The one criterion\. The ticks on stories stay/)).toBeInTheDocument();
   });
 });
 

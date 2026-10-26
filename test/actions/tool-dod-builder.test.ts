@@ -41,6 +41,7 @@ import {
   DOD_DOC_ID,
   DOD_KIND,
   DOD_LEGACY_KEY,
+  DOD_MOVED_KEY,
   adherenceBySprint,
   dodAdherence,
   dodVerdict,
@@ -232,6 +233,41 @@ describe("the old blob", () => {
     expect(stored.items[0]).toMatchObject({ id: "seed-ci", required: false, done: true });
     expect(blobs.get(DOD_LEGACY_KEY)).toEqual(blob);
     expect(await callMcp("list_state")).toMatchObject({ source: "workspace" });
+  });
+
+  it("is only the backup once marked moved: a deleted DoD stays deleted, as on the page", async () => {
+    window.localStorage.setItem(DOD_LEGACY_KEY, JSON.stringify(blob));
+    window.localStorage.setItem(DOD_MOVED_KEY, "true");
+    expect(await call("list_state")).toMatchObject({ exists: false, source: null, criteria: [] });
+    blobs.set(DOD_LEGACY_KEY, blob);
+    blobs.set(DOD_MOVED_KEY, true);
+    expect(await callMcp("list_state")).toMatchObject({ exists: false, source: null });
+    // Release Readiness reads the same: nothing to check against.
+    useWorkspaceStore.setState({
+      releaseReadinesses: [
+        {
+          id: RELEASE_DOC_ID,
+          releases: [
+            {
+              id: "r1",
+              name: "v1",
+              plannedDate: addDays(todayIso(), 7) as string,
+              status: "planning",
+              gates: {},
+            },
+          ],
+          gates: [{ id: "dod_met", label: "Definition of Done met", auto: "dod" }],
+        },
+      ],
+    });
+    type Listed = {
+      releases: { gates: { check?: { passed: boolean | null; detail: string } }[] }[];
+    };
+    const listed = await run<Listed>("handler", "release_readiness", "list_state");
+    expect(listed.releases[0].gates[0].check).toMatchObject({
+      passed: null,
+      detail: "No Definition of Done yet",
+    });
   });
 });
 

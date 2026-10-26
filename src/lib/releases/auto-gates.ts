@@ -11,7 +11,8 @@
  *   - "Definition of Done met" (auto "dod") reads the DoD Builder: it
  *     passes once every done story the release links meets the DoD (or,
  *     for a release linking no stories, every required criterion is
- *     ticked at team level, as before stories carried their own ticks).
+ *     ticked at team level, while the DoD still carries the ticks from
+ *     before stories had their own).
  *
  * A check that can't tell (no flags linked, no DoD yet) is `passed: null`,
  * and the gate falls back to a manual tick. A check that can tell decides
@@ -33,7 +34,12 @@ import { BUILT_IN_GATES, DOD_GATE, gatesOf, teamGates } from "@/lib/releases/gat
 import { wentOut } from "@/lib/releases/model";
 import { flagStaleness } from "@/lib/flags/model";
 import { isIsoDate } from "@/lib/sprints/calendar";
-import { normalizeDefinitionOfDone, openCriteria, requiredCriteria } from "@/lib/dod/model";
+import {
+  hasLegacyTicks,
+  normalizeDefinitionOfDone,
+  openCriteria,
+  requiredCriteria,
+} from "@/lib/dod/model";
 
 /** What an automatic check found. */
 export interface GateCheck {
@@ -126,7 +132,11 @@ function missText(misses: readonly { title: string; open: number }[]): string {
  *     its Sprint board card), and fails naming the ones that don't. With
  *     none of them done yet it can't tell.
  *   - A release that links no stories falls back to the DoD's team-level
- *     ticks from before stories carried their own (`done` on a criterion).
+ *     ticks from before stories carried their own (`done` on a criterion),
+ *     and says so, but only while the DoD still carries them
+ *     (hasLegacyTicks). A DoD written since has none and nothing sets them
+ *     any more, so reading their absence as "not ticked" would lock the
+ *     gate failed for good: it can't tell, and the gate takes its tick.
  *
  * Null without a DoD, or with no required criteria: there is nothing to
  * check against.
@@ -164,18 +174,30 @@ export function checkDodGate(dod: unknown, linked?: readonly Story[]): GateCheck
       href,
     };
   }
+  if (!hasLegacyTicks(doc)) {
+    return {
+      passed: null,
+      detail: "Link the release's stories to check them against the DoD",
+      href,
+    };
+  }
+  const from = " (the DoD's old team-level ticks)";
   const open = required.filter((i) => i.done !== true);
   if (open.length === 0) {
     return {
       passed: true,
       detail:
-        required.length === 1
+        (required.length === 1
           ? "The required criterion is ticked"
-          : `All ${required.length} required criteria are ticked`,
+          : `All ${required.length} required criteria are ticked`) + from,
       href,
     };
   }
-  return { passed: false, detail: `Not ticked: ${listAnd(open.map((i) => i.label))}`, href };
+  return {
+    passed: false,
+    detail: `Not ticked: ${listAnd(open.map((i) => i.label))}${from}`,
+    href,
+  };
 }
 
 /**
@@ -206,7 +228,8 @@ export function linkedStories(
 
 /**
  * Both checks for `release`. With `stories`, the DoD gate reads the
- * release's linked stories (linkedStories); without, the DoD's old ticks.
+ * release's linked stories (linkedStories); without, the DoD's old ticks
+ * where it still has them.
  */
 export function releaseChecks(
   release: Pick<Release, "id" | "storyIds">,

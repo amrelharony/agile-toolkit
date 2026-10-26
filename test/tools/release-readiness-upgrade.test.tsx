@@ -229,7 +229,7 @@ describe("the Definition of Done check", () => {
       })
     ).toMatchObject({
       passed: true,
-      detail: "The required criterion is ticked",
+      detail: "The required criterion is ticked (the DoD's old team-level ticks)",
       href: "/dod-builder",
     });
     expect(
@@ -241,7 +241,19 @@ describe("the Definition of Done check", () => {
           { nope: 1 },
         ],
       })
-    ).toMatchObject({ passed: false, detail: "Not ticked: Tests pass and Load test" });
+    ).toMatchObject({
+      passed: false,
+      detail: "Not ticked: Tests pass and Load test (the DoD's old team-level ticks)",
+    });
+  });
+
+  it("can't tell from a DoD with no team-level ticks for a release linking no stories", () => {
+    expect(
+      checkDodGate({ items: [{ id: "a", label: "Reviewed", category: "code", required: true }] })
+    ).toMatchObject({
+      passed: null,
+      detail: "Link the release's stories to check them against the DoD",
+    });
   });
 });
 
@@ -661,7 +673,7 @@ describe("the page", () => {
     window.localStorage.setItem(
       DOD_KEY,
       JSON.stringify({
-        items: [{ id: "a", label: "Reviewed", category: "code", required: true }],
+        items: [{ id: "a", label: "Reviewed", category: "code", required: true, done: false }],
         history: [],
       })
     );
@@ -671,6 +683,23 @@ describe("the page", () => {
     expect(dod).not.toBeChecked();
     expect(dod).toBeDisabled();
     expect(within(card("v1")).getByText(/Not ticked: Reviewed/)).toBeInTheDocument();
+  });
+
+  it("leaves the DoD gate to its tick when the DoD has no team-level ticks and no stories are linked", () => {
+    window.localStorage.setItem(
+      DOD_KEY,
+      JSON.stringify({
+        items: [{ id: "a", label: "Reviewed", category: "code", required: true }],
+        history: [],
+      })
+    );
+    seed({ releases: [release()], gates: [DOD_GATE] });
+    renderPage();
+    const dod = within(card("v1")).getByRole("checkbox", { name: "Definition of Done met" });
+    expect(dod).toBeEnabled();
+    expect(within(card("v1")).getByText(/Link the release's stories/)).toBeInTheDocument();
+    fireEvent.click(dod);
+    expect(releases()[0].gates.dod_met).toBe(true);
   });
 
   it("rolls back on a day, and a reopened release keeps its ship in the stats", () => {
