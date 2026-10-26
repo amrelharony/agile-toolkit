@@ -61,7 +61,7 @@ export function sprintColumnOf(status: StoryStatus | string): SprintColumnId {
  * read-only: moving a done story out would clear its done time, as Sprint
  * Planning refuses to plan into a closed sprint for the same reason.
  */
-export function isClosedSprint(sprint: Pick<Sprint, "status">): boolean {
+export function isClosedSprint(sprint: Partial<Pick<Sprint, "status">>): boolean {
   return sprint.status === "completed" || sprint.status === "cancelled";
 }
 
@@ -201,21 +201,26 @@ const pointsText = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "points"}`;
  * over its limit, done stories that miss the Definition of Done,
  * unestimated stories, nothing started). `dodMissing` is how many done
  * stories miss a required DoD criterion (`doneMissingDod`); a sprint with
- * every story done still says so.
+ * every story done still says so. A closed sprint's board is read-only, its
+ * DoD checklists included, so there it says they didn't meet it, with no
+ * "yet" for something nobody can tick any more.
  */
 export function sprintBoardVerdict(
-  sprint: Pick<Sprint, "name">,
+  sprint: Pick<Sprint, "name"> & Partial<Pick<Sprint, "status">>,
   progress: StoryProgress,
   breaches: readonly SprintBreach[],
   dodMissing = 0
 ): string {
   const { count, doneCount, scope, done } = progress;
   if (count === 0) return `No stories are planned into ${sprint.name} yet.`;
+  const closed = isClosedSprint(sprint);
   if (doneCount === count) {
     const short =
-      dodMissing > 0
-        ? `, but ${dodMissing} ${dodMissing === 1 ? "doesn't" : "don't"} meet the DoD yet`
-        : "";
+      dodMissing === 0
+        ? ""
+        : closed
+          ? `, but ${dodMissing} didn't meet the DoD`
+          : `, but ${dodMissing} ${dodMissing === 1 ? "doesn't" : "don't"} meet the DoD yet`;
     return `Every story in ${sprint.name} is done${scope > 0 ? `: ${pointsText(scope)}` : ""}${short}.`;
   }
   const pct = completionPct(done, scope);
@@ -233,7 +238,9 @@ export function sprintBoardVerdict(
     caveat = `; ${flowing.label} is over its WIP limit, so finish something before starting more`;
   } else if (dodMissing > 0) {
     const n = dodMissing;
-    caveat = `; ${n} done ${n === 1 ? "story doesn't" : "stories don't"} meet the DoD yet`;
+    caveat = closed
+      ? `; ${n} done ${n === 1 ? "story" : "stories"} didn't meet the DoD`
+      : `; ${n} done ${n === 1 ? "story doesn't" : "stories don't"} meet the DoD yet`;
   } else if (progress.unestimated > 0) {
     const n = progress.unestimated;
     caveat = `; ${stories(n)} ${n === 1 ? "has" : "have"} no estimate yet`;

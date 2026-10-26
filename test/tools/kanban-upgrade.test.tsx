@@ -556,6 +556,60 @@ describe("the Definition of Done in the sprint board verdict", () => {
     );
   });
 
+  it("on a closed sprint, says its done stories didn't meet it, with no 'yet'", () => {
+    // Its board is read-only, DoD checklists included: nothing is left to tick.
+    const closedVerdict = (stories: Story[], status: Sprint["status"]) => {
+      const cols = storiesByColumn(stories, "s7");
+      return sprintBoardVerdict(
+        sprint({ status }),
+        storyProgress(stories, "s7"),
+        sprintBreaches(cols, LIMITS),
+        doneMissingDod(cols.done, { items: DOD }).length
+      );
+    };
+    expect(closedVerdict(base(), "completed")).toBe(
+      "2 of 10 points done (20%); 1 done story didn't meet the DoD."
+    );
+    expect(
+      closedVerdict([...base(), story("d", "D", { status: "done", points: 1 })], "cancelled")
+    ).toBe("3 of 11 points done (27%); 2 done stories didn't meet the DoD.");
+    expect(
+      closedVerdict(
+        [
+          story("a", "A", { status: "done", points: 3, ...ticked("rev", "ci") }),
+          story("b", "B", { status: "done", points: 5 }),
+        ],
+        "completed"
+      )
+    ).toBe("Every story in Sprint 7 is done: 8 points, but 1 didn't meet the DoD.");
+    expect(
+      closedVerdict(
+        [story("a", "A", { status: "done" }), story("b", "B", { status: "done" })],
+        "cancelled"
+      )
+    ).toBe("Every story in Sprint 7 is done, but 2 didn't meet the DoD.");
+    // A planned sprint can still be fixed.
+    expect(closedVerdict(base(), "planned")).toBe(
+      "2 of 10 points done (20%); 1 done story doesn't meet the DoD yet."
+    );
+    // The board's header and its export read the same.
+    const line = "2 of 10 points done (20%); 1 done story didn't meet the DoD.";
+    expect(
+      sprintBoardMarkdown(
+        { sprint: sprint({ status: "completed" }), stories: base(), wipLimits: LIMITS, dod: DOD },
+        NOW
+      )
+    ).toContain(line);
+    seed({ sprints: [sprint({ status: "completed" })], stories: base() });
+    useWorkspaceStore.setState({
+      definitionsOfDone: [{ id: DOD_DOC_ID, items: DOD, history: [] }],
+    });
+    window.history.replaceState(null, "", "/kanban?sprint=s7");
+    renderBoard();
+    expect(screen.getByText(line)).toBeInTheDocument();
+    expect(exported()).toContain(line);
+  });
+
   it("reads the same in the board's header and its Markdown export", () => {
     const stories = [
       story("a", "Pay by card", { status: "done", points: 2 }),
