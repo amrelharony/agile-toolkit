@@ -280,7 +280,7 @@ describe("every method tool", () => {
       name: "MoSCoW",
       Client: MoscowClient,
       path: "/moscow",
-      titleLabel: "Scope item",
+      titleLabel: /Scope item/,
       add: "Add",
       framework: "moscow",
     },
@@ -320,9 +320,16 @@ describe("every method tool", () => {
       name: "Cost of Delay",
       Client: CostOfDelayClient,
       path: "/cost-of-delay",
-      titleLabel: "Initiative title",
+      titleLabel: /Initiative title/,
       add: "Add",
       framework: "cost-of-delay",
+      // The backlog holds no Cost of Delay inputs, and CD3 needs a cost,
+      // a duration and an urgency profile.
+      fill: () => {
+        fireEvent.change(screen.getByLabelText(/Cost of delay/), { target: { value: "5000" } });
+        fireEvent.change(screen.getByLabelText(/Duration/), { target: { value: "2" } });
+        fireEvent.click(screen.getByRole("radio", { name: "Standard" }));
+      },
     },
   ];
 
