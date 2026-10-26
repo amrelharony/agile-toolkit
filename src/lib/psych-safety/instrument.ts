@@ -310,6 +310,12 @@ export interface RoundResult {
   responses: number;
   /** Mean of the questions' scores (higher is safer); null when every question is withheld. */
   teamScore: number | null;
+  /**
+   * How many statements the team score covers: all seven, or fewer when
+   * some are withheld (a blank answer on paper can leave one short of
+   * five), which every reader says next to the score.
+   */
+  covered: number;
   perQuestion: QuestionResult[];
   /** The question with the lowest score; null when none shows. */
   lowest: PsychSafetyQuestionId | null;
@@ -320,7 +326,8 @@ export interface RoundResult {
 /**
  * A round's results: per question, its mean and its score (reverse scoring
  * applied), shown from PSYCH_SAFETY_MIN_RESPONSES answers; the team score is
- * the mean of the questions that show. Null for a round below the minimum.
+ * the mean of the questions that show (`covered` says how many). Null for a
+ * round below the minimum.
  */
 export function roundResult(r: PsychSafetyRound | null | undefined): RoundResult | null {
   if (!r || !(r.responses >= PSYCH_SAFETY_MIN_RESPONSES)) return null;
@@ -352,15 +359,47 @@ export function roundResult(r: PsychSafetyRound | null | undefined): RoundResult
   return {
     responses: r.responses,
     teamScore,
+    covered: shown.length,
     perQuestion,
     lowest: lowest?.id ?? null,
     withheld: perQuestion.filter((q) => q.adjusted === null).map((q) => q.id),
   };
 }
 
+/** "6 of 7 statements" when the team score leaves some out; null when it covers all seven. */
+export function coveredLabel(
+  result: Pick<RoundResult, "covered"> | null | undefined
+): string | null {
+  if (!result || result.covered >= PSYCH_SAFETY_QUESTIONS.length) return null;
+  return `${result.covered} of ${PSYCH_SAFETY_QUESTIONS.length} statements`;
+}
+
+/**
+ * A question's raw counts as an export may show them: only when its result
+ * shows (the round has PSYCH_SAFETY_MIN_RESPONSES responses and the
+ * question as many answers). Null otherwise, since a thin round's counts,
+ * an old list of one or two answer sheets above all, say what a person
+ * answered.
+ */
+export function shownCounts(
+  r: PsychSafetyRound | null | undefined,
+  id: PsychSafetyQuestionId
+): PsychSafetyCounts | null {
+  const q = roundResult(r)?.perQuestion.find((x) => x.id === id);
+  if (!q || q.adjusted === null) return null;
+  const c = r?.counts?.[id];
+  return c ? [whole(c[0]), whole(c[1]), whole(c[2]), whole(c[3]), whole(c[4])] : null;
+}
+
 export interface RoundComparison {
-  /** Team score change, later minus earlier; null when either has none. */
+  /**
+   * Team score change, later minus earlier, over the statements both rounds
+   * show (`common`), so a statement withheld in one round never moves it;
+   * null when they share none.
+   */
   delta: number | null;
+  /** The statements both rounds show: what `delta` is over. */
+  common: PsychSafetyQuestionId[];
   perQuestion: { id: PsychSafetyQuestionId; delta: number | null }[];
   /** A question's score fell by more than ANOMALY_DROP. */
   anomaly: boolean;
@@ -390,8 +429,15 @@ export function compareRounds(
     .filter((q) => q.delta !== null && q.delta < -ANOMALY_DROP)
     .sort((p, q) => (p.delta as number) - (q.delta as number))
     .map((q) => q.id);
+  // The mean change over the shared statements: with all seven shown in
+  // both, exactly the change in team score.
+  const shared = perQuestion.filter((q) => q.delta !== null);
   return {
-    delta: a.teamScore === null || b.teamScore === null ? null : b.teamScore - a.teamScore,
+    delta:
+      shared.length === 0
+        ? null
+        : shared.reduce((sum, q) => sum + (q.delta as number), 0) / shared.length,
+    common: shared.map((q) => q.id),
     perQuestion,
     anomaly: dropped.length > 0,
     dropped,
@@ -451,6 +497,7 @@ export function withRoundPatch(
       if (r.id !== id) return r;
       const next: PsychSafetyRound = { ...r, ...patch };
       if (!next.sprintId) delete next.sprintId;
+      if (!next.sentTo?.length) delete next.sentTo;
       return next;
     }),
   };
