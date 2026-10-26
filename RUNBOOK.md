@@ -319,7 +319,7 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
 
 ### Live vote rounds (Health Check, Psych Safety, Mood; Kano; Buy-a-Feature and the $100 Test)
 
-**What it is:** the facilitator presses **Run a live round**, gives a name, and shares the link with **Copy link** (it ends in `#k=…`). People open it on their phones, give a name and answer with taps on a scale. The facilitator sees only how many people have answered. **Reveal results** needs 3 answers (5 for Psych Safety), shows the totals per question, and closes the round; a question with fewer answers than that stays hidden ("withheld"). **Save round** stores the totals in the tool; **New round** starts again with a fresh key.
+**What it is:** the facilitator presses **Run a live round**, gives a name, and shares the link with **Copy link** (it ends in `#k=…`). People open it on their phones, give a name and answer: with taps on a scale (scale rounds), two taps per feature (Kano), or by typing an amount per item (Buy-a-Feature, the $100 Test). The facilitator sees only how many people have answered. **Reveal results** needs 3 answers (5 for Psych Safety) and closes the round. It shows the totals per question (a question with fewer answers than that stays hidden, "withheld"), the answer-pair grid per feature (likewise per feature), or each item's total and average; in an allocation round who gave each item something, and the bands, show only if 5 had answered, so the host is told to wait for 5 before revealing if they want them. **Save round** stores the totals in the tool; **New round** starts again with a fresh key.
 
 **Three kinds of round** run on the same room, the same keys and the same messages. A tool's kind is fixed (`VOTE_ROUND_KIND` in `src/lib/realtime/vote-room/protocol.ts`):
 
@@ -334,7 +334,7 @@ Pair and allocation rounds send their state as a new version (v2, with its kind)
 **What travels:**
 
 - The host's questions, signed with a key made in the host's browser for this room. The link's `#k=` part is that key's fingerprint, and participants trust only messages signed by it, so nobody else in the room can pose as the host to collect answers.
-- Each person's answers: numbers only (one per question), encrypted in their browser so only the host's browser can read them. That browser adds them to per-question counts and drops them. Before Reveal nobody, the host included, sees a distribution or per-question counts.
+- Each person's answers: numbers only (one per question, one per feature for the answer pair, or one amount per item), encrypted in their browser so only the host's browser can read them. That browser adds them to the counts (per-question counts, per-feature pair counts, or per-item totals and bands) and drops them. Before Reveal nobody, the host included, sees a distribution, per-question or per-feature counts, or an item's total.
 - A participant's browser re-sends the same encrypted answers until the host's browser confirms them (for about two minutes; then it says they weren't confirmed and lets the person answer again). The host never counts one person twice, so a resend is harmless.
 - The `#k=` part never reaches the server or the Vercel logs (browsers don't send the fragment), but it is in browser history like the rest of the link.
 - Consent text for vote rounds: _"Answers are encrypted in each person's browser, so only the host's browser can read them, and it keeps the totals only. They pass through our realtime provider (Supabase). Others in the room see your name and whether you've answered, not what. After the host reveals the results, everyone in the room sees the totals, for questions with enough answers; if everyone gives the same answer, the totals show it. Share the link only with your team."_
@@ -343,7 +343,7 @@ Pair and allocation rounds send their state as a new version (v2, with its kind)
 
 **Limits:** the visitor-room limits above, plus at most 60 answers (ballots) per round, 20,000 characters per message, 32 questions, 11 scale points, and numbers only from participants. Kano: at most 32 features and 5 answers per question. Allocation rounds: 2 to 20 items, a budget of 10 to 9,999 whole units, caps up to 1,000,000, a unit of at most 4 characters, and items × digits of the budget at most 80 (so every ballot fits the same 128-character envelope).
 
-**Before deploying these tools:** push migration 0028 (`supabase db push`, see "Private rooms"). Until it is applied, with `NEXT_PUBLIC_PRIVATE_ROOMS=1` the private channels of Kano, Buy-a-Feature and the $100 Test are refused, so their live rounds can't connect; their count entry keeps working.
+**Before deploying these tools:** push migrations 0027 and 0028 together (one `supabase db push`, see "Private rooms"). Production runs 0026 until then, whose visitor branch admits these rooms along with any other `visitor:` topic. Never leave 0027 applied without 0028: with `NEXT_PUBLIC_PRIVATE_ROOMS=1` the private channels of Kano, Buy-a-Feature and the $100 Test are then refused, so their live rounds can't connect (their count entry keeps working).
 
 **Traffic:** each answer reaches every member, so about members × members deliveries per round (400 for a full room), plus the host's state at most every 0.5 s while answers arrive, after joins, and every 30 s.
 
@@ -372,7 +372,7 @@ Visitor rooms share the project's Realtime quota with owner rooms, squad-guest r
 
 The anon key is public, and there are two ways a script can use it on the Realtime quota, **whatever `NEXT_PUBLIC_PRIVATE_ROOMS` says** (that flag only decides which channels the app's own build opens):
 
-- **Private `visitor:` channels.** The policy from 0026/0027/0028 is a database setting: once it is pushed (0026 and 0027 are, in production; 0028 goes with the deploy of the Prioritize tools' live rounds), its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels.
+- **Private `visitor:` channels.** The policy from 0026/0027/0028 is a database setting: once it is pushed, its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels. Only 0026 is in production so far, so production's visitor branch is still 0026's `topic like 'visitor:%'` (any topic starting with `visitor:`). 0027 and 0028 are pushed together before the deploy that ships the Team and Prioritize tools' live rounds; from then on the branch admits only `visitor:<visitor tool>:<12-character code>`.
 - **Public channels of any name**, `visitor:` ones included, for as long as "Allow public access" is on.
 
 A full brake against anon-key abuse therefore takes **both** steps:
