@@ -63,9 +63,12 @@ describe("VoteAnswerForm", () => {
     }
   });
 
-  it("marks optional questions and lets a chosen answer be cleared", () => {
+  it("marks optional questions in their name and lets a chosen answer be cleared", () => {
     const { pick, group } = setup();
-    expect(screen.getByText(/Optional: leave it blank to skip/)).toBeInTheDocument();
+    // A screen reader hears "optional" with the question, not only as loose text.
+    expect(group(/Learning/)).toHaveAccessibleName("3. Learning (optional)");
+    expect(group(/Fun/)).toHaveAccessibleName("1. Fun");
+    expect(screen.getByText(/Leave it blank to skip/)).toBeInTheDocument();
     pick(/Learning/, "Red");
     expect(within(group(/Learning/)).getByRole("radio", { name: "Red" })).toHaveAttribute(
       "aria-checked",

@@ -17,7 +17,9 @@ import { QUESTIONNAIRE, answerString, fakeVoteCrypto } from "../realtime/vote-ro
  */
 
 const h = vi.hoisted(() => ({ realtime: true }));
-const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMock = vi.hoisted(() =>
+  Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() })
+);
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => null }));
 vi.mock("@/lib/realtime/supabase-client", async () => {
   const { fakeRealtime: fake } = await import("../realtime/fake-realtime");
@@ -28,15 +30,20 @@ vi.mock("@/lib/utils/toast", () => ({ toast: toastMock }));
 
 import { VoteRoundPanel } from "@/components/collab/vote-room/vote-round-panel";
 
-const A: FakeMember = { id: "alice_0000000000", name: "Alex", joinedAt: "2026-10-26T09:01:00Z" };
-const B: FakeMember = { id: "bobby_0000000000", name: "Bo", joinedAt: "2026-10-26T09:02:00Z" };
-const C: FakeMember = { id: "carol_0000000000", name: "Cy", joinedAt: "2026-10-26T09:03:00Z" };
+// Names with a space can't turn up by chance in a random round id.
+const A: FakeMember = { id: "alice_0000000000", name: "Alex Ng", joinedAt: "2026-10-26T09:01:00Z" };
+const B: FakeMember = { id: "bobby_0000000000", name: "Bo Li", joinedAt: "2026-10-26T09:02:00Z" };
+const C: FakeMember = { id: "carol_0000000000", name: "Cy Ray", joinedAt: "2026-10-26T09:03:00Z" };
+const D: FakeMember = { id: "dave0_0000000000", name: "Dee Fox", joinedAt: "2026-10-26T09:04:00Z" };
+const E: FakeMember = { id: "erin0_0000000000", name: "Eve Kim", joinedAt: "2026-10-26T09:05:00Z" };
 
 function renderPanel(
   props: Partial<Parameters<typeof VoteRoundPanel>[0]> = {},
   wrap: (n: ReactNode) => ReactNode = (n) => n
 ) {
-  const onSave = vi.fn<(r: VoteRoundResult) => void>();
+  const onSave = vi.fn<(r: VoteRoundResult) => void | (() => void)>(
+    props.onSave ?? (() => undefined)
+  );
   const crypto = props.crypto === undefined ? fakeVoteCrypto() : props.crypto;
   render(
     <LiveAnnouncerProvider>
@@ -46,8 +53,8 @@ function renderPanel(
           toolName="Health Check"
           questionnaire={QUESTIONNAIRE}
           minN={3}
-          onSave={onSave}
           {...props}
+          onSave={onSave}
           crypto={crypto}
         />
       )}
@@ -110,15 +117,47 @@ describe("VoteRoundPanel: when live rounds are off", () => {
     renderPanel({ questionnaire: null });
     expect(screen.getByText("Add something to ask first, then run a round.")).toBeInTheDocument();
   });
+
+  it("says why questions can't be shared live, before any consent, and offers count entry", async () => {
+    renderPanel({
+      questionnaire: {
+        ...QUESTIONNAIRE,
+        questions: [...QUESTIONNAIRE.questions, { id: "blank", text: "   " }],
+      },
+    });
+    expect(
+      await screen.findByText(
+        "These questions can't be shared live: Question 4 needs text. Count hands or collect paper answers and enter the totals here."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run a live round" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Show totals" })).toBeInTheDocument();
+    expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
+  });
+
+  it("accepts the app's usual UUID ids", async () => {
+    renderPanel({
+      questionnaire: {
+        ...QUESTIONNAIRE,
+        questions: [{ id: "dim:6f1c2a9e-3b7d-4c55-9a0e-1f2b3c4d5e6f", text: "Fun" }],
+      },
+    });
+    expect(await screen.findByRole("button", { name: "Run a live round" })).toBeInTheDocument();
+  });
 });
 
 describe("VoteRoundPanel: a live round", () => {
-  async function startRound() {
+  async function startRound(
+    props: Partial<Parameters<typeof VoteRoundPanel>[0]> = {},
+    present: FakeMember[] = [A, B, C]
+  ) {
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    const view = renderPanel();
+    const view = renderPanel(props);
     fireEvent.click(await screen.findByRole("button", { name: "Run a live round" }));
-    const dialog = screen.getByRole("dialog", { name: "Start a live Health Check room" });
+    const dialog = screen.getByRole("dialog", {
+      name: `Start a live ${props.toolName ?? "Health Check"} room`,
+    });
     expect(dialog).toHaveAccessibleDescription(VOTE_ROOM_CONSENT_TEXT);
     // Nothing opens before consent.
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
@@ -128,14 +167,16 @@ describe("VoteRoundPanel: a live round", () => {
     await waitFor(() => expect(fakeRealtime.client.channel).toHaveBeenCalledTimes(1));
     const ch = fakeRealtime.last();
     const code = ch.name.split(":")[2];
-    expect(ch.name).toMatch(/^visitor:health-check:[23456789A-HJKMNP-Z]{12}$/);
+    expect(ch.name).toMatch(
+      new RegExp(`^visitor:${props.tool ?? "health-check"}:[23456789A-HJKMNP-Z]{12}$`)
+    );
     const hostId = JSON.parse(
       window.sessionStorage.getItem(`agile-toolkit:visitor-room:${code}`) ?? "{}"
     ).id as string;
     const host = { id: hostId, name: "Hana", joinedAt: "2026-10-26T09:00:00Z" };
     act(() => {
       ch.connect();
-      ch.setPresence([host, A, B, C]);
+      ch.setPresence([host, ...present]);
     });
     await waitFor(() => expect(ch.sent(VOTE_ROOM_EVENTS.state).length).toBeGreaterThan(0));
     return { ...view, ch, code, writeText };
@@ -208,7 +249,7 @@ describe("VoteRoundPanel: a live round", () => {
     await answer(ch, crypto!, A, "bid_00000001");
     fireEvent.click(screen.getByRole("button", { name: "Start over with a new round" }));
     const confirmNew = screen.getByRole("dialog", { name: "Start a new round?" });
-    expect(confirmNew).toHaveTextContent("The 1 answer so far are discarded.");
+    expect(confirmNew).toHaveTextContent("The 1 answer so far is discarded.");
     fireEvent.click(within(confirmNew).getByRole("button", { name: "Cancel" }));
 
     fireEvent.click(screen.getByRole("button", { name: "End room" }));
@@ -222,5 +263,123 @@ describe("VoteRoundPanel: a live round", () => {
     expect(ch.sent(VOTE_ROOM_EVENTS.end)).toEqual([expect.objectContaining({ reason: "host" })]);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(await screen.findByRole("button", { name: "Run a live round" })).toBeInTheDocument();
+  });
+
+  async function revealThree(ch: FakeChannel, crypto: VoteCrypto) {
+    await answer(ch, crypto, A, "bid_00000001");
+    await answer(ch, crypto, B, "bid_00000002");
+    await answer(ch, crypto, C, "bid_00000003");
+    fireEvent.click(screen.getByRole("button", { name: "Reveal results" }));
+    return screen.findByRole("heading", { name: "Results" });
+  }
+
+  it("moves focus to the results and says so when Reveal replaces its button", async () => {
+    const { ch, crypto } = await startRound();
+    const heading = await revealThree(ch, crypto!);
+    expect(heading).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Results revealed: 3 people answered."
+      )
+    );
+  });
+
+  it("asks before Close throws away totals that aren't saved", async () => {
+    const { ch, crypto, onSave } = await startRound();
+    await revealThree(ch, crypto!);
+    fireEvent.click(screen.getByRole("button", { name: "End room" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "End the live room?" })).getByRole("button", {
+        name: "End room",
+      })
+    );
+    await screen.findByRole("heading", { name: "You ended the live round" });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const dialog = screen.getByRole("dialog", { name: "Close without saving?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("heading", { name: "Results" })).toBeInTheDocument();
+    // Saved: Close needs no question.
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await screen.findByRole("button", { name: "Run a live round" })).toBeInTheDocument();
+  });
+
+  it("offers Undo when the tool returns one, and lets the round be saved again after it", async () => {
+    const undo = vi.fn();
+    const { ch, crypto, onSave } = await startRound({ onSave: () => undo });
+    await revealThree(ch, crypto!);
+    toastMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(screen.getByRole("button", { name: "Round saved" })).toBeDisabled();
+    expect(toastMock).toHaveBeenCalledWith(
+      "Saved the round",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })
+    );
+    const { action } = toastMock.mock.calls[0][1] as { action: { onClick: () => void } };
+    act(() => action.onClick());
+    expect(undo).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave).toHaveBeenCalledTimes(2);
+  });
+
+  it("announces a new round only once it has started", async () => {
+    const { ch, crypto } = await startRound();
+    await answer(ch, crypto!, A, "bid_00000001");
+    const rotate = crypto!.rotateRoundKey;
+    crypto!.rotateRoundKey = () => Promise.reject(new Error("no key"));
+    fireEvent.click(screen.getByRole("button", { name: "Start over with a new round" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Start a new round?" })).getByRole("button", {
+        name: "New round",
+      })
+    );
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("Couldn't start a new round. Try again.")
+    );
+    expect(screen.getByTestId("live-polite")).not.toHaveTextContent(/New round started/);
+    expect(screen.getByText(/^1 person has answered\./)).toBeInTheDocument();
+
+    crypto!.rotateRoundKey = rotate;
+    fireEvent.click(screen.getByRole("button", { name: "Start over with a new round" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Start a new round?" })).getByRole("button", {
+        name: "New round",
+      })
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "New round started. Answers from the last round are gone."
+      )
+    );
+    expect(screen.getByText(/^0 people have answered\./).closest("[tabindex='-1']")).toHaveFocus();
+  });
+
+  it("warns the host when an answer comes under a name that already answered", async () => {
+    const { ch, crypto } = await startRound();
+    await answer(ch, crypto!, A, "bid_00000001");
+    expect(screen.queryByText(/already answered/)).toBeNull();
+    await answer(ch, crypto!, A, "bid_00000009");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /An answer came under a name that had already answered\. Someone may be answering for other people/
+    );
+  });
+
+  it("needs 5 answers for Psych Safety even when the tool passes no minN", async () => {
+    const { ch, crypto } = await startRound(
+      { tool: "psych-safety", toolName: "Psych Safety", minN: undefined },
+      [A, B, C, D, E]
+    );
+    expect(ch.name).toMatch(/^visitor:psych-safety:/);
+    await answer(ch, crypto!, A, "bid_00000001");
+    await answer(ch, crypto!, B, "bid_00000002");
+    await answer(ch, crypto!, C, "bid_00000003");
+    const reveal = screen.getByRole("button", { name: "Reveal results" });
+    expect(reveal).toBeDisabled();
+    expect(reveal).toHaveAccessibleDescription("3 of 5 answers. Results show from 5.");
+    await answer(ch, crypto!, D, "bid_00000004");
+    await answer(ch, crypto!, E, "bid_00000005");
+    expect(screen.getByRole("button", { name: "Reveal results" })).toBeEnabled();
   });
 });

@@ -29,6 +29,10 @@ const exportMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/utils/export", () => ({ exportToMarkdown: exportMock }));
 
 import { VoteJoinRoom } from "@/components/collab/vote-room/vote-join-room";
+import {
+  BALLOT_RESEND_DELAYS_MS,
+  NO_HOST_TIMEOUT_MS,
+} from "@/lib/realtime/vote-room/use-vote-room";
 
 const HOST: FakeMember = { id: "host_00000000000", name: "Hana", joinedAt: "2026-10-26T09:00:00Z" };
 const ME: FakeMember = { id: "alice_0000000000", name: "Alex", joinedAt: "2026-10-26T09:01:00Z" };
@@ -103,9 +107,11 @@ describe("VoteJoinRoom", () => {
       fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
       for (let i = 0; i < 30; i++) await Promise.resolve();
     });
-    expect(
-      await screen.findByRole("heading", { name: "Your answers were sent" })
-    ).toBeInTheDocument();
+    // The form (and its focused button) is gone: focus and the announcement move on.
+    expect(await screen.findByRole("heading", { name: "Your answers were sent" })).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent("Your answers were sent.")
+    );
     expect(screen.queryByRole("radiogroup")).toBeNull();
     const [ballot] = ch.sent(VOTE_ROOM_EVENTS.ballot) as { bid: string }[];
 
@@ -114,6 +120,9 @@ describe("VoteJoinRoom", () => {
       await signedState(crypto, HOST.id, keys, { seq: 2, ballots: 1, acks: [ballot.bid] })
     );
     expect(screen.getByRole("heading", { name: "Your answers were counted" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent("Your answers were counted.")
+    );
 
     await deliver(
       VOTE_ROOM_EVENTS.state,
@@ -141,6 +150,52 @@ describe("VoteJoinRoom", () => {
     expect(ch.removed).toBe(true);
   });
 
+  async function live() {
+    window.history.replaceState(null, "", `#k=${keys.fingerprint}`);
+    renderRoom();
+    await waitFor(() => expect(fakeRealtime.client.channel).toHaveBeenCalledTimes(1));
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    await deliver(VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    return ch;
+  }
+
+  it("starts every round blank, even with the same questions", async () => {
+    await live();
+    const fun = () => screen.getByRole("radiogroup", { name: /Fun/ });
+    fireEvent.click(within(fun()).getByRole("radio", { name: "Green" }));
+    expect(within(fun()).getByRole("radio", { name: "Green" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    await deliver(
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 2, roundId: "round_000002" })
+    );
+    for (const r of within(fun()).getAllByRole("radio")) {
+      expect(r).toHaveAttribute("aria-checked", "false");
+    }
+  });
+
+  it("says so when someone else sends answers under this person's name", async () => {
+    await live();
+    expect(screen.queryByRole("alert")).toBeNull();
+    const sealed = await crypto.seal(keys.publicKeys.ecdh, "aad", "21-");
+    await deliver(VOTE_ROOM_EVENTS.ballot, {
+      v: 1,
+      by: ME.id,
+      roundId: "round_000001",
+      bid: "stolen_seat1",
+      ...sealed,
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Someone else sent answers under your name in this round. Tell the host"
+    );
+  });
+
   it("leaves when asked", async () => {
     window.history.replaceState(null, "", `#k=${keys.fingerprint}`);
     const { onLeave } = renderRoom();
@@ -149,5 +204,63 @@ describe("VoteJoinRoom", () => {
     fireEvent.click(leave);
     expect(onLeave).toHaveBeenCalledTimes(1);
     expect(fakeRealtime.last().removed).toBe(true);
+  });
+});
+
+describe("VoteJoinRoom: when the host never answers", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+    });
+    window.history.replaceState(null, "", `#k=${keys.fingerprint}`);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("says nobody is hosting after 90 s, so the link may be old", () => {
+    renderRoom();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([ME]);
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Waiting for the host's questions…");
+    act(() => {
+      vi.advanceTimersByTime(NO_HOST_TIMEOUT_MS);
+    });
+    expect(screen.getByRole("heading", { name: "Nobody is hosting this round" })).toHaveFocus();
+    expect(screen.getByText(/the link may be from a round that has ended/)).toBeInTheDocument();
+    expect(ch.removed).toBe(true);
+  });
+
+  it("opens the form again when every resend went unconfirmed", async () => {
+    renderRoom();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    await deliver(VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: /Fun/ })).getByRole("radio", { name: "Green" })
+    );
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: /Speed/ })).getByRole("radio", { name: "Red" })
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+    });
+    expect(screen.getByRole("heading", { name: "Your answers were sent" })).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(BALLOT_RESEND_DELAYS_MS.reduce((a, b) => a + b, 0));
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The host's browser didn't confirm your answers, so they may not have been counted."
+    );
+    expect(screen.getByRole("radiogroup", { name: /Fun/ })).toBeInTheDocument();
+    expect(ch.sent(VOTE_ROOM_EVENTS.ballot)).toHaveLength(BALLOT_RESEND_DELAYS_MS.length);
   });
 });

@@ -10,7 +10,7 @@
  * widths come from theme tokens only.
  */
 
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { ChartFigure } from "@/components/shared/chart-card";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
@@ -27,6 +27,11 @@ export interface VoteResultsProps {
   revealed: readonly RevealedQuestion[];
   minN: number;
   ballots: number;
+  /**
+   * Move focus to the "Results" heading on mount: Reveal just replaced the
+   * control that had it.
+   */
+  focusHeading?: boolean;
 }
 
 function pct(share: number | null): string {
@@ -63,15 +68,33 @@ export function resultsVerdict(
   return `${people}; ${shown} of ${revealed.length} questions have enough answers to show (${minN} or more).`;
 }
 
-export function VoteResults({ questionnaire, revealed, minN, ballots }: VoteResultsProps) {
+export function VoteResults({
+  questionnaire,
+  revealed,
+  minN,
+  ballots,
+  focusHeading = false,
+}: VoteResultsProps) {
   const headingId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const rows = questionnaire.questions.map((q, i) => ({ q, r: revealed[i] }));
   const shown = rows.filter((x) => x.r?.distribution);
+
+  useEffect(() => {
+    if (focusHeading) headingRef.current?.focus();
+    // On mount only: later renders keep focus wherever the person moved it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <section aria-labelledby={headingId} className="space-y-4">
       <div className="space-y-1">
-        <h2 id={headingId} className="text-base font-semibold text-text">
+        <h2
+          ref={headingRef}
+          id={headingId}
+          tabIndex={-1}
+          className="text-base font-semibold text-text outline-none"
+        >
           Results
         </h2>
         <p className="text-sm text-sub">{resultsVerdict(revealed, ballots, minN)}</p>
@@ -169,16 +192,17 @@ function QuestionResult({
     return (
       <div className="space-y-2">
         {title}
+        {/* The round is closed: say what it lacked, not what to collect now. */}
         <NotEnoughData
           have={revealed.responses}
           need={minN}
           unit={["answer", "answers"]}
-          action="Collect"
-          what="this question's results"
+          action="It needed"
+          what="its results"
         />
         <p className="text-xs text-sub">
-          Withheld: {revealed.responses} {revealed.responses === 1 ? "answer" : "answers"}, fewer
-          than {minN}, so nobody&apos;s answer can be picked out.
+          Withheld: {revealed.responses} {revealed.responses === 1 ? "answer" : "answers"}, and a
+          question shows its results from {minN}. Ask more people in the next round to see it.
         </p>
       </div>
     );
@@ -206,7 +230,7 @@ function QuestionResult({
                 className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-2 text-xs"
               >
                 <span className="truncate text-sub">{p.label}</span>
-                <span className="h-3 rounded bg-cardH">
+                <span className="h-3 rounded bg-card-hover">
                   <span
                     className="block h-3 rounded bg-accent/70"
                     style={{ width: `${Math.round(share * 100)}%` }}

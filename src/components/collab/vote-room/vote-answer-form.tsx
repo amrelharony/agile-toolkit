@@ -6,8 +6,10 @@
  *
  * The draft lives in this component only. It is never stored, and it is
  * cleared once the answers are sent. Required questions must be answered
- * (inline errors, focus on the first one); optional ones can stay blank.
- * Enter on a scale sends the form; Space and the arrow keys pick.
+ * (inline errors, focus on the first one); optional ones can stay blank,
+ * and say so in their name. Enter on a scale sends the form; Space and the
+ * arrow keys pick. Callers key it by round id, so every round starts blank
+ * even when its questions are the same.
  */
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
@@ -143,7 +145,8 @@ export function VoteAnswerForm({
         {questionnaire.questions.map((q, i) => (
           <li key={q.id} className="rounded-lg border border-border bg-card p-3">
             <ScalePicker
-              label={`${i + 1}. ${q.text}`}
+              // The radio group's name: "optional" is part of what a screen reader hears.
+              label={`${i + 1}. ${q.text}${q.optional === true ? " (optional)" : ""}`}
               steps={steps}
               format={labelFor}
               value={draft[q.id] ?? null}
@@ -162,7 +165,7 @@ export function VoteAnswerForm({
                 q.optional === true ? () => setDraft((d) => ({ ...d, [q.id]: null })) : undefined
               }
               hint={
-                [q.hint, q.optional === true ? "Optional: leave it blank to skip." : null]
+                [q.hint, q.optional === true ? "Leave it blank to skip." : null]
                   .filter(Boolean)
                   .join(" ") || undefined
               }

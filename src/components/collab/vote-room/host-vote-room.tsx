@@ -8,11 +8,15 @@
  * else: no distribution, no per-question counts. Reveal waits for minN
  * answers. After it come the totals, "Save round" (the tool's `onSave`,
  * once per round, aggregates only) and "New round". Ending the room keeps
- * revealed results on screen until they are saved or dismissed; nothing
- * is stored unless the host saves.
+ * revealed results on screen until they are saved or dismissed (Close asks
+ * first when they aren't saved); nothing is stored unless the host saves.
+ *
+ * Whenever an action removes the control that had focus (Reveal, the
+ * host's own answers, New round), focus moves to what replaced it and the
+ * change is announced.
  */
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Check, Eye, ListChecks, RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -29,6 +33,7 @@ import {
   type VoteRoomStatus,
 } from "@/lib/realtime/vote-room/use-vote-room";
 import { toast } from "@/lib/utils/toast";
+import { useSaveRound, type SaveVoteRound } from "./save-round";
 import { VoteAnswerForm } from "./vote-answer-form";
 import { VoteLiveCount } from "./vote-live-count";
 import { VoteResults } from "./vote-results";
@@ -46,7 +51,8 @@ export interface HostVoteRoomProps {
   /** The questions now: the first round's, and what New round uses. */
   questionnaire: Questionnaire;
   minN?: number;
-  onSave: (result: VoteRoundResult) => void;
+  /** Save round: totals only, once per round. Return an undo to get Undo in the kit's toast. */
+  onSave: SaveVoteRound;
   /** The host dismissed the closed room. */
   onClosed: () => void;
   /** Tests inject a fake. */
@@ -75,6 +81,10 @@ function closedTitle(status: VoteRoomStatus, reason: VoteEndReason | null): stri
   }
 }
 
+function people(n: number): string {
+  return `${n} ${n === 1 ? "person" : "people"}`;
+}
+
 export function HostVoteRoom({
   tool,
   toolName,
@@ -98,12 +108,15 @@ export function HostVoteRoom({
   const announce = useAnnounce();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
-  const [savedRound, setSavedRound] = useState<string | null>(null);
   const [answering, setAnswering] = useState(false);
+  const [focusCounted, setFocusCounted] = useState(false);
+  const { save, isSaved } = useSaveRound(onSave);
   const revealHintId = useId();
-  const { status, endReason, result, roundId } = room;
+  const openRef = useRef<HTMLDivElement>(null);
+  const countedRef = useRef<HTMLParagraphElement>(null);
+  const { status, endReason, result, roundId, phase } = room;
   const live = LIVE.has(status);
-  const saved = roundId !== null && savedRound === roundId;
+  const saved = isSaved(result?.roundId);
 
   const lastStatus = useRef<VoteRoomStatus | null>(null);
   useEffect(() => {
@@ -120,19 +133,38 @@ export function HostVoteRoom({
     else toast.success(`${title}.`);
   }, [status, endReason, announce]);
 
-  // A new round starts with the form closed.
-  useEffect(() => setAnswering(false), [roundId]);
-
-  const save = () => {
-    if (!result || saved || roundId === null) return;
-    setSavedRound(roundId);
-    onSave(result);
-  };
-
-  const startNewRound = () => {
-    room.newRound(questionnaire);
+  // A new round starts with the form closed. Once it really started (the
+  // round id changed: a refused or failed New round changes nothing), say
+  // so and put focus on the new round's count.
+  const lastRound = useRef(roundId);
+  useEffect(() => {
+    const prev = lastRound.current;
+    lastRound.current = roundId;
+    setAnswering(false);
+    if (prev === null || roundId === null || prev === roundId) return;
     announce("New round started. Answers from the last round are gone.");
-  };
+    openRef.current?.focus();
+  }, [roundId, announce]);
+
+  // Reveal removed the button that had focus: the results heading takes it.
+  const lastPhase = useRef(phase);
+  useEffect(() => {
+    const prev = lastPhase.current;
+    lastPhase.current = phase;
+    if (prev === "open" && phase === "revealed") {
+      announce(`Results revealed: ${people(room.ballots)} answered.`);
+    }
+  }, [phase, room.ballots, announce]);
+
+  // The host's own answers are in: the form and its button are gone.
+  useEffect(() => {
+    if (!focusCounted || !room.answered) return;
+    setFocusCounted(false);
+    countedRef.current?.focus();
+    announce("Your own answers are counted.");
+  }, [focusCounted, room.answered, announce]);
+
+  const startNewRound = () => room.newRound(questionnaire);
 
   if (!live) {
     return (
@@ -140,15 +172,15 @@ export function HostVoteRoom({
         title={closedTitle(status, endReason)}
         result={result}
         saved={saved}
-        onSave={save}
+        onSave={() => save(result)}
         onClosed={onClosed}
       />
     );
   }
 
-  const others = room.members.filter((m) => m.id !== room.selfId);
   const hash = room.joinPath ? room.joinPath.slice(room.joinPath.indexOf("#")) : "";
   const fingerprint = readVoteLinkFragment(hash);
+  const others = room.members.filter((m) => m.id !== room.selfId);
 
   return (
     <section
@@ -177,24 +209,31 @@ export function HostVoteRoom({
       )}
 
       {room.stuffingSuspected && (
-        <p
-          role="alert"
-          className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-text"
-        >
-          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+        <Warning>
           More answers than different names in the room: someone may have answered twice from
           another tab. If the totals look wrong, start a new round.
-        </p>
+        </Warning>
+      )}
+      {room.duplicateBallots > 0 && (
+        <Warning>
+          {room.duplicateBallots === 1
+            ? "An answer came under a name that had already answered."
+            : `${room.duplicateBallots} answers came under names that had already answered.`}{" "}
+          Someone may be answering for other people, which can single out one person&apos;s answers.
+          To be safe, end the room and share a new link.
+        </Warning>
       )}
 
-      {room.phase === "open" && (
+      {phase === "open" && (
         <div className="space-y-3">
-          <VoteLiveCount
-            ballots={room.ballots}
-            present={room.members.length}
-            minN={room.minN}
-            phase={room.phase}
-          />
+          <div ref={openRef} tabIndex={-1} className="outline-none">
+            <VoteLiveCount
+              ballots={room.ballots}
+              present={room.members.length}
+              minN={room.minN}
+              phase={phase}
+            />
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
@@ -225,14 +264,22 @@ export function HostVoteRoom({
               {room.revealBlockedReason}
             </p>
           )}
-          {room.answered && <p className="text-xs text-sub">Your own answers are counted.</p>}
+          {room.answered && (
+            <p ref={countedRef} tabIndex={-1} className="text-xs text-sub outline-none">
+              Your own answers are counted.
+            </p>
+          )}
           {answering && !room.answered && room.questionnaire && (
             <VoteAnswerForm
+              key={roundId ?? "none"}
               questionnaire={room.questionnaire}
               submitLabel="Count my answers"
               onSubmit={async (draft) => {
                 const res = await room.submit(draft);
-                if (res === "sent") setAnswering(false);
+                if (res === "sent") {
+                  setAnswering(false);
+                  setFocusCounted(true);
+                }
                 return res;
               }}
             />
@@ -240,20 +287,21 @@ export function HostVoteRoom({
         </div>
       )}
 
-      {room.phase === "revealed" && room.revealed && room.questionnaire && (
+      {phase === "revealed" && room.revealed && room.questionnaire && (
         <div className="space-y-3">
           <VoteResults
             questionnaire={room.questionnaire}
             revealed={room.revealed}
             minN={room.minN}
             ballots={room.ballots}
+            focusHeading
           />
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="toolkit"
               className="gap-1.5"
-              onClick={save}
+              onClick={() => save(result)}
               disabled={!result || saved}
             >
               <Check className="h-4 w-4" aria-hidden="true" />
@@ -272,7 +320,7 @@ export function HostVoteRoom({
         </div>
       )}
 
-      {room.phase === "open" && room.ballots > 0 ? (
+      {phase === "open" && room.ballots > 0 ? (
         <Button
           type="button"
           variant="ghost"
@@ -303,9 +351,11 @@ export function HostVoteRoom({
         onOpenChange={setConfirmNew}
         title="Start a new round?"
         description={
-          room.phase === "revealed"
+          phase === "revealed"
             ? "These results aren't saved yet. A new round clears them."
-            : `The ${room.ballots} ${room.ballots === 1 ? "answer" : "answers"} so far are discarded.`
+            : room.ballots === 1
+              ? "The 1 answer so far is discarded."
+              : `The ${room.ballots} answers so far are discarded.`
         }
         confirmLabel="New round"
         onConfirm={startNewRound}
@@ -328,6 +378,19 @@ export function HostVoteRoom({
   );
 }
 
+/** A warning the host should act on, announced when it appears. */
+function Warning({ children }: { children: ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-text"
+    >
+      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
 /** The room has closed: say so, and keep unsaved results until the host saves or closes them. */
 function ClosedHostRoom({
   title,
@@ -343,6 +406,7 @@ function ClosedHostRoom({
   onClosed: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
   useEffect(() => {
     headingRef.current?.focus();
   }, [title]);
@@ -387,10 +451,22 @@ function ClosedHostRoom({
             {saved ? "Round saved" : "Save round"}
           </Button>
         )}
-        <Button type="button" variant="outline" onClick={onClosed}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => (result && !saved ? setConfirmClose(true) : onClosed())}
+        >
           Close
         </Button>
       </div>
+      <ConfirmDialog
+        open={confirmClose}
+        onOpenChange={setConfirmClose}
+        title="Close without saving?"
+        description="These totals aren't saved, and the room has ended, so they can't be recovered."
+        confirmLabel="Close without saving"
+        onConfirm={onClosed}
+      />
     </section>
   );
 }

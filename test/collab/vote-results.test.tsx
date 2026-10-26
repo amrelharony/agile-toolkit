@@ -44,13 +44,39 @@ describe("VoteResults", () => {
     );
   });
 
-  it("withholds a question under minN, saying how many more it needs", () => {
+  it("withholds a question under minN, saying what it lacked in a round that has closed", () => {
     render(<VoteResults questionnaire={QUESTIONNAIRE} revealed={REVEALED} minN={3} ballots={4} />);
     expect(screen.queryByRole("figure", { name: "3. Learning" })).toBeNull();
+    // The round can't take more answers: no "collect more" now.
+    expect(screen.getByText("It needed 1 more answer to see its results.")).toBeInTheDocument();
     expect(
-      screen.getByText("Collect 1 more answer to see this question's results.")
+      screen.getByText(
+        "Withheld: 2 answers, and a question shows its results from 3. Ask more people in the next round to see it."
+      )
     ).toBeInTheDocument();
-    expect(screen.getByText(/Withheld: 2 answers, fewer than 3/)).toBeInTheDocument();
+    expect(screen.queryByText(/Collect|picked out/)).toBeNull();
+  });
+
+  it("draws each bar on a track the theme defines", () => {
+    const { container } = render(
+      <VoteResults questionnaire={QUESTIONNAIRE} revealed={REVEALED} minN={3} ballots={4} />
+    );
+    // `bg-cardH` has no Tailwind rule, so the track would be invisible.
+    expect(container.querySelector(".bg-cardH")).toBeNull();
+    expect(container.querySelectorAll(".bg-card-hover")).toHaveLength(6);
+  });
+
+  it("can take focus on its heading, for when Reveal replaced the focused button", () => {
+    render(
+      <VoteResults
+        questionnaire={QUESTIONNAIRE}
+        revealed={REVEALED}
+        minN={3}
+        ballots={4}
+        focusHeading
+      />
+    );
+    expect(screen.getByRole("heading", { name: "Results" })).toHaveFocus();
   });
 
   it("puts mean and median in Advanced analysis, on the scale's values", () => {

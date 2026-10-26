@@ -14,9 +14,12 @@
  * paper, same totals, same minN rule, same `onSave`.
  *
  * Live rounds run for every host, the owner included (see
- * `vote-room/protocol.ts`); squad guests count by hand. The panel writes
- * nothing itself: `onSave` gets an aggregates-only `VoteRoundResult` when
- * the host presses Save round.
+ * `vote-room/protocol.ts`); squad guests count by hand, and so does a
+ * questionnaire the protocol can't carry (with the reason, before any
+ * consent). The panel writes nothing itself: `onSave` gets an
+ * aggregates-only `VoteRoundResult` when the host presses Save round. If it
+ * returns an undo function, the kit shows "Saved the round" with Undo, and
+ * Undo makes Save round available again; otherwise the tool says it saved.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -28,8 +31,12 @@ import {
   newVisitorRoomCode,
   saveVisitorIdentity,
 } from "@/lib/realtime/visitor-rooms";
-import type { Questionnaire, VoteRoomTool } from "@/lib/realtime/vote-room/protocol";
-import { effectiveMinN, type VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
+import {
+  questionnaireProblem,
+  type Questionnaire,
+  type VoteRoomTool,
+} from "@/lib/realtime/vote-room/protocol";
+import { effectiveMinN } from "@/lib/realtime/vote-room/aggregate";
 import type { VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import {
   useVoteRoomsAvailable,
@@ -38,6 +45,7 @@ import {
 import { toast } from "@/lib/utils/toast";
 import { FacilitatorTally } from "./facilitator-tally";
 import { HostVoteRoom, type HostVoteSession } from "./host-vote-room";
+import type { SaveVoteRound } from "./save-round";
 
 export interface VoteRoundPanelProps {
   tool: VoteRoomTool;
@@ -45,10 +53,16 @@ export interface VoteRoundPanelProps {
   toolName: string;
   /** Null while the tool has nothing to ask (e.g. no dimensions yet). */
   questionnaire: Questionnaire | null;
-  /** Answers needed to show results: 3 by default, `VOTE_LIMITS.minNPsychSafety` for Psych Safety. */
+  /**
+   * Answers needed to show results. Never below the tool's floor
+   * (`voteMinNFloor`: 5 for Psych Safety, 3 otherwise), which is also the default.
+   */
   minN?: number;
-  /** The host pressed Save round: totals only. Called once per round. */
-  onSave: (result: VoteRoundResult) => void;
+  /**
+   * The host pressed Save round: totals only, once per round. Return an
+   * undo function to get the kit's "Saved the round" toast with Undo.
+   */
+  onSave: SaveVoteRound;
   /** Tests inject a fake (undefined: WebCrypto). */
   crypto?: VoteCrypto | null;
 }
@@ -83,7 +97,7 @@ export function VoteRoundPanel({
   const [tally, setTally] = useState(false);
   const runRef = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
-  const need = effectiveMinN(minN);
+  const need = effectiveMinN(minN, tool);
   // A live room keeps the last questions it had if the tool's go away mid-round.
   const lastQuestionnaire = useRef(questionnaire);
   if (questionnaire) lastQuestionnaire.current = questionnaire;
@@ -126,10 +140,17 @@ export function VoteRoundPanel({
     );
   }
 
-  if (!availability.available && !pending) {
+  // Checked before any consent: a round that can't start is never offered.
+  const problem = questionnaireProblem(questionnaire);
+
+  if ((!availability.available && !pending) || problem) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-sub">{reason}</p>
+        <p className="text-sm text-sub">
+          {problem
+            ? `These questions can't be shared live: ${problem} Count hands or collect paper answers and enter the totals here.`
+            : reason}
+        </p>
         <FacilitatorTally tool={tool} questionnaire={questionnaire} minN={need} onSave={onSave} />
       </div>
     );

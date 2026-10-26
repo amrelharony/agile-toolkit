@@ -11,12 +11,13 @@
  * download, and nothing is saved anywhere unless the person downloads it.
  *
  * It renders its own end states (host ended, removed, expired, full, host
- * left, unavailable). Each notice takes focus on its heading and is
- * announced politely.
+ * left, nobody hosting, unavailable). Each notice takes focus on its
+ * heading and is announced politely, and so does "Your answers were sent"
+ * when it replaces the form.
  */
 
-import { useEffect, useRef, useState, type JSX } from "react";
-import { CheckCircle2, Download } from "lucide-react";
+import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
+import { CheckCircle2, Download, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
@@ -122,6 +123,11 @@ function closedCopy(
         title: "The host left",
         body: `The round can't go on without them: only their browser could count the answers. ${keep}`,
       };
+    case "no-host":
+      return {
+        title: "Nobody is hosting this round",
+        body: "No host answered for a minute and a half, so the link may be from a round that has ended. Ask the host for a new link.",
+      };
     case "bad-link":
       return {
         title: "This link is incomplete",
@@ -206,7 +212,8 @@ function ParticipantVoteRoom({
             {hostName
               ? `Hosted by ${hostName}. You are ${identity.name}.`
               : `You are ${identity.name}.`}{" "}
-            Your answers are anonymous: only the totals are shown.
+            Others see that you answered, not what. Only the totals are shown, once the host reveals
+            them.
           </p>
         </div>
         {active && (
@@ -241,25 +248,30 @@ function ParticipantVoteRoom({
         </div>
       )}
 
+      {active && room.impersonated && (
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-text"
+        >
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          <span>
+            Someone else sent answers under your name in this round. Tell the host: they may want to
+            end the room and share a new link.
+          </span>
+        </p>
+      )}
+
       {status === "live" && phase === "open" && questionnaire && (
         <>
           {room.answered || room.awaitingAck ? (
-            <section className="space-y-2 rounded-lg border border-border bg-card p-4">
-              <h2 className="flex items-center gap-2 text-base font-semibold text-text">
-                <CheckCircle2 className="h-5 w-5 text-accent-green" aria-hidden="true" />
-                {room.answered ? "Your answers were counted" : "Your answers were sent"}
-              </h2>
+            <SentPanel counted={room.answered}>
               <VoteLiveCount
                 ballots={room.ballots}
                 present={room.members.length}
                 minN={room.minN}
                 phase={phase}
               />
-              <p className="text-xs text-sub">
-                The results show here when the host reveals them. Nothing you answered is kept in
-                this browser.
-              </p>
-            </section>
+            </SentPanel>
           ) : (
             <section className="space-y-3">
               <VoteLiveCount
@@ -268,7 +280,17 @@ function ParticipantVoteRoom({
                 minN={room.minN}
                 phase={phase}
               />
-              <VoteAnswerForm questionnaire={questionnaire} onSubmit={room.submit} />
+              {room.unconfirmed && (
+                <p role="alert" className="text-sm text-danger">
+                  The host&apos;s browser didn&apos;t confirm your answers, so they may not have
+                  been counted. Pick them again and send them.
+                </p>
+              )}
+              <VoteAnswerForm
+                key={room.roundId ?? "none"}
+                questionnaire={questionnaire}
+                onSubmit={room.submit}
+              />
             </section>
           )}
         </>
@@ -286,6 +308,42 @@ function ParticipantVoteRoom({
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * "Your answers were sent", then "…counted" once the host acknowledges
+ * them. It replaces the form (and the focused Send button), so it takes
+ * focus on its heading and says each step.
+ */
+function SentPanel({ counted, children }: { counted: boolean; children: ReactNode }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const announce = useAnnounce();
+  const title = counted ? "Your answers were counted" : "Your answers were sent";
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    announce(`${title}.`);
+  }, [title, announce]);
+  return (
+    <section className="space-y-2 rounded-lg border border-border bg-card p-4">
+      <h2
+        ref={headingRef}
+        tabIndex={-1}
+        className="flex items-center gap-2 text-base font-semibold text-text outline-none"
+      >
+        <CheckCircle2 className="h-5 w-5 text-accent-green" aria-hidden="true" />
+        {title}
+      </h2>
+      {children}
+      <p className="text-xs text-sub">
+        {counted
+          ? "The results show here when the host reveals them."
+          : "Waiting for the host's browser to confirm them. The results show here when the host reveals them."}{" "}
+        Nothing you answered is kept in this browser.
+      </p>
+    </section>
   );
 }
 

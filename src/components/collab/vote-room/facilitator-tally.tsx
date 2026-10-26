@@ -3,11 +3,14 @@
 /**
  * Count hands, or collect paper answers, and enter the totals: the vote
  * round for when live rooms are off (flag off, no Supabase, no WebCrypto,
- * a squad guest) or not wanted.
+ * a squad guest, questions the protocol can't carry) or not wanted.
  *
- * Same aggregate code, same minN rule and the same `onSave` as a live
- * round, with `source: "facilitator"`. Only counts are entered, never who
- * gave which answer. A blank box counts as nobody.
+ * Same aggregate code, same minN rule (never under the tool's floor) and
+ * the same `onSave` as a live round, with `source: "facilitator"`. Only
+ * counts are entered, never who gave which answer. A blank box counts as
+ * nobody; text a number box can't read is refused, not read as blank. Once
+ * a round is saved its boxes lock until "Enter another round" (or Undo),
+ * so an edit can't quietly become a second saved round.
  */
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -29,13 +32,16 @@ import {
   type Questionnaire,
   type VoteRoomTool,
 } from "@/lib/realtime/vote-room/protocol";
+import { useSaveRound, type SaveVoteRound } from "./save-round";
 import { VoteResults } from "./vote-results";
 
 export interface FacilitatorTallyProps {
   tool: VoteRoomTool;
   questionnaire: Questionnaire;
+  /** Never below the tool's floor (`voteMinNFloor`), which is also the default. */
   minN?: number;
-  onSave: (result: VoteRoundResult) => void;
+  /** Totals only, once per round. Return an undo to get Undo in the kit's toast. */
+  onSave: SaveVoteRound;
 }
 
 type Cells = Record<string, string[]>;
@@ -45,16 +51,19 @@ function blankCells(q: Questionnaire): Cells {
 }
 
 const COUNT_ERROR = "Enter a whole number, 0 or more.";
+const OVER_CAP_ERROR = `At most ${VOTE_LIMITS.maxTallyBallots}.`;
+const WHOLE_RE = /^\d+$/;
 
 export function FacilitatorTally({ tool, questionnaire, minN, onSave }: FacilitatorTallyProps) {
-  const need = effectiveMinN(minN);
+  const need = effectiveMinN(minN, tool);
   const [cells, setCells] = useState<Cells>(() => blankCells(questionnaire));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<VoteRoundResult | null>(null);
-  const [saved, setSaved] = useState(false);
   const [focusPending, setFocusPending] = useState(false);
+  const { save, isSaved } = useSaveRound(onSave);
   const formRef = useRef<HTMLFormElement>(null);
+  const saved = isSaved(result?.roundId);
 
   const signature = questionnaire.id + questionnaire.questions.map((x) => x.id).join("|");
   useEffect(() => {
@@ -62,7 +71,6 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
     setErrors({});
     setFormError(null);
     setResult(null);
-    setSaved(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
@@ -75,6 +83,7 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
   const cellKey = (qid: string, i: number) => `${qid}:${i}`;
 
   const setCell = (qid: string, i: number, value: string) => {
+    if (saved) return;
     setCells((c) => ({ ...c, [qid]: c[qid].map((v, j) => (j === i ? value : v)) }));
     setErrors((e) => {
       if (!e[cellKey(qid, i)]) return e;
@@ -84,23 +93,35 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
     });
     // Changed counts: the totals shown are stale.
     setResult(null);
-    setSaved(false);
     setFormError(null);
   };
 
   const showTotals = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (saved) return;
+    // A number box reports text it can't read ("5a", "1e") as "": ask the
+    // box itself, so that isn't counted as nobody.
+    const unreadable = new Set<string>();
+    formRef.current?.querySelectorAll<HTMLInputElement>("input[data-tally-cell]").forEach((el) => {
+      if (el.validity?.badInput === true && el.dataset.tallyCell) {
+        unreadable.add(el.dataset.tallyCell);
+      }
+    });
     const nextErrors: Record<string, string> = {};
     const counts: number[][] = [];
     for (const q of questionnaire.questions) {
       const row: number[] = [];
       (cells[q.id] ?? []).forEach((raw, i) => {
+        const key = cellKey(q.id, i);
         const trimmed = raw.trim();
-        const n = trimmed === "" ? 0 : Number(trimmed);
-        if (!Number.isInteger(n) || n < 0 || n > VOTE_LIMITS.maxTallyBallots) {
-          nextErrors[cellKey(q.id, i)] = COUNT_ERROR;
+        if (unreadable.has(key) || (trimmed !== "" && !WHOLE_RE.test(trimmed))) {
+          nextErrors[key] = COUNT_ERROR;
+          row.push(0);
+          return;
         }
-        row.push(Number.isInteger(n) && n >= 0 ? n : 0);
+        const n = trimmed === "" ? 0 : Number(trimmed);
+        if (n > VOTE_LIMITS.maxTallyBallots) nextErrors[key] = OVER_CAP_ERROR;
+        row.push(n);
       });
       counts.push(row);
     }
@@ -119,7 +140,7 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
     }
     if (tally.ballots < need) {
       setFormError(
-        `Results show from ${need} answers, so nobody's answer can be picked out. You've entered ${tally.ballots}.`
+        `Results show from ${need} answers, so small groups' answers stay hidden. You've entered ${tally.ballots}.`
       );
       return;
     }
@@ -136,18 +157,11 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
     );
   };
 
-  const save = () => {
-    if (!result || saved) return;
-    setSaved(true);
-    onSave(result);
-  };
-
   const startOver = () => {
     setCells(blankCells(questionnaire));
     setErrors({});
     setFormError(null);
     setResult(null);
-    setSaved(false);
   };
 
   return (
@@ -160,7 +174,7 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
         <ol className="space-y-3">
           {questionnaire.questions.map((q, qi) => (
             <li key={q.id}>
-              <fieldset className="rounded-lg border border-border bg-card p-3">
+              <fieldset className="rounded-lg border border-border bg-card p-3" disabled={saved}>
                 <legend className="px-1 text-sm font-medium text-text">
                   {qi + 1}. {q.text}
                   {q.optional === true && <span className="ml-1 text-xs text-sub">(optional)</span>}
@@ -174,7 +188,9 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
                           type="number"
                           inputMode="numeric"
                           min={0}
+                          max={VOTE_LIMITS.maxTallyBallots}
                           step={1}
+                          data-tally-cell={cellKey(q.id, i)}
                           value={cells[q.id]?.[i] ?? ""}
                           onChange={(e) => setCell(q.id, i, e.target.value)}
                         />
@@ -191,10 +207,16 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
             {formError}
           </p>
         )}
-        <Button type="submit" variant="toolkit" className="gap-1.5">
-          <Calculator className="h-4 w-4" aria-hidden="true" />
-          Show totals
-        </Button>
+        {saved ? (
+          <p className="text-sm text-sub">
+            This round is saved. Enter another round to type new counts.
+          </p>
+        ) : (
+          <Button type="submit" variant="toolkit" className="gap-1.5">
+            <Calculator className="h-4 w-4" aria-hidden="true" />
+            Show totals
+          </Button>
+        )}
       </form>
 
       {result && (
@@ -213,7 +235,7 @@ export function FacilitatorTally({ tool, questionnaire, minN, onSave }: Facilita
               type="button"
               variant="toolkit"
               className="gap-1.5"
-              onClick={save}
+              onClick={() => save(result)}
               disabled={saved}
             >
               <Check className="h-4 w-4" aria-hidden="true" />

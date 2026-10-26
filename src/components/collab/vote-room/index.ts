@@ -16,3 +16,4 @@ export {
   type VoteResultsProps,
 } from "./vote-results";
 export { FacilitatorTally, type FacilitatorTallyProps } from "./facilitator-tally";
+export { useSaveRound, type SaveVoteRound, type SaveRoundState } from "./save-round";
