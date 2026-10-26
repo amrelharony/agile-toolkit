@@ -10,6 +10,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, SprintSeries, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { seriesFor } from "./series";
 import { withStoryBlocked, withStoryStatus, withStorySprint } from "./story-status";
+import { withStoryDodCheck } from "@/lib/dod/model";
 
 /**
  * Move a story to `status`, stamping when work started, when it was done and
@@ -59,6 +60,25 @@ export function setStoryBlocked(id: string, blocked: boolean): Story | null {
   const current = ws.stories.find((s) => s.id === id);
   if (!current) return null;
   const next = withStoryBlocked(current, blocked);
+  if (next !== current) ws.upsertStory(next);
+  return next;
+}
+
+/**
+ * Tick (or untick) a Definition-of-Done criterion on a story's card
+ * (lib/dod/model withStoryDodCheck). Returns the story as saved, or null if
+ * it doesn't exist; no write when nothing changes.
+ */
+export function setStoryDodCheck(
+  id: string,
+  criterionId: string,
+  checked: boolean,
+  at: string = new Date().toISOString()
+): Story | null {
+  const ws = useWorkspaceStore.getState();
+  const current = ws.stories.find((s) => s.id === id);
+  if (!current) return null;
+  const next = withStoryDodCheck(current, criterionId, checked, at);
   if (next !== current) ws.upsertStory(next);
   return next;
 }
