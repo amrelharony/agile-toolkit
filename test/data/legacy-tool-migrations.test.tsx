@@ -107,9 +107,13 @@ describe("LegacyToolMigrations: the old RACI store", () => {
 
 describe("LegacyToolMigrations: what the app shell loads", () => {
   const src = (...parts: string[]) => readFileSync(join(process.cwd(), "src", ...parts), "utf8");
-  /** The module specifiers a file imports statically. */
-  const staticImports = (code: string) =>
-    [...code.matchAll(/^import[^;]*?from\s+"([^"]+)";/gms)].map((m) => m[1]);
+  /** The module specifiers a file imports statically (an import may span lines). */
+  const staticImports = (code: string) => {
+    const re = /^import[^;]*?from\s+"([^"]+)";/gm;
+    const found: string[] = [];
+    for (let m = re.exec(code); m; m = re.exec(code)) found.push(m[1]);
+    return found;
+  };
 
   it("checks for the old RACI store without loading the RACI model", () => {
     const mount = src("components", "data", "legacy-tool-migrations.tsx");
