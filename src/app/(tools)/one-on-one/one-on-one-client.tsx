@@ -1,6 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  CalendarClock,
+  CalendarRange,
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  Coffee,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -8,268 +20,264 @@ import { ActionRow } from "@/components/shared/action-row";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { StatCard } from "@/components/shared/stat-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SectionCard } from "@/components/shared/section-card";
+import { ResetButton } from "@/components/shared/reset-button";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { ItemForm, useItemForm } from "@/components/shared/item-form";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { BlurInput } from "@/components/shared/blur-fields";
-import {
-  Coffee,
-  Plus,
-  Trash2,
-  ChevronDown,
-  ChevronRight,
-  CheckSquare,
-  AlertCircle,
-  Sprout,
-  CalendarRange,
-} from "lucide-react";
+import { useStableOrder } from "@/hooks/use-stable-order";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { removeWithUndo } from "@/lib/utils/undoable";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ONE_ON_ONE_ACTIONS } from "@/lib/history/event-actions";
 import { generateOneOnOnePrompts } from "@/lib/ai-prompts/one-on-one";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { todayIso } from "@/lib/sprints/series";
+import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Validation } from "@/lib/utils/form";
+import { AGENDA_MAX, AgendaItemRow, STATUS_TONE } from "./agenda-item";
+import { CadenceSection } from "./cadence-section";
+import { DetailsForm } from "./details-form";
+import { buildExample, type OneOnOneExample } from "./example";
+import { oneOnOnesToMarkdown } from "./markdown";
+import {
+  CADENCE_KEY,
+  STATUS_LABELS,
+  STORAGE_KEY,
+  addressedShare,
+  cadenceByReport,
+  cadenceVerdict,
+  carriedAgenda,
+  meetingsThisMonth,
+  normalizeCadence,
+  normalizeMeetings,
+  overdueActions,
+  priorMeeting,
+  type AgendaItem,
+  type AgendaStatus,
+  type CadenceDays,
+  type Meeting,
+  type OneOnOneCadence,
+} from "./model";
+import { StartForm, type StartValues } from "./start-form";
 
-type AgendaStatus = "open" | "discussed" | "action_required";
+type ListUpdate<T> = (list: readonly T[]) => T[];
 
-interface AgendaItem {
-  id: string;
-  text: string;
-  status: AgendaStatus;
-  action?: string;
-  owner?: string;
-  dueDate?: string;
-  /**
-   * Id of the item in an earlier 1:1 that this one was carried over from.
-   * The earlier item is then superseded: the follow-up lives here, so it
-   * isn't counted twice in "Action items overdue".
-   */
-  carriedFrom?: string;
+const noLog = () => undefined;
+
+/** The add-an-item form under the open 1:1's agenda: a topic is required. */
+function AgendaAddForm({ onAdd }: { onAdd: (text: string) => void }) {
+  const form = useItemForm<{ text: string }, string, "text">({
+    initial: { text: "" },
+    validate: (d): Validation<string, "text"> => {
+      const text = d.text.replace(/\s+/g, " ").trim();
+      if (!text) return { ok: false, errors: { text: "Write the topic." } };
+      if (text.length > AGENDA_MAX)
+        return { ok: false, errors: { text: `Keep it to ${AGENDA_MAX} characters.` } };
+      return { ok: true, values: text };
+    },
+    onSave: onAdd,
+  });
+  return (
+    <ItemForm
+      form={form}
+      submitLabel="Add"
+      submitIcon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+      className="space-y-2"
+    >
+      <Field label="New agenda item" hideLabel error={form.errors.text}>
+        {(props) => (
+          <Input
+            {...props}
+            value={form.draft.text}
+            maxLength={AGENDA_MAX}
+            onChange={(e) => form.update({ text: e.target.value })}
+            placeholder="New agenda item..."
+            className="bg-bg border-border text-sm"
+          />
+        )}
+      </Field>
+    </ItemForm>
+  );
 }
 
-interface Meeting {
-  id: string;
-  manager: string;
-  report: string;
-  date: string; // YYYY-MM-DD
-  agenda: AgendaItem[];
-  notes?: string;
-  description?: string;
-}
-
-const STORAGE_KEY = "agile-toolkit:one-on-one";
-
-const STATUS_LABELS: Record<AgendaStatus, string> = {
-  open: "Open",
-  discussed: "Discussed",
-  action_required: "Action",
-};
-
-const NEXT_STATUS: Record<AgendaStatus, AgendaStatus> = {
-  open: "discussed",
-  discussed: "action_required",
-  action_required: "open",
-};
-
-const STATUS_TONE: Record<AgendaStatus, string> = {
-  open: "border-warning/40 bg-warning/5 text-warning",
-  discussed: "border-success/40 bg-success/5 text-success",
-  action_required: "border-accent/40 bg-accent/5 text-accent",
-};
-
-function pairKey(m: Pick<Meeting, "manager" | "report">): string {
-  return `${m.manager.toLowerCase()}::${m.report.toLowerCase()}`;
-}
-
+/**
+ * The 1:1 tracker: a rolling agenda per manager–report pair (Open items and
+ * unfinished Actions carry into the next 1:1), Done with the day it was
+ * done, a cadence per report with an alert when a 1:1 is late, and a
+ * timeline. The notes are private: they're in this browser (and the
+ * owner's cloud copy), no agent reads them, and they leave the page only
+ * through Export.
+ */
 export function OneOnOneClient() {
-  const [meetings, setMeetings] = usePersisted<Meeting[]>(STORAGE_KEY, []);
+  const [stored, setStored] = usePersisted<unknown>(STORAGE_KEY, []);
+  const [storedCadence, setStoredCadence] = usePersisted<unknown>(CADENCE_KEY, {});
   const { log } = useHistoryLogger("one-on-one");
+  const roster = useTeamRoster();
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
 
-  const [manager, setManager] = useState("");
-  const [report, setReport] = useState("");
-  const [date, setDate] = useState(todayLocalISO());
-  const [description, setDescription] = useState("");
+  // The example lives here only: nothing in it reaches the saved 1:1s.
+  const [example, setExample] = useState<OneOnOneExample | null>(null);
+  const preview = example !== null;
+  const meetings = useMemo(() => example?.meetings ?? normalizeMeetings(stored), [example, stored]);
+  const cadence = useMemo(
+    () => example?.cadence ?? normalizeCadence(storedCadence),
+    [example, storedCadence]
+  );
+  // Fixed for the render an edit starts in, so its Undo goes back to the
+  // same place. The example's edits aren't the team's history.
+  const writeMeetings = preview
+    ? (fn: ListUpdate<Meeting>) => setExample((ex) => ex && { ...ex, meetings: fn(ex.meetings) })
+    : (fn: ListUpdate<Meeting>) => setStored((prev: unknown) => fn(normalizeMeetings(prev)));
+  const writeCadence = preview
+    ? (fn: (c: OneOnOneCadence) => OneOnOneCadence) =>
+        setExample((ex) => ex && { ...ex, cadence: fn(ex.cadence) })
+    : (fn: (c: OneOnOneCadence) => OneOnOneCadence) =>
+        setStoredCadence((prev: unknown) => fn(normalizeCadence(prev)));
+  const record: typeof log = preview ? noLog : log;
 
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
-  const [newAgendaText, setNewAgendaText] = useState("");
+  const [editingDetails, setEditingDetails] = useState(false);
   const [expandedPast, setExpandedPast] = useState<Set<string>>(new Set());
 
-  // Sort meetings newest-first by date.
-  const sortedMeetings = useMemo(
-    () => [...meetings].sort((a, b) => b.date.localeCompare(a.date)),
-    [meetings]
-  );
+  const activeMeeting = meetings.find((m) => m.id === activeMeetingId) ?? null;
 
-  const activeMeeting = useMemo(
-    () => meetings.find((m) => m.id === activeMeetingId) ?? null,
-    [meetings, activeMeetingId]
-  );
+  /* ── Changes ──────────────────────────────────────────────────────── */
 
-  const startMeeting = () => {
-    if (!manager.trim() || !report.trim()) return;
+  const startMeeting = (values: StartValues) => {
+    const managerMember = findRosterMember(roster, values.manager);
+    const reportMember = findRosterMember(roster, values.report);
     const id = crypto.randomUUID();
-    const desc = description.trim();
-    const newMeeting: Meeting = {
+    const meeting: Meeting = {
       id,
-      manager: manager.trim(),
-      report: report.trim(),
-      date,
+      manager: managerMember?.name ?? values.manager,
+      report: reportMember?.name ?? values.report,
+      ...(managerMember ? { managerMemberId: managerMember.id } : {}),
+      ...(reportMember ? { reportMemberId: reportMember.id } : {}),
+      date: values.date,
       agenda: [],
-      description: desc.length > 0 ? desc : undefined,
+      ...(values.description ? { description: values.description } : {}),
     };
-    // Carry forward open agenda items from the most recent prior meeting
-    // for the same pair (case-insensitive match). Only meetings *on or
-    // before* the new meeting's date count as prior — otherwise scheduling
-    // a back-dated meeting would inherit items from a future one. Ties on
-    // date are broken by preferring the meeting with a non-empty agenda
-    // (so an empty placeholder doesn't shadow a populated one).
-    const pk = pairKey(newMeeting);
-    // BUG-T5-one-on-one-6: prefer the most recent meeting with a
-    // populated agenda over a strictly-newer empty meeting. The prior
-    // sort only broke same-date ties on agenda-non-emptiness, so a
-    // newest-date empty placeholder always won the lookup and
-    // wiped any open items from the actual prior populated meeting.
-    const candidates = meetings.filter(
-      (m) => pairKey(m) === pk && m.id !== newMeeting.id && m.date <= newMeeting.date
-    );
-    const populated = candidates
-      .filter((m) => m.agenda.length > 0)
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-    const newest = candidates.sort((a, b) => b.date.localeCompare(a.date))[0];
-    const prior = populated ?? newest;
-    if (prior) {
-      // Carry over everything still unfinished: Open topics, and Actions
-      // with their action, owner and due date so the follow-up doesn't drop
-      // off. An Action stops carrying over once it is set to Discussed.
-      const carry: AgendaItem[] = prior.agenda
-        .filter((a) => a.status === "open" || a.status === "action_required")
-        .map((a) =>
-          a.status === "open"
-            ? { id: crypto.randomUUID(), text: a.text, status: "open", carriedFrom: a.id }
-            : {
-                id: crypto.randomUUID(),
-                text: a.text,
-                status: "action_required",
-                action: a.action,
-                owner: a.owner,
-                dueDate: a.dueDate,
-                carriedFrom: a.id,
-              }
-        );
-      newMeeting.agenda = carry;
-    }
-    setMeetings((s) => [...s, newMeeting]);
-    log(ONE_ON_ONE_ACTIONS.MEETING_LOGGED, {
+    // Open topics and unfinished Actions carry over from the prior 1:1.
+    const prior = priorMeeting(meetings, meeting);
+    if (prior) meeting.agenda = carriedAgenda(prior, () => crypto.randomUUID());
+    writeMeetings((list) => [...list, meeting]);
+    record(ONE_ON_ONE_ACTIONS.MEETING_LOGGED, {
       meetingId: id,
-      manager: newMeeting.manager,
-      report: newMeeting.report,
-      date: newMeeting.date,
-      carriedItems: newMeeting.agenda.length,
+      manager: meeting.manager,
+      report: meeting.report,
+      date: meeting.date,
+      carriedItems: meeting.agenda.length,
     });
     setActiveMeetingId(id);
-    setManager("");
-    setReport("");
-    setDescription("");
-  };
-
-  const removeMeeting = (id: string) => {
-    const m = meetings.find((x) => x.id === id);
-    setMeetings((s) => s.filter((x) => x.id !== id));
-    if (activeMeetingId === id) setActiveMeetingId(null);
-    log(ONE_ON_ONE_ACTIONS.MEETING_REMOVED, {
-      meetingId: id,
-      manager: m?.manager,
-      report: m?.report,
-    });
-  };
-
-  const addAgendaItem = () => {
-    if (!activeMeeting) return;
-    const text = newAgendaText.trim();
-    if (!text) return;
-    const item: AgendaItem = {
-      id: crypto.randomUUID(),
-      text,
-      status: "open",
-    };
-    setMeetings((s) =>
-      s.map((m) => (m.id === activeMeeting.id ? { ...m, agenda: [...m.agenda, item] } : m))
+    setEditingDetails(false);
+    announce(
+      meeting.agenda.length > 0
+        ? `Started the 1:1 with ${meeting.report}; ${meeting.agenda.length} carried over`
+        : `Started the 1:1 with ${meeting.report}`
     );
-    log(ONE_ON_ONE_ACTIONS.AGENDA_ITEM_ADDED, {
-      meetingId: activeMeeting.id,
+  };
+
+  const removeMeeting = (m: Meeting) => {
+    removeWithUndo<Meeting>({
+      label: `Deleted the 1:1 with ${m.report}${m.date ? ` on ${m.date}` : ""}`,
+      update: writeMeetings,
+      match: (x) => x.id === m.id,
+    });
+    if (activeMeetingId === m.id) setActiveMeetingId(null);
+    record(ONE_ON_ONE_ACTIONS.MEETING_REMOVED, { meetingId: m.id });
+    announce(`Deleted the 1:1 with ${m.report}`);
+  };
+
+  const patchMeeting = (meetingId: string, patch: Partial<Meeting>) =>
+    writeMeetings((list) => list.map((m) => (m.id === meetingId ? { ...m, ...patch } : m)));
+
+  const saveDetails = (m: Meeting, values: StartValues) => {
+    const managerMember = findRosterMember(roster, values.manager);
+    const reportMember = findRosterMember(roster, values.report);
+    writeMeetings((list) =>
+      list.map((x) => {
+        if (x.id !== m.id) return x;
+        const next: Meeting = {
+          ...x,
+          manager: managerMember?.name ?? values.manager,
+          report: reportMember?.name ?? values.report,
+          date: values.date,
+          description: values.description,
+          managerMemberId: managerMember?.id,
+          reportMemberId: reportMember?.id,
+        };
+        return next;
+      })
+    );
+    setEditingDetails(false);
+    announce("Saved the 1:1's details");
+  };
+
+  const updateAgenda = (meetingId: string, fn: ListUpdate<AgendaItem>) =>
+    writeMeetings((list) =>
+      list.map((m) => (m.id === meetingId ? { ...m, agenda: fn(m.agenda) } : m))
+    );
+
+  const addAgendaItem = (meeting: Meeting, text: string) => {
+    const item: AgendaItem = { id: crypto.randomUUID(), text, status: "open" };
+    updateAgenda(meeting.id, (agenda) => [...agenda, item]);
+    // The topic stays in the 1:1: the history log keeps only that one was added.
+    record(ONE_ON_ONE_ACTIONS.AGENDA_ITEM_ADDED, { meetingId: meeting.id, itemId: item.id });
+  };
+
+  const patchItem = (meetingId: string, itemId: string, patch: Partial<AgendaItem>) =>
+    updateAgenda(meetingId, (agenda) =>
+      agenda.map((a) => (a.id === itemId ? { ...a, ...patch } : a))
+    );
+
+  const setStatus = (meeting: Meeting, item: AgendaItem, status: AgendaStatus) => {
+    if (item.status === status) return;
+    // Done keeps the day it was done (today unless picked); leaving Done drops it.
+    const doneAt = status === "done" ? (item.doneAt ?? today) : undefined;
+    patchItem(meeting.id, item.id, { status, doneAt });
+    record(ONE_ON_ONE_ACTIONS.ACTION_TOGGLED, {
+      meetingId: meeting.id,
       itemId: item.id,
-      text,
+      from: item.status,
+      to: status,
     });
-    setNewAgendaText("");
+    announce(`${item.text}: ${STATUS_LABELS[status]}`);
   };
 
-  const toggleAgendaStatus = (itemId: string) => {
-    if (!activeMeeting) return;
-    const current = activeMeeting.agenda.find((a) => a.id === itemId);
-    if (!current) return;
-    const next = NEXT_STATUS[current.status];
-    setMeetings((s) =>
-      s.map((m) =>
-        m.id === activeMeeting.id
-          ? {
-              ...m,
-              agenda: m.agenda.map((a) => (a.id === itemId ? { ...a, status: next } : a)),
-            }
-          : m
-      )
-    );
-    log(ONE_ON_ONE_ACTIONS.ACTION_TOGGLED, {
-      meetingId: activeMeeting.id,
-      itemId,
-      from: current.status,
-      to: next,
+  const removeAgendaItem = (meeting: Meeting, item: AgendaItem) => {
+    removeWithUndo<AgendaItem>({
+      label: `Removed “${item.text}”`,
+      update: (fn) => updateAgenda(meeting.id, fn),
+      match: (a) => a.id === item.id,
+    });
+    announce(`Removed “${item.text}”`);
+  };
+
+  const setCadence = (key: string, days: CadenceDays | null) => {
+    writeCadence((c) => {
+      const next = { ...c };
+      if (days === null) delete next[key];
+      else next[key] = days;
+      return next;
     });
   };
 
-  const updateAgendaItem = (itemId: string, patch: Partial<AgendaItem>) => {
-    if (!activeMeeting) return;
-    setMeetings((s) =>
-      s.map((m) =>
-        m.id === activeMeeting.id
-          ? {
-              ...m,
-              agenda: m.agenda.map((a) => (a.id === itemId ? { ...a, ...patch } : a)),
-            }
-          : m
-      )
-    );
-  };
-
-  const removeAgendaItem = (itemId: string) => {
-    if (!activeMeeting) return;
-    setMeetings((s) =>
-      s.map((m) =>
-        m.id === activeMeeting.id ? { ...m, agenda: m.agenda.filter((a) => a.id !== itemId) } : m
-      )
-    );
-  };
-
-  // Persisted commit. Called from the draft textarea below on blur (not on
-  // every keystroke) so we don't write to localStorage per character.
-  const updateNotes = (val: string) => {
-    if (!activeMeeting) return;
-    setMeetings((s) => s.map((m) => (m.id === activeMeeting.id ? { ...m, notes: val } : m)));
-  };
-
-  // Local draft mirrors the active meeting's notes — typing only touches
-  // this state. We sync the draft when the active meeting flips (open
-  // another meeting), and flush on blur.
+  // Notes: typing stays in the draft; the 1:1 is saved when focus leaves.
   const [notesDraft, setNotesDraft] = useState<string>("");
   const notesCommittedRef = useRef<string>("");
   useEffect(() => {
-    // R5: depend ONLY on `activeMeeting?.id`. Including
-    // `activeMeeting?.notes` re-fires the effect every time the local
-    // draft was committed via `updateNotes` → `notes` changed →
-    // `activeMeeting` re-derived → effect re-ran → setNotesDraft
-    // overwrote the user's in-progress typing AFTER they had just
-    // committed. Only sync when the user opens a DIFFERENT meeting.
+    // Only when a different 1:1 opens: re-syncing on every save would
+    // overwrite what's being typed.
     const v = activeMeeting?.notes ?? "";
     setNotesDraft(v);
     notesCommittedRef.current = v;
@@ -285,55 +293,44 @@ export function OneOnOneClient() {
     });
   };
 
-  // KPIs.
-  const meetingsThisMonth = useMemo(() => {
-    const todayDate = new Date();
-    const yearMonth = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}`;
-    return meetings.filter((m) => m.date.startsWith(yearMonth)).length;
-  }, [meetings]);
+  const loadExample = () => {
+    setExample(buildExample(today));
+    setActiveMeetingId(null);
+    setEditingDetails(false);
+    announce("Loaded an example");
+  };
+  const clearExample = () => {
+    setExample(null);
+    setActiveMeetingId(null);
+    setEditingDetails(false);
+  };
 
-  const overdueActions = useMemo(() => {
-    const today = todayLocalISO();
-    const items = meetings.flatMap((m) => m.agenda);
-    // An action carried over to a later 1:1 is counted there, not twice.
-    const superseded = new Set(items.map((a) => a.carriedFrom).filter(Boolean));
-    return items.filter(
-      (a) =>
-        a.status === "action_required" && a.dueDate && a.dueDate < today && !superseded.has(a.id)
-    ).length;
-  }, [meetings]);
+  // A reset clears the 1:1s and the cadences; Undo puts both back.
+  const resetSnapshot = useRef<{ meetings: unknown; cadence: unknown } | null>(null);
+  const reset = () => {
+    resetSnapshot.current = { meetings: stored, cadence: storedCadence };
+    setStored([]);
+    setStoredCadence({});
+    setActiveMeetingId(null);
+    log(ONE_ON_ONE_ACTIONS.ONE_ON_ONE_RESET, { meetings: meetings.length });
+  };
+  const undoReset = () => {
+    const snap = resetSnapshot.current;
+    if (!snap) return;
+    setStored(snap.meetings);
+    setStoredCadence(snap.cadence);
+  };
 
-  const discussedPct = useMemo(() => {
-    const total = meetings.reduce((acc, m) => acc + m.agenda.length, 0);
-    if (total === 0) return 0;
-    const discussed = meetings
-      .flatMap((m) => m.agenda)
-      .filter((a) => a.status === "discussed" || a.status === "action_required").length;
-    return Math.round((discussed / total) * 100);
-  }, [meetings]);
+  /* ── Numbers ──────────────────────────────────────────────────────── */
 
-  // Count anywhere "growth" surfaces in a 1:1 — agenda text/action *and*
-  // meeting-level notes/description. The KPI label is "Growth themes", so
-  // it covers themes mentioned outside discrete agenda items too.
-  const growthThemes = useMemo(() => {
-    // R11-fix: word-boundary regex. The previous /growth/i matched
-    // "regrowth", "outgrowth", "growth-hacking" — false positives
-    // that fed into AI prompts as a KPI, misdirecting manager
-    // attention toward themes that weren't actually about employee
-    // growth.
-    const re = /\bgrowth\b/i;
-    let count = 0;
-    for (const m of meetings) {
-      if (re.test(m.notes ?? "") || re.test(m.description ?? "")) count += 1;
-      for (const a of m.agenda) {
-        if (re.test(a.text) || re.test(a.action ?? "")) count += 1;
-      }
-    }
-    return count;
-  }, [meetings]);
+  const reports = useMemo(
+    () => cadenceByReport(meetings, cadence, preview ? [] : roster, today),
+    [meetings, cadence, preview, roster, today]
+  );
+  const verdict = cadenceVerdict(reports);
+  const pastCadence = reports.filter((r) => r.overdueBy !== null).length;
+  const addressed = addressedShare(meetings);
+  const overdue = overdueActions(meetings, today);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -355,14 +352,37 @@ export function OneOnOneClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "1:1 Meeting Tracker",
-      prompts: generateOneOnOnePrompts({ meetings }, workspace),
+      prompts: generateOneOnOnePrompts(
+        {
+          // The prompt predates Done: a done item reads as discussed
+          // (settled), so it isn't listed as an open action.
+          meetings: meetings.map((m) => ({
+            ...m,
+            agenda: m.agenda.map((a) => ({
+              ...a,
+              status: a.status === "done" ? ("discussed" as const) : a.status,
+            })),
+          })),
+        },
+        workspace
+      ),
     }),
     [meetings, workspace]
   );
 
   const csvData = useMemo(
     () => ({
-      headers: ["Meeting Date", "Manager", "Report", "Agenda", "Status", "Action", "Owner", "Due"],
+      headers: [
+        "Meeting Date",
+        "Manager",
+        "Report",
+        "Agenda",
+        "Status",
+        "Action",
+        "Owner",
+        "Due",
+        "Done on",
+      ],
       rows: meetings.flatMap((m) =>
         m.agenda.length > 0
           ? m.agenda.map((a) => [
@@ -374,214 +394,184 @@ export function OneOnOneClient() {
               a.action ?? "",
               a.owner ?? "",
               a.dueDate ?? "",
+              a.doneAt ?? "",
             ])
-          : [[m.date, m.manager, m.report, "", "", "", "", ""]]
+          : [[m.date, m.manager, m.report, "", "", "", "", "", ""]]
       ),
     }),
     [meetings]
   );
+  const markdown = oneOnOnesToMarkdown(meetings, reports);
 
-  const pastMeetings = sortedMeetings.filter((m) => m.id !== activeMeetingId);
+  // Past 1:1s, newest first; editing a date marks the order stale rather
+  // than moving the row under the cursor.
+  const past = meetings.filter((m) => m.id !== activeMeetingId);
+  const {
+    ordered: pastMeetings,
+    isStale,
+    resort,
+  } = useStableOrder(
+    past,
+    (m) => m.id,
+    (a, b) => b.date.localeCompare(a.date)
+  );
 
   return (
     <ToolPageWrapper
       toolId="one-on-one"
       title="1:1 Meeting Tracker"
-      description="Manager-IC 1:1 log with rolling agenda, action items, and growth themes."
+      description="Manager-IC 1:1 log with a rolling agenda, action items through to done, and a cadence alert per report."
       category="Ceremonies"
     >
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
-        <ExportButton filename="one-on-one" csvData={csvData} jsonData={meetings} />
+        <ExportButton
+          filename="one-on-one"
+          markdown={markdown}
+          csvData={csvData}
+          jsonData={meetings}
+        />
+        <ResetButton
+          label="Clear all"
+          title="Clear every 1:1?"
+          description={`${meetings.length === 1 ? "1 meeting" : `${meetings.length} meetings`}, their agendas and notes, and every report's cadence.`}
+          confirmLabel="Clear 1:1s"
+          doneLabel="Cleared every 1:1"
+          onReset={reset}
+          onUndo={undoReset}
+          disabled={preview || meetings.length === 0}
+        />
       </ActionRow>
+
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: Mia&apos;s 1:1s with Raj and Lee over seven weeks. Nothing in it is saved, and
+            your own 1:1s stay as they are.
+          </p>
+        </div>
+      )}
 
       <KpiGrid cols={4} gap="lg">
         <StatCard
           variant="compact"
           icon={CalendarRange}
           label="Meetings this month"
-          value={meetingsThisMonth}
+          value={meetingsThisMonth(meetings, today)}
           valueClassName="text-accent"
         />
         <StatCard
           variant="compact"
           icon={AlertCircle}
           label="Action items overdue"
-          value={overdueActions}
-          tone={overdueActions > 0 ? "danger" : "default"}
+          value={overdue}
+          tone={overdue > 0 ? "danger" : "default"}
         />
         <StatCard
           variant="compact"
           icon={CheckSquare}
-          // BUG-T5-one-on-one-3: "Discussed" is misleading because
-          // discussedPct also includes status="action_required" (a
-          // discussed item that needs follow-up, NOT closed). The
-          // closer term is "Addressed" — covers both paths.
+          // "Addressed" covers every path off Open: discussed, given an
+          // action, or done. A carried-over item counts once, in its copy.
           label="Addressed"
-          value={`${discussedPct}%`}
-          hint="discussed or action queued"
+          value={addressed === null ? "—" : `${Math.round(addressed * 100)}%`}
+          hint="discussed, actioned or done"
         />
         <StatCard
           variant="compact"
-          icon={Sprout}
-          label="Growth themes"
-          value={growthThemes}
-          hint='items mentioning "growth"'
+          icon={CalendarClock}
+          label="Past their cadence"
+          value={reports.some((r) => r.targetDays !== null) ? pastCadence : "—"}
+          hint={`of ${reports.length === 1 ? "1 report" : `${reports.length} reports`}`}
+          tone={pastCadence > 0 ? "warning" : "default"}
         />
       </KpiGrid>
 
-      <div className="rounded-lg border border-border bg-surface p-4 mb-4">
-        <div className="text-xs uppercase tracking-wider text-sub mb-3">Start a new 1:1</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
-          <Input
-            value={manager}
-            onChange={(e) => setManager(e.target.value)}
-            placeholder="Manager"
-            className="bg-bg border-border text-sm"
-            aria-label="Manager"
-          />
-          <Input
-            value={report}
-            onChange={(e) => setReport(e.target.value)}
-            placeholder="Report"
-            className="bg-bg border-border text-sm"
-            aria-label="Report"
-          />
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="bg-bg border-border text-sm"
-            aria-label="Date"
-          />
-        </div>
-        <Textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Description (optional)..."
-          rows={2}
-          className="bg-bg border-border text-sm resize-none mb-2"
-          aria-label="Description"
-        />
-        <div className="flex justify-end">
-          <Button
-            onClick={startMeeting}
-            disabled={!manager.trim() || !report.trim()}
-            className="gap-2 bg-accent text-bg hover:bg-accent/90"
-          >
-            <Plus className="w-4 h-4" aria-hidden="true" />
-            Start meeting
-          </Button>
-        </div>
-      </div>
+      {meetings.length > 0 && <p className="mb-4 text-sm font-medium text-text">{verdict}</p>}
+
+      <SectionCard title="Start a new 1:1" icon={Plus} className="mb-4">
+        <StartForm today={today} onStart={startMeeting} offerAddToRoster={!preview} />
+      </SectionCard>
 
       {activeMeeting && (
-        <div className="rounded-lg border border-accent/40 bg-accent/5 p-4 mb-4">
-          <div className="flex items-start justify-between gap-2 mb-3">
-            <div>
+        <section
+          aria-label="Active 1:1"
+          className="rounded-lg border border-accent/40 bg-accent/5 p-4 mb-4"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+            <div className="min-w-0">
               <div className="text-xs uppercase tracking-wider text-accent">Active 1:1</div>
-              <div className="text-sm font-medium text-text">
-                {activeMeeting.manager} ↔ {activeMeeting.report} · {activeMeeting.date}
+              <div className="text-sm font-medium text-text break-words">
+                {activeMeeting.manager} ↔ {activeMeeting.report} · {activeMeeting.date || "No date"}
               </div>
+              {activeMeeting.description && !editingDetails && (
+                <p className="mt-1 text-xs text-sub whitespace-pre-wrap">
+                  {activeMeeting.description}
+                </p>
+              )}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setActiveMeetingId(null)}
-              className="text-sub hover:text-accent"
-            >
-              Close
-            </Button>
+            <div className="flex items-center gap-1">
+              {!editingDetails && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-sub hover:text-text"
+                  onClick={() => setEditingDetails(true)}
+                >
+                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  Edit details
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setActiveMeetingId(null);
+                  setEditingDetails(false);
+                }}
+                className="text-sub hover:text-accent"
+              >
+                Close
+              </Button>
+            </div>
           </div>
+
+          {editingDetails && (
+            <div className="mb-4 rounded-md border border-border bg-surface p-3">
+              <DetailsForm
+                meeting={activeMeeting}
+                offerAddToRoster={!preview}
+                onSave={(values) => saveDetails(activeMeeting, values)}
+                onCancel={() => setEditingDetails(false)}
+              />
+            </div>
+          )}
 
           <div className="text-xs uppercase tracking-wider text-sub mb-2">Agenda</div>
-          <div className="flex gap-2 mb-3">
-            <Input
-              value={newAgendaText}
-              onChange={(e) => setNewAgendaText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addAgendaItem()}
-              placeholder="New agenda item..."
-              className="bg-bg border-border text-sm"
-              aria-label="New agenda item"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={addAgendaItem}
-              className="gap-1 border-border"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add
-            </Button>
+          <div className="mb-3">
+            <AgendaAddForm onAdd={(text) => addAgendaItem(activeMeeting, text)} />
           </div>
 
-          <div className="space-y-2 mb-4">
-            {activeMeeting.agenda.length === 0 ? (
-              <p className="text-xs text-sub">
-                No agenda items yet. Carry-forward items from the prior 1:1 appear here
-                automatically when one exists.
-              </p>
-            ) : (
-              activeMeeting.agenda.map((a) => (
-                <div
+          {activeMeeting.agenda.length === 0 ? (
+            <p className="mb-4 text-xs text-sub">
+              No agenda items yet. Carry-forward items from the prior 1:1 appear here automatically
+              when one exists.
+            </p>
+          ) : (
+            <ul className="mb-4 space-y-2" aria-label="Agenda">
+              {activeMeeting.agenda.map((a) => (
+                <AgendaItemRow
                   key={a.id}
-                  className={`rounded-md border p-2 text-xs ${STATUS_TONE[a.status]}`}
-                >
-                  <div className="flex items-start gap-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleAgendaStatus(a.id)}
-                      className="text-xs uppercase tracking-wider px-1.5 py-0.5 rounded font-data border border-current/40 shrink-0 hover:opacity-80 min-touch-coarse inline-flex items-center justify-center"
-                      aria-label={`${STATUS_LABELS[a.status]}: change status of ${a.text}`}
-                    >
-                      {STATUS_LABELS[a.status]}
-                    </button>
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="text-text break-words">{a.text}</div>
-                      {a.status === "action_required" && (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                          <BlurInput
-                            value={a.action ?? ""}
-                            onCommit={(v) => updateAgendaItem(a.id, { action: v })}
-                            placeholder="Action..."
-                            className="bg-bg border-border text-xs h-7"
-                            aria-label="Action"
-                          />
-                          <BlurInput
-                            value={a.owner ?? ""}
-                            onCommit={(v) => updateAgendaItem(a.id, { owner: v })}
-                            placeholder="Owner"
-                            className="bg-bg border-border text-xs h-7"
-                            aria-label="Owner"
-                          />
-                          <Input
-                            type="date"
-                            value={a.dueDate ?? ""}
-                            onChange={(e) =>
-                              updateAgendaItem(a.id, {
-                                dueDate: e.target.value || undefined,
-                              })
-                            }
-                            className="bg-bg border-border text-xs h-7"
-                            aria-label="Due date"
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeAgendaItem(a.id)}
-                      className="h-6 w-6 p-0 text-sub hover:text-danger min-touch-coarse"
-                      aria-label="Remove agenda item"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+                  item={a}
+                  today={today}
+                  offerAddToRoster={!preview}
+                  onStatus={(status) => setStatus(activeMeeting, a, status)}
+                  onPatch={(patch) => patchItem(activeMeeting.id, a.id, patch)}
+                  onDelete={() => removeAgendaItem(activeMeeting, a)}
+                />
+              ))}
+            </ul>
+          )}
 
           <div className="text-xs uppercase tracking-wider text-sub mb-2">Notes</div>
           <Textarea
@@ -590,25 +580,30 @@ export function OneOnOneClient() {
             onBlur={() => {
               if (notesDraft !== notesCommittedRef.current) {
                 notesCommittedRef.current = notesDraft;
-                updateNotes(notesDraft);
+                patchMeeting(activeMeeting.id, { notes: notesDraft });
               }
             }}
-            placeholder="Meeting notes..."
+            placeholder="Meeting notes (private to you)..."
             rows={4}
             className="bg-bg border-border text-sm resize-y"
             aria-label="Meeting notes"
           />
-        </div>
+        </section>
       )}
 
-      {pastMeetings.length === 0 && !activeMeeting ? (
-        <EmptyState icon={Coffee}>
+      <div className="mb-4">
+        <CadenceSection rows={reports} today={today} onCadence={setCadence} />
+      </div>
+
+      {meetings.length === 0 ? (
+        <EmptyState icon={Coffee} action={<LoadExampleButton onLoad={loadExample} />}>
           No 1:1s yet. Start one above to begin tracking your rolling agenda.
         </EmptyState>
       ) : (
         pastMeetings.length > 0 && (
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-wider text-sub">Past meetings</div>
+            <ResortChip isStale={isStale} onResort={resort} what="Dates" />
             {pastMeetings.map((m) => {
               const expanded = expandedPast.has(m.id);
               return (
@@ -623,14 +618,14 @@ export function OneOnOneClient() {
                       aria-expanded={expanded}
                     >
                       {expanded ? (
-                        <ChevronDown className="w-3.5 h-3.5 text-sub" />
+                        <ChevronDown className="w-3.5 h-3.5 text-sub" aria-hidden="true" />
                       ) : (
-                        <ChevronRight className="w-3.5 h-3.5 text-sub" />
+                        <ChevronRight className="w-3.5 h-3.5 text-sub" aria-hidden="true" />
                       )}
                       <span className="text-sm text-text truncate">
-                        {m.date} · {m.manager} ↔ {m.report}
+                        {m.date || "No date"} · {m.manager} ↔ {m.report}
                       </span>
-                      <span className="text-xs text-sub">
+                      <span className="text-xs text-sub shrink-0">
                         {m.agenda.length} item{m.agenda.length === 1 ? "" : "s"}
                       </span>
                     </button>
@@ -638,21 +633,21 @@ export function OneOnOneClient() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setActiveMeetingId(m.id)}
+                        onClick={() => {
+                          setActiveMeetingId(m.id);
+                          setEditingDetails(false);
+                        }}
                         className="text-xs text-sub hover:text-accent"
-                        aria-label={`Open 1:1 from ${m.date}`}
+                        aria-label={`Open 1:1 from ${m.date || "no date"}`}
                       >
                         Open
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeMeeting(m.id)}
-                        className="h-7 w-7 p-0 text-sub hover:text-danger min-touch-coarse"
-                        aria-label={`Remove 1:1 from ${m.date}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                      <IconButton
+                        label={`Remove 1:1 from ${m.date || "no date"}`}
+                        icon={<Trash2 className="w-3.5 h-3.5" />}
+                        className="h-7 w-7 text-sub hover:text-danger"
+                        onClick={() => removeMeeting(m)}
+                      />
                     </div>
                   </div>
                   {expanded && (
@@ -665,7 +660,7 @@ export function OneOnOneClient() {
                           key={a.id}
                           className={`rounded-md border p-2 text-xs ${STATUS_TONE[a.status]}`}
                         >
-                          <span className="text-xs uppercase tracking-wider mr-2 font-data">
+                          <span className="text-xs uppercase tracking-wider mr-2 font-data text-sub">
                             {STATUS_LABELS[a.status]}
                           </span>
                           <span className="text-text">{a.text}</span>
@@ -674,6 +669,7 @@ export function OneOnOneClient() {
                               → {a.action}
                               {a.owner && ` (${a.owner})`}
                               {a.dueDate && ` · due ${a.dueDate}`}
+                              {a.status === "done" && a.doneAt && ` · done ${a.doneAt}`}
                             </div>
                           )}
                         </div>
