@@ -2338,10 +2338,19 @@ const NpsResponseSchema = z.object({
   verbatim: z.string().optional(),
 }) as unknown as z.ZodType<NpsResponse>;
 
+// A check-in's day. Before Phase 6 this CRUD and tool.mood_tracker.record took
+// any string, so an agent may have stored a timestamp. One is read as its
+// first ten characters, the day record itself derives from toISOString(), so
+// an update to such a row stores the day instead of failing on it.
+const MoodEntryDay = z.preprocess(
+  (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? v.slice(0, 10) : v),
+  IsoDay
+);
+
 const MoodEntrySchema = z.object({
   id: z.string(),
   memberId: z.string(),
-  date: IsoDay.describe("The day the check-in is for."),
+  date: MoodEntryDay.describe("The day the check-in is for."),
   score: z.number().int().min(1).max(5).describe("1 rough … 5 great."),
   note: z.string().optional(),
   isPlaceholder: z.boolean().optional(),

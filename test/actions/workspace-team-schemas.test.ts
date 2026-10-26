@@ -130,7 +130,28 @@ describe("bounds", () => {
   it("a mood entry is a whole score 1-5 on a YYYY-MM-DD day", () => {
     rejects("workspace.mood_entry", { ...MOOD_ENTRY, score: 6 });
     rejects("workspace.mood_entry", { ...MOOD_ENTRY, score: 2.5 });
-    rejects("workspace.mood_entry", { ...MOOD_ENTRY, date: "2026-10-01T09:00:00Z" });
+    rejects("workspace.mood_entry", { ...MOOD_ENTRY, date: "2026-10-1" });
+    rejects("workspace.mood_entry", { ...MOOD_ENTRY, date: "yesterday" });
+  });
+
+  it("a timestamp a mood entry was stored with reads as its day, so an update heals it", async () => {
+    const parsed = parseCreate("workspace.mood_entry", {
+      ...MOOD_ENTRY,
+      date: "2026-10-01T09:00:00.000Z",
+    });
+    expect(parsed.success).toBe(true);
+    expect((parsed.data as { entity: typeof MOOD_ENTRY }).entity.date).toBe("2026-10-01");
+
+    // An entry tool.mood_tracker.record took with a timestamp before Phase 6.
+    const legacy = { ...MOOD_ENTRY, date: "2026-10-01T23:30:00Z" };
+    useWorkspaceStore.setState({ moodEntries: [legacy] });
+    await action("workspace.mood_entry.update").handler(
+      { id: legacy.id, patch: { note: "after the demo" } },
+      makeContext("u", "agent")
+    );
+    expect(useWorkspaceStore.getState().moodEntries).toEqual([
+      { ...MOOD_ENTRY, date: "2026-10-01", note: "after the demo" },
+    ]);
   });
 
   it("a mood pulse counts every face, in whole people", () => {
