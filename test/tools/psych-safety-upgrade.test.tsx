@@ -65,7 +65,7 @@ import { buildExample } from "@/app/(tools)/psych-safety/example";
 import { toMarkdown } from "@/app/(tools)/psych-safety/markdown";
 import { psychSafetyVerdict } from "@/app/(tools)/psych-safety/verdict";
 import { validateRoundDetails } from "@/app/(tools)/psych-safety/details";
-import { psychSafetyPrompts } from "@/app/(tools)/psych-safety/prompts";
+import { generatePsychSafetyPrompts } from "@/lib/ai-prompts/psych-safety";
 import "@/lib/actions/tools/psych-safety";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
@@ -258,7 +258,7 @@ describe("the verdict, the export and the prompts", () => {
     expect(md).toContain("**Fell by more than 0.5 since Spring check-in:** Q1.");
     expect(md).toContain("| Spring check-in | 2026-09-14 | 6 | 4 |");
     expect(md).not.toMatch(/benchmark/i);
-    const prompts = psychSafetyPrompts(
+    const prompts = generatePsychSafetyPrompts(
       {
         roundName: "After",
         result: roundResult(ex[1]),
@@ -267,9 +267,9 @@ describe("the verdict, the export and the prompts", () => {
       },
       null
     );
-    expect(prompts.prompts).toHaveLength(2);
-    expect(prompts.prompts[0].prompt).not.toMatch(/benchmark/i);
-    expect(prompts.prompts[0].prompt).toContain('Change since "Spring": -0.31.');
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0].prompt).not.toMatch(/benchmark/i);
+    expect(prompts[0].prompt).toContain('Change since "Spring": -0.31.');
   });
 
   it("validates a round's details, naming it Round N when left blank", () => {

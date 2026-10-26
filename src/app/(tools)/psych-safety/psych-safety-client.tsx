@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
+import { generatePsychSafetyPrompts } from "@/lib/ai-prompts/psych-safety";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PsychSafetyLog, PsychSafetyRound, Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -63,7 +64,6 @@ import { radarText } from "./chart-text";
 import { validateRoundDetails, type RoundDetails } from "./details";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
-import { psychSafetyPrompts } from "./prompts";
 import { PsychSafetyRadar } from "./radar";
 import { RoundList } from "./rounds";
 import { anomalyTopic, psychSafetyVerdict } from "./verdict";
@@ -279,9 +279,12 @@ export function PsychSafetyClient() {
       })
     )
   );
+  // The shown round's aggregates only (its results and the change since the
+  // round before), never an answer per person.
   const promptConfig = useMemo(
-    () =>
-      psychSafetyPrompts(
+    () => ({
+      toolName: "Psychological Safety Assessment",
+      prompts: generatePsychSafetyPrompts(
         {
           roundName: shown?.name ?? "",
           result,
@@ -290,6 +293,7 @@ export function PsychSafetyClient() {
         },
         workspace
       ),
+    }),
     [shown, result, before, shownCmp, workspace]
   );
 
