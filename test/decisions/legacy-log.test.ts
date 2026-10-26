@@ -84,7 +84,7 @@ describe("planDecisionLogMove", () => {
         sourceRef: { tool: "six-hats", id: "s1" },
       }),
     ];
-    const { toFill, toAdd } = planDecisionLogMove(blob, [ws], []);
+    const { toFill, toAdd, conflicts } = planDecisionLogMove(blob, [ws], []);
     expect(toAdd).toEqual([]);
     expect(toFill).toEqual([
       rec({
@@ -96,6 +96,45 @@ describe("planDecisionLogMove", () => {
         sourceRef: { tool: "six-hats", id: "s1" },
       }),
     ]);
+    // What both hold differently is kept as the workspace has it, and reported.
+    expect(conflicts).toEqual([
+      {
+        id: "d1",
+        field: "title",
+        blob: "Use Postgres",
+        workspace: "Use Postgres (agent's title)",
+      },
+      { id: "d1", field: "consequences", blob: "From the page", workspace: "From the agent" },
+    ]);
+  });
+
+  it("reports the text a Pushed row's later edits on the old page hold, never a gap or a match", () => {
+    // Push copied the row; the team kept editing it on the old page.
+    const pushed = rec({
+      title: "Use Postgres ",
+      decision: "We will try Postgres.",
+      alternatives: ["Mongo", " "],
+    });
+    const blob = [
+      rec({
+        title: "Use Postgres",
+        decision: "We will use Postgres for the event log.",
+        context: "Only in the blob",
+        alternatives: ["Mongo", "SQLite"],
+      }),
+    ];
+    expect(planDecisionLogMove(blob, [pushed], []).conflicts).toEqual([
+      {
+        id: "d1",
+        field: "decision",
+        blob: "We will use Postgres for the event log.",
+        workspace: "We will try Postgres.",
+      },
+      { id: "d1", field: "alternatives", blob: ["Mongo", "SQLite"], workspace: ["Mongo"] },
+    ]);
+    // Moved already, or saved since the merge (the workspace's is the newer): none.
+    expect(planDecisionLogMove(blob, [pushed], ["d1"]).conflicts).toEqual([]);
+    expect(planDecisionLogMove(blob, [{ ...pushed, number: 2 }], []).conflicts).toEqual([]);
   });
 
   it("keeps the later lifecycle status of the two, the blob's on a tie", () => {
@@ -115,23 +154,62 @@ describe("planDecisionLogMove", () => {
     ).toEqual([]);
   });
 
+  it("a row saved since the merge keeps its own status: a reopen or a replacement isn't undone", () => {
+    const keeps = (row: Decision, blobStatus: Decision["status"]) =>
+      withPendingDecisionLog([row], [rec({ status: blobStatus, decision: "Go" })], [])[0];
+    // Reopened by an agent before the move ran; the blob still says accepted.
+    const reopened = rec({ decision: "Go", reopenedAt: "2026-10-20" });
+    expect(keeps(reopened, "accepted")).toEqual(reopened);
+    expect(planDecisionLogMove([rec({ status: "accepted" })], [reopened], []).toFill).toEqual([]);
+    // Replaced, naming its replacement; the blob says deprecated (a tie).
+    const replaced = rec({ status: "superseded", decision: "Go", supersededBy: "d9" });
+    expect(keeps(replaced, "deprecated").status).toBe("superseded");
+    // Numbered by the move (its moved-ids write lost), then moved back to proposed.
+    const numbered = rec({ decision: "Go", number: 4 });
+    expect(keeps(numbered, "accepted").status).toBe("proposed");
+    // Gaps are still filled from the blob.
+    expect(
+      withPendingDecisionLog([rec({ reopenedAt: "2026-10-20" })], [rec({ context: "Why" })], [])
+    ).toEqual([rec({ reopenedAt: "2026-10-20", context: "Why" })]);
+  });
+
   it("leaves a row already moved alone, so one deleted since stays deleted", () => {
     const blob = [rec({ id: "gone" }), rec({ id: "kept", decision: "Old outcome" })];
     const plan = planDecisionLogMove(blob, [rec({ id: "kept" })], ["gone", "kept"]);
-    expect(plan).toEqual({ toAdd: [], toFill: [], moved: ["gone", "kept"], changed: false });
+    expect(plan).toEqual({
+      toAdd: [],
+      toFill: [],
+      conflicts: [],
+      moved: ["gone", "kept"],
+      changed: false,
+    });
   });
 
   it("an empty or unreadable blob plans nothing, and keeps only string ids", () => {
     expect(planDecisionLogMove(null, [rec()], ["a", 3 as unknown as string])).toEqual({
       toAdd: [],
       toFill: [],
+      conflicts: [],
       moved: ["a"],
       changed: false,
     });
     expect(planDecisionLogMove([], [], [])).toEqual({
       toAdd: [],
       toFill: [],
+      conflicts: [],
       moved: [],
+      changed: false,
+    });
+  });
+
+  it("a repeated id in the moved-ids record doesn't hide a new one", () => {
+    const plan = planDecisionLogMove([rec({ id: "a" }), rec({ id: "b" })], [], ["a", "a"]);
+    expect(plan.toAdd.map((d) => d.id)).toEqual(["b"]);
+    expect(plan.moved).toEqual(["a", "b"]);
+    expect(plan.changed).toBe(true);
+    // Nothing new: unchanged, and each id once.
+    expect(planDecisionLogMove([rec({ id: "a" })], [], ["a", "a"])).toMatchObject({
+      moved: ["a"],
       changed: false,
     });
   });
@@ -155,6 +233,7 @@ describe("planDecisionLogMove", () => {
     expect(planDecisionLogMove(blob, saved, first.moved)).toEqual({
       toAdd: [],
       toFill: [],
+      conflicts: [],
       moved: ["a", "both"],
       changed: false,
     });
