@@ -17,7 +17,7 @@ import type { RankedItem } from "@/lib/analytics/scoring-rubric";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { RICE_ACTIONS } from "@/lib/history/event-actions";
 import { RICE } from "@/lib/prioritization/methods";
-import { formatNumber, toChoice, toNumber } from "@/lib/prioritization/methods/fields";
+import { toChoice, toNumber } from "@/lib/prioritization/methods/fields";
 import {
   REACH_PERIODS,
   REACH_PERIOD_LABEL,
@@ -42,14 +42,27 @@ const RiceScoreChart = dynamic(() => import("./charts").then((m) => m.RiceScoreC
 /** The chart shows this many initiatives, highest first. */
 const CHART_TOP = 10;
 
-/** The scored rows as the AI prompts read them (rank and score from the registry). */
+/** A number for a CSV cell: rounded, never a display string ("2,133.3" sorts as text). */
+const csvNumber = (n: number, digits: number) => Math.round(n * 10 ** digits) / 10 ** digits;
+
+/**
+ * The scored rows as the AI prompts read them (rank and score from the
+ * registry). The prompt's table has one Reach column next to the score, so
+ * it gets the reach per quarter the score used (2,000 a month reads 6,000),
+ * and the confidence as read through (an agent row's `confidencePct`).
+ */
 function promptItems(rows: readonly RankedRow[]): RankedItem<Record<string, number | string>>[] {
   const scored = scoredRows(rows);
   const last = scored.reduce((n, r) => Math.max(n, r.rank ?? 0), 0);
   return scored.map((r) => ({
     id: r.row.id,
     title: r.row.title,
-    fields: RICE.write(r.row.fields, r.values),
+    fields: {
+      reach: csvNumber(toNumber(r.result.extra?.reachPerQuarter) ?? 0, 1),
+      impact: toNumber(r.values.impact) ?? 0,
+      confidence: toNumber(r.values.confidence) ?? 0,
+      effort: toNumber(r.values.effort) ?? 0,
+    },
     score: r.result.score as number,
     rank: r.rank as number,
     percentile: last <= 1 ? 1 : (last - (r.rank as number) + 1) / last,
@@ -149,7 +162,11 @@ function RicePanels({ rows }: { rows: readonly RankedRow[] }) {
   );
 }
 
-/** One CSV row: the inputs as shown, the reach per quarter the score used, the score. */
+/**
+ * One CSV row: the inputs as shown, the reach per quarter the score used,
+ * the score. Numbers go in as numbers (rounded as the screen rounds them),
+ * so a spreadsheet sorts them as numbers.
+ */
 function csvRow(r: RankedRow): (string | number)[] {
   const reach = toNumber(r.values.reach);
   const period = toChoice(REACH_PERIODS, r.values.reachPeriod) ?? "quarter";
@@ -158,11 +175,11 @@ function csvRow(r: RankedRow): (string | number)[] {
     r.row.title,
     reach ?? "",
     REACH_PERIOD_LABEL[period],
-    reach === undefined ? "" : formatNumber(reachPerQuarter(reach, period), 1),
+    reach === undefined ? "" : csvNumber(reachPerQuarter(reach, period), 1),
     r.values.impact ?? "",
     r.values.confidence ?? "",
     r.values.effort ?? "",
-    r.result.score === null ? "" : formatNumber(r.result.score, 1),
+    r.result.score === null ? "" : csvNumber(r.result.score, 1),
   ];
 }
 

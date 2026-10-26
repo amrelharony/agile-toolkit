@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
 
 /**
  * RICE on the method-tool shell (Phase 7): the reach period per initiative
@@ -38,7 +38,7 @@ vi.stubGlobal(
   }
 );
 
-import { RiceScoringClient } from "@/app/(tools)/rice-scoring/rice-scoring-client";
+import { RICE_TOOL, RiceScoringClient } from "@/app/(tools)/rice-scoring/rice-scoring-client";
 import { riceVerdict } from "@/app/(tools)/rice-scoring/verdict";
 import { toMarkdown } from "@/app/(tools)/rice-scoring/markdown";
 import { buildExample } from "@/app/(tools)/rice-scoring/example";
@@ -313,6 +313,48 @@ describe("RICE results", () => {
     );
     expect(md).toContain("| Guest checkout without an account | 2000 | per month |");
     expect(md).toContain("**Do first: “Clearer card-declined message” (RICE 4,000).**");
+  });
+
+  it("writes the CSV's numbers as numbers, not thousands-separated text", () => {
+    const ranked = rankMethodRows("rice", [
+      row("m", "Monthly", {
+        reach: 2000,
+        reachPeriod: "month",
+        impact: 1,
+        confidence: 80,
+        effort: 0.75,
+      }),
+    ]);
+    const csv = RICE_TOOL.csv!(ranked);
+    // 6,000 a quarter × 1 × 80% ÷ 0.75 = 6,400.
+    expect(csv.rows[0]).toEqual([1, "Monthly", 2000, "per month", 6000, 1, 80, 0.75, 6400]);
+    const odd = RICE_TOOL.csv!(
+      rankMethodRows("rice", [
+        row("o", "Odd", { reach: 1000, impact: 1, confidence: 80, effort: 0.75 }),
+      ])
+    );
+    // 1,066.666… rounds to one place as on screen, still a number.
+    expect(odd.rows[0][8]).toBe(1066.7);
+  });
+
+  it("gives the AI prompt the reach per quarter the score used, and an agent row's confidence", () => {
+    const ranked = rankMethodRows("rice", [
+      row("m", "Monthly", {
+        reach: 2000,
+        reachPeriod: "month",
+        impact: 1,
+        confidence: 100,
+        effort: 2,
+      }),
+      // Saved by an agent before Phase 7: confidence under confidencePct.
+      row("a", "Agent row", { reach: 500, impact: 2, confidencePct: 50, effort: 1 }),
+    ]);
+    // No workspace context: the prompt builder skips it for null.
+    const prompt = RICE_TOOL.prompts!(ranked, null as unknown as Workspace)[0].prompt;
+    // 2,000 a month is 6,000 a quarter: 6,000 × 1 × 100% ÷ 2 = 3,000, as the row shows.
+    expect(prompt).toMatch(/\| 1 \| Monthly \| 6000 \| 1 \| 100 \| 2 \| 3000\.00 \|/);
+    expect(prompt).toMatch(/\| 2 \| Agent row \| 500 \| 2 \| 50 \| 1 \| 500\.00 \|/);
+    expect(prompt).not.toContain("undefined");
   });
 });
 
