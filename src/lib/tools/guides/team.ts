@@ -5,7 +5,7 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "psych-safety",
     summary:
-      "Psychological safety is the shared belief that it's safe to take interpersonal risks on the team, like admitting a mistake or asking for help. This tool runs Amy Edmondson's seven-statement survey in anonymous rounds and keeps only how many people chose each answer.",
+      "Psychological safety is the shared belief that it's safe to take interpersonal risks on the team, like admitting a mistake or asking for help. This tool runs Amy Edmondson's seven-statement survey in anonymous rounds, each keeping only how many people chose each answer.",
     whenToUse: [
       "When people stay quiet in meetings or problems surface late.",
       "Every quarter, or after a reorg, a new manager or a hard incident.",
@@ -13,15 +13,15 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Under Run a round, type a Round name (left blank, it's Round N), set Taken on and, if you like, the Sprint.",
       "Press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone answers the seven statements on their own phone; you see only how many have answered.",
-      "Press Reveal results once 5 have answered, then Save round. With paper answers, press Enter counts instead, type how many chose each answer, then Show totals and Save round.",
+      "Press Reveal results once 5 have answered, then Save round. With paper answers, press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many chose each answer, then Show totals and Save round.",
       "Under Results, read the Team score, the Lowest statement and the Change since the round before. Q1, Q3 and Q5 are reverse-scored, so a higher score always means more safety.",
       "When a statement falls by more than 0.5, Send to… → Retro topic (no names) raises it. Compare rounds puts any two rounds side by side with From and To.",
       "Discuss the lowest or falling statement as a team, without asking who answered what, and agree one small change to try.",
     ],
     tips: [
-      "Nothing per person is kept. Results wait for 5 responses, and a statement with fewer than 5 answers is withheld: in a small team, three answers can point at a person.",
+      "A round keeps nothing per person. Results wait for 5 responses, and a statement with fewer than 5 answers is withheld: in a small team, three answers can point at a person.",
       "Never use the score to rank teams or judge a manager. Once it's a target, people stop answering honestly.",
-      "Under Rounds, rename or redate a round, or delete it with Undo. Answer sheets saved one by one before rounds show as one round, Earlier responses: delete it to remove them.",
+      "Under Rounds, rename or redate a round, or delete it with Undo. Answer sheets saved one by one before rounds, with any names typed on them, are still stored and show as one round, Earlier responses. Delete it to remove them.",
     ],
     scales: [
       {
@@ -45,16 +45,16 @@ export const GUIDES: ToolGuide[] = [
       "When you want some data on morale to bring to a retro.",
     ],
     steps: [
-      "Under How the team checks in, pick By name or Anonymous. Anonymous keeps only team pulses: how many picked each face on a day, never who.",
+      "Under How the team checks in, pick By name or Anonymous. Anonymous records only team pulses: how many picked each face on a day, never who.",
       "By name: under Check-ins by name, each person (or you, for them) picks a face; a note typed first is saved with it. To fill in a missed day, change Check-ins for or click the day in the heatmap.",
-      "For a pulse, in either mode: under Anonymous pulse, set Pulse for and press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone picks a face on their phone; press Reveal results once 3 have answered, then Save round. Or press Enter counts instead, type how many picked each face, then Show totals and Save round.",
+      "For a pulse, in either mode: under Anonymous pulse, set Pulse for and press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone picks a face on their phone; press Reveal results once 3 have answered, then Save round. Or press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many picked each face, then Show totals and Save round.",
       "Read the 14-day average (from 3 check-ins, pulse answers included) and the Trend (from 6 days with check-ins). Daily team average charts it; its Advanced analysis adds shifts and the weekly trend.",
       "When the team averages 2.5 or less on 3 check-in days in a row, each with 3 or more check-ins, the Low mood callout offers Send to… → Retro topic (no names).",
     ],
     tips: [
       "One bad day is noise. Three in a row is worth a conversation.",
       "Make it optional, and never ask someone to explain a low score in front of the group. Follow up privately, for example in a 1:1.",
-      "By name, everyone with access sees each face and note. If that doesn't suit the team, check in anonymously.",
+      "By name, everyone with access sees each face and note. If that doesn't suit the team, check in anonymously. Check-ins by name already saved stay, hidden but still in the team average: clear them with the eraser under By name first if they should go.",
       "A second check-in for the same day replaces the first. Clear one with the eraser on its row, or delete a pulse; Undo puts it back.",
     ],
     scales: [

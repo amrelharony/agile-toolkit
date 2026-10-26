@@ -9,12 +9,23 @@ import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { HEALTH_LIGHTS } from "@/lib/health-check/score";
 import {
   ANOMALY_DROP,
+  LEGACY_ROUND_ID,
   LEGACY_ROUND_NAME,
   PSYCH_SAFETY_MIN_RESPONSES,
   PSYCH_SAFETY_QUESTIONS,
+  emptyPsychSafetyLog,
+  legacyRound,
   questionLabel,
+  withoutRound,
 } from "@/lib/psych-safety/instrument";
-import { LOW_MOOD, LOW_MOOD_DAYS, MOOD_LABELS, MOOD_WINDOW_DAYS } from "@/lib/team/mood";
+import {
+  LOW_MOOD,
+  LOW_MOOD_DAYS,
+  MOOD_LABELS,
+  MOOD_WINDOW_DAYS,
+  moodSummary,
+} from "@/lib/team/mood";
+import type { PsychSafetyResponse } from "@/lib/stores/workspace-types";
 
 /*
  * The pulse guides (Squad Health Check, Psych Safety, Mood Tracker) walk
@@ -38,6 +49,8 @@ const health = guide(CORE_GUIDES, "health-check");
 const psych = guide(GUIDES, "psych-safety");
 const mood = guide(GUIDES, "mood-tracker");
 
+const source = (file: string) => readFileSync(join(process.cwd(), file), "utf8");
+
 /** The vote-round kit's source, where its buttons are labelled. */
 const KIT = [
   "src/components/collab/vote-room/vote-round-panel.tsx",
@@ -45,7 +58,7 @@ const KIT = [
   "src/components/collab/vote-room/facilitator-tally.tsx",
   "src/components/collab/visitor-room-chip.tsx",
 ]
-  .map((f) => readFileSync(join(process.cwd(), f), "utf8"))
+  .map(source)
   .join("\n");
 
 describe("the pulse guides run the vote round as the kit does", () => {
@@ -65,6 +78,55 @@ describe("the pulse guides run the vote round as the kit does", () => {
     for (const label of [...LIVE, "Enter counts instead"]) expect(text).toContain(label);
     // There is no QR code: the room is shared with its link.
     expect(text).not.toMatch(/\bQR\b/);
+  });
+});
+
+describe("the pulse guides say what is still stored per person", () => {
+  it("Psych Safety: a round keeps nothing per person; the earlier sheets are still stored", () => {
+    const text = allText(psych);
+    expect(psych.summary).toContain("in anonymous rounds, each keeping only how many people");
+    expect(text).toContain("A round keeps nothing per person.");
+    expect(text).not.toMatch(/Nothing per person is kept/);
+    // A sheet from before rounds keeps the name typed on it until the
+    // Earlier responses round is deleted, which empties the list.
+    const sheet: PsychSafetyResponse = {
+      id: "r1",
+      ts: "2026-01-05T10:00:00.000Z",
+      scores: { q1: 2, q2: 4, q3: 2, q4: 4, q5: 2, q6: 4, q7: 4 },
+      respondent: "Priya",
+    };
+    const log = { ...emptyPsychSafetyLog(), responses: [sheet] };
+    expect(legacyRound(log.responses)?.name).toBe(LEGACY_ROUND_NAME);
+    expect(log.responses[0].respondent).toBe("Priya");
+    expect(withoutRound(log, LEGACY_ROUND_ID)?.responses).toEqual([]);
+    expect(text).toContain(
+      `Answer sheets saved one by one before rounds, with any names typed on them, are still stored and show as one round, ${LEGACY_ROUND_NAME}. Delete it to remove them.`
+    );
+  });
+
+  it("Mood Tracker: switching to Anonymous keeps the check-ins by name, as the page says", () => {
+    const text = allText(mood);
+    expect(text).toContain("Anonymous records only team pulses");
+    expect(text).not.toMatch(/Anonymous keeps only team pulses/);
+    const page = source("src/app/(tools)/mood-tracker/mood-tracker-client.tsx");
+    expect(page).toContain(
+      "Earlier check-ins by name are kept but not shown, and still count in the team average."
+    );
+    // The team average reads every named check-in, whatever the mode.
+    const named = ["a", "b", "c"].map((memberId, i) => ({
+      id: `m_${memberId}`,
+      memberId,
+      date: `2026-10-0${i + 1}`,
+      score: 2 as const,
+    }));
+    expect(moodSummary(named, [], "2026-10-01", "2026-10-03").average).toBe(2);
+    // Each row's eraser clears one check-in.
+    expect(source("src/app/(tools)/mood-tracker/check-in.tsx")).toMatch(
+      /label=\{`Clear \$\{member\.name\}'s check-in for/
+    );
+    expect(text).toContain(
+      "Check-ins by name already saved stay, hidden but still in the team average: clear them with the eraser under By name first if they should go."
+    );
   });
 });
 
