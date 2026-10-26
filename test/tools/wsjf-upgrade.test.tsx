@@ -261,6 +261,78 @@ describe("WSJF column-by-column scoring", () => {
     expect(stored("a")!.score).toBeUndefined();
     expect(stored("a")!.fields!.businessValue).toBeUndefined();
   });
+
+  it("sits above the list, with the chart under it", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [row("a", "Alpha", [8, 5, 3, 2]), row("b", "Beta", [1, 1, 1, 1])],
+    });
+    render(<WsjfClient />);
+    const byColumn = screen.getByRole("heading", { level: 2, name: "Score by column" });
+    const features = screen.getByRole("heading", { level: 2, name: "Features (2)" });
+    const chart = screen.getByRole("heading", { level: 2, name: "Top 10 by WSJF" });
+    const follows = (a: Node, b: Node) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(follows(byColumn, features)).toBe(true);
+    expect(follows(features, chart)).toBe(true);
+  });
+});
+
+describe("WSJF partial features in the editor", () => {
+  const editorOf = () =>
+    screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+
+  it("renames and re-scores a feature column scoring left partial, keeping its other parts", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [row("a", "Alpha", null, { fields: { businessValue: 8, jobSize: 2 } })],
+    });
+    render(<WsjfClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Alpha" }));
+    const editor = editorOf();
+    fireEvent.change(within(editor).getByLabelText(FEATURE), { target: { value: "Alpha v2" } });
+    pick("Time criticality", "3", editor);
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(stored("a")).toMatchObject({
+      title: "Alpha v2",
+      status: "open",
+      fields: { businessValue: 8, timeCriticality: 3, jobSize: 2 },
+    });
+    expect(stored("a")!.fields).not.toHaveProperty("rrOe");
+    expect(screen.getByRole("button", { name: "Edit Alpha v2" })).toHaveFocus();
+  });
+
+  it("still asks a partial feature for a title (its blank parts aren't errors)", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [row("a", "Alpha", null, { fields: { businessValue: 8 } })],
+    });
+    render(<WsjfClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Alpha" }));
+    const editor = editorOf();
+    fireEvent.change(within(editor).getByLabelText(FEATURE), { target: { value: " " } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(
+      within(editor)
+        .getAllByRole("alert")
+        .map((a) => a.textContent)
+    ).toEqual(["Enter a title."]);
+    expect(stored("a")!.title).toBe("Alpha");
+  });
+
+  it("asks a complete feature's editor for every part, as before", () => {
+    useWorkspaceStore.setState({ prioritizations: [row("a", "Alpha", [8, 5, 3, 2])] });
+    render(<WsjfClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Alpha" }));
+    const editor = editorOf();
+    fireEvent.click(within(editor).getByRole("button", { name: "Clear Job size" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(within(editor).getByRole("alert")).toHaveTextContent("Pick a job size.");
+    expect(stored("a")!.fields).toEqual({
+      businessValue: 8,
+      timeCriticality: 5,
+      rrOe: 3,
+      jobSize: 2,
+    });
+  });
 });
 
 describe("WSJF relative hint", () => {

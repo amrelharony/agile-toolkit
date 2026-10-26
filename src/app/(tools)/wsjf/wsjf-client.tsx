@@ -8,6 +8,8 @@ import {
   MethodTool,
   shortName,
   useMethodActions,
+  validateMethodDraft,
+  validatePartialDraft,
   type MethodToolConfig,
 } from "@/components/prioritization/method-tool";
 import { ChartFigure } from "@/components/shared/chart-card";
@@ -82,13 +84,12 @@ function firstBlankColumn(rows: readonly RankedRow[]): WsjfKey | null {
 const hasBlank = (r: RankedRow) => WSJF_KEYS.some((k) => r.values[k] === undefined);
 
 /**
- * Under the list: the relative-scoring hint, column-by-column scoring and
- * the top-10 chart. Column scoring opens on its own while some feature is
- * missing a part (a title-only add waits there, also one added after the
- * stepper was closed), and the hint's buttons open it on the column that
- * has no 1.
+ * Above the list: the relative-scoring hint and column-by-column scoring.
+ * Column scoring opens on its own while some feature is missing a part (a
+ * title-only add waits there, also one added after the stepper was
+ * closed), and the hint's buttons open it on the column that has no 1.
  */
-function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
+function WsjfColumnScoring({ rows }: { rows: readonly RankedRow[] }) {
   const actions = useMethodActions(WSJF_TOOL);
   const announce = useAnnounce();
   const [column, setColumn] = useState<WsjfKey | null>(() => firstBlankColumn(rows));
@@ -134,17 +135,13 @@ function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
     setColumn((c) => c ?? firstBlankColumn(rows));
     announce(
       waiting.length === 1
-        ? `“${shortName(waiting[0].row.title)}” waits in Score by column, below the list.`
-        : `${waiting.length} features wait in Score by column, below the list.`
+        ? `“${shortName(waiting[0].row.title)}” waits in Score by column, above the list.`
+        : `${waiting.length} features wait in Score by column, above the list.`
     );
   }, [rows, announce]);
 
   const save: SaveCell = (row, key, value) =>
     actions.save(row.id, { title: row.title, [key]: value });
-
-  const scored = scoredRows(rows);
-  const top = scored.slice(0, CHART_TOP);
-  const text = top.length >= 2 ? chartText(top) : null;
 
   return (
     <>
@@ -203,39 +200,47 @@ function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
           />
         )}
       </SectionCard>
-
-      <SectionCard title={`Top ${CHART_TOP} by WSJF`} icon={PiSquare}>
-        {text ? (
-          <ChartFigure
-            label={`Top ${CHART_TOP} by WSJF`}
-            summary={text.summary}
-            table={text.table}
-            caption="Top features by WSJF"
-            plotClassName="h-72"
-          >
-            <WsjfScoreChart
-              data={top.map((r) => {
-                // Rank-prefixed, so two features with the same (or the same
-                // truncated) title stay two bars.
-                const t = r.row.title.length > 16 ? `${r.row.title.slice(0, 16)}…` : r.row.title;
-                return {
-                  title: `#${r.rank} ${t}`,
-                  score: Number((r.result.score as number).toFixed(2)),
-                };
-              })}
-            />
-          </ChartFigure>
-        ) : (
-          <NotEnoughData
-            have={scored.length}
-            need={2}
-            unit={["scored feature", "scored features"]}
-            action="Score"
-            what="them side by side"
-          />
-        )}
-      </SectionCard>
     </>
+  );
+}
+
+/** Under the list: the top-10 chart. */
+function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
+  const scored = scoredRows(rows);
+  const top = scored.slice(0, CHART_TOP);
+  const text = top.length >= 2 ? chartText(top) : null;
+  return (
+    <SectionCard title={`Top ${CHART_TOP} by WSJF`} icon={PiSquare}>
+      {text ? (
+        <ChartFigure
+          label={`Top ${CHART_TOP} by WSJF`}
+          summary={text.summary}
+          table={text.table}
+          caption="Top features by WSJF"
+          plotClassName="h-72"
+        >
+          <WsjfScoreChart
+            data={top.map((r) => {
+              // Rank-prefixed, so two features with the same (or the same
+              // truncated) title stay two bars.
+              const t = r.row.title.length > 16 ? `${r.row.title.slice(0, 16)}…` : r.row.title;
+              return {
+                title: `#${r.rank} ${t}`,
+                score: Number((r.result.score as number).toFixed(2)),
+              };
+            })}
+          />
+        </ChartFigure>
+      ) : (
+        <NotEnoughData
+          have={scored.length}
+          need={2}
+          unit={["scored feature", "scored features"]}
+          action="Score"
+          what="them side by side"
+        />
+      )}
+    </SectionCard>
   );
 }
 
@@ -243,7 +248,8 @@ function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
  * WSJF on the shared method-tool shell: add (a title alone is allowed,
  * for column scoring), edit in place, Undo, the example, the export and
  * the live backlog binding come from MethodTool; every score, floor and
- * rank from the method registry.
+ * rank from the method registry. A feature column scoring left partial
+ * can be renamed or re-scored in its editor without the other parts.
  */
 export const WSJF_TOOL: MethodToolConfig = {
   methodId: "wsjf",
@@ -260,6 +266,12 @@ export const WSJF_TOOL: MethodToolConfig = {
     "No features yet. Add one above (a title is enough to score it column by column), or load an example.",
   history: WSJF_ACTIONS,
   allowTitleOnly: true,
+  // A new feature is a title alone or all four parts; one already partial
+  // keeps its blanks through an edit (its parts are still to come by column).
+  validate: (d, { editing, keep }) =>
+    editing && hasBlank(editing)
+      ? validatePartialDraft(WSJF, d, keep)
+      : validateMethodDraft(WSJF, d, true, keep),
   buildExample: () => buildExample(),
   verdict: wsjfVerdict,
   toMarkdown: (rows) => toMarkdown(rows),
@@ -278,6 +290,7 @@ export const WSJF_TOOL: MethodToolConfig = {
   prompts: (rows, workspace) => generateWsjfPrompts({ items: promptItems(rows) }, workspace),
   Inputs: WsjfInputs,
   RowValues: WsjfRowValues,
+  BeforeList: WsjfColumnScoring,
   Panels: WsjfPanels,
 };
 
