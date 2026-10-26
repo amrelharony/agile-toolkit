@@ -5,6 +5,7 @@ import type { Workspace } from "../stores/workspace-types";
 import { emitSignal, ALL_SIGNAL_KINDS, type SignalKind } from "./signal-bus";
 import { bindCacheInvalidation } from "./derived-cache";
 import { INVALIDATION_MATRIX } from "./invalidation";
+import { isExampleId } from "../utils/example-id";
 
 /**
  * Squad-profile id of the local viewer. Set by guest pages via
@@ -560,8 +561,12 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
   // so when `localViewerProfileId` is null we treat any add as a
   // received-event too — that's the owner-self-receive case for
   // gamification XP. Guests only count receives when the row names them.
+  //
+  // Example kudos (Kudos' "Load an example") stay quiet: no signal means
+  // no cloud POST, no XP, no sound and no beacon for data nobody sent.
   diffById(prev.kudos, next.kudos, (k) => k.id, {
     onAdded: (k) => {
+      if (isExampleId(k.id)) return;
       emit("kudos.sent", "kudos", {
         id: k.id,
         toProfileId: k.toProfileId,
@@ -589,6 +594,7 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
       }
     },
     onChanged: (before, after) => {
+      if (isExampleId(after.id)) return;
       const beforeReactions = before.reactions?.length ?? 0;
       const afterReactions = after.reactions?.length ?? 0;
       if (afterReactions > beforeReactions) {
