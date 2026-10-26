@@ -95,6 +95,7 @@ function MarkSelect({
 export function TemplateSection({
   templates,
   custom,
+  note,
   onChange,
   onRestoreBuiltIns,
   onRestoreUndo,
@@ -102,6 +103,8 @@ export function TemplateSection({
   templates: readonly MilestoneTemplate[];
   /** Whether a template is saved (false: the built-ins). */
   custom: boolean;
+  /** A line under the intro (the example's own copy, say). */
+  note?: string;
   onChange: TemplateUpdate;
   onRestoreBuiltIns: () => void;
   onRestoreUndo: () => void;
@@ -155,6 +158,7 @@ export function TemplateSection({
         New joiners start with these. Edits apply to people you add from now on; everyone already
         here keeps their own copy, which you can edit on their card.
       </p>
+      {note && <p className="text-xs font-medium text-text">{note}</p>}
       {templates.length === 0 ? (
         <p className="text-xs text-sub">No milestones: new joiners start with none.</p>
       ) : (

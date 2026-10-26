@@ -56,6 +56,7 @@ import {
   normalizeTemplates,
   onboardingStats,
   onboardingVerdict,
+  plottedPoints,
   rampCurve,
   type Milestone,
   type MilestoneTemplate,
@@ -189,6 +190,69 @@ describe("KPIs and the ramp", () => {
     expect(onboardingStats(people, TODAY).firstPr).toMatchObject({ n: 3, avg: 5 });
   });
 
+  it("counts a mark moved in the template only on its new milestone", () => {
+    // "Productive" moves to a new milestone; "First PR" is set to No KPI.
+    const edited = withMark(
+      [
+        ...BUILT_IN_TEMPLATES.map((t) => {
+          if (t.id !== "first-pr") return t;
+          const next = { ...t };
+          delete next.marks;
+          return next;
+        }),
+        { id: "on-call", name: "On-call shadow", targetDays: 21, marks: "productive" as const },
+      ],
+      "productive",
+      "on-call"
+    );
+    const fresh = milestonesFrom(edited, () => crypto.randomUUID());
+    const byTemplate = (id: string) => fresh.find((m) => m.templateId === id)!;
+    expect(markOf(byTemplate("independent-feature"))).toBeUndefined();
+    expect(markOf(byTemplate("first-pr"))).toBeUndefined();
+    expect(markOf(byTemplate("on-call"))).toBe("productive");
+    // Three joiners reach "Independent feature" on day 5 and the new one on
+    // day 20: productivity reads 20 days, and there's no first PR.
+    const people = ["a", "b", "c"].map((id) =>
+      person(id, 30, [], {
+        milestones: fresh.map((m) =>
+          m.templateId === "independent-feature" || m.templateId === "first-pr"
+            ? { ...m, completedAt: reachedOn(30, 5) }
+            : m.templateId === "on-call"
+              ? { ...m, completedAt: reachedOn(30, 20) }
+              : m
+        ),
+      })
+    );
+    const stats = onboardingStats(normalizeOnboardees(people), TODAY);
+    expect(stats.productive).toMatchObject({ n: 3, avg: 20 });
+    expect(stats.firstPr).toMatchObject({ n: 0, avg: null });
+  });
+
+  it("gives a legacy milestone its built-in's mark once, when it is read", () => {
+    const [p] = normalizeOnboardees([
+      {
+        id: "p1",
+        name: "Ana",
+        startDate: ago(70),
+        milestones: [{ id: "x", name: "Independent feature", targetDays: 60 }],
+      },
+    ]);
+    expect(p.milestones[0]).toMatchObject({
+      templateId: "independent-feature",
+      marks: "productive",
+    });
+    // A milestone that already has a template keeps what it has: none.
+    const [q] = normalizeOnboardees([
+      {
+        id: "p2",
+        name: "Ben",
+        startDate: ago(70),
+        milestones: [{ id: "y", templateId: "first-pr", name: "First PR", targetDays: 7 }],
+      },
+    ]);
+    expect(markOf(q.milestones[0])).toBeUndefined();
+  });
+
   it("shows an average only from three people", () => {
     const two = ["a", "b"].map((id) =>
       person(id, 20, [{ marks: "productive", completedAt: reachedOn(20, 10) }])
@@ -212,6 +276,15 @@ describe("KPIs and the ramp", () => {
     expect(day30).toEqual({ day: 30, avgPct: 50, reached: 3 });
     expect(curve[0]).toEqual({ day: 0, avgPct: 0, reached: 4 });
     expect(rampCurve([newcomer, veterans[0]], TODAY).every((p) => p.avgPct === null)).toBe(true);
+  });
+
+  it("draws a lone day-0 point as a dot: everyone started under five days ago", () => {
+    const people = ["a", "b", "c"].map((id) => person(id, 3, [{}, { targetDays: 30 }]));
+    const curve = rampCurve(people, TODAY);
+    expect(curve[0]).toMatchObject({ day: 0, reached: 3 });
+    expect(plottedPoints(curve)).toBe(1);
+    expect(plottedPoints(rampCurve(buildExample(TODAY), TODAY))).toBeGreaterThan(1);
+    expect(plottedPoints([])).toBe(0);
   });
 
   it("runs to the longest target, and counts a completion before the start as day 0", () => {
@@ -337,11 +410,20 @@ describe("Onboarding page", () => {
     renderPage();
     fireEvent.click(screen.getByRole("checkbox", { name: "First commit (Ana)" }));
     expect(stored()[0].milestones[0].completedAt).toBe(TODAY);
-    fireEvent.change(screen.getByLabelText("Reached on"), { target: { value: ago(8) } });
+    const reached = screen.getByLabelText("First commit (Ana) reached on");
+    fireEvent.change(reached, { target: { value: ago(8) } });
     expect(stored()[0].milestones[0].completedAt).toBe(ago(8));
     expect(screen.getByText("done in 2d")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Reached on"), { target: { value: ago(-2) } });
+    // Neither after today nor before the start (day 10 ago) is saved; the
+    // field keeps what was typed until focus leaves, then shows the saved day.
+    fireEvent.change(reached, { target: { value: ago(-2) } });
     expect(stored()[0].milestones[0].completedAt).toBe(ago(8));
+    fireEvent.change(reached, { target: { value: ago(12) } });
+    expect(stored()[0].milestones[0].completedAt).toBe(ago(8));
+    expect(reached).toHaveValue(ago(12));
+    expect(reached).toHaveAttribute("aria-invalid", "true");
+    fireEvent.blur(reached);
+    expect(reached).toHaveValue(ago(8));
     fireEvent.click(screen.getByRole("checkbox", { name: "First commit (Ana)" }));
     expect(stored()[0].milestones[0]).not.toHaveProperty("completedAt");
     expect(logs.map((l) => l.action)).toEqual(["milestone_logged", "milestone_uncompleted"]);
@@ -432,6 +514,67 @@ describe("Onboarding page", () => {
         "Add 1 more new joiner to see the ramp curve (each day counts the people who have reached it)."
       )
     ).toBeInTheDocument();
+  });
+
+  it("keeps the template the user's own while the example is shown", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(
+      screen.getByText(
+        "While the example is shown, edits here change the example's copy of the template, not yours."
+      )
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Milestone"), { target: { value: "On-call shadow" } });
+    fireEvent.change(screen.getByLabelText("Target (days)"), { target: { value: "21" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add milestone" }));
+    const template = screen.getByRole("list", { name: "Milestone template" });
+    expect(within(template).getAllByRole("listitem")).toHaveLength(7);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Mentor a peer from the template" }));
+    expect(within(template).getAllByRole("listitem")).toHaveLength(6);
+    // Nothing reached the saved template, and there's no "Use the built-ins".
+    expect(storedTemplates()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use the built-ins" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(
+      within(screen.getByRole("list", { name: "Milestone template" })).getAllByRole("listitem")
+    ).toHaveLength(6);
+    expect(screen.queryByText("On-call shadow")).toBeNull();
+  });
+
+  it("follows a Team-page rename through the member ids, and never re-adds them", () => {
+    useWorkspaceStore.setState({
+      teamMembers: [
+        { id: "m-kim", name: "Kimberly" },
+        { id: "m-ben", name: "Benjamin" },
+      ],
+    });
+    seed([
+      person("p1", 4, [{}], {
+        name: "Kim",
+        memberId: "m-kim",
+        buddy: "Ben",
+        buddyMemberId: "m-ben",
+      }),
+    ]);
+    renderPage();
+    const card = screen.getByRole("list", { name: "Milestones for Kimberly" }).closest("div")!;
+    expect(card.textContent).toContain("Kimberly");
+    expect(card.textContent).toContain("buddy Benjamin");
+    // The export reads the same names.
+    expect(screen.getByTestId("export-markdown").textContent).toContain("Kimberly");
+    expect(screen.queryByRole("button", { name: /to the team/ })).toBeNull();
+    expect(useWorkspaceStore.getState().teamMembers).toHaveLength(2);
+  });
+
+  it("opens Edit with focus in the form, and gives it back on Cancel", async () => {
+    seed([person("Ana", 2, [])]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Ana" }));
+    const name = screen.getAllByRole("combobox", { name: "Name" });
+    // The add form's Name comes first; the card's form is the second.
+    await waitFor(() => expect(name[name.length - 1]).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit Ana" })).toHaveFocus());
   });
 
   it("links someone to the team on an explicit click", () => {

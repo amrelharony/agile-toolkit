@@ -12,13 +12,16 @@ import {
   Tooltip,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
-import type { RampPoint } from "./model";
+import { plottedPoints, type RampPoint } from "./model";
 
 /**
  * The average share of milestones reached by each day since the start. A
  * day too few people have reached has no point (a gap, not a dip).
  */
 export function RampCurveChart({ data }: { data: RampPoint[] }) {
+  // A single point (only day 0 has enough people yet) makes no segment, so
+  // it is drawn as a dot; a line needs none.
+  const dot = plottedPoints(data) === 1 ? { r: 4, fill: chartTheme.colors.cyan } : false;
   return (
     <ResponsiveContainer width="100%" height="100%">
       {/* ChartFigure hides the plot behind its summary and table, so the SVG
@@ -50,7 +53,7 @@ export function RampCurveChart({ data }: { data: RampPoint[] }) {
           dataKey="avgPct"
           stroke={chartTheme.colors.cyan}
           strokeWidth={2}
-          dot={false}
+          dot={dot}
           connectNulls={false}
         />
       </LineChart>

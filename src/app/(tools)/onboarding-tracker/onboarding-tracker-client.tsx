@@ -34,6 +34,7 @@ import {
   STORAGE_KEY,
   TEMPLATES_KEY,
   daysToComplete,
+  memberFor,
   milestonesFrom,
   normalizeOnboardees,
   normalizeTemplates,
@@ -41,6 +42,7 @@ import {
   onboardingVerdict,
   rampCurve,
   templatesOf,
+  withRosterNames,
   type MarkStat,
   type Milestone,
   type MilestoneTemplate,
@@ -111,19 +113,30 @@ export function OnboardingTrackerClient() {
     return () => clearInterval(i);
   }, []);
 
-  // The example lives here only: nothing in it reaches the saved people.
+  // The example lives here only: nothing in it reaches the saved people,
+  // nor the saved template (it gets a copy to try edits on).
   const [example, setExample] = useState<Onboardee[] | null>(null);
+  const [exampleTemplates, setExampleTemplates] = useState<MilestoneTemplate[] | null>(null);
   const preview = example !== null;
-  const onboardees = useMemo(() => example ?? normalizeOnboardees(stored), [example, stored]);
-  const templates = useMemo(() => templatesOf(storedTemplates), [storedTemplates]);
-  const customTemplates = normalizeTemplates(storedTemplates) !== null;
+  // Names as the roster has them now (a rename on the Team page shows).
+  const onboardees = useMemo(
+    () => (example ?? normalizeOnboardees(stored)).map((p) => withRosterNames(p, roster)),
+    [example, stored, roster]
+  );
+  const templates = useMemo(
+    () => (preview && exampleTemplates ? exampleTemplates : templatesOf(storedTemplates)),
+    [preview, exampleTemplates, storedTemplates]
+  );
+  const customTemplates = !preview && normalizeTemplates(storedTemplates) !== null;
   // Fixed for the render an edit starts in, so its Undo goes back to the same place.
   const writePeople = preview
     ? (fn: ListUpdate<Onboardee>) => setExample((ex) => ex && fn(ex))
     : (fn: ListUpdate<Onboardee>) => setStored((prev: unknown) => fn(normalizeOnboardees(prev)));
   const record: typeof log = preview ? noLog : log;
-  const writeTemplates = (fn: ListUpdate<MilestoneTemplate>) =>
-    setStoredTemplates((prev: unknown) => fn(templatesOf(prev)));
+  const writeTemplates = preview
+    ? (fn: ListUpdate<MilestoneTemplate>) => setExampleTemplates((t) => t && fn(t))
+    : (fn: ListUpdate<MilestoneTemplate>) =>
+        setStoredTemplates((prev: unknown) => fn(templatesOf(prev)));
 
   /* ── Changes ──────────────────────────────────────────────────────── */
 
@@ -210,16 +223,22 @@ export function OnboardingTrackerClient() {
   };
 
   const linkToRoster = (person: Onboardee) => {
-    const member = addToRoster(person.name);
+    // Someone already linked (by id, or a name the roster has) is never
+    // added a second time under an old name.
+    const member = memberFor(roster, person.memberId, person.name) ?? addToRoster(person.name);
     patchPerson(person.id, (p) => ({ ...p, name: member.name, memberId: member.id }));
     announce(`Added ${member.name} to the team`);
   };
 
   const loadExample = () => {
     setExample(buildExample(today));
+    setExampleTemplates([...templates]);
     announce("Loaded an example");
   };
-  const clearExample = () => setExample(null);
+  const clearExample = () => {
+    setExample(null);
+    setExampleTemplates(null);
+  };
 
   // Clear all: the people go (the template stays); Undo puts them back.
   const resetSnapshot = useRef<unknown>(null);
@@ -336,7 +355,7 @@ export function OnboardingTrackerClient() {
           <ExampleNotice onClear={clearExample} />
           <p className="-mt-2 mb-4 text-xs text-sub">
             Example: four new joiners at day 5, 20, 45 and 95. Nothing in it is saved, and your own
-            people stay as they are.
+            people and milestone template stay as they are.
           </p>
         </div>
       )}
@@ -419,7 +438,7 @@ export function OnboardingTrackerClient() {
               key={p.id}
               person={p}
               today={today}
-              onRoster={Boolean(findRosterMember(roster, p.name))}
+              onRoster={Boolean(memberFor(roster, p.memberId, p.name))}
               offerAddToRoster={!preview}
               onToggle={(m) => toggleMilestone(p, m)}
               onPatchMilestone={(m, patch) => patchMilestone(p, m.id, patch)}
@@ -465,6 +484,11 @@ export function OnboardingTrackerClient() {
       <TemplateSection
         templates={templates}
         custom={customTemplates}
+        note={
+          preview
+            ? "While the example is shown, edits here change the example's copy of the template, not yours."
+            : undefined
+        }
         onChange={writeTemplates}
         onRestoreBuiltIns={restoreBuiltIns}
         onRestoreUndo={undoRestoreBuiltIns}

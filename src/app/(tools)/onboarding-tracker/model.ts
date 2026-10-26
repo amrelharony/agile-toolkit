@@ -7,13 +7,15 @@
  * People stay a blob under STORAGE_KEY and the template a second one under
  * TEMPLATES_KEY (null means the built-ins). `normalizeOnboardees` reads
  * every shape saved so far: a legacy milestone has only a name, so it is
- * linked to the built-in template of that exact name, and the KPIs find
- * "first PR" and "productive" by that link (and the template's mark), never
- * by the name, which can now be edited.
+ * linked to the built-in template of that exact name and takes its mark.
+ * The KPIs find "first PR" and "productive" by the mark each milestone
+ * carries, never by the name, which can now be edited.
  */
 
+import type { TeamMember } from "@/lib/stores/workspace-types";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { isIsoDate, isoDayNumber } from "@/lib/sprints/calendar";
+import { findRosterMember } from "@/lib/team/names";
 
 export const STORAGE_KEY = "agile-toolkit:onboarding-tracker";
 /** The milestone template; null (or nothing saved) means the built-ins. */
@@ -120,7 +122,6 @@ export function templatesOf(raw: unknown): readonly MilestoneTemplate[] {
 }
 
 const BUILT_IN_BY_NAME = new Map(BUILT_IN_TEMPLATES.map((t) => [t.name, t]));
-const BUILT_IN_BY_ID = new Map(BUILT_IN_TEMPLATES.map((t) => [t.id, t]));
 
 function normalizeMilestone(raw: unknown, i: number): Milestone | null {
   if (!isObject(raw)) return null;
@@ -132,13 +133,19 @@ function normalizeMilestone(raw: unknown, i: number): Milestone | null {
     name,
     targetDays: typeof raw.targetDays === "number" ? raw.targetDays : Number(raw.targetDays) || 0,
   };
-  // A legacy milestone had only its name: link it to the built-in of that name.
+  if (m.marks !== undefined && !MARKS.includes(m.marks)) delete m.marks;
+  // A legacy milestone had only its name: link it to the built-in of that
+  // name and give it that built-in's mark, the KPI the name used to count
+  // for. Only here: a milestone copied from an edited template keeps the
+  // template's mark, or none, and is never read from the built-ins.
   if (!str(m.templateId)) {
     delete m.templateId;
     const builtIn = BUILT_IN_BY_NAME.get(name);
-    if (builtIn) m.templateId = builtIn.id;
+    if (builtIn) {
+      m.templateId = builtIn.id;
+      if (builtIn.marks && m.marks === undefined) m.marks = builtIn.marks;
+    }
   }
-  if (m.marks !== undefined && !MARKS.includes(m.marks)) delete m.marks;
   for (const k of ["completedAt", "notes"] as const) {
     if (m[k] !== undefined && typeof m[k] !== "string") delete m[k];
   }
@@ -171,6 +178,34 @@ export function normalizeOnboardees(raw: unknown): Onboardee[] {
   return out;
 }
 
+/**
+ * The roster member someone is: by the member id stamped on them, so a
+ * rename on the Team page keeps the link, else by name.
+ */
+export function memberFor<T extends Pick<TeamMember, "id" | "name">>(
+  roster: readonly T[],
+  memberId: string | undefined,
+  name: string | undefined
+): T | undefined {
+  const byId = memberId ? roster.find((m) => m.id === memberId) : undefined;
+  return byId ?? findRosterMember(roster, name);
+}
+
+/**
+ * The person as the roster names them now: the joiner and the buddy are
+ * read through their member ids, so a rename on the Team page shows here
+ * (the saved names change at the next edit). The same object when nothing
+ * changed, so the numbers over it aren't recomputed.
+ */
+export function withRosterNames(p: Onboardee, roster: readonly TeamMember[]): Onboardee {
+  const member = p.memberId ? roster.find((m) => m.id === p.memberId) : undefined;
+  const buddy = p.buddyMemberId ? roster.find((m) => m.id === p.buddyMemberId) : undefined;
+  const name = member?.name.trim() || p.name;
+  const buddyName = buddy?.name.trim() || p.buddy;
+  if (name === p.name && buddyName === p.buddy) return p;
+  return { ...p, name, ...(buddyName !== undefined ? { buddy: buddyName } : {}) };
+}
+
 /** A person's own copy of the template, with fresh ids. */
 export function milestonesFrom(
   templates: readonly MilestoneTemplate[],
@@ -186,11 +221,13 @@ export function milestonesFrom(
 }
 
 /**
- * The milestone's mark: its own copy, else (a legacy milestone) the mark of
- * the built-in it is linked to. Never read from the name.
+ * The milestone's mark: its own copy, taken from the template when the
+ * person was added (a legacy milestone gets its built-in's mark when it is
+ * read). Never read from the name, nor from the built-ins: a mark moved or
+ * cleared in the template would otherwise still count for a new joiner.
  */
-export function markOf(m: Pick<Milestone, "marks" | "templateId">): MilestoneMark | undefined {
-  return m.marks ?? (m.templateId ? BUILT_IN_BY_ID.get(m.templateId)?.marks : undefined);
+export function markOf(m: Pick<Milestone, "marks">): MilestoneMark | undefined {
+  return m.marks;
 }
 
 /** Calendar days from `from` to `to`; null when either isn't a day. */
@@ -305,6 +342,15 @@ export interface RampPoint {
   avgPct: number | null;
   /** People who have reached the day (started at least that many days ago). */
   reached: number;
+}
+
+/**
+ * The days the curve can draw. Fewer people reach each later day, so these
+ * are always the first days; just one (everyone started less than a step
+ * ago) makes no line, so the chart draws it as a dot.
+ */
+export function plottedPoints(ramp: readonly RampPoint[]): number {
+  return ramp.filter((p) => p.avgPct !== null).length;
 }
 
 /** How far the ramp runs: the longest target among the people's milestones. */

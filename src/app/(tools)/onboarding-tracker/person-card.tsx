@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Pencil, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +21,47 @@ import {
   type Onboardee,
 } from "./model";
 import { PersonForm, type PersonValues } from "./person-form";
+
+/**
+ * The day a milestone was reached: backdatable, never after today nor
+ * before the start. The field shows what is typed (a year typed digit by
+ * digit passes through "0002-…") and saves only a day in range; leaving it
+ * on one out of range puts the saved day back.
+ */
+function ReachedOnField({
+  value,
+  min,
+  max,
+  label,
+  onCommit,
+}: {
+  value: string;
+  min?: string;
+  max: string;
+  label: string;
+  onCommit: (day: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const inRange = (d: string) => isIsoDay(d) && d <= max && (!min || d >= min);
+  return (
+    <Input
+      type="date"
+      value={draft}
+      min={min}
+      max={max}
+      aria-label={label}
+      aria-invalid={draft !== value && !inRange(draft) ? true : undefined}
+      onChange={(e) => {
+        const day = e.target.value;
+        setDraft(day);
+        if (inRange(day) && day !== value) onCommit(day);
+      }}
+      onBlur={() => setDraft(value)}
+      className="h-8 w-auto border-border bg-surface text-xs"
+    />
+  );
+}
 
 /** "Day 12", "Starts in 3 days", or "No start date". */
 export function dayLabel(day: number | null): string {
@@ -127,17 +168,13 @@ function MilestoneRow({
           {completed && (
             <label className="inline-flex items-center gap-1.5 text-xs text-sub">
               Reached on
-              <Input
-                type="date"
+              {/* Backdated to when it happened; never emptied, past today or before the start. */}
+              <ReachedOnField
                 value={m.completedAt ?? ""}
                 min={isIsoDay(person.startDate) ? person.startDate : undefined}
                 max={today}
-                onChange={(e) => {
-                  const day = e.target.value;
-                  // Backdated to when it happened; never emptied or past today.
-                  if (isIsoDay(day) && day <= today) onPatch({ completedAt: day });
-                }}
-                className="h-8 w-auto border-border bg-surface text-xs"
+                label={`${m.name} (${person.name}) reached on`}
+                onCommit={(completedAt) => onPatch({ completedAt })}
               />
             </label>
           )}
@@ -181,13 +218,14 @@ export function PersonCard({
   onAddToRoster: () => void;
   onRemove: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  // The form replaces the Edit button; Save and Cancel give focus back to it.
+  const edit = useInlineEdit();
   const day = dayOf(p, today);
   const completedCount = p.milestones.filter((m) => m.completedAt).length;
   return (
     <Card className="bg-surface border-border">
       <CardContent className="p-4 space-y-3">
-        {editing ? (
+        {edit.editing ? (
           <PersonForm
             initial={{
               name: p.name,
@@ -198,11 +236,12 @@ export function PersonCard({
             }}
             submitLabel="Save"
             offerAddToRoster={offerAddToRoster}
+            focusOnOpen
             onSave={(values) => {
               onSaveDetails(values);
-              setEditing(false);
+              edit.stop({ refocus: true });
             }}
-            onCancel={() => setEditing(false)}
+            onCancel={() => edit.stop({ refocus: true })}
           />
         ) : (
           <div className="flex flex-col xs:flex-row xs:items-start xs:justify-between gap-2">
@@ -235,10 +274,11 @@ export function PersonCard({
                 </Button>
               )}
               <IconButton
+                ref={edit.triggerRef}
                 label={`Edit ${p.name}`}
                 icon={<Pencil className="w-3.5 h-3.5" />}
                 className="h-8 w-8 text-sub hover:text-text"
-                onClick={() => setEditing(true)}
+                onClick={edit.start}
               />
               <IconButton
                 label={`Remove ${p.name}`}

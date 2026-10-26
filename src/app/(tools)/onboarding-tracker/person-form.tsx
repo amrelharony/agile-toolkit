@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { UserPlus } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -73,12 +74,15 @@ export function PersonForm({
   onSave,
   onCancel,
   offerAddToRoster,
+  focusOnOpen = false,
 }: {
   initial: PersonDraft;
   submitLabel: string;
   onSave: (values: PersonValues) => void;
   onCancel?: () => void;
   offerAddToRoster: boolean;
+  /** Focus the first field when it opens (an in-place edit replaces its trigger). */
+  focusOnOpen?: boolean;
 }) {
   const roster = useTeamRoster();
   const form = useItemForm<PersonDraft, PersonValues, PersonField>({
@@ -87,7 +91,13 @@ export function PersonForm({
     onSave,
     resetOnSave: !onCancel,
   });
-  const { draft, update, errors } = form;
+  const { draft, update, errors, formRef } = form;
+  useEffect(() => {
+    if (focusOnOpen)
+      formRef.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
+    // On open only: a re-render mustn't pull focus back to the first field.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const pickName = (name: string) => {
     const member = findRosterMember(roster, name);
     update(member?.role && !draft.role.trim() ? { name, role: member.role } : { name });
