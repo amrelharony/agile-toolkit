@@ -7,8 +7,9 @@
  * produces.
  *
  * Which room mounts comes from `VISITOR_ROOM_KIND`, so a tool can never
- * fall into another tool's room. Vote rounds have no participant view yet:
- * their links say so and open nothing.
+ * fall into another tool's room. A vote round's link must also carry the
+ * host's key fingerprint (`#k=`, a fragment the server never sees): without
+ * it the page says the link is incomplete and offers no consent at all.
  *
  * `/join` is a bare route (no app shell), so this mounts the live-region
  * announcer and reduced-motion config the shell would otherwise provide.
@@ -33,6 +34,8 @@ import {
   type VisitorRoomKind,
   type VisitorTool,
 } from "@/lib/realtime/visitor-rooms";
+import { isVoteRoomTool } from "@/lib/realtime/vote-room/protocol";
+import { readVoteLinkFragment } from "@/lib/realtime/vote-room/crypto";
 
 const VisitorPokerRoom = dynamic(
   () => import("@/app/(tools)/planning-poker/visitor-poker-room").then((m) => m.VisitorPokerRoom),
@@ -40,6 +43,10 @@ const VisitorPokerRoom = dynamic(
 );
 const VisitorRetroRoom = dynamic(
   () => import("@/app/(tools)/retro/room/visitor-retro-room").then((m) => m.VisitorRetroRoom),
+  { ssr: false, loading: RoomLoading }
+);
+const VoteJoinRoom = dynamic(
+  () => import("@/components/collab/vote-room/vote-join-room").then((m) => m.VoteJoinRoom),
   { ssr: false, loading: RoomLoading }
 );
 
@@ -96,6 +103,13 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
   useEffect(() => {
     setDefaultName(readVisitorIdentity(code)?.name ?? "");
   }, [code]);
+  // Vote rounds: the host key from `#k=`, read after mount (undefined until then).
+  const [linkKey, setLinkKey] = useState<string | null | undefined>(
+    kind === "vote" ? undefined : null
+  );
+  useEffect(() => {
+    if (kind === "vote") setLinkKey(readVoteLinkFragment(window.location.hash));
+  }, [kind]);
 
   const confirm = (name: string) => {
     const identity = saveVisitorIdentity(code, name);
@@ -103,21 +117,29 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
   };
 
   if (kind === "vote") {
-    return (
-      <OutsideRoom
-        title="Live rounds can't be joined here yet"
-        body="Nothing has connected. Ask the host to count hands instead."
-      />
-    );
+    if (linkKey === undefined) return <RoomLoading />;
+    if (linkKey === null) {
+      return (
+        <OutsideRoom
+          title="This link is incomplete"
+          body="The link is missing the part that proves the questions come from the host, so nothing has connected. Ask the host to send it again with Copy link."
+        />
+      );
+    }
   }
 
   if (stage.kind === "joined") {
     const onLeave = () => setStage({ kind: "left" });
-    return kind === "poker" ? (
-      <VisitorPokerRoom code={code} identity={stage.identity} onLeave={onLeave} />
-    ) : (
-      <VisitorRetroRoom code={code} identity={stage.identity} onLeave={onLeave} />
-    );
+    if (kind === "poker") {
+      return <VisitorPokerRoom code={code} identity={stage.identity} onLeave={onLeave} />;
+    }
+    if (kind === "retro") {
+      return <VisitorRetroRoom code={code} identity={stage.identity} onLeave={onLeave} />;
+    }
+    if (isVoteRoomTool(tool)) {
+      return <VoteJoinRoom tool={tool} code={code} identity={stage.identity} onLeave={onLeave} />;
+    }
+    return <RoomLoading />;
   }
 
   if (stage.kind === "consent") {
@@ -133,6 +155,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
             if (!open) setStage({ kind: "declined" });
           }}
           mode="join"
+          variant={kind === "vote" ? "vote" : "board"}
           toolName={toolName}
           defaultName={defaultName}
           onConfirm={confirm}

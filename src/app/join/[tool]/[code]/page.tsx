@@ -13,7 +13,7 @@ import { JoinRoom } from "./join-room";
 // /join too; this covers crawlers that ignore it.
 export const metadata: Metadata = {
   title: "Join a live room",
-  description: "Join a teammate's live Planning Poker or Retro room.",
+  description: "Join a teammate's live room.",
   robots: { index: false, follow: false },
 };
 
@@ -26,10 +26,12 @@ interface Params {
  * `/join/<tool>/<code>`: where a visitor live room's link lands.
  *
  * The tool and code are checked here, on the server, before anything
- * renders: anything but `planning-poker` or `retro` with a 12-character
- * room code is a 404. With `NEXT_PUBLIC_VISITOR_ROOMS` off, the page says
- * so and links home; no client code that could open a channel is sent.
- * With it on, the client asks for a name and consent before it connects.
+ * renders: anything but a visitor tool (`VISITOR_TOOLS`) with a
+ * 12-character room code is a 404. With `NEXT_PUBLIC_VISITOR_ROOMS` off,
+ * the page says so and links home; no client code that could open a
+ * channel is sent. With it on, the client asks for a name and consent
+ * before it connects (and, for a vote round, first checks the link carries
+ * the host's key).
  */
 export default function JoinRoomPage({ params }: { params: Params }) {
   const { tool, code } = params;
@@ -48,7 +50,7 @@ function LiveRoomsOff() {
         </h1>
         <p className="text-sm text-sub">
           This site isn&apos;t running live rooms at the moment, so this link can&apos;t connect.
-          You can still run Planning Poker or a Retro on one shared screen.
+          You can still run the tools on one shared screen, or ask the host to count hands.
         </p>
         <Link
           href="/"
