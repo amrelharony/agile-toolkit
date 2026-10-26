@@ -138,13 +138,24 @@ function valuesOf(f: KanoFields): Values {
 const pickedOnly = (f: KanoFields) =>
   !f.counts && !(f.functional && f.dysfunctional) && f.category !== undefined;
 
+/**
+ * Better and Worse once 3 answers count toward them, as the page shows
+ * them (kano-model/model.ts shownCoefficients): they divide by
+ * A + O + M + I, so Reverse and Questionable answers don't count toward
+ * the minimum. Null until then.
+ */
+function shownCoefficients(c: KanoCounts | null) {
+  const k = c ? kanoCoefficients(c) : null;
+  return k && k.n >= KANO_MIN_RESPONSES ? k : null;
+}
+
 /** Pure classifier: a pair, counts or a picked category → the full reading. */
 function classify(f: KanoFields) {
   const values = valuesOf(f);
   const r = pickedOnly(f) ? KANO.evaluate({ category: f.category }) : KANO.evaluate(values);
   const category = (r.bucket as CategoryId | null) ?? null;
   const counts: KanoCounts | null = f.counts ?? null;
-  const coefficients = counts ? kanoCoefficients(counts) : null;
+  const coefficients = shownCoefficients(counts);
   const n = typeof r.extra?.n === "number" ? r.extra.n : 0;
   return {
     class:
@@ -158,8 +169,8 @@ function classify(f: KanoFields) {
       : `Not enough answers yet: the category shows from ${KANO_MIN_RESPONSES}.`,
     counts,
     n,
-    better: coefficients && n >= KANO_MIN_RESPONSES ? coefficients.better : null,
-    worse: coefficients && n >= KANO_MIN_RESPONSES ? coefficients.worse : null,
+    better: coefficients?.better ?? null,
+    worse: coefficients?.worse ?? null,
     enough: counts ? n >= KANO_MIN_RESPONSES : category !== null,
     picked: pickedOnly(f),
   };
@@ -173,22 +184,42 @@ registry.register({
   name: "classify",
   category: "read",
   description:
-    "Classify one feature with the Kano evaluation table, as the page does. Give a (`functional`, `dysfunctional`) answer pair (like / must / neutral / live_with / dislike) or survey `counts` {A, O, M, I, R, Q}. Returns { class, category ('must-be' | 'performance' | 'attractive' | 'indifferent' | 'reverse' | 'questionable', or null under 3 counted answers), score, explanation, counts, n, better, worse, enough }. (like, like) and (dislike, dislike) are Questionable. Score (Decide order's ranking): must-be=5, performance=4, attractive=3, indifferent=2, reverse=1, questionable=0. `category` alone is deprecated.",
+    "Classify one feature with the Kano evaluation table, as the page does. Give a (`functional`, `dysfunctional`) answer pair (like / must / neutral / live_with / dislike) or survey `counts` {A, O, M, I, R, Q}. Returns { class, category ('must-be' | 'performance' | 'attractive' | 'indifferent' | 'reverse' | 'questionable', or null under 3 counted answers), score, explanation, counts, n, better, worse (null until 3 answers that aren't Reverse or Questionable: they divide by A+O+M+I), enough }. (like, like) and (dislike, dislike) are Questionable. Score (Decide order's ranking): must-be=5, performance=4, attractive=3, indifferent=2, reverse=1, questionable=0. `category` alone is deprecated.",
   paramsSchema: KanoFieldsSchema,
   handler: async (params) => classify(params),
   // No mcpHandler — pure compute runs identically on server and client.
 });
 
 // ──────── tool.kano_model.list_items ────────
-// Read-only snapshot of Kano features, grouped by derived category.
+// Read-only snapshot of Kano features, grouped by derived category, plus
+// the page's two other lists: "Needs more answers" (survey counts under 3)
+// and "Not answered".
+type ListGroup = CategoryId | "needs_more" | "unanswered";
+
+/** A listed row's Better and Worse, null until 3 answers count toward them (as on the page). */
+function gateCoefficients<R extends { extra?: Record<string, unknown> }>(row: R): R {
+  if (!row.extra || !("better" in row.extra)) return row;
+  const said = (["A", "O", "M", "I"] as const).reduce(
+    (s, k) => s + (typeof row.extra?.[k] === "number" ? (row.extra[k] as number) : 0),
+    0
+  );
+  return said >= KANO_MIN_RESPONSES
+    ? row
+    : { ...row, extra: { ...row.extra, better: null, worse: null } };
+}
+
 const listItems = async (store: MethodStore) => {
-  const listed = await listMethodRows(store, FRAMEWORK);
+  const listed = (await listMethodRows(store, FRAMEWORK)).map(gateCoefficients);
   const grouped = Object.fromEntries(
-    [...KANO_CATEGORIES, "unanswered"].map((c) => [c, [] as typeof listed])
-  ) as Record<CategoryId | "unanswered", typeof listed>;
-  for (const row of listed) grouped[(row.bucket as CategoryId | null) ?? "unanswered"].push(row);
+    [...KANO_CATEGORIES, "needs_more", "unanswered"].map((c) => [c, [] as typeof listed])
+  ) as Record<ListGroup, typeof listed>;
+  for (const row of listed) {
+    // No category: counts under 3 answers need more; nothing at all is unanswered.
+    const n = typeof row.extra?.n === "number" ? row.extra.n : 0;
+    grouped[(row.bucket as CategoryId | null) ?? (n > 0 ? "needs_more" : "unanswered")].push(row);
+  }
   // Each group newest first: agents usually want "what did I just add" at the top.
-  for (const c of Object.keys(grouped) as (CategoryId | "unanswered")[]) {
+  for (const c of Object.keys(grouped) as ListGroup[]) {
     grouped[c].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
   }
   return { ...grouped, total: listed.length };
@@ -200,7 +231,7 @@ registry.register({
   name: "list_items",
   category: "read",
   description:
-    "List all Kano features in the workspace, grouped by their derived category: { 'must-be', performance, attractive, indifferent, reverse, questionable, unanswered, total }. A feature with no answers, or fewer than 3 counted answers, is under unanswered (never Performance by default). Each row carries {score, bucket, extra: {n, better, worse, source, …}}; each group is newest first. Filtered to framework='kano'.",
+    "List all Kano features in the workspace, grouped by their derived category, as the page lists them: { 'must-be', performance, attractive, indifferent, reverse, questionable, needs_more, unanswered, total }. A feature with survey counts under 3 answers is under needs_more (extra.n says how many it has: the page's 'Needs more answers'); one with no answers at all is under unanswered (never Performance by default). Each row carries {score, bucket, extra: {n, better, worse, source, A, O, M, I, R, Q, …}}; better and worse are null until 3 answers that aren't Reverse or Questionable. A category from one answer pair has extra.source 'pair' (one person's answers, not a survey). Each group is newest first. Filtered to framework='kano'.",
   paramsSchema: z.object({}),
   handler: async () => listItems(clientStore()),
   mcpHandler: async (_params, ctx) => listItems(serverStore(ctx.userId)),
@@ -368,7 +399,12 @@ const RecordRoundSchema = z
     message: "Give exactly one of `counts` or `joint`.",
   });
 
-/** A feature's answers before a round, as counts: its counts, or its one pair as one answer. */
+/**
+ * A feature's answers before a round, as counts: its counts, or its one
+ * pair as one answer. The twin of the page's earlierCounts
+ * (kano-model/survey.ts), which an agent module can't import; a parity
+ * test holds the two to the same fields for the same round.
+ */
 function earlierCounts(fields: PrioritizationItem["fields"]): KanoCounts | null {
   const r = readKano(fields);
   if (r.counts) return r.counts;
@@ -376,6 +412,24 @@ function earlierCounts(fields: PrioritizationItem["fields"]): KanoCounts | null 
     return { ...EMPTY_KANO_COUNTS, [kanoClass(r.pair.functional, r.pair.dysfunctional)]: 1 };
   }
   return null;
+}
+
+/** What a feature's stored counts say: its category, score, n and Better/Worse (gated as on the page). */
+function roundReading(id: string, fields: PrioritizationItem["fields"]) {
+  const result = KANO.evaluate(KANO.read(fields));
+  const counts = readKano(fields).counts ?? { ...EMPTY_KANO_COUNTS };
+  const n = countTotal(counts);
+  const coefficients = shownCoefficients(counts);
+  return {
+    id,
+    category: (result.bucket as CategoryId | null) ?? null,
+    score: result.score,
+    counts,
+    n,
+    better: coefficients?.better ?? null,
+    worse: coefficients?.worse ?? null,
+    enough: n >= KANO_MIN_RESPONSES,
+  };
 }
 
 const recordRound = async (store: MethodStore, p: z.infer<typeof RecordRoundSchema>) => {
@@ -386,6 +440,16 @@ const recordRound = async (store: MethodStore, p: z.infer<typeof RecordRoundSche
   const fresh = p.counts ?? countsFromJoint(p.joint ?? []);
   if (!fresh) throw new Error("The joint must hold 25 whole numbers, 0 or more.");
   if (countTotal(fresh) === 0) throw new Error("The round has no answers for this feature.");
+  // The feature already holds this round (the page's holdsRound): recording
+  // it again would count it twice with add: true. Nothing is written.
+  if (p.roundId && row.fields?.kanoRoundId === p.roundId) {
+    return {
+      ...roundReading(row.id, row.fields),
+      replaced: false,
+      previous: null,
+      alreadyRecorded: true,
+    };
+  }
   const earlier = earlierCounts(row.fields);
   const counts = p.add && earlier ? addCounts(earlier, fresh) : fresh;
   const now = new Date().toISOString();
@@ -394,26 +458,16 @@ const recordRound = async (store: MethodStore, p: z.infer<typeof RecordRoundSche
     roundId: p.roundId,
     at: p.at ?? now,
   });
-  const result = KANO.evaluate(KANO.read(fields));
-  const cache = scoreCache(result, row.status);
+  const cache = scoreCache(KANO.evaluate(KANO.read(fields)), row.status);
   const next: PrioritizationItem = { ...row, fields, status: cache.status, updatedAt: now };
   if (cache.score === undefined) delete next.score;
   else next.score = cache.score;
   await store.putRows([next]);
-  const n = countTotal(counts);
-  const enough = n >= KANO_MIN_RESPONSES;
-  const coefficients = enough ? kanoCoefficients(counts) : null;
   return {
-    id: row.id,
-    category: (result.bucket as CategoryId | null) ?? null,
-    score: result.score,
-    counts,
-    n,
-    better: coefficients?.better ?? null,
-    worse: coefficients?.worse ?? null,
-    enough,
+    ...roundReading(row.id, fields),
     replaced: !p.add && earlier !== null,
     previous: earlier ? { counts: earlier, n: countTotal(earlier) } : null,
+    alreadyRecorded: false,
   };
 };
 
@@ -424,7 +478,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record a survey round's totals for one existing Kano feature, as the page's Save round does: give `counts` {A, O, M, I, R, Q} or the round's 5×5 `joint` of answer pairs (folded into class counts by the Kano evaluation table). Totals only, never per-person answers. The round's counts REPLACE the feature's earlier answers unless add: true (then they are added, a single stored answer pair counting as one). The category (most common class; ties M > O > A > I > R > Q) and Better/Worse show from 3 answers. Returns { id, category (null under 3 answers), score, counts, n, better, worse, enough, replaced, previous: {counts, n} | null }.",
+    "Record a survey round's totals for one existing Kano feature, as the page's Save round does: give `counts` {A, O, M, I, R, Q} or the round's 5×5 `joint` of answer pairs (folded into class counts by the Kano evaluation table). Totals only, never per-person answers. The round's counts REPLACE the feature's earlier answers unless add: true (then they are added, a single stored answer pair counting as one). The category (most common class; ties M > O > A > I > R > Q) shows from 3 answers, Better/Worse from 3 answers that aren't Reverse or Questionable. A round already recorded on the feature (the same roundId) is never counted twice: nothing is written and its stored totals come back with alreadyRecorded: true. Returns { id, category (null under 3 answers), score, counts, n, better, worse, enough, replaced, previous: {counts, n} | null, alreadyRecorded }.",
   paramsSchema: RecordRoundSchema,
   handler: async (params) => recordRound(clientStore(), params),
   mcpHandler: async (params, ctx) => recordRound(serverStore(ctx.userId), params),

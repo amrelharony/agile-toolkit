@@ -1,4 +1,5 @@
-import { listAnd } from "@/lib/charts/chart-text";
+import { listAnd, plural } from "@/lib/charts/chart-text";
+import { KANO_CATEGORIES, KANO_MIN_RESPONSES } from "@/lib/prioritization/methods/kano";
 import type { RankedRow } from "@/lib/prioritization/rank";
 import { coefText, compareFeatures, kanoGroups, shortName, type FeatureView } from "./model";
 
@@ -18,10 +19,13 @@ function names(features: readonly FeatureView[]): string {
  * The answer over the list: what customers expect (cover it first), what
  * delights them, what got contradictory answers, and what still needs
  * answers. Features are named in list order (the most missed first).
+ * Categories that come from one person's answer pair, not a survey, are
+ * counted at the end, so a lone Must-be isn't read as the customers' view.
  *
  *   "Cover “SSO” and “Export” first (Must-be); “Dark mode” delights
  *    (Better 0.71); “Sounds” got contradictory answers: check the
- *    question; 2 need more answers."
+ *    question; 1 category comes from one person's answers: survey
+ *    customers to confirm it; 2 need more answers."
  */
 export function kanoVerdict(rows: readonly RankedRow[]): string {
   if (rows.length === 0) return "No features yet.";
@@ -30,8 +34,14 @@ export function kanoVerdict(rows: readonly RankedRow[]): string {
   ) as Record<string, FeatureView[]>;
   const sorted = rows.length - g["needs-more"].length - g.unanswered.length;
   if (sorted === 0) {
-    if (g["needs-more"].length > 0) {
-      return `${g["needs-more"].length === 1 ? "The feature needs" : `All ${g["needs-more"].length} features with answers need`} more answers: a category shows from 3.`;
+    const few = g["needs-more"];
+    if (few.length > 0) {
+      const lead =
+        few.length === 1
+          ? `${quoted(few[0])} needs ${plural(Math.max(1, KANO_MIN_RESPONSES - few[0].n), "more answer")} for a category`
+          : `${names(few)} need more answers: a category shows from ${KANO_MIN_RESPONSES}`;
+      const none = g.unanswered.length;
+      return none > 0 ? `${lead}; ${none} not answered yet.` : `${lead}.`;
     }
     return rows.length === 1
       ? "Answer both questions about the feature, or run a survey, to find its category."
@@ -56,6 +66,14 @@ export function kanoVerdict(rows: readonly RankedRow[]): string {
   }
   if (parts.length === 0 && g.indifferent.length > 0) {
     parts.push(`Customers don't mind ${names(g.indifferent)} either way`);
+  }
+  const fromPair = KANO_CATEGORIES.reduce((n, c) => n + g[c].filter((f) => f.fromPair).length, 0);
+  if (fromPair > 0) {
+    parts.push(
+      fromPair === 1
+        ? "1 category comes from one person's answers: survey customers to confirm it"
+        : `${fromPair} categories come from one person's answers: survey customers to confirm them`
+    );
   }
   const more = g["needs-more"].length;
   if (more > 0) parts.push(`${more} ${more === 1 ? "needs" : "need"} more answers`);

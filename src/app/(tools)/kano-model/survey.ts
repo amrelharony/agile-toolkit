@@ -42,9 +42,12 @@ export interface KanoSurvey {
 
 /**
  * The paired question for each of the user's features (examples left
- * out): unanswered features first, then the rest, at most
- * VOTE_LIMITS.maxPairItems. Every feature is optional, so a customer can
- * skip one they don't know.
+ * out), at most VOTE_LIMITS.maxPairItems: over that, unanswered features
+ * are the ones asked. The sheet keeps list order either way. The count
+ * grid starts over when the sheet's order changes, so an order that put
+ * unanswered features first would reshuffle as soon as a round was saved,
+ * or counts were typed in a row editor, and wipe the boxes being filled.
+ * Every feature is optional, so a customer can skip one they don't know.
  */
 export function kanoSurvey(rows: readonly PrioritizationItem[]): KanoSurvey {
   const own = rows.filter(
@@ -52,8 +55,12 @@ export function kanoSurvey(rows: readonly PrioritizationItem[]): KanoSurvey {
   );
   const usable = own.filter((r) => ID_RE.test(r.id));
   const answered = (r: PrioritizationItem) => readKano(r.fields).counts !== null;
-  const ordered = [...usable.filter((r) => !answered(r)), ...usable.filter(answered)];
-  const asked = ordered.slice(0, VOTE_LIMITS.maxPairItems);
+  const chosen = new Set(
+    [...usable.filter((r) => !answered(r)), ...usable.filter(answered)]
+      .slice(0, VOTE_LIMITS.maxPairItems)
+      .map((r) => r.id)
+  );
+  const asked = usable.filter((r) => chosen.has(r.id));
   return {
     sheet:
       asked.length === 0
@@ -84,10 +91,21 @@ export function earlierCounts(fields: PrioritizationItem["fields"]): KanoCounts 
 }
 
 /**
+ * True when the row already holds this round's counts (the round was
+ * saved, and nobody has typed over them since: a hand edit drops the
+ * round id). Folding the round in again would count it twice with "Add to
+ * earlier answers" on.
+ */
+export function holdsRound(row: PrioritizationItem, result: Pick<PairRoundResult, "roundId">) {
+  return row.fields?.kanoRoundId === result.roundId;
+}
+
+/**
  * The rows a saved round changes: each feature the round revealed (a
  * joint, so at least 3 answers) that is still on the list, with its counts
  * replaced, or added to its earlier answers when `add` is on. Features
- * withheld (fewer than 3 answers) or gone are skipped.
+ * withheld (fewer than 3 answers), gone, or already holding this round are
+ * skipped, so applying a round twice changes nothing the second time.
  */
 export function applyKanoRound(
   rows: readonly PrioritizationItem[],
@@ -100,7 +118,7 @@ export function applyKanoRound(
   for (const item of result.items) {
     const row = byId.get(item.id);
     const fresh = item.joint ? countsFromJoint(item.joint) : null;
-    if (!row || !fresh) continue;
+    if (!row || !fresh || holdsRound(row, result)) continue;
     const before = opts.add ? earlierCounts(row.fields) : null;
     const counts = before ? addCounts(before, fresh) : fresh;
     const fields = kanoCountFields(row.fields, counts, {

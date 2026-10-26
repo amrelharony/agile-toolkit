@@ -5,24 +5,28 @@ import { BacklogRowLink } from "@/components/prioritization/backlog-link";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
-import { KANO_CATEGORY_LABEL, KANO_MIN_RESPONSES } from "@/lib/prioritization/methods/kano";
-import { answersText, coefText, type FeatureView } from "./model";
+import { KANO_CATEGORY_LABEL } from "@/lib/prioritization/methods/kano";
+import { answersText, coefText, coefficientsWait, type FeatureView } from "./model";
 import { CATEGORY_TONE } from "./results";
 
 /**
  * One feature in its list: the title and backlog link, its category chip
  * ("Picked by hand" for an old pick, with "Add answers"), how it was
- * answered, Better and Worse once 3 answers are counted (until then, how
- * many more are needed), and Edit and Delete.
+ * answered (one person's pair says so), Better and Worse once 3 answers
+ * count toward them (until then, how many there are), and Edit and Delete.
+ * `editRef` takes the Edit button, where focus comes back after the row's
+ * editor closes.
  */
 export function FeatureRow({
   feature,
   onEdit,
   onRemove,
+  editRef,
 }: {
   feature: FeatureView;
   onEdit: () => void;
   onRemove: () => void;
+  editRef?: (el: HTMLElement | null) => void;
 }) {
   const { row } = feature.ranked;
   const counted = feature.reading.counts !== null;
@@ -54,11 +58,7 @@ export function FeatureRow({
               {coefText(feature.coefficients.worse)}
             </span>
           ) : (
-            counted && (
-              <span className="text-sub">
-                Better and Worse from {KANO_MIN_RESPONSES} answers ({feature.n} so far)
-              </span>
-            )
+            counted && <span className="text-sub">{coefficientsWait(feature)}</span>
           )}
         </div>
       </div>
@@ -75,6 +75,7 @@ export function FeatureRow({
           </Button>
         )}
         <IconButton
+          ref={editRef}
           label={`Edit ${row.title}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"

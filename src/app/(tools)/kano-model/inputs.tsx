@@ -139,10 +139,32 @@ export function KanoInputs({ method, draft, update, errors, size }: MethodInputs
           className="grid-cols-2 sm:grid-cols-3"
         />
       )}
-      <p role="status" className="text-sm text-text">
-        {previewText(draft, mode)}
-      </p>
+      <PreviewLine
+        text={previewText(draft, mode)}
+        started={
+          mode === "pair"
+            ? PAIR_KEYS.some((k) => draft[k] !== undefined)
+            : draftCounts(draft) !== null
+        }
+      />
     </div>
+  );
+}
+
+/**
+ * The form's live line. It is a live region only once something is
+ * answered: the form resets after Add, and the reset's "Answer both
+ * questions…" would otherwise be read out over the "Added …" announcement.
+ * Until then the same words show as plain text.
+ */
+function PreviewLine({ text, started }: { text: string; started: boolean }) {
+  return (
+    <>
+      <p role="status" className={started ? "text-sm text-text" : "sr-only"}>
+        {started ? text : ""}
+      </p>
+      {!started && <p className="text-sm text-sub">{text}</p>}
+    </>
   );
 }
 

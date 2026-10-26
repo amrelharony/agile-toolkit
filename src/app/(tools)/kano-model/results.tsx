@@ -11,7 +11,6 @@ import {
   KANO_MIN_RESPONSES,
   KANO_TABLE,
   kanoCategory,
-  kanoCoefficients,
   readKano,
   type KanoCategory,
   type KanoClass,
@@ -19,8 +18,15 @@ import {
 import type { PairRoundResult } from "@/lib/realtime/vote-room/pair";
 import type { RankedRow } from "@/lib/prioritization/rank";
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
-import { coefText, featureView, shortName, type FeatureView } from "./model";
-import { applyKanoRound } from "./survey";
+import {
+  FRAMEWORK,
+  coefText,
+  featureView,
+  shortName,
+  shownCoefficients,
+  type FeatureView,
+} from "./model";
+import { applyKanoRound, holdsRound } from "./survey";
 
 /** Each category's chip colours, as theme tokens (never a hex). */
 export const CATEGORY_TONE: Record<KanoCategory, string> = {
@@ -64,10 +70,11 @@ export function EvaluationTable() {
         <strong className="text-text">O</strong> performance,{" "}
         <strong className="text-text">M</strong> must-be, <strong className="text-text">I</strong>{" "}
         indifferent, <strong className="text-text">R</strong> reverse and{" "}
-        <strong className="text-text">Q</strong> questionable (the answers contradict each other). A
-        feature&apos;s category is its most common class (a tie goes M, O, A, I, R, Q) once{" "}
-        {KANO_MIN_RESPONSES} people have answered. Better = (A + O) ÷ (A + O + M + I), Worse = −(O +
-        M) ÷ (A + O + M + I).
+        <strong className="text-text">Q</strong> questionable (the answers contradict each other).
+        In a survey, a feature&apos;s category is its most common class (a tie goes M, O, A, I, R,
+        Q) once {KANO_MIN_RESPONSES} people have answered; one person&apos;s own pair gives its
+        class straight away. Better = (A + O) ÷ (A + O + M + I), Worse = −(O + M) ÷ (A + O + M + I),
+        from {KANO_MIN_RESPONSES} answers that aren&apos;t R or Q.
       </p>
       <div className="scroll-x-snap relative">
         <table className="text-xs">
@@ -114,7 +121,7 @@ export function EvaluationTable() {
   );
 }
 
-/** The features with Better and Worse (3 answers or more), in list order. */
+/** The features with Better and Worse (3 answers or more that count), in list order. */
 export function plotted(rows: readonly RankedRow[]): FeatureView[] {
   return rows.map(featureView).filter((f) => f.coefficients !== null);
 }
@@ -148,7 +155,8 @@ export function BetterWorsePlot({ rows }: { rows: readonly RankedRow[] }) {
   const points = plotted(rows);
   const answered = rows.map(featureView).filter((f) => f.reading.counts !== null);
   if (points.length === 0) {
-    const most = answered.reduce((m, f) => Math.max(m, f.n), 0);
+    // Answers Better and Worse count (not Reverse or Questionable).
+    const most = answered.reduce((m, f) => Math.max(m, f.said), 0);
     return (
       <NotEnoughData
         have={most}
@@ -226,7 +234,9 @@ export function BetterWorsePlot({ rows }: { rows: readonly RankedRow[] }) {
  * Beside a round's Save: what saving does to each feature, by the same
  * code that saves it (applyKanoRound, with "Add to earlier answers" as
  * set): its category and Better and Worse after the round, or why it is
- * left as it is.
+ * left as it is. Once the round is saved (the panels keep this showing),
+ * a feature holding the round shows what it stores, "Saved", never the
+ * round folded in a second time.
  */
 export function KanoRoundPreview({
   result,
@@ -238,22 +248,27 @@ export function KanoRoundPreview({
   add: boolean;
 }) {
   const next = new Map(applyKanoRound(rows, result, { add }).map((r) => [r.id, r]));
+  const held = new Map(
+    rows.filter((r) => r.framework === FRAMEWORK && holdsRound(r, result)).map((r) => [r.id, r])
+  );
   return (
     <div className="space-y-1">
       <h4 className="text-sm font-medium text-text">What saving does</h4>
       <ul className="space-y-1 text-sm">
         {result.items.map((item) => {
-          const row = next.get(item.id);
+          const saved = !next.has(item.id) && held.has(item.id);
+          const row = next.get(item.id) ?? held.get(item.id);
           const r = row ? readKano(row.fields) : null;
           const cat = r?.counts ? kanoCategory(r.counts) : null;
-          const coef = r?.counts ? kanoCoefficients(r.counts) : null;
+          const coef = shownCoefficients(r?.counts ?? null);
           return (
             <li key={item.id} className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-text">{item.text}</span>
               {r && cat ? (
                 <span className="text-xs text-sub">
+                  {saved ? "Saved: " : ""}
                   {KANO_CATEGORY_LABEL[cat]} · {r.n} {r.n === 1 ? "answer" : "answers"}
-                  {add ? " in all" : ""} · Better {coefText(coef?.better)}, Worse{" "}
+                  {add && !saved ? " in all" : ""} · Better {coefText(coef?.better)}, Worse{" "}
                   {coefText(coef?.worse)}
                 </span>
               ) : (

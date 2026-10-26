@@ -7,14 +7,14 @@
  *
  * - The category is derived, never picked, by the method registry (the
  *   agent actions read it the same way): from survey counts once 3 people
- *   have answered, or from one person's answer pair. Better and Worse need
- *   3 answers too.
+ *   have answered, or from one person's answer pair (marked as such).
+ *   Better and Worse need 3 answers that aren't Reverse or Questionable.
  * - Answers come three ways: one person's pair in the form, survey counts
  *   tallied elsewhere, or a survey round through the vote-room kit (a live
  *   room, or the kit's 5×5 count grid per feature when rooms are off). A
  *   round keeps only each feature's joint counts; saving replaces a
  *   feature's earlier counts unless "Add to earlier answers" is on, with
- *   Undo.
+ *   Undo, and never counts the same round twice.
  * - A category picked by hand on the old page still counts, as "Picked by
  *   hand" with "Add answers"; the page never writes one.
  * - Lists go what-customers-expect first (Decide order's ranking) and hold
@@ -47,6 +47,7 @@ import {
   withClears,
   type MethodDraft,
 } from "@/components/prioritization/method-tool";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
@@ -74,7 +75,7 @@ import {
 } from "./model";
 import { BetterWorsePlot, EvaluationTable, KanoRoundPreview } from "./results";
 import { FeatureRow } from "./rows";
-import { applyKanoRound, kanoSurvey } from "./survey";
+import { applyKanoRound, holdsRound, kanoSurvey } from "./survey";
 import { kanoVerdict } from "./verdict";
 
 const NO_ROWS: PrioritizationItem[] = [];
@@ -93,6 +94,13 @@ export function KanoModelClient() {
   const editorRef = useRef<HTMLLIElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addToEarlier, setAddToEarlier] = useState(false);
+  // Save and Cancel unmount the editor: focus goes back to the row's Edit
+  // button, in whichever list the feature lands.
+  const { refFor, returnTo } = useReturnFocus();
+  const closeEditor = (id: string) => {
+    setEditingId(null);
+    returnTo(`edit:${id}`);
+  };
 
   // "Import from backlog" (or a "Score with Kano" link) fills the title; an
   // item already answered here opens its row instead of a second one.
@@ -134,9 +142,11 @@ export function KanoModelClient() {
     const next = applyKanoRound(rows, result, { add: addToEarlier });
     if (next.length === 0) {
       toast.error(
-        result.items.some((x) => x.joint)
-          ? "The round's features are no longer on the list, so nothing was saved."
-          : `No feature had ${result.minN} answers, so nothing was saved.`
+        rows.some((r) => r.framework === FRAMEWORK && holdsRound(r, result))
+          ? "This round is already saved."
+          : result.items.some((x) => x.joint)
+            ? "The round's features are no longer on the list, so nothing was saved."
+            : `No feature had ${result.minN} answers, so nothing was saved.`
       );
       return false;
     }
@@ -309,7 +319,7 @@ export function KanoModelClient() {
                           <KanoRowEditor
                             ranked={f.ranked}
                             onSave={(draft) => {
-                              setEditingId(null);
+                              closeEditor(f.ranked.row.id);
                               actions.save(f.ranked.row.id, draft);
                               const after = featureView(
                                 kanoRows(useWorkspaceStore.getState().prioritizations ?? []).find(
@@ -322,13 +332,14 @@ export function KanoModelClient() {
                                 );
                               }
                             }}
-                            onCancel={() => setEditingId(null)}
+                            onCancel={() => closeEditor(f.ranked.row.id)}
                           />
                         ) : (
                           <FeatureRow
                             feature={f}
                             onEdit={() => setEditingId(f.ranked.row.id)}
                             onRemove={() => actions.remove(f.ranked.row)}
+                            editRef={refFor(`edit:${f.ranked.row.id}`)}
                           />
                         )}
                       </li>
@@ -353,7 +364,7 @@ export function KanoModelClient() {
             <>
               <p className="text-sm text-sub">
                 Each person answers the two questions about every feature, anonymously; only the
-                totals per feature are kept. A feature&apos;s category shows from{" "}
+                totals per feature are kept. From a survey, a feature&apos;s category shows from{" "}
                 {KANO_MIN_RESPONSES} answers.
               </p>
               {survey.left > 0 && survey.sheet && (

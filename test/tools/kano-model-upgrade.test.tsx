@@ -205,7 +205,9 @@ describe("Kano: reading what's stored", () => {
     expect(listed("Not answered").join(" ")).toContain("Misspelt pick");
     expect(listed("Not answered").join(" ")).toContain("Nothing yet");
     expect(listed("Needs more answers")).toEqual([
-      expect.stringContaining("Better and Worse from 3 answers (2 so far)"),
+      expect.stringContaining(
+        "Better and Worse from 3 answers, not counting Reverse or Questionable (2 so far)"
+      ),
     ]);
     expect(screen.queryByRole("region", { name: /^Performance/ })).toBeNull();
     // Nothing is rewritten on read: the old scores stay where they were.
@@ -269,13 +271,14 @@ describe("Kano: a survey round (count entry, live rooms off)", () => {
     }
   };
 
-  it("asks about the user's own features, unanswered first, never the examples", () => {
+  it("asks about the user's own features in list order, never the examples", () => {
     const survey = kanoSurvey([
       feature("done", "Answered", counts(3, 0, 0, 0, 0, 0)),
       feature("todo", "Unanswered"),
       feature("example-kano-1", "An example"),
     ]);
-    expect(survey.sheet?.items.map((i) => i.id)).toEqual(["todo", "done"]);
+    // List order, not unanswered first: saving a round never reshuffles the sheet.
+    expect(survey.sheet?.items.map((i) => i.id)).toEqual(["done", "todo"]);
     expect(survey.sheet?.answers).toEqual([
       "I like it",
       "I expect it",
@@ -287,6 +290,13 @@ describe("Kano: a survey round (count entry, live rooms off)", () => {
     const many = Array.from({ length: 40 }, (_, i) => feature(`f${i}`, `Feature ${i}`));
     expect(kanoSurvey(many)).toMatchObject({ left: 8 });
     expect(kanoSurvey(many).sheet?.items).toHaveLength(32);
+    // Over the cap the unanswered ones are asked, still in list order.
+    const mixed = many.map((f, i) => (i < 10 ? { ...f, fields: counts(3, 0, 0, 0, 0, 0) } : f));
+    const asked = kanoSurvey(mixed).sheet?.items.map((i) => i.id) ?? [];
+    expect(asked).toHaveLength(32);
+    expect(asked.slice(0, 2)).toEqual(["f0", "f1"]);
+    expect(asked.filter((id) => Number(id.slice(1)) >= 10)).toHaveLength(30);
+    expect(asked).toEqual([...asked].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))));
   });
 
   it("replaces a feature's counts with the round's, with Undo", async () => {
@@ -407,7 +417,7 @@ describe("Kano: first run, results and export", () => {
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Cover “Single sign-on with Okta” and “Export the board to CSV” first (Must-be); “Dark mode” delights (Better 0.75); “Sound effects when a task is done” got contradictory answers: check the question."
+        "Cover “Single sign-on with Okta” and “Export the board to CSV” first (Must-be); “Dark mode” delights (Better 0.75); “Sound effects when a task is done” got contradictory answers: check the question; 1 category comes from one person's answers: survey customers to confirm it."
       )
     ).toBeInTheDocument();
     act(() => state().upsertPrioritization(feature("mine", "Mine")));
@@ -459,9 +469,27 @@ describe("Kano: first run, results and export", () => {
     expect(kanoVerdict(kanoRows([feature("a", "A"), feature("b", "B")]))).toBe(
       "Answer both questions about the 2 features, or run a survey, to find their categories."
     );
+    // The feature that needs more is named, with how many; the rest are counted.
     expect(kanoVerdict(kanoRows([feature("a", "A", counts(1, 1, 0, 0, 0, 0))]))).toBe(
-      "The feature needs more answers: a category shows from 3."
+      "“A” needs 1 more answer for a category."
     );
+    expect(
+      kanoVerdict(
+        kanoRows([
+          feature("a", "A", counts(1, 0, 0, 0, 0, 0)),
+          feature("b", "B"),
+          feature("c", "C"),
+        ])
+      )
+    ).toBe("“A” needs 2 more answers for a category; 2 not answered yet.");
+    expect(
+      kanoVerdict(
+        kanoRows([
+          feature("a", "A", counts(1, 0, 0, 0, 0, 0)),
+          feature("b", "B", counts(0, 2, 0, 0, 0, 0)),
+        ])
+      )
+    ).toBe("“A” and “B” need more answers: a category shows from 3.");
   });
 
   it("exports Markdown with counts and coefficients, CSV derived, JSON as shown", () => {
@@ -530,8 +558,9 @@ describe("Kano: the agent reads what the page shows", () => {
     expect(listed("Must-be")).toEqual([expect.stringContaining("Old pick")]);
     expect(out.questionable.map((r) => r.id)).toEqual(["d"]);
     expect(listed("Questionable")).toEqual([expect.stringContaining("Sounds")]);
-    // Too few answers: unanswered for the agent, "Needs more answers" on the page.
-    expect(out.unanswered.map((r) => r.id)).toEqual(["c"]);
+    // Too few answers: needs_more for the agent, "Needs more answers" on the page.
+    expect(out.needs_more.map((r) => r.id)).toEqual(["c"]);
+    expect(out.unanswered).toEqual([]);
     expect(listed("Needs more answers")).toEqual([expect.stringContaining("Few")]);
   });
 });

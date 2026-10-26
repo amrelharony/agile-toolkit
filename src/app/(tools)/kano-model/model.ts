@@ -8,9 +8,10 @@
  *
  * The category is derived, never picked: from survey counts (the most
  * common class, once there are 3 answers), else from one person's answer
- * pair. A category picked by hand on the old page still counts, marked
- * "Picked by hand" with a prompt to add answers; an unknown one is "Not
- * answered", never Performance.
+ * pair, which the rows and the verdict mark as one person's answers. A
+ * category picked by hand on the old page still counts, marked "Picked by
+ * hand" with a prompt to add answers; an unknown one is "Not answered",
+ * never Performance.
  */
 
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
@@ -61,21 +62,38 @@ export interface FeatureView {
   reading: KanoReading;
   /** The derived (or legacy picked) category; null until there's enough. */
   category: KanoCategory | null;
-  /** One person's answer pair's class, for the "1 answer pair" line. */
+  /** One person's answer pair's class, for the "One person's answers" line. */
   pairClass: KanoClass | null;
-  /** Better and Worse, only from KANO_MIN_RESPONSES counted answers. */
+  /** Better and Worse, only from KANO_MIN_RESPONSES answers they count (shownCoefficients). */
   coefficients: { better: number; worse: number; n: number } | null;
   /** Answers counted (the counts' total, 1 for a pair, 0 otherwise). */
   n: number;
+  /** The answers Better and Worse count: A + O + M + I (0 without counts). */
+  said: number;
   picked: boolean;
+  /** The category comes from one person's answer pair, not a survey. */
+  fromPair: boolean;
   group: KanoGroupId;
+}
+
+/**
+ * Better and Worse once KANO_MIN_RESPONSES answers count toward them. They
+ * divide by A + O + M + I, so Reverse and Questionable answers don't count
+ * toward the minimum either: 3 answers that are all R or Q have no Better
+ * or Worse at all, and {A 1, R 1, Q 1} is one answer for them, not three.
+ * Null until then. The agent actions gate them the same way.
+ */
+export function shownCoefficients(
+  counts: KanoCounts | null
+): { better: number; worse: number; n: number } | null {
+  const c = counts ? kanoCoefficients(counts) : null;
+  return c && c.n >= KANO_MIN_RESPONSES ? c : null;
 }
 
 export function featureView(r: RankedRow): FeatureView {
   const reading = readKano(r.values);
   const category = (r.result.bucket as KanoCategory | null) ?? null;
-  const enough = reading.counts !== null && reading.n >= KANO_MIN_RESPONSES;
-  const coefficients = enough && reading.counts ? kanoCoefficients(reading.counts) : null;
+  const coefficients = shownCoefficients(reading.counts);
   const pairClass = reading.pair
     ? kanoClass(reading.pair.functional, reading.pair.dysfunctional)
     : null;
@@ -91,9 +109,19 @@ export function featureView(r: RankedRow): FeatureView {
     pairClass: reading.counts ? null : pairClass,
     coefficients,
     n: reading.n,
+    said: reading.counts ? (kanoCoefficients(reading.counts)?.n ?? 0) : 0,
     picked: reading.source === "picked",
+    fromPair: category !== null && reading.counts === null && reading.pair !== null,
     group,
   };
+}
+
+/** Why a feature with survey counts shows no Better and Worse yet. */
+export function coefficientsWait(f: FeatureView): string {
+  if (f.said === 0 && f.n >= KANO_MIN_RESPONSES) {
+    return `All ${f.n} answers were Reverse or Questionable: no Better or Worse`;
+  }
+  return `Better and Worse from ${KANO_MIN_RESPONSES} answers, not counting Reverse or Questionable (${f.said} so far)`;
 }
 
 /** List order: what customers expect first (Decide order's ranking), then the rest. */
@@ -166,11 +194,15 @@ export function kanoGroups(rows: readonly RankedRow[]): KanoGroup[] {
 export const coefText = (n: number | null | undefined): string =>
   n === null || n === undefined ? "—" : formatNumber(n, 2);
 
-/** How a feature was answered, in words: "12 answers", "1 answer pair: I like it / I dislike it", "Picked by hand". */
+/**
+ * How a feature was answered, in words: "12 answers", "One person's
+ * answers: I like it / I dislike it" (a category from a single pair, not
+ * a survey), "Picked by hand".
+ */
 export function answersText(f: FeatureView): string {
   if (f.reading.counts) return f.n === 1 ? "1 answer" : `${f.n} answers`;
   if (f.reading.pair) {
-    return `1 answer pair: ${KANO_ANSWER_LABEL[f.reading.pair.functional]} / ${KANO_ANSWER_LABEL[f.reading.pair.dysfunctional]}`;
+    return `One person's answers: ${KANO_ANSWER_LABEL[f.reading.pair.functional]} / ${KANO_ANSWER_LABEL[f.reading.pair.dysfunctional]}`;
   }
   if (f.picked) return "Picked by hand";
   return "Not answered";
@@ -201,7 +233,7 @@ export function previewText(v: Values, mode: "pair" | "counts"): string {
     }
     const r = KANO.evaluate(v);
     const cat = r.bucket as KanoCategory | null;
-    const coef = kanoCoefficients(c);
+    const coef = shownCoefficients(c);
     const tail = coef ? ` Better ${coefText(coef.better)}, Worse ${coefText(coef.worse)}.` : "";
     return cat
       ? `${total} answers: ${KANO_CATEGORY_LABEL[cat]}.${tail}`
