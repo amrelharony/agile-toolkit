@@ -4,9 +4,17 @@ import type {
   AdkarInitiative,
   CharterRule,
   DefinitionOfDone,
+  HandoffLink,
+  HealthCheck,
+  HealthCheckEntry,
   Kudos,
   MaturityAssessmentEntry,
   MoodEntry,
+  MoodPulse,
+  PsychSafetyCounts,
+  PsychSafetyQuestionId,
+  PsychSafetyResponse,
+  PsychSafetyRound,
   RaciMatrix,
   Release,
   RetroBoard,
@@ -18,15 +26,18 @@ import type {
   WorkingAgreement,
   Workspace,
 } from "@/lib/stores/workspace-types";
+import { HEALTH_CHECK_DIMENSIONS } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { DOD_GATE } from "@/lib/releases/gates";
+import { emptySnapshot } from "@/lib/health-check/score";
 
 /**
  * Next steps for the Team & people tools (Phase 6): each reads the
  * workspace through the tool's own model and points somewhere real,
  * ignores example rows, and stays quiet when nothing applies. Also the
  * Definition of Done as Release Readiness and the Sprint board read it.
+ * The pulse tools' steps are team level: none names or singles out anyone.
  */
 
 const steps = (toolId: string, ws: Partial<Workspace>) => {
@@ -77,11 +88,397 @@ const card = (id: string, over: Partial<RetroCard> = {}): RetroCard => ({
   ...over,
 });
 
+/** A hand-off link to the retro topic `targetId`. */
+const toRetro = (targetId: string): HandoffLink[] => [
+  { route: "retro-topic", targetId, at: "2026-10-21T10:00:00.000Z" },
+];
+const ARCHIVED = { archivedAt: "2026-10-23T16:00:00.000Z" };
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(`${TODAY}T09:00:00`));
 });
 afterEach(() => vi.useRealTimers());
+
+describe("health check", () => {
+  type Light = "green" | "yellow" | "red";
+  const scores = (lights: Partial<Record<string, Light>> = {}) =>
+    Object.fromEntries(
+      HEALTH_CHECK_DIMENSIONS.map((d) => [d, { light: lights[d] ?? "green", trend: "same" }])
+    ) as HealthCheckEntry["scores"];
+  const check = (id: string, date: string, over: Partial<HealthCheckEntry> = {}) => ({
+    id,
+    sprintName: "",
+    date,
+    scores: scores(),
+    ...over,
+  });
+  const doc = (history: HealthCheckEntry[]): HealthCheck[] => [
+    { id: "healthCheck:current", current: emptySnapshot(), history },
+  ];
+  const s1 = sprint({
+    id: "s1",
+    name: "Sprint 1",
+    startDate: "2026-10-05",
+    endDate: "2026-10-16",
+    status: "completed",
+  });
+  const reds = (over: Partial<HealthCheckEntry["scores"]> = {}) => ({
+    ...scores({ "Health of Codebase": "red", Speed: "red" }),
+    ...over,
+  });
+
+  it("sends the latest check's reds to the retro, in page order", () => {
+    const out = steps("health-check", {
+      healthChecks: doc([
+        check("old", "2026-10-09", { scores: scores({ Fun: "red" }) }),
+        check("c2", "2026-10-23", { sprintId: "s2", sprintName: "Sprint 2", scores: reds() }),
+      ]),
+      retroBoards: [],
+      sprints: [sprint()],
+    });
+    expect(out).toEqual([
+      {
+        id: "health-check-send-reds",
+        label: "Send the 2 red dimensions to the retro",
+        detail:
+          "Health of Codebase and Speed were red in the Sprint 2 check. “Send reds to retro” under Saved checks makes each one a topic.",
+        href: "/health-check",
+      },
+    ]);
+  });
+
+  it("counts only the reds still to send, then points at the retro board", () => {
+    const sentCodebase = { light: "red" as const, trend: "same" as const, sentTo: toRetro("t1") };
+    const both = reds({
+      "Health of Codebase": sentCodebase,
+      Speed: { ...sentCodebase, sentTo: toRetro("t2") },
+    });
+    const ws = (s: HealthCheckEntry["scores"], boards: RetroBoard[]) => ({
+      healthChecks: doc([check("c2", "2026-10-23", { scores: s })]),
+      retroBoards: boards,
+      sprints: [],
+    });
+    const current = board("retro:current", [card("t1"), card("t2")]);
+    // One sent, one not.
+    expect(
+      steps("health-check", ws(reds({ "Health of Codebase": sentCodebase }), [current]))
+    ).toEqual([
+      expect.objectContaining({
+        id: "health-check-send-reds",
+        label: "Send the 1 red dimension to the retro",
+        detail:
+          "Speed was red in the check of 23 Oct. “Send reds to retro” under Saved checks makes each one a topic.",
+      }),
+    ]);
+    expect(steps("health-check", ws(both, [current]))).toEqual([
+      {
+        id: "health-check-discuss-reds",
+        label: "Discuss the 2 red dimensions at the retro",
+        detail:
+          "Health of Codebase and Speed from the check of 23 Oct are on the current retro board as topics.",
+        href: "/retro",
+      },
+    ]);
+    // A card removed from the board can be sent again; an archived retro has been held.
+    expect(ids("health-check", ws(both, [board("retro:current", [card("t1")])]))).toEqual([
+      "health-check-send-reds",
+    ]);
+    expect(
+      ids("health-check", ws(both, [board("retro:old", [card("t1"), card("t2")], ARCHIVED)]))
+    ).toEqual([]);
+  });
+
+  it("compares quality across sprints once another sprint has a check", () => {
+    const ws = (history: HealthCheckEntry[]) => ({
+      healthChecks: doc(history),
+      retroBoards: [],
+      sprints: [s1, sprint()],
+    });
+    const latest = check("c2", "2026-10-23", { sprintId: "s2", sprintName: "Sprint 2" });
+    expect(
+      steps("health-check", ws([check("c1", "2026-10-15", { sprintId: "s1" }), latest]))
+    ).toEqual([
+      {
+        id: "health-check-compare",
+        label: "Compare quality across sprints",
+        detail:
+          "Sprint Comparison suggests Sprint 2's Quality from this check's Health of Codebase and Easy to Release lights, next to 1 other sprint with a check.",
+        href: "/sprint-compare?sprint=s2",
+      },
+    ]);
+    // Only this sprint has a check: nothing to compare it with yet.
+    expect(ids("health-check", ws([latest]))).toEqual([]);
+  });
+
+  it("shows the change in health on the Team Dashboard when nothing else applies", () => {
+    const yellow = (n: number) =>
+      scores(Object.fromEntries(HEALTH_CHECK_DIMENSIONS.slice(0, n).map((d) => [d, "yellow"])));
+    const ws = (a: number, b: number) => ({
+      healthChecks: doc([
+        check("c1", "2026-10-09", { scores: yellow(a) }),
+        check("c2", "2026-10-23", { scores: yellow(b) }),
+      ]),
+      retroBoards: [],
+      sprints: [],
+    });
+    expect(steps("health-check", ws(8, 4))).toEqual([
+      {
+        id: "health-check-dashboard",
+        label: "See team health on the Team Dashboard",
+        detail: "Health went from 50% to 75% since the check before.",
+        href: "/health-dashboard",
+      },
+    ]);
+    expect(steps("health-check", ws(4, 4))[0].detail).toBe(
+      "Health held at 75% since the check before."
+    );
+  });
+
+  it("reads saved checks only, never an example one", () => {
+    expect(
+      ids("health-check", {
+        healthChecks: doc([check("example-c1", "2026-10-23", { scores: reds() })]),
+        retroBoards: [],
+        sprints: [],
+      })
+    ).toEqual([]);
+    // One real check, all green, for no sprint: nothing to do.
+    expect(
+      ids("health-check", {
+        healthChecks: doc([check("c1", "2026-10-23")]),
+        retroBoards: [],
+        sprints: [],
+      })
+    ).toEqual([]);
+    expect(ids("health-check", { healthChecks: [], retroBoards: [], sprints: [] })).toEqual([]);
+  });
+});
+
+describe("psych safety", () => {
+  const SAFE: PsychSafetyCounts = [0, 0, 0, 3, 3]; // 4.5
+  const SAFE_REVERSED: PsychSafetyCounts = [3, 3, 0, 0, 0]; // 1.5 raw, 4.5 reverse-scored
+  const REVERSED = new Set(["q1", "q3", "q5"]);
+  const counts = (over: Partial<Record<PsychSafetyQuestionId, PsychSafetyCounts>> = {}) =>
+    Object.fromEntries(
+      (["q1", "q2", "q3", "q4", "q5", "q6", "q7"] as const).map((q) => [
+        q,
+        over[q] ?? (REVERSED.has(q) ? SAFE_REVERSED : SAFE),
+      ])
+    ) as PsychSafetyRound["counts"];
+  const round = (
+    id: string,
+    name: string,
+    date: string,
+    over: Partial<PsychSafetyRound> = {}
+  ): PsychSafetyRound => ({
+    id,
+    name,
+    date,
+    source: "room",
+    responses: 6,
+    counts: counts(),
+    createdAt: `${date}T10:00:00.000Z`,
+    ...over,
+  });
+  const spring = round("r1", "Spring check-in", "2026-06-01");
+  const log = (rounds: PsychSafetyRound[], responses: PsychSafetyResponse[] = []) => [
+    { id: "psychSafety:current", responses, rounds },
+  ];
+  // Q4 falls from 4.5 to 3.
+  const autumn = (over: Partial<PsychSafetyRound> = {}) =>
+    round("r2", "Autumn check-in", "2026-10-20", {
+      counts: counts({ q4: [0, 0, 6, 0, 0] }),
+      ...over,
+    });
+
+  it("sends a drop between the last two rounds to the retro, naming statements only", () => {
+    expect(
+      steps("psych-safety", { psychSafetyLogs: log([spring, autumn()]), retroBoards: [] })
+    ).toEqual([
+      {
+        id: "psych-safety-send-drop",
+        label: "Send the drop to the retro",
+        detail:
+          "“It is safe to take a risk on this team.” fell by more than 0.5 since Spring check-in. Use “Send to…” → “Retro topic (no names)” under Results: the topic names the statements, never who answered what.",
+        href: "/psych-safety",
+      },
+    ]);
+    const two = autumn({ counts: counts({ q4: [0, 0, 6, 0, 0], q2: [0, 0, 3, 3, 0] }) });
+    expect(
+      steps("psych-safety", { psychSafetyLogs: log([spring, two]), retroBoards: [] })[0].detail
+    ).toMatch(
+      /^2 statements, “It is safe to take a risk on this team\.” most, fell by more than 0\.5 since Spring check-in\./
+    );
+  });
+
+  it("points at the retro once the drop is a topic there, and is quiet after that retro", () => {
+    const sent = autumn({ sentTo: toRetro("t-ps") });
+    const ws = (boards: RetroBoard[]) => ({
+      psychSafetyLogs: log([spring, sent]),
+      retroBoards: boards,
+    });
+    expect(steps("psych-safety", ws([board("retro:current", [card("t-ps")])]))).toEqual([
+      {
+        id: "psych-safety-drop",
+        label: "Talk about the drop at the retro",
+        detail:
+          "“It is safe to take a risk on this team.” fell by more than 0.5 since Spring check-in. It's on the current retro board as a topic.",
+        href: "/retro",
+      },
+    ]);
+    expect(ids("psych-safety", ws([board("retro:old", [card("t-ps")], ARCHIVED)]))).toEqual([]);
+    expect(ids("psych-safety", ws([]))).toEqual(["psych-safety-send-drop"]);
+  });
+
+  it("takes a drop in the read-only earlier responses straight to the retro", () => {
+    // Five answer sheets from before rounds: Q4 at 3, the rest at their safest.
+    const sheet = (i: number): PsychSafetyResponse => ({
+      id: `resp-${i}`,
+      ts: "2026-10-01T10:00:00.000Z",
+      scores: { q1: 1, q2: 5, q3: 1, q4: 3, q5: 1, q6: 5, q7: 5 },
+    });
+    const out = steps("psych-safety", {
+      psychSafetyLogs: log([spring], [0, 1, 2, 3, 4].map(sheet)),
+      retroBoards: [],
+    });
+    expect(out).toEqual([
+      expect.objectContaining({
+        id: "psych-safety-drop",
+        href: "/retro",
+        detail:
+          "“It is safe to take a risk on this team.” fell by more than 0.5 since Spring check-in. Talk it through as a team, without asking who answered what.",
+      }),
+    ]);
+  });
+
+  it("raises the lowest statement when it scores under 3", () => {
+    // Q1 is worded negatively: 4.5 raw agreement scores 1.5.
+    const low = round("r2", "Autumn check-in", "2026-10-20", { counts: counts({ q1: SAFE }) });
+    expect(steps("psych-safety", { psychSafetyLogs: log([low]), retroBoards: [] })).toEqual([
+      {
+        id: "psych-safety-lowest",
+        label: "Talk through the lowest-scoring statement at the retro",
+        detail:
+          "“If I make a mistake on this team, it is held against me.” scored 1.5 out of 5 (reverse-scored) in Autumn check-in. Ask what would make it safer, never who answered what.",
+        href: "/retro",
+      },
+    ]);
+    // A statement at the midpoint isn't raised.
+    expect(ids("psych-safety", { psychSafetyLogs: log([autumn()]), retroBoards: [] })).toEqual([]);
+  });
+
+  it("says nothing for a round below five responses or an example round", () => {
+    const thin = autumn({ responses: 4 });
+    expect(ids("psych-safety", { psychSafetyLogs: log([spring, thin]), retroBoards: [] })).toEqual(
+      []
+    );
+    const example = autumn({ id: "example-r2", counts: counts({ q1: SAFE }) });
+    expect(
+      ids("psych-safety", { psychSafetyLogs: log([spring, example]), retroBoards: [] })
+    ).toEqual([]);
+    expect(ids("psych-safety", { psychSafetyLogs: [], retroBoards: [] })).toEqual([]);
+  });
+});
+
+describe("mood tracker", () => {
+  const pulse = (id: string, date: string, low = 3, high = 0): MoodPulse => ({
+    id,
+    date,
+    counts: { 1: 0, 2: low, 3: 0, 4: high, 5: 0 },
+    source: "room",
+    createdAt: `${date}T12:00:00.000Z`,
+  });
+  // Three low check-in days (the weekend skipped), three answers each.
+  const LOW = [pulse("p1", "2026-10-22"), pulse("p2", "2026-10-23"), pulse("p3", "2026-10-26")];
+  const settings = (sentTo?: HandoffLink[]) => [
+    {
+      id: "moodTracker:current",
+      mode: "anonymous" as const,
+      streaks: [{ start: "2026-10-22", end: "2026-10-26", ...(sentTo ? { sentTo } : {}) }],
+    },
+  ];
+
+  it("raises a low-mood streak at the retro without names, then Sprint Comparison", () => {
+    const out = steps("mood-tracker", {
+      moodEntries: [],
+      moodPulses: LOW,
+      moodTrackerDocs: [],
+      retroBoards: [],
+      sprints: [sprint()],
+    });
+    expect(out).toEqual([
+      {
+        id: "mood-send-streak",
+        label: "Raise the low-mood streak at the retro",
+        detail:
+          "The team averaged 2 out of 5 over 3 check-in days in a row (22–26 Oct). Use “Send to…” → “Retro topic (no names)” on the low-mood callout: the topic names no one.",
+        href: "/mood-tracker",
+      },
+      {
+        id: "mood-sprint-compare",
+        label: "See Team Happiness in Sprint Comparison",
+        detail:
+          "9 check-ins during Sprint 2 average 2 out of 5: Sprint Comparison suggests its Team Happiness from them.",
+        href: "/sprint-compare?sprint=s2",
+      },
+    ]);
+  });
+
+  it("points at the retro board once the streak is a topic, and is quiet after that retro", () => {
+    const ws = (boards: RetroBoard[]) => ({
+      moodEntries: [],
+      moodPulses: LOW,
+      moodTrackerDocs: settings(toRetro("t-mood")),
+      retroBoards: boards,
+      sprints: [],
+    });
+    expect(steps("mood-tracker", ws([board("retro:current", [card("t-mood")])]))).toEqual([
+      {
+        id: "mood-discuss-streak",
+        label: "Discuss the low-mood streak at the retro",
+        detail:
+          "The team averaged 2 out of 5 over 3 check-in days in a row (22–26 Oct). It's on the current retro board as a topic.",
+        href: "/retro",
+      },
+    ]);
+    expect(ids("mood-tracker", ws([board("retro:old", [card("t-mood")], ARCHIVED)]))).toEqual([]);
+    expect(ids("mood-tracker", ws([]))).toEqual(["mood-send-streak"]);
+  });
+
+  it("never reads a streak from fewer than three check-ins a day, or from examples", () => {
+    // Two people low by name every day: never a team streak, so no one is singled out.
+    const named = ["2026-10-22", "2026-10-23", "2026-10-26"].flatMap((date, i) => [
+      { id: `a${i}`, memberId: "m1", date, score: 1 as const },
+      { id: `b${i}`, memberId: "m2", date, score: 2 as const },
+    ]);
+    const ws = { moodPulses: [], moodTrackerDocs: [], retroBoards: [], sprints: [] };
+    expect(ids("mood-tracker", { ...ws, moodEntries: named })).toEqual([]);
+    const examples = LOW.map((p) => ({ ...p, id: `example-${p.id}` }));
+    expect(
+      ids("mood-tracker", { ...ws, moodEntries: [], moodPulses: examples, sprints: [sprint()] })
+    ).toEqual([]);
+  });
+
+  it("needs a sprint with real dates and three check-ins for Sprint Comparison", () => {
+    const happy = [pulse("p1", "2026-10-22", 0, 3)];
+    const ws = (sprints: Sprint[]) => ({
+      moodEntries: [],
+      moodPulses: happy,
+      moodTrackerDocs: [],
+      retroBoards: [],
+      sprints,
+    });
+    expect(steps("mood-tracker", ws([sprint()]))[0].detail).toBe(
+      "3 check-ins during Sprint 2 average 4 out of 5: Sprint Comparison suggests its Team Happiness from them."
+    );
+    const synthetic = sprint({ startDate: "2020-01-06", endDate: "2020-01-17" });
+    expect(ids("mood-tracker", ws([synthetic]))).toEqual([]);
+    expect(
+      ids("mood-tracker", { ...ws([sprint()]), moodPulses: [pulse("p1", "2026-10-22", 2)] })
+    ).toEqual([]);
+  });
+});
 
 describe("kudos", () => {
   const kudos = (id: string, sentAt: string, over: Partial<Kudos> = {}): Kudos => ({

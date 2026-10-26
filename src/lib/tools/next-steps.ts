@@ -109,7 +109,32 @@ import {
   stageIndex,
   stuckInitiatives,
 } from "@/lib/adkar/model";
-import type { AdkarElement, DefinitionOfDone } from "@/lib/stores/workspace-types";
+import {
+  HEALTH_CHECK_ID,
+  QUALITY_DIMENSIONS,
+  checksByDate,
+  entryShare,
+  healthCheckFor,
+  redDimensions,
+  scoreOf,
+  sharePct,
+} from "@/lib/health-check/score";
+import {
+  ANOMALY_DROP,
+  PSYCH_SAFETY_ID,
+  compareRounds,
+  questionMeta,
+  roundResult,
+  roundsOf,
+} from "@/lib/psych-safety/instrument";
+import { MOOD_TRACKER_ID, lowMoodStreak, streakLinks } from "@/lib/team/mood";
+import { fmt } from "@/lib/charts/chart-text";
+import type {
+  AdkarElement,
+  DefinitionOfDone,
+  HandoffLink,
+  RetroBoard,
+} from "@/lib/stores/workspace-types";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -237,6 +262,40 @@ function kudosSprint(
   });
   return begun.find((s) => s.id === boardSprintId) ?? begun[0];
 }
+
+/**
+ * Where an item sent to the retro as a topic is now, read from the boards
+ * the way the retro-topic route finds its card (on any board: an archived
+ * retro keeps its cards' ids): on the current retro, on an archived one
+ * (that retro has been held), or nowhere (never sent, or the card was
+ * removed, so it can be sent again).
+ */
+function retroTopicAt(
+  links: readonly HandoffLink[] | undefined,
+  boards: readonly RetroBoard[] | undefined
+): "current" | "held" | null {
+  const link = (links ?? []).find((l) => l.route === "retro-topic");
+  if (!link) return null;
+  let at: "held" | null = null;
+  for (const b of boards ?? []) {
+    if (!(b.cards ?? []).some((c) => c.id === link.targetId)) continue;
+    if (b.id === RETRO_CURRENT_ID && !b.archivedAt) return "current";
+    at = "held";
+  }
+  return at;
+}
+
+/** "24–26 Oct", or "30 Sept–2 Oct" across months: a run of days, as the Mood Tracker writes it. */
+function daySpan(start: string, end: string): string {
+  if (start === end) return dayLabel(start);
+  const [day] = dayLabel(start).split(" ");
+  return start.slice(0, 7) === end.slice(0, 7)
+    ? `${day}–${dayLabel(end)}`
+    : `${dayLabel(start)}–${dayLabel(end)}`;
+}
+
+/** A psych-safety statement scoring under this (the scale's "neither agree nor disagree") is worth a retro. */
+const UNSAFE_BELOW = 3;
 
 /**
  * Where the weakest maturity dimension is worked on in the toolkit, and the
@@ -1653,9 +1712,191 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
-  // Team & people. One-on-One, Onboarding and the Stakeholder Map keep
-  // their records in the tool's own saved blob, which a rule can't read:
-  // their steps come from the roster, the sprints and the mood check-ins.
+  // Team & people. The pulse tools first: a vote round keeps only totals,
+  // so their steps read team-level numbers (saved checks, rounds of counts,
+  // the team's mood) and never name or single out anyone. One-on-One,
+  // Onboarding and the Stakeholder Map keep their records in the tool's own
+  // saved blob, which a rule can't read: their steps come from the roster,
+  // the sprints and the mood check-ins.
+  "health-check": rule({
+    select: (ws) => ({ docs: ws.healthChecks, boards: ws.retroBoards, sprints: ws.sprints }),
+    steps: ({ docs, boards, sprints }) => {
+      const doc = (docs ?? []).find((d) => d.id === HEALTH_CHECK_ID);
+      // Saved checks only (never the draft), example ones left out.
+      const checks = checksByDate(doc);
+      const latest = checks[checks.length - 1];
+      if (!latest) return [];
+      const steps: NextStep[] = [];
+      const name = latest.sprintName?.trim();
+      const where = name
+        ? `the ${name} check`
+        : `the check of ${dayLabel(latest.date) || "an unknown day"}`;
+      const reds = redDimensions(latest, doc).map((d) => ({
+        name: d.name,
+        at: retroTopicAt(scoreOf(latest, d.key)?.sentTo, boards),
+      }));
+      const unsent = reds.filter((r) => r.at === null);
+      const onBoard = reds.filter((r) => r.at === "current");
+      if (unsent.length > 0) {
+        steps.push({
+          id: "health-check-send-reds",
+          label: `Send the ${plural(unsent.length, "red dimension")} to the retro`,
+          detail: `${listNames(unsent.map((r) => r.name))} ${unsent.length === 1 ? "was" : "were"} red in ${where}. “Send reds to retro” under Saved checks makes each one a topic.`,
+          href: "/health-check",
+        });
+      } else if (onBoard.length > 0) {
+        steps.push({
+          id: "health-check-discuss-reds",
+          label: `Discuss the ${plural(onBoard.length, "red dimension")} at the retro`,
+          detail: `${listNames(onBoard.map((r) => r.name))} from ${where} ${be(onBoard.length)} on the current retro board as ${onBoard.length === 1 ? "a topic" : "topics"}.`,
+          href: "/retro",
+        });
+      }
+      // Sprint Comparison reads Quality from the check it matches to a sprint.
+      const all = real(sprints);
+      const sprint = latest.sprintId ? all.find((s) => s.id === latest.sprintId) : undefined;
+      const others = sprint
+        ? all.filter((s) => s.id !== sprint.id && healthCheckFor(doc, s, all)).length
+        : 0;
+      if (sprint && others > 0) {
+        steps.push({
+          id: "health-check-compare",
+          label: "Compare quality across sprints",
+          detail: `Sprint Comparison suggests ${sprint.name}'s Quality from this check's ${listNames(QUALITY_DIMENSIONS)} lights, next to ${plural(others, "other sprint")} with a check.`,
+          href: sprintHref("/sprint-compare", sprint.id),
+        });
+      }
+      const before = checks[checks.length - 2];
+      const was = sharePct(entryShare(before));
+      const now = sharePct(entryShare(latest));
+      if (steps.length === 0 && was !== null && now !== null) {
+        steps.push({
+          id: "health-check-dashboard",
+          label: "See team health on the Team Dashboard",
+          detail:
+            was === now
+              ? `Health held at ${now}% since the check before.`
+              : `Health went from ${was}% to ${now}% since the check before.`,
+          href: "/health-dashboard",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "psych-safety": rule({
+    select: (ws) => ({ logs: ws.psychSafetyLogs, boards: ws.retroBoards }),
+    steps: ({ logs, boards }) => {
+      const stored = (logs ?? []).find((l) => l.id === PSYCH_SAFETY_ID);
+      // Example rounds and answer sheets left out; a sheet's answers are only ever counted.
+      const rounds = stored
+        ? roundsOf({ ...stored, rounds: real(stored.rounds), responses: real(stored.responses) })
+        : [];
+      const latest = rounds[rounds.length - 1];
+      // Below the minimum a round shows nothing, so it suggests nothing either.
+      const result = roundResult(latest);
+      if (!latest || !result) return [];
+      const steps: NextStep[] = [];
+      const previous = rounds[rounds.length - 2];
+      const cmp = compareRounds(previous, latest);
+      const dropped = cmp?.dropped ?? [];
+      const [fell] = dropped;
+      if (previous && fell) {
+        const what =
+          dropped.length === 1
+            ? `“${questionMeta(fell)?.text}”`
+            : `${dropped.length} statements, “${questionMeta(fell)?.text}” most,`;
+        const fact = `${what} fell by more than ${ANOMALY_DROP} since ${previous.name}`;
+        const at = retroTopicAt(latest.sentTo, boards);
+        // The legacy round is read-only: it has nowhere to keep a send.
+        if (at === null && latest.source !== "legacy") {
+          steps.push({
+            id: "psych-safety-send-drop",
+            label: "Send the drop to the retro",
+            detail: `${fact}. Use “Send to…” → “Retro topic (no names)” under Results: the topic names the statements, never who answered what.`,
+            href: "/psych-safety",
+          });
+        } else if (at !== "held") {
+          steps.push({
+            id: "psych-safety-drop",
+            label: "Talk about the drop at the retro",
+            detail:
+              at === "current"
+                ? `${fact}. It's on the current retro board as a topic.`
+                : `${fact}. Talk it through as a team, without asking who answered what.`,
+            href: "/retro",
+          });
+        }
+      }
+      // A statement that fell is raised with the drop already.
+      const low = result.perQuestion.find((q) => q.id === result.lowest);
+      if (
+        low &&
+        low.adjusted !== null &&
+        low.adjusted < UNSAFE_BELOW &&
+        !dropped.includes(low.id)
+      ) {
+        steps.push({
+          id: "psych-safety-lowest",
+          label: "Talk through the lowest-scoring statement at the retro",
+          detail: `“${low.text}” scored ${fmt(low.adjusted, 2)} out of 5${low.reversed ? " (reverse-scored)" : ""} in ${latest.name}. Ask what would make it safer, never who answered what.`,
+          href: "/retro",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "mood-tracker": rule({
+    select: (ws) => ({
+      entries: ws.moodEntries,
+      pulses: ws.moodPulses,
+      docs: ws.moodTrackerDocs,
+      boards: ws.retroBoards,
+      sprints: ws.sprints,
+    }),
+    steps: ({ entries, pulses, docs, boards, sprints }) => {
+      const steps: NextStep[] = [];
+      // Team level only: a streak day needs three check-ins, so it is never one person's mood.
+      const streak = lowMoodStreak(entries, pulses, todayIso());
+      if (streak) {
+        const doc = (docs ?? []).find((d) => d.id === MOOD_TRACKER_ID);
+        const at = retroTopicAt(streakLinks(doc, streak), boards);
+        const fact = `The team averaged ${fmt(streak.average)} out of 5 over ${streak.days} check-in days in a row (${daySpan(streak.start, streak.end)})`;
+        if (at === null) {
+          steps.push({
+            id: "mood-send-streak",
+            label: "Raise the low-mood streak at the retro",
+            detail: `${fact}. Use “Send to…” → “Retro topic (no names)” on the low-mood callout: the topic names no one.`,
+            href: "/mood-tracker",
+          });
+        } else if (at === "current") {
+          steps.push({
+            id: "mood-discuss-streak",
+            label: "Discuss the low-mood streak at the retro",
+            detail: `${fact}. It's on the current retro board as a topic.`,
+            href: "/retro",
+          });
+        }
+      }
+      // Sprint Comparison's Team Happiness reads the same check-ins, pulses included.
+      const sprint = pickDefaultSprint(real(sprints), null);
+      const mood =
+        sprint && sprint.status !== "cancelled" && !hasSyntheticDates(sprint)
+          ? moodDuring(entries, sprint.startDate.slice(0, 10), sprint.endDate.slice(0, 10), pulses)
+          : null;
+      if (sprint && mood && mood.average !== null) {
+        steps.push({
+          id: "mood-sprint-compare",
+          label: "See Team Happiness in Sprint Comparison",
+          detail: `${plural(mood.checkIns, "check-in")} during ${sprint.name} average ${fmt(mood.average)} out of 5: Sprint Comparison suggests its Team Happiness from them.`,
+          href: sprintHref("/sprint-compare", sprint.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
   kudos: rule({
     select: (ws) => ({
       kudos: ws.kudos,
