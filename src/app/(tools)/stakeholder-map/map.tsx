@@ -274,7 +274,9 @@ export function StakeholderMap({
         role="group"
         aria-label="Interest × Authority map"
         aria-describedby={helpId}
-        className="relative mx-auto aspect-square w-full max-w-xl touch-none"
+        // Only the dots and chips take touch-none: a swipe over the empty
+        // map still scrolls the page on a phone.
+        className="relative mx-auto aspect-square w-full max-w-xl"
       >
         <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px overflow-hidden rounded-lg bg-border">
           {PANES.map(({ q, className, align }) => (
