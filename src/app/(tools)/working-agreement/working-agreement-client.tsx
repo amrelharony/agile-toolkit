@@ -82,14 +82,6 @@ import { cn } from "@/lib/utils";
 
 export const TOOL_ID = "working-agreement";
 
-/**
- * Logged when a check-in round is saved or deleted. Not in
- * WORKING_AGREEMENT_ACTIONS (lib/history/event-actions.ts) yet; named like
- * the events that are.
- */
-const CHECK_IN_SAVED = "check_in_saved";
-const CHECK_IN_REMOVED = "check_in_removed";
-
 const NO_SPRINTS: Sprint[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_LINKS: HandoffLink[] = [];
@@ -322,7 +314,11 @@ export function WorkingAgreementClient() {
           const round = draftCheckIn(d, { id, ...values });
           return round ? withCheckIn(d, round) : d;
         });
-        record(CHECK_IN_SAVED, { checkInId: id, date: values.date, rules: marked });
+        record(WORKING_AGREEMENT_ACTIONS.CHECK_IN_SAVED, {
+          checkInId: id,
+          date: values.date,
+          rules: marked,
+        });
       },
       revert: () =>
         write((d) =>
@@ -361,7 +357,10 @@ export function WorkingAgreementClient() {
       label,
       apply: () => {
         write((d) => ({ ...d, checkIns: (d.checkIns ?? []).filter((c) => c.id !== round.id) }));
-        record(CHECK_IN_REMOVED, { checkInId: round.id, date: round.date });
+        record(WORKING_AGREEMENT_ACTIONS.CHECK_IN_REMOVED, {
+          checkInId: round.id,
+          date: round.date,
+        });
       },
       revert: () => write((d) => withCheckIn(d, round, { clearDraft: false })),
     });

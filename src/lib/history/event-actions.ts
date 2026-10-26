@@ -548,6 +548,8 @@ export const WORKING_AGREEMENT_ACTIONS = {
   RULE_UPDATED: "rule_updated",
   CHARTER_PUBLISHED: "charter_published", // milestone
   CHARTER_RESET: "charter_reset",
+  CHECK_IN_SAVED: "check_in_saved",
+  CHECK_IN_REMOVED: "check_in_removed",
 } as const;
 
 export const LIBERATING_STRUCTURES_ACTIONS = {
@@ -654,6 +656,7 @@ export const ADKAR_ACTIONS = {
   INITIATIVE_ADDED: "initiative_added",
   INITIATIVE_REMOVED: "initiative_removed",
   STAGE_ADVANCED: "stage_advanced", // milestone
+  STAGE_STEPPED_BACK: "stage_stepped_back",
   ADKAR_RESET: "adkar_reset",
 } as const;
 

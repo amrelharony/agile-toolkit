@@ -68,12 +68,6 @@ import { useLegacyAdkarMove } from "./use-legacy-adkar";
 
 export const TOOL_ID = "adkar";
 
-/**
- * Logged when an initiative steps back a stage. Not in ADKAR_ACTIONS
- * (lib/history/event-actions.ts) yet; named like the events that are.
- */
-const STAGE_STEPPED_BACK = "stage_stepped_back";
-
 // Recharts loads with the chart, not the page.
 const AdkarStageFunnelChart = dynamic(
   () => import("./charts").then((m) => m.AdkarStageFunnelChart),
@@ -193,12 +187,10 @@ export function AdkarTool() {
               : stepBack(x, on, today)
             : null
         );
-        record(direction === "advance" ? ADKAR_ACTIONS.STAGE_ADVANCED : STAGE_STEPPED_BACK, {
-          initiativeId: i.id,
-          from: i.currentStage,
-          to: next.currentStage,
-          on,
-        });
+        record(
+          direction === "advance" ? ADKAR_ACTIONS.STAGE_ADVANCED : ADKAR_ACTIONS.STAGE_STEPPED_BACK,
+          { initiativeId: i.id, from: i.currentStage, to: next.currentStage, on }
+        );
       },
       revert: () => change(i.id, (x) => undoMove(x, entry, i.currentStage)),
     });
