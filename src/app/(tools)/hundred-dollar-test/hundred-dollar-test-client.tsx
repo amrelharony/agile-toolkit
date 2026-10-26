@@ -233,9 +233,10 @@ export function HundredDollarTestClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "$100 Test",
-      prompts: generateHundredDollarPrompts({ items: [...rows].sort(byAmount) }, workspace),
+      // The agreed split and the latest team round, as the page shows them.
+      prompts: generateHundredDollarPrompts({ items: rows, rounds }, workspace),
     }),
-    [rows, workspace]
+    [rows, rounds, workspace]
   );
 
   // A sheet signature, so a running round only changes when the items do.
