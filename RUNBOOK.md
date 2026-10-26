@@ -326,8 +326,9 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
 
 - The host's questions, signed with a key made in the host's browser for this room. The link's `#k=` part is that key's fingerprint, and participants trust only messages signed by it, so nobody else in the room can pose as the host to collect answers.
 - Each person's answers: numbers only (one per question), encrypted in their browser so only the host's browser can read them. That browser adds them to per-question counts and drops them. Before Reveal nobody, the host included, sees a distribution or per-question counts.
+- A participant's browser re-sends the same encrypted answers until the host's browser confirms them (for about two minutes; then it says they weren't confirmed and lets the person answer again). The host never counts one person twice, so a resend is harmless.
 - The `#k=` part never reaches the server or the Vercel logs (browsers don't send the fragment), but it is in browser history like the rest of the link.
-- Consent text for vote rounds: _"Answers are encrypted in each person's browser, so only the host's browser can read them, and it keeps the totals only. They pass through our realtime provider (Supabase). Everyone in the room sees each name and who has answered, never what they answered. Share the link only with your team."_
+- Consent text for vote rounds: _"Answers are encrypted in each person's browser, so only the host's browser can read them, and it keeps the totals only. They pass through our realtime provider (Supabase). Others in the room see your name and whether you've answered, not what. After the host reveals the results, everyone in the room sees the totals, for questions with enough answers; if everyone gives the same answer, the totals show it. Share the link only with your team."_
 
 **Flags:** `NEXT_PUBLIC_VISITOR_ROOMS=1` is required. It works with `NEXT_PUBLIC_PRIVATE_ROOMS` on or off. It needs HTTPS (or localhost) for the browser's encryption.
 
@@ -335,13 +336,16 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
 
 **Traffic:** each answer reaches every member, so about members × members deliveries per round (400 for a full room), plus the host's state at most every 0.5 s while answers arrive, after joins, and every 30 s.
 
-**If the host closes or reloads the tab:** the round is lost (the counts exist only in that tab). Participants see "The host left" after about 10 seconds. The host starts a new round. Revealed results survive **End room**: they stay on the host's screen until saved or closed.
+**If the host closes or reloads the tab:** the round is lost (the counts exist only in that tab). Participants who were already in the room see "The host left" after about 10 seconds; anyone who opens the link afterwards sees "Nobody is hosting this round" after about 90 seconds. The host starts a new room and shares the new link. Revealed results survive **End room**: they stay on the host's screen until saved or closed (Close asks first when they aren't saved).
 
 **Troubleshooting:**
 
 - _"This link is incomplete"_: the link was copied without its `#k=` part (for example from the address bar of a page that dropped it). Use **Copy link**.
 - _"This browser can't take part"_: no HTTPS, an old browser, or the realtime service is unreachable.
+- _"Nobody is hosting this round"_: no host has sent anything for 90 seconds, so the link is probably from a room that ended (or the host's tab was closed or reloaded). Ask the host for a new link.
+- _"The host's browser didn't confirm your answers"_: the participant's answers went unconfirmed through every resend (the host's tab was asleep or offline, or the person was removed). They can answer again; nothing is counted twice.
 - More answers than names in the room: the host sees a warning. Someone may have answered again from another tab; start a new round if the totals look wrong.
+- _"Someone else sent answers under your name"_ (participant) or "An answer came under a name that had already answered" (host): someone is answering under another member's id (residual risk 4 below). End the room and share a new link.
 
 **Turning it off:** unset the flag and redeploy, as above. **Enter counts instead** (count hands or collect paper answers, then type the totals) keeps working, with the same 3-or-5 rule.
 
@@ -355,17 +359,24 @@ Visitor rooms share the project's Realtime quota with owner rooms, squad-guest r
 
 ### Emergency brake
 
-Which brake works depends on `NEXT_PUBLIC_PRIVATE_ROOMS`.
+The anon key is public, and there are two ways a script can use it on the Realtime quota, **whatever `NEXT_PUBLIC_PRIVATE_ROOMS` says** (that flag only decides which channels the app's own build opens):
 
-**With `NEXT_PUBLIC_PRIVATE_ROOMS=1` (production today):** "Allow public access: off" does **not** stop visitor rooms. They are private channels, and the policy's visitor branch admits the plain anon key to them. The brake is an SQL step instead:
+- **Private `visitor:` channels.** The policy from 0026/0027 is a database setting: once it is pushed (it is, in production), its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels.
+- **Public channels of any name**, `visitor:` ones included, for as long as "Allow public access" is on.
 
-1. In the Supabase SQL editor, re-create `public.realtime_room_allowed` exactly as in migration 0027 but **without the visitor line** (the `topic ~ '^visitor:…'` line and the `or` that follows it; keep `set search_path = ''`, every other branch and the `grant execute … to anon, authenticated, service_role`). From then on no visitor room, vote round or anon-key script can join a `visitor:` channel; owner rooms, guest rooms and your sync feeds keep working.
-2. A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
-3. **To undo it,** re-run the function block of `supabase/migrations/0027_realtime_visitor_topic_shape.sql` (it is idempotent). Turn the flag off and redeploy as well if the rooms shouldn't come back.
+A full brake against anon-key abuse therefore takes **both** steps:
 
-**With the flag unset (public channels):** **Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses joins on public channels: no new visitor room can connect, nobody can rejoin one, and scripts using the anon key are shut out too. A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+1. **No private visitor channels (SQL).** In the Supabase SQL editor, re-create `public.realtime_room_allowed` exactly as in migration 0027 but **without the visitor line** (the `topic ~ '^visitor:…'` line and the `or` that follows it; keep `set search_path = ''`, every other branch and the `grant execute … to anon, authenticated, service_role`). From then on nobody can join a private `visitor:` channel. Owner rooms, guest rooms and your sync feeds (private channels with tokens or your session) keep working.
+2. **No public channels.** **Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses every join on a public channel.
 
-That also stops **everything else that uses Realtime**, because all of the app's channels are then public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn it back on. Turn it back on once the flag is off and redeployed.
+A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+
+**What each step also stops:**
+
+- **With `NEXT_PUBLIC_PRIVATE_ROOMS=1` (production today):** the app's visitor rooms and vote rounds are private channels, so step 1 stops them; step 2 stops nothing the app still uses (all its channels are private), only old tabs on a build from before the flag.
+- **With the flag unset:** the app's visitor rooms are public channels, so step 1 alone doesn't stop them; step 2 does, and it also stops **everything else that uses Realtime**, because all of the app's channels are then public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn public access back on.
+
+**To undo it:** re-run the function block of `supabase/migrations/0027_realtime_visitor_topic_shape.sql` (it is idempotent), and turn "Allow public access" back on if the build still uses public channels. Turn `NEXT_PUBLIC_VISITOR_ROOMS` off and redeploy as well if visitor rooms shouldn't come back.
 
 ### Residual risks (accepted for v1)
 
@@ -378,13 +389,13 @@ That also stops **everything else that uses Realtime**, because all of the app's
 
 **Vote rounds:**
 
-1. Answers are hidden from the other participants and from what is stored, but **not from a host who modifies their own browser**: the host's tab decrypts each ballot, with its sender's presence id, for an instant before adding it to the counts.
+1. Answers are hidden from the other participants and from what is stored, but **not from a host who opens their browser's developer tools**: the host's tab decrypts each ballot, with its sender's presence id, for an instant before adding it to the counts, and the running counts sit in the tab's memory.
 2. **Who answered, and when, is visible** to everyone in the room (ballots are broadcast, encrypted, under the sender's id). What they answered is not.
 3. **Anyone holding the full link can join and answer.** Only the host's questions and results are authenticated, by the key in `#k=`.
-4. **A member can spend someone else's ballot** by claiming their id. The victim's own answers are then refused as a duplicate: their screen keeps saying "sent" and never "counted". If someone reports that, start a new round.
+4. **A member can spend someone else's ballot** by claiming their id, and can use that to **single out one person's answers**: answer under every other member's id before they do, and after Reveal the totals minus the attacker's own answers are the target's. The victim's own answers are then refused as a second answer. Both sides are warned: the victim's screen says someone sent answers under their name, and the host sees that answers came under names that had already answered. If either warning shows, end the room and share a new link.
 5. **Someone can answer again from a new tab** (a new tab is a new member). This is bounded by the 20 seats and 60 ballots per round, and the host sees a warning when answers outnumber the names in the room.
 6. **minN is a floor, not a guarantee:** if everyone gives the same answer, the totals reveal everyone's answer.
-7. **The anon key can still open visitor-shaped channels** (0027 admits the app's tools and 12-character codes only). Watch the quota, and use the SQL brake above if it is abused.
+7. **The anon key can still open visitor-shaped channels** (0027 admits the app's tools and 12-character codes only), and public channels while public access is on. Watch the quota, and use both steps of the emergency brake above if it is abused.
 
 If abuse shows up, the planned next step is short-lived room tokens minted by a server route with Realtime Authorization on private channels (that needs "Allow public access" off and the owner rooms moved to private channels first).
 
