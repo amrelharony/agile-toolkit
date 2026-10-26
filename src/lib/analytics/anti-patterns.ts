@@ -1,6 +1,13 @@
 import type { Workspace } from "../stores/workspace-types";
 import { selectCompletedSprints, selectActiveImpediments } from "../stores/workspace-store";
 import { trendDirection } from "./anomaly";
+import {
+  SKILLS_MATRIX_ID,
+  matrixColumns,
+  normalizeSkillsMatrix,
+  realRoster,
+  skillCoverage,
+} from "../skills/coverage";
 
 export type AntiPatternId =
   | "LATE_BURN_WITH_BLOCKERS"
@@ -51,7 +58,9 @@ export function detectCommitmentErosion(w: Workspace): AntiPatternSignal | null 
   const sprints = selectCompletedSprints(w);
   if (sprints.length < 3) return null;
   const last3 = sprints.slice(-3);
-  const ratios = last3.map((s) => (s.pointsPlanned > 0 ? (s.pointsCompleted ?? 0) / s.pointsPlanned : 1));
+  const ratios = last3.map((s) =>
+    s.pointsPlanned > 0 ? (s.pointsCompleted ?? 0) / s.pointsPlanned : 1
+  );
   const allBelow = ratios.every((r) => r < 0.85);
   const declining = ratios[0] > ratios[1] && ratios[1] > ratios[2];
   if (!allBelow && !declining) return null;
@@ -65,9 +74,7 @@ export function detectCommitmentErosion(w: Workspace): AntiPatternSignal | null 
     recommendation:
       "Reduce next sprint commitment by 15–20% and protect capacity. Review what's blocking completion at retro.",
     relatedTools: ["velocity", "burndown", "retro"],
-    evidence: last3.map(
-      (s) => `${s.name}: ${s.pointsCompleted ?? 0}/${s.pointsPlanned} pts`
-    ),
+    evidence: last3.map((s) => `${s.name}: ${s.pointsCompleted ?? 0}/${s.pointsPlanned} pts`),
   };
 }
 
@@ -89,7 +96,36 @@ export function detectVelocityDecline(w: Workspace): AntiPatternSignal | null {
   };
 }
 
+/**
+ * Skills that hang on one person. With a rated Skills Matrix this is the
+ * matrix's own rule (lib/skills/coverage: exactly one person at
+ * Intermediate or above), so Insights and the matrix agree; without one it
+ * falls back to the Team page's skill tags (a skill only one member lists).
+ */
 export function detectBusFactorRisk(w: Workspace): AntiPatternSignal | null {
+  const matrix = (w.skillsMatrices ?? []).find((d) => d.id === SKILLS_MATRIX_ID);
+  if (matrix) {
+    const roster = realRoster(w.teamMembers);
+    const doc = normalizeSkillsMatrix(matrix);
+    const columns = matrixColumns(doc, roster);
+    const coverage = skillCoverage(doc, columns, roster);
+    const rated = coverage.some((c) => c.unrated < columns.length);
+    if (rated) {
+      const spofs = coverage.filter((c) => c.spof);
+      if (spofs.length === 0) return null;
+      return {
+        id: "BUS_FACTOR_UNDER_TWO",
+        title: `Bus factor = 1 on ${spofs.length} skill${spofs.length > 1 ? "s" : ""}`,
+        severity: "warn",
+        description:
+          "Only one person on the team is at Intermediate or above in at least one skill (Skills Matrix).",
+        recommendation:
+          "Plan cross-training in the Skills Matrix so at least two people can do each of these skills.",
+        relatedTools: ["skills-matrix"],
+        evidence: spofs.slice(0, 5).map((c) => `${c.name}: ${c.holders[0]}`),
+      };
+    }
+  }
   const skillCounts = new Map<string, number>();
   for (const m of w.teamMembers) {
     for (const skill of m.skills ?? []) {
@@ -115,7 +151,9 @@ export function detectRiskStacking(w: Workspace): AntiPatternSignal | null {
     // R10: NaN guard — `undefined * undefined === NaN`, `NaN >= 12 === false`,
     // so risks with missing probability/impact (legacy or corrupted
     // import) silently disappeared from the count. Coerce to 0.
-    (r) => (r.status === "open" || r.status === "mitigating") && (r.probability ?? 0) * (r.impact ?? 0) >= 12
+    (r) =>
+      (r.status === "open" || r.status === "mitigating") &&
+      (r.probability ?? 0) * (r.impact ?? 0) >= 12
   );
   if (high.length < 3) return null;
   return {
@@ -145,7 +183,8 @@ export function detectTechDebtAcceleration(w: Workspace): AntiPatternSignal | nu
     title: "Tech debt accumulating faster than resolving",
     severity: "warn",
     description: `${last30.length} new debt items in last 30 days vs. ${prev30.length} in the prior 30.`,
-    recommendation: "Allocate 15–20% of next sprint's capacity to debt paydown. Target highest-impact items first.",
+    recommendation:
+      "Allocate 15–20% of next sprint's capacity to debt paydown. Target highest-impact items first.",
     relatedTools: ["tech-debt"],
     evidence: last30
       // Rank by ROI (impact ÷ effort) so "highest-impact items first" in the
