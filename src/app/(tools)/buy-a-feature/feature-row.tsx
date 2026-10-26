@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,7 @@ function BuyBox({
         )}
       </Field>
       <Button type="submit" size="sm" className="h-9" disabled={disabled}>
-        Buy
+        Buy <span className="sr-only">{title}</span>
       </Button>
     </form>
   );
@@ -98,6 +98,21 @@ export function FeatureRow({
   const share = fundedShare(f);
   const pct = share === null ? null : Math.round(share * 100);
   const funded = isFunded(f);
+  // A Buy that funds the feature removes its box, and a Refund removes its
+  // button: focus would fall to the page, so it goes to the row's Edit
+  // (only then: focus that is still somewhere is left alone).
+  const keepFocus = useRef(false);
+  useEffect(() => {
+    if (!keepFocus.current) return;
+    keepFocus.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) edit.triggerRef.current?.focus();
+  });
+  const buy = (amount: number | undefined) => {
+    const why = onBuy(amount);
+    if (why === null) keepFocus.current = true;
+    return why;
+  };
 
   if (edit.editing) {
     return (
@@ -158,7 +173,7 @@ export function FeatureRow({
       )}
       <div className="flex flex-wrap items-start gap-2">
         {!funded && f.price !== null && (
-          <BuyBox title={f.title} disabled={readOnly || canBuy !== null} onBuy={onBuy} />
+          <BuyBox title={f.title} disabled={readOnly || canBuy !== null} onBuy={buy} />
         )}
         {f.raised > 0 && (
           <Button
@@ -167,7 +182,10 @@ export function FeatureRow({
             variant="ghost"
             className="h-9 gap-1"
             disabled={readOnly}
-            onClick={onRefund}
+            onClick={() => {
+              keepFocus.current = true;
+              onRefund();
+            }}
             aria-label={`Refund ${money(f.raised)} from ${f.title}`}
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
@@ -179,7 +197,7 @@ export function FeatureRow({
             href="/sprint-planning"
             className="inline-flex h-9 items-center text-xs font-medium text-success hover:underline"
           >
-            In the backlog · Open
+            <span className="sr-only">{f.title}:</span> In the backlog · Open
           </Link>
         )}
         <span className="ml-auto flex items-center">

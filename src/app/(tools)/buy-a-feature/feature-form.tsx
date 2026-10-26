@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Plus } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Field } from "@/components/ui/field";
@@ -102,7 +103,11 @@ export function AddFeatureForm({
   );
 }
 
-/** A feature's title and price, edited in place: Save, Cancel or Escape. */
+/**
+ * A feature's title and price, edited in place: Save, Cancel or Escape.
+ * Opening it moves focus to the title, since the Edit button that had it
+ * is gone with the row it replaced.
+ */
 export function EditFeatureForm({
   initial,
   onSave,
@@ -118,6 +123,10 @@ export function EditFeatureForm({
     onSave,
     resetOnSave: false,
   });
+  const { formRef } = form;
+  useEffect(() => {
+    formRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+  }, [formRef]);
   return (
     <ItemForm form={form} submitLabel="Save" onCancel={onCancel}>
       <FeatureFields draft={form.draft} errors={form.errors} update={form.update} />

@@ -10,7 +10,7 @@ import { ActionRow } from "@/components/shared/action-row";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
-import { ResetButton } from "@/components/shared/reset-button";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ResortChip } from "@/components/shared/resort-chip";
 import { VoteRoundPanel } from "@/components/collab/vote-room";
 import { useAnnounce } from "@/components/a11y/live-announcer";
@@ -20,7 +20,6 @@ import { useStableOrder } from "@/hooks/use-stable-order";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   BUY_A_FEATURE_ID,
-  type AllocationRound,
   type BuyAFeatureGame,
   type PrioritizationItem,
   type Workspace,
@@ -35,7 +34,7 @@ import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { todayIso } from "@/lib/sprints/series";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
-import { allocationRoundFrom } from "@/lib/hundred-dollar/allocation";
+import { allocationRoundFrom, roundDayProblem } from "@/lib/hundred-dollar/allocation";
 import {
   applyAllocationRound,
   budgetCheck,
@@ -54,19 +53,24 @@ import {
   recordPurchase,
   refundUnfunded,
   remaining,
+  roundNumberOf,
   roundOutcomeText,
-  roundPoolProblem,
+  roundSaveProblem,
   unitOf,
   withPrice,
   withRaised,
   type FeatureLedger,
 } from "@/lib/buy-a-feature/game";
+import { DayField } from "../health-check/day-field";
+import { useDayPick, useToday } from "../health-check/use-today";
 import { buildExample, type BuyAFeatureExample } from "./example";
 import { AddFeatureForm, type FeatureValues } from "./feature-form";
 import { FeatureRow } from "./feature-row";
 import { FundingChart, GameRounds } from "./funding";
 import { GameSettings } from "./game-settings";
+import { SavedRoundNote, sheetKeyOf, useHeldSheet } from "./held-sheet";
 import { toMarkdown } from "./markdown";
+import { UndoableReset } from "./undoable-reset";
 
 const keyOf = (x: FeatureLedger) => x.id;
 /** Most raised first, as the market always sorted. */
@@ -116,12 +120,13 @@ export function BuyAFeatureClient() {
   const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
   const [lastRound, setLastRound] = useState<string | null>(null);
-  // For the resets' Undo: what they changed, as it was.
-  const before = useRef<{
-    rows: PrioritizationItem[];
-    game: BuyAFeatureGame | null;
-    rounds: AllocationRound[];
-  }>({ rows: [], game: null, rounds: [] });
+  // What each saved round did, worked out when it was saved: the rows it
+  // changed would make a fresh preview count its totals twice.
+  const [savedOutcomes, setSavedOutcomes] = useState<Record<string, string>>({});
+  const [confirmStartOver, setConfirmStartOver] = useState(false);
+  const today = useToday();
+  // The day a round is saved under: today unless picked (a paper round held earlier).
+  const [roundDay, setRoundDay] = useDayPick(today);
 
   const features = useMemo(() => rows.map(featureLedger), [rows]);
   const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
@@ -138,6 +143,8 @@ export function BuyAFeatureClient() {
   const toSend = funded.filter((f) => !inBacklog(rowById.get(f.id)));
   const short = features.filter((f) => f.raised > 0 && !isFunded(f));
   const priced = features.filter((f) => f.price !== null);
+  // What the features hold, capped at each price; "—" until there's a pool or money.
+  const spent = features.reduce((s, f) => s + f.raised, 0);
   const { ordered, isStale, resort } = useStableOrder(features, keyOf, byRaised);
   const buyOff = pool
     ? null
@@ -289,39 +296,64 @@ export function BuyAFeatureClient() {
 
   // One rule for the page and the agent: the round's number, budget and sheet, or why not.
   const next = nextRound(features, game, rounds);
-  const sheetKey = [
-    next.number,
-    next.budget,
-    unit,
-    ...(next.sheet?.items.map((x) => `${x.id}|${x.text}|${x.cap ?? ""}|${x.hint ?? ""}`) ?? []),
-  ].join("\n");
+  const sheetKey = sheetKeyOf(next.sheet);
   const sheet = useMemo(
     () => next.sheet,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- by what the sheet shows only
     [sheetKey]
   );
-  const blockedReason = preview ? "Clear the example to run a round with your team." : next.blocked;
+  // The count entry's sheet stays put while splits are typed or a saved round shows.
+  const held = useHeldSheet(preview ? null : sheet);
+  const roundSheet = preview ? sheet : held.sheet;
+  const roundNo = roundSheet ? roundNumberOf(roundSheet.id) : null;
+  const blockedReason = preview
+    ? "Clear the example to run a round with your team."
+    : held.isHeld
+      ? null
+      : next.blocked;
+  // Rounds follow each other, so none is dated before the last one.
+  const lastRoundDay = rounds[0]?.date ?? null;
 
-  const outcomeOf = (r: Pick<AllocationRoundResult, "items">) => {
+  /** Under a round's results: what it did once saved, or what saving it would do, or why it can't. */
+  const renderResults = (r: AllocationRoundResult) => {
+    const done = savedOutcomes[r.roundId];
+    if (done !== undefined) {
+      return (
+        <SavedRoundNote
+          roundId={r.roundId}
+          text={done}
+          onShown={held.noteShown}
+          onGone={held.noteGone}
+        />
+      );
+    }
     const now = freshRows().map(featureLedger);
-    return roundOutcomeText(applyAllocationRound(now, r), now, unit);
+    const problem = roundSaveProblem(now, freshGame(), gameRounds(ws().allocationRounds), r);
+    if (problem) {
+      return <p className="text-sm text-warning">This round can&apos;t be saved: {problem}</p>;
+    }
+    return (
+      <p className="text-sm text-text">
+        Saving it: {roundOutcomeText(applyAllocationRound(now, r), now, unit)}
+      </p>
+    );
   };
 
   const saveRound = (result: AllocationRoundResult) => {
     if (preview) return false;
     const rowsNow = freshRows();
     const ledgers = rowsNow.map(featureLedger);
-    const applied = applyAllocationRound(ledgers, result);
-    if (applied.missing.length === result.items.length) {
-      // Refused: the kit keeps Save round available.
-      toast.error("None of the round's features are still in the game, so nothing was saved.");
-      return false;
-    }
-    const problem = roundPoolProblem(applied, poolOf(freshGame(), ledgers), unit);
+    const roundsNow = gameRounds(ws().allocationRounds);
+    // The preview's rule, checked again on the store as it is now. Refused,
+    // the kit keeps Save round available.
+    const problem =
+      roundSaveProblem(ledgers, freshGame(), roundsNow, result) ??
+      roundDayProblem(roundDay, todayIso(), roundsNow[0]?.date ?? null);
     if (problem) {
-      toast.error(problem);
+      toast.error(`${problem} Nothing was saved.`);
       return false;
     }
+    const applied = applyAllocationRound(ledgers, result);
     const added = new Map<string, number>();
     const now = nowIso();
     for (const [id, raised] of Array.from(applied.next)) {
@@ -332,7 +364,7 @@ export function BuyAFeatureClient() {
     }
     const saved = allocationRoundFrom(result, {
       id: `allocationRound_${nanoid(8)}`,
-      date: todayIso(),
+      date: roundDay,
     });
     ws().upsertAllocationRound(saved);
     // Counts only: a round never says who gave what.
@@ -345,6 +377,11 @@ export function BuyAFeatureClient() {
     });
     const text = roundOutcomeText(applied, ledgers, unit);
     setLastRound(text);
+    setSavedOutcomes((o) => ({ ...o, [result.roundId]: text }));
+    // A round typed in by hand keeps its sheet while it shows; a live room
+    // keeps its own, and its New round needs the current one.
+    if (result.source === "facilitator") held.keepSaved(result.roundId);
+    else held.release();
     announce(text);
     return () => {
       for (const [id, amount] of Array.from(added)) {
@@ -353,6 +390,12 @@ export function BuyAFeatureClient() {
       }
       ws().removeAllocationRound(saved.id);
       setLastRound(null);
+      setSavedOutcomes((o) => {
+        const rest = { ...o };
+        delete rest[result.roundId];
+        return rest;
+      });
+      held.unsave(result.roundId);
     };
   };
 
@@ -445,7 +488,7 @@ export function BuyAFeatureClient() {
       <div ref={exportRef} className="space-y-4">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <KPI label="Pool" value={pool ? money(pool.pool) : "Not set"} />
-          <KPI label="Spent" value={money(features.reduce((s, f) => s + f.raised, 0))} />
+          <KPI label="Spent" value={spent > 0 || pool ? money(spent) : "—"} />
           <KPI label="Left" value={pool ? money(pool.left) : "—"} />
           <KPI
             label="Funded"
@@ -484,26 +527,24 @@ export function BuyAFeatureClient() {
             icon={CircleDollarSign}
             actions={
               <>
-                <ResetButton
+                {/* Each confirm keeps its own snapshot, so two open Undo toasts never mix. */}
+                <UndoableReset
                   label="Refund unfunded features"
                   title="Refund the features that fell short?"
                   description={`${short.length} ${short.length === 1 ? "feature gives" : "features give"} back ${money(short.reduce((s, f) => s + f.raised, 0))} to the pool. Funded features keep their money.`}
                   confirmLabel="Refund them"
                   doneLabel={`Refunded ${short.length} unfunded ${short.length === 1 ? "feature" : "features"}`}
                   disabled={preview || short.length === 0}
-                  onReset={() => {
+                  run={() => {
                     const rowsNow = freshRows();
                     const refunds = refundUnfunded(rowsNow.map(featureLedger));
-                    before.current = {
-                      ...before.current,
-                      rows: rowsNow.filter((r) => refunds.has(r.id)),
-                    };
+                    const before = rowsNow.filter((r) => refunds.has(r.id));
                     const now = nowIso();
-                    for (const r of before.current.rows) upsert(withRaised(r, 0, now));
+                    for (const r of before) upsert(withRaised(r, 0, now));
+                    return () => before.forEach(upsert);
                   }}
-                  onUndo={() => before.current.rows.forEach(upsert)}
                 />
-                <ResetButton
+                <UndoableReset
                   label="Reset game"
                   title="Reset the game?"
                   description={`Every feature's money goes back to the pool, the budget per player is cleared${rounds.length > 0 ? ` and the ${rounds.length} saved ${rounds.length === 1 ? "round is" : "rounds are"} deleted` : ""}. The features, their prices and the players stay.`}
@@ -511,28 +552,28 @@ export function BuyAFeatureClient() {
                   doneLabel="Reset the game"
                   disabled={preview}
                   variant="danger-ghost"
-                  onReset={() => {
+                  run={() => {
                     const rowsNow = freshRows();
-                    before.current = {
+                    const before = {
                       rows: rowsNow.filter((r) => featureLedger(r).raised > 0 || r.fields?.raised),
                       game: freshGame(),
                       rounds: gameRounds(ws().allocationRounds),
                     };
                     const now = nowIso();
-                    for (const r of before.current.rows) upsert(withRaised(r, 0, now));
-                    if (before.current.game) writeGame({ budgetPerPlayer: undefined });
-                    for (const r of before.current.rounds) ws().removeAllocationRound(r.id);
+                    for (const r of before.rows) upsert(withRaised(r, 0, now));
+                    if (before.game) writeGame({ budgetPerPlayer: undefined });
+                    for (const r of before.rounds) ws().removeAllocationRound(r.id);
                     setLastRound(null);
+                    held.release();
                     log(BUY_FEATURE_ACTIONS.GAME_RESET, {
                       features: rowsNow.length,
-                      rounds: before.current.rounds.length,
+                      rounds: before.rounds.length,
                     });
-                  }}
-                  onUndo={() => {
-                    const b = before.current;
-                    b.rows.forEach(upsert);
-                    if (b.game) ws().upsertBuyAFeatureGame(b.game);
-                    b.rounds.forEach((r) => ws().upsertAllocationRound(r));
+                    return () => {
+                      before.rows.forEach(upsert);
+                      if (before.game) ws().upsertBuyAFeatureGame(before.game);
+                      before.rounds.forEach((r) => ws().upsertAllocationRound(r));
+                    };
                   }}
                 />
               </>
@@ -588,20 +629,63 @@ export function BuyAFeatureClient() {
           <p className="text-sm text-sub">
             Each player splits their share of what&apos;s left in the pool across the features still
             to fund
-            {next.sheet && next.budget !== null
-              ? ` (round ${next.number}: ${money(next.budget)} each${next.number > 1 ? ", the pool's leftover split evenly" : ""})`
+            {roundSheet && roundNo !== null && !blockedReason
+              ? ` (round ${roundNo}: ${money(roundSheet.budget)} each${roundNo > 1 ? ", the pool's leftover split evenly" : ""})`
               : ""}
             , anonymously. Only each feature&apos;s total, how many backed it and the spread bands
             are kept, never anyone&apos;s split. A feature can&apos;t take more than it needs: the
             rest goes back to the pool.
           </p>
-          <VoteRoundPanel
-            tool="buy-a-feature"
-            toolName="Buy-a-Feature"
-            sheet={sheet}
-            onSave={saveRound}
-            blockedReason={blockedReason}
-            renderResults={(r) => <p className="text-sm text-text">Saving it: {outcomeOf(r)}</p>}
+          <DayField
+            label="Round held on"
+            value={roundDay}
+            max={today}
+            problem={(d) => roundDayProblem(d, today, lastRoundDay)}
+            onChange={setRoundDay}
+            hint={roundDay !== today ? "Backdated" : "Paper rounds can be backdated."}
+            disabled={preview}
+          />
+          {held.stale && (
+            <div
+              role="status"
+              className="space-y-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-text"
+            >
+              <p>
+                The game changed after this round&apos;s splits were started (a purchase, say).
+                Saving caps each total again at what each feature still needs and what&apos;s left
+                in the pool.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmStartOver(true)}
+              >
+                Start over with the current numbers
+              </Button>
+            </div>
+          )}
+          {/* Typing into the count entry holds its sheet (held-sheet.tsx). */}
+          <div onChangeCapture={held.onEntryChange}>
+            <VoteRoundPanel
+              tool="buy-a-feature"
+              toolName="Buy-a-Feature"
+              sheet={roundSheet}
+              onSave={saveRound}
+              blockedReason={blockedReason}
+              renderResults={renderResults}
+            />
+          </div>
+          <ConfirmDialog
+            open={confirmStartOver}
+            onOpenChange={setConfirmStartOver}
+            title="Start over with the current numbers?"
+            description="The splits entered so far for this round are discarded."
+            confirmLabel="Start over"
+            onConfirm={() => {
+              held.release();
+              announce("The round starts over with the game's current numbers.");
+            }}
           />
           {lastRound && (
             <p role="status" className="text-sm text-text">

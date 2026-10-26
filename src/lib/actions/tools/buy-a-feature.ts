@@ -58,8 +58,14 @@ import {
 } from "@/lib/realtime/vote-room/allocation";
 import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
-import { allocationRoundFrom, spreadKnownOf, teamAverages } from "@/lib/hundred-dollar/allocation";
+import {
+  allocationRoundFrom,
+  roundDayProblem,
+  spreadKnownOf,
+  teamAverages,
+} from "@/lib/hundred-dollar/allocation";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { addDays } from "@/lib/impediments/model";
 import {
   BUDGET_MAX,
   BUDGET_MIN,
@@ -432,16 +438,36 @@ const recordRoundParams = z.object({
     .describe(
       `How many people split their budget (at least ${MIN_SAMPLE.anonymous}, so no one's split shows).`
     ),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe(
+      "YYYY-MM-DD the round was held (backdate a paper round; not in the future, nor before the game's last round). Default today; pass the user's local date."
+    ),
 });
 
-async function recordRound(store: GameStore, params: z.infer<typeof recordRoundParams>) {
+async function recordRound(
+  store: GameStore,
+  params: z.infer<typeof recordRoundParams>,
+  onServer: boolean
+) {
   const [rows, game, allRounds] = await Promise.all([store.rows(), store.game(), store.rounds()]);
   const features = rows.map(featureLedger);
   const unit = unitOf(game);
-  const next = nextRound(features, game, gameRounds(allRounds));
+  const rounds = gameRounds(allRounds);
+  const next = nextRound(features, game, rounds);
   if (!next.sheet || next.budget === null) {
     return { saved: false, reason: next.blocked ?? "The round can't run." };
   }
+  // The page's rule: backdatable, never in the future, never before the
+  // game's last round (rounds follow each other). The server's day (UTC on
+  // a typical deploy) isn't the user's: allow the day after it.
+  const today = todayLocalISO();
+  const earliest = rounds[0]?.date ?? null;
+  const date = params.date ?? (earliest && earliest > today ? earliest : today);
+  const dayProblem = roundDayProblem(date, onServer ? addDays(today, 1) : today, earliest);
+  if (dayProblem) return { saved: false, reason: dayProblem };
   const sheet = next.sheet;
   const offered = new Set(sheet.items.map((x) => x.id));
   const unknown = Object.keys(params.totals).filter((id) => !offered.has(id));
@@ -488,16 +514,14 @@ async function recordRound(store: GameStore, params: z.infer<typeof recordRoundP
     return row ? [withRaised(row, raised, now)] : [];
   });
   await store.putRows(changed);
-  const round = allocationRoundFrom(result, {
-    id: `allocationRound_${nanoid(8)}`,
-    date: todayLocalISO(),
-  });
+  const round = allocationRoundFrom(result, { id: `allocationRound_${nanoid(8)}`, date });
   await store.putRound(round);
   const title = new Map(features.map((f) => [f.id, f.title]));
   return {
     saved: true,
     id: round.id,
     round: next.number,
+    date,
     budgetPerPlayer: next.budget,
     spent: applied.spends,
     refunded: applied.refunded,
@@ -514,8 +538,8 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record a round whose totals were added up by hand (paper splits). Each player split the next round's budget (list_state nextRound.budgetPerPlayer: round 1 the budget per player, later the pool's leftover split evenly) across nextRound.features. Params: {totals: {featureId: whole total}, players (people who split, ≥3)}. Each feature's total is capped at what it still needs, the rest goes back to the pool; a short feature keeps its pledge. Saved as a round with totals only (the spread isn't known for typed totals). Refused when the round can't run (nextRound.blocked), the totals can't come from that many splits, or it would spend more than the pool has left. Returns {saved: true, id, round, budgetPerPlayer, spent, refunded, funded: {id, title}[], short: {id, title, by}[], outcome} or {saved: false, reason}.",
+    "Record a round whose totals were added up by hand (paper splits). Each player split the next round's budget (list_state nextRound.budgetPerPlayer: round 1 the budget per player, later the pool's leftover split evenly) across nextRound.features. Params: {totals: {featureId: whole total}, players (people who split, ≥3), date? (YYYY-MM-DD the round was held: backdatable, not in the future, not before the game's last round; default today)}. Each feature's total is capped at what it still needs, the rest goes back to the pool; a short feature keeps its pledge. Saved as a round with totals only (the spread isn't known for typed totals). Refused when the round can't run (nextRound.blocked), the date can't be used, the totals can't come from that many splits, or it would spend more than the pool has left. Returns {saved: true, id, round, date, budgetPerPlayer, spent, refunded, funded: {id, title}[], short: {id, title, by}[], outcome} or {saved: false, reason}.",
   paramsSchema: recordRoundParams,
-  handler: (params) => recordRound(browserStore, params),
-  mcpHandler: (params, ctx) => recordRound(serverStore(ctx.userId), params),
+  handler: (params) => recordRound(browserStore, params, false),
+  mcpHandler: (params, ctx) => recordRound(serverStore(ctx.userId), params, true),
 });

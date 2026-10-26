@@ -36,7 +36,7 @@ import {
   type AllocationRoundResult,
   type AllocationSheet,
 } from "@/lib/realtime/vote-room/allocation";
-import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
+import { VOTE_LIMITS, voteMinNFloor } from "@/lib/realtime/vote-room/protocol";
 import { listAnd } from "@/lib/charts/chart-text";
 import { roundsFor } from "@/lib/hundred-dollar/allocation";
 
@@ -225,6 +225,11 @@ export function budgetText(check: BudgetCheck, p: Pool, unit: string): string {
 /** Why the game can't make people choose, in one sentence, or null when it can. */
 export function budgetProblem(check: BudgetCheck, unit: string): string | null {
   if (check.ok || check.sumOfPrices === 0) return null;
+  // Never suggest a budget the settings refuse: when even the smallest one
+  // buys everything (prices in team-days, say), only the other levers help.
+  if (check.budgetBelow !== null && check.budgetBelow <= BUDGET_MIN) {
+    return `The players could buy everything, even with the smallest budget of ${allocationAmount(BUDGET_MIN, unit)} each. Add features, play with fewer players, or price the features in a smaller unit (hours instead of days, say).`;
+  }
   const below =
     check.budgetBelow === null ? "" : ` below ${allocationAmount(check.budgetBelow, unit)} each`;
   return `The players could buy everything. Lower the budget${below}, or add features.`;
@@ -250,6 +255,17 @@ export function openFeatures(features: readonly FeatureLedger[]): FeatureLedger[
   return features.filter((f) => f.price !== null && remaining(f) > 0);
 }
 
+/** Round `n`'s sheet id: a saved round's result carries it, so a stale one can be told. */
+export function roundSheetId(n: number): string {
+  return `buy-a-feature-round-${n}`;
+}
+
+/** The round number in a sheet id ("buy-a-feature-round-2" → 2), or null. */
+export function roundNumberOf(sheetId: string): number | null {
+  const m = /^buy-a-feature-round-(\d+)$/.exec(sheetId);
+  return m ? Number(m[1]) : null;
+}
+
 /**
  * The sheet a round splits: each player's `budget` across the features
  * still to fund, each capped at what it still needs (one person can't
@@ -266,7 +282,7 @@ export function buyAFeatureSheet(
   if (open.length < VOTE_LIMITS.minAllocationItems) return null;
   const money = (n: number) => allocationAmount(n, unit);
   return {
-    id: `buy-a-feature-round-${roundNo}`,
+    id: roundSheetId(roundNo),
     title: `Buy-a-Feature, round ${roundNo}`,
     budget,
     unit,
@@ -302,8 +318,9 @@ export interface NextRound {
  * The next round, as the page offers it and the agent records it: its
  * number, each player's budget (round 1: the budget per player; later:
  * the pool's leftover split evenly) and the sheet, or why it can't run
- * (no pool, a pool that buys everything, fewer than two features to fund,
- * or too little left per player for the kit's smallest budget).
+ * (no pool, a pool that buys everything, fewer players than the kit shows
+ * results from, fewer than two features to fund, or too little left per
+ * player for the kit's smallest budget).
  */
 export function nextRound(
   features: readonly FeatureLedger[],
@@ -328,6 +345,14 @@ export function nextRound(
     unit
   );
   if (problem) return no(problem);
+  // The kit shows a round's totals from 3 answers: a smaller game could
+  // never reveal one, so say so before anyone collects splits.
+  const floor = voteMinNFloor("buy-a-feature");
+  if (p.players < floor) {
+    return no(
+      `A round needs at least ${floor} players, so no one's split shows. Buy at the table instead.`
+    );
+  }
   if (openFeatures(features).length < VOTE_LIMITS.minAllocationItems) {
     return no("A round needs at least two priced features that aren't funded yet.");
   }
@@ -422,6 +447,13 @@ export function roundOutcomeText(
   return `${parts.join("; ")}.`;
 }
 
+/** "The round would spend $X, more than the $Y left in the pool", or null when it fits. */
+function overPoolText(applied: RoundApplied, p: Pool, unit: string): string | null {
+  if (applied.spends <= p.left) return null;
+  const money = (n: number) => allocationAmount(n, unit);
+  return `The round would spend ${money(applied.spends)}, more than the ${money(p.left)} left in the pool`;
+}
+
 /** Why the round can't be saved against the pool, or null when it can. */
 export function roundPoolProblem(
   applied: RoundApplied,
@@ -429,9 +461,40 @@ export function roundPoolProblem(
   unit: string
 ): string | null {
   if (!p) return "Set the players and each one's budget first.";
-  if (applied.spends <= p.left) return null;
-  const money = (n: number) => allocationAmount(n, unit);
-  return `The round would spend ${money(applied.spends)}, more than the ${money(p.left)} left in the pool, so nothing was saved. Check the number of players.`;
+  const over = overPoolText(applied, p, unit);
+  return over ? `${over}, so nothing was saved. Check the number of players.` : null;
+}
+
+/**
+ * Why saving round result `r` would be refused, in one sentence, or null
+ * when it can be saved: one rule for the page's preview under the results
+ * and its Save. The game must still offer a round (`nextRound`: a live
+ * room's New round re-runs the room's last sheet once the game is
+ * blocked); the result must be this round's (a re-run of a saved one isn't
+ * another round); some of its features must still be in the game; and it
+ * can't spend more than the pool has left (each total capped first).
+ */
+export function roundSaveProblem(
+  features: readonly FeatureLedger[],
+  game: BuyAFeatureGame | null | undefined,
+  rounds: readonly AllocationRound[] | undefined,
+  r: Pick<AllocationRoundResult, "items" | "sheetId">
+): string | null {
+  const next = nextRound(features, game, rounds);
+  if (next.blocked) return next.blocked;
+  if (r.sheetId !== roundSheetId(next.number)) {
+    const no = roundNumberOf(r.sheetId);
+    return no !== null && no < next.number
+      ? `Round ${no} is already saved. Start a new round to split what's left.`
+      : "This isn't the game's current round. Start a new round.";
+  }
+  const applied = applyAllocationRound(features, r);
+  if (applied.missing.length === r.items.length) {
+    return "None of the round's features are still in the game.";
+  }
+  const p = pool(game, features);
+  const over = p ? overPoolText(applied, p, unitOf(game)) : null;
+  return over ? `${over}. Check the number of players.` : null;
 }
 
 /** Feature id → 0 for every feature with money that isn't funded (the end of the game). */
@@ -484,7 +547,12 @@ export function withRaised(
   };
 }
 
-/** The row repriced: what it raised above the new price goes back to the pool. */
+/**
+ * The row repriced: what it raised above the new price goes back to the
+ * pool. An old row's money above its old price stays out (the row said
+ * only the price counts): a higher price never turns it back into pledges
+ * that nobody bought.
+ */
 export function withPrice(
   row: PrioritizationItem,
   price: number,
@@ -492,7 +560,7 @@ export function withPrice(
 ): { row: PrioritizationItem; refunded: number } {
   const before = featureLedger(row);
   const priced = { ...row, fields: { ...(row.fields ?? {}), price } };
-  const raised = Math.min(before.raised + before.overStored, price);
+  const raised = Math.min(before.raised, price);
   return {
     row: withRaised(priced, raised, now),
     refunded: Math.max(0, before.raised - raised),

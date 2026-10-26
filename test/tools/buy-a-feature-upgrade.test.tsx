@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { todayIso } from "@/lib/sprints/series";
+import { addDays } from "@/lib/impediments/model";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
@@ -26,6 +28,7 @@ import {
   refundUnfunded,
   remaining,
   roundOutcomeText,
+  roundSaveProblem,
   withPrice,
   withRaised,
 } from "@/lib/buy-a-feature/game";
@@ -62,6 +65,25 @@ vi.mock("@/components/shared/export-button", () => ({
     <pre data-testid="export-markdown">{markdown}</pre>
   ),
 }));
+// The real panel, with its latest props kept, so a live room's result (which
+// needs Supabase) can be handed to the page's save and preview directly.
+const panel = vi.hoisted(() => ({
+  props: null as null | {
+    onSave: (r: AllocationRoundResult) => void | false | (() => void);
+    renderResults?: (r: AllocationRoundResult) => ReactNode;
+  },
+}));
+vi.mock("@/components/collab/vote-room", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/collab/vote-room")>();
+  const { createElement } = await import("react");
+  return {
+    ...actual,
+    VoteRoundPanel: (props: Parameters<typeof actual.VoteRoundPanel>[0]) => {
+      panel.props = props as unknown as typeof panel.props;
+      return createElement(actual.VoteRoundPanel, props);
+    },
+  };
+});
 const server = vi.hoisted(() => new Map<string, Map<string, { id: string }>>());
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
@@ -658,7 +680,7 @@ describe("Buy-a-Feature page: rounds", () => {
       targetId: stories[0].id,
     });
     expect(screen.queryByRole("button", { name: /funded features? to the backlog/ })).toBeNull();
-    expect(screen.getAllByRole("link", { name: "In the backlog · Open" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /: In the backlog · Open$/ })).toHaveLength(2);
     undo("Added 2 funded features to the backlog");
     expect(useWorkspaceStore.getState().stories).toHaveLength(0);
     expect(rowsInStore().find((r) => r.id === "a")?.sentTo).toEqual([]);
@@ -866,5 +888,398 @@ describe("tool.buy_a_feature", () => {
     const saved = await callServer("record_round", { totals: { a: 30, b: 10, c: 0 }, players: 3 });
     expect(saved).toMatchObject({ saved: true });
     expect(server.get(ALLOCATION_ROUND_KIND)?.size).toBe(1);
+  });
+});
+
+/* ── After review ───────────────────────────────────────────────────── */
+
+describe("the game's rules, after review", () => {
+  it("never suggests a budget below the smallest the settings take", () => {
+    // 54 team-days between 6 players: even $10 each buys everything.
+    const tiny = budgetCheck([5, 8, 13, 20, 8], 6, 10);
+    expect(tiny).toMatchObject({ ok: false, budgetBelow: 9 });
+    expect(budgetProblem(tiny, "$")).toBe(
+      "The players could buy everything, even with the smallest budget of $10 each. Add features, play with fewer players, or price the features in a smaller unit (hours instead of days, say)."
+    );
+    // At exactly the smallest budget it still can't pass, so no number is named.
+    expect(budgetProblem(budgetCheck([60], 6, 10), "$")).toMatch(/even with the smallest budget/);
+    // One above it, the budget named is one the settings take.
+    expect(budgetProblem(budgetCheck([61], 6, 11), "$")).toBe(
+      "The players could buy everything. Lower the budget below $11 each, or add features."
+    );
+  });
+
+  it("holds a round back in a game of fewer than 3 players", () => {
+    const features = ROWS().map(featureLedger);
+    expect(nextRound(features, { ...GAME, players: 2 }, []).blocked).toBe(
+      "A round needs at least 3 players, so no one's split shows. Buy at the table instead."
+    );
+    expect(nextRound(features, { ...GAME, players: 3 }, []).blocked).toBeNull();
+  });
+
+  it("never turns an old row's over-funding back into pledges when its price goes up", () => {
+    const { row, refunded } = withPrice(feature("x", "Old", 100, 300), 400, "now");
+    expect(row.fields).toMatchObject({ price: 400, raised: 100 });
+    expect(refunded).toBe(0);
+    expect(featureLedger(row)).toMatchObject({ raised: 100, overStored: 0 });
+  });
+
+  it("refuses a re-run of a saved round, a blocked game, gone features and an overspend", () => {
+    const features = ROWS().map(featureLedger);
+    const r1 = result([
+      { id: "a", text: "Search", total: 20 },
+      { id: "c", text: "SSO", total: 20 },
+    ]);
+    expect(roundSaveProblem(features, GAME, [], r1)).toBeNull();
+    const saved = allocationRoundFrom(r1, { id: "allocationRound_r1", date: "2026-10-20" });
+    expect(roundSaveProblem(features, GAME, [saved], r1)).toBe(
+      "Round 1 is already saved. Start a new round to split what's left."
+    );
+    // Once the game is blocked, its reason comes first.
+    const oneLeft = [
+      feature("a", "Search", 60, 60),
+      feature("b", "Exports", 40, 40),
+      feature("c", "SSO", 120, 28),
+    ].map(featureLedger);
+    expect(roundSaveProblem(oneLeft, GAME, [saved], r1)).toBe(
+      "A round needs at least two priced features that aren't funded yet."
+    );
+    expect(
+      roundSaveProblem(features, GAME, [], { ...r1, items: [{ ...r1.items[0], id: "gone" }] })
+    ).toBe("None of the round's features are still in the game.");
+    const greedy = result([
+      { id: "a", text: "Search", total: 60 },
+      { id: "b", text: "Exports", total: 30 },
+      { id: "c", text: "SSO", total: 120 },
+    ]);
+    expect(roundSaveProblem(features, GAME, [], greedy)).toBe(
+      "The round would spend $210, more than the $140 left in the pool. Check the number of players."
+    );
+  });
+});
+
+describe("Buy-a-Feature page: rounds, after review", () => {
+  beforeEach(() =>
+    useWorkspaceStore.setState({ prioritizations: ROWS(), buyAFeatureGames: [GAME] })
+  );
+
+  const TITLES = ["Search", "Exports", "SSO"];
+  const addSplit = (s: number[]) => {
+    s.forEach((n, i) =>
+      fireEvent.change(screen.getByLabelText(`${i + 1}. ${TITLES[i]}`), {
+        target: { value: String(n) },
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add split" }));
+  };
+  const SPLITS = [
+    [20, 8, 0],
+    [20, 8, 0],
+    [20, 8, 0],
+    [10, 10, 8],
+    [0, 0, 20],
+  ];
+  const OUTCOME =
+    "Funded Search and Exports; SSO is $92 short; $14 of over-funding went back to the pool.";
+  /** A live room's result: the same aggregates, from the room. */
+  const live = (roundId: string, items: Parameters<typeof result>[0]): AllocationRoundResult => ({
+    ...result(items),
+    roundId,
+    source: "live",
+  });
+  const ROUND_TOTALS = [
+    { id: "a", text: "Search", total: 70 },
+    { id: "b", text: "Exports", total: 34 },
+    { id: "c", text: "SSO", total: 28 },
+  ];
+  /** What the page shows under a round's results. */
+  const under = (r: AllocationRoundResult) => {
+    const view = render(<>{panel.props?.renderResults?.(r)}</>);
+    const text = view.container.textContent;
+    view.unmount();
+    return text;
+  };
+  const sso = () => rowsInStore().find((r) => r.id === "c") as PrioritizationItem;
+
+  it("keeps a saved round on screen as saved; after Undo it can be saved again", () => {
+    renderPage();
+    SPLITS.forEach(addSplit);
+    fireEvent.click(screen.getByRole("button", { name: "Show totals" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(screen.getByRole("button", { name: "Round saved" })).toBeDisabled();
+    expect(screen.getByText(`Saved: ${OUTCOME}`)).toBeInTheDocument();
+    expect(screen.queryByText(/^Saving it:/)).toBeNull();
+    act(() => undo("Saved the round"));
+    expect(roundsInStore()).toHaveLength(0);
+    // The splits weren't thrown away: the same totals, ready to save again.
+    expect(screen.getByText(`Saving it: ${OUTCOME}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect([raisedOf("a"), raisedOf("b"), raisedOf("c")]).toEqual([60, 40, 28]);
+    expect(roundsInStore()).toHaveLength(1);
+  });
+
+  it("moves on to the next round once the count entry does", async () => {
+    renderPage();
+    SPLITS.forEach(addSplit);
+    fireEvent.click(screen.getByRole("button", { name: "Show totals" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enter another round" }));
+    // Round 2 can't run: SSO is the only feature left to fund.
+    expect(
+      await screen.findByText("A round needs at least two priced features that aren't funded yet.")
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the splits typed so far when a purchase lands mid-entry", () => {
+    renderPage();
+    SPLITS.slice(0, 2).forEach(addSplit);
+    // A purchase from elsewhere (an agent, another tab): SSO raises $20.
+    act(() => useWorkspaceStore.getState().upsertPrioritization(withRaised(sso(), 20, "now")));
+    expect(screen.getByText("2 splits added.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/The game changed after this round's splits were started/)
+    ).toBeInTheDocument();
+    SPLITS.slice(2).forEach(addSplit);
+    fireEvent.click(screen.getByRole("button", { name: "Show totals" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    // Capped against the game as it is now: SSO keeps its $20 and adds $28.
+    expect([raisedOf("a"), raisedOf("b"), raisedOf("c")]).toEqual([60, 40, 48]);
+  });
+
+  it("starts over with the current numbers after asking", () => {
+    renderPage();
+    addSplit(SPLITS[0]);
+    act(() => useWorkspaceStore.getState().upsertPrioritization(withRaised(sso(), 20, "now")));
+    expect(screen.getByText(/round 1: \$28 each/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start over with the current numbers" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Start over" }));
+    expect(screen.getByText("No splits added yet.")).toBeInTheDocument();
+    // $120 left between 5 players.
+    expect(screen.getByText(/round 1: \$24 each/)).toBeInTheDocument();
+    expect(screen.queryByText(/The game changed after/)).toBeNull();
+  });
+
+  it("shows a live round's outcome as it was saved, never recomputed on the rows it changed", () => {
+    renderPage();
+    const r = live("room-1", ROUND_TOTALS);
+    let undoSave: (() => void) | undefined;
+    act(() => {
+      undoSave = panel.props?.onSave(r) as () => void;
+    });
+    expect([raisedOf("a"), raisedOf("b"), raisedOf("c")]).toEqual([60, 40, 28]);
+    expect(under(r)).toBe(`Saved: ${OUTCOME}`);
+    act(() => undoSave?.());
+    expect(under(r)).toBe(`Saving it: ${OUTCOME}`);
+  });
+
+  it("refuses New round's re-run of the last sheet once the game is blocked", () => {
+    renderPage();
+    act(() => {
+      panel.props?.onSave(live("room-1", ROUND_TOTALS));
+    });
+    const rerun = live("room-2", [
+      { id: "a", text: "Search", total: 10 },
+      { id: "c", text: "SSO", total: 12 },
+    ]);
+    let res: unknown;
+    act(() => {
+      res = panel.props?.onSave(rerun);
+    });
+    expect(res).toBe(false);
+    const why = "A round needs at least two priced features that aren't funded yet.";
+    expect(toastSpy.error).toHaveBeenLastCalledWith(`${why} Nothing was saved.`);
+    expect(under(rerun)).toBe(`This round can't be saved: ${why}`);
+    expect(roundsInStore()).toHaveLength(1);
+    expect(raisedOf("c")).toBe(28);
+  });
+
+  it("refuses a re-run of a saved round's sheet as another round", () => {
+    renderPage();
+    const small = [
+      { id: "a", text: "Search", total: 20 },
+      { id: "c", text: "SSO", total: 20 },
+    ];
+    act(() => {
+      panel.props?.onSave(live("room-1", small));
+    });
+    let res: unknown;
+    act(() => {
+      res = panel.props?.onSave(live("room-2", small));
+    });
+    expect(res).toBe(false);
+    expect(toastSpy.error).toHaveBeenLastCalledWith(
+      "Round 1 is already saved. Start a new round to split what's left. Nothing was saved."
+    );
+    expect(roundsInStore()).toHaveLength(1);
+  });
+
+  it("says under the results when saving would overspend the pool", () => {
+    renderPage();
+    const greedy = live("room-1", [
+      { id: "a", text: "Search", total: 60 },
+      { id: "b", text: "Exports", total: 30 },
+      { id: "c", text: "SSO", total: 120 },
+    ]);
+    expect(under(greedy)).toBe(
+      "This round can't be saved: The round would spend $210, more than the $140 left in the pool. Check the number of players."
+    );
+  });
+
+  it("dates a round on the day picked, never in the future or before the last round", () => {
+    renderPage();
+    const day = addDays(todayIso(), -3);
+    fireEvent.change(screen.getByLabelText("Round held on"), { target: { value: day } });
+    act(() => {
+      panel.props?.onSave(
+        live("room-1", [
+          { id: "a", text: "Search", total: 20 },
+          { id: "c", text: "SSO", total: 20 },
+        ])
+      );
+    });
+    expect(roundsInStore()[0].date).toBe(day);
+    fireEvent.change(screen.getByLabelText("Round held on"), {
+      target: { value: addDays(day, -1) },
+    });
+    expect(
+      screen.getByText(/^A round can't be dated before the last one, on /)
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Round held on"), {
+      target: { value: addDays(todayIso(), 1) },
+    });
+    expect(screen.getByText("A round can't be dated in the future.")).toBeInTheDocument();
+  });
+
+  it("says a game of 2 players can't run a round", () => {
+    useWorkspaceStore.setState({ buyAFeatureGames: [{ ...GAME, players: 2 }] });
+    renderPage();
+    expect(
+      screen.getByText(
+        "A round needs at least 3 players, so no one's split shows. Buy at the table instead."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add split" })).toBeNull();
+  });
+
+  it("undoes each reset to its own snapshot, even with both toasts open", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [feature("a", "Search", 60, 60), ...ROWS().slice(1)],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Refund unfunded features" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Refund them" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reset game" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Reset game" }));
+    expect([raisedOf("a"), raisedOf("b")]).toEqual([0, 0]);
+    // The older toast's Undo puts back what the refund took (Exports' $10), not the reset's.
+    undo("Refunded 1 unfunded feature");
+    expect([raisedOf("a"), raisedOf("b")]).toEqual([0, 10]);
+    undo("Reset the game");
+    expect(raisedOf("a")).toBe(60);
+    expect(gameInStore()?.budgetPerPlayer).toBe(30);
+  });
+});
+
+describe("Buy-a-Feature page: focus, names and empty numbers, after review", () => {
+  beforeEach(() =>
+    useWorkspaceStore.setState({ prioritizations: ROWS(), buyAFeatureGames: [GAME] })
+  );
+
+  it("moves focus into the edit form, and to Edit when a Buy or Refund removes its control", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Search" }));
+    expect(document.activeElement).toHaveValue("Search");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    screen.getByRole("button", { name: "Buy Search" }).focus();
+    buy("Search", "60");
+    expect(raisedOf("a")).toBe(60);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit Search" }));
+    const refund = screen.getByRole("button", { name: "Refund $10 from Exports" });
+    refund.focus();
+    fireEvent.click(refund);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit Exports" }));
+  });
+
+  it("leaves focus alone when a purchase keeps the Buy box", () => {
+    renderPage();
+    const box = screen.getByLabelText("Amount to buy of SSO");
+    box.focus();
+    buy("SSO", "30");
+    expect(raisedOf("c")).toBe(30);
+    expect(document.activeElement).toBe(box);
+  });
+
+  it("names each Buy and each backlog link by its feature", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [feature("a", "Search", 60, 60), ...ROWS().slice(1)],
+    });
+    renderPage();
+    expect(screen.getByRole("button", { name: "Buy Exports" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy SSO" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 funded feature to the backlog" }));
+    expect(screen.getByRole("link", { name: "Search: In the backlog · Open" })).toBeInTheDocument();
+  });
+
+  it("shows Spent as — until there's a pool or money in the features", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [feature("a", "Search", 60), feature("c", "SSO", 120)],
+      buyAFeatureGames: [],
+    });
+    const view = renderPage();
+    expect(kpi("Spent")).toBe("—");
+    view.unmount();
+    useWorkspaceStore.setState({ buyAFeatureGames: [GAME] });
+    renderPage();
+    expect(kpi("Spent")).toBe("$0");
+  });
+});
+
+describe("tool.buy_a_feature.record_round, after review", () => {
+  const call = (verb: string, params: Record<string, unknown> = {}) =>
+    registry.get(`tool.buy_a_feature.${verb}`)?.handler(params, ctx()) as Promise<
+      Record<string, unknown>
+    >;
+  const callServer = (verb: string, params: Record<string, unknown> = {}) =>
+    registry.get(`tool.buy_a_feature.${verb}`)?.mcpHandler?.(params, ctx()) as Promise<
+      Record<string, unknown>
+    >;
+  const totals = { a: 10, c: 10 };
+
+  it("dates a typed round on the day given, refusing the future and days before the last round", async () => {
+    useWorkspaceStore.setState({ prioritizations: ROWS(), buyAFeatureGames: [GAME] });
+    expect(
+      await call("record_round", { totals, players: 5, date: addDays(todayIso(), 1) })
+    ).toEqual({ saved: false, reason: "A round can't be dated in the future." });
+    const day = addDays(todayIso(), -3);
+    expect(await call("record_round", { totals, players: 5, date: day })).toMatchObject({
+      saved: true,
+      round: 1,
+      date: day,
+    });
+    expect(roundsInStore()[0].date).toBe(day);
+    expect(
+      await call("record_round", { totals, players: 5, date: addDays(day, -1) })
+    ).toMatchObject({
+      saved: false,
+      reason: expect.stringMatching(/^A round can't be dated before the last one, on /),
+    });
+    expect(await call("record_round", { totals, players: 5 })).toMatchObject({
+      saved: true,
+      round: 2,
+      date: todayIso(),
+    });
+  });
+
+  it("allows the server's tomorrow, which may be the user's today", async () => {
+    server.set("workspace:prioritization", new Map(ROWS().map((r) => [r.id, r])));
+    server.set(BUY_A_FEATURE_KIND, new Map([[GAME.id, GAME]]));
+    expect(
+      await callServer("record_round", { totals, players: 5, date: addDays(todayIso(), 1) })
+    ).toMatchObject({ saved: true });
+    expect(
+      await callServer("record_round", { totals, players: 5, date: addDays(todayIso(), 3) })
+    ).toMatchObject({ saved: false, reason: "A round can't be dated in the future." });
   });
 });
