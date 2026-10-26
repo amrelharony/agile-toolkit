@@ -6,6 +6,10 @@
  * component (which opens it) only mounts with the identity that step
  * produces.
  *
+ * Which room mounts comes from `VISITOR_ROOM_KIND`, so a tool can never
+ * fall into another tool's room. Vote rounds have no participant view yet:
+ * their links say so and open nothing.
+ *
  * `/join` is a bare route (no app shell), so this mounts the live-region
  * announcer and reduced-motion config the shell would otherwise provide.
  *
@@ -22,9 +26,11 @@ import { Button } from "@/components/ui/button";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import {
+  VISITOR_ROOM_KIND,
   readVisitorIdentity,
   saveVisitorIdentity,
   type VisitorIdentity,
+  type VisitorRoomKind,
   type VisitorTool,
 } from "@/lib/realtime/visitor-rooms";
 
@@ -50,7 +56,13 @@ function RoomLoading() {
 const TOOL_NAMES: Record<VisitorTool, string> = {
   "planning-poker": "Planning Poker",
   retro: "Retro",
+  "health-check": "Health Check",
+  "psych-safety": "Psych Safety",
+  "mood-tracker": "Mood Tracker",
 };
+
+/** The room each kind of link opens (`VISITOR_ROOM_KIND`). */
+const ROOM: Readonly<Record<VisitorTool, VisitorRoomKind>> = VISITOR_ROOM_KIND;
 
 type Stage =
   | { kind: "consent" }
@@ -75,6 +87,7 @@ export function JoinRoom(props: JoinRoomProps) {
 
 function JoinRoomFlow({ tool, code }: JoinRoomProps) {
   const toolName = TOOL_NAMES[tool];
+  const kind = ROOM[tool];
   const [stage, setStage] = useState<Stage>({ kind: "consent" });
   // A refresh in this tab offers the name it used here before (and keeps
   // its member id). Read after mount: sessionStorage doesn't exist on the
@@ -89,9 +102,18 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
     setStage(identity ? { kind: "joined", identity } : { kind: "declined" });
   };
 
+  if (kind === "vote") {
+    return (
+      <OutsideRoom
+        title="Live rounds can't be joined here yet"
+        body="Nothing has connected. Ask the host to count hands instead."
+      />
+    );
+  }
+
   if (stage.kind === "joined") {
     const onLeave = () => setStage({ kind: "left" });
-    return tool === "planning-poker" ? (
+    return kind === "poker" ? (
       <VisitorPokerRoom code={code} identity={stage.identity} onLeave={onLeave} />
     ) : (
       <VisitorRetroRoom code={code} identity={stage.identity} onLeave={onLeave} />
@@ -133,7 +155,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
   );
 }
 
-/** Outside the room: a heading that takes focus, one way back in, one way home. */
+/** Outside the room: a heading that takes focus, maybe one way back in, one way home. */
 function OutsideRoom({
   title,
   body,
@@ -142,8 +164,8 @@ function OutsideRoom({
 }: {
   title: string;
   body: string;
-  actionLabel: string;
-  onAction: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -157,9 +179,11 @@ function OutsideRoom({
         </h1>
         <p className="text-sm text-sub">{body}</p>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="toolkit" size="sm" onClick={onAction}>
-            {actionLabel}
-          </Button>
+          {actionLabel && onAction && (
+            <Button type="button" variant="toolkit" size="sm" onClick={onAction}>
+              {actionLabel}
+            </Button>
+          )}
           <Link
             href="/"
             className="min-touch-coarse inline-flex items-center px-2 rounded text-sm text-sub hover:text-text"

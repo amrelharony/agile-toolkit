@@ -3,15 +3,27 @@
  *
  * A visitor (no owner sign-in, no squad invite) can run Planning Poker or
  * a Retro live with their team over a temporary Supabase broadcast and
- * presence channel. Nothing is written to a database. The whole feature is
- * off unless the build sets `NEXT_PUBLIC_VISITOR_ROOMS=1`.
+ * presence channel, and anyone can run an anonymous vote round (Health
+ * Check, Psych Safety, Mood Tracker) the same way. Nothing is written to a
+ * database. The whole feature is off unless the build sets
+ * `NEXT_PUBLIC_VISITOR_ROOMS=1`.
  *
- * Security model (see RUNBOOK "Visitor live rooms"): channels are public,
- * so the 12-character code is the only thing keeping strangers out
- * (31^12, about 2^59 codes). Anyone holding the link is a full member and
- * can claim to be the host to other participants; every inbound message
- * is validated, capped and rate-limited, and only the trusted host's
- * state is applied.
+ * Owners don't run Poker or Retro visitor rooms: strangers' cards and
+ * votes would sync into the owner's workspace. Vote rounds are the one,
+ * documented exception (RUNBOOK "Live vote rounds"): the owner hosts them
+ * here too, because participants following a `/join` link hold only the
+ * anon key, and they can send nothing but encrypted scale indexes, of which
+ * only the totals reach the workspace, on an explicit Save
+ * (`vote-room/protocol.ts`).
+ *
+ * Security model (see RUNBOOK "Visitor live rooms"): the anon key can open
+ * any `visitor:` channel (public, or private through migration 0026/0027's
+ * visitor branch), so the 12-character code is the only thing keeping
+ * strangers out (31^12, about 2^59 codes). Anyone holding the link is a
+ * full member and can claim to be the host to other participants in Poker
+ * and Retro; every inbound message is validated, capped and rate-limited,
+ * and only the trusted host's state is applied. Vote rounds also sign the
+ * host's messages and encrypt answers to the host.
  *
  * No browser globals at import time: the server join page imports the
  * code and tool checks.
@@ -34,13 +46,39 @@ export function visitorRoomsEnabled(): boolean {
 
 // ── Tools and codes ──────────────────────────────────────────────────
 
-/** The tools that can run a visitor room. */
-export const VISITOR_TOOLS = ["planning-poker", "retro"] as const;
+/**
+ * The tools that can run a visitor room. Migration 0027 lists the same
+ * tools in the Realtime policy's visitor branch: change both together
+ * (test/realtime/visitor-topic-migration.test.ts checks they agree).
+ */
+export const VISITOR_TOOLS = [
+  "planning-poker",
+  "retro",
+  "health-check",
+  "psych-safety",
+  "mood-tracker",
+] as const;
 export type VisitorTool = (typeof VISITOR_TOOLS)[number];
 
 export function isVisitorTool(value: unknown): value is VisitorTool {
   return typeof value === "string" && (VISITOR_TOOLS as readonly string[]).includes(value);
 }
+
+/** Which room a tool's `/join` link opens. */
+export type VisitorRoomKind = "poker" | "retro" | "vote";
+
+/**
+ * The room each visitor tool runs. `/join` routes on this, so a new tool
+ * can't land in another tool's room by default: the compiler asks for its
+ * entry here.
+ */
+export const VISITOR_ROOM_KIND: Readonly<Record<VisitorTool, VisitorRoomKind>> = {
+  "planning-poker": "poker",
+  retro: "retro",
+  "health-check": "vote",
+  "psych-safety": "vote",
+  "mood-tracker": "vote",
+};
 
 /** The owner rooms' alphabet: no 0/O, 1/I/L, so codes read aloud cleanly. */
 export const VISITOR_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
