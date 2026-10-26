@@ -178,7 +178,12 @@ export function KanbanClient() {
     return {
       filename: "sprint-board",
       markdown: sprintBoardMarkdown(
-        { sprint, stories: all, wipLimits: exampleStore ? DEFAULT_WIP_LIMITS : board.wipLimits },
+        {
+          sprint,
+          stories: all,
+          wipLimits: exampleStore ? DEFAULT_WIP_LIMITS : board.wipLimits,
+          dod: exampleStore ? EXAMPLE_DOD : dod.items,
+        },
         now
       ),
       jsonData: { sprint, stories: mine },
@@ -194,7 +199,7 @@ export function KanbanClient() {
         ]),
       },
     };
-  }, [view, board, sprintOnScreen, exampleStore]);
+  }, [view, board, sprintOnScreen, exampleStore, dod.items]);
 
   const promptConfig = useMemo(() => {
     const stats = cycleStats(board.cards);

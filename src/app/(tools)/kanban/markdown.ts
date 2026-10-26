@@ -1,4 +1,5 @@
 import type {
+  DodCriterion,
   KanbanBoard,
   KanbanCard,
   KanbanClassOfService,
@@ -11,6 +12,7 @@ import { cycleTimeDays, FLOW_COLUMNS, isLimited } from "./flow-view";
 import {
   SPRINT_COLUMNS,
   daysInColumn,
+  doneMissingDod,
   sprintBoardVerdict,
   sprintBreaches,
   storiesByColumn,
@@ -125,10 +127,13 @@ export function sprintBoardMarkdown(
     sprint,
     stories,
     wipLimits,
+    dod = [],
   }: {
     sprint: Pick<Sprint, "id" | "name" | "goal">;
     stories: readonly Story[];
     wipLimits: Partial<Record<KanbanColumnId, number>>;
+    /** The team's Definition of Done, so the verdict reads as the board's header does. */
+    dod?: readonly DodCriterion[];
   },
   now: Date = new Date()
 ): string {
@@ -136,9 +141,10 @@ export function sprintBoardMarkdown(
   const progress = storyProgress(stories, sprint.id);
   const byColumn = storiesByColumn(stories, sprint.id);
   const breaches = sprintBreaches(byColumn, wipLimits);
+  const dodMissing = doneMissingDod(byColumn.done, { items: dod }).length;
   const lines = [title, ""];
   if (sprint.goal?.trim()) lines.push(`**Sprint goal:** ${oneLine(sprint.goal)}`, "");
-  lines.push(sprintBoardVerdict(sprint, progress, breaches));
+  lines.push(sprintBoardVerdict(sprint, progress, breaches, dodMissing));
   if (progress.count === 0) return `${lines.join("\n")}\n`;
 
   lines.push(

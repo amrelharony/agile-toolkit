@@ -8,6 +8,7 @@
 import type { KanbanColumnId, Sprint, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { completionPct } from "@/lib/sprints/metrics";
 import type { StoryProgress } from "@/lib/sprints/progress";
+import { meetsDod, type DodCriteria } from "@/lib/dod/model";
 import { fmt } from "@/lib/charts/chart-text";
 import { DAY_MS } from "./flow-view";
 
@@ -183,22 +184,39 @@ export function moveMessage(
   return parts.join(" ");
 }
 
+/**
+ * The done stories that miss a required criterion of the Definition of
+ * Done, ticked on their cards (`meetsDod` from lib/dod/model, against the
+ * criteria as they are today). None when nothing is required.
+ */
+export function doneMissingDod(done: readonly Story[], dod: DodCriteria): Story[] {
+  return done.filter((s) => s.status === "done" && meetsDod(s, dod) === false);
+}
+
 const pointsText = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "points"}`;
 
 /**
  * The header's one sentence: how far the sprint has come, then the one
  * thing that most needs the team's attention (blocked stories, a column
- * over its limit, unestimated stories, nothing started).
+ * over its limit, done stories that miss the Definition of Done,
+ * unestimated stories, nothing started). `dodMissing` is how many done
+ * stories miss a required DoD criterion (`doneMissingDod`); a sprint with
+ * every story done still says so.
  */
 export function sprintBoardVerdict(
   sprint: Pick<Sprint, "name">,
   progress: StoryProgress,
-  breaches: readonly SprintBreach[]
+  breaches: readonly SprintBreach[],
+  dodMissing = 0
 ): string {
   const { count, doneCount, scope, done } = progress;
   if (count === 0) return `No stories are planned into ${sprint.name} yet.`;
   if (doneCount === count) {
-    return `Every story in ${sprint.name} is done${scope > 0 ? `: ${pointsText(scope)}` : ""}.`;
+    const short =
+      dodMissing > 0
+        ? `, but ${dodMissing} ${dodMissing === 1 ? "doesn't" : "don't"} meet the DoD yet`
+        : "";
+    return `Every story in ${sprint.name} is done${scope > 0 ? `: ${pointsText(scope)}` : ""}${short}.`;
   }
   const pct = completionPct(done, scope);
   const base =
@@ -213,6 +231,9 @@ export function sprintBoardVerdict(
     caveat = `; ${stories(n)} ${n === 1 ? "is" : "are"} blocked, so unblock ${n === 1 ? "it" : "them"} first`;
   } else if (flowing) {
     caveat = `; ${flowing.label} is over its WIP limit, so finish something before starting more`;
+  } else if (dodMissing > 0) {
+    const n = dodMissing;
+    caveat = `; ${n} done ${n === 1 ? "story doesn't" : "stories don't"} meet the DoD yet`;
   } else if (progress.unestimated > 0) {
     const n = progress.unestimated;
     caveat = `; ${stories(n)} ${n === 1 ? "has" : "have"} no estimate yet`;

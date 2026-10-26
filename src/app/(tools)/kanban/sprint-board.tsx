@@ -43,6 +43,7 @@ import {
   closedBoardNote,
   daysInColumn,
   dodNudge,
+  doneMissingDod,
   isClosedSprint,
   isSprintColumnId,
   moveMessage,
@@ -118,7 +119,11 @@ export function SprintBoard({
   const byColumn = useMemo(() => storiesByColumn(stories, sprint.id), [stories, sprint.id]);
   const progress = useMemo(() => storyProgress(stories, sprint.id), [stories, sprint.id]);
   const breaches = sprintBreaches(byColumn, wipLimits);
-  const verdict = sprintBoardVerdict(sprint, progress, breaches);
+  const dodMissing = useMemo(
+    () => doneMissingDod(byColumn.done, { items: dod }).length,
+    [byColumn, dod]
+  );
+  const verdict = sprintBoardVerdict(sprint, progress, breaches, dodMissing);
   const pct = completionPct(progress.done, progress.scope);
 
   const titleOf = (id: string) => writer.story(id)?.title ?? "story";
