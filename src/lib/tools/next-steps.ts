@@ -1791,10 +1791,12 @@ const RULES: Record<string, NextStepRule<object>> = {
     select: (ws) => ({ logs: ws.psychSafetyLogs, boards: ws.retroBoards }),
     steps: ({ logs, boards }) => {
       const stored = (logs ?? []).find((l) => l.id === PSYCH_SAFETY_ID);
-      // Example rounds and answer sheets left out; a sheet's answers are only ever counted.
-      const rounds = stored
-        ? roundsOf({ ...stored, rounds: real(stored.rounds), responses: real(stored.responses) })
-        : [];
+      // Example rounds and answer sheets left out (a sheet's answers are only
+      // ever counted), behind the guards roundsOf keeps against a malformed log.
+      const sheets = Array.isArray(stored?.responses) ? stored.responses : [];
+      const rounds = roundsOf(
+        stored && { ...stored, responses: sheets.filter((r) => r && !isExampleId(r.id)) }
+      ).filter((r) => !isExampleId(r.id));
       const latest = rounds[rounds.length - 1];
       // Below the minimum a round shows nothing, so it suggests nothing either.
       const result = roundResult(latest);

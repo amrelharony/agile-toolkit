@@ -394,6 +394,32 @@ describe("psych safety", () => {
     ).toEqual([]);
     expect(ids("psych-safety", { psychSafetyLogs: [], retroBoards: [] })).toEqual([]);
   });
+
+  it("leaves out example answer sheets, and reads a malformed log without throwing", () => {
+    const sheet = (id: string): PsychSafetyResponse => ({
+      id,
+      ts: "2026-10-01T10:00:00.000Z",
+      scores: { q1: 1, q2: 5, q3: 1, q4: 3, q5: 1, q6: 5, q7: 5 },
+    });
+    // Five example sheets would fold into a round with a drop; left out, there's none.
+    const examples = [0, 1, 2, 3, 4].map((i) => sheet(`example-resp-${i}`));
+    expect(
+      ids("psych-safety", { psychSafetyLogs: log([spring], examples), retroBoards: [] })
+    ).toEqual([]);
+    // A null among the rounds or the sheets, or a field that isn't a list, is skipped.
+    const broken = (rounds: unknown, responses: unknown) =>
+      [{ id: "psychSafety:current", rounds, responses }] as unknown as Workspace["psychSafetyLogs"];
+    expect(
+      ids("psych-safety", {
+        psychSafetyLogs: broken([null, spring, autumn()], [null]),
+        retroBoards: [],
+      })
+    ).toEqual(["psych-safety-send-drop"]);
+    expect(ids("psych-safety", { psychSafetyLogs: broken({}, {}), retroBoards: [] })).toEqual([]);
+    expect(ids("psych-safety", { psychSafetyLogs: broken("x", null), retroBoards: [] })).toEqual(
+      []
+    );
+  });
 });
 
 describe("mood tracker", () => {
