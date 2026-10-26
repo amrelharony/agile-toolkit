@@ -493,22 +493,78 @@ describe("the DACI / RAPID status vocabulary (agent aliases)", () => {
 
   it("writes them, and leaves a record already in the status as it is", () => {
     const today = "2026-10-10";
-    expect(withLegacyStatus(rec(), "decided", today)).toEqual(
+    expect(withLegacyStatus(rec(), "decided", today, "daci")).toEqual(
       rec({ status: "accepted", decidedAt: today })
     );
     expect(
-      withLegacyStatus(rec({ status: "accepted", decidedAt: "2026-10-04" }), "implemented", today)
+      withLegacyStatus(
+        rec({ status: "accepted", decidedAt: "2026-10-04" }),
+        "implemented",
+        today,
+        "daci"
+      )
     ).toEqual(rec({ status: "accepted", decidedAt: "2026-10-04", implementedAt: today }));
     expect(
-      withLegacyStatus(rec({ status: "accepted", decidedAt: "2026-10-04" }), "revisit", today)
+      withLegacyStatus(
+        rec({ status: "accepted", decidedAt: "2026-10-04" }),
+        "revisit",
+        today,
+        "daci"
+      )
     ).toEqual(rec({ status: "proposed", decidedAt: "2026-10-04", reopenedAt: today }));
     expect(
-      withLegacyStatus(rec({ status: "accepted", implementedAt: "2026-10-05" }), "open", today)
+      withLegacyStatus(
+        rec({ status: "accepted", implementedAt: "2026-10-05" }),
+        "open",
+        today,
+        "rapid"
+      )
     ).toEqual(rec({ status: "proposed" }));
     const same = rec({ status: "accepted", implementedAt: "2026-10-05" });
-    expect(withLegacyStatus(same, "implemented", today)).toBe(same);
-    const reopened = rec({ reopenedAt: "2026-10-02" });
-    expect(withLegacyStatus(reopened, "open", today)).toBe(reopened);
+    expect(withLegacyStatus(same, "implemented", today, "daci")).toBe(same);
+    expect(withLegacyStatus(same, "implemented", today, "rapid")).toBe(same);
+  });
+
+  it("open on a DACI revisit is no longer revisited; on RAPID every proposal is open already", () => {
+    const today = "2026-10-10";
+    const reopened = rec({ decidedAt: "2026-09-01", reopenedAt: "2026-10-02" });
+    const open = withLegacyStatus(reopened, "open", today, "daci");
+    expect(open).toEqual(rec({ decidedAt: "2026-09-01" }));
+    expect(legacyStatusOf(open, "daci")).toBe("open");
+    expect(withLegacyStatus(reopened, "open", today, "rapid")).toBe(reopened);
+  });
+
+  it("dates a decision only when it is made: a reopened one is decided again today", () => {
+    const today = "2026-10-26";
+    // Decided on 10 January, reopened on 1 June, decided again today.
+    const reopened = reopen(
+      rec({ status: "accepted", decision: "Go", decidedAt: "2026-01-10" }),
+      "2026-06-01"
+    );
+    expect(withLegacyStatus(reopened, "decided", today, "daci")).toEqual(
+      rec({ status: "accepted", decision: "Go", decidedAt: today })
+    );
+    expect(withLegacyStatus(reopened, "implemented", today, "rapid")).toEqual(
+      rec({ status: "accepted", decision: "Go", decidedAt: today, implementedAt: today })
+    );
+  });
+
+  it("an old decided row marked implemented gains no decided day, so time to decide isn't skewed", () => {
+    const today = "2026-10-26";
+    const old = fromDaci(daci({ status: "decided", date: "2026-01-05T09:00:00Z" }));
+    const done = withLegacyStatus(old, "implemented", today, "daci");
+    expect(done).toEqual({ ...old, implementedAt: today });
+    expect(done.decidedAt).toBeUndefined();
+    // And back to decided: no longer carried out, still no decided day.
+    const oldDone = fromRapid(rapid({ status: "implemented", date: "2026-01-05T09:00:00Z" }));
+    expect(withLegacyStatus(oldDone, "decided", today, "rapid")).toEqual(
+      fromRapid(rapid({ status: "decided", date: "2026-01-05T09:00:00Z" }))
+    );
+    // Three such rows marked implemented today don't read as decided 294 days after raising.
+    const three = ["a", "b", "c"].map((id) =>
+      withLegacyStatus({ ...old, id }, "implemented", today, "daci")
+    );
+    expect(timeToDecide(three)).toBeNull();
   });
 });
 

@@ -586,34 +586,38 @@ export function legacyStatusOf(d: Decision, kind: "daci" | "rapid"): LegacyDecis
 }
 
 /**
- * The record with a DACI/RAPID status set, as their agent aliases do it:
- * open is proposed; revisit reopens it today; decided is accepted (dated
- * today unless it already has a day); implemented is accepted and carried
- * out today (unless already dated). A record already in that status (any
- * proposed one, for open) is returned as it is.
+ * The record with a DACI/RAPID status set, as their agent aliases do it,
+ * read in `kind`'s vocabulary (legacyStatusOf). Open is proposed and not
+ * reopened: a DACI "revisit" set to open is no longer revisited, while for
+ * RAPID, which has no revisit, every proposal is open already. Revisit
+ * reopens it today. Decided is accepted, and implemented is accepted and
+ * carried out today. A proposal decided through either is decided today,
+ * as `decide` dates it (a reopened one too: its earlier day was the first
+ * decision); one already decided keeps the day it has, or none (an old
+ * DACI / RAPID row never had one, and today isn't it). A record already in
+ * that status is returned as it is.
  */
 export function withLegacyStatus(
   d: Decision,
   status: LegacyDecisionStatus,
-  today: string
+  today: string,
+  kind: "daci" | "rapid"
 ): Decision {
-  const now = legacyStatusOf(d, "daci");
-  if (now === status || (status === "open" && d.status === "proposed")) return d;
+  if (legacyStatusOf(d, kind) === status) return d;
   const rest = without(d, "reopenedAt", "implementedAt", "supersededBy");
+  const accepted: Decision =
+    d.status === "proposed"
+      ? { ...rest, status: "accepted", decidedAt: today }
+      : { ...rest, status: "accepted" };
   switch (status) {
     case "open":
       return { ...rest, status: "proposed" };
     case "revisit":
       return { ...rest, status: "proposed", reopenedAt: today };
     case "decided":
-      return { ...rest, status: "accepted", decidedAt: d.decidedAt ?? today };
+      return accepted;
     case "implemented":
-      return {
-        ...rest,
-        status: "accepted",
-        decidedAt: d.decidedAt ?? today,
-        implementedAt: d.implementedAt ?? today,
-      };
+      return { ...accepted, implementedAt: today };
   }
 }
 
