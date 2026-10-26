@@ -615,11 +615,18 @@ export const ONE_ON_ONE_ACTIONS = {
 } as const;
 
 export const PSYCH_SAFETY_ACTIONS = {
-  /** A round was saved. Payload: roundId, responses; never who answered, or what. */
+  /**
+   * A round was saved. Payload: roundId, responses; never who answered, or
+   * what. Rows from before rounds hold one answer sheet's responseId and
+   * scores instead.
+   */
   ASSESSMENT_SAVED: "assessment_saved", // milestone
   /**
-   * One person's answers, from before rounds. No longer written (a round
-   * keeps counts only); kept so older history rows still read.
+   * An answer sheet from before rounds was added (payload: responseId,
+   * respondent, description) or removed (responseId, removed: true). The
+   * added row shares its responseId with that sheet's ASSESSMENT_SAVED row,
+   * so the two read together name whose scores they were. No longer written
+   * (a round keeps counts only); kept so older history rows still read.
    */
   RESPONSE_LOGGED: "response_logged",
   /** A round was deleted. Payload: roundId. */

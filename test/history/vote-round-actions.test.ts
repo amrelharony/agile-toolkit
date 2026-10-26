@@ -28,6 +28,22 @@ describe("the vote-round history actions", () => {
     expect(isMilestoneAction("psych-safety", PSYCH_SAFETY_ACTIONS.ROUND_REMOVED)).toBe(false);
   });
 
+  it("describe the psych-safety rows from before rounds as the old page logged them", () => {
+    // The old page logged an added sheet's name and description, a removal as
+    // { responseId, removed: true }, and the sheet's scores under ASSESSMENT_SAVED.
+    const catalog = source("lib", "history", "event-actions.ts");
+    const docOf = (name: string) =>
+      (catalog.match(new RegExp(`/\\*\\*((?:(?!\\*/)[\\s\\S])*)\\*/\\s*${name}:`))?.[1] ?? "")
+        .replace(/\n\s*\*/g, " ")
+        .replace(/\s+/g, " ");
+    const response = docOf("RESPONSE_LOGGED");
+    for (const key of ["responseId", "respondent", "description", "removed: true"]) {
+      expect(response).toContain(key);
+    }
+    expect(response).not.toMatch(/answers/);
+    expect(docOf("ASSESSMENT_SAVED")).toMatch(/before rounds.*responseId and scores/);
+  });
+
   it("come from the catalog on the pages, which no longer log an answer sheet", () => {
     const health = source("app", "(tools)", "health-check", "health-check-client.tsx");
     const psych = source("app", "(tools)", "psych-safety", "psych-safety-client.tsx");
