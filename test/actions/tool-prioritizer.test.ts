@@ -6,7 +6,9 @@
  *      ranks by WSJF desc, and tallies MoSCoW buckets
  *   3. list_state adds each item's frameworkScores: the embedded methods
  *      from its inputs, ICE / Kano / Cost of Delay from the latest linked row
- *   4. add_item appends with documented defaults
+ *   4. add_item appends with nothing scored it wasn't given
+ *   5. list_state gives each item's place per method (ties averaged), the
+ *      Borda consensus and the disagreement flag decide_order reports
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -215,5 +217,69 @@ describe("tool.prioritizer.add_item", () => {
     expect(stored?.name).toBe("Search");
     expect(stored?.moscow).toBeUndefined();
     expect(stored?.jobSize).toBeUndefined();
+  });
+});
+
+describe("tool.prioritizer.list_state per-method places and consensus", () => {
+  const stamp = "2026-10-26T09:00:00.000Z";
+  const wsjf = (bv: number, js: number): Partial<BacklogItem> => ({
+    businessValue: bv,
+    timeCriticality: 1,
+    riskReduction: 1,
+    jobSize: js,
+  });
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        { id: "a", name: "A", moscow: "could", ...wsjf(8, 1), updatedAt: stamp },
+        { id: "b", name: "B", moscow: "must", ...wsjf(3, 1), updatedAt: stamp },
+        { id: "c", name: "C", moscow: "must", ...wsjf(2, 1), rank: 1, updatedAt: stamp },
+        { id: "d", name: "D", updatedAt: stamp },
+      ],
+      prioritizations: [],
+    });
+  });
+
+  type Listed = {
+    items: {
+      id: string;
+      rank: number | null;
+      methodRanks: Record<string, number>;
+      consensus: number | null;
+      coverage: number;
+      disagree: boolean;
+    }[];
+    rankedMethods: string[];
+  };
+
+  it("gives each item its place in every method that ranks 2 or more, tied places averaged", async () => {
+    const r = (await registry.get("tool.prioritizer.list_state")!.handler({}, ctx())) as Listed;
+    expect(r.rankedMethods).toEqual(["moscow", "wsjf"]);
+    const by = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    // MoSCoW: B and C tie as Musts (places 1 and 2 → 1.5); A is a Could (3).
+    expect(by.b.methodRanks).toEqual({ moscow: 1.5, wsjf: 2 });
+    expect(by.a.methodRanks).toEqual({ moscow: 3, wsjf: 1 });
+    expect(by.d.methodRanks).toEqual({});
+    expect(by.c.rank).toBe(1);
+    expect(by.d.rank).toBeNull();
+  });
+
+  it("gives the Borda consensus (0-100), its coverage and the disagreement flag", async () => {
+    const r = (await registry.get("tool.prioritizer.list_state")!.handler({}, ctx())) as Listed;
+    const by = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    // A: MoSCoW last (0), WSJF first (1) → 50, and the methods split on it.
+    expect(by.a).toMatchObject({ consensus: 50, coverage: 2, disagree: true });
+    // B: MoSCoW 1.5 of 3 → 0.75, WSJF 2nd → 0.5 → 62.5.
+    expect(by.b).toMatchObject({ consensus: 62.5, coverage: 2, disagree: false });
+    expect(by.d).toMatchObject({ consensus: null, coverage: 0, disagree: false });
+    // The same numbers decide_order reports.
+    const d = (await registry.get("tool.prioritizer.decide_order")!.handler({}, ctx())) as {
+      consensus: { id: string; borda: number | null; disagree: boolean }[];
+    };
+    for (const c of d.consensus) {
+      expect(by[c.id].consensus).toBe(c.borda);
+      expect(by[c.id].disagree).toBe(c.disagree);
+    }
   });
 });

@@ -6,9 +6,10 @@
  * Backing CRUD : workspace.backlog_item.* (auto-generated).
  *
  *   1. list_state   — backlog items with every method's score (null when
- *                     not scored), the decided order, a WSJF-descending
- *                     ranking and the MoSCoW breakdown, the same as the
- *                     Prioritizer's tabs.
+ *                     not scored), each method's place for the item and
+ *                     the consensus (the Decide order step's table), the
+ *                     decided order, a WSJF-descending ranking and the
+ *                     MoSCoW breakdown, the same as the Prioritizer's tabs.
  *   2. add_item     — add a backlog item; every method it isn't given starts
  *                     Not scored (no mid-range defaults).
  *   3. decide_order — the per-method ranks and the Borda consensus the
@@ -44,6 +45,13 @@ import {
   decidedOrder,
   ranksFromOrder,
 } from "@/lib/prioritization/rank";
+
+/**
+ * Above this spread (an item's best normalised place minus its worst) the
+ * methods disagree on the item: the Prioritizer's Decide order chip and
+ * verdict use the same threshold.
+ */
+const DISAGREE_SPREAD = 0.5;
 import {
   FIBONACCI_TEXT,
   FIBONACCI_VALUES,
@@ -59,6 +67,10 @@ const resultOf = (s: MethodScore) => ({
   warnings: s.warnings,
 });
 
+/** A consensus as decide_order reports it: 0–100, one decimal place. */
+const bordaPercent = (borda: number | null) =>
+  borda === null ? null : Math.round(borda * 1000) / 10;
+
 /** `rows` are the method tools' rows; the ones linked to an item feed its ICE, Kano and Cost of Delay. */
 function summarize(items: readonly BacklogItem[], rows: readonly PrioritizationItem[] = []) {
   const byMoscow: Record<NonNullable<BacklogItem["moscow"]>, number> = {
@@ -67,12 +79,23 @@ function summarize(items: readonly BacklogItem[], rows: readonly PrioritizationI
     could: 0,
     wont: 0,
   };
+  // Each method's places and the consensus over every hub method with 2 or
+  // more items scored: the Decide order step's default table (rank.ts).
+  const { used } = consensusMethods(items, rows, HUB_METHOD_IDS);
+  const consensus = new Map(
+    bordaConsensus(
+      items,
+      rows,
+      used.map((r) => r.method)
+    ).map((c) => [c.itemId, c])
+  );
   const scored = items.map((i) => {
     const fs = frameworkScores(i, rows);
     const all = evaluateItem(i, rows);
     const methods = Object.fromEntries(
       HUB_METHOD_IDS.map((id) => [id, resultOf(all[id])])
     ) as Record<MethodId, ReturnType<typeof resultOf>>;
+    const c = consensus.get(i.id);
     return {
       id: i.id,
       name: i.name,
@@ -82,6 +105,10 @@ function summarize(items: readonly BacklogItem[], rows: readonly PrioritizationI
       rank: typeof i.rank === "number" ? i.rank : null,
       frameworkScores: fs,
       methods,
+      methodRanks: c?.perMethod ?? {},
+      consensus: bordaPercent(c?.borda ?? null),
+      coverage: c?.coverage ?? 0,
+      disagree: typeof c?.spread === "number" && c.spread > DISAGREE_SPREAD,
     };
   });
   // An item without a bucket (or whose bucket is only an old default) is counted nowhere.
@@ -96,6 +123,7 @@ function summarize(items: readonly BacklogItem[], rows: readonly PrioritizationI
     items: scored,
     rankedByWsjf,
     ordered,
+    rankedMethods: used.map((r) => r.method),
   };
 }
 
@@ -111,7 +139,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List backlog items with computed scores. Returns {total, byMoscow: {must, should, could, wont}, notSorted, items: {id, name, moscow, wsjf, rice, rank, frameworkScores, methods}[], rankedByWsjf: same[] sorted by WSJF descending (not scored last), ordered: same[] in the decided order (rank 1 first, then items not ordered yet)}. A method the item isn't scored in reads null (never a mid-range default; old 'Add item' defaults read as not scored). frameworkScores: {moscow, wsjf, rice, valueEffort: {value, effort, quadrant: quick_wins|big_bets|fill_ins|time_wasters} | null} from the item's own inputs, plus {ice, kano, cd3, urgency} from the latest row in those tools linked to it (costOfDelay: deprecated, the old total). methods: each hub method's {score, bucket, missing, warnings}.",
+    "List backlog items with computed scores, as the Prioritizer shows them. Returns {total, byMoscow: {must, should, could, wont}, notSorted, items: {id, name, moscow, wsjf, rice, rank, frameworkScores, methods, methodRanks, consensus, coverage, disagree}[], rankedByWsjf: same[] sorted by WSJF descending (not scored last), ordered: same[] in the decided order (rank 1 first, then items not ordered yet), rankedMethods: the hub methods with 2 or more items scored}. rank: the decided order's place (1-based), null = Not ordered yet. A method the item isn't scored in reads null (never a mid-range default; old 'Add item' defaults read as not scored). frameworkScores: {moscow, wsjf, rice, valueEffort: {value, effort, quadrant: quick_wins|big_bets|fill_ins|time_wasters} | null} from the item's own inputs, plus {ice, kano, cd3, urgency} from the latest row in those tools linked to it (costOfDelay: deprecated, the old total). methods: each hub method's {score, bucket, missing, warnings}. methodRanks: the item's place in each of rankedMethods that scored it (tied items share the average place, e.g. 2.5), the Decide order step's table; consensus: the Borda consensus over rankedMethods, 0-100 (100 = top in every method that scored it), null when none did; coverage: how many of rankedMethods scored it; disagree: those methods' places for it are over half the list apart (decide_order's flag).",
   paramsSchema: z.object({}),
   handler: async () => listState(clientStore()),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
@@ -171,7 +199,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add a backlog item. Only the inputs given are stored: every method it isn't given starts Not scored (no default bucket, no mid values). businessValue is the one value field (WSJF and Value/Effort). Returns {added: true, id}.",
+    "Add a backlog item, as the Prioritizer's Add item does. Only the inputs given are stored: every method it isn't given starts Not scored (no default bucket, no mid values), and the item is Not ordered yet (no rank) until a decided order is saved (set_order). businessValue is the one value field (WSJF and Value/Effort); each WSJF part is a Fibonacci step 1, 2, 3, 5, 8, 13 or 20 (refused otherwise, no clamp). Returns {added: true, id}.",
   paramsSchema: AddItemSchema,
   handler: async (params) => addItem(clientStore(), params),
   mcpHandler: async (params, ctx) => addItem(serverStore(ctx.userId), params),
@@ -203,10 +231,10 @@ const decideOrder = async (store: MethodStore, params: z.infer<typeof DecideSche
       id: c.itemId,
       name: byId.get(c.itemId)?.name ?? "",
       rank: byId.get(c.itemId)?.rank ?? null,
-      borda: c.borda === null ? null : Math.round(c.borda * 1000) / 10,
+      borda: bordaPercent(c.borda),
       coverage: c.coverage,
       spread: c.spread,
-      disagree: c.spread !== null && c.spread > 0.5,
+      disagree: c.spread !== null && c.spread > DISAGREE_SPREAD,
       perMethod: c.perMethod,
     })),
     suggestedOrder: consensus.filter((c) => c.borda !== null).map((c) => c.itemId),
