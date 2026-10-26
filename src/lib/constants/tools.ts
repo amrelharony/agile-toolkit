@@ -766,7 +766,7 @@ export const tools: ToolDefinition[] = [
     code: "D4",
     name: "Team Skills Matrix",
     description:
-      "Rate the team's skills by level, see gaps and single points of failure against each skill's target, and plan cross-training",
+      "Rate the team's skills by level, spot gaps and single points of failure (bus factor), check each skill against its target, and plan cross-training",
     category: "Team Health & Maturity",
     path: "/skills-matrix",
     icon: Users,
