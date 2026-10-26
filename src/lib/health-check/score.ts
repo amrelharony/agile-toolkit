@@ -160,7 +160,9 @@ const RANK: Readonly<Record<HealthTrafficLight, number>> = { red: 0, yellow: 1, 
 /**
  * A dimension's trend: its light against the previous saved check's. "same"
  * when either is missing (a first check, a dimension added since), so a
- * trend is never guessed.
+ * trend is never guessed. That "same" is only for the stored score, whose
+ * type needs a trend: a reader quoting a trend uses `trendSince`, which
+ * says there is nothing to compare against.
  */
 export function trendFor(
   prev: HealthTrafficLight | null | undefined,
@@ -168,6 +170,22 @@ export function trendFor(
 ): HealthTrend {
   if (!prev || !cur || RANK[prev] === RANK[cur]) return "same";
   return RANK[cur] > RANK[prev] ? "up" : "down";
+}
+
+/**
+ * The trend of dimension `key` against the check before (`prev`), or null
+ * when there is nothing to compare: no check before, no light for it then
+ * (a dimension added since), or no light now. The page says "First check"
+ * or "New since …" for those; the agent and the export say so too, never
+ * "same".
+ */
+export function trendSince(
+  prev: Lights | null | undefined,
+  key: string,
+  cur: HealthTrafficLight | null | undefined
+): HealthTrend | null {
+  const before = storedLight(prev ?? undefined, key);
+  return before && cur ? trendFor(before, cur) : null;
 }
 
 /* ── Votes ────────────────────────────────────────────────────────────── */
@@ -448,7 +466,12 @@ export function withVotes(
   };
 }
 
-/** The draft for `sprint` (its id and name), or back to no sprint. */
+/**
+ * The draft for `sprint` (its id and name), or back to no sprint. Going
+ * back clears the name too, when it is the sprint's: a check that kept it
+ * would still be read as that sprint's (`healthCheckFor` matches untagged
+ * checks by name). A name typed after that stays.
+ */
 export function withSprint(
   doc: HealthCheck,
   sprint: Pick<Sprint, "id" | "name"> | null
@@ -457,8 +480,9 @@ export function withSprint(
   if (sprint) {
     current.sprintId = sprint.id;
     current.sprintName = sprint.name;
-  } else {
+  } else if (current.sprintId) {
     delete current.sprintId;
+    current.sprintName = "";
   }
   return { ...doc, current };
 }
@@ -551,15 +575,17 @@ export function previousSavedCheck(
   return best;
 }
 
-/** The trend of every dimension of a check against the check before it (derived, never typed). */
+/**
+ * The trend of every dimension of a check against the check before it
+ * (derived, never typed); null where there is nothing to compare against
+ * (see `trendSince`).
+ */
 export function trendsFor(
   e: Lights,
   prev: Lights | null | undefined,
   keys: readonly string[]
-): Record<string, HealthTrend> {
-  return Object.fromEntries(
-    keys.map((k) => [k, trendFor(storedLight(prev ?? undefined, k), storedLight(e, k))])
-  );
+): Record<string, HealthTrend | null> {
+  return Object.fromEntries(keys.map((k) => [k, trendSince(prev, k, storedLight(e, k))]));
 }
 
 /** The red dimensions of a saved check, in page order (archived custom ones included). */
@@ -593,15 +619,22 @@ export type SaveCheckResult =
  * Save the draft as a check: refused while an active dimension is unrated
  * (a placeholder green must never be saved as the team's) or its date is
  * in the future. Trends are stamped from the previous saved check; the
- * draft starts again, keeping nothing but its sprint-less blank.
+ * draft starts again, keeping nothing but its sprint-less blank. `latest`
+ * is the latest day a check may be dated (default `today`; the server,
+ * which doesn't know the user's time zone, allows a day more).
  */
 export function saveDraft(
   doc: HealthCheck,
-  { id, today, sprints = [] }: { id: string; today: string; sprints?: readonly Sprint[] }
+  {
+    id,
+    today,
+    sprints = [],
+    latest = today,
+  }: { id: string; today: string; sprints?: readonly Sprint[]; latest?: string }
 ): SaveCheckResult {
   const unrated = unratedDimensions(doc);
   const date = doc.current.date ?? today;
-  const dateProblem = checkDateProblem(date, today) ?? undefined;
+  const dateProblem = checkDateProblem(date, latest) ?? undefined;
   if (unrated.length > 0 || dateProblem) {
     return { ok: false, unrated, ...(dateProblem ? { dateProblem } : {}) };
   }
