@@ -16,7 +16,6 @@ import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { ResetButton } from "@/components/shared/reset-button";
 import { SectionCard } from "@/components/shared/section-card";
 import { IconButton } from "@/components/ui/icon-button";
-import { Input } from "@/components/ui/input";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import { useAnnounce } from "@/components/a11y/live-announcer";
@@ -35,7 +34,6 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { todayIso } from "@/lib/sprints/series";
-import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import { formatDate } from "@/lib/utils/formatters";
 import { cn } from "@/lib/utils";
@@ -73,6 +71,7 @@ import {
   trendSlopeText,
   trendText,
 } from "./chart-text";
+import { DayInput } from "./day-input";
 import { buildExample, type MaturityExample } from "./example";
 import { maturityToMarkdown } from "./markdown";
 import { useMaturityLevelSync } from "./use-maturity-level";
@@ -222,14 +221,10 @@ export function MaturityTool() {
 
   /* ── Saved assessments ───────────────────────────────────────────── */
 
+  // DayInput has refused a bad day inline before this runs.
   const redate = (entry: MaturityAssessmentEntry, day: string) => {
-    const error = assessedAtError(day, today);
-    if (error) {
-      toast.error(error);
-      announce(error, "assertive");
-      return;
-    }
     write((d) => withAssessmentPatch(d, entry.id, { assessedAt: day }) ?? d);
+    announce(`Moved the assessment to ${formatDate(day)}`);
   };
 
   const renote = (entry: MaturityAssessmentEntry, note: string) =>
@@ -311,26 +306,32 @@ export function MaturityTool() {
       })
     )
   );
-  const promptConfig = useMemo(() => {
-    // The latest saved assessment; without one, only what the draft has scored.
-    const scores = latest?.scores ?? doc.scores;
-    return {
-      toolName: "Agile Maturity Assessment",
-      prompts: generateMaturityPrompts(
-        {
-          dimensions: MATURITY_DIMENSIONS.flatMap((d) => {
-            const level = levelOf(scores[d.id]);
-            return level === null
-              ? []
-              : [{ name: d.name, currentScore: level, targetScore: target }];
-          }),
-          overallScore: summary?.percentage ?? 0,
-          targetLevel: target,
-        },
-        workspace
-      ),
-    };
-  }, [latest, doc.scores, target, summary?.percentage, workspace]);
+  // From the latest saved assessment only: the prompt prints an overall
+  // score, and a draft has none (a 0% there read as "every dimension at
+  // level 1"). The button shows once an assessment is saved.
+  const overall = summary?.percentage ?? null;
+  const promptConfig = useMemo(
+    () =>
+      latest && overall !== null
+        ? {
+            toolName: "Agile Maturity Assessment",
+            prompts: generateMaturityPrompts(
+              {
+                dimensions: MATURITY_DIMENSIONS.flatMap((d) => {
+                  const level = levelOf(latest.scores[d.id]);
+                  return level === null
+                    ? []
+                    : [{ name: d.name, currentScore: level, targetScore: target }];
+                }),
+                overallScore: overall,
+                targetLevel: target,
+              },
+              workspace
+            ),
+          }
+        : null,
+    [latest, overall, target, workspace]
+  );
 
   if (!hydrated) {
     return (
@@ -380,7 +381,7 @@ export function MaturityTool() {
           )}
         </div>
         <ActionRow>
-          <AiPromptGenerator config={promptConfig} />
+          {promptConfig && <AiPromptGenerator config={promptConfig} />}
           <ExportButton
             filename="agile-maturity-assessment"
             markdown={markdown}
@@ -544,13 +545,13 @@ export function MaturityTool() {
                   key={e.id}
                   className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center"
                 >
-                  <Input
-                    type="date"
-                    max={today}
-                    aria-label={`Day of the assessment of ${when}`}
-                    className="h-8 w-40"
+                  <DayInput
+                    label={`Day of the assessment of ${when}`}
                     value={s.assessedAt}
-                    onChange={(ev) => ev.target.value && redate(e, ev.target.value)}
+                    max={today}
+                    validate={(day) => assessedAtError(day, today)}
+                    onCommit={(day) => redate(e, day)}
+                    inputClassName="h-8 w-40"
                   />
                   <span className={cn("rounded border px-2 py-0.5 text-sm", TONE_CLASS[s.tone])}>
                     {s.percentage}% · Level {s.level} {s.label}

@@ -50,6 +50,52 @@ function RadarTooltip({
   );
 }
 
+/** Below this plot width the dimension names wrap and the radar shrinks to leave them room. */
+const NARROW_PLOT = 480;
+
+/**
+ * A dimension name at the radar's edge. On a narrow plot it splits over two
+ * lines ("Stakeholder" / "Engagement"), so the names at the left and right
+ * stay inside the chart at 375 px; the table under the chart has them whole.
+ */
+function AngleTick({
+  x,
+  y,
+  textAnchor,
+  payload,
+  narrow,
+}: {
+  x?: number;
+  y?: number;
+  textAnchor?: "start" | "middle" | "end" | "inherit";
+  payload?: { value: string };
+  narrow: boolean;
+}) {
+  const name = String(payload?.value ?? "");
+  const words = name.split(" ");
+  const half = Math.ceil(words.length / 2);
+  const lines =
+    narrow && words.length > 1
+      ? [words.slice(0, half).join(" "), words.slice(half).join(" ")]
+      : [name];
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor={textAnchor}
+      fill={chartTheme.axisColor}
+      fontSize={narrow ? 10 : 12}
+      fontFamily="Inter, sans-serif"
+    >
+      {lines.map((line, i) => (
+        <tspan key={i} x={x} dy={i === 0 ? (lines.length > 1 ? "-0.2em" : "0.35em") : "1.1em"}>
+          {line}
+        </tspan>
+      ))}
+    </text>
+  );
+}
+
 interface MaturityRadarChartProps {
   data: RadarPoint[];
   /** Injected by ChartCard's ResponsiveContainer. */
@@ -60,19 +106,21 @@ interface MaturityRadarChartProps {
 /** The latest assessment, with the one before it dashed when there is one. */
 export function MaturityRadarChart({ data, width, height }: MaturityRadarChartProps) {
   const withPrevious = data.some((d) => d.previous !== undefined);
+  const narrow = width !== undefined && width < NARROW_PLOT;
   return (
     <RadarChart
       width={width}
       height={height}
       data={data}
-      outerRadius="65%"
-      margin={{ top: 10, right: 24, bottom: 10, left: 24 }}
+      outerRadius={narrow ? "50%" : "65%"}
+      margin={
+        narrow
+          ? { top: 16, right: 8, bottom: 16, left: 8 }
+          : { top: 10, right: 24, bottom: 10, left: 24 }
+      }
     >
       <PolarGrid gridType="polygon" stroke={chartTheme.gridColor} />
-      <PolarAngleAxis
-        dataKey="subject"
-        tick={{ fill: chartTheme.axisColor, fontSize: 12, fontFamily: "Inter, sans-serif" }}
-      />
+      <PolarAngleAxis dataKey="subject" tick={<AngleTick narrow={narrow} />} />
       <PolarRadiusAxis domain={[0, 5]} tickCount={6} tick={false} axisLine={false} />
       {withPrevious && (
         <Radar

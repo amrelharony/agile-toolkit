@@ -52,7 +52,11 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({
+  AiPromptGenerator: ({ config }: { config: { prompts: { prompt: string }[] } }) => (
+    <pre data-testid="ai-prompts">{config.prompts.map((p) => p.prompt).join("\n")}</pre>
+  ),
+}));
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: ({ markdown }: { markdown?: string }) => (
     <pre data-testid="export-markdown">{markdown}</pre>
@@ -510,15 +514,38 @@ describe("the page", () => {
     await waitFor(() => expect(ws().maturityLevel).toBe(2));
   });
 
-  it("edits a saved assessment's day in place, refusing the future", () => {
-    seed(doc([entry("a", "2026-05-01", all(4))]));
+  it("edits a saved assessment's day in place when the field is left, refusing the future inline", () => {
+    seed(doc([entry("a", "2026-05-01", all(4)), entry("b", "2026-10-01", all(2))]), {
+      maturityLevel: 2,
+    });
     renderPage();
     const day = screen.getByLabelText("Day of the assessment of May 1, 2026");
-    fireEvent.change(day, { target: { value: "2027-01-01" } });
-    expect(toastSpy.error).toHaveBeenCalledWith("It can't be taken in the future.");
+    // Typing a year passes through 0202: nothing is saved, nothing re-sorts.
+    fireEvent.change(day, { target: { value: "0202-05-01" } });
     expect(stored()?.history?.[0].assessedAt).toBe("2026-05-01");
+    fireEvent.change(day, { target: { value: "2027-01-01" } });
+    fireEvent.blur(day);
+    expect(screen.getByRole("alert")).toHaveTextContent("It can't be taken in the future.");
+    expect(toastSpy.error).not.toHaveBeenCalled();
+    expect(stored()?.history?.map((e) => e.assessedAt)).toEqual(["2026-05-01", "2026-10-01"]);
+    expect(ws().maturityLevel).toBe(2);
+    // Escape puts the stored day back.
+    fireEvent.keyDown(day, { key: "Escape" });
+    expect(day).toHaveValue("2026-05-01");
+    expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.change(day, { target: { value: "2026-04-20" } });
+    fireEvent.keyDown(day, { key: "Enter" });
     expect(stored()?.history?.[0].assessedAt).toBe("2026-04-20");
+  });
+
+  it("offers the AI prompts only from a saved assessment, never a 0% for a draft", async () => {
+    seed(doc([], { scores: { "scrum-practices": 3 } }));
+    const { unmount } = renderPage();
+    expect(screen.queryByTestId("ai-prompts")).toBeNull();
+    unmount();
+    seed(doc([entry("a", "2026-05-01", all(4))]));
+    renderPage();
+    expect(screen.getByTestId("ai-prompts").textContent).toContain("Overall Score: 75%");
   });
 
   it("resets only after confirming, the team unassessed, and Undo brings it all back", async () => {
