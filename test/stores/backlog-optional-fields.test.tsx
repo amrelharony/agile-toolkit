@@ -226,9 +226,9 @@ describe("the hub shows a bare item as Not scored", () => {
       Kano: "Not scored",
       "Cost of Delay": "Not scored",
     });
-    // Order | Item | MoSCoW | WSJF | RICE | Value/Effort | Effort (pm) | Description
+    // Order | Item | the seven hub methods, as the CSV reads them | RICE effort | Description
     expect(captured.prompts[0].prompt).toContain(
-      "| — | Bare | Not sorted yet | Not scored | Not scored | Not scored | — | — |"
+      "| Not ordered yet | Bare | Not sorted yet | Not scored | Not scored | Not placed yet | Not scored | Not scored | Not scored | — | — |"
     );
 
     render(<RICETab items={[BACKLOG_BARE]} />);
