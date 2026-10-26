@@ -524,6 +524,32 @@ function teamBacklog(
   };
 }
 
+/**
+ * Whether a story already carries a row's work: planned into a sprint
+ * still to run or under way, or done. It's the story pulled from the row's
+ * backlog item, or one named like the row or the item (as Sprint
+ * Planning's import matches names).
+ */
+function plannedStory(
+  row: PrioritizationItem,
+  item: BacklogItem | undefined,
+  stories: readonly Story[] | undefined,
+  sprints: readonly Sprint[] | undefined
+): boolean {
+  const open = new Set(
+    real(sprints)
+      .filter(isOpenSprint)
+      .map((s) => s.id)
+  );
+  const names = new Set([row.title, item?.name ?? ""].map(nameKey).filter(Boolean));
+  return real(stories).some(
+    (s) =>
+      (s.status === "done" || open.has(s.sprintId ?? "")) &&
+      ((item !== undefined && fromTool(s, BACKLOG_SOURCE_TOOL) && s.sourceRef?.id === item.id) ||
+        names.has(nameKey(s.title)))
+  );
+}
+
 /** How soon a fixed-date item's latest start has to be for planning it to be the next step. */
 const FIXED_DATE_LEAD_DAYS = 14;
 
@@ -2067,15 +2093,20 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "cost-of-delay": rule({
-    select: (ws) => ({ rows: ws.prioritizations }),
-    steps: ({ rows }) => {
+    select: (ws) => ({
+      rows: ws.prioritizations,
+      items: ws.backlogItems,
+      stories: ws.stories,
+      sprints: ws.sprints,
+    }),
+    steps: ({ rows, items, stories, sprints }) => {
       const today = todayIso();
       const soon = addDays(today, FIXED_DATE_LEAD_DAYS) ?? today;
-      const scored = rankMethodRows("cost-of-delay", real(rows)).filter(
-        (r) => r.result.score !== null
-      );
+      const { backlog, rows: team } = teamBacklog(items, rows);
+      const scored = rankMethodRows("cost-of-delay", team).filter((r) => r.result.score !== null);
       const steps: NextStep[] = [];
-      // The fixed-date item that has to start soonest (or should have started).
+      // The fixed-date item that has to start soonest (or should have started),
+      // until a story for it is planned into a sprint or done.
       const [fixed] = scored
         .flatMap((r) => {
           const start = r.result.extra?.latestStart;
@@ -2083,21 +2114,24 @@ const RULES: Record<string, NextStepRule<object>> = {
           return r.result.bucket === "fixed_date" &&
             typeof start === "string" &&
             typeof due === "string" &&
-            start <= soon
+            start <= soon &&
+            !plannedStory(r.row, linkedItem(r.row, backlog), stories, sprints)
             ? [{ r, start, due }]
             : [];
         })
         .sort((a, b) => a.start.localeCompare(b.start));
       if (fixed) {
         const what = quote(fixed.r.row.title, "A fixed-date item");
+        const next = nextPlannedSprint(sprints);
+        const into = next?.name ?? "the next sprint";
         steps.push({
           id: "cod-fixed-date",
           label: "Plan the fixed-date work now",
           detail:
             fixed.start < today
-              ? `${what} should have started by ${dayLabel(fixed.start)} to land by ${dayLabel(fixed.due)}: it's already late. Pull it into the next sprint, or agree a new date.`
-              : `${what} must start by ${dayLabel(fixed.start)} to land by ${dayLabel(fixed.due)}. Pull it into the next sprint.`,
-          href: "/sprint-planning",
+              ? `${what} should have started by ${dayLabel(fixed.start)} to land by ${dayLabel(fixed.due)}: it's already late. Pull it into ${into}, or agree a new date.`
+              : `${what} must start by ${dayLabel(fixed.start)} to land by ${dayLabel(fixed.due)}. Pull it into ${into}.`,
+          href: sprintHref("/sprint-planning", next?.id),
         });
       }
       if (scored.length >= 2) {
@@ -2114,8 +2148,13 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "value-effort-matrix": rule({
-    select: (ws) => ({ rows: ws.prioritizations, items: ws.backlogItems, stories: ws.stories }),
-    steps: ({ rows, items, stories }) => {
+    select: (ws) => ({
+      rows: ws.prioritizations,
+      items: ws.backlogItems,
+      stories: ws.stories,
+      sprints: ws.sprints,
+    }),
+    steps: ({ rows, items, stories, sprints }) => {
       const { backlog, rows: team } = teamBacklog(items, rows);
       const wins = rankMethodRows("value-effort", team, backlog).filter(
         (r) => r.result.bucket === "quick_wins"
@@ -2129,11 +2168,12 @@ const RULES: Record<string, NextStepRule<object>> = {
       );
       const toPlan = notPulled(Array.from(onBacklog.values()), stories).length;
       if (toPlan > 0) {
+        const next = nextPlannedSprint(sprints);
         steps.push({
           id: "value-effort-plan",
           label: "Plan the quick wins",
-          detail: `${plural(toPlan, "Quick Win")} ${be(toPlan)} on the backlog and not in Sprint Planning yet. Pull ${toPlan === 1 ? "it" : "them"} into the next sprint.`,
-          href: "/sprint-planning",
+          detail: `${plural(toPlan, "Quick Win")} ${be(toPlan)} on the backlog and not in Sprint Planning yet. Pull ${toPlan === 1 ? "it" : "them"} into ${next?.name ?? "the next sprint"}.`,
+          href: sprintHref("/sprint-planning", next?.id),
         });
       }
       const off = wins.filter((r) => !r.live).length;

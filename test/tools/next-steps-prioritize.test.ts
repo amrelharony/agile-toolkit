@@ -12,6 +12,7 @@ import type {
   HandoffLink,
   Hypothesis,
   PrioritizationItem,
+  Sprint,
   Story,
   WeightedCriterion,
   WeightedMatrix,
@@ -77,6 +78,20 @@ const link = (route: HandoffLink["route"], targetId: string): HandoffLink => ({
   targetId,
   at: STAMP,
 });
+const sprint = (id: string, status: Sprint["status"], startDate: string): Sprint => ({
+  id,
+  name: `Sprint ${id.slice(1)}`,
+  startDate,
+  endDate: startDate,
+  pointsPlanned: 0,
+  status,
+});
+// Sprint 7 is running; 8 is the next to plan, 9 the one after.
+const SPRINTS = [
+  sprint("s7", "active", "2026-10-19"),
+  sprint("s9", "planned", "2026-11-16"),
+  sprint("s8", "planned", "2026-11-02"),
+];
 /** The backlog seed older builds wrote to every new backlog: the hub clears it as example. */
 const SEED = ["auth", "search", "export", "billing", "onboarding"].map((key) =>
   item(`default:item-${key}`, {
@@ -341,6 +356,45 @@ describe("cost-of-delay", () => {
     expect(ids("cost-of-delay", { prioritizations: [fixed("Later", "2027-01-30")] })).toEqual([]);
   });
 
+  it("links to the next sprint to plan, by name", () => {
+    expect(
+      step(
+        "cost-of-delay",
+        { prioritizations: [fixed("Audit", "2026-11-20")], sprints: SPRINTS },
+        "cod-fixed-date"
+      )
+    ).toMatchObject({
+      detail: "“Audit” must start by 6 Nov to land by 20 Nov. Pull it into Sprint 8.",
+      href: "/sprint-planning?sprint=s8",
+    });
+  });
+
+  it("stops once a story for the work is planned into a sprint or done", () => {
+    const audit = fixed("Audit", "2026-11-20");
+    const linked = { ...audit, title: "Q4 audit", backlogItemId: "i1" };
+    const backlogItems = [item("i1", { name: "Compliance audit" })];
+    const sprints = [...SPRINTS, sprint("s6", "completed", "2026-10-05")];
+    const fires = (prioritizations: PrioritizationItem[], stories: Story[]) =>
+      ids("cost-of-delay", { prioritizations, backlogItems, stories, sprints }).includes(
+        "cod-fixed-date"
+      );
+    // Named like the row, in the next sprint or the running one, or done.
+    expect(fires([audit], [story("s1", { title: " audit", sprintId: "s8" })])).toBe(false);
+    expect(fires([audit], [story("s1", { title: "Audit", sprintId: "s7" })])).toBe(false);
+    expect(fires([audit], [story("s1", { title: "Audit", status: "done" })])).toBe(false);
+    // Pulled from the row's backlog item, or named like the item.
+    const pulled = story("s1", { sprintId: "s8", sourceRef: { tool: "prioritizer", id: "i1" } });
+    expect(fires([linked], [pulled])).toBe(false);
+    expect(fires([linked], [story("s1", { title: "Compliance audit", sprintId: "s8" })])).toBe(
+      false
+    );
+    // Still waiting: on the backlog, left in a closed sprint, or an example story.
+    expect(fires([audit], [story("s1", { title: "Audit" })])).toBe(true);
+    expect(fires([audit], [story("s1", { title: "Audit", sprintId: "s6" })])).toBe(true);
+    expect(fires([audit], [story("example-s1", { title: "Audit", sprintId: "s8" })])).toBe(true);
+    expect(fires([linked], [story("s1", { title: "Audit", sprintId: "s8" })])).toBe(true);
+  });
+
   it("cross-checks two scored items with WSJF, leaving legacy rows out", () => {
     const standard = cod("Std", { perWeekUsd: 500, durationWeeks: 1, urgency: "standard" });
     const legacy = cod("Old", { perWeekUsd: 500, weeksDelayed: 4 });
@@ -380,6 +434,18 @@ describe("value-effort-matrix", () => {
     expect(
       steps("value-effort-matrix", { prioritizations, backlogItems, stories: [pulled] })
     ).toEqual([]);
+    // With a sprint planned, the link opens the next one.
+    expect(
+      step(
+        "value-effort-matrix",
+        { prioritizations, backlogItems, stories: [], sprints: SPRINTS },
+        "value-effort-plan"
+      )
+    ).toMatchObject({
+      detail:
+        "1 Quick Win is on the backlog and not in Sprint Planning yet. Pull it into Sprint 8.",
+      href: "/sprint-planning?sprint=s8",
+    });
   });
 
   it("puts quick wins on the backlog from their rows, and skips the rest", () => {
