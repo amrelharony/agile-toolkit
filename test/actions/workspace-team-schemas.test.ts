@@ -26,6 +26,8 @@ import { registry, zodToJsonSchema } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
 import * as serverStore from "@/lib/actions/server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { MATURITY_ID } from "@/lib/maturity/assessment";
+import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
 import {
   ADKAR_DOC_ID,
   DOD_DOC_ID,
@@ -220,9 +222,23 @@ const DASHBOARD: HealthDashboardConfig = {
 
 // Singletons: [toolId, slice, fixed id, an empty document's other fields, the
 // team's document]. The empty one is what an id-less create used to write over
-// the team's.
+// the team's, or (skills matrix, maturity) mint under an id no page read.
 const SINGLETONS: [toolId: string, slice: keyof Workspace, id: string, empty: object, doc: Doc][] =
   [
+    [
+      "workspace.skills_matrix",
+      "skillsMatrices",
+      SKILLS_MATRIX_ID,
+      { members: [], skills: [], grid: {} },
+      SKILLS,
+    ],
+    [
+      "workspace.maturity_assessment",
+      "maturityAssessments",
+      MATURITY_ID,
+      { scores: {}, targetLevel: 4 },
+      MATURITY,
+    ],
     [
       "workspace.definition_of_done",
       "definitionsOfDone",
@@ -300,6 +316,29 @@ describe("singleton CRUD never overwrites the team's document", () => {
         makeContext("u", "agent")
       );
       expect(result).toEqual({ updated: true });
+      expect(useWorkspaceStore.getState()[slice]).toEqual([doc]);
+    }
+  );
+
+  it.each([
+    ["workspace.skills_matrix", "skillsMatrices", "skillsMatrix_abc12345", SKILLS],
+    [
+      "workspace.maturity_assessment",
+      "maturityAssessments",
+      "maturityAssessment_abc12345",
+      MATURITY,
+    ],
+  ] as const)(
+    "%s delete still clears an orphan an id-less create minted before",
+    async (toolId, slice, orphanId, doc) => {
+      useWorkspaceStore.setState({
+        [slice]: [doc, { ...doc, id: orphanId }],
+      } as Partial<Workspace>);
+      const result = await action(`${toolId}.delete`).handler(
+        { id: orphanId },
+        makeContext("u", "agent")
+      );
+      expect(result).toEqual({ deleted: true });
       expect(useWorkspaceStore.getState()[slice]).toEqual([doc]);
     }
   );

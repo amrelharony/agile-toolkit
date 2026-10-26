@@ -27,6 +27,8 @@ import {
   WORKING_AGREEMENT_ID,
 } from "@/lib/stores/workspace-types";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
+import { MATURITY_ID } from "@/lib/maturity/assessment";
+import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -1480,7 +1482,7 @@ const PsychSafetyLogSchema = z.object({
 const MaturityScore = z.number().int().min(1).max(5);
 
 const MaturityAssessmentSchema = z.object({
-  id: z.string(),
+  id: SingletonId(MATURITY_ID),
   scores: z
     .record(z.string(), MaturityScore)
     .describe(
@@ -1590,7 +1592,7 @@ const SkillsTrainingPairSchema = z.object({
 });
 
 const SkillsMatrixSchema = z.object({
-  id: z.string(),
+  id: SingletonId(SKILLS_MATRIX_ID),
   members: z.array(SkillsMatrixEntrySchema),
   skills: z.array(SkillsMatrixSkillSchema),
   grid: z
@@ -1909,14 +1911,17 @@ defineCrudActions<PsychSafetyLog>({
   serverKind: "workspace:psychSafety",
 });
 
+// The page and tool.maturity.* read only MATURITY_ID, so there is no
+// generateId (see SingletonId): a minted `maturityAssessment_<nanoid>` doc
+// was an orphan no page showed, and create must name the id so it never
+// overwrites.
 defineCrudActions<MaturityAssessment>({
   toolId: "workspace.maturity_assessment",
-  entityName: "maturity assessment",
+  entityName: `maturity assessment (singleton id ${MATURITY_ID})`,
   schema: MaturityAssessmentSchema,
   selectAll: () => ws().maturityAssessments ?? [],
   upsert: (x) => ws().upsertMaturityAssessment(x),
   remove: (id) => ws().removeMaturityAssessment(id),
-  generateId: () => `maturityAssessment_${nanoid(8)}`,
 });
 
 defineCrudActions<HealthCheck>({
@@ -1929,14 +1934,15 @@ defineCrudActions<HealthCheck>({
   generateId: () => `healthCheck_${nanoid(8)}`,
 });
 
+// Like the maturity assessment: the page and tool.skills_matrix.* read only
+// SKILLS_MATRIX_ID, so create needs it and there is no generateId.
 defineCrudActions<SkillsMatrix>({
   toolId: "workspace.skills_matrix",
-  entityName: "skills matrix",
+  entityName: `skills matrix (singleton id ${SKILLS_MATRIX_ID})`,
   schema: SkillsMatrixSchema,
   selectAll: () => ws().skillsMatrices ?? [],
   upsert: (x) => ws().upsertSkillsMatrix(x),
   remove: (id) => ws().removeSkillsMatrix(id),
-  generateId: () => `skillsMatrix_${nanoid(8)}`,
 });
 
 // Phase 6 singletons: each tool reads only its fixed id, so the schema's id is
