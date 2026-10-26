@@ -287,9 +287,16 @@ export function StakeholderMap({
         className="relative mx-auto aspect-square w-full max-w-xl"
       >
         <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px overflow-hidden rounded-lg bg-border">
+          {/* Each pane's tint sits on an opaque bg-bg: the grid behind is
+              bg-border (its 1 px gaps are the lines), and a bare 5% tint let
+              it through, white in high contrast, under yellow and green labels. */}
           {PANES.map(({ q, className, align }) => (
-            <div key={q} className={cn("p-2", className, align)}>
-              <div className="text-xs uppercase tracking-wider opacity-80">{QUADRANT_LABEL[q]}</div>
+            <div key={q} className="bg-bg">
+              <div className={cn("h-full p-2", className, align)}>
+                <div className="text-xs uppercase tracking-wider opacity-80">
+                  {QUADRANT_LABEL[q]}
+                </div>
+              </div>
             </div>
           ))}
         </div>
