@@ -779,8 +779,9 @@ export interface CharterRule {
   agreedBy: string[];
   description?: string;
   /** The draft of the check-in in progress: is the rule still working in
-   *  practice? Saved rounds are kept in `WorkingAgreement.checkIns`. */
-  stillWorking?: boolean;
+   *  practice? true, false, or "partly" (kept some of the time, or by some
+   *  of the team). Saved rounds are kept in `WorkingAgreement.checkIns`. */
+  stillWorking?: boolean | "partly";
   /** Each person's answer; the source of truth for `agreedBy` once present. */
   consent?: CharterConsent[];
 }
@@ -792,7 +793,8 @@ export interface CharterMeta {
   description?: string;
 }
 
-export type CharterCheckInResult = "working" | "not_working";
+/** How a rule went in a check-in; "partly" counts as half in adherence. */
+export type CharterCheckInResult = "working" | "partly" | "not_working";
 
 /** One saved adoption check-in: how each rule is working, as of `date`. */
 export interface CharterCheckIn {

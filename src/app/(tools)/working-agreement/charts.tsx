@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { adherenceCount } from "@/lib/working-agreement/model";
 import type { AdherencePoint } from "./trend";
 
 /** Each saved check-in's adherence, oldest first. */
@@ -44,7 +45,7 @@ export function AdherenceChart({ data }: { data: AdherencePoint[] }) {
           contentStyle={chartTheme.tooltipStyle}
           formatter={(v, _name, item) => {
             const p = (item as { payload?: AdherencePoint } | undefined)?.payload;
-            return [p ? `${v}% (${p.working} of ${p.checked})` : `${v}%`, "Working"];
+            return [p ? `${v}% (${adherenceCount(p)})` : `${v}%`, "Working"];
           }}
         />
         <Line

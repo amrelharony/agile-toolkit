@@ -17,6 +17,7 @@ import type { CharterCheckIn, Sprint } from "@/lib/stores/workspace-types";
 import {
   CHECK_IN_NOTE_MAX,
   TREND_MIN_ROUNDS,
+  adherencePhrase,
   checkInAdherence,
   checkInTrend,
   dayLabel,
@@ -55,7 +56,7 @@ export function SaveRoundForm({
   onSave,
   onDiscard,
 }: {
-  /** Rules marked Working or Not working in this round. */
+  /** Rules marked Working, Partly or Not working in this round. */
   marked: number;
   total: number;
   /** YYYY-MM-DD, local: the latest day a round can be dated. */
@@ -232,7 +233,7 @@ function RoundRow({
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
       <RoundDayInput round={round} today={today} onDate={onDate} />
       <span className="min-w-0 flex-1 basis-40 text-sm text-text">
-        {a.working} of {a.checked} working
+        {adherencePhrase(a)}
         <span className="text-sub">
           {" "}
           · v{round.version}

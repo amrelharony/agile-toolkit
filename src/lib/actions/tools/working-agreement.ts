@@ -28,6 +28,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
 import type {
+  CharterCheckInResult,
   CharterRule,
   CharterRuleCategory,
   Sprint,
@@ -39,6 +40,7 @@ import { todayIso } from "@/lib/sprints/series";
 import {
   CHARTER_CATEGORIES,
   CHECK_IN_NOTE_MAX,
+  CHECK_IN_RESULTS,
   CONSENT_NOTE_MAX,
   RULE_DESCRIPTION_MAX,
   RULE_TEXT_MAX,
@@ -59,6 +61,7 @@ import {
   hasUnpublishedChanges,
   lastCheckIn,
   latestVersion,
+  markOfResult,
   needsSnapshot,
   normalizeAgreement,
   published,
@@ -135,10 +138,12 @@ function summarize(raw: WorkingAgreement | null, roster: readonly TeamMember[]) 
     number
   >;
   let stillWorkingCount = 0;
+  let partlyWorkingCount = 0;
   let notWorkingCount = 0;
   for (const r of doc.rules) {
     byCategory[r.category] += 1;
     if (r.stillWorking === true) stillWorkingCount += 1;
+    else if (r.stillWorking === "partly") partlyWorkingCount += 1;
     else if (r.stillWorking === false) notWorkingCount += 1;
   }
   const consent = agreementConsent(doc, roster);
@@ -150,6 +155,7 @@ function summarize(raw: WorkingAgreement | null, roster: readonly TeamMember[]) 
     byCategory,
     // The round in progress (each rule's draft mark), before it is saved.
     stillWorkingCount,
+    partlyWorkingCount,
     notWorkingCount,
     meta: doc.meta,
     rules: doc.rules.map((r) => {
@@ -195,7 +201,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the working agreement with the page's numbers. Returns {exists, total, byCategory: {communication, meetings, decisions, work, conflict, other}, stillWorkingCount and notWorkingCount (the marks of the check-in in progress, not yet saved), meta: {teamName?, version (0 = never published), publishedAt?, description?}, rules: {id, category, text, description?, agreedBy (the names voting consent), consent: {name, vote: 'consent'|'concern'|'object', note?, at}[], stillWorking?, consentSummary: {line, consented, concerns, objections, missing (roster members who haven't answered), full (everyone answered, nobody objects)}}[], consent: {rosterSize, fullyConsented, withObjection, missingPeople, objections: {ruleId, text, names}[]}, lastCheckIn: null | {id, date, version, checked, working, pct}, checkIns: {id, date, version, sprintId?, checked, working, pct (null when nothing was checked)}[] oldest first, versions: {version, publishedAt, rules}[], unpublishedChanges (the draft differs from the latest version, or was never published; false when there is no snapshot to compare with), needsSnapshot (published before versions were kept: publish once to keep one), changesSinceLatest: null | {added, removed, reworded, recategorised, redescribed}, verdict}.",
+    "Summarise the working agreement with the page's numbers. Returns {exists, total, byCategory: {communication, meetings, decisions, work, conflict, other}, stillWorkingCount, partlyWorkingCount and notWorkingCount (the marks of the check-in in progress, not yet saved), meta: {teamName?, version (0 = never published), publishedAt?, description?}, rules: {id, category, text, description?, agreedBy (the names voting consent), consent: {name, vote: 'consent'|'concern'|'object', note?, at}[], stillWorking? (true, false or 'partly'), consentSummary: {line, consented, concerns, objections, missing (roster members who haven't answered), full (everyone answered, nobody objects)}}[], consent: {rosterSize, fullyConsented, withObjection, missingPeople, objections: {ruleId, text, names}[]}, lastCheckIn: null | {id, date, version, checked, working, partly, pct}, checkIns: {id, date, version, sprintId?, checked, working, partly, pct (a rule partly working counts as half; null when nothing was checked)}[] oldest first, versions: {version, publishedAt, rules}[], unpublishedChanges (the draft differs from the latest version, or was never published; false when there is no snapshot to compare with), needsSnapshot (published before versions were kept: publish once to keep one), changesSinceLatest: null | {added, removed, reworded, recategorised, redescribed}, verdict}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.getDoc(), await browserStore.roster()),
   mcpHandler: async (_params, ctx) => {
@@ -379,7 +385,12 @@ registry.register({
 
 const CheckInParams = z.object({
   results: z
-    .array(z.object({ ruleId: z.string().min(1), result: z.enum(["working", "not_working"]) }))
+    .array(
+      z.object({
+        ruleId: z.string().min(1),
+        result: z.enum(CHECK_IN_RESULTS as [CharterCheckInResult, ...CharterCheckInResult[]]),
+      })
+    )
     .min(1)
     .max(200),
   date: ISO_DATE.optional().describe("The day of the check-in; defaults to today, never after it."),
@@ -400,7 +411,7 @@ async function recordCheckIn(store: AgreementStore, params: z.infer<typeof Check
     if (unknown.length > 0) return { refuse: { recorded: false, reason: "unknown_rule", unknown } };
     // The round as the page saves one, from the agent's marks alone (the
     // page's draft marks on other rules aren't the agent's to save).
-    const marks = new Map(params.results.map((r) => [r.ruleId, r.result === "working"]));
+    const marks = new Map(params.results.map((r) => [r.ruleId, markOfResult(r.result)]));
     const agentMarks = {
       ...doc,
       rules: doc.rules.map((r) => {
@@ -429,7 +440,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Save a check-in round: how each rule is working in practice. Params: results: {ruleId, result: 'working' | 'not_working'}[] (a rule left out was skipped), date? (YYYY-MM-DD, defaults to today, can be backdated, never in the future), sprintId?, note?. It is stored against the current version, with each rule's text as it reads now, and clears those rules' marks from the round in progress on the page. Returns {recorded: true, id, checked, working, pct}, or {recorded: false, reason: 'future_date' | 'unknown_sprint' | 'unknown_rule' (with unknown ids) | 'no_results'}.",
+    "Save a check-in round: how each rule is working in practice. Params: results: {ruleId, result: 'working' | 'partly' | 'not_working'}[] (a rule left out was skipped; 'partly' is kept some of the time, or by some of the team), date? (YYYY-MM-DD, defaults to today, can be backdated, never in the future), sprintId?, note?. It is stored against the current version, with each rule's text as it reads now, and clears those rules' marks from the round in progress on the page. Returns {recorded: true, id, checked, working, partly, pct (a rule partly working counts as half)}, or {recorded: false, reason: 'future_date' | 'unknown_sprint' | 'unknown_rule' (with unknown ids) | 'no_results'}.",
   paramsSchema: CheckInParams,
   handler: async (params) => recordCheckIn(browserStore, params),
   mcpHandler: async (params, ctx) => recordCheckIn(serverStore(ctx.userId), params),

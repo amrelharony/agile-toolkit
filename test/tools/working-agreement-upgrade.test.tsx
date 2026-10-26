@@ -327,9 +327,14 @@ describe("check-in rounds", () => {
   });
 
   it("reads each round's adherence, empty rounds as no percentage", () => {
-    expect(checkInAdherence({ results: {} })).toEqual({ checked: 0, working: 0, pct: null });
+    expect(checkInAdherence({ results: {} })).toEqual({
+      checked: 0,
+      working: 0,
+      partly: 0,
+      pct: null,
+    });
     expect(checkInAdherence({ results: { a: "working", b: "working", c: "not_working" } })).toEqual(
-      { checked: 3, working: 2, pct: 67 }
+      { checked: 3, working: 2, partly: 0, pct: 67 }
     );
   });
 
@@ -383,7 +388,7 @@ describe("check-in rounds", () => {
     );
     expect(validateCheckIn({ date: TODAY, sprintId: "", note: "" }, 0, TODAY)).toMatchObject({
       ok: false,
-      errors: { rules: "Mark at least one rule Working or Not working first." },
+      errors: { rules: "Mark at least one rule Working, Partly or Not working first." },
     });
     expect(validateCheckIn({ date: "2026-01-02", sprintId: "s1", note: " n " }, 2, TODAY)).toEqual({
       ok: true,
@@ -584,7 +589,7 @@ describe("the page", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Save check-in round" }));
     expect(
-      screen.getByText("Mark at least one rule Working or Not working first.")
+      screen.getByText("Mark at least one rule Working, Partly or Not working first.")
     ).toBeInTheDocument();
     const one = screen.getByRole("radiogroup", { name: "This round: “One”" });
     fireEvent.click(within(one).getByRole("radio", { name: "Working" }));

@@ -9,6 +9,7 @@ import { enoughData } from "@/lib/analytics/min-sample";
 import { NO_VALUE, fmt, type ChartText } from "@/lib/charts/chart-text";
 import {
   TREND_MIN_ROUNDS,
+  adherenceCount,
   dayLabel,
   trendSentence,
   type CheckInTrendRow,
@@ -18,9 +19,10 @@ export interface AdherencePoint {
   id: string;
   /** "3 Sep". */
   label: string;
-  /** Working as a % of the rules checked. */
+  /** Working as a % of the rules checked, a rule partly working counting as half. */
   pct: number;
   working: number;
+  partly: number;
   checked: number;
 }
 
@@ -29,7 +31,16 @@ export function adherencePoints(rows: readonly CheckInTrendRow[]): AdherencePoin
   return rows.flatMap((r) =>
     r.pct === null
       ? []
-      : [{ id: r.id, label: dayLabel(r.date), pct: r.pct, working: r.working, checked: r.checked }]
+      : [
+          {
+            id: r.id,
+            label: dayLabel(r.date),
+            pct: r.pct,
+            working: r.working,
+            partly: r.partly,
+            checked: r.checked,
+          },
+        ]
   );
 }
 
@@ -48,7 +59,7 @@ export function adherenceChartText(
         dayLabel(r.date, true),
         `v${r.version}`,
         sprintName(r.sprintId) ?? NO_VALUE,
-        `${r.working} of ${r.checked}`,
+        adherenceCount(r),
         r.pct === null ? NO_VALUE : `${r.pct}%`,
       ]),
     },

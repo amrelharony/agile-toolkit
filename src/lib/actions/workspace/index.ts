@@ -1159,7 +1159,10 @@ const CharterRuleSchema = z.object({
     .array(z.string())
     .describe("Who agreed; derived from consent (the names voting consent) once that is set."),
   description: z.string().optional(),
-  stillWorking: z.boolean().optional().describe("The draft of the check-in in progress."),
+  stillWorking: z
+    .union([z.boolean(), z.literal("partly")])
+    .optional()
+    .describe("The draft of the check-in in progress: true, false or 'partly'."),
   consent: z.array(CharterConsentSchema).optional().describe("Each person's answer to the rule."),
 });
 
@@ -1176,8 +1179,8 @@ const CharterCheckInSchema = z.object({
   sprintId: z.string().optional(),
   version: z.number().int().min(0).describe("The meta.version checked."),
   results: z
-    .record(z.string(), z.enum(["working", "not_working"]))
-    .describe("Rule id → result; a rule left out was skipped."),
+    .record(z.string(), z.enum(["working", "partly", "not_working"]))
+    .describe("Rule id → result ('partly' counts as half); a rule left out was skipped."),
   ruleTexts: z.record(z.string(), z.string()).optional(),
   note: z.string().optional(),
 });

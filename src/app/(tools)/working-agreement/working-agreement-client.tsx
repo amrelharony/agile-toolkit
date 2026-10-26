@@ -61,12 +61,13 @@ import {
   latestVersion,
   needsSnapshot,
   normalizeAgreement,
-  notWorkingStreak,
   published,
   quotablePct,
+  slippingRun,
   withCheckIn,
   withConsent,
   withoutDraft,
+  type CheckInMark,
 } from "@/lib/working-agreement/model";
 import { CATEGORIES, CATEGORY_CLASS, CATEGORY_LABEL, STARTER_CATALOG, ruleKey } from "./catalog";
 import { CheckInHistory, SaveRoundForm } from "./check-in-panel";
@@ -247,7 +248,7 @@ export function WorkingAgreementClient() {
     focusSoon(() => controlFor("data-rule-category", rule.id));
   };
 
-  const mark = (rule: CharterRule, stillWorking: boolean | undefined) => {
+  const mark = (rule: CharterRule, stillWorking: CheckInMark | undefined) => {
     patchRule(rule.id, (r) => {
       const next = { ...r };
       if (stillWorking === undefined) delete next.stillWorking;
@@ -255,7 +256,15 @@ export function WorkingAgreementClient() {
       return next;
     });
     announce(
-      `“${rule.text}”: ${stillWorking === undefined ? "not checked" : stillWorking ? "working" : "not working"}`
+      `“${rule.text}”: ${
+        stillWorking === undefined
+          ? "not checked"
+          : stillWorking === "partly"
+            ? "partly working"
+            : stillWorking
+              ? "working"
+              : "not working"
+      }`
     );
   };
 
@@ -293,7 +302,7 @@ export function WorkingAgreementClient() {
 
   /** Each rule's mark as it is now, so an Undo can put the round's marks back. */
   const marksNow = () => new Map(doc.rules.map((r) => [r.id, r.stillWorking]));
-  const restoreMarks = (marks: Map<string, boolean | undefined>) => (d: WorkingAgreement) => ({
+  const restoreMarks = (marks: Map<string, CheckInMark | undefined>) => (d: WorkingAgreement) => ({
     ...d,
     rules: d.rules.map((r) =>
       marks.get(r.id) !== undefined && r.stillWorking === undefined
@@ -428,7 +437,11 @@ export function WorkingAgreementClient() {
       toolName: "Working Agreement Builder",
       prompts: generateWorkingAgreementPrompts(
         {
-          rules: doc.rules,
+          // The prompt's table reads a yes/no mark: a rule marked Partly
+          // goes in unmarked until the prompt knows the third answer.
+          rules: doc.rules.map(({ stillWorking, ...r }) =>
+            typeof stillWorking === "boolean" ? { ...r, stillWorking } : r
+          ),
           meta: doc.meta,
           // The prompt takes a number: the last round's, else 0 (the page says "—").
           adherencePct: lastAdherence?.pct ?? 0,
@@ -564,7 +577,7 @@ export function WorkingAgreementClient() {
               value={lastAdherence ? `${lastAdherence.working} of ${lastAdherence.checked}` : "—"}
               hint={
                 last && lastAdherence
-                  ? `working · ${dayLabel(last.date)}${quotablePct(lastAdherence) ? ` · ${lastAdherence.pct}%` : ""}`
+                  ? `working${lastAdherence.partly > 0 ? `, ${lastAdherence.partly} partly` : ""} · ${dayLabel(last.date)}${quotablePct(lastAdherence) ? ` · ${lastAdherence.pct}%` : ""}`
                   : "no check-in yet"
               }
             />
@@ -608,8 +621,8 @@ export function WorkingAgreementClient() {
         {hasRules && (
           <SectionCard title="The rules" icon={ClipboardCheck}>
             <p className="mb-3 text-xs text-sub">
-              Open a rule&apos;s consent to record each person&apos;s answer. Mark each rule Working
-              or Not working during a check-in, then save the round below.
+              Open a rule&apos;s consent to record each person&apos;s answer. Mark each rule
+              Working, Partly or Not working during a check-in, then save the round below.
             </p>
             <div className="space-y-5">
               {byCategory.map((cat) => (
@@ -627,7 +640,7 @@ export function WorkingAgreementClient() {
                         rule={rule}
                         roster={roster}
                         preview={preview}
-                        notWorking={notWorkingStreak(doc, rule.id)}
+                        slipping={slippingRun(doc, rule.id)}
                         sentTo={sentTo.get(rule.id) ?? NO_LINKS}
                         onText={editText}
                         onCategory={setCategory}

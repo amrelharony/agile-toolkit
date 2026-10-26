@@ -15,6 +15,7 @@ import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import type {
+  CharterCheckInResult,
   CharterConsentVote,
   CharterRule,
   CharterRuleCategory,
@@ -25,16 +26,25 @@ import {
   WA_ID,
   consentLine,
   consentOf,
+  isCheckInMark,
+  markOfResult,
+  resultOfMark,
+  type CheckInMark,
 } from "@/lib/working-agreement/model";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, CATEGORY_CLASS, CATEGORY_LABEL } from "./catalog";
 import { ConsentPanel } from "./consent-panel";
 
-type Mark = "unset" | "working" | "not_working";
+type Mark = "unset" | CharterCheckInResult;
 
 const MARK_OPTIONS: ToggleOption<Mark>[] = [
   { value: "unset", label: "Not checked", description: "Not checked in this round" },
   { value: "working", label: "Working", description: "The team works this way in practice" },
+  {
+    value: "partly",
+    label: "Partly",
+    description: "Kept some of the time, or by some of the team (counts as half)",
+  },
   { value: "not_working", label: "Not working", description: "It slips, or nobody follows it" },
 ];
 
@@ -42,20 +52,38 @@ const MARK_OPTIONS: ToggleOption<Mark>[] = [
 export const MARK_GROUP_PREFIX = "This round: ";
 
 const markOf = (r: Pick<CharterRule, "stillWorking">): Mark =>
-  r.stillWorking === true ? "working" : r.stillWorking === false ? "not_working" : "unset";
+  isCheckInMark(r.stillWorking) ? resultOfMark(r.stillWorking) : "unset";
+
+type Slipping = Exclude<CharterCheckInResult, "working">;
+
+/** The warning and its retro topic: not working, only partly, or a mix of the two. */
+function slippingWords(run: readonly Slipping[]): { label: string; topic: string } {
+  const [how, topic] = run.every((r) => r === "not_working")
+    ? ["Not working", "isn't working"]
+    : run.every((r) => r === "partly")
+      ? ["Partly working", "is only partly working"]
+      : ["Not fully working", "isn't fully working"];
+  return {
+    label:
+      run.length >= 2
+        ? `${how} in the last ${run.length} check-ins`
+        : `${how} in the last check-in`,
+    topic,
+  };
+}
 
 export interface RuleCardProps {
   rule: CharterRule;
   roster: readonly { id: string; name: string }[];
   /** The page shows the example: nothing is sent or added to the team. */
   preview: boolean;
-  /** Latest rounds in a row that found it not working (notWorkingStreak). */
-  notWorking: number;
+  /** What the latest rounds in a row found when it wasn't working, newest first (slippingRun). */
+  slipping: readonly Slipping[];
   /** Where it was sent: the current retro's cards that point back at it. */
   sentTo: HandoffLink[];
   onText: (rule: CharterRule, text: string, description: string | undefined) => void;
   onCategory: (rule: CharterRule, category: CharterRuleCategory) => void;
-  onMark: (rule: CharterRule, stillWorking: boolean | undefined) => void;
+  onMark: (rule: CharterRule, stillWorking: CheckInMark | undefined) => void;
   onVote: (rule: CharterRule, name: string, vote: CharterConsentVote | null, note?: string) => void;
   onDelete: (rule: CharterRule) => void;
 }
@@ -64,13 +92,13 @@ export interface RuleCardProps {
  * One rule: its text and description (click to edit in place; an emptied
  * text reverts), its category, this round's check-in mark, everyone's
  * consent, and Delete (with Undo). A rule the last check-in found not
- * working can go to the retro as a topic.
+ * working, or only partly, can go to the retro as a topic.
  */
 export function RuleCard({
   rule,
   roster,
   preview,
-  notWorking,
+  slipping,
   sentTo,
   onText,
   onCategory,
@@ -81,6 +109,7 @@ export function RuleCard({
   const edit = useInlineEdit();
   const consent = consentOf(rule, roster);
   const line = consentLine(consent);
+  const slip = slipping.length > 0 ? slippingWords(slipping) : null;
 
   return (
     <li className="space-y-2 rounded-lg border border-border bg-surface p-3">
@@ -158,22 +187,18 @@ export function RuleCard({
           size="sm"
           value={markOf(rule)}
           options={MARK_OPTIONS}
-          onValueChange={(m) => onMark(rule, m === "unset" ? undefined : m === "working")}
+          onValueChange={(m) => onMark(rule, m === "unset" ? undefined : markOfResult(m))}
         />
       </div>
 
-      {notWorking > 0 && (
+      {slip && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-medium text-warning">
-            {notWorking >= 2
-              ? `Not working in the last ${notWorking} check-ins`
-              : "Not working in the last check-in"}
-          </span>
+          <span className="font-medium text-warning">{slip.label}</span>
           <SendToMenu
             routes={["retro-topic"]}
             disabled={preview}
             item={{
-              title: `Working agreement: “${rule.text}” isn't working`,
+              title: `Working agreement: “${rule.text}” ${slip.topic}`,
               tone: "concern",
               sourceRef: { tool: "working-agreement", id: rule.id, doc: WA_ID },
             }}

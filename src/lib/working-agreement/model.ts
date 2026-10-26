@@ -13,8 +13,9 @@
  *     each rule, derived from it (the names voting consent), so the charter
  *     and older readers keep working.
  *   - A check-in is the round the team runs every few sprints: each rule
- *     working or not, dated (backdatable) and kept, so adherence has a
- *     history. The round in progress is the rules' `stillWorking` draft.
+ *     working, partly working or not, dated (backdatable) and kept, so
+ *     adherence has a history. The round in progress is the rules'
+ *     `stillWorking` draft.
  *   - Publish keeps a snapshot of the rules as a numbered version, so any
  *     two versions (or a version and the draft) can be compared.
  */
@@ -65,6 +66,15 @@ export const CHARTER_CATEGORIES: readonly CharterRuleCategory[] = [
 
 export const CONSENT_VOTES: readonly CharterConsentVote[] = ["consent", "concern", "object"];
 
+export const CHECK_IN_RESULTS: readonly CharterCheckInResult[] = [
+  "working",
+  "partly",
+  "not_working",
+];
+
+/** A rule's mark in the round in progress (CharterRule.stillWorking, when set). */
+export type CheckInMark = NonNullable<CharterRule["stillWorking"]>;
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -84,7 +94,20 @@ const isCategory = (v: unknown): v is CharterRuleCategory =>
 const isVote = (v: unknown): v is CharterConsentVote =>
   typeof v === "string" && (CONSENT_VOTES as readonly string[]).includes(v);
 
-const isResult = (v: unknown): v is CharterCheckInResult => v === "working" || v === "not_working";
+const isResult = (v: unknown): v is CharterCheckInResult =>
+  typeof v === "string" && (CHECK_IN_RESULTS as readonly string[]).includes(v);
+
+/** Whether `v` is a draft mark: working (true), not working (false) or "partly". */
+export const isCheckInMark = (v: unknown): v is CheckInMark =>
+  typeof v === "boolean" || v === "partly";
+
+/** A draft mark as the result a saved round keeps. */
+export const resultOfMark = (mark: CheckInMark): CharterCheckInResult =>
+  mark === "partly" ? "partly" : mark ? "working" : "not_working";
+
+/** A saved result as a draft mark (an agent's round is planned on the draft). */
+export const markOfResult = (result: CharterCheckInResult): CheckInMark =>
+  result === "partly" ? "partly" : result === "working";
 
 /** An agreement with nothing in it yet: version 0, unpublished. */
 export function emptyAgreement(): WorkingAgreement {
@@ -141,7 +164,7 @@ function normalizeRule(raw: unknown): CharterRule | null {
   };
   if (description) rule.description = description;
   else delete rule.description;
-  if (typeof raw.stillWorking === "boolean") rule.stillWorking = raw.stillWorking;
+  if (isCheckInMark(raw.stillWorking)) rule.stillWorking = raw.stillWorking;
   else delete rule.stillWorking;
   return rule;
 }
@@ -405,7 +428,7 @@ export function consentLine(c: RuleConsent): string {
 
 /** Rules checked in the round in progress (their `stillWorking` draft). */
 export function draftCount(doc: Pick<WorkingAgreement, "rules">): number {
-  return doc.rules.filter((r) => typeof r.stillWorking === "boolean").length;
+  return doc.rules.filter((r) => isCheckInMark(r.stillWorking)).length;
 }
 
 /**
@@ -420,8 +443,8 @@ export function draftCheckIn(
   const results: Record<string, CharterCheckInResult> = {};
   const ruleTexts: Record<string, string> = {};
   for (const r of doc.rules) {
-    if (typeof r.stillWorking !== "boolean") continue;
-    results[r.id] = r.stillWorking ? "working" : "not_working";
+    if (!isCheckInMark(r.stillWorking)) continue;
+    results[r.id] = resultOfMark(r.stillWorking);
     ruleTexts[r.id] = r.text;
   }
   if (Object.keys(results).length === 0) return null;
@@ -469,7 +492,7 @@ export function withoutDraft(doc: WorkingAgreement): WorkingAgreement {
   return {
     ...doc,
     rules: doc.rules.map((r) => {
-      if (typeof r.stillWorking !== "boolean") return r;
+      if (!isCheckInMark(r.stillWorking)) return r;
       const { stillWorking, ...rest } = r;
       void stillWorking;
       return rest;
@@ -479,17 +502,45 @@ export function withoutDraft(doc: WorkingAgreement): WorkingAgreement {
 
 export interface CheckInAdherence {
   checked: number;
+  /** Rules found working. */
   working: number;
-  /** Working as a whole percentage of the rules checked; null when none were. */
+  /** Rules found partly working (kept some of the time, or by some of the team). */
+  partly: number;
+  /** Working as a whole percentage of the rules checked, a rule partly
+   *  working counting as half; null when none were checked. */
   pct: number | null;
 }
 
-/** How one round went. */
+/**
+ * How one round went. A rule partly working counts as half a rule working
+ * in `pct`: 2 working, 1 partly and 1 not working of 4 is 63%, where
+ * counting it as working (75%) or not (50%) would each misread the round.
+ */
 export function checkInAdherence(c: Pick<CharterCheckIn, "results">): CheckInAdherence {
   const values = Object.values(c.results ?? {});
   const checked = values.length;
   const working = values.filter((v) => v === "working").length;
-  return { checked, working, pct: checked > 0 ? Math.round((working / checked) * 100) : null };
+  const partly = values.filter((v) => v === "partly").length;
+  return {
+    checked,
+    working,
+    partly,
+    pct: checked > 0 ? Math.round(((working + partly / 2) / checked) * 100) : null,
+  };
+}
+
+/** "4 of 6 working", or "4 of 6 working, 1 partly": one round in a phrase. */
+export function adherencePhrase(a: CheckInAdherence): string {
+  const base = `${a.working} of ${a.checked} working`;
+  return a.partly > 0 ? `${base}, ${a.partly} partly` : base;
+}
+
+/** "4 of 6", or "4 of 6, 1 partly": one round's count, under a "Working" heading. */
+export function adherenceCount(
+  a: Pick<CheckInAdherence, "working" | "partly" | "checked">
+): string {
+  const base = `${a.working} of ${a.checked}`;
+  return a.partly > 0 ? `${base}, ${a.partly} partly` : base;
 }
 
 export interface CheckInTrendRow extends CheckInAdherence {
@@ -517,20 +568,31 @@ export function lastCheckIn(doc: Pick<WorkingAgreement, "checkIns">): CharterChe
 }
 
 /**
- * How many of the latest rounds in a row found the rule not working
- * (rounds that skipped it don't break the run). Two in a row is worth a
- * retro topic.
+ * What the latest rounds in a row found for the rule when it wasn't
+ * working (not working, or only partly), newest first. Rounds that skipped
+ * it don't break the run; only a round that found it working does.
  */
-export function notWorkingStreak(doc: Pick<WorkingAgreement, "checkIns">, ruleId: string): number {
+export function slippingRun(
+  doc: Pick<WorkingAgreement, "checkIns">,
+  ruleId: string
+): Exclude<CharterCheckInResult, "working">[] {
   const sorted = [...(doc.checkIns ?? [])].sort(byDate);
-  let streak = 0;
+  const run: Exclude<CharterCheckInResult, "working">[] = [];
   for (let i = sorted.length - 1; i >= 0; i--) {
     const result = sorted[i].results[ruleId];
     if (result === undefined) continue;
     if (result === "working") break;
-    streak += 1;
+    run.push(result);
   }
-  return streak;
+  return run;
+}
+
+/**
+ * How many of the latest rounds in a row found the rule not working, or
+ * only partly (slippingRun). Two in a row is worth a retro topic.
+ */
+export function notWorkingStreak(doc: Pick<WorkingAgreement, "checkIns">, ruleId: string): number {
+  return slippingRun(doc, ruleId).length;
 }
 
 /* ── Versions ───────────────────────────────────────────────────────── */
@@ -737,7 +799,7 @@ export function agreementVerdict(
   let round = "";
   if (last) {
     const a = checkInAdherence(last);
-    round = `; the last check-in (${dayLabel(last.date)}) found ${a.working} of ${a.checked} working`;
+    round = `; the last check-in (${dayLabel(last.date)}) found ${adherencePhrase(a)}`;
   } else if (isPublished) {
     round = "; no check-in yet";
   }

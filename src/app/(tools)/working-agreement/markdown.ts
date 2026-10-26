@@ -1,5 +1,11 @@
-import type { TeamMember, WorkingAgreement } from "@/lib/stores/workspace-types";
+import type {
+  CharterCheckInResult,
+  TeamMember,
+  WorkingAgreement,
+} from "@/lib/stores/workspace-types";
 import {
+  adherenceCount,
+  adherencePhrase,
   checkInAdherence,
   checkInTrend,
   consentLine,
@@ -83,22 +89,33 @@ export function agreementMarkdown(
       "| --- | --- | --- | --- | --- |",
       ...trend.map(
         (t) =>
-          `| ${cell(t.date)} | v${t.version} | ${cell(sprintName(t.sprintId) ?? "—")} | ${t.working} of ${t.checked} | ${t.pct === null ? "—" : `${t.pct}%`} |`
+          `| ${cell(t.date)} | v${t.version} | ${cell(sprintName(t.sprintId) ?? "—")} | ${adherenceCount(t)} | ${t.pct === null ? "—" : `${t.pct}%`} |`
       ),
       ""
     );
     const last = lastCheckIn(doc);
     if (last) {
-      const broken = Object.entries(last.results)
-        .filter(([, v]) => v === "not_working")
-        .map(([id]) => doc.rules.find((r) => r.id === id)?.text ?? last.ruleTexts?.[id] ?? id);
+      const found = (result: CharterCheckInResult) =>
+        Object.entries(last.results)
+          .filter(([, v]) => v === result)
+          .map(([id]) => doc.rules.find((r) => r.id === id)?.text ?? last.ruleTexts?.[id] ?? id);
+      const broken = found("not_working");
+      const partly = found("partly");
       const a = checkInAdherence(last);
-      lines.push(
-        broken.length > 0
-          ? `Not working in the last check-in (${a.working} of ${a.checked} working): ${broken.map(oneLine).join("; ")}.`
-          : `Every rule checked in the last check-in is working.`,
-        ""
-      );
+      if (broken.length > 0) {
+        lines.push(
+          `Not working in the last check-in (${adherencePhrase(a)}): ${broken.map(oneLine).join("; ")}.`
+        );
+      }
+      if (partly.length > 0) {
+        lines.push(
+          `${broken.length > 0 ? "Partly working" : `Partly working in the last check-in (${adherencePhrase(a)})`}: ${partly.map(oneLine).join("; ")}.`
+        );
+      }
+      if (broken.length === 0 && partly.length === 0) {
+        lines.push(`Every rule checked in the last check-in is working.`);
+      }
+      lines.push("");
     }
   }
 

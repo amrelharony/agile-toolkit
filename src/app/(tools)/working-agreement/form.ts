@@ -92,7 +92,9 @@ export function validateCheckIn(
   if (!date) errors.date = "Pick the day the team checked in.";
   else if (!ISO_DAY.test(date)) errors.date = "Use a date like 2026-10-24.";
   else if (date > today) errors.date = "Pick today or an earlier day.";
-  if (marked === 0) errors.rules = "Mark at least one rule Working or Not working first.";
+  if (marked === 0) {
+    errors.rules = "Mark at least one rule Working, Partly or Not working first.";
+  }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   const note = d.note.trim();
   return {
