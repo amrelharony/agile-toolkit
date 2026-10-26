@@ -32,15 +32,21 @@ import {
  */
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const realtime = vi.hoisted(() => ({ available: true }));
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => null }));
 vi.mock("@/lib/realtime/supabase-client", async () => {
   const { fakeRealtime: fake } = await import("./fake-realtime");
-  return { isRealtimeAvailable: () => true, getSupabaseClient: () => fake.client };
+  return {
+    isRealtimeAvailable: () => realtime.available,
+    getSupabaseClient: () => fake.client,
+  };
 });
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {} }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastMock }));
 
 import {
+  BALLOT_RESEND_DELAYS_MS,
+  NO_HOST_TIMEOUT_MS,
   useVoteRoom,
   type UseVoteRoomHostOptions,
   type UseVoteRoomParticipantOptions,
@@ -138,6 +144,7 @@ beforeEach(() => {
     toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
   });
   vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "1");
+  realtime.available = true;
   fakeRealtime.reset();
   toastMock.success.mockClear();
   toastMock.error.mockClear();
@@ -423,11 +430,12 @@ describe("useVoteRoom: a participant pins the host's key", () => {
     expect(ballots[0].roundId).toBe(ROUND);
     expect(result.current.awaitingAck).toBe(true);
     expect(result.current.answered).toBe(false);
-    // Only the round id is kept in this tab.
-    const stored = Object.keys(window.sessionStorage)
-      .filter((k) => k.startsWith("agile-toolkit:vote-room:answered:"))
-      .map((k) => window.sessionStorage.getItem(k));
-    expect(stored).toEqual([JSON.stringify([ROUND])]);
+    // Only ids are kept in this tab: the round's, and the ballot's (sent in the clear anyway).
+    const stored = () =>
+      Object.keys(window.sessionStorage)
+        .filter((k) => k.startsWith("agile-toolkit:vote-room:answered:"))
+        .map((k) => JSON.parse(window.sessionStorage.getItem(k) ?? "null"));
+    expect(stored()).toEqual([[{ r: ROUND, b: [ballots[0].bid], c: false }]]);
     // The host's ack.
     await deliver(
       ch,
@@ -436,6 +444,7 @@ describe("useVoteRoom: a participant pins the host's key", () => {
     );
     expect(result.current.answered).toBe(true);
     expect(result.current.awaitingAck).toBe(false);
+    expect(stored()).toEqual([[{ r: ROUND, b: [ballots[0].bid], c: true }]]);
     await act(async () => {
       res = await result.current.submit({ fun: 1, speed: 1 });
     });
@@ -715,16 +724,31 @@ describe("useVoteRoom: the host counts", () => {
     expect(result.current.ballots).toBe(cap);
   });
 
-  it("warns when answers outnumber the names seen", async () => {
-    const twin1 = { ...B, name: "Alex" };
-    const twin2 = { ...C, name: "Alex" };
-    const { ch, crypto, result } = await startHost({}, [HOST, A, twin1, twin2]);
+  it("warns when answers outnumber the names seen, the host's only once it answered", async () => {
+    // Alex answers again from a second tab (a new id, the same name).
+    const alexAgain = { ...D, name: "Alex" };
+    const { ch, crypto, result } = await startHost({}, [HOST, A, B, C, alexAgain]);
     const s = lastState(ch);
-    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, A.id, [0, 0, 0]));
-    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, twin1.id, [0, 0, 0]));
+    for (const m of [A, B, C]) {
+      await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, m.id, [0, 0, 0]));
+    }
     expect(result.current.stuffingSuspected).toBe(false);
-    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, twin2.id, [0, 0, 0]));
+    // Four answers, three names: the host, who hasn't answered, doesn't make it four.
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, alexAgain.id, [0, 0, 0]));
     expect(result.current.stuffingSuspected).toBe(true);
+  });
+
+  it("counts the host's name once its own answers are in", async () => {
+    const { ch, crypto, result } = await startHost({}, [HOST, A, B, C]);
+    const s = lastState(ch);
+    for (const m of [A, B, C]) {
+      await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, m.id, [0, 0, 0]));
+    }
+    await act(async () => {
+      await result.current.submit({ fun: 2, speed: 2 });
+    });
+    expect(result.current.ballots).toBe(4);
+    expect(result.current.stuffingSuspected).toBe(false);
   });
 
   it("writes nothing to the workspace store", async () => {
@@ -849,7 +873,7 @@ describe("useVoteRoom: the host's sends and limits", () => {
     expect(result.current.result?.ballots).toBe(3);
   });
 
-  it("goes 'unavailable' when the channel can't open", async () => {
+  it("goes 'unavailable' for a malformed room code, before any channel", async () => {
     const { result } = renderHook(() =>
       useVoteRoom({
         role: "participant",
@@ -862,5 +886,594 @@ describe("useVoteRoom: the host's sends and limits", () => {
     );
     await flush();
     expect(result.current.status).toBe("unavailable");
+    expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
+  });
+
+  it("goes 'unavailable' when the room can't reach Realtime (useRoom is local-only)", async () => {
+    realtime.available = false;
+    for (const opts of [
+      {
+        role: "participant" as const,
+        tool: "mood-tracker" as const,
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: "abcdefghijklmnopqrstuv",
+        crypto: fakeVoteCrypto(),
+      },
+      {
+        role: "host" as const,
+        tool: "mood-tracker" as const,
+        code: CODE,
+        identity: ident(HOST),
+        questionnaire: QUESTIONNAIRE,
+        crypto: fakeVoteCrypto(),
+      },
+    ]) {
+      const { result, unmount } = renderHook(() => useVoteRoom(opts));
+      await flush();
+      expect(result.current.status).toBe("unavailable");
+      unmount();
+    }
+    expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
+  });
+});
+
+// ── Psych Safety's floor ─────────────────────────────────────────────
+
+describe("useVoteRoom: Psych Safety never reveals from fewer than 5", () => {
+  it("uses 5 when the tool passes no minN, or a lower one", async () => {
+    for (const minN of [undefined, 3]) {
+      const { ch, crypto, result, unmount } = await startHost({ tool: "psych-safety", minN }, [
+        HOST,
+        A,
+        B,
+        C,
+        D,
+      ]);
+      const s = lastState(ch);
+      expect(result.current.minN).toBe(5);
+      expect(s.minN).toBe(5);
+      for (const m of [A, B, C]) {
+        await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, m.id, [0, 0, 0]));
+      }
+      expect(result.current.canReveal).toBe(false);
+      expect(result.current.revealBlockedReason).toBe("3 of 5 answers. Results show from 5.");
+      unmount();
+      fakeRealtime.reset();
+    }
+  });
+
+  it("a participant refuses a Psych Safety state that claims minN 3", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const { result } = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "psych-safety",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: keys.fingerprint,
+        crypto,
+      })
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A]);
+    });
+    expect(result.current.minN).toBe(5);
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { tool: "psych-safety", minN: 3 })
+    );
+    expect(result.current.status).toBe("waiting");
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { tool: "psych-safety", minN: 5 })
+    );
+    expect(result.current.status).toBe("live");
+  });
+});
+
+// ── Ballots that go missing ──────────────────────────────────────────
+
+describe("useVoteRoom: no ballot is lost for a temporary reason", () => {
+  it("queues ballots past 8 decryptions at once instead of dropping them", async () => {
+    const voters: FakeMember[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `voter${String(i).padStart(11, "0")}`,
+      name: `Voter ${i}`,
+      joinedAt: "2026-10-26T09:10:00Z",
+    }));
+    const crypto = fakeVoteCrypto();
+    const { ch, result } = await startHost({ crypto }, [HOST, ...voters]);
+    const s = lastState(ch);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const realOpen = crypto.open.bind(crypto);
+    let inFlight = 0;
+    let most = 0;
+    crypto.open = async (k, env, aad) => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await gate;
+      inFlight--;
+      return realOpen(k, env, aad);
+    };
+    for (const v of voters) {
+      await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, v.id, [0, 1, 2]));
+    }
+    expect(most).toBe(8);
+    expect(result.current.ballots).toBe(0);
+    await act(async () => release());
+    await flush();
+    await flush();
+    expect(result.current.ballots).toBe(12);
+    expect(most).toBe(8);
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    expect(lastState(ch).acks).toHaveLength(12);
+  });
+
+  it("re-sends the same sealed ballot until the host acks it, then stops", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const { result } = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: keys.fingerprint,
+        crypto,
+      })
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A]);
+    });
+    await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    await act(async () => {
+      await result.current.submit({ fun: 2, speed: 0 });
+    });
+    expect(ch.sent(VOTE_ROOM_EVENTS.ballot)).toHaveLength(1);
+    await tick(BALLOT_RESEND_DELAYS_MS[0] - 1);
+    expect(ch.sent(VOTE_ROOM_EVENTS.ballot)).toHaveLength(1);
+    await tick(1);
+    await tick(BALLOT_RESEND_DELAYS_MS[1]);
+    const sent = ch.sent(VOTE_ROOM_EVENTS.ballot);
+    expect(sent).toHaveLength(3);
+    // Byte for byte the same ballot: nothing new is sealed, nothing more is said.
+    expect(sent[1]).toEqual(sent[0]);
+    expect(sent[2]).toEqual(sent[0]);
+    expect(crypto.calls.seal).toBe(1);
+    expect(result.current.awaitingAck).toBe(true);
+    const { bid } = sent[0] as { bid: string };
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 2, ballots: 1, acks: [bid] })
+    );
+    expect(result.current.answered).toBe(true);
+    await tick(5 * 60_000);
+    expect(ch.sent(VOTE_ROOM_EVENTS.ballot)).toHaveLength(3);
+  });
+
+  it("a ballot lost on the way is re-sent and counted, and its sender reads 'counted'", async () => {
+    const crypto = fakeVoteCrypto();
+    const host = renderHook(() =>
+      useVoteRoom({
+        role: "host",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(HOST),
+        questionnaire: QUESTIONNAIRE,
+        minN: 3,
+        startedAt: NOW,
+        crypto,
+      })
+    );
+    await flush();
+    const hostCh = fakeRealtime.last();
+    const fp = host.result.current.joinPath!.split("#k=")[1];
+    const part = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: fp,
+        crypto,
+      })
+    );
+    const partCh = fakeRealtime.last();
+    // The participant's first ballot never reaches the host (a reconnect, a full queue).
+    let lose = 1;
+    hostCh.send.mockImplementation(async (m) => {
+      partCh.deliver(m.event, m.payload);
+      return "ok";
+    });
+    partCh.send.mockImplementation(async (m) => {
+      if (m.event === VOTE_ROOM_EVENTS.ballot && lose-- > 0) return "ok";
+      hostCh.deliver(m.event, m.payload);
+      return "ok";
+    });
+    act(() => {
+      hostCh.connect();
+      partCh.connect();
+      hostCh.setPresence([HOST, A]);
+      partCh.setPresence([HOST, A]);
+    });
+    await flush();
+    await tick(600);
+    expect(part.result.current.status).toBe("live");
+    await act(async () => {
+      await part.result.current.submit({ fun: 2, speed: 1 });
+    });
+    expect(host.result.current.ballots).toBe(0);
+    expect(part.result.current.awaitingAck).toBe(true);
+    await tick(BALLOT_RESEND_DELAYS_MS[0]);
+    expect(host.result.current.ballots).toBe(1);
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    expect(part.result.current.answered).toBe(true);
+    expect(part.result.current.awaitingAck).toBe(false);
+    await tick(60_000);
+    expect(partCh.sent(VOTE_ROOM_EVENTS.ballot)).toHaveLength(2);
+  });
+
+  it("re-sends the acks when a counted ballot arrives again", async () => {
+    const { ch, crypto, result } = await startHost();
+    const s = lastState(ch);
+    const a = await ballotFor(crypto, s, A.id, [0, 1, 2]);
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, a);
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    const before = states(ch).length;
+    const opens = crypto.calls.open;
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, a);
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    expect(states(ch).length).toBe(before + 1);
+    expect(lastState(ch).acks).toEqual([a.bid]);
+    expect(crypto.calls.open).toBe(opens);
+    expect(result.current.ballots).toBe(1);
+    expect(result.current.duplicateBallots).toBe(0);
+  });
+
+  it("re-sends the state to a sender that missed the reveal", async () => {
+    const { ch, crypto, result } = await startHost({}, [HOST, A, B, C, D]);
+    const s = lastState(ch);
+    for (const m of [A, B, C]) {
+      await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, m.id, [0, 0, 0]));
+    }
+    act(() => result.current.reveal());
+    await flush();
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    const before = states(ch).length;
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, D.id, [1, 1, 1]));
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    expect(states(ch).length).toBe(before + 1);
+    expect(lastState(ch).phase).toBe("revealed");
+  });
+
+  it("gives up after every resend, says 'unconfirmed', and lets the person answer again", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const { result } = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: keys.fingerprint,
+        crypto,
+      })
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A]);
+    });
+    await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    await act(async () => {
+      await result.current.submit({ fun: 2, speed: 0 });
+    });
+    const total = BALLOT_RESEND_DELAYS_MS.reduce((a, b) => a + b, 0);
+    await tick(total - 1);
+    expect(result.current.awaitingAck).toBe(true);
+    expect(result.current.unconfirmed).toBe(false);
+    await tick(1);
+    expect(result.current.awaitingAck).toBe(false);
+    expect(result.current.unconfirmed).toBe(true);
+    expect(result.current.answered).toBe(false);
+    expect(ch.sent(VOTE_ROOM_EVENTS.ballot)).toHaveLength(BALLOT_RESEND_DELAYS_MS.length);
+    let res = "";
+    await act(async () => {
+      res = await result.current.submit({ fun: 1, speed: 1 });
+    });
+    expect(res).toBe("sent");
+    expect(result.current.unconfirmed).toBe(false);
+    const sent = ch.sent(VOTE_ROOM_EVENTS.ballot) as { bid: string }[];
+    expect(sent.at(-1)!.bid).not.toBe(sent[0].bid);
+  });
+
+  it("after a refresh: counted if its ballot id is acked, else the form opens again", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const mount = () => {
+      const view = renderHook(() =>
+        useVoteRoom({
+          role: "participant",
+          tool: "health-check",
+          code: CODE,
+          identity: ident(A),
+          hostFingerprint: keys.fingerprint,
+          crypto,
+        })
+      );
+      const ch = fakeRealtime.last();
+      act(() => {
+        ch.connect();
+        ch.setPresence([HOST, A]);
+      });
+      return { ...view, ch };
+    };
+    const first = mount();
+    await deliver(first.ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    await act(async () => {
+      await first.result.current.submit({ fun: 2, speed: 0 });
+    });
+    const { bid } = first.ch.sent(VOTE_ROOM_EVENTS.ballot)[0] as { bid: string };
+    first.unmount();
+
+    // The host counted it: the reloaded tab knows its ballot id.
+    const counted = mount();
+    await deliver(
+      counted.ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 2, ballots: 1, acks: [bid] })
+    );
+    expect(counted.result.current.answered).toBe(true);
+    expect(counted.result.current.unconfirmed).toBe(false);
+    counted.unmount();
+
+    // A new round, answered and reloaded before any ack: the sealed ballot went with the page.
+    window.sessionStorage.clear();
+    const third = mount();
+    await deliver(
+      third.ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 3, roundId: "round_000003" })
+    );
+    await act(async () => {
+      await third.result.current.submit({ fun: 2, speed: 0 });
+    });
+    third.unmount();
+    const fourth = mount();
+    await deliver(
+      fourth.ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 4, roundId: "round_000003", ballots: 0 })
+    );
+    expect(fourth.result.current.answered).toBe(false);
+    expect(fourth.result.current.awaitingAck).toBe(false);
+    expect(fourth.result.current.unconfirmed).toBe(true);
+    let res = "";
+    await act(async () => {
+      res = await fourth.result.current.submit({ fun: 1, speed: 1 });
+    });
+    expect(res).toBe("sent");
+  });
+
+  it("keeps 'answered' after Reveal, which clears the acks", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const { result } = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: keys.fingerprint,
+        crypto,
+      })
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A]);
+    });
+    await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    await act(async () => {
+      await result.current.submit({ fun: 2, speed: 0 });
+    });
+    const { bid } = ch.sent(VOTE_ROOM_EVENTS.ballot)[0] as { bid: string };
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 2, ballots: 1, acks: [bid] })
+    );
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, {
+        seq: 3,
+        phase: "revealed",
+        ballots: 3,
+        revealed: [
+          { responses: 3, distribution: [1, 1, 1] },
+          { responses: 3, distribution: [3, 0, 0] },
+          { responses: 0, distribution: null },
+        ],
+      })
+    );
+    expect(result.current.phase).toBe("revealed");
+    expect(result.current.answered).toBe(true);
+    expect(result.current.awaitingAck).toBe(false);
+    expect(result.current.unconfirmed).toBe(false);
+  });
+});
+
+// ── Someone answering under another's id ─────────────────────────────
+
+describe("useVoteRoom: a ballot sent under someone else's id is noticed", () => {
+  it("warns the participant whose id was used, not for its own ballots", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const { result } = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: keys.fingerprint,
+        crypto,
+      })
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A, SPOOF]);
+    });
+    await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    await act(async () => {
+      await result.current.submit({ fun: 2, speed: 0 });
+    });
+    // Its own ballot coming back (a relay echo) is not a warning, nor is another member's.
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, ch.sent(VOTE_ROOM_EVENTS.ballot)[0]);
+    const state = { roundId: ROUND, keys: keys.publicKeys };
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, state, SPOOF.id, [0, 0, 0]));
+    expect(result.current.impersonated).toBe(false);
+    // SPOOF seals a ballot under A's id.
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, {
+      ...(await ballotFor(crypto, state, A.id, [0, 0, 0])),
+      bid: "stolen_seat1",
+    });
+    expect(result.current.impersonated).toBe(true);
+    // A new round starts without the warning.
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 2, roundId: "round_000002" })
+    );
+    expect(result.current.impersonated).toBe(false);
+  });
+
+  it("counts, for the host, second ballots from an id that already answered, each once", async () => {
+    const { ch, crypto, result } = await startHost();
+    const s = lastState(ch);
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s, A.id, [0, 1, 2]));
+    expect(result.current.duplicateBallots).toBe(0);
+    const second = await ballotFor(crypto, s, A.id, [2, 2, 2]);
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, second);
+    expect(result.current.duplicateBallots).toBe(1);
+    // The same refused ballot re-sent doesn't count again.
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, second);
+    expect(result.current.duplicateBallots).toBe(1);
+    expect(result.current.ballots).toBe(1);
+    // Nothing of it reaches the participants.
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    expect(JSON.stringify(lastState(ch))).not.toMatch(/duplicate/i);
+  });
+
+  it("can't block a member's ballot by reusing its ballot id under another seat", async () => {
+    const { ch, crypto, result } = await startHost();
+    const s = lastState(ch);
+    // B's own, valid ballot, under the id A is about to use.
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.ballot,
+      await ballotFor(crypto, s, B.id, [0, 0, 0], { bid: "bid_shared01" })
+    );
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.ballot,
+      await ballotFor(crypto, s, A.id, [1, 1, 1], { bid: "bid_shared01" })
+    );
+    expect(result.current.ballots).toBe(2);
+  });
+
+  it("tells a removed member who rejoins under the same id, again", async () => {
+    const { ch, result } = await startHost({}, [HOST, A, SPOOF]);
+    act(() => result.current.kick(SPOOF.id));
+    await flush();
+    expect(ch.sent(VOTE_ROOM_EVENTS.kick)).toHaveLength(1);
+    act(() => ch.setPresence([HOST, A]));
+    await flush();
+    act(() => ch.setPresence([HOST, A, SPOOF]));
+    await flush();
+    const kicks = ch.sent(VOTE_ROOM_EVENTS.kick) as { id: string }[];
+    expect(kicks).toHaveLength(2);
+    expect(kicks[1].id).toBe(SPOOF.id);
+  });
+});
+
+// ── Participant: whom it waits for ───────────────────────────────────
+
+describe("useVoteRoom: a participant waiting for a host", () => {
+  let crypto: FakeVoteCrypto;
+  let keys: HostKeyPair;
+
+  beforeEach(async () => {
+    crypto = fakeVoteCrypto();
+    keys = await crypto.createHostKeys();
+  });
+
+  function participant() {
+    const view = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: keys.fingerprint,
+        crypto,
+      })
+    );
+    return { ...view, ch: fakeRealtime.last() };
+  }
+
+  it("keeps the host's held first state when a copy arrives under another id", async () => {
+    const { result, ch } = participant();
+    act(() => {
+      ch.connect();
+      ch.setPresence([A, SPOOF]);
+    });
+    const real = await signedState(crypto, HOST.id, keys);
+    await deliver(ch, VOTE_ROOM_EVENTS.state, real);
+    // A member re-sends the host's state under an id nobody holds.
+    await deliver(ch, VOTE_ROOM_EVENTS.state, { ...real, by: "ghost_0000000000" });
+    expect(result.current.status).toBe("waiting");
+    act(() => ch.setPresence([HOST, A, SPOOF]));
+    await flush();
+    expect(result.current.status).toBe("live");
+    expect(result.current.hostId).toBe(HOST.id);
+  });
+
+  it("says nobody is hosting after 90 s without a host's state", async () => {
+    const { result, ch } = participant();
+    act(() => {
+      ch.connect();
+      ch.setPresence([A]);
+    });
+    expect(result.current.status).toBe("waiting");
+    await tick(NO_HOST_TIMEOUT_MS - 1);
+    expect(result.current.status).toBe("waiting");
+    await tick(1);
+    expect(result.current.status).toBe("no-host");
+    expect(ch.removed).toBe(true);
+  });
+
+  it("doesn't once a host's state arrived in time", async () => {
+    const { result, ch } = participant();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A]);
+    });
+    await tick(NO_HOST_TIMEOUT_MS - 1_000);
+    await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    await tick(NO_HOST_TIMEOUT_MS);
+    expect(result.current.status).toBe("live");
   });
 });

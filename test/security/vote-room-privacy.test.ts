@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { webcrypto } from "node:crypto";
-import { createWebVoteCrypto } from "@/lib/realtime/vote-room/crypto";
-import { VOTE_ROOM_EVENTS, type VoteStateMessage } from "@/lib/realtime/vote-room/protocol";
+import { createWebVoteCrypto, fromBase64Url } from "@/lib/realtime/vote-room/crypto";
+import {
+  VOTE_ROOM_EVENTS,
+  ballotCiphertextChars,
+  type VoteStateMessage,
+} from "@/lib/realtime/vote-room/protocol";
 import { fakeRealtime, type FakeChannel, type FakeMember } from "../realtime/fake-realtime";
 import { CODE, QUESTIONNAIRE } from "../realtime/vote-room-fixtures";
 
@@ -27,11 +31,17 @@ const crypto = createWebVoteCrypto(webcrypto.subtle as unknown as SubtleCrypto, 
   webcrypto.getRandomValues(new Uint8Array(n))
 );
 
-const HOST: FakeMember = { id: "host_00000000000", name: "Hana", joinedAt: "2026-10-26T09:00:00Z" };
+// Names with a space: they can't turn up by chance inside base64url keys,
+// signatures or nanoid ids, so "not.toContain(name)" can't flake.
+const HOST: FakeMember = {
+  id: "host_00000000000",
+  name: "Hana Ito",
+  joinedAt: "2026-10-26T09:00:00Z",
+};
 const PEOPLE: FakeMember[] = [
-  { id: "alice_0000000000", name: "Alex", joinedAt: "2026-10-26T09:01:00Z" },
-  { id: "bobby_0000000000", name: "Bo", joinedAt: "2026-10-26T09:02:00Z" },
-  { id: "carol_0000000000", name: "Cy", joinedAt: "2026-10-26T09:03:00Z" },
+  { id: "alice_0000000000", name: "Alex Ng", joinedAt: "2026-10-26T09:01:00Z" },
+  { id: "bobby_0000000000", name: "Bo Li", joinedAt: "2026-10-26T09:02:00Z" },
+  { id: "carol_0000000000", name: "Cy Ray", joinedAt: "2026-10-26T09:03:00Z" },
 ];
 // Each person's answers (point values): Green 2 / Yellow 1 / Red 0; learning optional.
 const DRAFTS = [
@@ -138,9 +148,18 @@ describe("a vote round's privacy", () => {
       expect(st.revealed).toBeNull();
       expect(JSON.stringify(st)).not.toMatch(/distribution|responses|counts/);
     }
-    // Ballots: ciphertext only, from their sender, never the answers.
+    // Ballots: ciphertext only, from their sender, never the answers. One per
+    // person; a resend (if an ack was slow) is the same ballot, byte for byte.
     const ballots = log.filter((s) => s.event === VOTE_ROOM_EVENTS.ballot);
-    expect(ballots).toHaveLength(3);
+    const byBid = new Map<string, string>();
+    for (const b of ballots) {
+      const { bid } = b.payload as { bid: string };
+      const json = JSON.stringify(b.payload);
+      expect(byBid.get(bid) ?? json).toBe(json);
+      byBid.set(bid, json);
+    }
+    expect(byBid.size).toBe(3);
+    expect(new Set(ballots.map((b) => b.from)).size).toBe(3);
     for (const b of ballots) {
       expect(Object.keys(b.payload as object).sort()).toEqual([
         "bid",
@@ -151,8 +170,15 @@ describe("a vote round's privacy", () => {
         "roundId",
         "v",
       ]);
+      // Every ballot is the same size, and its bytes don't hold an answer string in the clear.
       const ct = (b.payload as { ct: string }).ct;
-      for (const a of ANSWER_STRINGS) expect(ct).not.toContain(a);
+      expect(ct).toHaveLength(ballotCiphertextChars(QUESTIONNAIRE.questions.length));
+      const bytes = Array.from(fromBase64Url(ct) ?? []);
+      for (const a of ANSWER_STRINGS) {
+        const plain = Array.from(new TextEncoder().encode(a));
+        const found = bytes.some((_, i) => plain.every((p, j) => bytes[i + j] === p));
+        expect(found).toBe(false);
+      }
     }
     // Participants send nothing but ballots.
     expect(
@@ -196,10 +222,24 @@ describe("a vote round's privacy", () => {
       expect(savedJson).not.toContain(m.name);
     }
     expect(savedJson).not.toMatch(/acks|voted|ballotId|bid/);
+    // Each tab kept ids only: the round's and its own ballot's, nothing else.
+    // Checked field by field (random ids could contain "021" or "Red" by chance).
     expect(storage).toHaveLength(people.length);
+    const roundId = (after.at(-1)!.payload as VoteStateMessage).roundId;
     for (const entry of storage) {
-      for (const a of ANSWER_STRINGS) expect(entry).not.toContain(a);
-      expect(entry).not.toMatch(/Green|Yellow|Red|"fun"|"speed"/);
+      const [key, value] = [
+        entry.slice(0, entry.indexOf("=")),
+        entry.slice(entry.indexOf("=") + 1),
+      ];
+      expect(key).toBe(`agile-toolkit:vote-room:answered:${CODE}`);
+      const rounds = JSON.parse(value) as unknown[];
+      expect(rounds).toHaveLength(1);
+      const [rec] = rounds as Record<string, unknown>[];
+      expect(Object.keys(rec).sort()).toEqual(["b", "c", "r"]);
+      expect(rec.r).toBe(roundId);
+      expect(typeof rec.c).toBe("boolean");
+      expect(rec.b).toHaveLength(1);
+      expect(byBid.has((rec.b as string[])[0])).toBe(true);
     }
   });
 });
