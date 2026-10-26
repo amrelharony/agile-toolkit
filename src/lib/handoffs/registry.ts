@@ -5,10 +5,10 @@
  * action offers impediment and kanban; a premortem cause offers risk), so a
  * route knows only how to create, remove and find its target.
  *
- * Routes whose target entity doesn't exist yet write to today's closest
- * slice: `decision` to the Decision Log (until DACI, RAPID and the log merge
- * into one decision record) and `dependency` to the Dependency Map's graph
- * (until the one dependency model lands).
+ * `decision` writes the one decision record the Decision Log, DACI and
+ * RAPID share (workspace.decisions, lib/decisions). A route whose target
+ * entity doesn't exist yet writes to today's closest slice: `dependency` to
+ * the Dependency Map's graph (until the one dependency model lands).
  */
 
 import type { HandoffLink, HandoffRef, HandoffRoute, HandoffRouteId } from "./types";
@@ -76,6 +76,8 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "weighted-decision": { name: "weighted decision", href: "/weighted-decision" },
   cynefin: { name: "Cynefin", href: "/cynefin" },
   "buy-a-feature": { name: "Buy a Feature", href: "/buy-a-feature" },
+  // Shelved, but its "Push to Decision Log" still sends decided RFCs.
+  "rfc-tracker": { name: "RFC", href: "/rfc-tracker" },
   // Outcomes & quality
   "opportunity-tree": { name: "opportunity tree", href: "/opportunity-tree" },
   "riskiest-assumption": { name: "riskiest assumption", href: "/riskiest-assumption" },
@@ -115,6 +117,9 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
   // A tool that keeps several documents opens the one the item came from.
   if (ref?.tool === "premortem" && ref.doc) {
     return `${tool.href}?premortem=${encodeURIComponent(ref.doc)}`;
+  }
+  if (ref?.tool === "weighted-decision" && ref.doc) {
+    return `${tool.href}?matrix=${encodeURIComponent(ref.doc)}`;
   }
   return tool.href;
 }

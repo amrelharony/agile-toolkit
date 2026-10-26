@@ -29,7 +29,6 @@ import { RISK_REGISTER_KEY } from "@/lib/handoffs/targets/risk";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
-import { DECISION_LOG_KEY } from "@/lib/handoffs/targets/decision";
 import { DEPENDENCY_MAP_ID } from "@/lib/handoffs/targets/dependency";
 
 const ROUTES = Object.keys(HANDOFF_ROUTES) as HandoffRouteId[];
@@ -67,8 +66,6 @@ const pokerQueue = () => ws().pokerEstimationLogs?.find((d) => d.id === POKER_LO
 const retroCards = () => ws().retroBoards?.find((b) => b.id === RETRO_BOARD_ID)?.cards ?? [];
 const hypotheses = () =>
   ws().hypothesisTrackers?.find((d) => d.id === HYPOTHESIS_TRACKER_ID)?.hypotheses ?? [];
-const decisionBlob = (): { id: string }[] =>
-  JSON.parse(localStorage.getItem(DECISION_LOG_KEY) ?? "[]");
 const depNodes = () => ws().dependencyMaps?.find((d) => d.id === DEPENDENCY_MAP_ID)?.nodes ?? [];
 
 /** Every place a route's target can live, for "it's gone" checks. */
@@ -90,7 +87,7 @@ function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
     case "hypothesis":
       return [hypotheses().some((h) => h.id === id)];
     case "decision":
-      return [decisionBlob().some((d) => d.id === id), ws().decisions.some((d) => d.id === id)];
+      return [ws().decisions.some((d) => d.id === id)];
     case "dependency":
       return [depNodes().some((n) => n.id === id)];
   }
@@ -288,6 +285,11 @@ describe("source back-links", () => {
     );
     expect(sourceHref({ tool: "standup", id: "x" })).toBe("/standup");
     expect(sourceHref({ tool: "story-mapper", id: "x" })).toBe("/story-mapper");
+    expect(sourceHref({ tool: "weighted-decision", id: "m 1", doc: "m 1" })).toBe(
+      "/weighted-decision?matrix=m%201"
+    );
+    expect(sourceHref({ tool: "weighted-decision", id: "x" })).toBe("/weighted-decision");
+    expect(sourceHref({ tool: "rfc-tracker", id: "x" })).toBe("/rfc-tracker");
     expect(sourceHref({ tool: "nope", id: "x" })).toBeNull();
   });
 
