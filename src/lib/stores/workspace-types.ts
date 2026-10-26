@@ -289,17 +289,105 @@ export interface Okr {
   owner?: string;
 }
 
+/* ── Decision records ──
+ * One entity for the Decision Log, DACI and RAPID (Phase 7): `template` says
+ * which form a record was raised with, and the ADR lifecycle is the status
+ * for all three. DACIDecision and RAPIDDecision rows from before the merge
+ * stay as legacy types; lib/decisions reads them through as Decisions. */
+
+/** Which form a decision record uses; absent on a record means "adr". */
+export type DecisionTemplate = "adr" | "daci" | "rapid";
+
+export const DECISION_TEMPLATES = [
+  "adr",
+  "daci",
+  "rapid",
+] as const satisfies readonly DecisionTemplate[];
+
+/** The ADR lifecycle every template shares. DACI/RAPID's "implemented" and
+ *  "revisit" are dates on the record (`implementedAt`, `reopenedAt`). */
+export type DecisionStatus = "proposed" | "accepted" | "deprecated" | "superseded";
+
+export const DECISION_STATUSES = [
+  "proposed",
+  "accepted",
+  "deprecated",
+  "superseded",
+] as const satisfies readonly DecisionStatus[];
+
+/** Named roles besides the one decider (DACI Approver / RAPID Decide / an ADR's decider). */
+export type DecisionRole =
+  /** DACI, one person. */
+  | "driver"
+  /** DACI. */
+  | "contributor"
+  /** DACI. */
+  | "informed"
+  /** RAPID, one person. */
+  | "recommend"
+  /** RAPID (a veto). */
+  | "agree"
+  /** RAPID. */
+  | "perform"
+  /** RAPID. */
+  | "input";
+
+export const DECISION_ROLES = [
+  "driver",
+  "contributor",
+  "informed",
+  "recommend",
+  "agree",
+  "perform",
+  "input",
+] as const satisfies readonly DecisionRole[];
+
+/** One option a decision weighed. */
+export interface DecisionOption {
+  id: string;
+  text: string;
+  /** Why it was rejected, or its trade-offs. */
+  note?: string;
+}
+
 export interface Decision {
   id: string;
   title: string;
   context?: string;
+  /** The outcome ("We will …"); "" until decided. Labelled "Outcome" in the UI. */
   decision: string;
   consequences?: string;
+  /** Pre-template ADRs: one option per line. Read as `options` (lib/decisions);
+   *  new writes use `options`. */
   alternatives?: string[];
-  status: "proposed" | "accepted" | "deprecated" | "superseded";
+  status: DecisionStatus;
+  /** "YYYY-MM-DD" the record was raised (can be backdated). */
   date: ISODateString;
   /** The item this was sent from (a six-hats summary, a weighted decision). */
   sourceRef?: HandoffRef;
+  /** The form it was raised with; absent: "adr" (every record from before templates). */
+  template?: DecisionTemplate;
+  /** One numbering sequence for the whole log, across templates (ADR-0003,
+   *  DACI-0004): assigned once and never reused. Absent: not numbered yet. */
+  number?: number;
+  /** The options weighed. Absent on a pre-template ADR, whose `alternatives` are read instead. */
+  options?: DecisionOption[];
+  /** The option the outcome picked (a `DecisionOption.id`). */
+  chosenOptionId?: string;
+  /** The DACI Driver's or RAPID Recommender's proposal. */
+  recommendation?: string;
+  /** Roster spelling: the one person with the final say (DACI Approver, RAPID Decide). */
+  decider?: string;
+  /** Roster spellings per role; "driver" and "recommend" hold at most one. */
+  roles?: Partial<Record<DecisionRole, string[]>>;
+  /** "YYYY-MM-DD" it was accepted on (can be backdated). */
+  decidedAt?: ISODateString;
+  /** "YYYY-MM-DD" it was carried out (DACI/RAPID "implemented"). */
+  implementedAt?: ISODateString;
+  /** "YYYY-MM-DD" an accepted decision went back to proposed (DACI "revisit"). */
+  reopenedAt?: ISODateString;
+  /** Id of the decision that replaced this one (status "superseded"). */
+  supersededBy?: string;
 }
 
 export interface TechDebtItem {
@@ -2933,7 +3021,9 @@ export interface Workspace {
   /** One `BuyAFeatureGame`, id `BUY_A_FEATURE_ID`. */
   buyAFeatureGames?: BuyAFeatureGame[];
   // Phase 21 — Decision Frameworks
+  /** Legacy since Phase 7: read through as `decisions` (template "daci"). */
   daciDecisions?: DACIDecision[];
+  /** Legacy since Phase 7: read through as `decisions` (template "rapid"). */
   rapidDecisions?: RAPIDDecision[];
   weightedOptions?: WeightedOption[];
   weightedCriteria?: WeightedCriterion[];

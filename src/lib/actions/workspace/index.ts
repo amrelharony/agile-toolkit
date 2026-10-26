@@ -21,6 +21,9 @@ import {
   ALLOCATION_ROUND_TOOLS,
   BUY_A_FEATURE_ID,
   CEREMONY_CADENCE_ID,
+  DECISION_ROLES,
+  DECISION_STATUSES,
+  DECISION_TEMPLATES,
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
@@ -328,16 +331,62 @@ const OkrSchema = z.object({
   owner: z.string().optional(),
 }) as unknown as z.ZodType<Okr>;
 
+// Every Phase 7 field is listed so an update keeps it (z.object drops keys it
+// doesn't know). Dates stay loose strings, as `date` always was: older rows
+// and agents may hold a timestamp, which lib/decisions reads as its day.
 const DecisionSchema = z.object({
   id: z.string(),
   title: z.string(),
   context: z.string().optional(),
-  decision: z.string(),
+  decision: z.string().describe('The outcome ("We will …"); "" until decided.'),
   consequences: z.string().optional(),
-  alternatives: z.array(z.string()).optional(),
-  status: z.enum(["proposed", "accepted", "deprecated", "superseded"]),
-  date: z.string(),
+  alternatives: z
+    .array(z.string())
+    .optional()
+    .describe("Pre-template ADRs: one option per line. New records use options."),
+  status: z.enum(DECISION_STATUSES),
+  date: z.string().describe("YYYY-MM-DD the record was raised (can be backdated)."),
   sourceRef: HandoffRefSchema.optional(),
+  template: z
+    .enum(DECISION_TEMPLATES)
+    .optional()
+    .describe('The form it was raised with; absent: "adr".'),
+  number: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("One numbering sequence across templates (ADR-0003, DACI-0004); never reused."),
+  options: z
+    .array(z.object({ id: z.string(), text: z.string(), note: z.string().optional() }))
+    .optional()
+    .describe("The options weighed: {id, text, note (why rejected, or its trade-offs)}."),
+  chosenOptionId: z.string().optional().describe("The option the outcome picked."),
+  recommendation: z
+    .string()
+    .optional()
+    .describe("The DACI Driver's or RAPID Recommender's proposal."),
+  decider: z
+    .string()
+    .optional()
+    .describe("Roster spelling: the one person with the final say (DACI Approver, RAPID Decide)."),
+  roles: z
+    .partialRecord(z.enum(DECISION_ROLES), z.array(z.string()))
+    .optional()
+    .describe("Roster spellings per role; driver and recommend hold at most one."),
+  decidedAt: z.string().optional().describe("YYYY-MM-DD it was accepted on."),
+  implementedAt: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD it was carried out (DACI/RAPID "implemented").'),
+  reopenedAt: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD an accepted decision went back to proposed (DACI "revisit").'),
+  supersededBy: z
+    .string()
+    .optional()
+    .describe('Id of the decision that replaced this one (status "superseded").'),
 }) as unknown as z.ZodType<Decision>;
 
 const TechDebtSchema = z.object({
