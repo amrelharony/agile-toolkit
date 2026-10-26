@@ -209,9 +209,10 @@ export function CynefinClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Cynefin Decision Picker",
-      prompts: generateCynefinPrompts({ grouped }),
+      // Suggested vs confirmed domains and the hypotheses' state, as the board shows them.
+      prompts: generateCynefinPrompts({ items, hypotheses }),
     }),
-    [grouped]
+    [items, hypotheses]
   );
 
   return (
