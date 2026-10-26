@@ -724,6 +724,37 @@ describe("working agreement", () => {
     ]);
   });
 
+  it("counts only the rounds in a row that found a rule not working, not partly", () => {
+    const checkIn = (id: string, date: string, result: "partly" | "not_working") => ({
+      id,
+      date,
+      version: 0,
+      results: { r1: result },
+    });
+    const ws = (checkIns: ReturnType<typeof checkIn>[]) => ({
+      teamMembers: [],
+      workingAgreements: [agreement({ checkIns })],
+    });
+    // Partly, then not working: one round found it not working.
+    expect(
+      steps(
+        "working-agreement",
+        ws([checkIn("c1", "2026-10-01", "partly"), checkIn("c2", "2026-10-15", "not_working")])
+      )[0].detail
+    ).toBe("The 15 Oct check-in found “Cameras on” not working.");
+    // Not working twice after a partly round: the two count.
+    expect(
+      steps(
+        "working-agreement",
+        ws([
+          checkIn("c0", "2026-09-15", "partly"),
+          checkIn("c1", "2026-10-01", "not_working"),
+          checkIn("c2", "2026-10-15", "not_working"),
+        ])
+      )[0].detail
+    ).toBe("The 15 Oct check-in found “Cameras on” not working (2 check-ins in a row).");
+  });
+
   it("asks the teammates who haven't answered every rule for consent", () => {
     const sam = { name: "Ana", vote: "consent" as const, at: "2026-10-01" };
     const out = steps("working-agreement", {

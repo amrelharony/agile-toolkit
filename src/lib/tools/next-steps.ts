@@ -75,7 +75,7 @@ import {
   dayLabel,
   lastCheckIn,
   normalizeAgreement,
-  notWorkingStreak,
+  slippingRun,
 } from "@/lib/working-agreement/model";
 import {
   DOD_DOC_ID,
@@ -2030,9 +2030,14 @@ const RULES: Record<string, NextStepRule<object>> = {
       const last = lastCheckIn(doc);
       if (last) {
         // Rules the last round found not working, still in the agreement, longest run first.
+        // The run counts rounds that found it not working: a "partly" round before them ends it.
         const failing = doc.rules
           .filter((r) => last.results[r.id] === "not_working")
-          .map((r) => ({ rule: r, streak: notWorkingStreak(doc, r.id) }))
+          .map((r) => {
+            const run = slippingRun(doc, r.id);
+            const partly = run.indexOf("partly");
+            return { rule: r, streak: partly < 0 ? run.length : partly };
+          })
           .sort((a, b) => b.streak - a.streak);
         const [worst] = failing;
         if (worst) {
