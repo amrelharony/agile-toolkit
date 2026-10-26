@@ -15,7 +15,16 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { defineCrudActions } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { CEREMONY_CADENCE_ID, HANDOFF_ROUTE_IDS } from "@/lib/stores/workspace-types";
+import {
+  ADKAR_DOC_ID,
+  ADKAR_ELEMENTS,
+  CEREMONY_CADENCE_ID,
+  DOD_DOC_ID,
+  HANDOFF_ROUTE_IDS,
+  MOOD_TRACKER_ID,
+  RACI_ID,
+  WORKING_AGREEMENT_ID,
+} from "@/lib/stores/workspace-types";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import {
   STORY_STATUSES,
@@ -90,6 +99,12 @@ import type {
   HealthCheck,
   SkillsMatrix,
   PokerEstimationLog,
+  // Phase 6 — Team & people
+  DefinitionOfDone,
+  RaciMatrix,
+  AdkarDoc,
+  MoodTrackerDoc,
+  MoodPulse,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -171,6 +186,8 @@ const HandoffLinkSchema = z.object({
   at: z.string(),
 });
 
+const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+
 const StoryStatusSchema = z.enum(STORY_STATUSES as [Story["status"], ...Story["status"][]]);
 
 // The flow stamps are listed so an update keeps them (z.object drops keys it
@@ -225,6 +242,15 @@ const StorySchema = z.object({
     .optional()
     .describe("Definition-of-Ready result from the last refinement of this story."),
   epicId: z.string().optional().describe("The Epic Roadmap epic this story belongs to."),
+  dodChecks: z
+    .object({
+      checked: z.array(z.string()).describe("Ids of the Definition-of-Done criteria met."),
+      updatedAt: z.string(),
+    })
+    .optional()
+    .describe(
+      "Definition-of-Done criteria ticked on the story's board card. Whether it meets the DoD is derived against today's required criteria (workspace.definition_of_done)."
+    ),
 }) as unknown as z.ZodType<Story>;
 
 const ImpedimentSchema = z.object({
@@ -1098,13 +1124,34 @@ defineCrudActions<PlatformMaturity>({
 
 /* ── S11 — Workshops & Facilitation (singleton-doc tools). */
 
+const CharterRuleCategorySchema = z.enum([
+  "communication",
+  "meetings",
+  "decisions",
+  "work",
+  "conflict",
+  "other",
+]);
+
+// Consent, check-ins and versions are listed so an update keeps them
+// (z.object drops keys it doesn't know).
+const CharterConsentSchema = z.object({
+  name: z.string().describe("The roster spelling when the person is on the team."),
+  vote: z.enum(["consent", "concern", "object"]),
+  note: z.string().optional(),
+  at: z.string(),
+});
+
 const CharterRuleSchema = z.object({
   id: z.string(),
-  category: z.enum(["communication", "meetings", "decisions", "work", "conflict", "other"]),
+  category: CharterRuleCategorySchema,
   text: z.string(),
-  agreedBy: z.array(z.string()),
+  agreedBy: z
+    .array(z.string())
+    .describe("Who agreed; derived from consent (the names voting consent) once that is set."),
   description: z.string().optional(),
-  stillWorking: z.boolean().optional(),
+  stillWorking: z.boolean().optional().describe("The draft of the check-in in progress."),
+  consent: z.array(CharterConsentSchema).optional().describe("Each person's answer to the rule."),
 });
 
 const CharterMetaSchema = z.object({
@@ -1114,10 +1161,45 @@ const CharterMetaSchema = z.object({
   description: z.string().optional(),
 });
 
+const CharterCheckInSchema = z.object({
+  id: z.string(),
+  date: IsoDay,
+  sprintId: z.string().optional(),
+  version: z.number().int().min(0).describe("The meta.version checked."),
+  results: z
+    .record(z.string(), z.enum(["working", "not_working"]))
+    .describe("Rule id → result; a rule left out was skipped."),
+  ruleTexts: z.record(z.string(), z.string()).optional(),
+  note: z.string().optional(),
+});
+
+const CharterVersionSchema = z.object({
+  version: z.number().int().min(0),
+  publishedAt: z.string(),
+  teamName: z.string().optional(),
+  description: z.string().optional(),
+  rules: z.array(
+    z.object({
+      id: z.string(),
+      category: CharterRuleCategorySchema,
+      text: z.string(),
+      description: z.string().optional(),
+    })
+  ),
+});
+
 const WorkingAgreementSchema = z.object({
   id: z.string(),
   rules: z.array(CharterRuleSchema),
   meta: CharterMetaSchema,
+  checkIns: z
+    .array(CharterCheckInSchema)
+    .optional()
+    .describe("Saved check-ins, oldest first (the latest 52 are kept)."),
+  versions: z
+    .array(CharterVersionSchema)
+    .optional()
+    .describe("Published versions, oldest first (the latest 20 are kept)."),
 }) as unknown as z.ZodType<WorkingAgreement>;
 
 const LsFavoriteSchema = z.object({
@@ -1222,12 +1304,14 @@ const WardleyMapSchema = z.object({
 
 defineCrudActions<WorkingAgreement>({
   toolId: "workspace.working_agreement",
-  entityName: "working agreement",
+  entityName: `working agreement (singleton id ${WORKING_AGREEMENT_ID})`,
   schema: WorkingAgreementSchema,
   selectAll: () => ws().workingAgreements ?? [],
   upsert: (x) => ws().upsertWorkingAgreement(x),
   remove: (id) => ws().removeWorkingAgreement(id),
-  generateId: () => `workingAgreement_${nanoid(8)}`,
+  // The page and tool.working_agreement.* read only this id; a generated
+  // `workingAgreement_<nanoid>` doc was an orphan nothing showed.
+  generateId: () => WORKING_AGREEMENT_ID,
 });
 
 defineCrudActions<LiberatingStructures>({
@@ -1335,25 +1419,105 @@ const PsychSafetyResponseSchema = z.object({
   description: z.string().optional(),
 });
 
+// A count of people: a whole number, never negative.
+const PeopleCount = z.number().int().min(0);
+
+// How many answered 1..5 to one question, raw (not reversed).
+const PsychSafetyCountsSchema = z.tuple([
+  PeopleCount,
+  PeopleCount,
+  PeopleCount,
+  PeopleCount,
+  PeopleCount,
+]);
+
+const PsychSafetyRoundSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  date: IsoDay,
+  sprintId: z.string().optional(),
+  source: z.enum(["room", "facilitator", "legacy"]),
+  responses: PeopleCount.describe("How many people answered."),
+  counts: z
+    .object({
+      q1: PsychSafetyCountsSchema,
+      q2: PsychSafetyCountsSchema,
+      q3: PsychSafetyCountsSchema,
+      q4: PsychSafetyCountsSchema,
+      q5: PsychSafetyCountsSchema,
+      q6: PsychSafetyCountsSchema,
+      q7: PsychSafetyCountsSchema,
+    })
+    .describe("Per question, how many answered 1, 2, 3, 4 and 5 (raw, not reversed)."),
+  createdAt: z.string(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
+});
+
 const PsychSafetyLogSchema = z.object({
   id: z.string(),
-  responses: z.array(PsychSafetyResponseSchema),
+  responses: z
+    .array(PsychSafetyResponseSchema)
+    .describe("The per-response list from before rounds (read once, then emptied)."),
+  rounds: z
+    .array(PsychSafetyRoundSchema)
+    .optional()
+    .describe("Survey rounds as counts per question, oldest first."),
 }) as unknown as z.ZodType<PsychSafetyLog>;
+
+// A maturity level: a whole number 1-5.
+const MaturityScore = z.number().int().min(1).max(5);
 
 const MaturityAssessmentSchema = z.object({
   id: z.string(),
-  scores: z.record(z.string(), z.number()),
+  scores: z
+    .record(z.string(), MaturityScore)
+    .describe(
+      "The draft being scored: dimensionId -> level 1-5; a missing dimension is not scored."
+    ),
   targetLevel: z.number(),
+  history: z
+    .array(
+      z.object({
+        id: z.string(),
+        assessedAt: IsoDay,
+        scores: z.record(z.string(), MaturityScore),
+        targetLevel: MaturityScore.optional(),
+        note: z.string().optional(),
+      })
+    )
+    .optional()
+    .describe("Saved assessments, oldest first. The latest one sets the workspace maturity level."),
 }) as unknown as z.ZodType<MaturityAssessment>;
+
+const HealthVotesSchema = z.object({
+  green: PeopleCount,
+  yellow: PeopleCount,
+  red: PeopleCount,
+});
 
 const HealthDimensionScoreSchema = z.object({
   light: z.string(),
-  trend: z.string(),
+  // Optional at parse: it is stamped at save from the previous check.
+  trend: z.string().optional().describe("Derived at save from the previous saved check."),
+  votes: HealthVotesSchema.optional().describe("The vote counts the light came from."),
+  note: z.string().max(500).optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
 });
+
+const HealthCheckSourceSchema = z.enum(["room", "facilitator"]);
 
 const HealthCheckSnapshotSchema = z.object({
   sprintName: z.string(),
   scores: z.record(z.string(), HealthDimensionScoreSchema),
+  sprintId: z.string().optional(),
+  date: IsoDay.optional().describe("The day to save it under (backdated); absent: today."),
+  rated: z
+    .array(z.string())
+    .optional()
+    .describe("Dimension keys rated in this draft (built-in names and custom ids)."),
+  customScores: z.record(z.string(), HealthDimensionScoreSchema).optional(),
+  source: HealthCheckSourceSchema.optional(),
+  responses: PeopleCount.optional(),
 });
 
 const HealthCheckSchema = z.object({
@@ -1365,8 +1529,22 @@ const HealthCheckSchema = z.object({
       sprintName: z.string(),
       date: z.string(),
       scores: z.record(z.string(), HealthDimensionScoreSchema),
+      sprintId: z.string().optional(),
+      customScores: z.record(z.string(), HealthDimensionScoreSchema).optional(),
+      source: HealthCheckSourceSchema.optional(),
+      responses: PeopleCount.optional(),
     })
   ),
+  customDimensions: z
+    .array(
+      z.object({
+        id: z.string().describe('"custom-<id>": the key its lights use in customScores.'),
+        name: z.string(),
+        description: z.string().optional(),
+        archived: z.boolean().optional(),
+      })
+    )
+    .optional(),
 }) as unknown as z.ZodType<HealthCheck>;
 
 const SkillsMatrixEntrySchema = z.object({
@@ -1375,12 +1553,132 @@ const SkillsMatrixEntrySchema = z.object({
   description: z.string().optional(),
 });
 
+const SkillTargetLevelSchema = z.union([z.literal(2), z.literal(3), z.literal(4)]);
+
+const SkillsMatrixSkillSchema = SkillsMatrixEntrySchema.extend({
+  targetPeople: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("People needed at targetLevel or above; unset = no target."),
+  targetLevel: SkillTargetLevelSchema.optional().describe("Default 2."),
+});
+
+const SkillsTrainingPairSchema = z.object({
+  id: z.string(),
+  skillId: z.string(),
+  learnerId: z.string(),
+  mentorId: z.string().optional().describe("Unset = outside help."),
+  toLevel: SkillTargetLevelSchema,
+  createdAt: z.string(),
+  due: z.string().optional(),
+  doneAt: z.string().optional(),
+});
+
 const SkillsMatrixSchema = z.object({
   id: z.string(),
   members: z.array(SkillsMatrixEntrySchema),
-  skills: z.array(SkillsMatrixEntrySchema),
-  grid: z.record(z.string(), z.record(z.string(), z.number())),
+  skills: z.array(SkillsMatrixSkillSchema),
+  grid: z
+    .record(z.string(), z.record(z.string(), z.number().int().min(0).max(4)))
+    .describe("skillId -> column id -> level 0-4. A missing key is Not rated."),
+  version: z
+    .literal(2)
+    .optional()
+    .describe("2 once a 0 means rated None; on older docs a 0 reads as Not rated."),
+  training: z.array(SkillsTrainingPairSchema).optional(),
 }) as unknown as z.ZodType<SkillsMatrix>;
+
+/* ── Phase 6 — Team & people singletons (DoD, RACI, ADKAR). */
+
+const DodCriterionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  category: z.enum(["code", "testing", "docs", "performance", "security", "other"]),
+  required: z.boolean().describe("A story meets the DoD when every required criterion is ticked."),
+  done: z
+    .boolean()
+    .optional()
+    .describe("Deprecated team-level tick; read only for a release with no linked stories."),
+});
+
+const DefinitionOfDoneSchema = z.object({
+  id: z.string(),
+  items: z.array(DodCriterionSchema),
+  history: z
+    .array(
+      z.object({
+        sprintName: z.string(),
+        totalRequired: z.number(),
+        completed: z.number(),
+        ts: z.string(),
+      })
+    )
+    .describe("Pre-Phase-6 sprint snapshots, read-only."),
+}) as unknown as z.ZodType<DefinitionOfDone>;
+
+const RaciMatrixSchema = z.object({
+  id: z.string(),
+  roles: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
+      memberId: z
+        .string()
+        .optional()
+        .describe("TeamMember.id when the column is one roster person; absent for a group role."),
+    })
+  ),
+  activities: z.array(
+    z.object({ id: z.string(), name: z.string(), description: z.string().optional() })
+  ),
+  cells: z
+    .record(z.string(), z.record(z.string(), z.array(z.enum(["R", "A", "C", "I"]))))
+    .describe(
+      "Activity id → role id → letters: [], [R], [A], [A, R], [C] or [I]. A missing cell is empty."
+    ),
+}) as unknown as z.ZodType<RaciMatrix>;
+
+const AdkarElementSchema = z.enum(ADKAR_ELEMENTS);
+const AdkarScoreSchema = z.number().int().min(1).max(5);
+
+const AdkarInitiativeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  owner: z.string().optional(),
+  startDate: IsoDay,
+  description: z.string().optional(),
+  currentStage: AdkarElementSchema,
+  stagesCompleted: z
+    .array(AdkarElementSchema)
+    .optional()
+    .describe("Legacy; derived from currentStage."),
+  stageHistory: z
+    .array(z.object({ stage: AdkarElementSchema, enteredAt: IsoDay }))
+    .describe("Oldest first; entry 0 is { awareness, startDate }."),
+  groups: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        scores: z
+          .partialRecord(AdkarElementSchema, AdkarScoreSchema)
+          .describe("Element → score 1-5; a missing element is not scored."),
+        assessedAt: IsoDay.optional(),
+        note: z.string().optional(),
+      })
+    )
+    .optional(),
+});
+
+const AdkarDocSchema = z.object({
+  id: z.string(),
+  initiatives: z.array(AdkarInitiativeSchema),
+}) as unknown as z.ZodType<AdkarDoc>;
 
 const PokerEstimationLogSchema = z.object({
   id: z.string(),
@@ -1627,6 +1925,40 @@ defineCrudActions<SkillsMatrix>({
   upsert: (x) => ws().upsertSkillsMatrix(x),
   remove: (id) => ws().removeSkillsMatrix(id),
   generateId: () => `skillsMatrix_${nanoid(8)}`,
+});
+
+// Phase 6 singletons: each tool reads only its fixed id, so `create`
+// without an id writes that one document. The toolId suffixes camelCase to
+// the kinds the browser registers (definitionOfDone, raciMatrix, adkarDoc),
+// so no serverKind override is needed.
+defineCrudActions<DefinitionOfDone>({
+  toolId: "workspace.definition_of_done",
+  entityName: `Definition of Done (singleton id ${DOD_DOC_ID})`,
+  schema: DefinitionOfDoneSchema,
+  selectAll: () => ws().definitionsOfDone ?? [],
+  upsert: (x) => ws().upsertDefinitionOfDone(x),
+  remove: (id) => ws().removeDefinitionOfDone(id),
+  generateId: () => DOD_DOC_ID,
+});
+
+defineCrudActions<RaciMatrix>({
+  toolId: "workspace.raci_matrix",
+  entityName: `RACI matrix (singleton id ${RACI_ID})`,
+  schema: RaciMatrixSchema,
+  selectAll: () => ws().raciMatrices ?? [],
+  upsert: (x) => ws().upsertRaciMatrix(x),
+  remove: (id) => ws().removeRaciMatrix(id),
+  generateId: () => RACI_ID,
+});
+
+defineCrudActions<AdkarDoc>({
+  toolId: "workspace.adkar_doc",
+  entityName: `ADKAR initiatives document (singleton id ${ADKAR_DOC_ID})`,
+  schema: AdkarDocSchema,
+  selectAll: () => ws().adkarDocs ?? [],
+  upsert: (x) => ws().upsertAdkarDoc(x),
+  remove: (id) => ws().removeAdkarDoc(id),
+  generateId: () => ADKAR_DOC_ID,
 });
 
 defineCrudActions<PokerEstimationLog>({
@@ -2002,11 +2334,42 @@ const NpsResponseSchema = z.object({
 const MoodEntrySchema = z.object({
   id: z.string(),
   memberId: z.string(),
-  date: z.string(),
-  score: z.number(),
+  date: IsoDay.describe("The day the check-in is for."),
+  score: z.number().int().min(1).max(5).describe("1 rough … 5 great."),
   note: z.string().optional(),
   isPlaceholder: z.boolean().optional(),
+  loggedAt: z
+    .string()
+    .optional()
+    .describe("When it was entered (ISO), for a day filled in afterwards."),
 }) as unknown as z.ZodType<MoodEntry>;
+
+const MoodPulseSchema = z.object({
+  id: z.string(),
+  date: IsoDay.describe("The day the pulse is for (can be backdated)."),
+  counts: z
+    .object({ 1: PeopleCount, 2: PeopleCount, 3: PeopleCount, 4: PeopleCount, 5: PeopleCount })
+    .describe("How many picked each face, 1 rough … 5 great. Counts only, never who."),
+  source: z.enum(["room", "facilitator"]),
+  createdAt: z.string(),
+}) as unknown as z.ZodType<MoodPulse>;
+
+const MoodTrackerDocSchema = z.object({
+  id: z.string(),
+  mode: z
+    .enum(["named", "anonymous"])
+    .describe("named: each person logs a check-in; anonymous: team pulses only."),
+  streaks: z
+    .array(
+      z.object({
+        start: IsoDay,
+        end: IsoDay,
+        sentTo: z.array(HandoffLinkSchema).optional(),
+      })
+    )
+    .optional()
+    .describe("Low team-mood runs that went to the retro."),
+}) as unknown as z.ZodType<MoodTrackerDoc>;
 
 const KanbanBoardSchema = z.object({
   id: z.string(),
@@ -2041,8 +2404,6 @@ const HealthDashboardConfigSchema = z.object({
   cycleWindowDays: z.number().int().min(1).optional(),
   updatedAt: z.string().optional(),
 }) as unknown as z.ZodType<HealthDashboardConfig>;
-
-const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
 
 const FeatureFlagSchema = z.object({
   id: z.string(),
@@ -2277,6 +2638,28 @@ defineCrudActions<MoodEntry>({
   upsert: (x) => ws().upsertMoodEntry(x),
   remove: (id) => ws().removeMoodEntry(id),
   generateId: () => `mood_${nanoid(8)}`,
+});
+
+defineCrudActions<MoodPulse>({
+  toolId: "workspace.mood_pulse",
+  entityName: "anonymous mood pulse",
+  schema: MoodPulseSchema,
+  selectAll: () => ws().moodPulses ?? [],
+  upsert: (x) => ws().upsertMoodPulse(x),
+  remove: (id) => ws().removeMoodPulse(id),
+  generateId: () => `moodPulse_${nanoid(8)}`,
+});
+
+// Kind workspace:moodTrackerDoc, which is what kindFromToolId derives (the
+// browser registers the same), so no serverKind override.
+defineCrudActions<MoodTrackerDoc>({
+  toolId: "workspace.mood_tracker_doc",
+  entityName: `mood tracker settings (singleton id ${MOOD_TRACKER_ID})`,
+  schema: MoodTrackerDocSchema,
+  selectAll: () => ws().moodTrackerDocs ?? [],
+  upsert: (x) => ws().upsertMoodTrackerDoc(x),
+  remove: (id) => ws().removeMoodTrackerDoc(id),
+  generateId: () => MOOD_TRACKER_ID,
 });
 
 defineCrudActions<KanbanBoard>({
