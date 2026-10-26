@@ -1,117 +1,99 @@
 "use client";
 
 /**
- * Tab 4 — Value vs. Effort matrix. A scatter of items (Value Y, Effort X) with
- * quadrant dividers + legend, plus an item list colored by quadrant.
+ * Tab Value vs Effort: a scatter of the placed items (value up the side on
+ * the Fibonacci steps, effort along the bottom, the quadrant lines where
+ * the method's quadrant changes: value 8, effort 6), with a summary and a
+ * "View as table", then the items quadrant by quadrant in do-first order
+ * and the ones not placed yet. The quadrant is derived by the Value/Effort
+ * method, never stored; the scatter is read-only (drag items on the 2×2 in
+ * the Value vs Effort tool, or set the values in the table above).
  */
 
 import { useMemo } from "react";
 import dynamic from "next/dynamic";
-import { ChartCard } from "@/components/shared/chart-card";
-import { evaluateItemIn } from "@/lib/prioritization/methods";
+import Link from "next/link";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { SectionCard } from "@/components/shared/section-card";
+import { VE_LABEL, VE_MEANING, VE_QUADRANTS } from "@/lib/prioritization/methods/value-effort";
+import { cn } from "@/lib/utils";
 import type { BacklogItem } from "../types";
-import { VE_LABEL, type ValueEffortQuadrant } from "../scoring";
+import { TONE_CLASS, quadrantTone } from "../constants";
+import { matrixPoints, matrixText } from "../matrix";
+import { itemName } from "../method-text";
 
-const QUADRANT_COLORS: Record<ValueEffortQuadrant, string> = {
-  quick_wins: "#00ff88",
-  big_bets: "#00f0ff",
-  fill_ins: "#ffaa00",
-  time_wasters: "#ef4444",
-};
-
-// Recharts loads with the scatter, not the page. ChartCard's fixed-height
-// box holds the space while it loads.
+// Recharts loads with the scatter, not the page. The fixed-height box holds
+// the space while it loads.
 const ValueEffortScatter = dynamic(
   () => import("./matrix-tab-charts").then((m) => m.ValueEffortScatter),
   { ssr: false }
 );
 
-export function MatrixTab({ items: stored }: { items: BacklogItem[] }) {
-  // The Value/Effort method's reading: the one value field (Fibonacci) and
-  // the matrix effort, with the derived quadrant. Items without both are
-  // not placed and aren't plotted.
-  const items = useMemo(
-    () =>
-      stored.flatMap((i) => {
-        const r = evaluateItemIn(i, [], "value-effort");
-        const value = r.extra?.value;
-        const effort = r.extra?.effort;
-        if (!r.bucket || typeof value !== "number" || typeof effort !== "number") return [];
-        return [
-          { id: i.id, name: i.name, value, effort, quadrant: r.bucket as ValueEffortQuadrant },
-        ];
-      }),
-    [stored]
-  );
-  const data = useMemo(
-    () =>
-      items.map((i) => ({
-        name: i.name,
-        value: i.value,
-        matrixEffort: i.effort,
-      })),
-    [items]
-  );
+export function MatrixTab({ items }: { items: readonly BacklogItem[] }) {
+  const { points, unplaced } = useMemo(() => matrixPoints(items), [items]);
+  const text = useMemo(() => matrixText(points, unplaced.length), [points, unplaced.length]);
 
   return (
-    <ChartCard
-      title="Value vs. Effort Matrix"
-      height={420}
-      footer={
-        <>
-          {/* Quadrant legend */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: VE_LABEL.quick_wins, desc: "Low effort, high value", color: "#00ff88" },
-              { label: VE_LABEL.big_bets, desc: "High effort, high value", color: "#00f0ff" },
-              { label: VE_LABEL.fill_ins, desc: "Low effort, low value", color: "#ffaa00" },
-              { label: VE_LABEL.time_wasters, desc: "High effort, low value", color: "#ef4444" },
-            ].map((q) => (
-              <div
-                key={q.label}
-                className="flex items-start gap-2 p-3 rounded-lg"
-                style={{
-                  background: `${q.color}0d`,
-                  border: `1px solid ${q.color}20`,
-                }}
-              >
-                <span
-                  className="mt-0.5 inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ background: q.color }}
-                />
-                <div>
-                  <p className="text-xs font-semibold" style={{ color: q.color }}>
-                    {q.label}
-                  </p>
-                  <p className="text-xs text-sub mt-0.5">{q.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+    <SectionCard title="Value vs. Effort Matrix">
+      <ChartFigure
+        label="Value vs effort"
+        summary={text.summary}
+        table={text.table}
+        plotClassName="h-[360px]"
+      >
+        {points.length > 0 ? (
+          <ValueEffortScatter points={points} />
+        ) : (
+          <p className="flex h-full items-center justify-center text-sm text-sub">
+            Nothing placed yet.
+          </p>
+        )}
+      </ChartFigure>
 
-          {/* Item list colored by quadrant */}
-          <div className="mt-4 space-y-1.5">
-            {items.map((item) => {
-              // The same quadrants as the "All methods" tab.
-              const color = QUADRANT_COLORS[item.quadrant];
-              return (
-                <div key={item.id} className="flex items-center gap-3 text-sm">
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ background: color }}
-                  />
-                  <span className="text-text flex-1">{item.name}</span>
-                  <span className="text-xs text-sub font-data">
-                    V:{item.value} / E:{item.effort}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      }
-    >
-      <ValueEffortScatter data={data} />
-    </ChartCard>
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {VE_QUADRANTS.map((q) => {
+          const tone = TONE_CLASS[quadrantTone(q)];
+          const inQ = points.filter((p) => p.quadrant === q);
+          return (
+            <section
+              key={q}
+              aria-label={VE_LABEL[q]}
+              className={cn("rounded-lg border p-3", tone.border, tone.bg)}
+            >
+              <h3 className={cn("text-xs font-semibold", tone.text)}>
+                {VE_LABEL[q]} ({inQ.length})
+              </h3>
+              <p className="mt-0.5 text-xs text-sub">{VE_MEANING[q]}</p>
+              {inQ.length > 0 && (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {inQ.map((p) => (
+                    <li key={p.id} className="flex flex-wrap justify-between gap-x-3">
+                      <span className="min-w-0 break-words text-text">{itemName(p.name, 60)}</span>
+                      <span className="font-data text-xs text-sub">
+                        value {p.value} · effort {p.effort}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
+      </div>
+
+      {unplaced.length > 0 && (
+        <p className="mt-3 text-xs text-sub">
+          Not placed yet: {unplaced.map((i) => itemName(i.name)).join(", ")}. Give each a value and
+          an effort in the table above, or place them on the{" "}
+          <Link
+            href="/value-effort-matrix"
+            className="text-accent underline-offset-2 hover:underline"
+          >
+            Value vs Effort matrix
+          </Link>
+          .
+        </p>
+      )}
+    </SectionCard>
   );
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 
@@ -81,6 +82,19 @@ const row = (
 });
 
 const state = () => useWorkspaceStore.getState();
+const renderHub = () =>
+  render(
+    <TooltipProvider>
+      <PrioritizerClient />
+    </TooltipProvider>
+  );
+/** The desktop table's copy of a control (the phone cards hold a second one). */
+const first = (role: string, name: string | RegExp) => screen.getAllByRole(role, { name })[0];
+/** The "All methods" table (the desktop copy): the one with a Kano column. */
+const allMethodsTable = () =>
+  screen
+    .getAllByRole("table")
+    .find((t) => within(t).queryByRole("columnheader", { name: /Kano/ }))!;
 const ids = () => (state().backlogItems ?? []).map((b) => b.id);
 const storedRow = (id: string) => (state().prioritizations ?? []).find((p) => p.id === id);
 
@@ -92,7 +106,7 @@ beforeEach(() => {
 describe("a new backlog", () => {
   it("isn't seeded, even when the slice was never set", () => {
     useWorkspaceStore.setState({ backlogItems: undefined });
-    render(<PrioritizerClient />);
+    renderHub();
     expect(state().backlogItems).toBeUndefined();
     expect(screen.getByText(/Your backlog is empty/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
@@ -101,8 +115,8 @@ describe("a new backlog", () => {
 
   it("starts empty, and the last item can be removed", () => {
     useWorkspaceStore.setState({ backlogItems: [backlogItem("b1", "Only one")] });
-    render(<PrioritizerClient />);
-    const remove = screen.getByRole("button", { name: "Remove Only one" });
+    renderHub();
+    const remove = first("button", "Delete Only one");
     expect(remove).toBeEnabled();
     fireEvent.click(remove);
     expect(state().backlogItems).toEqual([]);
@@ -115,47 +129,53 @@ describe("example", () => {
     const rows = buildExample();
     expect(rows.length).toBeGreaterThanOrEqual(5);
     expect(rows.every((r) => r.id.startsWith("example-"))).toBe(true);
-    expect(new Set(rows.map((r) => r.moscow)).size).toBe(4);
+    // Every bucket used, and one item not sorted yet (the example is scored unevenly).
+    expect(new Set(rows.map((r) => r.moscow))).toEqual(
+      new Set(["must", "should", "could", "wont", undefined])
+    );
   });
 
   it("is stamped and on the Fibonacci scale, so every bucket reads as chosen", () => {
     const rows = buildExample("2026-10-26T09:00:00.000Z");
     expect(rows.every((r) => r.updatedAt === "2026-10-26T09:00:00.000Z")).toBe(true);
     expect(rows.every((r) => r.value === undefined)).toBe(true);
-    const parts = rows.flatMap((r) => [
-      r.businessValue,
-      r.timeCriticality,
-      r.riskReduction,
-      r.jobSize,
-    ]);
+    const parts = rows
+      .flatMap((r) => [r.businessValue, r.timeCriticality, r.riskReduction, r.jobSize])
+      .filter((n) => n !== undefined);
     expect(parts.every((n) => [1, 2, 3, 5, 8, 13, 20].includes(n as number))).toBe(true);
     // Read through the registry (old-default fingerprints cleared): no bucket lost.
     const buckets = rows.map((r) => evaluateItemIn(r, [], "moscow").bucket);
-    expect(buckets).toEqual(["must", "must", "should", "should", "could", "could", "wont"]);
+    expect(buckets).toEqual(["must", "must", "should", "should", "could", "could", "wont", null]);
     const quadrants = new Set(rows.map((r) => evaluateItemIn(r, [], "value-effort").bucket));
-    expect(quadrants.size).toBe(4);
+    expect(quadrants).toEqual(
+      new Set(["quick_wins", "big_bets", "fill_ins", "time_wasters", null])
+    );
     // The card-declined fix wins WSJF; the rebuild is near the bottom.
     const wsjf = rows
-      .map((r) => ({ name: r.name, score: evaluateItemIn(r, [], "wsjf").score as number }))
+      .map((r) => ({ name: r.name, score: evaluateItemIn(r, [], "wsjf").score }))
+      .filter((r): r is { name: string; score: number } => r.score !== null)
       .sort((a, b) => b.score - a.score);
     expect(wsjf[0].name).toBe("Clearer card-declined message");
     expect(wsjf.findIndex((r) => r.name.startsWith("Rebuild"))).toBeGreaterThanOrEqual(5);
   });
 
   it("loads, and Clear example removes only the example rows", () => {
-    render(<PrioritizerClient />);
+    renderHub();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(ids()).toEqual(buildExample().map((r) => r.id));
-    expect(screen.getByRole("status")).toHaveTextContent("Example data.");
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Add Item/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: /^Item/ }), {
+      target: { value: "My item" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
     expect(ids()).toHaveLength(buildExample().length + 1);
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(state().backlogItems).toHaveLength(1);
-    expect(state().backlogItems![0].name).toBe("New Item");
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(state().backlogItems![0].name).toBe("My item");
+    expect(screen.queryByText(/Example data\./)).toBeNull();
   });
 
   it("treats the legacy default:item-* seed as example rows", () => {
@@ -166,7 +186,7 @@ describe("example", () => {
       ],
       prioritizations: [row("i1", "ice", { backlogItemId: "default:item-auth", score: 10 })],
     });
-    render(<PrioritizerClient />);
+    renderHub();
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(ids()).toEqual(["mine"]);
     // The row that scored it stays, unlinked.
@@ -213,15 +233,16 @@ describe("All methods tab", () => {
   });
 
   it("is the first tab and shows every method per item", () => {
-    render(<PrioritizerClient />);
+    renderHub();
     const tabs = screen.getAllByRole("tab");
     expect(tabs[0]).toHaveTextContent("All methods");
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[1]).toHaveTextContent("Decide order");
 
-    const table = screen.getByRole("table", { name: /score in every method/ });
+    const table = allMethodsTable();
     const headers = within(table)
       .getAllByRole("columnheader")
-      .map((h) => h.textContent);
+      .map((h) => h.textContent?.replace(", sort", ""));
     expect(headers).toEqual([
       "Item",
       "MoSCoW",
@@ -237,11 +258,12 @@ describe("All methods tab", () => {
     const cells = within(auth)
       .getAllByRole("cell")
       .map((c) => c.textContent);
-    expect(cells.slice(0, 6)).toEqual([
-      "Must Have",
+    expect(cells.slice(0, 7)).toEqual([
+      "Auth",
+      "Must have",
       "8.00",
       "450",
-      "Quick WinsValue 9 · Effort 3",
+      "Quick Wins (value 9, effort 3)",
       "320",
       "Must-be",
     ]);
@@ -251,8 +273,8 @@ describe("All methods tab", () => {
   });
 
   it("offers Score-with links for the methods an item hasn't been scored in", () => {
-    render(<PrioritizerClient />);
-    const table = screen.getByRole("table", { name: /score in every method/ });
+    renderHub();
+    const table = allMethodsTable();
     // "Dark mode" holds only the old "Add item" defaults: Not scored in every method.
     const dark = within(table).getByRole("row", { name: /^Dark mode/ });
     const links = within(dark)
@@ -270,7 +292,7 @@ describe("All methods tab", () => {
   });
 
   it("explains which method to pick, linking each tool", () => {
-    render(<PrioritizerClient />);
+    renderHub();
     expect(screen.getByRole("heading", { name: "Which method?" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Kano" })).toHaveAttribute("href", "/kano-model");
     expect(screen.getByRole("link", { name: "WSJF" })).toHaveAttribute("href", "/wsjf");
@@ -288,10 +310,10 @@ describe("MoSCoW tab", () => {
         ]}
       />
     );
-    const should = screen.getByText("Should Have").closest("[class*='border']") as HTMLElement;
+    const should = screen.getByRole("region", { name: "Should have" });
     expect(within(should).getByText("Chosen should")).toBeInTheDocument();
     expect(within(should).queryByText("Legacy default")).toBeNull();
-    const unsorted = screen.getByText("Not sorted yet").closest("[class*='border']") as HTMLElement;
+    const unsorted = screen.getByRole("region", { name: "Not sorted yet" });
     expect(within(unsorted).getByText("Legacy default")).toBeInTheDocument();
     expect(within(unsorted).getByText("1 item")).toBeInTheDocument();
   });
@@ -308,8 +330,8 @@ describe("editing the backlog", () => {
         row("r3", "rice", { title: "Search", backlogItemId: "b2" }),
       ],
     });
-    render(<PrioritizerClient />);
-    const [nameInput] = screen.getAllByRole("textbox", { name: "Item name" });
+    renderHub();
+    const nameInput = first("textbox", "Name of Auth");
     fireEvent.change(nameInput, { target: { value: "Passkey sign-in" } });
     fireEvent.blur(nameInput);
 
@@ -325,8 +347,8 @@ describe("editing the backlog", () => {
       backlogItems: [backlogItem("b1", "Auth"), backlogItem("b2", "Search")],
       prioritizations: [row("r1", "rice", { backlogItemId: "b1" })],
     });
-    render(<PrioritizerClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Auth" }));
+    renderHub();
+    fireEvent.click(first("button", "Delete Auth"));
     expect(ids()).toEqual(["b2"]);
     expect(storedRow("r1")?.backlogItemId).toBeUndefined();
     expect(undo.last?.label).toBe("Deleted “Auth”");

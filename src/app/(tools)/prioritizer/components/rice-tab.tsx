@@ -1,101 +1,148 @@
 "use client";
 
 /**
- * Tab 3 — RICE. Ranks items by (Reach × Impact × Confidence%) / Effort.
+ * Tab RICE: the backlog by (reach × impact × confidence) ÷ effort, highest
+ * first, items not scored last. Reach is counted per the item's period and
+ * normalised to a quarter for the score, so items counted per week and per
+ * year compare; an effort below the 0.5 person-month minimum counts as 0.5
+ * and says so. The score and the place come from the method registry and
+ * rank.ts.
  */
 
 import { useMemo } from "react";
+import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { SectionCard } from "@/components/shared/section-card";
-import type { BacklogItem } from "../types";
 import { readBacklogItem } from "@/lib/prioritization/defaults";
-import { method } from "@/lib/prioritization/methods";
+import { evaluateItemIn, method, type MethodScore } from "@/lib/prioritization/methods";
 import { REACH_PERIOD_LABEL } from "@/lib/prioritization/methods/rice";
-import { riceScore } from "../scoring";
+import { rankByMethod } from "@/lib/prioritization/rank";
+import type { BacklogItem } from "../types";
+import { itemName } from "../method-text";
+import { placeText } from "../order";
 import { ScoreBadge } from "./cells";
 
-export function RICETab({ items }: { items: BacklogItem[] }) {
-  const sorted = useMemo(
-    () =>
-      [...items]
-        // The engine's reading: an item that isn't RICE-scored shows "Not
-        // scored" and sorts last.
-        .map((i) => ({ ...readBacklogItem(i), score: riceScore(i) }))
-        .sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity)),
+interface Row {
+  item: BacklogItem;
+  result: MethodScore;
+}
+
+const dash = <span className="text-sub">—</span>;
+
+export function RICETab({ items }: { items: readonly BacklogItem[] }) {
+  const rows = useMemo<Row[]>(
+    () => items.map((i) => ({ item: readBacklogItem(i), result: evaluateItemIn(i, [], "rice") })),
     [items]
   );
+  const ranking = useMemo(() => rankByMethod(items, [], "rice"), [items]);
+  const m = method("rice");
+
+  const columns: DataTableColumn<Row>[] = [
+    {
+      key: "place",
+      header: "Place",
+      width: "5rem",
+      cell: (r) => placeText(ranking ?? undefined, r.item.id) ?? "—",
+    },
+    {
+      key: "item",
+      header: "Item",
+      primary: true,
+      cell: (r) => (
+        <>
+          <span className="font-medium text-text">{itemName(r.item.name, 80)}</span>
+          {r.item.description && (
+            <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs text-sub">
+              {r.item.description}
+            </span>
+          )}
+        </>
+      ),
+      sortValue: (r) => r.item.name.trim().toLowerCase(),
+    },
+    {
+      key: "reach",
+      header: "Reach",
+      align: "center",
+      cell: (r) =>
+        r.item.reach === undefined ? (
+          dash
+        ) : (
+          <span className="font-data text-sub">
+            {r.item.reach.toLocaleString("en-US")}{" "}
+            {REACH_PERIOD_LABEL[r.item.reachPeriod ?? "quarter"]}
+          </span>
+        ),
+      sortValue: (r) => {
+        const perQuarter = r.result.extra?.reachPerQuarter;
+        return typeof perQuarter === "number" ? perQuarter : (r.item.reach ?? null);
+      },
+    },
+    {
+      key: "impact",
+      header: "Impact",
+      align: "center",
+      cell: (r) =>
+        r.item.impact === undefined ? (
+          dash
+        ) : (
+          <span className="font-data text-sub">{r.item.impact}x</span>
+        ),
+      sortValue: (r) => r.item.impact ?? null,
+    },
+    {
+      key: "confidence",
+      header: "Confidence",
+      align: "center",
+      cell: (r) =>
+        r.item.confidence === undefined ? (
+          dash
+        ) : (
+          <span className="font-data text-sub">{r.item.confidence}%</span>
+        ),
+      sortValue: (r) => r.item.confidence ?? null,
+    },
+    {
+      key: "effort",
+      header: "Effort",
+      align: "center",
+      cell: (r) =>
+        r.item.effort === undefined ? (
+          dash
+        ) : (
+          <span className="font-data text-sub">{r.item.effort} pm</span>
+        ),
+      sortValue: (r) => r.item.effort ?? null,
+    },
+    {
+      key: "score",
+      header: "RICE",
+      align: "center",
+      cell: (r) =>
+        r.result.score === null ? (
+          <span className="text-xs text-sub">Not scored</span>
+        ) : (
+          <>
+            <ScoreBadge value={m.format(r.result.score)} />
+            {r.result.warnings.length > 0 && (
+              <span className="mt-1 block text-xs text-warning">{r.result.warnings.join(" ")}</span>
+            )}
+          </>
+        ),
+      sortValue: (r) => r.result.score,
+    },
+  ];
 
   return (
-    <SectionCard
-      title="RICE Prioritization"
-      titleSuffix="Score = (Reach × Impact × Confidence%) / Effort"
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-3">
-                Rank
-              </th>
-              <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-3 min-w-[160px]">
-                Item
-              </th>
-              <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                Reach
-              </th>
-              <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                Impact
-              </th>
-              <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                Confidence
-              </th>
-              <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                Effort
-              </th>
-              <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                RICE
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((item, idx) => (
-              <tr key={item.id} className="border-b border-border hover:bg-card-hover">
-                <td className="py-3 pr-3 align-top">
-                  <span className="font-data text-sub text-xs">#{idx + 1}</span>
-                </td>
-                <td className="py-3 pr-3 font-medium text-text align-top">
-                  <div>{item.name}</div>
-                  {item.description && (
-                    <div className="text-sub text-xs mt-0.5 mb-0.5 whitespace-pre-wrap break-words font-normal">
-                      {item.description}
-                    </div>
-                  )}
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.reach === undefined
-                    ? "—"
-                    : `${item.reach} ${REACH_PERIOD_LABEL[item.reachPeriod ?? "quarter"]}`}
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.impact === undefined ? "—" : `${item.impact}x`}
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.confidence === undefined ? "—" : `${item.confidence}%`}
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.effort === undefined ? "—" : `${item.effort} pm`}
-                </td>
-                <td className="py-3 px-2 text-center">
-                  {item.score === null ? (
-                    <span className="text-xs text-sub">Not scored</span>
-                  ) : (
-                    <ScoreBadge value={method("rice").format(item.score)} color="#00f0ff" />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <SectionCard title="RICE Prioritization" titleSuffix="(Reach × Impact × Confidence) ÷ Effort">
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.item.id}
+        defaultSort={{ key: "score", dir: "desc" }}
+      />
+      <p className="mt-3 text-xs text-sub">
+        Reach counts per quarter in the score, whatever period each item is counted over.
+      </p>
     </SectionCard>
   );
 }
