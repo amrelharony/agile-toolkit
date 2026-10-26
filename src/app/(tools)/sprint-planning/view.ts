@@ -8,13 +8,15 @@
 import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
 import {
   backlogByPriority,
+  compareBacklogOrder,
   selectStoriesForCapacity,
   storyPoints,
   totalStoryPoints,
   type CapacitySelection,
 } from "@/lib/sprints/plan";
 import { carryOver } from "@/lib/sprints/progress";
-import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
+import { evaluateItemIn } from "@/lib/prioritization/methods";
+import { decidedOrder } from "@/lib/prioritization/rank";
 import { sprintsNewestFirst } from "@/lib/sprints/series";
 import { findCapacityPlan, planCapacity } from "@/lib/sprints/capacity";
 import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
@@ -41,16 +43,14 @@ export const pointsCount = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "poin
 
 /**
  * One priority number from the shared backlog's inputs: WSJF (business
- * value + time criticality + risk reduction, over job size). It is the
- * Scrum-side ordering of the Prioritizer's backlog; a story keeps the score
- * it was imported with.
+ * value + time criticality + risk reduction, over job size), from the
+ * method registry, so it is the number the Prioritizer, the WSJF tool and
+ * the agent show for the item. Null when the item isn't WSJF-scored. A
+ * story keeps the score it was imported with (to 2 decimal places, as the
+ * board shows it).
  */
-export function priorityScore(stored: BacklogItem): number {
-  // Phase 7 engine replaces this: a missing part reads as its old default.
-  const item = withBacklogDefaults(stored);
-  const cod = item.businessValue + item.timeCriticality + item.riskReduction;
-  const size = item.jobSize > 0 ? item.jobSize : 1;
-  return Math.round((cod / size) * 100) / 100;
+export function priorityScore(item: BacklogItem): number | null {
+  return evaluateItemIn(item, [], "wsjf").score;
 }
 
 /** Stories planned into `sprintId`, done last so the open work reads first. */
@@ -60,12 +60,15 @@ export function sprintStories(stories: readonly Story[], sprintId: string): Stor
   return inSprint.slice().sort((a, b) => rank(a) - rank(b));
 }
 
-/** Stories not in any sprint, highest priority first (unscored last). */
+/**
+ * Stories not in any sprint, in the shared backlog order: the decided rank
+ * they were pulled in with, then priority score, highest first (unscored last).
+ */
 export function backlogStories(stories: readonly Story[]): Story[] {
   return stories
     .filter((s) => !s.sprintId && s.status === "backlog")
     .slice()
-    .sort((a, b) => (b.priorityScore ?? -Infinity) - (a.priorityScore ?? -Infinity));
+    .sort(compareBacklogOrder);
 }
 
 /* ── Left over from a closed sprint ──────────────────────────────────── */
@@ -315,23 +318,45 @@ export function validateStory(d: StoryDraft): Validation<StoryValues, StoryField
   return { ok: true, values: points === undefined ? { title } : { title, points } };
 }
 
-/** Backlog items with no story of the same name yet, in Prioritizer order. */
+/** Where a story pulled from the backlog came from. */
+export const BACKLOG_SOURCE_TOOL = "prioritizer";
+
+/**
+ * Backlog items with no story yet (none pulled from them, none of the same
+ * name), in the backlog's decided order: ranked items by rank, then the
+ * ones not ordered yet in stored order.
+ */
 export function importCandidates(
   backlogItems: readonly BacklogItem[],
   stories: readonly Story[]
 ): BacklogItem[] {
   const taken = new Set(stories.map((s) => nameKey(s.title)));
-  return backlogItems.filter((b) => b.name.trim() && !taken.has(nameKey(b.name)));
+  const pulled = new Set(
+    stories.filter((s) => s.sourceRef?.tool === BACKLOG_SOURCE_TOOL).map((s) => s.sourceRef?.id)
+  );
+  return decidedOrder(backlogItems).filter(
+    (b) => b.name.trim() && !taken.has(nameKey(b.name)) && !pulled.has(b.id)
+  );
 }
 
-/** A story from a backlog item: its name, with the shared priority score. */
+/**
+ * A story from a backlog item: its name, the shared priority score (left
+ * off when the item isn't WSJF-scored), the decided rank it was pulled in
+ * with and a link back to the item.
+ */
 export function storyFromBacklogItem(item: BacklogItem, id: string): Story {
-  return {
+  const score = priorityScore(item);
+  const story: Story = {
     id,
     title: item.name.trim().slice(0, 200),
     status: "backlog",
-    priorityScore: priorityScore(item),
+    sourceRef: { tool: BACKLOG_SOURCE_TOOL, id: item.id },
   };
+  if (score !== null) story.priorityScore = Math.round(score * 100) / 100;
+  if (typeof item.rank === "number" && Number.isFinite(item.rank) && item.rank > 0) {
+    story.backlogRank = item.rank;
+  }
+  return story;
 }
 
 /* ── Warnings ────────────────────────────────────────────────────────── */

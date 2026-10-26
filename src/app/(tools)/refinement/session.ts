@@ -8,6 +8,7 @@
 import type { Story } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { compareBacklogOrder } from "@/lib/sprints/plan";
 import { checkCounts, type CheckValues, type Criterion, type StorySave } from "./store";
 
 /* -------------------------------------------------------------------------- */
@@ -51,10 +52,8 @@ export function isReady(story: Story): boolean {
   return story.readiness?.ready === true && !isUnsized(story);
 }
 
-/** Highest priority score first; unscored ones after, in their stored order. */
-function byPriority(a: Story, b: Story): number {
-  return (b.priorityScore ?? -Infinity) - (a.priorityScore ?? -Infinity);
-}
+/** The shared backlog order: decided rank, then priority score; ties keep their stored order. */
+const byPriority = compareBacklogOrder;
 
 export interface RefinementSession {
   /** Not ready, or ready but unsized, in priority order: the session walks these. */

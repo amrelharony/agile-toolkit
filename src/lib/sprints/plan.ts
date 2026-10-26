@@ -16,12 +16,35 @@ export function totalStoryPoints(stories: readonly Pick<Story, "points">[]): num
   return Math.round(stories.reduce((sum, s) => sum + storyPoints(s), 0) * 10) / 10;
 }
 
-/** Backlog stories, highest priority score first; unscored ones last, in their stored order. */
+const finiteOr = (n: number | undefined, fallback: number) =>
+  typeof n === "number" && Number.isFinite(n) ? n : fallback;
+
+/**
+ * The one backlog order, shared by Sprint Planning, "Fill to capacity", the
+ * agent's plan and Refinement: the decided order a story was pulled in with
+ * first (`backlogRank`, 1 first; a story without one comes after every
+ * ranked one), then the priority score, highest first (unscored last).
+ * Returns 0 for a tie, so a stable sort keeps the stored order.
+ */
+export function compareBacklogOrder(
+  a: Pick<Story, "backlogRank" | "priorityScore">,
+  b: Pick<Story, "backlogRank" | "priorityScore">
+): number {
+  const ra = finiteOr(a.backlogRank, Infinity);
+  const rb = finiteOr(b.backlogRank, Infinity);
+  if (ra !== rb) return ra < rb ? -1 : 1;
+  const pa = finiteOr(a.priorityScore, -Infinity);
+  const pb = finiteOr(b.priorityScore, -Infinity);
+  if (pa !== pb) return pa > pb ? -1 : 1;
+  return 0;
+}
+
+/** Backlog stories in the backlog order (compareBacklogOrder); ties keep their stored order. */
 export function backlogByPriority(stories: readonly Story[]): Story[] {
   return stories
     .filter((s) => s.status === "backlog")
     .slice()
-    .sort((a, b) => (b.priorityScore ?? -Infinity) - (a.priorityScore ?? -Infinity));
+    .sort(compareBacklogOrder);
 }
 
 export interface CapacitySelection {

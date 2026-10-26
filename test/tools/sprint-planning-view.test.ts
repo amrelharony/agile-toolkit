@@ -35,9 +35,16 @@ describe("priorityScore", () => {
         item("a", { businessValue: 8, timeCriticality: 5, riskReduction: 3, jobSize: 4 })
       )
     ).toBe(4);
+    // Phase 7: a job size of 0 is Not scored (it was floored at 1), and a
+    // legacy 0 < size < 1 divides by 1, the WSJF tool's and the hub's floor.
     expect(
       priorityScore(
         item("b", { businessValue: 2, timeCriticality: 1, riskReduction: 1, jobSize: 0 })
+      )
+    ).toBeNull();
+    expect(
+      priorityScore(
+        item("c", { businessValue: 2, timeCriticality: 1, riskReduction: 1, jobSize: 0.5 })
       )
     ).toBe(4);
   });
@@ -71,7 +78,14 @@ describe("stories", () => {
       item("Refund flow", { businessValue: 9, timeCriticality: 6, riskReduction: 3, jobSize: 3 }),
       "story_1"
     );
-    expect(s).toEqual({ id: "story_1", title: "Refund flow", status: "backlog", priorityScore: 6 });
+    expect(s).toEqual({
+      id: "story_1",
+      title: "Refund flow",
+      status: "backlog",
+      priorityScore: 6,
+      // Phase 7: a story pulled from the backlog links back to its item.
+      sourceRef: { tool: "prioritizer", id: "Refund flow" },
+    });
   });
 
   it("describes the plan in one line", () => {
