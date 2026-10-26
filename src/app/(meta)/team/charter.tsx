@@ -13,15 +13,13 @@ import type { Story } from "@/lib/stores/workspace-types";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { todayIso } from "@/lib/sprints/series";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { cn } from "@/lib/utils";
-import { DOD_STORAGE_KEY, EMPTY_DOD, normalizeDod } from "@/app/(tools)/dod-builder/summary";
+import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
+import { WA_ID } from "@/lib/working-agreement/model";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
 
-/** MUST match WA_ID in working-agreement-client.tsx and actions/tools/working-agreement.ts. */
-const WA_ID = "workingAgreement:current";
 /** One empty list, so a workspace without stories doesn't make the docs anew each render. */
 const NO_STORIES: Story[] = [];
 
@@ -35,8 +33,9 @@ export function TeamCharter() {
   const agreement = useWorkspaceStore((s) =>
     (s.workingAgreements ?? []).find((d) => d.id === WA_ID)
   );
-  const [dodRaw] = usePersisted(DOD_STORAGE_KEY, EMPTY_DOD);
-  const dod = useMemo(() => normalizeDod(dodRaw), [dodRaw]);
+  // The workspace DoD, or the DoD builder's old blob until it has moved in
+  // (a team that opens the charter first moves it from here).
+  const { doc: dod } = useDefinitionOfDone();
   const dor = useRefinementStore(useShallow((s) => ({ criteria: s.criteria, history: s.history })));
   const estimation = useEstimationGuideStore(
     useShallow((s) => ({

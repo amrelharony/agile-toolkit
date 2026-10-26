@@ -9,7 +9,9 @@
  *     it passes once the release has live flags linked and each rollout or
  *     experiment flag among them has an owner and a removal date.
  *   - "Definition of Done met" (auto "dod") reads the DoD Builder: it
- *     passes once every required criterion is ticked.
+ *     passes once every done story the release links meets the DoD (or,
+ *     for a release linking no stories, every required criterion is
+ *     ticked at team level, as before stories carried their own ticks).
  *
  * A check that can't tell (no flags linked, no DoD yet) is `passed: null`,
  * and the gate falls back to a manual tick. A check that can tell decides
@@ -25,11 +27,13 @@ import type {
   ReleaseGateDef,
   ReleaseReadiness,
   ReleaseShip,
+  Story,
 } from "@/lib/stores/workspace-types";
 import { BUILT_IN_GATES, DOD_GATE, gatesOf, teamGates } from "@/lib/releases/gates";
 import { wentOut } from "@/lib/releases/model";
 import { flagStaleness } from "@/lib/flags/model";
 import { isIsoDate } from "@/lib/sprints/calendar";
+import { normalizeDefinitionOfDone, openCriteria, requiredCriteria } from "@/lib/dod/model";
 
 /** What an automatic check found. */
 export interface GateCheck {
@@ -104,48 +108,63 @@ export function checkFlagsGate(
   };
 }
 
-interface DodItem {
-  label: string;
-  required: boolean;
-  done: boolean;
+/** "Pay by card (2 open)" for up to three stories, then how many more. */
+function missText(misses: readonly { title: string; open: number }[]): string {
+  const shown = misses
+    .slice(0, 3)
+    .map((m) => `${m.title.trim() || "An untitled story"} (${m.open} open)`);
+  const more = misses.length - shown.length;
+  return `Not met: ${listAnd(more > 0 ? [...shown, `${more} more`] : shown)}`;
 }
 
 /**
- * The DoD Builder's criteria from its stored blob, whatever shape it is in
- * (the page and the agent read the same blob, the page through
- * normalizeDod, the agent straight from the cloud row).
+ * "Definition of Done met", against the DoD Builder's document (or its old
+ * blob: lib/dod/model reads both).
+ *
+ *   - A release that links stories (`linked`) passes when every linked
+ *     story that is done meets the DoD (each required criterion ticked on
+ *     its Sprint board card), and fails naming the ones that don't. With
+ *     none of them done yet it can't tell.
+ *   - A release that links no stories falls back to the DoD's team-level
+ *     ticks from before stories carried their own (`done` on a criterion).
+ *
+ * Null without a DoD, or with no required criteria: there is nothing to
+ * check against.
  */
-function dodItems(dod: unknown): DodItem[] {
-  const items = (dod && typeof dod === "object" ? (dod as { items?: unknown }).items : null) ?? [];
-  if (!Array.isArray(items)) return [];
-  return items.flatMap((i) => {
-    if (!i || typeof i !== "object") return [];
-    const r = i as Record<string, unknown>;
-    if (typeof r.label !== "string") return [];
-    return [
-      {
-        label: r.label.trim() || "Unnamed criterion",
-        required: r.required === true,
-        done: r.done === true,
-      },
-    ];
-  });
-}
-
-/**
- * "Definition of Done met": every required criterion in the DoD Builder is
- * ticked. Null without a DoD, or with no required criteria, since there is
- * nothing to check against.
- */
-export function checkDodGate(dod: unknown): GateCheck {
+export function checkDodGate(dod: unknown, linked?: readonly Story[]): GateCheck {
   const href = DOD_GATE_HREF;
-  const items = dodItems(dod);
-  if (items.length === 0) return { passed: null, detail: "No Definition of Done yet", href };
-  const required = items.filter((i) => i.required);
+  const doc = normalizeDefinitionOfDone(dod);
+  if (doc.items.length === 0) return { passed: null, detail: "No Definition of Done yet", href };
+  const required = requiredCriteria(doc);
   if (required.length === 0) {
     return { passed: null, detail: "The Definition of Done has no required criteria", href };
   }
-  const open = required.filter((i) => !i.done);
+  if (linked && linked.length > 0) {
+    const done = linked.filter((s) => s.status === "done");
+    if (done.length === 0) {
+      return {
+        passed: null,
+        detail:
+          linked.length === 1
+            ? "The linked story isn't done yet"
+            : `None of the ${linked.length} linked stories is done yet`,
+        href,
+      };
+    }
+    const misses = done
+      .map((s) => ({ title: s.title, open: openCriteria(s, doc).length }))
+      .filter((m) => m.open > 0);
+    if (misses.length > 0) return { passed: false, detail: missText(misses), href };
+    return {
+      passed: true,
+      detail:
+        done.length === 1
+          ? "The done linked story meets the DoD"
+          : `All ${done.length} done linked stories meet the DoD`,
+      href,
+    };
+  }
+  const open = required.filter((i) => i.done !== true);
   if (open.length === 0) {
     return {
       passed: true,
@@ -175,14 +194,31 @@ export function describedGate<T extends ReleaseGateDef>(g: T): T {
     : g;
 }
 
-/** Both checks for `release`. */
+/** The stories `release` links (Release.storyIds), from `stories`; undefined when it links none. */
+export function linkedStories(
+  release: Pick<Release, "storyIds">,
+  stories: readonly Story[] | undefined
+): Story[] | undefined {
+  const ids = Array.isArray(release.storyIds) ? new Set(release.storyIds) : null;
+  if (!ids || ids.size === 0 || !stories) return undefined;
+  return stories.filter((s) => ids.has(s.id));
+}
+
+/**
+ * Both checks for `release`. With `stories`, the DoD gate reads the
+ * release's linked stories (linkedStories); without, the DoD's old ticks.
+ */
 export function releaseChecks(
-  release: Pick<Release, "id">,
+  release: Pick<Release, "id" | "storyIds">,
   flags: readonly FeatureFlag[] | undefined,
   dod: unknown,
-  today: string
+  today: string,
+  stories?: readonly Story[]
 ): GateChecks {
-  return { flags: checkFlagsGate(release, flags, today), dod: checkDodGate(dod) };
+  return {
+    flags: checkFlagsGate(release, flags, today),
+    dod: checkDodGate(dod, linkedStories(release, stories)),
+  };
 }
 
 /** A gate as it reads on one release. */

@@ -39,11 +39,14 @@ import {
   serverUpsertEntity,
 } from "../server-store";
 import type {
+  DefinitionOfDone,
   FeatureFlag,
   Release,
   ReleaseGateDef,
   ReleaseReadiness,
+  Story,
 } from "@/lib/stores/workspace-types";
+import { DOD_DOC_ID, DOD_KIND, DOD_LEGACY_KEY } from "@/lib/dod/model";
 import { RELEASE_DOC_ID, gatesOf, teamGates } from "@/lib/releases/gates";
 import { releaseStats } from "@/lib/releases/model";
 import {
@@ -72,8 +75,8 @@ import { todayIso } from "@/lib/sprints/series";
 const KIND_RR = "workspace:releaseReadiness";
 /** MUST match registerCollection("featureFlag", …) in workspace-store.ts. */
 const KIND_FLAG = "workspace:featureFlag";
-/** MUST match DOD_STORAGE_KEY in src/app/(tools)/dod-builder/summary.ts (the DoD Builder's blob). */
-const DOD_BLOB_KEY = "agile-toolkit:dod-builder";
+/** MUST match registerCollection("story", …) in workspace-store.ts. */
+const KIND_STORY = "workspace:story";
 
 const NAME_MAX = 200;
 const DESCRIPTION_MAX = 2000;
@@ -86,11 +89,16 @@ interface ReleaseStore {
   putDoc(doc: ReleaseReadiness): Promise<void>;
   /** The Feature Flag Tracker's flags. */
   flags(): Promise<FeatureFlag[]>;
-  /** The DoD Builder's stored checklist (any shape; the check reads it defensively). */
+  /**
+   * The Definition of Done: the workspace document, else the DoD builder's
+   * old blob until it has moved in (any shape; lib/dod/model reads both).
+   */
   dod(): Promise<unknown>;
+  /** The stories, so the DoD gate checks the ones a release links. */
+  stories(): Promise<Story[]>;
 }
 
-/** The DoD Builder's blob as the page's usePersisted hydrates it, or null. */
+/** The DoD builder's old blob as the page's usePersisted hydrates it, or null. */
 function browserBlob(key: string): unknown {
   try {
     const raw = typeof window === "undefined" ? null : window.localStorage.getItem(key);
@@ -104,7 +112,9 @@ const browserStore: ReleaseStore = {
   getDoc: async () => (ws().releaseReadinesses ?? []).find((d) => d.id === RELEASE_DOC_ID) ?? null,
   putDoc: async (doc) => ws().upsertReleaseReadiness(doc),
   flags: async () => normalizeFlags(ws().featureFlags ?? []),
-  dod: async () => browserBlob(DOD_BLOB_KEY),
+  dod: async () =>
+    (ws().definitionsOfDone ?? []).find((d) => d.id === DOD_DOC_ID) ?? browserBlob(DOD_LEGACY_KEY),
+  stories: async () => ws().stories ?? [],
 };
 
 function serverStore(userId: string): ReleaseStore {
@@ -115,16 +125,19 @@ function serverStore(userId: string): ReleaseStore {
       await serverUpsertEntity<ReleaseReadiness>(userId, KIND_RR, doc);
     },
     flags: async () => normalizeFlags(await serverListEntities<FeatureFlag>(userId, KIND_FLAG)),
-    dod: async () => serverGetUserStateBlob(userId, DOD_BLOB_KEY),
+    dod: async () =>
+      (await serverGetEntity<DefinitionOfDone>(userId, DOD_KIND, DOD_DOC_ID)) ??
+      serverGetUserStateBlob(userId, DOD_LEGACY_KEY),
+    stories: async () => serverListEntities<Story>(userId, KIND_STORY),
   };
 }
 
 const emptyDoc = (): ReleaseReadiness => ({ id: RELEASE_DOC_ID, releases: [] });
 
-/** Each release's auto-gate checks, from the store's flags and DoD. */
+/** Each release's auto-gate checks, from the store's flags, DoD and stories. */
 async function checker(store: ReleaseStore, today: string): Promise<(r: Release) => GateChecks> {
-  const [flags, dod] = await Promise.all([store.flags(), store.dod()]);
-  return (r) => releaseChecks(r, flags, dod, today);
+  const [flags, dod, stories] = await Promise.all([store.flags(), store.dod(), store.stories()]);
+  return (r) => releaseChecks(r, flags, dod, today, stories);
 }
 
 /* ── list_state ─────────────────────────────────────────────────────── */
@@ -209,7 +222,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],previousShips:{shippedDate,plannedDate (the plan it went out against),rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime (each ship against the plan it went out against),pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
+    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder: every done story the release links (storyIds) meets the Definition of Done, or with no linked stories the DoD's team-level ticks), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],previousShips:{shippedDate,plannedDate (the plan it went out against),rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime (each ship against the plan it went out against),pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
