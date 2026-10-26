@@ -16,7 +16,7 @@ import type { RankedRow } from "@/lib/prioritization/rank";
  * on the modified Fibonacci scale 1, 2, 3, 5, 8, 13, 20 (one row of seven
  * from 640 px), under the relative-scoring legend. A title with no parts
  * is allowed: it waits as "Not scored" for the column-by-column scoring
- * under the list.
+ * above the list (between the add form and the list).
  */
 export function WsjfInputs({ method, draft, update, errors, custom, size }: MethodInputsSlotProps) {
   return (

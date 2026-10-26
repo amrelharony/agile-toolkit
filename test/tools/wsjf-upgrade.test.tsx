@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 
@@ -274,6 +275,28 @@ describe("WSJF column-by-column scoring", () => {
       (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(follows(byColumn, features)).toBe(true);
     expect(follows(features, chart)).toBe(true);
+  });
+
+  it("says a title-only feature waits in Score by column, above the list", async () => {
+    useWorkspaceStore.setState({ prioritizations: [row("a", "Alpha", [8, 5, 3, 2])] });
+    render(
+      <LiveAnnouncerProvider>
+        <WsjfClient />
+      </LiveAnnouncerProvider>
+    );
+    fireEvent.change(screen.getByLabelText(FEATURE), { target: { value: "Beta" } });
+    fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "“Beta” waits in Score by column, above the list."
+      )
+    );
+    // And it is above the list, as it says.
+    const byColumn = screen.getByRole("heading", { level: 2, name: "Score by column" });
+    const features = screen.getByRole("heading", { level: 2, name: "Features (2)" });
+    expect(
+      byColumn.compareDocumentPosition(features) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });
 
