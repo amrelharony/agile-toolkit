@@ -18,6 +18,7 @@ import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { EditableName } from "@/components/shared/editable-name";
+import { useInlineEdit } from "@/components/shared/inline-item-editor";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { ScalePicker } from "@/components/shared/scale-picker";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,7 @@ import {
   BARRIER_MAX,
   ELEMENT_BLURB,
   ELEMENT_LABEL,
+  assessedAtError,
   barrierPoint,
   barrierText,
   completedStages,
@@ -49,6 +51,7 @@ import {
   stageIndex,
   type NewInitiative,
 } from "@/lib/adkar/model";
+import { DayInput } from "../maturity/day-input";
 import { InitiativeForm } from "./initiative-form";
 
 const daysWord = (n: number) => (n === 1 ? "1 day" : `${n} days`);
@@ -97,13 +100,13 @@ function GroupRow({
           ariaLabel={`Rename ${group.name}`}
           className="min-w-0 flex-1 text-sm font-medium text-text"
         />
-        <Input
-          type="date"
-          max={today}
-          aria-label={`Day ${group.name} was scored`}
-          className="h-8 w-40"
+        <DayInput
+          label={`Day ${group.name} was scored`}
           value={group.assessedAt ?? ""}
-          onChange={(e) => onPatch({ assessedAt: e.target.value || null })}
+          max={today}
+          validate={(day) => assessedAtError(day, today)}
+          onCommit={(day) => onPatch({ assessedAt: day || null })}
+          inputClassName="h-8 w-40"
         />
         <IconButton
           label={`Delete the group ${group.name} from ${initiative.name}`}
@@ -200,7 +203,9 @@ export function InitiativeCard({
   preview: boolean;
   handlers: CardHandlers;
 }) {
-  const [editing, setEditing] = useState(false);
+  // Edit swaps the header for the form: focus goes into it, and back to Edit after.
+  const edit = useInlineEdit();
+  const editing = edit.editing;
   const [moveOn, setMoveOn] = useState(today);
   const [moveError, setMoveError] = useState<string | null>(null);
   const dateId = useId();
@@ -230,10 +235,11 @@ export function InitiativeCard({
             submitLabel="Save"
             submitIcon={<Save className="h-4 w-4" aria-hidden="true" />}
             offerAddToRoster={!preview}
-            onCancel={() => setEditing(false)}
+            autoFocus
+            onCancel={() => edit.stop({ refocus: true })}
             onSave={(values) => {
               handlers.onEdit(values);
-              setEditing(false);
+              edit.stop({ refocus: true });
             }}
           />
         ) : (
@@ -249,10 +255,11 @@ export function InitiativeCard({
             </div>
             <div className="flex items-center gap-1">
               <Button
+                ref={edit.triggerRef}
                 type="button"
                 size="sm"
                 variant="ghost"
-                onClick={() => setEditing(true)}
+                onClick={edit.start}
                 aria-label={`Edit ${i.name}`}
               >
                 <Pencil aria-hidden="true" />

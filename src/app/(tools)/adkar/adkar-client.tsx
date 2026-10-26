@@ -40,6 +40,7 @@ import {
   ELEMENT_LABEL,
   adkarVerdict,
   advance,
+  anyGroupScored,
   barrierPoint,
   completedStages,
   daysInStage,
@@ -51,6 +52,7 @@ import {
   normalizeAdkarDoc,
   stageCounts,
   stepBack,
+  unknownBarriers,
   withDetails,
   withGroupPatch,
   withGroupScore,
@@ -277,6 +279,9 @@ export function AdkarTool() {
 
   const counts = stageCounts(initiatives);
   const held = initiatives.filter((i) => initiativeBarrier(i) !== null).length;
+  // Until a group is scored, "0 held" would be a silent default.
+  const scoredAny = anyGroupScored(initiatives);
+  const unknown = unknownBarriers(initiatives).length;
   const median = medianDaysInStage(initiatives, today);
   const longest = longestInCurrentStage(initiatives, today);
   const verdict = adkarVerdict(initiatives, today);
@@ -406,7 +411,16 @@ export function AdkarTool() {
           variant="compact"
           icon={Flag}
           label="Held at a barrier"
-          value={initiatives.length > 0 ? `${held}/${initiatives.length}` : "—"}
+          value={scoredAny ? `${held}/${initiatives.length}` : "—"}
+          hint={
+            initiatives.length === 0
+              ? undefined
+              : !scoredAny
+                ? "No group scored yet"
+                : unknown > 0
+                  ? `${unknown} ${unknown === 1 ? "group" : "groups"} not scored far enough to tell`
+                  : undefined
+          }
           tone={held > 0 ? "warning" : "default"}
         />
         <StatCard
@@ -428,7 +442,9 @@ export function AdkarTool() {
           hint={
             longest
               ? `${longest.initiative.name} · ${ELEMENT_LABEL[longest.initiative.currentStage]}`
-              : undefined
+              : counts.reinforcement > 0
+                ? "Everything is in Reinforcement"
+                : undefined
           }
         />
       </KpiGrid>

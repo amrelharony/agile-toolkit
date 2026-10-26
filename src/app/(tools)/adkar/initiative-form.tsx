@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,7 +76,9 @@ export function validateInitiative(
 /**
  * The add or edit form for an initiative: draft-then-save, Enter saves,
  * the owner picked from the roster (adding someone to the team is a
- * separate click), and a start day that can be backdated.
+ * separate click), and a start day that can be backdated. `autoFocus`
+ * (edit in place) puts focus on the name when it opens, where the Edit
+ * button that opened it was.
  */
 export function InitiativeForm({
   today,
@@ -86,6 +88,7 @@ export function InitiativeForm({
   submitLabel,
   submitIcon,
   offerAddToRoster,
+  autoFocus = false,
 }: {
   today: string;
   editing?: AdkarInitiative | null;
@@ -94,6 +97,7 @@ export function InitiativeForm({
   submitLabel: string;
   submitIcon?: ReactNode;
   offerAddToRoster: boolean;
+  autoFocus?: boolean;
 }) {
   const form = useItemForm<InitiativeDraft, NewInitiative, InitiativeField>({
     initial: () => (editing ? draftFrom(editing) : emptyInitiative(today)),
@@ -102,6 +106,10 @@ export function InitiativeForm({
     resetOnSave: !editing,
   });
   const { draft, update, errors } = form;
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (autoFocus) nameRef.current?.focus();
+  }, [autoFocus]);
   return (
     <ItemForm form={form} submitLabel={submitLabel} submitIcon={submitIcon} onCancel={onCancel}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_14rem_11rem]">
@@ -114,6 +122,7 @@ export function InitiativeForm({
           {(props) => (
             <Input
               {...props}
+              ref={nameRef}
               value={draft.name}
               maxLength={NAME_MAX}
               onChange={(e) => update({ name: e.target.value })}

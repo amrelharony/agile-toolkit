@@ -292,6 +292,37 @@ describe("tool.adkar lifecycle", () => {
     useWorkspaceStore.setState({ adkarDocs: [{ id: ADKAR_DOC_ID, initiatives: [] }] });
     expect((await list()).initiatives).toEqual([]);
   });
+
+  it("refuses a delete the page's move would undo, until the move is recorded", async () => {
+    const blob = [{ id: "old1", name: "Legacy", currentStage: "awareness", startDate: ago(5) }];
+    window.localStorage.setItem(ADKAR_LEGACY_KEY, JSON.stringify(blob));
+    // Still only in the blob, or carried into the doc by an earlier write:
+    // nothing would be left to show it moved, so the page would move it back.
+    expect(await run("remove_initiative", { id: "old1" })).toMatchObject({
+      removed: false,
+      reason: "not_moved_yet",
+    });
+    await run("advance", { id: "old1", on: ago(1) });
+    expect(stored()?.initiatives.map((i) => i.id)).toEqual(["old1"]);
+    expect(await run("remove_initiative", { id: "old1" })).toMatchObject({
+      reason: "not_moved_yet",
+    });
+    expect(stored()?.initiatives.map((i) => i.id)).toEqual(["old1"]);
+    // Once the page has recorded the move, the delete stays deleted.
+    window.localStorage.setItem(ADKAR_MOVED_KEY, JSON.stringify(["old1"]));
+    expect(await run("remove_initiative", { id: "old1" })).toEqual({ removed: true });
+    expect((await list()).initiatives).toEqual([]);
+  });
+
+  it("refuses an impossible or future day for a group's scores, as the page does", async () => {
+    const { id } = await run<{ id: string }>("add_initiative", { name: "Pairing" });
+    for (const assessedAt of ["2026-02-30", addDays(TODAY, 1) as string]) {
+      expect(
+        await run("set_group_scores", { id, name: "Ops", scores: { awareness: 4 }, assessedAt })
+      ).toMatchObject({ set: false, reason: "invalid_date" });
+    }
+    expect((await list()).initiatives[0].groups).toEqual([]);
+  });
 });
 
 describe("tool.adkar — the server handlers", () => {

@@ -17,6 +17,8 @@
  *     forward.
  *   - Completed stages are derived from the current stage; the stored
  *     `stagesCompleted` is legacy and only ever grew.
+ *   - Reinforcement has no exit, so its growing days never make a change
+ *     "stuck" or the longest wait: a sustained change isn't a stalled one.
  */
 
 import {
@@ -128,6 +130,40 @@ export interface InitiativeBarrier {
   score: AdkarScore;
 }
 
+export interface UnknownBarrier {
+  initiativeId: string;
+  initiativeName: string;
+  groupId: string;
+  groupName: string;
+  /** The first unscored element: score it next to find the barrier. */
+  element: AdkarElement;
+}
+
+/**
+ * Groups whose barrier isn't known yet: no element at 3 or lower before
+ * the first unscored one. A group with Awareness unscored and Desire at 1
+ * is one of them; initiativeBarrier leaves it out, so these are reported
+ * on their own, never read as "not held".
+ */
+export function unknownBarriers(initiatives: readonly AdkarInitiative[]): UnknownBarrier[] {
+  return initiatives.flatMap((i) =>
+    (i.groups ?? []).flatMap((g) => {
+      const b = barrierPoint(g.scores);
+      return !b.element && b.unscoredBefore
+        ? [
+            {
+              initiativeId: i.id,
+              initiativeName: i.name,
+              groupId: g.id,
+              groupName: g.name,
+              element: b.unscoredBefore,
+            },
+          ]
+        : [];
+    })
+  );
+}
+
 /** The earliest barrier across the initiative's groups (ties: the lowest score, then the first group). */
 export function initiativeBarrier(i: AdkarInitiative): InitiativeBarrier | null {
   let best: InitiativeBarrier | null = null;
@@ -185,6 +221,21 @@ export function stageDurations(i: AdkarInitiative, today: string): StageDuration
 export function daysInStage(i: AdkarInitiative, today: string): number {
   const last = i.stageHistory?.[i.stageHistory.length - 1];
   return last ? daysBetween(last.enteredAt, today) : 0;
+}
+
+/**
+ * Reinforcement is the last stage and has no exit: its days keep growing
+ * while the change is sustained, so it is never "stuck" and never the
+ * longest wait.
+ */
+const canBeStuck = (i: AdkarInitiative): boolean => i.currentStage !== "reinforcement";
+
+/** Initiatives in the same stage STUCK_DAYS or more, Reinforcement left out. */
+export function stuckInitiatives(
+  initiatives: readonly AdkarInitiative[],
+  today: string
+): AdkarInitiative[] {
+  return initiatives.filter((i) => canBeStuck(i) && daysInStage(i, today) >= STUCK_DAYS);
 }
 
 /** The stages before the current one. */
@@ -292,11 +343,15 @@ function normalizeGroup(raw: unknown): AdkarGroup | null {
 
 /**
  * A stored initiative as the page and agents read it, or null when it has
- * no id or name. Entry 0 of the history is Awareness on the start date (an
- * old initiative was stamped the day it was added, even when backdated); an
- * unknown stage reads as Awareness; an old initiative with no history keeps
- * its stage (entered on the start date, the only day known); a history
- * that ends elsewhere than the current stage gets the current stage added.
+ * no id or name. Entry 0 of the history is Awareness on the start date the
+ * user typed: an old initiative's first entry was stamped the day it was
+ * added, whatever the start date said, so the stamp only stands in when
+ * the start date is missing or not a real day. A start after today (the
+ * old form allowed it) reads as today, and one after the first move as the
+ * day of that move. An unknown stage reads as Awareness; an old initiative
+ * with no history keeps its stage (entered on the start date, the only day
+ * known); a history that ends elsewhere than the current stage gets the
+ * current stage added.
  */
 export function normalizeInitiative(raw: unknown, today: string): AdkarInitiative | null {
   if (!isRecord(raw) || typeof raw.id !== "string" || !raw.id) return null;
@@ -309,16 +364,14 @@ export function normalizeInitiative(raw: unknown, today: string): AdkarInitiativ
         ? [{ stage: e.stage, enteredAt: day(e.enteredAt)! }]
         : []
     );
-  const startDate = day(raw.startDate) ?? rawHistory[0]?.enteredAt ?? today;
   const currentStage: AdkarElement = isElement(raw.currentStage) ? raw.currentStage : "awareness";
-  let history = rawHistory;
-  if (history[0]?.stage === "awareness") {
-    // The stored first entry was "today" at the time it was added: the start date wins when earlier.
-    if (history[0].enteredAt > startDate)
-      history = [{ stage: "awareness", enteredAt: startDate }, ...history.slice(1)];
-  } else {
-    history = [{ stage: "awareness", enteredAt: startDate }, ...history];
-  }
+  // The stored first entry, when it is Awareness, is that stamp; the rest are moves.
+  const stamped = rawHistory[0]?.stage === "awareness" ? rawHistory[0].enteredAt : undefined;
+  const moves = stamped === undefined ? rawHistory : rawHistory.slice(1);
+  let startDate = day(raw.startDate) ?? stamped ?? moves[0]?.enteredAt ?? today;
+  if (startDate > today) startDate = today;
+  if (moves[0] && startDate > moves[0].enteredAt) startDate = moves[0].enteredAt;
+  let history: AdkarStageEntry[] = [{ stage: "awareness", enteredAt: startDate }, ...moves];
   // Days run forward: a move dated before the one it follows reads as that day.
   for (let k = 1; k < history.length; k++) {
     if (history[k].enteredAt < history[k - 1].enteredAt) {
@@ -474,7 +527,22 @@ export function withGroupScore(
   };
 }
 
-/** The initiative with a group renamed, re-dated or noted (null / "" clears the optional ones). */
+/**
+ * Why a group's scores can't be dated `day`, or null: a real day, not after
+ * today. "" is fine (it clears the date). The page and set_group_scores
+ * both check it, so neither stores a day the other refuses.
+ */
+export function assessedAtError(day: string, today: string): string | null {
+  if (!day) return null;
+  if (!isIsoDate(day)) return "Pick a real day.";
+  if (day.slice(0, 10) > today) return "Scores can't be taken in the future.";
+  return null;
+}
+
+/**
+ * The initiative with a group renamed, re-dated or noted (null / "" clears
+ * the optional ones). A day that isn't a real day leaves the stored one.
+ */
 export function withGroupPatch(
   i: AdkarInitiative,
   groupId: string,
@@ -487,9 +555,8 @@ export function withGroupPatch(
       const next: AdkarGroup = { ...g };
       if (patch.name !== undefined && patch.name.trim()) next.name = patch.name.trim();
       if ("assessedAt" in patch) {
-        if (patch.assessedAt && isIsoDate(patch.assessedAt))
-          next.assessedAt = patch.assessedAt.slice(0, 10);
-        else delete next.assessedAt;
+        if (!patch.assessedAt) delete next.assessedAt;
+        else if (isIsoDate(patch.assessedAt)) next.assessedAt = patch.assessedAt.slice(0, 10);
       }
       if ("note" in patch) {
         const note = patch.note?.trim();
@@ -544,13 +611,14 @@ export function medianDaysInStage(
   };
 }
 
-/** The initiative longest in its current stage, or null with none. */
+/** The initiative longest in its current stage before Reinforcement, or null with none. */
 export function longestInCurrentStage(
   initiatives: readonly AdkarInitiative[],
   today: string
 ): { initiative: AdkarInitiative; days: number } | null {
   let best: { initiative: AdkarInitiative; days: number } | null = null;
   for (const i of initiatives) {
+    if (!canBeStuck(i)) continue;
     const days = daysInStage(i, today);
     if (!best || days > best.days) best = { initiative: i, days };
   }
@@ -560,28 +628,41 @@ export function longestInCurrentStage(
 /* ── The verdict ────────────────────────────────────────────────────── */
 
 const initiativesWord = (n: number) => (n === 1 ? "1 initiative" : `${n} initiatives`);
+const groupsWord = (n: number) => (n === 1 ? "1 group" : `${n} groups`);
+
+/** Whether any group of any initiative has a score: until then the held count reads "—". */
+export const anyGroupScored = (initiatives: readonly AdkarInitiative[]): boolean =>
+  initiatives.some((i) => (i.groups ?? []).some(isScored));
 
 /**
  * The one sentence above the list: which initiatives are held up, where,
- * and by whom; or what to score to find out.
+ * and by whom; or what to score to find out. A group whose barrier is
+ * still unknown is said so, never counted as "not held".
  */
 export function adkarVerdict(initiatives: readonly AdkarInitiative[], today: string): string {
   if (initiatives.length === 0) return "No change initiatives yet.";
-  const scored = initiatives.some((i) => (i.groups ?? []).some(isScored));
-  const stuck = initiatives.filter((i) => daysInStage(i, today) >= STUCK_DAYS).length;
+  const stuck = stuckInitiatives(initiatives, today).length;
   const stuckPart =
     stuck > 0
       ? ` ${initiativesWord(stuck)} ${stuck === 1 ? "has" : "have"} been in the same stage ${STUCK_DAYS}+ days.`
       : "";
-  if (!scored) {
+  if (!anyGroupScored(initiatives)) {
     return `Score each group on the five elements to find where adoption is stuck.${stuckPart}`;
   }
+  const unknown = unknownBarriers(initiatives);
+  const first = unknown[0];
   const held = initiatives
     .map((i) => ({ i, b: initiativeBarrier(i) }))
     .filter((x): x is { i: AdkarInitiative; b: InitiativeBarrier } => x.b !== null);
   if (held.length === 0) {
-    return `No initiative is held at a barrier: every scored group is above ${BARRIER_MAX} as far as it is scored.${stuckPart}`;
+    if (first) {
+      return `No barrier found so far, but ${groupsWord(unknown.length)} ${unknown.length === 1 ? "isn't" : "aren't"} scored far enough to tell: score ${ELEMENT_LABEL[first.element]} for ${first.groupName} next.${stuckPart}`;
+    }
+    return `No initiative is held at a barrier: every scored group is above ${BARRIER_MAX} on all five elements.${stuckPart}`;
   }
+  const unknownPart = first
+    ? ` ${groupsWord(unknown.length)} ${unknown.length === 1 ? "has" : "have"} no known barrier yet.`
+    : "";
   const named = held
     .slice(0, 2)
     .map(
@@ -590,5 +671,5 @@ export function adkarVerdict(initiatives: readonly AdkarInitiative[], today: str
     .join("; ");
   const more = held.length > 2 ? `; ${held.length - 2} more` : "";
   const of = `${held.length} of ${initiativesWord(initiatives.length)}`;
-  return `${of} ${held.length === 1 ? "is" : "are"} held up: ${named}${more}.${stuckPart}`;
+  return `${of} ${held.length === 1 ? "is" : "are"} held up: ${named}${more}.${unknownPart}${stuckPart}`;
 }

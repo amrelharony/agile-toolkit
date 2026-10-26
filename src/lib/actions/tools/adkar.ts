@@ -25,7 +25,9 @@
  * time the page opens (it stays as the backup). Until then the agent reads
  * what the page will show: the doc plus the initiatives still waiting in
  * the blob, planned the same way (lib/adkar/model planAdkarMove), and its
- * writes carry them into the doc, which the page's move then skips.
+ * writes carry them into the doc, which the page's move then skips. The
+ * moved-ids record is the page's (agents can't write the blob), so a
+ * delete the move would undo is refused until the page has run once.
  */
 
 import { z } from "zod";
@@ -56,6 +58,7 @@ import {
   NAME_MAX,
   adkarVerdict,
   advance,
+  assessedAtError,
   barrierPoint,
   completedStages,
   daysInStage,
@@ -73,6 +76,8 @@ import {
   stageDurations,
   startDateError,
   stepBack,
+  stuckInitiatives,
+  unknownBarriers,
   withDetails,
   withGroupPatch,
   withGroupScore,
@@ -133,10 +138,11 @@ function serverStore(userId: string): AdkarStore {
 async function load(store: AdkarStore, today: string) {
   const raw = await store.getDoc();
   const doc = normalizeAdkarDoc(raw, today);
-  const { blob, moved } = await store.legacy();
-  const pending = planAdkarMove(blob, doc.initiatives, moved, today).toMove;
+  const legacy = await store.legacy();
+  const pending = planAdkarMove(legacy.blob, doc.initiatives, legacy.moved, today).toMove;
   return {
     raw,
+    legacy,
     pending: pending.length,
     doc: { ...doc, initiatives: [...doc.initiatives, ...pending] },
   };
@@ -144,14 +150,22 @@ async function load(store: AdkarStore, today: string) {
 
 type Result = Record<string, unknown>;
 
+/** The old blob and its moved-ids record, as stored. */
+type Legacy = { blob: unknown; moved: unknown };
+
 /** Change the doc with `fn` (no `doc`: nothing written). */
 async function update(
   store: AdkarStore,
-  fn: (doc: AdkarDoc, today: string, roster: TeamMember[]) => { doc?: AdkarDoc; result: Result }
+  fn: (
+    doc: AdkarDoc,
+    today: string,
+    roster: TeamMember[],
+    legacy: Legacy
+  ) => { doc?: AdkarDoc; result: Result }
 ): Promise<Result> {
   const today = todayLocalISO();
-  const { doc } = await load(store, today);
-  const out = fn(doc, today, await store.roster());
+  const { doc, legacy } = await load(store, today);
+  const out = fn(doc, today, await store.roster(), legacy);
   if (out.doc) await store.putDoc({ ...out.doc, id: ADKAR_DOC_ID });
   return out.result;
 }
@@ -201,6 +215,8 @@ async function listState(store: AdkarStore) {
     initiatives: doc.initiatives.map((i) => initiativeRow(i, today)),
     counts: stageCounts(doc.initiatives),
     held: doc.initiatives.filter((i) => initiativeBarrier(i) !== null).length,
+    unknownBarriers: unknownBarriers(doc.initiatives),
+    stuck: stuckInitiatives(doc.initiatives, today).map((i) => i.id),
     medianDaysInStage: { days: median.median, periods: median.periods },
     longestInCurrentStage: longest
       ? {
@@ -220,7 +236,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the ADKAR change initiatives, as the page does. A group's barrier point is the first element (Awareness, Desire, Knowledge, Ability, Reinforcement) scored 3 or lower; an unscored element before it leaves it unknown (unscoredBefore). Returns {exists, pendingLegacy (initiatives still in the old blob, included below), initiatives: {id, name, owner, startDate, description, currentStage, stage, completedStages, daysInStage, stageDurations: {stage, from, to (null = current), days}[], groups: {id, name, scores (element -> 1-5; missing = not scored), assessedAt, note, barrier: {element, score?, unscoredBefore?}}[], barrier: null | {element, groupId, groupName, score} (the earliest across groups), pastBarrier: {groupId, groupName, barrier, score}[] (groups whose barrier is before the current stage)}[], counts (initiatives per current stage), held (initiatives with a barrier), medianDaysInStage: {days (null below 3 finished stages), periods}, longestInCurrentStage: null | {id, name, stage, days}, verdict}.",
+    "Summarise the ADKAR change initiatives, as the page does. A group's barrier point is the first element (Awareness, Desire, Knowledge, Ability, Reinforcement) scored 3 or lower; an unscored element before it leaves it unknown (unscoredBefore). Returns {exists, pendingLegacy (initiatives still in the old blob, included below), initiatives: {id, name, owner, startDate, description, currentStage, stage, completedStages, daysInStage, stageDurations: {stage, from, to (null = current), days}[], groups: {id, name, scores (element -> 1-5; missing = not scored), assessedAt, note, barrier: {element, score?, unscoredBefore?}}[], barrier: null | {element, groupId, groupName, score} (the earliest across groups), pastBarrier: {groupId, groupName, barrier, score}[] (groups whose barrier is before the current stage)}[], counts (initiatives per current stage), held (initiatives with a barrier), unknownBarriers: {initiativeId, initiativeName, groupId, groupName, element (score it next)}[] (groups not scored far enough to tell; never read them as not held), stuck (ids in the same stage 30+ days; Reinforcement, which has no exit, left out), medianDaysInStage: {days (null below 3 finished stages), periods}, longestInCurrentStage: null | {id, name, stage, days} (Reinforcement left out), verdict}.",
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
@@ -341,12 +357,24 @@ registry.register({
 const IdParams = z.object({ id: z.string() });
 
 async function removeInitiative(store: AdkarStore, { id }: z.infer<typeof IdParams>) {
-  return update(store, (doc) => {
+  return update(store, (doc, today, _roster, legacy) => {
     if (!find(doc, id)) return { result: { removed: false } };
-    return {
-      doc: { ...doc, initiatives: doc.initiatives.filter((i) => i.id !== id) },
-      result: { removed: true },
-    };
+    const initiatives = doc.initiatives.filter((i) => i.id !== id);
+    // The page's one-time move would bring it back from the old blob: the
+    // moved-ids record (only the page writes it) doesn't list it yet, and
+    // nothing from the blob would be left in the doc to show it moved.
+    const back = planAdkarMove(legacy.blob, initiatives, legacy.moved, today).toMove;
+    if (back.some((i) => i.id === id)) {
+      return {
+        result: {
+          removed: false,
+          reason: "not_moved_yet",
+          message:
+            "It is still in the tracker's old data. Open the ADKAR page once so it moves the initiatives into the workspace, then delete it.",
+        },
+      };
+    }
+    return { doc: { ...doc, initiatives }, result: { removed: true } };
   });
 }
 
@@ -357,7 +385,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Delete an initiative with its groups and history. Returns {removed: false} for an unknown id, else {removed: true}.",
+    "Delete an initiative with its groups and history. One still waiting in the tracker's old data, whose deletion the page's one-time move would undo, is refused until the ADKAR page has been opened once. Returns {removed: false} for an unknown id, {removed: false, reason: 'not_moved_yet', message}, else {removed: true}.",
   paramsSchema: IdParams,
   handler: async (params) => removeInitiative(browserStore, params),
   mcpHandler: async (params, ctx) => removeInitiative(serverStore(ctx.userId), params),
@@ -393,7 +421,7 @@ const GroupParams = z.object({
       "Element -> 1-5, or null to clear it to not scored; elements left out keep their score."
     ),
   assessedAt: IsoDay.optional().describe(
-    "The day the scores were taken; the first score dates it today otherwise."
+    "The day the scores were taken (a real day, not after today); the first score dates it today otherwise."
   ),
   note: z.string().max(DESCRIPTION_MAX).nullable().optional(),
 });
@@ -414,15 +442,8 @@ async function setGroupScores(store: AdkarStore, p: z.infer<typeof GroupParams>)
       groups = [...groups, group];
     }
     const groupId = group.id;
-    if (p.assessedAt && p.assessedAt > today) {
-      return {
-        result: {
-          set: false,
-          reason: "invalid_date",
-          message: "Scores can't be taken in the future.",
-        },
-      };
-    }
+    const dateError = p.assessedAt ? assessedAtError(p.assessedAt, today) : null;
+    if (dateError) return { result: { set: false, reason: "invalid_date", message: dateError } };
     let next: AdkarInitiative = { ...i, groups };
     for (const el of ADKAR_ELEMENTS) {
       const v = p.scores?.[el];
@@ -455,7 +476,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Score a group affected by an initiative on the five elements (1-5; null clears one). Pass groupId, or a name to find the group (case-insensitive) or add it. Returns {set: false, reason: 'not_found' | 'group_not_found' | 'invalid_name' | 'invalid_date'} or {set: true, groupId, scores, barrier: {element, score?, unscoredBefore?}, initiativeBarrier}.",
+    "Score a group affected by an initiative on the five elements (1-5; null clears one). Pass groupId, or a name to find the group (case-insensitive) or add it. Returns {set: false, reason: 'not_found' | 'group_not_found' | 'invalid_name' | 'invalid_date', message?} or {set: true, groupId, scores, barrier: {element, score?, unscoredBefore?}, initiativeBarrier}.",
   paramsSchema: GroupParams,
   handler: async (params) => setGroupScores(browserStore, params),
   mcpHandler: async (params, ctx) => setGroupScores(serverStore(ctx.userId), params),

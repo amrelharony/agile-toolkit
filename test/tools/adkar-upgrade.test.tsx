@@ -13,11 +13,13 @@ import {
   ADKAR_MOVED_KEY,
   adkarVerdict,
   advance,
+  assessedAtError,
   barrierPoint,
   barrierText,
   completedStages,
   daysInStage,
   initiativeBarrier,
+  longestInCurrentStage,
   medianDaysInStage,
   moveDateError,
   normalizeInitiative,
@@ -25,6 +27,9 @@ import {
   planAdkarMove,
   stageDurations,
   stepBack,
+  stuckInitiatives,
+  unknownBarriers,
+  withGroupPatch,
   withStartDate,
 } from "@/lib/adkar/model";
 import { registry } from "@/lib/actions/registry";
@@ -241,6 +246,18 @@ describe("dated stages", () => {
     expect(advance(last, TODAY, TODAY)).toBeNull();
   });
 
+  it("dates a group's scores only on a real day not after today, keeping the stored one", () => {
+    expect(assessedAtError("", TODAY)).toBeNull();
+    expect(assessedAtError(TODAY, TODAY)).toBeNull();
+    expect(assessedAtError("2026-02-30", TODAY)).toBe("Pick a real day.");
+    expect(assessedAtError("2026-10-27", TODAY)).toBe("Scores can't be taken in the future.");
+    const i = initiative({ groups: [{ ...group("g", "Ops", {}), assessedAt: "2026-10-01" }] });
+    expect(withGroupPatch(i, "g", { assessedAt: "0002-13-01" }).groups?.[0].assessedAt).toBe(
+      "2026-10-01"
+    );
+    expect(withGroupPatch(i, "g", { assessedAt: null }).groups?.[0].assessedAt).toBeUndefined();
+  });
+
   it("moves the start date with entry 0, never after the first move or today", () => {
     expect(withStartDate(initiative(), "2026-08-15", TODAY)?.stageHistory[0]).toEqual({
       stage: "awareness",
@@ -288,6 +305,36 @@ describe("legacy rows", () => {
       ],
     });
     expect(normalizeInitiative(n, TODAY)).toEqual(n);
+  });
+
+  it("keeps a typed start later than the day it was added, within today and the first move", () => {
+    const old = (startDate: string | undefined) => ({
+      id: "o2",
+      name: "Pairing",
+      currentStage: "desire",
+      stageHistory: [
+        { stage: "awareness", enteredAt: "2026-09-01" },
+        { stage: "desire", enteredAt: "2026-10-01" },
+      ],
+      ...(startDate !== undefined ? { startDate } : {}),
+    });
+    // The start the user typed wins over the day the old tracker stamped.
+    const later = normalizeInitiative(old("2026-09-15"), TODAY)!;
+    expect(later.startDate).toBe("2026-09-15");
+    expect(later.stageHistory[0]).toEqual({ stage: "awareness", enteredAt: "2026-09-15" });
+    expect(normalizeInitiative(later, TODAY)).toEqual(later);
+    // After the first move: read as the day of that move.
+    expect(normalizeInitiative(old("2026-10-10"), TODAY)?.startDate).toBe("2026-10-01");
+    // Missing or impossible: the stamp stands in.
+    expect(normalizeInitiative(old(undefined), TODAY)?.startDate).toBe("2026-09-01");
+    expect(normalizeInitiative(old("2026-02-30"), TODAY)?.startDate).toBe("2026-09-01");
+    // A future start the old form allowed reads as today, never after it.
+    const planned = normalizeInitiative(
+      { id: "o3", name: "Later", currentStage: "awareness", startDate: "2026-12-01" },
+      TODAY
+    )!;
+    expect(planned.startDate).toBe(TODAY);
+    expect(planned.stageHistory).toEqual([{ stage: "awareness", enteredAt: TODAY }]);
   });
 
   it("keeps the stage of one with no history, reads an unknown stage as Awareness, drops nameless rows", () => {
@@ -347,18 +394,81 @@ describe("numbers and the verdict", () => {
       "Score each group on the five elements to find where adoption is stuck. 1 initiative has been in the same stage 30+ days."
     );
     const ex = buildExample(new Date(2026, 9, 26));
+    // The design system has sat in Reinforcement 35 days: sustained, not stuck.
     expect(adkarVerdict(ex.doc.initiatives, TODAY)).toBe(
-      "2 of 3 initiatives are held up: Trunk-based development at Desire (Support scored 2); New incident process at Knowledge (On-call engineers scored 2). 1 initiative has been in the same stage 30+ days."
+      "2 of 3 initiatives are held up: Trunk-based development at Desire (Support scored 2); New incident process at Knowledge (On-call engineers scored 2)."
     );
-    const fine = initiative({
+    const partly = initiative({
       stageHistory: [
         { stage: "awareness", enteredAt: "2026-09-01" },
         { stage: "desire", enteredAt: "2026-10-20" },
       ],
       groups: [group("g", "Devs", { awareness: 5, desire: 4 })],
     });
+    expect(adkarVerdict([partly], TODAY)).toBe(
+      "No barrier found so far, but 1 group isn't scored far enough to tell: score Knowledge for Devs next."
+    );
+    const fine = {
+      ...partly,
+      groups: [
+        group("g", "Devs", { awareness: 4, desire: 4, knowledge: 4, ability: 4, reinforcement: 4 }),
+      ],
+    };
     expect(adkarVerdict([fine], TODAY)).toBe(
-      "No initiative is held at a barrier: every scored group is above 3 as far as it is scored."
+      "No initiative is held at a barrier: every scored group is above 3 on all five elements."
+    );
+  });
+
+  it("never reads an unknown barrier as not held", () => {
+    // Awareness unscored hides Desire's 1: the barrier is unknown, not absent.
+    const hidden = initiative({ groups: [group("g", "Support", { desire: 1 })] });
+    expect(initiativeBarrier(hidden)).toBeNull();
+    expect(unknownBarriers([hidden])).toEqual([
+      {
+        initiativeId: "i1",
+        initiativeName: "Trunk-based development",
+        groupId: "g",
+        groupName: "Support",
+        element: "awareness",
+      },
+    ]);
+    expect(adkarVerdict([hidden], TODAY)).toBe(
+      "No barrier found so far, but 1 group isn't scored far enough to tell: score Awareness for Support next. 1 initiative has been in the same stage 30+ days."
+    );
+    // Beside a real barrier the unknown groups are still named.
+    const held = initiative({
+      id: "i2",
+      name: "Pairing",
+      groups: [group("h", "Devs", { awareness: 2 })],
+    });
+    expect(adkarVerdict([held, hidden], TODAY)).toBe(
+      "1 of 2 initiatives is held up: Pairing at Awareness (Devs scored 2). 1 group has no known barrier yet. 2 initiatives have been in the same stage 30+ days."
+    );
+  });
+
+  it("leaves Reinforcement out of stuck and the longest wait", () => {
+    const sustained = initiative({
+      id: "r",
+      currentStage: "reinforcement",
+      stageHistory: [
+        { stage: "awareness", enteredAt: "2026-01-01" },
+        { stage: "reinforcement", enteredAt: "2026-02-01" },
+      ],
+    });
+    const waiting = initiative({
+      stageHistory: [
+        { stage: "awareness", enteredAt: "2026-09-01" },
+        { stage: "desire", enteredAt: "2026-10-16" },
+      ],
+    });
+    expect(stuckInitiatives([sustained, waiting], TODAY)).toEqual([]);
+    expect(longestInCurrentStage([sustained, waiting], TODAY)).toEqual({
+      initiative: waiting,
+      days: 10,
+    });
+    expect(longestInCurrentStage([sustained], TODAY)).toBeNull();
+    expect(adkarVerdict([sustained], TODAY)).toBe(
+      "Score each group on the five elements to find where adoption is stuck."
     );
   });
 });
@@ -568,6 +678,55 @@ describe("the page", () => {
         { stage: "desire", enteredAt: "2026-09-21" },
       ],
     });
+  });
+
+  it("moves focus into the edit form, and back to Edit when it closes", () => {
+    seed([initiative()]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Trunk-based development" }));
+    expect(document.activeElement).toBe(screen.getAllByLabelText(/^Initiative\*?$/).at(-1));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Edit Trunk-based development" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit Trunk-based development" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Edit Trunk-based development" })
+    );
+  });
+
+  it("dates a group's scores when the field is left, refusing a future day inline", () => {
+    seed([initiative({ groups: [group("g", "Support", { awareness: 4 })] })]);
+    renderPage();
+    const day = screen.getByLabelText("Day Support was scored");
+    // Nothing is saved while the day is typed.
+    fireEvent.change(day, { target: { value: "2026-10-27" } });
+    expect(stored()?.initiatives[0].groups?.[0].assessedAt).toBeUndefined();
+    fireEvent.blur(day);
+    expect(screen.getByRole("alert")).toHaveTextContent("Scores can't be taken in the future.");
+    expect(stored()?.initiatives[0].groups?.[0].assessedAt).toBeUndefined();
+    // Fixing the day clears the message; Enter saves it.
+    fireEvent.change(day, { target: { value: "2026-10-20" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.keyDown(day, { key: "Enter" });
+    expect(stored()?.initiatives[0].groups?.[0].assessedAt).toBe("2026-10-20");
+  });
+
+  it("shows — for held until a group is scored, then the groups not scored far enough", () => {
+    seed([initiative({ groups: [group("g", "Support", {})] })]);
+    const { unmount } = renderPage();
+    expect(screen.getByText("No group scored yet")).toBeInTheDocument();
+    expect(screen.queryByText("0/1")).toBeNull();
+    unmount();
+    // Desire's 1 sits behind an unscored Awareness: not "held", not "fine".
+    seed([initiative({ groups: [group("g", "Support", { desire: 1 })] })]);
+    renderPage();
+    expect(screen.getByText("0/1")).toBeInTheDocument();
+    expect(screen.getByText("1 group not scored far enough to tell")).toBeInTheDocument();
+    expect(
+      screen.getByText(/^No barrier found so far, but 1 group isn't scored far enough to tell/)
+    ).toBeInTheDocument();
   });
 
   it("deletes with Undo back in place, and clears all only after confirming", async () => {
