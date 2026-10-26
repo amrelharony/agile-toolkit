@@ -1,24 +1,39 @@
 "use client";
 
-// Recharts lives here so the Cost of Delay page loads it only when the
-// chart mounts. Import this module through next/dynamic, never statically.
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+// Recharts lives here so the Cost of Delay route loads it only when the
+// chart mounts. cost-of-delay-client.tsx imports this via next/dynamic.
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
 
-export function CostOfDelayChart({ data }: { data: Array<{ title: string; cost: number }> }) {
+/** The initiatives with the highest CD3, one bar each, highest first (theme colours only). */
+export function CostOfDelayChart({ data }: { data: { title: string; cd3: number }[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} layout="vertical" margin={{ left: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-        <XAxis type="number" stroke="#888" fontSize={11} />
-        <YAxis type="category" dataKey="title" stroke="#888" fontSize={11} width={150} />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "#0f1117",
-            border: "1px solid #2a2f3a",
-            fontSize: 12,
-          }}
+      {/* ChartFigure gives the chart its summary and table, so the SVG
+          mustn't be a tab stop. */}
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ left: 8, right: 12 }}
+        accessibilityLayer={false}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" horizontal={false} />
+        <XAxis
+          type="number"
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
+          tickLine={false}
         />
-        <Bar dataKey="cost" fill="#ff6b6b" />
+        <YAxis
+          type="category"
+          dataKey="title"
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={false}
+          tickLine={false}
+          width={130}
+        />
+        <Tooltip contentStyle={chartTheme.tooltipStyle} />
+        <Bar dataKey="cd3" name="CD3" fill={chartTheme.colors.amber} maxBarSize={28} />
       </BarChart>
     </ResponsiveContainer>
   );

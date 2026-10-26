@@ -1,29 +1,32 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 import dynamic from "next/dynamic";
-import { Clock, Plus, Trash2 } from "lucide-react";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { SectionCard } from "@/components/shared/section-card";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ExportButton } from "@/components/shared/export-button";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
-import { generateCostOfDelayPrompts } from "@/lib/ai-prompts/cost-of-delay";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { COD_ACTIONS } from "@/lib/history/event-actions";
-import { emitSignal } from "@/lib/signals/signal-bus";
+import { BarChart3, Clock } from "lucide-react";
 import {
-  BacklogRowLink,
-  ImportFromBacklog,
-  useBacklogImport,
-} from "@/components/prioritization/backlog-link";
-import { linkNewRow } from "@/lib/prioritization/backlog-links";
+  MethodTool,
+  shortName,
+  type MethodToolConfig,
+} from "@/components/prioritization/method-tool";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { SectionCard } from "@/components/shared/section-card";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type { ChartText } from "@/lib/charts/chart-text";
+import { COD_ACTIONS } from "@/lib/history/event-actions";
+import { COST_OF_DELAY } from "@/lib/prioritization/methods";
+import { formatNumber } from "@/lib/prioritization/methods/fields";
+import { COD_URGENCY_LABEL, type CodUrgency } from "@/lib/prioritization/methods/cost-of-delay";
+import type { RankedRow } from "@/lib/prioritization/rank";
+import { todayIso } from "@/lib/sprints/series";
+import { CodInputs, CodRowValues } from "./cod-inputs";
+import { buildExample } from "./example";
+import { codGroups, fixedDateStart, laneOf, waitingPerWeek } from "./lanes";
+import { toMarkdown } from "./markdown";
+import { generateCd3Prompts } from "./prompts";
+import { codVerdict } from "./verdict";
 
-// Recharts loads with the chart, not the page.
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
 const CostOfDelayChart = dynamic(() => import("./charts").then((m) => m.CostOfDelayChart), {
   ssr: false,
   loading: () => (
@@ -31,232 +34,151 @@ const CostOfDelayChart = dynamic(() => import("./charts").then((m) => m.CostOfDe
   ),
 });
 
-export function CostOfDelayClient() {
-  const all = useWorkspaceStore((s) => s.prioritizations ?? []);
-  // CoD has its own framework value so WSJF items aren't mixed in.
-  const codItems = useMemo(() => all.filter((x) => x.framework === "cost-of-delay"), [all]);
-  const upsert = useWorkspaceStore((s) => s.upsertPrioritization);
-  const removeOne = useWorkspaceStore((s) => s.removePrioritization);
-  const { log } = useHistoryLogger("cost-of-delay");
-  const exportRef = useRef<HTMLDivElement>(null);
+/** The chart shows this many initiatives, highest CD3 first. */
+const CHART_TOP = 10;
 
-  const [title, setTitle] = useState("");
-  const [perWeekUsd, setPerWeekUsd] = useState("");
-  const [weeksDelayed, setWeeksDelayed] = useState("");
+/** A lane's name for the chart table and the CSV. */
+function laneName(r: RankedRow): string {
+  const id = laneOf(r);
+  return id === "unscored"
+    ? "Not scored"
+    : id === "none"
+      ? "No profile yet"
+      : COD_URGENCY_LABEL[id as CodUrgency];
+}
 
-  // "Import from backlog" (or a "Score with Cost of Delay" link) fills the
-  // title; the next initiative added links to that backlog item.
-  const backlog = useBacklogImport("cost-of-delay", (picked) => setTitle(picked.name));
-
-  function add() {
-    if (!title.trim()) return;
-    // BUG-T2-cost-of-delay-1: use Number() not parseFloat() so "12abc"
-    // or "$10,000" stop silently. The user gets nothing instead of
-    // misleading partial parses.
-    const wk = Number(perWeekUsd);
-    const dl = Number(weeksDelayed);
-    const safeWk = Number.isFinite(wk) ? Math.max(0, wk) : 0;
-    const safeDl = Number.isFinite(dl) ? Math.max(0, dl) : 0;
-    const total = safeWk * safeDl;
-    const item: PrioritizationItem = linkNewRow(
-      {
-        id: crypto.randomUUID(),
-        framework: "cost-of-delay",
-        title: title.trim().slice(0, 200),
-        score: total,
-        fields: { perWeekUsd: safeWk, weeksDelayed: safeDl, totalCost: total },
-        status: "scored",
-        updatedAt: new Date().toISOString(),
-      },
-      backlog.pending?.id
-    );
-    upsert(item);
-    backlog.clear();
-    log(COD_ACTIONS.ITEM_ADDED, { title: item.title, totalCost: item.score });
-    emitSignal({
-      kind: "prioritization.scored",
-      at: item.updatedAt,
-      toolId: "cost-of-delay",
-      payload: { framework: "cost-of-delay", id: item.id, score: total },
-    });
-    setTitle("");
-    setPerWeekUsd("");
-    setWeeksDelayed("");
-  }
-  const totalCost = codItems.reduce((s, x) => s + (x.score ?? 0), 0);
-  const sorted = [...codItems].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  const chartData = sorted.slice(0, 10).map((it) => ({
-    title: it.title.length > 18 ? it.title.slice(0, 18) + "…" : it.title,
-    cost: Math.round(it.score ?? 0),
-  }));
-
-  const workspace = useWorkspaceStore(
-    useShallow(
-      (s): Workspace => ({
-        teamMembers: s.teamMembers,
-        sprints: s.sprints,
-        stories: s.stories,
-        impediments: s.impediments,
-        risks: s.risks,
-        okrs: s.okrs,
-        decisions: s.decisions,
-        techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel,
-        teamName: s.teamName,
-        prioritizations: s.prioritizations,
-      })
-    )
-  );
-
-  const promptConfig = useMemo(
-    () => ({
-      toolName: "Cost-of-Delay Tracker",
-      prompts: generateCostOfDelayPrompts({ items: sorted, totalCost }, workspace),
-    }),
-    [sorted, totalCost, workspace]
-  );
-
-  const csvData = {
-    headers: ["Title", "Per week ($)", "Weeks delayed", "Total cost ($)"],
-    rows: codItems.map((it) => [
-      it.title,
-      it.fields?.perWeekUsd ?? 0,
-      it.fields?.weeksDelayed ?? 0,
-      it.score ?? 0,
-    ]),
+/** The chart's summary sentence and its rows as a table. */
+function chartText(top: readonly RankedRow[]): ChartText {
+  const [first, second] = top;
+  const name = (r: RankedRow) => `“${shortName(r.row.title)}”`;
+  const at = (r: RankedRow) => COST_OF_DELAY.format(r.result.score as number);
+  return {
+    summary: second
+      ? `${name(first)} has the highest CD3 at ${at(first)}; ${name(second)} follows at ${at(second)}. The list orders by lane first, so an expedite or a fixed date can come before a higher CD3.`
+      : `${name(first)} has a CD3 of ${at(first)}.`,
+    table: {
+      columns: ["Initiative", "CD3", "Lane"],
+      rows: top.map((r) => [r.row.title, at(r), laneName(r)]),
+      caption: "Initiatives by CD3",
+    },
   };
+}
 
+/**
+ * Under the lanes: what waiting costs per week across the scored
+ * initiatives (in place of the old "total cost of delay", which summed
+ * different delays), and the CD3 chart.
+ */
+function CodPanels({ rows }: { rows: readonly RankedRow[] }) {
+  const scored = rows.filter((r) => r.result.score !== null);
+  // The chart compares CD3 alone, highest first (the list's lanes say what goes first).
+  const top = [...scored]
+    .sort((a, b) => (b.result.score as number) - (a.result.score as number))
+    .slice(0, CHART_TOP);
+  const text = top.length >= 2 ? chartText(top) : null;
+  const { perWeek, count } = waitingPerWeek(rows);
   return (
-    <ToolPageWrapper
-      toolId="cost-of-delay"
-      title="Cost-of-Delay Tracker"
-      description="Quantify the per-week revenue/value loss of delaying each initiative. Pairs with WSJF for queue management."
-    >
-      <div ref={exportRef} className="space-y-4">
-        <SectionCard
-          title="Add initiative & estimate cost"
-          icon={Plus}
-          actions={<ImportFromBacklog link={backlog} />}
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <Input
-              className="sm:col-span-2"
-              placeholder="Initiative"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              aria-label="Initiative title"
-            />
-            <Input
-              type="number"
-              min={0}
-              step="100"
-              placeholder="Cost per week ($)"
-              value={perWeekUsd}
-              onChange={(e) => setPerWeekUsd(e.target.value)}
-              aria-label="Cost per week in dollars"
-            />
-            <Input
-              type="number"
-              min={0}
-              placeholder="Weeks delayed"
-              value={weeksDelayed}
-              onChange={(e) => setWeeksDelayed(e.target.value)}
-              aria-label="Weeks delayed"
-            />
-          </div>
-          <Button onClick={add} className="mt-3 gap-1">
-            <Plus className="w-4 h-4" />
-            Add
-          </Button>
-        </SectionCard>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <KPI label="Total CoD this period" value={`$${totalCost.toLocaleString()}`} />
-          <KPI label="Items tracked" value={String(codItems.length)} />
-        </div>
-
-        {chartData.length > 0 && (
-          <SectionCard
-            title="Top 10 by total cost"
-            icon={Clock}
-            actions={
-              <>
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="cost-of-delay"
-                  csvData={csvData}
-                  jsonData={codItems}
-                  targetRef={exportRef}
-                />
-              </>
-            }
-          >
-            <div className="-mx-2 h-72">
-              <CostOfDelayChart data={chartData} />
-            </div>
-          </SectionCard>
+    <SectionCard title={`Top ${CHART_TOP} by CD3`} icon={BarChart3}>
+      <div className="space-y-4">
+        {count > 0 && (
+          <p className="text-sm text-text">
+            Waiting costs <span className="font-mono font-medium">${formatNumber(perWeek, 2)}</span>{" "}
+            per week across {count} scored {count === 1 ? "initiative" : "initiatives"}.
+          </p>
         )}
-
-        {sorted.length > 0 && (
-          <SectionCard title={`Items (${sorted.length})`}>
-            <div className="table-wrap-responsive">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-sub uppercase">
-                    <th className="p-2">Title</th>
-                    <th className="p-2 text-right">$/week</th>
-                    <th className="p-2 text-right">Weeks</th>
-                    <th className="p-2 text-right">Total</th>
-                    <th className="p-2 w-10"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((it) => (
-                    <tr key={it.id} className="border-t border-border">
-                      <td className="p-2">
-                        <span className="inline-flex flex-wrap items-center gap-2">
-                          {it.title}
-                          <BacklogRowLink row={it} />
-                        </span>
-                      </td>
-                      <td className="p-2 text-right font-mono text-xs">
-                        ${(Number(it.fields?.perWeekUsd) || 0).toLocaleString()}
-                      </td>
-                      <td className="p-2 text-right font-mono text-xs">
-                        {Number(it.fields?.weeksDelayed) || 0}
-                      </td>
-                      <td className="p-2 text-right font-mono">
-                        ${Math.round(it.score ?? 0).toLocaleString()}
-                      </td>
-                      <td className="p-2">
-                        <button
-                          onClick={() => {
-                            removeOne(it.id);
-                            log(COD_ACTIONS.ITEM_REMOVED, { id: it.id });
-                          }}
-                          aria-label="Remove initiative"
-                          className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </SectionCard>
+        {text ? (
+          <ChartFigure
+            label={`Top ${CHART_TOP} by CD3`}
+            summary={text.summary}
+            table={text.table}
+            caption="Initiatives by CD3"
+            plotClassName="h-72"
+          >
+            <CostOfDelayChart
+              data={top.map((r) => {
+                const t = r.row.title.length > 18 ? `${r.row.title.slice(0, 18)}…` : r.row.title;
+                return { title: t, cd3: Number((r.result.score as number).toFixed(2)) };
+              })}
+            />
+          </ChartFigure>
+        ) : (
+          <NotEnoughData
+            have={scored.length}
+            need={2}
+            unit={["scored initiative", "scored initiatives"]}
+            action="Score"
+            what="them side by side"
+          />
         )}
       </div>
-    </ToolPageWrapper>
+    </SectionCard>
   );
 }
 
-function KPI({ label, value }: { label: string; value: string }) {
+/**
+ * Cost of Delay on the shared method-tool shell, scored as CD3 (cost of
+ * delay per week ÷ duration): add, edit in place, Undo, the example, the
+ * export and the backlog link come from MethodTool; CD3, the lanes and the
+ * latest starts from the method registry. The list groups by lane in the
+ * order work should start.
+ */
+export const COD_TOOL: MethodToolConfig = {
+  methodId: "cost-of-delay",
+  toolId: "cost-of-delay",
+  title: "Cost-of-Delay Tracker",
+  description:
+    "CD3 = cost of delay per week ÷ duration in weeks, ordered by urgency profile: expedite now, fixed dates by latest start, then standard and intangible work by CD3.",
+  icon: Clock,
+  noun: { one: "initiative", many: "initiatives" },
+  titleLabel: "Initiative title",
+  titlePlaceholder: "e.g. One-tap wallet checkout",
+  submitLabel: "Add",
+  listLabel: "Initiatives by lane",
+  emptyText:
+    "No initiatives yet. Add one above, or load an example queue with every urgency profile.",
+  history: COD_ACTIONS,
+  buildExample: () => buildExample(),
+  verdict: (rows) => codVerdict(rows),
+  toMarkdown: (rows) => toMarkdown(rows),
+  csv: (rows) => {
+    const today = todayIso();
+    return {
+      headers: [
+        "Lane",
+        "Title",
+        "Cost of delay per week ($)",
+        "Duration (weeks)",
+        "CD3",
+        "Must land by",
+        "Latest start",
+      ],
+      rows: rows.map((r) => {
+        const start = fixedDateStart(r, today);
+        return [
+          laneName(r),
+          r.row.title,
+          r.values.perWeekUsd ?? "",
+          r.values.durationWeeks ?? "",
+          r.result.score === null ? "" : COST_OF_DELAY.format(r.result.score),
+          start?.fixedDate ?? "",
+          start?.latestStart ?? "",
+        ];
+      }),
+    };
+  },
+  prompts: (rows, workspace) => generateCd3Prompts(rows, workspace),
+  Inputs: CodInputs,
+  RowValues: CodRowValues,
+  groups: codGroups,
+  Panels: CodPanels,
+};
+
+export function CostOfDelayClient() {
   return (
-    <div className="rounded-md border border-border bg-surface-deep p-3">
-      <div className="text-xs text-sub uppercase tracking-wider">{label}</div>
-      <div className="text-xl font-semibold mt-1 font-data">{value}</div>
-    </div>
+    // The app root has a provider; this one keeps the rows' icon-button
+    // tooltips working wherever the page renders on its own.
+    <TooltipProvider delayDuration={300}>
+      <MethodTool config={COD_TOOL} />
+    </TooltipProvider>
   );
 }
