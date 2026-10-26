@@ -19,7 +19,9 @@
  *   7. remove_activity — remove a row and its cells.
  *   8. reset           — clear the matrix (asks for confirmation).
  *
- * Every check comes from lib/raci/model, as on the page.
+ * Every check comes from lib/raci/model, as on the page. In the browser, a
+ * write that would create the matrix is refused (it throws) while the RACI
+ * tool's old local matrix still waits to move in from the RACI page.
  */
 
 import { z } from "zod";
@@ -33,6 +35,7 @@ import {
   RACI_DESCRIPTION_MAX,
   RACI_ID,
   RACI_KIND,
+  RACI_LEGACY_KEY,
   RACI_LOAD,
   RACI_NAME_MAX,
   activityIssues,
@@ -44,6 +47,7 @@ import {
   nameTaken,
   normalizeCell,
   normalizeRaci,
+  planRaciMove,
   raciVerdict,
   unassignedActivities,
   withActivity,
@@ -65,9 +69,33 @@ interface RaciStore {
   roster(): Promise<TeamMember[]>;
 }
 
+/**
+ * The RACI tool's old local store in this browser, when it still holds a
+ * matrix the one-time move (the RACI page) would write. Read without the
+ * page's hook (that module is a client one, and this runs on the server too).
+ */
+function pendingLegacyMatrix(): boolean {
+  try {
+    const raw = typeof window === "undefined" ? null : window.localStorage.getItem(RACI_LEGACY_KEY);
+    return raw !== null && planRaciMove(raw, undefined) !== null;
+  } catch {
+    return false;
+  }
+}
+
 const browserStore: RaciStore = {
   getDoc: async () => (ws().raciMatrices ?? []).find((d) => d.id === RACI_ID) ?? null,
-  putDoc: async (doc) => ws().upsertRaciMatrix(doc),
+  putDoc: async (doc) => {
+    // A first write here would create the workspace matrix, and the move
+    // never writes over one: the matrix kept in this browser would be lost
+    // to its backup. Let the page move it first.
+    if (!(ws().raciMatrices ?? []).some((d) => d.id === RACI_ID) && pendingLegacyMatrix()) {
+      throw new Error(
+        "The RACI matrix saved in this browser hasn't moved into the workspace yet. Open the RACI page once to move it, then try again."
+      );
+    }
+    ws().upsertRaciMatrix(doc);
+  },
   roster: async () => ws().teamMembers ?? [],
 };
 
@@ -115,14 +143,17 @@ function summarize(raw: RaciMatrix | null, roster: readonly TeamMember[]) {
       activityId,
       message,
     })),
-    loadWarnings: loadWarnings(doc).map(({ kind, roleId, activityId, count, of, message }) => ({
-      kind,
-      ...(roleId ? { roleId } : {}),
-      ...(activityId ? { activityId } : {}),
-      count,
-      of,
-      message,
-    })),
+    loadWarnings: loadWarnings(doc).map(
+      ({ kind, roleId, activityId, activityIds, count, of, message }) => ({
+        kind,
+        ...(roleId ? { roleId } : {}),
+        ...(activityId ? { activityId } : {}),
+        ...(activityIds ? { activityIds } : {}),
+        count,
+        of,
+        message,
+      })
+    ),
     thresholds: RACI_LOAD,
     unassigned: unassignedActivities(doc).map((a) => a.id),
     countsByRole: countsByRole(doc),
@@ -136,7 +167,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "The RACI matrix with the page's checks. Returns {exists, roles: {id, name, description?, memberId? (a roster person), onTeam? (still on the roster)}[], activities: {id, name, description?}[], cells: {activityId: {roleId: ('R'|'A'|'C'|'I')[]}} (normalised: [R], [A], [A,R], [C] or [I]; a missing cell is empty), matrix: {activityId, activity, cells: {roleId: 'A/R' | 'C' | ''}}[], issues: {kind: 'no_a' | 'many_a' | 'no_r', activityId, message}[] (assigned activities only; A/R counts as both), loadWarnings: {kind: 'accountable_load' | 'consulted_load', roleId?, activityId?, count, of, message}[], thresholds: {maxAccountableShare, minActivitiesForShare, maxConsulted}, unassigned (activity ids nobody is assigned to), countsByRole: {roleId, name, memberId?, R, A, C, I}[], verdict}.",
+    "The RACI matrix with the page's checks. Returns {exists, roles: {id, name, description?, memberId? (a roster person), onTeam? (still on the roster)}[], activities: {id, name, description?}[], cells: {activityId: {roleId: ('R'|'A'|'C'|'I')[]}} (normalised: [R], [A], [A,R], [C] or [I]; a missing cell is empty), matrix: {activityId, activity, cells: {roleId: 'A/R' | 'C' | ''}}[], issues: {kind: 'no_a' | 'many_a' | 'no_r', activityId, message}[] (assigned activities only; A/R counts as both), loadWarnings: {kind: 'accountable_load' | 'consulted_load', roleId?, activityId? (consulted_load), activityIds? (accountable_load: the activities the role is Accountable for; the message names the first three), count, of, message}[], thresholds: {maxAccountableShare, minActivitiesForShare, maxConsulted}, unassigned (activity ids nobody is assigned to), countsByRole: {roleId, name, memberId?, R, A, C, I}[], verdict}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.getDoc(), await browserStore.roster()),
   mcpHandler: async (_params, ctx) => {

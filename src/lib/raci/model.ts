@@ -352,31 +352,46 @@ export interface LoadWarning {
   kind: LoadWarningKind;
   roleId?: string;
   activityId?: string;
+  /** accountable_load: the activities the role is Accountable for, in matrix order. */
+  activityIds?: string[];
   count: number;
   of: number;
   summary: string;
   message: string;
 }
 
+/** How many activities a load warning names before "and N more". */
+const LOAD_NAMES_SHOWN = 3;
+
+/** Activities named in a sentence: “a”, “b”, “c” and 2 more. */
+function namedActivities(activities: readonly RaciActivity[]): string {
+  const shown = activities.slice(0, LOAD_NAMES_SHOWN).map((a) => `“${a.name}”`);
+  const more = activities.length - shown.length;
+  return listAnd(more > 0 ? [...shown, `${more} more`] : shown);
+}
+
 /**
  * Where the matrix piles too much on one place (RACI_LOAD): a role
- * Accountable for more than half of four or more activities, and an
- * activity that consults more than three roles.
+ * Accountable for more than half of four or more activities (naming them,
+ * so the team sees what to share out), and an activity that consults more
+ * than three roles.
  */
 export function loadWarnings(doc: RaciMatrix): LoadWarning[] {
   const warnings: LoadWarning[] = [];
   const n = doc.activities.length;
   if (n >= RACI_LOAD.minActivitiesForShare) {
     for (const role of doc.roles) {
-      const count = doc.activities.filter((a) => cellOf(doc, a.id, role.id).includes("A")).length;
+      const held = doc.activities.filter((a) => cellOf(doc, a.id, role.id).includes("A"));
+      const count = held.length;
       if (count / n > RACI_LOAD.maxAccountableShare) {
         warnings.push({
           kind: "accountable_load",
           roleId: role.id,
+          activityIds: held.map((a) => a.id),
           count,
           of: n,
           ...said(
-            `${role.name} is Accountable for ${count} of ${n} activities`,
+            `${role.name} is Accountable for ${count} of ${n} activities (${namedActivities(held)})`,
             "share some of it out"
           ),
         });

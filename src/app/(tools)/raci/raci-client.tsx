@@ -36,6 +36,7 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { findRosterMember } from "@/lib/team/names";
 import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { plural } from "@/lib/charts/chart-text";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import {
@@ -73,6 +74,7 @@ import type { NameValues } from "./form";
 import { raciMarkdown } from "./markdown";
 import { RaciMatrixView } from "./matrix";
 import { useLegacyRaciMove } from "./migrate";
+import { withPageChecks } from "./prompts";
 import { cn } from "@/lib/utils";
 
 export const TOOL_ID = "raci";
@@ -88,6 +90,23 @@ function writeStore(update: DocUpdate) {
 }
 
 const noLog = () => undefined;
+
+/** Focus what `find` returns once React has re-rendered (a deleted row or column took focus with it). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+/**
+ * The Delete button of row or column `id`: the one on screen, since the
+ * phone cards and the table both render (one hidden by CSS); the first
+ * when nothing is laid out yet.
+ */
+function deleteButtonOf(kind: "role" | "activity", id: string): HTMLElement | undefined {
+  const all = Array.from(
+    document.querySelectorAll<HTMLElement>(`[data-raci-delete="${kind}"]`)
+  ).filter((el) => el.getAttribute("data-raci-id") === id);
+  return all.find((el) => el.getClientRects().length > 0) ?? all[0];
+}
 
 /** `row` with a description set, or without one for a blank. */
 function described<T extends { description?: string }>(row: T, description: string): T {
@@ -124,6 +143,8 @@ export function RACIClient() {
   const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
   const resetSnapshot = useRef<RaciMatrix | null>(null);
+  const addRef = useRef<HTMLDivElement>(null);
+  const addActivityRef = useRef<HTMLDivElement>(null);
   // The example lives here only: nothing in it reaches the workspace.
   const [example, setExample] = useState<RaciExample | null>(null);
   const preview = example !== null;
@@ -274,9 +295,24 @@ export function RACIClient() {
     }));
   };
 
+  /** After a delete: the next row's (or column's) Delete, the one before, or the add form. */
+  const focusAfterDelete = (
+    kind: "role" | "activity",
+    rows: readonly { id: string }[],
+    id: string,
+    form: () => HTMLElement | null | undefined
+  ) => {
+    const at = rows.findIndex((x) => x.id === id);
+    const near = rows[at + 1] ?? rows[at - 1];
+    focusSoon(() => (near ? deleteButtonOf(kind, near.id) : form()));
+  };
+
   const removeRole = (r: RaciRole) => {
     const removed = removedRole(doc, r.id);
     if (!removed) return;
+    focusAfterDelete("role", doc.roles, r.id, () =>
+      addRef.current?.querySelector<HTMLElement>("input")
+    );
     undoable({
       label: `Deleted the column ${r.name}`,
       apply: () => {
@@ -291,6 +327,9 @@ export function RACIClient() {
   const removeActivity = (a: RaciActivity) => {
     const removed = removedActivity(doc, a.id);
     if (!removed) return;
+    focusAfterDelete("activity", doc.activities, a.id, () =>
+      addActivityRef.current?.querySelector<HTMLElement>("input")
+    );
     undoable({
       label: `Deleted the activity ${a.name}`,
       apply: () => {
@@ -343,8 +382,9 @@ export function RACIClient() {
       })
     )
   );
-  const promptConfig = useMemo(
-    () => ({
+  const promptConfig = useMemo(() => {
+    const checks = [...activityIssues(doc), ...loadWarnings(doc)].map((c) => c.message);
+    return {
       toolName: "RACI Matrix",
       prompts: generateRACIPrompts(
         {
@@ -359,10 +399,9 @@ export function RACIClient() {
           ),
         },
         workspace
-      ),
-    }),
-    [doc, workspace]
-  );
+      ).map((p) => withPageChecks(p, checks)),
+    };
+  }, [doc, workspace]);
 
   const page = (body: ReactNode) => (
     <ToolPageWrapper
@@ -387,6 +426,11 @@ export function RACIClient() {
   }
 
   const empty = doc.roles.length === 0 && doc.activities.length === 0;
+  // While the old local matrix waits to move in (the owner's first cloud
+  // pull, an open merge/discard question), nothing may create the
+  // workspace's: the move never writes over one, so the matrix kept in
+  // this browser would be lost to its backup.
+  const locked = moving && !preview && !stored;
 
   return page(
     <div className="space-y-6">
@@ -412,9 +456,10 @@ export function RACIClient() {
         </div>
       )}
 
-      {moving && !preview && empty && (
+      {locked && (
         <p role="status" className="text-sm text-sub">
-          Moving the matrix saved in this browser into the workspace…
+          Moving the matrix saved in this browser into the workspace… You can add to it once it has
+          moved.
         </p>
       )}
 
@@ -423,10 +468,12 @@ export function RACIClient() {
           icon={Grid3X3}
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Button type="button" size="sm" className="gap-1" onClick={startFromScrum}>
-                <Sparkles className="h-4 w-4" aria-hidden="true" />
-                Start from the Scrum roles
-              </Button>
+              {!locked && (
+                <Button type="button" size="sm" className="gap-1" onClick={startFromScrum}>
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  Start from the Scrum roles
+                </Button>
+              )}
               <LoadExampleButton onLoad={() => setExample(buildExample())} />
             </div>
           }
@@ -558,33 +605,41 @@ export function RACIClient() {
         </div>
       )}
 
-      <SectionCard title="Add to the matrix" icon={Plus}>
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <AddColumnForm roles={doc.roles} offerAddToRoster={!preview} onAdd={addColumn} />
-            {missingFromMatrix.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={addEveryone}
-              >
-                <UserPlus className="h-4 w-4" aria-hidden="true" />
-                Add everyone on the team ({missingFromMatrix.length})
-              </Button>
-            )}
+      {!locked && (
+        <SectionCard title="Add to the matrix" icon={Plus}>
+          <div className="space-y-6">
+            <div ref={addRef} className="space-y-2">
+              <AddColumnForm roles={doc.roles} offerAddToRoster={!preview} onAdd={addColumn} />
+              {missingFromMatrix.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={addEveryone}
+                >
+                  <UserPlus className="h-4 w-4" aria-hidden="true" />
+                  Add everyone on the team ({missingFromMatrix.length})
+                </Button>
+              )}
+            </div>
+            <div ref={addActivityRef}>
+              <AddActivityForm activities={doc.activities} onAdd={addActivity} />
+            </div>
           </div>
-          <AddActivityForm activities={doc.activities} onAdd={addActivity} />
-        </div>
-      </SectionCard>
+        </SectionCard>
+      )}
 
       {!empty && !preview && (
         <div className="flex justify-end">
           <ResetButton
             label="Clear the matrix"
             title="Clear the whole RACI matrix?"
-            description={`All ${doc.roles.length} columns, ${doc.activities.length} activities and what each one is assigned.`}
+            description={`${plural(doc.roles.length, "column")}, ${plural(
+              doc.activities.length,
+              "activity",
+              "activities"
+            )} and what each one is assigned.`}
             confirmLabel="Clear matrix"
             doneLabel="Cleared the RACI matrix"
             onReset={() => {

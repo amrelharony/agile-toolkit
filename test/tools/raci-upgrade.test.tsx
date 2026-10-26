@@ -10,6 +10,8 @@ import {
   RACI_ID,
   RACI_LEGACY_KEY,
   activityIssues,
+  cellOf,
+  cellText,
   countsByRole,
   isUntouchedDefault,
   loadWarnings,
@@ -63,6 +65,8 @@ import { buildExample } from "@/app/(tools)/raci/example";
 import { raciMarkdown } from "@/app/(tools)/raci/markdown";
 import { EMPTY_NAME, validateName } from "@/app/(tools)/raci/form";
 import { migrateRaciNow } from "@/app/(tools)/raci/migrate";
+import { withPageChecks } from "@/app/(tools)/raci/prompts";
+import { generateRACIPrompts } from "@/lib/ai-prompts/raci";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
 
@@ -208,11 +212,18 @@ describe("the checks", () => {
       {
         kind: "accountable_load",
         roleId: "a",
+        activityIds: ["1", "2", "3"],
         count: 3,
         of: 4,
-        message: "A is Accountable for 3 of 4 activities: share some of it out.",
+        message:
+          "A is Accountable for 3 of 4 activities (“Act 1”, “Act 2” and “Act 3”): share some of it out.",
       },
     ]);
+    // Past three, the rest are counted, and every id is kept.
+    expect(loadWarnings(four(4))[0]).toMatchObject({
+      activityIds: ["1", "2", "3", "4"],
+      summary: "A is Accountable for 4 of 4 activities (“Act 1”, “Act 2”, “Act 3” and 1 more)",
+    });
     expect(loadWarnings(four(2))).toEqual([]);
     // Three activities: one A on each is fine, even all one role's.
     const three = matrix(["a"], ["1", "2", "3"], {
@@ -462,10 +473,108 @@ describe("the page", () => {
     seed(matrix(["a"], ["x"], { x: { a: ["A"] } }));
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Clear the matrix" }));
+    expect(
+      screen.getByText("1 column, 1 activity and what each one is assigned.")
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear matrix" }));
     expect(stored()).toEqual({ id: RACI_ID, roles: [], activities: [], cells: {} });
     undoLast();
     expect(stored().cells).toEqual({ x: { a: ["A"] } });
+  });
+});
+
+describe("the page, after review", () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  /** Runs the frames focusSoon asked for, after React has rendered. */
+  const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+  const oldMatrix = JSON.stringify({
+    state: {
+      roles: [{ id: "r1", name: "Lead" }],
+      activities: [{ id: "a1", name: "Ship" }],
+      matrix: { a1: { r1: "A" } },
+    },
+    version: 0,
+  });
+
+  it("offers nothing that would create the matrix while the old one waits to move", () => {
+    window.localStorage.setItem(RACI_LEGACY_KEY, oldMatrix);
+    migrationMode.value = "blocked"; // the owner's merge/discard question is open
+    renderPage();
+    expect(screen.getByText(/You can add to it once it has moved/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start from the Scrum roles" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add column" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add activity" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
+    expect(ws().raciMatrices).toEqual([]);
+  });
+
+  it("stays editable when the workspace already has a matrix (the move writes nothing then)", () => {
+    window.localStorage.setItem(RACI_LEGACY_KEY, oldMatrix);
+    migrationMode.value = "blocked";
+    seed(matrix(["a"], ["x"]));
+    renderPage();
+    expect(screen.queryByText(/You can add to it once it has moved/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Add column" })).toBeInTheDocument();
+  });
+
+  it("moves focus to the next column or row after a delete, then to its add form", () => {
+    const del = (name: string) => screen.getAllByRole("button", { name })[0];
+    seed(matrix(["a", "b"], ["x", "y"]));
+    const first = renderPage();
+    fireEvent.click(del("Delete role A"));
+    nextFrame();
+    expect(document.activeElement).toBe(del("Delete role B"));
+    fireEvent.click(del("Delete role B"));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Person or role/));
+    first.unmount();
+
+    seed(matrix(["a"], ["x", "y"]));
+    renderPage();
+    fireEvent.click(del("Delete activity Act y"));
+    nextFrame();
+    expect(document.activeElement).toBe(del("Delete activity Act x"));
+    fireEvent.click(del("Delete activity Act x"));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Activity(?! description)/));
+  });
+
+  it("gives the AI prompt the page's checks: an A/R cell has its Accountable", () => {
+    const doc = matrix(["a", "b"], ["x", "y", "z"], {
+      x: { a: ["A", "R"] },
+      y: { a: ["R"] },
+    });
+    const prompts = generateRACIPrompts({
+      roles: doc.roles,
+      activities: doc.activities,
+      matrix: Object.fromEntries(
+        doc.activities.map((a) => [
+          a.id,
+          Object.fromEntries(doc.roles.map((r) => [r.id, cellText(cellOf(doc, a.id, r.id))])),
+        ])
+      ),
+    });
+    const checks = [...activityIssues(doc), ...loadWarnings(doc)].map((c) => c.message);
+    const gaps = prompts.map((p) => withPageChecks(p, checks)).find((p) => p.id === "raci-gaps")!;
+    // Before: the A/R cell read as no Accountable, and the unassigned row was flagged.
+    const before = prompts.find((p) => p.id === "raci-gaps")!.prompt;
+    expect(before).toContain('"Act x" has no Accountable role');
+    expect(gaps.prompt).not.toContain("Validation Warnings");
+    expect(gaps.prompt).not.toContain('"Act x" has no Accountable role');
+    expect(gaps.prompt).not.toContain('"Act z" has no Accountable role');
+    // Only the row with no A is flagged, as on the page.
+    expect(gaps.prompt).toContain(
+      "## Checks (as the page reads them)\n\n- “Act y” has no Accountable (A): pick the one person who answers for it.\n\n## Questions"
+    );
+    expect(gaps.prompt.indexOf("## Checks")).toBeLessThan(gaps.prompt.indexOf("## Questions"));
+    // The other prompt has no checks to swap.
+    const clarity = prompts.find((p) => p.id === "raci-clarity")!;
+    expect(withPageChecks(clarity, checks)).toBe(clarity);
   });
 });
 
@@ -484,7 +593,9 @@ describe("the example and the export", () => {
     expect(md).toContain("- Dev Team (group role): Everyone building the product");
     expect(md).toContain("| Roadmap | A/R | — | C | — | C |");
     expect(md).toContain("| Priya | 1 | 5 | 1 | 0 |");
-    expect(md).toContain("- Priya is Accountable for 5 of 8 activities: share some of it out.");
+    expect(md).toContain(
+      "- Priya is Accountable for 5 of 8 activities (“Backlog refinement”, “Sprint planning”, “Sprint review” and 2 more): share some of it out."
+    );
     expect(raciMarkdown(matrix([], []), [])).toContain("No activities or roles yet.");
   });
 });

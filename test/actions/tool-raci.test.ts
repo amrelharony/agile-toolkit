@@ -35,6 +35,7 @@ import type { RaciMatrix } from "@/lib/stores/workspace-types";
 import {
   RACI_ID,
   RACI_KIND,
+  RACI_LEGACY_KEY,
   activityIssues,
   loadWarnings,
   normalizeRaci,
@@ -211,6 +212,11 @@ describe("list_state", () => {
     expect(listed.issues.map((i) => i.kind)).toEqual(activityIssues(d).map((i) => i.kind));
     expect(listed.loadWarnings).toMatchObject([{ kind: "accountable_load", count: 3, of: 4 }]);
     expect(listed.loadWarnings).toHaveLength(loadWarnings(d).length);
+    // The activities the role is Accountable for, as the page names them.
+    expect(listed.loadWarnings[0]).toMatchObject({
+      activityIds: loadWarnings(d)[0].activityIds,
+      message: loadWarnings(d)[0].message,
+    });
     expect(listed.verdict).toBe(raciVerdict(d));
     expect(listed.roles[0]).toMatchObject({ name: "Ann", onTeam: true });
 
@@ -220,5 +226,40 @@ describe("list_state", () => {
     const stored = normalizeRaci(rows.get(`${RACI_KIND}/${RACI_ID}`) as RaciMatrix);
     expect(server.verdict).toBe(raciVerdict(stored));
     expect(server.issues.map((i) => i.kind)).toEqual(listed.issues.map((i) => i.kind));
+  });
+});
+
+describe("the old local matrix in this browser", () => {
+  const old = (cells: Record<string, Record<string, string>>) =>
+    JSON.stringify({
+      state: {
+        roles: [{ id: "r1", name: "Lead" }],
+        activities: [{ id: "a1", name: "Ship" }],
+        matrix: cells,
+      },
+      version: 0,
+    });
+
+  beforeEach(() => window.localStorage.clear());
+
+  it("refuses a browser write that would create the matrix before the page moves it in", async () => {
+    window.localStorage.setItem(RACI_LEGACY_KEY, old({ a1: { r1: "A" } }));
+    await expect(call("add_activity", { name: "Plan" })).rejects.toThrow(
+      /hasn't moved into the workspace yet/
+    );
+    expect(useWorkspaceStore.getState().raciMatrices).toEqual([]);
+    // The server writes its own rows: the browser's old store is not its concern.
+    expect(await callMcp("add_activity", { name: "Plan" })).toMatchObject({ added: true });
+  });
+
+  it("writes once the workspace has a matrix, or when the old store holds nothing to move", async () => {
+    window.localStorage.setItem(RACI_LEGACY_KEY, old({}));
+    useWorkspaceStore.setState({ raciMatrices: [] });
+    // Lead/Ship with nothing assigned is still the team's data: it waits.
+    await expect(call("add_activity", { name: "Plan" })).rejects.toThrow();
+    window.localStorage.setItem(RACI_LEGACY_KEY, "not json");
+    expect(await call("add_activity", { name: "Plan" })).toMatchObject({ added: true });
+    window.localStorage.setItem(RACI_LEGACY_KEY, old({ a1: { r1: "A" } }));
+    expect(await call("add_activity", { name: "Review" })).toMatchObject({ added: true });
   });
 });

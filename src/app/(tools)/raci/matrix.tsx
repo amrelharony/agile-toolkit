@@ -81,6 +81,8 @@ export function RaciMatrixView({ doc, flagged, onTeam, ...h }: MatrixProps) {
                   label={`Delete activity ${a.name}`}
                   icon={<Trash2 className="h-4 w-4" />}
                   className="h-9 w-9 shrink-0 text-sub hover:text-danger"
+                  data-raci-delete="activity"
+                  data-raci-id={a.id}
                   onClick={() => h.onRemoveActivity(a)}
                 />
               </div>
@@ -129,6 +131,8 @@ export function RaciMatrixView({ doc, flagged, onTeam, ...h }: MatrixProps) {
                       label={`Delete role ${r.name}`}
                       icon={<Trash2 className="h-4 w-4" />}
                       className="h-9 w-9 shrink-0 text-sub hover:text-danger"
+                      data-raci-delete="role"
+                      data-raci-id={r.id}
                       onClick={() => h.onRemoveRole(r)}
                     />
                   </div>
@@ -176,6 +180,8 @@ export function RaciMatrixView({ doc, flagged, onTeam, ...h }: MatrixProps) {
                       label={`Delete role ${r.name}`}
                       icon={<Trash2 className="h-3.5 w-3.5" />}
                       className="h-7 w-7 shrink-0 text-sub hover:text-danger"
+                      data-raci-delete="role"
+                      data-raci-id={r.id}
                       onClick={() => h.onRemoveRole(r)}
                     />
                   </div>
@@ -213,6 +219,8 @@ export function RaciMatrixView({ doc, flagged, onTeam, ...h }: MatrixProps) {
                       label={`Delete activity ${a.name}`}
                       icon={<Trash2 className="h-3.5 w-3.5" />}
                       className="h-7 w-7 shrink-0 text-sub hover:text-danger"
+                      data-raci-delete="activity"
+                      data-raci-id={a.id}
                       onClick={() => h.onRemoveActivity(a)}
                     />
                   </div>
