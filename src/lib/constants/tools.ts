@@ -2292,7 +2292,7 @@ export const tools: ToolDefinition[] = [
     code: "DC3",
     name: "Weighted Decision Matrix",
     description:
-      "Score options against weighted criteria (Pugh/MCDA) in named matrices — ties and weight sensitivity flagged, the result sent to the Decision Log",
+      "Score options against weighted criteria (Pugh/MCDA) in named matrices — ties and weight sensitivity flagged, and the result can go to the Decision Log as a proposed record",
     category: "Decision Frameworks",
     path: "/weighted-decision",
     icon: PercentCircle,

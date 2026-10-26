@@ -54,6 +54,18 @@ describe("Prioritize & decide tool descriptions", () => {
     );
   });
 
+  it("Weighted Decision Matrix: the result goes to the Decision Log only when sent", () => {
+    const text = description("weighted-decision");
+    expect(text).toContain("the result can go to the Decision Log as a proposed record");
+    expect(text).not.toMatch(/result sent to/);
+    // Sending is the page's own step: Send to… → Decision record (proposed).
+    const card = readFileSync(
+      join(process.cwd(), "src", "app", "(tools)", "weighted-decision", "result-card.tsx"),
+      "utf8"
+    );
+    expect(card).toContain('decision: "Decision record (proposed)"');
+  });
+
   it("Kano, Buy-a-Feature and the $100 Test run live rounds, like the Phase 6 vote tools", () => {
     for (const id of ["kano-model", "buy-a-feature", "hundred-dollar-test", "health-check"]) {
       expect(getToolById(id)?.isRealtime, id).toBe(true);
