@@ -3,7 +3,8 @@ import { EisenhowerClient } from "./eisenhower-client";
 
 export const metadata: Metadata = {
   title: "Eisenhower Matrix",
-  description: "Plot tasks on Urgent vs Important axes; decide Do / Schedule / Delegate / Delete.",
+  description:
+    "Answer whether each task is urgent and important, add a due date, and see it sorted into Do, Schedule, Delegate or Delete.",
 };
 
 export default function Page() {
