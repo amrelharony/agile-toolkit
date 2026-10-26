@@ -414,6 +414,9 @@ function ClosedHostRoom({
   useEffect(() => {
     headingRef.current?.focus();
   }, [title]);
+  // With every question withheld there are no totals a tool could keep (each
+  // one refuses such a round), so don't offer Save or warn about losing them.
+  const keepable = !!result && result.questions.some((q) => q.distribution !== null);
   return (
     <section className="space-y-3 rounded-lg border border-border bg-card p-3 sm:p-4">
       <h2 ref={headingRef} tabIndex={-1} className="text-base font-semibold text-text outline-none">
@@ -423,7 +426,9 @@ function ClosedHostRoom({
         {result
           ? saved
             ? "This round's totals are saved."
-            : "Save the totals below if you want to keep them. Nothing else from the round was kept."
+            : keepable
+              ? "Save the totals below if you want to keep them. Nothing else from the round was kept."
+              : "No question had enough answers to show, so there is nothing to save. Nothing from the round was kept."
           : "Nothing from the round was kept."}
       </p>
       {result && (
@@ -443,7 +448,7 @@ function ClosedHostRoom({
         />
       )}
       <div className="flex flex-wrap gap-2">
-        {result && (
+        {(keepable || saved) && (
           <Button
             type="button"
             variant="toolkit"
@@ -458,7 +463,7 @@ function ClosedHostRoom({
         <Button
           type="button"
           variant="outline"
-          onClick={() => (result && !saved ? setConfirmClose(true) : onClosed())}
+          onClick={() => (keepable && !saved ? setConfirmClose(true) : onClosed())}
         >
           Close
         </Button>

@@ -180,12 +180,18 @@ describe("VoteRoundPanel: a live round", () => {
     return { ...view, ch, code, writeText };
   }
 
-  async function answer(ch: FakeChannel, crypto: VoteCrypto, m: FakeMember, bid: string) {
+  async function answer(
+    ch: FakeChannel,
+    crypto: VoteCrypto,
+    m: FakeMember,
+    bid: string,
+    picks: number[] = [0, 1, 2]
+  ) {
     const s = ch.sent(VOTE_ROOM_EVENTS.state).at(-1) as VoteStateMessage;
     const sealed = await crypto.seal(
       s.keys.ecdh,
       ballotAad(s.roundId, m.id, bid),
-      answerString([0, 1, 2])
+      answerString(picks)
     );
     await act(async () => {
       ch.deliver(VOTE_ROOM_EVENTS.ballot, { v: 1, by: m.id, roundId: s.roundId, bid, ...sealed });
@@ -359,6 +365,34 @@ describe("VoteRoundPanel: a live round", () => {
     expect(onSave).toHaveBeenCalledTimes(3);
     expect(screen.getByRole("button", { name: "Round saved" })).toBeDisabled();
     expect(screen.getByText("This round's totals are saved.")).toBeInTheDocument();
+  });
+
+  it("offers nothing to save once the room ends when every question was withheld", async () => {
+    const allOptional = {
+      ...QUESTIONNAIRE,
+      questions: QUESTIONNAIRE.questions.map((q) => ({ ...q, optional: true })),
+    };
+    const { ch, crypto, onSave } = await startRound({ questionnaire: allOptional });
+    // Three people, each answering a different question: none reaches 3 answers.
+    await answer(ch, crypto!, A, "bid_00000001", [0, -1, -1]);
+    await answer(ch, crypto!, B, "bid_00000002", [-1, 1, -1]);
+    await answer(ch, crypto!, C, "bid_00000003", [-1, -1, 2]);
+    fireEvent.click(screen.getByRole("button", { name: "Reveal results" }));
+    await screen.findByRole("heading", { name: "Results" });
+    fireEvent.click(screen.getByRole("button", { name: "End room" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "End the live room?" })).getByRole("button", {
+        name: "End room",
+      })
+    );
+    await screen.findByRole("heading", { name: "You ended the live round" });
+    expect(screen.getByText(/^No question had enough answers to show/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save round" })).toBeNull();
+    // Nothing to lose, so Close doesn't ask.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "Run a live round" })).toBeInTheDocument();
   });
 
   it("announces a new round only once it has started", async () => {
