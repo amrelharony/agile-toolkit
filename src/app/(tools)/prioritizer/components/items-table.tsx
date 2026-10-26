@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowUpDown, Plus, Trash2 } from "lucide-react";
+import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
 import {
   type BacklogItem,
   type ImpactValue,
@@ -109,7 +110,8 @@ export function ItemsTable({
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {/* Phase 7 engine replaces this: a missing input shows its old default. */}
+              {items.map(withBacklogDefaults).map((item) => (
                 <tr key={item.id} className="border-b border-border group">
                   <td className="py-2 pr-3 align-top">
                     <div className="flex flex-col gap-1.5 min-w-[140px]">

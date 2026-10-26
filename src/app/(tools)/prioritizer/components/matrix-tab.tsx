@@ -8,6 +8,7 @@
 import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { ChartCard } from "@/components/shared/chart-card";
+import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
 import type { BacklogItem } from "../types";
 import { matrixQuadrant, type MatrixQuadrant } from "../scoring";
 
@@ -25,7 +26,9 @@ const ValueEffortScatter = dynamic(
   { ssr: false }
 );
 
-export function MatrixTab({ items }: { items: BacklogItem[] }) {
+export function MatrixTab({ items: stored }: { items: BacklogItem[] }) {
+  // Phase 7 engine replaces this: a missing input shows its old default.
+  const items = useMemo(() => stored.map(withBacklogDefaults), [stored]);
   const data = useMemo(
     () =>
       items.map((i) => ({

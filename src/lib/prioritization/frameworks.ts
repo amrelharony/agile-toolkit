@@ -22,8 +22,10 @@ import { JOBS } from "@/lib/constants/jobs";
 
 export type FrameworkKey = PrioritizationItem["framework"];
 export type RowFields = Record<string, number | string>;
-export type ImpactValue = BacklogItem["impact"];
-export type MoscowBucket = BacklogItem["moscow"];
+/** The RICE impact steps. BacklogItem.impact is a plain number since Phase 7
+ *  (an exact custom value is kept); the steps are what snapImpact rounds to. */
+export type ImpactValue = 0.25 | 0.5 | 1 | 2 | 3;
+export type MoscowBucket = NonNullable<BacklogItem["moscow"]>;
 
 /** The query parameter a "Score with…" link uses to preselect a backlog item. */
 export const BACKLOG_ITEM_PARAM = "backlogItem";
@@ -207,8 +209,25 @@ export function readBacklogItemParam(search: string): string | null {
   return id && id.trim() ? id : null;
 }
 
+/** The method inputs a backlog item holds (each optional since Phase 7). */
+export type BacklogMethodField =
+  | "moscow"
+  | "businessValue"
+  | "timeCriticality"
+  | "riskReduction"
+  | "jobSize"
+  | "reach"
+  | "impact"
+  | "confidence"
+  | "effort"
+  | "value"
+  | "matrixEffort";
+
+/** A backlog item with every method input present. */
+export type FilledBacklogItem = BacklogItem & Required<Pick<BacklogItem, BacklogMethodField>>;
+
 /** Defaults for a new backlog item: mid values, matching the Prioritizer's "Add Item". */
-export const BACKLOG_DEFAULTS: Omit<BacklogItem, "id" | "name"> = {
+export const BACKLOG_DEFAULTS: Required<Pick<BacklogItem, BacklogMethodField>> = {
   moscow: "should",
   businessValue: 5,
   timeCriticality: 5,
@@ -221,6 +240,24 @@ export const BACKLOG_DEFAULTS: Omit<BacklogItem, "id" | "name"> = {
   value: 5,
   matrixEffort: 5,
 };
+
+/**
+ * `item` with each missing method input read as its BACKLOG_DEFAULTS value
+ * (the item itself when none is missing).
+ *
+ * Phase 7 engine replaces this. The inputs became optional in the data layer
+ * (a missing one is Not scored), but until the method registry scores and
+ * shows a missing input as Not scored, the code that needs a number (the
+ * hub's cells and charts, WSJF in scores.ts and Sprint Planning) reads an
+ * item through this, so every item scores and shows as it did before: items
+ * were always saved with all their inputs, from these defaults.
+ */
+export function withBacklogDefaults(item: BacklogItem): FilledBacklogItem {
+  const keys = Object.keys(BACKLOG_DEFAULTS) as BacklogMethodField[];
+  if (keys.every((k) => item[k] !== undefined)) return item as FilledBacklogItem;
+  const missing = keys.filter((k) => item[k] === undefined).map((k) => [k, BACKLOG_DEFAULTS[k]]);
+  return { ...item, ...Object.fromEntries(missing) } as FilledBacklogItem;
+}
 
 const clamp10 = (n: number) => Math.min(10, Math.max(1, n));
 

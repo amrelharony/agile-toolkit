@@ -9,23 +9,29 @@
  */
 
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
-import type { FrameworkKey } from "./frameworks";
+import { withBacklogDefaults, type FrameworkKey } from "./frameworks";
 
 /** WSJF = (business value + time criticality + risk reduction) ÷ job size (at least 1). */
 export function backlogWsjf(item: BacklogItem): number {
-  const cod = item.businessValue + item.timeCriticality + item.riskReduction;
-  return parseFloat((cod / Math.max(1, item.jobSize)).toFixed(2));
+  // Phase 7 engine replaces this: a missing part reads as its old default.
+  const v = withBacklogDefaults(item);
+  const cod = v.businessValue + v.timeCriticality + v.riskReduction;
+  return parseFloat((cod / Math.max(1, v.jobSize)).toFixed(2));
 }
+
+/** A finite number, else `fallback`. */
+const finiteOr = (n: number | undefined, fallback: number): number =>
+  n !== undefined && Number.isFinite(n) ? n : fallback;
 
 /**
  * RICE = reach × impact × confidence% ÷ effort. Legacy rows missing a field
  * score as if it were 0 (effort 1) instead of NaN.
  */
 export function backlogRice(item: BacklogItem): number {
-  const reach = Number.isFinite(item.reach) ? item.reach : 0;
-  const impact = Number.isFinite(item.impact) ? item.impact : 0;
-  const confidence = Number.isFinite(item.confidence) ? item.confidence : 0;
-  const effort = Number.isFinite(item.effort) ? item.effort : 1;
+  const reach = finiteOr(item.reach, 0);
+  const impact = finiteOr(item.impact, 0);
+  const confidence = finiteOr(item.confidence, 0);
+  const effort = finiteOr(item.effort, 1);
   return parseFloat(((reach * impact * (confidence / 100)) / Math.max(0.1, effort)).toFixed(1));
 }
 
@@ -87,14 +93,16 @@ export function frameworkScores(
   const kano = latestLinkedRow(rows, item.id, "kano");
   const cod = latestLinkedRow(rows, item.id, "cost-of-delay");
   const kanoCategory = kano?.fields?.category;
+  // Phase 7 engine replaces this: a missing matrix input reads as its old default.
+  const { value, matrixEffort } = withBacklogDefaults(item);
   return {
     moscow: item.moscow,
     wsjf: backlogWsjf(item),
     rice: backlogRice(item),
     valueEffort: {
-      value: item.value,
-      effort: item.matrixEffort,
-      quadrant: matrixQuadrant(item.value, item.matrixEffort),
+      value,
+      effort: matrixEffort,
+      quadrant: matrixQuadrant(value, matrixEffort),
     },
     ice: finiteOrNull(ice?.score),
     kano: typeof kanoCategory === "string" && kanoCategory ? kanoCategory : null,

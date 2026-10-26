@@ -24,6 +24,7 @@ import {
   HEALTH_DASHBOARD_ID,
   MOOD_TRACKER_ID,
   RACI_ID,
+  REACH_PERIODS,
   WORKING_AGREEMENT_ID,
 } from "@/lib/stores/workspace-types";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
@@ -261,6 +262,14 @@ const StorySchema = z.object({
     .optional()
     .describe(
       "Definition-of-Done criteria ticked on the story's board card. Whether it meets the DoD is derived against today's required criteria (workspace.definition_of_done)."
+    ),
+  backlogRank: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "The decided backlog order it was pulled in with (its backlog item's rank, 1 = first). Absent: not ordered."
     ),
 }) as unknown as z.ZodType<Story>;
 
@@ -2323,21 +2332,51 @@ const StoryMapSchema = z.object({
   ),
 }) as unknown as z.ZodType<StoryMap>;
 
+// Every method input is optional since Phase 7: a missing one is Not scored,
+// never a default. The bounds stay as loose as before (any number), so no
+// stored item stops validating on update; the method engine judges the scale.
 const BacklogItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  moscow: z.enum(["must", "should", "could", "wont"]),
-  businessValue: z.number(),
-  timeCriticality: z.number(),
-  riskReduction: z.number(),
-  jobSize: z.number(),
-  reach: z.number(),
-  impact: z.number(),
-  confidence: z.number(),
-  effort: z.number(),
-  value: z.number(),
-  matrixEffort: z.number(),
+  moscow: z
+    .enum(["must", "should", "could", "wont"])
+    .optional()
+    .describe("MoSCoW bucket; absent: not sorted yet."),
+  businessValue: z
+    .number()
+    .optional()
+    .describe(
+      "THE value: WSJF business value and the Value/Effort value axis, Fibonacci 1, 2, 3, 5, 8, 13, 20."
+    ),
+  timeCriticality: z.number().optional().describe("WSJF time criticality, Fibonacci 1-20."),
+  riskReduction: z
+    .number()
+    .optional()
+    .describe("WSJF risk reduction / opportunity enablement, Fibonacci 1-20."),
+  jobSize: z.number().optional().describe("WSJF job size, Fibonacci 1-20."),
+  reach: z.number().optional().describe("RICE reach: people per reachPeriod."),
+  reachPeriod: z
+    .enum(REACH_PERIODS)
+    .optional()
+    .describe("The period reach counts over; absent: per quarter."),
+  impact: z.number().optional().describe("RICE impact: 3, 2, 1, 0.5 or 0.25 (exact value kept)."),
+  confidence: z.number().optional().describe("RICE confidence, percent: 100, 80 or 50."),
+  effort: z.number().optional().describe("RICE effort, person-months (minimum 0.5)."),
+  value: z
+    .number()
+    .optional()
+    .describe(
+      "Deprecated, read-only: the old 1-10 matrix value, read only when businessValue is missing. Write businessValue instead."
+    ),
+  matrixEffort: z.number().optional().describe("Value/Effort effort, 1-10."),
+  rank: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("The decided order, 1 = first (set by the Prioritizer's Decide order)."),
+  updatedAt: z.string().optional(),
 }) as unknown as z.ZodType<BacklogItem>;
 
 const NpsResponseSchema = z.object({

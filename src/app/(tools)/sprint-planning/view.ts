@@ -14,6 +14,7 @@ import {
   type CapacitySelection,
 } from "@/lib/sprints/plan";
 import { carryOver } from "@/lib/sprints/progress";
+import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
 import { sprintsNewestFirst } from "@/lib/sprints/series";
 import { findCapacityPlan, planCapacity } from "@/lib/sprints/capacity";
 import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
@@ -44,7 +45,9 @@ export const pointsCount = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "poin
  * Scrum-side ordering of the Prioritizer's backlog; a story keeps the score
  * it was imported with.
  */
-export function priorityScore(item: BacklogItem): number {
+export function priorityScore(stored: BacklogItem): number {
+  // Phase 7 engine replaces this: a missing part reads as its old default.
+  const item = withBacklogDefaults(stored);
   const cod = item.businessValue + item.timeCriticality + item.riskReduction;
   const size = item.jobSize > 0 ? item.jobSize : 1;
   return Math.round((cod / size) * 100) / 100;

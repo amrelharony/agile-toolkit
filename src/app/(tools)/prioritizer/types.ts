@@ -9,7 +9,7 @@ import type { BacklogItem } from "@/lib/stores/workspace-types";
 
 export type { BacklogItem };
 
-export type MoSCoWCategory = BacklogItem["moscow"];
+export type MoSCoWCategory = NonNullable<BacklogItem["moscow"]>;
 
 export const IMPACT_VALUES = [0.25, 0.5, 1, 2, 3] as const;
 export type ImpactValue = (typeof IMPACT_VALUES)[number];

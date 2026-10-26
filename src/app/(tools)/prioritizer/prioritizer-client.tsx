@@ -8,6 +8,7 @@ import { generatePrioritizerPrompts } from "@/lib/ai-prompts/prioritizer";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
+import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PRIORITIZER_ACTIONS } from "@/lib/history/event-actions";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
@@ -83,12 +84,14 @@ export function PrioritizerClient() {
       })
     )
   );
+  // Phase 7 engine replaces this: a missing input exports as its old default.
+  const filled = useMemo(() => items.map(withBacklogDefaults), [items]);
   const promptConfig = useMemo(
     () => ({
       toolName: "Backlog Prioritizer",
-      prompts: generatePrioritizerPrompts({ items }, workspace),
+      prompts: generatePrioritizerPrompts({ items: filled }, workspace),
     }),
-    [items, workspace]
+    [filled, workspace]
   );
 
   const csvData = useMemo(
@@ -110,7 +113,8 @@ export function PrioritizerClient() {
         "Matrix Value",
         "Matrix Effort",
       ],
-      rows: items.map((i) => [
+      // The scores come from the stored item, as the tabs show them.
+      rows: filled.map((i, n) => [
         i.name,
         i.description ?? "",
         MOSCOW_CONFIG[i.moscow].label,
@@ -118,17 +122,17 @@ export function PrioritizerClient() {
         i.timeCriticality,
         i.riskReduction,
         i.jobSize,
-        wsjfScore(i),
+        wsjfScore(items[n]),
         i.reach,
         i.impact,
         i.confidence,
         i.effort,
-        riceScore(i),
+        riceScore(items[n]),
         i.value,
         i.matrixEffort,
       ]),
     }),
-    [items]
+    [filled, items]
   );
 
   const matrixRef = useRef<HTMLDivElement>(null);

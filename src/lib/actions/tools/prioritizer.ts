@@ -31,8 +31,14 @@ const ws = () => useWorkspaceStore.getState();
 
 /** `rows` are the method tools' rows; the ones linked to an item feed its ICE, Kano and Cost of Delay. */
 function summarize(items: BacklogItem[], rows: PrioritizationItem[] = []) {
-  const byMoscow: Record<BacklogItem["moscow"], number> = { must: 0, should: 0, could: 0, wont: 0 };
-  for (const i of items) if (i.moscow in byMoscow) byMoscow[i.moscow] += 1;
+  const byMoscow: Record<NonNullable<BacklogItem["moscow"]>, number> = {
+    must: 0,
+    should: 0,
+    could: 0,
+    wont: 0,
+  };
+  // An item without a bucket is counted nowhere, as an unknown bucket always was.
+  for (const i of items) if (i.moscow && i.moscow in byMoscow) byMoscow[i.moscow] += 1;
   const scored = items.map((i) => ({
     id: i.id,
     name: i.name,

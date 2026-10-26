@@ -295,7 +295,7 @@ describe("linkNewRow", () => {
   it("writes nothing when the inputs already match, or for methods the backlog doesn't hold", () => {
     const item = backlogItem("b1");
     useWorkspaceStore.setState({ backlogItems: [item] });
-    linkNewRow(row("m", "moscow", { bucket: item.moscow }), "b1");
+    linkNewRow(row("m", "moscow", { bucket: item.moscow! }), "b1");
     linkNewRow(row("i", "ice", { impact: 3, confidence: 3, ease: 3 }), "b1");
     expect(undo.last).toBeNull();
     expect(storedItem("b1")).toEqual(item);

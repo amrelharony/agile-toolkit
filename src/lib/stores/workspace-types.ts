@@ -144,6 +144,13 @@ export interface Story {
   epicId?: string;
   /** Definition-of-Done checks ticked on the Sprint board card (absent: none ticked). */
   dodChecks?: StoryDodChecks;
+  /**
+   * The decided backlog order it was pulled in with: its `BacklogItem.rank`
+   * when Sprint Planning imported it (1-based; absent: not ordered). The
+   * shared backlog comparator sorts by it ascending, then `priorityScore`
+   * descending.
+   */
+  backlogRank?: number;
 }
 
 /**
@@ -2033,27 +2040,78 @@ export interface StoryMap {
   slices: StoryMapSlice[];
 }
 
-/** A backlog item scored across the prioritizer's four frameworks (MoSCoW,
- *  WSJF, RICE, Value vs Effort). */
+/** How often a RICE reach count happens: the people reached per week, month,
+ *  quarter or year. The score normalises reach to per quarter, so items with
+ *  different periods compare. */
+export type ReachPeriod = "week" | "month" | "quarter" | "year";
+
+export const REACH_PERIODS = [
+  "week",
+  "month",
+  "quarter",
+  "year",
+] as const satisfies readonly ReachPeriod[];
+
+/**
+ * A backlog item scored across the prioritizer's four embedded methods
+ * (MoSCoW, WSJF, RICE, Value vs Effort).
+ *
+ * Every method input is optional: a missing one is Not scored, never a
+ * mid-range default (Phase 7). Items saved before then carry the old "Add
+ * item" defaults (moscow "should"; WSJF parts all 5; RICE reach 100, impact
+ * 1, confidence 80, effort 1; value 5 and matrixEffort 5); a method whose
+ * every field still equals its old default reads as Not scored (the
+ * fingerprint rule in lib/prioritization), and the next save through the
+ * new code unsets them, never a bulk write on load.
+ */
 export interface BacklogItem {
   id: string;
   name: string;
   description?: string;
-  /** MoSCoW bucket. */
-  moscow: "must" | "should" | "could" | "wont";
-  /** WSJF inputs. */
-  businessValue: number;
-  timeCriticality: number;
-  riskReduction: number;
-  jobSize: number;
-  /** RICE inputs. */
-  reach: number;
-  impact: 0.25 | 0.5 | 1 | 2 | 3;
-  confidence: number;
-  effort: number;
-  /** Value vs Effort matrix inputs. */
-  value: number;
-  matrixEffort: number;
+  /** MoSCoW bucket; absent: Not sorted yet (no default bucket). */
+  moscow?: "must" | "should" | "could" | "wont";
+  /**
+   * THE value of the item, on WSJF's modified Fibonacci scale (1, 2, 3, 5,
+   * 8, 13, 20): WSJF's user-business value and the Value/Effort matrix's
+   * value axis (high value = 8 or more). Absent: Not scored, unless a
+   * legacy `value` is there to read.
+   */
+  businessValue?: number;
+  /** WSJF time criticality, Fibonacci 1–20. */
+  timeCriticality?: number;
+  /** WSJF risk reduction / opportunity enablement (a row's `rrOe`), Fibonacci 1–20. */
+  riskReduction?: number;
+  /** WSJF job size, Fibonacci 1–20 (floor 1: a legacy 0 < size < 1 scores as 1). */
+  jobSize?: number;
+  /** RICE reach: people (or events) per `reachPeriod`. */
+  reach?: number;
+  /** The period `reach` counts over; absent: per quarter (what the hub's
+   *  Reach always meant). */
+  reachPeriod?: ReachPeriod;
+  /** RICE impact. The steps are 3 massive, 2 high, 1 medium, 0.5 low and
+   *  0.25 minimal; an exact custom value is kept (no snapping). */
+  impact?: number;
+  /** RICE confidence, percent (100 high, 80 medium, 50 low). */
+  confidence?: number;
+  /** RICE effort, person-months; minimum 0.5 (a legacy smaller value scores as 0.5). */
+  effort?: number;
+  /**
+   * @deprecated Read-only legacy: the Value/Effort matrix's 1–10 value from
+   * before the one value field. Read only when `businessValue` is missing,
+   * mapped to the nearest Fibonacci step at or above it (1→1, 2→2, 3→3,
+   * 4–5→5, 6–8→8, 9–10→13); never written again.
+   */
+  value?: number;
+  /** Value/Effort matrix effort, 1–10 (high effort = 6 or more). */
+  matrixEffort?: number;
+  /**
+   * The decided order: 1-based, unique among ranked items, set only by the
+   * Prioritizer's Decide order. Absent: Not ordered yet (new items stay
+   * unranked until the next Decide order).
+   */
+  rank?: number;
+  /** When the item was last saved (stamped by the code that writes it). */
+  updatedAt?: ISODateString;
 }
 
 // ── Outcomes & Pulse (squad S6) ──────────────────────────────────────

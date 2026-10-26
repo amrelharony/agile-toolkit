@@ -7,13 +7,18 @@
 
 import { useMemo } from "react";
 import { SectionCard } from "@/components/shared/section-card";
+import { withBacklogDefaults } from "@/lib/prioritization/frameworks";
 import type { BacklogItem } from "../types";
 import { wsjfScore } from "../scoring";
 import { ScoreBadge } from "./cells";
 
 export function WSJFTab({ items }: { items: BacklogItem[] }) {
   const sorted = useMemo(
-    () => [...items].map((i) => ({ ...i, score: wsjfScore(i) })).sort((a, b) => b.score - a.score),
+    () =>
+      [...items]
+        // Phase 7 engine replaces this: a missing part shows its old default.
+        .map((i) => ({ ...withBacklogDefaults(i), score: wsjfScore(i) }))
+        .sort((a, b) => b.score - a.score),
     [items]
   );
 

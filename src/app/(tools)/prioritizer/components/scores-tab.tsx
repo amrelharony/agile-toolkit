@@ -32,7 +32,7 @@ const finite = (n: number | null | undefined): n is number =>
 function scoreFor(f: PrioritizationFramework, s: FrameworkScores): React.ReactNode | null {
   switch (f.framework) {
     case "moscow":
-      return MOSCOW_CONFIG[s.moscow]?.label ?? null;
+      return s.moscow ? (MOSCOW_CONFIG[s.moscow]?.label ?? null) : null;
     case "wsjf":
       return finite(s.wsjf) ? s.wsjf.toFixed(2) : null;
     case "rice":
