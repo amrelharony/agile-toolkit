@@ -309,22 +309,36 @@ export const MATURITY_LEVEL_LABELS: Record<number, string> = {
   5: "Optimizing",
 };
 
+/** A theme token for a level's colour (text-danger, bg-success/10, …), never a hex. */
+export type MaturityTone = "danger" | "warning" | "info" | "success" | "accent";
+
 export interface MaturityScore {
+  /** Overall maturity on a 0-100% scale (maturityPct). */
   percentage: number;
   /** The rounded average level, 1-5. */
   level: number;
   /** The same name the per-dimension levels use (Initial … Optimizing). */
   label: string;
-  color: string;
+  tone: MaturityTone;
 }
 
-const LEVEL_COLORS: Record<number, string> = {
-  1: "#ef4444",
-  2: "#f97316",
-  3: "#eab308",
-  4: "#22c55e",
-  5: "#00f0ff",
+const LEVEL_TONE: Record<number, MaturityTone> = {
+  1: "danger",
+  2: "warning",
+  3: "info",
+  4: "success",
+  5: "accent",
 };
+
+/**
+ * Overall maturity as the share of the way from level 1 to level 5: all 1s
+ * is 0%, all 3s 50%, all 5s 100%. It used to be average / 5, so a team at
+ * the floor read 20% and a level-3 team 60%.
+ */
+export function maturityPct(averageLevel: number): number {
+  if (!Number.isFinite(averageLevel)) return 0;
+  return Math.min(100, Math.max(0, Math.round(((averageLevel - 1) / 4) * 100)));
+}
 
 /**
  * The overall score names the rounded average level with the level labels.
@@ -333,9 +347,13 @@ const LEVEL_COLORS: Record<number, string> = {
  * overall badge.
  */
 export function getMaturityScore(averageLevel: number): MaturityScore {
-  const percentage = Math.round((averageLevel / 5) * 100);
   const level = Number.isFinite(averageLevel)
     ? Math.min(5, Math.max(1, Math.round(averageLevel)))
     : 1;
-  return { percentage, level, label: MATURITY_LEVEL_LABELS[level], color: LEVEL_COLORS[level] };
+  return {
+    percentage: maturityPct(averageLevel),
+    level,
+    label: MATURITY_LEVEL_LABELS[level],
+    tone: LEVEL_TONE[level],
+  };
 }
