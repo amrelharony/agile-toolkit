@@ -43,6 +43,8 @@ vi.stubGlobal(
 
 import { PrioritizerClient } from "@/app/(tools)/prioritizer/prioritizer-client";
 import { buildExample } from "@/app/(tools)/prioritizer/example";
+import { MoSCoWTab } from "@/app/(tools)/prioritizer/components/moscow-tab";
+import { evaluateItemIn } from "@/lib/prioritization/methods";
 
 const backlogItem = (
   id: string,
@@ -114,6 +116,30 @@ describe("example", () => {
     expect(rows.length).toBeGreaterThanOrEqual(5);
     expect(rows.every((r) => r.id.startsWith("example-"))).toBe(true);
     expect(new Set(rows.map((r) => r.moscow)).size).toBe(4);
+  });
+
+  it("is stamped and on the Fibonacci scale, so every bucket reads as chosen", () => {
+    const rows = buildExample("2026-10-26T09:00:00.000Z");
+    expect(rows.every((r) => r.updatedAt === "2026-10-26T09:00:00.000Z")).toBe(true);
+    expect(rows.every((r) => r.value === undefined)).toBe(true);
+    const parts = rows.flatMap((r) => [
+      r.businessValue,
+      r.timeCriticality,
+      r.riskReduction,
+      r.jobSize,
+    ]);
+    expect(parts.every((n) => [1, 2, 3, 5, 8, 13, 20].includes(n as number))).toBe(true);
+    // Read through the registry (old-default fingerprints cleared): no bucket lost.
+    const buckets = rows.map((r) => evaluateItemIn(r, [], "moscow").bucket);
+    expect(buckets).toEqual(["must", "must", "should", "should", "could", "could", "wont"]);
+    const quadrants = new Set(rows.map((r) => evaluateItemIn(r, [], "value-effort").bucket));
+    expect(quadrants.size).toBe(4);
+    // The card-declined fix wins WSJF; the rebuild is near the bottom.
+    const wsjf = rows
+      .map((r) => ({ name: r.name, score: evaluateItemIn(r, [], "wsjf").score as number }))
+      .sort((a, b) => b.score - a.score);
+    expect(wsjf[0].name).toBe("Clearer card-declined message");
+    expect(wsjf.findIndex((r) => r.name.startsWith("Rebuild"))).toBeGreaterThanOrEqual(5);
   });
 
   it("loads, and Clear example removes only the example rows", () => {
@@ -248,6 +274,26 @@ describe("All methods tab", () => {
     expect(screen.getByRole("heading", { name: "Which method?" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Kano" })).toHaveAttribute("href", "/kano-model");
     expect(screen.getByRole("link", { name: "WSJF" })).toHaveAttribute("href", "/wsjf");
+  });
+});
+
+describe("MoSCoW tab", () => {
+  it("groups by the registry's bucket: an old default 'should' is Not sorted yet", () => {
+    render(
+      <MoSCoWTab
+        items={[
+          backlogItem("old", "Legacy default"),
+          { id: "s", name: "Chosen should", moscow: "should", updatedAt: "2026-10-01T09:00:00Z" },
+          { id: "m", name: "A must", moscow: "must", updatedAt: "2026-10-01T09:00:00Z" },
+        ]}
+      />
+    );
+    const should = screen.getByText("Should Have").closest("[class*='border']") as HTMLElement;
+    expect(within(should).getByText("Chosen should")).toBeInTheDocument();
+    expect(within(should).queryByText("Legacy default")).toBeNull();
+    const unsorted = screen.getByText("Not sorted yet").closest("[class*='border']") as HTMLElement;
+    expect(within(unsorted).getByText("Legacy default")).toBeInTheDocument();
+    expect(within(unsorted).getByText("1 item")).toBeInTheDocument();
   });
 });
 
