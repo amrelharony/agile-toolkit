@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { CynefinItem, Hypothesis } from "@/lib/stores/workspace-types";
+import type { CynefinItem, Hypothesis, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
 import {
   DOMAINS,
@@ -427,5 +427,112 @@ describe("the agent says the same", () => {
       sent: false,
       reason: "already_sent",
     });
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+describe("review fixes", () => {
+  it("classify_and_persist files nothing when no signal matches (no default domain)", async () => {
+    const refused = await run<{ persisted: boolean; reason: string; message: string }>(
+      "classify_and_persist",
+      { title: "Something", signals: ["totally unrelated text"] }
+    );
+    expect(refused).toMatchObject({ persisted: false, reason: "no_suggestion" });
+    expect(refused.message).toMatch(/record_domain/);
+    expect(items()).toEqual([]);
+    // A matching signal still files its domain, and Confused only when a signal says so.
+    expect(
+      await run("classify_and_persist", { title: "Outage", signals: ["urgent"] })
+    ).toMatchObject({ domain: "chaotic" });
+    expect(
+      await run("classify_and_persist", { title: "Stuck", signals: ["no agreement"] })
+    ).toMatchObject({ domain: "confused" });
+    // classify (pure) still reports its fallback, unmatched.
+    expect(classifySignals(["totally unrelated text"]).matched).toBe(false);
+  });
+
+  it("the verdict tells tested complex items from ones being tested", () => {
+    const sent = (id: string, h: string) =>
+      item({ id, sentTo: [{ route: "hypothesis", targetId: h, at: "" }] });
+    const list = [sent("a", "h1"), sent("b", "h2"), sent("c", "h3")];
+    expect(
+      cynefinVerdict(list, [hyp("h1", "validated"), hyp("h2", "running"), hyp("h3", "drafted")])
+    ).toBe("3 items: 3 complex: 1 tested, 2 being tested.");
+    expect(
+      cynefinVerdict(list, [
+        hyp("h1", "validated"),
+        hyp("h2", "invalidated"),
+        hyp("h3", "inconclusive"),
+      ])
+    ).toBe("3 items: 3 complex, all tested.");
+    expect(
+      cynefinVerdict(list, [hyp("h1", "running"), hyp("h2", "running"), hyp("h3", "running")])
+    ).toBe("3 items: 3 complex, all being tested.");
+    expect(cynefinVerdict([list[0]], [hyp("h1", "validated")])).toBe("1 item: 1 complex, tested.");
+  });
+
+  it("deleting an item moves focus to its neighbour, and the last one to the form", () => {
+    seed([
+      item({ id: "a", title: "First", domain: "clear" }),
+      item({ id: "b", title: "Second", domain: "complex" }),
+    ]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete First" }));
+    expect(screen.getByRole("button", { name: "Delete Second" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Second" }));
+    expect(screen.getByLabelText(/^Problem/)).toHaveFocus();
+  });
+
+  it("moving an item to another domain keeps focus on its domain picker", () => {
+    seed([item({ id: "a", title: "Mover", domain: "clear" })]);
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Domain of Mover"), { target: { value: "complex" } });
+    expect(items()[0].domain).toBe("complex");
+    expect(screen.getByLabelText("Domain of Mover")).toHaveFocus();
+  });
+
+  it("'Use the suggestion' hands focus to the Domain it picked; a hypothesis to its link", () => {
+    seed([item({ id: "c1", title: "Pricing" })]);
+    renderPage();
+    answer(/known best practice/, "No");
+    answer(/only learn what works/, "Yes");
+    fireEvent.click(screen.getByRole("button", { name: "Use the suggestion" }));
+    const domain = screen.getByRole("radiogroup", { name: "Domain" });
+    expect(within(domain).getByRole("radio", { name: /Complex/ })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn into a hypothesis" }));
+    expect(screen.getByRole("link", { name: /Testing in the Hypothesis Tracker/ })).toHaveFocus();
+  });
+
+  it("Undo of a delete pins the item's canvas cards back", () => {
+    const card = (id: string, sourceRef?: { tool: string; entityId: string }) =>
+      ({
+        id,
+        boardId: "b",
+        type: "card",
+        x: 0,
+        y: 0,
+        w: 10,
+        h: 10,
+        z: 0,
+        version: 1,
+        createdAt: "2026-10-01T00:00:00Z",
+        updatedAt: "2026-10-01T00:00:00Z",
+        title: "Card",
+        ...(sourceRef ? { sourceRef } : {}),
+      }) as unknown as WhiteboardObject;
+    seed([item()]);
+    act(() =>
+      useWorkspaceStore.setState({
+        whiteboardObjects: [card("k1", { tool: "cynefin", entityId: "c1" })],
+      })
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete New pricing page" }));
+    expect(ws().whiteboardObjects?.[0].sourceRef).toBeUndefined();
+    undoLast();
+    expect(ws().whiteboardObjects?.[0].sourceRef).toEqual({ tool: "cynefin", entityId: "c1" });
+    expect(ws().whiteboardObjects?.[0].version).toBe(3);
   });
 });

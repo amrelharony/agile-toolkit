@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { Compass, Plus } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -22,7 +22,12 @@ import { sendHandoff } from "@/lib/handoffs/send";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { CynefinDomain, CynefinItem, HypothesisTracker } from "@/lib/stores/workspace-types";
+import type {
+  CynefinDomain,
+  CynefinItem,
+  HypothesisTracker,
+  WhiteboardObject,
+} from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { undoable } from "@/lib/utils/undoable";
 import {
@@ -35,12 +40,42 @@ import {
   planOf,
 } from "@/lib/cynefin/model";
 import { buildExample } from "./example";
-import { ItemCard } from "./item-card";
+import { ItemCard, itemControlId } from "./item-card";
 import { cynefinToMarkdown } from "./markdown";
 import { DOMAIN_TONE, SenseForm, type NewCynefinItem } from "./sense-form";
 
 const NO_ITEMS: CynefinItem[] = [];
 const NO_TRACKERS: HypothesisTracker[] = [];
+
+/** A canvas card's link to an item, as the delete found it. */
+type CardLink = { id: string; sourceRef: NonNullable<WhiteboardObject["sourceRef"]> };
+
+/** The canvas cards pinned to item `id` (the store's delete unpins them). */
+function cardLinksTo(id: string): CardLink[] {
+  return (useWorkspaceStore.getState().whiteboardObjects ?? []).flatMap((o) =>
+    o.sourceRef && o.sourceRef.tool === "cynefin" && o.sourceRef.entityId === id
+      ? [{ id: o.id, sourceRef: o.sourceRef }]
+      : []
+  );
+}
+
+/**
+ * Re-pin cards a delete unpinned (its Undo), each only while it is still
+ * there and unpinned, as lib/decisions/store's restoreDecisionRecord does.
+ */
+function repinCards(cards: readonly CardLink[]): void {
+  if (cards.length === 0) return;
+  const objects = new Map(
+    (useWorkspaceStore.getState().whiteboardObjects ?? []).map((o) => [o.id, o])
+  );
+  const at = new Date().toISOString();
+  const back = cards.flatMap(({ id, sourceRef }) => {
+    const o = objects.get(id);
+    // version + updatedAt bump so peers accept the change (last write wins).
+    return o && !o.sourceRef ? [{ ...o, sourceRef, version: o.version + 1, updatedAt: at }] : [];
+  });
+  if (back.length > 0) useWorkspaceStore.getState().upsertWhiteboardObjects(back);
+}
 
 /**
  * Cynefin: place each problem in a domain to choose how to act on it.
@@ -64,6 +99,20 @@ export function CynefinClient() {
   const grouped = useMemo(() => groupByDomain(items), [items]);
   const verdict = cynefinVerdict(items, hypotheses);
   const stateOf = (it: CynefinItem) => hypothesisStateOf(it, hypotheses);
+
+  // A delete, a change of domain (the card moves to another section) and
+  // "Turn into a hypothesis" unmount the control that made them, so focus
+  // moves to a control on screen once the board has re-rendered (an element
+  // id), never to the page.
+  const focusNext = useRef<string | null>(null);
+  useEffect(() => {
+    const id = focusNext.current;
+    if (!id) return;
+    focusNext.current = null;
+    document.getElementById(id)?.focus();
+  });
+  const placeRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   const ws = () => useWorkspaceStore.getState();
   const current = (id: string) => (ws().cynefinItems ?? []).find((x) => x.id === id);
@@ -89,6 +138,7 @@ export function CynefinClient() {
 
   const reclassify = (it: CynefinItem, domain: CynefinDomain) => {
     if (domain === it.domain) return;
+    focusNext.current = itemControlId("domain", it.id);
     // A plan written for the item survives; a copy of the old domain's
     // recipe follows the new domain instead.
     patch(it.id, (x) => {
@@ -101,18 +151,34 @@ export function CynefinClient() {
   };
 
   const remove = (it: CynefinItem) => {
+    // Focus goes to the next item's delete button on the board (or the one
+    // before); with none left, to the form for the next problem.
+    const board = DOMAIN_IDS.flatMap((d) => grouped[d]);
+    const at = board.findIndex((x) => x.id === it.id);
+    const neighbour = board[at + 1] ?? board[at - 1];
+    // The store unpins the item's canvas cards; Undo pins them back.
+    const cards = cardLinksTo(it.id);
+    if (neighbour) focusNext.current = itemControlId("delete", neighbour.id);
     undoable({
       label: `Deleted “${it.title}”`,
       apply: () => {
         ws().removeCynefinItem(it.id);
         record(it.id, CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id });
       },
-      revert: () => ws().upsertCynefinItem(it),
+      revert: () => {
+        ws().upsertCynefinItem(it);
+        repinCards(cards);
+      },
     });
+    if (!neighbour) {
+      (placeRef.current?.querySelector<HTMLInputElement>("input") ?? toggleRef.current)?.focus();
+    }
     announce(`Deleted “${it.title}”`);
   };
 
   const toHypothesis = (it: CynefinItem) => {
+    // The button gives way to the link to the hypothesis: focus goes there.
+    focusNext.current = itemControlId("hypothesis", it.id);
     const link = sendHandoff("hypothesis", hypothesisSourceOf(it), {
       getLinks: () => current(it.id)?.sentTo,
       setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) =>
@@ -178,6 +244,7 @@ export function CynefinClient() {
             icon={Plus}
             actions={
               <button
+                ref={toggleRef}
                 type="button"
                 aria-expanded={formOpen}
                 onClick={() => setFormOpen((o) => !o)}
@@ -187,7 +254,7 @@ export function CynefinClient() {
               </button>
             }
           >
-            {formOpen && <SenseForm onSave={add} />}
+            <div ref={placeRef}>{formOpen && <SenseForm onSave={add} />}</div>
           </SectionCard>
 
           {items.length === 0 ? (

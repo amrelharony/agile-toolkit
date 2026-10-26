@@ -301,6 +301,10 @@ const PersistSchema = z
  * answers' suggestion, else the signals'. The rationale is the caller's,
  * or the classifier's reason when it classified; an explicit domain with
  * no rationale gets none (it used to be a placeholder the page showed).
+ * Nothing is filed by default: answers that suggest no domain, or signals
+ * no keyword matches (classifySignals then falls back to Confused, which
+ * is a placeholder, not a suggestion), are refused like the page refuses
+ * an item without a domain.
  */
 function buildItem(p: z.infer<typeof PersistSchema>): CynefinItem | { refuse: string } {
   const answers = normalizeAnswers(p.answers);
@@ -312,6 +316,12 @@ function buildItem(p: z.infer<typeof PersistSchema>): CynefinItem | { refuse: st
   } else {
     const c = classifyFrom(p.signals, hasAnswers ? answers : undefined);
     if (!c.recommendedDomain) return { refuse: c.rationale };
+    if (c.from === "signals" && !c.matched) {
+      return {
+        refuse:
+          "No signal matches a domain's keywords, so there is nothing to suggest: file it with tool.cynefin.record_domain and the domain the team confirmed, or classify from the guided answers.",
+      };
+    }
     domain = c.recommendedDomain;
     derived = c.rationale;
   }
@@ -343,7 +353,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a new Cynefin item in one call. Supply an explicit `domain` (already decided), or `answers` / `signals` to classify from (tool.cynefin.classify); domain wins over answers, and answers over signals. Answers are stored with the item. The rationale is yours, or the classifier's reason; an explicit domain without one stores none. Returns {id, domain, recommendedAction}, or {persisted: false, reason: 'no_suggestion', message} when the answers don't point to a domain.",
+    "Persist a new Cynefin item in one call. Supply an explicit `domain` (already decided), or `answers` / `signals` to classify from (tool.cynefin.classify); domain wins over answers, and answers over signals. Answers are stored with the item. The rationale is yours, or the classifier's reason; an explicit domain without one stores none. Returns {id, domain, recommendedAction}, or {persisted: false, reason: 'no_suggestion', message} (nothing stored) when the answers don't point to a domain or no signal matches a keyword: nothing is filed under a default domain, so use record_domain with the domain the team confirmed.",
   paramsSchema: PersistSchema,
   handler: async (params) => classifyAndPersist(browserStore, params),
   mcpHandler: async (params, ctx) => classifyAndPersist(serverStore(ctx.userId), params),

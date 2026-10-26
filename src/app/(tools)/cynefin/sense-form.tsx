@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Compass, Lightbulb, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -89,8 +90,18 @@ export function SenseForm({ onSave }: { onSave: (values: NewCynefinItem) => void
   const suggestion = senseDomain(draft.answers);
   const setAnswer = (q: string, a: CynefinAnswer) =>
     update({ answers: { ...draft.answers, [q]: a } });
+  // "Use the suggestion" goes once it is used: focus moves to the Domain
+  // choice it made, after the render that checks it.
+  const domainRef = useRef<HTMLDivElement>(null);
+  const focusDomain = useRef(false);
+  useEffect(() => {
+    if (!focusDomain.current) return;
+    focusDomain.current = false;
+    domainRef.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus();
+  });
   const takeSuggestion = () => {
     if (!suggestion.domain) return;
+    focusDomain.current = true;
     update({
       domain: suggestion.domain,
       // The reason becomes the rationale unless one was written.
@@ -166,6 +177,7 @@ export function SenseForm({ onSave }: { onSave: (values: NewCynefinItem) => void
       </fieldset>
 
       <div
+        ref={domainRef}
         className="flex flex-col gap-1.5"
         data-scale-invalid={errors.domain ? "true" : undefined}
       >

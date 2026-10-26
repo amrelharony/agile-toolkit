@@ -88,6 +88,14 @@ function RationaleInPlace({
   );
 }
 
+/**
+ * The element id of one of an item's controls: the board moves focus to it
+ * after a change that unmounts the control that was used.
+ */
+export function itemControlId(control: "domain" | "delete" | "hypothesis", id: string): string {
+  return control === "domain" ? `domain-${id}` : `cynefin-${control}-${id}`;
+}
+
 /** "Yes to: will you only learn by trying …" — the answers an item was placed with. */
 function answersText(item: CynefinItem): string | null {
   const a = normalizeAnswers(item.answers);
@@ -156,11 +164,11 @@ export function ItemCard({
             </button>
           )}
         </div>
-        <label className="sr-only" htmlFor={`domain-${item.id}`}>
+        <label className="sr-only" htmlFor={itemControlId("domain", item.id)}>
           Domain of {item.title}
         </label>
         <select
-          id={`domain-${item.id}`}
+          id={itemControlId("domain", item.id)}
           className={cn(
             "flex h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             DOMAIN_TONE[domain]
@@ -175,6 +183,7 @@ export function ItemCard({
           ))}
         </select>
         <IconButton
+          id={itemControlId("delete", item.id)}
           label={`Delete ${item.title}`}
           icon={<Trash2 className="h-4 w-4" />}
           className="h-8 w-8 text-sub hover:text-danger"
@@ -222,6 +231,7 @@ export function ItemCard({
             </>
           ) : (
             <Link
+              id={itemControlId("hypothesis", item.id)}
               href={href}
               className={cn(
                 "inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline",

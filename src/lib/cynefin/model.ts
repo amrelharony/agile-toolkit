@@ -377,8 +377,20 @@ export function complexNotTested<T extends CynefinItem>(
 }
 
 /**
+ * Where the complex items' tests stand once every one has a hypothesis:
+ * "all being tested", "all tested" (each has a result), or both counted.
+ */
+function testsText(complex: number, tested: number): string {
+  if (tested === 0) return complex === 1 ? "being tested" : "all being tested";
+  if (tested === complex) return complex === 1 ? "tested" : "all tested";
+  return `${tested} tested, ${complex - tested} being tested`;
+}
+
+/**
  * The board in one sentence: "7 items: 3 complex (2 not yet tested as
- * hypotheses), 1 chaotic: stabilise it first."
+ * hypotheses), 1 chaotic: stabilise it first." A hypothesis with a result
+ * (validated, invalidated or inconclusive) counts as tested, not as being
+ * tested.
  */
 export function cynefinVerdict(
   items: readonly CynefinItem[],
@@ -390,9 +402,10 @@ export function cynefinVerdict(
   const complex = g.complex.length;
   if (complex > 0) {
     const untested = complexNotTested(g.complex, hypotheses).length;
+    const tested = g.complex.filter((it) => hypothesisStateOf(it, hypotheses) === "tested").length;
     parts.push(
       untested === 0
-        ? `${complex} complex, all being tested`
+        ? `${complex} complex${tested > 0 && tested < complex ? ":" : ","} ${testsText(complex, tested)}`
         : untested === complex
           ? `${complex} complex, ${complex === 1 ? "not" : "none"} yet tested as ${complex === 1 ? "a hypothesis" : "hypotheses"}`
           : `${complex} complex (${untested} not yet tested as ${untested === 1 ? "a hypothesis" : "hypotheses"})`
