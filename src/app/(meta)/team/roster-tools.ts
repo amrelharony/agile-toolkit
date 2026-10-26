@@ -14,4 +14,9 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "working-agreement", use: "Asks each person for consent to every rule." },
   { toolId: "raci", use: "Offers teammates as columns of the matrix." },
   { toolId: "skills-matrix", use: "Gives each person a column to rate their skills." },
+  {
+    toolId: "one-on-one",
+    use: "Offers teammates as manager and report, and lists anyone with no 1:1 yet.",
+  },
+  { toolId: "onboarding-tracker", use: "Offers teammates as new joiners and their buddies." },
 ];
