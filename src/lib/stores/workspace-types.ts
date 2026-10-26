@@ -2497,31 +2497,6 @@ export function emptySkillsMatrix(id: string): SkillsMatrix {
   return { id, members: [], skills: [], grid: {}, version: 2 };
 }
 
-/**
- * Demo seed shown until the first edit (3 members × 4 skills, all unrated).
- * @deprecated Phase 6 starts from `emptySkillsMatrix`; this seed moves to the
- * tool's example data, and goes once nothing calls it.
- */
-export function defaultSkillsMatrix(id: string): SkillsMatrix {
-  const members: SkillsMatrixMember[] = [
-    { id: "m1", name: "Alice" },
-    { id: "m2", name: "Bob" },
-    { id: "m3", name: "Carol" },
-  ];
-  const skills: SkillsMatrixSkill[] = [
-    { id: "s1", name: "TypeScript" },
-    { id: "s2", name: "React" },
-    { id: "s3", name: "Node.js" },
-    { id: "s4", name: "CI/CD" },
-  ];
-  const grid: SkillsMatrixGrid = {};
-  for (const s of skills) {
-    grid[s.id] = {};
-    for (const m of members) grid[s.id][m.id] = 0;
-  }
-  return { id, members, skills, grid };
-}
-
 /* ── Definition of Done (singleton) ──
  * A workspace document, so stories, Release Readiness, the charter, next
  * steps and agents read the same one. The DoD builder's own cloud blob
