@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { AlertOctagon, CalendarClock, PieChart, Plus, Table2, Users } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -8,295 +9,77 @@ import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SectionCard } from "@/components/shared/section-card";
+import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
+import { ResetButton } from "@/components/shared/reset-button";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Trash2, PieChart, Users, AlertOctagon } from "lucide-react";
+import { useStableOrder } from "@/hooks/use-stable-order";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { removeWithUndo } from "@/lib/utils/undoable";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STAKEHOLDER_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { generateStakeholderMapPrompts } from "@/lib/ai-prompts/stakeholder-map";
+import { todayIso } from "@/lib/sprints/series";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
+import { buildExample } from "./example";
+import { StakeholderDetail, StakeholderMap, type PlaceHow } from "./map";
+import { sentimentText, stakeholdersToMarkdown } from "./markdown";
+import {
+  QUADRANTS,
+  QUADRANT_DESCRIPTION,
+  QUADRANT_LABEL,
+  STORAGE_KEY,
+  daysToTouch,
+  isPlaced,
+  normalizeStakeholders,
+  positionText,
+  quadrantOf,
+  stakeholderVerdict,
+  touchStatus,
+  type Quadrant,
+  type Stakeholder,
+} from "./model";
+import { StakeholderForm, type NewStakeholder } from "./stakeholder-form";
+import { StakeholderRow } from "./stakeholder-row";
 
-type Sentiment = "champion" | "supporter" | "neutral" | "skeptic" | "blocker";
+type ListUpdate = (list: readonly Stakeholder[]) => Stakeholder[];
 
-interface Stakeholder {
-  id: string;
-  name: string;
-  role?: string;
-  interest: number; // 0-10
-  authority: number; // 0-10
-  sentiment: Sentiment;
-  strategy?: string;
-  description?: string;
+const noLog = () => undefined;
+
+const days = (n: number) => (n === 1 ? "1 day" : `${n} days`);
+
+/** "Last contact 12 days ago", "No contact logged". */
+function lastContactText(s: Stakeholder, today: string): string {
+  if (!s.lastContactAt) return "No contact logged";
+  const ago = -(daysToTouch({ nextTouchAt: s.lastContactAt }, today) ?? 0);
+  return ago <= 0 ? "Last contact today" : `Last contact ${days(ago)} ago`;
 }
 
-const SENTIMENT_LABEL: Record<Sentiment, string> = {
-  champion: "Champion",
-  supporter: "Supporter",
-  neutral: "Neutral",
-  skeptic: "Skeptic",
-  blocker: "Blocker",
-};
-
-const SENTIMENT_COLOR: Record<Sentiment, string> = {
-  champion: "#10b981",
-  supporter: "#34d399",
-  neutral: "#94a3b8",
-  skeptic: "#f59e0b",
-  blocker: "#ef4444",
-};
-
-type Quadrant = "manageClosely" | "keepSatisfied" | "keepInformed" | "monitor";
-
-const QUADRANT_LABEL: Record<Quadrant, string> = {
-  manageClosely: "Manage Closely",
-  keepSatisfied: "Keep Satisfied",
-  keepInformed: "Keep Informed",
-  monitor: "Monitor",
-};
-
-const QUADRANT_DESCRIPTION: Record<Quadrant, string> = {
-  manageClosely: "High authority + high interest. Engage frequently, co-create plans.",
-  keepSatisfied: "High authority + low interest. Brief succinctly, avoid surprises.",
-  keepInformed: "Low authority + high interest. Share progress, harness for advocacy.",
-  monitor: "Low authority + low interest. Light touch, watch for shifts.",
-};
-
-function quadrantOf(s: Stakeholder): Quadrant {
-  const highInterest = s.interest >= 5;
-  const highAuthority = s.authority >= 5;
-  if (highAuthority && highInterest) return "manageClosely";
-  if (highAuthority && !highInterest) return "keepSatisfied";
-  if (!highAuthority && highInterest) return "keepInformed";
-  return "monitor";
-}
-
-interface InlineDescriptionEditorProps {
-  value: string;
-  onChange: (next: string) => void;
-  placeholder?: string;
-  label?: string;
+/** "Next touch in 4 days", "Next touch 3 days overdue", "No touch planned". */
+function nextTouchText(s: Stakeholder, today: string): string {
+  const d = daysToTouch(s, today);
+  if (d === null) return "No touch planned";
+  if (d < 0) return `Next touch ${days(-d)} overdue`;
+  if (d === 0) return "Next touch today";
+  return `Next touch in ${days(d)}`;
 }
 
 /**
- * R-INLINE-LOG editor for the per-row description Textarea.
- *
- * `updateStakeholder` logs unconditionally, so binding the Textarea to it
- * via `onChange` would emit one history event per keystroke. We keep a local
- * draft string, write back to the parent only on blur, and only when the
- * trimmed value actually differs from what the parent committed last.
+ * Stakeholder Map: who matters, where they sit on Interest × Authority
+ * (drag or arrow-key a dot; nobody is placed until you place them), how
+ * they feel now versus how you need them to, and when you last spoke and
+ * next will.
  */
-function InlineDescriptionEditor({
-  value,
-  onChange,
-  placeholder,
-  label = "Description",
-}: InlineDescriptionEditorProps) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const [draft, setDraft] = useState(value);
-  const lastCommittedRef = useRef(value);
-  useEffect(() => {
-    if (document.activeElement === taRef.current) return;
-    if (value === lastCommittedRef.current) return;
-    setDraft(value);
-    lastCommittedRef.current = value;
-  }, [value]);
-  return (
-    <Textarea
-      ref={taRef}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft === lastCommittedRef.current) return;
-        lastCommittedRef.current = draft;
-        onChange(draft);
-      }}
-      placeholder={placeholder}
-      rows={2}
-      className="bg-bg border-border text-xs resize-none"
-      aria-label={label}
-    />
-  );
-}
-
-interface StakeholderFormProps {
-  onAdd: (s: Stakeholder) => void;
-}
-
-function StakeholderForm({ onAdd }: StakeholderFormProps) {
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [interest, setInterest] = useState(5);
-  const [authority, setAuthority] = useState(5);
-  const [sentiment, setSentiment] = useState<Sentiment>("neutral");
-  const [strategy, setStrategy] = useState("");
-  const [description, setDescription] = useState("");
-
-  const submit = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    onAdd({
-      id: crypto.randomUUID(),
-      name: trimmed,
-      role: role.trim() || undefined,
-      interest,
-      authority,
-      sentiment,
-      strategy: strategy.trim() || undefined,
-      description: description.trim() || undefined,
-    });
-    setName("");
-    setRole("");
-    setInterest(5);
-    setAuthority(5);
-    setSentiment("neutral");
-    setStrategy("");
-    setDescription("");
-  };
-
-  return (
-    <Card className="bg-surface border-border mb-4">
-      <CardContent className="p-4 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <Label htmlFor="stakeholder-new-name" className="text-xs text-sub">
-              Name
-            </Label>
-            <Input
-              id="stakeholder-new-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Priya Shah"
-              className="bg-bg border-border"
-              aria-label="Stakeholder name"
-            />
-          </div>
-          <div>
-            <Label htmlFor="stakeholder-new-role" className="text-xs text-sub">
-              Role
-            </Label>
-            <Input
-              id="stakeholder-new-role"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="VP of Marketing"
-              className="bg-bg border-border"
-              aria-label="Role"
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium leading-none text-sub">Interest</span>
-              <span className="text-xs font-data text-text">{interest}/10</span>
-            </div>
-            <Slider
-              min={0}
-              max={10}
-              step={1}
-              value={[interest]}
-              onValueChange={(v) => setInterest(v[0] ?? 0)}
-              className="mt-2"
-              aria-label="Interest level"
-              thumbProps={{ "aria-valuetext": `${interest} of 10` }}
-            />
-          </div>
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium leading-none text-sub">Authority</span>
-              <span className="text-xs font-data text-text">{authority}/10</span>
-            </div>
-            <Slider
-              min={0}
-              max={10}
-              step={1}
-              value={[authority]}
-              onValueChange={(v) => setAuthority(v[0] ?? 0)}
-              className="mt-2"
-              aria-label="Authority level"
-              thumbProps={{ "aria-valuetext": `${authority} of 10` }}
-            />
-          </div>
-        </div>
-        <div>
-          <Label htmlFor="stakeholder-new-sentiment" className="text-xs text-sub">
-            Sentiment
-          </Label>
-          <Select value={sentiment} onValueChange={(v) => setSentiment(v as Sentiment)}>
-            <SelectTrigger id="stakeholder-new-sentiment" className="bg-bg border-border">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(["champion", "supporter", "neutral", "skeptic", "blocker"] as Sentiment[]).map(
-                (s) => (
-                  <SelectItem key={s} value={s}>
-                    {SENTIMENT_LABEL[s]}
-                  </SelectItem>
-                )
-              )}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="stakeholder-new-strategy" className="text-xs text-sub">
-            Engagement strategy
-          </Label>
-          <Textarea
-            id="stakeholder-new-strategy"
-            value={strategy}
-            onChange={(e) => setStrategy(e.target.value)}
-            placeholder="What's the plan? Who owns the relationship?"
-            rows={2}
-            className="bg-bg border-border resize-none text-sm"
-            aria-label="Engagement strategy"
-          />
-        </div>
-        <div>
-          <Label htmlFor="stakeholder-new-description" className="text-xs text-sub">
-            Description
-          </Label>
-          <Textarea
-            id="stakeholder-new-description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description (optional)..."
-            rows={2}
-            className="bg-bg border-border resize-none text-xs"
-            aria-label="Description"
-          />
-        </div>
-        <div className="flex justify-end">
-          <Button onClick={submit} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-            <Plus className="w-4 h-4" />
-            Add stakeholder
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 export function StakeholderMapClient() {
-  const [stakeholders, setStakeholders] = usePersisted<Stakeholder[]>(
-    "agile-toolkit:stakeholder-map",
-    []
-  );
+  const [stored, setStored] = usePersisted<unknown>(STORAGE_KEY, []);
   const { log } = useHistoryLogger("stakeholder-map");
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -314,57 +97,82 @@ export function StakeholderMapClient() {
     )
   );
 
-  // Tooltip on the matrix.
-  const [hovered, setHovered] = useState<string | null>(null);
+  // The example lives here only: nothing in it reaches the saved map.
+  const [example, setExample] = useState<Stakeholder[] | null>(null);
+  const preview = example !== null;
+  const stakeholders = useMemo(() => example ?? normalizeStakeholders(stored), [example, stored]);
+  // Fixed for the render an edit starts in, so its Undo goes back to the same place.
+  const write = preview
+    ? (fn: ListUpdate) => setExample((ex) => ex && fn(ex))
+    : (fn: ListUpdate) => setStored((prev: unknown) => fn(normalizeStakeholders(prev)));
+  const record: typeof log = preview ? noLog : log;
 
-  const addStakeholder = (s: Stakeholder) => {
-    setStakeholders((prev) => [s, ...prev]);
-    log(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_ADDED, {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = stakeholders.find((s) => s.id === selectedId) ?? null;
+
+  /* ── Changes ──────────────────────────────────────────────────────── */
+
+  const addStakeholder = (values: NewStakeholder) => {
+    const s: Stakeholder = { id: crypto.randomUUID(), ...values };
+    write((prev) => [s, ...prev]);
+    record(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_ADDED, {
       stakeholderId: s.id,
       name: s.name,
-      sentiment: s.sentiment,
+      sentiment: s.currentSentiment,
     });
+    announce(
+      isPlaced(s) ? `Added ${s.name}: ${positionText(s)}` : `Added ${s.name}, not placed yet`
+    );
   };
 
-  const removeStakeholder = (id: string) => {
-    const s = stakeholders.find((x) => x.id === id);
-    setStakeholders((prev) => prev.filter((x) => x.id !== id));
-    // The matrix tooltip stays anchored to a removed dot until another
-    // hover/focus replaces it — clear it so it doesn't dangle.
-    setHovered((cur) => (cur === id ? null : cur));
-    log(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_REMOVED, {
-      stakeholderId: id,
-      name: s?.name,
-    });
-  };
-
-  // R11-fix: split logged vs quiet update. The previous unconditional
-  // log fired one history event PER KEYSTROKE when bound to Input
-  // onChange — typing "Engineering Director" in `role` would emit 20+
-  // STAKEHOLDER_UPDATED events. R-INLINE-LOG had been applied only to
-  // the description Textarea (via InlineDescriptionEditor); the name,
-  // role, and strategy fields still log-spammed. Now: onChange uses
-  // the quiet path (state-only), onBlur uses the logged path
-  // (committed value with single event).
-  const updateStakeholderQuiet = (id: string, patch: Partial<Stakeholder>) => {
-    setStakeholders((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  };
   const updateStakeholder = (id: string, patch: Partial<Stakeholder>) => {
-    updateStakeholderQuiet(id, patch);
-    log(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_UPDATED, {
+    write((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    record(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_UPDATED, {
       stakeholderId: id,
       fields: Object.keys(patch),
     });
   };
 
-  // Esc clears hover so the tooltip doesn't get stuck on touch devices.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setHovered(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  const place = (id: string, at: { interest: number; authority: number }, how: PlaceHow) => {
+    const s = stakeholders.find((x) => x.id === id);
+    if (!s) return;
+    updateStakeholder(id, at);
+    // A drag and the arrow keys announce as they go; the picker says where it went.
+    if (how === "pick") announce(`${s.name}: ${positionText(at)}`);
+    setSelectedId(id);
+  };
+
+  const removeStakeholder = (s: Stakeholder) => {
+    removeWithUndo<Stakeholder>({
+      label: `Removed ${s.name}`,
+      update: write,
+      match: (x) => x.id === s.id,
+    });
+    if (selectedId === s.id) setSelectedId(null);
+    record(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_REMOVED, { stakeholderId: s.id, name: s.name });
+    announce(`Removed ${s.name}`);
+  };
+
+  const loadExample = () => {
+    setExample(buildExample(today));
+    setSelectedId(null);
+    announce("Loaded an example");
+  };
+  const clearExample = () => {
+    setExample(null);
+    setSelectedId(null);
+  };
+
+  const resetSnapshot = useRef<unknown>(null);
+  const reset = () => {
+    resetSnapshot.current = stored;
+    setStored([]);
+    setSelectedId(null);
+    log(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_RESET, { stakeholders: stakeholders.length });
+  };
+  const undoReset = () => setStored(resetSnapshot.current ?? []);
+
+  /* ── Numbers ──────────────────────────────────────────────────────── */
 
   const quadrants = useMemo(() => {
     const out: Record<Quadrant, Stakeholder[]> = {
@@ -373,88 +181,177 @@ export function StakeholderMapClient() {
       keepInformed: [],
       monitor: [],
     };
-    for (const s of stakeholders) out[quadrantOf(s)].push(s);
+    for (const s of stakeholders) {
+      const q = quadrantOf(s);
+      if (q) out[q].push(s);
+    }
     return out;
   }, [stakeholders]);
+  const unplaced = stakeholders.filter((s) => !isPlaced(s)).length;
+  const blockers = stakeholders.filter((s) => s.currentSentiment === "blocker").length;
+  const champions = stakeholders.filter((s) => s.currentSentiment === "champion").length;
+  const overdueTouches = stakeholders.filter((s) => touchStatus(s, today) === "overdue").length;
+  const verdict = stakeholderVerdict(stakeholders, today);
+  const markdown = stakeholdersToMarkdown(stakeholders, today);
 
-  const sentimentCounts = useMemo(() => {
-    const c: Record<Sentiment, number> = {
-      champion: 0,
-      supporter: 0,
-      neutral: 0,
-      skeptic: 0,
-      blocker: 0,
-    };
-    for (const s of stakeholders) c[s.sentiment] += 1;
-    return c;
-  }, [stakeholders]);
+  // Touches due, soonest first; editing a date marks the order stale
+  // instead of moving the row under the cursor.
+  const withTouch = stakeholders.filter((s) => s.nextTouchAt);
+  const {
+    ordered: touches,
+    isStale,
+    resort,
+  } = useStableOrder(
+    withTouch,
+    (s) => s.id,
+    (a, b) => (a.nextTouchAt as string).localeCompare(b.nextTouchAt as string)
+  );
+
+  const columns: DataTableColumn<Stakeholder>[] = [
+    { key: "name", header: "Name", primary: true, cell: (s) => s.name, sortValue: (s) => s.name },
+    {
+      key: "quadrant",
+      header: "Quadrant",
+      cell: (s) => {
+        const q = quadrantOf(s);
+        return q ? QUADRANT_LABEL[q] : "Not placed";
+      },
+      sortValue: (s) => {
+        const q = quadrantOf(s);
+        return q ? QUADRANT_LABEL[q] : null;
+      },
+    },
+    {
+      key: "interest",
+      header: "Interest",
+      align: "right",
+      cell: (s) => s.interest ?? "—",
+      sortValue: (s) => s.interest,
+    },
+    {
+      key: "authority",
+      header: "Authority",
+      align: "right",
+      cell: (s) => s.authority ?? "—",
+      sortValue: (s) => s.authority,
+    },
+    { key: "sentiment", header: "Now → needed", cell: (s) => sentimentText(s) },
+    {
+      key: "last",
+      header: "Last contact",
+      cell: (s) => s.lastContactAt ?? "—",
+      sortValue: (s) => s.lastContactAt,
+    },
+    {
+      key: "next",
+      header: "Next touch",
+      cell: (s) => s.nextTouchAt ?? "—",
+      sortValue: (s) => s.nextTouchAt,
+    },
+  ];
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Stakeholder Map",
       prompts: generateStakeholderMapPrompts(
         {
-          stakeholders: stakeholders.map((s) => ({
-            name: s.name,
-            role: s.role,
-            interest: s.interest,
-            authority: s.authority,
-            sentiment: s.sentiment,
-            strategy: s.strategy,
-            description: s.description,
-          })),
+          // The prompt reads placed, rated stakeholders only: it has no
+          // way to say "not placed yet" or "not set".
+          stakeholders: stakeholders.flatMap((s) =>
+            s.interest !== null && s.authority !== null && s.currentSentiment
+              ? [
+                  {
+                    name: s.name,
+                    role: s.role,
+                    interest: s.interest,
+                    authority: s.authority,
+                    sentiment: s.currentSentiment,
+                    strategy: s.strategy,
+                    description: s.description,
+                  },
+                ]
+              : []
+          ),
           quadrants: {
             manageClosely: quadrants.manageClosely.length,
             keepSatisfied: quadrants.keepSatisfied.length,
             keepInformed: quadrants.keepInformed.length,
             monitor: quadrants.monitor.length,
           },
-          blockers: sentimentCounts.blocker,
+          blockers,
         },
         workspace
       ),
     }),
-    [stakeholders, quadrants, sentimentCounts, workspace]
+    [stakeholders, quadrants, blockers, workspace]
   );
-
-  const hoveredStakeholder = hovered ? (stakeholders.find((s) => s.id === hovered) ?? null) : null;
 
   return (
     <ToolPageWrapper
       toolId="stakeholder-map"
       title="Stakeholder Map"
-      description="Map stakeholders by Interest × Authority and pick an engagement strategy per quadrant."
+      description="Map stakeholders by Interest × Authority, compare how they feel with how you need them to, and keep up the contact."
       category="Outcomes & Pulse"
     >
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="stakeholder-map"
+          markdown={markdown}
           csvData={{
             headers: [
               "Name",
               "Role",
               "Interest",
               "Authority",
-              "Sentiment",
               "Quadrant",
+              "Current sentiment",
+              "Desired sentiment",
+              "Last contact",
+              "Next touch",
               "Strategy",
               "Description",
             ],
-            rows: stakeholders.map((s) => [
-              s.name,
-              s.role ?? "",
-              s.interest,
-              s.authority,
-              s.sentiment,
-              QUADRANT_LABEL[quadrantOf(s)],
-              s.strategy ?? "",
-              s.description ?? "",
-            ]),
+            rows: stakeholders.map((s) => {
+              const q = quadrantOf(s);
+              return [
+                s.name,
+                s.role ?? "",
+                s.interest ?? "",
+                s.authority ?? "",
+                q ? QUADRANT_LABEL[q] : "Not placed",
+                s.currentSentiment ?? "",
+                s.desiredSentiment ?? "",
+                s.lastContactAt ?? "",
+                s.nextTouchAt ?? "",
+                s.strategy ?? "",
+                s.description ?? "",
+              ];
+            }),
           }}
           jsonData={stakeholders}
         />
+        <ResetButton
+          label="Clear all"
+          title="Remove every stakeholder?"
+          description={`${stakeholders.length === 1 ? "1 stakeholder" : `${stakeholders.length} stakeholders`}, with their places, sentiment, contacts and strategies.`}
+          confirmLabel="Remove all"
+          doneLabel="Removed every stakeholder"
+          onReset={reset}
+          onUndo={undoReset}
+          disabled={preview || stakeholders.length === 0}
+        />
       </ActionRow>
+
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: seven stakeholders around a checkout redesign. Nothing in it is saved, and your
+            own map stays as it is.
+          </p>
+        </div>
+      )}
 
       <KpiGrid cols={4} gap="lg">
         <StatCard
@@ -462,6 +359,7 @@ export function StakeholderMapClient() {
           icon={Users}
           label="Total"
           value={stakeholders.length}
+          hint={unplaced > 0 ? `${unplaced} not placed yet` : undefined}
           valueClassName="text-accent"
         />
         <StatCard
@@ -474,287 +372,117 @@ export function StakeholderMapClient() {
           variant="compact"
           icon={AlertOctagon}
           label="Blockers"
-          value={sentimentCounts.blocker}
-          tone={sentimentCounts.blocker > 0 ? "danger" : "default"}
+          value={blockers}
+          hint={champions > 0 ? `${champions} champion${champions === 1 ? "" : "s"}` : undefined}
+          tone={blockers > 0 ? "danger" : "default"}
         />
         <StatCard
           variant="compact"
-          label="Champions"
-          value={sentimentCounts.champion}
-          valueClassName="text-success"
+          icon={CalendarClock}
+          label="Touches overdue"
+          value={overdueTouches}
+          tone={overdueTouches > 0 ? "warning" : "default"}
         />
       </KpiGrid>
 
-      <StakeholderForm onAdd={addStakeholder} />
+      <SectionCard title="Add a stakeholder" icon={Plus} className="mb-4">
+        <StakeholderForm onAdd={addStakeholder} />
+      </SectionCard>
 
       {stakeholders.length === 0 ? (
-        <EmptyState icon={PieChart}>
+        <EmptyState icon={PieChart} action={<LoadExampleButton onLoad={loadExample} />}>
           No stakeholders mapped yet. Add your first one above to see the matrix fill in.
         </EmptyState>
       ) : (
         <>
+          <p className="mb-4 text-sm font-medium text-text">{verdict}</p>
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 mb-6">
-            {/* Matrix */}
             <Card className="bg-surface border-border">
               <CardContent className="p-4">
                 <div className="text-sm font-semibold text-text mb-3">Interest × Authority</div>
-                <div className="relative aspect-square w-full max-w-xl mx-auto">
-                  {/* Quadrant background grid */}
-                  <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-border rounded-lg overflow-hidden">
-                    {/* top-left = high authority + low interest = Keep Satisfied */}
-                    <div className="bg-warning/5 p-2">
-                      <div className="text-xs uppercase tracking-wider text-warning/70">
-                        Keep Satisfied
-                      </div>
-                    </div>
-                    {/* top-right = high authority + high interest = Manage Closely */}
-                    <div className="bg-accent/10 p-2 text-right">
-                      <div className="text-xs uppercase tracking-wider text-accent/70">
-                        Manage Closely
-                      </div>
-                    </div>
-                    {/* bottom-left = low authority + low interest = Monitor */}
-                    <div className="bg-bg p-2">
-                      <div className="text-xs uppercase tracking-wider text-sub">Monitor</div>
-                    </div>
-                    {/* bottom-right = low authority + high interest = Keep Informed */}
-                    <div className="bg-success/5 p-2 text-right">
-                      <div className="text-xs uppercase tracking-wider text-success/70">
-                        Keep Informed
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Axis labels */}
-                  <div
-                    className="absolute -left-6 top-1/2 -translate-y-1/2 -rotate-90 text-xs uppercase tracking-wider text-sub"
-                    aria-hidden
-                  >
-                    Authority →
-                  </div>
-                  <div
-                    className="absolute left-1/2 -bottom-6 -translate-x-1/2 text-xs uppercase tracking-wider text-sub"
-                    aria-hidden
-                  >
-                    Interest →
-                  </div>
-
-                  {/* Dots */}
-                  {stakeholders.map((s) => {
-                    // Map (interest, authority) ∈ [0,10] to (left%, top%)
-                    // Authority=10 should be at the top, so invert Y.
-                    // Clamp to [4, 96]% so the 16 px dot doesn't get clipped
-                    // at the matrix corners (interest=0 or authority=10).
-                    const rawLeft = (s.interest / 10) * 100;
-                    const rawTop = 100 - (s.authority / 10) * 100;
-                    const left = Math.min(96, Math.max(4, rawLeft));
-                    const top = Math.min(96, Math.max(4, rawTop));
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        className="absolute -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-bg shadow-md transition hover:scale-125 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
-                        style={{
-                          left: `${left}%`,
-                          top: `${top}%`,
-                          background: SENTIMENT_COLOR[s.sentiment],
-                        }}
-                        onMouseEnter={() => setHovered(s.id)}
-                        onMouseLeave={() => setHovered((cur) => (cur === s.id ? null : cur))}
-                        onFocus={() => setHovered(s.id)}
-                        onBlur={() => setHovered((cur) => (cur === s.id ? null : cur))}
-                        aria-label={`${s.name}${s.role ? ", " + s.role : ""}`}
-                      />
-                    );
-                  })}
-
-                  {/* Tooltip */}
-                  {hoveredStakeholder && (
-                    <div
-                      className="absolute top-2 right-2 max-w-[60%] rounded-md border border-border bg-bg p-2 text-xs shadow-lg pointer-events-none"
-                      role="tooltip"
-                    >
-                      <div className="font-semibold text-text">{hoveredStakeholder.name}</div>
-                      {hoveredStakeholder.role && (
-                        <div className="text-sub mt-0.5">{hoveredStakeholder.role}</div>
-                      )}
-                      <div className="text-sub mt-0.5">
-                        Int {hoveredStakeholder.interest} · Auth {hoveredStakeholder.authority} ·{" "}
-                        {SENTIMENT_LABEL[hoveredStakeholder.sentiment]}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Legend */}
-                <div className="mt-8 flex flex-wrap gap-3 justify-center text-xs">
-                  {(["champion", "supporter", "neutral", "skeptic", "blocker"] as Sentiment[]).map(
-                    (s) => (
-                      <span key={s} className="flex items-center gap-1.5">
-                        <span
-                          className="w-3 h-3 rounded-full border border-bg"
-                          style={{ background: SENTIMENT_COLOR[s] }}
-                        />
-                        {SENTIMENT_LABEL[s]}
-                      </span>
-                    )
-                  )}
-                </div>
+                <StakeholderMap
+                  stakeholders={stakeholders}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  onPlace={place}
+                />
               </CardContent>
             </Card>
 
-            {/* Quadrant strategy summary */}
             <div className="space-y-2">
-              {(["manageClosely", "keepSatisfied", "keepInformed", "monitor"] as Quadrant[]).map(
-                (q) => (
-                  <Card key={q} className="bg-surface border-border">
-                    <CardContent className="p-3">
-                      <div className="text-xs uppercase tracking-wider text-sub">
-                        {QUADRANT_LABEL[q]}
+              <StakeholderDetail
+                stakeholder={selected}
+                lastContactText={selected ? lastContactText(selected, today) : ""}
+                nextTouchText={selected ? nextTouchText(selected, today) : ""}
+              />
+              {QUADRANTS.map((q) => (
+                <Card key={q} className="bg-surface border-border">
+                  <CardContent className="p-3">
+                    <div className="text-xs uppercase tracking-wider text-sub">
+                      {QUADRANT_LABEL[q]}
+                    </div>
+                    <div className="text-sm font-data text-text mt-0.5">
+                      {quadrants[q].length} stakeholder
+                      {quadrants[q].length === 1 ? "" : "s"}
+                    </div>
+                    <div className="text-xs text-sub mt-1">{QUADRANT_DESCRIPTION[q]}</div>
+                    {quadrants[q].length > 0 && (
+                      <div className="text-xs text-text mt-2 break-words">
+                        {quadrants[q].map((s) => s.name).join(", ")}
                       </div>
-                      <div className="text-sm font-data text-text mt-0.5">
-                        {quadrants[q].length} stakeholder
-                        {quadrants[q].length === 1 ? "" : "s"}
-                      </div>
-                      <div className="text-xs text-sub mt-1">{QUADRANT_DESCRIPTION[q]}</div>
-                      {quadrants[q].length > 0 && (
-                        <div className="text-xs text-text mt-2 truncate">
-                          {quadrants[q].map((s) => s.name).join(", ")}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                )
-              )}
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
 
-          {/* Editable list */}
+          {touches.length > 0 && (
+            <SectionCard title="Touches due" icon={CalendarClock} className="mb-4">
+              <ResortChip isStale={isStale} onResort={resort} what="Dates" />
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {touches.map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 break-words text-text">
+                      <span className="font-medium">{s.name}</span>
+                      <span className="text-sub"> · {s.nextTouchAt}</span>
+                    </span>
+                    <span
+                      className={
+                        touchStatus(s, today) === "overdue"
+                          ? "text-xs text-danger"
+                          : "text-xs text-sub"
+                      }
+                    >
+                      {nextTouchText(s, today)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </SectionCard>
+          )}
+
+          <SectionCard title="All stakeholders" icon={Table2} className="mb-4">
+            <DataTable
+              columns={columns}
+              rows={stakeholders}
+              rowKey={(s) => s.id}
+              onRowClick={(s) => setSelectedId(s.id)}
+            />
+          </SectionCard>
+
           <div className="space-y-2">
             {stakeholders.map((s) => (
-              <Card key={s.id} className="bg-surface border-border">
-                <CardContent className="p-3 space-y-2">
-                  <div className="flex flex-col xs:flex-row xs:items-start xs:justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <BlurInput
-                        value={s.name}
-                        onCommit={(v) => updateStakeholder(s.id, { name: v })}
-                        className="bg-bg border-border font-semibold"
-                        aria-label="Stakeholder name"
-                      />
-                      <BlurInput
-                        value={s.role ?? ""}
-                        onCommit={(v) => updateStakeholder(s.id, { role: v.trim() || undefined })}
-                        placeholder="Role (optional)"
-                        className="bg-bg border-border mt-1 text-xs"
-                        aria-label={`Role for ${s.name}`}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Select
-                        value={s.sentiment}
-                        onValueChange={(v) =>
-                          updateStakeholder(s.id, {
-                            sentiment: v as Sentiment,
-                          })
-                        }
-                      >
-                        <SelectTrigger
-                          className="bg-bg border-border h-8 text-xs w-32"
-                          aria-label={`Sentiment for ${s.name}`}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(
-                            [
-                              "champion",
-                              "supporter",
-                              "neutral",
-                              "skeptic",
-                              "blocker",
-                            ] as Sentiment[]
-                          ).map((sk) => (
-                            <SelectItem key={sk} value={sk} className="text-xs">
-                              {SENTIMENT_LABEL[sk]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeStakeholder(s.id)}
-                        className="text-sub hover:text-danger"
-                        aria-label={`Remove ${s.name}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium leading-none text-sub">Interest</span>
-                        <span className="text-xs font-data text-text">{s.interest}/10</span>
-                      </div>
-                      <Slider
-                        min={0}
-                        max={10}
-                        step={1}
-                        value={[s.interest]}
-                        // BUG-T8-stakeholder-map-1: quiet update per
-                        // drag tick (no history log); commit ONE logged
-                        // event on release. The prior pattern emitted
-                        // STAKEHOLDER_UPDATED for every intermediate
-                        // value during a drag, spamming the history store.
-                        onValueChange={(v) => updateStakeholderQuiet(s.id, { interest: v[0] ?? 0 })}
-                        onValueCommit={(v) => updateStakeholder(s.id, { interest: v[0] ?? 0 })}
-                        className="mt-2"
-                        aria-label={`Interest for ${s.name}`}
-                        thumbProps={{ "aria-valuetext": `${s.interest} of 10` }}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium leading-none text-sub">Authority</span>
-                        <span className="text-xs font-data text-text">{s.authority}/10</span>
-                      </div>
-                      <Slider
-                        min={0}
-                        max={10}
-                        step={1}
-                        value={[s.authority]}
-                        onValueChange={(v) =>
-                          updateStakeholderQuiet(s.id, { authority: v[0] ?? 0 })
-                        }
-                        onValueCommit={(v) => updateStakeholder(s.id, { authority: v[0] ?? 0 })}
-                        className="mt-2"
-                        aria-label={`Authority for ${s.name}`}
-                        thumbProps={{ "aria-valuetext": `${s.authority} of 10` }}
-                      />
-                    </div>
-                  </div>
-                  <BlurTextarea
-                    value={s.strategy ?? ""}
-                    onCommit={(v) => updateStakeholder(s.id, { strategy: v.trim() || undefined })}
-                    placeholder="Engagement strategy..."
-                    rows={2}
-                    className="bg-bg border-border text-sm resize-none"
-                    aria-label={`Engagement strategy for ${s.name}`}
-                  />
-                  <InlineDescriptionEditor
-                    value={s.description ?? ""}
-                    onChange={(next) =>
-                      updateStakeholder(s.id, {
-                        description: next.trim() || undefined,
-                      })
-                    }
-                    placeholder="Description (optional)..."
-                    label={`Description for ${s.name}`}
-                  />
-                </CardContent>
-              </Card>
+              <StakeholderRow
+                key={s.id}
+                stakeholder={s}
+                today={today}
+                onPatch={(patch) => updateStakeholder(s.id, patch)}
+                onRemove={() => removeStakeholder(s)}
+              />
             ))}
           </div>
         </>
