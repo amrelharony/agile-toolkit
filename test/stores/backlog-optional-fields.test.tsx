@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /** What the page handed the export and the prompt generator. */
 const captured = vi.hoisted(() => ({
@@ -135,24 +136,47 @@ describe("the hub shows a bare item as Not scored", () => {
     useWorkspaceStore.setState({ backlogItems: [BACKLOG_BARE], prioritizations: [] });
   });
 
-  it("shows every input blank and every method unscored", () => {
-    render(<PrioritizerClient />);
-    expect(screen.getByLabelText("Value (Fibonacci 1–20) for Bare")).toHaveValue(null);
-    expect(screen.getByLabelText("Job size for Bare")).toHaveValue(null);
-    expect(screen.getByLabelText("Effort (1–10) for Bare")).toHaveValue(null);
-    // A number input showing nothing has the value null.
-    expect(screen.getByLabelText("Reach for Bare")).toHaveValue(null);
-    expect(screen.getByLabelText("Confidence % for Bare")).toHaveValue(null);
-    expect(screen.getByLabelText("RICE effort (person-months) for Bare")).toHaveValue(null);
-    expect(screen.getByLabelText("MoSCoW for Bare")).toHaveTextContent("Not sorted yet");
-    expect(screen.getByLabelText("Impact for Bare")).not.toHaveTextContent(/\d/);
+  const renderHub = () =>
+    render(
+      <TooltipProvider>
+        <PrioritizerClient />
+      </TooltipProvider>
+    );
+  /** The desktop table's copy (the phone cards hold a second one). */
+  const first = (name: RegExp) => screen.getAllByRole("button", { name })[0];
 
-    const table = screen.getByRole("table", { name: /score in every method/ });
+  it("shows every method unscored, with nothing filled in its editor", () => {
+    renderHub();
+    expect(first(/^Edit MoSCoW for Bare \(Not sorted yet\)/)).toBeInTheDocument();
+    expect(first(/^Edit WSJF for Bare \(Not scored\)/)).toBeInTheDocument();
+    expect(first(/^Edit RICE for Bare \(Not scored\)/)).toBeInTheDocument();
+    expect(first(/^Edit Value\/Effort for Bare \(Not placed yet\)/)).toBeInTheDocument();
+
+    // The WSJF editor opens with no part picked (never a mid-range default).
+    fireEvent.click(first(/^Edit WSJF for Bare/));
+    const wsjf = screen.getByRole("dialog", { name: "WSJF for Bare" });
+    expect(
+      within(wsjf)
+        .getAllByRole("radio")
+        .every((r) => r.getAttribute("aria-checked") === "false")
+    ).toBe(true);
+    fireEvent.click(within(wsjf).getByRole("button", { name: "Cancel" }));
+
+    // The RICE editor: reach and effort blank.
+    fireEvent.click(first(/^Edit RICE for Bare/));
+    const rice = screen.getByRole("dialog", { name: "RICE for Bare" });
+    expect(within(rice).getByRole("spinbutton", { name: /Reach/ })).toHaveValue(null);
+    expect(within(rice).getByRole("spinbutton", { name: /Effort/ })).toHaveValue(null);
+    fireEvent.click(within(rice).getByRole("button", { name: "Cancel" }));
+
+    const table = screen
+      .getAllByRole("table")
+      .find((t) => within(t).queryByRole("columnheader", { name: /Kano/ }))!;
     const row = within(table).getByRole("row", { name: /^Bare/ });
     const cells = within(row)
       .getAllByRole("cell")
       .map((c) => c.textContent);
-    expect(cells.slice(0, 4)).toEqual([
+    expect(cells.slice(1, 5)).toEqual([
       "Score with MoSCoW: Bare",
       "Score with WSJF: Bare",
       "Score with RICE: Bare",
@@ -162,52 +186,45 @@ describe("the hub shows a bare item as Not scored", () => {
     expect(useWorkspaceStore.getState().backlogItems).toEqual([BACKLOG_BARE]);
   });
 
-  it("writes nothing when a cell is focused and left without an edit", () => {
-    render(<PrioritizerClient />);
-    for (const label of [
-      "Value (Fibonacci 1–20) for Bare",
-      "Effort (1–10) for Bare",
-      "Time criticality for Bare",
-      "Risk reduction for Bare",
-      "Job size for Bare",
-      "Reach for Bare",
-      "Confidence % for Bare",
-      "RICE effort (person-months) for Bare",
-    ]) {
-      const cell = screen.getByLabelText(label);
-      fireEvent.focus(cell);
-      fireEvent.blur(cell);
+  it("writes nothing when a field is focused and left, or an editor is cancelled", () => {
+    renderHub();
+    for (const name of ["Name of Bare", "Description of Bare"]) {
+      const field = screen.getAllByRole("textbox", { name })[0];
+      fireEvent.focus(field);
+      fireEvent.blur(field);
+    }
+    for (const label of ["MoSCoW", "WSJF", "RICE", "Value\\/Effort"]) {
+      fireEvent.click(first(new RegExp(`^Edit ${label} for Bare`)));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     }
     expect(useWorkspaceStore.getState().backlogItems).toEqual([BACKLOG_BARE]);
   });
 
   it("still saves an edit, and only the field edited (stamped as saved by the engine)", () => {
-    render(<PrioritizerClient />);
-    const reach = screen.getByLabelText("Reach for Bare");
-    fireEvent.change(reach, { target: { value: "250" } });
-    fireEvent.blur(reach);
+    renderHub();
+    fireEvent.click(first(/^Edit MoSCoW for Bare/));
+    const d = screen.getByRole("dialog", { name: "MoSCoW for Bare" });
+    fireEvent.click(within(d).getByRole("radio", { name: "Could have" }));
+    fireEvent.click(within(d).getByRole("button", { name: "Save" }));
     const [saved] = useWorkspaceStore.getState().backlogItems ?? [];
-    expect(saved).toEqual({ ...BACKLOG_BARE, reach: 250, updatedAt: saved.updatedAt });
+    expect(saved).toEqual({ ...BACKLOG_BARE, moscow: "could", updatedAt: saved.updatedAt });
     expect(saved.updatedAt).toBeTruthy();
   });
 
   it("the CSV, the prompts and the RICE tab agree with the table", () => {
-    render(<PrioritizerClient />);
+    renderHub();
     const csv = captured.csv!;
     const row = Object.fromEntries(csv.headers.map((h, n) => [h, csv.rows[0][n]]));
     expect(row).toMatchObject({
+      Order: "",
       Name: "Bare",
-      MoSCoW: "",
-      "Business Value": "",
-      "Job Size": "",
-      WSJF: "",
-      Reach: "",
-      Impact: "",
-      "Confidence %": "",
-      "Effort (pm)": "",
-      RICE: "",
-      "Matrix Value": "",
-      "Matrix Effort": "",
+      MoSCoW: "Not sorted yet",
+      WSJF: "Not scored",
+      RICE: "Not scored",
+      "Value/Effort": "Not placed yet",
+      ICE: "Not scored",
+      Kano: "Not scored",
+      "Cost of Delay": "Not scored",
     });
     // Order | Item | MoSCoW | WSJF | RICE | Value/Effort | Effort (pm) | Description
     expect(captured.prompts[0].prompt).toContain(
@@ -215,7 +232,11 @@ describe("the hub shows a bare item as Not scored", () => {
     );
 
     render(<RICETab items={[BACKLOG_BARE]} />);
-    const rice = screen.getAllByRole("row").find((r) => r.textContent?.includes("#1"))!;
+    const tables = screen.getAllByRole("table");
+    const riceTable = tables.find((t) =>
+      within(t).queryByRole("columnheader", { name: /Confidence/ })
+    )!;
+    const rice = within(riceTable).getByRole("row", { name: /Bare/ });
     expect(within(rice).getAllByRole("cell").at(-1)).toHaveTextContent(/^Not scored$/);
   });
 });
