@@ -73,6 +73,8 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   maturity: { name: "maturity assessment", href: "/maturity" },
   "working-agreement": { name: "working agreement", href: "/working-agreement" },
   // Prioritize & decide
+  // Sprint Planning pulls its backlog items in as stories (sprint-planning/view.ts).
+  prioritizer: { name: "Backlog Prioritizer", href: "/prioritizer" },
   "weighted-decision": { name: "weighted decision", href: "/weighted-decision" },
   cynefin: { name: "Cynefin", href: "/cynefin" },
   "buy-a-feature": { name: "Buy a Feature", href: "/buy-a-feature" },
