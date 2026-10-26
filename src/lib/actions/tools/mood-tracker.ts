@@ -158,7 +158,8 @@ async function listState(store: MoodStore, days: number) {
       source: p.source,
     })),
     streak,
-    streakSent: streak ? (streakLinks(settings, streak.start) ?? []).length > 0 : false,
+    // The page's rule: the run counts as sent when a saved streak overlaps it.
+    streakSent: streak ? (streakLinks(settings, streak) ?? []).length > 0 : false,
   };
 }
 
@@ -167,7 +168,7 @@ registry.register({
   toolId: "tool.mood_tracker",
   name: "list_state",
   category: "read",
-  description: `Summarise team mood over the last days, as the page shows it. Params: {days?: 1-90 (default ${MOOD_WINDOW_DAYS})}. Returns {mode: named|anonymous, window: {start, end, days}, average: 1-5 to one decimal | null (null below 3 check-ins; never 0), checkIns (named check-ins plus anonymous pulse answers), total (= checkIns), people (who checked in by name), anonymous (pulse answers), daysWithCheckIns, distribution: {1..5 counts}, byMember: {memberId, name, average, count}[] (named mode only; [] when anonymous), pulses: {id, date, counts, source}[], streak: {start, end, days, average, checkIns} | null (the team's current run of days averaging 2.5 or less, from 3 such days, each with 3 or more check-ins), streakSent}. Placeholder and example rows are left out.`,
+  description: `Summarise team mood over the last days, as the page shows it. Params: {days?: 1-90 (default ${MOOD_WINDOW_DAYS})}. Returns {mode: named|anonymous, window: {start, end, days}, average: 1-5 to one decimal | null (null below 3 check-ins; never 0), checkIns (named check-ins plus anonymous pulse answers), total (= checkIns), people (who checked in by name), anonymous (pulse answers), daysWithCheckIns, distribution: {1..5 counts}, byMember: {memberId, name, average, count}[] (named mode only; [] when anonymous), pulses: {id, date, counts, source}[], streak: {start, end, runStart (its first low day, which may be before the window), days, average, checkIns} | null (the team's current run of days averaging 2.5 or less, from 3 such days, each with 3 or more check-ins), streakSent (already raised at the retro: a sent streak overlaps the run)}. Placeholder and example rows are left out.`,
   paramsSchema: z.object({ days: z.number().int().min(1).max(90).optional() }),
   handler: (params) => listState(browserStore, params.days ?? MOOD_WINDOW_DAYS),
   mcpHandler: (params, ctx) => listState(serverStore(ctx.userId), params.days ?? MOOD_WINDOW_DAYS),
@@ -187,10 +188,17 @@ const recordParams = z.object({
     ),
 });
 
-async function record(store: MoodStore, params: z.infer<typeof recordParams>) {
+/**
+ * The latest day a check-in or pulse may be for. In the browser, today; on
+ * the server, whose day (UTC on a typical deploy) isn't the user's, the day
+ * after it, so a user ahead of UTC can log their own today.
+ */
+const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(today, 1) : today);
+
+async function record(store: MoodStore, params: z.infer<typeof recordParams>, onServer: boolean) {
   const today = todayLocalISO();
   const date = params.date ?? today;
-  const dateProblem = moodDateProblem(date, today);
+  const dateProblem = moodDateProblem(date, latestDay(today, onServer));
   if (dateProblem) return { added: false, reason: dateProblem };
   const [settings, roster, entries] = await Promise.all([
     store.settings(),
@@ -223,10 +231,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record a team member's mood check-in (1 rough … 5 great) for a day: one per person per day, so a second one for the same day replaces it. Params: {memberId (must be on the roster), score (whole number 1-5), note? (≤500), date?: YYYY-MM-DD (default today, local; a past day backfills; never a future day)}. Refused in the anonymous mode. Returns {added: true, id, date, replaced} or {added: false, reason}.",
+    "Record a team member's mood check-in (1 rough … 5 great) for a day: one per person per day, so a second one for the same day replaces it. Params: {memberId (must be on the roster), score (whole number 1-5), note? (≤500), date?: YYYY-MM-DD (a past day backfills; never a future day; pass the user's local date: the default 'today' is the server's (UTC) day over MCP, and the day after it is still accepted)}. Refused in the anonymous mode. Returns {added: true, id, date, replaced} or {added: false, reason}.",
   paramsSchema: recordParams,
-  handler: (params) => record(browserStore, params),
-  mcpHandler: (params, ctx) => record(serverStore(ctx.userId), params),
+  handler: (params) => record(browserStore, params, false),
+  mcpHandler: (params, ctx) => record(serverStore(ctx.userId), params, true),
 });
 
 /* ── record_pulse ───────────────────────────────────────────────────── */
@@ -247,10 +255,14 @@ const pulseParams = z.object({
     .describe("How many picked each face, 1 rough … 5 great (blank = 0)."),
 });
 
-async function recordPulse(store: MoodStore, params: z.infer<typeof pulseParams>) {
+async function recordPulse(
+  store: MoodStore,
+  params: z.infer<typeof pulseParams>,
+  onServer: boolean
+) {
   const today = todayLocalISO();
   const date = params.date ?? today;
-  const dateProblem = moodDateProblem(date, today);
+  const dateProblem = moodDateProblem(date, latestDay(today, onServer));
   if (dateProblem) return { added: false, reason: dateProblem };
   const checked = checkPulseCounts(params.counts as Partial<Record<string, number>>);
   if (!checked.ok) return { added: false, reason: checked.reason };
@@ -272,10 +284,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record an anonymous team mood pulse, counted by hand: totals only, never who. Params: {date?: YYYY-MM-DD (default today; never a future day), counts: {1..5: how many picked each face}}. Needs at least 3 answers in all (as the page's count entry), so no one's mood can be singled out. Works in either mode. Returns {added: true, id, answers} or {added: false, reason}.",
+    "Record an anonymous team mood pulse, counted by hand: totals only, never who. Params: {date?: YYYY-MM-DD (default today; never a future day; pass the user's local date: over MCP the default is the server's (UTC) day, and the day after it is still accepted), counts: {1..5: how many picked each face}}. Needs at least 3 answers in all (as the page's count entry), so no one's mood can be singled out. Works in either mode. Returns {added: true, id, answers} or {added: false, reason}.",
   paramsSchema: pulseParams,
-  handler: (params) => recordPulse(browserStore, params),
-  mcpHandler: (params, ctx) => recordPulse(serverStore(ctx.userId), params),
+  handler: (params) => recordPulse(browserStore, params, false),
+  mcpHandler: (params, ctx) => recordPulse(serverStore(ctx.userId), params, true),
 });
 
 /* ── remove / remove_pulse ──────────────────────────────────────────── */

@@ -247,4 +247,30 @@ describe("tool.mood_tracker on the server", () => {
       )
     ).toMatchObject({ added: false });
   });
+
+  it("takes the user's day a day ahead of the server's (its day is UTC), not two", async () => {
+    const list = vi.mocked(serverStore.serverListEntities);
+    list.mockImplementation(
+      async (_u, kind) => (kind === "workspace:teamMember" ? ROSTER : []) as never
+    );
+    const tomorrow = addDays(today, 1);
+    const pulse = registry.get("tool.mood_tracker.record_pulse")!;
+    const record = registry.get("tool.mood_tracker.record")!;
+    expect(await pulse.mcpHandler!({ date: tomorrow, counts: { 4: 3 } }, ctx())).toMatchObject({
+      added: true,
+    });
+    expect(
+      await record.mcpHandler!({ memberId: "alice", score: 4, date: tomorrow }, ctx())
+    ).toMatchObject({ added: true });
+    const later = addDays(today, 2);
+    expect(await pulse.mcpHandler!({ date: later, counts: { 4: 3 } }, ctx())).toMatchObject({
+      added: false,
+      reason: "A check-in can't be for a day that hasn't happened yet.",
+    });
+    // In the browser the day is the user's own: tomorrow is refused.
+    useWorkspaceStore.setState({ teamMembers: ROSTER, moodTrackerDocs: [] });
+    expect(await pulse.handler({ date: tomorrow, counts: { 4: 3 } }, ctx())).toMatchObject({
+      added: false,
+    });
+  });
 });

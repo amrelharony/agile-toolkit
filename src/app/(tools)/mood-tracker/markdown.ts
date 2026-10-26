@@ -1,5 +1,6 @@
 import type { DailyMood, LowMoodStreak, MoodMode, MoodSummary } from "@/lib/team/mood";
 import { MOOD_LABELS, MOOD_SCORES } from "@/lib/team/mood";
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { streakSpan } from "./verdict";
 
 /** "18 Oct 2026" */
@@ -12,8 +13,9 @@ const num = (n: number | null) => (n === null ? "—" : String(Math.round(n * 10
 /**
  * Team mood as Markdown, for the team channel or a retro page: the
  * verdict, the window's average and faces, the low-mood streak, and the
- * team's average per day. Team level only, in either mode: no names, no
- * notes.
+ * team's average per day (`daily`: in the anonymous mode the page passes
+ * only days with enough check-ins to be team level). Team level only, in
+ * either mode: no names, no notes.
  */
 export function toMarkdown({
   summary,
@@ -57,6 +59,12 @@ export function toMarkdown({
       "",
       "## By day",
       "",
+      ...(mode === "anonymous"
+        ? [
+            `_Days with fewer than ${MIN_SAMPLE.anonymous} check-ins are left out, so no day is one person's._`,
+            "",
+          ]
+        : []),
       "| Day | Team average | Check-ins |",
       "|---|---:|---:|",
       ...logged.map((d) => `| ${d.date} | ${num(d.average)} | ${d.n} |`)

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { CalendarDays, EyeOff, Heart, Radio, Smile, TrendingUp, Users } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -57,19 +57,24 @@ import {
   pulseCountsFromResult,
   realEntries,
   realPulses,
+  streakKey,
   streakLinks,
+  teamLevelDays,
   upsertCheckIn,
   withStreakLinks,
   type MoodMode,
   type MoodScore,
 } from "@/lib/team/mood";
 import { DayField } from "../health-check/day-field";
+import { neighbourKeys, useFocusAfter } from "../health-check/use-focus-after";
+import { useDayPick, useToday } from "../health-check/use-today";
 import { dailyMoodText } from "./chart-text";
 import { CheckInCard, validateCheckIn } from "./check-in";
 import { buildExample } from "./example";
 import { MoodHeatmap } from "./heatmap";
 import { toMarkdown } from "./markdown";
-import { PulseList } from "./pulses";
+import { moodPromptData } from "./prompt-data";
+import { PulseList, pulseOrder } from "./pulses";
 import { moodVerdict, shortDay, streakSpan } from "./verdict";
 
 // Recharts loads with the daily-average chart, not the page. The placeholder
@@ -140,21 +145,17 @@ export function MoodTrackerClient() {
   const mode: MoodMode = preview ? "anonymous" : moodMode(settings);
 
   // `today` follows the clock past midnight, so a tab left open overnight
-  // doesn't keep logging yesterday.
-  const [today, setToday] = useState(() => todayLocalISO());
-  useEffect(() => {
-    const t = window.setInterval(() => {
-      const next = todayLocalISO();
-      setToday((cur) => (cur === next ? cur : next));
-    }, 60_000);
-    return () => window.clearInterval(t);
-  }, []);
-  const [day, setDay] = useState(today);
-  const [pulseDay, setPulseDay] = useState(today);
+  // doesn't keep logging yesterday; so do the check-in and pulse days while
+  // nobody has picked another.
+  const today = useToday();
+  const [day, setDay] = useDayPick(today);
+  const [pulseDay, setPulseDay] = useDayPick(today);
   const pulseDayRef = useRef(pulseDay);
   pulseDayRef.current = pulseDay;
   const [focusMemberId, setFocusMemberId] = useState<string | null>(null);
   const checkInRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useFocusAfter(rootRef);
   const dailyTitleId = useId();
 
   const days = useMemo(() => lastDays(today, MOOD_WINDOW_DAYS), [today]);
@@ -165,6 +166,12 @@ export function MoodTrackerClient() {
   const named = useMemo(() => (preview ? [] : realEntries(entries)), [entries, preview]);
   const anon = useMemo(() => realPulses(pulses, { includeExamples: preview }), [pulses, preview]);
   const daily = useMemo(() => dailyMood(named, anon, days), [named, anon, days]);
+  // In the anonymous mode the views by day are team level: a day shows from
+  // MIN_SAMPLE.anonymous check-ins, so one kept from before the switch is never one person's.
+  const shownDaily = useMemo(
+    () => (mode === "anonymous" ? teamLevelDays(daily) : daily),
+    [mode, daily]
+  );
   const streak = useMemo(
     () => lowMoodStreak(entries, pulses, today, { includeExamples: preview }),
     [entries, pulses, today, preview]
@@ -174,10 +181,10 @@ export function MoodTrackerClient() {
 
   const series = useMemo(
     () =>
-      daily
+      shownDaily
         .filter((d): d is typeof d & { average: number } => d.average !== null)
         .map((d) => ({ date: d.date, avg: Math.round(d.average * 100) / 100 })),
-    [daily]
+    [shownDaily]
   );
   const values = series.map((p) => p.avg);
   const trend = enoughData(values.length, "trend") ? trendDirection(values) : null;
@@ -244,6 +251,8 @@ export function MoodTrackerClient() {
 
   const clearCheckIn = (entry: MoodEntry, name: string) => {
     if (preview) return;
+    // The Clear button goes with the check-in: focus that person's faces.
+    focusAfter(`faces:${entry.memberId}`);
     undoable({
       label: `Cleared ${name}'s check-in for ${shortDay(entry.date.slice(0, 10))}`,
       apply: () => useWorkspaceStore.getState().removeMoodEntry(entry.id),
@@ -255,6 +264,15 @@ export function MoodTrackerClient() {
 
   const removePulse = (p: MoodPulse) => {
     if (preview) return;
+    // The next pulse's Delete, else the one above, else the pulse's day.
+    focusAfter(
+      ...neighbourKeys(
+        pulseOrder(anon).map((x) => x.id),
+        p.id,
+        "delete-pulse:"
+      ),
+      "pulse-day"
+    );
     undoable({
       label: `Deleted the pulse of ${shortDay(p.date)}`,
       apply: () => useWorkspaceStore.getState().removeMoodPulse(p.id),
@@ -286,18 +304,21 @@ export function MoodTrackerClient() {
     return () => useWorkspaceStore.getState().removeMoodPulse(pulse.id);
   };
 
-  const pickCell = useCallback((memberId: string, cellDay: string) => {
-    setDay(cellDay);
-    setFocusMemberId(memberId);
-    checkInRef.current?.scrollIntoView?.({ block: "nearest" });
-  }, []);
+  const pickCell = useCallback(
+    (memberId: string, cellDay: string) => {
+      setDay(cellDay);
+      setFocusMemberId(memberId);
+      checkInRef.current?.scrollIntoView?.({ block: "nearest" });
+    },
+    [setDay]
+  );
   const focusTaken = useCallback(() => setFocusMemberId(null), []);
 
   /* ── Exports and prompts ────────────────────────────────────────────── */
 
   const markdown = useMemo(
-    () => toMarkdown({ summary, daily, streak, mode, days: MOOD_WINDOW_DAYS, verdict }),
-    [summary, daily, streak, mode, verdict]
+    () => toMarkdown({ summary, daily: shownDaily, streak, mode, days: MOOD_WINDOW_DAYS, verdict }),
+    [summary, shownDaily, streak, mode, verdict]
   );
   const csvData = useMemo(() => {
     if (mode === "named") {
@@ -313,30 +334,19 @@ export function MoodTrackerClient() {
     }
     return {
       headers: ["Date", "Team average", "Check-ins"],
-      rows: daily
+      rows: shownDaily
         .filter((d) => d.n > 0)
         .map((d) => [d.date, d.average === null ? "—" : Math.round(d.average * 100) / 100, d.n]),
     };
-  }, [mode, named, members, daily]);
+  }, [mode, named, members, shownDaily]);
 
-  const promptConfig = useMemo(() => {
-    // The team's check-ins without names: pulse answers one by one, and named ones only in named mode.
-    const fromPulses = anon.flatMap((p) =>
-      MOOD_SCORES.flatMap((s) =>
-        Array.from({ length: p.counts[s] ?? 0 }, () => ({
-          memberId: "team",
-          date: p.date,
-          score: s,
-        }))
-      )
-    );
-    const all = [...(mode === "named" ? named : []), ...fromPulses];
-    const mean = all.length ? all.reduce((sum, e) => sum + e.score, 0) / all.length : 0;
-    return {
+  const promptConfig = useMemo(
+    () => ({
       toolName: "Team Mood Tracker",
-      prompts: generateMoodTrackerPrompts({ entries: all, days, overallAvg: mean }),
-    };
-  }, [anon, named, mode, days]);
+      prompts: generateMoodTrackerPrompts(moodPromptData(named, anon, days, summary, mode)),
+    }),
+    [anon, named, mode, days, summary]
+  );
 
   const title = "Team Mood Tracker";
   const description =
@@ -365,7 +375,12 @@ export function MoodTrackerClient() {
     ? {
         title: `Team mood has been low for ${streak.days} check-in days (average ${fmt(streak.average)}, ${streakSpan(streak)})`,
         tone: "concern" as const,
-        sourceRef: { tool: "mood-tracker", id: `streak:${streak.start}`, doc: MOOD_TRACKER_ID },
+        // One run, one id: the saved run's start, which a backfill or a moving window doesn't change.
+        sourceRef: {
+          tool: "mood-tracker",
+          id: `streak:${streakKey(settings, streak)}`,
+          doc: MOOD_TRACKER_ID,
+        },
       }
     : null;
 
@@ -435,8 +450,8 @@ export function MoodTrackerClient() {
             <SendToMenu
               routes={["retro-topic"]}
               item={streakItem}
-              sentTo={preview ? undefined : streakLinks(settings, streak.start)}
-              getLinks={() => streakLinks(settingsDoc(), streak.start)}
+              sentTo={preview ? undefined : streakLinks(settings, streak)}
+              getLinks={() => streakLinks(settingsDoc(), streak)}
               disabled={preview}
               onLinksChange={(update) => writeSettings((d) => withStreakLinks(d, streak, update))}
               itemLabels={{ "retro-topic": "Retro topic (no names)" }}
@@ -445,7 +460,7 @@ export function MoodTrackerClient() {
         </CalloutAlert>
       )}
 
-      <div className="space-y-6">
+      <div ref={rootRef} className="space-y-6">
         <SectionCard title="How the team checks in" icon={Smile} contentClassName="space-y-3">
           <div role="group" aria-label="Check-in mode" className="grid gap-2 sm:grid-cols-2">
             {MODES.map((m) => {
@@ -511,13 +526,15 @@ export function MoodTrackerClient() {
                 Everyone picks a face on their own phone, or you count hands. Only how many picked
                 each face is kept, from {MIN_SAMPLE.anonymous} answers.
               </p>
-              <DayField
-                label="Pulse for"
-                value={pulseDay}
-                max={today}
-                problem={(d) => moodDateProblem(d, today)}
-                onChange={setPulseDay}
-              />
+              <div data-focus-key="pulse-day">
+                <DayField
+                  label="Pulse for"
+                  value={pulseDay}
+                  max={today}
+                  problem={(d) => moodDateProblem(d, today)}
+                  onChange={setPulseDay}
+                />
+              </div>
               <VoteRoundPanel
                 tool="mood-tracker"
                 toolName="Mood Tracker"

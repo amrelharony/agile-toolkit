@@ -91,6 +91,8 @@ function MemberRow({
         <div
           ref={groupRef}
           role="group"
+          // Where the page puts focus after this person's check-in is cleared.
+          data-focus-key={`faces:${member.id}`}
           aria-label={`Mood for ${member.name} on ${shortDay(day)}`}
           className="flex w-full flex-1 flex-wrap gap-1.5 sm:w-auto"
         >

@@ -8,9 +8,18 @@ import { MOOD_SCORES, pulseAverage, pulseTotal } from "@/lib/team/mood";
 import { FACES } from "./faces";
 import { shortDay } from "./verdict";
 
+/** The pulses as the list shows them: newest day first, then the one saved last. */
+export function pulseOrder(pulses: readonly MoodPulse[]): MoodPulse[] {
+  return [...pulses].sort(
+    (a, b) => b.date.localeCompare(a.date) || (b.createdAt ?? "").localeCompare(a.createdAt ?? "")
+  );
+}
+
 /**
  * The team's anonymous pulses, newest first: how many answered, the mean
  * face, the faces as a bar, and Delete with Undo. Counts only, as saved.
+ * Each Delete is marked `data-focus-key` ("delete-pulse:<id>") so the page
+ * can put focus back after one.
  */
 export function PulseList({
   pulses,
@@ -21,9 +30,7 @@ export function PulseList({
   readOnly: boolean;
   onRemove: (p: MoodPulse) => void;
 }) {
-  const sorted = [...pulses].sort(
-    (a, b) => b.date.localeCompare(a.date) || (b.createdAt ?? "").localeCompare(a.createdAt ?? "")
-  );
+  const sorted = pulseOrder(pulses);
   return (
     <ul className="divide-y divide-border rounded-lg border border-border bg-card">
       {sorted.map((p) => {
@@ -52,13 +59,14 @@ export function PulseList({
             <span className="sr-only">
               {MOOD_SCORES.map((s) => `${p.counts[s] ?? 0} ${FACES[s - 1].label}`).join(", ")}
             </span>
-            <IconButton
-              label={`Delete the pulse of ${what}`}
-              icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
-              disabled={readOnly}
-              onClick={() => onRemove(p)}
-              className="ml-auto"
-            />
+            <span data-focus-key={`delete-pulse:${p.id}`} className="ml-auto">
+              <IconButton
+                label={`Delete the pulse of ${what}`}
+                icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                disabled={readOnly}
+                onClick={() => onRemove(p)}
+              />
+            </span>
           </li>
         );
       })}

@@ -18,6 +18,10 @@ import {
   moodQuestionnaire,
   moodSummary,
   pulseCountsFromResult,
+  savedStreakFor,
+  streakKey,
+  streakLinks,
+  teamLevelDays,
   upsertCheckIn,
   withStreakLinks,
 } from "@/lib/team/mood";
@@ -61,6 +65,7 @@ import { buildExample } from "@/app/(tools)/mood-tracker/example";
 import { toMarkdown } from "@/app/(tools)/mood-tracker/markdown";
 import { moodVerdict } from "@/app/(tools)/mood-tracker/verdict";
 import { validateCheckIn, validateMember } from "@/app/(tools)/mood-tracker/check-in";
+import { moodPromptData } from "@/app/(tools)/mood-tracker/prompt-data";
 import "@/lib/actions/tools/mood-tracker";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
@@ -183,6 +188,7 @@ describe("mood, one number everywhere", () => {
     expect(streak).toEqual({
       start: "2026-10-24",
       end: TODAY,
+      runStart: "2026-10-24",
       days: 3,
       average: 2.1,
       checkIns: 17,
@@ -454,5 +460,126 @@ describe("the page", () => {
     expect(r.average).toBe(3);
     expect(average()).toHaveTextContent(/average\s*3\s*\/5/);
     expect(r.streak.days).toBe(3);
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+const LINK = { route: "retro-topic" as const, targetId: "c", at: "2026-10-26T10:00:00.000Z" };
+
+describe("review fixes", () => {
+  it("keeps one run one retro topic when a backfill or the window moves its start", () => {
+    // Sent while the run was 24–26 Oct.
+    const sent = withStreakLinks(undefined, { start: "2026-10-24", end: TODAY }, () => [LINK]);
+    // A low day backfilled on the 23rd moves the start back: still the same run.
+    const backfilled = lowMoodStreak(
+      [],
+      [...ownPulses(), pulse("x", "2026-10-23", { 2: 3 })],
+      TODAY
+    )!;
+    expect(backfilled.start).toBe("2026-10-23");
+    expect(savedStreakFor(sent, backfilled)?.sentTo).toEqual([LINK]);
+    expect(streakLinks(sent, backfilled)).toEqual([LINK]);
+    expect(streakKey(sent, backfilled)).toBe("2026-10-24");
+    // Sending again stretches the saved run, keeping its earliest start.
+    const again = withStreakLinks(sent, backfilled, (l) => [...(l ?? [])]);
+    expect(again.streaks).toEqual([{ start: "2026-10-23", end: TODAY, sentTo: [LINK] }]);
+    // A later run, after a better day, is a new one.
+    expect(savedStreakFor(sent, { start: "2026-10-28", end: "2026-10-30" })).toBeUndefined();
+  });
+
+  it("follows a run back past the window, so it isn't new each day", () => {
+    // Low every day from 1 Oct to 26 Oct, three answers a day.
+    const days = lastDays(TODAY, 26);
+    const pulses = days.map((d, i) => pulse(`l${i}`, d, { 2: 3 }));
+    const streak = lowMoodStreak([], pulses, TODAY)!;
+    expect(streak.start).toBe("2026-10-13");
+    expect(streak.runStart).toBe("2026-10-01");
+    // Sent on 5 Oct (the run was 1–5 Oct then): the same run three weeks on.
+    const sent = withStreakLinks(undefined, { start: "2026-10-01", end: "2026-10-05" }, () => [
+      LINK,
+    ]);
+    expect(streakLinks(sent, streak)).toEqual([LINK]);
+  });
+
+  it("the check-in and pulse days move on past midnight, unless one was picked", () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(2026, 9, 26, 23, 59, 30));
+    useWorkspaceStore.setState({ teamMembers: [{ id: "m1", name: "Ana" }] });
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Pulse for"), { target: { value: "2026-10-20" } });
+    act(() => {
+      vi.setSystemTime(new Date(2026, 9, 27, 0, 0, 40));
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByLabelText("Check-ins for")).toHaveValue("2026-10-27");
+    // Picked by hand: it stays.
+    expect(screen.getByLabelText("Pulse for")).toHaveValue("2026-10-20");
+  });
+
+  it("in the anonymous mode no day shows with fewer than 3 check-ins", () => {
+    useWorkspaceStore.setState({
+      teamMembers: [{ id: "m1", name: "Ana" }],
+      moodEntries: [entry("e1", "m1", "2026-10-22", 1)],
+      moodPulses: [pulse("p1", "2026-10-25", { 4: 3 })],
+      moodTrackerDocs: [{ id: MOOD_TRACKER_ID, mode: "anonymous" }],
+    });
+    renderPage();
+    const md = screen.getByTestId("export-markdown").textContent ?? "";
+    expect(md).toContain("| 2026-10-25 | 4 | 3 |");
+    expect(md).not.toContain("2026-10-22");
+    expect(md).toContain("Days with fewer than 3 check-ins are left out");
+    // The window's average still counts Ana's earlier check-in: (1 + 12) / 4.
+    expect(md).toContain("**Average:** 3.3 out of 5");
+    expect(
+      teamLevelDays(dailyMood([entry("e1", "m1", "2026-10-22", 1)], [], ["2026-10-22"]))
+    ).toEqual([]);
+  });
+
+  it("gives the AI prompt the headline's average, the window's check-ins, and no names when anonymous", () => {
+    const days = lastDays(TODAY, 14);
+    const named = [
+      entry("e1", "m1", "2026-10-25", 2, { note: "Tired" }),
+      entry("old", "m1", "2026-09-01", 5),
+    ];
+    const pulses = [pulse("p1", "2026-10-25", { 4: 2 }), pulse("p0", "2026-09-02", { 5: 3 })];
+    const summary = moodSummary(named, pulses, days[0], TODAY);
+    const byName = moodPromptData(named, pulses, days, summary, "named");
+    expect(byName.overallAvg).toBe(summary.average);
+    expect(byName.overallAvg).toBeCloseTo(3.3);
+    // Only the window: the September rows are out.
+    expect(byName.entries.map((e) => e.date)).toEqual(["2026-10-25", "2026-10-25", "2026-10-25"]);
+    expect(byName.entries[0]).toMatchObject({ memberId: "m1", note: "Tired" });
+    const anon = moodPromptData(named, pulses, days, summary, "anonymous");
+    expect(anon.entries.every((e) => e.memberId === "team" && !("note" in e))).toBe(true);
+    expect(anon.entries).toHaveLength(3);
+    // Too few check-ins for an average: no prompt, as the page shows "—".
+    const thin = moodSummary([named[0]], [], days[0], TODAY);
+    expect(moodPromptData([named[0]], [], days, thin, "named").entries).toEqual([]);
+  });
+
+  it("puts focus back after a check-in is cleared and a pulse deleted", () => {
+    useWorkspaceStore.setState({
+      teamMembers: [{ id: "m1", name: "Ana" }],
+      moodEntries: [entry("e1", "m1", TODAY, 4)],
+      moodPulses: [pulse("p1", "2026-10-24", { 4: 3 }), pulse("p2", "2026-10-25", { 3: 3 })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Clear Ana's check-in for 26 Oct" }));
+    const faces = screen.getByRole("group", { name: /^Mood for Ana/ });
+    expect(document.activeElement).toBe(within(faces).getAllByRole("button")[0]);
+    // Newest first: deleting the 25th's moves focus to the 24th's Delete.
+    fireEvent.click(screen.getByRole("button", { name: /^Delete the pulse of 25 Oct/ }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: /^Delete the pulse of 24 Oct/ })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Delete the pulse of 24 Oct/ }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Pulse for"));
+  });
+
+  it("the pulse's day says which day it keeps while it shows an error", () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Pulse for"), { target: { value: "2026-10-29" } });
+    expect(screen.getByText("Keeps 26 Oct 2026 until a valid day is picked.")).toBeInTheDocument();
   });
 });
