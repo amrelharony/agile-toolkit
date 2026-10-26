@@ -12,6 +12,11 @@
  *
  * Only the dots and chips take `touch-none`: a swipe over the empty map
  * still scrolls the page on a phone. The axes' maths is lib/utils/matrix.
+ *
+ * The panes divide where each axis turns high (an axis's `highFrom`, see
+ * axisSplit): the middle by default, as on the Stakeholder Map; about 58%
+ * up on Value/Effort's Fibonacci value axis, so a drop lands in the pane
+ * whose quadrant the value derives.
  */
 
 import {
@@ -29,6 +34,7 @@ import { cn } from "@/lib/utils";
 import {
   atFromPointer,
   axisMin,
+  axisSplit,
   fanOut,
   nudge,
   percentAlong,
@@ -269,6 +275,10 @@ export function DragMatrix<T extends DragMatrixItem>({
   ] as (T & { x: number; y: number })[];
   // Items on the same spot fan out a little, with a count on the first.
   const fan = fanOut(shown);
+  // Pane sizes as grid fractions, to 4 places (sub-pixel on any screen).
+  const fr = (n: number) => `minmax(0, ${Math.round(n * 1e4) / 1e4}fr)`;
+  const xSplit = axisSplit(xAxis);
+  const ySplit = axisSplit(yAxis);
 
   return (
     <div className="space-y-3">
@@ -337,7 +347,15 @@ export function DragMatrix<T extends DragMatrixItem>({
         // map still scrolls the page on a phone.
         className="relative mx-auto aspect-square w-full max-w-xl"
       >
-        <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px overflow-hidden rounded-lg bg-border">
+        <div
+          className="absolute inset-0 grid gap-px overflow-hidden rounded-lg bg-border"
+          // The panes divide where each axis turns high (axisSplit): 50/50
+          // unless the axis says otherwise, ~58% up on a Fibonacci value axis.
+          style={{
+            gridTemplateColumns: `${fr(xSplit)} ${fr(1 - xSplit)}`,
+            gridTemplateRows: `${fr(1 - ySplit)} ${fr(ySplit)}`,
+          }}
+        >
           {/* Each pane's tint sits on an opaque bg-bg: the grid behind is
               bg-border (its 1 px gaps are the lines), and a bare 5% tint let
               it through, white in high contrast, under yellow and green labels. */}

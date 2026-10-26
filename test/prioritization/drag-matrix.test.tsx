@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { DragMatrix, type DragMatrixItem } from "@/components/shared/drag-matrix";
 import {
   atFromPointer,
   axisFraction,
+  axisSplit,
   fanOut,
   nudge,
   percentAlong,
@@ -13,7 +14,12 @@ import {
   type MatrixAxis,
 } from "@/lib/utils/matrix";
 import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
-import { VE_LABEL, veQuadrant } from "@/lib/prioritization/methods/value-effort";
+import {
+  VE_EFFORT_AXIS,
+  VE_LABEL,
+  VE_VALUE_AXIS,
+  veQuadrant,
+} from "@/lib/prioritization/methods/value-effort";
 
 /**
  * The shared draggable 2×2: its axis maths (linear and the Fibonacci
@@ -66,6 +72,29 @@ describe("matrix maths", () => {
     expect(nudge(VALUE, 4, -1)).toBe(3);
   });
 
+  it("divides the panes where the quadrant changes, so a drop lands in the pane it reads", () => {
+    // No highFrom: the middle (the Stakeholder Map's 50/50).
+    expect(axisSplit(EFFORT)).toBe(0.5);
+    expect(axisSplit(VALUE)).toBe(0.5);
+    // Effort 1–10, high from 6: still the middle. Value, high from 8: 3.5 of 6 steps up.
+    expect(axisSplit(VE_EFFORT_AXIS)).toBeCloseTo(0.5, 9);
+    expect(axisSplit(VE_VALUE_AXIS)).toBeCloseTo(3.5 / 6, 9);
+    expect(axisSplit({ ...VE_VALUE_AXIS, highFrom: 1 })).toBe(0);
+    expect(axisSplit({ ...VE_VALUE_AXIS, highFrom: 40 })).toBe(1);
+    // A drop just above the drawn value divider is high value, just below it low.
+    const rect = { left: 0, top: 0, width: 600, height: 600 };
+    const line = 600 * (1 - 3.5 / 6);
+    const above = atFromPointer(rect, 120, line - 2, VE_EFFORT_AXIS, VE_VALUE_AXIS)!;
+    const below = atFromPointer(rect, 120, line + 2, VE_EFFORT_AXIS, VE_VALUE_AXIS)!;
+    expect(above.y).toBe(8);
+    expect(veQuadrant(above.y, above.x)).toBe("quick_wins");
+    expect(below.y).toBe(5);
+    expect(veQuadrant(below.y, below.x)).toBe("fill_ins");
+    // And value 5's dot is drawn below the line, not on it.
+    expect(percentAlong(VE_VALUE_AXIS, 5)).toBeLessThan((3.5 / 6) * 100);
+    expect(percentAlong(VE_VALUE_AXIS, 8)).toBeGreaterThan((3.5 / 6) * 100);
+  });
+
   it("fans out dots on one spot, the first carrying the count", () => {
     const f = fanOut([
       { id: "a", x: 1, y: 1 },
@@ -85,14 +114,17 @@ describe("<DragMatrix>", () => {
     return q ? `value ${at.y}, effort ${at.x}, ${VE_LABEL[q]}` : "not placed yet";
   };
 
-  const renderMatrix = (items: Item[]) => {
+  const renderMatrix = (
+    items: Item[],
+    axes: { x: MatrixAxis; y: MatrixAxis } = { x: EFFORT, y: VALUE }
+  ) => {
     const onPlace = vi.fn();
     render(
       <LiveAnnouncerProvider>
         <DragMatrix<Item>
           items={items}
-          xAxis={EFFORT}
-          yAxis={VALUE}
+          xAxis={axes.x}
+          yAxis={axes.y}
           yLabel="↑ Value"
           xLabel="Effort →"
           label="Value vs Effort matrix"
@@ -146,6 +178,28 @@ describe("<DragMatrix>", () => {
     fireEvent.pointerUp(dot, { pointerId: 1, clientX: 600, clientY: 0 });
     expect(onPlace).toHaveBeenCalledTimes(1);
     expect(onPlace).toHaveBeenCalledWith("a", { x: 10, y: 20 }, "drag");
+  });
+
+  it("draws the panes 50/50 by default and at the high-value line on the Fibonacci axis", () => {
+    const panes = (grid: HTMLElement) =>
+      grid.querySelector<HTMLElement>("[style*='grid-template-rows']")!.style;
+    const even = renderMatrix([]).grid;
+    expect(panes(even).gridTemplateColumns).toBe("minmax(0, 0.5fr) minmax(0, 0.5fr)");
+    expect(panes(even).gridTemplateRows).toBe("minmax(0, 0.5fr) minmax(0, 0.5fr)");
+    cleanup();
+    const { grid, onPlace } = renderMatrix([{ id: "a", name: "Search", x: 3, y: 2 }], {
+      x: VE_EFFORT_AXIS,
+      y: VE_VALUE_AXIS,
+    });
+    const top = 1 - 3.5 / 6;
+    expect(panes(grid).gridTemplateRows).toBe("minmax(0, 0.4167fr) minmax(0, 0.5833fr)");
+    expect(panes(grid).gridTemplateColumns).toBe("minmax(0, 0.5fr) minmax(0, 0.5fr)");
+    // A drop just above that line, in the upper panes, saves a high value.
+    const dot = within(grid).getByRole("button", { name: /^Search:/ });
+    fireEvent.pointerDown(dot, { pointerId: 1, button: 0, clientX: 133, clientY: 500 });
+    fireEvent.pointerMove(dot, { pointerId: 1, clientX: 120, clientY: 600 * top - 2 });
+    fireEvent.pointerUp(dot, { pointerId: 1, clientX: 120, clientY: 600 * top - 2 });
+    expect(onPlace).toHaveBeenCalledWith("a", { x: 3, y: 8 }, "drag");
   });
 
   it("treats a short pointer move as a tap, saving nothing", () => {

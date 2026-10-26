@@ -18,12 +18,16 @@ export type MatrixAxis =
       step: number;
       /** Where a keyboard move of an unplaced axis starts (default: the middle, on a step). */
       start?: number;
+      /** The first value that counts as high (where the panes divide); default: the middle. */
+      highFrom?: number;
     }
   | {
       kind: "ordinal";
       /** The values, ascending, drawn evenly spaced. */
       steps: readonly number[];
       start?: number;
+      /** The first value that counts as high (Value/Effort's 8); default: the middle. */
+      highFrom?: number;
     };
 
 export interface MatrixAt {
@@ -75,6 +79,27 @@ export function valueAtFraction(a: MatrixAxis, f: number): number {
   const t = Math.min(1, Math.max(0, f));
   if (a.kind === "linear") return snap(a, a.min + t * (a.max - a.min));
   return a.steps[Math.round(t * (a.steps.length - 1))];
+}
+
+/**
+ * Where the axis's low/high divider is drawn, 0 (min) to 1 (max): halfway
+ * between the last value below `highFrom` and `highFrom` itself. That is
+ * exactly where a drop snaps from one to the other, so the pane under the
+ * pointer is the pane the value counts in, and a dot is never drawn on
+ * the line. Without `highFrom`, the middle (the Stakeholder Map's 50/50).
+ * Value/Effort's Fibonacci value axis (high from 8) divides at 3.5/6,
+ * about 58% up; its 1–10 effort axis (high from 6) at the middle.
+ */
+export function axisSplit(a: MatrixAxis): number {
+  if (a.highFrom === undefined) return 0.5;
+  const high = a.highFrom;
+  if (high <= axisMin(a)) return 0;
+  if (high > axisMax(a)) return 1;
+  const below =
+    a.kind === "linear"
+      ? Math.max(a.min, high - a.step)
+      : a.steps.reduce((acc, v) => (v < high ? v : acc), a.steps[0]);
+  return (axisFraction(a, below) + axisFraction(a, high)) / 2;
 }
 
 /** Where a value is drawn, as a percentage 0–100, kept 4–96 so a dot never leaves the map. */

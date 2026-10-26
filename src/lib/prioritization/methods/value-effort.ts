@@ -20,7 +20,14 @@
  * Fibonacci scale at or above it (1→1, 2→2, 3→3, 4–5→5, 6–8→8, 9–10→13).
  */
 
-import { fibonacciAtOrAbove, fibonacciOk, FIBONACCI_STEPS, FIBONACCI_TEXT } from "./fibonacci";
+import type { MatrixAxis } from "@/lib/utils/matrix";
+import {
+  fibonacciAtOrAbove,
+  fibonacciOk,
+  FIBONACCI_STEPS,
+  FIBONACCI_TEXT,
+  FIBONACCI_VALUES,
+} from "./fibonacci";
 import { readBacklogItem } from "../defaults";
 import { defined, formatNumber, notScored, put, toNumber, toValidation } from "./fields";
 import type {
@@ -78,6 +85,24 @@ export const VE_EFFORT_STEPS: readonly ScaleStep[] = [
 
 /** The value axis: the Fibonacci steps, sized against the other items. */
 export const VE_VALUE_STEPS: readonly ScaleStep[] = FIBONACCI_STEPS;
+
+/**
+ * The 2×2's axes for the shared DragMatrix: value up the side as the seven
+ * Fibonacci steps evenly spaced, effort along the bottom 1–10. `highFrom`
+ * puts each pane divider where the quadrant changes (value 8, effort 6).
+ */
+export const VE_VALUE_AXIS: MatrixAxis = {
+  kind: "ordinal",
+  steps: FIBONACCI_VALUES,
+  highFrom: VE_HIGH_VALUE_FROM,
+};
+export const VE_EFFORT_AXIS: MatrixAxis = {
+  kind: "linear",
+  min: 1,
+  max: 10,
+  step: 1,
+  highFrom: VE_HIGH_EFFORT_FROM,
+};
 
 const BUCKETS: readonly BucketDef[] = [
   {
