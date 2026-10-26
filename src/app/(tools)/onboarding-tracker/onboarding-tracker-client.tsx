@@ -266,34 +266,15 @@ export function OnboardingTrackerClient() {
   const mostReached = ramp.reduce((max, p) => Math.max(max, p.reached), 0);
   const markdown = onboardingToMarkdown(onboardees, today);
 
+  // The people as listed, and today: the prompt counts statuses and KPIs
+  // with the page's own definitions (overdue and at risk apart; no average
+  // below MIN_SAMPLE.average people).
   const promptConfig = useMemo(
     () => ({
       toolName: "Onboarding Speed Tracker",
-      prompts: generateOnboardingTrackerPrompts(
-        {
-          onboardees: onboardees.map((p) => ({
-            name: p.name,
-            role: p.role,
-            startDate: p.startDate,
-            description: p.description,
-            milestones: p.milestones.map((m) => ({
-              name: m.name,
-              targetDays: m.targetDays,
-              completedAt: m.completedAt,
-              notes: m.notes,
-            })),
-          })),
-          // The page's averages: null until MIN_SAMPLE.average people.
-          avgTimeToFirstPR: stats.firstPr.avg,
-          avgTimeToProductivity: stats.productive.avg,
-          // The prompt's own at-risk table includes overdue milestones, so
-          // its headline count does too.
-          atRiskCount: stats.atRisk + stats.overdue,
-        },
-        workspace
-      ),
+      prompts: generateOnboardingTrackerPrompts({ onboardees, today }, workspace),
     }),
-    [onboardees, stats, workspace]
+    [onboardees, today, workspace]
   );
 
   return (
