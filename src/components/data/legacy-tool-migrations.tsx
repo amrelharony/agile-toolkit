@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
 import { useLegacyMigrationMode } from "@/lib/data/use-legacy-migration-mode";
 import { hasLegacyImpediments } from "@/lib/impediments/legacy-key";
+import { hasLegacyRaci } from "@/lib/raci/model";
 import { syncEngine } from "@/lib/sync/engine";
 import { toast } from "@/lib/utils/toast";
 
@@ -11,9 +12,16 @@ import { toast } from "@/lib/utils/toast";
  * Moves old per-tool storage into the workspace, once, for the tools whose
  * upgrade moved their data there (the sprint tools have their own mount,
  * LegacySprintMigration). Same safety rules: see useLegacyMigrationMode.
+ * A tool page that runs its own move too (RACI) shares the move's
+ * cross-tab lock, and the second run finds the old key gone.
  *
  * Renders nothing. Without any old key it does nothing at all and never
  * loads the migration code.
+ *
+ * The ADKAR tracker's old blob is not here: its move is a hook on the
+ * ADKAR page (use-legacy-adkar.ts) that reads the cloud-synced blob and
+ * records what it moved in another synced blob, which only a mounted hook
+ * can write to the cloud.
  */
 
 interface LegacyToolMigration {
@@ -33,6 +41,20 @@ const MIGRATIONS: readonly LegacyToolMigration[] = [
         await import("@/lib/impediments/migrate-legacy");
       const result = await runLegacyImpedimentMigration();
       return impedimentMigrationSummary(result.report);
+    },
+  },
+  {
+    // The RACI tool's old local-only store. The move fills the workspace
+    // only when it has no matrix, and skips the old store's untouched
+    // defaults; either way the old key is backed up and removed.
+    id: "raci",
+    has: () => hasLegacyRaci(),
+    run: async () => {
+      const { runRaciMigration } = await import("@/app/(tools)/raci/migrate");
+      const result = await runRaciMigration();
+      return result.report?.moved
+        ? "Moved the RACI matrix saved in this browser into your workspace."
+        : null;
     },
   },
 ];
