@@ -159,10 +159,15 @@ function groupByCategory(rows: readonly PrioritizationItem[], items: readonly Ba
   for (const c of [...MOSCOW_BUCKETS, "unsorted"] as const) {
     grouped[c].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
   }
+  // Musts with no effort are left out of the share, so while any is, the
+  // share is a floor (the page never calls it inside the limit then).
+  const unsizedMusts = entries.filter(
+    (e) => e.bucket === "must" && (e.effort === null || !Number.isFinite(e.effort) || e.effort < 0)
+  ).length;
   return {
     ...grouped,
     total: rows.length,
-    budget: { ...mustBudget(entries), limit: MUST_BUDGET_SHARE },
+    budget: { ...mustBudget(entries), unsizedMusts, limit: MUST_BUDGET_SHARE },
   };
 }
 
@@ -180,7 +185,7 @@ registry.register({
   name: "list_items",
   category: "read",
   description:
-    "List all MoSCoW-classified scope items in the workspace, grouped by category: { must, should, could, wont, unsorted, total, budget }. A row linked to a backlog item takes its bucket from the item; one with no (or an unknown) bucket is under unsorted, never Must. Each group is sorted by recency (newest first). budget = { mustEffort, plannedEffort, share, over, excess, sized, unsized, limit }: Musts should take at most about 60% of the Must+Should+Could effort (a linked item's job size, else the row's effort); share is null below 3 sized items. Filtered to framework='moscow' so other prioritization frameworks (WSJF, RICE…) don't leak through.",
+    "List all MoSCoW-classified scope items in the workspace, grouped by category: { must, should, could, wont, unsorted, total, budget }. A row linked to a backlog item takes its bucket from the item; one with no (or an unknown) bucket is under unsorted, never Must. Each group is sorted by recency (newest first). budget = { mustEffort, plannedEffort, share, over, excess, sized, unsized, unsizedMusts, limit }: Musts should take at most about 60% of the Must+Should+Could effort (a linked item's job size, else the row's effort); share is null below 3 sized items. unsizedMusts counts the Musts with no effort: they're left out of the share, so while it's above 0 the share is a lower bound (with every Must unsized it can't be judged at all). Filtered to framework='moscow' so other prioritization frameworks (WSJF, RICE…) don't leak through.",
   paramsSchema: z.object({}),
   handler: async () => listItems(clientStore()),
   mcpHandler: async (_params, ctx) => listItems(serverStore(ctx.userId)),

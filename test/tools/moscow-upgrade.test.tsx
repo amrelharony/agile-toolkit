@@ -32,7 +32,7 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 import { MoscowClient } from "@/app/(tools)/moscow/moscow-client";
 import { buildExample } from "@/app/(tools)/moscow/example";
 import { toMarkdown } from "@/app/(tools)/moscow/markdown";
-import { moscowVerdict } from "@/app/(tools)/moscow/verdict";
+import { excessText, moscowVerdict } from "@/app/(tools)/moscow/verdict";
 import { budgetOf } from "@/app/(tools)/moscow/budget";
 import { rankMethodRows } from "@/lib/prioritization/rank";
 import { mustBudget } from "@/lib/prioritization/methods/moscow";
@@ -208,6 +208,115 @@ describe("MoSCoW Must budget", () => {
     expect(
       screen.getByText("Move about 1 point of Musts down to Should or Could.")
     ).toBeInTheDocument();
+    // Every planned item has an effort, so none is named.
+    expect(screen.queryByText(/planned items? ha(s|ve) no effort/)).toBeNull();
+  });
+
+  it("rounds the points to move up, so following the advice ends at the limit or under", () => {
+    const text = (excess: number) => excessText({ ...mustBudget([]), excess });
+    expect(text(2.3999999999999986)).toBe("Move about 3 points of Musts down to Should or Could.");
+    // Float noise on a whole excess doesn't add a point; a sliver still asks for one.
+    expect(text(1.0000000000000009)).toBe("Move about 1 point of Musts down to Should or Could.");
+    expect(text(0.2)).toBe("Move about 1 point of Musts down to Should or Could.");
+    // Moving 3 of the example's 18 Must points: 15 of 26 = 58%, under 60%.
+    expect(15 / 26).toBeLessThanOrEqual(0.6);
+  });
+
+  it("holds the share back while no Must has an effort, never 0% inside the limit", () => {
+    const list = [
+      sized("m1", "must"),
+      sized("m2", "must"),
+      sized("s", "should", 3),
+      sized("c1", "could", 2),
+      sized("c2", "could", 1),
+    ];
+    useWorkspaceStore.setState({ prioritizations: list });
+    render(<MoscowClient />);
+    expect(
+      screen.getByText(
+        "5 items: 2 Must, 1 Should and 2 Could. The 2 Musts have no effort yet, so the Must budget can't be judged: size them."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("meter")).toBeNull();
+    expect(screen.queryByText(/Inside the limit/)).toBeNull();
+    expect(
+      screen.getByText(
+        "The 2 Musts have no effort yet, so the budget can't be judged: size them first."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "2 planned items have no effort: “Item m1” and “Item m2”. Use Edit on each row to give them an effort."
+      )
+    ).toBeInTheDocument();
+    expect(toMarkdown(rankMethodRows("moscow", list), [])).not.toContain("Musts: 0%");
+  });
+
+  it("reads a partly sized Must list as a floor, never inside the limit", () => {
+    const list = [
+      sized("m1", "must", 1),
+      sized("m2", "must"),
+      sized("s", "should", 3),
+      sized("c", "could", 2),
+    ];
+    useWorkspaceStore.setState({ prioritizations: list });
+    render(<MoscowClient />);
+    expect(
+      screen.getByText(
+        "4 items: 2 Must, 1 Should and 1 Could. The sized Must takes 17% of the planned effort, but 1 more Must has no effort yet, so the share can only rise: size it before trusting the budget."
+      )
+    ).toBeInTheDocument();
+    const meter = screen.getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuetext", "at least 17%, limit about 60%");
+    expect(meter.className).toContain("bg-warning");
+    expect(
+      screen.getByText(
+        "Musts: at least 17% of the planned effort (1 of 6 points; limit about 60%; 1 more Must not sized)."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("At least 17%: 1 more Must has no effort yet, so the share can only rise.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Inside the limit/)).toBeNull();
+  });
+
+  it("over the limit with an unsized Must still says what to move", () => {
+    const list = [
+      sized("m1", "must", 8),
+      sized("m2", "must"),
+      sized("s", "should", 2),
+      sized("c", "could", 1),
+    ];
+    expect(moscowVerdict(rankMethodRows("moscow", list), [])).toBe(
+      "4 items: 2 Must, 1 Should and 1 Could. The sized Must takes 73% of the planned effort, over the limit of about 60%, and 1 more Must has no effort yet. Move about 2 points of Musts down to Should or Could."
+    );
+  });
+
+  it("points a linked unsized item to the Prioritizer and an unlinked one to Edit", () => {
+    const item: BacklogItem = {
+      id: "b1",
+      name: "Card payments",
+      moscow: "must",
+      updatedAt: "2026-10-20T09:00:00.000Z",
+    };
+    useWorkspaceStore.setState({
+      backlogItems: [item],
+      prioritizations: [
+        row("l", "Card payments", { bucket: "must" }, { backlogItemId: "b1" }),
+        sized("u", "should"),
+        sized("w", "wont"),
+      ],
+    });
+    render(<MoscowClient />);
+    const note = screen.getByText(/2 planned items have no effort/);
+    // Won't is out of the plan, so it isn't asked for an effort.
+    expect(note).toHaveTextContent(
+      "2 planned items have no effort: “Card payments” and “Item u”. Give the backlog item a job size in the Backlog Prioritizer, and use Edit to give the other one an effort."
+    );
+    expect(within(note).getByRole("link", { name: "Backlog Prioritizer" })).toHaveAttribute(
+      "href",
+      "/prioritizer"
+    );
   });
 });
 
@@ -273,10 +382,16 @@ describe("MoSCoW example and export", () => {
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "10 items: 4 Must, 3 Should, 2 Could and 1 Won't. The 4 Musts take 69% of the planned effort, over the limit of about 60%. Move about 2 points of Musts down to Should or Could."
+        // 18 of 26 points: 2.4 over the limit, so moving 3 (never 2) gets under it.
+        "10 items: 4 Must, 3 Should, 2 Could and 1 Won't. The 4 Musts take 69% of the planned effort, over the limit of about 60%. Move about 3 points of Musts down to Should or Could."
       )
     ).toBeInTheDocument();
-    expect(screen.getByText(/1 planned item has no effort/)).toBeInTheDocument();
+    // The panel names the unsized item and, as it isn't on the backlog, points to Edit.
+    expect(
+      screen.getByText(
+        "1 planned item has no effort: “Apple Pay”. Use Edit on the row to give it an effort."
+      )
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(rows()).toEqual([]);
   });
@@ -322,6 +437,24 @@ describe("MoSCoW page and agent agree", () => {
     expect(listed.must.map((r) => r.id)).toEqual(["l"]);
     expect(listed.unsorted.map((r) => r.id)).toEqual(["u"]);
     expect(listed.budget).toMatchObject({ ...page, limit: 0.6 });
-    expect(page).toMatchObject({ mustEffort: 8, plannedEffort: 13, sized: 3 });
+    expect(page).toMatchObject({ mustEffort: 8, plannedEffort: 13, sized: 3, unsizedMusts: 0 });
+  });
+
+  it("list_items counts the unsized Musts as the page does", async () => {
+    const list = [
+      row("m1", "Sized must", { bucket: "must", effort: 2 }),
+      row("m2", "Unsized must", { bucket: "must" }),
+      row("s", "Should", { bucket: "should", effort: 3 }),
+      row("c", "Could", { bucket: "could", effort: 1 }),
+    ];
+    useWorkspaceStore.setState({ prioritizations: list });
+    const listed = (await registry
+      .get("tool.moscow.list_items")!
+      .handler({}, { userId: "u", source: "agent", squadProfileIds: [] })) as {
+      budget: Record<string, unknown>;
+    };
+    const page = budgetOf(rankMethodRows("moscow", list), []);
+    expect(page.unsizedMusts).toBe(1);
+    expect(listed.budget).toMatchObject({ ...page, limit: 0.6 });
   });
 });

@@ -3,7 +3,7 @@ import { formatNumber } from "@/lib/prioritization/methods/fields";
 import { MOSCOW_BUCKETS, MOSCOW_LABEL } from "@/lib/prioritization/methods/moscow";
 import type { RankedRow } from "@/lib/prioritization/rank";
 import { bucketOf, budgetOf, effortOf } from "./budget";
-import { budgetLine, moscowVerdict } from "./verdict";
+import { bucketCounts, budgetLine, moscowVerdict } from "./verdict";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -57,7 +57,7 @@ export function toMarkdown(
   }
   const unsorted = rows.filter((r) => bucketOf(r) === null);
   if (unsorted.length > 0) lines.push(...section("Not sorted yet", unsorted));
-  const budget = budgetLine(budgetOf(rows, items));
+  const budget = budgetLine(budgetOf(rows, items), bucketCounts(rows).must);
   if (budget) lines.push(budget, "");
   lines.push(`**${moscowVerdict(rows, items)}**`);
   return `${lines.join("\n")}\n`;

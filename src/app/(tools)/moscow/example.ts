@@ -6,9 +6,10 @@ import type { MoscowBucket } from "@/lib/prioritization/methods/moscow";
 /**
  * A mobile checkout team's release scope, each item with a rough effort in
  * points. The Musts take 18 of the 26 planned points (69%), over the ~60%
- * limit, so the budget bar shows what an over-full Must list looks like;
- * Apple Pay has no effort yet, so the bar names it; the crypto payments
- * idea is a Won't and stays out of the plan.
+ * limit, so the budget bar shows what an over-full Must list looks like
+ * (move 3 points down to get under it); Apple Pay has no effort yet, so
+ * the budget panel names it; the crypto payments idea is a Won't and
+ * stays out of the plan.
  */
 const ROWS: [string, MoscowBucket, number | undefined][] = [
   ["Card payments through the new provider", "must", 8],
