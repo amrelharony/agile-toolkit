@@ -142,6 +142,8 @@ export const DECISION_ACTIONS = {
 export const HEALTH_CHECK_ACTIONS = {
   CHECK_SAVED: "check_saved", // milestone
   CHECK_REMOVED: "check_removed",
+  /** A vote round filled the draft. Payload: ballots, dimensions, source; never who voted what. */
+  ROUND_SAVED: "round_saved",
   HEALTH_CHECK_RESET: "health_check_reset",
 } as const;
 
@@ -613,8 +615,15 @@ export const ONE_ON_ONE_ACTIONS = {
 } as const;
 
 export const PSYCH_SAFETY_ACTIONS = {
+  /** A round was saved. Payload: roundId, responses; never who answered, or what. */
   ASSESSMENT_SAVED: "assessment_saved", // milestone
+  /**
+   * One person's answers, from before rounds. No longer written (a round
+   * keeps counts only); kept so older history rows still read.
+   */
   RESPONSE_LOGGED: "response_logged",
+  /** A round was deleted. Payload: roundId. */
+  ROUND_REMOVED: "round_removed",
   PSYCH_SAFETY_RESET: "psych_safety_reset",
 } as const;
 

@@ -68,9 +68,6 @@ import { PsychSafetyRadar } from "./radar";
 import { RoundList } from "./rounds";
 import { anomalyTopic, psychSafetyVerdict } from "./verdict";
 
-/** Logged when a round is deleted: its id only. */
-const ROUND_REMOVED = "round_removed";
-
 const QUESTIONNAIRE = psychSafetyQuestionnaire();
 
 function peekLog(): PsychSafetyLog | null {
@@ -216,7 +213,7 @@ export function PsychSafetyClient() {
         match: (x) => x.id === r.id,
       });
     }
-    logEvent(ROUND_REMOVED, { roundId: r.id });
+    logEvent(PSYCH_SAFETY_ACTIONS.ROUND_REMOVED, { roundId: r.id });
     if (shownId === r.id) setShownId(null);
     announce(`Deleted ${r.name}`);
   };

@@ -357,6 +357,10 @@ describe("the page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete the round Earlier responses" }));
     expect(stored()!.responses).toEqual([]);
+    // Its id only: nothing from the sheets.
+    expect(logs.filter((l) => l.action === "round_removed")).toEqual([
+      { action: "round_removed", payload: { roundId: LEGACY_ROUND_ID } },
+    ]);
     undo("Deleted Earlier responses");
     expect(stored()!.responses).toHaveLength(5);
   });
@@ -370,6 +374,9 @@ describe("the page", () => {
     expect(stored()!.rounds![0].name).toBe("Kick-off");
     fireEvent.click(screen.getByRole("button", { name: "Delete the round Kick-off" }));
     expect(stored()!.rounds).toEqual([]);
+    expect(logs.filter((l) => l.action === "round_removed")).toEqual([
+      { action: "round_removed", payload: { roundId: "r1" } },
+    ]);
     undo("Deleted Kick-off");
     expect(stored()!.rounds!.map((r) => r.id)).toEqual(["r1"]);
   });
