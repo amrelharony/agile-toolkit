@@ -1526,6 +1526,59 @@ export interface WeightedCriterion {
   high?: string;
 }
 
+/** The kinds weighted options and criteria sync under (user_entities), for server-side code. */
+export const WEIGHTED_OPTION_KIND = "workspace:weightedOption";
+export const WEIGHTED_CRITERION_KIND = "workspace:weightedCriterion";
+
+/**
+ * The matrix a weighted option or criterion is in: its `matrixId`, or the
+ * default matrix when it has none. An empty id (the CRUD refuses one) reads
+ * as none too, so no row sits in a matrix nothing can open.
+ */
+export function weightedMatrixIdOf(row: { matrixId?: string }): string {
+  return row.matrixId || DEFAULT_WEIGHTED_MATRIX_ID;
+}
+
+/** The options that held a score for one of `criterionIds`, without those scores. */
+export function withoutWeightedScores(
+  options: readonly WeightedOption[],
+  criterionIds: ReadonlySet<string>
+): WeightedOption[] {
+  const out: WeightedOption[] = [];
+  for (const o of options) {
+    const stale = Object.keys(o.scores ?? {}).filter((k) => criterionIds.has(k));
+    if (stale.length === 0) continue;
+    const scores = { ...o.scores };
+    for (const k of stale) delete scores[k];
+    out.push({ ...o, scores });
+  }
+  return out;
+}
+
+/**
+ * What deleting matrix `id` removes: the options and criteria in it (for
+ * DEFAULT_WEIGHTED_MATRIX_ID, the rows without a matrixId), plus `rescored`,
+ * the options left that held a score for a removed criterion, without it.
+ * The store's removeWeightedMatrix and the MCP side of
+ * workspace.weighted_matrix.delete both apply it, so the two leave the same rows.
+ */
+export function weightedMatrixRemoval(
+  id: string,
+  options: readonly WeightedOption[],
+  criteria: readonly WeightedCriterion[]
+): { optionIds: string[]; criterionIds: string[]; rescored: WeightedOption[] } {
+  const inMatrix = (row: { matrixId?: string }) => weightedMatrixIdOf(row) === id;
+  const criterionIds = criteria.filter(inMatrix).map((c) => c.id);
+  return {
+    optionIds: options.filter(inMatrix).map((o) => o.id),
+    criterionIds,
+    rescored: withoutWeightedScores(
+      options.filter((o) => !inMatrix(o)),
+      new Set(criterionIds)
+    ),
+  };
+}
+
 export interface SixHatsThought {
   id: string;
   hat: "white" | "red" | "black" | "yellow" | "green" | "blue";

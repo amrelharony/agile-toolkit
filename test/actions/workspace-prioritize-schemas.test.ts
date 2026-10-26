@@ -10,7 +10,7 @@
  * fields), and the bounds.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
@@ -20,6 +20,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
     serverListEntities: vi.fn(async () => []),
     serverGetEntity: vi.fn(async () => null),
     serverDeleteEntity: vi.fn(async () => {}),
+    serverBulkUpsertEntities: vi.fn(async () => {}),
   };
 });
 
@@ -31,9 +32,15 @@ import {
   ALLOCATION_ROUND_KIND,
   BUY_A_FEATURE_ID,
   BUY_A_FEATURE_KIND,
+  DEFAULT_WEIGHTED_MATRIX_ID,
+  WEIGHTED_CRITERION_KIND,
   WEIGHTED_MATRIX_KIND,
+  WEIGHTED_OPTION_KIND,
   type DACIDecision,
   type RAPIDDecision,
+  type WeightedCriterion,
+  type WeightedMatrix,
+  type WeightedOption,
   type Workspace,
 } from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
@@ -45,7 +52,10 @@ import {
   CRITERION,
   CYNEFIN,
   DECISION,
+  DEFAULT_OPTION,
   FUNDED_FEATURE,
+  LEGACY_CRITERION,
+  LEGACY_OPTION,
   MATRIX,
   OPTION,
   STORY_RANKED,
@@ -348,20 +358,6 @@ describe("the new collections' CRUD", () => {
     expect(upsertEntity.mock.calls[0][1]).toBe(kind);
   });
 
-  it("deleting a matrix in the tab also removes its options and criteria", async () => {
-    useWorkspaceStore.setState({
-      weightedMatrices: [MATRIX],
-      weightedOptions: [OPTION],
-      weightedCriteria: [CRITERION],
-    });
-    await action("workspace.weighted_matrix.delete").handler(
-      { id: MATRIX.id },
-      makeContext("u", "agent")
-    );
-    const s = useWorkspaceStore.getState();
-    expect([s.weightedMatrices, s.weightedOptions, s.weightedCriteria]).toEqual([[], [], []]);
-  });
-
   it("every CRUD verb is registered and its create schema converts to JSON Schema", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     for (const [toolId] of FULL) {
@@ -373,5 +369,116 @@ describe("the new collections' CRUD", () => {
     }
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe("deleting a weighted matrix or criterion leaves the same rows on both transports", () => {
+  type Rows = {
+    matrices: WeightedMatrix[];
+    options: WeightedOption[];
+    criteria: WeightedCriterion[];
+  };
+  const SEED: Rows = {
+    matrices: [MATRIX],
+    options: [OPTION, LEGACY_OPTION, DEFAULT_OPTION],
+    criteria: [CRITERION, LEGACY_CRITERION],
+  };
+  const byId = <T extends Doc>(docs: readonly T[] | undefined) =>
+    [...(docs ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+
+  /** The verb in the tab, on the store. */
+  async function inTab(verb: string, id: string): Promise<Rows> {
+    useWorkspaceStore.setState({
+      weightedMatrices: structuredClone(SEED.matrices),
+      weightedOptions: structuredClone(SEED.options),
+      weightedCriteria: structuredClone(SEED.criteria),
+    });
+    await action(verb).handler({ id }, makeContext("u", "agent"));
+    const s = useWorkspaceStore.getState();
+    return {
+      matrices: byId(s.weightedMatrices),
+      options: byId(s.weightedOptions),
+      criteria: byId(s.weightedCriteria),
+    };
+  }
+
+  /** The verb over MCP, on an in-memory user_entities (kind → id → payload). */
+  async function overMcp(verb: string, id: string): Promise<Rows> {
+    const db = new Map<string, Map<string, Doc>>([
+      [WEIGHTED_MATRIX_KIND, new Map(SEED.matrices.map((d) => [d.id, structuredClone(d)]))],
+      [WEIGHTED_OPTION_KIND, new Map(SEED.options.map((d) => [d.id, structuredClone(d)]))],
+      [WEIGHTED_CRITERION_KIND, new Map(SEED.criteria.map((d) => [d.id, structuredClone(d)]))],
+    ]);
+    const table = (kind: string) => db.get(kind) ?? new Map<string, Doc>();
+    vi.mocked(serverStore.serverListEntities).mockImplementation(
+      async (_user, kind) => [...table(kind).values()] as never
+    );
+    vi.mocked(serverStore.serverDeleteEntity).mockImplementation(async (_user, kind, docId) => {
+      table(kind).delete(docId);
+    });
+    vi.mocked(serverStore.serverBulkUpsertEntities).mockImplementation(
+      async (_user, kind, docs) => {
+        for (const d of docs) table(kind).set(d.id, d);
+      }
+    );
+    await action(verb).mcpHandler!({ id }, makeContext("u", "mcp"));
+    return {
+      matrices: byId([...table(WEIGHTED_MATRIX_KIND).values()] as WeightedMatrix[]),
+      options: byId([...table(WEIGHTED_OPTION_KIND).values()] as WeightedOption[]),
+      criteria: byId([...table(WEIGHTED_CRITERION_KIND).values()] as WeightedCriterion[]),
+    };
+  }
+
+  afterEach(() => {
+    vi.mocked(serverStore.serverListEntities).mockImplementation(async () => []);
+    vi.mocked(serverStore.serverDeleteEntity).mockImplementation(async () => {});
+    vi.mocked(serverStore.serverBulkUpsertEntities).mockImplementation(async () => {});
+  });
+
+  it("a named matrix takes its options and criteria, and their scores, with it", async () => {
+    const tab = await inTab("workspace.weighted_matrix.delete", MATRIX.id);
+    expect(tab).toEqual({
+      matrices: [],
+      // The legacy option loses its stray score for the removed criterion.
+      options: byId([{ ...LEGACY_OPTION, scores: { "crit-legacy": 4 } }, DEFAULT_OPTION]),
+      criteria: [LEGACY_CRITERION],
+    });
+    expect(await overMcp("workspace.weighted_matrix.delete", MATRIX.id)).toEqual(tab);
+  });
+
+  it("the default matrix takes the rows without a matrixId", async () => {
+    const tab = await inTab("workspace.weighted_matrix.delete", DEFAULT_WEIGHTED_MATRIX_ID);
+    expect(tab).toEqual({ matrices: [MATRIX], options: [OPTION], criteria: [CRITERION] });
+    expect(await overMcp("workspace.weighted_matrix.delete", DEFAULT_WEIGHTED_MATRIX_ID)).toEqual(
+      tab
+    );
+  });
+
+  it("a criterion takes its score off every option", async () => {
+    const tab = await inTab("workspace.weighted_criterion.delete", CRITERION.id);
+    expect(tab).toEqual({
+      matrices: [MATRIX],
+      options: byId([
+        { ...OPTION, scores: { weightedCrit_speed: 9 } },
+        { ...LEGACY_OPTION, scores: { "crit-legacy": 4 } },
+        DEFAULT_OPTION,
+      ]),
+      criteria: [LEGACY_CRITERION],
+    });
+    expect(await overMcp("workspace.weighted_criterion.delete", CRITERION.id)).toEqual(tab);
+  });
+
+  it("the delete verbs say what else goes", () => {
+    expect(action("workspace.weighted_matrix.delete").description).toMatch(
+      /options and criteria in it.*weightedMatrix:default/
+    );
+    expect(action("workspace.weighted_criterion.delete").description).toMatch(
+      /score from every option/
+    );
+  });
+
+  it("a row's matrixId is never empty", () => {
+    rejects("workspace.weighted_option", { ...OPTION, matrixId: "" });
+    rejects("workspace.weighted_criterion", { ...CRITERION, matrixId: "" });
   });
 });

@@ -33,8 +33,14 @@ import {
   MOOD_TRACKER_ID,
   RACI_ID,
   REACH_PERIODS,
+  WEIGHTED_CRITERION_KIND,
+  WEIGHTED_MATRIX_KIND,
+  WEIGHTED_OPTION_KIND,
   WORKING_AGREEMENT_ID,
+  weightedMatrixRemoval,
+  withoutWeightedScores,
 } from "@/lib/stores/workspace-types";
+import { serverBulkUpsertEntities, serverDeleteEntity, serverListEntities } from "../server-store";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
 import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
@@ -2278,8 +2284,11 @@ const RAPIDDecisionSchema = z.object({
   date: z.string(),
 }) as unknown as z.ZodType<RAPIDDecision>;
 
+// Not "": an empty id would put the row in no matrix (weightedMatrixIdOf
+// reads it as the default one, but nothing should write it).
 const WeightedMatrixIdField = z
   .string()
+  .min(1)
   .optional()
   .describe(`The matrix it is in; absent: the default matrix (${DEFAULT_WEIGHTED_MATRIX_ID}).`);
 
@@ -2729,8 +2738,10 @@ defineCrudActions<WeightedOption>({
   generateId: () => `weightedOpt_${nanoid(8)}`,
 });
 
-// The criteria the page always kept (workspace:weightedCriterion) had no
-// CRUD before Phase 7; kindFromToolId derives the kind the browser syncs.
+// The criteria the page always kept (WEIGHTED_CRITERION_KIND) had no CRUD
+// before Phase 7; kindFromToolId derives the kind the browser syncs. Delete
+// strips the criterion's score from every option on both transports, as
+// removeWeightedCriterion does in the tab (its R5 fix).
 defineCrudActions<WeightedCriterion>({
   toolId: "workspace.weighted_criterion",
   entityName: "weighted-decision criterion",
@@ -2739,11 +2750,24 @@ defineCrudActions<WeightedCriterion>({
   upsert: (x) => ws().upsertWeightedCriterion(x),
   remove: (id) => ws().removeWeightedCriterion(id),
   generateId: () => `weightedCrit_${nanoid(8)}`,
+  cascade: {
+    describe: "Also removes its score from every option.",
+    server: async (userId, id) => {
+      const options = await serverListEntities<WeightedOption>(userId, WEIGHTED_OPTION_KIND);
+      await serverBulkUpsertEntities(
+        userId,
+        WEIGHTED_OPTION_KIND,
+        withoutWeightedScores(options, new Set([id]))
+      );
+      await serverDeleteEntity(userId, WEIGHTED_CRITERION_KIND, id);
+    },
+  },
 });
 
-// Kind WEIGHTED_MATRIX_KIND (workspace:weightedMatrix), which kindFromToolId
-// derives. Delete in the app also removes the matrix's options and criteria
-// (removeWeightedMatrix); the server-side delete removes the matrix row only.
+// Kind WEIGHTED_MATRIX_KIND, which kindFromToolId derives. Delete removes
+// the matrix's options and criteria on both transports: removeWeightedMatrix
+// in the tab, the same weightedMatrixRemoval plan server-side (canvas links
+// are cleared in the tab only, as for every delete).
 defineCrudActions<WeightedMatrix>({
   toolId: "workspace.weighted_matrix",
   entityName: "weighted-decision matrix",
@@ -2752,6 +2776,22 @@ defineCrudActions<WeightedMatrix>({
   upsert: (x) => ws().upsertWeightedMatrix(x),
   remove: (id) => ws().removeWeightedMatrix(id),
   generateId: () => `weightedMatrix_${nanoid(8)}`,
+  cascade: {
+    describe: `Also deletes the options and criteria in it (for the default matrix ${DEFAULT_WEIGHTED_MATRIX_ID}, which needs no stored row: every option and criterion without a matrixId), and removes those criteria's scores from other options. There is no undo.`,
+    server: async (userId, id) => {
+      const [options, criteria] = await Promise.all([
+        serverListEntities<WeightedOption>(userId, WEIGHTED_OPTION_KIND),
+        serverListEntities<WeightedCriterion>(userId, WEIGHTED_CRITERION_KIND),
+      ]);
+      const plan = weightedMatrixRemoval(id, options, criteria);
+      await serverBulkUpsertEntities(userId, WEIGHTED_OPTION_KIND, plan.rescored);
+      await Promise.all([
+        ...plan.optionIds.map((o) => serverDeleteEntity(userId, WEIGHTED_OPTION_KIND, o)),
+        ...plan.criterionIds.map((c) => serverDeleteEntity(userId, WEIGHTED_CRITERION_KIND, c)),
+      ]);
+      await serverDeleteEntity(userId, WEIGHTED_MATRIX_KIND, id);
+    },
+  },
 });
 
 defineCrudActions<SixHatsThought>({

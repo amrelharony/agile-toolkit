@@ -126,7 +126,7 @@ import type {
   DependencyMap,
   ValueStreamStage,
 } from "./workspace-types";
-import { DEFAULT_WEIGHTED_MATRIX_ID, emptyWorkspace } from "./workspace-types";
+import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
 
 interface WorkspaceActions {
@@ -273,7 +273,8 @@ interface WorkspaceActions {
   upsertWeightedMatrix: (x: WeightedMatrix) => void;
   /**
    * The matrix and the options and criteria in it (for the default matrix,
-   * also the rows without a `matrixId`), with their canvas links cleared.
+   * also the rows without a `matrixId`), with their canvas links cleared:
+   * the rows weightedMatrixRemoval names, as the MCP delete removes them.
    * The page offers Undo by restoring what it removed.
    */
   removeWeightedMatrix: (id: string) => void;
@@ -1128,34 +1129,32 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ weightedMatrices: replaceById(_st.weightedMatrices ?? [], x) })),
       removeWeightedMatrix: (id) =>
         set((s) => {
-          // A row without a matrixId is in the default matrix, as the page reads it.
-          const inMatrix = (row: { matrixId?: string }) =>
-            (row.matrixId ?? DEFAULT_WEIGHTED_MATRIX_ID) === id;
           const options = s.weightedOptions ?? [];
           const criteria = s.weightedCriteria ?? [];
-          const goneOptions = options.filter(inMatrix);
-          const goneCriteria = new Set(criteria.filter(inMatrix).map((c) => c.id));
-          if (goneOptions.length === 0 && goneCriteria.size === 0) {
+          // The same plan the MCP delete applies server-side (a row without a
+          // matrixId is in the default matrix, as the page reads it).
+          const plan = weightedMatrixRemoval(id, options, criteria);
+          if (plan.optionIds.length === 0 && plan.criterionIds.length === 0) {
             return { weightedMatrices: (s.weightedMatrices ?? []).filter((y) => y.id !== id) };
           }
+          const goneOptions = new Set(plan.optionIds);
+          const goneCriteria = new Set(plan.criterionIds);
           // Only the canvas links of the removed options; criteria have none.
           let whiteboardObjects = s.whiteboardObjects;
-          for (const o of goneOptions) {
-            whiteboardObjects = cascadeSourceRefRemoval(whiteboardObjects, "weightedOption", o.id);
+          for (const optionId of plan.optionIds) {
+            whiteboardObjects = cascadeSourceRefRemoval(
+              whiteboardObjects,
+              "weightedOption",
+              optionId
+            );
           }
           // Like removeWeightedCriterion: no option keeps a score for a removed criterion.
-          const kept = options
-            .filter((o) => !inMatrix(o))
-            .map((o) => {
-              const stale = Object.keys(o.scores ?? {}).filter((k) => goneCriteria.has(k));
-              if (stale.length === 0) return o;
-              const scores = { ...o.scores };
-              for (const k of stale) delete scores[k];
-              return { ...o, scores };
-            });
+          const rescored = new Map(plan.rescored.map((o) => [o.id, o]));
           return {
             weightedMatrices: (s.weightedMatrices ?? []).filter((y) => y.id !== id),
-            weightedOptions: kept,
+            weightedOptions: options
+              .filter((o) => !goneOptions.has(o.id))
+              .map((o) => rescored.get(o.id) ?? o),
             weightedCriteria: criteria.filter((c) => !goneCriteria.has(c.id)),
             whiteboardObjects,
           };

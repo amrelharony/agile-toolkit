@@ -37,6 +37,7 @@ import {
   BUY_A_FEATURE_KIND,
   DEFAULT_WEIGHTED_MATRIX_ID,
   WEIGHTED_MATRIX_KIND,
+  weightedMatrixIdOf,
   type WhiteboardObject,
   type Workspace,
 } from "@/lib/stores/workspace-types";
@@ -222,6 +223,16 @@ describe("removing a weighted matrix", () => {
     expect(s.weightedOptions?.map((o) => o.id)).toEqual([OPTION.id]);
     expect(s.weightedCriteria).toEqual([CRITERION]);
     expect(s.weightedOptions?.[0].scores).toEqual(OPTION.scores);
+  });
+
+  it("a row with an empty matrixId is read as in the default matrix, not in none", () => {
+    expect(weightedMatrixIdOf({ matrixId: "" })).toBe(DEFAULT_WEIGHTED_MATRIX_ID);
+    expect(weightedMatrixIdOf({})).toBe(DEFAULT_WEIGHTED_MATRIX_ID);
+    expect(weightedMatrixIdOf(OPTION)).toBe(MATRIX.id);
+    const stray = { ...LEGACY_OPTION, id: "opt-stray", matrixId: "" };
+    useWorkspaceStore.setState({ weightedOptions: [OPTION, stray] });
+    useWorkspaceStore.getState().removeWeightedMatrix(DEFAULT_WEIGHTED_MATRIX_ID);
+    expect(useWorkspaceStore.getState().weightedOptions?.map((o) => o.id)).toEqual([OPTION.id]);
   });
 
   it("an empty matrix removes only its row", () => {
