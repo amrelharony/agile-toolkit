@@ -171,6 +171,7 @@ import {
   teamAverages,
 } from "@/lib/hundred-dollar/allocation";
 import {
+  DEFAULT_MATRIX_NAME,
   matricesOf,
   matrixResult,
   matrixTitle,
@@ -187,6 +188,7 @@ import type {
   HandoffLink,
   PrioritizationItem,
   RetroBoard,
+  WeightedMatrix,
 } from "@/lib/stores/workspace-types";
 
 export interface NextStep {
@@ -484,15 +486,25 @@ const missingPoints = (sprints: readonly Sprint[] | undefined) =>
 /** MUST match BACKLOG_SOURCE_TOOL in app/(tools)/sprint-planning/view.ts: the tool a story pulled from the backlog names. */
 const BACKLOG_SOURCE_TOOL = "prioritizer";
 
-/** MUST match DECIDE_ORDER_HASH in app/(tools)/prioritizer/prioritizer-client.tsx: it opens the Decide order step. */
+/**
+ * MUST match DECIDE_ORDER_HASH in app/(tools)/prioritizer/prioritizer-client.tsx:
+ * it opens the Decide order step. The hub reads it once, on load, so only
+ * another tool's step links to it; the hub's own step names the tab.
+ */
 const DECIDE_ORDER_HREF = "/prioritizer#decide-order";
 
 /** WSJF with the backlog item preselected (lib/prioritization/frameworks scoreWithHref). */
 const scoreWithWsjf = (itemId: string) =>
   `/wsjf?${BACKLOG_ITEM_PARAM}=${encodeURIComponent(itemId)}`;
 
-/** MUST match MATRIX_PARAM in app/(tools)/weighted-decision/weighted-decision-client.tsx: it opens one matrix. */
-const matrixHref = (id: string) => `/weighted-decision?matrix=${encodeURIComponent(id)}`;
+/**
+ * A decision record's link. `?id=` opens the record when the Decision Log
+ * loads (from DACI, RAPID or another tool); the log reads it only on load,
+ * so the hash, the record's card (MUST match its id in
+ * app/(tools)/decision-log/decision-card.tsx), brings the card into view
+ * when the step is on the Decision Log itself.
+ */
+const recordHref = (id: string) => `${decisionHref(id)}#decision-${encodeURIComponent(id)}`;
 
 /**
  * The team's backlog and method rows: no example rows, no backlog items
@@ -633,7 +645,7 @@ const decisionRule = rule({
         id: "decision-stale",
         label: `Decide on ${titleOf(oldest.d)}: proposed ${plural(oldest.days, "day")} ago`,
         detail: `${more > 0 ? `${plural(more, "other proposal")} ${be(more)} waiting over two weeks too. ` : ""}An open proposal holds up the work that waits on it: accept it, or record why not.`,
-        href: decisionHref(oldest.d.id),
+        href: recordHref(oldest.d.id),
       });
     }
     const blank = records.find((d) => has(d, "accepted_no_outcome"));
@@ -643,7 +655,7 @@ const decisionRule = rule({
         label: `Write down what was decided on ${titleOf(blank)}`,
         detail:
           "It's accepted, but the outcome isn't written down, so nobody can check what was agreed.",
-        href: decisionHref(blank.id),
+        href: recordHref(blank.id),
       });
     }
     const noDecider = records.find((d) => has(d, "no_decider"));
@@ -653,7 +665,7 @@ const decisionRule = rule({
         id: "decision-decider",
         label: `Name the ${spec.deciderLabel} for ${titleOf(noDecider)}`,
         detail: `A ${spec.label} decision needs the one person who makes the call named before it can be decided.`,
-        href: decisionHref(noDecider.id),
+        href: recordHref(noDecider.id),
       });
     }
     return steps;
@@ -1808,7 +1820,7 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: `Record the decision on “${proposed[0].title}”`,
           detail:
             "The Blue hat's summary is in the Decision Log as proposed. Accept it, or say why not.",
-          href: decisionHref(proposed[0].id),
+          href: recordHref(proposed[0].id),
         });
       }
       const latest = [...real(sessions)].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
@@ -1932,11 +1944,12 @@ const RULES: Record<string, NextStepRule<object>> = {
         (b) => !isRanked(b) && used.some((m) => m.position.has(b.id))
       ).length;
       if (unordered > 0) {
+        // On the hub itself: the tab opens from DECIDE_ORDER_HREF only on load.
         steps.push({
           id: "prioritizer-decide-order",
           label: "Decide the order",
-          detail: `${plural(unordered, "scored item")} ${unordered === 1 ? "isn't" : "aren't"} in the backlog order yet. Compare the methods and save one order.`,
-          href: DECIDE_ORDER_HREF,
+          detail: `${plural(unordered, "scored item")} ${unordered === 1 ? "isn't" : "aren't"} in the backlog order yet. Open the Decide order tab, compare the methods and save one order.`,
+          href: "/prioritizer",
         });
       }
       const toImport = notPulled(backlog.filter(isRanked), stories).length;
@@ -2357,14 +2370,19 @@ const RULES: Record<string, NextStepRule<object>> = {
           r: matrixResult(m.id, crits, opts),
           sent: sentDecisionOf(m, records) !== undefined,
         }));
+      // Every step shows on the matrix page, which reads ?matrix= only on
+      // load: a step links to the page and says which matrix to pick.
+      const several = matricesOf(matrices, options, criteria).length > 1;
+      const pick = (m: WeightedMatrix) =>
+        several ? ` Pick “${m.name.trim() || DEFAULT_MATRIX_NAME}” under Matrix.` : "";
       const steps: NextStep[] = [];
       const ready = results.find((x) => !x.sent && !x.r.tie && sendBlock(x.m, x.r) === null);
       if (ready) {
         steps.push({
           id: "weighted-record",
           label: `Record the decision on “${matrixTitle(ready.m)}”`,
-          detail: `${ready.r.verdict} Use “Send to…” → “Decision record (proposed)” under the result: the team writes down what it decides.`,
-          href: matrixHref(ready.m.id),
+          detail: `${ready.r.verdict}${pick(ready.m)} Use “Send to…” → “Decision record (proposed)” under the result: the team writes down what it decides.`,
+          href: "/weighted-decision",
         });
       }
       const tied = results.find((x) => !x.sent && x.r.tie);
@@ -2372,8 +2390,8 @@ const RULES: Record<string, NextStepRule<object>> = {
         steps.push({
           id: "weighted-tie",
           label: `“${matrixTitle(tied.m)}” is too close to call: talk it through before deciding`,
-          detail: tied.r.verdict,
-          href: matrixHref(tied.m.id),
+          detail: `${tied.r.verdict}${pick(tied.m)}`,
+          href: "/weighted-decision",
         });
       }
       const empty = results.find((x) => x.r.emptyCells > 0);
@@ -2381,9 +2399,8 @@ const RULES: Record<string, NextStepRule<object>> = {
         steps.push({
           id: "weighted-empty-cells",
           label: `Score the ${plural(empty.r.emptyCells, "empty cell")} in “${matrixTitle(empty.m)}”`,
-          detail:
-            "An empty cell isn't 0: an option gets a total, and can lead, only once every weighted criterion is scored.",
-          href: matrixHref(empty.m.id),
+          detail: `An empty cell isn't 0: an option gets a total, and can lead, only once every weighted criterion is scored.${pick(empty.m)}`,
+          href: "/weighted-decision",
         });
       }
       return steps;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { getNextStepRule, type NextStep } from "@/lib/tools/next-steps";
 import type {
@@ -18,7 +18,7 @@ import type {
   WeightedOption,
   Workspace,
 } from "@/lib/stores/workspace-types";
-import { BUY_A_FEATURE_ID, DEFAULT_WEIGHTED_MATRIX_ID } from "@/lib/stores/workspace-types";
+import { BUY_A_FEATURE_ID } from "@/lib/stores/workspace-types";
 
 /**
  * Next steps for the Prioritize & decide tools (Phase 7): each reads the
@@ -120,12 +120,15 @@ describe("prioritizer", () => {
       backlogItems: [item("a", WSJF_PARTS), item("b", { ...WSJF_PARTS, jobSize: 5 })],
       stories: [],
     };
+    // The hub opens the tab from its hash only on load: on the hub, the step names it.
     expect(steps("prioritizer", ws)).toEqual([
-      expect.objectContaining({
+      {
         id: "prioritizer-decide-order",
-        detail: expect.stringContaining("2 scored items aren't in the backlog order yet"),
-        href: "/prioritizer#decide-order",
-      }),
+        label: "Decide the order",
+        detail:
+          "2 scored items aren't in the backlog order yet. Open the Decide order tab, compare the methods and save one order.",
+        href: "/prioritizer",
+      },
     ]);
     // A method ranks nothing below 2 scored items.
     expect(
@@ -722,7 +725,7 @@ describe("decision-log, daci and rapid-decision", () => {
         label: "Decide on “Monorepo”: proposed 25 days ago",
         detail:
           "1 other proposal is waiting over two weeks too. An open proposal holds up the work that waits on it: accept it, or record why not.",
-        href: "/decision-log?id=Monorepo",
+        href: "/decision-log?id=Monorepo#decision-Monorepo",
       },
     ]);
     // Reopened records wait from the day they were reopened.
@@ -739,12 +742,12 @@ describe("decision-log, daci and rapid-decision", () => {
       [
         "decision-outcome",
         "Write down what was decided on “Accepted”",
-        "/decision-log?id=Accepted",
+        "/decision-log?id=Accepted#decision-Accepted",
       ],
       [
         "decision-decider",
         "Name the Decide (D) for “Pick a vendor”",
-        "/decision-log?id=Pick%20a%20vendor",
+        "/decision-log?id=Pick%20a%20vendor#decision-Pick%20a%20vendor",
       ],
     ]);
   });
@@ -766,6 +769,15 @@ describe("decision-log, daci and rapid-decision", () => {
     const decisions = [record("example-d1", { date: "2026-09-01", template: "daci" })];
     expect(steps("decision-log", { decisions })).toEqual([]);
   });
+
+  it("name the record's card in the hash, for the step on the Decision Log itself", () => {
+    // The log reads ?id= only on load; the hash scrolls to the card's id.
+    const card = readFileSync(
+      path.resolve(__dirname, "../../src/app/(tools)/decision-log/decision-card.tsx"),
+      "utf8"
+    );
+    expect(card).toContain("id={`decision-${d.id}`}");
+  });
 });
 
 describe("six-hats", () => {
@@ -780,7 +792,9 @@ describe("six-hats", () => {
         sourceRef: { tool: "six-hats", id: "sh1" },
       } as Decision,
     ];
-    expect(step("six-hats", { decisions }, "six-hats-decide")?.href).toBe("/decision-log?id=d%201");
+    expect(step("six-hats", { decisions }, "six-hats-decide")?.href).toBe(
+      "/decision-log?id=d%201#decision-d%201"
+    );
   });
 });
 
@@ -821,7 +835,7 @@ describe("weighted-decision", () => {
         id: "weighted-record",
         label: "Record the decision on “Which vendor?”",
         detail: expect.stringMatching(/^Alpha leads with/),
-        href: "/weighted-decision?matrix=m1",
+        href: "/weighted-decision",
       }),
     ]);
     const sent = { ...ws, weightedMatrices: [matrix("m1", { sentTo: [link("decision", "d1")] })] };
@@ -856,9 +870,44 @@ describe("weighted-decision", () => {
     expect(steps("weighted-decision", ws)).toEqual([
       expect.objectContaining({
         id: "weighted-empty-cells",
-        href: `/weighted-decision?matrix=${encodeURIComponent(DEFAULT_WEIGHTED_MATRIX_ID)}`,
+        label: "Score the 1 empty cell in “Untitled matrix”",
+        href: "/weighted-decision",
       }),
     ]);
+  });
+
+  it("says which matrix to pick when there are several", () => {
+    // The page reads ?matrix= only on load, so a step can't switch matrices.
+    const ws = {
+      weightedMatrices: [
+        matrix("Vendor"),
+        matrix("Hosting", { createdAt: "2026-10-22T09:00:00.000Z" }),
+      ],
+      weightedCriteria: [
+        ...criteria("Vendor"),
+        ...criteria("Hosting").map((c) => ({ ...c, id: `h${c.id}` })),
+      ],
+      weightedOptions: [
+        option("Alpha", { c1: 9, c2: 8 }, "Vendor"),
+        option("Bravo", { c1: 4, c2: 5 }, "Vendor"),
+        option("Cloud", { hc1: 7 }, "Hosting"),
+      ],
+    };
+    const out = steps("weighted-decision", ws);
+    expect(out.map((s) => [s.id, s.href])).toEqual([
+      ["weighted-record", "/weighted-decision"],
+      ["weighted-empty-cells", "/weighted-decision"],
+    ]);
+    expect(out[0].detail).toContain(" Pick “Vendor” under Matrix. Use “Send to…”");
+    expect(out[1].detail).toMatch(/ Pick “Hosting” under Matrix\.$/);
+    // One matrix: nothing to pick.
+    const one = steps("weighted-decision", {
+      weightedMatrices: [matrix("Vendor")],
+      weightedCriteria: criteria("Vendor"),
+      weightedOptions: ws.weightedOptions.filter((o) => o.matrixId === "Vendor"),
+    });
+    expect(one.map((s) => s.id)).toEqual(["weighted-record"]);
+    expect(one[0].detail).not.toContain("under Matrix");
   });
 
   it("ignores example matrices", () => {
