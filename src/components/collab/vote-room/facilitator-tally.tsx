@@ -40,7 +40,10 @@ export interface FacilitatorTallyProps {
   questionnaire: Questionnaire;
   /** Never below the tool's floor (`voteMinNFloor`), which is also the default. */
   minN?: number;
-  /** Totals only, once per round. Return an undo to get Undo in the kit's toast. */
+  /**
+   * Totals only, once per round. Return an undo to get Undo in the kit's
+   * toast, or false when nothing was stored (the boxes stay open).
+   */
   onSave: SaveVoteRound;
 }
 

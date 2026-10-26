@@ -5,15 +5,20 @@
  * a round's totals once. If the tool hands back an undo, the kit offers
  * Undo in its toast, and after Undo the round can be saved again (a button
  * stuck on "Round saved" would make an undone round unsaveable, and the
- * room may already be gone).
+ * room may already be gone). If the tool hands back `false`, it stored
+ * nothing (every question withheld, say) and says why itself: the round
+ * stays unsaved, so Save round stays available.
  */
 
 import { useCallback, useRef, useState } from "react";
 import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
 import { undoable } from "@/lib/utils/undoable";
 
-/** A tool's save: store the totals, and optionally return how to take them out again. */
-export type SaveVoteRound = (result: VoteRoundResult) => void | (() => void);
+/**
+ * A tool's save: store the totals, and optionally return how to take them
+ * out again. `false` means nothing was stored, and the tool has said why.
+ */
+export type SaveVoteRound = (result: VoteRoundResult) => void | false | (() => void);
 
 export interface SaveRoundState {
   /** Save `result` unless that round is already saved. */
@@ -36,6 +41,8 @@ export function useSaveRound(onSave: SaveVoteRound): SaveRoundState {
         setSavedRound(next);
       };
       const undo = onSave(result);
+      // Refused: nothing is marked, so the round can be saved later.
+      if (undo === false) return;
       if (typeof undo !== "function") {
         mark(id);
         return;

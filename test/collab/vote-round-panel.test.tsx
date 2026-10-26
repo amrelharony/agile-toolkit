@@ -6,7 +6,7 @@ import { GuestProfileProvider } from "@/lib/auth/guest-profile-provider";
 import { VOTE_ROOM_CONSENT_TEXT } from "@/components/collab/visitor-room-consent";
 import { ballotAad, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import { VOTE_ROOM_EVENTS, type VoteStateMessage } from "@/lib/realtime/vote-room/protocol";
-import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
+import type { SaveVoteRound } from "@/components/collab/vote-room/save-round";
 import { fakeRealtime, type FakeChannel, type FakeMember } from "../realtime/fake-realtime";
 import { QUESTIONNAIRE, answerString, fakeVoteCrypto } from "../realtime/vote-room-fixtures";
 
@@ -41,9 +41,7 @@ function renderPanel(
   props: Partial<Parameters<typeof VoteRoundPanel>[0]> = {},
   wrap: (n: ReactNode) => ReactNode = (n) => n
 ) {
-  const onSave = vi.fn<(r: VoteRoundResult) => void | (() => void)>(
-    props.onSave ?? (() => undefined)
-  );
+  const onSave = vi.fn<SaveVoteRound>(props.onSave ?? (() => undefined));
   const crypto = props.crypto === undefined ? fakeVoteCrypto() : props.crypto;
   render(
     <LiveAnnouncerProvider>
@@ -322,6 +320,45 @@ describe("VoteRoundPanel: a live round", () => {
     expect(undo).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Save round" }));
     expect(onSave).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps Save round when the tool refuses the round, in the room and after it ends", async () => {
+    let accept = false;
+    const { ch, crypto, onSave } = await startRound({ onSave: () => (accept ? undefined : false) });
+    await revealThree(ch, crypto!);
+    toastMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save round" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Round saved" })).toBeNull();
+    // Not saved: New round still asks before it clears the results.
+    fireEvent.click(screen.getByRole("button", { name: "New round" }));
+    const confirmNew = screen.getByRole("dialog", { name: "Start a new round?" });
+    expect(confirmNew).toHaveTextContent("These results aren't saved yet.");
+    fireEvent.click(within(confirmNew).getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "End room" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "End the live room?" })).getByRole("button", {
+        name: "End room",
+      })
+    );
+    await screen.findByRole("heading", { name: "You ended the live round" });
+    expect(screen.getByText(/^Save the totals below if you want to keep them/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Save round" })).toBeEnabled();
+    // Close still asks: nothing was kept.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const dialog = screen.getByRole("dialog", { name: "Close without saving?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    // Once the tool takes it, the round is saved.
+    accept = true;
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "Round saved" })).toBeDisabled();
+    expect(screen.getByText("This round's totals are saved.")).toBeInTheDocument();
   });
 
   it("announces a new round only once it has started", async () => {

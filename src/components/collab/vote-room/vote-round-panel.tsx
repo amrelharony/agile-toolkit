@@ -20,6 +20,8 @@
  * aggregates-only `VoteRoundResult` when the host presses Save round. If it
  * returns an undo function, the kit shows "Saved the round" with Undo, and
  * Undo makes Save round available again; otherwise the tool says it saved.
+ * If it returns false, it stored nothing (e.g. every question was withheld)
+ * and says why itself: the kit shows nothing saved and keeps Save round.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -60,7 +62,8 @@ export interface VoteRoundPanelProps {
   minN?: number;
   /**
    * The host pressed Save round: totals only, once per round. Return an
-   * undo function to get the kit's "Saved the round" toast with Undo.
+   * undo function to get the kit's "Saved the round" toast with Undo, or
+   * false when nothing was stored, so Save round stays available.
    */
   onSave: SaveVoteRound;
   /** Tests inject a fake (undefined: WebCrypto). */

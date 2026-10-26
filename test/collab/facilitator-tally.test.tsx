@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { FacilitatorTally } from "@/components/collab/vote-room/facilitator-tally";
-import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
+import type { SaveVoteRound } from "@/components/collab/vote-room/save-round";
 import { QUESTIONNAIRE } from "../realtime/vote-room-fixtures";
 
 /**
@@ -14,7 +14,7 @@ const toastMock = vi.hoisted(() =>
 );
 vi.mock("@/lib/utils/toast", () => ({ toast: toastMock }));
 
-function setup(minN = 3, onSave = vi.fn<(r: VoteRoundResult) => void | (() => void)>()) {
+function setup(minN = 3, onSave = vi.fn<SaveVoteRound>()) {
   render(
     <FacilitatorTally
       tool="health-check"
@@ -170,6 +170,28 @@ describe("FacilitatorTally", () => {
     expect(box(/Fun/, "Green")).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Save round" }));
     expect(onSave).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows nothing saved when the tool refuses the round, and keeps Save round", () => {
+    toastMock.mockClear();
+    const refuse = vi.fn<SaveVoteRound>(() => false);
+    const { type, show, box, onSave } = setup(3, refuse);
+    type(/Fun/, "Green", "3");
+    type(/Speed/, "Green", "3");
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    // No "Saved the round" toast, nothing locked: the tool says why itself.
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Round saved" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enter another round" })).toBeNull();
+    expect(box(/Fun/, "Green")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Show totals" })).toBeInTheDocument();
+    // Pressed again, the tool is asked again (and can accept it this time).
+    refuse.mockImplementation(() => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Round saved" })).toBeDisabled();
   });
 
   it("hides stale totals when a count changes", () => {

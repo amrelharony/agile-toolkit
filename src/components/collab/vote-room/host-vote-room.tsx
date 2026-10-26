@@ -7,7 +7,8 @@
  * Before Reveal the host sees how many people have answered and nothing
  * else: no distribution, no per-question counts. Reveal waits for minN
  * answers. After it come the totals, "Save round" (the tool's `onSave`,
- * once per round, aggregates only) and "New round". Ending the room keeps
+ * once per round, aggregates only; it stays available when the tool
+ * refuses the round) and "New round". Ending the room keeps
  * revealed results on screen until they are saved or dismissed (Close asks
  * first when they aren't saved); nothing is stored unless the host saves.
  *
@@ -51,7 +52,10 @@ export interface HostVoteRoomProps {
   /** The questions now: the first round's, and what New round uses. */
   questionnaire: Questionnaire;
   minN?: number;
-  /** Save round: totals only, once per round. Return an undo to get Undo in the kit's toast. */
+  /**
+   * Save round: totals only, once per round. Return an undo to get Undo in
+   * the kit's toast, or false when nothing was stored (Save round stays).
+   */
   onSave: SaveVoteRound;
   /** The host dismissed the closed room. */
   onClosed: () => void;
