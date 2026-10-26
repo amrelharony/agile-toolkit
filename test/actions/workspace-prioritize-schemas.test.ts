@@ -467,8 +467,9 @@ describe("deleting a weighted matrix or criterion leaves the same rows on both t
       [WEIGHTED_CRITERION_KIND, new Map(SEED.criteria.map((d) => [d.id, structuredClone(d)]))],
     ]);
     const table = (kind: string) => db.get(kind) ?? new Map<string, Doc>();
+    const rows = <T>(kind: string) => Array.from(table(kind).values()) as T[];
     vi.mocked(serverStore.serverListEntities).mockImplementation(
-      async (_user, kind) => [...table(kind).values()] as never
+      async (_user, kind) => rows(kind) as never
     );
     vi.mocked(serverStore.serverDeleteEntity).mockImplementation(async (_user, kind, docId) => {
       table(kind).delete(docId);
@@ -480,9 +481,9 @@ describe("deleting a weighted matrix or criterion leaves the same rows on both t
     );
     await action(verb).mcpHandler!({ id }, makeContext("u", "mcp"));
     return {
-      matrices: byId([...table(WEIGHTED_MATRIX_KIND).values()] as WeightedMatrix[]),
-      options: byId([...table(WEIGHTED_OPTION_KIND).values()] as WeightedOption[]),
-      criteria: byId([...table(WEIGHTED_CRITERION_KIND).values()] as WeightedCriterion[]),
+      matrices: byId(rows<WeightedMatrix>(WEIGHTED_MATRIX_KIND)),
+      options: byId(rows<WeightedOption>(WEIGHTED_OPTION_KIND)),
+      criteria: byId(rows<WeightedCriterion>(WEIGHTED_CRITERION_KIND)),
     };
   }
 
