@@ -19,4 +19,10 @@ describe("ROSTER_TOOLS", () => {
       expect.arrayContaining(["one-on-one", "onboarding-tracker"])
     );
   });
+
+  it("says the Mood Tracker uses the roster only by name: the anonymous mode keeps team pulses", () => {
+    const use = ROSTER_TOOLS.find((t) => t.toolId === "mood-tracker")?.use ?? "";
+    expect(use).toMatch(/each person .* by name/);
+    expect(use).toMatch(/team pulses only in the anonymous mode/);
+  });
 });

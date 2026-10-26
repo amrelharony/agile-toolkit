@@ -4,7 +4,10 @@
  */
 export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "standup", use: "Lists everyone so you can log each person's update." },
-  { toolId: "mood-tracker", use: "Gives each person a row for daily check-ins." },
+  {
+    toolId: "mood-tracker",
+    use: "Gives each person a row for daily check-ins by name, or keeps team pulses only in the anonymous mode.",
+  },
   { toolId: "kudos", use: "Offers teammates as people to thank." },
   { toolId: "capacity-planner", use: "“Sync from team” adds a capacity row for each person." },
   { toolId: "ceremony-timer", use: "“Load team” fills the speaking order." },
