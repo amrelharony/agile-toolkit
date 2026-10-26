@@ -210,6 +210,35 @@ export function bandLabel(
 
 type SheetCheck = { ok: true; sheet: AllocationSheet } | { ok: false; problem: string };
 
+/**
+ * Why `budget` can't be split, or null: it must be whole, from
+ * `VOTE_LIMITS.minBudget` (below 10 the bands' edges stop rising: "up to
+ * 10%" holds no whole amount) to `maxBudget`.
+ */
+function budgetProblem(budget: unknown): string | null {
+  if (
+    typeof budget !== "number" ||
+    !Number.isInteger(budget) ||
+    budget < VOTE_LIMITS.minBudget ||
+    budget > VOTE_LIMITS.maxBudget
+  ) {
+    return `Each person's budget needs to be a whole number from ${VOTE_LIMITS.minBudget} to ${VOTE_LIMITS.maxBudget.toLocaleString("en-US")}.`;
+  }
+  return null;
+}
+
+/** Why item `i`'s cap can't be used, or null: absent, or whole from 1 to `VOTE_LIMITS.maxCap`. */
+function capProblem(cap: unknown, i: number): string | null {
+  if (cap === undefined) return null;
+  if (typeof cap !== "number" || !Number.isInteger(cap) || cap < 1 || cap > VOTE_LIMITS.maxCap) {
+    return `Item ${i + 1}'s cap needs to be a whole number from 1 to ${VOTE_LIMITS.maxCap.toLocaleString("en-US")}.`;
+  }
+  return null;
+}
+
+const CAPS_UNDER_BUDGET =
+  "The caps add up to less than the budget, so nobody could give it all out.";
+
 /** `toWireSheet` and `sheetProblem` in one pass. */
 function checkSheet(s: AllocationSheet): SheetCheck {
   const no = (problem: string): SheetCheck => ({ ok: false, problem });
@@ -220,16 +249,8 @@ function checkSheet(s: AllocationSheet): SheetCheck {
   const title = shareableText(String(s.title ?? ""), VOTE_LIMITS.maxTitleChars);
   if (!title) return no("The round needs a title.");
   const budget = s.budget;
-  if (
-    typeof budget !== "number" ||
-    !Number.isInteger(budget) ||
-    budget < VOTE_LIMITS.minBudget ||
-    budget > VOTE_LIMITS.maxBudget
-  ) {
-    return no(
-      `Each person's budget needs to be a whole number from ${VOTE_LIMITS.minBudget} to ${VOTE_LIMITS.maxBudget.toLocaleString("en-US")}.`
-    );
-  }
+  const badBudget = budgetProblem(budget);
+  if (badBudget) return no(badBudget);
   // Cut silently, "dollars" would read "doll": refused instead.
   const unit = shareableText(String(s.unit ?? ""), 64);
   if (unit.length > VOTE_LIMITS.maxUnitChars) {
@@ -259,23 +280,13 @@ function checkSheet(s: AllocationSheet): SheetCheck {
     const item: AllocationItem = { id: x.id, text };
     const hint = typeof x.hint === "string" ? shareableText(x.hint, VOTE_LIMITS.maxHintChars) : "";
     if (hint) item.hint = hint;
-    if (x.cap !== undefined) {
-      if (
-        typeof x.cap !== "number" ||
-        !Number.isInteger(x.cap) ||
-        x.cap < 1 ||
-        x.cap > VOTE_LIMITS.maxCap
-      ) {
-        return no(
-          `Item ${i + 1}'s cap needs to be a whole number from 1 to ${VOTE_LIMITS.maxCap.toLocaleString("en-US")}.`
-        );
-      }
-      item.cap = x.cap;
-    }
+    const badCap = capProblem(x.cap, i);
+    if (badCap) return no(badCap);
+    if (x.cap !== undefined) item.cap = x.cap;
     items.push(item);
   }
   if (s.spendAll && items.reduce((sum, x) => sum + allocationItemMax(x, budget), 0) < budget) {
-    return no("The caps add up to less than the budget, so nobody could give it all out.");
+    return no(CAPS_UNDER_BUDGET);
   }
   if (items.length * amountWidth(budget) > VOTE_LIMITS.maxAllocationBytes) {
     return no(
@@ -304,6 +315,40 @@ export function sheetProblem(s: AllocationSheet): string | null {
   return checked.ok ? null : checked.problem;
 }
 
+/**
+ * Why `s` can't be counted at all, even by hand (paper splits, totals
+ * typed in, an agent's counts), in one sentence, or null when it can. Only
+ * what the counting needs: a budget the bands work for (10 to 9,999,
+ * whole), at least 2 items with distinct ids, caps whole from 1, and caps
+ * that leave room to give it all when `spendAll`. Nothing travels, so the
+ * live limits on text, ids and item count don't apply. `addAllocation` and
+ * `foldAllocationTotals` refuse such a sheet; the count entry says why.
+ */
+export function allocationCountProblem(s: AllocationSheet): string | null {
+  if (!s || typeof s !== "object") return "There is nothing to split.";
+  const badBudget = budgetProblem(s.budget);
+  if (badBudget) return badBudget;
+  if (!Array.isArray(s.items) || s.items.length < VOTE_LIMITS.minAllocationItems) {
+    return `A round splits the budget across at least ${VOTE_LIMITS.minAllocationItems} items.`;
+  }
+  const ids = new Set<string>();
+  for (let i = 0; i < s.items.length; i++) {
+    const x = s.items[i];
+    if (!x || typeof x.id !== "string" || x.id === "") return `Item ${i + 1} needs an id.`;
+    if (ids.has(x.id)) return `Item ${i + 1} has the same id as an earlier item.`;
+    ids.add(x.id);
+    const badCap = capProblem(x.cap, i);
+    if (badCap) return badCap;
+  }
+  if (
+    s.spendAll &&
+    s.items.reduce((sum, x) => sum + allocationItemMax(x, s.budget), 0) < s.budget
+  ) {
+    return CAPS_UNDER_BUDGET;
+  }
+  return null;
+}
+
 // ── Answers ──────────────────────────────────────────────────────────
 
 /** A draft's amount for `id`: null or missing is 0; anything else as given. */
@@ -314,11 +359,14 @@ function draftAmount(d: AllocationDraft, id: string): unknown {
 
 /**
  * The first thing wrong with a split, or null when it can be sent: an
- * amount that isn't a whole number from 0 ("not-whole"), over its item's
- * cap ("over-cap") or over the budget on its own ("over-budget", with the
- * item), then the split as a whole: nothing given ("empty"), more than the
- * budget ("over-budget"), or less than all of it when the sheet says to
- * spend it all ("under-budget").
+ * amount that isn't a whole number from 0 ("not-whole"), or over the most
+ * its item takes (`allocationItemMax`), named by the limit that binds:
+ * "over-cap" when the cap is below the budget, else "over-budget" (with
+ * the item). A Buy-a-Feature cap is often above a player's budget, and the
+ * box's hint then names the budget, so the problem must too. Then the
+ * split as a whole: nothing given ("empty"), more than the budget
+ * ("over-budget"), or less than all of it when the sheet says to spend it
+ * all ("under-budget").
  */
 export function allocationDraftProblem(
   d: AllocationDraft,
@@ -330,8 +378,10 @@ export function allocationDraftProblem(
     if (typeof v !== "number" || !Number.isInteger(v) || v < 0) {
       return { itemId: item.id, problem: "not-whole" };
     }
-    if (item.cap !== undefined && v > item.cap) return { itemId: item.id, problem: "over-cap" };
-    if (v > s.budget) return { itemId: item.id, problem: "over-budget" };
+    if (v > allocationItemMax(item, s.budget)) {
+      const capBinds = item.cap !== undefined && item.cap < s.budget;
+      return { itemId: item.id, problem: capBinds ? "over-cap" : "over-budget" };
+    }
     sum += v;
   }
   if (sum === 0) return { problem: "empty" };
@@ -575,13 +625,16 @@ function fitsSheet(t: AllocationTally, s: AllocationSheet): boolean {
  * them) to the totals and bands. Null when the split isn't valid for `s`
  * (the same rules as the reader), the tally is for another sheet, or the
  * count would pass `VOTE_LIMITS.maxTallyBallots`. Never mutates `t`. The
- * facilitator's paper splits and MCP actions fold through it too.
+ * facilitator's paper splits and MCP actions fold through it too, so it
+ * also refuses a sheet that can't be counted (`allocationCountProblem`: a
+ * budget under 10 would put amounts in bands that don't rise).
  */
 export function addAllocation(
   t: AllocationTally,
   amounts: readonly number[],
   s: AllocationSheet
 ): AllocationTally | null {
+  if (allocationCountProblem(s)) return null;
   if (!fitsSheet(t, s) || !isValidSplit(amounts, s)) return null;
   if (t.ballots + 1 > VOTE_LIMITS.maxTallyBallots) return null;
   return {
@@ -627,7 +680,8 @@ export function foldAllocation(
  * they add up to at least `ballots` (everyone gave something) and at most
  * `ballots` × budget (exactly that when `spendAll`), and the people stay
  * within `VOTE_LIMITS.maxTallyBallots`. The spread is then unknown for the
- * round (`spreadKnown: false`). Never mutates `t`.
+ * round (`spreadKnown: false`). Null too for a sheet that can't be counted
+ * (`allocationCountProblem`). Never mutates `t`.
  */
 export function foldAllocationTotals(
   t: AllocationTally,
@@ -635,6 +689,7 @@ export function foldAllocationTotals(
   ballots: number,
   s: AllocationSheet
 ): AllocationTally | null {
+  if (allocationCountProblem(s)) return null;
   if (!fitsSheet(t, s) || !Array.isArray(totals) || totals.length !== s.items.length) return null;
   if (!Number.isInteger(ballots) || ballots < 1) return null;
   if (t.ballots + ballots > VOTE_LIMITS.maxTallyBallots) return null;
@@ -701,6 +756,13 @@ export interface AllocationRoundResult {
   ballots: number;
   /** "live": answered in a vote room; "facilitator": paper splits or totals entered by hand. */
   source: "live" | "facilitator";
+  /**
+   * False when the totals were typed by hand ("Totals only"): how the
+   * amounts were spread is then unknown at any count, and the results say
+   * so instead of "it needed 5 answers". True for live rounds and paper
+   * splits (the spread then shows from `VOTE_LIMITS.minNSpread`).
+   */
+  spreadKnown: boolean;
   /** Lower edge of each band, ascending from 0 (`allocationBandEdges(budget)`). */
   bandEdges: number[];
   items: {
@@ -718,16 +780,20 @@ export interface AllocationRoundResult {
 /**
  * The result to hand a tool's `onSave`. Applies the minN and minNSpread
  * rules again, so a caller can't save a spread the room would have
- * withheld. Null under minN ballots, or when `revealed` doesn't fit `s`.
+ * withheld. `meta.spreadKnown` (default true) is false for totals typed by
+ * hand (`AllocationTally.spreadKnown`): no bands are then kept, whatever
+ * `revealed` holds. Null under minN ballots, or when `revealed` doesn't
+ * fit `s`.
  */
 export function toAllocationResult(
   s: AllocationSheet,
   revealed: readonly RevealedAllocation[],
-  meta: RoundResultMeta & { tool: AllocationRoomTool }
+  meta: RoundResultMeta & { tool: AllocationRoomTool; spreadKnown?: boolean }
 ): AllocationRoundResult | null {
   const minN = effectiveMinN(meta.minN, meta.tool);
   if (meta.ballots < minN || revealed.length !== s.items.length) return null;
-  const spread = spreadShows(meta.ballots, minN);
+  const spreadKnown = meta.spreadKnown !== false;
+  const spread = spreadShows(meta.ballots, minN, spreadKnown);
   return {
     kind: "allocation",
     roundId: meta.roundId,
@@ -741,6 +807,7 @@ export function toAllocationResult(
     minN,
     ballots: meta.ballots,
     source: meta.source,
+    spreadKnown,
     bandEdges: allocationBandEdges(s.budget),
     items: s.items.map((item, i) => {
       const r = revealed[i];
@@ -850,11 +917,14 @@ export function allocationRoundMarkdown(r: AllocationRoundResult): string {
     );
   }
   if (r.items.every((x) => x.bands === null)) {
+    const spreadNeed = Math.max(r.minN, VOTE_LIMITS.minNSpread);
     lines.push(
       "",
-      r.source === "facilitator" && r.ballots >= VOTE_LIMITS.minNSpread
+      !r.spreadKnown
         ? "The spread isn't known: the totals were entered by hand."
-        : `The spread shows from ${Math.max(r.minN, VOTE_LIMITS.minNSpread)} answers.`
+        : r.ballots < spreadNeed
+          ? `The spread shows from ${spreadNeed} answers.`
+          : "The spread wasn't shared."
     );
   }
   return `${lines.join("\n")}\n`;

@@ -18,6 +18,7 @@ import {
   allocationAmount,
   allocationBandEdges,
   allocationCiphertextChars,
+  allocationCountProblem,
   allocationDraftProblem,
   allocationItemMax,
   allocationMean,
@@ -347,6 +348,22 @@ describe("splits on the wire", () => {
       problem: "under-budget",
     });
     expect(allocationDraftProblem({ search: 10 }, BUY_SHEET)).toBeNull();
+    // A cap above the budget doesn't bind: the budget is the limit named.
+    expect(allocationDraftProblem({ search: 61 }, BUY_SHEET)).toEqual({
+      itemId: "search",
+      problem: "over-budget",
+    });
+    expect(allocationDraftProblem({ search: 55 }, BUY_SHEET)).toEqual({
+      itemId: "search",
+      problem: "over-budget",
+    });
+    // A cap equal to the budget: either limit, said as the budget.
+    expect(
+      allocationDraftProblem(
+        { search: 51 },
+        { ...BUY_SHEET, items: [{ id: "search", text: "Search", cap: 50 }, BUY_SHEET.items[1]] }
+      )
+    ).toEqual({ itemId: "search", problem: "over-budget" });
     expect(encodeAllocation({ search: 60 }, ALLOCATION_SHEET)).toBeNull();
   });
 
@@ -502,6 +519,75 @@ describe("folding", () => {
   });
 });
 
+describe("allocationCountProblem: what counting by hand needs", () => {
+  it("accepts the live sheets, and sheets only live rounds refuse", () => {
+    expect(allocationCountProblem(ALLOCATION_SHEET)).toBeNull();
+    expect(allocationCountProblem(BUY_SHEET)).toBeNull();
+    // Nothing travels on paper: a long unit, odd ids and 25 items are fine.
+    const paper: AllocationSheet = {
+      ...BUY_SHEET,
+      id: "has spaces",
+      unit: "dollars",
+      items: Array.from({ length: 25 }, (_, i) => ({ id: `f ${i}`, text: `Feature ${i}` })),
+    };
+    expect(sheetProblem(paper)).not.toBeNull();
+    expect(allocationCountProblem(paper)).toBeNull();
+  });
+
+  it.each<[string, Partial<AllocationSheet>, RegExp]>([
+    // Buy-a-Feature's later round: the leftover pool split evenly can fall under 10.
+    ["a budget under 10", { budget: 6 }, /whole number from 10 to 9,999/],
+    ["a fractional budget", { budget: 12.5 }, /whole number from 10 to 9,999/],
+    ["one item", { items: [{ id: "a", text: "A" }] }, /at least 2 items/],
+    [
+      "two items with one id",
+      {
+        items: [
+          { id: "a", text: "A" },
+          { id: "a", text: "B" },
+        ],
+      },
+      /same id/,
+    ],
+    [
+      "a cap of 0",
+      {
+        items: [
+          { id: "a", text: "A", cap: 0 },
+          { id: "b", text: "B" },
+        ],
+      },
+      /cap needs to be a whole number from 1/,
+    ],
+    [
+      "caps that can't give it all",
+      {
+        spendAll: true,
+        budget: 100,
+        items: [
+          { id: "a", text: "A", cap: 40 },
+          { id: "b", text: "B", cap: 40 },
+        ],
+      },
+      /add up to less than the budget/,
+    ],
+  ])("refuses %s, and so do the folds", (_label, over, message) => {
+    const s = { ...BUY_SHEET, ...over } as AllocationSheet;
+    expect(allocationCountProblem(s)).toMatch(message);
+    const t = { ...emptyAllocationTally(ROUND, s), budget: s.budget };
+    const one = s.items.map((_, i) => (i === 0 ? 1 : 0));
+    expect(addAllocation(t, one, s)).toBeNull();
+    expect(foldAllocationTotals(t, one, 1, s)).toBeNull();
+  });
+
+  it("refuses a budget under 10 whose bands wouldn't rise", () => {
+    // [0, 1, 1, 2, 3]: "up to 10%" would hold no whole amount.
+    expect(allocationBandEdges(5)).toEqual([0, 1, 1, 2, 3]);
+    const small = { ...BUY_SHEET, budget: 5 };
+    expect(addAllocation(emptyAllocationTally(ROUND, small), [1, 0, 0], small)).toBeNull();
+  });
+});
+
 describe("the reveal rules", () => {
   it("needs minN ballots, then shows every total; the spread only from 5", () => {
     const three = tallyOf(ALLOCATION_SHEET, FIVE.slice(0, 3));
@@ -589,6 +675,23 @@ describe("the reveal rules", () => {
       { ...meta, tool: "buy-a-feature", ballots: 3 }
     )!;
     expect(buy.items.map((x) => x.cap)).toEqual([60, 30, 120]);
+  });
+
+  it("toAllocationResult says whether the spread is known, and keeps no bands when it isn't", () => {
+    const meta = {
+      tool: "hundred-dollar-test" as const,
+      roundId: ROUND,
+      closedAt: "2026-10-26T10:00:00.000Z",
+      minN: 3,
+      ballots: 5,
+      source: "facilitator" as const,
+    };
+    const revealed = revealAllocation(tallyOf(ALLOCATION_SHEET, FIVE), 3)!;
+    expect(toAllocationResult(ALLOCATION_SHEET, revealed, meta)!.spreadKnown).toBe(true);
+    // Totals typed by hand: a caller passing bands anyway can't save them.
+    const typed = toAllocationResult(ALLOCATION_SHEET, revealed, { ...meta, spreadKnown: false })!;
+    expect(typed.spreadKnown).toBe(false);
+    expect(typed.items.every((x) => x.bands === null && x.backers === null)).toBe(true);
   });
 });
 
@@ -881,5 +984,32 @@ describe("statistics", () => {
     const bmd = allocationRoundMarkdown(buy);
     expect(bmd).toContain("# Pipes \\| and lines");
     expect(bmd).toContain("| Search | $70 ($10 over its cap) |");
+  });
+
+  it("allocationRoundMarkdown says typed totals have no spread, at any count", () => {
+    const meta = {
+      tool: "hundred-dollar-test" as const,
+      roundId: ROUND,
+      closedAt: "2026-10-26T10:00:00.000Z",
+      minN: 3,
+      source: "facilitator" as const,
+      spreadKnown: false,
+    };
+    const totals = (ballots: number) =>
+      foldAllocationTotals(
+        emptyAllocationTally(ROUND, ALLOCATION_SHEET),
+        [ballots * 100, 0, 0, 0],
+        ballots,
+        ALLOCATION_SHEET
+      )!;
+    for (const ballots of [3, 4, 5, 12]) {
+      const r = toAllocationResult(ALLOCATION_SHEET, revealAllocation(totals(ballots), 3)!, {
+        ...meta,
+        ballots,
+      })!;
+      const md = allocationRoundMarkdown(r);
+      expect(md).toContain("The spread isn't known: the totals were entered by hand.");
+      expect(md).not.toContain("The spread shows from");
+    }
   });
 });
