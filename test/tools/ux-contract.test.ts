@@ -133,12 +133,21 @@ function code(file: string): string {
 
 const codeCache = new Map<string, string>();
 
+/**
+ * The shared prioritization shell (Phase 7). A method tool that renders it
+ * gets its empty state, example notice, Undo and export from there, so the
+ * shell's source counts as part of the tool's.
+ */
+const METHOD_SHELL = path.resolve(__dirname, "../../src/components/prioritization/method-tool.tsx");
+const usesMethodShell = (src: string) => /@\/components\/prioritization\/method-tool["']/.test(src);
+
 /** Every source file of a tool, comments stripped; read once per run. */
 function toolCode(id: string): string {
   let src = codeCache.get(id);
   if (src === undefined) {
     const dir = path.join(TOOLS_DIR, id);
     src = existsSync(dir) ? filesIn(dir).map(code).join("\n") : "";
+    if (usesMethodShell(src)) src += "\n" + code(METHOD_SHELL);
     codeCache.set(id, src);
   }
   return src;
