@@ -214,6 +214,39 @@ describe("rice-scoring", () => {
     expect(steps("rice-scoring", { prioritizations: [rice("Sure", 80)] })).toEqual([]);
   });
 
+  it("checks every row tied for the lead, as the page's verdict does", () => {
+    // Both score 1,600 a quarter; the second one in the list is the guess.
+    const sure = rice("Sure", 80);
+    const guess = row("Guess", "rice", {
+      reach: 1600,
+      reachPeriod: "quarter",
+      impact: 2,
+      confidence: 50,
+      effort: 1,
+    });
+    expect(steps("rice-scoring", { prioritizations: [sure, guess] })).toEqual([
+      expect.objectContaining({
+        id: "rice-test-front-runner",
+        detail:
+          "“Guess” ties for the lead on RICE at only 50% confidence. Write it up as a hypothesis and test it first.",
+      }),
+    ]);
+    // The least sure of two shaky leaders.
+    const guesses = [
+      rice("Hunch", 50),
+      row("Wild", "rice", {
+        reach: 2000,
+        reachPeriod: "quarter",
+        impact: 2,
+        confidence: 25,
+        effort: 1,
+      }),
+    ];
+    expect(
+      step("rice-scoring", { prioritizations: guesses }, "rice-test-front-runner")?.detail
+    ).toMatch(/^“Wild” ties for the lead on RICE at only 25% confidence/);
+  });
+
   it("compares across methods once a row is on the backlog, read through to its item", () => {
     const linked = rice("Linked", 100, { backlogItemId: "i1" });
     const i1 = item("i1", {

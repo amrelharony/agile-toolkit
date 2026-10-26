@@ -132,7 +132,7 @@ import { nameKey } from "@/lib/team/names";
 import { linkedItem } from "@/lib/prioritization/binding";
 import { BACKLOG_ITEM_PARAM } from "@/lib/prioritization/frameworks";
 import { evaluateItemIn, readThrough } from "@/lib/prioritization/methods";
-import { toChoice } from "@/lib/prioritization/methods/fields";
+import { toChoice, toNumber } from "@/lib/prioritization/methods/fields";
 import { dueText } from "@/lib/prioritization/methods/eisenhower";
 import {
   MOSCOW_BUCKETS,
@@ -1998,13 +1998,21 @@ const RULES: Record<string, NextStepRule<object>> = {
       const team = teamBacklog(items, rows);
       const ranked = rankMethodRows("rice", team.rows, team.backlog);
       const steps: NextStep[] = [];
-      const lead = ranked.find((r) => r.rank === 1);
-      const confidence = lead?.values.confidence;
-      if (lead && typeof confidence === "number" && confidence <= LOW_CONFIDENCE) {
+      // Every row tied for the lead, as the page's verdict reads them: the least sure one.
+      const leaders = ranked.filter((r) => r.rank === 1);
+      const [shakiest] = leaders
+        .flatMap((r) => {
+          const confidence = toNumber(r.values.confidence);
+          return confidence !== undefined && confidence <= LOW_CONFIDENCE
+            ? [{ r, confidence }]
+            : [];
+        })
+        .sort((a, b) => a.confidence - b.confidence);
+      if (shakiest) {
         steps.push({
           id: "rice-test-front-runner",
           label: "Test the front-runner before building",
-          detail: `${quote(lead.row.title, "The top initiative")} leads on RICE at only ${fmt(confidence)}% confidence. Write it up as a hypothesis and test it first.`,
+          detail: `${quote(shakiest.r.row.title, "The top initiative")} ${leaders.length === 1 ? "leads" : "ties for the lead"} on RICE at only ${fmt(shakiest.confidence)}% confidence. Write it up as a hypothesis and test it first.`,
           href: "/hypothesis-tracker",
         });
       }
