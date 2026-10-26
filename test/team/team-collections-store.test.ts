@@ -40,6 +40,7 @@ import {
   MOOD_PULSE_KIND,
   MOOD_TRACKER_KIND,
   RACI_KIND,
+  type Kudos,
   type Workspace,
 } from "@/lib/stores/workspace-types";
 import { ADKAR, DOD, MOOD_DOC, PULSE, RACI } from "./phase6-fixtures";
@@ -196,5 +197,29 @@ describe("the maturity level in the scalars blob", () => {
     scalars().setSnapshot({ teamName: "Falcons" });
     expect(useWorkspaceStore.getState().maturityLevel).toBe(4);
     expect(useWorkspaceStore.getState().teamName).toBe("Falcons");
+  });
+});
+
+describe("a kudos keeps the roster member it is for", () => {
+  const kudos: Kudos = {
+    id: "kud_member_1",
+    version: 2,
+    theme: "thank-you",
+    toName: "Ana",
+    toMemberId: "member_ana",
+    fromName: "Bo",
+    message: "Thanks for the pairing",
+    sentAt: "2026-10-20T09:00:00.000Z",
+  };
+
+  it("through upsertKudos, and export and import", () => {
+    useWorkspaceStore.getState().upsertKudos(kudos);
+    expect(useWorkspaceStore.getState().kudos).toEqual([kudos]);
+
+    const json = useWorkspaceStore.getState().exportJSON();
+    useWorkspaceStore.getState().resetWorkspace();
+    expect(useWorkspaceStore.getState().kudos ?? []).toEqual([]);
+    useWorkspaceStore.getState().importJSON(json);
+    expect(useWorkspaceStore.getState().kudos).toEqual([kudos]);
   });
 });
