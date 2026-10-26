@@ -452,6 +452,56 @@ describe("sprint board verdict", () => {
     ).toBe("1 of 2 stories done; 2 stories have no estimate yet.");
   });
 
+  it("on a closed sprint, says how it ended, with nothing left to do", () => {
+    // Its board is read-only: no "first" or "yet" for a story nobody can move.
+    const closedVerdict = (
+      stories: Story[],
+      status: Sprint["status"] = "completed",
+      limits = LIMITS
+    ) => {
+      const cols = storiesByColumn(stories, "s7");
+      return sprintBoardVerdict(
+        sprint({ status }),
+        storyProgress(stories, "s7"),
+        sprintBreaches(cols, limits)
+      );
+    };
+    const base = [
+      story("a", "A", { status: "done", points: 2 }),
+      story("b", "B", { status: "in_progress", points: 5 }),
+      story("c", "C", { status: "todo", points: 3 }),
+    ];
+    const blocked = [
+      ...base.slice(0, 2),
+      story("c", "C", { status: "todo", blocked: true, points: 3 }),
+    ];
+    expect(closedVerdict(blocked)).toBe("2 of 10 points done (20%); 1 story was still blocked.");
+    expect(
+      closedVerdict(
+        [...blocked, story("d", "D", { status: "review", blocked: true, points: 1 })],
+        "cancelled"
+      )
+    ).toBe("2 of 11 points done (18%); 2 stories were still blocked.");
+    expect(
+      closedVerdict([...base, story("d", "D", { status: "in_progress", points: 1 })], "completed", {
+        ...LIMITS,
+        in_progress: 1,
+      })
+    ).toBe("2 of 11 points done (18%); In progress ended over its WIP limit.");
+    expect(closedVerdict([...base, story("d", "D", { status: "todo" })])).toBe(
+      "2 of 10 points done (20%); 1 story had no estimate."
+    );
+    expect(closedVerdict([story("a", "A", { status: "todo", points: 3 })], "cancelled")).toBe(
+      "0 of 3 points done (0%); nothing was started."
+    );
+    expect(closedVerdict([])).toBe("Sprint 7 ended with no stories.");
+    expect(closedVerdict(base)).toBe("2 of 10 points done (20%).");
+    // An open sprint still says what to do.
+    expect(closedVerdict(blocked, "planned")).toBe(
+      "2 of 10 points done (20%); 1 story is blocked, so unblock it first."
+    );
+  });
+
   it("handles huge numbers", () => {
     expect(
       verdict([
@@ -939,11 +989,20 @@ describe("sprint board", () => {
   it("opens a completed sprint read-only: no moves, flags, owner edits or limits", () => {
     seed({
       sprints: [sprint({ status: "completed" })],
-      stories: [...stories(), story("o", "Saved cards", { status: "review", owner: "Ben" })],
+      stories: [
+        ...stories(),
+        story("o", "Saved cards", { status: "review", owner: "Ben", blocked: true }),
+      ],
     });
     window.history.replaceState(null, "", "/kanban?sprint=s7");
     renderBoard();
     expect(screen.getByText(closedBoardNote(sprint({ status: "completed" })))).toBeInTheDocument();
+    // Its header says how it ended, not what to do next.
+    expect(
+      screen.getByText(/; 1 story was still blocked\.$/, { selector: "p" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/unblock/)).toBeNull();
+    expect(exported()).toContain("; 1 story was still blocked.");
     expect(screen.getByText("Pay by card")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Move to…/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Flag blocked/ })).toBeNull();
@@ -967,6 +1026,8 @@ describe("sprint board", () => {
     window.history.replaceState(null, "", "/kanban?sprint=s7");
     renderBoard();
     expect(screen.getByText("No stories were planned into Sprint 7.")).toBeInTheDocument();
+    expect(screen.getByText("Sprint 7 ended with no stories.")).toBeInTheDocument();
+    expect(screen.queryByText(/planned into Sprint 7 yet/)).toBeNull();
     expect(screen.queryByRole("link", { name: /Plan stories into/ })).toBeNull();
   });
 

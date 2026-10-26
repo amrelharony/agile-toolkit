@@ -202,8 +202,9 @@ const pointsText = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "points"}`;
  * unestimated stories, nothing started). `dodMissing` is how many done
  * stories miss a required DoD criterion (`doneMissingDod`); a sprint with
  * every story done still says so. A closed sprint's board is read-only, its
- * DoD checklists included, so there it says they didn't meet it, with no
- * "yet" for something nobody can tick any more.
+ * DoD checklists included, so there the caveat says how the sprint ended,
+ * in the past tense: no "first" or "yet" for something nobody can do on it
+ * any more.
  */
 export function sprintBoardVerdict(
   sprint: Pick<Sprint, "name"> & Partial<Pick<Sprint, "status">>,
@@ -212,8 +213,12 @@ export function sprintBoardVerdict(
   dodMissing = 0
 ): string {
   const { count, doneCount, scope, done } = progress;
-  if (count === 0) return `No stories are planned into ${sprint.name} yet.`;
   const closed = isClosedSprint(sprint);
+  if (count === 0) {
+    return closed
+      ? `${sprint.name} ended with no stories.`
+      : `No stories are planned into ${sprint.name} yet.`;
+  }
   if (doneCount === count) {
     const short =
       dodMissing === 0
@@ -233,9 +238,13 @@ export function sprintBoardVerdict(
   let caveat = "";
   if (progress.blocked > 0) {
     const n = progress.blocked;
-    caveat = `; ${stories(n)} ${n === 1 ? "is" : "are"} blocked, so unblock ${n === 1 ? "it" : "them"} first`;
+    caveat = closed
+      ? `; ${stories(n)} ${n === 1 ? "was" : "were"} still blocked`
+      : `; ${stories(n)} ${n === 1 ? "is" : "are"} blocked, so unblock ${n === 1 ? "it" : "them"} first`;
   } else if (flowing) {
-    caveat = `; ${flowing.label} is over its WIP limit, so finish something before starting more`;
+    caveat = closed
+      ? `; ${flowing.label} ended over its WIP limit`
+      : `; ${flowing.label} is over its WIP limit, so finish something before starting more`;
   } else if (dodMissing > 0) {
     const n = dodMissing;
     caveat = closed
@@ -243,9 +252,11 @@ export function sprintBoardVerdict(
       : `; ${n} done ${n === 1 ? "story doesn't" : "stories don't"} meet the DoD yet`;
   } else if (progress.unestimated > 0) {
     const n = progress.unestimated;
-    caveat = `; ${stories(n)} ${n === 1 ? "has" : "have"} no estimate yet`;
+    caveat = closed
+      ? `; ${stories(n)} had no estimate`
+      : `; ${stories(n)} ${n === 1 ? "has" : "have"} no estimate yet`;
   } else if (started === 0 && doneCount === 0) {
-    caveat = "; nothing has been started yet";
+    caveat = closed ? "; nothing was started" : "; nothing has been started yet";
   }
   return `${base}${caveat}.`;
 }
