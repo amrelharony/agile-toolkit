@@ -304,17 +304,30 @@ describe("every method tool", () => {
       name: "Value/Effort",
       Client: ValueEffortMatrixClient,
       path: "/value-effort-matrix",
-      titleLabel: "Item title",
-      add: "Plot",
+      titleLabel: /Item title/,
+      add: "Add",
       framework: "value-effort",
     },
     {
       name: "Kano",
       Client: KanoModelClient,
       path: "/kano-model",
-      titleLabel: "Feature title",
+      titleLabel: /Feature title/,
       add: "Add",
       framework: "kano",
+      // The backlog holds no Kano answers, and a feature needs a pair (or counts).
+      fill: () => {
+        for (const [group, answer] of [
+          ["If it has this, how do you feel?", "I like it"],
+          ["If it doesn't have this, how do you feel?", "I dislike it"],
+        ]) {
+          fireEvent.click(
+            within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", {
+              name: answer,
+            })
+          );
+        }
+      },
     },
     {
       name: "Cost of Delay",
