@@ -40,8 +40,12 @@ vi.stubGlobal(
 import { RiceScoringClient } from "@/app/(tools)/rice-scoring/rice-scoring-client";
 import { toMarkdown } from "@/app/(tools)/rice-scoring/markdown";
 import { buildExample } from "@/app/(tools)/rice-scoring/example";
+import { rankMethodRows } from "@/lib/prioritization/rank";
 
 const NOW = new Date(2026, 9, 18);
+
+/** The Markdown of rows as the page ranks them (the registry's order). */
+const markdownOf = (items: PrioritizationItem[]) => toMarkdown(rankMethodRows("rice", items), NOW);
 
 const item = (
   id: string,
@@ -66,45 +70,45 @@ beforeEach(() => {
 
 describe("RICE toMarkdown", () => {
   it("ranks initiatives in a table with the score columns", () => {
-    const md = toMarkdown(
-      [item("a", "Saved cards", [3000, 2, 80, 4]), item("b", "Guest checkout", [6000, 1, 100, 2])],
-      NOW
-    );
+    const md = markdownOf([
+      item("a", "Saved cards", [3000, 2, 80, 4]),
+      item("b", "Guest checkout", [6000, 1, 100, 2]),
+    ]);
     const lines = md.split("\n");
     expect(lines[0]).toBe("# RICE Scoring — 18 Oct 2026");
     expect(lines).toContain("## Ranked initiatives");
-    expect(lines).toContain("| # | Initiative | Reach | Impact | Confidence | Effort | RICE |");
-    const first = lines.indexOf("| 1 | Guest checkout | 6000 | 1 | 100% | 2 | 3000.00 |");
-    const second = lines.indexOf("| 2 | Saved cards | 3000 | 2 | 80% | 4 | 1200.00 |");
+    expect(lines).toContain(
+      "| # | Initiative | Reach | Period | Impact | Confidence | Effort | RICE |"
+    );
+    // A row saved before reach periods counts per quarter.
+    const first = lines.indexOf(
+      "| 1 | Guest checkout | 6000 | per quarter | 1 | 100% | 2 | 3,000 |"
+    );
+    const second = lines.indexOf("| 2 | Saved cards | 3000 | per quarter | 2 | 80% | 4 | 1,200 |");
     expect(first).toBeGreaterThan(0);
     expect(second).toBeGreaterThan(first);
-    expect(lines).toContain("**Do first:** Guest checkout (RICE 3000.00)");
+    expect(lines).toContain("**Do first: “Guest checkout” (RICE 3,000).**");
   });
 
   it("escapes pipes and collapses newlines in titles", () => {
-    const md = toMarkdown([item("a", "Search | filters\r\nand sort", [100, 1, 100, 1])], NOW);
+    const md = markdownOf([item("a", "Search | filters\r\nand sort", [100, 1, 100, 1])]);
     expect(md).toContain("| 1 | Search \\| filters and sort | 100 |");
   });
 
   it("flags outlier scores for a re-check", () => {
-    const md = toMarkdown(
-      [
-        item("a", "A", [100, 1, 100, 10]),
-        item("b", "B", [110, 1, 100, 10]),
-        item("c", "C", [120, 1, 100, 10]),
-        item("d", "D", [130, 1, 100, 10]),
-        item("e", "Typo", [100000, 3, 100, 1]),
-      ],
-      NOW
-    );
+    const md = markdownOf([
+      item("a", "A", [100, 1, 100, 10]),
+      item("b", "B", [110, 1, 100, 10]),
+      item("c", "C", [120, 1, 100, 10]),
+      item("d", "D", [130, 1, 100, 10]),
+      item("e", "Typo", [100000, 3, 100, 1]),
+    ]);
     expect(md).toContain("| 1 | Typo (outlier) |");
     expect(md).toContain("re-check its inputs");
   });
 
   it("says there's nothing yet when empty", () => {
-    expect(toMarkdown([], NOW)).toBe(
-      "# RICE Scoring — 18 Oct 2026\n\nNo initiatives scored yet.\n"
-    );
+    expect(markdownOf([])).toBe("# RICE Scoring — 18 Oct 2026\n\nNo initiatives scored yet.\n");
   });
 });
 
@@ -127,34 +131,38 @@ describe("RICE example", () => {
     render(<RiceScoringClient />);
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Example data.");
+    // The page has other status lines now (Not enough data), so find the notice by its text.
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Remove Clearer card-declined message" })
+      screen.getByRole("button", { name: "Delete Clearer card-declined message" })
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(history.log).not.toHaveBeenCalled();
     expect(exported.markdown).toContain("| 1 | Clearer card-declined message |");
 
-    fireEvent.change(screen.getByLabelText("Initiative title"), {
+    // The label carries the required marker, so match it by its words.
+    fireEvent.change(screen.getByLabelText(/Initiative title/), {
       target: { value: "Order tracking" },
     });
-    fireEvent.change(screen.getByLabelText("Reach (people per quarter)"), {
+    fireEvent.change(screen.getByLabelText(/Reach \(people\)/), {
       target: { value: "800" },
     });
     const pick = (group: string, option: string) =>
       fireEvent.click(
         within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name: option })
       );
-    pick("Impact", "1 Medium");
+    pick("Impact", "1x Medium");
     pick("Confidence", "100% High");
-    fireEvent.change(screen.getByLabelText("Effort (person-months)"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText(/Effort \(person-months\)/), {
+      target: { value: "2" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     const left = useWorkspaceStore.getState().prioritizations ?? [];
     expect(left.map((x) => x.title)).toEqual(["Order tracking"]);
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByRole("button", { name: "Remove Order tracking" })).toBeInTheDocument();
+    expect(screen.queryByText(/Example data\./)).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete Order tracking" })).toBeInTheDocument();
   });
 
   it("isn't offered once the calculator has the user's own initiatives", () => {
@@ -163,7 +171,7 @@ describe("RICE example", () => {
     });
     render(<RiceScoringClient />);
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/Example data\./)).toBeNull();
   });
 
   it("is still offered when only another framework has rows", () => {

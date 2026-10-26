@@ -2,23 +2,38 @@
 
 // Recharts lives here so the RICE Scoring route loads it only when the chart
 // mounts. rice-scoring-client.tsx imports this via next/dynamic.
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
 
+/** The top initiatives by RICE, one bar each, highest first (theme colours only). */
 export function RiceScoreChart({ data }: { data: { title: string; score: number }[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} layout="vertical" margin={{ left: 80 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-        <XAxis type="number" stroke="#888" fontSize={11} />
-        <YAxis type="category" dataKey="title" stroke="#888" fontSize={11} width={150} />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "#0f1117",
-            border: "1px solid #2a2f3a",
-            fontSize: 12,
-          }}
+      {/* ChartFigure gives the chart its summary and table, so the SVG
+          mustn't be a tab stop. */}
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ left: 8, right: 12 }}
+        accessibilityLayer={false}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" horizontal={false} />
+        <XAxis
+          type="number"
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
+          tickLine={false}
         />
-        <Bar dataKey="score" fill="#00f0ff" />
+        <YAxis
+          type="category"
+          dataKey="title"
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={false}
+          tickLine={false}
+          width={130}
+        />
+        <Tooltip contentStyle={chartTheme.tooltipStyle} />
+        <Bar dataKey="score" name="RICE" fill={chartTheme.colors.cyan} maxBarSize={28} />
       </BarChart>
     </ResponsiveContainer>
   );

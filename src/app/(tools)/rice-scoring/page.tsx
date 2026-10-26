@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { RiceScoringClient } from "./rice-scoring-client";
 
-export const metadata: Metadata = {
-  title: "RICE Scoring Calculator",
-  description:
-    "Score initiatives by Reach × Impact × Confidence ÷ Effort to rank a backlog economically.",
-};
+export const metadata: Metadata = toolMetadata("rice-scoring");
 
 export default function Page() {
   return <RiceScoringClient />;
