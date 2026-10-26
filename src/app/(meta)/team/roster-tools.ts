@@ -26,6 +26,14 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
     toolId: "decision-log",
     use: "Offers teammates as each decision's decider and its DACI or RAPID roles.",
   },
+  {
+    toolId: "daci",
+    use: "Offers teammates as each decision's Approver, Driver, Contributors and Informed.",
+  },
+  {
+    toolId: "rapid-decision",
+    use: "Offers teammates as each decision's Decide, Recommend, Agree, Perform and Input roles.",
+  },
   { toolId: "eisenhower", use: "Offers teammates as who takes a Delegate task." },
   { toolId: "buy-a-feature", use: "Offers the team's size as the number of players." },
 ];

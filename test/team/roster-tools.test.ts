@@ -20,6 +20,15 @@ describe("ROSTER_TOOLS", () => {
     );
   });
 
+  it("lists the DACI and RAPID pages beside the Decision Log: all three pick people from the roster", () => {
+    expect(ROSTER_TOOLS.map((t) => t.toolId)).toEqual(
+      expect.arrayContaining(["decision-log", "daci", "rapid-decision"])
+    );
+    const use = (id: string) => ROSTER_TOOLS.find((t) => t.toolId === id)?.use ?? "";
+    expect(use("daci")).toMatch(/Approver, Driver, Contributors and Informed/);
+    expect(use("rapid-decision")).toMatch(/Decide, Recommend, Agree, Perform and Input/);
+  });
+
   it("says the Mood Tracker uses the roster only by name: the anonymous mode keeps team pulses", () => {
     const use = ROSTER_TOOLS.find((t) => t.toolId === "mood-tracker")?.use ?? "";
     expect(use).toMatch(/each person .* by name/);
