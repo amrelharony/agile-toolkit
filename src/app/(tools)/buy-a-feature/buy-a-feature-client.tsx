@@ -440,18 +440,11 @@ export function BuyAFeatureClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Buy-a-Feature",
-      // The capped numbers the page shows, never an old row's over-funding.
-      prompts: generateBuyAFeaturePrompts(
-        {
-          items: [...features].sort(byRaised).map((f) => ({
-            ...(rowById.get(f.id) as PrioritizationItem),
-            fields: { price: f.price ?? 0, raised: f.raised },
-          })),
-        },
-        workspace
-      ),
+      // The prompt reads the rows through the game's ledger, as the page
+      // does: raised capped at the price, "Not priced", the game's unit.
+      prompts: generateBuyAFeaturePrompts({ items: rows, game }, workspace),
     }),
-    [features, rowById, workspace]
+    [rows, game, workspace]
   );
 
   return (
