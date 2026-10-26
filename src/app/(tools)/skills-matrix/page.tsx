@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { SkillsMatrixClient } from "./skills-matrix-client";
 
-export const metadata: Metadata = {
-  title: "Team Skills Matrix",
-  description:
-    "Visualize team skill coverage with a proficiency heat map, bus factor detection, and knowledge gap alerts.",
-};
+export const metadata: Metadata = toolMetadata("skills-matrix");
 
 export default function SkillsMatrixPage() {
   return <SkillsMatrixClient />;

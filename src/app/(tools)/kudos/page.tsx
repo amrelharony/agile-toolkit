@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { KudosClient } from "./kudos-client";
 
-export const metadata: Metadata = {
-  title: "Kudos Wall",
-  description:
-    "Send themed recognition cards to your team, downloadable as PNG for sharing outside the toolkit.",
-};
+export const metadata: Metadata = toolMetadata("kudos");
 
 export default function KudosPage() {
   return <KudosClient />;
