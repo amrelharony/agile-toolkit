@@ -4,7 +4,7 @@ import { KanoModelClient } from "./kano-model-client";
 export const metadata: Metadata = {
   title: "Kano Model Builder",
   description:
-    "Classify features as Must-Be / Performance / Attractive / Indifferent / Reverse from customer research.",
+    "Ask customers how they'd feel with and without each feature; the Kano evaluation table derives Must-be, Performance, Attractive, Indifferent, Reverse or Questionable, with Better and Worse.",
 };
 
 export default function Page() {
