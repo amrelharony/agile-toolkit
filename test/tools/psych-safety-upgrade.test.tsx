@@ -668,4 +668,25 @@ describe("review fixes", () => {
     });
     expect(screen.getByLabelText("Taken on")).toHaveValue("2026-10-27");
   });
+
+  it("refuses a round it can't save, says why, and keeps Save round available", () => {
+    renderPage();
+    for (let i = 1; i <= 7; i++)
+      fireEvent.change(tallyGroup(i).getByLabelText("Agree"), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Show totals" }));
+    // The clock moved back a day: the round's day (today, as it was) is now in the future.
+    vi.setSystemTime(new Date(2026, 9, 25, 10, 0, 0));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(toastSpy.error).toHaveBeenCalledWith(
+      "A round can't be dated in the future. Nothing was saved."
+    );
+    expect(stored()?.rounds ?? []).toEqual([]);
+    expect(screen.queryByRole("button", { name: "Round saved" })).toBeNull();
+    expect(toastSpy).not.toHaveBeenCalledWith("Saved the round", expect.anything());
+    // Once the day is fine again, the same totals save.
+    vi.setSystemTime(new Date(2026, 9, 26, 10, 0, 0));
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(stored()!.rounds).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Round saved" })).toBeDisabled();
+  });
 });

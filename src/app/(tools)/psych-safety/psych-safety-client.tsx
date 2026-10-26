@@ -151,9 +151,11 @@ export function PsychSafetyClient() {
   const saveRound = (vote: VoteRoundResult) => {
     const checked = validateRoundDetails(detailsRef.current, { today: todayIso(), log: peekLog() });
     if (!checked.ok) {
-      // The day field only passes a valid day on, so this is a clock that moved back.
-      toast.error(checked.errors.date ?? checked.errors.name ?? "Check the round's details.");
-      return;
+      // The day field only passes a valid day on, so this is a clock that moved
+      // back. False keeps the kit's Save round available for after the fix.
+      const problem = checked.errors.date ?? checked.errors.name ?? "Check the round's details.";
+      toast.error(`${problem} Nothing was saved.`);
+      return false;
     }
     const d = checked.values;
     const round: PsychSafetyRound = {
@@ -166,7 +168,7 @@ export function PsychSafetyClient() {
       counts: countsFromVoteResult(vote),
       createdAt: new Date().toISOString(),
     };
-    if (!write((l) => withRound(l, round))) return;
+    if (!write((l) => withRound(l, round))) return false;
     // Counts only: never who answered, or what.
     logEvent(PSYCH_SAFETY_ACTIONS.ASSESSMENT_SAVED, {
       roundId: round.id,

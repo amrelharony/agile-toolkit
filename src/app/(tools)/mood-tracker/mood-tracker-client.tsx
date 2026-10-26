@@ -283,11 +283,12 @@ export function MoodTrackerClient() {
   };
 
   const savePulse = (result: VoteRoundResult) => {
-    if (preview) return;
+    // False: nothing stored, so the kit keeps Save round available.
+    if (preview) return false;
     const counts = pulseCountsFromResult(result);
     if (!counts) {
-      toast.error("Not enough answers to keep a pulse.");
-      return;
+      toast.error(`The question had fewer than ${result.minN} answers, so nothing was saved.`);
+      return false;
     }
     const pulse: MoodPulse = {
       id: `moodPulse_${nanoid(8)}`,

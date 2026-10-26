@@ -324,8 +324,14 @@ export function HealthCheckClient() {
       return r.keys.length > 0 ? r.doc : null;
     });
     if (keys.length === 0) {
-      toast.error("No dimension had enough answers to show, so the check is unchanged.");
-      return;
+      // Only a live round gets here (people may skip any dimension). False
+      // keeps the kit's Save round available instead of "Round saved".
+      toast.error(
+        result.questions.some((q) => q.distribution)
+          ? "The round's dimensions are no longer in the check, so nothing was saved."
+          : `No dimension had ${result.minN} answers, so nothing was saved.`
+      );
+      return false;
     }
     log(ROUND_SAVED, { ballots: result.ballots, dimensions: keys.length, source: result.source });
     announce(
