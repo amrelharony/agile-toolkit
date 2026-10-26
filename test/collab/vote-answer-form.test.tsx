@@ -81,6 +81,20 @@ describe("VoteAnswerForm", () => {
     );
   });
 
+  it("describes each question's group by its hint and, once shown, its error", async () => {
+    const { send, group, pick } = setup();
+    expect(group(/Fun/)).toHaveAccessibleDescription("We love going to work");
+    expect(group(/Learning/)).toHaveAccessibleDescription("Leave it blank to skip.");
+    expect(group(/Speed/)).not.toHaveAttribute("aria-describedby");
+    await act(async () => send());
+    expect(group(/Fun/)).toHaveAccessibleDescription("We love going to work Pick an answer.");
+    expect(group(/Speed/)).toHaveAccessibleDescription("Pick an answer.");
+    // Answered: the error goes, and so does its part of the description.
+    pick(/Speed/, "Green");
+    expect(group(/Speed/)).not.toHaveAttribute("aria-describedby");
+    expect(group(/Fun/)).toHaveAccessibleDescription("We love going to work Pick an answer.");
+  });
+
   it("says why a send was refused", async () => {
     const { pick, send } = setup("closed");
     pick(/Fun/, "Green");

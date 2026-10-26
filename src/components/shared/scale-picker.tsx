@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { focusFirstInvalid } from "@/lib/utils/form";
@@ -71,7 +71,8 @@ export interface ScalePickerProps {
 
 /**
  * A method's standard scale as a segmented control (radio semantics, arrow
- * keys, one tab stop).
+ * keys, one tab stop). The hint and the error describe the radio group, so
+ * a screen reader hears them with its name, as a <Field>'s control does.
  *
  * A value that isn't on the scale is never changed silently: it shows as a
  * checked "Custom: 1.5" option until the user picks a scale value.
@@ -90,6 +91,10 @@ export function ScalePicker({
   className,
   optionsClassName,
 }: ScalePickerProps) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   const options: ToggleOption<number>[] = steps.map((s) => ({
     value: s.value,
     // One inline wrapper: the option is a flex box, which would drop the space.
@@ -139,10 +144,15 @@ export function ScalePicker({
         options={options}
         value={value}
         onValueChange={onValueChange}
+        aria-describedby={describedBy}
       />
-      {hint && <p className="text-xs text-sub">{hint}</p>}
+      {hint && (
+        <p id={hintId} className="text-xs text-sub">
+          {hint}
+        </p>
+      )}
       {error && (
-        <p className="text-xs text-danger" role="alert">
+        <p id={errorId} className="text-xs text-danger" role="alert">
           {error}
         </p>
       )}

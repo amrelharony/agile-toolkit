@@ -21,6 +21,8 @@ export interface ToggleGroupProps<T extends string | number> {
   onValueChange: (value: T) => void;
   className?: string;
   size?: "sm" | "md";
+  /** Ids of the hint and error that describe the group. */
+  "aria-describedby"?: string;
 }
 
 /**
@@ -38,6 +40,7 @@ export function ToggleGroup<T extends string | number>({
   onValueChange,
   className,
   size = "md",
+  "aria-describedby": describedBy,
 }: ToggleGroupProps<T>) {
   const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
   const enabled = options.filter((o) => !o.disabled);
@@ -61,6 +64,7 @@ export function ToggleGroup<T extends string | number>({
     <div
       role="radiogroup"
       aria-label={label}
+      aria-describedby={describedBy}
       className={cn("inline-flex flex-wrap gap-1", className)}
     >
       {options.map((option, i) => {
