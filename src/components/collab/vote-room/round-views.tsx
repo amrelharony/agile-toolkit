@@ -25,6 +25,15 @@ import { PairResults } from "./pair-results";
 import { VoteAnswerForm } from "./vote-answer-form";
 import { VoteResults } from "./vote-results";
 
+/**
+ * An allocation round's second threshold, said to the host before Reveal
+ * (the panel and the open room): Reveal closes the round, so revealing at 3
+ * or 4 answers loses who backed what, and the spread, for good.
+ */
+export function spreadNote(spreadNeed: number): string {
+  return `Who gave each item something, and how the amounts were spread, show only from ${spreadNeed} answers, and Reveal closes the round: wait for ${spreadNeed} if you want them.`;
+}
+
 /** The open round's title, whatever its kind; null before the first state. */
 export function roomTitle(room: VoteRoom): string | null {
   return room.questionnaire?.title ?? room.pairSheet?.title ?? room.sheet?.title ?? null;
@@ -153,6 +162,7 @@ export function SavedRoundResults({ result }: { result: RoundResult }) {
         revealed={result.items.map((x) => ({ total: x.total, backers: x.backers, bands: x.bands }))}
         minN={result.minN}
         ballots={result.ballots}
+        spreadKnown={result.spreadKnown}
       />
     );
   }

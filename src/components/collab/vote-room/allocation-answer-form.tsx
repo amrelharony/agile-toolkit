@@ -7,12 +7,15 @@
  *
  * The draft lives in this component only. It is never stored, and it is
  * cleared once the split is sent. "Left to give" follows the typing (and is
- * announced once the typing pauses). Mistakes show inline: an amount that
- * isn't a whole number, over an item's cap or over the budget sits on its
+ * announced once the typing pauses); it sits in a bar stuck to the bottom
+ * of the screen with Send, so it stays in sight on a phone while the first
+ * of many items is typed in. Mistakes show inline: an amount that isn't a
+ * whole number, or over the most its item takes (the cap or the budget,
+ * whichever is lower: the box's hint names the same amount), sits on its
  * box (focus goes to the first); a split that gives nothing, more than the
  * budget, or less than all of it when the sheet says to give it all out is
- * said under the boxes. Enter sends. Callers key it by round id, so every
- * round starts blank.
+ * said in the bar. Enter sends. Callers key it by round id, so every round
+ * starts blank.
  */
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
@@ -149,10 +152,12 @@ export function AllocationAnswerForm({
         nextErrors[item.id] = NOT_WHOLE;
         continue;
       }
-      if (item.cap !== undefined && amount > item.cap) {
-        nextErrors[item.id] = `At most ${money(item.cap)} on this one.`;
-      } else if (amount > sheet.budget) {
-        nextErrors[item.id] = `That's more than your ${money(sheet.budget)}.`;
+      // The limit the box's hint names: its cap, or the budget when that is lower.
+      if (amount > allocationItemMax(item, sheet.budget)) {
+        nextErrors[item.id] =
+          item.cap !== undefined
+            ? `At most ${money(allocationItemMax(item, sheet.budget))} on this one.`
+            : `That's more than your ${money(sheet.budget)}.`;
       }
       draft[item.id] = amount;
     }
@@ -235,25 +240,31 @@ export function AllocationAnswerForm({
           );
         })}
       </ol>
-      <p id={leftId} className="text-sm font-medium text-text">
-        {leftText}
-      </p>
-      {formError && (
-        <p id={errorId} className="text-sm text-danger" role="alert">
-          {formError}
-        </p>
-      )}
-      {disabledReason && !formError && <p className="text-sm text-sub">{disabledReason}</p>}
-      <Button
-        type="submit"
-        variant="toolkit"
-        className="gap-1.5"
-        disabled={sending || Boolean(disabledReason)}
-        aria-describedby={leftId}
+      {/* Stuck to the bottom of the screen while the boxes scroll under it. */}
+      <div
+        data-testid="allocation-left-bar"
+        className="sticky bottom-0 z-10 space-y-2 border-t border-border bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       >
-        <Send className="h-4 w-4" aria-hidden="true" />
-        {sending ? "Sending…" : submitLabel}
-      </Button>
+        <p id={leftId} className="text-sm font-medium text-text">
+          {leftText}
+        </p>
+        {formError && (
+          <p id={errorId} className="text-sm text-danger" role="alert">
+            {formError}
+          </p>
+        )}
+        {disabledReason && !formError && <p className="text-sm text-sub">{disabledReason}</p>}
+        <Button
+          type="submit"
+          variant="toolkit"
+          className="gap-1.5"
+          disabled={sending || Boolean(disabledReason)}
+          aria-describedby={leftId}
+        >
+          <Send className="h-4 w-4" aria-hidden="true" />
+          {sending ? "Sending…" : submitLabel}
+        </Button>
+      </div>
     </form>
   );
 }

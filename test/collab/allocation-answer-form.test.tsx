@@ -81,6 +81,24 @@ describe("AllocationAnswerForm", () => {
     expect(screen.getByText("Priced 40, 10 raised At most $30.")).toBeInTheDocument();
   });
 
+  it("names the budget, as the hint does, when a cap is above it", async () => {
+    const { type, send, onSubmit } = setup(BUY_SHEET);
+    // Search: cap $60, budget $50. The hint says $50, and so must the error.
+    type(/Search/, "61");
+    await send();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("At most $50 on this one.");
+    expect(screen.queryByText(/\$60/)).toBeNull();
+  });
+
+  it("keeps what's left in sight: a bar stuck to the bottom with Send", () => {
+    setup();
+    const bar = screen.getByTestId("allocation-left-bar");
+    expect(bar).toHaveClass("sticky", "bottom-0");
+    expect(bar).toContainElement(screen.getByText("Left to give: $100."));
+    expect(bar).toContainElement(screen.getByRole("button", { name: "Send my split" }));
+  });
+
   it.each<[string, Record<string, string>, string]>([
     ["nothing", {}, "Give something to at least one item."],
     ["less than all of it", { Search: "60" }, "Give out all $100: $40 left."],

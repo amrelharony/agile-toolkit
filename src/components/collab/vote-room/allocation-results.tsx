@@ -9,8 +9,10 @@
  * Who gave an item anything, and how the amounts were spread (five bands
  * of the budget, and where the middle half of the people's amounts lie),
  * show only from `VOTE_LIMITS.minNSpread` answers, in Advanced analysis.
- * Below that, or when the totals were typed by hand, it says so instead.
- * Plain bars, no chart library; theme tokens only.
+ * Below that it says what the round lacked; for totals typed by hand
+ * (`spreadKnown` false) it says the spread isn't known, at any count, since
+ * more answers wouldn't have shown it. Plain bars, no chart library; theme
+ * tokens only.
  */
 
 import { useEffect, useId, useRef } from "react";
@@ -38,6 +40,12 @@ export interface AllocationResultsProps {
   minN: number;
   /** People who split the budget. */
   ballots: number;
+  /**
+   * False for totals typed by hand (`AllocationRoundResult.spreadKnown`):
+   * the spread is then unknown whatever the count. Default true (live
+   * rounds and paper splits).
+   */
+  spreadKnown?: boolean;
   /** Move focus to the "Results" heading on mount: Reveal just replaced the control that had it. */
   focusHeading?: boolean;
 }
@@ -67,6 +75,29 @@ export function allocationVerdict(
     : `${head} ${listAnd(leaders)} got the most: ${money(top)} each in all${avg}.`;
 }
 
+/**
+ * The averages chart's one-line summary: the highest and lowest averages
+ * ("Highest average: Search, $36. Lowest: Themes, $5."), ties named
+ * together. One sentence however many items; each item's own line is in
+ * "View as table".
+ */
+export function allocationChartSummary(
+  sheet: AllocationSheet,
+  revealed: readonly RevealedAllocation[],
+  ballots: number
+): string {
+  const money = (n: number) => allocationAmount(n, sheet.unit);
+  const totals = sheet.items.map((_, i) => revealed[i]?.total ?? 0);
+  if (ballots <= 0 || totals.length === 0) return "No answers.";
+  const hi = Math.max(...totals);
+  const lo = Math.min(...totals);
+  const named = (t: number) =>
+    listAnd(sheet.items.filter((_, i) => totals[i] === t).map((x) => x.text));
+  const avg = (t: number) => money(allocationMean(t, ballots) ?? 0);
+  if (hi === lo) return `Every item averaged ${avg(hi)}.`;
+  return `Highest average: ${named(hi)}, ${avg(hi)}. Lowest: ${named(lo)}, ${avg(lo)}.`;
+}
+
 /** One item's line: "Search: $180 in all, $36 on average, from 4 of 5 people." */
 export function allocationItemSummary(
   text: string,
@@ -85,6 +116,7 @@ export function AllocationResults({
   revealed,
   minN,
   ballots,
+  spreadKnown = true,
   focusHeading = false,
 }: AllocationResultsProps) {
   const headingId = useId();
@@ -143,9 +175,7 @@ export function AllocationResults({
         </h3>
         <ChartFigure
           labelledBy={chartTitleId}
-          summary={rows
-            .map(({ item, r }) => allocationItemSummary(item.text, r, sheet, ballots))
-            .join(" ")}
+          summary={allocationChartSummary(sheet, revealed, ballots)}
           table={table}
         >
           <ul className="space-y-1.5">
@@ -227,6 +257,11 @@ export function AllocationResults({
             </table>
           </div>
         </AdvancedAnalysis>
+      ) : !spreadKnown ? (
+        // Typed totals never show a spread: more answers wouldn't have helped.
+        <p className="text-sm text-sub">
+          The totals were entered by hand, so how the amounts were spread isn&apos;t known.
+        </p>
       ) : ballots < spreadNeed ? (
         // The round is closed: say what it lacked, not what to collect now.
         <NotEnoughData
@@ -237,9 +272,7 @@ export function AllocationResults({
           what="how the amounts were spread"
         />
       ) : (
-        <p className="text-sm text-sub">
-          The totals were entered by hand, so how the amounts were spread isn&apos;t known.
-        </p>
+        <p className="text-sm text-sub">How the amounts were spread wasn&apos;t shared.</p>
       )}
     </section>
   );

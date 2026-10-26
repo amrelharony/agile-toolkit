@@ -26,7 +26,9 @@
  * Live rounds run for every host, the owner included (see
  * `vote-room/protocol.ts`); squad guests count by hand, and so does a
  * questionnaire or sheet the protocol can't carry (with the reason, before
- * any consent). A tool can hold the round back with `blockedReason` (say,
+ * any consent). An allocation sheet that can't even be counted by hand
+ * (`allocationCountProblem`: a budget under 10, say) gets its reason and no
+ * count entry. A tool can hold the round back with `blockedReason` (say,
  * Buy-a-Feature before its budgets are set): the reason shows instead of
  * the buttons. The panel writes nothing itself: `onSave` gets an
  * aggregates-only result when the host presses Save round. If it returns an
@@ -46,6 +48,7 @@ import {
   saveVisitorIdentity,
 } from "@/lib/realtime/visitor-rooms";
 import {
+  VOTE_LIMITS,
   VOTE_ROUND_KIND,
   questionnaireProblem,
   type AllocationRoomTool,
@@ -55,6 +58,7 @@ import {
 } from "@/lib/realtime/vote-room/protocol";
 import { effectiveMinN, type VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
 import {
+  allocationCountProblem,
   sheetProblem,
   type AllocationRoundResult,
   type AllocationSheet,
@@ -75,6 +79,7 @@ import { FacilitatorAllocation } from "./facilitator-allocation";
 import { FacilitatorPair } from "./facilitator-pair";
 import { FacilitatorTally } from "./facilitator-tally";
 import { HostVoteRoom, type HostVoteSession } from "./host-vote-room";
+import { spreadNote } from "./round-views";
 import type { SaveAllocationRound, SavePairRound, SaveRound, SaveVoteRound } from "./save-round";
 
 interface VoteRoundPanelBase {
@@ -298,6 +303,18 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
     );
   }
 
+  // A sheet the counting itself can't use: no live round and no count entry.
+  const countProblem = isAllocationPanel(props)
+    ? allocationCountProblem(round as AllocationSheet)
+    : null;
+  if (countProblem) {
+    return (
+      <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-sub">
+        This round can&apos;t run, live or on paper: {countProblem}
+      </p>
+    );
+  }
+
   // Checked before any consent: a round that can't start is never offered.
   const problem = roundProblem(props, round);
 
@@ -321,6 +338,7 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
       <p className="text-sm text-sub">
         People answer on their own phones, anonymously. You see how many have answered, and the
         totals once {need} have.
+        {kind === "allocation" && ` ${spreadNote(Math.max(need, VOTE_LIMITS.minNSpread))}`}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button

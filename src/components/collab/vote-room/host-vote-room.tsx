@@ -6,8 +6,11 @@
  *
  * Before Reveal the host sees how many people have answered and nothing
  * else: no distribution, no per-question counts. Reveal waits for minN
- * answers. After it come the totals, "Save round" (the tool's `onSave`,
- * once per round, aggregates only; it stays available when the tool
+ * answers; in an allocation round a hint by Reveal also says, until
+ * `VOTE_LIMITS.minNSpread` have answered, that who backed what and the
+ * spread show only from that many (Reveal closes the round, so revealing
+ * sooner loses them). After it come the totals, "Save round" (the tool's
+ * `onSave`, once per round, aggregates only; it stays available when the tool
  * refuses the round) and "New round". Ending the room keeps
  * revealed results on screen until they are saved or dismissed (Close asks
  * first when they aren't saved); nothing is stored unless the host saves.
@@ -30,7 +33,11 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { IdlePromptDialog, RoomMemberList } from "@/components/collab/room-controls";
 import type { VisitorIdentity } from "@/lib/realtime/visitor-rooms";
-import type { Questionnaire, VoteRoomTool } from "@/lib/realtime/vote-room/protocol";
+import {
+  VOTE_LIMITS,
+  type Questionnaire,
+  type VoteRoomTool,
+} from "@/lib/realtime/vote-room/protocol";
 import type { AllocationSheet } from "@/lib/realtime/vote-room/allocation";
 import type { PairSheet } from "@/lib/realtime/vote-room/pair";
 import {
@@ -52,6 +59,7 @@ import {
   SavedRoundResults,
   resultKeepable,
   roomResult,
+  spreadNote,
 } from "./round-views";
 import { useSaveRound, type SaveRound } from "./save-round";
 import { VoteLiveCount } from "./vote-live-count";
@@ -144,6 +152,7 @@ export function HostVoteRoom({
   const [focusCounted, setFocusCounted] = useState(false);
   const { save, isSaved } = useSaveRound(onSave);
   const revealHintId = useId();
+  const spreadHintId = useId();
   const openRef = useRef<HTMLDivElement>(null);
   const countedRef = useRef<HTMLParagraphElement>(null);
   const { status, endReason, roundId, phase } = room;
@@ -215,6 +224,13 @@ export function HostVoteRoom({
   const hash = room.joinPath ? room.joinPath.slice(room.joinPath.indexOf("#")) : "";
   const fingerprint = readVoteLinkFragment(hash);
   const others = room.members.filter((m) => m.id !== room.selfId);
+  // Allocation rounds have a second threshold; say it by Reveal until it is met.
+  const spreadNeed = Math.max(room.minN, VOTE_LIMITS.minNSpread);
+  const spreadHint = kind === "allocation" && room.ballots < spreadNeed;
+  const revealDescribedBy =
+    [room.revealBlockedReason ? revealHintId : null, spreadHint ? spreadHintId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   return (
     <section
@@ -275,7 +291,7 @@ export function HostVoteRoom({
               className="gap-1.5"
               onClick={room.reveal}
               disabled={!room.canReveal}
-              aria-describedby={room.revealBlockedReason ? revealHintId : undefined}
+              aria-describedby={revealDescribedBy}
             >
               <Eye className="h-4 w-4" aria-hidden="true" />
               Reveal results
@@ -296,6 +312,11 @@ export function HostVoteRoom({
           {room.revealBlockedReason && (
             <p id={revealHintId} className="text-xs text-sub">
               {room.revealBlockedReason}
+            </p>
+          )}
+          {spreadHint && (
+            <p id={spreadHintId} className="text-xs text-sub">
+              {spreadNote(spreadNeed)}
             </p>
           )}
           {room.answered && (

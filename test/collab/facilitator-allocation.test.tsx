@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { FacilitatorAllocation } from "@/components/collab/vote-room/facilitator-allocation";
 import type { SaveAllocationRound } from "@/components/collab/vote-room/save-round";
@@ -80,6 +80,122 @@ describe("FacilitatorAllocation: paper splits", () => {
     expect(box(/Exports/)).toHaveFocus();
     split({ Search: "2.5" });
     expect(box(/Search/)).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("names the budget, as the hint does, when a cap is above it", () => {
+    const { split } = setup(BUY_SHEET);
+    // Search's cap is $60, each player's budget $50: the hint and the error both say $50.
+    expect(screen.getAllByText("At most $50.").length).toBeGreaterThan(0);
+    split({ Search: "61" });
+    expect(screen.getByRole("alert")).toHaveTextContent("At most $50 on this one.");
+    expect(screen.queryByText(/At most \$60/)).toBeNull();
+  });
+
+  it("counts a split still in the boxes when Show totals is pressed", () => {
+    const { split, type, show, onSave } = setup();
+    split(SPLITS[0]);
+    split(SPLITS[1]);
+    for (const [name, v] of Object.entries(SPLITS[2])) type(new RegExp(name), v);
+    show();
+    expect(screen.getByText("3 splits added.")).toBeInTheDocument();
+    expect(screen.getByText(/^3 people split \$100 each\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    expect(onSave.mock.calls[0][0].ballots).toBe(3);
+  });
+
+  it("shows no totals while the split in the boxes can't be added, saying why", () => {
+    const { split, type, show } = setup();
+    for (const s of SPLITS.slice(0, 3)) split(s);
+    type(/Search/, "60");
+    show();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "A split gives out all $100: this one is $40 short."
+    );
+    expect(screen.getByText("3 splits added.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save round" })).toBeNull();
+  });
+
+  it("won't show totals past a box the browser can't read, though React sees it blank", () => {
+    const { split, show, box } = setup();
+    for (const s of SPLITS.slice(0, 3)) split(s);
+    // A browser reports "5a" in a number box as "" with validity.badInput.
+    Object.defineProperty(box(/Exports/), "validity", {
+      value: { badInput: true },
+      configurable: true,
+    });
+    show();
+    expect(box(/Exports/)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByRole("button", { name: "Save round" })).toBeNull();
+  });
+
+  it("hides results once a box changes, so they can't be saved stale", () => {
+    const { split, type, show } = setup();
+    for (const s of SPLITS.slice(0, 3)) split(s);
+    show();
+    expect(screen.getByRole("button", { name: "Save round" })).toBeInTheDocument();
+    type(/Search/, "50");
+    expect(screen.queryByRole("button", { name: "Save round" })).toBeNull();
+  });
+
+  it("asks before switching to totals discards the splits, and keeps them on Cancel", () => {
+    const { split } = setup();
+    split(SPLITS[0]);
+    split(SPLITS[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Totals only" }));
+    const dialog = screen.getByRole("dialog", { name: "Switch to Totals only?" });
+    expect(dialog).toHaveTextContent("The 2 splits added so far are discarded.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Paper splits" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByText("2 splits added.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Totals only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Switch" }));
+    expect(screen.getByRole("button", { name: "Totals only" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByLabelText(/People who split the budget/)).toBeInTheDocument();
+  });
+
+  it("asks before switching back clears typed totals", () => {
+    const { type } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Totals only" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    type(/Search/, "300");
+    fireEvent.click(screen.getByRole("button", { name: "Paper splits" }));
+    expect(screen.getByRole("dialog", { name: "Switch to Paper splits?" })).toHaveTextContent(
+      "The totals typed so far are cleared."
+    );
+  });
+
+  it("announces each split once: the counter isn't a live region", () => {
+    vi.useFakeTimers();
+    try {
+      const { split } = setup();
+      split(SPLITS[0]);
+      expect(screen.getByText("1 split added.")).not.toHaveAttribute("role");
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Split 1 added. Its amounts are cleared; only the totals are kept."
+      );
+      expect(screen.queryAllByRole("status")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a sheet the counting can't use, saying why", () => {
+    setup({ ...BUY_SHEET, budget: 6 });
+    expect(
+      screen.getByText(
+        "These splits can't be counted: Each person's budget needs to be a whole number from 10 to 9,999."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
   });
 
   it("takes the last split out again with Undo last split", () => {
@@ -190,7 +306,31 @@ describe("FacilitatorAllocation: totals only", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save round" }));
     const r = onSave.mock.calls[0][0];
     expect(r.ballots).toBe(10);
+    expect(r.spreadKnown).toBe(false);
     expect(r.items.every((x) => x.bands === null && x.backers === null)).toBe(true);
+  });
+
+  it("says the spread isn't known for 3 people too, not that it needed 5", () => {
+    const { type, show } = totalsMode();
+    type(/Search/, "300");
+    type(/People who split the budget/, "3");
+    show();
+    expect(
+      screen.getByText(
+        "The totals were entered by hand, so how the amounts were spread isn't known."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/It needed/)).toBeNull();
+  });
+
+  it("hides results once the people change", () => {
+    const { type, show } = totalsMode();
+    type(/Search/, "300");
+    type(/People who split the budget/, "3");
+    show();
+    expect(screen.getByRole("button", { name: "Save round" })).toBeInTheDocument();
+    type(/People who split the budget/, "4");
+    expect(screen.queryByRole("button", { name: "Save round" })).toBeNull();
   });
 
   it.each<[string, Record<string, string>, string]>([

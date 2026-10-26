@@ -12,12 +12,20 @@
  *    shows from 5 splits as it would live. Only the totals before the last
  *    split are kept, for "Undo last split".
  *  - "Totals only": type each item's total and how many people split the
- *    budget (`foldAllocationTotals`). The spread is then unknown.
+ *    budget (`foldAllocationTotals`). The spread is then unknown, and the
+ *    saved result says so (`spreadKnown: false`).
  *
  * Same minN rule (never under the tool's floor), same reveal rules and the
  * same `onSave` as a live round, with `source: "facilitator"`. Nothing per
  * person is saved. Once a round is saved its boxes lock until "Enter
  * another round" (or Undo), so an edit can't quietly become a second round.
+ *
+ * Nothing typed is dropped quietly: Show totals adds a split still in the
+ * boxes first (or says why it can't), typing hides results that no longer
+ * match, and switching between the two ways in asks first when it would
+ * discard splits or totals. A sheet that can't be counted at all
+ * (`allocationCountProblem`, e.g. a budget under 10) gets its reason
+ * instead of the boxes.
  */
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -25,12 +33,14 @@ import { Calculator, Check, Plus, RotateCcw, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { focusFirstInvalid } from "@/lib/utils/form";
 import { effectiveMinN } from "@/lib/realtime/vote-room/aggregate";
 import {
   addAllocation,
   allocationAmount,
+  allocationCountProblem,
   allocationDraftProblem,
   allocationItemMax,
   emptyAllocationTally,
@@ -68,6 +78,13 @@ const NOT_WHOLE = "Enter a whole number, 0 or more.";
 function blankBoxes(sheet: AllocationSheet): Record<string, string> {
   return Object.fromEntries(sheet.items.map((x) => [x.id, ""]));
 }
+
+/** Whether any box holds something (a split or totals not counted yet). */
+function anyTyped(boxes: Record<string, string>): boolean {
+  return Object.values(boxes).some((v) => v.trim() !== "");
+}
+
+const MODE_NAME: Record<Mode, string> = { splits: "Paper splits", totals: "Totals only" };
 
 /** Box ids whose number input holds text it can't read ("5a"): not blank, not 0. */
 function unreadableBoxes(root: HTMLElement | null, attr: string): Set<string> {
@@ -109,6 +126,8 @@ export function FacilitatorAllocation({
   const [previous, setPrevious] = useState<AllocationTally | null>(null);
   const [result, setResult] = useState<AllocationRoundResult | null>(null);
   const [focusPending, setFocusPending] = useState(false);
+  /** The way in the host asked for, while "discard what's typed?" is open. */
+  const [switchTo, setSwitchTo] = useState<Mode | null>(null);
   const { save, isSaved } = useSaveRound(onSave);
   const formRef = useRef<HTMLFormElement>(null);
   const saved = isSaved(result?.roundId);
@@ -149,12 +168,33 @@ export function FacilitatorAllocation({
     setBoxes((b) => ({ ...b, [id]: value }));
     clearError(id);
     setFormError(null);
+    // Results shown no longer match what's typed, so they can't be saved as they are.
+    setResult(null);
   };
 
-  const switchMode = (next: Mode) => {
-    if (saved || next === mode) return;
+  /** What switching the way in would discard, in one sentence; null when nothing. */
+  const discardText = (): string | null => {
+    if (mode === "splits" && tally.ballots > 0) {
+      const n = tally.ballots;
+      const typed = anyTyped(boxes) ? ", and so is the split in the boxes" : "";
+      return n === 1
+        ? `The split added so far is discarded${typed}.`
+        : `The ${n} splits added so far are discarded${typed}.`;
+    }
+    if (mode === "splits") return anyTyped(boxes) ? "The split in the boxes is cleared." : null;
+    return anyTyped(boxes) || people.trim() !== "" ? "The totals typed so far are cleared." : null;
+  };
+
+  const applyMode = (next: Mode) => {
     setMode(next);
     reset();
+  };
+
+  // Switching starts the entry over: ask first when that would discard work.
+  const switchMode = (next: Mode) => {
+    if (saved || next === mode) return;
+    if (discardText()) setSwitchTo(next);
+    else applyMode(next);
   };
 
   /** The boxes as whole amounts, or null after marking the ones that aren't. */
@@ -175,9 +215,10 @@ export function FacilitatorAllocation({
     return amounts;
   };
 
-  const addSplit = () => {
+  /** Add the split in the boxes: the new tally, or null (and why, on screen) when it isn't added. */
+  const addSplit = (): AllocationTally | null => {
     const amounts = readBoxes();
-    if (!amounts) return;
+    if (!amounts) return null;
     const draft: AllocationDraft = Object.fromEntries(
       sheet.items.map((x, i) => [x.id, amounts[i]])
     );
@@ -186,14 +227,15 @@ export function FacilitatorAllocation({
       const sum = amounts.reduce((a, b) => a + b, 0);
       if (problem.itemId) {
         const item = sheet.items.find((x) => x.id === problem.itemId);
+        // The limit the box's hint names: its cap, or the budget when that is lower.
         setErrors({
           [problem.itemId]:
-            problem.problem === "over-cap" && item?.cap !== undefined
-              ? `At most ${money(item.cap)} on this one.`
+            item?.cap !== undefined
+              ? `At most ${money(allocationItemMax(item, sheet.budget))} on this one.`
               : `That's more than ${money(sheet.budget)}.`,
         });
         setFocusPending(true);
-        return;
+        return null;
       }
       setFormError(
         problem.problem === "empty"
@@ -202,12 +244,12 @@ export function FacilitatorAllocation({
             ? `A split gives out all ${money(sheet.budget)}: this one is ${money(sheet.budget - sum)} short.`
             : `This split gives ${money(sum)}, ${money(sum - sheet.budget)} more than ${money(sheet.budget)}.`
       );
-      return;
+      return null;
     }
     const next = addAllocation(tally, amounts, sheet);
     if (!next) {
       setFormError(`Enter at most ${VOTE_LIMITS.maxTallyBallots} splits.`);
-      return;
+      return null;
     }
     setPrevious(tally);
     setTally(next);
@@ -215,6 +257,7 @@ export function FacilitatorAllocation({
     setResult(null);
     setFormError(null);
     announce(`Split ${next.ballots} added. Its amounts are cleared; only the totals are kept.`);
+    return next;
   };
 
   const undoSplit = () => {
@@ -236,6 +279,7 @@ export function FacilitatorAllocation({
           minN: need,
           ballots: t.ballots,
           source: "facilitator",
+          spreadKnown: t.spreadKnown,
         })
       : null;
     if (!next) {
@@ -278,6 +322,13 @@ export function FacilitatorAllocation({
 
   const showTotals = () => {
     if (mode === "splits") {
+      // A split still in the boxes is the last paper: count it first, or say why it can't be.
+      // A box holding text it can't read ("5a") is blank to React, so ask the boxes too.
+      if (anyTyped(boxes) || unreadableBoxes(formRef.current, "data-allocation-box").size > 0) {
+        const next = addSplit();
+        if (next) showFrom(next);
+        return;
+      }
       showFrom(tally);
       return;
     }
@@ -331,6 +382,16 @@ export function FacilitatorAllocation({
     if (mode === "splits") addSplit();
     else showTotals();
   };
+
+  // Checked after every hook: a sheet the counting can't use gets its reason, never boxes.
+  const countProblem = allocationCountProblem(sheet);
+  if (countProblem) {
+    return (
+      <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-sub">
+        These splits can&apos;t be counted: {countProblem}
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -415,6 +476,7 @@ export function FacilitatorAllocation({
                     setPeople(e.target.value);
                     clearError("people");
                     setFormError(null);
+                    setResult(null);
                   }}
                 />
               )}
@@ -422,8 +484,9 @@ export function FacilitatorAllocation({
           )}
         </fieldset>
 
+        {/* Not a live region: Add split and Undo announce the change themselves. */}
         {mode === "splits" && (
-          <p role="status" className="text-sm text-text">
+          <p className="text-sm text-text">
             {tally.ballots === 0
               ? "No splits added yet."
               : `${tally.ballots} ${tally.ballots === 1 ? "split" : "splits"} added.`}
@@ -482,6 +545,7 @@ export function FacilitatorAllocation({
             }))}
             minN={result.minN}
             ballots={result.ballots}
+            spreadKnown={result.spreadKnown}
           />
           {renderResults?.(result)}
           <div className="flex flex-wrap gap-2">
@@ -504,6 +568,20 @@ export function FacilitatorAllocation({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={switchTo !== null}
+        onOpenChange={(open) => {
+          if (!open) setSwitchTo(null);
+        }}
+        title={`Switch to ${MODE_NAME[switchTo ?? "totals"]}?`}
+        description={discardText() ?? undefined}
+        confirmLabel="Switch"
+        onConfirm={() => {
+          if (switchTo) applyMode(switchTo);
+          setSwitchTo(null);
+        }}
+      />
     </div>
   );
 }

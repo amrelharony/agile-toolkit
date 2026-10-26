@@ -41,6 +41,8 @@ import { VoteRoundPanel } from "@/components/collab/vote-room/vote-round-panel";
 const A: FakeMember = { id: "alice_0000000000", name: "Alex Ng", joinedAt: "2026-10-26T09:01:00Z" };
 const B: FakeMember = { id: "bobby_0000000000", name: "Bo Li", joinedAt: "2026-10-26T09:02:00Z" };
 const C: FakeMember = { id: "carol_0000000000", name: "Cy Ray", joinedAt: "2026-10-26T09:03:00Z" };
+const D: FakeMember = { id: "dylan_0000000000", name: "Di Fox", joinedAt: "2026-10-26T09:04:00Z" };
+const E: FakeMember = { id: "erinn_0000000000", name: "Ed Lam", joinedAt: "2026-10-26T09:05:00Z" };
 
 function renderAllocation(
   props: {
@@ -174,6 +176,62 @@ describe("VoteRoundPanel: an allocation tool", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run a live round" })).toBeNull();
     expect(screen.getByRole("button", { name: "Add split" })).toBeInTheDocument();
+  });
+
+  it("offers nothing for a sheet that can't be counted even by hand, saying why", () => {
+    // Buy-a-Feature's later round: the leftover pool split evenly can fall under 10 each.
+    renderAllocation({ tool: "buy-a-feature", sheet: { ...BUY_SHEET, budget: 6 } });
+    expect(
+      screen.getByText(
+        "This round can't run, live or on paper: Each person's budget needs to be a whole number from 10 to 9,999."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run a live round" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add split" })).toBeNull();
+    expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
+  });
+
+  it("says before Reveal that who backed what, and the spread, wait for 5", async () => {
+    const { crypto } = renderAllocation();
+    expect(
+      await screen.findByText(
+        /the totals once 3 have\. Who gave each item something, and how the amounts were spread, show only from 5 answers, and Reveal closes the round: wait for 5 if you want them\./
+      )
+    ).toBeInTheDocument();
+    const ch = await goLive("$100 Test", [A, B, C, D, E]);
+    const splits = [
+      [40, 30, 20, 10],
+      [100, 0, 0, 0],
+      [25, 25, 25, 25],
+      [0, 50, 50, 0],
+      [10, 20, 30, 40],
+    ];
+    const people = [A, B, C, D, E];
+    for (let i = 0; i < 3; i++) {
+      await sendBallot(
+        ch,
+        crypto!,
+        people[i],
+        `bid_0000000${i + 1}`,
+        allocationString(splits[i], 3)
+      );
+    }
+    const reveal = screen.getByRole("button", { name: "Reveal results" });
+    expect(reveal).toBeEnabled();
+    expect(reveal).toHaveAccessibleDescription(/show only from 5 answers/);
+    for (let i = 3; i < 5; i++) {
+      await sendBallot(
+        ch,
+        crypto!,
+        people[i],
+        `bid_0000000${i + 1}`,
+        allocationString(splits[i], 3)
+      );
+    }
+    expect(screen.getByRole("button", { name: "Reveal results" })).not.toHaveAccessibleDescription(
+      /show only from 5/
+    );
+    expect(screen.queryByText(/show only from 5 answers, and Reveal closes/)).toBeNull();
   });
 
   it("runs a live round: v2 state, sealed splits, totals at 3, the tool's preview, and one save", async () => {

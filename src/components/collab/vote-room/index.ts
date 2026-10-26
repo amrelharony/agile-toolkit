@@ -42,6 +42,7 @@ export {
 export {
   AllocationResults,
   allocationVerdict,
+  allocationChartSummary,
   allocationItemSummary,
   type AllocationResultsProps,
 } from "./allocation-results";
