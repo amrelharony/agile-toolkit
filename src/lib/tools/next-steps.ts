@@ -1788,7 +1788,7 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: `Record the decision on “${proposed[0].title}”`,
           detail:
             "The Blue hat's summary is in the Decision Log as proposed. Accept it, or say why not.",
-          href: "/decision-log",
+          href: decisionHref(proposed[0].id),
         });
       }
       const latest = [...real(sessions)].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
