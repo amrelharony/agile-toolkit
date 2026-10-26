@@ -44,7 +44,11 @@ import {
   decidedOrder,
   ranksFromOrder,
 } from "@/lib/prioritization/rank";
-import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
+import {
+  FIBONACCI_TEXT,
+  FIBONACCI_VALUES,
+  isFibonacci,
+} from "@/lib/prioritization/methods/fibonacci";
 import { clientStore, serverStore, type MethodStore } from "./_method-rows";
 
 /** One method's result for an item, as list_state reports it. */
@@ -115,22 +119,20 @@ registry.register({
 
 // ──────── tool.prioritizer.add_item ────────
 const FIB = FIBONACCI_VALUES.join(", ");
+/** A new item's WSJF part (and its one value field); addItem checks the scale. */
+const FibonacciPart = z.number().optional();
+/** The WSJF parts add_item takes, each checked against the scale. */
+const WSJF_PARTS = ["businessValue", "timeCriticality", "riskReduction", "jobSize"] as const;
 const AddItemSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().optional(),
   moscow: z.enum(["must", "should", "could", "wont"]).optional(),
-  businessValue: z
-    .number()
-    .positive()
-    .optional()
-    .describe(`The item's value (WSJF and the Value/Effort matrix), Fibonacci ${FIB}`),
-  timeCriticality: z
-    .number()
-    .positive()
-    .optional()
-    .describe(`WSJF time criticality, Fibonacci ${FIB}`),
-  riskReduction: z.number().positive().optional().describe(`WSJF risk reduction, Fibonacci ${FIB}`),
-  jobSize: z.number().positive().optional().describe(`WSJF job size, Fibonacci ${FIB}`),
+  businessValue: FibonacciPart.describe(
+    `The item's value (WSJF and the Value/Effort matrix), Fibonacci ${FIB}`
+  ),
+  timeCriticality: FibonacciPart.describe(`WSJF time criticality, Fibonacci ${FIB}`),
+  riskReduction: FibonacciPart.describe(`WSJF risk reduction, Fibonacci ${FIB}`),
+  jobSize: FibonacciPart.describe(`WSJF job size, Fibonacci ${FIB}`),
   reach: z.number().min(0).optional().describe("RICE reach per reachPeriod"),
   reachPeriod: z.enum(REACH_PERIODS).optional().describe("RICE reach period (default quarter)"),
   impact: z
@@ -145,6 +147,15 @@ const AddItemSchema = z.object({
 
 const addItem = async (store: MethodStore, params: z.infer<typeof AddItemSchema>) => {
   const { name, description, ...inputs } = params;
+  // The rule tool.wsjf and tool.value_effort_matrix writes follow: a step
+  // of the scale (a new item holds nothing to keep as Custom).
+  const off = WSJF_PARTS.filter((k) => {
+    const v = inputs[k];
+    return v !== undefined && !isFibonacci(v);
+  });
+  if (off.length > 0) {
+    throw new Error(`${off.join(", ")}: each WSJF part is one of ${FIBONACCI_TEXT}.`);
+  }
   const item = createBacklogItem(name, {
     ...inputs,
     description: description?.trim() || undefined,

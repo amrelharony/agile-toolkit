@@ -75,13 +75,53 @@ describe("persist verbs", () => {
             id: "w1",
             title: "Fix",
             score: 999,
-            fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 4 },
+            fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 8 },
           },
         ],
       }
     );
-    expect(r.scores).toEqual([{ id: "w1", score: 4 }]);
-    expect(storedRow("w1")).toMatchObject({ score: 4, status: "scored" });
+    expect(r.scores).toEqual([{ id: "w1", score: 2 }]);
+    expect(storedRow("w1")).toMatchObject({ score: 2, status: "scored" });
+  });
+
+  it("refuse a WSJF part off the scale unless the row already holds it, as the form", async () => {
+    await expect(
+      browser("tool.wsjf.score_and_persist", {
+        id: "w1",
+        title: "Fix",
+        fields: { businessValue: 7, timeCriticality: 5, rrOe: 3, jobSize: 5 },
+      })
+    ).rejects.toThrow("“Fix”: Business value is one of 1, 2, 3, 5, 8, 13 or 20.");
+    expect(state().prioritizations).toEqual([]);
+    // A legacy row holding 7 may be re-saved with it (the form's Custom).
+    useWorkspaceStore.setState({
+      prioritizations: [
+        {
+          id: "w1",
+          framework: "wsjf",
+          title: "Fix",
+          fields: { businessValue: 7, timeCriticality: 5, rrOe: 3, jobSize: 5 },
+          updatedAt: STAMP,
+        },
+      ],
+    });
+    const r = await browser<{ score: number }>("tool.wsjf.score_and_persist", {
+      id: "w1",
+      title: "Fix",
+      fields: { businessValue: 7, timeCriticality: 8, rrOe: 3, jobSize: 5 },
+    });
+    expect(r.score).toBeCloseTo(18 / 5, 6);
+    // The same field through Value/Effort and add_item: one rule.
+    await expect(
+      browser("tool.value_effort_matrix.classify_and_persist", {
+        title: "X",
+        fields: { value: 7, effort: 2 },
+      })
+    ).rejects.toThrow("Value is one of 1, 2, 3, 5, 8, 13 or 20.");
+    await expect(
+      browser("tool.prioritizer.add_item", { name: "X", businessValue: 7 })
+    ).rejects.toThrow("businessValue: each WSJF part is one of 1, 2, 3, 5, 8, 13 or 20.");
+    expect(state().backlogItems).toEqual([]);
   });
 
   it("refuse what the form refuses, writing nothing", async () => {

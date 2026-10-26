@@ -8,6 +8,29 @@ import type { ScaleStep } from "./types";
 
 export const FIBONACCI_VALUES = [1, 2, 3, 5, 8, 13, 20] as const;
 
+/** The steps in words, for messages: "1, 2, 3, 5, 8, 13 or 20". */
+export const FIBONACCI_TEXT = `${FIBONACCI_VALUES.slice(0, -1).join(", ")} or ${FIBONACCI_VALUES[FIBONACCI_VALUES.length - 1]}`;
+
+/** True when `n` is one of the steps. */
+export const isFibonacci = (n: number): boolean =>
+  (FIBONACCI_VALUES as readonly number[]).includes(n);
+
+/**
+ * The one rule for a value on this scale, in every form and agent action:
+ * a new value must be a step; the value already held (`kept`, shown as
+ * "Custom") may stay as it is. True when `n` is fine to save.
+ */
+export function fibonacciOk(n: number, kept: unknown): boolean {
+  if (isFibonacci(n)) return true;
+  const held =
+    typeof kept === "number"
+      ? kept
+      : typeof kept === "string" && kept.trim() !== ""
+        ? Number(kept)
+        : undefined;
+  return held === n;
+}
+
 /** The steps with what each means: sized against the other items, not in absolute units. */
 export const FIBONACCI_STEPS: readonly ScaleStep[] = [
   { value: 1, meaning: "Smallest in the set" },

@@ -192,8 +192,33 @@ describe("WSJF", () => {
   it("keeps an off-scale value (Custom) and a zero value part", () => {
     expect(score(WSJF, { ...full, businessValue: 7 })).toBe(3.75);
     expect(score(WSJF, { ...full, businessValue: 0 })).toBe(2);
-    expect(WSJF.validate({ ...full, businessValue: 7 }).ok).toBe(true);
     expect(WSJF.validate({ ...full, jobSize: 0 }).ok).toBe(false);
+  });
+
+  it("takes new parts on the scale only; a held one stays (one rule for form and agent)", () => {
+    const steps = { ...full, jobSize: 5 };
+    expect(WSJF.validate(steps).ok).toBe(true);
+    // Off the scale: refused when new, kept when the row already holds it.
+    expect(WSJF.validate(full)).toMatchObject({
+      ok: false,
+      errors: { jobSize: "Job size is one of 1, 2, 3, 5, 8, 13 or 20." },
+    });
+    expect(WSJF.validate({ ...steps, businessValue: 7 })).toMatchObject({
+      ok: false,
+      errors: { businessValue: "Business value is one of 1, 2, 3, 5, 8, 13 or 20." },
+    });
+    expect(WSJF.validate({ ...steps, businessValue: 7 }, { businessValue: 7 }).ok).toBe(true);
+    expect(WSJF.validate({ ...steps, businessValue: 0 }, { businessValue: 0 }).ok).toBe(true);
+    expect(WSJF.validate({ ...steps, rrOe: 0 }).ok).toBe(false);
+    // The job size floor holds even for a held legacy size.
+    expect(WSJF.validate({ ...steps, jobSize: 0.5 }, { jobSize: 0.5 })).toMatchObject({
+      ok: false,
+      errors: { jobSize: "Job size is at least 1, the smallest on the scale." },
+    });
+    // The same field on the Value/Effort matrix follows the same rule.
+    expect(VALUE_EFFORT.validate({ value: 7, effort: 2 }).ok).toBe(false);
+    expect(VALUE_EFFORT.validate({ value: 7, effort: 2 }, { value: 7 }).ok).toBe(true);
+    expect(VALUE_EFFORT.validate({ value: 8, effort: 2 }).ok).toBe(true);
   });
 
   it("maps rrOe to the item's riskReduction", () => {

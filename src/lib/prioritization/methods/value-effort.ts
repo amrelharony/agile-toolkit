@@ -20,7 +20,7 @@
  * Fibonacci scale at or above it (1→1, 2→2, 3→3, 4–5→5, 6–8→8, 9–10→13).
  */
 
-import { fibonacciAtOrAbove, FIBONACCI_STEPS } from "./fibonacci";
+import { fibonacciAtOrAbove, fibonacciOk, FIBONACCI_STEPS, FIBONACCI_TEXT } from "./fibonacci";
 import { readBacklogItem } from "../defaults";
 import { defined, formatNumber, notScored, put, toNumber, toValidation } from "./fields";
 import type {
@@ -180,7 +180,7 @@ export const VALUE_EFFORT: PrioritizationMethod = {
   buckets: BUCKETS,
   read,
   write,
-  validate(draft) {
+  validate(draft, keep) {
     const errors: FormErrors<string> = {};
     const value = toNumber(draft.value);
     const effort = toNumber(draft.effort);
@@ -189,8 +189,10 @@ export const VALUE_EFFORT: PrioritizationMethod = {
     // Neither is fine: the item goes to "Not placed yet". One alone is not.
     if (blank("value") && !blank("effort")) errors.value = INPUTS[0].missing;
     if (blank("effort") && !blank("value")) errors.effort = INPUTS[1].missing;
-    if (!blank("value") && (value === undefined || value <= 0))
-      errors.value = "Value is more than 0.";
+    // The one value field's rule, as WSJF's business value: a new value is
+    // a Fibonacci step; the one already held stays (Custom).
+    if (!blank("value") && (value === undefined || !fibonacciOk(value, keep?.value)))
+      errors.value = `Value is one of ${FIBONACCI_TEXT}.`;
     if (!blank("effort") && (effort === undefined || effort < 1 || effort > 10)) {
       errors.effort = "Effort runs from 1 to 10.";
     }

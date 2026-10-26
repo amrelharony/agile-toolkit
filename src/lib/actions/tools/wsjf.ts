@@ -39,7 +39,9 @@
  * WSJF scale: every part is on the modified Fibonacci scale 1, 2, 3, 5, 8,
  * 13, 20, relative to the other items (give the smallest a 1); nothing
  * clamps to 10. Job size divides at least by 1; a job size of 0 is Not
- * scored (`score: null`). A persist refuses a job size of 0, as the form does.
+ * scored (`score: null`). A persist checks like the form: each part a step
+ * of the scale (a value the row already holds may stay, as the form's
+ * Custom) and a job size of at least 1.
  */
 
 import { z } from "zod";
@@ -62,8 +64,9 @@ const WSJF = method(FRAMEWORK);
 const FIB =
   "modified Fibonacci 1, 2, 3, 5, 8, 13, 20, relative to the other items (give the smallest a 1)";
 
-/** Shared input shape for one WSJF candidate. The three value parts count
- *  from 0; job size must be above 0 (it divides at least by 1). */
+/** Shared input shape for one WSJF candidate. A pure compute scores any
+ *  number (job size divides at least by 1); a persist checks the scale
+ *  like the form: each part a step, or the value the row already holds. */
 const WsjfFieldsSchema = z.object({
   businessValue: z.number().min(0).describe(`User-business value, ${FIB}`),
   timeCriticality: z.number().min(0).describe(`Time criticality, ${FIB}`),
@@ -71,7 +74,9 @@ const WsjfFieldsSchema = z.object({
   jobSize: z
     .number()
     .min(0)
-    .describe(`Job size, ${FIB}. Divides at least by 1; 0 is Not scored (a persist refuses it)`),
+    .describe(
+      `Job size, ${FIB}. Divides at least by 1; 0 is Not scored. A persist refuses a part off the scale (unless the row already holds it) and a job size below 1`
+    ),
 });
 
 type WsjfFields = z.infer<typeof WsjfFieldsSchema>;
@@ -191,7 +196,7 @@ registry.register({
   name: "score_and_persist",
   category: "write",
   description:
-    "Compute a WSJF score for one candidate and persist it to workspace.prioritization with framework='wsjf' (a job size of 0 is refused). An existing id keeps its other fields and its backlog link. backlogItemId links the row and writes its parts to that backlog item (rrOe is the item's riskReduction). Returns {id, score, backlogItemId, backlogUpdated}.",
+    "Compute a WSJF score for one candidate and persist it to workspace.prioritization with framework='wsjf' (a part off the 1, 2, 3, 5, 8, 13, 20 scale is refused unless the row already holds it, and so is a job size below 1). An existing id keeps its other fields and its backlog link. backlogItemId links the row and writes its parts to that backlog item (rrOe is the item's riskReduction). Returns {id, score, backlogItemId, backlogUpdated}.",
   paramsSchema: WsjfItemInputSchema,
   handler: async (params) => scoreAndPersist(clientStore(), params),
   mcpHandler: async (params, ctx) => scoreAndPersist(serverStore(ctx.userId), params),
@@ -247,7 +252,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of WSJF items to workspace.prioritization. Each score is recomputed from its fields (a supplied score is ignored); a job size of 0 is refused and nothing is written. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
+    "Persist a batch of WSJF items to workspace.prioritization. Each score is recomputed from its fields (a supplied score is ignored); a part off the scale (unless the row already holds it) or a job size below 1 is refused and nothing is written. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
   paramsSchema: PersistSchema,
   handler: async (params) => persistAll(clientStore(), params),
   mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),

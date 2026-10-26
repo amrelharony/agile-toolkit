@@ -74,13 +74,14 @@ export function classifyQuadrant(value: number, effort: number): Quadrant | null
 }
 
 const FIB_LIST = FIBONACCI_VALUES.join(", ");
+// The scale is checked by the method's validate on every write, the rule
+// WSJF's business value follows too (it is the same field): a new value is
+// a step, a value the row or item already holds may stay. A pure compute
+// places any number.
 const ValueSchema = z
   .number()
-  .refine((v) => (FIBONACCI_VALUES as readonly number[]).includes(v), {
-    message: `Value is one of ${FIB_LIST}.`,
-  })
   .describe(
-    `Value on the backlog's Fibonacci scale ${FIB_LIST}, relative to the other items; ${VE_HIGH_VALUE_FROM} or more is high. It is the same field as WSJF's business value.`
+    `Value on the backlog's Fibonacci scale ${FIB_LIST}, relative to the other items; ${VE_HIGH_VALUE_FROM} or more is high. It is the same field as WSJF's business value. A write refuses a value off the scale unless the item already holds it.`
   );
 const EffortSchema = z
   .number()

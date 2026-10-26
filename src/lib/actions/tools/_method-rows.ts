@@ -32,7 +32,13 @@ import {
   methodRow,
   ownedPatch,
 } from "@/lib/prioritization/binding";
-import { method, type EvalContext, type MethodId, type Values } from "@/lib/prioritization/methods";
+import {
+  method,
+  readThrough,
+  type EvalContext,
+  type MethodId,
+  type Values,
+} from "@/lib/prioritization/methods";
 import { defined } from "@/lib/prioritization/methods/fields";
 import { rankMethodRows, type RankedRow } from "@/lib/prioritization/rank";
 
@@ -89,20 +95,22 @@ export const newRowId = () => randomId("prio");
 /** A fresh id for a candidate that isn't stored (compute_and_rank). */
 export const candidateId = (prefix: string) => randomId(prefix);
 
-/** The draft's errors as one message, or null when it is valid. */
 /**
  * The draft's errors as one message, or null when it is valid. `mayOmit`
  * lists inputs an agent may leave out although the form asks for them (a
  * parameter added after agents started calling the action): their
- * "missing" errors are dropped; a wrong value is still an error.
+ * "missing" errors are dropped; a wrong value is still an error. `keep` is
+ * what the row already shows (validate's: a held off-scale value stays
+ * valid, as in the form).
  */
 export function validationError(
   id: MethodId,
   values: Values,
   title?: string,
-  mayOmit: readonly string[] = []
+  mayOmit: readonly string[] = [],
+  keep?: Values
 ): string | null {
-  const v = method(id).validate(values);
+  const v = method(id).validate(values, keep);
   if (v.ok) return null;
   const errors = Object.entries(v.errors).filter(
     ([key, msg]) => msg && !(mayOmit.includes(key) && values[key] === undefined)
@@ -117,9 +125,10 @@ export function assertValid(
   id: MethodId,
   values: Values,
   title?: string,
-  mayOmit: readonly string[] = []
+  mayOmit: readonly string[] = [],
+  keep?: Values
 ): void {
-  const error = validationError(id, values, title, mayOmit);
+  const error = validationError(id, values, title, mayOmit, keep);
   if (error) throw new Error(error);
 }
 
@@ -144,6 +153,21 @@ export interface Persisted {
 }
 
 /**
+ * What a persist may keep although it is off a strict scale: the values
+ * the existing row shows (read through to its item), else, for a new row
+ * linked to an item, what the item holds. The form passes the same.
+ */
+function heldValues(
+  id: MethodId,
+  prev: PrioritizationItem | undefined,
+  item: BacklogItem | undefined
+): Values | undefined {
+  const m = method(id);
+  if (prev) return m.read(readThrough(prev, item));
+  return item && m.embedded && m.fromBacklog ? m.fromBacklog(item) : undefined;
+}
+
+/**
  * Persist rows of one method: each checked like the form (throws on the
  * first invalid one, nothing written), merged over the existing row of
  * that id (its other fields and link kept), scored by the engine, and for
@@ -157,22 +181,32 @@ export async function persistMethodRows(
 ): Promise<Persisted[]> {
   const { ctx, mayOmit = [] } = opts;
   const m = method(id);
-  for (const input of inputs) assertValid(id, input.values, input.title, mayOmit);
-  const now = new Date().toISOString();
-  const out: Persisted[] = [];
-  const itemWrites = new Map<string, BacklogItem>();
+  // Look everything up first, so an invalid input writes nothing.
+  const planned: {
+    input: PersistInput;
+    prev: PrioritizationItem | undefined;
+    linkId: string | undefined;
+  }[] = [];
   for (const input of inputs) {
-    const rowId = input.id ?? newRowId();
     const existing = input.id ? await store.row(input.id) : undefined;
     // An id that holds another method's row is overwritten, not merged.
     const prev = existing && existing.framework === id ? existing : undefined;
     const linkId = input.backlogItemId ?? prev?.backlogItemId;
-    const item = linkId ? (itemWrites.get(linkId) ?? (await store.item(linkId))) : undefined;
+    const item = linkId ? await store.item(linkId) : undefined;
     if (input.backlogItemId && !item) {
       throw new Error(
         `No backlog item ${input.backlogItemId}: list them with tool.prioritizer.list_state.`
       );
     }
+    assertValid(id, input.values, input.title, mayOmit, heldValues(id, prev, item));
+    planned.push({ input, prev, linkId });
+  }
+  const now = new Date().toISOString();
+  const out: Persisted[] = [];
+  const itemWrites = new Map<string, BacklogItem>();
+  for (const { input, prev, linkId } of planned) {
+    const rowId = input.id ?? newRowId();
+    const item = linkId ? (itemWrites.get(linkId) ?? (await store.item(linkId))) : undefined;
     const row = methodRow({
       id: rowId,
       framework: id,

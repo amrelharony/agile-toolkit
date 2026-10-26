@@ -161,17 +161,23 @@ export function withClears(m: PrioritizationMethod, d: MethodDraft): MethodDraft
 
 const isBlank = (v: unknown) => v === undefined || (typeof v === "string" && v.trim() === "");
 
-/** Check a draft: the title, then the method's own rules (blanks are errors). */
+/**
+ * Check a draft: the title, then the method's own rules (blanks are
+ * errors). `keep` is what the row or the imported item already holds: an
+ * off-scale value among them stays valid as "Custom" (validate's rule, the
+ * agent actions' too).
+ */
 export function validateMethodDraft(
   m: PrioritizationMethod,
   d: MethodDraft,
-  allowTitleOnly = false
+  allowTitleOnly = false,
+  keep?: Values
 ): Validation<MethodDraft, string> {
   const title = d.title.trim().replace(/\s+/g, " ").slice(0, 200);
   const values = inputsOf(d);
   const titleOnly = m.inputs.every((i) => isBlank(values[i.key]));
   const checked =
-    allowTitleOnly && titleOnly ? ({ ok: true, values: {} } as const) : m.validate(values);
+    allowTitleOnly && titleOnly ? ({ ok: true, values: {} } as const) : m.validate(values, keep);
   const errors: FormErrors<string> = checked.ok ? {} : { ...checked.errors };
   if (!title) errors.title = "Enter a title.";
   if (Object.values(errors).some(Boolean) || !checked.ok) return { ok: false, errors };
@@ -332,7 +338,8 @@ export function MethodRowEditor({
   const start = draftFrom(ranked.row.title, ranked.values);
   const form = useItemForm<MethodDraft, MethodDraft, string>({
     initial: start,
-    validate: (d) => validateMethodDraft(m, d, config.allowTitleOnly),
+    // What the row shows may stay as it is (an off-scale value is "Custom").
+    validate: (d) => validateMethodDraft(m, d, config.allowTitleOnly, ranked.values),
     // Every input goes to the save, a blanked one as a clear.
     onSave: (values) => onSave(withClears(m, values)),
     resetOnSave: false,
@@ -480,25 +487,36 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
   const exportRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const form = useItemForm<MethodDraft, MethodDraft, string>({
-    initial: { title: "" },
-    validate: (d) => validateMethodDraft(m, d, config.allowTitleOnly),
-    onSave: (values) => {
-      actions.add(withClears(m, values), backlog.pending?.id);
-      backlog.clear();
-    },
-  });
-  // "Import from backlog" (or a "Score with…" link) fills the form; an item
-  // this method already scored opens its row instead of a second one.
+  // "Import from backlog" (or a "Score with…" link) fills the add form; an
+  // item this method already scored opens its row instead of a second one.
+  // It comes before the form: the item it links to decides what the form
+  // may keep (formRef reaches the form from the pick).
+  const formRef = useRef<ItemFormState<MethodDraft, string> | null>(null);
   const backlog = useBacklogImport(
     m.id,
     (picked) =>
-      form.reset({
+      formRef.current?.reset({
         ...(m.fromBacklog ? definedValues(m.fromBacklog(picked)) : {}),
         title: picked.name,
       }),
     { onEdit: (row) => setEditingId(row.id) }
   );
+  // What the imported item already holds: an off-scale value of it stays
+  // valid in the add form ("Custom"), as it would in the row's editor.
+  const pending = backlog.pending;
+  const held = useMemo(
+    () => (pending && m.fromBacklog ? m.fromBacklog(pending) : undefined),
+    [pending, m]
+  );
+  const form = useItemForm<MethodDraft, MethodDraft, string>({
+    initial: { title: "" },
+    validate: (d) => validateMethodDraft(m, d, config.allowTitleOnly, held),
+    onSave: (values) => {
+      actions.add(withClears(m, values), backlog.pending?.id);
+      backlog.clear();
+    },
+  });
+  formRef.current = form;
 
   // The order on screen holds while a row is being edited; "Re-sort" catches up.
   const position = new Map(ranked.map((r, i) => [r.row.id, i]));
@@ -565,7 +583,12 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
             submitIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
             footer={<ImportFromBacklog link={backlog} />}
           >
-            <DraftFields config={config} form={form} size="md" />
+            <DraftFields
+              config={config}
+              form={form}
+              custom={held ? customOf(m, held) : undefined}
+              size="md"
+            />
           </ItemForm>
         </SectionCard>
 

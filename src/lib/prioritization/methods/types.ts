@@ -155,8 +155,14 @@ export interface PrioritizationMethod {
    * derived value is never written (a quadrant, a Kano category).
    */
   write(fields: RowFields | undefined, v: Values): RowFields;
-  /** A draft checked for saving: a blank required input is an error, never a default. */
-  validate(draft: Values): Validation<Values, string>;
+  /**
+   * A draft checked for saving: a blank required input is an error, never
+   * a default. `keep` is what the row (or its backlog item) already holds:
+   * a method whose scale is strict (WSJF's and Value/Effort's Fibonacci
+   * steps) refuses a new value off the scale but lets a held one stay, as
+   * the form's "Custom". The form and the agent actions pass the same.
+   */
+  validate(draft: Values, keep?: Values): Validation<Values, string>;
   /** The score of a set of inputs. Pure. */
   evaluate(v: Values, ctx?: EvalContext): MethodScore;
   /**

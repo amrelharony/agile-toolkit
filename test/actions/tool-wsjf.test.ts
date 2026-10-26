@@ -185,17 +185,18 @@ describe("tool.wsjf.score_and_persist — compute + write roundtrip", () => {
     const result = (await action!.handler(
       {
         title: "Pay down auth tech debt",
-        fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 4 },
+        // Every part on the Fibonacci scale: a persist refuses a new 4.
+        fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 2 },
       },
       ctx()
     )) as { id: string; score: number };
 
-    expect(result.score).toBe(4);
+    expect(result.score).toBe(8);
     const stored = useWorkspaceStore.getState().prioritizations;
     expect(stored).toHaveLength(1);
     expect(stored![0].framework).toBe("wsjf");
     expect(stored![0].title).toBe("Pay down auth tech debt");
-    expect(stored![0].score).toBe(4);
+    expect(stored![0].score).toBe(8);
   });
 
   it("uses the supplied id when provided", async () => {
@@ -226,12 +227,12 @@ describe("tool.wsjf.persist_to_prioritization — bulk write", () => {
             id: "i1",
             title: "Feature 1",
             score: 4,
-            fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 4 },
+            fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 5 },
           },
           {
             title: "Feature 2 (auto-id)",
             score: 2,
-            fields: { businessValue: 4, timeCriticality: 2, rrOe: 2, jobSize: 4 },
+            fields: { businessValue: 5, timeCriticality: 2, rrOe: 2, jobSize: 5 },
           },
         ],
       },

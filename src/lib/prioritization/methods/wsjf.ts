@@ -8,12 +8,13 @@
  * actions alike (nothing clamps to 10). The job size floor is 1, the
  * bottom of the scale: a legacy 0 < size < 1 scores as 1 (shown as
  * Custom); a size of 0 or none is Not scored. An off-scale stored value is
- * kept as it is and shown as Custom, never snapped.
+ * kept as it is and shown as Custom, never snapped. New values must be on
+ * the scale, in the form and the agent actions alike (validate's `keep`).
  */
 
 import type { BacklogItem } from "@/lib/stores/workspace-types";
 import { readBacklogItem } from "../defaults";
-import { FIBONACCI_STEPS } from "./fibonacci";
+import { FIBONACCI_STEPS, FIBONACCI_TEXT, fibonacciOk } from "./fibonacci";
 import {
   defined,
   inputErrors,
@@ -117,14 +118,19 @@ export const WSJF: PrioritizationMethod = {
   inputs: INPUTS,
   read,
   write,
-  validate(draft) {
+  // One rule for the form and every agent action: a new part is a step of
+  // the scale; one the row or item already holds stays (Custom). A job
+  // size below the floor of 1 is refused even when held (it can only be
+  // legacy data, which scores as 1 until it is edited).
+  validate(draft, keep) {
     const errors = inputErrors(INPUTS, draft);
     for (const key of WSJF_KEYS) {
       const n = toNumber(draft[key]);
       if (errors[key] || n === undefined) continue;
-      if (key === "jobSize" ? n <= 0 : n < 0) {
-        errors[key] =
-          key === "jobSize" ? "Job size is more than 0." : `${WSJF_LABEL[key]} is 0 or more.`;
+      if (key === "jobSize" && n < WSJF_JOB_SIZE_MIN) {
+        errors[key] = "Job size is at least 1, the smallest on the scale.";
+      } else if (!fibonacciOk(n, keep?.[key])) {
+        errors[key] = `${WSJF_LABEL[key]} is one of ${FIBONACCI_TEXT}.`;
       }
     }
     return toValidation(draft, errors);
