@@ -439,9 +439,17 @@ export function WorkingAgreementClient() {
       toolName: "Working Agreement Builder",
       prompts: generateWorkingAgreementPrompts(
         {
-          // Each rule's mark in the round in progress, Partly included.
-          rules: doc.rules,
+          // Each rule's mark in the round in progress, Partly included, and
+          // what the saved rounds found for it, as its card says it (a
+          // rule no saved round checked has no run).
+          rules: doc.rules.map((r) =>
+            (doc.checkIns ?? []).some((c) => c.results[r.id] !== undefined)
+              ? { ...r, slipping: slippingRun(doc, r.id) }
+              : r
+          ),
           meta: doc.meta,
+          // Published or not, and changes since, as the verdict says it.
+          unpublishedChanges: hasUnpublishedChanges(doc),
           // The last round as the KPI says it: its percentage only when quotable.
           lastCheckIn: a
             ? { summary: adherencePhrase(a), pct: quotablePct(a) ? a.pct : null }
