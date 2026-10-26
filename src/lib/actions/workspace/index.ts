@@ -18,6 +18,8 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   ADKAR_DOC_ID,
   ADKAR_ELEMENTS,
+  ALLOCATION_ROUND_TOOLS,
+  BUY_A_FEATURE_ID,
   CEREMONY_CADENCE_ID,
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
@@ -111,6 +113,9 @@ import type {
   MoodPulse,
   // Phase 20 — Prioritization
   PrioritizationItem,
+  // Phase 7 — Prioritize & decide
+  AllocationRound,
+  BuyAFeatureGame,
   // Phase 21 — Decision Frameworks
   DACIDecision,
   RAPIDDecision,
@@ -2084,6 +2089,10 @@ const PrioritizationItemSchema = z.object({
   status: z.enum(["open", "scored", "decided", "shipped", "dropped"]).optional(),
   updatedAt: z.string(),
   backlogItemId: z.string().optional(),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where this row was sent (a funded Buy-a-Feature feature: a backlog story)."),
 }) as unknown as z.ZodType<PrioritizationItem>;
 
 defineCrudActions<PrioritizationItem>({
@@ -2094,6 +2103,94 @@ defineCrudActions<PrioritizationItem>({
   upsert: (x) => ws().upsertPrioritization(x),
   remove: (id) => ws().removePrioritization(id),
   generateId: () => `prio_${nanoid(8)}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 7 — Prioritize & decide: group allocation rounds and the
+ * Buy-a-Feature game
+ * ────────────────────────────────────────────────────────────────── */
+
+// Whole units of play money: the vote-room kit's allocation budget bounds.
+const AllocationBudget = z.number().int().min(10).max(9_999);
+const AllocationUnit = z.string().max(4);
+
+const AllocationRoundSchema = z.object({
+  id: z.string(),
+  tool: z.enum(ALLOCATION_ROUND_TOOLS),
+  roundId: z.string().describe('The live round\'s id, or "tally-<base36>" for a count entry.'),
+  title: z.string(),
+  budget: AllocationBudget.describe("Whole units each person split."),
+  unit: AllocationUnit.describe('Shown before amounts, e.g. "$".'),
+  spendAll: z
+    .boolean()
+    .describe("true: each split used the whole budget ($100 Test); false: up to it."),
+  date: IsoDay.describe("The day the round is for (can be backdated)."),
+  closedAt: z.string(),
+  minN: PeopleCount.min(1).describe("The fewest answers the totals showed from."),
+  ballots: PeopleCount.describe("How many people answered."),
+  source: z.enum(["room", "facilitator"]),
+  bandEdges: z
+    .array(z.number().int().min(0))
+    .describe("Lower edge of each band, ascending from 0."),
+  items: z
+    .array(
+      z.object({
+        itemId: z.string().describe("The prioritization row this line was."),
+        text: z.string(),
+        cap: z.number().int().min(0).optional(),
+        total: z.number().int().min(0).describe("Everyone's amounts on the item, added up."),
+        backers: PeopleCount.nullable().describe(
+          "People who gave it more than 0; null when the spread was withheld."
+        ),
+        bands: z
+          .array(PeopleCount)
+          .nullable()
+          .describe(
+            "People per band; null when withheld (under 5 answers, or totals typed by hand)."
+          ),
+      })
+    )
+    // The kit's sheets hold at most 20 items.
+    .max(20)
+    .describe("Aggregates per item only, never anyone's split."),
+}) as unknown as z.ZodType<AllocationRound>;
+
+defineCrudActions<AllocationRound>({
+  toolId: "workspace.allocation_round",
+  entityName: "anonymous allocation round",
+  schema: AllocationRoundSchema,
+  selectAll: () => ws().allocationRounds ?? [],
+  upsert: (x) => ws().upsertAllocationRound(x),
+  remove: (id) => ws().removeAllocationRound(id),
+  generateId: () => `allocationRound_${nanoid(8)}`,
+});
+
+const BuyAFeatureGameSchema = z.object({
+  id: SingletonId(BUY_A_FEATURE_ID),
+  budgetPerPlayer: AllocationBudget.optional().describe(
+    "Play money each player gets. Unset until the facilitator sets it."
+  ),
+  players: z
+    .number()
+    .int()
+    .min(1)
+    .max(999)
+    .optional()
+    .describe("Players in the game. Unset until set (never assumed from the roster)."),
+  unit: AllocationUnit.optional().describe('Shown before amounts, e.g. "$".'),
+  updatedAt: z.string(),
+}) as unknown as z.ZodType<BuyAFeatureGame>;
+
+// A singleton like the Phase 6 documents: the page and tool.buy_a_feature.*
+// read only BUY_A_FEATURE_ID, so there is no generateId and create needs the
+// id (see SingletonId). The kind kindFromToolId derives is BUY_A_FEATURE_KIND.
+defineCrudActions<BuyAFeatureGame>({
+  toolId: "workspace.buy_a_feature_game",
+  entityName: `Buy-a-Feature game settings (singleton id ${BUY_A_FEATURE_ID})`,
+  schema: BuyAFeatureGameSchema,
+  selectAll: () => ws().buyAFeatureGames ?? [],
+  upsert: (x) => ws().upsertBuyAFeatureGame(x),
+  remove: (id) => ws().removeBuyAFeatureGame(id),
 });
 
 /* ────────────────────────────────────────────────────────────────────

@@ -1257,7 +1257,8 @@ export interface PrioritizationItem {
     | "walking-skeleton";
   title: string;
   description?: string;
-  /** Generic numeric score derived by the framework */
+  /** Generic numeric score derived by the framework, unrounded. Absent: Not
+   *  scored (a title-only row, status "open"); readers never treat it as 0. */
   score?: number;
   /** Free-form data bag (per-framework fields) */
   fields?: Record<string, number | string>;
@@ -1265,6 +1266,96 @@ export interface PrioritizationItem {
   updatedAt: ISODateString;
   /** The shared backlog item (workspace backlogItems) this row scores. */
   backlogItemId?: string;
+  /** Where this row was sent (Buy-a-Feature: a funded feature pushed to the
+   *  backlog as a story). */
+  sentTo?: HandoffLink[];
+}
+
+/* ── Group allocation rounds (Phase 7) ──
+ * Buy-a-Feature and the $100 Test run "allocation" rounds: each person splits
+ * a budget across the items, anonymously (the vote-room kit's allocation
+ * kind, or splits typed in by the facilitator). Only aggregates are kept,
+ * never anyone's split: per item the total, how many backed it and how many
+ * fell in each of five bands of the budget. */
+
+/** The tools whose rounds are AllocationRounds. */
+export const ALLOCATION_ROUND_TOOLS = [
+  "buy-a-feature",
+  "hundred-dollar-test",
+] as const satisfies readonly string[];
+
+export type AllocationRoundTool = (typeof ALLOCATION_ROUND_TOOLS)[number];
+
+/** One item's line in a saved allocation round. */
+export interface AllocationRoundItem {
+  /** The PrioritizationItem this line was. */
+  itemId: string;
+  /** Its title when the round ran. */
+  text: string;
+  /** The most it could take, in all and from one person (Buy-a-Feature: what
+   *  was left of its price). A total above it is over-funding. */
+  cap?: number;
+  /** Everyone's amounts on the item, added up. */
+  total: number;
+  /** People who gave it more than 0; null when the spread was withheld. */
+  backers: number | null;
+  /** People per band (`AllocationRound.bandEdges`); null when withheld (fewer
+   *  than 5 answers, or totals typed by hand). */
+  bands: number[] | null;
+}
+
+/** One anonymous allocation round: totals only, never anyone's split. */
+export interface AllocationRound {
+  /** "allocationRound_<nanoid(8)>". */
+  id: string;
+  tool: AllocationRoundTool;
+  /** The live round's id, or "tally-<base36>" for a count entry. */
+  roundId: string;
+  title: string;
+  /** Whole units each person split, 10..9999. */
+  budget: number;
+  /** Shown before amounts, ≤ 4 chars, e.g. "$". */
+  unit: string;
+  /** true: each split used the whole budget ($100 Test); false: up to it (Buy-a-Feature). */
+  spendAll: boolean;
+  /** YYYY-MM-DD the round is for (a hand-entered round can be backdated). */
+  date: ISODateString;
+  /** When the round closed (ISO). */
+  closedAt: ISODateString;
+  /** The fewest answers the totals showed from. */
+  minN: number;
+  /** How many people answered. */
+  ballots: number;
+  source: "room" | "facilitator";
+  /** Lower edge of each band, ascending from 0 (the kit's allocationBandEdges(budget)). */
+  bandEdges: number[];
+  items: AllocationRoundItem[];
+}
+
+/** The kind allocation rounds sync under (user_entities), for server-side code. */
+export const ALLOCATION_ROUND_KIND = "workspace:allocationRound";
+
+/** Buy-a-Feature's one game document id. */
+export const BUY_A_FEATURE_ID = "buyAFeature:current";
+
+/** The kind the game syncs under (user_entities), for server-side code. */
+export const BUY_A_FEATURE_KIND = "workspace:buyAFeatureGame";
+
+/**
+ * The Buy-a-Feature game's settings (a singleton, id BUY_A_FEATURE_ID). The
+ * features are PrioritizationItem rows (framework "buy-feature") with their
+ * price and what was raised; the pool is budgetPerPlayer × players.
+ */
+export interface BuyAFeatureGame {
+  /** BUY_A_FEATURE_ID. */
+  id: string;
+  /** Play money each player gets, whole units 10..9999. Unset until the facilitator sets it. */
+  budgetPerPlayer?: number;
+  /** Players in the game, 1..999. Unset until set (the roster size is offered, never assumed). */
+  players?: number;
+  /** Shown before amounts, ≤ 4 chars, e.g. "$". */
+  unit?: string;
+  updatedAt: ISODateString;
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -2836,6 +2927,11 @@ export interface Workspace {
   moodPulses?: MoodPulse[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
+  // Phase 7 — Prioritize & decide
+  /** Saved Buy-a-Feature and $100 Test rounds (aggregates only). */
+  allocationRounds?: AllocationRound[];
+  /** One `BuyAFeatureGame`, id `BUY_A_FEATURE_ID`. */
+  buyAFeatureGames?: BuyAFeatureGame[];
   // Phase 21 — Decision Frameworks
   daciDecisions?: DACIDecision[];
   rapidDecisions?: RAPIDDecision[];
@@ -3086,6 +3182,9 @@ export const emptyWorkspace = {
   moodPulses: [],
   // Phase 20 — Prioritization
   prioritizations: [],
+  // Phase 7 — Prioritize & decide
+  allocationRounds: [],
+  buyAFeatureGames: [],
   // Phase 21 — Decision Frameworks
   daciDecisions: [],
   rapidDecisions: [],

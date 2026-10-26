@@ -83,6 +83,9 @@ import type {
   MoodPulse,
   // Phase 20
   PrioritizationItem,
+  // Phase 7 — Prioritize & decide
+  AllocationRound,
+  BuyAFeatureGame,
   // Phase 21
   DACIDecision,
   RAPIDDecision,
@@ -261,6 +264,11 @@ interface WorkspaceActions {
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
+  // Phase 7 — Prioritize & decide
+  upsertAllocationRound: (x: AllocationRound) => void;
+  removeAllocationRound: (id: string) => void;
+  upsertBuyAFeatureGame: (x: BuyAFeatureGame) => void;
+  removeBuyAFeatureGame: (id: string) => void;
   // Phase 21 — Decision Frameworks
   upsertDACIDecision: (x: DACIDecision) => void;
   removeDACIDecision: (id: string) => void;
@@ -1099,6 +1107,15 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             ),
           };
         }),
+      // Phase 7 — Prioritize & decide
+      upsertAllocationRound: (x) =>
+        set((_st) => ({ allocationRounds: replaceById(_st.allocationRounds ?? [], x) })),
+      removeAllocationRound: (id) =>
+        set((s) => ({ allocationRounds: (s.allocationRounds ?? []).filter((y) => y.id !== id) })),
+      upsertBuyAFeatureGame: (x) =>
+        set((_st) => ({ buyAFeatureGames: replaceById(_st.buyAFeatureGames ?? [], x) })),
+      removeBuyAFeatureGame: (id) =>
+        set((s) => ({ buyAFeatureGames: (s.buyAFeatureGames ?? []).filter((y) => y.id !== id) })),
       // Phase 21 — Decision Frameworks
       upsertDACIDecision: (x) =>
         set((_st) => ({ daciDecisions: replaceById(_st.daciDecisions ?? [], x) })),
@@ -1536,6 +1553,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
+          // Phase 7 — Prioritize & decide
+          allocationRounds: s.allocationRounds,
+          buyAFeatureGames: s.buyAFeatureGames,
           // Phase 21
           daciDecisions: s.daciDecisions,
           rapidDecisions: s.rapidDecisions,
@@ -1674,6 +1694,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
+          // Phase 7 — Prioritize & decide
+          allocationRounds: arr("allocationRounds"),
+          buyAFeatureGames: arr("buyAFeatureGames"),
           // Phase 21
           daciDecisions: arr("daciDecisions"),
           rapidDecisions: arr("rapidDecisions"),
@@ -2021,6 +2044,12 @@ if (typeof window !== "undefined") {
     registerCollection("moodPulse", "moodPulses");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
+    // Phase 7 — Prioritize & decide. As in Phase 6, each kind is what
+    // kindFromToolId derives from its workspace.* CRUD (allocation_round,
+    // buy_a_feature_game), and server-side code names them by
+    // ALLOCATION_ROUND_KIND and BUY_A_FEATURE_KIND; a test keeps them in step.
+    registerCollection("allocationRound", "allocationRounds");
+    registerCollection("buyAFeatureGame", "buyAFeatureGames");
     // Phase 21 — Decision frameworks
     registerCollection("daciDecision", "daciDecisions");
     registerCollection("rapidDecision", "rapidDecisions");
@@ -2182,6 +2211,8 @@ export function getWorkspaceSnapshot(): Workspace {
     moodPulses: state.moodPulses,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
+    allocationRounds: state.allocationRounds,
+    buyAFeatureGames: state.buyAFeatureGames,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,
     weightedOptions: state.weightedOptions,
