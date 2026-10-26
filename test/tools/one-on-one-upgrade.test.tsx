@@ -238,22 +238,57 @@ describe("cadence per report", () => {
     expect(cadenceLine(raj)).toBe("Raj · last 1:1 18 days ago · every 14 days → 4 days overdue");
   });
 
-  it("reads the usual gap from three 1:1s, and shows only the age before that", () => {
+  it("reads the usual gap from three gaps (four 1:1s), and shows only the age before that", () => {
+    const four = cadenceByReport(
+      [
+        meeting("a", "Lee", 38),
+        meeting("b", "Lee", 30),
+        meeting("c", "Lee", 20),
+        meeting("d", "Lee", 12),
+      ],
+      {},
+      [],
+      TODAY
+    )[0];
+    expect(four).toMatchObject({ medianGapDays: 8, targetSource: "history", overdueBy: 4 });
     const three = cadenceByReport(
       [meeting("a", "Lee", 30), meeting("b", "Lee", 20), meeting("c", "Lee", 12)],
       {},
       [],
       TODAY
     )[0];
-    expect(three).toMatchObject({ medianGapDays: 8, targetSource: "history", overdueBy: 4 });
-    const two = cadenceByReport(
-      [meeting("a", "Lee", 30), meeting("b", "Lee", 20)],
+    expect(three).toMatchObject({ medianGapDays: null, targetDays: null, overdueBy: null });
+    expect(cadenceLine(three)).toBe("Lee · last 1:1 12 days ago");
+  });
+
+  it("never reads two gaps as a rhythm: 1:1s 7 and 21 days apart don't make a weekly one", () => {
+    // Day 0, 7 and 28, the last one 8 days ago: a median of two gaps took
+    // the smaller (7) and called this overdue.
+    const [lee] = cadenceByReport(
+      [meeting("a", "Lee", 36), meeting("b", "Lee", 29), meeting("c", "Lee", 8)],
       {},
       [],
       TODAY
-    )[0];
-    expect(two).toMatchObject({ medianGapDays: null, targetDays: null, overdueBy: null });
-    expect(cadenceLine(two)).toBe("Lee · last 1:1 20 days ago");
+    );
+    expect(lee).toMatchObject({ medianGapDays: null, overdueBy: null });
+  });
+
+  it("keeps a renamed report in one row, found by the member id on their 1:1s", () => {
+    const roster: TeamMember[] = [
+      { id: "m-maria", name: "Maria" },
+      { id: "m-sam", name: "Samuel" },
+    ];
+    const list = [
+      meeting("a", "Sam", 20, { reportMemberId: "m-sam", managerMemberId: "m-maria" }),
+      meeting("b", "Sam", 18, { reportMemberId: "m-sam", managerMemberId: "m-maria" }),
+    ];
+    // The cadence was set under the old name; the manager was renamed too.
+    const rows = cadenceByReport(list, { sam: 14 }, roster, TODAY);
+    expect(rows.map((r) => [r.key, r.name, r.memberId, r.meetings, r.aliases])).toEqual([
+      ["samuel", "Samuel", "m-sam", 2, ["sam"]],
+    ]);
+    expect(rows[0]).toMatchObject({ targetDays: 14, targetSource: "set", overdueBy: 4 });
+    expect(cadenceVerdict(rows)).toBe("1 of 1 report is past their cadence: Samuel (18 days).");
   });
 
   it("lists roster people with no 1:1 yet, but not the manager, and a scheduled one as next", () => {
@@ -300,7 +335,13 @@ describe("cadence per report", () => {
     );
     const text = timelineText(rows, TODAY);
     expect(text.summary).toBe("1:1s in the last 26 weeks: Raj 2.");
-    expect(text.table.rows[0]).toEqual(["Raj", 3, ago(2), 28, 0]);
+    // The table counts the plotted span as the summary does, then all time.
+    expect(text.table.columns.slice(0, 3)).toEqual([
+      "Report",
+      "1:1s (last 26 weeks)",
+      "1:1s (all time)",
+    ]);
+    expect(text.table.rows[0]).toEqual(["Raj", 2, 3, ago(2), "—", 0]);
   });
 });
 
@@ -416,11 +457,16 @@ describe("1:1 page", () => {
     expect(stored()[0].agenda[0]).toMatchObject({ status: "done", doneAt: TODAY });
     expect(card("Action items overdue")).toBe("Action items overdue0");
     // Backdate the done day.
-    fireEvent.change(screen.getByLabelText("Done on"), { target: { value: ago(3) } });
+    fireEvent.change(screen.getByLabelText("Flaky CI done on"), { target: { value: ago(3) } });
     expect(stored()[0].agenda[0].doneAt).toBe(ago(3));
     // Back to Action: the done day goes.
     fireEvent.click(within(status).getByRole("radio", { name: "Action" }));
     expect(stored()[0].agenda[0]).not.toHaveProperty("doneAt");
+    // And back to Done (arrowing through the options does this): the
+    // backdated day comes back, not today.
+    fireEvent.click(within(status).getByRole("radio", { name: "Done" }));
+    expect(stored()[0].agenda[0]).toMatchObject({ status: "done", doneAt: ago(3) });
+    fireEvent.click(within(status).getByRole("radio", { name: "Action" }));
 
     fireEvent.change(screen.getByLabelText("New agenda item"), {
       target: { value: "Salary review" },
@@ -439,11 +485,61 @@ describe("1:1 page", () => {
     ]);
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: `Open 1:1 from ${ago(2)}` }));
-    const owner = screen.getByRole("combobox", { name: "Owner" });
+    const owner = screen.getByRole("combobox", { name: "Owner of CI" });
     fireEvent.change(owner, { target: { value: "Lee" } });
     expect(stored()[0].agenda[0].owner).toBe("Raj");
     fireEvent.focusOut(owner);
     expect(stored()[0].agenda[0].owner).toBe("Lee");
+  });
+
+  it("saves an owner added to the team at once (no blur follows that click)", () => {
+    seed([
+      meeting("m1", "Raj", 2, {
+        agenda: [{ id: "a", text: "CI", status: "action_required" }],
+      }),
+    ]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: `Open 1:1 from ${ago(2)}` }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Owner of CI" }), {
+      target: { value: "Kim" },
+    });
+    expect(stored()[0].agenda[0]).not.toHaveProperty("owner");
+    fireEvent.click(screen.getByRole("button", { name: "Add to the team" }));
+    expect(useWorkspaceStore.getState().teamMembers?.map((m) => m.name)).toEqual(["Kim"]);
+    expect(stored()[0].agenda[0].owner).toBe("Kim");
+  });
+
+  it("moves focus into an opened 1:1 and its details form, and back again", async () => {
+    seed([meeting("m1", "Raj", 2), meeting("m2", "Lee", 9)]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: `Open 1:1 from ${ago(9)}` }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: `Mia ↔ Lee · ${ago(9)}` })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("region", { name: "Active 1:1" })).getAllByRole("combobox")[0]
+      ).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit details" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: `Open 1:1 from ${ago(9)}` })).toHaveFocus()
+    );
+  });
+
+  it("clears a cadence set under a report's old name when it's changed", () => {
+    useWorkspaceStore.setState({ teamMembers: [{ id: "m-sam", name: "Samuel" }] });
+    seed([meeting("m1", "Sam", 18, { reportMemberId: "m-sam" })], { sam: 14 });
+    renderPage();
+    const select = screen.getByLabelText("Cadence for Samuel");
+    expect(select).toHaveValue("14");
+    fireEvent.change(select, { target: { value: "" } });
+    expect(storedCadence()).toEqual({});
+    fireEvent.change(select, { target: { value: "7" } });
+    expect(storedCadence()).toEqual({ samuel: 7 });
   });
 
   it("edits an agenda item's text in place, and an emptied text reverts", () => {

@@ -8,6 +8,8 @@ import { ToggleGroup } from "@/components/ui/toggle-group";
 import { BlurInput } from "@/components/shared/blur-fields";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { PersonPicker } from "@/components/team/person-picker";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
 import {
   AGENDA_STATUSES,
@@ -30,19 +32,33 @@ export const AGENDA_MAX = 200;
 /**
  * The action's owner, picked from the roster. Typing stays in the field;
  * the owner is saved when focus leaves it (not on every keystroke, which
- * wrote the whole 1:1 log to storage per character).
+ * wrote the whole 1:1 log to storage per character), or at once when "Add
+ * to the team" puts the name on the roster.
  */
 function OwnerField({
   value,
+  label,
   onCommit,
   offerAddToRoster,
 }: {
   value: string;
+  label: string;
   onCommit: (owner: string) => void;
   offerAddToRoster: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
+  const roster = useTeamRoster();
+  const change = (name: string) => {
+    setDraft(name);
+    // "Add to the team" hands over a name the rendered roster doesn't have
+    // yet but the store now does, then unmounts itself (the name is on the
+    // team), so no blur follows: save it now.
+    const added =
+      !findRosterMember(roster, name) &&
+      findRosterMember(useWorkspaceStore.getState().teamMembers ?? [], name);
+    if (added && name.trim() !== value.trim()) onCommit(name.trim());
+  };
   // Focus moving between the input and its "Add to the team" button stays
   // inside the fieldset, so it doesn't save half a name.
   return (
@@ -56,10 +72,10 @@ function OwnerField({
       }}
     >
       <PersonPicker
-        label="Owner"
+        label={label}
         hideLabel
         value={draft}
-        onChange={setDraft}
+        onChange={change}
         placeholder="Owner"
         offerAddToRoster={offerAddToRoster}
       />
@@ -141,15 +157,17 @@ export function AgendaItemRow({
       </div>
       {showAction && (
         <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+          {/* Each field names its item: a form list of many "Action"s reads as noise. */}
           <BlurInput
             value={item.action ?? ""}
             onCommit={(v) => onPatch({ action: v.trim() || undefined })}
             placeholder="Action..."
             className="h-8 border-border bg-bg text-xs"
-            aria-label="Action"
+            aria-label={`Action for ${item.text}`}
           />
           <OwnerField
             value={item.owner ?? ""}
+            label={`Owner of ${item.text}`}
             onCommit={(owner) => onPatch({ owner: owner || undefined })}
             offerAddToRoster={offerAddToRoster}
           />
@@ -158,7 +176,7 @@ export function AgendaItemRow({
             value={item.dueDate ?? ""}
             onChange={(e) => onPatch({ dueDate: e.target.value || undefined })}
             className="h-8 border-border bg-bg text-xs"
-            aria-label="Due date"
+            aria-label={`Due date of ${item.text}`}
           />
         </div>
       )}
@@ -171,6 +189,7 @@ export function AgendaItemRow({
               type="date"
               value={item.doneAt ?? ""}
               max={today}
+              aria-label={`${item.text} done on`}
               onChange={(e) => {
                 const day = e.target.value;
                 // A day can be backdated, not emptied or moved past today.

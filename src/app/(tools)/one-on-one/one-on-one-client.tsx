@@ -32,6 +32,8 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useStableOrder } from "@/hooks/use-stable-order";
+import { useReturnFocus } from "@/hooks/use-return-focus";
+import { useInlineEdit } from "@/components/shared/inline-item-editor";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { removeWithUndo } from "@/lib/utils/undoable";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -146,8 +148,13 @@ export function OneOnOneClient() {
   const record: typeof log = preview ? noLog : log;
 
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
-  const [editingDetails, setEditingDetails] = useState(false);
+  // The details form replaces "Edit details"; Save and Cancel give focus back.
+  const details = useInlineEdit();
+  const setEditingDetails = (on: boolean) => (on ? details.start() : details.stop());
+  const editingDetails = details.editing;
   const [expandedPast, setExpandedPast] = useState<Set<string>>(new Set());
+  // Opening a past 1:1 moves focus to it; closing it returns to its row.
+  const { refFor, returnTo } = useReturnFocus();
 
   const activeMeeting = meetings.find((m) => m.id === activeMeetingId) ?? null;
 
@@ -219,7 +226,7 @@ export function OneOnOneClient() {
         return next;
       })
     );
-    setEditingDetails(false);
+    details.stop({ refocus: true });
     announce("Saved the 1:1's details");
   };
 
@@ -240,10 +247,17 @@ export function OneOnOneClient() {
       agenda.map((a) => (a.id === itemId ? { ...a, ...patch } : a))
     );
 
+  // The done day an item had when it left Done on this page, so arrowing
+  // through the status options (selection follows focus) and back to Done
+  // keeps a backdated day instead of stamping today.
+  const leftDone = useRef(new Map<string, string>());
   const setStatus = (meeting: Meeting, item: AgendaItem, status: AgendaStatus) => {
     if (item.status === status) return;
-    // Done keeps the day it was done (today unless picked); leaving Done drops it.
-    const doneAt = status === "done" ? (item.doneAt ?? today) : undefined;
+    // Done keeps the day it was done (today unless picked); leaving Done
+    // drops it from the item.
+    if (item.status === "done" && item.doneAt) leftDone.current.set(item.id, item.doneAt);
+    const doneAt =
+      status === "done" ? (item.doneAt ?? leftDone.current.get(item.id) ?? today) : undefined;
     patchItem(meeting.id, item.id, { status, doneAt });
     record(ONE_ON_ONE_ACTIONS.ACTION_TOGGLED, {
       meetingId: meeting.id,
@@ -264,10 +278,13 @@ export function OneOnOneClient() {
   };
 
   const setCadence = (key: string, days: CadenceDays | null) => {
+    // A cadence saved under a name they had before a rename goes too, or
+    // it would still count after this one is cleared.
+    const aliases = reports.find((r) => r.key === key)?.aliases ?? [];
     writeCadence((c) => {
       const next = { ...c };
-      if (days === null) delete next[key];
-      else next[key] = days;
+      for (const k of [key, ...aliases]) delete next[k];
+      if (days !== null) next[key] = days;
       return next;
     });
   };
@@ -501,9 +518,14 @@ export function OneOnOneClient() {
           <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
             <div className="min-w-0">
               <div className="text-xs uppercase tracking-wider text-accent">Active 1:1</div>
-              <div className="text-sm font-medium text-text break-words">
+              {/* Focus lands here when a past 1:1 is opened (tabIndex -1: not a tab stop). */}
+              <h3
+                ref={refFor("active")}
+                tabIndex={-1}
+                className="text-sm font-medium text-text break-words rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
                 {activeMeeting.manager} ↔ {activeMeeting.report} · {activeMeeting.date || "No date"}
-              </div>
+              </h3>
               {activeMeeting.description && !editingDetails && (
                 <p className="mt-1 text-xs text-sub whitespace-pre-wrap">
                   {activeMeeting.description}
@@ -513,10 +535,11 @@ export function OneOnOneClient() {
             <div className="flex items-center gap-1">
               {!editingDetails && (
                 <Button
+                  ref={details.triggerRef}
                   variant="ghost"
                   size="sm"
                   className="gap-1 text-sub hover:text-text"
-                  onClick={() => setEditingDetails(true)}
+                  onClick={details.start}
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                   Edit details
@@ -526,6 +549,8 @@ export function OneOnOneClient() {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
+                  // Back to its row in Past meetings, which this brings back.
+                  returnTo(`open:${activeMeeting.id}`);
                   setActiveMeetingId(null);
                   setEditingDetails(false);
                 }}
@@ -542,7 +567,7 @@ export function OneOnOneClient() {
                 meeting={activeMeeting}
                 offerAddToRoster={!preview}
                 onSave={(values) => saveDetails(activeMeeting, values)}
-                onCancel={() => setEditingDetails(false)}
+                onCancel={() => details.stop({ refocus: true })}
               />
             </div>
           )}
@@ -631,9 +656,12 @@ export function OneOnOneClient() {
                     </button>
                     <div className="flex items-center gap-1 shrink-0 pr-3">
                       <Button
+                        ref={refFor(`open:${m.id}`)}
                         variant="ghost"
                         size="sm"
                         onClick={() => {
+                          // This row leaves the list: focus goes to the opened 1:1.
+                          returnTo("active");
                           setActiveMeetingId(m.id);
                           setEditingDetails(false);
                         }}

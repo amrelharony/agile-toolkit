@@ -80,9 +80,12 @@ describe("1:1 carry-over", () => {
       "aria-checked",
       "true"
     );
-    expect(screen.getByRole("textbox", { name: "Action" })).toHaveValue("Pair on the flaky tests");
-    expect(screen.getByRole("combobox", { name: "Owner" })).toHaveValue("Raj");
-    expect(screen.getByLabelText("Due date")).toHaveValue("2000-01-10");
+    // Each field names its item.
+    expect(screen.getByRole("textbox", { name: "Action for Flaky CI" })).toHaveValue(
+      "Pair on the flaky tests"
+    );
+    expect(screen.getByRole("combobox", { name: "Owner of Flaky CI" })).toHaveValue("Raj");
+    expect(screen.getByLabelText("Due date of Flaky CI")).toHaveValue("2000-01-10");
 
     // Still one overdue action: the old copy is superseded by the new one.
     expect(card("Action items overdue")).toBe("Action items overdue1");

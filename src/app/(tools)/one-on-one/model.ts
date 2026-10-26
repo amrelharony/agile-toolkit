@@ -243,8 +243,14 @@ export function addressedShare(meetings: readonly Meeting[]): number | null {
 
 /** One report's 1:1 rhythm. */
 export interface ReportCadence {
-  /** The report's name key: the cadence's key too. */
+  /** The report's name key (the roster's name when on it): the cadence's key too. */
   key: string;
+  /**
+   * Other name keys their 1:1s were saved under (before a rename on the
+   * Team page); a cadence set under one still counts, and setting a new one
+   * clears them.
+   */
+  aliases: string[];
   name: string;
   memberId?: string;
   /** 1:1s held (dated today or earlier). */
@@ -267,10 +273,26 @@ export interface ReportCadence {
 }
 
 /**
+ * The roster member someone is: by the member id stamped on the 1:1, so a
+ * rename on the Team page keeps the link, else by name.
+ */
+export function memberFor(
+  roster: readonly TeamMember[],
+  memberId: string | undefined,
+  name: string
+): TeamMember | undefined {
+  const byId = memberId ? roster.find((m) => m.id === memberId) : undefined;
+  return byId ?? findRosterMember(roster, name);
+}
+
+/**
  * Per report: when the last 1:1 was, how long ago, and whether that's past
- * their cadence. The cadence is the one set for them, else (from three 1:1s)
- * their usual gap; with neither, only the age shows and nothing alarms.
- * Roster members who have no 1:1 yet get a row too, except the managers.
+ * their cadence. The cadence is the one set for them, else (from
+ * MIN_SAMPLE.average gaps, so four 1:1s) their usual gap; with neither, only
+ * the age shows and nothing alarms. A report on the roster is one row under
+ * the roster's name, found by the member id on their 1:1s first (a rename
+ * on the Team page doesn't split them in two). Roster members who have no
+ * 1:1 yet get a row too, except the managers.
  */
 export function cadenceByReport(
   meetings: readonly Meeting[],
@@ -279,23 +301,38 @@ export function cadenceByReport(
   today: string
 ): ReportCadence[] {
   const superseded = supersededIds(meetings);
-  const groups = new Map<string, { name: string; memberId?: string; list: Meeting[] }>();
+  const groups = new Map<
+    string,
+    { name: string; memberId?: string; names: Set<string>; list: Meeting[] }
+  >();
   const managers = new Set<string>();
+  const managerIds = new Set<string>();
+  const grouped = new Set<string>();
   for (const m of meetings) {
+    const manager = memberFor(roster, m.managerMemberId, m.manager);
+    if (manager) managerIds.add(manager.id);
     if (nameKey(m.manager)) managers.add(nameKey(m.manager));
-    const key = nameKey(m.report);
+    const member = memberFor(roster, m.reportMemberId, m.report);
+    const key = nameKey(member?.name ?? m.report);
     if (!key) continue;
-    const member = findRosterMember(roster, m.report);
-    const g = groups.get(key) ?? { name: member?.name ?? m.report.trim(), list: [] };
+    const g = groups.get(key) ?? {
+      name: member?.name.trim() ?? m.report.trim(),
+      names: new Set<string>(),
+      list: [],
+    };
     if (member) g.memberId = member.id;
     else if (m.reportMemberId) g.memberId ??= m.reportMemberId;
+    // The names they were saved under, for a cadence set before a rename.
+    if (nameKey(m.report)) g.names.add(nameKey(m.report));
+    if (g.memberId) grouped.add(g.memberId);
     g.list.push(m);
     groups.set(key, g);
   }
   for (const member of roster) {
     const key = nameKey(member.name);
-    if (!key || groups.has(key) || managers.has(key)) continue;
-    groups.set(key, { name: member.name.trim(), memberId: member.id, list: [] });
+    if (!key || groups.has(key) || grouped.has(member.id)) continue;
+    if (managers.has(key) || managerIds.has(member.id)) continue;
+    groups.set(key, { name: member.name.trim(), memberId: member.id, names: new Set(), list: [] });
   }
 
   const rows: ReportCadence[] = [];
@@ -311,8 +348,12 @@ export function cadenceByReport(
     const daysSince = lastDate ? daysBetween(lastDate, today) : null;
     const gaps: number[] = [];
     for (let i = 1; i < held.length; i++) gaps.push(daysBetween(held[i - 1], held[i]) ?? 0);
-    const medianGapDays = held.length >= MIN_SAMPLE.average ? percentile(gaps, 50) : null;
-    const set = cadence[key];
+    // The sample is the gaps, not the 1:1s: two gaps (1:1s on day 0, 7 and
+    // 28) read as a usual gap of 7, so the report was overdue eight days
+    // after their last 1:1 though they meet about every two weeks.
+    const medianGapDays = gaps.length >= MIN_SAMPLE.average ? percentile(gaps, 50) : null;
+    // Set under their name now, else under a name their 1:1s were saved as.
+    const set = cadence[key] ?? cadenceUnder(cadence, g.names);
     const targetDays = set ?? medianGapDays;
     const targetSource = set ? "set" : medianGapDays !== null ? "history" : null;
     const overdueBy =
@@ -327,6 +368,7 @@ export function cadenceByReport(
     }
     rows.push({
       key,
+      aliases: Array.from(g.names).filter((k) => k !== key),
       name: g.name,
       ...(g.memberId ? { memberId: g.memberId } : {}),
       meetings: held.length,
@@ -342,6 +384,16 @@ export function cadenceByReport(
     });
   });
   return rows;
+}
+
+/** The first cadence set under any of `keys`. */
+function cadenceUnder(
+  cadence: OneOnOneCadence,
+  keys: ReadonlySet<string>
+): CadenceDays | undefined {
+  return Array.from(keys)
+    .map((k) => cadence[k])
+    .find((d) => d !== undefined);
 }
 
 /** Most overdue first, then the longest since a 1:1, then those with none yet. */

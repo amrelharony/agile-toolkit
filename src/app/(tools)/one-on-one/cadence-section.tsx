@@ -33,9 +33,19 @@ export function timelineText(rows: readonly ReportCadence[], today: string): Cha
   return {
     summary: held.length > 0 ? `1:1s in the last 26 weeks: ${list}.` : "No 1:1s yet.",
     table: {
-      columns: ["Report", "1:1s", "Last 1:1", "Median gap (days)", "Open actions"],
+      // The plotted span first, so the table and the summary agree; the
+      // all-time count beside it.
+      columns: [
+        "Report",
+        "1:1s (last 26 weeks)",
+        "1:1s (all time)",
+        "Last 1:1",
+        "Median gap (days)",
+        "Open actions",
+      ],
       rows: held.map((r) => [
         r.name,
+        inSpan(r),
         r.meetings,
         r.lastDate ?? NO_VALUE,
         r.medianGapDays ?? NO_VALUE,
@@ -92,7 +102,7 @@ function Timeline({ rows, today }: { rows: readonly ReportCadence[]; today: stri
 /**
  * Cadence per report: "Raj · last 1:1 18 days ago · every 14 days → 4 days
  * overdue", with the cadence picked per report (or read from their usual
- * gap once there are three 1:1s), and the timeline. The list keeps its
+ * gap once there are four 1:1s), and the timeline. The list keeps its
  * order while a cadence is changed; Re-sort puts the latest first again.
  */
 export function CadenceSection({

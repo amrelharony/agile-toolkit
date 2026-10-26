@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,7 +35,11 @@ export function DetailsForm({
     onSave,
     resetOnSave: false,
   });
-  const { draft, update, errors } = form;
+  const { draft, update, errors, formRef } = form;
+  // It opens in place of "Edit details", so focus moves into it.
+  useEffect(() => {
+    formRef.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
+  }, [formRef]);
   return (
     <ItemForm form={form} submitLabel="Save details" onCancel={onCancel}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

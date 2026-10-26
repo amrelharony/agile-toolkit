@@ -11,9 +11,9 @@ export interface OneOnOneExample {
 /**
  * Mia's 1:1s with two reports over seven weeks. Raj meets every 14 days
  * (the cadence set for him) and his last 1:1 was 19 days ago, so he is 5
- * days past it, with an action from it overdue; Lee meets weekly, with no
- * cadence set, so his usual gap (7 days) is the one he's held to, and he is
- * within it.
+ * days past it, with an action from it overdue; Lee meets weekly (four 1:1s,
+ * so three gaps), with no cadence set, so his usual gap (7 days) is the one
+ * he's held to, and he is within it.
  *
  * Everything has `example-` ids and stays in the page's memory: nothing is
  * saved, and Clear example leaves your own 1:1s as they were.
@@ -76,6 +76,7 @@ export function buildExample(today: string): OneOnOneExample {
         ],
         "Keen to lead refinement; wants feedback on facilitation."
       ),
+      lee("0", 27, [{ id: id("lee-0-a"), text: "First week on the team", status: "discussed" }]),
       lee("1", 20, [{ id: id("lee-1-a"), text: "Onboarding so far", status: "discussed" }]),
       lee("2", 13, [
         { id: id("lee-2-a"), text: "Pairing with Raj", status: "open" },
