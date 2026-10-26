@@ -240,6 +240,27 @@ describe("scores edited in place", () => {
     expect(scoreLogs()).toHaveLength(1);
   });
 
+  it("marks no input required, since a method left blank saves as Not scored", () => {
+    useWorkspaceStore.setState({ backlogItems: [item("b1", "Auth")] });
+    renderHub();
+    fireEvent.click(first("button", /^Edit MoSCoW for Auth/));
+    let d = dialog("MoSCoW for Auth");
+    expect(within(d).getByRole("radiogroup", { name: "Bucket" })).not.toHaveAttribute(
+      "aria-required"
+    );
+    expect(d).not.toHaveTextContent("*");
+    fireEvent.click(within(d).getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(first("button", /^Edit RICE for Auth/));
+    d = dialog("RICE for Auth");
+    expect(within(d).getByRole("radiogroup", { name: "Reach period" })).not.toHaveAttribute(
+      "aria-required"
+    );
+    expect(within(d).getByLabelText(/^Reach \(/)).not.toHaveAttribute("aria-required");
+    expect(within(d).getByLabelText(/^Effort/)).not.toHaveAttribute("aria-required");
+    expect(d).not.toHaveTextContent("*");
+  });
+
   it("refuses a partly scored method inline, and Clear all saves it Not scored", () => {
     useWorkspaceStore.setState({
       backlogItems: [

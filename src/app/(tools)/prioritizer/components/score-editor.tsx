@@ -161,6 +161,9 @@ function ScoreForm({
         custom={customScores(methodId, held)}
         only={HUB_INPUTS[methodId]}
         size="sm"
+        // Blank everywhere is a valid save (Not scored), so no input is
+        // marked required; a partial score still shows its errors.
+        requiredCue={false}
       />
       {note && <p className="text-xs text-sub">{note}</p>}
     </ItemForm>

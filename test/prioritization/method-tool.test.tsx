@@ -55,7 +55,7 @@ import {
 import { MethodInputControl, MethodInputs } from "@/components/prioritization/method-inputs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
-import { WSJF } from "@/lib/prioritization/methods";
+import { RICE, WSJF } from "@/lib/prioritization/methods";
 import { MOSCOW_BUCKETS, MOSCOW_LABEL } from "@/lib/prioritization/methods/moscow";
 import { rankMethodRows, type RankedRow } from "@/lib/prioritization/rank";
 
@@ -753,5 +753,28 @@ describe("Choice inputs", () => {
       "aria-required",
       "true"
     );
+  });
+
+  it("marks nothing required in a form where every input may be blank (requiredCue false)", () => {
+    const { container } = render(
+      <MethodInputs
+        method={RICE}
+        draft={{}}
+        update={() => {}}
+        errors={{}}
+        only={["reach", "reachPeriod", "effort"]}
+        requiredCue={false}
+      />
+    );
+    expect(screen.getByRole("radiogroup", { name: "Reach period" })).not.toHaveAttribute(
+      "aria-required"
+    );
+    expect(screen.getByLabelText(/^Reach/, { selector: "input" })).not.toHaveAttribute(
+      "aria-required"
+    );
+    expect(screen.getByLabelText(/^Effort/, { selector: "input" })).not.toHaveAttribute(
+      "aria-required"
+    );
+    expect(container).not.toHaveTextContent("*");
   });
 });

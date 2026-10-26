@@ -39,6 +39,12 @@ export interface MethodInputsProps {
   hide?: readonly string[];
   /** Labels to use instead of the method's (a tool's own wording). */
   labels?: Readonly<Record<string, string>>;
+  /**
+   * Mark the inputs the method requires (default true). False for a form
+   * where every input may be left blank: the hub's score editor, where a
+   * blank method saves as Not scored.
+   */
+  requiredCue?: boolean;
   className?: string;
 }
 
@@ -68,6 +74,7 @@ export function MethodInputs({
   only,
   hide,
   labels,
+  requiredCue = true,
   className,
 }: MethodInputsProps) {
   return (
@@ -81,6 +88,7 @@ export function MethodInputs({
           custom={custom?.[input.key]}
           error={errors[input.key]}
           size={size}
+          required={requiredCue && !input.optional}
           onChange={(v) => update({ [input.key]: v })}
         />
       ))}
@@ -96,6 +104,7 @@ export function MethodInputControl({
   custom,
   error,
   size = "md",
+  required = !input.optional,
   onChange,
 }: {
   input: MethodInput;
@@ -104,6 +113,8 @@ export function MethodInputControl({
   custom?: number | string | undefined;
   error?: string;
   size?: "sm" | "md";
+  /** Marked required (default: unless the method's input is optional). */
+  required?: boolean;
   onChange: (value: number | string | undefined) => void;
 }) {
   switch (input.kind) {
@@ -130,7 +141,7 @@ export function MethodInputControl({
           label={input.unit ? `${label} (${input.unit})` : label}
           hint={input.hint}
           error={error}
-          required={!input.optional}
+          required={required}
         >
           {(props) => (
             <Input
@@ -153,7 +164,7 @@ export function MethodInputControl({
           hint={input.hint}
           error={error}
           size={size}
-          required={!input.optional}
+          required={required}
           options={input.options}
           value={typeof value === "string" ? value : undefined}
           onChange={onChange}
@@ -161,7 +172,7 @@ export function MethodInputControl({
       );
     case "date":
       return (
-        <Field label={label} hint={input.hint} error={error} required={!input.optional}>
+        <Field label={label} hint={input.hint} error={error} required={required}>
           {(props) => (
             <Input
               {...props}
@@ -178,7 +189,7 @@ export function MethodInputControl({
           label={label}
           hint={input.hint}
           error={error}
-          required={!input.optional}
+          required={required}
           value={typeof value === "string" ? value : ""}
           onChange={(name) => onChange(name.trim() ? name : undefined)}
         />
