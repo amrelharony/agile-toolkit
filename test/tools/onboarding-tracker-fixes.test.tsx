@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+// The page's icon buttons show tooltips, which need the app's provider.
+const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
 /**
  * Onboarding Tracker:
