@@ -287,6 +287,27 @@ describe("bounds", () => {
     accepts(ALLOCATION_ROUND);
   });
 
+  it("a round of typed totals keeps spreadKnown: false through an update, with no spread", async () => {
+    const [search, exports] = ALLOCATION_ROUND.items;
+    const typed = {
+      ...ALLOCATION_ROUND,
+      source: "facilitator" as const,
+      spreadKnown: false,
+      items: [search, exports].map((x) => ({ ...x, backers: null, bands: null })),
+    };
+    expect(await updateRoundTrip("workspace.allocation_round", "allocationRounds", typed)).toEqual(
+      typed
+    );
+    // Typed totals never know who backed what, or the bands, at any count.
+    rejects("workspace.allocation_round", { ...typed, items: [search, typed.items[1]] });
+    rejects("workspace.allocation_round", {
+      ...typed,
+      items: [{ ...typed.items[0], backers: 6 }, typed.items[1]],
+    });
+    // Only a count entry types totals in.
+    rejects("workspace.allocation_round", { ...typed, source: "room" });
+  });
+
   it("a decision's DACI Driver and RAPID Recommend are one person at most", () => {
     rejects("workspace.decision", { ...DECISION, roles: { driver: ["Bo", "Cy"] } });
     rejects("workspace.decision", { ...DECISION, roles: { recommend: ["Bo", "Cy"] } });

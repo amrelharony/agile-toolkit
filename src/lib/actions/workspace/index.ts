@@ -2203,7 +2203,8 @@ const AllocationUnit = z.string().max(4);
  * (ballots ≥ minN), each item's bands cover every ballot once on the round's
  * band edges, nobody counted twice as a backer, nothing above what everyone
  * had to give, and no spread (backers, bands) under MIN_SAMPLE.distribution
- * answers (the Phase 7 decisions: totals from 3 answers, bands from 5).
+ * answers (the Phase 7 decisions: totals from 3 answers, bands from 5) or
+ * for totals typed by hand (spreadKnown false, a count entry's only).
  * zod runs it only on a record whose fields already parsed.
  */
 function checkAllocationRound(r: AllocationRound, ctx: z.RefinementCtx): void {
@@ -2218,21 +2219,31 @@ function checkAllocationRound(r: AllocationRound, ctx: z.RefinementCtx): void {
   if (r.bandEdges[0] !== 0 || r.bandEdges.some((e, i) => i > 0 && e <= r.bandEdges[i - 1])) {
     issue(["bandEdges"], "Band edges start at 0 and ascend.");
   }
-  const spreadShown = r.ballots >= MIN_SAMPLE.distribution;
+  const typed = r.spreadKnown === false;
+  if (typed && r.source !== "facilitator") {
+    issue(
+      ["spreadKnown"],
+      "Only totals typed by hand (source facilitator) have an unknown spread."
+    );
+  }
+  const spreadShown = !typed && r.ballots >= MIN_SAMPLE.distribution;
+  const withheld = typed
+    ? "Null for typed totals (spreadKnown false): the spread isn't known."
+    : `Withheld (null) under ${MIN_SAMPLE.distribution} answers.`;
   r.items.forEach((item, i) => {
     if (item.total > r.budget * r.ballots) {
       issue(["items", i, "total"], "More than everyone's budget added up.");
     }
     if (item.backers !== null) {
       if (!spreadShown) {
-        issue(["items", i, "backers"], `Withheld (null) under ${MIN_SAMPLE.distribution} answers.`);
+        issue(["items", i, "backers"], withheld);
       } else if (item.backers > r.ballots) {
         issue(["items", i, "backers"], "More backers than ballots.");
       }
     }
     if (item.bands !== null) {
       if (!spreadShown) {
-        issue(["items", i, "bands"], `Withheld (null) under ${MIN_SAMPLE.distribution} answers.`);
+        issue(["items", i, "bands"], withheld);
       } else if (item.bands.length !== r.bandEdges.length) {
         issue(["items", i, "bands"], "One count per band edge.");
       } else if (item.bands.reduce((a, b) => a + b, 0) !== r.ballots) {
@@ -2261,6 +2272,12 @@ const AllocationRoundSchema = z
     minN: PeopleCount.min(1).describe("The fewest answers the totals showed from."),
     ballots: PeopleCount.describe("How many people answered."),
     source: z.enum(["room", "facilitator"]),
+    spreadKnown: z
+      .boolean()
+      .optional()
+      .describe(
+        "false: the totals were typed by hand, so the spread isn't known (no backers or bands). Absent: read from the bands."
+      ),
     bandEdges: z
       .array(z.number().int().min(0))
       .describe("Lower edge of each band, ascending from 0."),

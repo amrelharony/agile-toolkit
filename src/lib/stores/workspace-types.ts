@@ -1417,6 +1417,12 @@ export interface AllocationRound {
   /** How many people answered. */
   ballots: number;
   source: "room" | "facilitator";
+  /**
+   * false when the totals were typed by hand: how the amounts were spread
+   * isn't known at any count, so no backers or bands. Written only then;
+   * absent, it's read from the bands (lib/hundred-dollar spreadKnownOf).
+   */
+  spreadKnown?: boolean;
   /** Lower edge of each band, ascending from 0 (the kit's allocationBandEdges(budget)). */
   bandEdges: number[];
   items: AllocationRoundItem[];
