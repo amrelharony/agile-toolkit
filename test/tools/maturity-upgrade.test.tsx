@@ -538,11 +538,21 @@ describe("the page", () => {
     expect(stored()?.history?.[0].assessedAt).toBe("2026-04-20");
   });
 
-  it("offers the AI prompts only from a saved assessment, never a 0% for a draft", async () => {
-    seed(doc([], { scores: { "scrum-practices": 3 } }));
-    const { unmount } = renderPage();
+  it("never gives the AI prompts a 0% for a draft: it is Not assessed yet", async () => {
+    // Nothing scored: no prompts.
+    seed(doc([]));
+    const first = renderPage();
     expect(screen.queryByTestId("ai-prompts")).toBeNull();
-    unmount();
+    first.unmount();
+    // A draft: its scores as a draft, the rest Not scored, no percentage.
+    seed(doc([], { scores: { "scrum-practices": 3 } }));
+    const second = renderPage();
+    const draft = screen.getByTestId("ai-prompts").textContent ?? "";
+    expect(draft).toContain("Overall Score: Not assessed yet");
+    expect(draft).toContain("1 of 8 dimensions scored");
+    expect(draft).not.toMatch(/Overall Score: \d+%/);
+    expect(draft).toContain("Not scored");
+    second.unmount();
     seed(doc([entry("a", "2026-05-01", all(4))]));
     renderPage();
     expect(screen.getByTestId("ai-prompts").textContent).toContain("Overall Score: 75%");

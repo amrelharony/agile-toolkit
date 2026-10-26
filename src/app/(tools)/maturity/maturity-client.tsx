@@ -306,32 +306,13 @@ export function MaturityTool() {
       })
     )
   );
-  // From the latest saved assessment only: the prompt prints an overall
-  // score, and a draft has none (a 0% there read as "every dimension at
-  // level 1"). The button shows once an assessment is saved.
-  const overall = summary?.percentage ?? null;
-  const promptConfig = useMemo(
-    () =>
-      latest && overall !== null
-        ? {
-            toolName: "Agile Maturity Assessment",
-            prompts: generateMaturityPrompts(
-              {
-                dimensions: MATURITY_DIMENSIONS.flatMap((d) => {
-                  const level = levelOf(latest.scores[d.id]);
-                  return level === null
-                    ? []
-                    : [{ name: d.name, currentScore: level, targetScore: target }];
-                }),
-                overallScore: overall,
-                targetLevel: target,
-              },
-              workspace
-            ),
-          }
-        : null,
-    [latest, overall, target, workspace]
-  );
+  // The prompt reads the doc as the page does: the latest saved assessment,
+  // else the draft as "Not assessed yet" (never a 0% or a level 1). The
+  // button shows once anything is scored.
+  const promptConfig = useMemo(() => {
+    const prompts = generateMaturityPrompts({ doc }, workspace);
+    return prompts.length > 0 ? { toolName: "Agile Maturity Assessment", prompts } : null;
+  }, [doc, workspace]);
 
   if (!hydrated) {
     return (
