@@ -269,6 +269,8 @@ export const PRIORITIZER_ACTIONS = {
   ITEM_ADDED: "item_added",
   ITEM_REMOVED: "item_removed",
   SCORE_UPDATED: "score_updated",
+  /** Decide order saved the backlog's ranks. Payload: ranked (how many items got one). */
+  ORDER_SAVED: "order_saved",
   PRIORITIZER_RESET: "prioritizer_reset", // milestone
 } as const;
 
@@ -841,6 +843,12 @@ export const BUY_FEATURE_ACTIONS = {
   FEATURE_ADDED: "feature_added",
   FEATURE_REMOVED: "feature_removed",
   PURCHASE_RECORDED: "purchase_recorded",
+  /**
+   * A round of splits was saved and spent. Payload: ballots, spent,
+   * refunded, funded (counts only); never who gave what. Rounds saved
+   * before it logged PURCHASE_RECORDED with `round: true`.
+   */
+  ROUND_SAVED: "round_saved",
   GAME_RESET: "game_reset", // milestone
 } as const;
 
@@ -848,13 +856,22 @@ export const HUNDRED_DOLLAR_ACTIONS = {
   ITEM_ADDED: "item_added",
   ITEM_REMOVED: "item_removed",
   ALLOCATION_CHANGED: "allocation_changed",
+  /**
+   * A team round was saved. Payload: ballots, items, source (counts only);
+   * never anyone's split. Rounds saved before it logged ALLOCATION_CHANGED
+   * with `round: true`.
+   */
+  ROUND_SAVED: "round_saved",
   TEST_RESET: "test_reset", // milestone
 } as const;
 
 export const EISENHOWER_ACTIONS = {
   TASK_ADDED: "task_added",
   TASK_REMOVED: "task_removed",
+  /** An edit that put the task in another pane (or sorted it). */
   TASK_MOVED: "task_moved",
+  /** An edit that left the task in its pane. Before it, every edit logged TASK_MOVED. */
+  TASK_UPDATED: "task_updated",
   EISENHOWER_RESET: "eisenhower_reset",
 } as const;
 
@@ -892,6 +909,9 @@ export const WEIGHTED_DECISION_ACTIONS = {
   OPTION_ADDED: "option_added",
   OPTION_REMOVED: "option_removed",
   SCORE_CHANGED: "score_changed",
+  /** A matrix was added or deleted. Payload: matrixId, name. */
+  MATRIX_ADDED: "matrix_added",
+  MATRIX_REMOVED: "matrix_removed",
   WEIGHTED_RESET: "weighted_reset",
 } as const;
 

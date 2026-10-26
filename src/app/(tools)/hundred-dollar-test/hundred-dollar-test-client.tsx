@@ -168,8 +168,7 @@ export function HundredDollarTestClient() {
     ws().upsertAllocationRound(saved);
     setPickedRound(saved.id);
     // Counts only, as everywhere a round goes: never who gave what.
-    log(HUNDRED_DOLLAR_ACTIONS.ALLOCATION_CHANGED, {
-      round: true,
+    log(HUNDRED_DOLLAR_ACTIONS.ROUND_SAVED, {
       ballots: saved.ballots,
       items: saved.items.length,
       source: saved.source,

@@ -7,8 +7,8 @@ import { EisenhowerInputs } from "./inputs";
 /**
  * The tool for the shared method shell's pieces (its add, save, delete and
  * example actions, and the row editor). Both answers are needed to save;
- * an edit that changes them moves the task by derivation (logged as a
- * move).
+ * an edit that changes them moves the task by derivation, saved through
+ * EIS_MOVE_CONFIG so it logs a move; any other edit logs an update.
  */
 export const EIS_CONFIG: MethodToolConfig = {
   methodId: "eisenhower",
@@ -26,9 +26,15 @@ export const EIS_CONFIG: MethodToolConfig = {
     "No tasks yet. Add one above, or load an example to see a filled matrix: an overdue fix, work to plan, asks to hand off and chores to drop.",
   history: {
     ITEM_ADDED: EISENHOWER_ACTIONS.TASK_ADDED,
-    ITEM_UPDATED: EISENHOWER_ACTIONS.TASK_MOVED,
+    ITEM_UPDATED: EISENHOWER_ACTIONS.TASK_UPDATED,
     ITEM_REMOVED: EISENHOWER_ACTIONS.TASK_REMOVED,
   },
   Inputs: EisenhowerInputs,
   buildExample: () => buildExample(),
+};
+
+/** The same tool for an edit that puts the task in another pane: the shell's save logs a move. */
+export const EIS_MOVE_CONFIG: MethodToolConfig = {
+  ...EIS_CONFIG,
+  history: { ...EIS_CONFIG.history, ITEM_UPDATED: EISENHOWER_ACTIONS.TASK_MOVED },
 };

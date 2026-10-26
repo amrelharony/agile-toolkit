@@ -633,6 +633,11 @@ describe("Buy-a-Feature page: rounds", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save round" }));
     expect([raisedOf("a"), raisedOf("b"), raisedOf("c")]).toEqual([60, 40, 28]);
+    // Logged as a round, with counts only.
+    expect(logs.filter((l) => l.action === "round_saved")).toEqual([
+      { action: "round_saved", payload: { ballots: 5, spent: 118, refunded: 14, funded: 2 } },
+    ]);
+    expect(logs.some((l) => l.action === "purchase_recorded")).toBe(false);
     const [saved] = roundsInStore();
     expect(saved).toMatchObject({ tool: "buy-a-feature", ballots: 5, budget: 28, spendAll: false });
     expect(saved.items.map((x) => [x.itemId, x.total, x.cap])).toEqual([

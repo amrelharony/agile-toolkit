@@ -59,7 +59,7 @@ import {
   eisenhowerQuadrant,
   type EisenhowerQuadrant,
 } from "@/lib/prioritization/methods/eisenhower";
-import { EIS_CONFIG } from "./config";
+import { EIS_CONFIG, EIS_MOVE_CONFIG } from "./config";
 import { EisenhowerInputs } from "./inputs";
 import { toMarkdown } from "./markdown";
 import {
@@ -93,6 +93,7 @@ export function EisenhowerClient() {
   const all = useWorkspaceStore((s) => s.prioritizations) ?? NO_ROWS;
   const ranked = useMemo(() => eisRows(all, today), [all, today]);
   const actions = useMethodActions(EIS_CONFIG);
+  const moveActions = useMethodActions(EIS_MOVE_CONFIG);
   const upsert = useWorkspaceStore((s) => s.upsertPrioritization);
   const removeOne = useWorkspaceStore((s) => s.removePrioritization);
   const { log } = useHistoryLogger("eisenhower");
@@ -125,9 +126,10 @@ export function EisenhowerClient() {
   const save = (id: string, draft: MethodDraft) => {
     const before = ranked.find((r) => r.row.id === id);
     const from = before ? eisenhowerQuadrant(before.values, today) : null;
-    closeEditor(id);
-    actions.save(id, draft);
     const to = eisenhowerQuadrant(draft, today);
+    closeEditor(id);
+    // Logged as a move only when the task changes pane; any other edit is an update.
+    (to !== from ? moveActions : actions).save(id, draft);
     // A changed answer or date moves the task: say where to.
     if (to && to !== from) announce(`${shortName(draft.title)} moved to ${EISENHOWER_LABEL[to]}`);
   };

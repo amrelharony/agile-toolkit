@@ -56,10 +56,6 @@ const NO_MATRICES: WeightedMatrix[] = [];
 const NO_OPTIONS: WeightedOption[] = [];
 const NO_CRITERIA: WeightedCriterion[] = [];
 
-/** Logged for matrices; not in WEIGHTED_DECISION_ACTIONS (lib/history/event-actions) yet. */
-const MATRIX_ADDED = "matrix_added";
-const MATRIX_REMOVED = "matrix_removed";
-
 /**
  * The matrix to show: the one asked for (if it exists), else the newest
  * one, else nothing.
@@ -137,7 +133,7 @@ export function WeightedDecisionClient() {
       createdAt: new Date().toISOString(),
     };
     ws().upsertWeightedMatrix(m);
-    log(MATRIX_ADDED, { matrixId: m.id, name: m.name });
+    log(WEIGHTED_DECISION_ACTIONS.MATRIX_ADDED, { matrixId: m.id, name: m.name });
     select(m.id);
     announce(`Created the matrix ${m.name}`);
   };
@@ -173,7 +169,9 @@ export function WeightedDecisionClient() {
       label: `Deleted the matrix “${m.name}”`,
       apply: () => {
         ws().removeWeightedMatrix(m.id);
-        if (!isExampleId(m.id)) log(MATRIX_REMOVED, { matrixId: m.id, name: m.name });
+        if (!isExampleId(m.id)) {
+          log(WEIGHTED_DECISION_ACTIONS.MATRIX_REMOVED, { matrixId: m.id, name: m.name });
+        }
       },
       revert: () => {
         const st = ws();

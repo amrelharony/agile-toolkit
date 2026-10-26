@@ -368,8 +368,7 @@ export function BuyAFeatureClient() {
     });
     ws().upsertAllocationRound(saved);
     // Counts only: a round never says who gave what.
-    log(BUY_FEATURE_ACTIONS.PURCHASE_RECORDED, {
-      round: true,
+    log(BUY_FEATURE_ACTIONS.ROUND_SAVED, {
       ballots: result.ballots,
       spent: applied.spends,
       refunded: applied.refunded,

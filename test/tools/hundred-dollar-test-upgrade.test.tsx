@@ -504,6 +504,11 @@ describe("$100 Test page: team rounds", () => {
       expect(Object.keys(item).sort()).toEqual(["backers", "bands", "itemId", "text", "total"]);
     }
     expect(JSON.stringify(saved)).not.toContain("50,30,20");
+    // Logged as a round, with counts only.
+    expect(logs.filter((l) => l.action === "round_saved")).toEqual([
+      { action: "round_saved", payload: { ballots: 5, items: 3, source: "facilitator" } },
+    ]);
+    expect(logs.some((l) => l.action === "allocation_changed")).toBe(false);
     expect(screen.getByText("Team results")).toBeInTheDocument();
     expect(screen.getAllByText("$40 average · agreed $50").length).toBe(1);
     expect(screen.getAllByText("The middle half gave $26–$50.")).toHaveLength(2);

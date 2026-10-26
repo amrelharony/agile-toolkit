@@ -62,12 +62,6 @@ import { MatrixTab } from "./components/matrix-tab";
 
 const NO_ROWS: PrioritizationItem[] = [];
 
-/**
- * Logged when a decided order is saved. Not in PRIORITIZER_ACTIONS
- * (lib/history/event-actions.ts) yet; named like the events that are.
- */
-const ORDER_SAVED = "order_saved";
-
 /** The Decide order step's anchor: a link to /prioritizer#decide-order opens it. */
 export const DECIDE_ORDER_HASH = "#decide-order";
 
@@ -161,7 +155,7 @@ export function PrioritizerClient() {
   // The Undo toast says what was saved; a second announcement would repeat it.
   const saveOrder = (ids: readonly string[], label: string) => {
     store.saveOrder(ids, label);
-    log(ORDER_SAVED, { ranked: ids.length });
+    log(PRIORITIZER_ACTIONS.ORDER_SAVED, { ranked: ids.length });
   };
 
   /* ── Export and prompts ───────────────────────────────────────────── */
