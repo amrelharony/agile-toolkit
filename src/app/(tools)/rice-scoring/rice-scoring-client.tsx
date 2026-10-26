@@ -13,7 +13,6 @@ import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SectionCard } from "@/components/shared/section-card";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { generateRicePrompts } from "@/lib/ai-prompts/rice-scoring";
-import type { RankedItem } from "@/lib/analytics/scoring-rubric";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { RICE_ACTIONS } from "@/lib/history/event-actions";
 import { RICE } from "@/lib/prioritization/methods";
@@ -44,30 +43,6 @@ const CHART_TOP = 10;
 
 /** A number for a CSV cell: rounded, never a display string ("2,133.3" sorts as text). */
 const csvNumber = (n: number, digits: number) => Math.round(n * 10 ** digits) / 10 ** digits;
-
-/**
- * The scored rows as the AI prompts read them (rank and score from the
- * registry). The prompt's table has one Reach column next to the score, so
- * it gets the reach per quarter the score used (2,000 a month reads 6,000),
- * and the confidence as read through (an agent row's `confidencePct`).
- */
-function promptItems(rows: readonly RankedRow[]): RankedItem<Record<string, number | string>>[] {
-  const scored = scoredRows(rows);
-  const last = scored.reduce((n, r) => Math.max(n, r.rank ?? 0), 0);
-  return scored.map((r) => ({
-    id: r.row.id,
-    title: r.row.title,
-    fields: {
-      reach: csvNumber(toNumber(r.result.extra?.reachPerQuarter) ?? 0, 1),
-      impact: toNumber(r.values.impact) ?? 0,
-      confidence: toNumber(r.values.confidence) ?? 0,
-      effort: toNumber(r.values.effort) ?? 0,
-    },
-    score: r.result.score as number,
-    rank: r.rank as number,
-    percentile: last <= 1 ? 1 : (last - (r.rank as number) + 1) / last,
-  }));
-}
 
 /** The chart's summary sentence and its rows as a table. */
 function chartText(top: readonly RankedRow[]): ChartText {
@@ -223,9 +198,10 @@ export const RICE_TOOL: MethodToolConfig = {
     ],
     rows: rows.map(csvRow),
   }),
+  // The rows as they read: reach with its period and per quarter, the effort floor's warning.
   prompts: (rows, workspace) =>
     generateRicePrompts(
-      { items: promptItems(rows), outliers: Array.from(outliersOf(rows) ?? []) },
+      { rows, outliers: outliersOf(rows), verdict: riceVerdict(rows) },
       workspace
     ),
   Inputs: RiceInputs,

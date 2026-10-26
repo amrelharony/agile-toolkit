@@ -352,8 +352,10 @@ describe("RICE results", () => {
     // No workspace context: the prompt builder skips it for null.
     const prompt = RICE_TOOL.prompts!(ranked, null as unknown as Workspace)[0].prompt;
     // 2,000 a month is 6,000 a quarter: 6,000 × 1 × 100% ÷ 2 = 3,000, as the row shows.
-    expect(prompt).toMatch(/\| 1 \| Monthly \| 6000 \| 1 \| 100 \| 2 \| 3000\.00 \|/);
-    expect(prompt).toMatch(/\| 2 \| Agent row \| 500 \| 2 \| 50 \| 1 \| 500\.00 \|/);
+    expect(prompt).toContain(
+      "| 1 | Monthly | 2,000 per month | 6,000 | 1 | 100% | 2 | 3,000 | — |"
+    );
+    expect(prompt).toContain("| 2 | Agent row | 500 per quarter | 500 | 2 | 50% | 1 | 500 | — |");
     expect(prompt).not.toContain("undefined");
   });
 });
