@@ -50,6 +50,11 @@ export interface CockpitMarkdownInput {
   /** Every sprint, for the "committed vs average" tile. */
   sprints: readonly Sprint[];
   today: string;
+  /**
+   * The rating the cockpit's tile shows: Sprint Comparison's computed
+   * average (lib/sprints/compare). Absent: the typed ratings', as the tile.
+   */
+  rating?: number | null;
 }
 
 /**
@@ -59,10 +64,16 @@ export interface CockpitMarkdownInput {
  * day's standup, what got in the way during the sprint, and this sprint's
  * retro and review.
  */
-export function cockpitMarkdown({ data, series, sprints, today }: CockpitMarkdownInput): string {
+export function cockpitMarkdown({
+  data,
+  series,
+  sprints,
+  today,
+  rating,
+}: CockpitMarkdownInput): string {
   const { sprint, burndown, progress } = data;
   const board = burndown.source === "stories";
-  const tiles = cockpitTiles(data, sprints, today);
+  const tiles = cockpitTiles(data, sprints, today, { rating });
   const dates = sprintDates(sprint);
 
   const lines = [`# ${cell(sprint.name) || "Sprint"}`, ""];

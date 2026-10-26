@@ -349,9 +349,10 @@ function CockpitBody({
   const ended = day !== null && day > sprintLengthDays(sprint);
   const boardHref = readOnly ? "/kanban" : sprintHref("/kanban", sprint.id);
 
+  // The report's rating row is the tile's.
   const report = useMemo(
-    () => cockpitMarkdown({ data, series, sprints, today }),
-    [data, series, sprints, today]
+    () => cockpitMarkdown({ data, series, sprints, today, rating }),
+    [data, series, sprints, today, rating]
   );
 
   return (

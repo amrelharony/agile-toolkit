@@ -56,7 +56,14 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
-vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
+// What each page hands Export and Copy, by file name, so a report can be read.
+const exported = vi.hoisted(() => new Map<string, string | undefined>());
+vi.mock("@/components/shared/export-button", () => ({
+  ExportButton: ({ filename, markdown }: { filename: string; markdown?: string }) => {
+    exported.set(filename, markdown);
+    return null;
+  },
+}));
 vi.mock("@/app/(tools)/sprint-compare/charts", () => ({ SprintRadarChart: () => null }));
 vi.mock("@/app/(tools)/burndown/charts", () => ({ BurndownChart: () => null }));
 vi.mock("@/lib/sprints/use-ceremony-cadence", async () => {
@@ -118,6 +125,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 9, 20, 9, 0, 0));
   window.localStorage.clear();
+  exported.clear();
   resetSelectedSprint();
   useSprintMigrationStore.setState({ status: "idle" });
 });
@@ -348,6 +356,10 @@ describe.each(SCENARIOS)("page and agent agree for a sprint with $name", (sc) =>
     );
     expect(container.querySelector('[data-tile="rating"]')?.textContent).toMatch(
       new RegExp(`Average rating${fmt(average!).replace(".", "\\.")}\\s*/ 10`)
+    );
+    // The exported sprint report rates it the same, under the same label.
+    expect(exported.get("sprint-report-sprint-2")).toContain(
+      `| Average rating | ${fmt(average!)} / 10 | From Sprint Comparison |`
     );
   });
 
