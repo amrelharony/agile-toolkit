@@ -1,415 +1,472 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
-import dynamic from "next/dynamic";
-import { PercentCircle, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { nanoid } from "nanoid";
+import { ListChecks, PercentCircle, Scale } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { WeightedCriterion, WeightedOption, Workspace } from "@/lib/stores/workspace-types";
-import { weightedScore } from "@/lib/analytics/scoring-rubric";
+import { SectionCard } from "@/components/shared/section-card";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { generateWeightedPrompts } from "@/lib/ai-prompts/weighted-decision";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WEIGHTED_DECISION_ACTIONS } from "@/lib/history/event-actions";
-import { emitSignal } from "@/lib/signals/signal-bus";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  WeightedCriterion,
+  WeightedMatrix,
+  WeightedOption,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { undoable } from "@/lib/utils/undoable";
+import {
+  DEFAULT_WEIGHTED_MATRIX_ID,
+  cellOf,
+  decisionLinkOf,
+  findMatrix,
+  matricesOf,
+  matrixResult,
+  rowsOf,
+} from "@/lib/weighted/model";
+import { CriteriaPanel, type NewCriterion } from "./criteria-panel";
+import { buildExample } from "./example";
+import { matrixToMarkdown } from "./markdown";
+import { MatrixPicker, type NewMatrix } from "./matrix-picker";
+import { MatrixTable } from "./matrix-table";
+import { ResultCard } from "./result-card";
 
-// Recharts loads with the chart, not the page; the placeholder fills the
-// chart's fixed-height box while it does.
-const WeightedScoreChart = dynamic(() => import("./charts").then((m) => m.WeightedScoreChart), {
-  ssr: false,
-  loading: () => (
-    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
-  ),
-});
+/** `?matrix=<id>` opens one matrix (a decision record's "From weighted decision" link). */
+export const MATRIX_PARAM = "matrix";
 
-/** The score scale every cell uses. An empty cell is "not scored". */
-const SCORE_MIN = 1;
-const SCORE_MAX = 10;
-
-/** Each criterion's share of the total weight, as a whole percent. */
-function weightShare(weight: number, weightSum: number): number {
-  return weightSum > 0 && Number.isFinite(weight) ? Math.round((weight / weightSum) * 100) : 0;
+export function readMatrixParam(search: string): string | null {
+  const v = new URLSearchParams(search).get(MATRIX_PARAM);
+  return v && v.length <= 128 ? v : null;
 }
 
+const NO_MATRICES: WeightedMatrix[] = [];
+const NO_OPTIONS: WeightedOption[] = [];
+const NO_CRITERIA: WeightedCriterion[] = [];
+
+/** Logged for matrices; not in WEIGHTED_DECISION_ACTIONS (lib/history/event-actions) yet. */
+const MATRIX_ADDED = "matrix_added";
+const MATRIX_REMOVED = "matrix_removed";
+
+/**
+ * The matrix to show: the one asked for (if it exists), else the newest
+ * one, else nothing.
+ */
+function pickMatrix(matrices: readonly WeightedMatrix[], chosen: string | null) {
+  return matrices.find((m) => m.id === chosen) ?? matrices[matrices.length - 1];
+}
+
+/** A row's matrixId for a new row: none for the default matrix (as legacy rows have it). */
+const matrixIdFor = (id: string) => (id === DEFAULT_WEIGHTED_MATRIX_ID ? {} : { matrixId: id });
+
+/**
+ * Weighted Decision Matrix: named matrices of options scored 1–10 against
+ * weighted criteria. Every number comes from lib/weighted (the agent
+ * actions compute through it too): an empty cell is not scored, a Total
+ * needs every weighted cell, the star needs a Total, near-ties and the
+ * weight changes that would flip the result are named, and the result can
+ * become a proposed decision record.
+ */
 export function WeightedDecisionClient() {
-  const criteria = useWorkspaceStore((s) => s.weightedCriteria ?? []);
-  const options = useWorkspaceStore((s) => s.weightedOptions ?? []);
-  const upsertCriterion = useWorkspaceStore((s) => s.upsertWeightedCriterion);
-  const removeCriterion = useWorkspaceStore((s) => s.removeWeightedCriterion);
-  const upsertOption = useWorkspaceStore((s) => s.upsertWeightedOption);
-  const removeOption = useWorkspaceStore((s) => s.removeWeightedOption);
+  const hydrated = useWorkspaceHydrated();
+  const stored = useWorkspaceStore((s) => s.weightedMatrices) ?? NO_MATRICES;
+  const options = useWorkspaceStore((s) => s.weightedOptions) ?? NO_OPTIONS;
+  const criteria = useWorkspaceStore((s) => s.weightedCriteria) ?? NO_CRITERIA;
+  // Read so a decision decided in the Decision Log re-renders the link.
+  useWorkspaceStore((s) => s.decisions);
   const { log } = useHistoryLogger("weighted-decision");
-  const exportRef = useRef<HTMLDivElement>(null);
+  const announce = useAnnounce();
+  const [chosen, setChosen] = useState<string | null>(null);
 
-  const [criterionName, setCriterionName] = useState("");
-  const [criterionWeight, setCriterionWeight] = useState("1");
-  const [optionName, setOptionName] = useState("");
+  useEffect(() => {
+    const id = readMatrixParam(window.location.search);
+    if (id) setChosen(id);
+  }, []);
 
-  function addCriterion() {
-    if (!criterionName.trim()) return;
-    // `parseFloat("0") || 1` collapses an explicit 0 (a temporarily-disabled
-    // criterion held in the matrix) to weight 1 — the operator would then
-    // appear to "ignore" the weight box. Coerce with Number.isFinite so
-    // intentional zeros survive. We still floor at 0 to keep the bar chart
-    // and total honest.
-    const wRaw = parseFloat(criterionWeight);
-    const weight = Number.isFinite(wRaw) ? Math.max(0, wRaw) : 1;
-    const c: WeightedCriterion = { id: crypto.randomUUID(), name: criterionName.trim(), weight };
-    upsertCriterion(c);
-    log(WEIGHTED_DECISION_ACTIONS.CRITERION_ADDED, { name: c.name });
-    setCriterionName("");
-    setCriterionWeight("1");
-  }
+  const matrices = useMemo(
+    () => matricesOf(stored, options, criteria),
+    [stored, options, criteria]
+  );
+  const selected = pickMatrix(matrices, chosen);
+  const result = useMemo(
+    () => (selected ? matrixResult(selected.id, criteria, options) : null),
+    [selected, criteria, options]
+  );
+  const ownCriteria = selected ? rowsOf(selected.id, criteria) : NO_CRITERIA;
+  const ownOptions = selected ? rowsOf(selected.id, options) : NO_OPTIONS;
+  const example = selected ? isExampleId(selected.id) : false;
+  // Example rows aren't the team's history.
+  const record = (action: string, payload: Record<string, unknown>) => {
+    if (!example) log(action, payload);
+  };
 
-  function removeCriterionCascade(criterionId: string) {
-    // Cascade: drop the criterion's score from every option so re-adding a
-    // criterion with the same name doesn't resurrect stale scores.
-    removeCriterion(criterionId);
-    for (const o of options) {
-      if (criterionId in o.scores) {
-        const next = { ...o.scores };
-        delete next[criterionId];
-        upsertOption({ ...o, scores: next });
-      }
+  const select = useCallback((id: string) => {
+    setChosen(id);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set(MATRIX_PARAM, id);
+      window.history.replaceState(window.history.state, "", url);
+    } catch {
+      /* no history API: the choice still applies on this page */
     }
-    log(WEIGHTED_DECISION_ACTIONS.CRITERION_REMOVED, { id: criterionId });
-  }
+  }, []);
 
-  function addOption() {
-    if (!optionName.trim()) return;
-    const o: WeightedOption = { id: crypto.randomUUID(), name: optionName.trim(), scores: {} };
-    upsertOption(o);
-    log(WEIGHTED_DECISION_ACTIONS.OPTION_ADDED, { name: o.name });
-    setOptionName("");
-  }
+  /* ── Matrices ─────────────────────────────────────────────────────── */
 
-  /** Save a score, or clear it (`null`) so the cell reads "not scored". */
-  function setScore(o: WeightedOption, criterionId: string, n: number | null) {
-    const scores = { ...o.scores };
-    if (n === null) delete scores[criterionId];
-    else scores[criterionId] = n;
-    upsertOption({ ...o, scores });
-    log(WEIGHTED_DECISION_ACTIONS.SCORE_CHANGED, { optionId: o.id, criterionId, n });
-    emitSignal({
-      kind: "decision.weightedScored",
-      at: new Date().toISOString(),
-      toolId: "weighted-decision",
-      payload: { optionId: o.id, criterionId },
+  const ws = () => useWorkspaceStore.getState();
+  /** The matrix's stored document, created on first change for the unnamed default one. */
+  const docOf = (m: WeightedMatrix): WeightedMatrix =>
+    m.createdAt ? m : { ...m, createdAt: new Date().toISOString() };
+
+  const createMatrix = (values: NewMatrix) => {
+    const m: WeightedMatrix = {
+      id: `weightedMatrix_${nanoid(8)}`,
+      ...values,
+      createdAt: new Date().toISOString(),
+    };
+    ws().upsertWeightedMatrix(m);
+    log(MATRIX_ADDED, { matrixId: m.id, name: m.name });
+    select(m.id);
+    announce(`Created the matrix ${m.name}`);
+  };
+
+  const patchMatrix = (m: WeightedMatrix, patch: Partial<WeightedMatrix>) => {
+    const current = findMatrix(ws().weightedMatrices, m.id) ?? m;
+    ws().upsertWeightedMatrix({
+      ...docOf(current),
+      ...patch,
+      updatedAt: new Date().toISOString(),
     });
-  }
+  };
 
-  // A score outside 1–10 isn't saved; this says so next to the matrix.
-  const scoreErrorId = useId();
-  const [scoreError, setScoreError] = useState<{
-    optionId: string;
-    criterionId: string;
-    text: string;
-  } | null>(null);
+  const deleteMatrix = (m: WeightedMatrix) => {
+    const s = ws();
+    const doc = (s.weightedMatrices ?? []).find((x) => x.id === m.id);
+    const gone = {
+      options: rowsOf(m.id, s.weightedOptions),
+      criteria: rowsOf(m.id, s.weightedCriteria),
+    };
+    const goneCriteria = new Set(gone.criteria.map((c) => c.id));
+    // Other matrices' options can't score these criteria in the page, but an
+    // agent's might: keep what the delete strips so Undo puts it back.
+    const stripped = (s.weightedOptions ?? [])
+      .filter((o) => !gone.options.some((g) => g.id === o.id))
+      .flatMap((o) =>
+        Object.entries(o.scores ?? {})
+          .filter(([k]) => goneCriteria.has(k))
+          .map(([k, v]) => ({ optionId: o.id, criterionId: k, value: v }))
+      );
+    undoable({
+      label: `Deleted the matrix “${m.name}”`,
+      apply: () => {
+        ws().removeWeightedMatrix(m.id);
+        if (!isExampleId(m.id)) log(MATRIX_REMOVED, { matrixId: m.id, name: m.name });
+      },
+      revert: () => {
+        const st = ws();
+        if (doc) st.upsertWeightedMatrix(doc);
+        gone.criteria.forEach(st.upsertWeightedCriterion);
+        gone.options.forEach(st.upsertWeightedOption);
+        for (const x of stripped) {
+          const o = (ws().weightedOptions ?? []).find((y) => y.id === x.optionId);
+          if (o)
+            ws().upsertWeightedOption({ ...o, scores: { ...o.scores, [x.criterionId]: x.value } });
+        }
+        select(m.id);
+      },
+    });
+    announce(`Deleted the matrix ${m.name}`);
+  };
 
-  function onScoreInput(
-    o: WeightedOption,
+  /* ── Criteria ─────────────────────────────────────────────────────── */
+
+  const addCriterion = (values: NewCriterion) => {
+    if (!selected) return;
+    const c: WeightedCriterion = {
+      id: `weightedCrit_${nanoid(8)}`,
+      ...values,
+      ...matrixIdFor(selected.id),
+    };
+    ws().upsertWeightedCriterion(c);
+    record(WEIGHTED_DECISION_ACTIONS.CRITERION_ADDED, { name: c.name, matrixId: selected.id });
+    announce(`Added the criterion ${c.name}`);
+  };
+
+  const patchCriterion = (
     c: WeightedCriterion,
-    input: Pick<HTMLInputElement, "value" | "validity">
-  ) {
-    const raw = input.value.trim();
-    if (raw === "") {
-      // A number input reports "" for half-typed junk ("-", "e") as well as
-      // for a cleared cell; only a real clear removes the score.
-      if (input.validity?.badInput) return;
-      setScoreError(null);
-      setScore(o, c.id, null);
-      return;
-    }
-    const n = parseFloat(raw);
-    if (!Number.isFinite(n) || n < SCORE_MIN || n > SCORE_MAX) {
-      setScoreError({
-        optionId: o.id,
-        criterionId: c.id,
-        text: `Scores run from ${SCORE_MIN} to ${SCORE_MAX}. ${raw} for ${c.name} on ${o.name} wasn't saved.`,
-      });
-      return;
-    }
-    setScoreError(null);
-    setScore(o, c.id, n);
-  }
+    patch: Partial<WeightedCriterion>,
+    what: string
+  ) => {
+    const current = (ws().weightedCriteria ?? []).find((x) => x.id === c.id) ?? c;
+    const next: WeightedCriterion = { ...current, ...patch };
+    if (next.low === undefined) delete next.low;
+    if (next.high === undefined) delete next.high;
+    ws().upsertWeightedCriterion(next);
+    announce(what);
+  };
 
-  const weights = useMemo(
-    () => Object.fromEntries(criteria.map((c) => [c.id, c.weight])),
-    [criteria]
-  );
-  // Weights are relative: 2 counts twice as much as 1, whatever they add up
-  // to, and the ranking is the same either way. Each criterion shows its
-  // share of the total weight. The old "should sum to 1 or 100" warning
-  // fired as soon as a second criterion was added with the default weight
-  // of 1; the only sum worth a warning is 0, where every Total is 0.
-  const weightSum = useMemo(
-    () => criteria.reduce((s, c) => s + (Number.isFinite(c.weight) ? c.weight : 0), 0),
-    [criteria]
-  );
-  const unscoredCount = (o: WeightedOption) =>
-    criteria.filter((c) => !Number.isFinite(o.scores[c.id])).length;
+  const deleteCriterion = (c: WeightedCriterion) => {
+    // The store strips the criterion's scores from every option; Undo puts them back.
+    const scores = (ws().weightedOptions ?? []).flatMap((o) =>
+      typeof o.scores?.[c.id] === "number" ? [{ optionId: o.id, value: o.scores[c.id] }] : []
+    );
+    undoable({
+      label: `Deleted the criterion “${c.name}”`,
+      description: scores.length > 0 ? `and its ${scores.length} scores` : undefined,
+      apply: () => {
+        ws().removeWeightedCriterion(c.id);
+        record(WEIGHTED_DECISION_ACTIONS.CRITERION_REMOVED, { id: c.id, name: c.name });
+      },
+      revert: () => {
+        ws().upsertWeightedCriterion(c);
+        for (const x of scores) {
+          const o = (ws().weightedOptions ?? []).find((y) => y.id === x.optionId);
+          if (o) ws().upsertWeightedOption({ ...o, scores: { ...o.scores, [c.id]: x.value } });
+        }
+      },
+    });
+    announce(`Deleted the criterion ${c.name}`);
+  };
 
-  const ranked = useMemo(() => {
-    return [...options]
-      .map((o) => ({ ...o, score: weightedScore(o.scores, weights) }))
-      .sort((a, b) => b.score - a.score);
-  }, [options, weights]);
+  /* ── Options and scores ───────────────────────────────────────────── */
 
-  // R11-fix: prefix each label with the rank index (1., 2., …) so
-  // Recharts treats the Y-axis categories as distinct even when the
-  // first 18 chars match. Previously two options like "Vendor
-  // Solution Alpha" and "Vendor Solution Beta" both truncated to
-  // "Vendor Solution Al…" / "Vendor Solution Be…" — actually distinct
-  // here, but on an option named the same followed by a discriminator
-  // beyond char-18 (e.g. "Migration plan — A", "Migration plan — B"),
-  // Recharts silently merged the duplicate Y-categories and dropped a
-  // bar. Same fix pattern as WSJF.
-  // Truncate the option name BEFORE prepending the rank so the rank
-  // prefix isn't squeezed out of the 150px YAxis tick. Budget ~18 chars
-  // total after the rank prefix.
-  const chartData = ranked.map((o, idx) => ({
-    name: `${idx + 1}. ${o.name.length > 14 ? o.name.slice(0, 14) + "…" : o.name}`,
-    score: Number(o.score.toFixed(2)),
-  }));
+  const addOption = (name: string) => {
+    if (!selected) return;
+    const o: WeightedOption = {
+      id: `weightedOpt_${nanoid(8)}`,
+      name,
+      scores: {},
+      ...matrixIdFor(selected.id),
+    };
+    ws().upsertWeightedOption(o);
+    record(WEIGHTED_DECISION_ACTIONS.OPTION_ADDED, { name, matrixId: selected.id });
+    announce(`Added the option ${name}`);
+  };
 
-  const workspace = useWorkspaceStore(
-    useShallow(
-      (s): Workspace => ({
-        teamMembers: s.teamMembers,
-        sprints: s.sprints,
-        stories: s.stories,
-        impediments: s.impediments,
-        risks: s.risks,
-        okrs: s.okrs,
-        decisions: s.decisions,
-        techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel,
-        teamName: s.teamName,
-        weightedCriteria: s.weightedCriteria,
-        weightedOptions: s.weightedOptions,
-      })
-    )
-  );
+  const patchOption = (o: WeightedOption, patch: Partial<WeightedOption>) => {
+    const current = (ws().weightedOptions ?? []).find((x) => x.id === o.id) ?? o;
+    const next: WeightedOption = { ...current, ...patch };
+    if (!next.note) delete next.note;
+    ws().upsertWeightedOption(next);
+  };
+
+  const setScore = (o: WeightedOption, c: WeightedCriterion, score: number | null) => {
+    const current = (ws().weightedOptions ?? []).find((x) => x.id === o.id) ?? o;
+    const scores = { ...current.scores };
+    if (score === null) delete scores[c.id];
+    else scores[c.id] = score;
+    ws().upsertWeightedOption({ ...current, scores });
+    record(WEIGHTED_DECISION_ACTIONS.SCORE_CHANGED, {
+      optionId: o.id,
+      criterionId: c.id,
+      n: score,
+    });
+  };
+
+  const deleteOption = (o: WeightedOption) => {
+    undoable({
+      label: `Deleted the option “${o.name}”`,
+      apply: () => {
+        ws().removeWeightedOption(o.id);
+        record(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id, name: o.name });
+      },
+      revert: () => ws().upsertWeightedOption(o),
+    });
+    announce(`Deleted the option ${o.name}`);
+  };
+
+  /* ── Hand-off links (on the matrix document) ───────────────────────── */
+
+  const getLinks = () =>
+    selected ? findMatrix(ws().weightedMatrices, selected.id)?.sentTo : undefined;
+  const setLinks = (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {
+    if (!selected) return;
+    const current = findMatrix(ws().weightedMatrices, selected.id) ?? selected;
+    ws().upsertWeightedMatrix({ ...docOf(current), sentTo: update(current.sentTo) });
+  };
+
+  /* ── Example ──────────────────────────────────────────────────────── */
+
+  const loadExample = () => {
+    const ex = buildExample(new Date().toISOString());
+    const s = ws();
+    s.upsertWeightedMatrix(ex.matrix);
+    ex.criteria.forEach(s.upsertWeightedCriterion);
+    ex.options.forEach(s.upsertWeightedOption);
+    select(ex.matrix.id);
+  };
+  const clearExample = () => {
+    for (const m of matrices.filter((x) => isExampleId(x.id))) ws().removeWeightedMatrix(m.id);
+    setChosen(null);
+  };
+
+  /* ── Exports ──────────────────────────────────────────────────────── */
+
+  const sent = selected ? decisionLinkOf(selected) : undefined;
+  const markdown =
+    selected && result
+      ? matrixToMarkdown(selected, result, ownOptions, {
+          sentLabel: sent ? "Sent to the Decision Log as a proposed decision." : undefined,
+        })
+      : "";
+  const csvData =
+    result && selected
+      ? {
+          headers: [
+            "Option",
+            ...ownCriteria.map((c) => `${c.name} (w${c.weight})`),
+            "Total",
+            "Status",
+          ],
+          rows: result.options.map((r) => {
+            const o = ownOptions.find((x) => x.id === r.id);
+            return [
+              r.name,
+              // An unscored cell exports empty, not as a 0 score.
+              ...ownCriteria.map((c) => {
+                const cell = o ? cellOf(o, c.id) : { kind: "empty" as const };
+                return cell.kind === "empty" ? "" : cell.value;
+              }),
+              r.total !== null ? Math.round(r.total * 100) / 100 : "",
+              r.total !== null ? (r.id === result.leaderId ? "leader" : "complete") : "partial",
+            ];
+          }),
+        }
+      : undefined;
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Weighted Decision Matrix",
-      prompts: generateWeightedPrompts({ criteria, ranked }, workspace),
+      prompts: generateWeightedPrompts({
+        criteria: ownCriteria,
+        ranked: (result?.options ?? [])
+          .filter((r) => r.total !== null)
+          .map((r) => ({
+            id: r.id,
+            name: r.name,
+            scores: ownOptions.find((o) => o.id === r.id)?.scores ?? {},
+            score: r.total ?? 0,
+          })),
+      }),
     }),
-    [criteria, ranked, workspace]
+    [ownCriteria, ownOptions, result]
   );
-
-  const csvData = {
-    headers: ["Option", ...criteria.map((c) => `${c.name} (w${c.weight})`), "Total"],
-    rows: ranked.map((o) => [
-      o.name,
-      // An unscored cell exports empty, not as a 0 score.
-      ...criteria.map((c) => o.scores[c.id] ?? ""),
-      o.score.toFixed(2),
-    ]),
-  };
 
   return (
     <ToolPageWrapper
       toolId="weighted-decision"
       title="Weighted Decision Matrix (Pugh / MCDA)"
-      description="Score each option against weighted criteria. Total = sum(score × weight). Best for choosing between similar competitors."
+      description="Score each option against weighted criteria. Total = sum of score × weight, once every weighted cell is scored. Best for choosing between similar options."
     >
-      <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Criteria">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input
-              placeholder="Criterion name"
-              aria-label="Criterion name"
-              value={criterionName}
-              onChange={(e) => setCriterionName(e.target.value)}
-            />
-            <Input
-              type="number"
-              step="0.5"
-              placeholder="Weight"
-              aria-label="Criterion weight"
-              value={criterionWeight}
-              onChange={(e) => setCriterionWeight(e.target.value)}
-            />
-            <Button onClick={addCriterion} className="gap-1">
-              <Plus className="w-4 h-4" aria-hidden="true" />
-              Add criterion
-            </Button>
-          </div>
-          {criteria.length > 0 && (
-            <p className="mt-2 text-xs text-sub">
-              Weights are relative: a weight of 2 counts twice as much as a weight of 1. Each
-              criterion shows its share of the total weight.
-            </p>
-          )}
-          {criteria.length > 0 && weightSum <= 0 && (
-            <div
-              role="alert"
-              className="mt-2 rounded border border-warning/30 bg-warning/5 px-2 py-1 text-xs text-warning"
-            >
-              Every weight is 0, so every option totals 0. Give at least one criterion a weight
-              above 0.
+      {!hydrated ? (
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading matrices…
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {matrices.some((m) => isExampleId(m.id)) && (
+            <div>
+              <ExampleNotice onClear={clearExample} />
+              <p className="-mt-2 text-xs text-sub">
+                Example: choosing a feature-flag vendor. Two options finish within 5% (a tie), and
+                one has a cell left empty, so it has no Total yet.
+              </p>
             </div>
           )}
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {criteria.map((c) => (
-              <li
-                key={c.id}
-                className="text-xs bg-surface-deep border border-border rounded px-2 py-1 flex items-center gap-1"
-              >
-                {c.name}{" "}
-                <span className="text-sub">
-                  w{c.weight} · {weightShare(c.weight, weightSum)}%
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeCriterionCascade(c.id)}
-                  className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger ml-1"
-                  aria-label={`Remove criterion ${c.name}`}
-                >
-                  <Trash2 className="w-3 h-3" aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
 
-        <SectionCard title="Options">
-          <div className="flex gap-2">
-            <Input
-              placeholder="Option name"
-              aria-label="Option name"
-              value={optionName}
-              onChange={(e) => setOptionName(e.target.value)}
-            />
-            <Button onClick={addOption} className="gap-1">
-              <Plus className="w-4 h-4" aria-hidden="true" />
-              Add option
-            </Button>
-          </div>
-        </SectionCard>
-
-        {options.length > 0 && criteria.length > 0 && (
           <SectionCard
-            title="Scoring matrix"
-            icon={PercentCircle}
+            title="Matrix"
+            icon={Scale}
             actions={
-              <>
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="weighted-decision"
-                  csvData={csvData}
-                  jsonData={{ criteria, options: ranked }}
-                  targetRef={exportRef}
-                />
-              </>
+              selected && result ? (
+                <>
+                  <AiPromptGenerator config={promptConfig} />
+                  <ExportButton
+                    filename="weighted-decision"
+                    markdown={markdown}
+                    clipboardText={markdown}
+                    csvData={csvData}
+                    jsonData={{
+                      matrix: selected,
+                      criteria: ownCriteria,
+                      options: ownOptions,
+                      result,
+                    }}
+                  />
+                </>
+              ) : undefined
             }
           >
-            <p className="mb-2 text-xs text-sub">
-              Score each option from {SCORE_MIN} (poor) to {SCORE_MAX} (excellent) on every
-              criterion. Leave a cell empty if it isn&apos;t scored yet; it adds nothing to the
-              Total.
-            </p>
-            <div className="table-wrap-responsive">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-sub uppercase">
-                    <th className="p-2">Option</th>
-                    {criteria.map((c) => (
-                      <th key={c.id} className="p-2 text-center">
-                        {c.name} <span className="text-sub">×{c.weight}</span>
-                      </th>
-                    ))}
-                    <th className="p-2 text-right">Total</th>
-                    <th className="p-2 w-10">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ranked.map((o, i) => (
-                    <tr
-                      key={o.id}
-                      className={`border-t border-border ${i === 0 ? "bg-success/5" : ""}`}
-                    >
-                      <td className="p-2">
-                        {o.name}
-                        {i === 0 && (
-                          <span className="ml-1 text-success text-xs">
-                            <span aria-hidden="true">★</span>
-                            <span className="sr-only">(top option)</span>
-                          </span>
-                        )}
-                      </td>
-                      {criteria.map((c) => {
-                        const rejected =
-                          scoreError?.optionId === o.id && scoreError.criterionId === c.id;
-                        return (
-                          <td key={c.id} className="p-1 text-center">
-                            <Input
-                              type="number"
-                              min={SCORE_MIN}
-                              max={SCORE_MAX}
-                              value={o.scores[c.id] ?? ""}
-                              // Clearing a cell used to save 0; now it removes
-                              // the score ("not scored"), and a value outside
-                              // 1–10 is refused with a message below.
-                              onChange={(e) => onScoreInput(o, c, e.target)}
-                              className="h-7 w-16 text-center text-xs"
-                              aria-label={`${c.name} score for ${o.name}`}
-                              aria-describedby={rejected ? scoreErrorId : undefined}
-                            />
-                          </td>
-                        );
-                      })}
-                      <td className="p-2 text-right font-mono">
-                        {o.score.toFixed(2)}
-                        {unscoredCount(o) > 0 && (
-                          <span className="block font-sans text-xs text-sub">
-                            {unscoredCount(o)} not scored
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            removeOption(o.id);
-                            log(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id });
-                          }}
-                          className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
-                          aria-label={`Remove option ${o.name}`}
-                        >
-                          <Trash2 className="w-4 h-4" aria-hidden="true" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {scoreError && (
-              <p id={scoreErrorId} role="alert" className="mt-2 text-xs text-danger">
-                {scoreError.text}
-              </p>
-            )}
+            <MatrixPicker
+              matrices={matrices}
+              selected={selected}
+              onSelect={select}
+              onCreate={createMatrix}
+              onRename={(m, name) => patchMatrix(m, { name })}
+              onQuestion={(m, question) => patchMatrix(m, { question: question || undefined })}
+              onDelete={deleteMatrix}
+            />
           </SectionCard>
-        )}
 
-        {chartData.length > 0 && (
-          <SectionCard title="Total score">
-            <div className="-mx-2 h-72">
-              <WeightedScoreChart data={chartData} />
-            </div>
-          </SectionCard>
-        )}
-      </div>
+          {!selected || !result ? (
+            <EmptyState
+              icon={ListChecks}
+              action={<LoadExampleButton onLoad={loadExample} className="mt-4" />}
+            >
+              No matrix yet. Create one for the decision in front of you (name it, list the criteria
+              that matter and the options), or load an example to see a scored matrix.
+            </EmptyState>
+          ) : (
+            <>
+              <SectionCard title="Criteria">
+                <CriteriaPanel
+                  criteria={ownCriteria}
+                  shares={result.criteria}
+                  weightSum={result.weightSum}
+                  onAdd={addCriterion}
+                  onPatch={patchCriterion}
+                  onDelete={deleteCriterion}
+                />
+              </SectionCard>
+
+              <SectionCard title="Options and scores" icon={PercentCircle}>
+                <MatrixTable
+                  result={result}
+                  options={ownOptions}
+                  criteria={ownCriteria}
+                  onScore={setScore}
+                  onRename={(o, name) => patchOption(o, { name })}
+                  onNote={(o, note) => patchOption(o, { note })}
+                  onDelete={deleteOption}
+                  onAdd={addOption}
+                />
+              </SectionCard>
+
+              <SectionCard title="Result">
+                <ResultCard
+                  matrix={selected}
+                  result={result}
+                  onLinksChange={setLinks}
+                  getLinks={getLinks}
+                />
+              </SectionCard>
+            </>
+          )}
+        </div>
+      )}
     </ToolPageWrapper>
   );
 }
