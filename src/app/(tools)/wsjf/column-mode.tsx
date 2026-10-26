@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ScalePicker } from "@/components/shared/scale-picker";
@@ -40,6 +40,24 @@ function standing(r: RankedRow): string {
   return `${set} of 4 parts set`;
 }
 
+/** Arrow keys move through a radio group's options and select as they go. */
+const ARROWS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+
+/**
+ * How long a value reached with the arrow keys waits for the next press
+ * before it saves (a click, Space, Enter or leaving the picker saves it
+ * at once).
+ */
+export const SETTLE_MS = 700;
+
+/** A cell picked with the arrow keys, not saved yet. */
+interface Staged {
+  row: PrioritizationItem;
+  key: WsjfKey;
+  value: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 /**
  * Column-by-column scoring: one WSJF part across every feature at a time,
  * the way a PI planning room sizes relatively ("which is the smallest?
@@ -48,18 +66,30 @@ function standing(r: RankedRow): string {
  * its four parts are set. Features stay in the order they were added, so
  * nothing moves while the column is being scored, and title-only features
  * are listed too.
+ *
+ * A radio group selects as the arrow keys move, so arrowing from 1 to 13
+ * would save five times (five history entries, five backlog Undo toasts).
+ * An arrow-key pick is staged instead (shown as picked) and saved once:
+ * on a click, Space or Enter, when focus leaves that feature's picker, or
+ * after SETTLE_MS without another press.
  */
 export const ColumnScoring = forwardRef<
   HTMLHeadingElement,
   {
     rows: readonly RankedRow[];
     column: WsjfKey;
+    /** Go to a column and take focus to its heading (Previous / Next). */
     onColumn: (key: WsjfKey) => void;
+    /** Switch the column from its radio group: focus stays in the group. */
+    onSwitch: (key: WsjfKey) => void;
     onDone: () => void;
     save: SaveCell;
     missingOne: readonly WsjfKey[];
   }
->(function ColumnScoring({ rows, column, onColumn, onDone, save, missingOne }, headingRef) {
+>(function ColumnScoring(
+  { rows, column, onColumn, onSwitch, onDone, save, missingOne },
+  headingRef
+) {
   const announce = useAnnounce();
   const stored = useWorkspaceStore((s) => s.prioritizations) ?? NO_ROWS;
   // The order the features were added in (a save keeps a row's place in
@@ -74,19 +104,68 @@ export const ColumnScoring = forwardRef<
   const blank = ordered.filter((r) => r.values[column] === undefined).length;
   const input = WSJF.inputs.find((i) => i.key === column);
 
-  const pick = (r: RankedRow, value: number | undefined) => {
-    save(r.row, column, value);
+  // Arrow-key picks waiting to save, by row id; `shown` re-renders them.
+  const staged = useRef(new Map<string, Staged>());
+  const [, shown] = useState(0);
+  // Set by a key press just before the picker reports it, read by pick.
+  const arrowed = useRef(false);
+
+  const commit = (row: PrioritizationItem, key: WsjfKey, value: number | undefined) => {
+    const held = staged.current.get(row.id);
+    if (held) {
+      clearTimeout(held.timer);
+      staged.current.delete(row.id);
+      shown((n) => n + 1);
+    }
+    save(row, key, value);
     // Read the saved row back: its score is the registry's, from the store.
-    const after = useWorkspaceStore.getState().prioritizations?.find((x) => x.id === r.row.id);
+    const after = useWorkspaceStore.getState().prioritizations?.find((x) => x.id === row.id);
     const done = after?.score !== undefined;
     announce(
       value === undefined
-        ? `${r.row.title}: ${WSJF_LABEL[column]} cleared.`
-        : `${r.row.title}: ${WSJF_LABEL[column]} ${value}.${
+        ? `${row.title}: ${WSJF_LABEL[key]} cleared.`
+        : `${row.title}: ${WSJF_LABEL[key]} ${value}.${
             done ? ` WSJF ${WSJF.format(after!.score as number)}.` : ""
           }`
     );
   };
+  const flush = (rowId: string) => {
+    const held = staged.current.get(rowId);
+    if (!held) return;
+    // Arrowed away and back to the saved value: nothing to save.
+    const now = toNumber(rows.find((r) => r.row.id === rowId)?.values[held.key]);
+    if (now !== held.value) return commit(held.row, held.key, held.value);
+    clearTimeout(held.timer);
+    staged.current.delete(rowId);
+    shown((n) => n + 1);
+  };
+  // The latest flush for the timers and the cleanups, which outlive a render.
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+
+  const pick = (r: RankedRow, value: number) => {
+    const byArrow = arrowed.current;
+    arrowed.current = false;
+    if (!byArrow) return commit(r.row, column, value);
+    const held = staged.current.get(r.row.id);
+    if (held) clearTimeout(held.timer);
+    staged.current.set(r.row.id, {
+      row: r.row,
+      key: column,
+      value,
+      timer: setTimeout(() => flushRef.current(r.row.id), SETTLE_MS),
+    });
+    shown((n) => n + 1);
+  };
+
+  // A staged cell belongs to its column: save it before the column changes,
+  // and before the stepper closes.
+  useEffect(() => {
+    const pending = staged.current;
+    return () => {
+      for (const id of Array.from(pending.keys())) flushRef.current(id);
+    };
+  }, [column]);
 
   return (
     <div className="space-y-4">
@@ -101,7 +180,9 @@ export const ColumnScoring = forwardRef<
             description: WSJF_LABEL[k],
           }))}
           value={column}
-          onValueChange={onColumn}
+          // Arrowing through the columns keeps focus in the group (the
+          // heading takes it only from Previous / Next and the hint).
+          onValueChange={onSwitch}
         />
         <h3
           ref={headingRef}
@@ -123,10 +204,26 @@ export const ColumnScoring = forwardRef<
         <legend className="sr-only">{WSJF_LABEL[column]} for each feature</legend>
         <ol className="divide-y divide-border">
           {ordered.map((r) => {
-            const n = toNumber(r.values[column]);
+            const held = staged.current.get(r.row.id);
+            const n = held?.key === column ? held.value : toNumber(r.values[column]);
             const custom = n !== undefined && !onScale(FIBONACCI_STEPS, n) ? n : null;
             return (
-              <li key={r.row.id} className="py-3">
+              // The handlers only watch the picker inside (which key picked,
+              // whether focus left it); the radios are the controls.
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+              <li
+                key={r.row.id}
+                className="py-3"
+                onKeyDownCapture={(e) => {
+                  arrowed.current = ARROWS.has(e.key);
+                }}
+                onPointerDownCapture={() => {
+                  arrowed.current = false;
+                }}
+                onBlur={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) flush(r.row.id);
+                }}
+              >
                 <ScalePicker
                   label={r.row.title}
                   steps={FIBONACCI_STEPS}
@@ -136,7 +233,7 @@ export const ColumnScoring = forwardRef<
                   // Seven steps (and a Custom) wrap as even rows of four on a phone.
                   optionsClassName="grid grid-cols-4 sm:inline-flex"
                   onValueChange={(v) => pick(r, v)}
-                  onClear={() => pick(r, undefined)}
+                  onClear={() => commit(r.row, column, undefined)}
                   hint={standing(r)}
                 />
               </li>

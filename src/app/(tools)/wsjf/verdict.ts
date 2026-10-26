@@ -1,7 +1,12 @@
 import { shortName } from "@/components/prioritization/method-tool";
 import { WSJF } from "@/lib/prioritization/methods";
 import { formatNumber, toNumber } from "@/lib/prioritization/methods/fields";
-import { WSJF_LABEL, columnsWithoutOne, type WsjfKey } from "@/lib/prioritization/methods/wsjf";
+import {
+  WSJF_JOB_SIZE_MIN,
+  WSJF_LABEL,
+  columnsWithoutOne,
+  type WsjfKey,
+} from "@/lib/prioritization/methods/wsjf";
 import type { RankedRow } from "@/lib/prioritization/rank";
 import { listAnd, plural } from "@/lib/charts/chart-text";
 
@@ -35,7 +40,9 @@ export function wsjfVerdict(rows: readonly RankedRow[]): string {
   let lead: string;
   if (top.length === 1) {
     const cod = toNumber(top[0].result.extra?.costOfDelay);
-    const size = toNumber(top[0].values.jobSize);
+    const raw = toNumber(top[0].values.jobSize);
+    // The size the registry divided by: a legacy size below 1 counts as 1.
+    const size = raw === undefined ? undefined : Math.max(WSJF_JOB_SIZE_MIN, raw);
     const why =
       cod !== undefined && size !== undefined
         ? `: cost of delay ${formatNumber(cod, 2)} ÷ job size ${formatNumber(size, 2)}`

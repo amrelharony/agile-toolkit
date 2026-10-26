@@ -39,6 +39,7 @@ vi.stubGlobal(
 );
 
 import { WsjfClient } from "@/app/(tools)/wsjf/wsjf-client";
+import { SETTLE_MS } from "@/app/(tools)/wsjf/column-mode";
 import { buildExample } from "@/app/(tools)/wsjf/example";
 import { toMarkdown } from "@/app/(tools)/wsjf/markdown";
 import { columnsMissingOne, wsjfVerdict } from "@/app/(tools)/wsjf/verdict";
@@ -134,6 +135,123 @@ describe("WSJF column-by-column scoring", () => {
     expect(screen.queryByRole("heading", { name: /Column 4 of 4/ })).toBeNull();
   });
 
+  it("arrows through the columns without pulling focus out of the group", () => {
+    useWorkspaceStore.setState({ prioritizations: [row("a", "Alpha", null)] });
+    render(<WsjfClient />);
+    const bv = radio("Column to score", "BV");
+    bv.focus();
+    fireEvent.keyDown(bv, { key: "ArrowRight" });
+    expect(screen.getByRole("heading", { name: "Column 2 of 4: Time criticality" })).toBeVisible();
+    // Focus moved to the next column's radio, not to the heading.
+    expect(radio("Column to score", "TC")).toHaveFocus();
+    expect(radio("Column to score", "TC")).toHaveAttribute("aria-checked", "true");
+    // Previous / Next still take focus to the heading.
+    fireEvent.click(screen.getByRole("button", { name: "Next column" }));
+    expect(
+      screen.getByRole("heading", {
+        name: "Column 3 of 4: Risk reduction / opportunity enablement",
+      })
+    ).toHaveFocus();
+  });
+
+  describe("arrow-key picks", () => {
+    const saves = () => {
+      let n = 0;
+      const stop = useWorkspaceStore.subscribe((s, p) => {
+        if (s.prioritizations !== p.prioritizations) n += 1;
+      });
+      return { count: () => n, stop };
+    };
+    const arrowTo = (title: string, from: string, presses: number) => {
+      let at = radio(title, from);
+      at.focus();
+      for (let i = 0; i < presses; i++) {
+        fireEvent.keyDown(at, { key: "ArrowRight" });
+        at = document.activeElement as HTMLElement;
+      }
+      return at;
+    };
+
+    it("stage while arrowing and save once on Space or Enter (the radio's click)", () => {
+      useWorkspaceStore.setState({ prioritizations: [row("a", "Alpha", null)] });
+      render(<WsjfClient />);
+      const s = saves();
+      const at = arrowTo("Alpha", "1", 3);
+      // 1 → 2 → 3 → 5: shown as picked, nothing saved yet.
+      expect(at).toHaveAccessibleName("5");
+      expect(at).toHaveAttribute("aria-checked", "true");
+      expect(s.count()).toBe(0);
+      expect(stored("a")!.fields).toEqual({});
+      fireEvent.click(at);
+      expect(s.count()).toBe(1);
+      expect(stored("a")!.fields).toEqual({ businessValue: 5 });
+      s.stop();
+    });
+
+    it("save once when focus leaves the feature's picker", () => {
+      useWorkspaceStore.setState({
+        prioritizations: [row("a", "Alpha", null), row("b", "Beta", null)],
+      });
+      render(<WsjfClient />);
+      const s = saves();
+      arrowTo("Alpha", "1", 4);
+      expect(s.count()).toBe(0);
+      radio("Beta", "1").focus();
+      expect(s.count()).toBe(1);
+      expect(stored("a")!.fields).toEqual({ businessValue: 8 });
+      expect(stored("b")!.fields).toEqual({});
+      s.stop();
+    });
+
+    it("save once after a pause, and not at all when arrowed back to the saved value", () => {
+      vi.useFakeTimers();
+      try {
+        useWorkspaceStore.setState({ prioritizations: [row("a", "Alpha", [3, 1, 1, 1])] });
+        render(<WsjfClient />);
+        fireEvent.click(screen.getAllByRole("button", { name: "Score by column" })[0]);
+        const s = saves();
+        arrowTo("Alpha", "3", 2);
+        act(() => vi.advanceTimersByTime(SETTLE_MS - 1));
+        expect(s.count()).toBe(0);
+        act(() => vi.advanceTimersByTime(1));
+        expect(s.count()).toBe(1);
+        expect(stored("a")!.fields).toMatchObject({ businessValue: 8 });
+
+        // 8 → 13 → back to 8: nothing to save.
+        let at = radio("Alpha", "8");
+        at.focus();
+        fireEvent.keyDown(at, { key: "ArrowRight" });
+        at = document.activeElement as HTMLElement;
+        fireEvent.keyDown(at, { key: "ArrowLeft" });
+        act(() => vi.advanceTimersByTime(SETTLE_MS));
+        expect(s.count()).toBe(1);
+        s.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it("hands focus to Score by column after Done, and reopens for a feature added later", () => {
+    useWorkspaceStore.setState({ prioritizations: [row("a", "Alpha", [8, 5, 3, 2])] });
+    render(<WsjfClient />);
+    // Nothing is blank, so the stepper starts closed.
+    expect(screen.queryByRole("heading", { name: /^Column \d of 4/ })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Score by column" })[0]);
+    for (let i = 0; i < 3; i++)
+      fireEvent.click(screen.getByRole("button", { name: "Next column" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getAllByRole("button", { name: "Score by column" })[0]).toHaveFocus();
+
+    fireEvent.change(screen.getByLabelText(FEATURE), { target: { value: "Beta" } });
+    fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
+    const heading = screen.getByRole("heading", { name: "Column 1 of 4: Business value" });
+    expect(heading).toBeVisible();
+    // It opens without taking focus from where the user is.
+    expect(heading).not.toHaveFocus();
+    expect(radio("Beta", "1")).toBeInTheDocument();
+  });
+
   it("clears one cell back to Not scored", () => {
     useWorkspaceStore.setState({ prioritizations: [row("a", "Alpha", [8, 5, 3, 2])] });
     render(<WsjfClient />);
@@ -163,6 +281,19 @@ describe("WSJF relative hint", () => {
     expect(screen.getByRole("heading", { name: "Column 1 of 4: Business value" })).toHaveFocus();
     pick("Alpha", "1");
     expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("wraps the long RR/OE hint button instead of widening a phone's page", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [row("a", "Alpha", [1, 1, 8, 1]), row("b", "Beta", [1, 1, 3, 2])],
+    });
+    render(<WsjfClient />);
+    const button = within(screen.getByRole("note")).getByRole("button", {
+      name: "Score Risk reduction / opportunity enablement by column",
+    });
+    expect(button.className).toContain("whitespace-normal");
+    expect(button.className).not.toContain("whitespace-nowrap");
+    expect(button.className).toContain("max-w-full");
   });
 
   it("waits for two scored values in a column", () => {
@@ -211,6 +342,13 @@ describe("WSJF scale and floor", () => {
     ).toBeInTheDocument();
     expect(listItems()[0]).toHaveTextContent("6.00");
     expect(listItems()[1]).toHaveTextContent("Not scored");
+    // The verdict divides by the size the score used (1), not the stored 0.5.
+    expect(
+      screen.getByText(/^Do first: “Half” \(WSJF 6\.00: cost of delay 6 ÷ job size 1\)\./)
+    ).toBeInTheDocument();
+    expect(wsjfVerdict(rankMethodRows("wsjf", [row("a", "Half", [3, 2, 1, 0.5])]))).toBe(
+      "Do first: “Half” (WSJF 6.00: cost of delay 6 ÷ job size 1)."
+    );
   });
 
   it("refuses a job size below 1 typed into the editor's Custom only by keeping what is held", () => {

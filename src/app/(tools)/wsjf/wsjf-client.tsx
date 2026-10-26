@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Columns3, PiSquare } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import {
   MethodTool,
   shortName,
@@ -77,31 +78,66 @@ function firstBlankColumn(rows: readonly RankedRow[]): WsjfKey | null {
   return WSJF_KEYS.find((k) => rows.some((r) => r.values[k] === undefined)) ?? null;
 }
 
+/** Whether a feature still misses a part (what column scoring is for). */
+const hasBlank = (r: RankedRow) => WSJF_KEYS.some((k) => r.values[k] === undefined);
+
 /**
  * Under the list: the relative-scoring hint, column-by-column scoring and
  * the top-10 chart. Column scoring opens on its own while some feature is
- * missing a part (a title-only add waits there), and the hint's buttons
- * open it on the column that has no 1.
+ * missing a part (a title-only add waits there, also one added after the
+ * stepper was closed), and the hint's buttons open it on the column that
+ * has no 1.
  */
 function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
   const actions = useMethodActions(WSJF_TOOL);
+  const announce = useAnnounce();
   const [column, setColumn] = useState<WsjfKey | null>(() => firstBlankColumn(rows));
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const moved = useRef(false);
+  const startRef = useRef<HTMLButtonElement>(null);
+  // Where focus goes once the column change renders: the column's heading
+  // (a hint button, Previous / Next) or, after Done, the button that
+  // reopens the stepper. Null: it stays where it is.
+  const moved = useRef<"heading" | "start" | null>(null);
   const missingOne = columnsMissingOne(rows);
 
   const open = (key: WsjfKey) => {
-    moved.current = true;
+    moved.current = "heading";
     setColumn(key);
   };
+  const done = () => {
+    moved.current = "start";
+    setColumn(null);
+  };
   // A column picked from a button or the stepper takes focus to its
-  // heading, so the keyboard user lands on the column they asked for.
+  // heading, so the keyboard user lands on the column they asked for; Done
+  // hands it to "Score by column", never to the page.
   useEffect(() => {
-    if (!moved.current || column === null) return;
-    moved.current = false;
-    headingRef.current?.scrollIntoView?.({ block: "nearest" });
-    headingRef.current?.focus();
+    const to = moved.current;
+    moved.current = null;
+    if (to === "heading" && column !== null) {
+      headingRef.current?.scrollIntoView?.({ block: "nearest" });
+      headingRef.current?.focus();
+    } else if (to === "start" && column === null) {
+      startRef.current?.focus();
+    }
   }, [column]);
+
+  // A feature added with a part missing waits in column scoring: open it
+  // (focus stays on the add form) and say where it is. The rows on screen
+  // when the panel mounts are not news.
+  const seen = useRef(new Set(rows.map((r) => r.row.id)));
+  useEffect(() => {
+    const fresh = rows.filter((r) => !seen.current.has(r.row.id));
+    for (const r of fresh) seen.current.add(r.row.id);
+    const waiting = fresh.filter(hasBlank);
+    if (waiting.length === 0) return;
+    setColumn((c) => c ?? firstBlankColumn(rows));
+    announce(
+      waiting.length === 1
+        ? `“${shortName(waiting[0].row.title)}” waits in Score by column, below the list.`
+        : `${waiting.length} features wait in Score by column, below the list.`
+    );
+  }, [rows, announce]);
 
   const save: SaveCell = (row, key, value) =>
     actions.save(row.id, { title: row.title, [key]: value });
@@ -120,7 +156,16 @@ function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
           <p>{relativeHint(missingOne)}</p>
           <div className="flex flex-wrap gap-2">
             {missingOne.map((k) => (
-              <Button key={k} type="button" variant="outline" size="sm" onClick={() => open(k)}>
+              <Button
+                key={k}
+                type="button"
+                variant="outline"
+                size="sm"
+                // A part's full name (55 characters for RR/OE) is wider than a
+                // phone: the label wraps inside the button instead.
+                className="h-auto max-w-full whitespace-normal py-1.5 text-left md:h-auto"
+                onClick={() => open(k)}
+              >
                 Score {WSJF_LABEL[k]} by column
               </Button>
             ))}
@@ -135,7 +180,13 @@ function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
               Score one part across every feature at a time: find the smallest, give it a 1, and
               size the others against it.
             </p>
-            <Button type="button" variant="toolkit" size="sm" onClick={() => open(WSJF_KEYS[0])}>
+            <Button
+              ref={startRef}
+              type="button"
+              variant="toolkit"
+              size="sm"
+              onClick={() => open(WSJF_KEYS[0])}
+            >
               Score by column
             </Button>
           </div>
@@ -145,7 +196,8 @@ function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
             rows={rows}
             column={column}
             onColumn={open}
-            onDone={() => setColumn(null)}
+            onSwitch={setColumn}
+            onDone={done}
             save={save}
             missingOne={missingOne}
           />
