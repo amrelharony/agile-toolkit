@@ -1,6 +1,6 @@
 "use client";
 
-import { MethodInputs } from "@/components/prioritization/method-inputs";
+import { MethodInputControl, MethodInputs } from "@/components/prioritization/method-inputs";
 import type { MethodInputsSlotProps } from "@/components/prioritization/method-tool";
 import { cn } from "@/lib/utils";
 import { formatNumber, toChoice, toNumber } from "@/lib/prioritization/methods/fields";
@@ -32,6 +32,7 @@ export function CodInputs({ method, draft, update, errors, custom, size }: Metho
       ? formatNumber(cd3(perWeek, duration), 2)
       : null;
   const common = { method, draft, update, errors, custom, size, labels: LABELS };
+  const fixedDate = method.inputs.find((i) => i.key === "fixedDate");
   return (
     <div className="space-y-4">
       <div>
@@ -50,9 +51,19 @@ export function CodInputs({ method, draft, update, errors, custom, size }: Metho
         <MethodInputs {...common} only={["urgency"]} />
         {urgency && <p className="mt-1 text-xs text-text">{COD_URGENCY_MEANING[urgency]}</p>}
       </div>
-      {/* Needed only for a fixed date (the registry's validate asks for it then). */}
-      {urgency === "fixed_date" && (
-        <MethodInputs {...common} only={["fixedDate"]} className="sm:max-w-xs" />
+      {/* Needed only for a fixed date (the registry's validate asks for it
+          then), so it's marked required here although the method lists it
+          as optional for the other profiles. */}
+      {urgency === "fixed_date" && fixedDate && (
+        <div className="sm:max-w-xs">
+          <MethodInputControl
+            input={{ ...fixedDate, optional: false }}
+            value={draft.fixedDate}
+            error={errors.fixedDate}
+            size={size}
+            onChange={(v) => update({ fixedDate: v })}
+          />
+        </div>
       )}
     </div>
   );

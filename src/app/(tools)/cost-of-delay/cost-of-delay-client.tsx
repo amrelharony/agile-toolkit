@@ -159,7 +159,8 @@ export const COD_TOOL: MethodToolConfig = {
           r.row.title,
           r.values.perWeekUsd ?? "",
           r.values.durationWeeks ?? "",
-          r.result.score === null ? "" : COST_OF_DELAY.format(r.result.score),
+          // A number, rounded as on screen: "4,000" would import as text.
+          r.result.score === null ? "" : Math.round(r.result.score * 100) / 100,
           start?.fixedDate ?? "",
           start?.latestStart ?? "",
         ];

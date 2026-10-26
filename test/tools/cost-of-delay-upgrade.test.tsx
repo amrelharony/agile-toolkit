@@ -40,7 +40,7 @@ vi.stubGlobal(
   }
 );
 
-import { CostOfDelayClient } from "@/app/(tools)/cost-of-delay/cost-of-delay-client";
+import { COD_TOOL, CostOfDelayClient } from "@/app/(tools)/cost-of-delay/cost-of-delay-client";
 import { buildExample } from "@/app/(tools)/cost-of-delay/example";
 import { toMarkdown } from "@/app/(tools)/cost-of-delay/markdown";
 import { codVerdict } from "@/app/(tools)/cost-of-delay/verdict";
@@ -158,6 +158,8 @@ describe("Cost of Delay form", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Fixed date" }));
     add();
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the date it must land by.");
+    // Required for this profile, visibly and to assistive tech.
+    expect(screen.getByLabelText(/Date it must land by/)).toBeRequired();
     type(/Date it must land by/, "2026-12-08");
     add();
     expect(rows()[0].fields).toMatchObject({ urgency: "fixed_date", fixedDate: "2026-12-08" });
@@ -309,6 +311,17 @@ describe("Cost of Delay example, export and the hub", () => {
     expect(md).toContain("## Intangible: by CD3 (1)");
     expect(md).toContain("Waiting costs $91,000 per week across 6 scored initiatives.");
     expect(md).toContain("**Expedite “Fix the double-charge bug” now.");
+  });
+
+  it("writes the CSV's CD3 as a number, not thousands-separated text", () => {
+    const csv = COD_TOOL.csv!(
+      rankMethodRows("cost-of-delay", [
+        scored("s", 12000, 3, "standard"),
+        scored("t", 1000, 3, "standard"),
+        row("old", "Old", { perWeekUsd: 500, weeksDelayed: 4, totalCost: 2000 }),
+      ])
+    );
+    expect(csv.rows.map((r) => r[4])).toEqual([4000, 333.33, ""]);
   });
 
   it("gives the hub the row's CD3 and lane for a linked item", () => {
