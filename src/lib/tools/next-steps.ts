@@ -1954,11 +1954,12 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "one-on-one": rule({
-    select: (ws) => ({ members: ws.teamMembers, mood: ws.moodEntries }),
-    steps: ({ members, mood }) => {
+    select: (ws) => ({ members: ws.teamMembers, mood: ws.moodEntries, pulses: ws.moodPulses }),
+    steps: ({ members, mood, pulses }) => {
       const steps: NextStep[] = [];
       const today = todayIso();
-      const week = moodDuring(mood, addDays(today, -6) ?? today, today);
+      // Anonymous pulse answers count as check-ins, as on the Mood Tracker.
+      const week = moodDuring(mood, addDays(today, -6) ?? today, today, pulses);
       if (week.average !== null && week.average <= LOW_MOOD) {
         steps.push({
           id: "one-on-one-mood",

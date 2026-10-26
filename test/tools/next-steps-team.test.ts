@@ -611,6 +611,24 @@ describe("one-on-one", () => {
     ]);
   });
 
+  it("counts anonymous pulse answers as check-ins, as the Mood Tracker does", () => {
+    const pulse: MoodPulse = {
+      id: "p1",
+      date: "2026-10-23",
+      counts: { 1: 1, 2: 2, 3: 0, 4: 0, 5: 0 },
+      source: "room",
+      createdAt: "2026-10-23T12:00:00.000Z",
+    };
+    expect(
+      steps("one-on-one", { teamMembers: TEAM, moodEntries: [], moodPulses: [pulse] })
+    ).toEqual([
+      expect.objectContaining({
+        id: "one-on-one-mood",
+        detail: "3 mood check-ins this week average 1.7 out of 5.",
+      }),
+    ]);
+  });
+
   it("needs three real check-ins, and asks for the team without a roster", () => {
     const few = [mood("a", "2026-10-21", 1), mood("b", "2026-10-23", 1)];
     expect(ids("one-on-one", { teamMembers: TEAM, moodEntries: few })).toEqual([]);
