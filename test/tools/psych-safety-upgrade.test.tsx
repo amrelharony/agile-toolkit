@@ -207,6 +207,10 @@ describe("the instrument", () => {
     expect(rounds[0].counts.q1).toEqual([0, 0, 1, 1, 0]);
     expect(JSON.stringify(rounds[0])).not.toMatch(/Ana|Ben|Notes/);
     expect(countsFromAnswers([{ q1: 9 }, { q1: Number.NaN }]).q1).toEqual([0, 0, 0, 0, 1]);
+    // Reading never moves or empties the list: only deleting the legacy round does.
+    expect(log.responses).toHaveLength(2);
+    expect(roundsOf(log).map((r) => r.id)).toEqual([LEGACY_ROUND_ID, "r1"]);
+    expect(withoutRound(log, "r1")?.responses).toHaveLength(2);
     expect(withoutRound(log, LEGACY_ROUND_ID)?.responses).toEqual([]);
     expect(withoutRound(log, "nope")).toBeNull();
   });
@@ -354,6 +358,8 @@ describe("the page", () => {
     expect(
       screen.queryByRole("textbox", { name: /Name of the round Earlier responses/ })
     ).toBeNull();
+    // Showing it leaves the stored sheets as they are.
+    expect(stored()!.responses).toHaveLength(5);
 
     fireEvent.click(screen.getByRole("button", { name: "Delete the round Earlier responses" }));
     expect(stored()!.responses).toEqual([]);

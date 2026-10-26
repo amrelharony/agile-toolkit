@@ -2322,8 +2322,11 @@ export interface PsychSafetyRound {
 
 export interface PsychSafetyLog {
   id: string;
-  /** The per-response list from before rounds: read once into a "legacy"
-   *  round, then emptied. New answers are kept only as `rounds`. */
+  /** The per-response list from before rounds. Nothing moves it into
+   *  `rounds`: `roundsOf` reads it, counts only, as one read-only "legacy"
+   *  round, and it is emptied only when the team deletes that round (the
+   *  deprecated tool.psych_safety.remove_response still drops one sheet).
+   *  New answers are kept only as `rounds`. */
   responses: PsychSafetyResponse[];
   /** Saved rounds, oldest first. */
   rounds?: PsychSafetyRound[];
