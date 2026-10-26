@@ -42,7 +42,6 @@ import {
   type TeamMember,
 } from "@/lib/stores/workspace-types";
 import { findRosterMember, nameKey } from "@/lib/team/names";
-import { isIsoDate } from "@/lib/sprints/calendar";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import {
   SKILLS_MATRIX_ID,
@@ -66,6 +65,7 @@ import {
   skillsVerdict,
   suggestCrossTraining,
   targetPeopleError,
+  trainingDoneError,
   trainingError,
   trainingReached,
   withRating,
@@ -127,7 +127,10 @@ type Result = Record<string, unknown>;
 
 /**
  * Change the matrix with `fn` (no `doc` writes nothing). Like the page, the
- * write upgrades an older doc and re-keys people matched to the roster.
+ * write upgrades an older doc and re-keys people matched to the roster
+ * before `fn` runs, so a change lands on the cells list_state shows (a
+ * cleared roster cell isn't refilled from the legacy one). `columns` still
+ * name the legacy ids, so an agent passing one is understood.
  */
 async function update(
   store: SkillsStore,
@@ -138,11 +141,8 @@ async function update(
   ) => { doc?: SkillsMatrix; result: Result }
 ): Promise<Result> {
   const { doc, columns, roster } = await load(store);
-  const out = fn(doc, columns, roster);
-  if (out.doc) {
-    const next = rekeyToRoster(out.doc, columns);
-    await store.putDoc({ ...next, id: SKILLS_MATRIX_ID, version: 2 });
-  }
+  const out = fn(rekeyToRoster(doc, columns), columns, roster);
+  if (out.doc) await store.putDoc({ ...out.doc, id: SKILLS_MATRIX_ID, version: 2 });
   return out.result;
 }
 
@@ -186,6 +186,7 @@ function summarize(
     spofCount: counts.spofs,
     belowTargetCount: counts.belowTarget,
     unratedCount: counts.unrated,
+    notRatedYetCount: counts.notRatedYet,
     verdict: skillsVerdict(coverage, columns),
     suggestions: suggestCrossTraining(doc, columns, coverage).map((s) => ({
       ...s,
@@ -235,7 +236,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the skills matrix, counted as the page counts it. People are the Team page roster plus any matrix-only people from before it (onRoster false). A person is capable from Intermediate (2); a gap is a skill nobody is capable at, a single point of failure (spof) one exactly one person is capable at; Not rated (null) never counts. Returns {exists, columns: {id, name, onRoster}[], members (matrix-only people), skills: {id, name, description, targetPeople (null = no target), targetLevel (2|3|4)}[], grid (skillId -> column id -> level 0-4, null = Not rated), coverage: {skillId, name, capable, holders, holderIds, atTarget, target, targetLevel, unrated, gap, spof, meetsTarget (null without a target), listedBy (roster ids whose Team page skills name it)}[], gapCount, spofCount, belowTargetCount, unratedCount, verdict (the page's sentence), suggestions: {skillId, skill, learnerId, learner, mentorId?, mentor, toLevel, from, reason ('gap'|'spof'|'below-target')}[], training: {id, skillId, skill, learnerId, learner, mentorId, mentor, toLevel, createdAt, due, overdue, doneAt, reached}[], rosterSkillsMissing (skills on the Team page with no row), analysis (deprecated: {skillId, name, proficient, advanced, isGap, isSPOF, isBusFactor}), busFactorCount (deprecated, = spofCount), overallCoverage (deprecated: % of cells rated above None)}.",
+    "Summarise the skills matrix, counted as the page counts it. People are the Team page roster plus any matrix-only people from before it (onRoster false). A person is capable from Intermediate (2); a gap is a skill nobody rated is capable at, a single point of failure (spof) one exactly one person is capable at; Not rated (null) never counts, and a skill nobody is rated in yet (notRatedYet) is neither a gap nor below target. Returns {exists, columns: {id, name, onRoster}[], members (matrix-only people), skills: {id, name, description, targetPeople (null = no target), targetLevel (2|3|4)}[], grid (skillId -> column id -> level 0-4, null = Not rated), coverage: {skillId, name, capable, holders, holderIds, atTarget, target, targetLevel, unrated, notRatedYet, gap, spof, meetsTarget (null without a target or while not rated yet), listedBy (roster ids whose Team page skills name it)}[], gapCount, spofCount, belowTargetCount, unratedCount, notRatedYetCount (skills nobody is rated in), verdict (the page's sentence), suggestions: {skillId, skill, learnerId, learner, mentorId?, mentor, toLevel, from, reason ('gap'|'spof'|'below-target')}[], training: {id, skillId, skill, learnerId, learner, mentorId, mentor, toLevel, createdAt, due, overdue, doneAt, reached}[], rosterSkillsMissing (skills on the Team page with no row), analysis (deprecated: {skillId, name, proficient, advanced, isGap, isSPOF, isBusFactor}), busFactorCount (deprecated, = spofCount), overallCoverage (deprecated: % of cells rated above None)}.",
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
@@ -549,8 +550,9 @@ async function completeTraining(store: SkillsStore, p: z.infer<typeof CompletePa
       };
     }
     const on = p.on ?? today;
-    if (!isIsoDate(on) || on > today) {
-      return { result: { done: false as const, reason: "invalid_day" as const } };
+    const error = trainingDoneError(on, today);
+    if (error) {
+      return { result: { done: false as const, reason: "invalid_day" as const, message: error } };
     }
     return {
       doc: withTrainingPatch(doc, p.id, { doneAt: on }),
@@ -566,7 +568,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Mark a training pair done on a day (default today, never in the future), or reopen it with reopen: true. Done is never set automatically when the rating reaches the level; `reached` says whether it has. Returns {done: false, reason: 'not_found' | 'invalid_day'}, {done: false, reopened: true} or {done: true, doneAt, reached}.",
+    "Mark a training pair done on a day (default today, never in the future), or reopen it with reopen: true. Done is never set automatically when the rating reaches the level; `reached` says whether it has. Returns {done: false, reason: 'not_found' | 'invalid_day', message?}, {done: false, reopened: true} or {done: true, doneAt, reached}.",
   paramsSchema: CompleteParams,
   handler: async (params) => completeTraining(browserStore, params),
   mcpHandler: async (params, ctx) => completeTraining(serverStore(ctx.userId), params),

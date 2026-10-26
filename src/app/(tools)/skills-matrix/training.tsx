@@ -8,12 +8,14 @@ import { Input } from "@/components/ui/input";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { PersonPicker } from "@/components/team/person-picker";
 import { findRosterMember } from "@/lib/team/names";
+import { isIsoDate } from "@/lib/sprints/calendar";
 import type { Validation } from "@/lib/utils/form";
 import type { SkillsMatrix, SkillsTrainingPair } from "@/lib/stores/workspace-types";
 import {
   TARGET_LEVELS,
   isTargetLevel,
   proficiencyName,
+  trainingDoneError,
   trainingError,
   trainingReached,
   type NewTrainingPair,
@@ -22,6 +24,7 @@ import {
   type SkillTargetLevel,
   type TrainingSuggestion,
 } from "@/lib/skills/coverage";
+import { DayInput } from "../maturity/day-input";
 
 export interface PairDraft {
   skillId: string;
@@ -92,12 +95,60 @@ const REASON: Record<TrainingSuggestion["reason"], string> = {
   "below-target": "it's below its target",
 };
 
+/** Why a due day can't be saved in place, or null: a real day, or empty for none. */
+export const dueDayError = (day: string): string | null =>
+  day === "" || isIsoDate(day) ? null : "Pick a real day, or leave it empty.";
+
 export interface TrainingHandlers {
   onAddSuggestion: (s: TrainingSuggestion) => void;
   onAdd: (values: NewTrainingPair) => void;
   onDone: (pair: SkillsTrainingPair, done: boolean) => void;
+  /** Move the day a done pair was finished (backdating it). */
+  onDoneDay: (pair: SkillsTrainingPair, day: string) => void;
   onDue: (pair: SkillsTrainingPair, due: string) => void;
   onRemove: (pair: SkillsTrainingPair) => void;
+}
+
+/**
+ * The example's people as a plain choice: PersonPicker suggests and checks
+ * the real Team page roster, which the example's pairs can't use.
+ */
+function ColumnSelect({
+  label,
+  value,
+  columns,
+  onChange,
+  error,
+  required,
+  emptyLabel,
+}: {
+  label: string;
+  value: string;
+  columns: readonly SkillColumn[];
+  onChange: (name: string) => void;
+  error?: string;
+  required?: boolean;
+  emptyLabel: string;
+}) {
+  return (
+    <Field label={label} error={error} required={required}>
+      {(props) => (
+        <select
+          {...props}
+          className={SELECT_CLASS}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">{emptyLabel}</option>
+          {columns.map((c) => (
+            <option key={c.id} value={c.name}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </Field>
+  );
 }
 
 /**
@@ -151,7 +202,19 @@ export function TrainingPlan({
               · {p.mentorId ? `with ${nameOf(p.mentorId)}` : "outside help"}
             </span>
           </p>
-          {p.doneAt && <p className="text-xs text-sub">Done on {p.doneAt}</p>}
+          {p.doneAt && (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-sub">
+              <span aria-hidden="true">Done on</span>
+              <DayInput
+                label={`Day ${learner} finished learning ${skill}`}
+                value={p.doneAt}
+                max={today}
+                validate={(day) => trainingDoneError(day, today)}
+                onCommit={(day) => handlers.onDoneDay(p, day)}
+                inputClassName="h-8 w-40"
+              />
+            </div>
+          )}
           {overdue && <p className="text-xs text-warning">Overdue since {p.due}</p>}
           {reached && (
             <p className="text-xs text-success">
@@ -161,12 +224,12 @@ export function TrainingPlan({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!p.doneAt && (
-            <Input
-              type="date"
-              aria-label={`Due day for ${learner} learning ${skill}`}
-              className="h-8 w-40"
+            <DayInput
+              label={`Due day for ${learner} learning ${skill}`}
               value={p.due ?? ""}
-              onChange={(e) => handlers.onDue(p, e.target.value)}
+              validate={dueDayError}
+              onCommit={(day) => handlers.onDue(p, day)}
+              inputClassName="h-8 w-40"
             />
           )}
           {p.doneAt ? (
@@ -279,22 +342,44 @@ export function TrainingPlan({
                 </select>
               )}
             </Field>
-            <PersonPicker
-              label="Learner"
-              required
-              value={draft.learner}
-              onChange={(learner) => update({ learner })}
-              error={errors.learner}
-              offerAddToRoster={!preview}
-            />
-            <PersonPicker
-              label="Mentor"
-              value={draft.mentor}
-              onChange={(mentor) => update({ mentor })}
-              error={errors.mentor}
-              hint="Empty: outside help"
-              offerAddToRoster={!preview}
-            />
+            {preview ? (
+              <>
+                <ColumnSelect
+                  label="Learner"
+                  required
+                  value={draft.learner}
+                  columns={columns}
+                  onChange={(learner) => update({ learner })}
+                  error={errors.learner}
+                  emptyLabel="Pick who learns it"
+                />
+                <ColumnSelect
+                  label="Mentor"
+                  value={draft.mentor}
+                  columns={columns}
+                  onChange={(mentor) => update({ mentor })}
+                  error={errors.mentor}
+                  emptyLabel="Outside help"
+                />
+              </>
+            ) : (
+              <>
+                <PersonPicker
+                  label="Learner"
+                  required
+                  value={draft.learner}
+                  onChange={(learner) => update({ learner })}
+                  error={errors.learner}
+                />
+                <PersonPicker
+                  label="Mentor"
+                  value={draft.mentor}
+                  onChange={(mentor) => update({ mentor })}
+                  error={errors.mentor}
+                  hint="Empty: outside help"
+                />
+              </>
+            )}
             <Field label="Up to" error={errors.toLevel}>
               {(props) => (
                 <select

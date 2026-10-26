@@ -286,6 +286,12 @@ describe("tool.skills_matrix lifecycle", () => {
     expect(await run("complete_training", { id: pair.id, on: "2999-01-01" })).toEqual({
       done: false,
       reason: "invalid_day",
+      message: "It can't be done in the future.",
+    });
+    // An impossible day is refused by the same rule as the page's "Done on" field.
+    expect(await run("complete_training", { id: pair.id, on: "2026-02-30" })).toMatchObject({
+      done: false,
+      message: "Pick a real day.",
     });
     expect(await run("complete_training", { id: pair.id, on: "2026-10-01" })).toEqual({
       done: true,

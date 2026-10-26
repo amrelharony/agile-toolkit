@@ -14,7 +14,8 @@
  *     one Intermediate person a skill really hung on was never flagged.
  *   - Not rated is not None. A missing cell is Not rated and never counts;
  *     0 is a deliberate None. Older matrices wrote 0 into every new cell,
- *     so on a doc without `version: 2` a stored 0 reads as Not rated.
+ *     so on a doc without `version: 2` a stored 0 reads as Not rated. A
+ *     skill nobody is rated in yet is "not rated yet", never a gap.
  *
  * People are the Team page roster (`TeamMember.id` columns). A matrix from
  * before the roster kept its own people (`members`): one whose name matches
@@ -185,11 +186,17 @@ export interface SkillCoverage {
   targetLevel: SkillTargetLevel;
   /** People not rated in this skill yet: the counts are "so far". */
   unrated: number;
-  /** Nobody is capable. */
+  /**
+   * Nobody is rated in the skill yet (or there is nobody to rate): it is
+   * neither a gap nor below target, just unknown. A new skill used to show
+   * the red "Gap" badge and count in the Gaps stat before anyone looked.
+   */
+  notRatedYet: boolean;
+  /** Nobody is capable, among the people rated. */
   gap: boolean;
   /** Exactly one person is capable: the skill hangs on them. */
   spof: boolean;
-  /** Null without a target. */
+  /** Null without a target, or while nobody is rated. */
   meetsTarget: boolean | null;
   /** Roster ids whose Team page skills name this skill. */
   listedBy: string[];
@@ -211,6 +218,8 @@ export function skillCoverage(
       )
       .sort((a, b) => b.level - a.level || a.column.name.localeCompare(b.column.name));
     const atTarget = rated.filter((r) => (r.level ?? -1) >= targetLevel).length;
+    const unrated = rated.filter((r) => r.level === null).length;
+    const notRatedYet = unrated === rated.length;
     const key = nameKey(skill.name);
     return {
       skillId: skill.id,
@@ -221,10 +230,11 @@ export function skillCoverage(
       atTarget,
       target,
       targetLevel,
-      unrated: rated.filter((r) => r.level === null).length,
-      gap: holders.length === 0,
+      unrated,
+      notRatedYet,
+      gap: !notRatedYet && holders.length === 0,
       spof: holders.length === 1,
-      meetsTarget: target === null ? null : atTarget >= target,
+      meetsTarget: target === null || notRatedYet ? null : atTarget >= target,
       listedBy: roster
         .filter((m) => (m.skills ?? []).some((s) => nameKey(s) === key))
         .map((m) => m.id),
@@ -246,10 +256,12 @@ export interface CoverageCounts {
   belowTarget: number;
   /** Skills with a target they meet. */
   atTarget: number;
-  /** Skills with a target. */
+  /** Skills with a target (rated or not: atTarget + belowTarget are the rated ones). */
   withTarget: number;
   /** Cells nobody has rated, across the matrix. */
   unrated: number;
+  /** Skills nobody is rated in yet. */
+  notRatedYet: number;
 }
 
 export function coverageCounts(coverage: readonly SkillCoverage[]): CoverageCounts {
@@ -261,6 +273,7 @@ export function coverageCounts(coverage: readonly SkillCoverage[]): CoverageCoun
     atTarget: coverage.filter((c) => c.meetsTarget === true).length,
     withTarget: coverage.filter((c) => c.target !== null).length,
     unrated: coverage.reduce((n, c) => n + c.unrated, 0),
+    notRatedYet: coverage.filter((c) => c.notRatedYet).length,
   };
 }
 
@@ -526,6 +539,10 @@ export function normalizeSkillsMatrix(
  * Move the ratings of legacy members matched to roster members by name
  * onto the roster ids (a rating the roster id already has wins), point
  * their training pairs at the roster ids, and drop them from `members`.
+ *
+ * Writers re-key before they apply a change, never after: a cell cleared
+ * on the roster id would otherwise be filled again from the legacy cell
+ * it was read from, and the Clear would be lost.
  */
 export function rekeyToRoster(doc: SkillsMatrix, columns: readonly SkillColumn[]): SkillsMatrix {
   const alias = new Map<string, string>();
@@ -834,6 +851,14 @@ export function newTrainingPair(
   };
 }
 
+/** Why a pair can't be marked done on `day`, or null: a real day, not after today. */
+export function trainingDoneError(day: string, today: string): string | null {
+  if (!day.trim()) return "Pick the day it was done.";
+  if (!isIsoDate(day)) return "Pick a real day.";
+  if (day.slice(0, 10) > today) return "It can't be done in the future.";
+  return null;
+}
+
 export function withTraining(doc: SkillsMatrix, pair: SkillsTrainingPair): SkillsMatrix {
   if ((doc.training ?? []).some((p) => p.id === pair.id)) return doc;
   return { ...doc, training: [...(doc.training ?? []), pair] };
@@ -911,17 +936,27 @@ export function skillsVerdict(
       `${skillsWord(gaps)} ${gaps === 1 ? "has" : "have"} nobody at Intermediate or above`
     );
   }
-  const withTarget = coverage.filter((c) => c.target !== null);
+  // A skill nobody is rated in yet can't meet its target or miss it.
+  const withTarget = coverage.filter((c) => c.meetsTarget !== null);
   if (withTarget.length > 0) {
     const met = withTarget.filter((c) => c.meetsTarget).length;
     parts.push(`${met} of ${skillsWord(withTarget.length)} meet their target`);
   }
+  const unratedSkills = coverage.filter((c) => c.notRatedYet).length;
   if (parts.length === 0 || (spofs.length === 0 && gaps === 0)) {
+    const ratedSkills = coverage.length - unratedSkills;
     parts.unshift(
-      coverage.length === 1
-        ? "The skill has at least two people at Intermediate or above"
-        : `Every skill has at least two people at Intermediate or above`
+      unratedSkills > 0
+        ? ratedSkills === 1
+          ? "The rated skill has at least two people at Intermediate or above"
+          : "Every rated skill has at least two people at Intermediate or above"
+        : coverage.length === 1
+          ? "The skill has at least two people at Intermediate or above"
+          : `Every skill has at least two people at Intermediate or above`
     );
+  }
+  if (unratedSkills > 0) {
+    parts.push(`${skillsWord(unratedSkills)} not rated for anyone yet`);
   }
   // The counts are only "so far" while someone is still Not rated.
   if (counts > 0) parts.push(`${counts === 1 ? "1 rating" : `${counts} ratings`} still missing`);

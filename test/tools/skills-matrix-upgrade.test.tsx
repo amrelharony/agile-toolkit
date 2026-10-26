@@ -252,9 +252,45 @@ describe("coverage per skill", () => {
   });
 
   it("counts nothing at zero people or zero skills", () => {
-    expect(skillCoverage(doc(), [], [])[0]).toMatchObject({ capable: 0, gap: true, unrated: 0 });
+    // Nobody to rate is not a gap: there is nothing to know yet.
+    expect(skillCoverage(doc(), [], [])[0]).toMatchObject({
+      capable: 0,
+      gap: false,
+      notRatedYet: true,
+      unrated: 0,
+    });
     expect(skillCoverage(doc({ skills: [] }), cols)).toEqual([]);
     expect(ratedCellsPct(doc(), [])).toBe(0);
+  });
+
+  it("reads a skill nobody is rated in as not rated yet: no gap, no target verdict", () => {
+    const d = doc({
+      skills: [
+        { id: "k8s", name: "Kubernetes" },
+        { id: "pay", name: "Payments", targetPeople: 2 },
+      ],
+      grid: { k8s: { member_ana: 3, member_bo: 2 } },
+    });
+    const [k8s, pay] = skillCoverage(d, cols, ROSTER);
+    expect(k8s).toMatchObject({ notRatedYet: false, gap: false, spof: false });
+    expect(pay).toMatchObject({ notRatedYet: true, gap: false, spof: false, meetsTarget: null });
+    expect(coverageCounts([k8s, pay])).toMatchObject({
+      gaps: 0,
+      belowTarget: 0,
+      withTarget: 1,
+      notRatedYet: 1,
+    });
+    // Never "every skill has two people" while one isn't rated at all.
+    expect(skillsVerdict([k8s, pay], cols)).toBe(
+      "The rated skill has at least two people at Intermediate or above; 1 skill not rated for anyone yet; 4 ratings still missing."
+    );
+    // One rating, even a None, makes it known: then it is a gap below target.
+    const rated = doc({ ...d, grid: { ...d.grid, pay: { member_chen: 0 } } });
+    expect(skillCoverage(rated, cols, ROSTER)[1]).toMatchObject({
+      notRatedYet: false,
+      gap: true,
+      meetsTarget: false,
+    });
   });
 });
 
@@ -476,6 +512,8 @@ describe("Insights' bus-factor rule", () => {
       skillsMatrices: [],
     } as unknown as Workspace);
     expect(tags?.evidence).toEqual(["Kubernetes", "Go", "go", "SQL"]);
+    // Tags only say who listed a skill: the fallback names its source.
+    expect(tags?.description).toMatch(/lists these skills on the Team page/);
     const unrated = { teamMembers: ROSTER, skillsMatrices: [doc()] } as unknown as Workspace;
     expect(detectBusFactorRisk(unrated)?.evidence).toEqual(tags?.evidence);
     const rated = {
@@ -564,6 +602,105 @@ describe("the page", () => {
     await pick("Kubernetes", "Ana", "Clear");
     expect(stored()?.grid.k8s).toEqual({ member_bo: 0 });
     expect(logs.filter((l) => l.action === "rating_changed")).toHaveLength(3);
+  });
+
+  it("saves once from the keyboard: arrow keys only move the choice, Enter saves it", async () => {
+    seed(doc());
+    renderPage();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Kubernetes · Bo: Not rated. Change rating" })
+    );
+    const group = await screen.findByRole("radiogroup", { name: "Kubernetes · Bo" });
+    fireEvent.keyDown(within(group).getByRole("radio", { name: "0 None" }), { key: "ArrowDown" });
+    fireEvent.keyDown(within(group).getByRole("radio", { name: "1 Beginner" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.keyDown(within(group).getByRole("radio", { name: "2 Intermediate" }), {
+      key: "ArrowDown",
+    });
+    // Nothing written while the choice moves; the picker stays open on it.
+    expect(stored()?.grid).toEqual({});
+    expect(logs).toEqual([]);
+    expect(within(group).getByRole("radio", { name: "3 Advanced" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    expect(document.activeElement).toBe(within(group).getByRole("radio", { name: "3 Advanced" }));
+    // Enter on a focused button arrives as a click.
+    fireEvent.click(within(group).getByRole("radio", { name: "3 Advanced" }));
+    await waitFor(() => expect(screen.queryByRole("radiogroup")).toBeNull());
+    expect(stored()?.grid.k8s).toEqual({ member_bo: 3 });
+    expect(logs.filter((l) => l.action === "rating_changed")).toEqual([
+      { action: "rating_changed", payload: { skillId: "k8s", memberId: "member_bo", rating: 3 } },
+    ]);
+  });
+
+  it("shows a skill nobody is rated in as not rated yet, out of the gaps", () => {
+    seed(doc({ grid: { k8s: { member_ana: 3, member_bo: 2 } } }));
+    renderPage();
+    expect(screen.getByText("Not rated yet")).toBeInTheDocument();
+    expect(screen.getByText("Nobody rated yet")).toBeInTheDocument();
+    expect(screen.queryByText("Gap: nobody at Intermediate+")).toBeNull();
+    expect(
+      screen.getByText(/^The rated skill has at least two .*; 1 skill not rated for anyone yet/)
+    ).toBeInTheDocument();
+    // The Gaps stat counts rated skills only.
+    expect(screen.getByText("Gaps").parentElement?.parentElement).toHaveTextContent(/^Gaps0$/);
+  });
+
+  it("clears a cell read from a legacy member matched by name, on the page and for the agent", async () => {
+    const legacy: SkillsMatrix = {
+      id: SKILLS_MATRIX_ID,
+      members: [{ id: "m1", name: "Ana" }],
+      skills: [{ id: "s1", name: "TypeScript" }],
+      grid: { s1: { m1: 3 } },
+    };
+    seed(legacy);
+    renderPage();
+    expect(
+      screen.getByRole("button", { name: "TypeScript · Ana: Advanced. Change rating" })
+    ).toBeInTheDocument();
+    await pick("TypeScript", "Ana", "Clear");
+    expect(stored()).toMatchObject({ members: [], grid: { s1: {} } });
+    expect(
+      screen.getByRole("button", { name: "TypeScript · Ana: Not rated. Change rating" })
+    ).toBeInTheDocument();
+    // The agent, from the same legacy doc, by the legacy id or the roster id.
+    for (const memberId of ["m1", "member_ana"]) {
+      seed(legacy);
+      expect(await run("set_rating", { skillId: "s1", memberId, level: null })).toMatchObject({
+        set: true,
+        level: null,
+      });
+      expect(stored()?.grid.s1).toEqual({});
+    }
+  });
+
+  it("lays the matrix out as a card per skill on a phone", async () => {
+    const phone = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: query === "(max-width: 767px)",
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    try {
+      seed(normalizeSkillsMatrix({ ...LEGACY, version: 2 }));
+      renderPage();
+      expect(screen.queryByRole("table")).toBeNull();
+      // One card per skill, each with a row per person (Ana, Bo, Chen, then Dee).
+      const cards = screen.getByRole("list", { name: "Skills by person" }).children;
+      expect(cards).toHaveLength(2);
+      expect(within(cards[0] as HTMLElement).getAllByRole("listitem")).toHaveLength(4);
+      expect(screen.getByRole("button", { name: "Remove Dee from the matrix" })).toBeVisible();
+      await pick("React", "Bo", "1 Beginner");
+      expect(stored()?.grid.s2).toMatchObject({ member_bo: 1 });
+    } finally {
+      phone.mockRestore();
+    }
   });
 
   it("reads a legacy matrix by name, keeps the unmatched as not on the team, and re-keys on write", async () => {
@@ -674,6 +811,71 @@ describe("the page", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("saves a pair's due day when the field is left, and backdates the day it was done", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 26, 9));
+    try {
+      seed(
+        doc({
+          skills: [{ id: "k8s", name: "Kubernetes" }],
+          grid: { k8s: { member_ana: 3, member_bo: 1 } },
+          training: [
+            {
+              id: "t1",
+              skillId: "k8s",
+              learnerId: "member_bo",
+              mentorId: "member_ana",
+              toLevel: 2,
+              createdAt: "",
+            },
+          ],
+        })
+      );
+      renderPage();
+      const due = screen.getByLabelText("Due day for Bo learning Kubernetes");
+      // A year being typed is never stored (it used to clear the field).
+      fireEvent.change(due, { target: { value: "0002-11-30" } });
+      expect(stored()?.training?.[0].due).toBeUndefined();
+      fireEvent.change(due, { target: { value: "2026-11-30" } });
+      fireEvent.blur(due);
+      expect(stored()?.training?.[0].due).toBe("2026-11-30");
+
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      expect(stored()?.training?.[0].doneAt).toBe("2026-10-26");
+      const done = screen.getByLabelText("Day Bo finished learning Kubernetes");
+      fireEvent.change(done, { target: { value: "2026-10-27" } });
+      fireEvent.blur(done);
+      expect(screen.getByRole("alert")).toHaveTextContent("It can't be done in the future.");
+      expect(stored()?.training?.[0].doneAt).toBe("2026-10-26");
+      fireEvent.change(done, { target: { value: "2026-10-23" } });
+      fireEvent.keyDown(done, { key: "Enter" });
+      expect(stored()?.training?.[0].doneAt).toBe("2026-10-23");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("picks the example's own people for a pair while the example shows", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const learner = screen.getByRole("combobox", { name: /^Learner/ });
+    expect(
+      within(learner)
+        .getAllByRole("option")
+        .map((o) => o.textContent)
+    ).toEqual(["Pick who learns it", "Ana", "Bo", "Chen", "Dee"]);
+    const skill = screen.getByRole("combobox", { name: /^Skill/ });
+    const payments = within(skill).getByRole("option", { name: "Payments" }) as HTMLOptionElement;
+    fireEvent.change(skill, { target: { value: payments.value } });
+    fireEvent.change(learner, { target: { value: "Chen" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add pair" }));
+    expect(
+      screen.getByRole("button", { name: "Delete the pair: Chen learns Payments" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/isn.t on the team/)).toBeNull();
+    expect(ws().skillsMatrices).toEqual([]);
   });
 
   it("resets only after confirming, keeps the roster, and Undo brings it all back", async () => {

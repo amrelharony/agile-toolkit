@@ -89,11 +89,12 @@ function storedState() {
 /**
  * Writes to the workspace the way tool.skills_matrix.* does: from the
  * latest stored doc (upgraded: an older doc's 0s were Not rated), with
- * people matched to the roster by name moved onto their roster ids.
+ * people matched to the roster by name moved onto their roster ids first,
+ * so the change lands on the cells the page shows.
  */
 function writeStore(update: MatrixUpdate) {
   const { doc, columns } = storedState();
-  const next = rekeyToRoster(update(doc, columns), columns);
+  const next = update(rekeyToRoster(doc, columns), columns);
   useWorkspaceStore.getState().upsertSkillsMatrix({ ...next, id: SKILLS_MATRIX_ID, version: 2 });
 }
 
@@ -298,6 +299,12 @@ export function SkillsMatrixTool() {
     announce(done ? `Marked done: ${what}` : `Reopened: ${what}`);
   };
 
+  // Done stamps today; a pair finished last Friday is moved back here.
+  const setDoneDay = (pair: SkillsTrainingPair, day: string) => {
+    write((d) => withTrainingPatch(d, pair.id, { doneAt: day }));
+    announce(`${personName(pair.learnerId)} learns ${skillName(pair.skillId)}: done on ${day}`);
+  };
+
   const setDue = (pair: SkillsTrainingPair, due: string) =>
     write((d) => withTrainingPatch(d, pair.id, { due: due || null }));
 
@@ -390,6 +397,8 @@ export function SkillsMatrixTool() {
     !!stored &&
     (stored.skills?.length > 0 || stored.members?.length > 0 || (stored.training?.length ?? 0) > 0);
   const dash = !anyRated;
+  // Skills with a target that someone is rated in: only they meet it or miss it.
+  const judged = counts.atTarget + counts.belowTarget;
 
   return (
     <div className="space-y-6">
@@ -458,8 +467,14 @@ export function SkillsMatrixTool() {
               variant="compact"
               icon={Target}
               label="Skills at target"
-              value={counts.withTarget > 0 ? `${counts.atTarget}/${counts.withTarget}` : "—"}
-              hint={counts.withTarget > 0 ? undefined : "No targets set"}
+              value={judged > 0 ? `${counts.atTarget}/${judged}` : "—"}
+              hint={
+                counts.withTarget === 0
+                  ? "No targets set"
+                  : judged < counts.withTarget
+                    ? `${counts.withTarget - judged} with a target not rated yet`
+                    : undefined
+              }
             />
             <StatCard
               variant="compact"
@@ -545,6 +560,7 @@ export function SkillsMatrixTool() {
                     `Planned: ${personName(values.learnerId)} learns ${skillName(values.skillId)}`
                   ),
                 onDone: setDone,
+                onDoneDay: setDoneDay,
                 onDue: setDue,
                 onRemove: removePair,
               }}

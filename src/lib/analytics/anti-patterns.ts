@@ -109,7 +109,7 @@ export function detectBusFactorRisk(w: Workspace): AntiPatternSignal | null {
     const doc = normalizeSkillsMatrix(matrix);
     const columns = matrixColumns(doc, roster);
     const coverage = skillCoverage(doc, columns, roster);
-    const rated = coverage.some((c) => c.unrated < columns.length);
+    const rated = coverage.some((c) => !c.notRatedYet);
     if (rated) {
       const spofs = coverage.filter((c) => c.spof);
       if (spofs.length === 0) return null;
@@ -134,13 +134,15 @@ export function detectBusFactorRisk(w: Workspace): AntiPatternSignal | null {
   }
   const single = Array.from(skillCounts.entries()).filter(([, n]) => n === 1);
   if (single.length === 0) return null;
+  // Tags say who listed a skill, not how well they know it: the source is named.
   return {
     id: "BUS_FACTOR_UNDER_TWO",
     title: `Bus factor = 1 on ${single.length} skill${single.length > 1 ? "s" : ""}`,
     severity: "warn",
-    description: "One team member is the sole expert on at least one critical skill.",
+    description:
+      "Only one person lists these skills on the Team page (no rated Skills Matrix yet).",
     recommendation:
-      "Schedule pair programming or knowledge-share sessions to spread these skills to ≥2 people.",
+      "Rate these skills in the Skills Matrix to see who can really do them, and schedule pair programming or knowledge-share sessions to spread them to ≥2 people.",
     relatedTools: ["skills-matrix"],
     evidence: single.slice(0, 5).map(([skill]) => skill),
   };

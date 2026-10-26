@@ -14,8 +14,9 @@ const cell = (v: string | number) => oneLine(String(v)).replace(/\|/g, "\\|");
 const row = (cells: (string | number)[]) => `| ${cells.map(cell).join(" | ")} |`;
 const header = (cells: string[]) => [row(cells), `| ${cells.map(() => "---").join(" | ")} |`];
 
-/** "Single point of failure", "Gap", "Below target 1/2"… or "OK". */
+/** "Single point of failure", "Gap", "Below target 1/2"… "Not rated yet" or "OK". */
 export function coverageStatus(c: SkillCoverage): string {
+  if (c.notRatedYet) return "Not rated yet";
   const flags: string[] = [];
   if (c.gap) flags.push("Gap");
   if (c.spof) flags.push("Single point of failure");
