@@ -89,8 +89,13 @@ function scale(group: string, option: string, root: HTMLElement = document.body)
 const pick = (group: string, option: string, root?: HTMLElement) =>
   fireEvent.click(scale(group, option, root));
 
-const type = (label: string, value: string, root: HTMLElement = document.body) =>
+const type = (label: string | RegExp, value: string, root: HTMLElement = document.body) =>
   fireEvent.change(within(root).getByLabelText(label), { target: { value } });
+
+// Required fields carry a "*" in their label, so they're matched by their words.
+const TITLE = /Initiative title/;
+const REACH = /Reach \(people\)/;
+const EFFORT = /Effort \(person-months\)/;
 
 beforeEach(() => {
   undo.last = null;
@@ -100,31 +105,32 @@ beforeEach(() => {
 describe("RICE: adding", () => {
   it("adds the row when Enter is pressed in the title, with the picked scale values", () => {
     render(<RiceScoringClient />);
-    type("Reach (people per quarter)", "500");
-    type("Effort (person-months)", "2");
-    pick("Impact", "0.25 Minimal");
+    type(REACH, "500");
+    type(EFFORT, "2");
+    pick("Impact", "0.25x Minimal");
     pick("Confidence", "80% Medium");
-    type("Initiative title", "Saved searches");
-    pressEnter(screen.getByLabelText("Initiative title"));
+    type(TITLE, "Saved searches");
+    pressEnter(screen.getByLabelText(TITLE));
 
     expect(rows()).toHaveLength(1);
     expect(rows()[0]).toMatchObject({
       framework: "rice",
       title: "Saved searches",
-      fields: { reach: 500, impact: 0.25, confidence: 80, effort: 2 },
+      fields: { reach: 500, reachPeriod: "quarter", impact: 0.25, confidence: 80, effort: 2 },
     });
     expect(rows()[0].score).toBeCloseTo((500 * 0.25 * 0.8) / 2);
-    // The form is ready for the next one.
-    expect(screen.getByLabelText("Initiative title")).toHaveValue("");
-    expect(scale("Impact", "0.25 Minimal")).not.toBeChecked();
+    // The form is ready for the next one, on the same reach period.
+    expect(screen.getByLabelText(TITLE)).toHaveValue("");
+    expect(scale("Impact", "0.25x Minimal")).not.toBeChecked();
+    expect(scale("Reach period", "per quarter")).toBeChecked();
   });
 
   it("blocks a blank confidence with a message instead of assuming 100%", () => {
     render(<RiceScoringClient />);
-    type("Initiative title", "Saved searches");
-    type("Reach (people per quarter)", "500");
-    type("Effort (person-months)", "2");
-    pick("Impact", "2 High");
+    type(TITLE, "Saved searches");
+    type(REACH, "500");
+    type(EFFORT, "2");
+    pick("Impact", "2x High");
     fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
 
     expect(rows()).toEqual([]);
@@ -145,18 +151,18 @@ describe("RICE: adding", () => {
     expect(messages).toEqual([
       "Enter a title.",
       "Enter the reach.",
-      "Enter the effort.",
       "Pick an impact.",
       "Pick a confidence.",
+      "Enter the effort.",
     ]);
-    expect(screen.getByLabelText("Initiative title")).toHaveAttribute("aria-invalid", "true");
-    expect(document.activeElement).toBe(screen.getByLabelText("Initiative title"));
+    expect(screen.getByLabelText(TITLE)).toHaveAttribute("aria-invalid", "true");
+    expect(document.activeElement).toBe(screen.getByLabelText(TITLE));
     expect(rows()).toEqual([]);
   });
 
   it("explains each scale value in a legend", () => {
     render(<RiceScoringClient />);
-    expect(screen.getByText(/from 3× \(massive\) down to 0\.25× \(minimal\)/)).toBeVisible();
+    expect(screen.getByText(/3 massive, 2 high, 1 medium, 0\.5 low, 0\.25 minimal/)).toBeVisible();
     expect(
       screen.getByText(/100% backed by data, 80% some evidence, 50% mostly a guess/)
     ).toBeVisible();
@@ -164,7 +170,7 @@ describe("RICE: adding", () => {
       within(screen.getByRole("radiogroup", { name: "Impact" }))
         .getAllByRole("radio")
         .map((r) => r.textContent)
-    ).toEqual(["3 Massive", "2 High", "1 Medium", "0.5 Low", "0.25 Minimal"]);
+    ).toEqual(["3x Massive", "2x High", "1x Medium", "0.5x Low", "0.25x Minimal"]);
   });
 });
 
@@ -177,71 +183,70 @@ describe("RICE: editing a row", () => {
     { reach: 500, impact: 2, confidence: 80, effort: 3 },
     { backlogItemId: "b1" }
   );
+  const editorOf = () => screen.getByRole("button", { name: "Save" }).closest("form")!;
 
-  it("renames inline and keeps the backlog link", () => {
+  it("renames in the row editor and keeps the backlog link", () => {
     useWorkspaceStore.setState({ prioritizations: [r1] });
     render(<RiceScoringClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Saved searches" }));
-    const input = screen.getByLabelText("Rename Saved searches");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Saved searches" }));
+    const input = within(editorOf()).getByLabelText(TITLE);
     fireEvent.change(input, { target: { value: "Saved filters" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    pressEnter(input);
 
     expect(stored("r1")).toMatchObject({
       title: "Saved filters",
       backlogItemId: "b1",
       fields: r1.fields,
-      score: r1.score,
     });
-    expect(screen.getByRole("button", { name: "Saved filters" })).toBeInTheDocument();
+    expect(stored("r1")!.score).toBeCloseTo((500 * 2 * 0.8) / 3);
+    expect(screen.getByRole("button", { name: "Edit Saved filters" })).toBeInTheDocument();
   });
 
-  it("edits a score, rescores, and hands focus back to the Edit button", () => {
+  it("edits a score and rescores", () => {
     useWorkspaceStore.setState({ prioritizations: [r1] });
     render(<RiceScoringClient />);
-    const editButton = screen.getByRole("button", { name: "Edit scores for Saved searches" });
-    fireEvent.click(editButton);
-    expect(editButton).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Saved searches" }));
+    const editor = editorOf();
+    // The editor opens on the title, prefilled from the row.
+    expect(document.activeElement).toBe(within(editor).getByLabelText(TITLE));
+    expect(scale("Impact", "2x High", editor)).toBeChecked();
 
-    const editor = screen.getByRole("form", { name: "Edit scores for Saved searches" });
-    // The editor opens on its first input, prefilled from the row.
-    expect(document.activeElement).toBe(
-      within(editor).getByLabelText("Reach (people per quarter)")
-    );
-    expect(scale("Impact", "2 High", editor)).toBeChecked();
-
-    pick("Impact", "3 Massive", editor);
-    type("Reach (people per quarter)", "600", editor);
-    pressEnter(within(editor).getByLabelText("Reach (people per quarter)"));
+    pick("Impact", "3x Massive", editor);
+    type(REACH, "600", editor);
+    pressEnter(within(editor).getByLabelText(REACH));
 
     const saved = stored("r1")!;
-    expect(saved.fields).toEqual({ reach: 600, impact: 3, confidence: 80, effort: 3 });
+    expect(saved.fields).toEqual({
+      reach: 600,
+      reachPeriod: "quarter",
+      impact: 3,
+      confidence: 80,
+      effort: 3,
+    });
     expect(saved.score).toBeCloseTo((600 * 3 * 0.8) / 3);
     expect(saved.backlogItemId).toBe("b1");
     expect(saved.updatedAt).not.toBe(r1.updatedAt);
-    expect(screen.queryByRole("form", { name: "Edit scores for Saved searches" })).toBeNull();
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Edit scores for Saved searches" })
-    );
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   it("Escape cancels without saving", () => {
     useWorkspaceStore.setState({ prioritizations: [r1] });
     render(<RiceScoringClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Saved searches" }));
-    const editor = screen.getByRole("form", { name: "Edit scores for Saved searches" });
-    pick("Impact", "0.5 Low", editor);
-    fireEvent.keyDown(scale("Impact", "0.5 Low", editor), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Saved searches" }));
+    const editor = editorOf();
+    pick("Impact", "0.5x Low", editor);
+    fireEvent.keyDown(within(editor).getByLabelText(TITLE), { key: "Escape" });
 
-    expect(screen.queryByRole("form", { name: "Edit scores for Saved searches" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(stored("r1")).toEqual(r1);
   });
 
   it("blocks clearing a required input in the editor", () => {
     useWorkspaceStore.setState({ prioritizations: [r1] });
     render(<RiceScoringClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Saved searches" }));
-    const editor = screen.getByRole("form", { name: "Edit scores for Saved searches" });
-    type("Effort (person-months)", "", editor);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Saved searches" }));
+    const editor = editorOf();
+    type(EFFORT, "", editor);
     fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
 
     expect(within(editor).getByRole("alert")).toHaveTextContent("Enter the effort.");
@@ -258,28 +263,34 @@ describe("RICE: editing a row", () => {
     useWorkspaceStore.setState({ prioritizations: [legacy] });
     render(<RiceScoringClient />);
 
-    // The table marks the off-scale inputs.
-    const tableRow = screen.getByRole("button", { name: "Order tracking" }).closest("tr")!;
-    expect(within(tableRow).getAllByText("custom")).toHaveLength(2);
+    // The row marks the off-scale inputs.
+    const listItem = screen.getByText("Order tracking").closest("li")!;
+    expect(within(listItem).getAllByText("custom")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Order tracking" }));
-    let editor = screen.getByRole("form", { name: "Edit scores for Order tracking" });
-    expect(scale("Impact", "Custom: 1.5", editor)).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Order tracking" }));
+    let editor = editorOf();
+    expect(scale("Impact", "Custom: 1.5x", editor)).toBeChecked();
     expect(scale("Confidence", "Custom: 70%", editor)).toBeChecked();
 
-    // Saving untouched writes nothing.
+    // Saving untouched keeps the custom values.
     fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
-    expect(stored("r2")).toEqual(legacy);
+    expect(stored("r2")!.fields).toMatchObject({ impact: 1.5, confidence: 70 });
 
     // Picking a scale value replaces only that input.
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Order tracking" }));
-    editor = screen.getByRole("form", { name: "Edit scores for Order tracking" });
-    pick("Impact", "2 High", editor);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Order tracking" }));
+    editor = editorOf();
+    pick("Impact", "2x High", editor);
     // The custom value stays on offer until the edit is saved.
-    expect(scale("Impact", "Custom: 1.5", editor)).not.toBeChecked();
+    expect(scale("Impact", "Custom: 1.5x", editor)).not.toBeChecked();
     fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
 
-    expect(stored("r2")!.fields).toEqual({ reach: 800, impact: 2, confidence: 70, effort: 1.5 });
+    expect(stored("r2")!.fields).toEqual({
+      reach: 800,
+      reachPeriod: "quarter",
+      impact: 2,
+      confidence: 70,
+      effort: 1.5,
+    });
     expect(stored("r2")!.score).toBeCloseTo((800 * 2 * 0.7) / 1.5);
   });
 
@@ -293,24 +304,28 @@ describe("RICE: editing a row", () => {
     useWorkspaceStore.setState({ prioritizations: [fromAgent] });
     render(<RiceScoringClient />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Bulk export" }));
-    const editor = screen.getByRole("form", { name: "Edit scores for Bulk export" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Bulk export" }));
+    const editor = editorOf();
     expect(scale("Confidence", "80% Medium", editor)).toBeChecked();
     pick("Confidence", "100% High", editor);
     fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
 
-    expect(stored("r3")!.fields).toEqual({ reach: 200, impact: 1, confidencePct: 100, effort: 1 });
+    expect(stored("r3")!.fields).toEqual({
+      reach: 200,
+      reachPeriod: "quarter",
+      impact: 1,
+      confidencePct: 100,
+      effort: 1,
+    });
     expect(stored("r3")!.score).toBe(200);
   });
 
-  it("deletes with Undo, closing an open editor", () => {
+  it("deletes with Undo", () => {
     useWorkspaceStore.setState({ prioritizations: [r1] });
     render(<RiceScoringClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit scores for Saved searches" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Saved searches" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Saved searches" }));
 
     expect(stored("r1")).toBeUndefined();
-    expect(screen.queryByRole("form", { name: "Edit scores for Saved searches" })).toBeNull();
     expect(undo.last!.label).toBe("Deleted “Saved searches”");
     act(() => undo.last!.revert());
     expect(stored("r1")).toEqual(r1);

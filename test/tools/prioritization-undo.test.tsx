@@ -94,13 +94,13 @@ describe("RICE item delete", () => {
       prioritizations: [r1, item("r2", "rice", "CSV import", 40, riceFields)],
     });
     render(<RiceScoringClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Saved searches" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Saved searches" }));
 
     expect(stored("r1")).toBeUndefined();
     expect(undo.last!.label).toBe("Deleted “Saved searches”");
 
     act(() => undo.last!.revert());
     expect(stored("r1")).toEqual(r1);
-    expect(screen.getByRole("button", { name: "Remove Saved searches" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Saved searches" })).toBeInTheDocument();
   });
 });

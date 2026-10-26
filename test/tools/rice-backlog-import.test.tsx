@@ -122,17 +122,17 @@ describe("RICE: Import from backlog", () => {
     openImportMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Saved searches" }));
 
-    expect(screen.getByLabelText("Initiative title")).toHaveValue("Saved searches");
-    expect(screen.getByLabelText("Reach (people per quarter)")).toHaveValue(500);
+    expect(screen.getByLabelText(/Initiative title/)).toHaveValue("Saved searches");
+    expect(screen.getByLabelText(/Reach \(people\)/)).toHaveValue(500);
     const scale = (group: string, option: string) =>
       within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name: option });
-    expect(scale("Impact", "2 High")).toBeChecked();
+    expect(scale("Impact", "2x High")).toBeChecked();
     // 90% isn't on the confidence scale: it's kept, as a custom value.
     expect(scale("Confidence", "Custom: 90%")).toBeChecked();
-    expect(screen.getByLabelText("Effort (person-months)")).toHaveValue(3);
+    expect(screen.getByLabelText(/Effort \(person-months\)/)).toHaveValue(3);
     expect(screen.getByText("Linked to Saved searches")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Reach (people per quarter)"), {
+    fireEvent.change(screen.getByLabelText(/Reach \(people\)/), {
       target: { value: "800" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
@@ -176,7 +176,9 @@ describe("RICE: Import from backlog", () => {
     });
     render(<RiceScoringClient />);
     openImportMenu();
-    expect(await screen.findByRole("menuitem", { name: /Saved searches\s*scored/ })).toBeVisible();
+    expect(
+      await screen.findByRole("menuitem", { name: /Saved searches\s*Already scored · Edit/ })
+    ).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "CSV import" })).toBeInTheDocument();
   });
 
@@ -191,8 +193,8 @@ describe("RICE: Import from backlog", () => {
     useWorkspaceStore.setState({ backlogItems: [searches] });
     window.history.replaceState({}, "", "/rice-scoring?backlogItem=b1");
     render(<RiceScoringClient />);
-    expect(screen.getByLabelText("Initiative title")).toHaveValue("Saved searches");
-    expect(screen.getByLabelText("Reach (people per quarter)")).toHaveValue(500);
+    expect(screen.getByLabelText(/Initiative title/)).toHaveValue("Saved searches");
+    expect(screen.getByLabelText(/Reach \(people\)/)).toHaveValue(500);
     expect(screen.getByText("Linked to Saved searches")).toBeInTheDocument();
   });
 });
@@ -234,7 +236,7 @@ describe("RICE: Add to backlog", () => {
       prioritizations: [riceRow("example-rice-1", "Example idea", { reach: 1 })],
     });
     render(<RiceScoringClient />);
-    expect(screen.getByRole("button", { name: "Remove Example idea" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Example idea" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add Example idea to the backlog" })).toBeNull();
   });
 });
@@ -262,7 +264,7 @@ describe("every method tool", () => {
       name: "RICE",
       Client: RiceScoringClient,
       path: "/rice-scoring",
-      titleLabel: "Initiative title",
+      titleLabel: /Initiative title/,
       add: /Add & score/,
       framework: "rice",
     },
