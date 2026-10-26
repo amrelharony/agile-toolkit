@@ -127,6 +127,10 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
   const showReplyChevron = !excludeInteractive && !kudos.replyTo && !!onToggleReply;
   const showReactions = !excludeInteractive && (grouped.length > 0 || !!onAddReaction);
 
+  // A kudos is a printed card: white paper and near-black ink in every
+  // theme, so the wall, the live preview and the PNG match. The literal
+  // colours here (and KUDOS_THEMES' hex) are deliberate print styling: the
+  // PNG export renders outside the page's CSS, where tokens don't resolve.
   return (
     <div
       ref={ref}

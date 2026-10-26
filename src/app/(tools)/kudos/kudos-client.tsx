@@ -1,11 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Sparkles, Wifi, WifiOff, Settings } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  Check,
+  Lightbulb,
+  MessageSquarePlus,
+  Settings,
+  Sparkles,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ExportButton } from "@/components/shared/export-button";
+import { EmptyState } from "@/components/shared/empty-state";
 import { SessionShareButton } from "@/components/collab/session-share-button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
+import {
+  fairnessHints,
+  lastDaysWindow,
+  recognitionReceived,
+  sprintWindow,
+  RECENT_DAYS,
+} from "@/lib/kudos/recognition";
+import { RETRO_CURRENT_ID } from "@/lib/retro/board";
+import { todayIso } from "@/lib/sprints/series";
+import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { undoable } from "@/lib/utils/undoable";
+import { kudosCardText, kudosOnBoard, KUDOS_TOOL } from "@/app/(tools)/retro/kudos";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
@@ -35,6 +66,10 @@ import { KudosSettings } from "./components/kudos-settings";
 import { useKudosRoom, useOwnerKudosRoomKey } from "./use-kudos-room";
 import { useKudosReactions } from "./use-kudos-reactions";
 import { KUDOS_ENTITY_ID, KUDOS_TOOL_ID } from "./types";
+import { EXAMPLE_ROSTER, buildExample } from "./example";
+import { kudosCsv, kudosToMarkdown } from "./markdown";
+import { RecognitionSection, firstName, type WindowMode } from "./recognition-section";
+import { recognitionVerdict } from "./verdict";
 
 /**
  * Owner-side Kudos client.
@@ -168,10 +203,17 @@ export function KudosClient() {
       });
     }
     for (const m of teamMembers) {
-      out.push({ id: `team:${m.id}`, displayName: m.name, source: "team" });
+      // The member id rides on the kudos (toMemberId): a rename on the
+      // Team page then still counts it for the same person.
+      out.push({ id: `team:${m.id}`, displayName: m.name, memberId: m.id, source: "team" });
     }
     return out;
   }, [squadProfiles, teamMembers]);
+
+  // Example kudos sit on the wall for a first look but are nobody's
+  // recognition: the AI helpers and the sent-to-cloud paths never see them.
+  const ownKudos = useMemo(() => room.kudos.filter((k) => !isExampleId(k.id)), [room.kudos]);
+  const preview = hasExampleItems(room.kudos);
 
   // Memoise the Workspace shape for AI-prompt generation. The deps
   // are all stable references (the workspace-store selectors return
@@ -227,7 +269,7 @@ export function KudosClient() {
   // installer above when a new kudos lands. We keep the result in
   // state so the inline hint above the form re-renders when it lands.
   const [fairness, setFairness] = useState<FairnessResult | null>(null);
-  const recentKudos = room.kudos;
+  const recentKudos = ownKudos;
   const events = useHistoryStore((s) => s.events);
   // Phase 5 — device-local "Fairness suggestions" toggle. Subscribed
   // (not read via getState) because flipping it must re-run this effect.
@@ -417,7 +459,7 @@ export function KudosClient() {
     // values ride along with the optimistic write + broadcast. Both
     // helpers return null on any failure (no key, network, parse) so
     // missing AI never blocks the send.
-    const recentForPair = room.kudos.filter(
+    const recentForPair = ownKudos.filter(
       (k) =>
         k.toProfileId &&
         kudos.toProfileId &&
@@ -496,14 +538,186 @@ export function KudosClient() {
     await exportPng(el, `kudos-to-${slug}.png`);
   };
 
+  // ── Recognition received ────────────────────────────────────────────
+  //
+  // Who the kudos reached, over the sprint picked here (shared with the
+  // sprint tools), the last 30 days, or all time. The window starts on
+  // the sprint when one has dates, else the last 30 days, until a choice.
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const {
+    sprints: sprintsNewest,
+    selected: selectedSprint,
+    select: selectSprint,
+  } = useSelectedSprint();
+  const datedSprints = useMemo(
+    () => sprintsNewest.filter((s) => sprintWindow(s) !== null),
+    [sprintsNewest]
+  );
+  const [windowChoice, setWindowChoice] = useState<WindowMode | null>(null);
+  const selectedWindow = selectedSprint ? sprintWindow(selectedSprint) : null;
+  const windowMode: WindowMode = windowChoice ?? (selectedWindow ? "sprint" : "recent");
+  const sprintShown = windowMode === "sprint" && selectedSprint && selectedWindow;
+  const recognitionWindow = sprintShown
+    ? selectedWindow
+    : windowMode === "all"
+      ? null
+      : lastDaysWindow(today);
+  const windowLabel = sprintShown
+    ? `in ${selectedSprint.name}`
+    : windowMode === "all"
+      ? "so far"
+      : `in the last ${RECENT_DAYS} days`;
+  const sprintNote =
+    windowMode === "sprint" && !sprintShown
+      ? `${selectedSprint ? `${selectedSprint.name} has no dates, so` : "No sprint picked:"} showing the last ${RECENT_DAYS} days. Pick a sprint with dates.`
+      : undefined;
+
+  // While the example is shown the section reads it (and its own team),
+  // so the chart and hints have something to show; the export stays yours.
+  const roster = teamMembers;
+  const statsRoster = preview ? EXAMPLE_ROSTER : roster;
+  // At most 500 kudos (the store's cap): cheap enough to count each render.
+  const summary = preview
+    ? recognitionReceived(
+        room.kudos.filter((k) => isExampleId(k.id)),
+        EXAMPLE_ROSTER,
+        recognitionWindow,
+        { includeExamples: true }
+      )
+    : recognitionReceived(room.kudos, roster, recognitionWindow);
+  const hints = fairnessHints(summary, statsRoster.length, { windowLabel });
+  const verdict = recognitionVerdict(summary, statsRoster.length, windowLabel);
+  const ownSummary = preview ? recognitionReceived(room.kudos, roster, recognitionWindow) : summary;
+  const markdown = kudosToMarkdown(room.kudos, ownSummary, {
+    windowLabel,
+    rosterSize: roster.length,
+  });
+  const wallRef = useRef<HTMLDivElement>(null);
+
+  const recipientFor = (memberId: string) => recipients.find((r) => r.memberId === memberId);
+  const sendTo = (memberId: string) => {
+    const option = recipientFor(memberId);
+    if (!option) return;
+    setForcedRecipient((prev) => ({ id: option.id, token: (prev?.token ?? 0) + 1 }));
+    announce(`Recipient set to ${option.displayName}`);
+  };
+
+  // The roster's own hint, above the form, when the opt-in AI one isn't
+  // showing: it needs no key and nothing leaves the browser.
+  const noneHint = preview ? undefined : hints.find((h) => h.kind === "none-received");
+  const noneTarget = noneHint ? recipientFor(noneHint.memberIds[0]) : undefined;
+  const rosterHintSlot =
+    noneHint && noneTarget ? (
+      <div className="flex flex-wrap items-start gap-3 rounded-lg border border-accent/40 bg-accent/5 px-4 py-3">
+        <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+        <p className="min-w-0 flex-1 text-sm text-text">{noneHint.sentence}</p>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => sendTo(noneHint.memberIds[0])}
+          className="bg-accent text-bg hover:bg-accent/80 font-semibold"
+        >
+          Send to {firstName(noneTarget.displayName)}
+        </Button>
+      </div>
+    ) : null;
+
+  // ── Example ─────────────────────────────────────────────────────────
+  //
+  // Loaded through upsertKudos, never the room: example rows are skipped by
+  // the signal bridge, cloud sync, backfill and the host snapshot, so
+  // nothing is posted, broadcast or awarded XP.
+  const loadExample = () => {
+    const { upsertKudos } = useWorkspaceStore.getState();
+    for (const k of buildExample()) upsertKudos(k);
+    setWindowChoice("recent");
+    announce("Loaded an example kudos wall");
+  };
+  const clearExample = () => {
+    const rows = (useWorkspaceStore.getState().kudos ?? []).filter((k) => isExampleId(k.id));
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        const { removeKudos } = useWorkspaceStore.getState();
+        for (const k of rows) removeKudos(k.id);
+      },
+      revert: () => {
+        const { upsertKudos } = useWorkspaceStore.getState();
+        for (const k of rows) upsertKudos(k);
+      },
+    });
+    setWindowChoice(null);
+  };
+
+  // ── Retro appreciations ─────────────────────────────────────────────
+  //
+  // A kudos goes to the current retro as an appreciation card, the same
+  // card Retro's "Kudos from the sprint" adds (text and sourceRef), so it
+  // is never on the board twice. "On the retro board" is read from the
+  // board itself, not stored on the kudos.
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards);
+  const onRetroBoard = useMemo(
+    () => kudosOnBoard(retroBoards?.find((b) => b.id === RETRO_CURRENT_ID)?.cards ?? []),
+    [retroBoards]
+  );
+  const addToRetro = (k: Kudos) => {
+    if (isExampleId(k.id) || k.replyTo || onRetroBoard.has(k.id)) return;
+    const route = getHandoffRoute("retro-topic");
+    const title = kudosCardText(k);
+    let cardId: string | null = null;
+    undoable({
+      label: route.doneLabel,
+      description: `“${title}”`,
+      apply: () => {
+        cardId = route.send({
+          title,
+          tone: "appreciation",
+          sourceRef: { tool: KUDOS_TOOL, id: k.id },
+        });
+      },
+      revert: () => {
+        if (cardId) route.remove(cardId);
+      },
+    });
+    announce(`Added the kudos for ${k.toName} to the retro`);
+  };
+  const retroAction = (k: Kudos) => {
+    if (isExampleId(k.id)) return null;
+    if (onRetroBoard.has(k.id)) {
+      return (
+        <Link
+          href="/retro"
+          className="inline-flex min-h-8 items-center gap-1 rounded px-1 text-xs text-success hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+          On the retro board
+        </Link>
+      );
+    }
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="gap-1 text-sub hover:text-text"
+        aria-label={`Add the kudos for ${k.toName} to the retro`}
+        onClick={() => addToRetro(k)}
+      >
+        <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+        Add to retro
+      </Button>
+    );
+  };
+
   return (
     <ToolPageWrapper
       toolId={KUDOS_TOOL_ID}
       title="Kudos Wall"
       description={
         isOwner
-          ? "Send themed recognition cards to your team. Live updates across all peers; downloadable as PNG for sharing outside the toolkit."
-          : "Send themed recognition cards to your team. Saved in this browser; downloadable as PNG for sharing outside the toolkit."
+          ? "Send themed recognition cards to your team, see who the kudos reach, and bring them to the retro. Live updates across all peers; downloadable as PNG."
+          : "Send themed recognition cards to your team and see who the kudos reach. Saved in this browser; downloadable as PNG."
       }
       category="Outcomes & Pulse"
     >
@@ -532,8 +746,16 @@ export function KudosClient() {
             <span className="inline-flex items-center gap-1.5 text-sub/60">Connecting…</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename="kudos-wall"
+            markdown={markdown}
+            clipboardText={markdown}
+            csvData={kudosCsv(room.kudos)}
+            jsonData={ownKudos}
+            targetRef={wallRef}
+          />
           <SessionShareButton
             toolId={KUDOS_TOOL_ID}
             entityId={KUDOS_ENTITY_ID}
@@ -553,31 +775,72 @@ export function KudosClient() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: a checkout team&apos;s last three weeks. It isn&apos;t posted, shared with the
+            room or counted anywhere else, and your Team page stays as it is.
+          </p>
+        </div>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <KudosForm
           defaultFromName={senderName}
           fromPlaceholder={isOwner ? undefined : "Your name"}
           onFromNameChange={isOwner ? undefined : setVisitorName}
           defaultTeamName={teamName}
           recipients={recipients}
+          rosterRecipients
           onSubmit={handleSubmit}
           onDownload={handleDownload}
           predictedRecipientId={predictedRecipientId}
-          fairnessHintSlot={fairnessHintSlot}
+          fairnessHintSlot={fairnessHintSlot ?? rosterHintSlot}
           forcedRecipient={forcedRecipient ?? undefined}
         />
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           <h2 className="text-sm font-semibold text-text">Recent kudos</h2>
-          <KudosWall
-            kudos={room.kudos}
-            viewerProfileId={ownerId ?? undefined}
-            onAddReaction={(id, emoji) => {
-              void addReaction(id, emoji);
-            }}
-            onSendReply={handleSendReply}
-            replyFromName={senderName.trim() || undefined}
-          />
+          {room.kudos.length === 0 ? (
+            <EmptyState icon={Sparkles} action={<LoadExampleButton onLoad={loadExample} />}>
+              No kudos yet. Send the first one with the form;{" "}
+              {isOwner
+                ? "it appears here for everyone in the session."
+                : "it is saved in this browser."}
+            </EmptyState>
+          ) : (
+            <div ref={wallRef}>
+              <KudosWall
+                kudos={room.kudos}
+                viewerProfileId={ownerId ?? undefined}
+                onAddReaction={(id, emoji) => {
+                  void addReaction(id, emoji);
+                }}
+                onSendReply={handleSendReply}
+                replyFromName={senderName.trim() || undefined}
+                cardActions={retroAction}
+              />
+            </div>
+          )}
         </div>
+      </div>
+
+      <div className="mt-6">
+        <RecognitionSection
+          summary={summary}
+          hints={hints}
+          rosterSize={statsRoster.length}
+          windowLabel={windowLabel}
+          verdict={verdict}
+          mode={windowMode}
+          onMode={setWindowChoice}
+          sprints={datedSprints}
+          selectedSprintId={selectedSprint?.id}
+          onSelectSprint={selectSprint}
+          sprintNote={sprintNote}
+          onSendTo={preview ? undefined : sendTo}
+          canSendTo={(memberId) => Boolean(recipientFor(memberId))}
+        />
       </div>
 
       <KudosSettings open={settingsOpen} onOpenChange={setSettingsOpen} />

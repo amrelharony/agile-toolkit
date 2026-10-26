@@ -40,6 +40,23 @@ import { Switch } from "@/components/ui/switch";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import { parseKudos } from "@/lib/kudos/parse";
 import type { KudosCustomTheme } from "@/lib/stores/workspace-types";
+import { removeWithUndo } from "@/lib/utils/undoable";
+
+/**
+ * Where the colour picker starts. A custom theme carries its own colour as
+ * data (the card paints it inline and the PNG export needs a literal), so
+ * this is the one hex here: the brand accent, as a starting point to change.
+ */
+const DEFAULT_THEME_HEX = "#00f0ff";
+
+/** Delete a custom theme, with Undo that puts it back in its place. */
+function deleteCustomTheme(theme: KudosCustomTheme) {
+  removeWithUndo<KudosCustomTheme>({
+    label: `Deleted the “${theme.title}” theme`,
+    update: (fn) => useKudosSettingsStore.setState((s) => ({ customThemes: fn(s.customThemes) })),
+    match: (t) => t.id === theme.id,
+  });
+}
 
 interface Props {
   open: boolean;
@@ -162,7 +179,6 @@ function BeaconSection() {
 function CustomThemesSection() {
   const customThemes = useKudosSettingsStore((s) => s.customThemes);
   const upsertCustomTheme = useKudosSettingsStore((s) => s.upsertCustomTheme);
-  const removeCustomTheme = useKudosSettingsStore((s) => s.removeCustomTheme);
 
   return (
     <section className="flex flex-col gap-3">
@@ -196,7 +212,7 @@ function CustomThemesSection() {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => removeCustomTheme(t.id)}
+              onClick={() => deleteCustomTheme(t)}
               className="text-sub hover:text-danger"
               aria-label={`Delete theme ${t.title}`}
             >
@@ -225,14 +241,14 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("");
-  const [hex, setHex] = useState("#00f0ff");
+  const [hex, setHex] = useState(DEFAULT_THEME_HEX);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
     setId("");
     setTitle("");
     setEmoji("");
-    setHex("#00f0ff");
+    setHex(DEFAULT_THEME_HEX);
     setError(null);
   };
 
@@ -351,7 +367,7 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
         onClick={handleAdd}
         disabled={!canSubmit}
         size="sm"
-        className="self-start bg-accent text-[#0a0e1a] hover:bg-accent/80 gap-1.5"
+        className="self-start bg-accent text-bg hover:bg-accent/80 gap-1.5"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         Add theme
