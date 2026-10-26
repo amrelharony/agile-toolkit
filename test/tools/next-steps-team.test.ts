@@ -160,7 +160,7 @@ describe("health check", () => {
       sprints: [],
     });
     const current = board("retro:current", [card("t1"), card("t2")]);
-    // One sent, one not.
+    // One sent, one not: the check's button reads "Send 1 more" then.
     expect(
       steps("health-check", ws(reds({ "Health of Codebase": sentCodebase }), [current]))
     ).toEqual([
@@ -168,9 +168,24 @@ describe("health check", () => {
         id: "health-check-send-reds",
         label: "Send the 1 red dimension to the retro",
         detail:
-          "Speed was red in the check of 23 Oct. “Send reds to retro” under Saved checks makes each one a topic.",
+          "Speed was red in the check of 23 Oct. “Send 1 more” under Saved checks makes it a topic.",
       }),
     ]);
+    // A red whose topic is on a held retro counts as sent, as on the page.
+    expect(
+      steps(
+        "health-check",
+        ws(reds({ "Health of Codebase": sentCodebase }), [
+          board("retro:old", [card("t1")], ARCHIVED),
+        ])
+      )[0].detail
+    ).toBe(
+      "Speed was red in the check of 23 Oct. “Send 1 more” under Saved checks makes it a topic."
+    );
+    // The only red, not sent yet: the button keeps its first label.
+    expect(steps("health-check", ws(scores({ Speed: "red" }), [current]))[0].detail).toBe(
+      "Speed was red in the check of 23 Oct. “Send reds to retro” under Saved checks makes it a topic."
+    );
     expect(steps("health-check", ws(both, [current]))).toEqual([
       {
         id: "health-check-discuss-reds",

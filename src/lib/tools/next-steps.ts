@@ -1738,10 +1738,13 @@ const RULES: Record<string, NextStepRule<object>> = {
       const unsent = reds.filter((r) => r.at === null);
       const onBoard = reds.filter((r) => r.at === "current");
       if (unsent.length > 0) {
+        // The check's own button: "Send N more" once some of its reds are topics.
+        const button =
+          unsent.length === reds.length ? "Send reds to retro" : `Send ${unsent.length} more`;
         steps.push({
           id: "health-check-send-reds",
           label: `Send the ${plural(unsent.length, "red dimension")} to the retro`,
-          detail: `${listNames(unsent.map((r) => r.name))} ${unsent.length === 1 ? "was" : "were"} red in ${where}. “Send reds to retro” under Saved checks makes each one a topic.`,
+          detail: `${listNames(unsent.map((r) => r.name))} ${unsent.length === 1 ? "was" : "were"} red in ${where}. “${button}” under Saved checks makes ${unsent.length === 1 ? "it" : "each one"} a topic.`,
           href: "/health-check",
         });
       } else if (onBoard.length > 0) {
