@@ -109,8 +109,14 @@ const valuesOf = (f: CodFields): Values => ({
 const legacyTotal = (f: CodFields): number | null =>
   f.weeksDelayed === undefined ? null : Math.max(0, f.perWeekUsd) * Math.max(0, f.weeksDelayed);
 
-/** Agents that called before the urgency profile existed may leave it out. */
-const MAY_OMIT = ["urgency"];
+/**
+ * Agents that called before CD3 may leave these out: the urgency profile,
+ * and the duration (an old `{perWeekUsd, weeksDelayed}` call, which once
+ * saved with an implied job size of 1). Such a row is saved Not scored
+ * ("add a duration"), as rows from before CD3 read. A wrong value is still
+ * refused.
+ */
+const MAY_OMIT = ["urgency", "durationWeeks"];
 
 // ──────── tool.cost_of_delay.compute_cd3 ────────
 // Pure: compute one CD3 score. No persistence, no side effects.
@@ -216,7 +222,7 @@ registry.register({
   name: "score_and_persist",
   category: "write",
   description:
-    "Compute a CD3 score for one initiative and persist it to workspace.prioritization with framework='cost-of-delay' (a duration under half a week, or a fixed_date profile without its date, is refused). An existing id keeps its other fields and its backlog link. Returns { id, score, lane, backlogItemId }.",
+    "Compute a CD3 score for one initiative and persist it to workspace.prioritization with framework='cost-of-delay' (a duration under half a week, or a fixed_date profile without its date, is refused; without a duration the row is saved Not scored, score null, until one is added). An existing id keeps its other fields and its backlog link. Returns { id, score, lane, backlogItemId }.",
   paramsSchema: CostOfDelayItemInputSchema,
   handler: async (params) => scoreAndPersist(clientStore(), params),
   mcpHandler: async (params, ctx) => scoreAndPersist(serverStore(ctx.userId), params),
@@ -261,7 +267,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of Cost of Delay items to workspace.prioritization. CD3 is recomputed from the fields (a supplied score is ignored); an invalid item is refused and nothing is written. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
+    "Persist a batch of Cost of Delay items to workspace.prioritization. CD3 is recomputed from the fields (a supplied score is ignored); an invalid item is refused and nothing is written, and an item without a duration is saved Not scored (score null). Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
   paramsSchema: PersistSchema,
   handler: async (params) => persistAll(clientStore(), params),
   mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),

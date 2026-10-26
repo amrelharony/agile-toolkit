@@ -124,6 +124,25 @@ describe("persist verbs", () => {
     expect(state().backlogItems).toEqual([]);
   });
 
+  it("save an old Cost of Delay call without a duration as Not scored", async () => {
+    const r = await browser<{ id: string; score: number | null }>(
+      "tool.cost_of_delay.score_and_persist",
+      { id: "c1", title: "Old call", fields: { perWeekUsd: 2500, weeksDelayed: 6 } }
+    );
+    expect(r.score).toBeNull();
+    expect(storedRow("c1")).toMatchObject({
+      status: "open",
+      fields: { perWeekUsd: 2500, weeksDelayed: 6 },
+    });
+    // A wrong value is still refused.
+    await expect(
+      browser("tool.cost_of_delay.score_and_persist", {
+        title: "Tiny",
+        fields: { perWeekUsd: 1, durationWeeks: 0.25 },
+      })
+    ).rejects.toThrow(/“Tiny”: Duration/);
+  });
+
   it("refuse what the form refuses, writing nothing", async () => {
     await expect(
       browser("tool.rice_scoring.persist_to_prioritization", {
