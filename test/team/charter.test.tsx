@@ -64,7 +64,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  useWorkspaceStore.setState({ teamMembers: [], workingAgreements: [], stories: [] });
+  useWorkspaceStore.setState({ teamMembers: [], workingAgreements: [], stories: [], sprints: [] });
 });
 
 describe("TeamCharter", () => {
@@ -73,7 +73,9 @@ describe("TeamCharter", () => {
     const list = screen.getByRole("list", { name: "Charter documents" });
     const card = (id: string) => list.querySelector(`[data-charter="${id}"]`) as HTMLElement;
 
-    expect(card("agreement")).toHaveTextContent("1 rule · 1 agreed by name");
+    expect(card("agreement")).toHaveTextContent("1 rule · 1 with everyone's consent");
+    // The stored "version 1" was never published (no date, no snapshot).
+    expect(card("agreement")).toHaveTextContent("Not published yet");
     expect(within(card("agreement")).getByRole("link", { name: /Open/ })).toHaveAttribute(
       "href",
       "/working-agreement"
@@ -142,6 +144,38 @@ describe("TeamCharter", () => {
 
     await screen.findByText("1 criterion · 1 required");
     expect(screen.getByTestId("export-markdown").textContent).toContain(" |  | Refund an order |");
+  });
+
+  it("reports the DoD on the latest completed sprint's done stories", async () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        {
+          id: "sp7",
+          name: "Sprint 7",
+          startDate: "2026-10-01",
+          endDate: "2026-10-14",
+          pointsPlanned: 10,
+          status: "completed",
+        },
+      ],
+      stories: [
+        {
+          id: "s1",
+          title: "Refund an order",
+          status: "done",
+          sprintId: "sp7",
+          dodChecks: { checked: ["d1"], updatedAt: "2026-10-10T12:00:00.000Z" },
+        },
+        { id: "s2", title: "Split a bill", status: "done", sprintId: "sp7" },
+      ],
+    });
+    render(<TeamCharter />);
+    const card = screen
+      .getByRole("list", { name: "Charter documents" })
+      .querySelector('[data-charter="dod"]') as HTMLElement;
+    expect(
+      await within(card).findByText("Sprint 7: 1 of 2 done stories meet it")
+    ).toBeInTheDocument();
   });
 
   it("edits the ceremony times in place", () => {

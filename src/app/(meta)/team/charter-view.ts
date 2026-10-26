@@ -3,10 +3,19 @@
  * status line per card, and the whole charter as Markdown. Pure.
  */
 
-import type { Story, TeamMember, WorkingAgreement } from "@/lib/stores/workspace-types";
+import type { Sprint, Story, TeamMember, WorkingAgreement } from "@/lib/stores/workspace-types";
 import { CEREMONY_LABEL, WEEKDAY_LABEL, type CeremonyCadence } from "@/lib/sprints/cadence";
+import { isExampleSprintId } from "@/lib/sprints/example";
+import { sprintsByEndDate } from "@/lib/sprints/metrics";
 import { scales } from "@/lib/constants/scales";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
+import {
+  agreementConsent,
+  checkInAdherence,
+  consentEntries,
+  lastCheckIn,
+} from "@/lib/working-agreement/model";
+import { dodAdherence, quotableAdherence, requiredCriteria } from "@/lib/dod/model";
 import { defaultDescription, entryKey, readEntry } from "@/app/(tools)/estimation-guide/entries";
 import { isExampleNote } from "@/app/(tools)/estimation-guide/example";
 import {
@@ -49,10 +58,13 @@ export interface CharterDocs {
   estimation: EstimationDoc;
   /**
    * The workspace's stories: the Definition of Ready checks on them
-   * (`Story.readiness`) and the titles of the guide's pinned reference
+   * (`Story.readiness`), the Definition of Done ticks on their cards
+   * (`Story.dodChecks`) and the titles of the guide's pinned reference
    * stories. Without them, only the checks saved by name count.
    */
   stories?: readonly Story[];
+  /** The workspace's sprints: the DoD card reads the latest completed one. */
+  sprints?: readonly Sprint[];
 }
 
 /** One card of the estimation scale and the team's reference stories pinned on it. */
@@ -196,29 +208,95 @@ export function recentPassRate(
   return Math.round(recent.reduce((a, b) => a + b, 0) / recent.length);
 }
 
+/**
+ * The working agreement card's lines, counted as the Working Agreement page
+ * counts them (lib/working-agreement/model): how many rules have everyone
+ * on the roster's consent and how many someone objects to, then the
+ * published version and what the last check-in found.
+ */
+function agreementLines(
+  agreement: WorkingAgreement,
+  members: readonly { name: string }[]
+): { status: string; detail: string } {
+  const { rules } = agreement;
+  const consent = agreementConsent(agreement, members);
+  const answered = rules.some((r) => consentEntries(r).length > 0);
+  const status = [
+    plural(rules.length, "rule"),
+    answered ? `${consent.fullyConsented} with everyone's consent` : "nobody has given consent yet",
+    consent.withObjection > 0
+      ? `${consent.withObjection} with ${consent.withObjection === 1 ? "an objection" : "objections"}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const version = agreement.meta?.version;
+  const publishedAt = agreement.meta?.publishedAt;
+  const published =
+    typeof version === "number" && version > 0
+      ? `Version ${version}${publishedAt ? `, published ${publishedAt.slice(0, 10)}` : ""}`
+      : "Not published yet";
+  const last = lastCheckIn(agreement);
+  let checkIn = "";
+  if (last) {
+    const a = checkInAdherence(last);
+    checkIn = `Last check-in ${last.date.slice(0, 10)}${
+      a.checked > 0 ? `: ${a.working} of ${plural(a.checked, "rule")} working` : ""
+    }`;
+  }
+  return { status, detail: [published, checkIn].filter(Boolean).join(" · ") };
+}
+
+/** The latest completed sprint by end date (example sprints left out), or undefined. */
+function latestCompletedSprint(sprints: readonly Sprint[]): Sprint | undefined {
+  const closed = sprintsByEndDate(
+    sprints.filter(
+      (s) => s.status === "completed" && !isExampleSprintId(s.id) && !isExampleId(s.id)
+    )
+  );
+  return closed[closed.length - 1];
+}
+
+/**
+ * The DoD card's second line: how many of the latest completed sprint's
+ * done stories meet it, from the ticks on their cards, counted as the DoD
+ * page counts them (lib/dod/model). Without a completed sprint (or with
+ * nothing required), the last sprint snapshot saved before stories carried
+ * their own ticks, named as the old team-level tally it is.
+ */
+function dodDetail(docs: CharterDocs): string | undefined {
+  const sprint = latestCompletedSprint(docs.sprints ?? []);
+  if (sprint && requiredCriteria(docs.dod).length > 0) {
+    const a = dodAdherence(docs.stories ?? [], docs.dod, sprint.id);
+    if (a.done === 0) return `${sprint.name}: no story was done`;
+    const pct = quotableAdherence(a) ? ` (${a.pct}%)` : "";
+    return `${sprint.name}: ${a.meeting} of ${plural(a.done, "done story", "done stories")} ${
+      a.done === 1 ? "meets" : "meet"
+    } it${pct}`;
+  }
+  const last = docs.dod.history[docs.dod.history.length - 1];
+  return last
+    ? `Old team-level tally: ${last.sprintName}, ${last.completed} of ${last.totalRequired} required met`
+    : undefined;
+}
+
 export function charterCards(docs: CharterDocs): CharterCard[] {
   const rules = docs.agreement?.rules ?? [];
-  const agreed = rules.filter((r) => r.agreedBy.length > 0).length;
-  const version = docs.agreement?.meta?.version;
+  const lines =
+    docs.agreement && rules.length > 0 ? agreementLines(docs.agreement, docs.members) : null;
   const agreement: CharterCard = {
     id: "agreement",
     title: "Working agreement",
     toolId: "working-agreement",
     href: "/working-agreement",
     empty: rules.length === 0,
-    status:
-      rules.length === 0
-        ? "No rules agreed yet"
-        : `${plural(rules.length, "rule")} · ${agreed} agreed by name`,
-    detail:
-      rules.length > 0 && typeof version === "number"
-        ? `Version ${version}${docs.agreement?.meta?.publishedAt ? `, published ${docs.agreement.meta.publishedAt.slice(0, 10)}` : ""}`
-        : undefined,
+    status: lines?.status ?? "No rules agreed yet",
+    detail: lines?.detail,
   };
 
   const items = docs.dod.items;
-  const required = items.filter((i) => i.required).length;
-  const last = docs.dod.history[docs.dod.history.length - 1];
+  const required = requiredCriteria(docs.dod).length;
   const dod: CharterCard = {
     id: "dod",
     title: "Definition of Done",
@@ -229,9 +307,7 @@ export function charterCards(docs: CharterDocs): CharterCard[] {
       items.length === 0
         ? "Not written yet"
         : `${plural(items.length, "criterion", "criteria")} · ${required} required`,
-    detail: last
-      ? `Last check: ${last.sprintName}, ${last.completed} of ${last.totalRequired} required met`
-      : undefined,
+    detail: dodDetail(docs),
   };
 
   const criteria = docs.dor.criteria;

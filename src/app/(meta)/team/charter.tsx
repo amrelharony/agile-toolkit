@@ -9,7 +9,7 @@ import { ExportButton } from "@/components/shared/export-button";
 import { CadenceForm } from "@/components/sprints/cadence-form";
 import { getToolById } from "@/lib/constants/tools";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Story } from "@/lib/stores/workspace-types";
+import type { Sprint, Story } from "@/lib/stores/workspace-types";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { todayIso } from "@/lib/sprints/series";
@@ -20,8 +20,9 @@ import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
 
-/** One empty list, so a workspace without stories doesn't make the docs anew each render. */
+/** Empty lists, so a workspace without stories or sprints doesn't make the docs anew each render. */
 const NO_STORIES: Story[] = [];
+const NO_SPRINTS: Sprint[] = [];
 
 /**
  * The team charter: the agreements the team works by, each a card with
@@ -51,9 +52,11 @@ export function TeamCharter() {
       referenceStoryIds: s.referenceStoryIds,
     }))
   );
-  // Refinement checks now live on the stories, and the guide pins stories
-  // by id: both cards read the workspace's stories.
+  // Refinement checks and DoD ticks live on the stories, and the guide pins
+  // stories by id: those cards read the workspace's stories. The DoD card
+  // reports on the latest completed sprint.
   const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
+  const sprints = useWorkspaceStore((s) => s.sprints ?? NO_SPRINTS);
   // The guide's store waits to be asked (its page merges a shared link first).
   useEffect(() => {
     void useEstimationGuideStore.persist.rehydrate();
@@ -62,8 +65,8 @@ export function TeamCharter() {
   const [today] = useState(() => todayIso());
 
   const docs = useMemo<CharterDocs>(
-    () => ({ members, cadence, agreement, dod, dor, estimation, stories }),
-    [members, cadence, agreement, dod, dor, estimation, stories]
+    () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints }),
+    [members, cadence, agreement, dod, dor, estimation, stories, sprints]
   );
   const cards = useMemo(() => charterCards(docs), [docs]);
   const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);
