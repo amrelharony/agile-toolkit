@@ -45,12 +45,12 @@ import {
   KANO_COUNT_KEYS,
   KANO_MIN_RESPONSES,
   KANO_RANK,
-  addCounts,
   countTotal,
   countsFromJoint,
+  earlierCounts,
   kanoClass,
   kanoCoefficients,
-  kanoCountFields,
+  kanoRoundFields,
   readKano,
   type KanoCategory,
   type KanoClass,
@@ -399,21 +399,6 @@ const RecordRoundSchema = z
     message: "Give exactly one of `counts` or `joint`.",
   });
 
-/**
- * A feature's answers before a round, as counts: its counts, or its one
- * pair as one answer. The twin of the page's earlierCounts
- * (kano-model/survey.ts), which an agent module can't import; a parity
- * test holds the two to the same fields for the same round.
- */
-function earlierCounts(fields: PrioritizationItem["fields"]): KanoCounts | null {
-  const r = readKano(fields);
-  if (r.counts) return r.counts;
-  if (r.pair) {
-    return { ...EMPTY_KANO_COUNTS, [kanoClass(r.pair.functional, r.pair.dysfunctional)]: 1 };
-  }
-  return null;
-}
-
 /** What a feature's stored counts say: its category, score, n and Better/Worse (gated as on the page). */
 function roundReading(id: string, fields: PrioritizationItem["fields"]) {
   const result = KANO.evaluate(KANO.read(fields));
@@ -450,10 +435,12 @@ const recordRound = async (store: MethodStore, p: z.infer<typeof RecordRoundSche
       alreadyRecorded: true,
     };
   }
+  // The page's fold (kanoRoundFields): replace, or with add, add to the
+  // earlier answers (a single stored pair counting as one).
   const earlier = earlierCounts(row.fields);
-  const counts = p.add && earlier ? addCounts(earlier, fresh) : fresh;
   const now = new Date().toISOString();
-  const fields = kanoCountFields(row.fields, counts, {
+  const fields = kanoRoundFields(row.fields, fresh, {
+    add: p.add === true,
     source: p.source ?? "tally",
     roundId: p.roundId,
     at: p.at ?? now,

@@ -337,6 +337,35 @@ export function kanoCountFields(
   return out;
 }
 
+/** A row's answers before a round, as counts: its counts, or its one answer pair as one. */
+export function earlierCounts(fields: Values | undefined): KanoCounts | null {
+  const r = readKano(fields);
+  if (r.counts) return r.counts;
+  if (r.pair) {
+    return { ...EMPTY_KANO_COUNTS, [kanoClass(r.pair.functional, r.pair.dysfunctional)]: 1 };
+  }
+  return null;
+}
+
+/**
+ * Fields for a saved round's counts on a row: they REPLACE its earlier
+ * answers, or with `add` ("Add to earlier answers") are added to them (a
+ * single stored answer pair counting as one). The page's Save round and
+ * tool.kano_model.record_round both fold a round with this.
+ */
+export function kanoRoundFields(
+  fields: RowFields | undefined,
+  counts: KanoCounts,
+  opts: { add: boolean; source: KanoSource; roundId?: string; at?: string }
+): RowFields {
+  const before = opts.add ? earlierCounts(fields) : null;
+  return kanoCountFields(fields, before ? addCounts(before, counts) : counts, {
+    source: opts.source,
+    roundId: opts.roundId,
+    at: opts.at,
+  });
+}
+
 const BUCKETS: readonly BucketDef[] = KANO_CATEGORIES.map((id, order) => ({
   id,
   label: KANO_CATEGORY_LABEL[id],

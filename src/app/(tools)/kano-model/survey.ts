@@ -5,19 +5,12 @@
  * only each feature's 5×5 joint count of answer pairs, nothing per person.
  * Saving folds a feature's joint into its class counts A/O/M/I/R/Q through
  * the method registry (countsFromJoint) and stores those on the row: they
- * REPLACE its earlier counts unless "Add to earlier answers" is on. Pure.
+ * REPLACE its earlier counts unless "Add to earlier answers" is on
+ * (kanoRoundFields, the fold tool.kano_model.record_round uses too). Pure.
  */
 
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
-import {
-  EMPTY_KANO_COUNTS,
-  addCounts,
-  countsFromJoint,
-  kanoClass,
-  kanoCountFields,
-  readKano,
-  type KanoCounts,
-} from "@/lib/prioritization/methods/kano";
+import { countsFromJoint, kanoRoundFields, readKano } from "@/lib/prioritization/methods/kano";
 import { KANO, scoreCache } from "@/lib/prioritization/methods";
 import { isExampleId } from "@/lib/utils/example-id";
 import {
@@ -80,16 +73,6 @@ export function kanoSurvey(rows: readonly PrioritizationItem[]): KanoSurvey {
   };
 }
 
-/** A row's answers before a round, as counts: its counts, or its one answer pair as one. */
-export function earlierCounts(fields: PrioritizationItem["fields"]): KanoCounts | null {
-  const r = readKano(fields);
-  if (r.counts) return r.counts;
-  if (r.pair) {
-    return { ...EMPTY_KANO_COUNTS, [kanoClass(r.pair.functional, r.pair.dysfunctional)]: 1 };
-  }
-  return null;
-}
-
 /**
  * True when the row already holds this round's counts (the round was
  * saved, and nobody has typed over them since: a hand edit drops the
@@ -119,9 +102,8 @@ export function applyKanoRound(
     const row = byId.get(item.id);
     const fresh = item.joint ? countsFromJoint(item.joint) : null;
     if (!row || !fresh || holdsRound(row, result)) continue;
-    const before = opts.add ? earlierCounts(row.fields) : null;
-    const counts = before ? addCounts(before, fresh) : fresh;
-    const fields = kanoCountFields(row.fields, counts, {
+    const fields = kanoRoundFields(row.fields, fresh, {
+      add: opts.add,
       source: result.source === "live" ? "room" : "tally",
       roundId: result.roundId,
       at: result.closedAt,

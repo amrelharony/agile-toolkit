@@ -21,8 +21,10 @@ import {
   KANO_TABLE,
   countsFromJoint,
   kanoCategory,
+  earlierCounts,
   kanoCoefficients,
   kanoCountFields,
+  kanoRoundFields,
   readKano,
 } from "@/lib/prioritization/methods/kano";
 import { cd3, latestStart } from "@/lib/prioritization/methods/cost-of-delay";
@@ -501,6 +503,46 @@ describe("Kano", () => {
     expect(KANO.validate({ kanoA: 0, kanoO: 0 }).ok).toBe(false);
     expect(KANO.validate({ kanoA: 1.5 }).ok).toBe(false);
     expect(KANO.validate({}).ok).toBe(false);
+  });
+
+  it("reads a row's earlier answers as counts: its counts, its one pair as one, else none", () => {
+    expect(earlierCounts({ kanoA: 2, kanoM: 1 })).toEqual({ A: 2, O: 0, M: 1, I: 0, R: 0, Q: 0 });
+    // like / neutral is Attractive in the evaluation table.
+    expect(earlierCounts({ functional: "like", dysfunctional: "neutral" })).toEqual({
+      A: 1,
+      O: 0,
+      M: 0,
+      I: 0,
+      R: 0,
+      Q: 0,
+    });
+    expect(earlierCounts({ functional: "like" })).toBeNull();
+    expect(earlierCounts({ category: "attractive" })).toBeNull();
+    expect(earlierCounts(undefined)).toBeNull();
+  });
+
+  it("folds a round into a row: replacing its answers, or added to them with add", () => {
+    const round = { A: 0, O: 2, M: 1, I: 0, R: 0, Q: 0 };
+    const meta = { source: "room" as const, roundId: "r2", at: "2026-10-27" };
+    const counted = { kanoM: 9, kanoN: 9, kanoSource: "counts", note: "x" };
+    expect(kanoRoundFields(counted, round, { add: false, ...meta })).toEqual(
+      kanoCountFields(counted, round, meta)
+    );
+    expect(kanoRoundFields(counted, round, { add: true, ...meta })).toEqual(
+      kanoCountFields(counted, { A: 0, O: 2, M: 10, I: 0, R: 0, Q: 0 }, meta)
+    );
+    // A stored pair counts as one answer; with nothing earlier, add is a replace.
+    const pair = { functional: "like", dysfunctional: "neutral" };
+    expect(kanoRoundFields(pair, round, { add: true, source: "tally" })).toMatchObject({
+      kanoA: 1,
+      kanoO: 2,
+      kanoM: 1,
+      kanoN: 4,
+      kanoSource: "tally",
+    });
+    expect(kanoRoundFields(undefined, round, { add: true, source: "tally" })).toEqual(
+      kanoCountFields(undefined, round, { source: "tally" })
+    );
   });
 });
 
