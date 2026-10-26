@@ -71,7 +71,6 @@ import {
   legacyValueNote,
   placeOf,
   positionText,
-  promptGroups,
   quadrantOf,
   shortName,
   toCsv,
@@ -230,9 +229,10 @@ export function ValueEffortMatrixClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Value vs Effort Matrix",
-      prompts: generateValueEffortPrompts({ grouped: promptGroups(ranked) }, workspace),
+      // Quadrants, value ÷ effort and the rows' notes, as the lists show them.
+      prompts: generateValueEffortPrompts({ rows: ranked, items }, workspace),
     }),
-    [ranked, workspace]
+    [ranked, items, workspace]
   );
 
   const rows = ranked.map((r) => r.row);

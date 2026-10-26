@@ -12,7 +12,7 @@
  * other.
  */
 
-import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem } from "@/lib/stores/workspace-types";
 import type { MethodDraft } from "@/components/prioritization/method-tool";
 import { withoutOldDefaults } from "@/lib/prioritization/defaults";
 import { FIBONACCI_TEXT, isFibonacci } from "@/lib/prioritization/methods/fibonacci";
@@ -218,19 +218,4 @@ export function toCsv(rows: readonly RankedRow[]): {
       ];
     }),
   };
-}
-
-/**
- * The rows as the AI prompt reads them: grouped by quadrant label, each
- * with the value and effort it shows (`v8 e3`), not its stored copy.
- */
-export function promptGroups(rows: readonly RankedRow[]): Record<string, PrioritizationItem[]> {
-  const out: Record<string, PrioritizationItem[]> = {};
-  for (const g of veGroups(rows)) {
-    out[g.label] = g.rows.map((r) => {
-      const at = placeOf(r);
-      return { ...r.row, fields: { value: at.value ?? "—", effort: at.effort ?? "—" } };
-    });
-  }
-  return out;
 }
