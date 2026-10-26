@@ -1,9 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { MoodTrackerClient } from "./mood-tracker-client";
 
-export const metadata = {
-  title: "Team Mood Tracker",
-  description: "Daily team mood check-ins with a team heatmap and trend.",
-};
+export const metadata: Metadata = toolMetadata("mood-tracker");
 
 export default function Page() {
   return <MoodTrackerClient />;

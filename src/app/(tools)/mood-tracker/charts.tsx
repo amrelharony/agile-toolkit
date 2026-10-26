@@ -16,10 +16,11 @@ import { CausalLine, type CausalAnnotationData } from "@/components/charts/causa
 
 interface DailyMoodChartProps {
   data: { date: string; avg: number }[];
-  changepoints: CausalAnnotationData[];
+  /** CUSUM shifts to mark; the page passes them only from MIN_SAMPLE.changePoint days. */
+  changepoints?: CausalAnnotationData[];
 }
 
-export function DailyMoodChart({ data, changepoints }: DailyMoodChartProps) {
+export function DailyMoodChart({ data, changepoints = [] }: DailyMoodChartProps) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       {/* ChartFigure hides the plot from assistive tech behind its summary and
