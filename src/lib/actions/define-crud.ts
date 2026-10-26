@@ -78,6 +78,19 @@ interface CrudOptions<T extends { id: string }> {
    * leaves the same trail.
    */
   prepare?: (next: T, current: T | undefined) => T;
+  /**
+   * For an entity whose store `remove` takes other rows with it (a weighted
+   * matrix's options and criteria): `describe` says what goes, in the delete
+   * verb's description, and `server` does the same on the MCP transport —
+   * given the user and the id, it deletes the entity's own row too. Without
+   * it the MCP delete tombstones the one row, so a cascading `remove` would
+   * give the two transports of one action id different results (see the
+   * R12-fix note on create).
+   */
+  cascade?: {
+    describe: string;
+    server: (userId: string, id: string) => Promise<void>;
+  };
 }
 
 export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>): void {
@@ -111,13 +124,15 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
   // unreachable. We only relax `id` when a `generateId` exists to fill it;
   // without one, `id` stays required so an id-less create is still rejected
   // rather than upserting an id-less row. A non-object schema (no `.extend`)
-  // falls back to the original behaviour.
-  const objectSchema = schema as unknown as {
-    extend?: (shape: Record<string, z.ZodType<unknown>>) => z.ZodType<T>;
-  };
+  // falls back to the original behaviour. `safeExtend` first: zod 4 refuses
+  // `extend` on an object with refinements (an allocation round's
+  // cross-field rules), and `safeExtend` keeps them on the relaxed schema.
+  type Extend = (shape: Record<string, z.ZodType<unknown>>) => z.ZodType<T>;
+  const objectSchema = schema as unknown as { extend?: Extend; safeExtend?: Extend };
+  const relaxId = objectSchema.safeExtend ?? objectSchema.extend;
   const createEntitySchema: z.ZodType<T> =
-    opts.generateId && typeof objectSchema.extend === "function"
-      ? objectSchema.extend({ id: z.string().optional() })
+    opts.generateId && typeof relaxId === "function"
+      ? relaxId.call(schema, { id: z.string().optional() })
       : schema;
   const createSchema = z.object({
     entity: createEntitySchema,
@@ -261,14 +276,17 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
     toolId,
     name: "delete",
     category: "write",
-    description: `Delete a ${entityName} by id.`,
+    description: opts.cascade
+      ? `Delete a ${entityName} by id. ${opts.cascade.describe}`
+      : `Delete a ${entityName} by id.`,
     paramsSchema: z.object({ id: z.string() }),
     handler: async (params: { id: string }): Promise<{ deleted: boolean }> => {
       remove(params.id);
       return { deleted: true };
     },
     mcpHandler: async (params, ctx) => {
-      await serverDeleteEntity(ctx.userId, serverKind, params.id);
+      if (opts.cascade) await opts.cascade.server(ctx.userId, params.id);
+      else await serverDeleteEntity(ctx.userId, serverKind, params.id);
       return { deleted: true };
     },
   });
