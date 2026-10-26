@@ -163,6 +163,40 @@ describe("reveal rules", () => {
     expect(effectiveMinN(Number.NaN)).toBe(3);
   });
 
+  it("never goes under Psych Safety's 5, whatever the caller passes", () => {
+    expect(effectiveMinN(undefined, "psych-safety")).toBe(5);
+    expect(effectiveMinN(3, "psych-safety")).toBe(5);
+    expect(effectiveMinN(Number.NaN, "psych-safety")).toBe(5);
+    expect(effectiveMinN(7, "psych-safety")).toBe(7);
+    expect(effectiveMinN(3, "health-check")).toBe(3);
+    expect(effectiveMinN(undefined, "mood-tracker")).toBe(3);
+  });
+
+  it("toRoundResult applies the tool's floor too", () => {
+    const r = toRoundResult(
+      QUESTIONNAIRE,
+      revealTally(
+        tallyOf([
+          [0, 0, 0],
+          [1, 1, 1],
+          [2, 2, 2],
+          [0, 1, 2],
+        ]),
+        3
+      ),
+      {
+        tool: "psych-safety",
+        roundId: ROUND,
+        closedAt: "2026-10-26T10:00:00.000Z",
+        minN: 3,
+        ballots: 4,
+        source: "live",
+      }
+    );
+    expect(r.minN).toBe(5);
+    expect(r.questions.map((q) => q.distribution)).toEqual([null, null, null]);
+  });
+
   it("canReveal needs minN ballots", () => {
     const two = tallyOf([
       [0, 0, 0],

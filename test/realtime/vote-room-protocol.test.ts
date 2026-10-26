@@ -7,6 +7,7 @@ import {
   ballotCiphertextChars,
   encodeAnswers,
   isVoteRoomTool,
+  questionnaireProblem,
   readAnswerString,
   readBallotEnvelope,
   readVoteEnd,
@@ -14,6 +15,7 @@ import {
   readVoteState,
   signingInput,
   toWireQuestionnaire,
+  voteMinNFloor,
   type Questionnaire,
   type VoteStateBody,
 } from "@/lib/realtime/vote-room/protocol";
@@ -458,5 +460,97 @@ describe("answers", () => {
     const encoded = encodeAnswers(draft, QUESTIONNAIRE)!;
     expect(encoded).toHaveLength(QUESTIONNAIRE.questions.length);
     expect(readAnswerString(encoded, QUESTIONNAIRE)).toEqual([2, 0, -1]);
+  });
+});
+
+describe("the minN floor per tool", () => {
+  it("is 5 for Psych Safety and 3 for the others", () => {
+    expect(voteMinNFloor("psych-safety")).toBe(5);
+    expect(voteMinNFloor("health-check")).toBe(3);
+    expect(voteMinNFloor("mood-tracker")).toBe(3);
+    expect(voteMinNFloor()).toBe(3);
+  });
+
+  it("readVoteState refuses a Psych Safety state under 5, whatever the host claims", () => {
+    for (const minN of [3, 4]) {
+      expect(readVoteState(wire(open({ tool: "psych-safety", minN })), "psych-safety")).toBeNull();
+    }
+    expect(
+      readVoteState(wire(open({ tool: "psych-safety", minN: 5 })), "psych-safety")
+    ).not.toBeNull();
+    expect(readVoteState(wire(open({ minN: 3 })), "health-check")).not.toBeNull();
+  });
+});
+
+describe("questionnaireProblem", () => {
+  it("is null for what can be shared, UUID ids included", () => {
+    expect(questionnaireProblem(QUESTIONNAIRE)).toBeNull();
+    const uuid = "dim:6f1c2a9e-3b7d-4c55-9a0e-1f2b3c4d5e6f";
+    const q = { ...QUESTIONNAIRE, questions: [{ id: uuid, text: "Fun" }] };
+    expect(questionnaireProblem(q)).toBeNull();
+    expect(toWireQuestionnaire(q)?.questions[0].id).toBe(uuid);
+    const longest = { ...QUESTIONNAIRE, id: "x".repeat(VOTE_LIMITS.maxIdChars) };
+    expect(questionnaireProblem(longest)).toBeNull();
+    expect(VOTE_LIMITS.maxIdChars).toBe(64);
+  });
+
+  it.each([
+    [{ id: "x".repeat(65) }, "The questions' id can't be shared live"],
+    [{ title: "  " }, "The round needs a title."],
+    [{ scale: { id: "s", points: [{ value: 1, label: "One" }] } }, "The scale needs 2 to 11"],
+    [
+      {
+        scale: {
+          id: "s",
+          points: [
+            { value: 1, label: "One" },
+            { value: 1, label: "Uno" },
+          ],
+        },
+      },
+      "Each answer on the scale needs its own whole-number value",
+    ],
+    [
+      {
+        scale: {
+          id: "s",
+          points: [
+            { value: 1, label: "One" },
+            { value: 2, label: " " },
+          ],
+        },
+      },
+      "Every answer on the scale needs a label.",
+    ],
+    [{ questions: [] }, "Add at least one question."],
+    [
+      {
+        questions: Array.from({ length: 33 }, (_, i) => ({ id: `q${i}`, text: `Q ${i}` })),
+      },
+      "A live round can ask at most 32 questions.",
+    ],
+    [
+      {
+        questions: [
+          { id: "a", text: "A" },
+          { id: "a", text: "B" },
+        ],
+      },
+      "Question 2 has the same id as an earlier question.",
+    ],
+    [{ questions: [{ id: "has space", text: "A" }] }, "Question 1's id can't be shared live"],
+    [
+      {
+        questions: [
+          { id: "a", text: "A" },
+          { id: "b", text: "‮ " },
+        ],
+      },
+      "Question 2 needs text.",
+    ],
+  ])("names the problem: %#", (patch, problem) => {
+    const q = { ...QUESTIONNAIRE, ...patch } as Questionnaire;
+    expect(questionnaireProblem(q)).toContain(problem);
+    expect(toWireQuestionnaire(q)).toBeNull();
   });
 });

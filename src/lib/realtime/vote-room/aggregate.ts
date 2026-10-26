@@ -18,6 +18,7 @@
 import { VISITOR_LIMITS } from "../visitor-rooms";
 import {
   VOTE_LIMITS,
+  voteMinNFloor,
   type BallotEnvelope,
   type Questionnaire,
   type RevealedQuestion,
@@ -184,10 +185,12 @@ export function foldCounts(
 
 /**
  * The minN a round really uses: `requested` rounded up and clamped to
- * [VOTE_LIMITS.minNFloor, the seat cap], or the floor when unset.
+ * [the tool's floor, the seat cap], or the floor when unset. The floor is
+ * `voteMinNFloor(tool)`: 5 for Psych Safety whatever the caller passes, 3
+ * otherwise (and with no tool).
  */
-export function effectiveMinN(requested?: number): number {
-  const floor = VOTE_LIMITS.minNFloor;
+export function effectiveMinN(requested?: number, tool?: VoteRoomTool): number {
+  const floor = voteMinNFloor(tool);
   if (typeof requested !== "number" || !Number.isFinite(requested)) return floor;
   return Math.min(VISITOR_LIMITS.maxMembers, Math.max(floor, Math.ceil(requested)));
 }
@@ -291,7 +294,7 @@ export function toRoundResult(
   revealed: readonly RevealedQuestion[],
   meta: RoundResultMeta
 ): VoteRoundResult {
-  const minN = effectiveMinN(meta.minN);
+  const minN = effectiveMinN(meta.minN, meta.tool);
   return {
     roundId: meta.roundId,
     tool: meta.tool,

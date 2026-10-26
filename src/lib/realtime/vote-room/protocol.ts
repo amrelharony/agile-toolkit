@@ -10,7 +10,8 @@
  *                                       500 ms, 500 ms after a join, 30 s
  *                                       keepalive)
  *   participant → host   "vote:ballot"  BallotEnvelope         (one per
- *                                       round, encrypted to the host)
+ *                                       round, encrypted to the host,
+ *                                       re-sent unchanged until acked)
  *   host → everyone      "vote:kick"    Signed<VoteKickBody>
  *   host → everyone      "vote:end"     Signed<VoteEndBody>
  *
@@ -34,10 +35,12 @@
  *    can't be diffed to expose the latest answer;
  *  - nothing is written anywhere until the host presses Save, and then only
  *    the totals (`VoteRoundResult`).
- * What it doesn't cover: a host who modifies their own browser sees each
- * ballot with its sender for an instant before folding it, and a member can
- * answer again from a new tab (bounded by the seat and ballot caps, and the
- * host is warned).
+ * What it doesn't cover: a host who opens their browser's developer tools
+ * sees each ballot with its sender for an instant before folding it; a
+ * member can answer again from a new tab (bounded by the seat and ballot
+ * caps, and the host is warned); and a member can spend another member's
+ * ballot by claiming their id, which can single out one person's answers
+ * (the victim's screen and the host are both warned: see `use-vote-room.ts`).
  *
  * Every reader treats its input as hostile: size first, then a strict shape,
  * rebuilt field by field so unknown fields are dropped. Who may send what is
@@ -82,8 +85,8 @@ export const VOTE_LIMITS = {
   maxQuestionChars: 200,
   maxHintChars: 200,
   maxTitleChars: 120,
-  /** Questionnaire, scale and question ids. */
-  maxIdChars: 32,
+  /** Questionnaire, scale and question ids: room for a UUID with a prefix. */
+  maxIdChars: 64,
   minPoints: 2,
   /** One answer character per point index: `ANSWER_ALPHABET` has 11. */
   maxPoints: 11,
@@ -106,9 +109,20 @@ export const VOTE_LIMITS = {
   joinDebounceMs: 500,
   /** The lowest minN a round can use: below it one person's answer shows. */
   minNFloor: MIN_SAMPLE.anonymous,
-  /** Psych Safety's minN. */
+  /** Psych Safety's minN, and its floor: its rounds never reveal from fewer. */
   minNPsychSafety: MIN_SAMPLE.psychSafety,
 } as const;
+
+/**
+ * The lowest minN `tool` may use: 5 for Psych Safety (its questions can
+ * point at a person in a small team), 3 otherwise. The host
+ * (`effectiveMinN`), the facilitator entry and every participant
+ * (`readVoteState`) apply it, so a tool page that leaves out its `minN`
+ * still can't reveal Psych Safety from three answers.
+ */
+export function voteMinNFloor(tool?: VoteRoomTool): number {
+  return tool === "psych-safety" ? VOTE_LIMITS.minNPsychSafety : VOTE_LIMITS.minNFloor;
+}
 
 /** Answer characters: the i-th is point index i. */
 export const ANSWER_ALPHABET = "0123456789a";
@@ -278,7 +292,8 @@ export function signingInput(
 
 // ── Host side: what it may share ─────────────────────────────────────
 
-const ID_RE = /^[A-Za-z0-9:_-]{1,32}$/;
+/** Up to `VOTE_LIMITS.maxIdChars`. */
+const ID_RE = /^[A-Za-z0-9:_-]{1,64}$/;
 const ROUND_ID_RE = /^[A-Za-z0-9_-]{12}$/;
 /** A raw P-256 public key (65 bytes), unpadded base64url. */
 const KEY_RE = /^[A-Za-z0-9_-]{87}$/;
@@ -295,48 +310,94 @@ function isPointValue(v: unknown): v is number {
   );
 }
 
-/**
- * The questionnaire as the host may share it, rebuilt field by field: text
- * on one line with hidden characters stripped and cut to the caps, ids and
- * values checked. Null when it can't be shared (an id the protocol can't
- * carry, a blank title or question, a scale out of range, duplicates).
- */
-export function toWireQuestionnaire(q: Questionnaire): Questionnaire | null {
-  if (!q || typeof q !== "object") return null;
-  if (typeof q.id !== "string" || !ID_RE.test(q.id)) return null;
+const ID_RULE = "use up to 64 letters, digits, ':', '_' or '-'";
+
+type WireCheck = { ok: true; questionnaire: Questionnaire } | { ok: false; problem: string };
+
+/** `toWireQuestionnaire` and `questionnaireProblem` in one pass. */
+function checkQuestionnaire(q: Questionnaire): WireCheck {
+  const no = (problem: string): WireCheck => ({ ok: false, problem });
+  if (!q || typeof q !== "object") return no("There are no questions to share.");
+  if (typeof q.id !== "string" || !ID_RE.test(q.id)) {
+    return no(`The questions' id can't be shared live: ${ID_RULE}.`);
+  }
   const title = shareableText(String(q.title ?? ""), VOTE_LIMITS.maxTitleChars);
-  if (!title) return null;
+  if (!title) return no("The round needs a title.");
   const scale = q.scale;
-  if (!scale || typeof scale.id !== "string" || !ID_RE.test(scale.id)) return null;
-  if (!Array.isArray(scale.points)) return null;
-  if (scale.points.length < VOTE_LIMITS.minPoints || scale.points.length > VOTE_LIMITS.maxPoints) {
-    return null;
+  if (!scale || typeof scale.id !== "string" || !ID_RE.test(scale.id)) {
+    return no(`The scale's id can't be shared live: ${ID_RULE}.`);
+  }
+  if (
+    !Array.isArray(scale.points) ||
+    scale.points.length < VOTE_LIMITS.minPoints ||
+    scale.points.length > VOTE_LIMITS.maxPoints
+  ) {
+    return no(
+      `The scale needs ${VOTE_LIMITS.minPoints} to ${VOTE_LIMITS.maxPoints} answers to pick from.`
+    );
   }
   const values = new Set<number>();
   const points: VoteScalePoint[] = [];
   for (const p of scale.points) {
-    if (!p || !isPointValue(p.value) || values.has(p.value)) return null;
+    if (!p || !isPointValue(p.value) || values.has(p.value)) {
+      return no(
+        `Each answer on the scale needs its own whole-number value from ${VOTE_LIMITS.minPointValue} to ${VOTE_LIMITS.maxPointValue}.`
+      );
+    }
     values.add(p.value);
     const label = shareableText(String(p.label ?? ""), VOTE_LIMITS.maxPointLabelChars);
-    if (!label) return null;
+    if (!label) return no("Every answer on the scale needs a label.");
     points.push({ value: p.value, label });
   }
-  if (!Array.isArray(q.questions)) return null;
-  if (q.questions.length < 1 || q.questions.length > VOTE_LIMITS.maxQuestions) return null;
+  if (!Array.isArray(q.questions) || q.questions.length < 1) {
+    return no("Add at least one question.");
+  }
+  if (q.questions.length > VOTE_LIMITS.maxQuestions) {
+    return no(`A live round can ask at most ${VOTE_LIMITS.maxQuestions} questions.`);
+  }
   const ids = new Set<string>();
   const questions: VoteQuestion[] = [];
-  for (const x of q.questions) {
-    if (!x || typeof x.id !== "string" || !ID_RE.test(x.id) || ids.has(x.id)) return null;
+  for (let i = 0; i < q.questions.length; i++) {
+    const x = q.questions[i];
+    if (!x || typeof x.id !== "string" || !ID_RE.test(x.id)) {
+      return no(`Question ${i + 1}'s id can't be shared live: ${ID_RULE}.`);
+    }
+    if (ids.has(x.id)) return no(`Question ${i + 1} has the same id as an earlier question.`);
     ids.add(x.id);
     const text = shareableText(String(x.text ?? ""), VOTE_LIMITS.maxQuestionChars);
-    if (!text) return null;
+    if (!text) return no(`Question ${i + 1} needs text.`);
     const question: VoteQuestion = { id: x.id, text };
     const hint = typeof x.hint === "string" ? shareableText(x.hint, VOTE_LIMITS.maxHintChars) : "";
     if (hint) question.hint = hint;
     if (x.optional === true) question.optional = true;
     questions.push(question);
   }
-  return { id: q.id, title, scale: { id: scale.id, points }, questions };
+  return {
+    ok: true,
+    questionnaire: { id: q.id, title, scale: { id: scale.id, points }, questions },
+  };
+}
+
+/**
+ * The questionnaire as the host may share it, rebuilt field by field: text
+ * on one line with hidden characters stripped and cut to the caps, ids and
+ * values checked. Null when it can't be shared (an id the protocol can't
+ * carry, a blank title or question, a scale out of range, duplicates);
+ * `questionnaireProblem` says which.
+ */
+export function toWireQuestionnaire(q: Questionnaire): Questionnaire | null {
+  const checked = checkQuestionnaire(q);
+  return checked.ok ? checked.questionnaire : null;
+}
+
+/**
+ * Why `q` can't be shared live, in one sentence for the host ("Question 3
+ * needs text."), or null when it can. The panel checks it before offering a
+ * live round, so nobody consents to a round that can't start.
+ */
+export function questionnaireProblem(q: Questionnaire): string | null {
+  const checked = checkQuestionnaire(q);
+  return checked.ok ? null : checked.problem;
 }
 
 // ── Answers ──────────────────────────────────────────────────────────
@@ -494,10 +555,11 @@ export function readVoteState(raw: unknown, tool: VoteRoomTool): VoteStateMessag
   if (m.tool !== tool || !isVoteRoomTool(m.tool)) return null;
   if (typeof m.roundId !== "string" || !ROUND_ID_RE.test(m.roundId)) return null;
   if (typeof m.endsAt !== "number" || !Number.isFinite(m.endsAt) || m.endsAt <= 0) return null;
+  // The tool's floor, whatever the host claims: Psych Safety never shows fewer than 5.
   if (
     typeof m.minN !== "number" ||
     !Number.isInteger(m.minN) ||
-    m.minN < VOTE_LIMITS.minNFloor ||
+    m.minN < voteMinNFloor(m.tool) ||
     m.minN > VISITOR_LIMITS.maxMembers
   ) {
     return null;
