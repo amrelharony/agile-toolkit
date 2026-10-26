@@ -33,6 +33,13 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
+import {
+  applyItemPatch,
+  clearedKeys,
+  itemPatchChanges,
+  methodRow,
+  ownedPatch,
+} from "@/lib/prioritization/binding";
 import { method, type Values } from "@/lib/prioritization/methods";
 import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
 import {
@@ -317,6 +324,84 @@ registry.register({
   paramsSchema: PlaceSchema,
   handler: async (params) => placeItem(clientStore(), params),
   mcpHandler: async (params, ctx) => placeItem(serverStore(ctx.userId), params),
+});
+
+// ──────── tool.value_effort_matrix.set_position ────────
+// Place, move or un-place one row: the page's drag, plus its editor's
+// "clear both" that sends an item back to "Not placed yet".
+const SetPositionSchema = z
+  .object({
+    id: z.string().min(1).describe("The value-effort row (list_items ids)"),
+    value: ValueSchema.nullable().describe(
+      `Value on the Fibonacci scale ${FIB_LIST}, or null (with effort null) to send the item back to Not placed yet`
+    ),
+    effort: EffortSchema.nullable().describe(
+      "Effort 1-10, or null (with value null) to send the item back to Not placed yet"
+    ),
+    clearBacklog: z
+      .boolean()
+      .optional()
+      .describe(
+        "Needed to un-place a row linked to a backlog item: the item owns value and effort, so they are cleared on it too (its businessValue is also WSJF's business value)."
+      ),
+  })
+  .refine((p) => (p.value === null) === (p.effort === null), {
+    message:
+      "Give both value and effort, or null for both (Not placed yet); one without the other is refused, as on the page.",
+  });
+
+const setPosition = async (store: MethodStore, params: z.infer<typeof SetPositionSchema>) => {
+  if (params.value !== null && params.effort !== null) {
+    return {
+      ...(await placeItem(store, { id: params.id, value: params.value, effort: params.effort })),
+      placed: true,
+    };
+  }
+  const row = await store.row(params.id);
+  if (!row || row.framework !== FRAMEWORK) {
+    throw new Error(
+      `No Value vs Effort item ${params.id}: list them with tool.value_effort_matrix.list_items.`
+    );
+  }
+  const item = row.backlogItemId ? await store.item(row.backlogItemId) : undefined;
+  // Present as undefined: a clear, as the page's editor saves a blanked input.
+  const values: Values = { value: undefined, effort: undefined };
+  const now = new Date().toISOString();
+  let backlogUpdated: string[] = [];
+  if (item) {
+    // A linked row reads through to its item: un-placing it clears the item's fields.
+    const changes = itemPatchChanges(item, ownedPatch(FRAMEWORK, values, clearedKeys(values)));
+    backlogUpdated = Object.keys(changes);
+    if (backlogUpdated.length > 0 && !params.clearBacklog) {
+      throw new Error(
+        `“${row.title}” is linked to backlog item “${item.name}”, which holds its value and effort. Pass clearBacklog: true to clear them there too (WSJF's business value is the same field).`
+      );
+    }
+    if (backlogUpdated.length > 0) await store.putItem(applyItemPatch(item, changes, now));
+  }
+  await store.putRows([
+    methodRow({ id: row.id, framework: FRAMEWORK, title: row.title, values, prev: row, now }),
+  ]);
+  return {
+    id: row.id,
+    quadrant: null,
+    score: null,
+    placed: false,
+    backlogItemId: item ? item.id : null,
+    backlogUpdated,
+  };
+};
+
+registry.register({
+  id: "tool.value_effort_matrix.set_position",
+  toolId: "tool.value_effort_matrix",
+  name: "set_position",
+  category: "write",
+  requiresConfirmation: false,
+  description: `Set one Value vs Effort item's place, as the page's drag and its editor do: {id, value, effort} places or moves it (the same as place_item; value on ${FIB_LIST}, effort 1-10), and value: null with effort: null sends it back to 'Not placed yet'. One without the other is refused. A linked row writes value and effort to its backlog item (businessValue, matrixEffort); un-placing a linked row clears them there and needs clearBacklog: true. Returns {id, quadrant, score, placed, backlogItemId, backlogUpdated}.`,
+  paramsSchema: SetPositionSchema,
+  handler: async (params) => setPosition(clientStore(), params),
+  mcpHandler: async (params, ctx) => setPosition(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.value_effort_matrix.persist_to_prioritization ────────
