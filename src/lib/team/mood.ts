@@ -16,6 +16,7 @@ import type {
   HandoffLink,
   MoodEntry,
   MoodPulse,
+  MoodStreak,
   MoodTrackerDoc,
 } from "@/lib/stores/workspace-types";
 import { MOOD_TRACKER_ID } from "@/lib/stores/workspace-types";
@@ -225,10 +226,29 @@ export function dailyMood(
   });
 }
 
+/**
+ * The days a team-level view may show one by one: those with at least
+ * `minPerDay` check-ins (MIN_SAMPLE.anonymous), as a streak day needs. In
+ * the anonymous mode a day's "team average" from one or two check-ins
+ * would be one person's mood; the window's average still counts them.
+ */
+export function teamLevelDays(
+  daily: readonly DailyMood[],
+  minPerDay: number = MIN_SAMPLE.anonymous
+): DailyMood[] {
+  return daily.filter((d) => d.n >= minPerDay);
+}
+
 export interface LowMoodStreak {
-  /** First and last check-in day of the run. */
+  /** First and last check-in day of the run, in the window looked at. */
   start: string;
   end: string;
+  /**
+   * The first low day of the whole run, which may be before the window
+   * (a run that outlasts it): what keeps one run one retro topic as the
+   * window moves on (see `savedStreakFor`).
+   */
+  runStart: string;
   /** Check-in days in the run. */
   days: number;
   /** Mean of the run's check-ins, to one decimal. */
@@ -266,19 +286,31 @@ export function lowMoodStreak(
     ? (entries ?? []).filter((m) => m && !m.isPlaceholder && isMoodScore(m.score))
     : realEntries(entries);
   const anon = realPulses(pulses, { includeExamples });
-  const days = dailyMood(named, anon, lastDays(today, span)).filter((d) => d.n >= minPerDay);
+  const recent = lastDays(today, span);
+  const counted = (ds: readonly string[]) =>
+    dailyMood(named, anon, ds).filter((d) => d.n >= minPerDay);
+  const isLow = (d: DailyMood) => d.average !== null && d.average <= threshold;
+  const days = counted(recent);
   const run: DailyMood[] = [];
   for (let i = days.length - 1; i >= 0; i--) {
     const d = days[i];
-    if (d.average === null || d.average > threshold) break;
+    if (!isLow(d)) break;
     run.unshift(d);
   }
   if (run.length < minDays) return null;
+  // A run that reaches back to the window's first counted day may have
+  // started before it: follow it back (up to a year) for its first day.
+  let runStart = run[0].date;
+  if (run[0] === days[0]) {
+    const before = counted(windowDays(addDays(recent[0], -366), addDays(recent[0], -1)));
+    for (let i = before.length - 1; i >= 0 && isLow(before[i]); i--) runStart = before[i].date;
+  }
   const checkIns = run.reduce((sum, d) => sum + d.n, 0);
   const sum = run.reduce((s, d) => s + (d.average as number) * d.n, 0);
   return {
     start: run[0].date,
     end: run[run.length - 1].date,
+    runStart,
     days: run.length,
     average: round1(sum / checkIns),
     checkIns,
@@ -305,30 +337,62 @@ export function moodTrackerDoc(doc: MoodTrackerDoc | undefined | null): MoodTrac
   };
 }
 
-/** The settings with the links of the streak starting `start` changed. */
+type StreakSpan = Pick<LowMoodStreak, "start" | "end"> & Partial<Pick<LowMoodStreak, "runStart">>;
+
+/**
+ * Where a run was saved (sent to the retro), if it was: the saved streak
+ * whose days overlap the run's, from its first low day (`runStart`) to its
+ * last. A start day alone would lose it: backfilling a low day before the
+ * run moves its start, and so does a run that outlasts the window looked
+ * at. A later run, after a better day, doesn't overlap, so it is new.
+ */
+export function savedStreakFor(
+  doc: MoodTrackerDoc | undefined | null,
+  streak: StreakSpan
+): MoodStreak | undefined {
+  const first = streak.runStart ?? streak.start;
+  return doc?.streaks?.find((s) => s.start <= streak.end && s.end >= first);
+}
+
+/** The id a run's retro topic carries: its saved start, else its first low day. */
+export function streakKey(doc: MoodTrackerDoc | undefined | null, streak: StreakSpan): string {
+  return savedStreakFor(doc, streak)?.start ?? streak.runStart ?? streak.start;
+}
+
+/**
+ * The settings with the run's links changed. A run already saved keeps its
+ * record, stretched to cover the run (the earliest start, the latest end).
+ */
 export function withStreakLinks(
   doc: MoodTrackerDoc | undefined | null,
-  streak: Pick<LowMoodStreak, "start" | "end">,
+  streak: StreakSpan,
   update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
 ): MoodTrackerDoc {
   const base = moodTrackerDoc(doc);
   const streaks = base.streaks ?? [];
-  const at = streaks.findIndex((s) => s.start === streak.start);
-  const prev = at >= 0 ? streaks[at] : { start: streak.start, end: streak.end };
+  const saved = savedStreakFor(base, streak);
+  const at = saved ? streaks.indexOf(saved) : -1;
+  const first = streak.runStart ?? streak.start;
+  const prev: MoodStreak = saved ?? { start: first, end: streak.end };
   const sentTo = update(prev.sentTo);
-  const next = { ...prev, end: streak.end, sentTo };
+  const next: MoodStreak = {
+    ...prev,
+    start: prev.start < first ? prev.start : first,
+    end: prev.end > streak.end ? prev.end : streak.end,
+    sentTo,
+  };
   return {
     ...base,
     streaks: at >= 0 ? streaks.map((s, i) => (i === at ? next : s)) : [...streaks, next],
   };
 }
 
-/** The saved links for the streak starting `start`. */
+/** The saved links of the run (see `savedStreakFor`). */
 export function streakLinks(
   doc: MoodTrackerDoc | undefined | null,
-  start: string
+  streak: StreakSpan
 ): HandoffLink[] | undefined {
-  return doc?.streaks?.find((s) => s.start === start)?.sentTo;
+  return savedStreakFor(doc, streak)?.sentTo;
 }
 
 /* ── Check-ins ────────────────────────────────────────────────────────── */
