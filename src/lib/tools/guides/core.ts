@@ -340,16 +340,19 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "health-check",
     summary:
-      "A squad health check asks the team to rate areas like delivering value, speed and fun as green, yellow or red, to start a conversation about what to improve.",
+      "A squad health check asks the team to rate areas like delivering value, speed and fun as green, yellow or red, to start a conversation about what to improve. Health counts green as 1, yellow as ½ and red as 0, over the areas rated.",
     whenToUse: [
-      "Every month or quarter.",
+      "Once a sprint or once a month, at the same point each time.",
       "When something feels off and you want the team's view.",
     ],
     steps: [
-      "For each area, discuss briefly and agree a color together.",
-      "Note the trend: better, the same or worse than last time.",
-      "Pick one or two red or yellow areas to improve.",
-      "Save the check and compare with the next one.",
+      "Under Current check, pick the Sprint this check is for, or type a Check name. Change Taken on to enter an earlier check.",
+      "Talk each dimension through and press Green, Yellow or Red. Type what the team said in its note.",
+      "To vote anonymously, press Run a live round under Vote anonymously, give your name, tick the consent, then share the link with Copy link. People answer on their phones; you see only how many have. Press Reveal results once 3 have answered, then Save round: the votes set each light, which you can still change.",
+      "Counting hands or paper instead? Enter counts instead (the only option when live rounds are off) takes how many picked each light: press Show totals, then Save round.",
+      "Each row's trend, Up, Same or Down, comes from the previous saved check. Health over time charts the saved checks from 2.",
+      "Press Save check. It saves once every dimension is rated, and names any still missing.",
+      "Under Saved checks, Send reds to retro puts each red dimension on the retro board as a topic. Under Your own dimensions, Add dimension adds one; archive it to leave it out of new checks.",
     ],
     scales: [
       {
@@ -361,7 +364,12 @@ export const CORE_GUIDES: ToolGuide[] = [
         ],
       },
     ],
-    tips: ["It's for the team's own learning — don't use it to compare teams."],
+    tips: [
+      "Only the vote totals are kept, never who voted what, and a dimension's votes count only from 3 answers.",
+      "A Split view, green and red votes on one dimension, is worth a conversation whatever the light says.",
+      "It's for the team's own learning: don't use it to compare teams.",
+      "Delete a saved check with Undo. Clear all asks first and can be undone too.",
+    ],
   },
   {
     toolId: "premortem",

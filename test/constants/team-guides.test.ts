@@ -76,6 +76,14 @@ describe("Team guides match their pages", () => {
     expect(text).toContain(`trend test from ${WORDS[MIN_SAMPLE.trend]}`);
   });
 
+  it("Working Agreement: a check-in marks a rule Working, Partly or Not working", () => {
+    const text = allText(guide("working-agreement"));
+    // rule-card's "This round" options; checkInAdherence counts partly as half.
+    expect(text).toContain("Working, Partly or Not working");
+    expect(text).toContain("partly working counting as half");
+    expect(text).not.toMatch(/Working or Not working/);
+  });
+
   it("Definition of Done: the chart, trend and control-limit minimums; no snapshots", () => {
     const text = allText(guide("dod-builder"));
     expect(text).toContain(`from ${CHART_MIN_SPRINTS} sprints`);

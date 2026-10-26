@@ -5,22 +5,23 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "psych-safety",
     summary:
-      "Psychological safety is the shared belief that it's safe to take interpersonal risks on the team, like admitting a mistake or asking for help. This tool runs Amy Edmondson's seven-question survey and shows a team score, a per-question radar and the weakest area.",
+      "Psychological safety is the shared belief that it's safe to take interpersonal risks on the team, like admitting a mistake or asking for help. This tool runs Amy Edmondson's seven-statement survey in anonymous rounds and keeps only how many people chose each answer.",
     whenToUse: [
       "When people stay quiet in meetings or problems surface late.",
       "Every quarter, or after a reorg, a new manager or a hard incident.",
     ],
     steps: [
-      "Ask each person to rate the seven statements privately, from 1 (strongly disagree) to 5 (strongly agree).",
-      "Enter each person's answers with the sliders and click Submit response. Leave the respondent name blank to keep answers anonymous.",
-      "Read the Team score against the 4.0 benchmark. Statements marked “reversed” are flipped, so a higher score always means more safety.",
-      "Discuss the Lowest question as a team and agree one small change to try.",
-      "Repeat each quarter. With four or more responses, the Anomaly card flags a drop of more than 0.5 between older and newer responses.",
+      "Under Run a round, type a Round name (left blank, it's Round N), set Taken on and, if you like, the Sprint.",
+      "Press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone answers the seven statements on their own phone; you see only how many have answered.",
+      "Press Reveal results once 5 have answered, then Save round. With paper answers, press Enter counts instead, type how many chose each answer, then Show totals and Save round.",
+      "Under Results, read the Team score, the Lowest statement and the Change since the round before. Q1, Q3 and Q5 are reverse-scored, so a higher score always means more safety.",
+      "When a statement falls by more than 0.5, Send to… → Retro topic (no names) raises it. Compare rounds puts any two rounds side by side with From and To.",
+      "Discuss the lowest or falling statement as a team, without asking who answered what, and agree one small change to try.",
     ],
     tips: [
-      "Collect answers anonymously, for example on paper or in a form, then enter them in one sitting.",
+      "Nothing per person is kept. Results wait for 5 responses, and a statement with fewer than 5 answers is withheld: in a small team, three answers can point at a person.",
       "Never use the score to rank teams or judge a manager. Once it's a target, people stop answering honestly.",
-      "A low score on mistakes being held against people is a good opener for a blameless session on the Retro Board.",
+      "Under Rounds, rename or redate a round, or delete it with Undo. Answer sheets saved one by one before rounds show as one round, Earlier responses: delete it to remove them.",
     ],
     scales: [
       {
@@ -37,23 +38,24 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "mood-tracker",
     summary:
-      "A mood tracker is a quick daily check-in where each person picks how they feel, from Rough to Great. Over two weeks it shows patterns in team energy that are easy to miss day to day.",
+      "A mood tracker is a quick daily check-in where each person picks how they feel, from Rough to Great, by name or anonymously. Over two weeks it shows patterns in team energy that are easy to miss day to day.",
     whenToUse: [
       "During a demanding period, such as a release crunch or a reorg, to spot strain early.",
       "As a warm-up at the start of standup.",
       "When you want some data on morale to bring to a retro.",
     ],
     steps: [
-      "Add each team member under Today's check-in.",
-      "Once a day, each person clicks the label that matches how they feel and can add an optional note. You can only log today, so do it at the same time each day.",
-      "Check the 14-day Heatmap for runs of Rough or Low days for one person.",
-      "Check the Trend card and the Daily-average mood chart for the whole team. Regime markers on the chart flag a sustained rise or drop, not one bad day.",
-      "Bring patterns, not individual scores, to the retro and ask what's behind them.",
+      "Under How the team checks in, pick By name or Anonymous. Anonymous keeps only team pulses: how many picked each face on a day, never who.",
+      "By name: under Check-ins by name, each person (or you, for them) picks a face; a note typed first is saved with it. To fill in a missed day, change Check-ins for or click the day in the heatmap.",
+      "For a pulse, in either mode: under Anonymous pulse, set Pulse for and press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone picks a face on their phone; press Reveal results once 3 have answered, then Save round. Or press Enter counts instead, type how many picked each face, then Show totals and Save round.",
+      "Read the 14-day average (from 3 check-ins, pulse answers included) and the Trend (from 6 days with check-ins). Daily team average charts it; its Advanced analysis adds shifts and the weekly trend.",
+      "When the team averages 2.5 or less on 3 check-in days in a row, each with 3 or more check-ins, the Low mood callout offers Send to… → Retro topic (no names).",
     ],
     tips: [
-      "Make it optional, and never ask someone to explain a low score in front of the group. Follow up privately, for example in a 1:1.",
-      "Names are visible to everyone with access, so agree as a team how the data will be used.",
       "One bad day is noise. Three in a row is worth a conversation.",
+      "Make it optional, and never ask someone to explain a low score in front of the group. Follow up privately, for example in a 1:1.",
+      "By name, everyone with access sees each face and note. If that doesn't suit the team, check in anonymously.",
+      "A second check-in for the same day replaces the first. Clear one with the eraser on its row, or delete a pulse; Undo puts it back.",
     ],
     scales: [
       {
@@ -406,15 +408,15 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Under Add a rule, pick a Category, write the Rule (and an optional Description) and click Add rule, or pick one from the Starter catalog.",
       "Open a rule's Consent and answer for each teammate: Consent, Concern (with a note) or Object. For someone not on the team, type them under Someone else, pick Their answer and click Record answer.",
-      "Every month or so, mark each rule Working or Not working on its card, then under Check-in round set the Day of the check-in (and a Sprint) and click Save check-in round.",
-      "Adherence by check-in charts the saved rounds from two; its Advanced analysis adds a trend test from six.",
+      "Every month or so, mark each rule Working, Partly or Not working on its card, then under Check-in round set the Day of the check-in (and a Sprint) and click Save check-in round.",
+      "Adherence by check-in charts the saved rounds from two, a rule partly working counting as half; its Advanced analysis adds a trend test from six.",
       "Under Publish and versions, add the team name and purpose and click Publish vN to keep the rules as a version. Changes since vN lists what moved, and Compare … with … shows any two versions or the draft.",
     ],
     tips: [
       "Keep it short. Five to ten rules people remember beat thirty nobody reads.",
       "Write behaviors (“PRs reviewed within one working day”), not values (“be respectful”).",
       "A concern still counts as consent; one objection means the rule doesn't have everyone's consent.",
-      "A rule not working in the last check-in can go to the retro with Send to… → Retro topic.",
+      "A rule not working, or only partly, in the last check-in can go to the retro with Send to… → Retro topic.",
       "Delete a rule or a saved round with Undo. Clear the charter asks first and can be undone too.",
     ],
     timebox: "60–90 minutes for the first version",
