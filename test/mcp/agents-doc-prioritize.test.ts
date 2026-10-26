@@ -37,6 +37,8 @@ import { KANO_MIN_RESPONSES } from "@/lib/prioritization/methods/kano";
 import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
 import { TIE_MARGIN } from "@/lib/weighted/model";
 import { BUY_A_FEATURE_ID, DEFAULT_WEIGHTED_MATRIX_ID } from "@/lib/stores/workspace-types";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { exampleId } from "@/lib/utils/example-id";
 
 const DOC = readFileSync(join(process.cwd(), "docs", "MCP-AGENTS.md"), "utf8");
 
@@ -212,5 +214,115 @@ describe("MCP-AGENTS.md: the Prioritize & decide rules", () => {
     expect(registry.get("tool.decision_log.delete")?.description).toContain(
       "not workspace.decision.delete"
     );
+  });
+});
+
+describe("MCP-AGENTS.md: what the lists and classify really return", () => {
+  const wsjfParts = (businessValue: number) => ({
+    businessValue,
+    timeCriticality: 1,
+    riskReduction: 1,
+    jobSize: 1,
+  });
+
+  it("example rows are listed and ranked like any other, set apart only where the code does", async () => {
+    const bullet =
+      PRIORITIZE.split("\n").find((l) => l.startsWith("- **Example rows are ordinary rows.**")) ??
+      "";
+    expect(PRIORITIZE).not.toContain("Example rows never count");
+    expect(bullet).toContain("Leave `example-` ids out of `tool.prioritizer.set_order`.");
+    const ex = exampleId("backlog-sso");
+    useWorkspaceStore.setState({
+      backlogItems: [
+        { id: ex, name: "Single sign-on", ...wsjfParts(8) },
+        { id: "bk_1", name: "Audit log export", ...wsjfParts(3) },
+      ],
+      prioritizations: [],
+      decisions: [
+        {
+          id: exampleId("adr-1"),
+          title: "Use Postgres",
+          decision: "",
+          status: "proposed",
+          date: "2026-10-01",
+          number: 1,
+        },
+      ],
+      daciDecisions: [],
+      rapidDecisions: [],
+    });
+    // The hub ranks an example item with the team's, so decide_order suggests it.
+    const order = (await registry.get("tool.prioritizer.decide_order")!.handler({}, ctx())) as {
+      suggestedOrder: string[];
+    };
+    expect(order.suggestedOrder).toEqual([ex, "bk_1"]);
+    // The Decision Log lists and counts it, marked as an example.
+    const log = (await registry.get("tool.decision_log.list_state")!.handler({}, ctx())) as {
+      total: number;
+      byStatus: Record<string, number>;
+      items: { id: string; example: boolean }[];
+    };
+    expect(log.total).toBe(1);
+    expect(log.byStatus.proposed).toBe(1);
+    expect(log.items[0]).toMatchObject({ id: exampleId("adr-1"), example: true });
+    expect(bullet).toContain("marks them `example: true`");
+    // The verbs that do set them apart refuse an example.
+    for (const id of ["tool.weighted_decision.send_to_decision", "tool.cynefin.send_to_hypothesis"])
+      expect(registry.get(id)?.description, id).toContain("'example'");
+  });
+
+  it("MoSCoW's list_items holds the stored rows, the bucket read from a linked item", async () => {
+    useWorkspaceStore.setState({
+      backlogItems: [{ id: "bk_1", name: "Single sign-on", moscow: "must" }],
+      prioritizations: [
+        {
+          id: "prio_1",
+          title: "Single sign-on",
+          framework: "moscow",
+          fields: { bucket: "could", effort: 3 },
+          score: 2,
+          backlogItemId: "bk_1",
+          updatedAt: "2026-10-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const out = (await registry.get("tool.moscow.list_items")!.handler({}, ctx())) as Record<
+      string,
+      Record<string, unknown>[]
+    >;
+    expect(out.must).toHaveLength(1);
+    const row = out.must[0];
+    expect(row.fields).toEqual({ bucket: "must", effort: 3 });
+    for (const key of ["values", "rank", "percentile", "missing", "live"])
+      expect(row, key).not.toHaveProperty(key);
+    expect(METHODS).toContain("Listed rows (not MoSCoW's) are");
+    expect(METHODS).toContain("The groups hold the stored rows, not the listed-row shape above");
+  });
+
+  it("Cynefin classify: matched and answered say when the domain is no suggestion", async () => {
+    const classify = async (params: Record<string, unknown>) =>
+      (await registry
+        .get("tool.cynefin.classify")!
+        .handler({ title: "Checkout drop", ...params }, ctx())) as Record<string, unknown>;
+    // No keyword matches: Confused comes back, as a placeholder.
+    expect(await classify({ signals: ["weekly sync"] })).toMatchObject({
+      recommendedDomain: "confused",
+      from: "signals",
+      matched: false,
+    });
+    // One answer suggests nothing, unless it is a crisis.
+    expect(await classify({ answers: { known: "yes" } })).toMatchObject({
+      recommendedDomain: null,
+      recommendedAction: null,
+      from: "answers",
+      answered: 1,
+    });
+    expect(await classify({ answers: { crisis: "yes" } })).toMatchObject({
+      recommendedDomain: "chaotic",
+      answered: 1,
+    });
+    expect(CYNEFIN).toContain("answered | matched");
+    expect(CYNEFIN).toContain("`matched: false` means no keyword matched");
+    expect(CYNEFIN).toContain("unless `crisis` is yes");
   });
 });
