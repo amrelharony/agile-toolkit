@@ -52,7 +52,7 @@ describe("the pulse guides run the vote round as the kit does", () => {
   const LIVE = ["Run a live round", "Copy link", "Reveal results", "Save round"];
   const TALLY = ["Enter counts instead", "Show totals", "Save round"];
 
-  it.each([...new Set([...LIVE, ...TALLY])])("the kit labels a button %j", (label) => {
+  it.each(Array.from(new Set([...LIVE, ...TALLY])))("the kit labels a button %j", (label) => {
     expect(KIT).toContain(label);
   });
 
