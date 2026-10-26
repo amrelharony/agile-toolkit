@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
 import { useLegacyMigrationMode } from "@/lib/data/use-legacy-migration-mode";
 import { hasLegacyImpediments } from "@/lib/impediments/legacy-key";
-import { hasLegacyRaci } from "@/lib/raci/model";
+import { hasLegacyRaci } from "@/lib/raci/legacy-key";
 import { syncEngine } from "@/lib/sync/engine";
 import { toast } from "@/lib/utils/toast";
 
@@ -16,7 +16,8 @@ import { toast } from "@/lib/utils/toast";
  * cross-tab lock, and the second run finds the old key gone.
  *
  * Renders nothing. Without any old key it does nothing at all and never
- * loads the migration code.
+ * loads the migration code: each check comes from a tiny legacy-key
+ * module, and the move (with the tool's model) is imported only to run.
  *
  * The ADKAR tracker's old blob is not here: its move is a hook on the
  * ADKAR page (use-legacy-adkar.ts) that reads the cloud-synced blob and

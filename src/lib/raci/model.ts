@@ -6,7 +6,8 @@
  *
  * Pure and server-safe: no React, nothing from components. The one thing
  * that touches the browser is `hasLegacyRaci`, the cheap check for the
- * tool's old local store, which takes the storage as a parameter.
+ * tool's old local store, which takes the storage as a parameter. It lives
+ * in `./legacy-key` (re-exported here) so the app-wide mount loads only it.
  *
  *   - A cell holds letters, normalised to [], [R], [A], [A, R], [C] or [I]:
  *     the one Accountable can also do the work, but someone consulted or
@@ -22,9 +23,8 @@ import { RACI_ID, RACI_KIND } from "@/lib/stores/workspace-types";
 import { nameKey } from "@/lib/team/names";
 
 export { RACI_ID, RACI_KIND };
+export { RACI_LEGACY_KEY, hasLegacyRaci } from "./legacy-key";
 
-/** The tool's old local-only store (a zustand persist blob), moved into the workspace once. */
-export const RACI_LEGACY_KEY = "agile-toolkit:raci";
 /** `navigator.locks` name, so two tabs never move it at the same time. */
 export const RACI_MIGRATION_LOCK = "agile-toolkit:raci-migration";
 
@@ -519,19 +519,4 @@ export function planRaciMove(
   if (doc.roles.length === 0 && doc.activities.length === 0) return null;
   if (isUntouchedDefault(doc)) return null;
   return doc;
-}
-
-/** Cheap synchronous check: is the old store still in this browser? */
-export function hasLegacyRaci(storage?: Pick<Storage, "getItem"> | null): boolean {
-  try {
-    const store =
-      storage === undefined
-        ? typeof window === "undefined"
-          ? null
-          : window.localStorage
-        : storage;
-    return Boolean(store && store.getItem(RACI_LEGACY_KEY) !== null);
-  } catch {
-    return false;
-  }
 }

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 
@@ -23,6 +25,8 @@ vi.mock("@/lib/auth/auth-provider", async (importOriginal) => ({
 import { LegacyToolMigrations } from "@/components/data/legacy-tool-migrations";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { RACI_ID, RACI_LEGACY_KEY } from "@/lib/raci/model";
+import * as model from "@/lib/raci/model";
+import * as legacyKey from "@/lib/raci/legacy-key";
 import type { RaciMatrix } from "@/lib/stores/workspace-types";
 
 /** The old zustand persist blob: the default roles and activities, with `cells` assigned. */
@@ -98,5 +102,47 @@ describe("LegacyToolMigrations: the old RACI store", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(stored()).toBeUndefined();
     expect(window.localStorage.getItem(RACI_LEGACY_KEY)).not.toBe(null);
+  });
+});
+
+describe("LegacyToolMigrations: what the app shell loads", () => {
+  const src = (...parts: string[]) => readFileSync(join(process.cwd(), "src", ...parts), "utf8");
+  /** The module specifiers a file imports statically. */
+  const staticImports = (code: string) =>
+    [...code.matchAll(/^import[^;]*?from\s+"([^"]+)";/gms)].map((m) => m[1]);
+
+  it("checks for the old RACI store without loading the RACI model", () => {
+    const mount = src("components", "data", "legacy-tool-migrations.tsx");
+    const imports = staticImports(mount);
+    expect(imports).toContain("@/lib/raci/legacy-key");
+    expect(imports.filter((s) => s.includes("raci") && s !== "@/lib/raci/legacy-key")).toEqual([]);
+    // The move, with the model, loads only when it runs.
+    expect(mount).toContain('await import("@/app/(tools)/raci/migrate")');
+    // The check's module imports nothing.
+    expect(staticImports(src("lib", "raci", "legacy-key.ts"))).toEqual([]);
+  });
+
+  it("keeps the model's names for the key and the check", () => {
+    expect(model.RACI_LEGACY_KEY).toBe(legacyKey.RACI_LEGACY_KEY);
+    expect(model.RACI_LEGACY_KEY).toBe("agile-toolkit:raci");
+    expect(model.hasLegacyRaci).toBe(legacyKey.hasLegacyRaci);
+  });
+
+  it("tells when the old store is there, and never throws", () => {
+    const { hasLegacyRaci } = legacyKey;
+    expect(hasLegacyRaci({ getItem: () => null })).toBe(false);
+    expect(hasLegacyRaci({ getItem: (k) => (k === "agile-toolkit:raci" ? "{}" : null) })).toBe(
+      true
+    );
+    expect(hasLegacyRaci(null)).toBe(false);
+    expect(
+      hasLegacyRaci({
+        getItem: () => {
+          throw new Error("blocked");
+        },
+      })
+    ).toBe(false);
+    window.localStorage.setItem(RACI_LEGACY_KEY, "{}");
+    expect(hasLegacyRaci()).toBe(true);
   });
 });
