@@ -13,7 +13,9 @@
  *   it, in one undoable (saveMethodRow).
  * - A title alone is a valid item: it waits under "Not placed yet" (the
  *   matrix's tray) until it is placed. One score without the other is an
- *   error.
+ *   error. Sending a linked item to the tray clears only its effort on the
+ *   backlog item: the value is WSJF's business value too (trayDraft), and
+ *   the editor says so before Save.
  * - Lists go quadrant by quadrant in do-first order, best value ÷ effort
  *   first, and hold still while a row is being edited.
  */
@@ -36,7 +38,6 @@ import { Input } from "@/components/ui/input";
 import { ImportFromBacklog, useBacklogImport } from "@/components/prioritization/backlog-link";
 import { MethodInputs } from "@/components/prioritization/method-inputs";
 import {
-  MethodRowEditor,
   draftFrom,
   exportRows,
   useMethodActions,
@@ -45,9 +46,10 @@ import {
   withClears,
   type MethodDraft,
 } from "@/components/prioritization/method-tool";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
 import { generateValueEffortPrompts } from "@/lib/ai-prompts/value-effort-matrix";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VALUE_EFFORT_ACTIONS } from "@/lib/history/event-actions";
@@ -55,18 +57,25 @@ import { hasExampleItems } from "@/lib/utils/example-id";
 import type { MatrixAt } from "@/lib/utils/matrix";
 import { method, type Values } from "@/lib/prioritization/methods";
 import { defined } from "@/lib/prioritization/methods/fields";
+import { VE_LABEL } from "@/lib/prioritization/methods/value-effort";
+import { rankMethodRows, type RankedRow } from "@/lib/prioritization/rank";
 import { VE_CONFIG } from "./config";
+import { VeRowEditor } from "./editor";
 import { toMarkdown } from "./markdown";
 import { ValueEffortMap, type PlaceHow } from "./matrix";
 import {
   FRAMEWORK,
   UNPLACED,
+  UNPLACED_LABEL,
   customValues,
+  legacyValueNote,
   placeOf,
   positionText,
   promptGroups,
+  quadrantOf,
   shortName,
   toCsv,
+  trayDraft,
   veGroups,
 } from "./model";
 import { VeRow } from "./rows";
@@ -74,8 +83,11 @@ import { veVerdict } from "./verdict";
 
 const VALUE_EFFORT = method(FRAMEWORK);
 
+const NO_ITEMS: BacklogItem[] = [];
+
 export function ValueEffortMatrixClient() {
   const ranked = useMethodRows(FRAMEWORK);
+  const items = useWorkspaceStore((s) => s.backlogItems) ?? NO_ITEMS;
   const actions = useMethodActions(VE_CONFIG);
   const upsert = useWorkspaceStore((s) => s.upsertPrioritization);
   const removeOne = useWorkspaceStore((s) => s.removePrioritization);
@@ -116,7 +128,10 @@ export function ValueEffortMatrixClient() {
     initial: () => draftFrom(""),
     validate: (d) => validateMethodDraft(VALUE_EFFORT, d, true, held),
     onSave: (values) => {
-      const row = actions.add(withClears(VALUE_EFFORT, values), backlog.pending?.id);
+      // A title-only add from an import goes to the tray without wiping the
+      // item's value (WSJF's business value too): only its effort is cleared.
+      const draft = trayDraft(withClears(VALUE_EFFORT, values), backlog.pending !== null);
+      const row = actions.add(draft, backlog.pending?.id);
       backlog.clear();
       const p = placeOf({ values: VALUE_EFFORT.read(row.fields) });
       announce(
@@ -142,6 +157,30 @@ export function ValueEffortMatrixClient() {
     setMoved(false);
     if (editingId === null) resort();
   }, [moved, editingId, resort]);
+
+  // Save and Cancel unmount the editor: focus goes back to the row's Edit
+  // button, in whichever list the row lands.
+  const { refFor, returnTo } = useReturnFocus();
+  const closeEditor = (id: string) => {
+    setEditingId(null);
+    returnTo(`edit:${id}`);
+  };
+  const linkedName = (r: RankedRow): string | undefined =>
+    r.live ? (items.find((b) => b.id === r.row.backlogItemId)?.name ?? "") : undefined;
+  // An edit that changes value or effort can move the row: say where to, as a drag does.
+  const saveEdit = (r: RankedRow, draft: MethodDraft) => {
+    const from = quadrantOf(r);
+    closeEditor(r.row.id);
+    actions.save(r.row.id, trayDraft(draft, r.live));
+    const s = useWorkspaceStore.getState();
+    const after = rankMethodRows(FRAMEWORK, s.prioritizations ?? [], s.backlogItems ?? []).find(
+      (x) => x.row.id === r.row.id
+    );
+    const to = after ? quadrantOf(after) : null;
+    if (after && to !== from) {
+      announce(`${shortName(draft.title)} moved to ${to ? VE_LABEL[to] : UNPLACED_LABEL}`);
+    }
+  };
 
   const place = (id: string, at: MatrixAt, how: PlaceHow) => {
     const r = ranked.find((x) => x.row.id === id);
@@ -318,14 +357,11 @@ export function ValueEffortMatrixClient() {
                             className="py-3"
                           >
                             {editingId === r.row.id ? (
-                              <MethodRowEditor
-                                config={VE_CONFIG}
+                              <VeRowEditor
                                 ranked={r}
-                                onSave={(draft) => {
-                                  setEditingId(null);
-                                  actions.save(r.row.id, draft);
-                                }}
-                                onCancel={() => setEditingId(null)}
+                                itemName={linkedName(r)}
+                                onSave={(draft) => saveEdit(r, draft)}
+                                onCancel={() => closeEditor(r.row.id)}
                               />
                             ) : (
                               <VeRow
@@ -333,6 +369,8 @@ export function ValueEffortMatrixClient() {
                                 selected={selectedId === r.row.id}
                                 onEdit={() => setEditingId(r.row.id)}
                                 onRemove={() => actions.remove(r.row)}
+                                editRef={refFor(`edit:${r.row.id}`)}
+                                legacyNote={legacyValueNote(r, items)}
                               />
                             )}
                           </li>

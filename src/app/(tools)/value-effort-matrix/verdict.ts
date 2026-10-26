@@ -8,11 +8,11 @@ const NAMED = 3;
 const quoted = (r: RankedRow) => `“${shortName(r.row.title)}”`;
 
 /**
- * The answer above the matrix (and its summary): where to start, then
- * what the other quadrants hold. Rows come ranked (rankMethodRows), so the
- * Quick Wins are named best value ÷ effort first.
+ * The answer above the matrix (and its summary), in one sentence: where
+ * to start, then what the other quadrants hold. Rows come ranked
+ * (rankMethodRows), so the Quick Wins are named best value ÷ effort first.
  *
- *   "Start with “A” and “B”, your 2 Quick Wins. 3 Big Bets to plan, 1 Time Waster to drop and 1 not placed yet."
+ *   "Start with “A” and “B”, your 2 Quick Wins; 3 Big Bets to plan, 1 Time Waster to drop and 1 not placed yet."
  */
 export function veVerdict(rows: readonly RankedRow[]): string {
   if (rows.length === 0) return "No items yet.";
@@ -32,17 +32,17 @@ export function veVerdict(rows: readonly RankedRow[]): string {
   if (wins.length === 0) {
     lead =
       g.big_bets.length > 0
-        ? "No Quick Wins yet. Split a Big Bet into smaller pieces."
-        : "No Quick Wins yet.";
+        ? "No Quick Wins yet: split a Big Bet into smaller pieces"
+        : "No Quick Wins yet";
   } else {
     const names = wins.slice(0, NAMED).map(quoted);
     const more = wins.length - names.length;
     lead =
       more > 0
-        ? `Start with ${listAnd(names)} of your ${plural(wins.length, "Quick Win")}.`
+        ? `Start with ${listAnd(names)} of your ${plural(wins.length, "Quick Win")}`
         : wins.length === 1
-          ? `Start with ${names[0]}, your one Quick Win.`
-          : `Start with ${listAnd(names)}, your ${plural(wins.length, "Quick Win")}.`;
+          ? `Start with ${names[0]}, your one Quick Win`
+          : `Start with ${listAnd(names)}, your ${plural(wins.length, "Quick Win")}`;
   }
 
   const rest = [
@@ -51,5 +51,5 @@ export function veVerdict(rows: readonly RankedRow[]): string {
     g.time_wasters.length > 0 && `${plural(g.time_wasters.length, "Time Waster")} to drop`,
     g.unplaced.length > 0 && `${g.unplaced.length} not placed yet`,
   ].filter((x): x is string => Boolean(x));
-  return rest.length > 0 ? `${lead} ${listAnd(rest)}.` : lead;
+  return rest.length > 0 ? `${lead}; ${listAnd(rest)}.` : `${lead}.`;
 }

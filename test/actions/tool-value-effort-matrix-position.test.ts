@@ -6,7 +6,8 @@ import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-typ
  * a move writes value and effort (through to a linked backlog item, as the
  * page's drag does), set_position with both null sends an item back to
  * "Not placed yet", one without the other is refused, and un-placing a
- * linked row needs clearBacklog because the item owns the values.
+ * linked row clears the item's effort but keeps its value (WSJF's
+ * business value too), as the page does, unless clearBacklog asks.
  */
 
 const server = vi.hoisted(() => ({ rows: new Map<string, { id: string }>() }));
@@ -130,16 +131,27 @@ describe("tool.value_effort_matrix.set_position", () => {
     expect(serverRow("a")?.fields).toEqual({ businessValue: 13, effort: 4 });
   });
 
-  it("un-places a linked row only with clearBacklog, clearing the item too", async () => {
+  it("un-places a linked row by its effort, keeping WSJF's value, as the page does", async () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", { businessValue: 8, matrixEffort: 2 })],
+      prioritizations: [row("a", { businessValue: 8, effort: 2 }, "b1")],
+    });
+    const r = await browser<{ quadrant: null; placed: boolean; backlogUpdated: string[] }>(
+      "tool.value_effort_matrix.set_position",
+      { id: "a", value: null, effort: null }
+    );
+    expect(r).toMatchObject({ quadrant: null, placed: false, backlogUpdated: ["matrixEffort"] });
+    expect(storedItem("b1")?.businessValue).toBe(8);
+    expect(storedItem("b1")?.matrixEffort).toBeUndefined();
+    expect(storedRow("a")?.fields).toEqual({ businessValue: 8 });
+    expect(storedRow("a")?.status).toBe("open");
+  });
+
+  it("clears the item's value too with clearBacklog", async () => {
     useWorkspaceStore.setState({
       backlogItems: [item("b1", { businessValue: 8, matrixEffort: 2, value: 5 })],
       prioritizations: [row("a", { businessValue: 8, effort: 2 }, "b1")],
     });
-    await expect(
-      browser("tool.value_effort_matrix.set_position", { id: "a", value: null, effort: null })
-    ).rejects.toThrow(/clearBacklog: true/);
-    expect(storedItem("b1")).toMatchObject({ businessValue: 8, matrixEffort: 2 });
-
     const r = await browser<{ backlogUpdated: string[]; placed: boolean }>(
       "tool.value_effort_matrix.set_position",
       { id: "a", value: null, effort: null, clearBacklog: true }

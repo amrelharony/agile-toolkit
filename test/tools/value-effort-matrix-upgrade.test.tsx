@@ -394,7 +394,7 @@ describe("Value vs Effort: first run, verdict and export", () => {
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Start with “Saved filters on the board” and “Keyboard shortcuts for triage”, your 2 Quick Wins. 2 Big Bets to plan, 1 Fill-In for spare time, 2 Time Wasters to drop and 1 not placed yet."
+        "Start with “Saved filters on the board” and “Keyboard shortcuts for triage”, your 2 Quick Wins; 2 Big Bets to plan, 1 Fill-In for spare time, 2 Time Wasters to drop and 1 not placed yet."
       )
     ).toBeInTheDocument();
     useWorkspaceStore
@@ -421,8 +421,9 @@ describe("Value vs Effort: first run, verdict and export", () => {
     useWorkspaceStore.setState({
       prioritizations: [row("a", "Big", { businessValue: 13, effort: 9 })],
     });
+    // One sentence, as the contract asks.
     expect(veVerdict(ranked())).toBe(
-      "No Quick Wins yet. Split a Big Bet into smaller pieces. 1 Big Bet to plan."
+      "No Quick Wins yet: split a Big Bet into smaller pieces; 1 Big Bet to plan."
     );
     expect(veVerdict([])).toBe("No items yet.");
   });
@@ -443,9 +444,7 @@ describe("Value vs Effort: first run, verdict and export", () => {
       "## Time Wasters (0)\n\nLow value, high effort: drop or rethink them.\n\nNone."
     );
     expect(md).toContain("## Not placed yet (1)\n\n- Later");
-    expect(md).toMatch(
-      /\*\*Start with “Dark \| mode”, your one Quick Win\. 1 not placed yet\.\*\*/
-    );
+    expect(md).toMatch(/\*\*Start with “Dark \| mode”, your one Quick Win; 1 not placed yet\.\*\*/);
     expect(exported.props?.markdown).toContain("# Value vs Effort");
     expect(toCsv(ranked()).rows).toEqual([
       ["Dark | mode", 8, 2, "Quick Wins", "4"],

@@ -12,7 +12,9 @@
  * other.
  */
 
-import type { PrioritizationItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
+import type { MethodDraft } from "@/components/prioritization/method-tool";
+import { withoutOldDefaults } from "@/lib/prioritization/defaults";
 import { FIBONACCI_TEXT, isFibonacci } from "@/lib/prioritization/methods/fibonacci";
 import { toNumber } from "@/lib/prioritization/methods/fields";
 import { VALUE_EFFORT, type Values } from "@/lib/prioritization/methods";
@@ -105,10 +107,13 @@ export function ratioText(r: RankedRow): string | null {
 }
 
 /**
- * What to fix on a row whose stored value or effort is off its scale (an
- * old agent row's effort 0.5, a value of 4 from before the Fibonacci
- * value): it is drawn at the nearest edge or between its neighbours and
- * listed as it is, never rewritten silently. Null when both are fine.
+ * What to fix on a row whose value or effort is off its scale (an old
+ * agent row's effort 0.5, a business value of 7 written before the
+ * Fibonacci scale): it is drawn at the nearest edge or between its
+ * neighbours and listed as it is, never rewritten silently. Null when both
+ * are fine. The old 1–10 `value` never gets here off the scale: the method
+ * reads it onto the Fibonacci step at or above it, and legacyValueNote
+ * says so.
  */
 export function offScaleNote(r: Pick<RankedRow, "values">): string | null {
   const value = toNumber(r.values.value);
@@ -121,6 +126,66 @@ export function offScaleNote(r: Pick<RankedRow, "values">): string | null {
     notes.push(`Effort ${effort} is off the 1–10 scale.`);
   }
   return notes.length > 0 ? `${notes.join(" ")} Edit to fix.` : null;
+}
+
+/**
+ * The old 1–10 value a row's value was read from, when there is no
+ * business value to read: an unlinked row's own `value` (saved before the
+ * one value field), or a linked row's backlog item's. Null when the value
+ * is the one value field, or unset. The value shown is that number's
+ * Fibonacci step at or above it (4 → 5, 6 → 8), so the row says where it
+ * came from (legacyValueNote).
+ */
+export function legacyValueOf(r: RankedRow, items: readonly BacklogItem[]): number | null {
+  if (r.live) {
+    const item = items.find((b) => b.id === r.row.backlogItemId);
+    // As the method reads the item: the old defaults (value 5, effort 5) are no value.
+    const read = item ? withoutOldDefaults(item) : undefined;
+    return read && read.businessValue === undefined && typeof read.value === "number"
+      ? read.value
+      : null;
+  }
+  const f = r.row.fields;
+  return toNumber(f?.businessValue) === undefined ? (toNumber(f?.value) ?? null) : null;
+}
+
+/** "Value 5 is read from the old 1–10 value 4: …", or null for a value that is the one value field. */
+export function legacyValueNote(r: RankedRow, items: readonly BacklogItem[]): string | null {
+  const old = legacyValueOf(r, items);
+  const shown = toNumber(r.values.value);
+  if (old === null || shown === undefined) return null;
+  return r.live
+    ? `Value ${shown} is read from the backlog item's old 1–10 value ${old}.`
+    : `Value ${shown} is read from the old 1–10 value ${old}: edit and save to keep it, or pick another.`;
+}
+
+/**
+ * The draft a save sends for a linked row going back to "Not placed yet"
+ * (both inputs blank): the effort is cleared, on the row and on its
+ * backlog item, and the blank value is left out, so the item keeps it.
+ * The value is the backlog's one value field, WSJF's business value too:
+ * putting an item in the tray never wipes it, and without an effort the
+ * item waits in the tray all the same. An unlinked row (it owns both) or a
+ * draft that places the item goes as it is. The agent's set_position
+ * un-places a linked row the same way.
+ */
+export function trayDraft(draft: MethodDraft, linked: boolean): MethodDraft {
+  if (!linked || draft.value !== undefined || draft.effort !== undefined) return draft;
+  const out: MethodDraft = { ...draft };
+  delete out.value;
+  return out;
+}
+
+/** What the editor says before a linked row's save that sends it back to the tray. */
+export function trayNote(itemName: string, at: { value: number | null; effort: number | null }) {
+  const name = `“${shortName(itemName)}”`;
+  const lead =
+    at.effort !== null
+      ? `Saving clears its effort on the backlog item ${name} and moves it to ${UNPLACED_LABEL}.`
+      : `Saving moves it to ${UNPLACED_LABEL}.`;
+  return at.value !== null
+    ? `${lead} Its value ${at.value} stays on the item: WSJF's business value is the same field.`
+    : lead;
 }
 
 /** Off-scale values among `values`, for the pickers' "Custom" option. */

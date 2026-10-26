@@ -40,7 +40,7 @@ import {
   methodRow,
   ownedPatch,
 } from "@/lib/prioritization/binding";
-import { method, type Values } from "@/lib/prioritization/methods";
+import { method, readThrough, type Values } from "@/lib/prioritization/methods";
 import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
 import {
   VE_HIGH_EFFORT_FROM,
@@ -342,7 +342,7 @@ const SetPositionSchema = z
       .boolean()
       .optional()
       .describe(
-        "Needed to un-place a row linked to a backlog item: the item owns value and effort, so they are cleared on it too (its businessValue is also WSJF's business value)."
+        "Un-placing a row linked to a backlog item clears only the item's effort (matrixEffort), as the page does: its value stays, because businessValue is also WSJF's business value. Pass true to clear the item's value too."
       ),
   })
   .refine((p) => (p.value === null) === (p.effort === null), {
@@ -364,19 +364,22 @@ const setPosition = async (store: MethodStore, params: z.infer<typeof SetPositio
     );
   }
   const item = row.backlogItemId ? await store.item(row.backlogItemId) : undefined;
-  // Present as undefined: a clear, as the page's editor saves a blanked input.
-  const values: Values = { value: undefined, effort: undefined };
+  // The page's rule (value-effort-matrix/model.ts trayDraft): a linked row
+  // goes back to the tray by losing its effort, on the row and the item;
+  // its value is the backlog's one value field, WSJF's business value too,
+  // so it stays unless clearBacklog asks for it. Present as undefined: a
+  // clear, as the page's editor saves a blanked input.
+  const keepValue = item !== undefined && !params.clearBacklog;
+  const values: Values = {
+    value: keepValue ? VALUE_EFFORT.read(readThrough(row, item)).value : undefined,
+    effort: undefined,
+  };
   const now = new Date().toISOString();
   let backlogUpdated: string[] = [];
   if (item) {
-    // A linked row reads through to its item: un-placing it clears the item's fields.
+    // A linked row reads through to its item: what it clears goes there too.
     const changes = itemPatchChanges(item, ownedPatch(FRAMEWORK, values, clearedKeys(values)));
     backlogUpdated = Object.keys(changes);
-    if (backlogUpdated.length > 0 && !params.clearBacklog) {
-      throw new Error(
-        `“${row.title}” is linked to backlog item “${item.name}”, which holds its value and effort. Pass clearBacklog: true to clear them there too (WSJF's business value is the same field).`
-      );
-    }
     if (backlogUpdated.length > 0) await store.putItem(applyItemPatch(item, changes, now));
   }
   await store.putRows([
@@ -398,7 +401,7 @@ registry.register({
   name: "set_position",
   category: "write",
   requiresConfirmation: false,
-  description: `Set one Value vs Effort item's place, as the page's drag and its editor do: {id, value, effort} places or moves it (the same as place_item; value on ${FIB_LIST}, effort 1-10), and value: null with effort: null sends it back to 'Not placed yet'. One without the other is refused. A linked row writes value and effort to its backlog item (businessValue, matrixEffort); un-placing a linked row clears them there and needs clearBacklog: true. Returns {id, quadrant, score, placed, backlogItemId, backlogUpdated}.`,
+  description: `Set one Value vs Effort item's place, as the page's drag and its editor do: {id, value, effort} places or moves it (the same as place_item; value on ${FIB_LIST}, effort 1-10), and value: null with effort: null sends it back to 'Not placed yet'. One without the other is refused. A linked row writes value and effort to its backlog item (businessValue, matrixEffort); un-placing a linked row clears its effort there and keeps its value (WSJF's business value is the same field), as the page does, unless clearBacklog: true clears the value too. Returns {id, quadrant, score, placed, backlogItemId, backlogUpdated (the item fields changed)}.`,
   paramsSchema: SetPositionSchema,
   handler: async (params) => setPosition(clientStore(), params),
   mcpHandler: async (params, ctx) => setPosition(serverStore(ctx.userId), params),

@@ -12,18 +12,25 @@ import { offScaleNote, placeOf, ratioText } from "./model";
 /**
  * One item in its quadrant's list: title and backlog link, value and
  * effort as it shows them (a linked row's from its backlog item; "custom"
- * when off the scale), value ÷ effort, Edit and Delete.
+ * when off the scale), value ÷ effort, Edit and Delete. `legacyNote` says
+ * when the value was read from the old 1–10 value (legacyValueNote);
+ * `editRef` takes the Edit button, where focus comes back after the row's
+ * editor closes.
  */
 export function VeRow({
   ranked,
   selected,
   onEdit,
   onRemove,
+  editRef,
+  legacyNote,
 }: {
   ranked: RankedRow;
   selected: boolean;
   onEdit: () => void;
   onRemove: () => void;
+  editRef?: (el: HTMLElement | null) => void;
+  legacyNote?: string | null;
 }) {
   const { row } = ranked;
   const at = placeOf(ranked);
@@ -70,6 +77,7 @@ export function VeRow({
       </span>
       <span className="flex shrink-0 items-center">
         <IconButton
+          ref={editRef}
           label={`Edit ${row.title}`}
           icon={<Pencil className="h-4 w-4" />}
           className="text-sub hover:text-text"
@@ -82,6 +90,7 @@ export function VeRow({
           onClick={onRemove}
         />
       </span>
+      {legacyNote && <p className="basis-full text-xs text-sub">{legacyNote}</p>}
       {note && <p className="basis-full text-xs text-warning">{note}</p>}
     </div>
   );
