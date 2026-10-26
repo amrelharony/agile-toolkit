@@ -65,7 +65,6 @@ import { buildExample } from "@/app/(tools)/raci/example";
 import { raciMarkdown } from "@/app/(tools)/raci/markdown";
 import { EMPTY_NAME, validateName } from "@/app/(tools)/raci/form";
 import { migrateRaciNow } from "@/app/(tools)/raci/migrate";
-import { withPageChecks } from "@/app/(tools)/raci/prompts";
 import { generateRACIPrompts } from "@/lib/ai-prompts/raci";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
@@ -549,32 +548,58 @@ describe("the page, after review", () => {
       x: { a: ["A", "R"] },
       y: { a: ["R"] },
     });
-    const prompts = generateRACIPrompts({
+    // The page hands over its cells as stored (letter arrays).
+    const gaps = generateRACIPrompts({
       roles: doc.roles,
       activities: doc.activities,
-      matrix: Object.fromEntries(
-        doc.activities.map((a) => [
-          a.id,
-          Object.fromEntries(doc.roles.map((r) => [r.id, cellText(cellOf(doc, a.id, r.id))])),
-        ])
-      ),
-    });
-    const checks = [...activityIssues(doc), ...loadWarnings(doc)].map((c) => c.message);
-    const gaps = prompts.map((p) => withPageChecks(p, checks)).find((p) => p.id === "raci-gaps")!;
-    // Before: the A/R cell read as no Accountable, and the unassigned row was flagged.
-    const before = prompts.find((p) => p.id === "raci-gaps")!.prompt;
-    expect(before).toContain('"Act x" has no Accountable role');
-    expect(gaps.prompt).not.toContain("Validation Warnings");
-    expect(gaps.prompt).not.toContain('"Act x" has no Accountable role');
-    expect(gaps.prompt).not.toContain('"Act z" has no Accountable role');
-    // Only the row with no A is flagged, as on the page.
-    expect(gaps.prompt).toContain(
-      "## Checks (as the page reads them)\n\n- “Act y” has no Accountable (A): pick the one person who answers for it.\n\n## Questions"
-    );
+      matrix: doc.cells,
+    }).find((p) => p.id === "raci-gaps")!;
+    // The A/R cell has its Accountable, and the row nobody is on isn't flagged.
+    expect(gaps.prompt).not.toContain("“Act x” has no Accountable");
+    expect(gaps.prompt).not.toContain("“Act z” has no");
+    expect(gaps.prompt).toContain("Not assigned yet: Act z.");
+    // Only the row with no A is flagged, with the page's verdict and wording.
+    const messages = [...activityIssues(doc), ...loadWarnings(doc)].map((c) => `- ${c.message}`);
+    expect(messages).toEqual([
+      "- “Act y” has no Accountable (A): pick the one person who answers for it.",
+    ]);
+    expect(gaps.prompt).toContain(`## Checks\n\n${raciVerdict(doc)}\n\n${messages.join("\n")}`);
+    expect(gaps.prompt).toContain("| Act x | A/R | - |");
     expect(gaps.prompt.indexOf("## Checks")).toBeLessThan(gaps.prompt.indexOf("## Questions"));
-    // The other prompt has no checks to swap.
-    const clarity = prompts.find((p) => p.id === "raci-clarity")!;
-    expect(withPageChecks(clarity, checks)).toBe(clarity);
+  });
+
+  it("reads joined and single-letter cells too, and flags load by RACI_LOAD, not a 70% rule", () => {
+    const doc = matrix(["a", "b", "c", "d", "e"], ["w", "x", "y", "z"], {
+      w: { a: ["A", "R"], b: ["C"], c: ["C"], d: ["C"], e: ["C"] },
+      x: { a: ["A"], b: ["R"] },
+      y: { a: ["A"], b: ["R"] },
+      z: { b: ["A", "R"] },
+    });
+    // Joined strings ("A/R") and one letter per cell, as an older caller passes them.
+    const joined = Object.fromEntries(
+      doc.activities.map((a) => [
+        a.id,
+        Object.fromEntries(doc.roles.map((r) => [r.id, cellText(cellOf(doc, a.id, r.id))])),
+      ])
+    );
+    const fromStrings = generateRACIPrompts({
+      roles: doc.roles,
+      activities: doc.activities,
+      matrix: joined,
+    }).find((p) => p.id === "raci-gaps")!.prompt;
+    const fromArrays = generateRACIPrompts({
+      roles: doc.roles,
+      activities: doc.activities,
+      matrix: doc.cells,
+    }).find((p) => p.id === "raci-gaps")!.prompt;
+    expect(fromStrings).toBe(fromArrays);
+    // A is Accountable for 3 of 4 (over half), and w consults 4 roles (over 3).
+    for (const w of loadWarnings(doc)) expect(fromArrays).toContain(`- ${w.message}`);
+    expect(loadWarnings(doc).map((w) => w.kind)).toEqual(["accountable_load", "consulted_load"]);
+    // B holds R or A on every activity, which the old 70% rule flagged; RACI_LOAD doesn't.
+    expect(fromArrays).not.toContain("Overloaded");
+    expect(fromArrays).not.toMatch(/B is Accountable/);
+    expect(fromArrays).toContain("| A | 1 | 3 | 0 | 0 |");
   });
 });
 

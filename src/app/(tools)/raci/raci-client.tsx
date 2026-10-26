@@ -74,7 +74,6 @@ import type { NameValues } from "./form";
 import { raciMarkdown } from "./markdown";
 import { RaciMatrixView } from "./matrix";
 import { useLegacyRaciMove } from "./migrate";
-import { withPageChecks } from "./prompts";
 import { cn } from "@/lib/utils";
 
 export const TOOL_ID = "raci";
@@ -382,26 +381,17 @@ export function RACIClient() {
       })
     )
   );
-  const promptConfig = useMemo(() => {
-    const checks = [...activityIssues(doc), ...loadWarnings(doc)].map((c) => c.message);
-    return {
+  // The cells' letters as stored: the prompt runs the page's own checks on them.
+  const promptConfig = useMemo(
+    () => ({
       toolName: "RACI Matrix",
       prompts: generateRACIPrompts(
-        {
-          roles: doc.roles,
-          activities: doc.activities,
-          // The prompt reads one string per cell: "A/R" for both.
-          matrix: Object.fromEntries(
-            doc.activities.map((a) => [
-              a.id,
-              Object.fromEntries(doc.roles.map((r) => [r.id, cellText(cellOf(doc, a.id, r.id))])),
-            ])
-          ),
-        },
+        { roles: doc.roles, activities: doc.activities, matrix: doc.cells },
         workspace
-      ).map((p) => withPageChecks(p, checks)),
-    };
-  }, [doc, workspace]);
+      ),
+    }),
+    [doc, workspace]
+  );
 
   const page = (body: ReactNode) => (
     <ToolPageWrapper
