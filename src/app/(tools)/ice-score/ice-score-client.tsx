@@ -4,28 +4,11 @@ import { Hash } from "lucide-react";
 import { MethodTool, type MethodToolConfig } from "@/components/prioritization/method-tool";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { generateIcePrompts } from "@/lib/ai-prompts/ice-score";
-import type { RankedItem } from "@/lib/analytics/scoring-rubric";
 import { ICE_ACTIONS } from "@/lib/history/event-actions";
-import { ICE } from "@/lib/prioritization/methods";
-import type { RankedRow } from "@/lib/prioritization/rank";
 import { buildExample } from "./example";
 import { IceInputs, IceRowValues } from "./ice-inputs";
 import { toMarkdown } from "./markdown";
 import { iceVerdict } from "./verdict";
-
-/** The scored rows as the AI prompts read them (rank and score from the registry). */
-function promptItems(rows: readonly RankedRow[]): RankedItem<Record<string, number | string>>[] {
-  const scored = rows.filter((r) => r.result.score !== null && r.rank !== null);
-  const last = scored.reduce((n, r) => Math.max(n, r.rank as number), 0);
-  return scored.map((r) => ({
-    id: r.row.id,
-    title: r.row.title,
-    fields: ICE.write(r.row.fields, r.values),
-    score: r.result.score as number,
-    rank: r.rank as number,
-    percentile: last <= 1 ? 1 : (last - (r.rank as number) + 1) / last,
-  }));
-}
 
 /**
  * ICE on the shared method-tool shell: the add form, edit in place, Undo,
@@ -60,7 +43,8 @@ export const ICE_TOOL: MethodToolConfig = {
       r.result.score ?? "",
     ]),
   }),
-  prompts: (rows, workspace) => generateIcePrompts({ items: promptItems(rows) }, workspace),
+  // The rows as they read: ICE to two places, unscored ideas named, never 0.
+  prompts: (rows, workspace) => generateIcePrompts({ rows, verdict: iceVerdict(rows) }, workspace),
   Inputs: IceInputs,
   RowValues: IceRowValues,
 };
