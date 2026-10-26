@@ -35,7 +35,7 @@ import { forwardRef, useState } from "react";
 import { MessageCircle, Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Kudos, KudosReaction } from "@/lib/stores/workspace-types";
-import { getKudosTheme } from "../types";
+import { getKudosTheme, headerInk } from "../types";
 
 /**
  * Quick-pick palette for the "+" emoji button. Six common emoji keeps
@@ -144,13 +144,18 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
     >
       <div
         className={`px-5 py-3 flex items-center gap-3 ${theme.headerBg}`}
-        style={{ borderBottom: "2px solid rgba(0,0,0,0.2)" }}
+        style={{
+          borderBottom: "2px solid rgba(0,0,0,0.2)",
+          color: headerInk(theme.hex),
+          // A custom theme has no Tailwind class: its hex is the strip.
+          ...(theme.headerBg ? {} : { background: theme.hex }),
+        }}
       >
         <span className={compact ? "text-2xl" : "text-3xl"} aria-hidden="true">
           {theme.emoji}
         </span>
         <h3
-          className={`font-bold text-white ${compact ? "text-lg" : "text-fluid-h3"} flex-1`}
+          className={`font-bold ${compact ? "text-lg" : "text-fluid-h3"} flex-1`}
           style={{ margin: 0 }}
         >
           {theme.title}
@@ -161,7 +166,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
             onClick={() => onToggleReply?.(kudos.id)}
             aria-pressed={isReplyOpen}
             aria-label={isReplyOpen ? "Hide reply" : "Reply to this kudos"}
-            className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-white/80 hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 opacity-80 hover:bg-black/10 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
           </button>
