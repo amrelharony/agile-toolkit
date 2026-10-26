@@ -224,13 +224,13 @@ The fix for those is private rooms, below.
 
 ### Private rooms (Realtime Authorization)
 
-With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, and Supabase checks each join against the policy in migration 0026.
+With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, and Supabase checks each join against the policy in migration 0026 (its visitor branch narrowed by 0027).
 
 **Who gets in:**
 
 - **Owner:** your browser fetches a short-lived room token from `/api/realtime/token` (owner only) that opens every tool room.
 - **Invited guest:** a guest's browser fetches one from `/api/guest/realtime-token` that lists exactly the rooms their invites cover.
-- **Visitor rooms** still open with the plain anon key. The code in the link is their only key, by design.
+- **Visitor rooms** still open with the plain anon key. The code in the link is their only key, by design. Since migration 0027 the policy admits only the app's own shape, `visitor:<visitor tool>:<12-character code>`; 0026 admitted any topic starting with `visitor:`.
 - **Your sync, history and agent-conversation feeds** use private channels on your own signed-in session.
 
 **Tokens:**
@@ -242,14 +242,17 @@ With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, a
 A public channel and a private channel with the same name are separate on Supabase. Tested live on 19 Oct 2026: someone on the public channel neither heard the private room nor reached it. So **the flag alone protects what's said in a room.** Turning off "Allow public access" then does two more things:
 
 - old tabs (still running the build from before the flag) can't keep using public channels;
-- nobody can use the public key to run channels of their own on the project's quota.
+- nobody can use the public key to run **public** channels of their own on the project's quota.
+
+It does **not** shut the anon key out of private channels the policy admits for it: visitor rooms. With the flag on, visitor rooms are private channels that the policy's visitor branch lets the plain anon key join, so they keep working with public access off, and so does anyone who uses the anon key to open a private channel of that shape. Migration 0027 narrows that branch from any `visitor:%` topic to the app's own tools and 12-character codes; to stop visitor rooms entirely, use the SQL step under "Emergency brake".
 
 **Turning it on (in this order):**
 
 1. **Secret:** put the legacy JWT secret in `SUPABASE_JWT_SECRET` in Vercel (Production) and `.env.local`. It's under Project Settings → JWT Keys → Legacy JWT Secret.
-2. **Migration:** run `supabase db push`, which applies 0026. This is safe at any time, because public channels ignore the policy. After pushing, check:
+2. **Migration:** run `supabase db push`, which applies 0026 and 0027. This is safe at any time, because public channels ignore the policy. After pushing, check:
    - `select has_function_privilege('anon','public.realtime_room_allowed(text)','EXECUTE');` returns true;
-   - two policies, `realtime_rooms_select` and `realtime_rooms_insert`, are on `realtime.messages`.
+   - two policies, `realtime_rooms_select` and `realtime_rooms_insert`, are on `realtime.messages`;
+   - `select public.realtime_room_allowed('visitor:retro:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:anything');` returns `true, false` (0027 applied).
 3. **Flag:** set `NEXT_PUBLIC_PRIVATE_ROOMS=1` in Vercel and **redeploy**. It's inlined at build time.
 4. **Check production:**
    - an owner Poker session and the kudos wall stay live (open them signed in);
@@ -259,7 +262,7 @@ A public channel and a private channel with the same name are separate on Supaba
 
    Ask anyone with the site open to reload: tabs still running the old build use public channels.
 
-5. **Lock it:** Supabase → Realtime → Settings → turn **off** "Allow public access". From then on public channels are refused entirely: an old tab can't keep using a public one, and nobody can run their own channels on the anon key.
+5. **Lock it:** Supabase → Realtime → Settings → turn **off** "Allow public access". From then on public channels are refused entirely: an old tab can't keep using a public one, and nobody can run their own public channels on the anon key. The anon key still opens private visitor-room channels (`visitor:<visitor tool>:<code>`, per 0027): that is how visitor rooms and vote rounds work.
 
 **Rolling back:** turn "Allow public access" back **on** first, then unset the flag and redeploy.
 
@@ -274,7 +277,7 @@ A public channel and a private channel with the same name are separate on Supaba
 
 ## Visitor live rooms
 
-Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team. A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ Owners don't get visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites.
+Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team, and anyone can run an anonymous **vote round** (Health Check, Psych Safety, Mood Tracker, see "Live vote rounds" below). A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ (vote rounds have their own text, below). Owners don't get Poker or Retro visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites. **Vote rounds are the one exception:** the owner hosts them on a visitor channel too, because participants can send only encrypted scale numbers and nothing reaches the workspace except the totals, when the host presses Save round.
 
 The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`.
 
@@ -297,7 +300,7 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
   - Names and card text with control or bidi characters are rejected, and nothing a peer sends is rendered as HTML.
 - **Traffic:** the host sends its state when it changes (Retro: at most every 0.5 s), when someone joins, and every 30 s otherwise. There is no 5-second heartbeat. That is roughly 2.4k message deliveries per hour for an idle 20-person room.
 
-### How the two rooms behave
+### How the rooms behave
 
 - **Planning Poker:**
   - The host starts a room with **Start a live room** on the "Running it with your team" card.
@@ -311,6 +314,36 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
   - **End room** ends it for everyone. The host keeps the board or session.
   - **Remove** takes a participant out and ignores what they send. It is soft: they can rejoin under a new name. To keep someone out, end the room and share a new link.
   - If the host closes the tab without ending the room, the others elect a new host after about 10 seconds and carry on from the last state they received.
+- **Vote rounds** work differently (no host election, nothing shown before Reveal): see the next section.
+
+### Live vote rounds (Health Check, Psych Safety, Mood)
+
+**What it is:** the facilitator presses **Run a live round**, gives a name, and shares the link with **Copy link** (it ends in `#k=…`). People open it on their phones, give a name and answer with taps on a scale. The facilitator sees only how many people have answered. **Reveal results** needs 3 answers (5 for Psych Safety), shows the totals per question, and closes the round; a question with fewer answers than that stays hidden ("withheld"). **Save round** stores the totals in the tool; **New round** starts again with a fresh key.
+
+**Who can host:** the owner or a visitor. Squad guests can't host (they get count entry instead). Participants need no account.
+
+**What travels:**
+
+- The host's questions, signed with a key made in the host's browser for this room. The link's `#k=` part is that key's fingerprint, and participants trust only messages signed by it, so nobody else in the room can pose as the host to collect answers.
+- Each person's answers: numbers only (one per question), encrypted in their browser so only the host's browser can read them. That browser adds them to per-question counts and drops them. Before Reveal nobody, the host included, sees a distribution or per-question counts.
+- The `#k=` part never reaches the server or the Vercel logs (browsers don't send the fragment), but it is in browser history like the rest of the link.
+- Consent text for vote rounds: _"Answers are encrypted in each person's browser, so only the host's browser can read them, and it keeps the totals only. They pass through our realtime provider (Supabase). Everyone in the room sees each name and who has answered, never what they answered. Share the link only with your team."_
+
+**Flags:** `NEXT_PUBLIC_VISITOR_ROOMS=1` is required. It works with `NEXT_PUBLIC_PRIVATE_ROOMS` on or off. It needs HTTPS (or localhost) for the browser's encryption.
+
+**Limits:** the visitor-room limits above, plus at most 60 answers (ballots) per round, 20,000 characters per message, 32 questions, 11 scale points, and numbers only from participants.
+
+**Traffic:** each answer reaches every member, so about members × members deliveries per round (400 for a full room), plus the host's state at most every 0.5 s while answers arrive, after joins, and every 30 s.
+
+**If the host closes or reloads the tab:** the round is lost (the counts exist only in that tab). Participants see "The host left" after about 10 seconds. The host starts a new round. Revealed results survive **End room**: they stay on the host's screen until saved or closed.
+
+**Troubleshooting:**
+
+- _"This link is incomplete"_: the link was copied without its `#k=` part (for example from the address bar of a page that dropped it). Use **Copy link**.
+- _"This browser can't take part"_: no HTTPS, an old browser, or the realtime service is unreachable.
+- More answers than names in the room: the host sees a warning. Someone may have answered again from another tab; start a new round if the totals look wrong.
+
+**Turning it off:** unset the flag and redeploy, as above. **Enter counts instead** (count hands or collect paper answers, then type the totals) keeps working, with the same 3-or-5 rule.
 
 ### Watching the quota (Supabase free tier)
 
@@ -322,9 +355,17 @@ Visitor rooms share the project's Realtime quota with owner rooms, squad-guest r
 
 ### Emergency brake
 
-**Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses joins on public channels: no new visitor room can connect, nobody can rejoin one, and scripts using the anon key are shut out too. A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+Which brake works depends on `NEXT_PUBLIC_PRIVATE_ROOMS`.
 
-It also stops **everything else that uses Realtime**, because all of the app's channels are public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn it back on. Turn it back on once the flag is off and redeployed.
+**With `NEXT_PUBLIC_PRIVATE_ROOMS=1` (production today):** "Allow public access: off" does **not** stop visitor rooms. They are private channels, and the policy's visitor branch admits the plain anon key to them. The brake is an SQL step instead:
+
+1. In the Supabase SQL editor, re-create `public.realtime_room_allowed` exactly as in migration 0027 but **without the visitor line** (the `topic ~ '^visitor:…'` line and the `or` that follows it; keep `set search_path = ''`, every other branch and the `grant execute … to anon, authenticated, service_role`). From then on no visitor room, vote round or anon-key script can join a `visitor:` channel; owner rooms, guest rooms and your sync feeds keep working.
+2. A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+3. **To undo it,** re-run the function block of `supabase/migrations/0027_realtime_visitor_topic_shape.sql` (it is idempotent). Turn the flag off and redeploy as well if the rooms shouldn't come back.
+
+**With the flag unset (public channels):** **Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses joins on public channels: no new visitor room can connect, nobody can rejoin one, and scripts using the anon key are shut out too. A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+
+That also stops **everything else that uses Realtime**, because all of the app's channels are then public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn it back on. Turn it back on once the flag is off and redeployed.
 
 ### Residual risks (accepted for v1)
 
@@ -334,6 +375,16 @@ It also stops **everything else that uses Realtime**, because all of the app's c
 - **Room codes are visible** in browser history, Vercel request logs (`/join/<tool>/<code>`), and wherever the link is pasted. A code is useless once its room has ended.
 - Turning the flag off needs a redeploy and doesn't close open tabs; they end by themselves within 3 hours.
 - **An owner who opens a `/join` link joins as a visitor** (that page has no sign-in). Nothing from the room is written to their workspace unless they choose Save a copy.
+
+**Vote rounds:**
+
+1. Answers are hidden from the other participants and from what is stored, but **not from a host who modifies their own browser**: the host's tab decrypts each ballot, with its sender's presence id, for an instant before adding it to the counts.
+2. **Who answered, and when, is visible** to everyone in the room (ballots are broadcast, encrypted, under the sender's id). What they answered is not.
+3. **Anyone holding the full link can join and answer.** Only the host's questions and results are authenticated, by the key in `#k=`.
+4. **A member can spend someone else's ballot** by claiming their id. The victim's own answers are then refused as a duplicate: their screen keeps saying "sent" and never "counted". If someone reports that, start a new round.
+5. **Someone can answer again from a new tab** (a new tab is a new member). This is bounded by the 20 seats and 60 ballots per round, and the host sees a warning when answers outnumber the names in the room.
+6. **minN is a floor, not a guarantee:** if everyone gives the same answer, the totals reveal everyone's answer.
+7. **The anon key can still open visitor-shaped channels** (0027 admits the app's tools and 12-character codes only). Watch the quota, and use the SQL brake above if it is abused.
 
 If abuse shows up, the planned next step is short-lived room tokens minted by a server route with Realtime Authorization on private channels (that needs "Allow public access" off and the owner rooms moved to private channels first).
 
