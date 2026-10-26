@@ -242,6 +242,63 @@ describe("bounds", () => {
     });
   });
 
+  it("an allocation round keeps the kit's record rules", () => {
+    const [search, exports] = ALLOCATION_ROUND.items;
+    const round = (patch: Partial<typeof ALLOCATION_ROUND>) => ({ ...ALLOCATION_ROUND, ...patch });
+    const accepts = (entity: unknown) =>
+      expect(
+        parseCreate("workspace.allocation_round", entity).success,
+        JSON.stringify(entity)
+      ).toBe(true);
+    // Saved only once revealed.
+    rejects("workspace.allocation_round", round({ minN: 7 }));
+    // Two items at least, as on the kit's sheet.
+    rejects("workspace.allocation_round", round({ items: [search] }));
+    // Band edges start at 0 and ascend.
+    rejects("workspace.allocation_round", round({ bandEdges: [1, 2, 11, 26, 51] }));
+    rejects("workspace.allocation_round", round({ bandEdges: [0, 11, 11, 26, 51] }));
+    // One count per band, each ballot in exactly one band.
+    rejects(
+      "workspace.allocation_round",
+      round({ items: [{ ...search, bands: [0, 1, 2, 3] }, exports] })
+    );
+    rejects(
+      "workspace.allocation_round",
+      round({ items: [{ ...search, bands: [0, 0, 1, 2, 2] }, exports] })
+    );
+    // No more backers than ballots, and no more than everyone's budget.
+    rejects("workspace.allocation_round", round({ items: [{ ...search, backers: 7 }, exports] }));
+    rejects("workspace.allocation_round", round({ items: [{ ...search, total: 601 }, exports] }));
+    // Under 5 answers the spread is withheld: totals only.
+    const four = { ballots: 4, minN: 3 };
+    rejects(
+      "workspace.allocation_round",
+      round({ ...four, items: [{ ...search, bands: [0, 0, 1, 1, 2] }, exports] })
+    );
+    rejects(
+      "workspace.allocation_round",
+      round({ ...four, items: [{ ...search, backers: 4, bands: null }, exports] })
+    );
+    accepts(round({ ...four, items: [{ ...search, backers: null, bands: null }, exports] }));
+    // An id-less create keeps the rules (safeExtend), and a valid one passes.
+    const rest: Record<string, unknown> = round({ minN: 7 });
+    delete rest.id;
+    rejects("workspace.allocation_round", rest);
+    accepts(ALLOCATION_ROUND);
+  });
+
+  it("a decision's DACI Driver and RAPID Recommend are one person at most", () => {
+    rejects("workspace.decision", { ...DECISION, roles: { driver: ["Bo", "Cy"] } });
+    rejects("workspace.decision", { ...DECISION, roles: { recommend: ["Bo", "Cy"] } });
+    const many = {
+      ...DECISION,
+      roles: { driver: ["Bo"], contributor: ["Cy", "Di"], agree: ["Ed", "Fa"] },
+    };
+    const parsed = parseCreate("workspace.decision", many);
+    expect(parsed.success).toBe(true);
+    expect((parsed.data as { entity: Doc }).entity).toEqual(many);
+  });
+
   it("the game's budget, players and unit are bounded, and each is optional", () => {
     rejects("workspace.buy_a_feature_game", { ...BUY_A_FEATURE_GAME, budgetPerPlayer: 9 });
     rejects("workspace.buy_a_feature_game", { ...BUY_A_FEATURE_GAME, players: 0 });

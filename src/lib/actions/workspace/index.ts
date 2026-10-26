@@ -23,7 +23,6 @@ import {
   CEREMONY_CADENCE_ID,
   CYNEFIN_ANSWERS,
   CYNEFIN_QUESTION_IDS,
-  DECISION_ROLES,
   DECISION_STATUSES,
   DECISION_TEMPLATES,
   DEFAULT_WEIGHTED_MATRIX_ID,
@@ -42,6 +41,7 @@ import {
 } from "@/lib/stores/workspace-types";
 import { serverBulkUpsertEntities, serverDeleteEntity, serverListEntities } from "../server-store";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
 import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
 import {
@@ -59,6 +59,7 @@ import type {
   Risk,
   Okr,
   Decision,
+  DecisionRole,
   TechDebtItem,
   TeamMember,
   // Phase 19 — AI / LLM PM
@@ -342,6 +343,21 @@ const OkrSchema = z.object({
   owner: z.string().optional(),
 }) as unknown as z.ZodType<Okr>;
 
+// Roster spellings per decision role. DACI's Driver and RAPID's Recommend
+// are one person each; strict, so an unknown role is refused, not dropped.
+const RoleHolders = z.array(z.string());
+const DecisionRolesSchema = z
+  .object({
+    driver: RoleHolders.max(1).optional().describe("DACI Driver: one person at most."),
+    contributor: RoleHolders.optional().describe("DACI Contributors."),
+    informed: RoleHolders.optional().describe("DACI Informed."),
+    recommend: RoleHolders.max(1).optional().describe("RAPID Recommend: one person at most."),
+    agree: RoleHolders.optional().describe("RAPID Agree (a veto)."),
+    perform: RoleHolders.optional().describe("RAPID Perform."),
+    input: RoleHolders.optional().describe("RAPID Input."),
+  } satisfies Record<DecisionRole, z.ZodType>)
+  .strict();
+
 // Every Phase 7 field is listed so an update keeps it (z.object drops keys it
 // doesn't know). Dates stay loose strings, as `date` always was: older rows
 // and agents may hold a timestamp, which lib/decisions reads as its day.
@@ -381,10 +397,9 @@ const DecisionSchema = z.object({
     .string()
     .optional()
     .describe("Roster spelling: the one person with the final say (DACI Approver, RAPID Decide)."),
-  roles: z
-    .partialRecord(z.enum(DECISION_ROLES), z.array(z.string()))
-    .optional()
-    .describe("Roster spellings per role; driver and recommend hold at most one."),
+  roles: DecisionRolesSchema.optional().describe(
+    "Roster spellings per role; driver and recommend hold at most one."
+  ),
   decidedAt: z.string().optional().describe("YYYY-MM-DD it was accepted on."),
   implementedAt: z
     .string()
@@ -2174,46 +2189,99 @@ defineCrudActions<PrioritizationItem>({
 const AllocationBudget = z.number().int().min(10).max(9_999);
 const AllocationUnit = z.string().max(4);
 
-const AllocationRoundSchema = z.object({
-  id: z.string(),
-  tool: z.enum(ALLOCATION_ROUND_TOOLS),
-  roundId: z.string().describe('The live round\'s id, or "tally-<base36>" for a count entry.'),
-  title: z.string(),
-  budget: AllocationBudget.describe("Whole units each person split."),
-  unit: AllocationUnit.describe('Shown before amounts, e.g. "$".'),
-  spendAll: z
-    .boolean()
-    .describe("true: each split used the whole budget ($100 Test); false: up to it."),
-  date: IsoDay.describe("The day the round is for (can be backdated)."),
-  closedAt: z.string(),
-  minN: PeopleCount.min(1).describe("The fewest answers the totals showed from."),
-  ballots: PeopleCount.describe("How many people answered."),
-  source: z.enum(["room", "facilitator"]),
-  bandEdges: z
-    .array(z.number().int().min(0))
-    .describe("Lower edge of each band, ascending from 0."),
-  items: z
-    .array(
-      z.object({
-        itemId: z.string().describe("The prioritization row this line was."),
-        text: z.string(),
-        cap: z.number().int().min(0).optional(),
-        total: z.number().int().min(0).describe("Everyone's amounts on the item, added up."),
-        backers: PeopleCount.nullable().describe(
-          "People who gave it more than 0; null when the spread was withheld."
-        ),
-        bands: z
-          .array(PeopleCount)
-          .nullable()
-          .describe(
-            "People per band; null when withheld (under 5 answers, or totals typed by hand)."
+/**
+ * The record rules the vote-room kit applies before it saves a round, so an
+ * agent's create or update can't store what no room would: it was revealed
+ * (ballots ≥ minN), each item's bands cover every ballot once on the round's
+ * band edges, nobody counted twice as a backer, nothing above what everyone
+ * had to give, and no spread (backers, bands) under MIN_SAMPLE.distribution
+ * answers (the Phase 7 decisions: totals from 3 answers, bands from 5).
+ * zod runs it only on a record whose fields already parsed.
+ */
+function checkAllocationRound(r: AllocationRound, ctx: z.RefinementCtx): void {
+  const issue = (path: (string | number)[], message: string) =>
+    ctx.addIssue({ code: "custom", path, message });
+  if (r.ballots < r.minN) {
+    issue(
+      ["ballots"],
+      `A round is saved once revealed: ballots must be at least minN (${r.minN}).`
+    );
+  }
+  if (r.bandEdges[0] !== 0 || r.bandEdges.some((e, i) => i > 0 && e <= r.bandEdges[i - 1])) {
+    issue(["bandEdges"], "Band edges start at 0 and ascend.");
+  }
+  const spreadShown = r.ballots >= MIN_SAMPLE.distribution;
+  r.items.forEach((item, i) => {
+    if (item.total > r.budget * r.ballots) {
+      issue(["items", i, "total"], "More than everyone's budget added up.");
+    }
+    if (item.backers !== null) {
+      if (!spreadShown) {
+        issue(["items", i, "backers"], `Withheld (null) under ${MIN_SAMPLE.distribution} answers.`);
+      } else if (item.backers > r.ballots) {
+        issue(["items", i, "backers"], "More backers than ballots.");
+      }
+    }
+    if (item.bands !== null) {
+      if (!spreadShown) {
+        issue(["items", i, "bands"], `Withheld (null) under ${MIN_SAMPLE.distribution} answers.`);
+      } else if (item.bands.length !== r.bandEdges.length) {
+        issue(["items", i, "bands"], "One count per band edge.");
+      } else if (item.bands.reduce((a, b) => a + b, 0) !== r.ballots) {
+        issue(
+          ["items", i, "bands"],
+          "Each ballot falls in exactly one band: they add up to ballots."
+        );
+      }
+    }
+  });
+}
+
+const AllocationRoundSchema = z
+  .object({
+    id: z.string(),
+    tool: z.enum(ALLOCATION_ROUND_TOOLS),
+    roundId: z.string().describe('The live round\'s id, or "tally-<base36>" for a count entry.'),
+    title: z.string(),
+    budget: AllocationBudget.describe("Whole units each person split."),
+    unit: AllocationUnit.describe('Shown before amounts, e.g. "$".'),
+    spendAll: z
+      .boolean()
+      .describe("true: each split used the whole budget ($100 Test); false: up to it."),
+    date: IsoDay.describe("The day the round is for (can be backdated)."),
+    closedAt: z.string(),
+    minN: PeopleCount.min(1).describe("The fewest answers the totals showed from."),
+    ballots: PeopleCount.describe("How many people answered."),
+    source: z.enum(["room", "facilitator"]),
+    bandEdges: z
+      .array(z.number().int().min(0))
+      .describe("Lower edge of each band, ascending from 0."),
+    items: z
+      .array(
+        z.object({
+          itemId: z.string().describe("The prioritization row this line was."),
+          text: z.string(),
+          cap: z.number().int().min(0).optional(),
+          total: z.number().int().min(0).describe("Everyone's amounts on the item, added up."),
+          backers: PeopleCount.nullable().describe(
+            "People who gave it more than 0; null when the spread was withheld."
           ),
-      })
-    )
-    // The kit's sheets hold at most 20 items.
-    .max(20)
-    .describe("Aggregates per item only, never anyone's split."),
-}) as unknown as z.ZodType<AllocationRound>;
+          bands: z
+            .array(PeopleCount)
+            .nullable()
+            .describe(
+              "People per band; null when withheld (under 5 answers, or totals typed by hand)."
+            ),
+        })
+      )
+      // The kit's sheets hold 2 to 20 items.
+      .min(2)
+      .max(20)
+      .describe("Aggregates per item only, never anyone's split."),
+  })
+  .superRefine((r, ctx) =>
+    checkAllocationRound(r as AllocationRound, ctx)
+  ) as unknown as z.ZodType<AllocationRound>;
 
 defineCrudActions<AllocationRound>({
   toolId: "workspace.allocation_round",
