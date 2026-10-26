@@ -1,533 +1,331 @@
 "use client";
 
-import { useRef, useMemo } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { nanoid } from "nanoid";
+import { useShallow } from "zustand/react/shallow";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Grid3X3,
+  Plus,
+  Scale,
+  Sparkles,
+  UserPlus,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { EditableName } from "@/components/shared/editable-name";
+import { ActionRow } from "@/components/shared/action-row";
+import { DataTable } from "@/components/shared/data-table";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SectionCard } from "@/components/shared/section-card";
+import { Button } from "@/components/ui/button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
 import { generateRACIPrompts } from "@/lib/ai-prompts/raci";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RACI_ACTIONS } from "@/lib/history/event-actions";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { SectionCard } from "@/components/shared/section-card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Grid3X3, Plus, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type {
+  RaciActivity,
+  RaciLetter,
+  RaciMatrix,
+  RaciRole,
+  Workspace,
+} from "@/lib/stores/workspace-types";
+import { findRosterMember } from "@/lib/team/names";
+import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
+import {
+  RACI_ID,
+  RACI_LETTERS,
+  RACI_LETTER_NAME,
+  RACI_LOAD,
+  activityIssues,
+  cellOf,
+  cellText,
+  cellWords,
+  countsByRole,
+  emptyRaci,
+  hasAssignments,
+  loadWarnings,
+  nameTaken,
+  normalizeRaci,
+  raciVerdict,
+  removedActivity,
+  removedRole,
+  restoreActivity,
+  restoreRole,
+  unassignedActivities,
+  withActivity,
+  withCell,
+  withRole,
+  withoutActivity,
+  withoutRole,
+  type RoleCounts,
+} from "@/lib/raci/model";
+import { AddActivityForm, AddColumnForm } from "./add-forms";
+import { LETTER_CLASS } from "./cell-chips";
+import { buildExample, type RaciExample } from "./example";
+import type { NameValues } from "./form";
+import { raciMarkdown } from "./markdown";
+import { RaciMatrixView } from "./matrix";
+import { useLegacyRaciMove } from "./migrate";
+import { cn } from "@/lib/utils";
 
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                     */
-/* -------------------------------------------------------------------------- */
+export const TOOL_ID = "raci";
 
-type RACIValue = "" | "R" | "A" | "C" | "I";
+/** A change to the matrix, applied to the document as it is when it runs. */
+type DocUpdate = (doc: RaciMatrix) => RaciMatrix;
 
-interface RACIRole {
-  id: string;
-  name: string;
-  description?: string;
+/** Writes the workspace's matrix, read fresh from the store (never a render's copy). */
+function writeStore(update: DocUpdate) {
+  const { raciMatrices, upsertRaciMatrix } = useWorkspaceStore.getState();
+  const current = normalizeRaci((raciMatrices ?? []).find((d) => d.id === RACI_ID));
+  upsertRaciMatrix({ ...update(current), id: RACI_ID });
 }
 
-interface RACIActivity {
-  id: string;
-  name: string;
-  description?: string;
+const noLog = () => undefined;
+
+/** `row` with a description set, or without one for a blank. */
+function described<T extends { description?: string }>(row: T, description: string): T {
+  const next = { ...row };
+  if (description.trim()) next.description = description.trim();
+  else delete next.description;
+  return next;
 }
 
-type MatrixData = Record<string, Record<string, RACIValue>>; // activityId -> roleId -> value
-
-interface RACIStore {
-  roles: RACIRole[];
-  activities: RACIActivity[];
-  matrix: MatrixData;
-  addRole: () => void;
-  removeRole: (id: string) => void;
-  updateRoleName: (id: string, name: string) => void;
-  updateRoleDescription: (id: string, description: string) => void;
-  addActivity: () => void;
-  removeActivity: (id: string) => void;
-  updateActivityName: (id: string, name: string) => void;
-  updateActivityDescription: (id: string, description: string) => void;
-  setCellValue: (activityId: string, roleId: string, value: RACIValue) => void;
-  reset: () => void;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Constants                                                                 */
-/* -------------------------------------------------------------------------- */
-
-const RACI_COLORS: Record<string, string> = {
-  R: "#00f0ff",
-  A: "#ff00aa",
-  C: "#00ff88",
-  I: "#ffaa00",
-};
-
-const RACI_LABELS: Record<string, string> = {
-  R: "Responsible",
-  A: "Accountable",
-  C: "Consulted",
-  I: "Informed",
-};
-
-// Deterministic IDs in module-level defaults so SSR HTML matches client HTML
-// on first paint. User-added rows get real UUIDs via the action handlers.
-const DEFAULT_ROLES: RACIRole[] = [
-  { id: "default:role-po", name: "Product Owner" },
-  { id: "default:role-sm", name: "Scrum Master" },
-  { id: "default:role-dev", name: "Dev Team" },
+/** The Scrum roles and ceremonies a team can start from (an explicit choice, with Undo). */
+const SCRUM_ROLES = ["Product Owner", "Scrum Master", "Dev Team"];
+const SCRUM_ACTIVITIES = [
+  "Backlog refinement",
+  "Sprint planning",
+  "Daily standup",
+  "Sprint review",
 ];
 
-const DEFAULT_ACTIVITIES: RACIActivity[] = [
-  { id: "default:act-refinement", name: "Backlog Refinement" },
-  { id: "default:act-planning", name: "Sprint Planning" },
-  { id: "default:act-standup", name: "Daily Standup" },
-];
-
-function buildDefaultMatrix(activities: RACIActivity[], roles: RACIRole[]): MatrixData {
-  const m: MatrixData = {};
-  for (const a of activities) {
-    m[a.id] = {};
-    for (const r of roles) {
-      m[a.id][r.id] = "";
-    }
-  }
-  return m;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Store                                                                     */
-/* -------------------------------------------------------------------------- */
-
-const useRACIStore = create<RACIStore>()(
-  persist(
-    (set) => ({
-      roles: DEFAULT_ROLES,
-      activities: DEFAULT_ACTIVITIES,
-      matrix: buildDefaultMatrix(DEFAULT_ACTIVITIES, DEFAULT_ROLES),
-
-      addRole: () => {
-        set((s) => {
-          const used = new Set(
-            s.roles
-              .map((r) => parseInt(String(r.name).replace(/\D/g, ""), 10))
-              .filter(Number.isFinite)
-          );
-          let n = 1;
-          while (used.has(n)) n++;
-          const newRole: RACIRole = {
-            id: crypto.randomUUID(),
-            name: `Role ${n}`,
-          };
-          const matrix = { ...s.matrix };
-          for (const aId of Object.keys(matrix)) {
-            matrix[aId] = { ...matrix[aId], [newRole.id]: "" };
-          }
-          return { roles: [...s.roles, newRole], matrix };
-        });
-      },
-
-      removeRole: (id) =>
-        set((s) => {
-          const matrix = { ...s.matrix };
-          for (const aId of Object.keys(matrix)) {
-            const row = { ...matrix[aId] };
-            delete row[id];
-            matrix[aId] = row;
-          }
-          return {
-            roles: s.roles.filter((r) => r.id !== id),
-            matrix,
-          };
-        }),
-
-      updateRoleName: (id, name) =>
-        set((s) => ({
-          roles: s.roles.map((r) => (r.id === id ? { ...r, name } : r)),
-        })),
-
-      updateRoleDescription: (id, description) =>
-        set((s) => ({
-          roles: s.roles.map((r) =>
-            r.id === id ? { ...r, description: description.trim() || undefined } : r
-          ),
-        })),
-
-      addActivity: () => {
-        set((s) => {
-          const used = new Set(
-            s.activities
-              .map((a) => parseInt(String(a.name).replace(/\D/g, ""), 10))
-              .filter(Number.isFinite)
-          );
-          let n = 1;
-          while (used.has(n)) n++;
-          const newActivity: RACIActivity = {
-            id: crypto.randomUUID(),
-            name: `Activity ${n}`,
-          };
-          const row: Record<string, RACIValue> = {};
-          for (const r of s.roles) {
-            row[r.id] = "";
-          }
-          return {
-            activities: [...s.activities, newActivity],
-            matrix: { ...s.matrix, [newActivity.id]: row },
-          };
-        });
-      },
-
-      removeActivity: (id) =>
-        set((s) => {
-          const matrix = { ...s.matrix };
-          delete matrix[id];
-          return {
-            activities: s.activities.filter((a) => a.id !== id),
-            matrix,
-          };
-        }),
-
-      updateActivityName: (id, name) =>
-        set((s) => ({
-          activities: s.activities.map((a) => (a.id === id ? { ...a, name } : a)),
-        })),
-
-      updateActivityDescription: (id, description) =>
-        set((s) => ({
-          activities: s.activities.map((a) =>
-            a.id === id ? { ...a, description: description.trim() || undefined } : a
-          ),
-        })),
-
-      setCellValue: (activityId, roleId, value) =>
-        set((s) => ({
-          matrix: {
-            ...s.matrix,
-            [activityId]: {
-              ...s.matrix[activityId],
-              [roleId]: value,
-            },
-          },
-        })),
-
-      reset: () => {
-        const roles = [
-          { id: crypto.randomUUID(), name: "Product Owner" },
-          { id: crypto.randomUUID(), name: "Scrum Master" },
-          { id: crypto.randomUUID(), name: "Dev Team" },
-        ];
-        const activities = [
-          { id: crypto.randomUUID(), name: "Backlog Refinement" },
-          { id: crypto.randomUUID(), name: "Sprint Planning" },
-          { id: crypto.randomUUID(), name: "Daily Standup" },
-        ];
-        set({
-          roles,
-          activities,
-          matrix: buildDefaultMatrix(activities, roles),
-        });
-      },
-    }),
-    {
-      name: "agile-toolkit:raci",
-      // Without `safeJSONStorage`, Safari Private Browsing throws
-      // SecurityError on the very first localStorage.getItem during
-      // persist.rehydrate(), crashing page-load. All other persisted
-      // tools route through this wrapper.
-      storage: safeJSONStorage("raci"),
-    }
-  )
-);
-
-/* -------------------------------------------------------------------------- */
-/*  Validation                                                                */
-/* -------------------------------------------------------------------------- */
-
-interface ValidationIssue {
-  activityId: string;
-  activityName: string;
-  message: string;
-}
-
-function validateMatrix(
-  activities: RACIActivity[],
-  roles: RACIRole[],
-  matrix: MatrixData
-): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-
-  for (const activity of activities) {
-    const row = matrix[activity.id] || {};
-    let aCount = 0;
-    let rCount = 0;
-    for (const role of roles) {
-      if (row[role.id] === "A") aCount++;
-      if (row[role.id] === "R") rCount++;
-    }
-    if (aCount === 0) {
-      issues.push({
-        activityId: activity.id,
-        activityName: activity.name,
-        message: `"${activity.name}" has no Accountable (A) role assigned.`,
-      });
-    } else if (aCount > 1) {
-      issues.push({
-        activityId: activity.id,
-        activityName: activity.name,
-        message: `"${activity.name}" has ${aCount} Accountable (A) roles. Must be exactly 1.`,
-      });
-    }
-    // Someone has to do the work: every activity needs at least one R.
-    if (rCount === 0) {
-      issues.push({
-        activityId: activity.id,
-        activityName: activity.name,
-        message: `"${activity.name}" has no Responsible (R) role assigned. Add at least one R.`,
-      });
-    }
-  }
-
-  return issues;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Editable Name Cell                                                        */
-/* -------------------------------------------------------------------------- */
-
-// EditableName moved to @/components/shared/editable-name (imported above).
-
-/* -------------------------------------------------------------------------- */
-/*  RACI Cell                                                                 */
-/* -------------------------------------------------------------------------- */
-
-function RACICell({
-  value,
-  onChange,
-  label,
-}: {
-  value: RACIValue;
-  onChange: (v: RACIValue) => void;
-  /** Accessible name: the trigger only shows a single letter. */
-  label: string;
-}) {
-  const color = value ? RACI_COLORS[value] : undefined;
-
-  return (
-    <Select
-      value={value || "empty"}
-      onValueChange={(v) => onChange(v === "empty" ? "" : (v as RACIValue))}
-    >
-      <SelectTrigger
-        aria-label={label}
-        className="h-10 w-full border-border bg-surface text-center justify-center focus:ring-accent/20"
-        style={
-          color
-            ? {
-                borderColor: `${color}40`,
-                backgroundColor: `${color}10`,
-              }
-            : undefined
-        }
-      >
-        <SelectValue>
-          {value ? (
-            <span className="text-lg font-bold font-data" style={{ color }}>
-              {value}
-            </span>
-          ) : (
-            <span className="text-sub text-xs">-</span>
-          )}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent className="bg-surface border-border">
-        <SelectItem value="empty" className="cursor-pointer">
-          <span className="text-sub">- (None)</span>
-        </SelectItem>
-        {(["R", "A", "C", "I"] as const).map((letter) => (
-          <SelectItem key={letter} value={letter} className="cursor-pointer">
-            <span style={{ color: RACI_COLORS[letter] }} className="font-bold">
-              {letter}
-            </span>
-            <span className="ml-2 text-sub text-xs">{RACI_LABELS[letter]}</span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Main Client Component                                                     */
-/* -------------------------------------------------------------------------- */
-
+/**
+ * The RACI matrix: who is Responsible, Accountable, Consulted or Informed
+ * for each activity. Columns are people from the roster or group roles;
+ * a cell can hold A and R together; the checks name each activity without
+ * one Accountable or anyone Responsible, and where the load piles up. It
+ * is a workspace document, so it syncs and agents can read and write it.
+ */
 export function RACIClient() {
-  const {
-    roles,
-    activities,
-    matrix,
-    addRole: addRoleRaw,
-    removeRole: removeRoleRaw,
-    updateRoleName,
-    updateRoleDescription,
-    addActivity: addActivityRaw,
-    removeActivity: removeActivityRaw,
-    updateActivityName,
-    updateActivityDescription,
-    setCellValue: setCellValueRaw,
-    reset: resetRaw,
-  } = useRACIStore();
-  const { log } = useHistoryLogger("raci");
-
-  const addRole: typeof addRoleRaw = (...args) => {
-    addRoleRaw(...args);
-    log(RACI_ACTIONS.ROLE_ADDED, {});
-  };
-  const removeRole: typeof removeRoleRaw = (id) => {
-    const role = roles.find((r) => r.id === id);
-    removeRoleRaw(id);
-    log(RACI_ACTIONS.ROLE_REMOVED, { roleId: id, name: role?.name });
-  };
-  const addActivity: typeof addActivityRaw = (...args) => {
-    addActivityRaw(...args);
-    log(RACI_ACTIONS.ACTIVITY_ADDED, {});
-  };
-  const removeActivity: typeof removeActivityRaw = (id) => {
-    const activity = activities.find((a) => a.id === id);
-    removeActivityRaw(id);
-    log(RACI_ACTIONS.ACTIVITY_REMOVED, { activityId: id, name: activity?.name });
-  };
-  const setCellValue: typeof setCellValueRaw = (...args) => {
-    setCellValueRaw(...args);
-    log(RACI_ACTIONS.ASSIGNMENT_CHANGED, {
-      activityId: args[0],
-      roleId: args[1],
-      value: args[2],
-    });
-  };
-  const reset = () => {
-    resetRaw();
-    log(RACI_ACTIONS.RACI_RESET, {});
-  };
-
+  const hydrated = useWorkspaceHydrated();
+  const moving = useLegacyRaciMove();
+  const stored = useWorkspaceStore(
+    useShallow((s) => (s.raciMatrices ?? []).find((d) => d.id === RACI_ID))
+  );
+  const workspaceRoster = useTeamRoster();
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
+  const resetSnapshot = useRef<RaciMatrix | null>(null);
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<RaciExample | null>(null);
+  const preview = example !== null;
+  const doc = useMemo(() => normalizeRaci(example?.doc ?? stored), [example, stored]);
+  const roster = example?.roster ?? workspaceRoster;
 
-  /* -- Validation --------------------------------------------------------- */
+  // Fixed for the render an edit starts in, so its Undo goes back to the
+  // same place even if the example is loaded or cleared in between. The
+  // example's edits aren't the team's history, so they aren't logged.
+  const write: (update: DocUpdate) => void = preview
+    ? (update) => setExample((ex) => (ex ? { ...ex, doc: update(normalizeRaci(ex.doc)) } : ex))
+    : writeStore;
+  const record: typeof log = preview ? noLog : log;
+  const newId = (kind: "role" | "act") =>
+    preview ? exampleId(`raci-${kind}-${nanoid(6)}`) : `raci_${kind}_${nanoid(8)}`;
 
-  const issues = useMemo(
-    () => validateMatrix(activities, roles, matrix),
-    [activities, roles, matrix]
+  /* ── Numbers ──────────────────────────────────────────────────────── */
+
+  const assigned = hasAssignments(doc);
+  const issues = activityIssues(doc);
+  const warnings = loadWarnings(doc);
+  const unassigned = unassignedActivities(doc);
+  const flagged = new Set(issues.map((i) => i.activityId));
+  const verdict = raciVerdict(doc);
+  const counts = countsByRole(doc);
+  const markdown = raciMarkdown(doc, roster, { verdict });
+  const onTeam = (memberId: string) => roster.some((m) => m.id === memberId);
+  const missingFromMatrix = roster.filter(
+    (m) => !doc.roles.some((r) => r.memberId === m.id) && !nameTaken(doc.roles, m.name)
   );
 
-  const issueActivityIds = useMemo(() => new Set(issues.map((i) => i.activityId)), [issues]);
+  /* ── Changes ──────────────────────────────────────────────────────── */
 
-  /* -- Export data --------------------------------------------------------- */
-
-  const clipboardText = useMemo(() => {
-    const colWidths: number[] = [];
-    const header = ["Activity", ...roles.map((r) => r.name)];
-    header.forEach((h, i) => {
-      colWidths[i] = h.length;
-    });
-
-    const rows = activities.map((a) => {
-      const row = [a.name, ...roles.map((r) => matrix[a.id]?.[r.id] || "-")];
-      row.forEach((cell, i) => {
-        colWidths[i] = Math.max(colWidths[i] || 0, cell.length);
-      });
-      return row;
-    });
-
-    const pad = (s: string, w: number) => s.padEnd(w);
-    const sep = colWidths.map((w) => "-".repeat(w)).join(" | ");
-    const headerLine = header.map((h, i) => pad(h, colWidths[i])).join(" | ");
-    const bodyLines = rows.map((r) => r.map((c, i) => pad(c, colWidths[i])).join(" | "));
-
-    // Reference blocks listing every role/activity with its description so the
-    // matrix labels alone don't strip context when pasted.
-    const roleLines = roles.map((r) => `  - ${r.name}${r.description ? `: ${r.description}` : ""}`);
-    const activityLines = activities.map(
-      (a) => `  - ${a.name}${a.description ? `: ${a.description}` : ""}`
-    );
-
-    const out: string[] = ["RACI Matrix", ""];
-    if (roles.length > 0) {
-      out.push("Roles", ...roleLines, "");
-    }
-    if (activities.length > 0) {
-      out.push("Activities", ...activityLines, "");
-    }
-    out.push(headerLine, sep, ...bodyLines);
-    return out.join("\n");
-  }, [roles, activities, matrix]);
-
-  const csvData = useMemo(() => {
-    // Sidecar table appended after the matrix carries Role/Activity descriptions
-    // so the export round-trips with the same data the UI shows.
-    const roleColCount = roles.length;
-    const matrixRows = activities.map((a) => [
-      a.name,
-      ...roles.map((r) => matrix[a.id]?.[r.id] || ""),
-    ]);
-
-    const sidecarRows: (string | number)[][] = [];
-    if (roles.length > 0 || activities.length > 0) {
-      // Blank separator row keeps the matrix and reference data visually distinct.
-      sidecarRows.push(Array(roleColCount + 1).fill(""));
-      sidecarRows.push(["Reference", ...Array(roleColCount).fill("")]);
-      if (roles.length > 0) {
-        sidecarRows.push(["Role", "Description", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
-        for (const r of roles) {
-          sidecarRows.push([
-            r.name,
-            r.description ?? "",
-            ...Array(Math.max(0, roleColCount - 1)).fill(""),
-          ]);
-        }
-      }
-      if (activities.length > 0) {
-        sidecarRows.push([
-          "Activity",
-          "Description",
-          ...Array(Math.max(0, roleColCount - 1)).fill(""),
-        ]);
-        for (const a of activities) {
-          sidecarRows.push([
-            a.name,
-            a.description ?? "",
-            ...Array(Math.max(0, roleColCount - 1)).fill(""),
-          ]);
-        }
-      }
-    }
-
-    return {
-      headers: ["Activity", ...roles.map((r) => r.name)],
-      rows: [...matrixRows, ...sidecarRows],
+  const addColumn = (v: NameValues) => {
+    const member = findRosterMember(roster, v.name);
+    const role: RaciRole = {
+      id: newId("role"),
+      name: member?.name ?? v.name,
+      ...(member ? { memberId: member.id } : {}),
+      ...(v.description ? { description: v.description } : {}),
     };
-  }, [roles, activities, matrix]);
+    write((d) => withRole(d, role));
+    record(RACI_ACTIONS.ROLE_ADDED, { roleId: role.id, name: role.name, person: Boolean(member) });
+    announce(`Added the column ${role.name}`);
+  };
 
-  const jsonData = useMemo(
-    () => ({
-      roles: roles.map((r) => ({ name: r.name, description: r.description ?? "" })),
-      activities: activities.map((a) => ({
-        name: a.name,
-        description: a.description ?? "",
-        assignments: Object.fromEntries(roles.map((r) => [r.name, matrix[a.id]?.[r.id] || ""])),
-      })),
-    }),
-    [roles, activities, matrix]
-  );
+  const addEveryone = () => {
+    const added: RaciRole[] = missingFromMatrix.map((m) => ({
+      id: newId("role"),
+      name: m.name,
+      memberId: m.id,
+    }));
+    if (added.length === 0) return;
+    const ids = new Set(added.map((r) => r.id));
+    undoable({
+      label: `Added ${added.length} ${added.length === 1 ? "person" : "people"} as columns`,
+      apply: () => write((d) => added.reduce(withRole, d)),
+      revert: () => write((d) => Array.from(ids).reduce(withoutRole, d)),
+    });
+    announce(`Added ${added.map((r) => r.name).join(", ")}`);
+  };
+
+  const addActivity = (v: NameValues) => {
+    const activity: RaciActivity = {
+      id: newId("act"),
+      name: v.name,
+      ...(v.description ? { description: v.description } : {}),
+    };
+    write((d) => withActivity(d, activity));
+    record(RACI_ACTIONS.ACTIVITY_ADDED, { activityId: activity.id, name: activity.name });
+    announce(`Added the activity ${activity.name}`);
+  };
+
+  const startFromScrum = () => {
+    const roles: RaciRole[] = SCRUM_ROLES.map((name) => ({ id: newId("role"), name }));
+    const activities: RaciActivity[] = SCRUM_ACTIVITIES.map((name) => ({
+      id: newId("act"),
+      name,
+    }));
+    undoable({
+      label: "Added the Scrum roles and events",
+      apply: () =>
+        write((d) => ({
+          ...d,
+          roles: [...d.roles, ...roles],
+          activities: [...d.activities, ...activities],
+        })),
+      revert: () =>
+        write((d) => {
+          let next = d;
+          for (const r of roles) next = withoutRole(next, r.id);
+          for (const a of activities) next = withoutActivity(next, a.id);
+          return next;
+        }),
+    });
+    announce("Added the Scrum roles and events");
+  };
+
+  const setCell = (a: RaciActivity, r: RaciRole, letters: RaciLetter[]) => {
+    write((d) => withCell(d, a.id, r.id, letters));
+    record(RACI_ACTIONS.ASSIGNMENT_CHANGED, {
+      activityId: a.id,
+      roleId: r.id,
+      value: cellText(letters),
+    });
+    announce(`${a.name}, ${r.name}: ${cellWords(letters)}`);
+  };
+
+  const renameRole = (r: RaciRole, name: string) => {
+    if (name === r.name) return;
+    if (
+      nameTaken(
+        doc.roles.filter((x) => x.id !== r.id),
+        name
+      )
+    ) {
+      toast.error(`“${name}” is already a column.`);
+      return;
+    }
+    // The column follows a roster person by name; a name off the roster makes it a group role.
+    const member = findRosterMember(roster, name);
+    write((d) => ({
+      ...d,
+      roles: d.roles.map((x) => {
+        if (x.id !== r.id) return x;
+        const next: RaciRole = { ...x, name: member?.name ?? name };
+        if (member) next.memberId = member.id;
+        else delete next.memberId;
+        return next;
+      }),
+    }));
+  };
+
+  const renameActivity = (a: RaciActivity, name: string) => {
+    if (name === a.name) return;
+    if (
+      nameTaken(
+        doc.activities.filter((x) => x.id !== a.id),
+        name
+      )
+    ) {
+      toast.error(`“${name}” is already an activity.`);
+      return;
+    }
+    write((d) => ({
+      ...d,
+      activities: d.activities.map((x) => (x.id === a.id ? { ...x, name } : x)),
+    }));
+  };
+
+  const removeRole = (r: RaciRole) => {
+    const removed = removedRole(doc, r.id);
+    if (!removed) return;
+    undoable({
+      label: `Deleted the column ${r.name}`,
+      apply: () => {
+        write((d) => withoutRole(d, r.id));
+        record(RACI_ACTIONS.ROLE_REMOVED, { roleId: r.id, name: r.name });
+      },
+      revert: () => write((d) => restoreRole(d, removed)),
+    });
+    announce(`Deleted the column ${r.name}`);
+  };
+
+  const removeActivity = (a: RaciActivity) => {
+    const removed = removedActivity(doc, a.id);
+    if (!removed) return;
+    undoable({
+      label: `Deleted the activity ${a.name}`,
+      apply: () => {
+        write((d) => withoutActivity(d, a.id));
+        record(RACI_ACTIONS.ACTIVITY_REMOVED, { activityId: a.id, name: a.name });
+      },
+      revert: () => write((d) => restoreActivity(d, removed)),
+    });
+    announce(`Deleted the activity ${a.name}`);
+  };
+
+  /* ── Export and prompts ───────────────────────────────────────────── */
+
+  const csvData = {
+    headers: ["Activity", ...doc.roles.map((r) => r.name)],
+    rows: doc.activities.map((a) => [
+      a.name,
+      ...doc.roles.map((r) => cellText(cellOf(doc, a.id, r.id))),
+    ]),
+  };
+  // Keyed by role id (with its name), so two roles with one name can't collide.
+  const jsonData = {
+    roles: doc.roles.map((r) => ({
+      id: r.id,
+      name: r.name,
+      ...(r.memberId ? { memberId: r.memberId } : {}),
+      description: r.description ?? "",
+    })),
+    activities: doc.activities.map((a) => ({
+      id: a.id,
+      name: a.name,
+      description: a.description ?? "",
+      assignments: Object.fromEntries(doc.roles.map((r) => [r.id, cellOf(doc, a.id, r.id)])),
+    })),
+  };
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -545,359 +343,265 @@ export function RACIClient() {
       })
     )
   );
-
   const promptConfig = useMemo(
     () => ({
       toolName: "RACI Matrix",
-      prompts: generateRACIPrompts({ roles, activities, matrix }, workspace),
+      prompts: generateRACIPrompts(
+        {
+          roles: doc.roles,
+          activities: doc.activities,
+          // The prompt reads one string per cell: "A/R" for both.
+          matrix: Object.fromEntries(
+            doc.activities.map((a) => [
+              a.id,
+              Object.fromEntries(doc.roles.map((r) => [r.id, cellText(cellOf(doc, a.id, r.id))])),
+            ])
+          ),
+        },
+        workspace
+      ),
     }),
-    [roles, activities, matrix, workspace]
+    [doc, workspace]
   );
 
-  /* -- Render ------------------------------------------------------------- */
-
-  return (
+  const page = (body: ReactNode) => (
     <ToolPageWrapper
-      toolId="raci"
+      toolId={TOOL_ID}
       title="RACI Matrix Builder"
-      description="Define roles and activities, then assign Responsible, Accountable, Consulted, or Informed to clarify ownership."
+      description="Who is Responsible, Accountable, Consulted or Informed for each activity, with the team's people as columns and checks on where the load piles up."
       category="Team Health & Maturity"
     >
-      <div ref={exportRef} className="space-y-6">
-        {/* ---- Legend ---- */}
-        <div className="flex flex-wrap gap-4">
-          {(["R", "A", "C", "I"] as const).map((letter) => (
-            <div key={letter} className="flex items-center gap-2">
-              <span
-                className="w-7 h-7 rounded flex items-center justify-center text-sm font-bold font-data"
-                style={{
-                  color: RACI_COLORS[letter],
-                  backgroundColor: `${RACI_COLORS[letter]}15`,
-                  border: `1px solid ${RACI_COLORS[letter]}40`,
-                }}
-              >
-                {letter}
-              </span>
-              <span className="text-sm text-sub">{RACI_LABELS[letter]}</span>
-            </div>
-          ))}
+      {body}
+    </ToolPageWrapper>
+  );
+
+  if (!hydrated) {
+    return page(
+      <p
+        role="status"
+        className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+      >
+        Loading the RACI matrix…
+      </p>
+    );
+  }
+
+  const empty = doc.roles.length === 0 && doc.activities.length === 0;
+
+  return page(
+    <div className="space-y-6">
+      <ActionRow>
+        <AiPromptGenerator config={promptConfig} />
+        <ExportButton
+          filename="raci-matrix"
+          markdown={markdown}
+          clipboardText={markdown}
+          csvData={csvData}
+          jsonData={jsonData}
+          targetRef={exportRef}
+        />
+      </ActionRow>
+
+      {preview && (
+        <div>
+          <ExampleNotice onClear={() => setExample(null)} />
+          <p className="-mt-2 text-xs text-sub">
+            Example: a product team&apos;s matrix. Nothing in it is saved, and your own matrix stays
+            as it is.
+          </p>
         </div>
+      )}
 
-        {/* ---- Validation Summary ---- */}
-        {activities.length > 0 && (
-          <Card
-            className={`border ${
-              issues.length > 0 ? "bg-danger/5 border-danger/30" : "bg-success/5 border-success/30"
-            }`}
-          >
-            <CardContent className="p-4">
-              {issues.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-danger">
-                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                    <span className="text-sm font-medium">
-                      {issues.length} validation {issues.length === 1 ? "issue" : "issues"}
-                    </span>
-                  </div>
-                  <ul className="space-y-1 pl-6">
-                    {issues.map((issue, i) => (
-                      <li key={i} className="text-xs text-danger/80 list-disc">
-                        {issue.message}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-success">
-                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-sm font-medium">
-                    Every activity has exactly one Accountable (A) and at least one Responsible (R)
-                    role.
-                  </span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+      {moving && !preview && empty && (
+        <p role="status" className="text-sm text-sub">
+          Moving the matrix saved in this browser into the workspace…
+        </p>
+      )}
 
-        {/* ---- Matrix ---- */}
-        <SectionCard
-          title="RACI Matrix"
+      {empty && !preview && (
+        <EmptyState
           icon={Grid3X3}
-          titleSize="lg"
-          headerClassName="pb-4"
-          actions={
-            <>
-              <AiPromptGenerator config={promptConfig} />
-              <ExportButton
-                filename="raci-matrix"
-                clipboardText={clipboardText}
-                csvData={csvData}
-                jsonData={jsonData}
-                targetRef={exportRef}
-              />
-              <Button variant="danger-ghost" size="sm" onClick={reset}>
-                Reset
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button type="button" size="sm" className="gap-1" onClick={startFromScrum}>
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                Start from the Scrum roles
               </Button>
-            </>
+              <LoadExampleButton onLoad={() => setExample(buildExample())} />
+            </div>
           }
         >
-          {/* ── Mobile card view (< md / 768px) ───────────────────────── */}
-          {/* The table needs ≥ 500 px to be readable; on phones we stack
-                each activity into a card with role-by-role rows. Same data,
-                same callbacks — only the visual layout changes. */}
-          <div className="md:hidden space-y-3">
-            {activities.map((activity) => {
-              const hasIssue = issueActivityIds.has(activity.id);
-              return (
-                <div
-                  key={activity.id}
-                  className={`rounded-lg border bg-surface-deep p-3 space-y-2 ${
-                    hasIssue ? "border-danger/50" : "border-border"
-                  }`}
+          No matrix yet. Add the team&apos;s people (or group roles) as columns and the activities
+          as rows below, then mark who is Responsible, Accountable, Consulted or Informed for each.
+        </EmptyState>
+      )}
+
+      {!empty && (
+        <div ref={exportRef} className="space-y-4">
+          <p className="text-sm font-medium text-text">{verdict}</p>
+
+          <ul className="flex flex-wrap gap-x-4 gap-y-2" aria-label="Legend">
+            {RACI_LETTERS.map((l) => (
+              <li key={l} className="flex items-center gap-2 text-sm text-sub">
+                <span
+                  className={cn(
+                    "inline-flex h-7 w-7 items-center justify-center rounded border font-data text-sm font-bold",
+                    LETTER_CLASS[l].on
+                  )}
+                  aria-hidden="true"
                 >
-                  <div className="flex items-center gap-2">
-                    <EditableName
-                      value={activity.name}
-                      onChange={(name) => updateActivityName(activity.id, name)}
-                      className="flex-1 font-medium text-text"
-                    />
-                    {activities.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeActivity(activity.id)}
-                        className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
-                        aria-label={`Remove activity ${activity.name}`}
-                      >
-                        <Trash2 className="w-4 h-4" aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                  {/* Optional description for this activity. Empty trims to
-                        undefined in the store updater — which is exactly why
-                        this commits on blur like the desktop cell does: a
-                        per-keystroke onChange fed the trimmed value straight
-                        back, React skipped the re-render and restored the old
-                        DOM value, so spaces could never be typed here. */}
-                  <BlurTextarea
-                    value={activity.description ?? ""}
-                    onCommit={(v) => updateActivityDescription(activity.id, v)}
-                    placeholder="Description (optional)..."
-                    rows={2}
-                    className="bg-surface border-border resize-none text-xs"
-                    aria-label={`Description for activity ${activity.name}`}
-                  />
-                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
-                    {roles.map((role) => (
-                      <div
-                        key={role.id}
-                        className="flex items-center gap-2 rounded-md bg-[var(--bg2)] px-2 py-1.5 border border-border"
-                      >
-                        <span className="text-xs text-sub font-medium truncate flex-1">
-                          {role.name}
-                        </span>
-                        <RACICell
-                          value={matrix[activity.id]?.[role.id] || ""}
-                          onChange={(v) => setCellValue(activity.id, role.id, v)}
-                          label={`${activity.name}: ${role.name}`}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Button variant="outline" size="sm" onClick={addActivity} className="gap-1.5 flex-1">
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                Add activity
-              </Button>
-              <Button variant="outline" size="sm" onClick={addRole} className="gap-1.5 flex-1">
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                Add role
-              </Button>
-            </div>
-            {roles.length > 1 && (
-              <details className="text-xs text-sub mt-2">
-                <summary className="cursor-pointer hover:text-text min-touch py-2 inline-block">
-                  Manage roles ({roles.length})
-                </summary>
-                <ul className="mt-2 space-y-2 pl-1">
-                  {roles.map((role) => (
+                  {l}
+                </span>
+                {RACI_LETTER_NAME[l]}
+              </li>
+            ))}
+          </ul>
+
+          {assigned && (
+            <SectionCard
+              title={
+                issues.length + warnings.length === 0
+                  ? "Checks: all clear"
+                  : `Checks: ${issues.length + warnings.length} to look at`
+              }
+              icon={issues.length > 0 ? AlertTriangle : warnings.length > 0 ? Scale : CheckCircle2}
+            >
+              {issues.length + warnings.length === 0 ? (
+                <p className="text-sm text-success">
+                  Every assigned activity has one Accountable and someone Responsible, and no one
+                  carries too much.
+                </p>
+              ) : (
+                <ul className="space-y-1.5 text-sm" aria-label="Checks">
+                  {issues.map((i) => (
+                    <li key={`${i.kind}:${i.activityId}`} className="flex gap-2 text-danger">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>{i.message}</span>
+                    </li>
+                  ))}
+                  {warnings.map((w) => (
                     <li
-                      key={role.id}
-                      className="rounded-md border border-border bg-[var(--bg2)] px-2 py-1.5 space-y-1"
+                      key={`${w.kind}:${w.roleId ?? w.activityId}`}
+                      className="flex gap-2 text-warning"
                     >
-                      <div className="flex items-center gap-2">
-                        <EditableName
-                          value={role.name}
-                          onChange={(name) => updateRoleName(role.id, name)}
-                          className="flex-1 font-medium text-text"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeRole(role.id)}
-                          className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
-                          aria-label={`Remove role ${role.name}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        </button>
-                      </div>
-                      {/* Compact single-line description input — keeps the
-                            roles list dense; empty trims to undefined. Commits
-                            on blur (as the desktop header does) because the
-                            store trims: an unchanged trimmed value made React
-                            bail out and restore the previous DOM text, eating
-                            every space the user typed. */}
-                      <BlurInput
-                        value={role.description ?? ""}
-                        onCommit={(v) => updateRoleDescription(role.id, v)}
-                        placeholder="Description (optional)..."
-                        className="h-7 text-xs bg-surface border-border"
-                        aria-label={`Description for role ${role.name}`}
-                      />
+                      <Scale className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>{w.message}</span>
                     </li>
                   ))}
                 </ul>
-              </details>
+              )}
+              {unassigned.length > 0 && (
+                <p className="mt-2 text-xs text-sub">
+                  Not assigned yet: {unassigned.map((a) => a.name).join(", ")}.
+                </p>
+              )}
+              <p className="mt-2 text-xs text-sub">
+                Rules of thumb: one Accountable per activity; nobody Accountable for more than{" "}
+                {Math.round(RACI_LOAD.maxAccountableShare * 100)}% of{" "}
+                {RACI_LOAD.minActivitiesForShare} or more activities; no more than{" "}
+                {RACI_LOAD.maxConsulted} roles consulted on one.
+              </p>
+            </SectionCard>
+          )}
+
+          <SectionCard title="RACI matrix" icon={Grid3X3} titleSize="lg">
+            {doc.roles.length === 0 || doc.activities.length === 0 ? (
+              <p className="text-sm text-sub">
+                {doc.roles.length === 0
+                  ? "Add a person or role as a column to start assigning."
+                  : "Add an activity as a row to start assigning."}
+              </p>
+            ) : (
+              <RaciMatrixView
+                doc={doc}
+                flagged={flagged}
+                onTeam={onTeam}
+                onCell={setCell}
+                onRenameRole={renameRole}
+                onRenameActivity={renameActivity}
+                onDescribeRole={(r, d) =>
+                  write((x) => ({
+                    ...x,
+                    roles: x.roles.map((y) => (y.id === r.id ? described(y, d) : y)),
+                  }))
+                }
+                onDescribeActivity={(a, d) =>
+                  write((x) => ({
+                    ...x,
+                    activities: x.activities.map((y) => (y.id === a.id ? described(y, d) : y)),
+                  }))
+                }
+                onRemoveRole={removeRole}
+                onRemoveActivity={removeActivity}
+              />
+            )}
+          </SectionCard>
+
+          {assigned && doc.roles.length > 0 && (
+            <SectionCard title="Letters per role" icon={Scale}>
+              <DataTable<RoleCounts>
+                rows={counts}
+                rowKey={(c) => c.roleId}
+                columns={[
+                  { key: "name", header: "Role", cell: (c) => c.name, primary: true },
+                  ...RACI_LETTERS.map((l) => ({
+                    key: l,
+                    header: RACI_LETTER_NAME[l],
+                    align: "right" as const,
+                    cell: (c: RoleCounts) => c[l],
+                    sortValue: (c: RoleCounts) => c[l],
+                  })),
+                ]}
+              />
+            </SectionCard>
+          )}
+        </div>
+      )}
+
+      <SectionCard title="Add to the matrix" icon={Plus}>
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <AddColumnForm roles={doc.roles} offerAddToRoster={!preview} onAdd={addColumn} />
+            {missingFromMatrix.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={addEveryone}
+              >
+                <UserPlus className="h-4 w-4" aria-hidden="true" />
+                Add everyone on the team ({missingFromMatrix.length})
+              </Button>
             )}
           </div>
+          <AddActivityForm activities={doc.activities} onAdd={addActivity} />
+        </div>
+      </SectionCard>
 
-          {/* ── Desktop matrix view (md+) ─────────────────────────────── */}
-          <div className="hidden md:block table-wrap-responsive">
-            <table className="w-full border-collapse min-w-[42rem]">
-              <thead>
-                <tr>
-                  {/* Top-left corner */}
-                  <th className="bg-surface-deep border border-border p-2 text-left text-xs text-sub font-medium uppercase tracking-wider min-w-[160px]">
-                    Activity / Role
-                  </th>
-                  {roles.map((role) => (
-                    <th
-                      key={role.id}
-                      className="bg-surface-deep border border-border p-2 min-w-[120px]"
-                      title={role.description || undefined}
-                    >
-                      <div className="flex items-center gap-1">
-                        <EditableName
-                          value={role.name}
-                          onChange={(name) => updateRoleName(role.id, name)}
-                          className="flex-1 font-bold text-text"
-                        />
-                        {roles.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeRole(role.id)}
-                            className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                            title="Remove role"
-                            aria-label={`Remove role ${role.name}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      {/* Compact one-line description input directly under the
-                            role name. Stays optional; trims to undefined in store. */}
-                      <BlurInput
-                        value={role.description ?? ""}
-                        onCommit={(v) => updateRoleDescription(role.id, v)}
-                        placeholder="Description (optional)..."
-                        className="mt-1 h-6 text-xs bg-surface border-border"
-                        aria-label={`Description for role ${role.name}`}
-                      />
-                    </th>
-                  ))}
-                  <th className="bg-surface-deep border border-border p-2 w-10">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={addRole}
-                      className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
-                      title="Add role"
-                      aria-label="Add role"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {activities.map((activity) => {
-                  const hasIssue = issueActivityIds.has(activity.id);
-                  return (
-                    <tr key={activity.id}>
-                      <td
-                        className={`border p-2 bg-surface-deep ${
-                          hasIssue ? "border-danger/50" : "border-border"
-                        }`}
-                        title={activity.description || undefined}
-                      >
-                        <div className="flex items-center gap-1">
-                          <EditableName
-                            value={activity.name}
-                            onChange={(name) => updateActivityName(activity.id, name)}
-                            className="flex-1 font-medium text-text"
-                          />
-                          {activities.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeActivity(activity.id)}
-                              className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                              title="Remove activity"
-                              aria-label={`Remove activity ${activity.name}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        {/* Compact one-line description for this activity.
-                              Empty trims to undefined in the store updater. */}
-                        <BlurInput
-                          value={activity.description ?? ""}
-                          onCommit={(v) => updateActivityDescription(activity.id, v)}
-                          placeholder="Description (optional)..."
-                          className="mt-1 h-6 text-xs bg-surface border-border"
-                          aria-label={`Description for activity ${activity.name}`}
-                        />
-                      </td>
-                      {roles.map((role) => (
-                        <td
-                          key={role.id}
-                          className={`border p-1.5 ${
-                            hasIssue ? "border-danger/50" : "border-border"
-                          }`}
-                        >
-                          <RACICell
-                            value={matrix[activity.id]?.[role.id] || ""}
-                            onChange={(v) => setCellValue(activity.id, role.id, v)}
-                            label={`${activity.name}: ${role.name}`}
-                          />
-                        </td>
-                      ))}
-                      <td className="border border-border p-1.5" />
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td className="border border-border p-2" colSpan={roles.length + 2}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={addActivity}
-                      className="gap-1.5 text-accent hover:bg-accent/10"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Activity
-                    </Button>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </SectionCard>
-      </div>
-    </ToolPageWrapper>
+      {!empty && !preview && (
+        <div className="flex justify-end">
+          <ResetButton
+            label="Clear the matrix"
+            title="Clear the whole RACI matrix?"
+            description={`All ${doc.roles.length} columns, ${doc.activities.length} activities and what each one is assigned.`}
+            confirmLabel="Clear matrix"
+            doneLabel="Cleared the RACI matrix"
+            onReset={() => {
+              resetSnapshot.current = doc;
+              writeStore(() => emptyRaci());
+              log(RACI_ACTIONS.RACI_RESET, {
+                roles: doc.roles.length,
+                activities: doc.activities.length,
+              });
+            }}
+            onUndo={() => {
+              const snapshot = resetSnapshot.current;
+              if (snapshot) writeStore(() => snapshot);
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
