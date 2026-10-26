@@ -18,7 +18,6 @@ import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { generateWsjfPrompts } from "@/lib/ai-prompts/wsjf";
-import type { RankedItem } from "@/lib/analytics/scoring-rubric";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { WSJF_ACTIONS } from "@/lib/history/event-actions";
 import { WSJF } from "@/lib/prioritization/methods";
@@ -43,20 +42,6 @@ const WsjfScoreChart = dynamic(() => import("./charts").then((m) => m.WsjfScoreC
 const CHART_TOP = 10;
 
 const scoredRows = (rows: readonly RankedRow[]) => rows.filter((r) => r.result.score !== null);
-
-/** The scored rows as the AI prompts read them (rank and score from the registry). */
-function promptItems(rows: readonly RankedRow[]): RankedItem<Record<string, number | string>>[] {
-  const scored = scoredRows(rows);
-  const last = scored.reduce((n, r) => Math.max(n, r.rank ?? 0), 0);
-  return scored.map((r) => ({
-    id: r.row.id,
-    title: r.row.title,
-    fields: WSJF.write(r.row.fields, r.values),
-    score: r.result.score as number,
-    rank: r.rank as number,
-    percentile: last <= 1 ? 1 : (last - (r.rank as number) + 1) / last,
-  }));
-}
 
 /** The chart's summary sentence and its rows as a table. */
 function chartText(top: readonly RankedRow[]): ChartText {
@@ -287,7 +272,9 @@ export const WSJF_TOOL: MethodToolConfig = {
       r.result.score === null ? "" : WSJF.format(r.result.score),
     ]),
   }),
-  prompts: (rows, workspace) => generateWsjfPrompts({ items: promptItems(rows) }, workspace),
+  // The rows as they read: Fibonacci parts (custom marked), the job size floor's warning.
+  prompts: (rows, workspace) =>
+    generateWsjfPrompts({ rows, verdict: wsjfVerdict(rows) }, workspace),
   Inputs: WsjfInputs,
   RowValues: WsjfRowValues,
   BeforeList: WsjfColumnScoring,
