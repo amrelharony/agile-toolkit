@@ -33,7 +33,7 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { WORKING_AGREEMENT_ID } from "@/lib/stores/workspace-types";
 import { findRosterMember, nameKey } from "@/lib/team/names";
-import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
+import { enoughData } from "@/lib/analytics/min-sample";
 
 /** The agreement's one document id. */
 export const WA_ID = WORKING_AGREEMENT_ID;
@@ -689,8 +689,8 @@ export function agreementVerdict(
 ): string {
   if (doc.rules.length === 0) return "No rules agreed yet.";
   const { meta } = doc;
-  const published = meta.version > 0 && meta.publishedAt;
-  const head = published
+  const isPublished = meta.version > 0 && Boolean(meta.publishedAt);
+  const head = isPublished
     ? `${rulesWord(doc.rules.length)} in v${meta.version} (published ${dayLabel(meta.publishedAt)})${
         hasUnpublishedChanges(doc) ? ", with changes not yet published" : ""
       }`
@@ -720,7 +720,7 @@ export function agreementVerdict(
   if (last) {
     const a = checkInAdherence(last);
     round = `; the last check-in (${dayLabel(last.date)}) found ${a.working} of ${a.checked} working`;
-  } else if (published) {
+  } else if (isPublished) {
     round = "; no check-in yet";
   }
   return `${head}; ${consent}${round}.`;
@@ -747,6 +747,3 @@ export function trendSentence(rows: readonly CheckInTrendRow[]): string | null {
 /** The latest round's adherence is quotable as a percentage only from MIN_SAMPLE.average rules. */
 export const quotablePct = (a: CheckInAdherence): boolean =>
   a.pct !== null && enoughData(a.checked, "average");
-
-/** Re-exported for the page's NotEnoughData and the agent's trend flag. */
-export const TREND_SAMPLE = MIN_SAMPLE.trend;
