@@ -82,6 +82,21 @@ describe("generateRiskRegisterPrompts", () => {
     );
   });
 
+  it("counts the example's rows while the page shows only its example, as its cards do", () => {
+    // The page passes countedRisks: the example alone, never mixed with the team's rows.
+    const [p] = generateRiskRegisterPrompts({
+      risks: RISKS.map((r) => ({ ...r, id: `example-${r.id}` })),
+      today: TODAY,
+      medianTTM: null,
+      closed: 1,
+    });
+    expect(p.prompt).toContain(
+      "3 active risks (open or mitigating), 2 high or critical, 1 mitigation overdue, 1 with no owner. Exposure (sum of active scores) 38 now"
+    );
+    expect(p.prompt).toContain("Verdict: 1 mitigation is overdue, “Vendor outage” by 7 days;");
+    expect(p.prompt).not.toContain("No risks logged yet.");
+  });
+
   it("quotes the median time to mitigate once there is one", () => {
     const [p] = generateRiskRegisterPrompts({
       risks: RISKS,

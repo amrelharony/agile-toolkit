@@ -67,7 +67,10 @@ function dueText(r: Risk, today: string): string {
 export function generateRiskRegisterPrompts(data: RiskData): PromptDefinition[] {
   const { risks, today } = data;
   if (risks.length === 0) return [];
-  const s = riskSummary(risks, today);
+  // The page passes the rows its numbers read (countedRisks never mixes the
+  // example in with the team's rows): count every one, as its cards do.
+  const counted = { includeExamples: true };
+  const s = riskSummary(risks, today, counted);
   const sorted = [...risks].sort((a, b) => compareRisks(a, b, today));
   const table = formatTable(
     [
@@ -96,7 +99,7 @@ export function generateRiskRegisterPrompts(data: RiskData): PromptDefinition[] 
       ])
   );
   const more = risks.length > MAX_ROWS ? `\n(Showing ${MAX_ROWS} of ${risks.length} risks)` : "";
-  const verdict = `Verdict: ${sanitizePromptCell(riskVerdict(risks, today), 400)}\n\n`;
+  const verdict = `Verdict: ${sanitizePromptCell(riskVerdict(risks, today, counted), 400)}\n\n`;
   // Titles, owners and plans are user-typed, and the verdict names a title.
   const body = wrapUserContent(`${verdict}${table}${more}`);
   // The page card's three readings: below the sample, fewer than half closed, the median.

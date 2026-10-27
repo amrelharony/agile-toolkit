@@ -56,7 +56,10 @@ function ageText(ageSprints: number | null): string {
 export function generateTechDebtPrompts(data: DebtData): PromptDefinition[] {
   const { items, sprintLengthDays: len, today } = data;
   if (items.length === 0) return [];
-  const s = debtSummary(items, len, today, data.stories);
+  // The page passes the items its numbers read (countedDebt never mixes the
+  // example in with the team's rows): count every one, as its cards do.
+  const counted = { includeExamples: true };
+  const s = debtSummary(items, len, today, data.stories, counted);
   const ranked = rankedDebt(items, len, today);
   const table = formatTable(
     [
@@ -96,7 +99,7 @@ export function generateTechDebtPrompts(data: DebtData): PromptDefinition[] {
     })
   );
   const more = items.length > MAX_ROWS ? `\n(Showing ${MAX_ROWS} of ${items.length} items)` : "";
-  const verdict = `Verdict: ${sanitizePromptCell(debtVerdict(items, len, today), 400)}\n\n`;
+  const verdict = `Verdict: ${sanitizePromptCell(debtVerdict(items, len, today, counted), 400)}\n\n`;
   const hotspot = s.hotspot
     ? `Hotspot: ${sanitizePromptCell(s.hotspot.area, 60)} (${s.hotspot.impact} impact points open).\n\n`
     : "";
