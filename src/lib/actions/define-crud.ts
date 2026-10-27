@@ -30,7 +30,22 @@ import {
  *   workspace.sprint.update  (write)   → upserts by id
  *   workspace.sprint.delete  (write)   → removes by id
  */
-interface CrudOptions<T extends { id: string }> {
+
+/**
+ * Where a create or update runs, for the hooks that read or write beyond
+ * the one record (`load`, `beforeWrite`).
+ */
+export interface CrudEnv<T> {
+  /** Every stored record of the entity: the browser store's list in the tab, the caller's rows over MCP. */
+  all: () => Promise<readonly T[]>;
+  /**
+   * The MCP caller: set on the server transport only. Undefined in the
+   * tab, where a hook reads and writes the browser store.
+   */
+  userId?: string;
+}
+
+interface CrudOptions<T extends { id: string }, L = undefined> {
   /** Action namespace (e.g. "workspace.sprint"). */
   toolId: string;
   /** Zod schema for the entity itself. */
@@ -75,9 +90,39 @@ interface CrudOptions<T extends { id: string }> {
    * the validated record and the stored one (undefined on create) and
    * returns what to save. Stories use it to stamp a status change the way
    * the app's `setStoryStatus` does, so an agent moving a story to done
-   * leaves the same trail.
+   * leaves the same trail. On `update` it also gets the patch as the caller
+   * sent it, so it can tell a key the caller set from one the merge kept
+   * (a backlog item judges only what the patch sets), and what `load` read.
    */
-  prepare?: (next: T, current: T | undefined) => T;
+  prepare?: (
+    next: T,
+    current: T | undefined,
+    patch: Readonly<Record<string, unknown>> | undefined,
+    loaded: L | undefined
+  ) => T;
+  /**
+   * Async, on both transports, before `prepare` on create and update:
+   * reads what prepare needs besides the two records (a backlog item's
+   * method rows), once per write. Gets the stored record (undefined on
+   * create) and the transport; what it returns is prepare's and
+   * beforeWrite's last argument. Not with `versioned`.
+   */
+  load?: (current: T | undefined, env: CrudEnv<T>) => Promise<L>;
+  /**
+   * Async, on both transports, after `prepare` and right before create or
+   * update writes: gets the record about to be saved, the stored one
+   * (undefined on create), the transport and what `load` read. Throw to
+   * refuse: nothing is written (a backlog item refuses a rank another item
+   * holds). After its checks it may write the records of other kinds that
+   * go with the save (a backlog item's legacy rows), just before the record
+   * itself. Not with `versioned`.
+   */
+  beforeWrite?: (
+    next: T,
+    current: T | undefined,
+    env: CrudEnv<T>,
+    loaded: L | undefined
+  ) => Promise<void>;
   /**
    * For an entity whose store `remove` takes other rows with it (a weighted
    * matrix's options and criteria): `describe` says what goes, in the delete
@@ -93,7 +138,9 @@ interface CrudOptions<T extends { id: string }> {
   };
 }
 
-export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>): void {
+export function defineCrudActions<T extends { id: string }, L = undefined>(
+  opts: CrudOptions<T, L>
+): void {
   const { toolId, schema, entityName, selectAll, upsert, remove } = opts;
   const prepare = opts.prepare ?? ((next: T) => next);
   // C1: server-side counterpart key for MCP. e.g. "workspace.sprint"
@@ -101,6 +148,28 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
   // overrides the derived value for collections whose registered sync
   // kind doesn't equal the camelCased toolId suffix (see psych-safety).
   const serverKind = opts.serverKind ?? kindFromToolId(toolId);
+  // A versioned update is a compare-and-set that re-runs a synchronous
+  // prepare on each attempt: there is no place for an async step in it.
+  if (opts.versioned && (opts.load || opts.beforeWrite)) {
+    throw new Error(`${toolId}: a versioned CRUD takes no load or beforeWrite hook.`);
+  }
+  const clientEnv: CrudEnv<T> = { all: async () => selectAll() };
+  const serverEnv = (userId: string): CrudEnv<T> => ({
+    all: () => serverListEntities<T>(userId, serverKind),
+    userId,
+  });
+  /** load, then prepare, then beforeWrite: the record to save (a throw writes nothing). */
+  const prepared = async (
+    next: T,
+    current: T | undefined,
+    patch: Readonly<Record<string, unknown>> | undefined,
+    env: CrudEnv<T>
+  ): Promise<T> => {
+    const loaded = opts.load ? await opts.load(current, env) : undefined;
+    const out = prepare(next, current, patch, loaded);
+    if (opts.beforeWrite) await opts.beforeWrite(out, current, env, loaded);
+    return out;
+  };
 
   // Defensive: typing safeParse via the wider z.ZodType<T> shape.
   type SafeParseFn = (v: unknown) => {
@@ -162,7 +231,7 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
           `${entityName} with id "${entity.id}" already exists — use update to modify it.`
         );
       }
-      upsert(prepare(entity, undefined));
+      upsert(await prepared(entity, undefined, undefined, clientEnv));
       return { id: entity.id };
     },
     mcpHandler: async (params: { entity: T }, ctx) => {
@@ -184,7 +253,12 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
           );
         }
       }
-      await serverUpsertEntity<T>(ctx.userId, serverKind, prepare(entity, undefined));
+      const env = serverEnv(ctx.userId);
+      await serverUpsertEntity<T>(
+        ctx.userId,
+        serverKind,
+        await prepared(entity, undefined, undefined, env)
+      );
       return { id: entity.id };
     },
   });
@@ -234,14 +308,14 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
           `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
         );
       }
-      upsert(prepare(parsed.data as T, current));
+      upsert(await prepared(parsed.data as T, current, params.patch, clientEnv));
       return { updated: true };
     },
     mcpHandler: async (params, ctx) => {
       // Validate the merged result against the entity schema — reject if a
       // malformed patch would produce an invalid entity. Shared by both the
       // versioned (CAS) and blind write paths below.
-      const applyPatch = (current: T): T => {
+      const validated = (current: T): T => {
         const merged = { ...current, ...params.patch, id: params.id };
         const parsed = safeParseSchema(merged);
         if (!parsed.success) {
@@ -249,7 +323,7 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
             `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
           );
         }
-        return prepare(parsed.data as T, current);
+        return parsed.data as T;
       };
       if (opts.versioned) {
         // Compare-and-set: re-reads + re-applies on a lost race and bumps
@@ -259,13 +333,14 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
           ctx.userId,
           serverKind,
           params.id,
-          applyPatch
+          (current) => prepare(validated(current), current, params.patch, undefined)
         );
         return { updated: result !== null };
       }
       const current = await serverGetEntity<T>(ctx.userId, serverKind, params.id);
       if (!current) return { updated: false };
-      await serverUpsertEntity<T>(ctx.userId, serverKind, applyPatch(current));
+      const next = await prepared(validated(current), current, params.patch, serverEnv(ctx.userId));
+      await serverUpsertEntity<T>(ctx.userId, serverKind, next);
       return { updated: true };
     },
   });
