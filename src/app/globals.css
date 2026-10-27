@@ -100,36 +100,44 @@
     --bg2-rgb: 255, 255, 255;
     --text: #0a0f1a;
     --sub: #5a6578;
-    --accent: #0066ff;
+    /* Text colours here sit on tints of themselves all over the app
+       (`bg-accent/10 text-accent`, `bg-warning/10 text-warning`, selected
+       and hover states up to /20). Each is dark enough to keep 4.5:1 on its
+       own 0–20% tint over --card, --bg and --surface-deep; the brighter
+       #0066ff, #b45309 and #15803d fell to 3.5–4.4:1 there.
+       test/design/theme-contrast.test.ts holds the line. */
+    --accent: #0046dd;
     --accent2: #4f46e5;
-    --accent3: #9333ea;
+    --accent3: #7a1dca;
     /* Solid (was rgba(255,255,255,0.7)) — see dark-mode comment. */
     --card: #ffffff;
     --cardH: rgba(255, 255, 255, 0.95);
     --border: rgba(0, 0, 0, 0.06);
     /* ≥ 3:1 on white, --bg and --surface-deep. */
     --input: #7d8699;
-    --glow: rgba(0, 102, 255, 0.08);
-    --glowS: rgba(0, 102, 255, 0.2);
+    --glow: rgba(0, 70, 221, 0.08);
+    --glowS: rgba(0, 70, 221, 0.2);
     --surface: rgba(255, 255, 255, 0.8);
     --surface-deep: #eef1f8;
     --surface-hover: rgba(0, 0, 0, 0.04);
-    /* ≥ 4.5:1 on white and on --bg. */
-    --destructive: #b91c1c;
+    /* ≥ 4.5:1 on white and on --bg, and on their own 0–20% tints (see
+       --accent above). */
+    --destructive: #a81b1b;
     --destructive-foreground: #ffffff;
     --primary-foreground: #ffffff;
-    --success: #15803d;
-    --warning: #b45309;
-    --danger: #b91c1c;
-    --info: #1d4ed8;
-    --neon-green: #047857;
-    --neon-amber: #b45309;
-    --neon-magenta: #be185d;
-    --accent-bg: rgba(0, 102, 255, 0.08);
-    --chart-1: #0066ff;
-    --chart-2: #be185d;
-    --chart-3: #047857;
-    --chart-4: #b45309;
+    --success: #166534;
+    --warning: #874700;
+    --danger: #a81b1b;
+    --info: #1a4ad4;
+    --neon-green: #05664a;
+    --neon-amber: #874700;
+    --neon-magenta: #a8104f;
+    --accent-bg: rgba(0, 70, 221, 0.08);
+    /* Charts 1–4 match the accent and neon tokens they stand in for. */
+    --chart-1: #0046dd;
+    --chart-2: #a8104f;
+    --chart-3: #05664a;
+    --chart-4: #874700;
     --chart-5: #7c3aed;
   }
 }
