@@ -24,6 +24,7 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { CYNEFIN_ANSWERS, CYNEFIN_QUESTION_IDS } from "@/lib/stores/workspace-types";
 import type { HandoffSource } from "@/lib/handoffs/types";
+import { believeLine, hypothesisLink, linkedTest } from "@/lib/hypotheses/model";
 
 export { CYNEFIN_ANSWERS, CYNEFIN_QUESTION_IDS };
 
@@ -304,25 +305,20 @@ export type HypothesisState = "none" | "testing" | "tested";
 
 /** The item's link to a hypothesis, if it was sent to one. */
 export function hypothesisLinkOf(item: Pick<CynefinItem, "sentTo">): HandoffLink | undefined {
-  return (item.sentTo ?? []).find((l) => l.route === "hypothesis");
+  return hypothesisLink(item.sentTo);
 }
 
 /**
  * Whether the hypothesis an item was sent to is still there and has a
  * result (validated, invalidated or inconclusive), from the Hypothesis
- * Tracker's list. A link whose hypothesis is gone reads as not sent.
+ * Tracker's list. A link whose hypothesis is gone reads as not sent. The
+ * state of lib/hypotheses' linkedTest, which every source reads its test by.
  */
 export function hypothesisStateOf(
   item: Pick<CynefinItem, "sentTo">,
   hypotheses: readonly Pick<Hypothesis, "id" | "status">[] | undefined
 ): HypothesisState {
-  const link = hypothesisLinkOf(item);
-  if (!link) return "none";
-  const h = (hypotheses ?? []).find((x) => x.id === link.targetId);
-  if (!h) return "none";
-  return h.status === "validated" || h.status === "invalidated" || h.status === "inconclusive"
-    ? "tested"
-    : "testing";
+  return linkedTest(item.sentTo, hypotheses).state;
 }
 
 /**
@@ -330,11 +326,11 @@ export function hypothesisStateOf(
  * other hand-offs send theirs. The Hypothesis Tracker labels that field
  * "We believe" itself, so a title that starts with the words loses them
  * ("We believe that X" reads "that X", the tracker's own placeholder);
- * a title that is only the words stays as typed.
+ * a title that is only the words stays as typed (lib/hypotheses'
+ * believeLine, which the other sources use too).
  */
 export function hypothesisTitle(title: string): string {
-  const t = title.trim();
-  return t.replace(/^we believe\b[\s,:]*/i, "") || t;
+  return believeLine(title);
 }
 
 /** What a complex item hands to the Hypothesis Tracker. */

@@ -4,22 +4,31 @@
  * Adds a drafted hypothesis to the Hypothesis Tracker's document
  * (`hypothesisTracker:current`), newest first as the tracker adds its own:
  * the item's title fills the "We believe" line (the tracker's label holds
- * the words), its description the "To learn" line, and the tracker asks
- * for the rest (what we'll do, the success metric). Keeps
- * `sourceRef` (a riskiest assumption, a complex Cynefin item, an experiment
- * on the opportunity tree).
+ * the words), its description the "To learn" line, and `src.hypothesis`
+ * what we'll do, the experiment and the success metric when the source
+ * has them (a riskiest assumption's test idea, an experiment's text). The
+ * tracker asks for the rest ("Needs detail"). Keeps `sourceRef` (a
+ * riskiest assumption, a complex Cynefin item, an experiment on the
+ * opportunity tree, a Design Sprint finding).
+ *
+ * The hypothesis itself is built by lib/hypotheses/model
+ * (hypothesisFromSource), which the agent actions call on the server too.
  */
 
 import { nanoid } from "nanoid";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Hypothesis, HypothesisTracker } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import {
+  HYPOTHESIS_TEXT_MAX,
+  HYPOTHESIS_TRACKER_ID,
+  hypothesisFromSource,
+  isResolved,
+} from "@/lib/hypotheses/model";
 import type { HandoffRoute, HandoffSource } from "../types";
 
-/** MUST match HT_ID in hypothesis-tracker-client.tsx and src/lib/actions/tools/hypothesis-tracker.ts. */
-export const HYPOTHESIS_TRACKER_ID = "hypothesisTracker:current";
-
-export const HYPOTHESIS_TEXT_MAX = 1000;
+/** The tracker's document id and text cap, defined with the hypothesis model; re-exported for older callers. */
+export { HYPOTHESIS_TEXT_MAX, HYPOTHESIS_TRACKER_ID };
 
 export function currentHypothesisTracker(): HypothesisTracker | undefined {
   return (useWorkspaceStore.getState().hypothesisTrackers ?? []).find(
@@ -34,17 +43,9 @@ function updateTracker(update: (hypotheses: Hypothesis[]) => Hypothesis[]): void
     .upsertHypothesisTracker({ id: HYPOTHESIS_TRACKER_ID, hypotheses: update(hypotheses) });
 }
 
+/** The drafted hypothesis a send makes, raised today (the browser's day). */
 export function buildHypothesis(src: HandoffSource, id = nanoid(8)): Hypothesis {
-  return {
-    id,
-    believe: src.title.trim().slice(0, HYPOTHESIS_TEXT_MAX),
-    willDo: "",
-    toLearn: (src.description ?? "").trim().slice(0, HYPOTHESIS_TEXT_MAX),
-    successMetric: "",
-    status: "drafted",
-    raisedAt: todayLocalISO(),
-    sourceRef: src.sourceRef,
-  };
+  return hypothesisFromSource(src, id, todayLocalISO());
 }
 
 const find = (id: string) => currentHypothesisTracker()?.hypotheses.find((h) => h.id === id);
@@ -66,8 +67,5 @@ export const hypothesisRoute: HandoffRoute = {
   },
   exists: (id) => Boolean(find(id)),
   // Tested either way: validated, invalidated or inconclusive.
-  isDone: (id) => {
-    const status = find(id)?.status;
-    return status === "validated" || status === "invalidated" || status === "inconclusive";
-  },
+  isDone: (id) => isResolved(find(id)?.status),
 };
