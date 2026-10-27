@@ -263,6 +263,11 @@ export type RiskScale = 1 | 2 | 3 | 4 | 5;
 export interface Risk {
   id: string;
   title: string;
+  /**
+   * 1–5 each. Every write since Phase 8 is checked, but a row saved before
+   * (or the old page blob) may hold another number, kept until a write sets
+   * it: readers clamp it to the scale.
+   */
   probability: RiskScale;
   impact: RiskScale;
   mitigation?: string;
@@ -327,7 +332,11 @@ export interface KeyResult {
   /** The latest value: the newest-dated check-in's, else as typed or set by an agent. */
   current: number;
   unit?: string;
-  /** The latest scored confidence, 0–10 (≤ 3 off track, 4–6 at risk, ≥ 7 on track). Absent = not scored. */
+  /**
+   * The latest scored confidence, 0–10 (≤ 3 off track, 4–6 at risk, ≥ 7 on
+   * track). Absent = not scored. Checked on every write since Phase 8; one
+   * an agent saved before may be off the scale, kept until a write sets it.
+   */
   confidence?: number;
   /**
    * The value at the start of the quarter; progress runs baseline → target.
@@ -458,8 +467,14 @@ export interface TechDebtItem {
   title: string;
   description?: string;
   area?: string;
+  /**
+   * 1–5 each. Every write since Phase 8 is checked, but a row saved before
+   * may hold another number (a 2.5 the page's import copied), kept until a
+   * write sets it: readers clamp it to the scale.
+   */
   impact: 1 | 2 | 3 | 4 | 5;
   effort: 1 | 2 | 3 | 4 | 5;
+  /** Score points gained per sprint left unpaid: 0–100 on every write since Phase 8. */
   interestRate?: number;
   raisedAt: ISODateString;
   resolvedAt?: ISODateString;
@@ -1150,7 +1165,8 @@ export interface Assumption {
   /**
    * 1–5, how badly it hurts if the assumption is wrong. Absent = not rated:
    * never ranked or placed in the matrix. Rows from before Phase 8 always
-   * have both ratings and stay rated.
+   * have both ratings and stay rated (one an agent stored off the scale is
+   * kept until a write sets it; readers clamp it).
    */
   riskLevel?: AssumptionLevel;
   /** 1–5, how much evidence backs it. Absent = not rated, as riskLevel. */
@@ -2592,9 +2608,18 @@ export const NPS_TAG_MAX_LENGTH = 40;
 export interface NpsResponse {
   id: string;
   kind: "nps" | "csat";
-  /** YYYY-MM-DD, the day the answer was given. */
+  /**
+   * YYYY-MM-DD, the day the answer was given, on every write since Phase 8.
+   * A row saved before may hold a blank or free-text date (the page saved
+   * what its field held), kept until a write sets it: read it as undated.
+   */
   date: ISODateString;
-  /** A whole number: NPS 0–10, CSAT 1–5 (≥ 4 counts as satisfied). */
+  /**
+   * A whole number: NPS 0–10, CSAT 1–5 (≥ 4 counts as satisfied), on every
+   * write since Phase 8. A row saved before may hold a fraction or a value
+   * off the scale (the page clamped, never rounded), kept until a write
+   * sets it.
+   */
   score: number;
   respondent?: string;
   verbatim?: string;

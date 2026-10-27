@@ -227,19 +227,68 @@ const HandoffLinkSchema = z.object({
   at: z.string(),
 });
 
-const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const IsoDay = z.string().regex(ISO_DAY, "YYYY-MM-DD");
 
-// A stored day an earlier agent may have written as a timestamp (a free
-// date string was accepted before Phase 8): one is read as its first ten
-// characters, so an update to such a row stores the day instead of failing.
-const DayFromTimestamp = z.preprocess(
-  (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? v.slice(0, 10) : v),
-  IsoDay
-);
-
-// A 1–5 rating: a risk's probability or impact, a tech-debt item's impact
-// or effort, an assumption's risk or evidence.
+// A 1–5 rating no row stored before Phase 8 holds (a risk's residual
+// rating), so the schema itself refuses anything else. The older 1–5
+// fields are judged on write instead (see "Bounds a write must meet").
 const Scale5 = z.number().int().min(1).max(5);
+
+/* ── Bounds a write must meet ─────────────────────────────────────────
+ * Phase 8 tightened fields that rows stored before it can break: an NPS
+ * score the page saved as 7.5 or a blank date, a tech-debt impact of 2.5
+ * that "Import from Workspace" copied, a risk rating outside 1–5 in the
+ * old page blob the Risk Register moves in. An update validates the whole
+ * merged record (define-crud), so a strict schema would refuse every later
+ * edit of such a row, a tag or a rename included. Those fields keep their
+ * old loose schema, as Phase 7's backlog items do, and the CRUD's prepare
+ * judges the new bound on a create and on each value an update changes;
+ * a stored value the write leaves alone stays as it is. A refusal throws
+ * before anything is written. */
+
+/** Whether `v` is a whole number from `min` to `max`. */
+const isWholeIn = (v: unknown, min: number, max: number): boolean =>
+  typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
+
+/**
+ * Whether a write sets `key` of `next` to a value other than the stored
+ * record's: always on a create (no `stored`); on an update only a key the
+ * patch sends (when the patch is given), and only a changed value, so an
+ * agent echoing a row from `list` re-sends its legacy values unjudged.
+ * Values come from JSON, so JSON equality compares them.
+ */
+function writes<T extends object>(
+  next: T,
+  stored: T | undefined,
+  key: keyof T & string,
+  patch?: Readonly<Record<string, unknown>>
+): boolean {
+  if (stored === undefined) return true;
+  if (patch !== undefined && !Object.prototype.hasOwnProperty.call(patch, key)) return false;
+  const a = next[key];
+  const b = stored[key];
+  return a !== b && JSON.stringify(a) !== JSON.stringify(b);
+}
+
+/** `next`, or a throw naming each problem (nothing is saved) when there are any. */
+function unlessRefused<T>(next: T, problems: readonly string[]): T {
+  if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
+  return next;
+}
+
+/** The 1–5 ratings among `keys` that a write sets on `next` to anything but a whole number from 1 to 5. */
+function offScale5<T extends object>(
+  next: T,
+  stored: T | undefined,
+  keys: readonly (keyof T & string)[],
+  patch?: Readonly<Record<string, unknown>>
+): (keyof T & string)[] {
+  return keys.filter(
+    (key) =>
+      next[key] !== undefined && writes(next, stored, key, patch) && !isWholeIn(next[key], 1, 5)
+  );
+}
 
 // Stamped by the CRUD's prepare on every create and update; a value sent is
 // replaced. Its presence says the row was saved since its tool moved into
@@ -356,12 +405,18 @@ const ImpedimentSchema = z.object({
 }) as unknown as z.ZodType<Impediment>;
 
 // Mirrors `Risk` field for field (z.object drops keys it doesn't know).
+// probability and impact stay any number here: a write that sets one is
+// judged by riskWriteProblems (a stored legacy value stays editable around).
 const RiskSchema = z
   .object({
     id: z.string(),
     title: z.string(),
-    probability: Scale5.describe("1–5, how likely it is."),
-    impact: Scale5.describe("1–5, how bad it would be."),
+    probability: z
+      .number()
+      .describe("1–5 in whole numbers, how likely it is (a write off the scale is refused)."),
+    impact: z
+      .number()
+      .describe("1–5 in whole numbers, how bad it would be (a write off the scale is refused)."),
     mitigation: z.string().optional(),
     mitigationDueAt: z.string().optional(),
     status: z.enum(["open", "mitigating", "closed", "accepted"]),
@@ -394,6 +449,17 @@ const RiskSchema = z
     }
   }) as unknown as z.ZodType<Risk>;
 
+/** A risk's write, judged on the ratings it sets (see "Bounds a write must meet"). */
+function riskWriteProblems(
+  next: Risk,
+  current: Risk | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): string[] {
+  return offScale5(next, current, ["probability", "impact"], patch).map(
+    (key) => `${key}: a whole number from 1 to 5.`
+  );
+}
+
 const KeyResultCheckInSchema = z.object({
   id: z.string(),
   date: IsoDay.describe("The local day the value was read (backdated; never after today)."),
@@ -409,12 +475,14 @@ const KeyResultSchema = z.object({
   target: z.number(),
   current: z.number(),
   unit: z.string().optional(),
+  // Any number here: before Phase 8 this took any, so a write that sets it
+  // is judged by okrWriteProblems instead (a stored one stays editable around).
   confidence: z
     .number()
-    .min(0)
-    .max(10)
     .optional()
-    .describe("The latest scored confidence, 0–10; absent = not scored."),
+    .describe(
+      "The latest scored confidence, 0–10; absent = not scored. A write outside 0–10 is refused."
+    ),
   baseline: z
     .number()
     .finite()
@@ -453,6 +521,22 @@ function keepCheckIns(next: Okr, current: Okr | undefined): Okr {
     return { ...kr, checkIns };
   });
   return changed ? { ...next, keyResults } : next;
+}
+
+/**
+ * An OKR's write, judged on the key-result confidences it sets: one that
+ * is new, or differs from its key result's stored value, is 0–10 (see
+ * "Bounds a write must meet").
+ */
+function okrWriteProblems(next: Okr, current: Okr | undefined): string[] {
+  const stored = new Map((current?.keyResults ?? []).map((kr) => [kr.id, kr]));
+  return next.keyResults
+    .filter((kr) => {
+      const c = kr.confidence;
+      if (c === undefined || !writes(kr, stored.get(kr.id), "confidence")) return false;
+      return !(Number.isFinite(c) && c >= 0 && c <= 10);
+    })
+    .map((kr) => `keyResults ${kr.id}: confidence is from 0 to 10, or left out (not scored).`);
 }
 
 const OkrSchema = z.object({
@@ -539,25 +623,57 @@ const DecisionSchema = z.object({
 }) as unknown as z.ZodType<Decision>;
 
 // Mirrors `TechDebtItem` field for field (z.object drops keys it doesn't know).
+// impact, effort and interestRate stay any number here: a write that sets
+// one is judged by techDebtWriteProblems (a stored legacy value, a 2.5 the
+// page's import copied, stays editable around).
 const TechDebtSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().optional(),
   area: z.string().optional(),
-  impact: Scale5.describe("1–5, how much it slows the team."),
-  effort: Scale5.describe("1–5, how much work paying it down is."),
+  impact: z
+    .number()
+    .describe(
+      "1–5 in whole numbers, how much it slows the team (a write off the scale is refused)."
+    ),
+  effort: z
+    .number()
+    .describe(
+      "1–5 in whole numbers, how much work paying it down is (a write off the scale is refused)."
+    ),
   interestRate: z
     .number()
-    .min(0)
-    .max(100)
     .optional()
-    .describe("Score points it gains per sprint left unpaid (≥ 0)."),
+    .describe("Score points it gains per sprint left unpaid, 0–100 (a write outside is refused)."),
   raisedAt: z.string(),
   resolvedAt: z.string().optional(),
   tags: z.array(z.string()).optional(),
   sentTo: z.array(HandoffLinkSchema).optional(),
   updatedAt: SavedAt,
 }) as unknown as z.ZodType<TechDebtItem>;
+
+/** The highest interest rate a write sets (score points per sprint). */
+const INTEREST_RATE_MAX = 100;
+
+/** A tech-debt item's write, judged on the ratings and the rate it sets (see "Bounds a write must meet"). */
+function techDebtWriteProblems(
+  next: TechDebtItem,
+  current: TechDebtItem | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): string[] {
+  const problems = offScale5(next, current, ["impact", "effort"], patch).map(
+    (key) => `${key}: a whole number from 1 to 5.`
+  );
+  const rate = next.interestRate;
+  if (
+    rate !== undefined &&
+    writes(next, current, "interestRate", patch) &&
+    !(Number.isFinite(rate) && rate >= 0 && rate <= INTEREST_RATE_MAX)
+  ) {
+    problems.push(`interestRate: from 0 to ${INTEREST_RATE_MAX} score points per sprint.`);
+  }
+  return problems;
+}
 
 const TeamMemberSchema = z.object({
   id: z.string(),
@@ -636,8 +752,10 @@ defineCrudActions<Risk>({
   upsert: (r) => ws().upsertRisk(r),
   remove: (id) => ws().removeRisk(id),
   generateId: () => `risk_${nanoid(8)}`,
-  // An agent's write is newer than the old Risk Register blob (lib/risks' move).
-  prepare: (next) => stampUpdatedAt(next),
+  // The ratings a write sets are judged; an agent's write is newer than the
+  // old Risk Register blob (lib/risks' move).
+  prepare: (next, current, patch) =>
+    stampUpdatedAt(unlessRefused(next, riskWriteProblems(next, current, patch))),
 });
 
 defineCrudActions<Okr>({
@@ -648,7 +766,8 @@ defineCrudActions<Okr>({
   upsert: (o) => ws().upsertOkr(o),
   remove: (id) => ws().removeOkr(id),
   generateId: () => `okr_${nanoid(8)}`,
-  prepare: (next, current) => keepCheckIns(next, current),
+  prepare: (next, current) =>
+    keepCheckIns(unlessRefused(next, okrWriteProblems(next, current)), current),
 });
 
 defineCrudActions<Decision>({
@@ -669,8 +788,10 @@ defineCrudActions<TechDebtItem>({
   upsert: (t) => ws().upsertTechDebt(t),
   remove: (id) => ws().removeTechDebt(id),
   generateId: () => `td_${nanoid(8)}`,
-  // An agent's write is newer than the old Tech Debt blob (lib/tech-debt's move).
-  prepare: (next) => stampUpdatedAt(next),
+  // The ratings and rate a write sets are judged; an agent's write is newer
+  // than the old Tech Debt blob (lib/tech-debt's move).
+  prepare: (next, current, patch) =>
+    stampUpdatedAt(unlessRefused(next, techDebtWriteProblems(next, current, patch))),
 });
 
 defineCrudActions<TeamMember>({
@@ -1635,11 +1756,20 @@ const DesignSprintSchema = z.object({
   sprint: DesignSprintPlanSchema.nullable(),
 }) as unknown as z.ZodType<DesignSprint>;
 
+// The ratings stay any number here: one a write sets is judged by
+// assumptionWriteProblems, so one stored legacy value can't block every
+// update of the whole canvas.
 const AssumptionSchema = z.object({
   id: z.string(),
   statement: z.string(),
-  riskLevel: Scale5.optional().describe("1–5, how badly it hurts if wrong; absent = not rated."),
-  evidenceLevel: Scale5.optional().describe("1–5, how much evidence backs it; absent = not rated."),
+  riskLevel: z
+    .number()
+    .optional()
+    .describe("1–5 in whole numbers, how badly it hurts if wrong; absent = not rated."),
+  evidenceLevel: z
+    .number()
+    .optional()
+    .describe("1–5 in whole numbers, how much evidence backs it; absent = not rated."),
   testIdea: z.string().optional(),
   status: z.enum(["untested", "testing", "validated", "invalidated"]),
   description: z.string().optional(),
@@ -1650,6 +1780,23 @@ const RiskiestAssumptionSchema = z.object({
   id: z.string(),
   assumptions: z.array(AssumptionSchema),
 }) as unknown as z.ZodType<RiskiestAssumption>;
+
+/**
+ * The canvas's write, judged on the ratings it sets: on each assumption
+ * that is new, a rating given; on a stored one, a rating that differs from
+ * its stored value (see "Bounds a write must meet"). Absent is not rated.
+ */
+function assumptionWriteProblems(
+  next: RiskiestAssumption,
+  current: RiskiestAssumption | undefined
+): string[] {
+  const stored = new Map((current?.assumptions ?? []).map((a) => [a.id, a]));
+  return next.assumptions.flatMap((a) =>
+    offScale5(a, stored.get(a.id), ["riskLevel", "evidenceLevel"]).map(
+      (key) => `assumptions ${a.id}: ${key} is a whole number from 1 to 5, or left out (not rated).`
+    )
+  );
+}
 
 const WardleyComponentSchema = z.object({
   id: z.string(),
@@ -1711,6 +1858,7 @@ defineCrudActions<RiskiestAssumption>({
   upsert: (x) => ws().upsertRiskiestAssumption(x),
   remove: (id) => ws().removeRiskiestAssumption(id),
   generateId: () => `riskiestAssumption_${nanoid(8)}`,
+  prepare: (next, current) => unlessRefused(next, assumptionWriteProblems(next, current)),
 });
 
 defineCrudActions<WardleyMap>({
@@ -2968,32 +3116,59 @@ const BacklogItemSchema = z.object({
     ),
 }) as unknown as z.ZodType<BacklogItem>;
 
-const NpsResponseSchema = z
-  .object({
-    id: z.string(),
-    kind: z.enum(["nps", "csat"]),
-    date: DayFromTimestamp.describe("The day the answer was given, YYYY-MM-DD."),
-    score: z.number().int().describe("A whole number: NPS 0–10, CSAT 1–5."),
-    respondent: z.string().optional(),
-    verbatim: z.string().optional(),
-    tags: z
-      .array(z.string().min(1).max(NPS_TAG_MAX_LENGTH))
-      .max(NPS_TAG_LIMIT)
-      .optional()
-      .describe(
-        `Theme tags on the verbatim, lower-case and unique; at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters.`
-      ),
-  })
-  .superRefine((r, ctx) => {
-    const [min, max] = r.kind === "nps" ? [0, 10] : [1, 5];
-    if (r.score < min || r.score > max) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["score"],
-        message: r.kind === "nps" ? "An NPS score is 0–10." : "A CSAT score is 1–5.",
-      });
-    }
-  }) as unknown as z.ZodType<NpsResponse>;
+// score and date stay as loose as before Phase 8 (any number, any string):
+// the page saved fractions (it clamps, never rounds) and blank dates, and a
+// strict schema would refuse every later update of such a row, tagging
+// included. npsWriteProblems judges the score and day a write sets.
+const NpsResponseSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["nps", "csat"]),
+  // A timestamp an earlier agent stored ("YYYY-MM-DDT…") reads as its day,
+  // so any update to such a row stores the day.
+  date: z
+    .preprocess(
+      (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? v.slice(0, 10) : v),
+      z.string()
+    )
+    .describe("The day the answer was given, YYYY-MM-DD (a timestamp is read as its day)."),
+  score: z
+    .number()
+    .describe("A whole number: NPS 0–10, CSAT 1–5 (a write off the kind's scale is refused)."),
+  respondent: z.string().optional(),
+  verbatim: z.string().optional(),
+  tags: z
+    .array(z.string().min(1).max(NPS_TAG_MAX_LENGTH))
+    .max(NPS_TAG_LIMIT)
+    .optional()
+    .describe(
+      `Theme tags on the verbatim, lower-case and unique; at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters.`
+    ),
+}) as unknown as z.ZodType<NpsResponse>;
+
+/**
+ * A survey response's write, judged on what it sets (see "Bounds a write
+ * must meet"): a score, or a kind that re-reads the score, is a whole
+ * number on the kind's scale (NPS 0–10, CSAT 1–5); a date is a
+ * "YYYY-MM-DD" day.
+ */
+function npsWriteProblems(
+  next: NpsResponse,
+  current: NpsResponse | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): string[] {
+  const problems: string[] = [];
+  const scored = writes(next, current, "score", patch) || writes(next, current, "kind", patch);
+  const [min, max] = next.kind === "nps" ? [0, 10] : [1, 5];
+  if (scored && !isWholeIn(next.score, min, max)) {
+    problems.push(
+      `score: ${next.kind === "nps" ? "an NPS" : "a CSAT"} score is a whole number from ${min} to ${max}.`
+    );
+  }
+  if (writes(next, current, "date", patch) && !ISO_DAY.test(next.date)) {
+    problems.push('date: the day the answer was given, as "YYYY-MM-DD".');
+  }
+  return problems;
+}
 
 // A check-in's day. Before Phase 6 this CRUD and tool.mood_tracker.record took
 // any string, so an agent may have stored a timestamp. One is read as its
@@ -3574,6 +3749,7 @@ defineCrudActions<NpsResponse>({
   upsert: (x) => ws().upsertNpsResponse(x),
   remove: (id) => ws().removeNpsResponse(id),
   generateId: () => `nps_${nanoid(8)}`,
+  prepare: (next, current, patch) => unlessRefused(next, npsWriteProblems(next, current, patch)),
 });
 
 defineCrudActions<MoodEntry>({

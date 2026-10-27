@@ -5,9 +5,10 @@
  * field missing from a schema would be erased by every agent update.
  *
  * Also: rows stored before Phase 8 still parse and load; the bounds the new
- * fields bring; the OKR update keeping a key result's check-ins when a
- * keyResults patch leaves them out; and the risk and tech-debt CRUDs
- * stamping updatedAt on both transports.
+ * fields bring, and the tightened bounds judged on what a write sets (a
+ * stored value off them stays editable around); the OKR update keeping a
+ * key result's check-ins when a keyResults patch leaves them out; and the
+ * risk and tech-debt CRUDs stamping updatedAt on both transports.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +28,15 @@ import { registry, zodToJsonSchema } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
 import * as serverStore from "@/lib/actions/server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { KeyResult, Okr, Risk, TechDebtItem, Workspace } from "@/lib/stores/workspace-types";
+import type {
+  KeyResult,
+  NpsResponse,
+  Okr,
+  Risk,
+  RiskiestAssumption,
+  TechDebtItem,
+  Workspace,
+} from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
 import {
   CODE_REVIEW_LOG,
@@ -88,6 +97,73 @@ const accepts = (toolId: string, entity: unknown) => {
   const parsed = parseCreate(toolId, entity);
   expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
 };
+
+/**
+ * A create the schema lets through (params parsed as the transport parses
+ * them) but the CRUD's prepare refuses, on both transports, writing nothing.
+ */
+async function refusesCreate(
+  toolId: string,
+  slice: keyof Workspace,
+  entity: unknown,
+  message: RegExp
+) {
+  useWorkspaceStore.getState().resetWorkspace();
+  upsertEntity.mockClear();
+  const parsed = parseCreate(toolId, structuredClone(entity));
+  expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+  const params = parsed.data as { entity: Doc };
+  await expect(
+    action(`${toolId}.create`).handler(structuredClone(params), makeContext("u", "agent"))
+  ).rejects.toThrow(message);
+  await expect(
+    action(`${toolId}.create`).mcpHandler!(structuredClone(params), makeContext("u", "mcp"))
+  ).rejects.toThrow(message);
+  expect(useWorkspaceStore.getState()[slice] ?? []).toEqual([]);
+  expect(upsertEntity).not.toHaveBeenCalled();
+}
+
+/** A create both transports save. */
+async function savesCreate(toolId: string, slice: keyof Workspace, entity: unknown) {
+  useWorkspaceStore.getState().resetWorkspace();
+  upsertEntity.mockClear();
+  const parsed = parseCreate(toolId, structuredClone(entity));
+  expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+  const params = parsed.data as { entity: Doc };
+  await action(`${toolId}.create`).handler(structuredClone(params), makeContext("u", "agent"));
+  await action(`${toolId}.create`).mcpHandler!(structuredClone(params), makeContext("u", "mcp"));
+  expect(useWorkspaceStore.getState()[slice] as Doc[]).toHaveLength(1);
+  expect(upsertEntity).toHaveBeenCalledTimes(1);
+}
+
+/** An update both transports refuse: the stored row is left as it was. */
+async function refusesUpdate(
+  toolId: string,
+  slice: keyof Workspace,
+  doc: Doc,
+  patch: Record<string, unknown>,
+  message: RegExp
+) {
+  upsertEntity.mockClear();
+  useWorkspaceStore.setState({ [slice]: [doc] } as Partial<Workspace>);
+  await expect(
+    action(`${toolId}.update`).handler({ id: doc.id, patch }, makeContext("u", "agent"))
+  ).rejects.toThrow(message);
+  expect(useWorkspaceStore.getState()[slice]).toEqual([doc]);
+  getEntity.mockResolvedValueOnce(structuredClone(doc) as never);
+  await expect(
+    action(`${toolId}.update`).mcpHandler!({ id: doc.id, patch }, makeContext("u", "mcp"))
+  ).rejects.toThrow(message);
+  expect(upsertEntity).not.toHaveBeenCalled();
+}
+
+/** Update `doc` with `patch` on both transports and return [in the tab, over MCP]. */
+async function updateOnBoth(toolId: string, slice: keyof Workspace, doc: Doc, patch = {}) {
+  const inTab = await updateInTab(toolId, slice, doc, structuredClone(patch));
+  upsertEntity.mockClear();
+  const onServer = await updateOnServer(toolId, doc, structuredClone(patch));
+  return [inTab, onServer];
+}
 
 /** A copy of `record` without `keys`. */
 function without<T extends object>(record: T, ...keys: (keyof T)[]): Partial<T> {
@@ -182,9 +258,13 @@ describe("Phase 8 CRUD schemas keep every field", () => {
 });
 
 describe("bounds", () => {
-  it("a risk rates 1-5 in whole numbers, and its residual rating comes as a pair", () => {
-    rejects("workspace.risk", { ...RISK, probability: 6 });
-    rejects("workspace.risk", { ...RISK, impact: 2.5 });
+  it("a risk's write rates it 1-5 in whole numbers, on both transports", async () => {
+    await refusesCreate("workspace.risk", "risks", { ...RISK, probability: 6 }, /probability/);
+    await refusesCreate("workspace.risk", "risks", { ...RISK, impact: 2.5 }, /impact: a whole/);
+    await savesCreate("workspace.risk", "risks", { ...RISK, probability: 1, impact: 5 });
+  });
+
+  it("a risk's residual rating is 1-5 and comes as a pair", () => {
     rejects("workspace.risk", { ...RISK, residualProbability: 0 });
     rejects("workspace.risk", without(RISK, "residualImpact"));
     rejects("workspace.risk", without(RISK, "residualProbability"));
@@ -198,21 +278,32 @@ describe("bounds", () => {
     rejects("workspace.risk", { ...RISK, description: "x".repeat(4001) });
   });
 
-  it("a tech-debt item rates 1-5 and its interest rate isn't negative", () => {
-    rejects("workspace.tech_debt", { ...TECH_DEBT, impact: 0 });
-    rejects("workspace.tech_debt", { ...TECH_DEBT, effort: 3.5 });
-    rejects("workspace.tech_debt", { ...TECH_DEBT, interestRate: -1 });
-    accepts("workspace.tech_debt", { ...TECH_DEBT, interestRate: 0 });
+  it("a tech-debt item's write rates it 1-5 and its interest rate 0-100", async () => {
+    const td = "workspace.tech_debt";
+    await refusesCreate(td, "techDebt", { ...TECH_DEBT, impact: 0 }, /impact: a whole/);
+    await refusesCreate(td, "techDebt", { ...TECH_DEBT, effort: 3.5 }, /effort: a whole/);
+    await refusesCreate(td, "techDebt", { ...TECH_DEBT, interestRate: -1 }, /interestRate/);
+    await refusesCreate(td, "techDebt", { ...TECH_DEBT, interestRate: 101 }, /interestRate/);
+    await savesCreate(td, "techDebt", { ...TECH_DEBT, interestRate: 0 });
+    await savesCreate(td, "techDebt", without(TECH_DEBT, "interestRate"));
   });
 
-  it("a key result's confidence is 0-10, its check-ins dated days and capped", () => {
+  it("a key result's confidence is 0-10 on write, on both transports", async () => {
     const kr = (patch: Partial<KeyResult>): Okr => ({
       ...OKR,
       keyResults: [{ ...OKR.keyResults[0], ...patch }],
     });
-    rejects("workspace.okr", kr({ confidence: 11 }));
-    rejects("workspace.okr", kr({ confidence: -1 }));
-    accepts("workspace.okr", kr({ confidence: 0 }));
+    await refusesCreate("workspace.okr", "okrs", kr({ confidence: 11 }), /confidence is from 0/);
+    await refusesCreate("workspace.okr", "okrs", kr({ confidence: -1 }), /kr_churn: confidence/);
+    await savesCreate("workspace.okr", "okrs", kr({ confidence: 0 }));
+    await savesCreate("workspace.okr", "okrs", kr({ confidence: undefined }));
+  });
+
+  it("a key result's direction and baseline, its check-ins dated days and capped", () => {
+    const kr = (patch: Partial<KeyResult>): Okr => ({
+      ...OKR,
+      keyResults: [{ ...OKR.keyResults[0], ...patch }],
+    });
     rejects("workspace.okr", kr({ direction: "sideways" as never }));
     rejects("workspace.okr", kr({ baseline: Number.POSITIVE_INFINITY }));
     const day = (date: string) => kr({ checkIns: [{ id: "c", date, value: 1 }] });
@@ -233,18 +324,21 @@ describe("bounds", () => {
     );
   });
 
-  it("an NPS score is a whole 0-10, a CSAT score a whole 1-5", () => {
-    rejects("workspace.nps_response", { ...NPS, score: 11 });
-    rejects("workspace.nps_response", { ...NPS, score: 8.5 });
-    accepts("workspace.nps_response", { ...NPS, score: 0 });
-    rejects("workspace.nps_response", { ...LEGACY_CSAT, score: 0 });
-    rejects("workspace.nps_response", { ...LEGACY_CSAT, score: 6 });
-    accepts("workspace.nps_response", { ...LEGACY_CSAT, score: 1 });
+  it("an NPS score written is a whole 0-10, a CSAT score a whole 1-5", async () => {
+    const nps = "workspace.nps_response";
+    await refusesCreate(nps, "npsResponses", { ...NPS, score: 11 }, /an NPS score is a whole/);
+    await refusesCreate(nps, "npsResponses", { ...NPS, score: 8.5 }, /0 to 10/);
+    await savesCreate(nps, "npsResponses", { ...NPS, score: 0 });
+    await refusesCreate(nps, "npsResponses", { ...LEGACY_CSAT, score: 0 }, /a CSAT score/);
+    await refusesCreate(nps, "npsResponses", { ...LEGACY_CSAT, score: 6 }, /1 to 5/);
+    await savesCreate(nps, "npsResponses", { ...LEGACY_CSAT, score: 1 });
   });
 
-  it("a response's day is YYYY-MM-DD; a timestamp an older agent stored reads as its day", async () => {
-    rejects("workspace.nps_response", { ...NPS, date: "yesterday" });
-    rejects("workspace.nps_response", { ...NPS, date: "20/10/2026" });
+  it("a response's day written is YYYY-MM-DD; a timestamp an older agent stored reads as its day", async () => {
+    const nps = "workspace.nps_response";
+    await refusesCreate(nps, "npsResponses", { ...NPS, date: "yesterday" }, /date: the day/);
+    await refusesCreate(nps, "npsResponses", { ...NPS, date: "20/10/2026" }, /YYYY-MM-DD/);
+    await refusesCreate(nps, "npsResponses", { ...NPS, date: "" }, /YYYY-MM-DD/);
     const parsed = parseCreate("workspace.nps_response", {
       ...NPS,
       date: "2026-10-20T15:00:00.000Z",
@@ -269,15 +363,18 @@ describe("bounds", () => {
     });
   });
 
-  it("an assumption's ratings are whole 1-5 or absent (not rated)", () => {
+  it("an assumption's ratings written are whole 1-5 or absent (not rated)", async () => {
+    const ra = "workspace.riskiest_assumption";
     const one = (patch: Record<string, unknown>) => ({
       ...RISKIEST,
       assumptions: [{ ...RISKIEST.assumptions[0], ...patch }],
     });
-    rejects("workspace.riskiest_assumption", one({ riskLevel: 0 }));
-    rejects("workspace.riskiest_assumption", one({ evidenceLevel: 2.5 }));
-    accepts(
-      "workspace.riskiest_assumption",
+    await refusesCreate(ra, "riskiestAssumptions", one({ riskLevel: 0 }), /as_1: riskLevel/);
+    await refusesCreate(ra, "riskiestAssumptions", one({ evidenceLevel: 2.5 }), /evidenceLevel/);
+    await savesCreate(ra, "riskiestAssumptions", one({ riskLevel: undefined, evidenceLevel: 1 }));
+    await savesCreate(
+      ra,
+      "riskiestAssumptions",
       one({ riskLevel: undefined, evidenceLevel: undefined })
     );
   });
@@ -366,6 +463,146 @@ describe("bounds", () => {
     rejects("workspace.code_review_log", win("09:00", "09:00"));
     rejects("workspace.code_review_log", win("09:00", "24:00"));
     accepts("workspace.code_review_log", win("00:00", "23:59"));
+  });
+});
+
+describe("a stored value off the new bounds stays editable around", () => {
+  // Rows the pages and the old loose schemas saved before Phase 8.
+  const FRACTIONAL_NPS = { id: "nps_old1", kind: "nps", date: "", score: 7.5 } as NpsResponse;
+  const ODD_CSAT = {
+    id: "nps_old2",
+    kind: "csat",
+    date: "last Tuesday",
+    score: 8,
+    verbatim: "Fine",
+  } as NpsResponse;
+  const HALF_DEBT = {
+    ...LEGACY_TECH_DEBT,
+    impact: 2.5,
+    interestRate: -1,
+  } as unknown as TechDebtItem;
+  const ODD_RISK = { ...LEGACY_RISK, probability: 6, impact: 0 } as unknown as Risk;
+  const ODD_KR = {
+    ...LEGACY_OKR,
+    keyResults: [{ ...LEGACY_OKR.keyResults[0], confidence: 70 }],
+  } as Okr;
+  const ODD_CANVAS = {
+    ...LEGACY_RISKIEST,
+    assumptions: [{ ...LEGACY_RISKIEST.assumptions[0], riskLevel: 2.5 }],
+  } as unknown as RiskiestAssumption;
+
+  it("an NPS row with a fraction and a blank date takes tags, in the tab and over MCP", async () => {
+    const patch = { tags: ["pricing"] };
+    for (const row of await updateOnBoth(
+      "workspace.nps_response",
+      "npsResponses",
+      FRACTIONAL_NPS,
+      patch
+    )) {
+      expect(row).toEqual({ ...FRACTIONAL_NPS, ...patch });
+    }
+    for (const row of await updateOnBoth(
+      "workspace.nps_response",
+      "npsResponses",
+      ODD_CSAT,
+      patch
+    )) {
+      expect(row).toEqual({ ...ODD_CSAT, ...patch });
+    }
+  });
+
+  it("a patch re-sending the stored values (a row echoed from list) isn't judged", async () => {
+    const echo = { ...FRACTIONAL_NPS, tags: ["onboarding"] };
+    const [inTab, onServer] = await updateOnBoth(
+      "workspace.nps_response",
+      "npsResponses",
+      FRACTIONAL_NPS,
+      echo
+    );
+    expect(inTab).toEqual(echo);
+    expect(onServer).toEqual(echo);
+  });
+
+  it("a patch that sets a score, a kind or a date off the bounds is refused", async () => {
+    const nps = "workspace.nps_response";
+    await refusesUpdate(nps, "npsResponses", FRACTIONAL_NPS, { score: 8.5 }, /0 to 10/);
+    await refusesUpdate(nps, "npsResponses", ODD_CSAT, { kind: "nps", score: 11 }, /NPS score/);
+    // Turning the CSAT 8 into an NPS row re-reads its score, which fits.
+    const [asNps] = await updateOnBoth(nps, "npsResponses", ODD_CSAT, { kind: "nps" });
+    expect(asNps).toMatchObject({ kind: "nps", score: 8 });
+    await refusesUpdate(nps, "npsResponses", FRACTIONAL_NPS, { date: "soon" }, /date: the day/);
+    const [dated] = await updateOnBoth(nps, "npsResponses", FRACTIONAL_NPS, {
+      date: "2026-10-20",
+      score: 8,
+    });
+    expect(dated).toMatchObject({ date: "2026-10-20", score: 8 });
+  });
+
+  it("a tech-debt item with a 2.5 impact updates through another field", async () => {
+    const before = Date.now() - 1;
+    for (const row of await updateOnBoth("workspace.tech_debt", "techDebt", HALF_DEBT, {
+      area: "logging",
+    })) {
+      expect(unstamped(row as TechDebtItem)).toEqual({ ...HALF_DEBT, area: "logging" });
+      expect(Date.parse((row as TechDebtItem).updatedAt as string)).toBeGreaterThanOrEqual(before);
+    }
+    await refusesUpdate("workspace.tech_debt", "techDebt", HALF_DEBT, { impact: 3.5 }, /impact/);
+    await refusesUpdate(
+      "workspace.tech_debt",
+      "techDebt",
+      HALF_DEBT,
+      { interestRate: -2 },
+      /interestRate/
+    );
+  });
+
+  it("a risk rated off the scale updates through another field", async () => {
+    for (const row of await updateOnBoth("workspace.risk", "risks", ODD_RISK, {
+      status: "closed",
+    })) {
+      expect(unstamped(row as Risk)).toEqual({ ...ODD_RISK, status: "closed" });
+    }
+    await refusesUpdate("workspace.risk", "risks", ODD_RISK, { impact: 9 }, /impact: a whole/);
+  });
+
+  it("an OKR whose key result holds confidence 70 takes a new objective", async () => {
+    for (const row of await updateOnBoth("workspace.okr", "okrs", ODD_KR, {
+      objective: "Ship it",
+    })) {
+      expect(row).toEqual({ ...ODD_KR, objective: "Ship it" });
+    }
+    const rescored = { keyResults: [{ ...ODD_KR.keyResults[0], confidence: 75 }] };
+    await refusesUpdate("workspace.okr", "okrs", ODD_KR, rescored, /kr_a: confidence/);
+  });
+
+  it("one assumption rated 2.5 doesn't block the canvas: another can be added", async () => {
+    const added = {
+      assumptions: [
+        ...ODD_CANVAS.assumptions,
+        { id: "as_new", statement: "Admins read release notes", status: "untested" },
+      ],
+    };
+    for (const row of await updateOnBoth(
+      "workspace.riskiest_assumption",
+      "riskiestAssumptions",
+      ODD_CANVAS,
+      added
+    )) {
+      expect(row).toEqual({ ...ODD_CANVAS, ...added });
+    }
+    const badNew = {
+      assumptions: [
+        ...ODD_CANVAS.assumptions,
+        { id: "as_new", statement: "x", status: "untested", riskLevel: 7 },
+      ],
+    };
+    await refusesUpdate(
+      "workspace.riskiest_assumption",
+      "riskiestAssumptions",
+      ODD_CANVAS,
+      badNew,
+      /as_new: riskLevel/
+    );
   });
 });
 
