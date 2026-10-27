@@ -79,22 +79,25 @@ export const scaleText = (kind: SurveyKind) =>
 
 /**
  * Check a response against `today` ("YYYY-MM-DD"). Survey, score and day
- * are required; respondent, verbatim and tags are optional. `keepScore` is
- * the score an edited row already holds: a fraction saved before Phase 8
- * (7.5) stays as it is unless the user picks a new one.
+ * are required; respondent, verbatim and tags are optional. `keepScore` and
+ * `keepKind` are the score an edited row already holds and its survey: a
+ * fraction saved before Phase 8 (7.5) stays as it is unless the user picks
+ * a new one, but only on that survey. Switched to the other one, the old
+ * score is judged like any other, so an NPS 8 is never saved as CSAT 8.
  */
 export function validateResponse(
   d: ResponseDraft,
   today: string,
-  { keepScore }: { keepScore?: number } = {}
+  { keepScore, keepKind }: { keepScore?: number; keepKind?: SurveyKind } = {}
 ): Validation<ResponseValues, ResponseField> {
   const errors: Partial<Record<ResponseField, string>> = {};
   const date = d.date.trim();
   const respondent = d.respondent.trim();
   const verbatim = d.verbatim.trim();
+  const kept = d.kind !== null && d.kind === keepKind && d.score === keepScore;
   if (!d.kind) errors.kind = "Pick NPS or CSAT.";
   if (d.score === null) errors.score = "Pick the score the customer gave.";
-  else if (d.kind && !isValidScore(d.kind, d.score) && d.score !== keepScore)
+  else if (d.kind && !isValidScore(d.kind, d.score) && !kept)
     errors.score = `${scaleText(d.kind)}: pick a whole score on it.`;
   if (!date) errors.date = "Pick the day the answer was given.";
   else if (!(date.length === 10 && isIsoDate(date))) errors.date = "Pick a day on the calendar.";

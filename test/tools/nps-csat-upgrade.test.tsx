@@ -47,7 +47,13 @@ vi.mock("@/components/shared/export-button", () => ({
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+const prompted = vi.hoisted(() => ({ prompts: [] as { id: string; prompt: string }[] }));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({
+  AiPromptGenerator: ({ config }: { config: { prompts: { id: string; prompt: string }[] } }) => {
+    prompted.prompts = config.prompts;
+    return null;
+  },
+}));
 // Recharts has nothing to measure in jsdom; the chart's text is tested directly.
 vi.mock("@/app/(tools)/nps-csat/charts", () => ({ ScoreTrendChart: () => null }));
 
@@ -63,6 +69,9 @@ import {
 } from "@/app/(tools)/nps-csat/form";
 import { IMPORT_CAP, previewImport, readKind } from "@/app/(tools)/nps-csat/import";
 import { surveyVerdict, thinPeriodWarning } from "@/app/(tools)/nps-csat/verdict";
+import { npsCsatPrompts, promptHeadline } from "@/app/(tools)/nps-csat/prompt";
+import { responseName } from "@/app/(tools)/nps-csat/response-row";
+import { hypothesisTag, recentResponses } from "@/app/(tools)/nps-csat/tags";
 
 /** 27 Oct 2026, noon local: only Date is faked, so promises and timers run as usual. */
 const NOW = new Date(2026, 9, 27, 12);
@@ -93,6 +102,7 @@ beforeEach(() => {
   sounds.length = 0;
   toastSpy.mockClear();
   exported.markdown = "";
+  prompted.prompts = [];
   localStorage.clear();
   useWorkspaceStore.setState({ npsResponses: [] });
 });
@@ -126,7 +136,10 @@ describe("validateResponse", () => {
     expect(frac.ok).toBe(false);
     // An edited row from before Phase 8 keeps its fraction unless a new score is picked.
     expect(
-      validateResponse({ ...emptyResponse(TODAY, "nps"), score: 7.5 }, TODAY, { keepScore: 7.5 }).ok
+      validateResponse({ ...emptyResponse(TODAY, "nps"), score: 7.5 }, TODAY, {
+        keepScore: 7.5,
+        keepKind: "nps",
+      }).ok
     ).toBe(true);
   });
 
@@ -505,7 +518,9 @@ describe("the readings", () => {
       screen.getByRole("heading", { name: /Responses tagged “checkout”/ })
     ).toBeInTheDocument();
     expect(exported.markdown.split("\n")[0]).toBe("# NPS / CSAT — “checkout” — 27 Oct 2026");
-    fireEvent.click(screen.getByRole("button", { name: "Show every response" }));
+    // Shown above the headline and beside the list heading alike.
+    expect(screen.getAllByRole("button", { name: "Show every response" })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Show every response" })[1]);
     expect(screen.getByText("“Fast”")).toBeInTheDocument();
   });
 
@@ -521,7 +536,7 @@ describe("changes with Undo", () => {
   it("deletes a response with Undo, back in its place", () => {
     useWorkspaceStore.setState({ npsResponses: [NPS, LEGACY_CSAT] });
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Remove NPS response from 2026-10-20" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove NPS 9 of 2026-10-20, acme-admin" }));
     expect(stored().map((r) => r.id)).toEqual([LEGACY_CSAT.id]);
     expect(lastToast()[0]).toBe("Deleted the NPS 9 of 2026-10-20");
     expect(actions()).toEqual(["survey_removed"]);
@@ -544,7 +559,7 @@ describe("changes with Undo", () => {
     const legacy = { ...LEGACY_CSAT, score: 3.5 };
     useWorkspaceStore.setState({ npsResponses: [legacy] });
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Edit the CSAT response of 2026-08-02" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit CSAT 3.5 of 2026-08-02" }));
     const tags = screen.getAllByLabelText("Tags").find((el) => el.closest("li"))!;
     fireEvent.change(tags, { target: { value: "support" } });
     fireEvent.click(screen.getByRole("button", { name: "Save response" }));
@@ -632,5 +647,319 @@ describe("page and agent parity", () => {
       squadProfileIds: [],
     })) as { total: number };
     expect(again.total).toBe(real.length);
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
+const editForm = () =>
+  within(screen.getByRole("button", { name: "Save response" }).closest("form") as HTMLElement);
+
+describe("a stored score stays on its own survey", () => {
+  it("is kept only on the survey it was given for", () => {
+    const asCsat = validateResponse({ ...emptyResponse(TODAY, "csat"), score: 8 }, TODAY, {
+      keepScore: 8,
+      keepKind: "nps",
+    });
+    expect(!asCsat.ok && asCsat.errors.score).toMatch(/CSAT is 1–5/);
+    // Without its survey a kept score is never waved through.
+    expect(
+      validateResponse({ ...emptyResponse(TODAY, "nps"), score: 7.5 }, TODAY, { keepScore: 7.5 }).ok
+    ).toBe(false);
+  });
+
+  it("isn't offered as a custom CSAT score when an NPS 8 is switched to CSAT", () => {
+    useWorkspaceStore.setState({
+      npsResponses: [resp("nps", "2026-10-20", 8, { respondent: "ana" })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit NPS 8 of 2026-10-20, ana" }));
+    fireEvent.click(editForm().getByRole("radio", { name: "CSAT (1–5)" }));
+    expect(editForm().queryByRole("radio", { name: /Custom/ })).toBeNull();
+    fireEvent.click(editForm().getByRole("button", { name: "Save response" }));
+    expect(stored()[0]).toMatchObject({ kind: "nps", score: 8 });
+    expect(editForm().getByText("Pick the score the customer gave.")).toBeInTheDocument();
+  });
+
+  it("offers a legacy fraction again back on its own survey, and saves it there", () => {
+    useWorkspaceStore.setState({ npsResponses: [resp("nps", "2026-10-20", 7.5)] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit NPS 7.5 of 2026-10-20" }));
+    expect(editForm().getByRole("radio", { name: "Custom: 7.5" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    fireEvent.click(editForm().getByRole("radio", { name: "CSAT (1–5)" }));
+    expect(editForm().queryByRole("radio", { name: /Custom/ })).toBeNull();
+    fireEvent.click(editForm().getByRole("radio", { name: "NPS (0–10)" }));
+    fireEvent.click(editForm().getByRole("radio", { name: "Custom: 7.5" }));
+    fireEvent.click(editForm().getByRole("button", { name: "Save response" }));
+    expect(stored()[0]).toMatchObject({ kind: "nps", score: 7.5 });
+  });
+});
+
+describe("the import checks each row as its edit form would", () => {
+  const opts = (kind: "nps" | "csat" | null = null) => ({ kind, today: TODAY, existing: [] });
+
+  it("refuses a row wider than its header instead of shifting its cells", () => {
+    const csv = [
+      "date,score,verbatim,tags",
+      "2026-10-01,9,Fast delivery, but pricey,pricing",
+      "2026-10-02,9,ok,,",
+      '2026-10-03,9,"Fast delivery, but pricey",pricing',
+    ].join("\n");
+    const p = previewImport(csv, opts("nps"));
+    expect(p.skipped).toEqual([
+      {
+        line: 2,
+        reason: "it has 5 cells but the header names 4: put text that contains commas in quotes",
+      },
+    ]);
+    // Trailing blank cells are fine; a quoted comma stays in its cell.
+    expect(p.ready.map((r) => [r.line, r.response.verbatim, r.response.tags])).toEqual([
+      [3, "ok", undefined],
+      [4, "Fast delivery, but pricey", ["pricing"]],
+    ]);
+    const tsv = previewImport("date\tscore\n2026-10-01\t9\tstray", opts("nps"));
+    expect(tsv.skipped[0].reason).toBe(
+      "it has 3 cells but the header names 2: put text that contains tabs in quotes"
+    );
+  });
+
+  it("reads a timestamp written with a space as its day", () => {
+    const p = previewImport(
+      "date,score\n2026-10-03 14:20:00,9\n2026-10-04 14:20,8\n2026-10-05 25:00,7",
+      opts("nps")
+    );
+    expect(p.ready.map((r) => r.response.date)).toEqual(["2026-10-03", "2026-10-04"]);
+    expect(p.skipped).toEqual([
+      { line: 4, reason: "the date “2026-10-05 25:00” isn't YYYY-MM-DD" },
+    ]);
+  });
+
+  it("refuses a respondent or a verbatim longer than the form saves", () => {
+    const csv = [
+      "date,score,respondent,verbatim",
+      `2026-10-01,9,${"r".repeat(121)},`,
+      `2026-10-01,9,,${"v".repeat(4001)}`,
+      `2026-10-01,9,${"r".repeat(120)},${"v".repeat(4000)}`,
+    ].join("\n");
+    const p = previewImport(csv, opts("nps"));
+    expect(p.skipped).toEqual([
+      { line: 2, reason: "the respondent is longer than 120 characters" },
+      { line: 3, reason: "the verbatim is longer than 4000 characters" },
+    ]);
+    // What is imported can be edited and saved as it is.
+    const [row] = p.ready;
+    expect(validateResponse(responseDraft({ id: "x", ...row.response }), TODAY).ok).toBe(true);
+  });
+});
+
+describe("the import panel", () => {
+  const openImport = () => fireEvent.click(screen.getByRole("button", { name: "Import CSV" }));
+  const kindGroup = () => within(screen.getByRole("radiogroup", { name: "Every row is" }));
+  const picked = () => kindGroup().queryByRole("radio", { checked: true });
+  const pickNps = () => fireEvent.click(kindGroup().getByRole("radio", { name: "NPS (0–10)" }));
+
+  it("asks for the survey again for each new file, pasted text or cleared text", async () => {
+    renderPage();
+    openImport();
+    const paste = screen.getByLabelText("Or paste rows") as HTMLTextAreaElement;
+    fireEvent.change(paste, { target: { value: "date\tscore\n2026-10-01\t9" } });
+    pickNps();
+    expect(picked()).not.toBeNull();
+    // Typing on keeps the pick.
+    fireEvent.change(paste, { target: { value: `${paste.value}\n2026-10-02\t8` } });
+    expect(picked()).not.toBeNull();
+    // Pasted over the whole text: another file.
+    paste.setSelectionRange(0, paste.value.length);
+    fireEvent.paste(paste);
+    fireEvent.change(paste, { target: { value: "date\tscore\n2026-10-03\t4" } });
+    expect(picked()).toBeNull();
+    // Cleared, then new rows: picked afresh.
+    pickNps();
+    fireEvent.change(paste, { target: { value: "" } });
+    fireEvent.change(paste, { target: { value: "date\tscore\n2026-10-04\t4" } });
+    expect(picked()).toBeNull();
+    // A file chosen next is picked afresh too.
+    pickNps();
+    const file = new File(["date,score\n2026-10-05,4"], "csat.csv", { type: "text/csv" });
+    fireEvent.change(screen.getByLabelText("CSV file"), { target: { files: [file] } });
+    await vi.waitFor(() => expect(paste.value).toContain("2026-10-05"));
+    expect(picked()).toBeNull();
+  });
+
+  it("hands focus back to Import CSV when it closes", async () => {
+    renderPage();
+    openImport();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(screen.getByRole("button", { name: "Import CSV" })).toHaveFocus();
+    expect(screen.queryByLabelText("Or paste rows")).toBeNull();
+  });
+});
+
+describe("the Hypothesis Tracker pointer", () => {
+  const unhappy = (date: string, n: number) =>
+    Array.from({ length: n }, () => resp("nps", date, 2, { tags: ["checkout"] }));
+
+  it("reads the last 90 days only", () => {
+    expect(
+      recentResponses(
+        [resp("nps", "2026-07-30", 9), resp("nps", "2026-07-29", 9), resp("nps", "", 9)],
+        TODAY
+      ).map((r) => r.date)
+    ).toEqual(["2026-07-30"]);
+    expect(hypothesisTag(unhappy("2026-07-01", 5), TODAY)).toBeNull();
+    expect(
+      hypothesisTag([...unhappy("2026-07-01", 5), ...unhappy("2026-10-01", 2)], TODAY)
+    ).toBeNull();
+    expect(hypothesisTag(unhappy("2026-10-01", 3), TODAY)).toMatchObject({
+      tag: "checkout",
+      unhappy: 3,
+    });
+  });
+
+  it("shows on the page for recent complaints, not for old ones", () => {
+    useWorkspaceStore.setState({ npsResponses: unhappy("2026-06-01", 4) });
+    const { unmount } = renderPage();
+    expect(screen.queryByRole("link", { name: "test a fix in the Hypothesis Tracker" })).toBeNull();
+    unmount();
+    useWorkspaceStore.setState({ npsResponses: unhappy("2026-10-01", 3) });
+    renderPage();
+    expect(
+      screen.getByText(/In the last 90 days, most unhappy answers mention “checkout” \(3\)/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "test a fix in the Hypothesis Tracker" })
+    ).toHaveAttribute("href", "/hypothesis-tracker");
+  });
+});
+
+describe("the AI prompt", () => {
+  it("never reads a survey with no answers as 0, and quotes CSAT as % satisfied", () => {
+    const csatOnly = [
+      resp("csat", "2026-10-01", 5, { verbatim: "Great" }),
+      resp("csat", "2026-10-02", 2),
+    ];
+    const themes = npsCsatPrompts(csatOnly, summarizeNps(csatOnly), summarizeCsat(csatOnly)).find(
+      (p) => p.id === "nps-themes"
+    )!.prompt;
+    expect(themes).toContain("No NPS responses. CSAT 50% satisfied (4–5) from 2 responses.");
+    expect(themes).not.toMatch(/Current NPS|CSAT avg/);
+    expect(promptHeadline(summarizeNps([]), summarizeCsat([]))).toBe(
+      "No NPS responses. No CSAT responses."
+    );
+    expect(npsCsatPrompts([], summarizeNps([]), summarizeCsat([]))).toEqual([]);
+  });
+
+  it("gets the numbers the page shows", () => {
+    useWorkspaceStore.setState({ npsResponses: many("nps", "2026-10-10", 10, 6) });
+    renderPage();
+    const themes = prompted.prompts.find((p) => p.id === "nps-themes")!.prompt;
+    expect(themes).toContain("NPS +20 from 10 responses. No CSAT responses.");
+  });
+});
+
+describe("a page left open past midnight", () => {
+  it("moves the forms on to the new day", () => {
+    renderPage();
+    const day = () => addForm().getByLabelText(/^Day/);
+    expect(day()).toHaveAttribute("max", TODAY);
+    vi.setSystemTime(new Date(2026, 9, 28, 0, 5));
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(day()).toHaveAttribute("max", "2026-10-28");
+  });
+});
+
+describe("row buttons", () => {
+  it("name each response apart, even many on one day", () => {
+    expect(responseName(resp("nps", "2026-10-03", 9, { respondent: "ana@x.io" }))).toBe(
+      "NPS 9 of 2026-10-03, ana@x.io"
+    );
+    expect(
+      responseName(
+        resp("csat", "2026-10-03", 2, {
+          verbatim: "Charged twice for one order, and nobody answered",
+        })
+      )
+    ).toBe("CSAT 2 of 2026-10-03, “Charged twice for one order, an…”");
+    expect(responseName(resp("nps", "", 4))).toBe("NPS 4 of no date");
+  });
+});
+
+describe("focus", () => {
+  it("an edit form takes focus when it opens and gives it back when it closes", () => {
+    useWorkspaceStore.setState({ npsResponses: [NPS] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit NPS 9 of 2026-10-20, acme-admin" }));
+    expect(editForm().getByRole("radio", { name: "NPS (0–10)" })).toHaveFocus();
+    fireEvent.click(editForm().getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.getByRole("button", { name: "Edit NPS 9 of 2026-10-20, acme-admin" })
+    ).toHaveFocus();
+  });
+
+  it("a delete moves focus to the next row, then to the add form when none is left", async () => {
+    useWorkspaceStore.setState({
+      npsResponses: [
+        resp("nps", "2026-10-03", 9, { respondent: "ana" }),
+        resp("nps", "2026-10-02", 4, { respondent: "bo" }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Remove NPS 9 of 2026-10-03, ana" }));
+    await settle();
+    const next = screen.getByRole("button", { name: "Remove NPS 4 of 2026-10-02, bo" });
+    expect(next).toHaveFocus();
+    fireEvent.click(next);
+    await settle();
+    expect(addForm().getByRole("radio", { name: "NPS (0–10)" })).toHaveFocus();
+  });
+});
+
+describe("a tag filter on the headline", () => {
+  it("says above the cards that every number is the tag's", () => {
+    useWorkspaceStore.setState({
+      npsResponses: [
+        resp("nps", "2026-10-01", 2, { tags: ["checkout"] }),
+        resp("nps", "2026-10-02", 10, { tags: ["delivery"] }),
+      ],
+    });
+    renderPage();
+    expect(screen.queryByText(/Showing only responses tagged/)).toBeNull();
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Filter by tag" })).getByRole("button", {
+        name: /checkout/,
+      })
+    );
+    expect(
+      screen.getByText(
+        /Showing only responses tagged “checkout”: every number below reads them alone/
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^Tagged “checkout”: NPS -100 from 1 response/)).toBeInTheDocument();
+    expect(
+      screen.getByText("“checkout” only. All-time, 1 response: no month has 10 yet.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Show every response" })[0]);
+    expect(screen.queryByText(/Showing only responses tagged/)).toBeNull();
+  });
+});
+
+describe("the hollow-dot note", () => {
+  it("shows only under a drawn chart", () => {
+    useWorkspaceStore.setState({ npsResponses: many("nps", TODAY, 3, 2) });
+    const { unmount } = renderPage();
+    expect(screen.queryByText(/A hollow dot is a month/)).toBeNull();
+    unmount();
+    useWorkspaceStore.setState({
+      npsResponses: [...many("nps", "2026-09-10", 3, 2), ...many("nps", TODAY, 3, 2)],
+    });
+    renderPage();
+    expect(screen.getByText(/A hollow dot is a month/)).toBeInTheDocument();
   });
 });

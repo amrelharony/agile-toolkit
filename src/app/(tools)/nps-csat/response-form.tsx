@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Check, Plus } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -40,11 +40,16 @@ const KINDS: { value: SurveyKind; label: string; description: string }[] = [
   { value: "csat", label: "CSAT (1–5)", description: "How satisfied were you?" },
 ];
 
+/** The form's first control: the survey's checked (or first) option, else a field. */
+const FIRST_CONTROL = '[role="radio"][tabindex="0"], input, textarea';
+
 /**
  * One survey answer, added by hand or edited in place. The survey and the
  * score start unset; switching the survey clears a score that isn't on the
- * new scale instead of squeezing it in. Tags are comma-separated theme
- * words ("checkout, pricing"), checked before saving so none is cut.
+ * new scale instead of squeezing it in. A legacy score (`keepScore`) is
+ * offered only on the survey it was given for (`keepKind`). Tags are
+ * comma-separated theme words ("checkout, pricing"), checked before saving
+ * so none is cut.
  */
 export function ResponseForm({
   initial,
@@ -53,6 +58,8 @@ export function ResponseForm({
   onCancel,
   submitLabel,
   keepScore,
+  keepKind,
+  autoFocus = false,
 }: {
   initial: ResponseDraft;
   today: string;
@@ -61,22 +68,34 @@ export function ResponseForm({
   submitLabel: string;
   /** An edited row's stored score, kept as it is when not changed (a fraction from before Phase 8). */
   keepScore?: number;
+  /** The survey `keepScore` was given for: on the other one it isn't offered. */
+  keepKind?: SurveyKind;
+  /**
+   * Opened by a click (Edit): focus the first control, as the row it
+   * replaces took the focused button with it. Never on page load.
+   */
+  autoFocus?: boolean;
 }) {
   // An add form starts its next answer on the survey and day just saved
   // (entering one survey's answers), with the score unset again.
   const last = useRef({ date: initial.date, kind: initial.kind });
   const form = useItemForm<ResponseDraft, ResponseValues, ResponseField>({
     initial: onCancel ? initial : () => emptyResponse(last.current.date, last.current.kind),
-    validate: (d) => validateResponse(d, today, { keepScore }),
+    validate: (d) => validateResponse(d, today, { keepScore, keepKind }),
     onSave: (values, d) => {
       last.current = { date: d.date, kind: d.kind };
       onSave(values, d);
     },
     resetOnSave: !onCancel,
   });
-  const { draft, update, errors } = form;
+  const { draft, update, errors, formRef } = form;
+  useEffect(() => {
+    if (autoFocus) formRef.current?.querySelector<HTMLElement>(FIRST_CONTROL)?.focus();
+  }, [autoFocus, formRef]);
   const kindErrorId = useId();
   const steps = draft.kind === "csat" ? CSAT_STEPS : NPS_STEPS;
+  // The stored score stays on offer only on its own survey's scale.
+  const custom = draft.kind !== null && draft.kind === keepKind ? keepScore : undefined;
   return (
     <ItemForm
       form={form}
@@ -133,7 +152,7 @@ export function ResponseForm({
           label="Score"
           steps={steps}
           value={draft.score}
-          custom={keepScore}
+          custom={custom}
           onValueChange={(score) => update({ score })}
           hint={
             draft.kind === "nps"

@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useStableOrder } from "@/hooks/use-stable-order";
-import { generateNpsCsatPrompts } from "@/lib/ai-prompts/nps-csat";
+import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -54,15 +54,17 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { usePersistedLocal } from "@/lib/utils/use-persisted";
 import { nanoid } from "nanoid";
+import { focusAfterRemoval, focusSoon } from "@/app/(tools)/sprint-goal/focus";
 import { CHART_MIN_PERIODS, periodTrendText } from "./chart-text";
 import { buildExample } from "./example";
 import { emptyResponse, newResponse, withResponseValues, type ResponseValues } from "./form";
 import { ImportPanel } from "./import-panel";
 import type { ImportRow } from "./import";
 import { toMarkdown } from "./markdown";
+import { npsCsatPrompts } from "./prompt";
 import { ResponseForm } from "./response-form";
-import { ResponseRow, categoryOf } from "./response-row";
-import { tagCsatText, tagNpsText } from "./tags";
+import { DELETE_SELECTOR, ResponseRow, categoryOf } from "./response-row";
+import { RECENT_DAYS, hypothesisTag, tagCsatText, tagNpsText } from "./tags";
 import { surveyVerdict, thinPeriodWarning } from "./verdict";
 
 // Recharts loads with the score trend chart, not the page. The placeholder
@@ -121,18 +123,28 @@ function NpsCsatTracker() {
   const upsert = useWorkspaceStore((s) => s.upsertNpsResponse);
   const { log } = useHistoryLogger("nps-csat");
   const announce = useAnnounce();
-  const [now] = useState(() => new Date());
+  const [now, setNow] = useState(() => new Date());
   const today = todayLocalISO(now);
+  // A page left open past midnight moves on to the new day: the forms and
+  // the import would otherwise refuse today's answers as "in the future".
+  useVisibilityTick(true, 60_000, () => {
+    const next = new Date();
+    if (todayLocalISO(next) !== today) setNow(next);
+  });
   const [storedBy, setBy] = usePersistedLocal<unknown>(PERIOD_KEY, "month");
   const by: SurveyPeriod = storedBy === "week" ? "week" : "month";
   const [tag, setTag] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [limit, setLimit] = useState(LIST_PAGE);
   const chartRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const importRef = useRef<HTMLButtonElement>(null);
+  const addRef = useRef<HTMLDivElement>(null);
   const chartTitleId = useId();
   const cleared = useRef<NpsResponse[]>([]);
 
   const tags = useMemo(() => tagCounts(responses), [responses]);
+  const pointer = useMemo(() => hypothesisTag(responses, today), [responses, today]);
   const activeTag = tag && tags.some((t) => t.tag === tag) ? tag : null;
   const shown = useMemo(
     () => (activeTag ? responses.filter((r) => hasTag(r, activeTag)) : responses),
@@ -145,7 +157,9 @@ function NpsCsatTracker() {
   const csatHead = latestEnough(series.points, "csat");
   const latest = series.points[series.points.length - 1];
   const warning = thinPeriodWarning(latest);
-  const verdict = surveyVerdict(series.points, { nps, csat });
+  // Filtered, every headline number reads the tag's answers alone: say so first.
+  const verdict = `${activeTag ? `Tagged “${activeTag}”: ` : ""}${surveyVerdict(series.points, { nps, csat })}`;
+  const tagged = (hint: string) => (activeTag ? `“${activeTag}” only. ${hint}` : hint);
   const trendText = useMemo(() => periodTrendText(series.points, by), [series.points, by]);
   const showChart = series.points.length >= CHART_MIN_PERIODS;
 
@@ -172,14 +186,10 @@ function NpsCsatTracker() {
   const promptConfig = useMemo(
     () => ({
       toolName: "NPS/CSAT Tracker",
-      // The prompt takes plain numbers; it only builds with responses to read.
-      prompts: generateNpsCsatPrompts({
-        entries: shown,
-        nps: nps.score ?? 0,
-        csat: csat.average ?? 0,
-      }),
+      // The page's own numbers: no NPS answers reads "No NPS responses", never 0.
+      prompts: npsCsatPrompts(shown, nps, csat),
     }),
-    [shown, nps.score, csat.average]
+    [shown, nps, csat]
   );
 
   /** History for the team's own answers; the example's aren't the team's work. */
@@ -222,6 +232,7 @@ function NpsCsatTracker() {
 
   const remove = (r: NpsResponse) => {
     const kind = r.kind.toUpperCase();
+    const index = listed.findIndex((x) => x.id === r.id);
     removeWithUndo<NpsResponse>({
       label: `Deleted the ${kind} ${r.score} of ${String(r.date).slice(0, 10) || "no date"}`,
       update: setResponses,
@@ -229,6 +240,17 @@ function NpsCsatTracker() {
     });
     record(r, NPS_CSAT_ACTIONS.SURVEY_REMOVED, { kind: r.kind, score: r.score });
     announce(`Deleted the ${kind} response`);
+    // The pressed button went with its row: the next row's delete takes focus,
+    // or the add form's survey when none is left.
+    focusAfterRemoval(listRef, DELETE_SELECTOR, Math.max(0, index), () =>
+      addRef.current?.querySelector<HTMLElement>('[role="radio"][tabindex="0"]')
+    );
+  };
+
+  /** Close the import panel, focus back on the button that opens it. */
+  const closeImport = () => {
+    setImporting(false);
+    focusSoon(() => importRef.current);
   };
 
   const importRows = (rows: ImportRow[], duplicates: number) => {
@@ -243,7 +265,7 @@ function NpsCsatTracker() {
       },
       revert: () => setResponses((list) => list.filter((r) => !ids.has(r.id))),
     });
-    setImporting(false);
+    closeImport();
     announce(`Imported ${responsesText(created.length)}`);
   };
 
@@ -357,6 +379,7 @@ function NpsCsatTracker() {
           targetRef={showChart ? chartRef : undefined}
         />
         <Button
+          ref={importRef}
           type="button"
           variant="outline"
           className="gap-2"
@@ -397,38 +420,56 @@ function NpsCsatTracker() {
               existing={responses}
               today={today}
               onImport={importRows}
-              onClose={() => setImporting(false)}
+              onClose={closeImport}
             />
           </SectionCard>
         )}
 
         {responses.length > 0 && (
           <>
+            {activeTag && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-text">
+                <Tags className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  Showing only responses tagged “{activeTag}”: every number below reads them alone.
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1"
+                  onClick={() => chooseTag(null)}
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  Show every response
+                </Button>
+              </div>
+            )}
             <p className="text-sm font-medium text-text">{verdict}</p>
             <KpiGrid cols={3} gap="lg">
               <StatCard
                 variant="compact"
                 label="NPS"
                 value={npsCard.value}
-                hint={npsCard.hint}
+                hint={tagged(npsCard.hint)}
                 valueClassName="text-4xl text-accent"
               />
               <StatCard
                 variant="compact"
                 label="CSAT satisfied"
                 value={csatCard.value}
-                hint={csatCard.hint}
+                hint={tagged(csatCard.hint)}
                 valueClassName="text-4xl text-accent"
               />
               <StatCard
                 variant="compact"
                 label={by === "week" ? "This week" : "This month"}
                 value={latestN}
-                hint={
+                hint={tagged(
                   latest
                     ? `${latest.label}: ${latest.nps.n} NPS, ${latest.csat.n} CSAT`
                     : "No dated responses"
-                }
+                )}
                 valueClassName="text-4xl text-text"
               />
             </KpiGrid>
@@ -452,12 +493,14 @@ function NpsCsatTracker() {
         )}
 
         <SectionCard title="Add a response" icon={Plus}>
-          <ResponseForm
-            initial={emptyResponse(today)}
-            today={today}
-            submitLabel="Add response"
-            onSave={add}
-          />
+          <div ref={addRef}>
+            <ResponseForm
+              initial={emptyResponse(today)}
+              today={today}
+              submitLabel="Add response"
+              onSave={add}
+            />
+          </div>
         </SectionCard>
 
         {responses.length === 0 ? (
@@ -504,15 +547,21 @@ function NpsCsatTracker() {
                 NPS and CSAT by {by}
               </h3>
               {showChart ? (
-                <ChartFigure
-                  labelledBy={chartTitleId}
-                  summary={trendText.summary}
-                  table={trendText.table}
-                  plotRef={chartRef}
-                  plotClassName="h-[240px]"
-                >
-                  <ScoreTrendChart points={series.points} />
-                </ChartFigure>
+                <>
+                  <ChartFigure
+                    labelledBy={chartTitleId}
+                    summary={trendText.summary}
+                    table={trendText.table}
+                    plotRef={chartRef}
+                    plotClassName="h-[240px]"
+                  >
+                    <ScoreTrendChart points={series.points} />
+                  </ChartFigure>
+                  <p className="mt-2 text-xs text-sub">
+                    A hollow dot is a {by} with fewer than {MIN_SAMPLE.surveyPeriod} responses of
+                    its kind: one answer moves it by 100 ÷ n points.
+                  </p>
+                </>
               ) : (
                 <NotEnoughData
                   have={series.points.length}
@@ -526,10 +575,6 @@ function NpsCsatTracker() {
                   what="the trend"
                 />
               )}
-              <p className="mt-2 text-xs text-sub">
-                A hollow dot is a {by} with fewer than {MIN_SAMPLE.surveyPeriod} responses of its
-                kind: one answer moves it by 100 ÷ n points.
-              </p>
             </SectionCard>
 
             {(mkNps || mkCsat) && (
@@ -605,9 +650,10 @@ function NpsCsatTracker() {
                 <p className="mt-2 text-xs text-sub">
                   Unhappy: NPS detractors (0–6) and CSAT 1–2. A tag&apos;s score shows from{" "}
                   {MIN_SAMPLE.surveyPeriod} responses.{" "}
-                  {tags[0].unhappy >= 3 && (
+                  {pointer && (
                     <>
-                      Most unhappy answers mention “{tags[0].tag}”:{" "}
+                      In the last {RECENT_DAYS} days, most unhappy answers mention “{pointer.tag}” (
+                      {pointer.unhappy}):{" "}
                       <Link
                         href="/hypothesis-tracker"
                         className="font-medium text-accent hover:underline"
@@ -641,7 +687,7 @@ function NpsCsatTracker() {
                 )}
               </div>
               <ResortChip isStale={order.isStale} onResort={order.resort} what="Dates" />
-              <ul className="space-y-2">
+              <ul ref={listRef} className="space-y-2">
                 {listed.map((r) => (
                   <ResponseRow
                     key={r.id}

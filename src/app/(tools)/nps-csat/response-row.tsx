@@ -26,6 +26,30 @@ export function categoryOf(r: NpsResponse): string {
   return c.charAt(0).toUpperCase() + c.slice(1);
 }
 
+/** One line, cut to `max` characters with an ellipsis. */
+function excerpt(s: string, max = 32): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+/**
+ * What a row's buttons call it: survey, score, day, and who answered or
+ * how the verbatim starts ("NPS 9 of 2026-10-03, ana@x.io"). An import
+ * puts many answers on one day, so the day alone named every button alike.
+ */
+export function responseName(r: NpsResponse): string {
+  const day = typeof r.date === "string" && r.date ? r.date.slice(0, 10) : "no date";
+  const who = r.respondent?.trim()
+    ? `, ${excerpt(r.respondent)}`
+    : r.verbatim?.trim()
+      ? `, “${excerpt(r.verbatim)}”`
+      : "";
+  return `${r.kind === "csat" ? "CSAT" : "NPS"} ${r.score} of ${day}${who}`;
+}
+
+/** A row's delete button, where the page moves focus after a delete (the next row's). */
+export const DELETE_SELECTOR = "[data-response-delete]";
+
 /**
  * One response: day, survey, score and what it counts as, the respondent
  * and the whole verbatim (both shown; the old row showed the verbatim or
@@ -61,6 +85,7 @@ export function ResponseRow({
   const day = typeof r.date === "string" && r.date ? r.date.slice(0, 10) : "No date";
   const kind = r.kind === "csat" ? "CSAT" : "NPS";
   const category = categoryOf(r);
+  const name = responseName(r);
 
   if (editing) {
     return (
@@ -69,6 +94,8 @@ export function ResponseRow({
           initial={responseDraft(r)}
           today={today}
           keepScore={r.score}
+          keepKind={r.kind === "csat" ? "csat" : "nps"}
+          autoFocus
           submitLabel="Save response"
           onSave={(values) => {
             onEdit(values);
@@ -95,16 +122,17 @@ export function ResponseRow({
         <span className="ml-auto flex items-center gap-1">
           <IconButton
             ref={editRef}
-            label={`Edit the ${kind} response of ${day}`}
+            label={`Edit ${name}`}
             icon={<Pencil className="h-3.5 w-3.5" />}
             onClick={() => setEditing(true)}
             className="text-sub hover:text-text"
           />
           <IconButton
-            label={`Remove ${kind} response from ${day}`}
+            label={`Remove ${name}`}
             icon={<Trash2 className="h-3.5 w-3.5" />}
             onClick={onDelete}
             className="text-sub hover:text-danger"
+            data-response-delete=""
           />
         </span>
       </div>

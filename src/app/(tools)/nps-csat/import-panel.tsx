@@ -25,7 +25,8 @@ const rowsText = (n: number) => (n === 1 ? "1 row" : `${n} rows`);
  * "Import responses": a CSV file or rows pasted from a spreadsheet,
  * previewed before anything is saved: how many are ready, which are
  * copies of stored responses (skipped), and which rows can't be read and
- * why. A file with no kind column needs NPS or CSAT picked for all of it.
+ * why. A file with no kind column needs NPS or CSAT picked for all of it,
+ * and each new file (or text cleared or pasted over) is picked afresh.
  */
 export function ImportPanel({
   existing,
@@ -63,6 +64,8 @@ export function ImportPanel({
       setFileName(file.name);
       setFileError(null);
       setTried(false);
+      // Another file: its survey is picked again, never carried over from the last.
+      setKind(null);
     } catch {
       setFileError("That file couldn't be read.");
     }
@@ -106,6 +109,12 @@ export function ImportPanel({
               setText(e.target.value);
               setFileName(null);
               setTried(false);
+              if (!e.target.value.trim()) setKind(null);
+            }}
+            onPaste={(e) => {
+              // Rows pasted over the whole text are another file: pick its survey again.
+              const t = e.currentTarget;
+              if (t.selectionStart === 0 && t.selectionEnd === t.value.length) setKind(null);
             }}
             className="font-data text-xs"
             placeholder={"date,score,verbatim\n2026-10-03,9,Quick delivery"}
