@@ -180,4 +180,57 @@ describe.each([
     await run("workspace.backlog_item.update", { id: LEGACY.id, patch: { name: "Old" } }, onServer);
     expect(stored(LEGACY.id, onServer)).toEqual(LEGACY);
   });
+
+  // An update judges the patch against what the item reads as, as the
+  // hub's saveBacklogItem does: a value the caller sends is a choice, also
+  // one equal to a stored old default (which reads as Not scored).
+  it("keeps a stored old default the patch sends again: the caller chose it", async () => {
+    seed(LEGACY, onServer);
+    await run(
+      "workspace.backlog_item.update",
+      { id: LEGACY.id, patch: { moscow: "should" } },
+      onServer
+    );
+    const item = stored(LEGACY.id, onServer)!;
+    expect(item.moscow).toBe("should");
+    expect(item.updatedAt).toBeTruthy();
+    expect(readBacklogItem(item).moscow).toBe("should");
+    // Sent with another change, it stays too.
+    seed(LEGACY, onServer);
+    await run(
+      "workspace.backlog_item.update",
+      { id: LEGACY.id, patch: { moscow: "should", name: "Renamed" } },
+      onServer
+    );
+    expect(stored(LEGACY.id, onServer)).toMatchObject({ name: "Renamed", moscow: "should" });
+  });
+
+  it("places an old 5/5 item given a value and its old effort", async () => {
+    seed(LEGACY, onServer);
+    await run(
+      "workspace.backlog_item.update",
+      { id: LEGACY.id, patch: { businessValue: 8, matrixEffort: 5 } },
+      onServer
+    );
+    const item = stored(LEGACY.id, onServer)!;
+    expect(item).toMatchObject({ businessValue: 8, matrixEffort: 5 });
+    expect(evaluateItemIn(item, [], "value-effort").bucket).toBe("quick_wins");
+  });
+
+  it("scores WSJF when the patch sends all four parts, the old 5s included", async () => {
+    seed(LEGACY, onServer);
+    await run(
+      "workspace.backlog_item.update",
+      {
+        id: LEGACY.id,
+        patch: { businessValue: 5, timeCriticality: 5, riskReduction: 5, jobSize: 5 },
+      },
+      onServer
+    );
+    const item = stored(LEGACY.id, onServer)!;
+    expect(evaluateItemIn(item, [], "wsjf").score).toBe(3);
+    // The methods the patch didn't touch lose their old defaults.
+    expect(item).not.toHaveProperty("moscow");
+    expect(item).not.toHaveProperty("reach");
+  });
 });

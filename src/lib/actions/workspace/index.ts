@@ -45,7 +45,7 @@ import {
   serverGetEntity,
   serverListEntities,
 } from "../server-store";
-import { applyItemPatch, rowsUnlinkedFrom } from "@/lib/prioritization/binding";
+import { applyItemPatch, itemPatchChanges, rowsUnlinkedFrom } from "@/lib/prioritization/binding";
 import { method, type Values } from "@/lib/prioritization/methods";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
@@ -3046,10 +3046,15 @@ const PRIORITIZATION_KIND = "workspace:prioritization";
 /** The methods whose rules judge a backlog item's inputs (MoSCoW's bucket is the schema's enum). */
 const CHECKED_BACKLOG_METHODS = ["wsjf", "rice", "value-effort"] as const;
 
+/** The engine's own keys: never something a write sets. */
+const ENGINE_KEYS = new Set(["id", "updatedAt"]);
+
 /**
  * What `next` sets differently from the stored item: each changed key with
  * its new value, and a key `next` no longer holds as undefined (a clear).
- * The id and `updatedAt` are the engine's, never a change.
+ * The id and `updatedAt` are the engine's, never a change. For a write
+ * without the caller's patch at hand; an update judges the patch itself
+ * (patchedFields).
  */
 function backlogItemChanges(next: BacklogItem, current: BacklogItem): Partial<BacklogItem> {
   const a = next as unknown as Record<string, unknown>;
@@ -3057,7 +3062,26 @@ function backlogItemChanges(next: BacklogItem, current: BacklogItem): Partial<Ba
   const out: Record<string, unknown> = {};
   const keys = Object.keys(b).concat(Object.keys(a).filter((k) => !(k in b)));
   for (const key of keys) {
-    if (key !== "id" && key !== "updatedAt" && a[key] !== b[key]) out[key] = a[key];
+    if (!ENGINE_KEYS.has(key) && a[key] !== b[key]) out[key] = a[key];
+  }
+  return out as Partial<BacklogItem>;
+}
+
+/**
+ * The fields an update's patch sets, as validated (`next` is the patch
+ * merged over the stored item): every key the caller sent, also one equal
+ * to what the item stores, so a stored old default sent again is a choice,
+ * as the hub's saveBacklogItem takes it. A key the schema doesn't know
+ * (dropped from `next`) and the engine's keys are left out.
+ */
+function patchedFields(
+  next: BacklogItem,
+  patch: Readonly<Record<string, unknown>>
+): Partial<BacklogItem> {
+  const valid = next as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    if (!ENGINE_KEYS.has(key) && key in valid) out[key] = valid[key];
   }
   return out as Partial<BacklogItem>;
 }
@@ -3108,19 +3132,34 @@ function backlogInputProblems(set: Partial<BacklogItem>, current?: BacklogItem):
  * The item as the engine saves it, the server twin of the hub's
  * saveBacklogItem: the inputs a write sets are checked first (nothing is
  * saved on a problem), a create is stamped as createBacklogItem stamps it,
- * and an update applies what changed through applyItemPatch, which clears
- * the untouched old-default fingerprints, drops the legacy `value` when
- * businessValue is written and stamps `updatedAt` (lib/prioritization/
- * defaults reads an unstamped item's old defaults as Not scored). An
- * update that changes nothing leaves the item as it is.
+ * and an update takes each key the patch sets that differs from what the
+ * item reads as (itemPatchChanges: a stored old default sent again is a
+ * choice; a value equal to what it reads is no change) and applies them
+ * through applyItemPatch, which clears the old-default fingerprints in
+ * every method, drops the legacy `value` when businessValue is written and
+ * stamps `updatedAt` (lib/prioritization/defaults reads an unstamped
+ * item's old defaults as Not scored). An update that changes nothing
+ * leaves the item as it is.
  */
-function prepareBacklogItem(next: BacklogItem, current: BacklogItem | undefined): BacklogItem {
-  const set = current ? backlogItemChanges(next, current) : next;
-  if (current && Object.keys(set).length === 0) return current;
+function prepareBacklogItem(
+  next: BacklogItem,
+  current: BacklogItem | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): BacklogItem {
+  const now = new Date().toISOString();
+  if (!current) {
+    const problems = backlogInputProblems(next);
+    if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
+    return { ...next, updatedAt: now };
+  }
+  const set = itemPatchChanges(
+    current,
+    patch ? patchedFields(next, patch) : backlogItemChanges(next, current)
+  );
+  if (Object.keys(set).length === 0) return current;
   const problems = backlogInputProblems(set, current);
   if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
-  const now = new Date().toISOString();
-  return current ? applyItemPatch(current, set, now) : { ...next, updatedAt: now };
+  return applyItemPatch(current, set, now);
 }
 
 // Create and update go through the engine (prepareBacklogItem), as the
