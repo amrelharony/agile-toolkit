@@ -4,10 +4,11 @@ import { buildWorkspaceContext } from "./cross-tool-context";
 import type { Workspace } from "../stores/workspace-types";
 import { COST_OF_DELAY } from "../prioritization/methods";
 import { formatNumber, toNumber } from "../prioritization/methods/fields";
-import { COD_URGENCY_LABEL, type CodUrgency } from "../prioritization/methods/cost-of-delay";
 import type { RankedRow } from "../prioritization/rank";
 import { todayIso } from "../sprints/series";
 import {
+  LANE_HEADING,
+  LANE_ORDER,
   fixedDateStart,
   laneOf,
   startText,
@@ -28,8 +29,9 @@ interface CostOfDelayData {
 /**
  * The AI prompt over the queue as the page shows it: CD3 = cost of delay
  * per week ÷ duration in weeks (the registry's score and rounding), the
- * urgency lanes and the fixed-date starts. A legacy row (per week × weeks
- * delayed, no duration) reads "Not scored", never a CD3 or a summed total.
+ * urgency lanes in the page's order and words (its lane headings) and the
+ * fixed-date starts. A legacy row (per week × weeks delayed, no duration)
+ * reads "Not scored", never a CD3 or a summed total.
  */
 export function generateCostOfDelayPrompts(
   data: CostOfDelayData,
@@ -39,14 +41,6 @@ export function generateCostOfDelayPrompts(
   if (rows.length === 0) return [];
   const today = data.today ?? todayIso();
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const lane = (r: RankedRow) => {
-    const id = laneOf(r);
-    return id === "unscored"
-      ? "Not scored (no duration)"
-      : id === "none"
-        ? "No profile"
-        : COD_URGENCY_LABEL[id as CodUrgency];
-  };
   const table = formatTable(
     ["Initiative", "$ per week", "Weeks of work", "CD3", "Lane", "Fixed date"],
     rows.slice(0, 20).map((r) => {
@@ -58,7 +52,8 @@ export function generateCostOfDelayPrompts(
         perWeek === undefined ? "—" : `$${formatNumber(perWeek, 2)}`,
         weeks === undefined ? "—" : formatNumber(weeks, 2),
         r.result.score === null ? "—" : COST_OF_DELAY.format(r.result.score),
-        lane(r),
+        // The heading of the lane the page lists the row under.
+        LANE_HEADING[laneOf(r)],
         start ? startText(start, today) : "",
       ];
     })
@@ -75,7 +70,7 @@ export function generateCostOfDelayPrompts(
       prompt:
         buildPreamble(
           "Cost of Delay (CD3)",
-          "It scores each initiative as CD3 = cost of delay per week ÷ duration in weeks, ordered in lanes: expedite, fixed date by latest start, standard and intangible by CD3."
+          `It scores each initiative as CD3 = cost of delay per week ÷ duration in weeks, ordered in lanes, first to last, each heading saying what orders it: ${LANE_ORDER.map((id) => LANE_HEADING[id]).join("; ")}.`
         ) +
         `Waiting costs $${formatNumber(perWeek, 2)} per week across ${count} scored initiatives.\n\n## Initiatives\n\n${wrapUserContent(verdict + table + note)}\n` +
         context +

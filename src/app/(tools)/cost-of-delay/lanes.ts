@@ -10,8 +10,8 @@ import type { RankedRow } from "@/lib/prioritization/rank";
 /** A lane on the page: an urgency profile, "no profile yet", or "not scored". */
 export type LaneId = CodUrgency | "none" | "unscored";
 
-/** What each lane is ordered by, in the lane heading. */
-const LANE_HEADING: Record<LaneId, string> = {
+/** What each lane is ordered by, in the lane heading (the AI prompt quotes it too). */
+export const LANE_HEADING: Record<LaneId, string> = {
   expedite: `${COD_URGENCY_LABEL.expedite}: do now`,
   fixed_date: `${COD_URGENCY_LABEL.fixed_date}: by latest start`,
   standard: `${COD_URGENCY_LABEL.standard}: by CD3`,
@@ -21,7 +21,7 @@ const LANE_HEADING: Record<LaneId, string> = {
 };
 
 /** The lanes in the registry's order (expedite, fixed date, standard, no profile, intangible), unscored last. */
-const LANE_ORDER: readonly LaneId[] = [
+export const LANE_ORDER: readonly LaneId[] = [
   "expedite",
   "fixed_date",
   "standard",
