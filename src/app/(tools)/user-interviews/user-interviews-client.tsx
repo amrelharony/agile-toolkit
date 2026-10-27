@@ -306,14 +306,11 @@ export function UserInterviewsClient() {
       toolName: "User Interview Log",
       // The prompt follows the toggle: anonymised interviews when it is on.
       prompts: generateUserInterviewsPrompts(
-        {
-          interviews: forExport(interviews, anonymise),
-          tagFrequency: themes.map((t) => [t.tag, t.participants] as [string, number]),
-        },
+        { interviews: forExport(interviews, anonymise), anonymised: anonymise },
         workspace
       ),
     }),
-    [interviews, anonymise, themes, workspace]
+    [interviews, anonymise, workspace]
   );
 
   return (
