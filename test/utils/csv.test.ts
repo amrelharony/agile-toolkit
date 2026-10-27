@@ -22,6 +22,28 @@ describe("parseCsv", () => {
     expect(parseCsv('"""quoted"""')).toEqual([['"quoted"']]);
   });
 
+  it("a stray quote inside a cell is a literal: the rows after it stay rows", () => {
+    expect(
+      parseCsv('kind,score,verbatim\nnps,7,Screen is 27" wide\nnps,9,Great\nnps,3,Slow')
+    ).toEqual([
+      ["kind", "score", "verbatim"],
+      ["nps", "7", 'Screen is 27" wide'],
+      ["nps", "9", "Great"],
+      ["nps", "3", "Slow"],
+    ]);
+    const rows = parseCsvRows('a,5" x 3"\nb,ok');
+    expect(rows).toEqual([
+      { line: 1, cells: ["a", '5" x 3"'] },
+      { line: 2, cells: ["b", "ok"] },
+    ]);
+  });
+
+  it("quotes inside an unquoted cell keep their place", () => {
+    expect(parseCsv('a,I "love" it')).toEqual([["a", 'I "love" it']]);
+    expect(parseCsv('a,"quoted" then more\nb')).toEqual([["a", "quoted then more"], ["b"]]);
+    expect(parseCsv('x,"",y')).toEqual([["x", "", "y"]]);
+  });
+
   it("splits on CRLF, LF and CR alike, and keeps a line break inside quotes", () => {
     expect(parseCsv("a,b\r\nc,d\re,f\ng,h")).toEqual([
       ["a", "b"],
@@ -82,6 +104,9 @@ describe("helpers", () => {
     expect(sniffDelimiter("\n\na\tb\tc")).toBe("\t");
     expect(sniffDelimiter("a;b;c")).toBe(";");
     expect(sniffDelimiter('"a;b;c",d')).toBe(",");
+    expect(sniffDelimiter('"a""b;c;d",e')).toBe(",");
+    // A stray inch mark doesn't hide the tabs after it.
+    expect(sniffDelimiter('27" screen\tsize\tnote')).toBe("\t");
     expect(sniffDelimiter("one column")).toBe(",");
     expect(sniffDelimiter("")).toBe(",");
   });

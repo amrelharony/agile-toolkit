@@ -6,7 +6,9 @@
  *
  * Handles quoted cells with embedded delimiters, line breaks and doubled
  * quotes (`"He said ""hi"""` is `He said "hi"`), CRLF / LF / CR line
- * endings, a leading byte-order mark, and blank lines (dropped). Cells are
+ * endings, a leading byte-order mark, and blank lines (dropped). A quote
+ * opens a quoted cell only as the cell's first character (RFC 4180);
+ * anywhere else it is kept as written (`27" wide`, `I "love" it`). Cells are
  * kept as written, untrimmed; ragged rows keep their own length (`padRows`
  * evens them out for a table). A spreadsheet paste is tab-separated:
  * `sniffDelimiter` tells which. Pure; server-safe.
@@ -35,6 +37,10 @@ export function parseCsvRows(input: string, delimiter: CsvDelimiter = ","): CsvR
   let row: string[] = [];
   let cell = "";
   let inQuotes = false;
+  // Nothing of the current cell read yet: only here does a quote open a
+  // quoted cell. Anywhere else it is a literal (an inch mark, `I "love" it`),
+  // so one stray quote in a verbatim can't swallow the rows after it.
+  let atCellStart = true;
   let line = 1;
   let rowLine = 1;
   const endRow = () => {
@@ -42,6 +48,7 @@ export function parseCsvRows(input: string, delimiter: CsvDelimiter = ","): CsvR
     if (row.some((c) => c.trim().length > 0)) rows.push({ line: rowLine, cells: row });
     row = [];
     cell = "";
+    atCellStart = true;
   };
   let i = 0;
   while (i < s.length) {
@@ -63,14 +70,16 @@ export function parseCsvRows(input: string, delimiter: CsvDelimiter = ","): CsvR
       i += 1;
       continue;
     }
-    if (ch === '"') {
+    if (ch === '"' && atCellStart) {
       inQuotes = true;
+      atCellStart = false;
       i += 1;
       continue;
     }
     if (ch === delimiter) {
       row.push(cell);
       cell = "";
+      atCellStart = true;
       i += 1;
       continue;
     }
@@ -82,6 +91,7 @@ export function parseCsvRows(input: string, delimiter: CsvDelimiter = ","): CsvR
       continue;
     }
     cell += ch;
+    atCellStart = false;
     i += 1;
   }
   if (cell.length > 0 || row.length > 0) endRow();
@@ -105,16 +115,26 @@ export function padRows(rows: readonly (readonly string[])[]): string[][] {
 /**
  * The delimiter of the first non-blank line: the one of comma, tab and
  * semicolon that occurs most outside quotes; a comma when none does (a
- * one-column file).
+ * one-column file). As in `parseCsvRows`, a quote opens a quoted part only
+ * at the start of a cell (the line's start, or right after one of the
+ * three), so a stray inch mark doesn't hide the delimiters after it.
  */
 export function sniffDelimiter(input: string): CsvDelimiter {
   const s = typeof input === "string" ? input.replace(/^﻿/, "") : "";
   const first = s.split(/\r\n|\n|\r/).find((l) => l.trim().length > 0) ?? "";
   const counts = new Map<CsvDelimiter, number>(DELIMITERS.map((d) => [d, 0]));
   let inQuotes = false;
-  for (const ch of first) {
-    if (ch === '"') inQuotes = !inQuotes;
-    else if (!inQuotes && counts.has(ch as CsvDelimiter)) {
+  for (let i = 0; i < first.length; i++) {
+    const ch = first[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        // A doubled quote is a literal one; a single one ends the quoted part.
+        if (first[i + 1] === '"') i += 1;
+        else inQuotes = false;
+      }
+    } else if (ch === '"' && (i === 0 || counts.has(first[i - 1] as CsvDelimiter))) {
+      inQuotes = true;
+    } else if (counts.has(ch as CsvDelimiter)) {
       counts.set(ch as CsvDelimiter, (counts.get(ch as CsvDelimiter) ?? 0) + 1);
     }
   }
