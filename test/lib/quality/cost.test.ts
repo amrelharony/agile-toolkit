@@ -7,7 +7,8 @@
  *   3. normalizeQualityCostState — legacy blobs, bad values, idempotent.
  *   4. legacyCosts — a first run vs figures typed before periods.
  *   5. failureShareTrend + verdict — one quarter, the change, the trend gate.
- *   6. costPeriodErrors — quarter, duplicate, no cost, bad amount.
+ *   6. costPeriodErrors — quarter (a whole one: "2026-Q10" refused),
+ *      duplicate, no cost, bad amount.
  */
 
 import { describe, expect, it } from "vitest";
@@ -16,6 +17,7 @@ import {
   QUALITY_COST_KEY,
   costBreakdown,
   costPeriodErrors,
+  costPeriodQuarter,
   costsWithHours,
   failureShareTrend,
   failureShareVerdict,
@@ -23,6 +25,7 @@ import {
   legacyCosts,
   newQualityCostPeriodId,
   normalizeQualityCostState,
+  typedCostQuarter,
   withoutLegacyCosts,
   type QualityCostPeriod,
 } from "@/lib/quality/cost";
@@ -293,6 +296,23 @@ describe("costPeriodErrors", () => {
     expect(costPeriodErrors({ period: "next sprint", costs: { detection: "5" } }, [])).toEqual({
       period: "Pick a quarter, such as 2026-Q3.",
     });
+  });
+
+  it("reads only a whole quarter, never one found inside other text", () => {
+    const bad = { period: "Pick a quarter, such as 2026-Q3." };
+    // "2026-Q10" would read as 2026-Q1 through quarterIndex: refused, not saved as Q1.
+    for (const typed of ["2026-Q10", "2026-Q3 budget", "FY2026-Q3", "1800-Q1", "2026-Q5"]) {
+      expect(costPeriodErrors({ period: typed, costs: { prevention: 1 } }, []), typed).toEqual(bad);
+    }
+    for (const typed of ["2026-Q4", " 2026 q4 ", "2026Q4", "Q4 2026", "Q4-2026"]) {
+      expect(costPeriodErrors({ period: typed, costs: { prevention: 1 } }, logged), typed).toEqual(
+        {}
+      );
+      expect(typedCostQuarter(typed)).toBe("2026-Q4");
+    }
+    expect(typedCostQuarter(undefined)).toBeNull();
+    // A stored row stays lenient: normalising keeps its place.
+    expect(costPeriodQuarter("2026 Q3")).toBe("2026-Q3");
   });
 
   it("refuses a quarter already logged, except the one being edited", () => {

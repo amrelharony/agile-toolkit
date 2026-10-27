@@ -114,10 +114,29 @@ function figuresOf(raw: unknown): CostFigures {
   return out;
 }
 
-/** The quarter of a stored period as the dash form, or null when it can't be read. */
+/**
+ * The quarter of a stored period as the dash form, or null when it can't be
+ * read. Lenient, as quarterIndex is ("2026 Q3", "Q3 2026"), so a stored row
+ * keeps its place; a typed quarter goes through typedCostQuarter instead.
+ */
 export function costPeriodQuarter(period: unknown): string | null {
   const q = typeof period === "string" ? quarterIndex(period) : 0;
   return q === 0 ? null : dashQuarter(q);
+}
+
+/** A whole value that is a quarter: "2026-Q3", "2026 Q3", "2026Q3", "Q3 2026" (any case). */
+const QUARTER_SPELLING = /^(?:\d{4}[\s-]*Q[1-4]|Q[1-4][\s-]*\d{4})$/i;
+
+/**
+ * A quarter a person or an agent typed, as the dash form; null unless the
+ * whole value is one. Stricter than costPeriodQuarter, whose quarterIndex
+ * finds a quarter inside other text ("2026-Q10" reads as 2026-Q1), so a
+ * slip is refused rather than saved as a different quarter.
+ */
+export function typedCostQuarter(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const v = input.trim();
+  return QUARTER_SPELLING.test(v) ? costPeriodQuarter(v) : null;
 }
 
 function normalizePeriod(raw: unknown): QualityCostPeriod | null {
@@ -347,9 +366,11 @@ export function newQualityCostPeriodId(): string {
 export type CostPeriodField = "period" | CostCategory;
 
 /**
- * Why a quarter's draft can't be saved: no quarter, one already logged
- * (other than `editingId`), no cost at all (the error sits on the first
- * category), or an amount that isn't a number of 0 or more.
+ * Why a quarter's draft can't be saved: no quarter, a value that isn't a
+ * whole quarter (typedCostQuarter: "2026-Q10" is refused, not read as Q1),
+ * one already logged (other than `editingId`), no cost at all (the error
+ * sits on the first category), or an amount that isn't a number of 0 or
+ * more.
  */
 export function costPeriodErrors(
   draft: {
@@ -360,7 +381,7 @@ export function costPeriodErrors(
   editingId?: string
 ): FormErrors<CostPeriodField> {
   const errors: FormErrors<CostPeriodField> = {};
-  const quarter = costPeriodQuarter(draft.period);
+  const quarter = typedCostQuarter(draft.period);
   if (!draft.period || !draft.period.trim())
     errors.period = "Pick the quarter these figures are for.";
   else if (quarter === null) errors.period = "Pick a quarter, such as 2026-Q3.";
