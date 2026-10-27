@@ -28,6 +28,9 @@ export interface NodeCardProps {
   node: TreeNode;
   /** An experiment's hypothesis, read from the tracker. */
   test: LinkedTest;
+  /** An experiment that gives the hypothesis words: it, or the solution above it, has text. */
+  testable: boolean;
+  /** An example node takes nothing of the user's: "Clear example" would leave it orphaned. */
   example: boolean;
   onSave: (node: TreeNode, values: NodeValues) => void;
   onAdd: (parent: TreeNode, kind: TreeNodeKind, values: NodeValues) => void;
@@ -41,6 +44,7 @@ type Mode = { name: "view" } | { name: "edit" } | { name: "add"; kind: TreeNodeK
 export function NodeCard({
   node,
   test,
+  testable,
   example,
   onSave,
   onAdd,
@@ -162,6 +166,8 @@ export function NodeCard({
               Target
             </Button>
           )}
+          {/* Off on an example node: a node of the user's under it would be left
+              without its parent by "Clear example". */}
           {(CHILD_KINDS[kind] ?? []).map((child) => (
             <Button
               key={child}
@@ -172,6 +178,7 @@ export function NodeCard({
               size="sm"
               variant="ghost"
               className="min-touch-coarse gap-1 text-xs text-sub hover:bg-accent/10 hover:text-text"
+              disabled={example}
               aria-label={`${addLabel(kind, child)} under ${title}`}
               onClick={() => setMode({ name: "add", kind: child })}
             >
@@ -179,6 +186,11 @@ export function NodeCard({
               {addLabel(kind, child)}
             </Button>
           ))}
+          {example && kind === "outcome" && (
+            <span className="text-xs text-sub">
+              The example takes nothing new: use “Add outcome” to start your own tree.
+            </span>
+          )}
           {kind === "experiment" &&
             (sent ? (
               <Link
@@ -198,17 +210,23 @@ export function NodeCard({
                   size="sm"
                   variant="outline"
                   className="gap-1 text-xs"
-                  disabled={example}
-                  aria-label={`Test ${title} as a hypothesis`}
+                  disabled={example || !testable}
+                  // The visible words first, so speech input can say them.
+                  aria-label={`Test as a hypothesis: ${title}`}
                   onClick={() => onTest(node)}
                 >
                   <FlaskConical className="h-4 w-4" aria-hidden="true" />
                   Test as a hypothesis
                 </Button>
-                {example && (
+                {example ? (
                   <span className="text-xs text-sub">
                     Example experiments stay out of the Hypothesis Tracker.
                   </span>
+                ) : (
+                  !testable && (
+                    // An older page saved blank nodes: nothing to believe yet.
+                    <span className="text-xs text-sub">Name the experiment first (Edit).</span>
+                  )
                 )}
               </>
             ))}

@@ -102,14 +102,18 @@ export interface SubtreeSummary {
   below: Partial<Record<TreeNodeKind, number>>;
   /** Job stories (JTBD) that link to a node that goes. */
   jobs: number;
-  /** Experiments that go and were sent to the Hypothesis Tracker: those hypotheses stay. */
+  /**
+   * Experiments that go whose hypothesis is still in the Hypothesis Tracker
+   * (`hypotheses`): those hypotheses stay. One deleted there since isn't counted.
+   */
   sentExperiments: number;
 }
 
 export function subtreeSummary(
   nodes: readonly TreeNode[],
   id: string,
-  jobs: readonly Pick<JobStory, "opportunityId">[] = []
+  jobs: readonly Pick<JobStory, "opportunityId">[] = [],
+  hypotheses: readonly Pick<Hypothesis, "id" | "status">[] = []
 ): SubtreeSummary {
   const ids = subtreeIds(nodes, id);
   const below: Partial<Record<TreeNodeKind, number>> = {};
@@ -117,7 +121,7 @@ export function subtreeSummary(
   for (const n of nodes) {
     if (!ids.has(n.id)) continue;
     if (n.id !== id) below[kindOf(n)] = (below[kindOf(n)] ?? 0) + 1;
-    if ((n.sentTo ?? []).some((l) => l.route === "hypothesis")) sentExperiments += 1;
+    if (linkedTest(n.sentTo, hypotheses).state !== "none") sentExperiments += 1;
   }
   return {
     ids,
@@ -125,6 +129,30 @@ export function subtreeSummary(
     jobs: jobs.filter((j) => j.opportunityId && ids.has(j.opportunityId)).length,
     sentExperiments,
   };
+}
+
+/**
+ * The tree after an Undo puts a deleted branch back (`after`), kept to one
+ * target per outcome: a target in the branch gives way to one picked under
+ * the same outcome while it was gone (`before`, the tree without it). On
+ * the delete itself nothing comes back, so nothing changes.
+ */
+export function keepOneTargetPerOutcome(
+  before: readonly TreeNode[],
+  after: readonly TreeNode[]
+): TreeNode[] {
+  const had = new Set(before.map((n) => n.id));
+  const byId = new Map(after.map((n) => [n.id, n]));
+  const groupOf = (n: TreeNode) => outcomeOf(n, byId)?.id ?? null;
+  const taken = new Set(
+    after.filter((n) => had.has(n.id) && n.kind === "opportunity" && n.target).map(groupOf)
+  );
+  return after.map((n) => {
+    if (had.has(n.id) || n.kind !== "opportunity" || !n.target || !taken.has(groupOf(n))) return n;
+    const next = { ...n };
+    delete next.target;
+    return next;
+  });
 }
 
 /** "Delete “X” with 2 solutions and 3 experiments?" */

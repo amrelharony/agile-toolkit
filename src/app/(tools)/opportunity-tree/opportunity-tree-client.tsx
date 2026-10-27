@@ -54,6 +54,7 @@ import {
   deleteNote,
   deleteQuestion,
   drawTree,
+  keepOneTargetPerOutcome,
   subtreeSummary,
   treeVerdict,
 } from "./view";
@@ -221,7 +222,9 @@ export function OpportunityTreeClient() {
         count > 1
           ? `Deleted “${nodeTitle(node)}” and ${count - 1} below it`
           : `Deleted “${nodeTitle(node)}”`,
-      update: updateNodes,
+      // Undo puts the branch back; a target in it gives way to one picked
+      // under the same outcome meanwhile, so an outcome keeps one target.
+      update: (fn) => updateNodes((list) => keepOneTargetPerOutcome(list, fn(list))),
       match: (n) => summary.ids.has(n.id),
     });
     record(node.id, OPPORTUNITY_TREE_ACTIONS.NODE_REMOVED, {
@@ -296,6 +299,10 @@ export function OpportunityTreeClient() {
         <NodeCard
           node={node}
           test={linkedTest(node.sentTo, hypotheses)}
+          testable={
+            node.kind === "experiment" &&
+            experimentHypothesisSource(node, nodes).title.trim().length > 0
+          }
           example={isExampleId(node.id)}
           onSave={save}
           onAdd={(parent, kind, values) => add(parent, kind, values)}
@@ -318,7 +325,7 @@ export function OpportunityTreeClient() {
     );
   };
 
-  const pending = pendingDelete ? subtreeSummary(nodes, pendingDelete.id, jobs) : null;
+  const pending = pendingDelete ? subtreeSummary(nodes, pendingDelete.id, jobs, hypotheses) : null;
 
   return (
     <ToolPageWrapper

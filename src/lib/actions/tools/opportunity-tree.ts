@@ -173,6 +173,9 @@ async function addNode(store: TreeStore, p: z.infer<typeof AddSchema>) {
   const parentId = p.parentId ?? null;
   const parent = parentId === null ? null : nodes.find((n) => n.id === parentId);
   if (parent === undefined) return { added: false, reason: "parent_not_found" };
+  // "Clear example" removes the example's nodes only: one added under them
+  // would be left without its parent. The page offers no "Add …" there.
+  if (parent && isExampleId(parent.id)) return { added: false, reason: "example" };
   if (!canParent(parent, p.kind)) {
     const fits = parent ? CHILD_KINDS[parent.kind] : ROOT_KINDS;
     const what = aKind(p.kind);
@@ -207,7 +210,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add a node to the tree where its kind may go: at the root (parentId omitted/null) an outcome or an opportunity (one under no outcome); under an outcome, an opportunity; under an opportunity, a smaller opportunity or a solution; under a solution, an experiment. Text up to 2000 characters. Returns {added: true, id} or {added: false, reason: 'parent_not_found' | 'kind', message?}.",
+    "Add a node to the tree where its kind may go: at the root (parentId omitted/null) an outcome or an opportunity (one under no outcome); under an outcome, an opportunity; under an opportunity, a smaller opportunity or a solution; under a solution, an experiment. Text up to 2000 characters. Returns {added: true, id} or {added: false, reason: 'parent_not_found' | 'example' (the parent is an example node, id starting 'example-': 'Clear example' would orphan the new one) | 'kind', message?}.",
   paramsSchema: AddSchema,
   handler: async (params) => addNode(browserStore, params),
   mcpHandler: async (params, ctx) => addNode(serverStore(ctx.userId), params),

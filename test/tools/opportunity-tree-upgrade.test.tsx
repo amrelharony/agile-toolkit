@@ -47,6 +47,7 @@ import {
   deleteNote,
   deleteQuestion,
   drawTree,
+  keepOneTargetPerOutcome,
   subtreeSummary,
   treeVerdict,
 } from "@/app/(tools)/opportunity-tree/view";
@@ -143,7 +144,12 @@ describe("the node check and the tree as drawn", () => {
         ? { ...n, sentTo: [{ route: "hypothesis" as const, targetId: "h1", at: "2026-10-01" }] }
         : n
     );
-    const s = subtreeSummary(tree, "op1", [{ opportunityId: "op2" }, { opportunityId: "op3" }]);
+    const s = subtreeSummary(
+      tree,
+      "op1",
+      [{ opportunityId: "op2" }, { opportunityId: "op3" }],
+      [{ id: "h1", status: "running" }]
+    );
     expect(s.ids).toEqual(new Set(["op1", "op2", "s1", "e1"]));
     expect(deleteQuestion(tree[1], s)).toBe(
       "Delete “Leads can't see blocked work” with 1 opportunity, 1 solution and 1 experiment?"
@@ -304,7 +310,7 @@ describe("an experiment tested as a hypothesis", () => {
     seed(TREE);
     renderPage();
     fireEvent.click(
-      screen.getByRole("button", { name: "Test Email five leads a digest as a hypothesis" })
+      screen.getByRole("button", { name: "Test as a hypothesis: Email five leads a digest" })
     );
     expect(hypotheses()).toHaveLength(1);
     const h = hypotheses()[0];
@@ -453,5 +459,87 @@ describe("first run, example and export", () => {
     for (const f of readdirSync(dir)) {
       expect(readFileSync(path.join(dir, f), "utf8"), f).not.toMatch(/#[0-9a-f]{6}\b/i);
     }
+  });
+});
+
+describe("after review", () => {
+  it("keeps one target per outcome when Undo brings back a target picked over meanwhile", () => {
+    seed([
+      ...TREE.map((n) => (n.id === "op1" ? { ...n, target: true } : n)),
+      node("op4", "opportunity", "Too many tools", "o1"),
+    ]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Leads can't see blocked work" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    const deleted = toastSpy.mock.calls.length;
+    fireEvent.click(within(card("Too many tools")).getByRole("button", { name: /^Target: / }));
+    expect(one("op4")?.target).toBe(true);
+    // Undo the delete (not a later toast).
+    const opts = toastSpy.mock.calls[deleted - 1]?.[1] as { action: { onClick: () => void } };
+    act(() => opts.action.onClick());
+    expect(one("op1")).toBeDefined();
+    expect(one("op1")).not.toHaveProperty("target");
+    expect(one("op4")?.target).toBe(true);
+    // The other outcome's target was never touched.
+    expect(one("op3")?.target).toBe(true);
+    expect(screen.getAllByText("Target opportunity")).toHaveLength(2);
+  });
+
+  it("puts a branch's target back as it was when nothing took its place", () => {
+    const before = TREE.filter((n) => n.id !== "op3");
+    const back = keepOneTargetPerOutcome(before, TREE);
+    expect(back.find((n) => n.id === "op3")?.target).toBe(true);
+    // On the delete itself nothing comes back: nothing changes.
+    expect(keepOneTargetPerOutcome(TREE, before)).toEqual(before);
+  });
+
+  it("offers no “Add …” on example nodes, and the agent adds nothing under them", async () => {
+    seed(buildExample());
+    renderPage();
+    const adds = screen.getAllByRole("button", { name: /^Add (?!outcome$)/ });
+    expect(adds.length).toBeGreaterThan(0);
+    for (const b of adds) expect(b).toBeDisabled();
+    expect(screen.getByText(/use “Add outcome” to start your own tree/)).toBeInTheDocument();
+    const outcome = nodes().find((n) => n.kind === "outcome")!;
+    expect(
+      await run<{ added: boolean; reason?: string }>("add_node", {
+        kind: "opportunity",
+        text: "Mine",
+        parentId: outcome.id,
+      })
+    ).toEqual({ added: false, reason: "example" });
+    expect(nodes().every((n) => isExampleId(n.id))).toBe(true);
+  });
+
+  it("can't test an experiment that has no words, nor the solution above it", () => {
+    seed([
+      node("o1", "outcome", "Outcome", null),
+      node("op1", "opportunity", "Opportunity", "o1"),
+      node("s1", "solution", "", "op1"),
+      node("e1", "experiment", "", "s1"),
+      node("s2", "solution", "A digest", "op1"),
+      node("e2", "experiment", "", "s2"),
+    ]);
+    renderPage();
+    const [blank, named] = screen.getAllByRole("button", { name: /^Test as a hypothesis: / });
+    expect(blank).toBeDisabled();
+    expect(screen.getAllByText("Name the experiment first (Edit).")).toHaveLength(1);
+    // The solution's words are enough to believe.
+    expect(named).toBeEnabled();
+  });
+
+  it("names only the hypotheses still in the tracker in the delete note", () => {
+    const tree = TREE.map((n) =>
+      n.id === "e1"
+        ? { ...n, sentTo: [{ route: "hypothesis" as const, targetId: "gone", at: "2026-10-01" }] }
+        : n
+    );
+    seed(tree);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Leads can't see blocked work" }));
+    expect(screen.getByRole("dialog")).not.toHaveTextContent(/Hypothesis Tracker/);
+    expect(
+      subtreeSummary(tree, "op1", [], [{ id: "gone", status: "running" }]).sentExperiments
+    ).toBe(1);
   });
 });
