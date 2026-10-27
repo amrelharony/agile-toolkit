@@ -15,6 +15,7 @@ import {
   toScale,
 } from "@/lib/risks/model";
 import type { Risk } from "@/lib/stores/workspace-types";
+import { exportedRisks } from "./analysis";
 import type { ImpedimentState } from "./markdown";
 
 /** A change to a risk's fields; an optional field given as undefined or "" is removed. */
@@ -54,7 +55,10 @@ export function withStatus(r: Risk, status: Risk["status"], day: string): Risk {
   return status === "closed" ? { ...r, status, resolvedAt: day } : { ...r, status };
 }
 
-/** The register's CSV, in the register's order. */
+/**
+ * The register's CSV, in the register's order: the team's own risks while
+ * there are any (exportedRisks), as the Markdown lists them.
+ */
 export function risksCsv(
   risks: readonly Risk[],
   today: string,
@@ -80,7 +84,7 @@ export function risksCsv(
       "Closed",
       "Impediment",
     ],
-    rows: [...risks]
+    rows: exportedRisks(risks)
       .sort((a, b) => compareRisks(a, b, today))
       .map((r) => {
         const score = riskScore(r);

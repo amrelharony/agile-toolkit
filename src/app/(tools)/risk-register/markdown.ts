@@ -12,7 +12,7 @@ import {
   toScale,
 } from "@/lib/risks/model";
 import { todayIso } from "@/lib/sprints/series";
-import { countedRisks } from "./analysis";
+import { countedRisks, exportedRisks } from "./analysis";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -44,6 +44,8 @@ export interface RiskMarkdownOptions {
  * days overdue) with its owner, rating, the rating after mitigation, its
  * status, the plan and its due date (overdue days named), and whether it
  * was raised as an impediment. Scores and levels are lib/risks/model's.
+ * While the team has risks of its own the example's are left out, as
+ * every number leaves them out, and the counts line says how many.
  */
 export function toMarkdown(
   risks: readonly Risk[],
@@ -54,25 +56,28 @@ export function toMarkdown(
   if (risks.length === 0) return `${title}\n\nNo risks logged yet.\n`;
   const today = todayIso(now);
   const counted = countedRisks(risks);
+  const listed = exportedRisks(risks);
+  const left = risks.length - listed.length;
   const verdict = opts.verdict ?? riskVerdict(counted, today);
   const s = riskSummary(counted, today);
-  const ordered = [...risks].sort((a, b) => compareRisks(a, b, today));
-  const counts = RISK_STATUSES.map(
-    (st) => [st, risks.filter((r) => r.status === st).length] as const
-  )
-    .filter(([, n]) => n > 0)
-    .map(([st, n]) => `${n} ${st}`);
+  const ordered = listed.sort((a, b) => compareRisks(a, b, today));
+  // The counts are the summary's, over the same rows as the verdict and the exposure.
+  const counts = RISK_STATUSES.filter((st) => s.byStatus[st] > 0).map(
+    (st) => `${s.byStatus[st]} ${st}`
+  );
   const exposure =
     s.active > 0
       ? ` Exposure of the active risks: ${s.exposure} now, ${s.residualExposure} after mitigation (${s.residualAssessed} of ${s.active} assessed).`
       : "";
+  const leftOut =
+    left > 0 ? ` The example's ${left} ${left === 1 ? "risk is" : "risks are"} left out.` : "";
 
   const lines = [
     title,
     "",
     verdict,
     "",
-    `${risks.length} risk${risks.length === 1 ? "" : "s"}: ${counts.join(", ")}.${exposure}`,
+    `${s.total} risk${s.total === 1 ? "" : "s"}: ${counts.join(", ")}.${exposure}${leftOut}`,
     "",
     "## Risks in order",
     "",

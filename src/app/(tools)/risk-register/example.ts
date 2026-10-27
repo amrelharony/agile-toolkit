@@ -15,8 +15,10 @@ type Row = Omit<Risk, "id" | "raisedAt" | "resolvedAt" | "mitigationDueAt"> & {
  * three days overdue; the surprise is the single developer who knows the
  * checkout service, a close second. The security review risk is high and
  * has no owner, so the verdict calls it out. Two risks have a rating after
- * mitigation, two are closed and one is accepted, so the matrix's "after"
- * view, the chart and the time to mitigate have something to show.
+ * mitigation, three are closed and one is accepted, so the matrix's
+ * "after" view and the chart have something to show, and the median time
+ * to mitigate (it needs MIN_SAMPLE.average closed risks: 21 days here)
+ * shows, with the due day the New risk form suggests from it.
  */
 const ROWS: Row[] = [
   {
@@ -92,6 +94,16 @@ const ROWS: Row[] = [
     mitigation: "Pinned the analytics library and added an event smoke test.",
     raised: 27,
     resolved: 20,
+  },
+  {
+    title: "Design tokens drift between the web and app checkouts",
+    probability: 2,
+    impact: 1,
+    status: "closed",
+    owner: "Sam",
+    mitigation: "Both checkouts read their tokens from one shared package.",
+    raised: 44,
+    resolved: 31,
   },
 ];
 

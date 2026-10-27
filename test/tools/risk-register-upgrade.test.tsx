@@ -75,7 +75,7 @@ import {
   validateRiskDraft,
   type RiskDraft,
 } from "@/app/(tools)/risk-register/risk-form";
-import { withBlobValue } from "@/app/(tools)/risk-register/conflict-notice";
+import { conflictText, withBlobValue } from "@/app/(tools)/risk-register/conflict-notice";
 import { risksCsv, withPatch, withStatus } from "@/app/(tools)/risk-register/view";
 import { timeToClose as agentTimeToClose } from "@/lib/actions/tools/risk-register";
 import "@/lib/actions/tools/risk-register";
@@ -751,7 +751,7 @@ describe("the example", () => {
   it("loads into an empty register, counts as the register while alone, and clears with Undo", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
-    expect(ws().risks).toHaveLength(7);
+    expect(ws().risks).toHaveLength(8);
     expect(ws().risks.every((r) => r.id.startsWith("example-"))).toBe(true);
     expect(screen.getByText("Example data.")).toBeInTheDocument();
     expect(
@@ -765,12 +765,12 @@ describe("the example", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(ws().risks.map((r) => r.id)).toEqual(["mine"]);
     undoLast();
-    expect(ws().risks).toHaveLength(8);
+    expect(ws().risks).toHaveLength(9);
   });
 
   it("has owners, two residual ratings, one overdue and one high risk with no owner", () => {
     const ex = buildExample(new Date(2026, 9, 27));
-    expect(ex.filter((r) => r.owner).length).toBe(6);
+    expect(ex.filter((r) => r.owner).length).toBe(7);
     expect(ex.filter((r) => r.residualProbability !== undefined)).toHaveLength(2);
     expect(ex.filter((r) => riskDaysOverdue(r, TODAY) > 0).map((r) => r.id)).toEqual([
       "example-risk-1",
@@ -859,5 +859,170 @@ describe("page and agent parity", () => {
     expect(
       within(row("a")).getByRole("button", { name: "Owner: Sam. Change" })
     ).toBeInTheDocument();
+  });
+});
+
+/* ── After the review ───────────────────────────────────────────────── */
+
+describe("the example's time to mitigate", () => {
+  it("has three closed risks, so the median and the form's due-day suggestion show", () => {
+    const ex = buildExample(new Date(2026, 9, 27));
+    expect(ex.filter((r) => r.status === "closed")).toHaveLength(3);
+    expect(timeToClose(countedRisks(ex), TODAY)).toEqual({ closed: 3, medianDays: 21 });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(screen.getByText("21 days")).toBeInTheDocument();
+    expect(screen.getByText("Over 3 closed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "New risk" }));
+    expect(screen.getByText(/risks here take 21 days to/)).toBeInTheDocument();
+  });
+});
+
+describe("the exports beside the example", () => {
+  it("list and count only the team's risks, and say how many example risks are left out", () => {
+    const now = new Date(2026, 9, 27);
+    const list = [...buildExample(now), risk({ id: "mine", title: "Mine" })];
+    const md = toMarkdown(list, now);
+    expect(md).toContain(
+      "1 risk: 1 open. Exposure of the active risks: 9 now, 9 after mitigation (0 of 1 assessed). The example's 8 risks are left out."
+    );
+    expect(md).toContain("| 1 | Mine |");
+    expect(md).not.toContain("Payment provider");
+    expect(risksCsv(list, TODAY).rows.map((r) => r[0])).toEqual(["Mine"]);
+
+    // The example alone is the register: listed and counted.
+    const alone = toMarkdown(buildExample(now), now);
+    expect(alone).toContain("8 risks: 2 open, 2 mitigating, 1 accepted, 3 closed.");
+    expect(alone).not.toContain("left out");
+    expect(risksCsv(buildExample(now), TODAY).rows).toHaveLength(8);
+  });
+});
+
+describe("the conflict notice reads the register as it is now", () => {
+  const old = { id: "x", title: "Old title", probability: 5, impact: 3, status: "open" };
+  const notice = () =>
+    screen.queryByRole("region", { name: "Edited on the old Risk Register page" });
+  const setRisk = (patch: Partial<Risk>) =>
+    act(() =>
+      useWorkspaceStore.setState({
+        risks: ws().risks.map((r) => (r.id === "x" ? { ...r, ...patch } : r)),
+      })
+    );
+
+  it("shows an edit made while it is open, and Undo goes back to that value", async () => {
+    blob([{ ...old, raisedAt: ago(9) }]);
+    seed([risk({ id: "x", title: "New title", probability: 2, impact: 3, raisedAt: ago(9) })]);
+    migrationMode.value = "local";
+    renderPage();
+    await screen.findByRole("region", { name: "Edited on the old Risk Register page" });
+    // An agent rates it again while the notice is open.
+    setRisk({ probability: 4 });
+    expect(within(notice()!).getByText(conflictText("probability", 4))).toBeInTheDocument();
+    expect(within(notice()!).queryByText(conflictText("probability", 2))).toBeNull();
+    fireEvent.click(
+      within(notice()!).getByRole("button", {
+        name: "Use the old page's likelihood instead: New title",
+      })
+    );
+    expect(find("x")?.probability).toBe(5);
+    undoLast();
+    expect(find("x")?.probability).toBe(4);
+  });
+
+  it("drops a value that now matches the old page's: there is nothing left to choose", async () => {
+    blob([{ ...old, raisedAt: ago(9) }]);
+    seed([risk({ id: "x", title: "New title", probability: 2, impact: 3, raisedAt: ago(9) })]);
+    migrationMode.value = "local";
+    renderPage();
+    await screen.findByRole("region", { name: "Edited on the old Risk Register page" });
+    expect(within(notice()!).getAllByRole("listitem")).toHaveLength(2);
+    setRisk({ title: "Old title" });
+    expect(within(notice()!).getAllByRole("listitem")).toHaveLength(1);
+    setRisk({ probability: 5 });
+    expect(notice()).toBeNull();
+  });
+});
+
+describe("focus after an action replaces its button", () => {
+  it("Raise as impediment lands on the link to it; Close the risk on the status", async () => {
+    seed([risk({ id: "a", title: "Alpha" })]);
+    renderPage();
+    const raise = within(row("a")).getByRole("button", { name: "Raise as impediment: Alpha" });
+    raise.focus();
+    fireEvent.click(raise);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("a")).getByRole("link", { name: /Raised as an impediment/ })
+      )
+    );
+
+    act(() =>
+      useWorkspaceStore.setState({
+        impediments: ws().impediments.map((i) => ({ ...i, resolvedAt: TODAY })),
+      })
+    );
+    fireEvent.click(within(row("a")).getByRole("button", { name: "Close the risk: Alpha" }));
+    expect(find("a")?.status).toBe("closed");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("a")).getByRole("combobox", { name: "Status of Alpha" })
+      )
+    );
+  });
+
+  it("settling a conflict lands on the next one, then on New risk", async () => {
+    blob([
+      { id: "x", title: "Old title", probability: 5, impact: 3, status: "open", raisedAt: ago(9) },
+    ]);
+    seed([risk({ id: "x", title: "New title", probability: 2, impact: 3, raisedAt: ago(9) })]);
+    migrationMode.value = "local";
+    renderPage();
+    const notice = await screen.findByRole("region", {
+      name: "Edited on the old Risk Register page",
+    });
+    fireEvent.click(
+      within(notice).getByRole("button", { name: "Keep the title in the register: New title" })
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Keep the likelihood in the register: New title" })
+      )
+    );
+    fireEvent.click(document.activeElement!);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "New risk" }))
+    );
+  });
+
+  it("dismissing the appeared notice and clearing the example land on New risk", async () => {
+    blob([
+      { id: "old-1", title: "Old", probability: 2, impact: 2, status: "open", raisedAt: ago(9) },
+    ]);
+    seed([risk({ id: "agent-1", title: "From an agent" })]);
+    migrationMode.value = "local";
+    const first = renderPage();
+    await screen.findByText(/1 risk the old register page didn't list/);
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "New risk" }))
+    );
+    first.unmount();
+
+    seed([]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "New risk" }))
+    );
+  });
+});
+
+describe("the owner names its risk", () => {
+  it("sits in a group named for the risk", () => {
+    seed([risk({ id: "a", title: "Alpha", owner: "Priya" })]);
+    renderPage();
+    const group = within(row("a")).getByRole("group", { name: "Owner of Alpha" });
+    expect(within(group).getByRole("button", { name: "Owner: Priya. Change" })).toBeInTheDocument();
   });
 });

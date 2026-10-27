@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Siren, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,16 @@ export interface RiskRowProps {
 }
 
 const titleOf = (r: Risk) => r.title.trim() || "Untitled risk";
+
+/**
+ * Focus what `target` finds once React has re-rendered: the button an
+ * action was pressed on is gone by then (what it did replaces it), and
+ * focus would fall to the page's body. When the action was refused the
+ * target isn't there, and the button, still there, keeps focus.
+ */
+function focusSoon(target: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => target()?.focus());
+}
 
 /**
  * The title and the "more about it" text, edited in place: the text is a
@@ -211,6 +221,8 @@ export function RiskRow({
   onDelete,
 }: RiskRowProps) {
   const statusId = useId();
+  const statusRef = useRef<HTMLSelectElement>(null);
+  const impedimentRef = useRef<HTMLAnchorElement>(null);
   const score = riskScore(r);
   const level = riskLevel(score);
   const after = residualScore(r);
@@ -263,6 +275,7 @@ export function RiskRow({
         <SourceLink sourceRef={r.sourceRef} />
         {impediment && (
           <Link
+            ref={impedimentRef}
             href="/impediments"
             className={cn(
               "inline-flex items-center gap-1 underline-offset-2 hover:underline",
@@ -303,6 +316,7 @@ export function RiskRow({
             Status
           </label>
           <select
+            ref={statusRef}
             id={statusId}
             aria-label={`Status of ${name}`}
             className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -329,14 +343,17 @@ export function RiskRow({
             </div>
           )}
         </div>
-        <PersonInPlace
-          label="Owner"
-          name={r.owner ?? ""}
-          emptyText="No owner"
-          maxLength={RISK_OWNER_MAX}
-          offerAddToRoster={!example}
-          onSave={(owner) => onEdit(r, { owner }, "owner")}
-        />
+        {/* The group names the risk: the owner button's own name ("Owner: Priya. Change") doesn't. */}
+        <div role="group" aria-label={`Owner of ${name}`} className="min-w-0">
+          <PersonInPlace
+            label="Owner"
+            name={r.owner ?? ""}
+            emptyText="No owner"
+            maxLength={RISK_OWNER_MAX}
+            offerAddToRoster={!example}
+            onSave={(owner) => onEdit(r, { owner }, "owner")}
+          />
+        </div>
         <div className="flex min-w-0 flex-col gap-1">
           <Caption>Raised on</Caption>
           <DayInput
@@ -404,7 +421,11 @@ export function RiskRow({
               size="sm"
               variant="outline"
               aria-label={`Close the risk: ${name}`}
-              onClick={() => onStatus(r, "closed")}
+              onClick={() => {
+                onStatus(r, "closed");
+                // The actions go once it's closed; the status now reads Closed.
+                focusSoon(() => statusRef.current);
+              }}
             >
               Close the risk
             </Button>
@@ -417,7 +438,10 @@ export function RiskRow({
                 className="gap-1"
                 disabled={!r.title.trim()}
                 aria-label={`Raise as impediment: ${name}`}
-                onClick={() => onRaise(r)}
+                onClick={() => {
+                  onRaise(r);
+                  focusSoon(() => impedimentRef.current);
+                }}
               >
                 <Siren aria-hidden="true" />
                 Raise as impediment

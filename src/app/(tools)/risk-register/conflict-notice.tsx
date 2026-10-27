@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { History, Inbox, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { RiskConflictField, RiskRegisterConflict } from "@/lib/risks/legacy-register";
@@ -27,6 +28,16 @@ export function conflictText(field: RiskConflictField, v: string | number): stri
 }
 
 /**
+ * The field as the register holds it now, read as the move compared it: a
+ * rating on the 1–5 scale, or the trimmed text; null when it holds nothing.
+ */
+export function currentValue(r: Risk, field: RiskConflictField): string | number | null {
+  if (field === "probability" || field === "impact") return toScale(r[field]);
+  const v = r[field];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+/**
  * The risk with the old Risk Register page's value for one field: a rating
  * read on the 1–5 scale (the move compared it there), else the text.
  */
@@ -45,20 +56,46 @@ export function withBlobValue(r: Risk, c: RiskRegisterConflict): Risk {
  * the old page's value with "Use this instead" (with Undo) or "Keep". Once
  * settled, or when the page is left, it isn't shown again: the old value
  * stays in the old page's storage, the backup.
+ *
+ * "In the register now" is read from the register as it is, not as the
+ * move found it: a value edited on the row (or by an agent) while the
+ * notice is open shows here, so "Use this instead" never overwrites a
+ * value the team can't see, and one that now matches the old page's has
+ * nothing left to choose and goes. Settling one moves focus to the next,
+ * or to `afterLast()` once none is left, never to the page's body.
  */
 export function ConflictNotice({
   conflicts,
   records,
   onKeep,
   onUseOld,
+  afterLast,
 }: {
   conflicts: readonly RiskRegisterConflict[];
   records: readonly Risk[];
   onKeep: (c: RiskRegisterConflict) => void;
   onUseOld: (c: RiskRegisterConflict) => void;
+  /** Where focus goes once the last conflict is settled. */
+  afterLast: () => HTMLElement | null;
 }) {
-  const shown = conflicts.filter((c) => records.some((r) => r.id === c.id));
+  const listRef = useRef<HTMLUListElement>(null);
+  const shown = conflicts.flatMap((c) => {
+    const r = records.find((x) => x.id === c.id);
+    const now = r ? currentValue(r, c.field) : null;
+    return r && now !== c.blob ? [{ c, r, now }] : [];
+  });
   if (shown.length === 0) return null;
+
+  // The pressed button goes with its conflict: once React has re-rendered,
+  // focus the Keep of the one that took its place (or the new last one).
+  const settle = (act: (c: RiskRegisterConflict) => void, c: RiskRegisterConflict, at: number) => {
+    act(c);
+    requestAnimationFrame(() => {
+      const keeps = listRef.current?.querySelectorAll<HTMLElement>("[data-conflict-keep]");
+      const next = keeps && keeps.length > 0 ? keeps[Math.min(at, keeps.length - 1)] : null;
+      (next ?? afterLast())?.focus();
+    });
+  };
   return (
     <section
       aria-label="Edited on the old Risk Register page"
@@ -74,55 +111,53 @@ export function ConflictNotice({
         The register kept the value under &ldquo;In the register now&rdquo;. Keep it, or use the old
         page&apos;s value instead.
       </p>
-      <ul className="space-y-3">
-        {shown.map((c) => {
-          const r = records.find((x) => x.id === c.id)!;
-          return (
-            <li
-              key={`${c.id}-${c.field}`}
-              className="space-y-2 rounded-md border border-border bg-card p-3"
-            >
-              <p className="text-sm font-medium text-text">
-                {r.title || "Untitled risk"}
-                <span className="font-normal text-sub"> · {FIELD_LABEL[c.field]}</span>
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <p className="text-xs text-sub">In the register now</p>
-                  <p className="whitespace-pre-wrap break-words text-sm text-text">
-                    {conflictText(c.field, c.workspace)}
-                  </p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs text-sub">On the old page</p>
-                  <p className="whitespace-pre-wrap break-words text-sm text-text">
-                    {conflictText(c.field, c.blob)}
-                  </p>
-                </div>
+      <ul ref={listRef} className="space-y-3">
+        {shown.map(({ c, r, now }, at) => (
+          <li
+            key={`${c.id}-${c.field}`}
+            className="space-y-2 rounded-md border border-border bg-card p-3"
+          >
+            <p className="text-sm font-medium text-text">
+              {r.title || "Untitled risk"}
+              <span className="font-normal text-sub"> · {FIELD_LABEL[c.field]}</span>
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="min-w-0">
+                <p className="text-xs text-sub">In the register now</p>
+                <p className="whitespace-pre-wrap break-words text-sm text-text">
+                  {now === null ? "Empty" : conflictText(c.field, now)}
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  aria-label={`Keep the ${FIELD_LABEL[c.field].toLowerCase()} in the register: ${r.title}`}
-                  onClick={() => onKeep(c)}
-                >
-                  Keep
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  aria-label={`Use the old page's ${FIELD_LABEL[c.field].toLowerCase()} instead: ${r.title}`}
-                  onClick={() => onUseOld(c)}
-                >
-                  Use this instead
-                </Button>
+              <div className="min-w-0">
+                <p className="text-xs text-sub">On the old page</p>
+                <p className="whitespace-pre-wrap break-words text-sm text-text">
+                  {conflictText(c.field, c.blob)}
+                </p>
               </div>
-            </li>
-          );
-        })}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                data-conflict-keep=""
+                aria-label={`Keep the ${FIELD_LABEL[c.field].toLowerCase()} in the register: ${r.title}`}
+                onClick={() => settle(onKeep, c, at)}
+              >
+                Keep
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-label={`Use the old page's ${FIELD_LABEL[c.field].toLowerCase()} instead: ${r.title}`}
+                onClick={() => settle(onUseOld, c, at)}
+              >
+                Use this instead
+              </Button>
+            </div>
+          </li>
+        ))}
       </ul>
     </section>
   );

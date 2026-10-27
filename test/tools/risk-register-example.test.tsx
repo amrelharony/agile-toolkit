@@ -50,7 +50,7 @@ describe("Risk Register Markdown", () => {
   it("lists the risks in the register's order: active first, then by score", () => {
     const md = toMarkdown(buildExample(NOW), NOW);
     expect(md).toMatch(/^# Risk Register — 18 Oct 2026\n/);
-    expect(md).toContain("7 risks: 2 open, 2 mitigating, 1 accepted, 2 closed.");
+    expect(md).toContain("8 risks: 2 open, 2 mitigating, 1 accepted, 3 closed.");
     expect(md).toContain("## Risks in order");
     expect(md).toContain(
       "| # | Risk | Owner | P × I | Score | After mitigation | Status | Mitigation | Due | Impediment |"
@@ -68,6 +68,9 @@ describe("Risk Register Markdown", () => {
     );
     expect(md).toContain(
       "| 7 | Analytics update breaks checkout funnel events | Lee | 1 × 3 | 3 (low) | Not assessed | Closed |"
+    );
+    expect(md).toContain(
+      "| 8 | Design tokens drift between the web and app checkouts | Sam | 2 × 1 | 2 (low) | Not assessed | Closed |"
     );
   });
 
@@ -103,7 +106,7 @@ describe("Risk Register example", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(notice()).toBeInTheDocument();
-    expect(stored()).toHaveLength(7);
+    expect(stored()).toHaveLength(8);
     expect(stored().every((r) => r.id.startsWith("example-"))).toBe(true);
     expect(
       screen.getByRole("button", { name: "Delete Only one developer knows the checkout service" })

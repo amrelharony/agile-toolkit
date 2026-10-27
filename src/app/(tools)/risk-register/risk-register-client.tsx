@@ -313,6 +313,12 @@ export function RiskRegisterClient() {
       },
       revert: () => snapshots.forEach(restoreRiskRecord),
     });
+    // The notice (and its button) goes with the example.
+    focusSoon(null, newRef.current);
+  };
+  const dismissAppearedNotice = () => {
+    dismissAppeared();
+    focusSoon(null, newRef.current);
   };
 
   const newButton = () => (
@@ -364,8 +370,9 @@ export function RiskRegisterClient() {
             records={records}
             onKeep={settleConflict}
             onUseOld={takeOldValue}
+            afterLast={() => newRef.current}
           />
-          <AppearedNotice count={appeared} onDismiss={dismissAppeared} />
+          <AppearedNotice count={appeared} onDismiss={dismissAppearedNotice} />
 
           {pending && (
             <p role="status" className="text-xs text-sub">

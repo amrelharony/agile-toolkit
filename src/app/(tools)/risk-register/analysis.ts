@@ -45,6 +45,17 @@ export function countedRisks(records: readonly Risk[]): Risk[] {
   return records.map((r) => ({ ...r, id: r.id.slice(EXAMPLE_ID_PREFIX.length) }));
 }
 
+/**
+ * The risks the Markdown and the CSV list: the team's own while there are
+ * any, the same set countedRisks counts, so an export never mixes the
+ * example's made-up rows in with the numbers it quotes (it goes to a
+ * steering group); else the example's, under their own ids.
+ */
+export function exportedRisks(records: readonly Risk[]): Risk[] {
+  const real = records.filter((r) => !isExampleId(r.id));
+  return real.length > 0 ? real : [...records];
+}
+
 /** The "YYYY-MM-DD" a stored date starts with when it is a real day. */
 function dayOf(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
