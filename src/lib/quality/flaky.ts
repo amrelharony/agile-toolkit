@@ -16,7 +16,10 @@
  *   - Fixed tests are out of every rate and ranking: they no longer flake.
  *   - Quarantine age is whole days since `quarantinedAt`, stamped when a
  *     test goes into quarantine. A legacy quarantined row without one reads
- *     "date unknown" and never raises the alert.
+ *     "date unknown" and never raises the alert. A day one ahead of the
+ *     reader's (an agent's stamp on a server whose day is ahead of the
+ *     person's) reads as today, and a status change stamps that day rather
+ *     than one before it (flakyStampDay).
  *   - `fixedAt` is the day of the latest fix: stamped each time a test
  *     becomes fixed, kept when it is reopened (the audit trail).
  */
@@ -123,17 +126,31 @@ export function meanFailureRate(tests: readonly FlakyTest[]): number | null {
 }
 
 /**
+ * How many days a stored day may run ahead of the reader's today and still
+ * read as today: one. An agent's day over MCP is the server's (UTC on a
+ * typical deploy), which is already tomorrow for a person west of UTC in
+ * their evening, so a test the agent logged or quarantined "today" can
+ * carry the person's tomorrow; and the agent takes the day after the
+ * server's for a person ahead of UTC. A day further ahead is never today.
+ */
+const DAY_AHEAD = 1;
+
+const isDay = (v: unknown): v is string =>
+  typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && isIsoDate(v);
+
+/**
  * Whole days a quarantined test has been in quarantine on `today` (local
- * "YYYY-MM-DD"); 0 on the day it went in. Null when it isn't quarantined,
- * has no readable quarantinedAt (a legacy row: "date unknown"), or the date
- * is after today.
+ * "YYYY-MM-DD"); 0 on the day it went in, and on the day before it (a
+ * quarantine stamped on a clock a day ahead, DAY_AHEAD). Null when it
+ * isn't quarantined, has no readable quarantinedAt (a legacy row: "date
+ * unknown"), or the date is more than a day after today.
  */
 export function quarantinedDays(t: FlakyTest, today: string): number | null {
   if (t.status !== "quarantined" || !isIsoDate(t.quarantinedAt)) return null;
   const from = isoDayNumber(t.quarantinedAt);
   const to = isoDayNumber(today);
-  if (from === null || to === null || to < from) return null;
-  return to - from;
+  if (from === null || to === null || from - to > DAY_AHEAD) return null;
+  return Math.max(0, to - from);
 }
 
 /** The tests quarantined `days` days or more, longest first. */
@@ -151,18 +168,42 @@ export function longQuarantined(
 }
 
 /**
+ * The day a status change on `today` is stamped with: today, or the latest
+ * day the test already carries (first seen, quarantined, fixed) when that
+ * is after today by a day at most (DAY_AHEAD: a day an agent stamped on a
+ * server ahead of the person's clock), so a quarantine or a fix never reads
+ * as before the test was first seen. The page, add_test and set_status
+ * stamp by it.
+ */
+export function flakyStampDay(
+  t: Pick<FlakyTest, "firstSeenAt" | "quarantinedAt" | "fixedAt">,
+  today: string
+): string {
+  const to = isoDayNumber(today);
+  let day = today;
+  for (const v of [t.firstSeenAt, t.quarantinedAt, t.fixedAt]) {
+    if (!isDay(v) || v <= day || to === null) continue;
+    const from = isoDayNumber(v);
+    if (from !== null && from - to <= DAY_AHEAD) day = v;
+  }
+  return day;
+}
+
+/**
  * The test with its status changed on `today`, the one rule for the page and
  * the agent. Entering quarantine stamps quarantinedAt (a fresh quarantine
- * restarts the count); leaving it clears it. Becoming fixed stamps fixedAt
- * with today, the latest fix; reopening keeps it. The same status again
+ * restarts the count); leaving it clears it. Becoming fixed stamps fixedAt,
+ * the latest fix; reopening keeps it. The stamp is today, or the test's own
+ * day when that is a day ahead (flakyStampDay). The same status again
  * changes nothing.
  */
 export function applyFlakyStatus(t: FlakyTest, status: FlakyStatus, today: string): FlakyTest {
   if (t.status === status) return t;
+  const day = flakyStampDay(t, today);
   const next: FlakyTest = { ...t, status };
-  if (status === "quarantined") next.quarantinedAt = today;
+  if (status === "quarantined") next.quarantinedAt = day;
   else delete next.quarantinedAt;
-  if (status === "fixed") next.fixedAt = today;
+  if (status === "fixed") next.fixedAt = day;
   return next;
 }
 
@@ -231,7 +272,11 @@ export interface FlakySummary {
   fewRuns: number;
   /** Quarantined QUARANTINE_ALERT_DAYS or more, longest first. */
   longQuarantined: { id: string; name: string; days: number }[];
-  /** Quarantined rows with no quarantine date (from before Phase 8). */
+  /**
+   * Quarantined rows whose quarantine age can't be read, so they say "date
+   * unknown" (quarantinedDays is null): no date (from before Phase 8), or
+   * one more than a day after today.
+   */
   quarantineDateUnknown: number;
   worstOffenders: FlakyOffender[];
 }
@@ -244,7 +289,9 @@ export function flakySummary(tests: readonly FlakyTest[], today: string): FlakyS
   for (const t of tests) {
     if (t.status in byStatus) byStatus[t.status] += 1;
     if (fixedInQuarter(t, today)) fixedThisQuarter += 1;
-    if (t.status === "quarantined" && !isIsoDate(t.quarantinedAt)) quarantineDateUnknown += 1;
+    if (t.status === "quarantined" && quarantinedDays(t, today) === null) {
+      quarantineDateUnknown += 1;
+    }
   }
   const openTests = open(tests);
   return {

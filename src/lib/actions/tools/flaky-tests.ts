@@ -41,6 +41,7 @@ import {
   applyFlakyStatus,
   firstSeenOrderError,
   flakyDayError,
+  flakyStampDay,
   flakySummary,
   flakyTestErrors,
   flakyVerdict,
@@ -85,20 +86,15 @@ const testsOf = (doc: FlakyTestBoard | null) => (Array.isArray(doc?.tests) ? doc
  */
 const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(today, 1) : today);
 
-/**
- * The day a status change is stamped with: today, or the latest day the
- * test already carries when that is after today and still allowed. On the
- * server today can be the person's yesterday, and a test they first saw on
- * their own today must not read as quarantined or fixed before it. In the
- * browser `latest` is today, so this is today, as the page stamps.
+/*
+ * A status change is stamped as the page stamps it (lib/quality/flaky's
+ * applyFlakyStatus, through flakyStampDay): today, or the test's own later
+ * day when that is a day ahead at most. On the server today can be the
+ * person's yesterday; in the browser a day an agent stamped on a server
+ * ahead of the person's clock can be tomorrow. Either way a test must not
+ * read as quarantined or fixed before it was first seen, and the page
+ * reads a quarantine a day ahead as today.
  */
-function stampDay(t: FlakyTest, today: string, latest: string): string {
-  let day = today;
-  for (const v of [t.firstSeenAt, t.quarantinedAt, t.fixedAt]) {
-    if (typeof v === "string" && !flakyDayError(v, latest) && v > day) day = v;
-  }
-  return day;
-}
 
 /** The first error of a draft as "field: message", for an agent. */
 const firstError = (errors: Partial<Record<string, string>>) => {
@@ -139,7 +135,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the flaky-test scoreboard; 'open' means active or quarantined (fixed tests are out of every rate and ranking). Returns {exists, total, byStatus: {active, quarantined, fixed}, fixedThisQuarter, avgFailureRate (plain mean of the open tests' rates, null without any), weightedFailureRate: {rate (Σ failures ÷ Σ runs over open tests with run counts, null without), failures, runs, rateOnly (open tests with only a rate, left out)}, highRateCount (open, rate above 0.2), fewRunsCount (open, under 10 runs), longQuarantined: {id, name, days}[] (quarantined 14 days or more), quarantineDateUnknown, worstOffenders: {id, name, status, failureRate, failures, runs, fewRuns}[] (top 5 open), verdict, tests}.",
+    "Summarise the flaky-test scoreboard; 'open' means active or quarantined (fixed tests are out of every rate and ranking). Returns {exists, total, byStatus: {active, quarantined, fixed}, fixedThisQuarter, avgFailureRate (plain mean of the open tests' rates, null without any), weightedFailureRate: {rate (Σ failures ÷ Σ runs over open tests with run counts, null without), failures, runs, rateOnly (open tests with only a rate, left out)}, highRateCount (open, rate above 0.2), fewRunsCount (open, under 10 runs), longQuarantined: {id, name, days}[] (quarantined 14 days or more; a quarantinedAt one day after today reads as 0 days), quarantineDateUnknown (quarantined tests whose age can't be read: no quarantinedAt, or one more than a day after today), worstOffenders: {id, name, status, failureRate, failures, runs, fewRuns}[] (top 5 open), verdict, tests}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.getDoc()),
   mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).getDoc()),
@@ -210,7 +206,7 @@ async function addTest(
   const status = params.status ?? "active";
   // A status day left out is today, or the first-seen day when that is the
   // later one (the server's today can be the person's yesterday).
-  const stamp = firstSeenAt > today ? firstSeenAt : today;
+  const stamp = flakyStampDay({ firstSeenAt }, today);
   const statusDay =
     status === "quarantined"
       ? params.quarantinedAt?.trim() || stamp
@@ -381,17 +377,11 @@ registry.register({
 
 const StatusParams = z.object({ testId: z.string(), status: StatusSchema });
 
-async function setStatus(
-  store: FlakyStore,
-  params: z.infer<typeof StatusParams>,
-  onServer: boolean
-) {
+async function setStatus(store: FlakyStore, params: z.infer<typeof StatusParams>) {
   const doc = await store.getDoc();
   const current = testsOf(doc).find((t) => t.id === params.testId);
   if (!doc || !current) return { updated: false };
-  const today = todayLocalISO();
-  const day = stampDay(current, today, latestDay(today, onServer));
-  const next = applyFlakyStatus(current, params.status, day);
+  const next = applyFlakyStatus(current, params.status, todayLocalISO());
   if (next !== current) {
     await store.putDoc({
       ...doc,
@@ -413,10 +403,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a flaky test's status (active | quarantined | fixed), as the page does: going into quarantine stamps quarantinedAt with today (leaving clears it); becoming fixed stamps fixedAt with today, and reopening keeps it (over MCP the stamp is the test's own later day when the server's today is behind it); the same status changes nothing. Returns {updated: true, status, fixedAt, quarantinedAt}, or {updated: false} when the test id is unknown.",
+    "Set a flaky test's status (active | quarantined | fixed), as the page does: going into quarantine stamps quarantinedAt (leaving clears it); becoming fixed stamps fixedAt, and reopening keeps it. The stamp is today, or the test's own later day (firstSeenAt, quarantinedAt, fixedAt) when that is one day after today at most (over MCP the server's today can be behind the person's), so it never comes before the day the test was first seen; the same status changes nothing. Returns {updated: true, status, fixedAt, quarantinedAt}, or {updated: false} when the test id is unknown.",
   paramsSchema: StatusParams,
-  handler: async (params) => setStatus(browserStore, params, false),
-  mcpHandler: async (params, ctx) => setStatus(serverStore(ctx.userId), params, true),
+  handler: async (params) => setStatus(browserStore, params),
+  mcpHandler: async (params, ctx) => setStatus(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.flaky_tests.remove_test ────────
