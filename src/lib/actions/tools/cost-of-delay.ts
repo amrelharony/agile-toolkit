@@ -84,6 +84,38 @@ const CostOfDelayFieldsSchema = z.object({
 
 type CodFields = z.infer<typeof CostOfDelayFieldsSchema>;
 
+/** The inputs a persist may clear with null (left out, an existing row keeps them). */
+const CLEARABLE = ["durationWeeks", "urgency", "fixedDate"] as const;
+
+/** What a persist takes: an optional input left out stays as the row has it, null clears it. */
+const CostOfDelayPersistFieldsSchema = CostOfDelayFieldsSchema.extend({
+  durationWeeks: z
+    .number()
+    .positive()
+    .nullable()
+    .optional()
+    .describe(
+      "How long the work takes, in weeks (half a week at least). Without one the row is Not scored. Left out, an existing row keeps its duration; null clears it."
+    ),
+  urgency: z
+    .enum(COD_URGENCIES)
+    .nullable()
+    .optional()
+    .describe(
+      "Urgency profile: 'expedite' (do now), 'fixed_date' (cost jumps on a date; give fixedDate), 'standard' (cost grows steadily) or 'intangible' (little cost now). Orders the lanes. Left out, an existing row keeps its profile; null clears it."
+    ),
+  fixedDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional()
+    .describe(
+      "For 'fixed_date': the YYYY-MM-DD it must land by. latestStart = this date − the duration. Left out, an existing row keeps its date; null clears it."
+    ),
+});
+
+type CodPersistFields = z.infer<typeof CostOfDelayPersistFieldsSchema>;
+
 const CostOfDelayItemInputSchema = z.object({
   id: z.string().optional().describe("Stable identifier; auto-generated if omitted on persist"),
   title: z.string().min(1).max(200),
@@ -96,13 +128,20 @@ const CostOfDelayItemInputSchema = z.object({
     ),
 });
 
+/** One item a persist verb takes: its fields may clear an input with null. */
+const CostOfDelayPersistInputSchema = CostOfDelayItemInputSchema.extend({
+  fields: CostOfDelayPersistFieldsSchema,
+});
+
 /** The API's fields as the method's inputs (jobSize standing in for a missing duration). */
-const valuesOf = (f: CodFields): Values => ({
+const valuesOf = (f: CodFields | CodPersistFields): Values => ({
   perWeekUsd: f.perWeekUsd,
   durationWeeks:
-    f.durationWeeks ?? (f.jobSize !== undefined && f.jobSize > 0 ? f.jobSize : undefined),
-  urgency: f.urgency,
-  fixedDate: f.fixedDate,
+    f.durationWeeks === null
+      ? undefined
+      : (f.durationWeeks ?? (f.jobSize !== undefined && f.jobSize > 0 ? f.jobSize : undefined)),
+  urgency: f.urgency ?? undefined,
+  fixedDate: f.fixedDate ?? undefined,
 });
 
 /** The old total (per week × weeks delayed), when the caller still gives weeksDelayed. */
@@ -117,6 +156,13 @@ const legacyTotal = (f: CodFields): number | null =>
  * refused.
  */
 const MAY_OMIT = ["urgency", "durationWeeks"];
+
+/**
+ * The inputs a persist may leave out that an existing row keeps, as the
+ * page's editor shows them: the duration, profile and date, and the old
+ * weeksDelayed kept for reference.
+ */
+const KEEP = [...CLEARABLE, "weeksDelayed"];
 
 // ──────── tool.cost_of_delay.compute_cd3 ────────
 // Pure: compute one CD3 score. No persistence, no side effects.
@@ -193,20 +239,22 @@ registry.register({
 const persistInput = (it: {
   id?: string;
   title: string;
-  fields: CodFields;
+  fields: CodPersistFields;
   backlogItemId?: string;
 }) => {
   // The old model's weeksDelayed stays on the row for reference (never scored).
   const values: Values = { ...valuesOf(it.fields), weeksDelayed: it.fields.weeksDelayed };
-  return { id: it.id, title: it.title, values, backlogItemId: it.backlogItemId };
+  const cleared = CLEARABLE.filter((k) => it.fields[k] === null);
+  return { id: it.id, title: it.title, values, backlogItemId: it.backlogItemId, cleared };
 };
 
 const scoreAndPersist = async (
   store: MethodStore,
-  params: z.infer<typeof CostOfDelayItemInputSchema>
+  params: z.infer<typeof CostOfDelayPersistInputSchema>
 ) => {
   const [saved] = await persistMethodRows(store, FRAMEWORK, [persistInput(params)], {
     mayOmit: MAY_OMIT,
+    keep: KEEP,
   });
   return {
     id: saved.row.id,
@@ -222,8 +270,8 @@ registry.register({
   name: "score_and_persist",
   category: "write",
   description:
-    "Compute a CD3 score for one initiative and persist it to workspace.prioritization with framework='cost-of-delay' (a duration under half a week, or a fixed_date profile without its date, is refused; without a duration the row is saved Not scored, score null, until one is added). An existing id keeps its other fields and its backlog link. Returns { id, score, lane, backlogItemId }.",
-  paramsSchema: CostOfDelayItemInputSchema,
+    "Compute a CD3 score for one initiative and persist it to workspace.prioritization with framework='cost-of-delay' (a duration under half a week, or a fixed_date profile without its date, is refused; without a duration the row is saved Not scored, score null, until one is added). An existing id keeps its other fields and its backlog link, and the durationWeeks, urgency, fixedDate and weeksDelayed the call leaves out; null clears durationWeeks, urgency or fixedDate. Returns { id, score, lane, backlogItemId }.",
+  paramsSchema: CostOfDelayPersistInputSchema,
   handler: async (params) => scoreAndPersist(clientStore(), params),
   mcpHandler: async (params, ctx) => scoreAndPersist(serverStore(ctx.userId), params),
 });
@@ -241,7 +289,7 @@ const PersistSchema = z.object({
           .number()
           .optional()
           .describe("Ignored: CD3 is recomputed from the fields, as the page does"),
-        fields: CostOfDelayFieldsSchema,
+        fields: CostOfDelayPersistFieldsSchema,
         backlogItemId: z.string().optional().describe("Link the row to this backlog item"),
       })
     )
@@ -252,6 +300,7 @@ const PersistSchema = z.object({
 const persistAll = async (store: MethodStore, params: z.infer<typeof PersistSchema>) => {
   const saved = await persistMethodRows(store, FRAMEWORK, params.items.map(persistInput), {
     mayOmit: MAY_OMIT,
+    keep: KEEP,
   });
   return {
     written: saved.map((s) => s.row.id),
@@ -267,7 +316,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of Cost of Delay items to workspace.prioritization. CD3 is recomputed from the fields (a supplied score is ignored); an invalid item is refused and nothing is written, and an item without a duration is saved Not scored (score null). Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
+    "Persist a batch of Cost of Delay items to workspace.prioritization. CD3 is recomputed from the fields (a supplied score is ignored); an invalid item is refused and nothing is written, and an item without a duration is saved Not scored (score null). Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link, and the durationWeeks, urgency, fixedDate and weeksDelayed an item leaves out (null clears durationWeeks, urgency or fixedDate). Returns {written, count, scores}.",
   paramsSchema: PersistSchema,
   handler: async (params) => persistAll(clientStore(), params),
   mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),

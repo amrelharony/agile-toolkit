@@ -15,8 +15,11 @@
  *
  * The score is the method registry's (lib/prioritization/methods/rice), the
  * code the page uses:
- * - reach counts per `reachPeriod` (week, month, quarter or year; default
- *   quarter) and is normalised to per quarter, so periods compare;
+ * - reach counts per `reachPeriod` (week, month, quarter or year) and is
+ *   normalised to per quarter, so periods compare. A persist that leaves
+ *   the period out keeps the row's (or its linked item's), as the page's
+ *   editor prefills it; a new row without one, and a pure compute, count
+ *   per quarter;
  * - confidencePct is a PERCENTAGE 0..100, not a 0..1 fraction;
  * - effort is person-months, at least 0.5. A persist refuses less (as the
  *   form does); compute reports a legacy 0 < effort < 0.5 scored as 0.5
@@ -29,7 +32,7 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { method } from "@/lib/prioritization/methods";
-import { REACH_PERIODS, type ReachPeriod } from "@/lib/prioritization/methods/rice";
+import { LEGACY_REACH_PERIOD, REACH_PERIODS } from "@/lib/prioritization/methods/rice";
 import type { Values } from "@/lib/prioritization/methods";
 import {
   candidateId,
@@ -55,7 +58,7 @@ const RiceFieldsSchema = z.object({
     .enum(REACH_PERIODS)
     .optional()
     .describe(
-      "The period reach counts over: week, month, quarter (default) or year. The score normalises reach to per quarter (week ×13, month ×3, year ÷4)."
+      "The period reach counts over: week, month, quarter or year. The score normalises reach to per quarter (week ×13, month ×3, year ÷4). Left out: a persist keeps the existing row's period (a linked row's is its backlog item's; a new row linked to an item takes the item's), and a new row or a compute counts per quarter."
     ),
   impact: z
     .number()
@@ -92,14 +95,24 @@ const RiceItemInputSchema = z.object({
     ),
 });
 
-/** The API's fields as the method's inputs. */
+/**
+ * The API's fields as the method's inputs. A period left out stays unset:
+ * a compute reads that as per quarter, and a persist keeps the row's.
+ */
 const valuesOf = (f: RiceFields): Values => ({
   reach: f.reach,
-  reachPeriod: (f.reachPeriod ?? "quarter") satisfies ReachPeriod,
+  reachPeriod: f.reachPeriod,
   impact: f.impact,
   confidence: f.confidencePct,
   effort: f.effort,
 });
+
+/**
+ * A persist that leaves the period out keeps the row's (a linked row's is
+ * its item's; a new linked row takes the item's), as the page's editor
+ * prefills it. Only a new unlinked row starts per quarter.
+ */
+const PERSIST = { keep: ["reachPeriod"], fallback: { reachPeriod: LEGACY_REACH_PERIOD } };
 
 const FORMULA = "(Reach per quarter * Impact * Confidence%) / Effort";
 
@@ -175,14 +188,19 @@ registry.register({
 // Convenience: compute one RICE score AND save it to the workspace.
 // Common agent intent: "score this initiative and add it to my backlog."
 const scoreAndPersist = async (store: MethodStore, params: z.infer<typeof RiceItemInputSchema>) => {
-  const [saved] = await persistMethodRows(store, FRAMEWORK, [
-    {
-      id: params.id,
-      title: params.title,
-      values: valuesOf(params.fields),
-      backlogItemId: params.backlogItemId,
-    },
-  ]);
+  const [saved] = await persistMethodRows(
+    store,
+    FRAMEWORK,
+    [
+      {
+        id: params.id,
+        title: params.title,
+        values: valuesOf(params.fields),
+        backlogItemId: params.backlogItemId,
+      },
+    ],
+    PERSIST
+  );
   return {
     id: saved.row.id,
     score: saved.score,
@@ -197,7 +215,7 @@ registry.register({
   name: "score_and_persist",
   category: "write",
   description:
-    "Compute a RICE score for one candidate and persist it to workspace.prioritization with framework='rice' (an effort under 0.5 person-months is refused). An existing id keeps its other fields and its backlog link. backlogItemId links the row and writes its inputs to that backlog item. Returns {id, score, backlogItemId, backlogUpdated}.",
+    "Compute a RICE score for one candidate and persist it to workspace.prioritization with framework='rice' (an effort under 0.5 person-months is refused). An existing id keeps its other fields, its reachPeriod when none is given, and its backlog link. backlogItemId links the row and writes its inputs to that backlog item. Returns {id, score, backlogItemId, backlogUpdated}.",
   paramsSchema: RiceItemInputSchema,
   handler: async (params) => scoreAndPersist(clientStore(), params),
   mcpHandler: async (params, ctx) => scoreAndPersist(serverStore(ctx.userId), params),
@@ -237,7 +255,8 @@ const persistAll = async (store: MethodStore, params: z.infer<typeof PersistSche
       title: it.title,
       values: valuesOf(it.fields),
       backlogItemId: it.backlogItemId,
-    }))
+    })),
+    PERSIST
   );
   return {
     written: saved.map((s) => s.row.id),
@@ -253,7 +272,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of RICE items to workspace.prioritization. Each score is recomputed from its fields (a supplied score is ignored); an effort under 0.5 is refused and nothing is written. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, scores}.",
+    "Persist a batch of RICE items to workspace.prioritization. Each score is recomputed from its fields (a supplied score is ignored); an effort under 0.5 is refused and nothing is written. Items without an id get one generated; an existing id is updated in place, keeping its other fields, its reachPeriod when none is given, and its backlog link. Returns {written, count, scores}.",
   paramsSchema: PersistSchema,
   handler: async (params) => persistAll(clientStore(), params),
   mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),

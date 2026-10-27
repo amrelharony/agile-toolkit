@@ -89,19 +89,46 @@ const MoscowFieldsSchema = z.object({
     ),
 });
 
-type MoscowFields = z.infer<typeof MoscowFieldsSchema>;
+/** What a persist takes: an effort left out stays as the row has it, null clears it. */
+const MoscowPersistFieldsSchema = MoscowFieldsSchema.extend({
+  effort: z
+    .number()
+    .min(0)
+    .nullable()
+    .optional()
+    .describe(
+      "Optional effort for the Must budget, for an item not on the backlog (a linked item's WSJF job size counts instead). Left out, an existing row keeps its effort; null clears it."
+    ),
+});
+
+type MoscowPersistFields = z.infer<typeof MoscowPersistFieldsSchema>;
 
 const MoscowItemInputSchema = z.object({
   id: z.string().optional().describe("Stable identifier; auto-generated if omitted on persist"),
   title: z.string().min(1).max(200),
-  fields: MoscowFieldsSchema,
+  fields: MoscowPersistFieldsSchema,
   backlogItemId: z
     .string()
     .optional()
     .describe("Link the row to this backlog item; its MoSCoW bucket is written to the item"),
 });
 
-const valuesOf = (f: MoscowFields): Values => ({ bucket: f.category, effort: f.effort });
+/** The input a persist may leave out that an existing row keeps. */
+const KEEP = ["effort"];
+
+/** A persist item as the method's inputs: an effort of null is a clear. */
+const persistInput = (it: {
+  id?: string;
+  title: string;
+  fields: MoscowPersistFields;
+  backlogItemId?: string;
+}) => ({
+  id: it.id,
+  title: it.title,
+  values: { bucket: it.fields.category, effort: it.fields.effort ?? undefined } as Values,
+  backlogItemId: it.backlogItemId,
+  cleared: it.fields.effort === null ? ["effort"] : [],
+});
 
 // ──────── tool.moscow.classify ────────
 // Pure: echo back the category with its numeric priority + description.
@@ -198,14 +225,9 @@ const classifyAndPersist = async (
   store: MethodStore,
   params: z.infer<typeof MoscowItemInputSchema>
 ) => {
-  const [saved] = await persistMethodRows(store, FRAMEWORK, [
-    {
-      id: params.id,
-      title: params.title,
-      values: valuesOf(params.fields),
-      backlogItemId: params.backlogItemId,
-    },
-  ]);
+  const [saved] = await persistMethodRows(store, FRAMEWORK, [persistInput(params)], {
+    keep: KEEP,
+  });
   return {
     id: saved.row.id,
     category: params.fields.category,
@@ -221,7 +243,7 @@ registry.register({
   name: "classify_and_persist",
   category: "write",
   description:
-    "Classify one scope item by MoSCoW category and persist it to workspace.prioritization with framework='moscow'. The category is stored in fields.bucket; the numeric priority (4/3/2/1 for must/should/could/wont) is stored on PrioritizationItem.score for cross-framework sorting. An existing id keeps its other fields and its backlog link; backlogItemId links the row and writes the bucket to that backlog item. Returns { id, category, priority, backlogItemId, backlogUpdated }.",
+    "Classify one scope item by MoSCoW category and persist it to workspace.prioritization with framework='moscow'. The category is stored in fields.bucket; the numeric priority (4/3/2/1 for must/should/could/wont) is stored on PrioritizationItem.score for cross-framework sorting. An existing id keeps its other fields (its effort too, unless given; effort: null clears it) and its backlog link; backlogItemId links the row and writes the bucket to that backlog item. Returns { id, category, priority, backlogItemId, backlogUpdated }.",
   paramsSchema: MoscowItemInputSchema,
   handler: async (params) => classifyAndPersist(clientStore(), params),
   mcpHandler: async (params, ctx) => classifyAndPersist(serverStore(ctx.userId), params),
@@ -237,7 +259,7 @@ const PersistSchema = z.object({
       z.object({
         id: z.string().optional(),
         title: z.string().min(1).max(200),
-        fields: MoscowFieldsSchema,
+        fields: MoscowPersistFieldsSchema,
         backlogItemId: z.string().optional().describe("Link the row to this backlog item"),
       })
     )
@@ -246,16 +268,9 @@ const PersistSchema = z.object({
 });
 
 const persistAll = async (store: MethodStore, params: z.infer<typeof PersistSchema>) => {
-  const saved = await persistMethodRows(
-    store,
-    FRAMEWORK,
-    params.items.map((it) => ({
-      id: it.id,
-      title: it.title,
-      values: valuesOf(it.fields),
-      backlogItemId: it.backlogItemId,
-    }))
-  );
+  const saved = await persistMethodRows(store, FRAMEWORK, params.items.map(persistInput), {
+    keep: KEEP,
+  });
   const written = saved.map((s, i) => ({
     id: s.row.id,
     category: params.items[i].fields.category,
@@ -271,7 +286,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of MoSCoW-classified scope items to workspace.prioritization. Each item supplies title + fields ({ category, effort? }); the numeric priority sort score (4/3/2/1) is derived. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link.",
+    "Persist a batch of MoSCoW-classified scope items to workspace.prioritization. Each item supplies title + fields ({ category, effort? }); the numeric priority sort score (4/3/2/1) is derived. Items without an id get one generated; an existing id is updated in place, keeping its other fields (its effort too, unless given; effort: null clears it) and backlog link.",
   paramsSchema: PersistSchema,
   handler: async (params) => persistAll(clientStore(), params),
   mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),

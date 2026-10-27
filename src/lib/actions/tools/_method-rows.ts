@@ -10,9 +10,9 @@
  *   `score: null` ("Not scored") and listed last;
  * - persist verbs check the inputs the way the forms do, recompute the
  *   score (a caller's `score` is ignored), keep an existing row's other
- *   fields and its backlog link, and for a method the backlog holds write
- *   the inputs through to the linked BacklogItem (the server twin of the
- *   pages' saveMethodRow).
+ *   fields, the optional inputs the call leaves out and its backlog link,
+ *   and for a method the backlog holds write the inputs through to the
+ *   linked BacklogItem (the server twin of the pages' saveMethodRow).
  *
  * The leading underscore keeps scripts/generate-action-registry.mjs from
  * importing it as an action module.
@@ -136,9 +136,19 @@ export function assertValid(
 export interface PersistInput {
   id?: string;
   title: string;
+  /**
+   * The inputs the call gives. One it leaves out (undefined) is unset,
+   * unless the persist's `keep` names it: then an existing row keeps it.
+   */
   values: Values;
   /** Link (or re-link) the row to this backlog item. */
   backlogItemId?: string;
+  /**
+   * Inputs the call clears on purpose (an agent's null): unset on the row
+   * and, for a method the backlog holds, on its linked item too (the row
+   * reads through, so a value left on the item would come straight back).
+   */
+  cleared?: readonly string[];
 }
 
 export interface Persisted {
@@ -168,22 +178,61 @@ function heldValues(
 }
 
 /**
+ * The values a persist saves: the call's, with each `keep` input it leaves
+ * out taken from what the row shows (`held`), as the page's saveMethodRow
+ * merges an edit over the row's values, else from `fallback` (what a new
+ * row starts with), and each input it clears unset.
+ */
+function persistValues(
+  input: PersistInput,
+  held: Values | undefined,
+  keep: readonly string[],
+  fallback: Values
+): Values {
+  const cleared = input.cleared ?? [];
+  const out: Values = { ...input.values };
+  for (const key of keep) {
+    if (out[key] !== undefined || cleared.includes(key)) continue;
+    out[key] = held?.[key] ?? fallback[key];
+  }
+  for (const key of cleared) out[key] = undefined;
+  return out;
+}
+
+/** How persistMethodRows reads and fills a call's inputs. */
+export interface PersistOptions {
+  ctx?: EvalContext;
+  /** Inputs whose "missing" errors are dropped (see validationError). */
+  mayOmit?: readonly string[];
+  /**
+   * Optional inputs a call may leave out that an existing row keeps: what
+   * it shows, read through to its item (for a new row linked to an item,
+   * what the item holds). Without it, an input left out is unset.
+   */
+  keep?: readonly string[];
+  /** For a `keep` input nothing holds: what a new row starts with (RICE's per quarter). */
+  fallback?: Values;
+}
+
+/**
  * Persist rows of one method: each checked like the form (throws on the
  * first invalid one, nothing written), merged over the existing row of
  * that id (its other fields and link kept), scored by the engine, and for
- * an embedded method with a linked item written through to the item.
+ * an embedded method with a linked item written through to the item. An
+ * input in a call's `cleared` is unset, on the row and the linked item.
  */
 export async function persistMethodRows(
   store: MethodStore,
   id: MethodId,
   inputs: readonly PersistInput[],
-  opts: { ctx?: EvalContext; mayOmit?: readonly string[] } = {}
+  opts: PersistOptions = {}
 ): Promise<Persisted[]> {
-  const { ctx, mayOmit = [] } = opts;
+  const { ctx, mayOmit = [], keep = [], fallback = {} } = opts;
   const m = method(id);
   // Look everything up first, so an invalid input writes nothing.
   const planned: {
     input: PersistInput;
+    values: Values;
     prev: PrioritizationItem | undefined;
     linkId: string | undefined;
   }[] = [];
@@ -198,20 +247,22 @@ export async function persistMethodRows(
         `No backlog item ${input.backlogItemId}: list them with tool.prioritizer.list_state.`
       );
     }
-    assertValid(id, input.values, input.title, mayOmit, heldValues(id, prev, item));
-    planned.push({ input, prev, linkId });
+    const held = heldValues(id, prev, item);
+    const values = persistValues(input, held, keep, fallback);
+    assertValid(id, values, input.title, mayOmit, held);
+    planned.push({ input, values, prev, linkId });
   }
   const now = new Date().toISOString();
   const out: Persisted[] = [];
   const itemWrites = new Map<string, BacklogItem>();
-  for (const { input, prev, linkId } of planned) {
+  for (const { input, values, prev, linkId } of planned) {
     const rowId = input.id ?? newRowId();
     const item = linkId ? (itemWrites.get(linkId) ?? (await store.item(linkId))) : undefined;
     const row = methodRow({
       id: rowId,
       framework: id,
       title: input.title,
-      values: input.values,
+      values,
       prev,
       backlogItemId: item ? item.id : prev?.backlogItemId ? prev.backlogItemId : null,
       now,
@@ -219,7 +270,10 @@ export async function persistMethodRows(
     });
     let written: string[] = [];
     if (item && m.embedded) {
-      const changes = itemPatchChanges(item, ownedPatch(id, m.read(row.fields)));
+      const changes = itemPatchChanges(
+        item,
+        ownedPatch(id, m.read(row.fields), input.cleared ?? [])
+      );
       written = Object.keys(changes);
       if (written.length > 0) itemWrites.set(item.id, applyItemPatch(item, changes, now));
     }

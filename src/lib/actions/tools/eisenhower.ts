@@ -96,10 +96,25 @@ const EisenhowerFieldsSchema = z.object({
   delegateTo: DelegateSchema.optional(),
 });
 
+/** A persist's due date and delegate: left out, an existing task keeps them; null clears one. */
+const PersistDueSchema = DueSchema.nullable()
+  .optional()
+  .describe(
+    "Optional YYYY-MM-DD due date (can be past); within 2 days, or overdue, counts as urgent. Left out, an existing task keeps its date; null clears it."
+  );
+const PersistDelegateSchema = DelegateSchema.nullable()
+  .optional()
+  .describe(
+    "Optional: who takes it (a roster name), for a Delegate task. Left out, an existing task keeps it; null clears it."
+  );
+
 const EisenhowerItemInputSchema = z.object({
   id: z.string().optional().describe("Stable identifier; auto-generated if omitted on persist"),
   title: z.string().min(1).max(200),
-  fields: EisenhowerFieldsSchema,
+  fields: EisenhowerFieldsSchema.extend({
+    dueAt: PersistDueSchema,
+    delegateTo: PersistDelegateSchema,
+  }),
 });
 
 /**
@@ -142,17 +157,30 @@ const server = (userId: string) => legacyAware(serverStore(userId));
 
 const bool = (b: boolean | undefined) => (b === undefined ? undefined : b ? "true" : "false");
 
-const valuesOf = (f: {
+/** A task's answers as given: a due date or delegate of null is a clear (see clearedOf). */
+type TaskFields = {
   urgent?: boolean;
   important?: boolean;
-  dueAt?: string;
-  delegateTo?: string;
-}): Values => ({
+  dueAt?: string | null;
+  delegateTo?: string | null;
+};
+
+const valuesOf = (f: TaskFields): Values => ({
   urgent: bool(f.urgent),
   important: bool(f.important),
-  dueAt: f.dueAt,
-  delegateTo: f.delegateTo,
+  dueAt: f.dueAt ?? undefined,
+  delegateTo: f.delegateTo ?? undefined,
 });
+
+/** The inputs a call clears with null. */
+const clearedOf = (f: TaskFields | undefined): string[] =>
+  (["dueAt", "delegateTo"] as const).filter((k) => f?.[k] === null);
+
+/**
+ * The inputs a persist may leave out that an existing task keeps (its
+ * answers, due date and delegate), as the page's editor shows them.
+ */
+const KEEP = ["urgent", "important", "dueAt", "delegateTo"];
 
 /** The quadrant, its sort score and why it's urgent, for a set of answers today. */
 function classify(v: Values, today: string) {
@@ -226,8 +254,15 @@ const classifyAndPersist = async (
   const [saved] = await persistMethodRows(
     store,
     FRAMEWORK,
-    [{ id: params.id, title: params.title, values: valuesOf(params.fields) }],
-    { ctx: { today } }
+    [
+      {
+        id: params.id,
+        title: params.title,
+        values: valuesOf(params.fields),
+        cleared: clearedOf(params.fields),
+      },
+    ],
+    { ctx: { today }, keep: KEEP }
   );
   const c = classify(EISENHOWER.read(saved.row.fields), today);
   return { id: saved.row.id, quadrant: c.quadrant, score: c.score, urgentBecause: c.urgentBecause };
@@ -239,7 +274,7 @@ registry.register({
   name: "classify_and_persist",
   category: "write",
   description:
-    "Classify one task by (urgent, important) and persist it to workspace.prioritization with framework='eisenhower'. The answers (and dueAt / delegateTo) are stored; the quadrant is derived on read, never stored, and the sort score (4/3/2/1) goes on PrioritizationItem.score. An existing id keeps its other fields. Returns { id, quadrant, score, urgentBecause }.",
+    "Classify one task by (urgent, important) and persist it to workspace.prioritization with framework='eisenhower'. The answers (and dueAt / delegateTo) are stored; the quadrant is derived on read, never stored, and the sort score (4/3/2/1) goes on PrioritizationItem.score. An existing id keeps its other fields, and the dueAt and delegateTo the call leaves out (null clears one). Returns { id, quadrant, score, urgentBecause }.",
   paramsSchema: EisenhowerItemInputSchema,
   handler: async (params) => classifyAndPersist(client(), params),
   mcpHandler: async (params, ctx) => classifyAndPersist(server(ctx.userId), params),
@@ -301,8 +336,8 @@ const PersistItemSchema = z.object({
     .object({
       urgent: UrgentSchema.optional(),
       important: ImportantSchema.optional(),
-      dueAt: DueSchema.optional(),
-      delegateTo: DelegateSchema.optional(),
+      dueAt: PersistDueSchema,
+      delegateTo: PersistDelegateSchema,
     })
     .optional(),
   /** A quadrant the agent already decided: turned into the answers it stands for. */
@@ -337,8 +372,13 @@ const persistAll = async (
   const saved = await persistMethodRows(
     store,
     FRAMEWORK,
-    params.items.map((it) => ({ id: it.id, title: it.title, values: answersOf(it) })),
-    { ctx: { today } }
+    params.items.map((it) => ({
+      id: it.id,
+      title: it.title,
+      values: answersOf(it),
+      cleared: clearedOf(it.fields),
+    })),
+    { ctx: { today }, keep: KEEP }
   );
   const written = saved.map((s) => {
     const c = classify(EISENHOWER.read(s.row.fields), today);
@@ -354,7 +394,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of Eisenhower tasks to workspace.prioritization. Each item supplies title + fields ({ urgent, important, dueAt?, delegateTo? }) and/or a quadrant (turned into its answers; a contradiction is refused and nothing is written). The quadrant + numeric sort score (4/3/2/1) are derived. Items without an id get one generated; an existing id is updated in place.",
+    "Persist a batch of Eisenhower tasks to workspace.prioritization. Each item supplies title + fields ({ urgent, important, dueAt?, delegateTo? }) and/or a quadrant (turned into its answers; a contradiction is refused and nothing is written). The quadrant + numeric sort score (4/3/2/1) are derived. Items without an id get one generated; an existing id is updated in place, keeping the answers, dueAt and delegateTo an item leaves out (null clears dueAt or delegateTo).",
   paramsSchema: z.object({ items: z.array(PersistItemSchema).min(1).max(500) }),
   handler: async (params) => persistAll(client(), params),
   mcpHandler: async (params, ctx) => persistAll(server(ctx.userId), params),
