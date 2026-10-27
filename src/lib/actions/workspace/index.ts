@@ -13,7 +13,7 @@
 
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { defineCrudActions } from "../define-crud";
+import { defineCrudActions, type CrudEnv } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   ADKAR_DOC_ID,
@@ -3162,11 +3162,34 @@ function prepareBacklogItem(
   return applyItemPatch(current, set, now);
 }
 
-// Create and update go through the engine (prepareBacklogItem), as the
-// hub's writes do. Delete keeps the method rows that scored the item on
-// both transports: removeBacklogItem in the tab, the same rowsUnlinkedFrom
-// server-side, each row frozen with the values it read through to the
-// item, then unlinked.
+/**
+ * The last step before a backlog item's create or update writes, on both
+ * transports. A rank the write sets that another item holds is refused:
+ * rank is the decided order, one place per item, and
+ * tool.prioritizer.set_order saves a whole order.
+ */
+async function beforeBacklogItemWrite(
+  next: BacklogItem,
+  current: BacklogItem | undefined,
+  env: CrudEnv<BacklogItem>
+): Promise<void> {
+  if (next === current) return;
+  if (typeof next.rank === "number" && next.rank !== current?.rank) {
+    const holder = (await env.all()).find((b) => b.id !== next.id && b.rank === next.rank);
+    if (holder) {
+      throw new Error(
+        `rank: ${next.rank} is already the place of “${holder.name}” (${holder.id}) in the decided order, and each place holds one item. Save a whole order with tool.prioritizer.set_order. Nothing was saved.`
+      );
+    }
+  }
+}
+
+// Create and update go through the engine as the hub's writes do
+// (prepareBacklogItem, then beforeBacklogItemWrite's rank check). Delete
+// keeps the method rows that scored the item on both transports:
+// removeBacklogItem in the tab, the same rowsUnlinkedFrom server-side,
+// each row frozen with the values it read through to the item, then
+// unlinked.
 defineCrudActions<BacklogItem>({
   toolId: "workspace.backlog_item",
   entityName: "backlog item",
@@ -3176,6 +3199,7 @@ defineCrudActions<BacklogItem>({
   remove: (id) => ws().removeBacklogItem(id),
   generateId: () => `backlog_${nanoid(8)}`,
   prepare: prepareBacklogItem,
+  beforeWrite: beforeBacklogItemWrite,
   cascade: {
     describe:
       "The method rows that scored it (RICE, WSJF, MoSCoW, …) stay, unlinked, each keeping the values it showed.",

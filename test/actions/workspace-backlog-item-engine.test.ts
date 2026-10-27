@@ -233,4 +233,32 @@ describe.each([
     expect(item).not.toHaveProperty("moscow");
     expect(item).not.toHaveProperty("reach");
   });
+
+  it("refuses a rank another item holds, on create and update, writing nothing", async () => {
+    const a: BacklogItem = { id: "a", name: "Search", rank: 1, updatedAt: STAMP };
+    const b: BacklogItem = { id: "b", name: "Export", rank: 2, updatedAt: STAMP };
+    if (onServer) {
+      for (const x of [a, b]) server.rows.set(`${KIND}/${x.id}`, structuredClone(x));
+    } else useWorkspaceStore.setState({ backlogItems: [structuredClone(a), structuredClone(b)] });
+    await expect(
+      run("workspace.backlog_item.update", { id: "b", patch: { rank: 1 } }, onServer)
+    ).rejects.toThrow("rank: 1 is already the place of “Search” (a) in the decided order");
+    expect(stored("b", onServer)).toEqual(b);
+    await expect(
+      run("workspace.backlog_item.create", { entity: { name: "New", rank: 2 } }, onServer)
+    ).rejects.toThrow(/rank: 2 is already the place of “Export” \(b\).*set_order/);
+    const all = onServer
+      ? Array.from(server.rows.keys()).filter((k) => k.startsWith(`${KIND}/`))
+      : (useWorkspaceStore.getState().backlogItems ?? []);
+    expect(all).toHaveLength(2);
+    // Its own rank sent again, or a free one, saves.
+    await run(
+      "workspace.backlog_item.update",
+      { id: "a", patch: { rank: 1, name: "Find" } },
+      onServer
+    );
+    expect(stored("a", onServer)).toMatchObject({ name: "Find", rank: 1 });
+    await run("workspace.backlog_item.update", { id: "b", patch: { rank: 3 } }, onServer);
+    expect(stored("b", onServer)?.rank).toBe(3);
+  });
 });
