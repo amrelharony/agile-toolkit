@@ -25,11 +25,33 @@ import { dependencyRoute } from "./targets/dependency";
 
 /**
  * Route ids a stored link may already carry (HANDOFF_ROUTE_IDS lists them,
- * so the workspace schemas accept them) whose target isn't registered yet:
- * "opportunity" until lib/handoffs/targets/opportunity.ts lands in Phase 8.
- * No send menu offers one meanwhile. Empty this once its route is in.
+ * so the workspace schemas accept them, and an agent's update can store
+ * one) whose target isn't registered yet: "opportunity" until
+ * lib/handoffs/targets/opportunity.ts lands in Phase 8. No send menu
+ * offers one meanwhile. Empty this, and PENDING_ROUTES, once its route is in.
  */
 type PendingRouteId = "opportunity";
+
+/**
+ * What getHandoffRoute gives for a pending id: a route with no target, so
+ * a stored link on it reads as gone (`exists` false: liveLink is undefined,
+ * the item can be sent again once the route lands) and a caller that reads
+ * `.label`, `.isDone?.()` or `.targetHref()` keeps working. It never sends.
+ */
+const PENDING_ROUTES: Readonly<Record<PendingRouteId, HandoffRoute>> = {
+  opportunity: {
+    id: "opportunity",
+    label: "Opportunity",
+    doneLabel: "Added as an opportunity",
+    targetToolId: "opportunity-tree",
+    targetHref: () => "/opportunity-tree",
+    send: () => {
+      throw new Error("The Opportunity Tree hand-off isn't available yet.");
+    },
+    remove: () => {},
+    exists: () => false,
+  },
+};
 
 export const HANDOFF_ROUTES: Readonly<
   Record<Exclude<HandoffRouteId, PendingRouteId>, HandoffRoute>
@@ -47,8 +69,10 @@ export const HANDOFF_ROUTES: Readonly<
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {
-  // A pending id has no route yet (see PendingRouteId); nothing sends on one.
-  return HANDOFF_ROUTES[id as Exclude<HandoffRouteId, PendingRouteId>];
+  // A pending id has no target yet: its inert stand-in (see PENDING_ROUTES).
+  return Object.prototype.hasOwnProperty.call(PENDING_ROUTES, id)
+    ? PENDING_ROUTES[id as PendingRouteId]
+    : HANDOFF_ROUTES[id as Exclude<HandoffRouteId, PendingRouteId>];
 }
 
 /* ── Sources ─────────────────────────────────────────────────────────── */

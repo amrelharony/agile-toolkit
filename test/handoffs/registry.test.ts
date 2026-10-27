@@ -323,3 +323,27 @@ describe("source back-links", () => {
     for (const route of ROUTES) expect(getHandoffRoute(route).id).toBe(route);
   });
 });
+
+describe("a route id whose target isn't registered yet", () => {
+  // An agent's workspace.*.update can store a link on "opportunity" before
+  // lib/handoffs/targets/opportunity.ts lands: readers must not throw on it.
+  const stored: HandoffLink[] = [
+    { route: "opportunity", targetId: "node_9", at: "2026-10-15T09:00:00.000Z" },
+    { route: "impediment", targetId: "imp_gone", at: "2026-10-15T09:00:00.000Z" },
+  ];
+
+  it("reads as a route with no target: the link isn't live, nothing is done", () => {
+    const route = getHandoffRoute("opportunity");
+    expect(route.id).toBe("opportunity");
+    expect(route.label).toBe("Opportunity");
+    expect(route.exists("node_9")).toBe(false);
+    expect(route.isDone?.("node_9") ?? false).toBe(false);
+    expect(route.targetHref("node_9")).toBe("/opportunity-tree");
+    expect(liveLink(stored, "opportunity")).toBeUndefined();
+    expect(() => route.remove("node_9")).not.toThrow();
+  });
+
+  it("never sends", () => {
+    expect(() => getHandoffRoute("opportunity").send(src())).toThrow(/isn't available yet/);
+  });
+});
