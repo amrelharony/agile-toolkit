@@ -1,13 +1,15 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
+import { buildPreamble, formatTable, wrapUserContent } from "./prompt-utils";
 import type { Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
-import { decisionLabel, decisionVerdict, roleHolders } from "../decisions/model";
+import { decisionLabel, roleHolders } from "../decisions/model";
 import { TEMPLATES } from "../decisions/templates";
 import { todayLocalISO } from "../utils/formatters";
 import {
   listedRecords,
+  logSummary,
   needsSection,
+  partLine,
   statusText,
   waitingText,
   type DecisionRecordsData,
@@ -20,7 +22,8 @@ const names = (list: readonly string[]) => (list.length === 0 ? "—" : list.joi
  * number, the ADR lifecycle status (proposed, accepted, deprecated,
  * superseded, with carried out and reopened as dates), its Driver,
  * Approver, Contributors and Informed, and what it still needs before
- * Decide (lib/decisions decisionIssues), as the Decision Log shows them.
+ * Decide (lib/decisions decisionIssues), as the Decision Log shows them,
+ * under the verdict and time to decide over the whole log.
  */
 export function generateDaciPrompts(
   data: DecisionRecordsData,
@@ -56,7 +59,7 @@ export function generateDaciPrompts(
   );
   // Titles and names are user-typed, and the verdict counts them.
   const body = wrapUserContent(
-    `Verdict: ${sanitizePromptCell(decisionVerdict(list, today), 400)}\n\n${table}${note}${needsSection(shown, today)}`
+    `${logSummary(data, today)}\n\n${partLine(data, "daci")}${table}${note}${needsSection(shown, today)}`
   );
   return [
     {

@@ -148,16 +148,18 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
   });
 
   const promptConfig = useMemo(() => {
-    // The records themselves (numbers, lifecycle, the template's roles), as the cards show them.
+    // The records themselves (numbers, lifecycle, the template's roles), as the cards show them:
+    // DACI and RAPID list their own records with their roles, the log lists every record, and
+    // all three state the verdict and time to decide over the whole log, as the page does.
     const own = records.filter((d) => templateOf(d) === template);
     return {
       toolName: page.title,
       prompts:
         template === "daci"
-          ? generateDaciPrompts({ decisions: own, today })
+          ? generateDaciPrompts({ decisions: own, all: records, today })
           : template === "rapid"
-            ? generateRapidPrompts({ decisions: own, today })
-            : generateDecisionLogPrompts({ decisions: own.length > 0 ? own : records, today }),
+            ? generateRapidPrompts({ decisions: own, all: records, today })
+            : generateDecisionLogPrompts({ decisions: records, today }),
     };
   }, [records, template, page.title, today]);
 

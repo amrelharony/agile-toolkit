@@ -1,6 +1,6 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
-import type { Decision, Workspace } from "../stores/workspace-types";
+import type { Decision, DecisionTemplate, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 import {
   daysWaiting,
@@ -17,11 +17,15 @@ import { byNumberDesc } from "@/app/(tools)/decision-log/view";
 
 /**
  * Decision records as the Decision Log page reads them, on any of its
- * three routes: the records (workspace.decisions, read through
- * lib/decisions), and today for how long a proposal has waited.
+ * three routes: the records the prompt lists (workspace.decisions, read
+ * through lib/decisions: the whole log, or one template's), the whole log
+ * the page's verdict and time to decide count over on every route (`all`;
+ * the listed records when left out), and today for how long a proposal has
+ * waited.
  */
 export interface DecisionRecordsData {
   decisions: readonly Decision[];
+  all?: readonly Decision[];
   today?: string;
 }
 
@@ -54,6 +58,39 @@ export function waitingText(d: Decision, today: string): string {
   return days === null ? "—" : `${days} ${days === 1 ? "day" : "days"}`;
 }
 
+/** The whole log, which the verdict and time to decide count over. */
+const wholeLog = (data: DecisionRecordsData) => data.all ?? data.decisions;
+
+/** True when the prompt lists one template's records out of a bigger log. */
+const listsPart = (data: DecisionRecordsData) => wholeLog(data).length > data.decisions.length;
+
+/**
+ * The page's verdict and how long decisions take, as every route states
+ * them: over the whole log (decisionVerdict over every record, timeToDecide
+ * with examples left out), whichever records the prompt lists. The verdict
+ * counts user-typed titles, so it goes inside the untrusted block.
+ */
+export function logSummary(data: DecisionRecordsData, today: string): string {
+  const all = wholeLog(data);
+  const speed = timeToDecide(all.filter((d) => !isExampleId(d.id)));
+  const speedLine = speed
+    ? `\nDecisions take ${speed.medianDays} ${speed.medianDays === 1 ? "day" : "days"} from raised to decided (median of ${speed.n}).`
+    : "";
+  const scope = listsPart(data) ? "The whole log, every template:\n" : "";
+  return `${scope}Verdict: ${sanitizePromptCell(decisionVerdict(all, today), 400)}${speedLine}`;
+}
+
+/**
+ * "The DACI records, 3 of the log's 6:" above a table that lists one
+ * template's records, so it doesn't read as the whole log; "" when the
+ * table lists every record.
+ */
+export function partLine(data: DecisionRecordsData, template: DecisionTemplate): string {
+  return listsPart(data)
+    ? `The ${TEMPLATES[template].label} records, ${data.decisions.length} of the log's ${wholeLog(data).length}:\n\n`
+    : "";
+}
+
 /**
  * What the listed records still need (lib/decisions decisionIssues, the
  * card's checks), one line per record that needs something: "" when none
@@ -73,7 +110,8 @@ export function needsSection(shown: readonly Decision[], today: string): string 
  * The ADR prompts over the log: each record's number (one sequence across
  * the templates, ADR-0003 / DACI-0004), its template, the ADR lifecycle
  * status, who decided and what still needs doing, with the log's verdict
- * and how long decisions take, as the page states them.
+ * and how long decisions take, as the page states them. The page lists
+ * every record on each route, so the log's prompts are given them all.
  */
 export function generateDecisionLogPrompts(
   data: DecisionRecordsData,
@@ -98,13 +136,9 @@ export function generateDecisionLogPrompts(
       d.decision.trim() ? d.decision.slice(0, 80) : "Not written down",
     ])
   );
-  const speed = timeToDecide(list.filter((d) => !isExampleId(d.id)));
-  const speedLine = speed
-    ? `\nDecisions take ${speed.medianDays} ${speed.medianDays === 1 ? "day" : "days"} from raised to decided (median of ${speed.n}).`
-    : "";
   // Titles, outcomes and names are user-typed, and the verdict counts them.
   const body = wrapUserContent(
-    `Verdict: ${sanitizePromptCell(decisionVerdict(list, today), 400)}${speedLine}\n\n${table}${note}${needsSection(shown, today)}`
+    `${logSummary(data, today)}\n\n${partLine(data, "adr")}${table}${note}${needsSection(shown, today)}`
   );
   const lifecycle =
     "Each record is numbered in one sequence across the ADR, DACI and RAPID templates and moves through proposed → accepted → deprecated or superseded.";

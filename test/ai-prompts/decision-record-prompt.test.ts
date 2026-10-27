@@ -141,3 +141,46 @@ describe("generateRapidPrompts", () => {
     );
   });
 });
+
+describe("the verdict and time to decide over the whole log, on every route", () => {
+  // As the page states them: decisionVerdict over every record, timeToDecide over the real ones.
+  const whole = `The whole log, every template:\nVerdict: ${decisionVerdict(LIST, TODAY)}\nDecisions take 6 days from raised to decided (median of 3).`;
+  const daci = LIST.filter((d) => d.template === "daci");
+  const rapid = LIST.filter((d) => d.template === "rapid");
+
+  it("DACI lists its own records, named as a part, under the whole log's numbers", () => {
+    const [p] = generateDaciPrompts({ decisions: daci, all: LIST, today: TODAY });
+    expect(p.prompt).toContain(whole);
+    expect(p.prompt).toContain("The DACI records, 1 of the log's 5:\n\n| Number |");
+    expect(p.prompt).not.toContain(`Verdict: ${decisionVerdict(daci, TODAY)}`);
+    expect(p.prompt).not.toContain("| ADR-0001 |");
+  });
+
+  it("RAPID states the time to decide its own records are too few for", () => {
+    const [p] = generateRapidPrompts({ decisions: rapid, all: LIST, today: TODAY });
+    expect(p.prompt).toContain(whole);
+    expect(p.prompt).toContain("The RAPID records, 1 of the log's 5:");
+  });
+
+  it("counts an example record in the verdict but not in the time to decide", () => {
+    const example = rec({
+      id: "example-x",
+      number: 9,
+      status: "accepted",
+      decision: "Example.",
+      date: "2026-10-01",
+      decidedAt: "2026-10-25",
+    });
+    const log = [...LIST, example];
+    const [p] = generateDaciPrompts({ decisions: daci, all: log, today: TODAY });
+    expect(p.prompt).toContain(`Verdict: ${decisionVerdict(log, TODAY)}`);
+    expect(p.prompt).toContain("Decisions take 6 days from raised to decided (median of 3).");
+  });
+
+  it("names no part when the table lists the whole log", () => {
+    const [review] = generateDecisionLogPrompts({ decisions: LIST, all: LIST, today: TODAY });
+    expect(review.prompt).toContain(`Verdict: ${decisionVerdict(LIST, TODAY)}`);
+    expect(review.prompt).not.toContain("The whole log, every template");
+    expect(review.prompt).not.toMatch(/records, \d+ of the log's/);
+  });
+});

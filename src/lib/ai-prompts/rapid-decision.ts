@@ -1,13 +1,15 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
+import { buildPreamble, formatTable, wrapUserContent } from "./prompt-utils";
 import type { Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
-import { MANY_AGREE, decisionLabel, decisionVerdict, roleHolders } from "../decisions/model";
+import { MANY_AGREE, decisionLabel, roleHolders } from "../decisions/model";
 import { TEMPLATES } from "../decisions/templates";
 import { todayLocalISO } from "../utils/formatters";
 import {
   listedRecords,
+  logSummary,
   needsSection,
+  partLine,
   statusText,
   waitingText,
   type DecisionRecordsData,
@@ -20,7 +22,8 @@ const names = (list: readonly string[]) => (list.length === 0 ? "—" : list.joi
  * number, the ADR lifecycle status (carried out as a date), who
  * Recommends, Agrees, Performs, gives Input and Decides, and what it still
  * needs (lib/decisions decisionIssues: a missing D or R, an Agree list
- * over MANY_AGREE), as the Decision Log shows them.
+ * over MANY_AGREE), as the Decision Log shows them, under the verdict and
+ * time to decide over the whole log.
  */
 export function generateRapidPrompts(
   data: DecisionRecordsData,
@@ -60,7 +63,7 @@ export function generateRapidPrompts(
   );
   // Titles and names are user-typed, and the verdict counts them.
   const body = wrapUserContent(
-    `Verdict: ${sanitizePromptCell(decisionVerdict(list, today), 400)}\n\n${table}${note}${needsSection(shown, today)}`
+    `${logSummary(data, today)}\n\n${partLine(data, "rapid")}${table}${note}${needsSection(shown, today)}`
   );
   return [
     {

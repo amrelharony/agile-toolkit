@@ -5,6 +5,7 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { DACIDecision, Decision, RAPIDDecision } from "@/lib/stores/workspace-types";
+import type { ToolPromptConfig } from "@/lib/ai-prompts/types";
 import { DECISION_LOG_KEY, DECISION_LOG_MOVED_KEY } from "@/lib/decisions/legacy-log";
 import { allDecisions, decisionVerdict } from "@/lib/decisions/model";
 import { syncEngine } from "@/lib/sync/engine";
@@ -54,7 +55,14 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
     </div>
   ),
 }));
-vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+// The prompts the page hands the AI Prompts button, last render first.
+const promptConfig = vi.hoisted(() => ({ value: null as ToolPromptConfig | null }));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({
+  AiPromptGenerator: ({ config }: { config: ToolPromptConfig }) => {
+    promptConfig.value = config;
+    return null;
+  },
+}));
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: ({ markdown, filename }: { markdown?: string; filename: string }) => (
     <pre data-testid={`export-${filename}`}>{markdown}</pre>
@@ -180,6 +188,7 @@ beforeEach(() => {
   cloudRead.mockReset();
   cloudRead.mockResolvedValue(null);
   logs.length = 0;
+  promptConfig.value = null;
   migrationMode.value = "off";
   signedIn.value = null;
   window.localStorage.removeItem(DECISION_LOG_KEY);
@@ -713,6 +722,56 @@ describe("?id=, Markdown, the verdict and the time to decide", () => {
     ]);
     renderPage();
     expect(screen.getByText("4 days")).toBeInTheDocument();
+  });
+
+  it("the prompts state the page's verdict and time to decide, over every record", () => {
+    const log = [
+      rec({
+        id: "a",
+        number: 1,
+        status: "accepted",
+        decision: "x",
+        date: "2026-10-01",
+        decidedAt: "2026-10-03",
+      }),
+      rec({
+        id: "b",
+        number: 2,
+        status: "accepted",
+        decision: "x",
+        date: "2026-10-01",
+        decidedAt: "2026-10-11",
+      }),
+      rec({
+        id: "c",
+        number: 3,
+        template: "daci",
+        title: "Pick a flag vendor",
+        status: "accepted",
+        decision: "x",
+        decider: "Ben",
+        date: "2026-10-01",
+        decidedAt: "2026-10-05",
+      }),
+      rec({ id: "d", number: 4, template: "rapid", title: "Weekly releases", date: "2026-10-20" }),
+    ];
+    seed(log);
+    const verdict = decisionVerdict(log, TODAY);
+    const daci = renderPage("daci");
+    expect(screen.getByText(verdict)).toBeInTheDocument();
+    expect(screen.getByText("4 days")).toBeInTheDocument();
+    const daciPrompt = promptConfig.value?.prompts[0]?.prompt ?? "";
+    expect(daciPrompt).toContain(
+      `Verdict: ${verdict}\nDecisions take 4 days from raised to decided (median of 3).`
+    );
+    expect(daciPrompt).toContain("The DACI records, 1 of the log's 4:");
+    daci.unmount();
+    renderPage();
+    const logPrompt = promptConfig.value?.prompts[0]?.prompt ?? "";
+    expect(logPrompt).toContain(`Verdict: ${verdict}\nDecisions take 4 days`);
+    // The log lists every record, as the page does, DACI and RAPID ones too.
+    expect(logPrompt).toContain("| DACI-0003 | DACI | Pick a flag vendor |");
+    expect(logPrompt).toContain("| RAPID-0004 | RAPID | Weekly releases |");
   });
 });
 
