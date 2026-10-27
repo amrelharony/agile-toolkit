@@ -10,10 +10,13 @@
  * (./score-editor). The item owns those inputs: a save writes the item, and
  * every method tool's row linked to it reads the change through. A method
  * nobody scored reads "Not scored" (or "Not sorted yet", "Not placed yet"),
- * never 0. Sorted by a column, the rows hold still while they are edited
- * (useFrozenSort + ResortChip, shown only while a column is sorted and
- * that column's values changed). Delete has Undo, and focus moves to the
- * next row's Delete, so the keyboard stays in the table.
+ * never 0. A link made before Phase 7 reads as the tools read it: the
+ * workspace's method `rows` fill what the item's old defaults hide
+ * (methods withLegacyLinks), in the cell and in its editor, so the editor
+ * opens on what a save would keep. Sorted by a column, the rows hold still
+ * while they are edited (useFrozenSort + ResortChip, shown only while a
+ * column is sorted and that column's values changed). Delete has Undo, and
+ * focus moves to the next row's Delete, so the keyboard stays in the table.
  */
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
@@ -25,7 +28,7 @@ import {
 } from "@/components/shared/data-table";
 import { ResortChip } from "@/components/shared/resort-chip";
 import { IconButton } from "@/components/ui/icon-button";
-import type { BacklogItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import {
   evaluateItemIn,
   method,
@@ -64,6 +67,7 @@ const sortValuesOf = (r: Row): SortValues => {
 
 export function ItemsTable({
   items,
+  rows: methodRows,
   onRename,
   onDescribe,
   onSaveScores,
@@ -73,6 +77,8 @@ export function ItemsTable({
   emptyState,
 }: {
   items: readonly BacklogItem[];
+  /** The workspace's method rows: links made before Phase 7 read through them. */
+  rows: readonly PrioritizationItem[];
   onRename: (id: string, name: string) => void;
   onDescribe: (id: string, description: string | undefined) => void;
   onSaveScores: (id: string, methodId: HubMethodId, values: Values) => void;
@@ -88,10 +94,10 @@ export function ItemsTable({
       decidedOrder(items).map((item) => ({
         item,
         results: Object.fromEntries(
-          HUB_EDITED.map((id) => [id, evaluateItemIn(item, [], id)])
+          HUB_EDITED.map((id) => [id, evaluateItemIn(item, methodRows, id)])
         ) as Record<HubMethodId, MethodScore>,
       })),
-    [items]
+    [items, methodRows]
   );
   const period = useMemo(() => rememberedPeriod(items), [items]);
   // The table's sort, held here (a header or "Sort by" on a phone), so the
@@ -139,6 +145,7 @@ export function ItemsTable({
   const cellFor = (r: Row, id: HubMethodId, view: View) => (
     <MethodCell
       item={r.item}
+      rows={methodRows}
       methodId={id}
       result={r.results[id]}
       period={period}

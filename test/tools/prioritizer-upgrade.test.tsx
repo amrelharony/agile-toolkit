@@ -456,6 +456,116 @@ describe("scores edited in place", () => {
   });
 });
 
+/* ── A link made before Phase 7 ───────────────────────────────────── */
+
+describe("a link made before Phase 7, in the hub", () => {
+  // Every field at its old default, never saved by the new code; the WSJF
+  // row was re-scored in its tool afterwards (the old tools wrote only it).
+  const legacy: BacklogItem = {
+    id: "old",
+    name: "Checkout",
+    moscow: "should",
+    businessValue: 5,
+    timeCriticality: 5,
+    riskReduction: 5,
+    jobSize: 5,
+    reach: 100,
+    impact: 1,
+    confidence: 80,
+    effort: 1,
+    value: 5,
+    matrixEffort: 5,
+  };
+  const linked = (
+    id: string,
+    framework: PrioritizationItem["framework"],
+    fields: PrioritizationItem["fields"]
+  ): PrioritizationItem => ({
+    id,
+    framework,
+    title: "Checkout",
+    fields,
+    status: "scored",
+    backlogItemId: "old",
+    updatedAt: "2026-09-01T09:00:00.000Z",
+  });
+  const wsjf = linked("w1", "wsjf", { businessValue: 8, timeCriticality: 3, rrOe: 2, jobSize: 1 });
+  const picked = (d: HTMLElement, group: string, value: string) =>
+    within(within(d).getByRole("radiogroup", { name: group })).getByRole("radio", { name: value });
+
+  it("shows the row's score and opens the editor on it; Save as it opened writes nothing", () => {
+    useWorkspaceStore.setState({ backlogItems: [legacy], prioritizations: [wsjf] });
+    renderHub();
+    expect(first("button", /^Edit WSJF for Checkout \(13\.00\)/)).toBeInTheDocument();
+    fireEvent.click(first("button", /^Edit WSJF for Checkout/));
+    const d = dialog("WSJF for Checkout");
+    for (const [group, value] of [
+      ["Business value", "8"],
+      ["Time criticality", "3"],
+      ["Risk reduction / opportunity enablement", "2"],
+      ["Job size", "1"],
+    ]) {
+      expect(picked(d, group, value)).toHaveAttribute("aria-checked", "true");
+    }
+    fireEvent.click(within(d).getByRole("button", { name: "Save" }));
+    // Nothing changed: the row's values stand, nothing is logged.
+    expect(items()).toEqual([legacy]);
+    expect(storedRow("w1")).toEqual(wsjf);
+    expect(evaluateRow(storedRow("w1")!, stored("old")).score).toBe(13);
+    expect(logs.filter((l) => l.action === "score_updated")).toEqual([]);
+    expect(announced.at(-1)).toBe("No change: WSJF for “Checkout” stays 13.00.");
+  });
+
+  it("a change logs only what it changed and keeps the row's other parts on the item", () => {
+    useWorkspaceStore.setState({ backlogItems: [legacy], prioritizations: [wsjf] });
+    renderHub();
+    fireEvent.click(first("button", /^Edit WSJF for Checkout/));
+    const d = dialog("WSJF for Checkout");
+    pick(d, "Job size", "2");
+    fireEvent.click(within(d).getByRole("button", { name: "Save" }));
+    expect(stored("old")).toMatchObject({
+      businessValue: 8,
+      timeCriticality: 3,
+      riskReduction: 2,
+      jobSize: 2,
+    });
+    expect(logs.filter((l) => l.action === "score_updated")).toEqual([
+      { action: "score_updated", data: { itemId: "old", method: "wsjf", fields: ["jobSize"] } },
+    ]);
+    expect(announced.at(-1)).toBe("WSJF for “Checkout”: 6.50.");
+  });
+
+  it("the MoSCoW, WSJF, RICE and Value vs Effort tabs read the rows too", () => {
+    const rows = [
+      wsjf,
+      linked("m1", "moscow", { bucket: "must" }),
+      linked("r1", "rice", {
+        reach: 500,
+        reachPeriod: "quarter",
+        impact: 2,
+        confidence: 50,
+        effort: 2,
+      }),
+      linked("v1", "value-effort", { value: 8, effort: 2 }),
+    ];
+    useWorkspaceStore.setState({ backlogItems: [legacy], prioritizations: rows });
+    renderHub();
+    openTab("MoSCoW");
+    expect(
+      within(screen.getByRole("region", { name: "Must have" })).getByText("Checkout")
+    ).toBeInTheDocument();
+    openTab("WSJF");
+    expect(screen.getAllByText("13.00").length).toBeGreaterThan(0);
+    openTab("RICE");
+    expect(screen.getAllByText("250").length).toBeGreaterThan(0);
+    // WSJF's business value 8 is the one value field: Quick Wins at effort 2.
+    expect(matrixPoints([legacy], rows).points).toMatchObject([
+      { id: "old", value: 8, effort: 2, quadrant: "quick_wins" },
+    ]);
+    expect(matrixPoints([legacy]).points).toEqual([]);
+  });
+});
+
 /* ── The name and delete ──────────────────────────────────────────── */
 
 describe("the items table", () => {

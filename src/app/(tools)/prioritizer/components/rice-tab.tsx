@@ -6,16 +6,24 @@
  * normalised to a quarter for the score, so items counted per week and per
  * year compare; an effort below the 0.5 person-month minimum counts as 0.5
  * and says so. The score and the place come from the method registry and
- * rank.ts.
+ * rank.ts. A RICE row linked before Phase 7 fills the inputs its item's old
+ * defaults hide (`rows`: methods withLegacyLinks), as the RICE tool reads
+ * them.
  */
 
 import { useMemo, useRef } from "react";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { SectionCard } from "@/components/shared/section-card";
 import { readBacklogItem } from "@/lib/prioritization/defaults";
-import { evaluateItemIn, method, type MethodScore } from "@/lib/prioritization/methods";
+import {
+  evaluateItemIn,
+  method,
+  withLegacyLinks,
+  type MethodScore,
+} from "@/lib/prioritization/methods";
 import { REACH_PERIOD_LABEL } from "@/lib/prioritization/methods/rice";
 import { rankByMethod } from "@/lib/prioritization/rank";
+import type { PrioritizationItem } from "@/lib/stores/workspace-types";
 import type { BacklogItem } from "../types";
 import { itemName } from "../method-text";
 import { placeText } from "../order";
@@ -29,12 +37,25 @@ interface Row {
 
 const dash = <span className="text-sub">—</span>;
 
-export function RICETab({ items }: { items: readonly BacklogItem[] }) {
+const NO_ROWS: readonly PrioritizationItem[] = [];
+
+export function RICETab({
+  items,
+  rows: methodRows = NO_ROWS,
+}: {
+  items: readonly BacklogItem[];
+  /** The workspace's method rows: links made before Phase 7 read through them. */
+  rows?: readonly PrioritizationItem[];
+}) {
   const rows = useMemo<Row[]>(
-    () => items.map((i) => ({ item: readBacklogItem(i), result: evaluateItemIn(i, [], "rice") })),
-    [items]
+    () =>
+      items.map((i) => ({
+        item: readBacklogItem(withLegacyLinks(i, methodRows)),
+        result: evaluateItemIn(i, methodRows, "rice"),
+      })),
+    [items, methodRows]
   );
-  const ranking = useMemo(() => rankByMethod(items, [], "rice"), [items]);
+  const ranking = useMemo(() => rankByMethod(items, methodRows, "rice"), [items, methodRows]);
   const m = method("rice");
   const box = useRef<HTMLDivElement>(null);
   useTableName(box, "The backlog by RICE");

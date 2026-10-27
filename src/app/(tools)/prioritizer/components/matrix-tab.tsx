@@ -17,10 +17,13 @@ import { ChartFigure } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { VE_LABEL, VE_MEANING, VE_QUADRANTS } from "@/lib/prioritization/methods/value-effort";
 import { cn } from "@/lib/utils";
+import type { PrioritizationItem } from "@/lib/stores/workspace-types";
 import type { BacklogItem } from "../types";
 import { TONE_CLASS, quadrantTone } from "../constants";
 import { matrixPoints, matrixText } from "../matrix";
 import { itemName } from "../method-text";
+
+const NO_ROWS: readonly PrioritizationItem[] = [];
 
 // Recharts loads with the scatter, not the page. The fixed-height box holds
 // the space while it loads.
@@ -29,8 +32,15 @@ const ValueEffortScatter = dynamic(
   { ssr: false }
 );
 
-export function MatrixTab({ items }: { items: readonly BacklogItem[] }) {
-  const { points, unplaced } = useMemo(() => matrixPoints(items), [items]);
+export function MatrixTab({
+  items,
+  rows = NO_ROWS,
+}: {
+  items: readonly BacklogItem[];
+  /** The workspace's method rows: links made before Phase 7 read through them. */
+  rows?: readonly PrioritizationItem[];
+}) {
+  const { points, unplaced } = useMemo(() => matrixPoints(items, rows), [items, rows]);
   const text = useMemo(() => matrixText(points, unplaced.length), [points, unplaced.length]);
 
   return (

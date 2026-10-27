@@ -21,6 +21,7 @@ import { useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  itemSaveBase,
   removeBacklogItemWithUndo,
   renameEverywhere,
   saveBacklogItem,
@@ -62,10 +63,13 @@ export function usePrioritizerStore(): PrioritizerStore {
     saveScores: (id, methodId, values) => {
       const cur = current().find((item) => item.id === id);
       if (!cur) return {};
-      const patch = scorePatch(methodId, values, cur);
+      // The item as saveBacklogItem saves it: with what its links made
+      // before Phase 7 still hold, so the changes logged are the ones written.
+      const base = itemSaveBase(cur);
+      const patch = scorePatch(methodId, values, base);
       // What the save changes (saveBacklogItem writes only that): an
       // editor saved as it was is no change, and nothing to log.
-      const changes = itemPatchChanges(cur, patch);
+      const changes = itemPatchChanges(base, patch);
       saveBacklogItem(id, patch);
       return changes;
     },

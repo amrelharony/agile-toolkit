@@ -5,7 +5,9 @@
  * time criticality + risk reduction) ÷ job size, highest first, items not
  * scored last. Every part on the Fibonacci scale 1–20 (an off-scale value
  * an item already holds reads "custom"); the score, the floor of 1 on the
- * job size and the place come from the method registry and rank.ts.
+ * job size and the place come from the method registry and rank.ts. A WSJF
+ * row linked before Phase 7 fills the parts its item's old defaults hide
+ * (`rows`: methods withLegacyLinks), as the WSJF tool reads them.
  */
 
 import { useMemo, useRef } from "react";
@@ -13,9 +15,15 @@ import { DataTable, type DataTableColumn } from "@/components/shared/data-table"
 import { SectionCard } from "@/components/shared/section-card";
 import { ScaleValue } from "@/components/shared/scale-picker";
 import { readBacklogItem } from "@/lib/prioritization/defaults";
-import { evaluateItemIn, method, type MethodScore } from "@/lib/prioritization/methods";
+import {
+  evaluateItemIn,
+  method,
+  withLegacyLinks,
+  type MethodScore,
+} from "@/lib/prioritization/methods";
 import { FIBONACCI_STEPS } from "@/lib/prioritization/methods/fibonacci";
 import { rankByMethod } from "@/lib/prioritization/rank";
+import type { PrioritizationItem } from "@/lib/stores/workspace-types";
 import type { BacklogItem } from "../types";
 import { itemName } from "../method-text";
 import { placeText } from "../order";
@@ -27,6 +35,8 @@ interface Row {
   result: MethodScore;
 }
 
+const NO_ROWS: readonly PrioritizationItem[] = [];
+
 const PARTS = [
   { key: "businessValue", label: "Business value" },
   { key: "timeCriticality", label: "Time criticality" },
@@ -34,15 +44,25 @@ const PARTS = [
   { key: "jobSize", label: "Job size" },
 ] as const;
 
-export function WSJFTab({ items }: { items: readonly BacklogItem[] }) {
+export function WSJFTab({
+  items,
+  rows: methodRows = NO_ROWS,
+}: {
+  items: readonly BacklogItem[];
+  /** The workspace's method rows: links made before Phase 7 read through them. */
+  rows?: readonly PrioritizationItem[];
+}) {
   const rows = useMemo<Row[]>(
     () =>
-      // The engine's reading: old defaults cleared, the legacy value read
-      // onto the one value field.
-      items.map((i) => ({ item: readBacklogItem(i), result: evaluateItemIn(i, [], "wsjf") })),
-    [items]
+      // The engine's reading: old defaults cleared, a legacy link's parts
+      // filled in, the legacy value read onto the one value field.
+      items.map((i) => ({
+        item: readBacklogItem(withLegacyLinks(i, methodRows)),
+        result: evaluateItemIn(i, methodRows, "wsjf"),
+      })),
+    [items, methodRows]
   );
-  const ranking = useMemo(() => rankByMethod(items, [], "wsjf"), [items]);
+  const ranking = useMemo(() => rankByMethod(items, methodRows, "wsjf"), [items, methodRows]);
   const m = method("wsjf");
   const box = useRef<HTMLDivElement>(null);
   useTableName(box, "The backlog by WSJF");

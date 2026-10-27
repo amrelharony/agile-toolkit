@@ -9,8 +9,11 @@
  * pickers to 20 for WSJF with "Custom" for an off-scale value the item
  * already holds, RICE's reach with its period, impact and confidence with
  * their meanings, Value/Effort's two scales). Nothing is filled in that the
- * item doesn't hold; Enter saves, Escape cancels, and focus goes back to
- * the button. A method left blank saves as Not scored ("Clear all").
+ * item doesn't hold, read as its cell reads it (with what a link made
+ * before Phase 7 still holds: the workspace's method `rows`), so a Save
+ * left as it opened changes nothing; Enter saves, Escape cancels, and
+ * focus goes back to the button. A method left blank saves as Not scored
+ * ("Clear all").
  *
  * The popover is one per cell, and only the one opened renders its form,
  * so the items table's desktop rows and phone cards (both in the DOM) never
@@ -23,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { MethodInputs } from "@/components/prioritization/method-inputs";
-import type { BacklogItem, ReachPeriod } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem, ReachPeriod } from "@/lib/stores/workspace-types";
 import { method, type MethodScore, type Values } from "@/lib/prioritization/methods";
 import { cn } from "@/lib/utils";
 import {
@@ -45,6 +48,7 @@ const NOTE: Partial<Record<HubMethodId, string>> = {
 
 export function MethodCell({
   item,
+  rows,
   methodId,
   result,
   period,
@@ -52,6 +56,8 @@ export function MethodCell({
   triggerRef,
 }: {
   item: BacklogItem;
+  /** The workspace's method rows (links made before Phase 7 read through them). */
+  rows: readonly PrioritizationItem[];
   methodId: HubMethodId;
   result: MethodScore;
   /** The reach period a new RICE score starts at (the last one picked). */
@@ -96,6 +102,7 @@ export function MethodCell({
         {open && (
           <ScoreForm
             item={item}
+            rows={rows}
             methodId={methodId}
             period={period}
             onSave={(values) => {
@@ -112,21 +119,23 @@ export function MethodCell({
 
 function ScoreForm({
   item,
+  rows,
   methodId,
   period,
   onSave,
   onCancel,
 }: {
   item: BacklogItem;
+  rows: readonly PrioritizationItem[];
   methodId: HubMethodId;
   period?: ReachPeriod;
   onSave: (values: Values) => void;
   onCancel: () => void;
 }) {
   const m = method(methodId);
-  const held = heldScores(methodId, item);
+  const held = heldScores(methodId, item, rows);
   const form = useItemForm<Values, Values, string>({
-    initial: () => scoreDraft(methodId, item, period),
+    initial: () => scoreDraft(methodId, item, period, rows),
     // What the item holds may stay as it is (an off-scale value is "Custom").
     validate: (d) => validateScores(methodId, d, held),
     // The whole draft goes to the save: a blanked input is a clear.

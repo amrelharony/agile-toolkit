@@ -152,9 +152,14 @@ export function PrioritizerClient() {
     if (fields.length > 0) {
       log(PRIORITIZER_ACTIONS.SCORE_UPDATED, { itemId: id, method: methodId, fields });
     }
-    const saved = (useWorkspaceStore.getState().backlogItems ?? []).find((i) => i.id === id);
+    const after = useWorkspaceStore.getState();
+    const saved = (after.backlogItems ?? []).find((i) => i.id === id);
     if (saved) {
-      const text = methodText(methodId, evaluateItemIn(saved, [], methodId));
+      // As the cell reads it: a link made before Phase 7 still counts.
+      const text = methodText(
+        methodId,
+        evaluateItemIn(saved, after.prioritizations ?? [], methodId)
+      );
       const what = `${method(methodId).label} for “${itemName(saved.name)}”`;
       announce(fields.length > 0 ? `${what}: ${text}.` : `No change: ${what} stays ${text}.`);
     }
@@ -257,6 +262,7 @@ export function PrioritizerClient() {
         <SectionCard title={`Backlog items (${items.length})`} icon={ArrowUpDown}>
           <ItemsTable
             items={items}
+            rows={rows}
             onRename={(id, name) => store.updateItem(id, { name })}
             onDescribe={(id, description) => store.updateItem(id, { description })}
             onSaveScores={saveScores}
@@ -328,19 +334,24 @@ export function PrioritizerClient() {
             </TabsContent>
 
             <TabsContent value="moscow" className="mt-4">
-              <MoSCoWTab items={items} onReorder={saveOrder} onDecideOrder={openDecideOrder} />
+              <MoSCoWTab
+                items={items}
+                rows={rows}
+                onReorder={saveOrder}
+                onDecideOrder={openDecideOrder}
+              />
             </TabsContent>
 
             <TabsContent value="wsjf" className="mt-4">
-              <WSJFTab items={items} />
+              <WSJFTab items={items} rows={rows} />
             </TabsContent>
 
             <TabsContent value="rice" className="mt-4">
-              <RICETab items={items} />
+              <RICETab items={items} rows={rows} />
             </TabsContent>
 
             <TabsContent value="matrix" className="mt-4">
-              <MatrixTab items={items} />
+              <MatrixTab items={items} rows={rows} />
             </TabsContent>
           </Tabs>
         )}

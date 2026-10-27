@@ -8,7 +8,7 @@
  * so the summary and table are ready before the chart's code loads.
  */
 
-import type { BacklogItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import type { ChartTable } from "@/lib/charts/chart-text";
 import { compareResults, evaluateItemIn, method } from "@/lib/prioritization/methods";
 import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
@@ -48,9 +48,15 @@ export const EFFORT_SPLIT_AT = VE_HIGH_EFFORT_FROM - 0.5;
 
 /**
  * The placed items in do-first order (quadrant by quadrant, then value ÷
- * effort), and the ones not placed yet.
+ * effort), and the ones not placed yet. With the workspace's method `rows`,
+ * a Value/Effort row linked before Phase 7 places its item where its old
+ * defaults hide the value and effort (methods withLegacyLinks), as the
+ * Value vs Effort tool reads it.
  */
-export function matrixPoints(items: readonly BacklogItem[]): {
+export function matrixPoints(
+  items: readonly BacklogItem[],
+  rows: readonly PrioritizationItem[] = []
+): {
   points: MatrixPoint[];
   unplaced: BacklogItem[];
 } {
@@ -58,7 +64,7 @@ export function matrixPoints(items: readonly BacklogItem[]): {
   const placed: { point: MatrixPoint; result: ReturnType<typeof evaluateItemIn> }[] = [];
   const unplaced: BacklogItem[] = [];
   for (const item of items) {
-    const result = evaluateItemIn(item, [], "value-effort");
+    const result = evaluateItemIn(item, rows, "value-effort");
     const value = result.extra?.value;
     const effort = result.extra?.effort;
     if (

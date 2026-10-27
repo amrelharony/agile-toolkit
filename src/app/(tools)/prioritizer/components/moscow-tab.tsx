@@ -4,7 +4,9 @@
  * Tab MoSCoW: the backlog by bucket (Must, Should, Could, Won't have this
  * time), each bucket in the decided order. Then "Not sorted yet": a bucket
  * is never a default, and an item whose only bucket is the old "Add item"
- * default reads as not sorted (the registry's reading).
+ * default reads as not sorted (the registry's reading), unless a MoSCoW row
+ * linked to it before Phase 7 holds its real bucket (`rows`: methods
+ * withLegacyLinks, as the MoSCoW tool reads it).
  *
  * A bucket's ordered items are reorderable (drag a row by its grip, or the
  * arrow keys on it, as in Decide order). A reorder saves at once, with
@@ -21,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { evaluateItemIn } from "@/lib/prioritization/methods";
 import { isMoscowBucket } from "@/lib/prioritization/methods/moscow";
 import { decidedOrder } from "@/lib/prioritization/rank";
+import type { PrioritizationItem } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import type { BacklogItem, MoSCoWCategory } from "../types";
 import { MOSCOW_CATEGORIES, MOSCOW_CONFIG, TONE_CLASS } from "../constants";
@@ -28,12 +31,17 @@ import { countText, itemName } from "../method-text";
 import { groupReorder, moveTo, rankOf } from "../order";
 import { OrderList } from "./order-list";
 
+const NO_ROWS: readonly PrioritizationItem[] = [];
+
 export function MoSCoWTab({
   items,
+  rows = NO_ROWS,
   onReorder,
   onDecideOrder,
 }: {
   items: readonly BacklogItem[];
+  /** The workspace's method rows: links made before Phase 7 read through them. */
+  rows?: readonly PrioritizationItem[];
   /** Save a whole-backlog order. Absent: the buckets are lists only. */
   onReorder?: (ids: readonly string[], label: string) => void;
   /** Open the Decide order step, where items not ordered yet get their places. */
@@ -45,12 +53,12 @@ export function MoSCoWTab({
     ) as Record<MoSCoWCategory, BacklogItem[]>;
     const rest: BacklogItem[] = [];
     for (const item of decidedOrder(items)) {
-      const bucket = evaluateItemIn(item, [], "moscow").bucket;
+      const bucket = evaluateItemIn(item, rows, "moscow").bucket;
       if (isMoscowBucket(bucket)) result[bucket].push(item);
       else rest.push(item);
     }
     return { groups: result, unsorted: rest };
-  }, [items]);
+  }, [items, rows]);
   const byId = new Map(items.map((i) => [i.id, i]));
   const nameOf = (id: string) => itemName(byId.get(id)?.name);
 
