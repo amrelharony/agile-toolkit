@@ -83,8 +83,10 @@ function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
       return [ws().impediments.some((i) => i.id === id)];
     case "kanban":
       return [kanbanCards().some((c) => c.id === id)];
+    // One store since Phase 8 (the register's old blob is never written:
+    // the "risk: one row in workspace.risks only" case checks that).
     case "risk":
-      return [riskBlob().some((r) => r.id === id), ws().risks.some((r) => r.id === id)];
+      return [ws().risks.some((r) => r.id === id)];
     case "poker-queue":
       return [pokerQueue().some((q) => q.id === id)];
     case "backlog-story":
@@ -156,34 +158,95 @@ describe("hand-off routes", () => {
     expect(getHandoffRoute("impediment").isDone?.(link.targetId)).toBe(true);
   });
 
-  it("risk: the register's blob and workspace.risks hold one row under one id", () => {
+  it("impediment: a risk raised as one keeps its level as the severity; an unknown one is medium", () => {
+    const critical = sendHandoff(
+      "impediment",
+      src({ severity: "critical", sourceRef: { tool: "risk-register", id: "r1" } }),
+      linkStore()
+    )!;
+    expect(ws().impediments.find((i) => i.id === critical.targetId)).toMatchObject({
+      severity: "critical",
+      source: "manual",
+      sourceRef: { tool: "risk-register", id: "r1" },
+    });
+    const odd = sendHandoff(
+      "impediment",
+      src({ severity: "urgent" as never, sourceRef: { tool: "risk-register", id: "r2" } }),
+      linkStore()
+    )!;
+    expect(ws().impediments.find((i) => i.id === odd.targetId)?.severity).toBe("medium");
+  });
+
+  it("risk: one row in workspace.risks only, stamped, keeping owner and description", () => {
     localStorage.setItem(RISK_REGISTER_KEY, JSON.stringify([{ id: "old", title: "Old" }]));
     const link = sendHandoff(
       "risk",
       src({ sourceRef: { tool: "premortem", id: "cause-1" } }),
       linkStore()
     )!;
-    const blob = riskBlob();
-    expect(blob.map((r) => r.id)).toEqual([link.targetId, "old"]);
-    expect(blob[0]).toMatchObject({
-      title: "Fix the flaky checkout tests",
-      probability: 4,
-      impact: 5,
-      mitigation: "Quarantine and pair on them",
-      status: "open",
-      sourceRef: { tool: "premortem", id: "cause-1" },
-    });
-    expect(ws().risks).toEqual([blob[0]]);
-    // The register's Import keeps rows whose id it doesn't have: none here.
-    expect(ws().risks.filter((w) => !blob.some((r) => r.id === w.id))).toEqual([]);
+    expect(ws().risks).toEqual([
+      {
+        id: link.targetId,
+        title: "Fix the flaky checkout tests",
+        description: "They fail one run in five.",
+        owner: "Sam",
+        probability: 4,
+        impact: 5,
+        mitigation: "Quarantine and pair on them",
+        status: "open",
+        raisedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        sourceRef: { tool: "premortem", id: "cause-1" },
+        updatedAt: expect.any(String),
+      },
+    ]);
+    // The old blob is the move's backup: never written by a send.
+    expect(riskBlob()).toEqual([{ id: "old", title: "Old" }]);
   });
 
-  it("risk: out-of-range scores fall back into 1–5", () => {
-    const link = sendHandoff("risk", src({ likelihood: 9, impact: undefined }), linkStore())!;
+  it("risk: an off-scale rating is clamped onto 1–5; an unrated one is refused, nothing saved", () => {
+    const link = sendHandoff("risk", src({ likelihood: 9, impact: 0.4 }), linkStore())!;
     expect(ws().risks.find((r) => r.id === link.targetId)).toMatchObject({
       probability: 5,
-      impact: 3,
+      impact: 1,
     });
+    const store = linkStore();
+    expect(() => sendHandoff("risk", src({ impact: undefined }), store)).toThrow(
+      "Rate its impact before it goes to the Risk Register."
+    );
+    expect(() =>
+      sendHandoff("risk", src({ likelihood: Number.NaN, impact: undefined }), store)
+    ).toThrow("Rate how likely it is and its impact before it goes to the Risk Register.");
+    expect(ws().risks).toHaveLength(1);
+    expect(store.links).toEqual([]);
+  });
+
+  it("risk: a long title is cut and leads the description, so nothing is lost", () => {
+    const long = `Vendor ${"x".repeat(300)}`;
+    const link = sendHandoff("risk", src({ title: long, description: "Why" }), linkStore())!;
+    const risk = ws().risks.find((r) => r.id === link.targetId)!;
+    expect(risk.title).toHaveLength(240);
+    expect(risk.description).toBe(`${long}\n\nWhy`);
+  });
+
+  it("risk: a row still waiting in the old blob exists; isDone once closed or accepted", () => {
+    localStorage.setItem(
+      RISK_REGISTER_KEY,
+      JSON.stringify([{ id: "r-old", title: "Old page risk", status: "open" }])
+    );
+    const route = getHandoffRoute("risk");
+    expect(route.exists("r-old")).toBe(true);
+    expect(route.isDone?.("r-old")).toBe(false);
+    // Moved (or deleted on the page after the move): gone.
+    localStorage.setItem(`${RISK_REGISTER_KEY}:moved`, JSON.stringify(["r-old"]));
+    expect(route.exists("r-old")).toBe(false);
+
+    const link = sendHandoff("risk", src(), linkStore())!;
+    const risk = ws().risks.find((r) => r.id === link.targetId)!;
+    expect(route.isDone?.(link.targetId)).toBe(false);
+    ws().upsertRisk({ ...risk, status: "accepted" });
+    expect(route.isDone?.(link.targetId)).toBe(true);
+    ws().upsertRisk({ ...risk, status: "closed", resolvedAt: "2026-10-20" });
+    expect(route.isDone?.(link.targetId)).toBe(true);
   });
 
   it("poker-queue: queues the story on the estimate log", () => {

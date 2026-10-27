@@ -39,11 +39,19 @@ describe("sendHandoffBatch", () => {
     const a = linkStore();
     const b = linkStore();
     const blank = linkStore();
+    // Rated: the risk route refuses an unrated risk rather than score it 3 × 3.
+    const rated = { likelihood: 3, impact: 4 };
     const sent = sendHandoffBatch(
       "risk",
       [
-        { src: { title: "Payments outage", sourceRef: { tool: "premortem", id: "c1" } }, links: a },
-        { src: { title: "Vendor late", sourceRef: { tool: "premortem", id: "c2" } }, links: b },
+        {
+          src: { title: "Payments outage", ...rated, sourceRef: { tool: "premortem", id: "c1" } },
+          links: a,
+        },
+        {
+          src: { title: "Vendor late", ...rated, sourceRef: { tool: "premortem", id: "c2" } },
+          links: b,
+        },
         { src: { title: "  ", sourceRef: { tool: "premortem", id: "c3" } }, links: blank },
       ],
       "Sent 2 risks to the Risk Register"
@@ -59,7 +67,10 @@ describe("sendHandoffBatch", () => {
     // A second batch skips the ones already sent.
     expect(
       sendHandoffBatch("risk", [
-        { src: { title: "Payments outage", sourceRef: { tool: "premortem", id: "c1" } }, links: a },
+        {
+          src: { title: "Payments outage", ...rated, sourceRef: { tool: "premortem", id: "c1" } },
+          links: a,
+        },
       ])
     ).toEqual([]);
 
