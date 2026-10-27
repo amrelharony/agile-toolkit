@@ -242,7 +242,7 @@ export function DecideOrder({
         );
         return spread > DISAGREE_SPREAD ? (
           <span>
-            <span className="inline-flex rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-xs text-warning">
+            <span className="inline-flex rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-text">
               Methods disagree
             </span>
             {apart}

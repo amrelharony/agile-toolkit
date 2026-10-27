@@ -291,7 +291,7 @@ export function PrioritizerClient() {
                   key={t.value}
                   ref={t.value === "decide" ? decideTrigger : undefined}
                   value={t.value}
-                  className="text-sub data-[state=active]:bg-accent/10 data-[state=active]:text-accent data-[state=active]:shadow-none"
+                  className="text-sub data-[state=active]:bg-card data-[state=active]:text-text data-[state=active]:shadow-none data-[state=active]:ring-1 data-[state=active]:ring-accent/60"
                 >
                   {t.label}
                   {t.value === "decide" && orderUnsaved && (

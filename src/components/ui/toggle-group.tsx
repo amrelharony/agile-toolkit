@@ -98,7 +98,7 @@ export function ToggleGroup<T extends string | number>({
               "disabled:cursor-not-allowed disabled:opacity-50",
               size === "sm" ? "min-h-8 px-2.5 text-xs" : "min-h-9 px-3 text-sm",
               checked
-                ? "border-accent bg-accent/15 text-accent"
+                ? "border-accent bg-accent/15 text-text"
                 : "border-border bg-card text-sub hover:border-accent/40 hover:text-text"
             )}
           >
