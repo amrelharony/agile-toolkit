@@ -12,7 +12,9 @@ import { currentQuarterIndex, dashQuarter } from "@/lib/roadmap/quarters";
  * rate, and a cleared rate never blocks it); a side of the split with
  * nothing entered reads "Not entered" and exports a blank cell, never $0;
  * the hours toggle is a plain action (no aria-pressed beside a name that
- * flips); and focus has somewhere to go after a delete or a clear.
+ * flips) whose name holds its visible text; focus has somewhere to go
+ * after a delete or a clear; and the AI prompts name a category that
+ * wasn't entered as unknown, never as $0.
  */
 
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
@@ -20,7 +22,13 @@ vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+const promptSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/components/shared/ai-prompt-generator", () => ({
+  AiPromptGenerator: (props: unknown) => {
+    promptSpy(props);
+    return null;
+  },
+}));
 const exportSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: (props: unknown) => {
@@ -42,6 +50,7 @@ import {
   keptHoursCost,
   validatePeriod,
 } from "@/app/(tools)/quality-cost/period-form";
+import { notEnteredNote, qualityCostPrompts } from "@/app/(tools)/quality-cost/prompts";
 import { sideAmount, sideText } from "@/app/(tools)/quality-cost/view";
 
 const NOW = currentQuarterIndex();
@@ -78,6 +87,7 @@ beforeEach(() => {
   window.localStorage.clear();
   toastSpy.mockReset();
   exportSpy.mockReset();
+  promptSpy.mockReset();
 });
 
 describe("an edited quarter keeps the price of its hours", () => {
@@ -178,8 +188,68 @@ describe("the hours toggle", () => {
     const toggle = screen.getByRole("button", { name: "Work out Prevention as hours × rate" });
     expect(toggle).not.toHaveAttribute("aria-pressed");
     fireEvent.click(toggle);
-    const back = screen.getByRole("button", { name: "Enter Prevention as an amount" });
+    const back = screen.getByRole("button", { name: "Enter an amount for Prevention" });
     expect(back).not.toHaveAttribute("aria-pressed");
+  });
+
+  it("holds its visible text in its name, both ways round", () => {
+    renderPage();
+    const named = (b: HTMLElement) =>
+      (b.getAttribute("aria-label") ?? "").toLowerCase().includes(b.textContent!.toLowerCase());
+    const toggle = screen.getByRole("button", { name: "Work out Prevention as hours × rate" });
+    expect(toggle).toHaveTextContent("Hours × rate");
+    expect(named(toggle)).toBe(true);
+    fireEvent.click(toggle);
+    const back = screen.getByRole("button", { name: "Enter an amount for Prevention" });
+    expect(back).toHaveTextContent("Enter an amount");
+    expect(named(back)).toBe(true);
+  });
+});
+
+describe("the AI prompts", () => {
+  const FAILURES_ONLY: QualityCostPeriod = {
+    id: "f",
+    period: q(1),
+    costs: { internalFailure: 300, externalFailure: 700 },
+  };
+
+  it("name the categories not entered as unknown, in every prompt", () => {
+    const prompts = qualityCostPrompts(FAILURES_ONLY);
+    expect(prompts).toHaveLength(2);
+    for (const p of prompts) {
+      expect(p.prompt).toContain(
+        `Prevention and Detection (appraisal) weren't entered for ${q(1)}. Read their $0 above as unknown, not as zero spend`
+      );
+    }
+    expect(notEnteredNote(["detection"], "2026-Q1")).toContain(
+      "Detection (appraisal) wasn't entered for 2026-Q1. Read its $0 above"
+    );
+  });
+
+  it("add nothing when all four were entered, and stay empty for a $0 quarter", () => {
+    const full: QualityCostPeriod = {
+      id: "full",
+      period: q(1),
+      costs: { prevention: 1, detection: 2, internalFailure: 3, externalFailure: 4 },
+    };
+    expect(notEnteredNote([], q(1))).toBeNull();
+    const prompts = qualityCostPrompts(full);
+    expect(prompts).toHaveLength(2);
+    for (const p of prompts) expect(p.prompt).not.toContain("Not entered");
+    // Nothing above $0 is nothing to ask about: the generator returns no prompts.
+    expect(qualityCostPrompts({ id: "z", period: q(1), costs: { prevention: 0 } })).toEqual([]);
+  });
+
+  it("are the page's prompts for the quarter shown", () => {
+    seed({ periods: [FAILURES_ONLY] });
+    renderPage();
+    const props = promptSpy.mock.calls.at(-1)?.[0] as {
+      config: { prompts: { prompt: string }[] };
+    };
+    expect(props.config.prompts.map((p) => p.prompt)).toEqual(
+      qualityCostPrompts(FAILURES_ONLY).map((p) => p.prompt)
+    );
+    expect(props.config.prompts[0].prompt).toContain("## Not entered");
   });
 });
 

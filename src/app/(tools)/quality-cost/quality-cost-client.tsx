@@ -25,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
-import { generateQualityCostPrompts } from "@/lib/ai-prompts/quality-cost";
 import { QUALITY_COST_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import {
@@ -56,6 +55,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { buildExample } from "./example";
 import { qualityCostMarkdown } from "./markdown";
 import { PeriodForm, type PeriodValues } from "./period-form";
+import { qualityCostPrompts } from "./prompts";
 import {
   amountText,
   distributionText,
@@ -307,24 +307,10 @@ export function QualityCostClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Cost of Quality Calculator",
-      prompts:
-        shown && shownBreakdown
-          ? generateQualityCostPrompts(
-              {
-                prevention: shown.costs.prevention ?? 0,
-                detection: shown.costs.detection ?? 0,
-                internalFailure: shown.costs.internalFailure ?? 0,
-                externalFailure: shown.costs.externalFailure ?? 0,
-                total: shownBreakdown.total,
-                conformance: shownBreakdown.conformance,
-                nonConformance: shownBreakdown.nonConformance,
-                description: [shown.period, shown.note].filter(Boolean).join(": "),
-              },
-              workspace
-            )
-          : [],
+      // A category not entered is named as unknown in each prompt, never left as $0.
+      prompts: shown ? qualityCostPrompts(shown, workspace) : [],
     }),
-    [shown, shownBreakdown, workspace]
+    [shown, workspace]
   );
 
   const csvData = {

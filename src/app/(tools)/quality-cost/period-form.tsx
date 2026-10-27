@@ -299,14 +299,16 @@ export function PeriodForm({
                 </Field>
               )}
               {/* Named for what it does next, so no aria-pressed: "pressed"
-                  beside a name that flips would read the wrong way round. */}
+                  beside a name that flips would read the wrong way round.
+                  Each name holds the visible text, so it can be said to
+                  speech input as it reads. */}
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="self-start"
                 aria-label={
-                  byHours ? `Enter ${label} as an amount` : `Work out ${label} as hours × rate`
+                  byHours ? `Enter an amount for ${label}` : `Work out ${label} as hours × rate`
                 }
                 onClick={() => setCategory("byHours", c, !byHours)}
               >
