@@ -33,7 +33,7 @@ vi.mock("@/lib/utils/undoable", () => ({
 import { HANDOFF_ROUTES, getHandoffRoute, liveLink, sourceHref } from "@/lib/handoffs/registry";
 import { sendHandoff } from "@/lib/handoffs/send";
 import type { HandoffSource } from "@/lib/handoffs/types";
-import { RISK_REGISTER_KEY } from "@/lib/handoffs/targets/risk";
+import { RISK_REGISTER_KEY, buildRisk } from "@/lib/handoffs/targets/risk";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
@@ -209,15 +209,26 @@ describe("hand-off routes", () => {
       probability: 5,
       impact: 1,
     });
-    const store = linkStore();
-    expect(() => sendHandoff("risk", src({ impact: undefined }), store)).toThrow(
+    // The route says why (its `problem`), and the send skips it: no throw.
+    const route = getHandoffRoute("risk");
+    expect(route.problem?.(src({ impact: undefined }))).toBe(
       "Rate its impact before it goes to the Risk Register."
     );
-    expect(() =>
+    expect(route.problem?.(src({ likelihood: Number.NaN, impact: undefined }))).toBe(
+      "Rate how likely it is and its impact before it goes to the Risk Register."
+    );
+    expect(route.problem?.(src())).toBeNull();
+    const store = linkStore();
+    expect(sendHandoff("risk", src({ impact: undefined }), store)).toBeNull();
+    expect(
       sendHandoff("risk", src({ likelihood: Number.NaN, impact: undefined }), store)
-    ).toThrow("Rate how likely it is and its impact before it goes to the Risk Register.");
+    ).toBeNull();
     expect(ws().risks).toHaveLength(1);
     expect(store.links).toEqual([]);
+    // Called directly, the builder still refuses rather than score it 3 × 3.
+    expect(() => buildRisk(src({ impact: undefined }))).toThrow(
+      "Rate its impact before it goes to the Risk Register."
+    );
   });
 
   it("risk: a long title is cut and leads the description, so nothing is lost", () => {

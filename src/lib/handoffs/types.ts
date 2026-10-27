@@ -98,4 +98,12 @@ export interface HandoffRoute {
   /** Whether the target item is finished (an impediment resolved, a Kanban
    *  card in Done). Absent when the route can't tell. */
   isDone?: (targetId: string) => boolean;
+  /**
+   * Why `src` can't take this route yet (a risk needs its likelihood and
+   * impact rated), or null. sendHandoff and sendHandoffBatch skip such an
+   * item, as a blank title is skipped, so `send` only gets sources it can
+   * create: a send that threw inside a batch would leave the items sent
+   * before it with no toast and no Undo. Absent: every titled source goes.
+   */
+  problem?: (src: HandoffSource) => string | null;
 }

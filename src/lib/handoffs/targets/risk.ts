@@ -11,7 +11,9 @@
  *
  * A send needs the likelihood and impact rated (premortem asks for both
  * before it sends): an unrated one is refused, never saved at a default
- * score; a rating off the 1–5 scale is rounded and clamped onto it.
+ * score (the route's `problem`, which sendHandoff and sendHandoffBatch
+ * check first, so the item is skipped rather than thrown on mid-batch); a
+ * rating off the 1–5 scale is rounded and clamped onto it.
  */
 
 import type { Risk } from "@/lib/stores/workspace-types";
@@ -41,7 +43,8 @@ export function riskSourceProblem(
  * likelihood and impact (on the 1–5 scale), with its owner, description
  * and mitigation. A title over RISK_TITLE_MAX is cut there, and the whole
  * text then leads the description so nothing is lost. Throws (nothing is
- * saved) when either rating is missing: see riskSourceProblem.
+ * saved) when either rating is missing: see riskSourceProblem, which the
+ * send paths check first (riskRoute.problem).
  */
 export function buildRisk(
   src: HandoffSource,
@@ -80,6 +83,8 @@ export const riskRoute: HandoffRoute = {
   doneLabel: "Added to the Risk Register",
   targetToolId: "risk-register",
   targetHref: () => "/risk-register",
+  // An unrated source is skipped by both send paths, never sent at a default score.
+  problem: riskSourceProblem,
   send: (src) => saveRisk(buildRisk(src)).id,
   // Undo: as the register's delete (a blob row waiting for the move is
   // marked moved; canvas cards are unpinned).

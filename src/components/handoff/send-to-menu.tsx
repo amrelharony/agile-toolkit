@@ -70,7 +70,8 @@ export function SendToMenuItems({
         return (
           <DropdownMenuItem
             key={id}
-            disabled={blank}
+            // A source the route can't take yet (an unrated risk) would send nothing.
+            disabled={blank || Boolean(route.problem?.(item))}
             onSelect={() =>
               sendHandoff(id, item, {
                 getLinks: getLinks ?? (() => sentTo),
