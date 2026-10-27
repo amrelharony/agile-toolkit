@@ -10,6 +10,8 @@ import {
   FLAKY_DESCRIPTION_MAX,
   FLAKY_OWNER_MAX,
   FLAKY_SUITE_MAX,
+  firstSeenOrderError,
+  flakyDayError,
   flakyTestErrors,
   hasRunCounts,
   type FlakyField,
@@ -25,10 +27,13 @@ export interface TestDraft {
   runs: string;
   /** "" on a new test means today; on an edit, the stored day stays. */
   firstSeenAt: string;
+  /** The status day an edit can backdate (statusDayField); "" keeps the stored one. */
+  quarantinedAt: string;
+  fixedAt: string;
   description: string;
 }
 
-export type TestField = FlakyField | "suite" | "owner" | "description";
+export type TestField = FlakyField | "suite" | "owner" | "description" | StatusDayField;
 
 export interface TestValues {
   name: string;
@@ -38,7 +43,24 @@ export interface TestValues {
   failures?: number;
   runs?: number;
   firstSeenAt: string;
+  /** Only for a quarantined (or fixed) test being edited. */
+  quarantinedAt?: string;
+  fixedAt?: string;
   description?: string;
+}
+
+export type StatusDayField = "quarantinedAt" | "fixedAt";
+
+/**
+ * The status day an edit of `t` can set: when a quarantined test went in,
+ * or when a fixed one was fixed. A status change stamps today, so this is
+ * where triage logged after the fact is backdated (the agent's add_test and
+ * update_test take the same days). Null for an active test.
+ */
+export function statusDayField(t: FlakyTest | undefined): StatusDayField | null {
+  if (t?.status === "quarantined") return "quarantinedAt";
+  if (t?.status === "fixed") return "fixedAt";
+  return null;
 }
 
 export function emptyTestDraft(): TestDraft {
@@ -49,6 +71,8 @@ export function emptyTestDraft(): TestDraft {
     failures: "",
     runs: "",
     firstSeenAt: "",
+    quarantinedAt: "",
+    fixedAt: "",
     description: "",
   };
 }
@@ -61,6 +85,8 @@ export function draftFromTest(t: FlakyTest): TestDraft {
     failures: hasRunCounts(t) ? String(t.failures) : "",
     runs: hasRunCounts(t) ? String(t.runs) : "",
     firstSeenAt: t.firstSeenAt,
+    quarantinedAt: t.quarantinedAt ?? "",
+    fixedAt: t.fixedAt ?? "",
     description: t.description ?? "",
   };
 }
@@ -70,21 +96,32 @@ export function draftFromTest(t: FlakyTest): TestDraft {
  * first-seen day not after today nor after the test's quarantine or fix).
  * A row from before Phase 8 holds only a rate: editing it may leave both
  * counts blank, and it keeps its rate, so fixing a typo in its name doesn't
- * demand numbers nobody has.
+ * demand numbers nobody has. A quarantined or fixed test's status day
+ * (statusDayField) can be backdated: never after today, never before the
+ * day the test was first seen; blank keeps the stored day (or none, on a
+ * legacy row whose quarantine date is unknown).
  */
 export function validateTest(
   draft: TestDraft,
   today: string,
   editing?: FlakyTest
 ): Validation<TestValues, TestField> {
-  const errors: FormErrors<TestField> = flakyTestErrors(
-    {
-      ...draft,
-      quarantinedAt: editing?.quarantinedAt ?? null,
-      fixedAt: editing?.fixedAt ?? null,
-    },
-    today
-  );
+  const dayField = statusDayField(editing);
+  const typedDay = dayField ? draft[dayField].trim() : "";
+  const dayError = typedDay ? flakyDayError(typedDay, today) : null;
+  // The order checks run on the status day as edited, the other as stored.
+  const days = { quarantinedAt: editing?.quarantinedAt ?? null, fixedAt: editing?.fixedAt ?? null };
+  if (dayField && typedDay && !dayError) days[dayField] = typedDay;
+  const errors: FormErrors<TestField> = flakyTestErrors({ ...draft, ...days }, today);
+  if (dayField && dayError) errors[dayField] = dayError;
+  else if (dayField && typedDay && typedDay !== editing?.[dayField]) {
+    const firstSeen = draft.firstSeenAt.trim() || editing?.firstSeenAt || "";
+    if (firstSeen && typedDay < firstSeen) {
+      // The clash is with the day just typed: say so there, not on First seen.
+      errors[dayField] = `It can't come before the day it was first seen (${firstSeen}).`;
+      if (errors.firstSeenAt === firstSeenOrderError(firstSeen, days)) delete errors.firstSeenAt;
+    }
+  }
   const keepsLegacyRate =
     editing !== undefined &&
     !hasRunCounts(editing) &&
@@ -106,6 +143,7 @@ export function validateTest(
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   const opt = (v: string) => v.trim() || undefined;
   const firstSeen = draft.firstSeenAt.trim();
+  const statusDay = dayField ? typedDay || editing?.[dayField] : undefined;
   return {
     ok: true,
     values: {
@@ -114,6 +152,8 @@ export function validateTest(
       ...(opt(draft.owner) ? { owner: opt(draft.owner) } : {}),
       ...(keepsLegacyRate ? {} : { failures: Number(draft.failures), runs: Number(draft.runs) }),
       firstSeenAt: firstSeen || editing?.firstSeenAt || today,
+      ...(dayField === "quarantinedAt" && statusDay ? { quarantinedAt: statusDay } : {}),
+      ...(dayField === "fixedAt" && statusDay ? { fixedAt: statusDay } : {}),
       ...(opt(draft.description) ? { description: opt(draft.description) } : {}),
     },
   };
@@ -139,6 +179,7 @@ export function TestForm({
   });
   const { draft, update, errors } = form;
   const legacy = editing !== undefined && !hasRunCounts(editing);
+  const dayField = statusDayField(editing);
   return (
     <ItemForm
       form={form}
@@ -223,6 +264,28 @@ export function TestForm({
             />
           )}
         </Field>
+        {dayField && (
+          <Field
+            label={dayField === "quarantinedAt" ? "Quarantined since" : "Fixed on"}
+            hint={
+              editing?.[dayField]
+                ? "Backdate it if it happened before it was logged"
+                : "Not recorded: blank leaves it unknown"
+            }
+            error={errors[dayField]}
+          >
+            {(props) => (
+              <Input
+                {...props}
+                type="date"
+                min={draft.firstSeenAt || undefined}
+                max={today}
+                value={draft[dayField]}
+                onChange={(e) => update({ [dayField]: e.target.value } as Partial<TestDraft>)}
+              />
+            )}
+          </Field>
+        )}
         <Field
           label="Description (optional)"
           error={errors.description}

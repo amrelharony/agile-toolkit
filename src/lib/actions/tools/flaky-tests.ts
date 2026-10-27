@@ -278,11 +278,20 @@ const UpdateParams = z.object({
       runs: z.number().int().min(1).optional(),
       description: z.string().trim().max(FLAKY_DESCRIPTION_MAX).nullable().optional(),
       firstSeenAt: Day.optional(),
+      quarantinedAt: Day.optional().describe(
+        "Only for a quarantined test: the day it went into quarantine (backdatable; never before firstSeenAt)."
+      ),
+      fixedAt: Day.optional().describe(
+        "Only for a fixed test: the day it was fixed (backdatable; never before firstSeenAt)."
+      ),
     })
     .describe(
-      "Fields to change; null or blank clears suite, owner or description. failures and runs are checked together with the stored ones. Status goes through set_status."
+      "Fields to change; null or blank clears suite, owner or description. failures and runs are checked together with the stored ones. Status goes through set_status; quarantinedAt and fixedAt backdate the day of the status the test is in."
     ),
 });
+
+/** The status whose day each backdatable field holds (the page's statusDayField). */
+const STATUS_OF_DAY = { quarantinedAt: "quarantined", fixedAt: "fixed" } as const;
 
 async function updateTest(
   store: FlakyStore,
@@ -294,6 +303,7 @@ async function updateTest(
   if (!doc || !current) return { updated: false, reason: "not_found" as const };
   const p = params.patch;
   const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
   let next: FlakyTest = { ...current };
   if (p.name !== undefined) next.name = p.name;
   for (const field of ["suite", "owner", "description"] as const) {
@@ -302,16 +312,43 @@ async function updateTest(
     if (v) next[field] = v;
     else delete next[field];
   }
+  // A backdated quarantine or fix: only the day of the status the test is in.
+  const statusDays = (["quarantinedAt", "fixedAt"] as const).filter((f) => p[f] !== undefined);
+  for (const field of statusDays) {
+    if (current.status !== STATUS_OF_DAY[field]) {
+      return {
+        updated: false,
+        reason: "wrong_status" as const,
+        message: `${field}: only a ${STATUS_OF_DAY[field]} test has this day (the test is ${current.status}; set_status changes it).`,
+      };
+    }
+    const day = (p[field] as string).trim();
+    const error = day ? flakyDayError(day, latest) : "Enter a date as YYYY-MM-DD.";
+    if (error) {
+      return { updated: false, reason: "invalid_date" as const, message: `${field}: ${error}` };
+    }
+    next[field] = day;
+  }
   if (p.firstSeenAt !== undefined) {
     const day = p.firstSeenAt.trim();
-    // Never after the quarantine or the fix the test carries: add_test's order, from this side.
+    // Never after the quarantine or the fix the test carries (as patched
+    // here): add_test's order, from this side.
     const error = day
-      ? (flakyDayError(day, latestDay(today, onServer)) ?? firstSeenOrderError(day, current))
+      ? (flakyDayError(day, latest) ?? firstSeenOrderError(day, next))
       : "Enter a date as YYYY-MM-DD.";
     if (error) {
       return { updated: false, reason: "invalid_date" as const, message: `firstSeenAt: ${error}` };
     }
     next.firstSeenAt = day;
+  }
+  for (const field of statusDays) {
+    if ((next[field] as string) < next.firstSeenAt) {
+      return {
+        updated: false,
+        reason: "invalid_date" as const,
+        message: `${field}: It can't come before the day it was first seen (${next.firstSeenAt}).`,
+      };
+    }
   }
   if (p.failures !== undefined || p.runs !== undefined) {
     const failures = p.failures ?? current.failures;
@@ -334,7 +371,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Edit a flaky test: name, suite, owner, failures, runs, description or firstSeenAt (YYYY-MM-DD, never after today, nor after the test's quarantinedAt or fixedAt). failures and runs keep failureRate equal to failures ÷ runs; a test without run counts needs both. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'invalid_runs' | 'invalid_date', message?}.",
+    "Edit a flaky test: name, suite, owner, failures, runs, description or firstSeenAt (YYYY-MM-DD, never after today, nor after the test's quarantinedAt or fixedAt). failures and runs keep failureRate equal to failures ÷ runs; a test without run counts needs both. quarantinedAt (a quarantined test) or fixedAt (a fixed test) backdates the day of its status, as the page's edit form does: never after today, never before firstSeenAt. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'invalid_runs' | 'invalid_date' | 'wrong_status' (a status day for a test not in that status), message?}.",
   paramsSchema: UpdateParams,
   handler: async (params) => updateTest(browserStore, params, false),
   mcpHandler: async (params, ctx) => updateTest(serverStore(ctx.userId), params, true),

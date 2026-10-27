@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,38 @@ import type { FlakyStatus, FlakyTest } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { TestForm, type TestValues } from "./test-form";
 import { quarantineText, rateText } from "./view";
+
+/**
+ * The card's editor in place of the card. The Edit button that opened it
+ * goes with the card, so its first field takes focus as it mounts (as the
+ * other tools' edit panels do); the page returns focus to Edit on close.
+ */
+function EditSection({
+  titleId,
+  title,
+  children,
+}: {
+  titleId: string;
+  title: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
+  }, []);
+  return (
+    <section
+      ref={ref}
+      aria-labelledby={titleId}
+      className="rounded-lg border border-accent/40 bg-card p-3 sm:p-4"
+    >
+      <h3 id={titleId} className="mb-3 text-sm font-semibold text-text">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
 
 /**
  * One flaky test: its rate as failures of runs, a "few runs" note under
@@ -48,15 +80,9 @@ export function TestCard({
   const titleId = useId();
   if (editing) {
     return (
-      <section
-        aria-labelledby={titleId}
-        className="rounded-lg border border-accent/40 bg-card p-3 sm:p-4"
-      >
-        <h3 id={titleId} className="mb-3 text-sm font-semibold text-text">
-          Edit “{t.name}”
-        </h3>
+      <EditSection titleId={titleId} title={`Edit “${t.name}”`}>
         <TestForm today={today} editing={t} onSave={onSave} onCancel={onCancel} />
-      </section>
+      </EditSection>
     );
   }
   const rate = flakyRate(t);

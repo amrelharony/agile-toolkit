@@ -201,6 +201,9 @@ export function FlakyTestsClient() {
     if (v.failures !== undefined && v.runs !== undefined) {
       next = withRunCounts(next, v.failures, v.runs);
     }
+    // A backdated quarantine or fix (the form offers the day of the test's own status).
+    if (v.quarantinedAt && t.status === "quarantined") next.quarantinedAt = v.quarantinedAt;
+    if (v.fixedAt && t.status === "fixed") next.fixedAt = v.fixedAt;
     const keys = [...Object.keys(t), ...Object.keys(next)] as (keyof FlakyTest)[];
     const fields = keys.filter((k, i) => keys.indexOf(k) === i && next[k] !== t[k]);
     closeEditor(t.id);
