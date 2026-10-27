@@ -669,17 +669,26 @@ const SetStatusSchema = z.object({
     .describe("With status 'superseded': the id of the record that replaces it"),
 });
 
-/** The record in `status`, the way the page's own controls move it. */
+/**
+ * The record in `status`, the way the page's own controls move it. Its form
+ * is written out too (`template`, which only post-merge code writes:
+ * lib/decisions/legacy-log POST_MERGE_FIELDS), so a row of the old Decision
+ * Log still waiting for the page's move keeps this status: the reads and
+ * the move otherwise take the blob's when it ranks as late (accepted back
+ * from deprecated, or deprecated ↔ superseded), as for a row nobody has
+ * saved since the merge.
+ */
 function withStatus(d: Decision, status: DecisionStatus, today: string): Decision {
   if (status === d.status) return d;
-  if (status === "proposed") return reopen(d, today);
+  const template = templateOf(d);
+  if (status === "proposed") return { ...reopen(d, today), template };
   if (status === "accepted") {
-    const next: Decision = { ...d, status: "accepted" };
+    const next: Decision = { ...d, status: "accepted", template };
     delete next.supersededBy;
     delete next.reopenedAt;
     return d.status === "proposed" ? { ...next, decidedAt: today } : next;
   }
-  return { ...d, status };
+  return { ...d, status, template };
 }
 
 async function setStatus(

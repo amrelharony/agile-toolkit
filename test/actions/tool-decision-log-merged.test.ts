@@ -43,6 +43,7 @@ import {
 } from "@/lib/decisions/legacy-log";
 import { allDecisions, decisionVerdict } from "@/lib/decisions/model";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { planDecisionMove } from "@/app/(tools)/decision-log/use-legacy-decisions";
 import "@/lib/actions/tools/decision-log";
 import "@/lib/actions/tools/daci";
 import "@/lib/actions/tools/rapid-decision";
@@ -145,6 +146,34 @@ describe("tool.decision_log over MCP", () => {
       }
     );
     expect(future).toEqual({ created: false, reason: "future_day" });
+  });
+
+  it("set_status on an old Decision Log row not moved in yet keeps the agent's status", async () => {
+    // Deprecated on the old page; deprecated ↔ superseded is a tie the blob would win.
+    blobs.set(DECISION_LOG_KEY, [
+      { id: "blob-1", title: "From the old page", status: "deprecated", date: "2026-08-01" },
+      { id: "blob-2", title: "Also old", status: "deprecated", date: "2026-08-02" },
+    ]);
+    blobs.set(DECISION_LOG_MOVED_KEY, []);
+    const set = (id: string, status: string) =>
+      mcp<{ updated: boolean }>("tool.decision_log.set_status", { id, status });
+    expect(await set("blob-1", "accepted")).toEqual({ updated: true });
+    expect(await set("blob-2", "superseded")).toEqual({ updated: true });
+    const state = await mcp<{ items: { id: string; status: string; pending: boolean }[] }>(
+      "tool.decision_log.list_state"
+    );
+    const statusOf = (id: string) => state.items.find((i) => i.id === id)?.status;
+    expect(statusOf("blob-1")).toBe("accepted");
+    expect(statusOf("blob-2")).toBe("superseded");
+    // The page's one-time move keeps them too.
+    const stored = Array.from(rows.entries())
+      .filter(([k]) => k.startsWith("workspace:decision/"))
+      .map(([, v]) => v as Decision);
+    const plan = planDecisionMove(stored, [daci], [rapid], blobs.get(DECISION_LOG_KEY), []);
+    const written = (id: string) =>
+      plan.writes.find((d) => d.id === id) ?? stored.find((d) => d.id === id);
+    expect(written("blob-1")?.status).toBe("accepted");
+    expect(written("blob-2")?.status).toBe("superseded");
   });
 
   it("set_status confirms a terminal status on the server path too", async () => {
