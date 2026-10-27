@@ -16,6 +16,7 @@ import {
 } from "@/lib/quality/pyramid";
 import type { TestLayerRuntime, TestPyramid } from "@/lib/stores/workspace-types";
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
+import { useStoredItemForm } from "./use-stored-form";
 
 /** The description's bound: the agent's set_counts takes the same. */
 export const PYRAMID_DESCRIPTION_MAX = 2000;
@@ -80,11 +81,11 @@ export function CountsForm({
   doc: TestPyramid | null;
   onSave: (values: CountsValues) => void;
 }) {
-  const form = useItemForm<CountsDraft, CountsValues, CountsField>({
-    initial: () => countsDraftOf(doc),
+  // Follows the stored counts (a save here, by an agent or on another
+  // device) without remounting, so focus stays on Save after a save.
+  const form = useStoredItemForm<CountsDraft, CountsValues, CountsField>(countsDraftOf(doc), {
     validate: validateCounts,
     onSave,
-    resetOnSave: false,
   });
   const { draft, update, errors } = form;
   return (
@@ -155,12 +156,10 @@ export function RuntimeForm({
   runtime: TestLayerRuntime | undefined;
   onSave: (runtime: TestLayerRuntime) => void;
 }) {
-  const form = useItemForm<RuntimeDraft, TestLayerRuntime, TestLayer>({
-    initial: () => runtimeDraftOf(runtime),
-    validate: validateRuntime,
-    onSave,
-    resetOnSave: false,
-  });
+  const form = useStoredItemForm<RuntimeDraft, TestLayerRuntime, TestLayer>(
+    runtimeDraftOf(runtime),
+    { validate: validateRuntime, onSave }
+  );
   const { draft, update, errors } = form;
   return (
     <ItemForm form={form} submitLabel="Save minutes" submitIcon={<Timer aria-hidden="true" />}>

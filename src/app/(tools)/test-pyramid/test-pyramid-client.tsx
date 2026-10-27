@@ -76,6 +76,7 @@ import {
   runCostText,
   shapeChartText,
   shapePoints,
+  shareText,
   signed,
 } from "./view";
 
@@ -118,6 +119,41 @@ function useTestPyramid(): [TestPyramid | null, Write] {
   return [doc ?? null, write];
 }
 
+/** Focus what `find` returns once React has re-rendered (the focused control may have gone). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+const firstFieldOf = (root: HTMLElement | null) =>
+  root?.querySelector<HTMLElement>("input, select, textarea");
+
+/**
+ * The Delete buttons of the snapshots, one per snapshot in screen order.
+ * The table and its phone cards both render them (one of the two hidden),
+ * so the ones on screen are used when any are.
+ */
+function deleteButtons(): HTMLElement[] {
+  const all = Array.from(document.querySelectorAll<HTMLElement>("[data-delete-snapshot]"));
+  const shown = all.filter((el) => el.getClientRects().length > 0);
+  const seen = new Set<string>();
+  return (shown.length > 0 ? shown : all).filter((el) => {
+    const id = el.getAttribute("data-delete-snapshot") ?? "";
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+const deleteButtonOf = (id: string) =>
+  deleteButtons().find((el) => el.getAttribute("data-delete-snapshot") === id);
+
+/** The snapshot after `id` on screen, else the one before it: where focus goes when it is deleted. */
+function neighbourSnapshot(id: string): string | null {
+  const ids = deleteButtons().map((el) => el.getAttribute("data-delete-snapshot"));
+  const at = ids.indexOf(id);
+  return (at < 0 ? null : (ids[at + 1] ?? ids[at - 1])) ?? null;
+}
+
 const WEIGHTING_LABEL: Record<TestPyramidWeighting, string> = {
   count: "Test count",
   runtime: "Run time",
@@ -143,6 +179,8 @@ export function TestPyramidClient() {
   };
   const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
+  const countsRef = useRef<HTMLDivElement>(null);
+  const snapshotRef = useRef<HTMLDivElement>(null);
   const [compareId, setCompareId] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -189,6 +227,10 @@ export function TestPyramidClient() {
   }
 
   function saveRuntime(runtime: TestLayerRuntime) {
+    if (TEST_LAYERS.every((l) => runtime[l] === doc?.runtime?.[l])) {
+      announce("The minutes are unchanged");
+      return;
+    }
     // By run time needs all three: without them the page falls back to counts.
     const nextWeighting: TestPyramidWeighting =
       weighting === "runtime" && !hasAllRuntimes(runtime) ? "count" : weighting;
@@ -229,6 +271,10 @@ export function TestPyramidClient() {
 
   function removeSnapshot(s: TestPyramidSnapshot) {
     if (compareId === s.id) setCompareId("");
+    // The focused Delete button goes with its row: focus moves to the
+    // neighbouring row's, or to the snapshot form once none are left.
+    const near = neighbourSnapshot(s.id);
+    focusSoon(() => (near && deleteButtonOf(near)) || firstFieldOf(snapshotRef.current));
     undoable({
       label: `Deleted the snapshot of ${dayLabel(s.takenOn)}`,
       apply: () => {
@@ -257,6 +303,8 @@ export function TestPyramidClient() {
       // A pyramid counted again since is kept: Undo never overwrites it.
       revert: () => write((d) => d ?? before),
     });
+    // The Clear button goes with the shape card: start again from the counts.
+    focusSoon(() => firstFieldOf(countsRef.current));
   }
 
   /* ── Exports ── */
@@ -320,6 +368,7 @@ export function TestPyramidClient() {
       align: "right",
       cell: (s) => (
         <IconButton
+          data-delete-snapshot={s.id}
           label={`Delete the snapshot of ${dayLabel(s.takenOn)}`}
           icon={<Trash2 aria-hidden="true" />}
           onClick={() => removeSnapshot(s)}
@@ -333,7 +382,8 @@ export function TestPyramidClient() {
     .map((p) => p.unitShare)
     .filter((x): x is number => x !== null);
   const unitTrend = enoughData(unitSeries.length, "trend") ? mannKendall(unitSeries) : null;
-  const comparison = compared && doc ? compareWithNow(compared, doc) : null;
+  // On the page's weighting, so it names the same shapes as the Shape card and the table.
+  const comparison = compared && doc ? compareWithNow(compared, doc, weighting) : null;
   const runCostCard = runCostText(cost);
   const maxShare = shares ? Math.max(shares.unit, shares.integration, shares.e2e) : 0;
 
@@ -355,14 +405,13 @@ export function TestPyramidClient() {
         )}
 
         <SectionCard title="Test counts" icon={Triangle} contentClassName="space-y-3">
-          <CountsForm
-            // A save from elsewhere (an agent, another device) refreshes the draft.
-            key={`${preview ? "example" : "saved"}:${doc?.unit}:${doc?.integration}:${doc?.e2e}:${doc?.description ?? ""}`}
-            doc={doc}
-            onSave={saveCounts}
-          />
+          <div ref={countsRef}>
+            {/* The form follows a save from elsewhere itself (useStoredItemForm). */}
+            <CountsForm key={preview ? "example" : "saved"} doc={doc} onSave={saveCounts} />
+          </div>
           {doc?.updatedOn && (
-            <p className="text-xs text-sub">Counts last saved {dayLabel(doc.updatedOn)}.</p>
+            // Stamped by a save of the counts or the minutes (as set_counts stamps it).
+            <p className="text-xs text-sub">Last saved {dayLabel(doc.updatedOn)}.</p>
           )}
         </SectionCard>
 
@@ -519,7 +568,7 @@ export function TestPyramidClient() {
                 </summary>
                 <div className="border-t border-border p-3">
                   <RuntimeForm
-                    key={`${preview ? "example" : "saved"}:${JSON.stringify(doc.runtime ?? {})}`}
+                    key={preview ? "example" : "saved"}
                     runtime={doc.runtime}
                     onSave={saveRuntime}
                   />
@@ -532,18 +581,20 @@ export function TestPyramidClient() {
               icon={Camera}
               contentClassName="space-y-4"
             >
-              {snapshots.length >= PYRAMID_SNAPSHOT_MAX ? (
-                <p className="text-sm text-sub">
-                  A pyramid keeps at most {PYRAMID_SNAPSHOT_MAX} snapshots: delete one to take
-                  another.
-                </p>
-              ) : (
-                <SnapshotForm
-                  key={preview ? "example" : "saved"}
-                  today={today}
-                  onSave={takeSnapshot}
-                />
-              )}
+              <div ref={snapshotRef}>
+                {snapshots.length >= PYRAMID_SNAPSHOT_MAX ? (
+                  <p className="text-sm text-sub">
+                    A pyramid keeps at most {PYRAMID_SNAPSHOT_MAX} snapshots: delete one to take
+                    another.
+                  </p>
+                ) : (
+                  <SnapshotForm
+                    key={preview ? "example" : "saved"}
+                    today={today}
+                    onSave={takeSnapshot}
+                  />
+                )}
+              </div>
 
               {snapshots.length === 0 ? (
                 <p className="text-sm text-sub">
@@ -581,7 +632,7 @@ export function TestPyramidClient() {
                       <table className="w-full min-w-[22rem] text-sm">
                         <caption className="mb-2 text-left text-xs text-sub">
                           {dayLabel(compared.takenOn)}: {comparison.thenShape.toLowerCase()} · now:{" "}
-                          {comparison.nowShape.toLowerCase()}
+                          {comparison.nowShape.toLowerCase()} (shares {comparison.basis})
                         </caption>
                         <thead>
                           <tr className="border-b border-border text-xs uppercase tracking-wide text-sub">
@@ -600,10 +651,10 @@ export function TestPyramidClient() {
                                 {r.label}
                               </th>
                               <td className="px-2 py-1.5 text-right font-data">
-                                {count(r.then)} ({r.thenPct ?? "—"}%)
+                                {count(r.then)} ({shareText(r.thenPct)})
                               </td>
                               <td className="px-2 py-1.5 text-right font-data">
-                                {count(r.now)} ({r.nowPct ?? "—"}%)
+                                {count(r.now)} ({shareText(r.nowPct)})
                               </td>
                               <td className="px-2 py-1.5 text-right font-data">
                                 {signed(r.change)}
