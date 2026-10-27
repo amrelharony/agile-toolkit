@@ -7,9 +7,11 @@
  * (ignoring case and spacing), so two sessions with the same person count
  * once. Anonymising gives each participant a stable pseudonym for the
  * export ("Participant 1" … in order of first appearance) and runs the
- * context and the quotes through redactPii. A quote can be raised as an
- * opportunity on the Opportunity Tree (the "opportunity" hand-off), with
- * its redacted text and never the participant's name.
+ * context and the quotes through redactPii and withoutName (the
+ * participant's own name typed in them becomes the pseudonym). A quote
+ * can be raised as an opportunity on the Opportunity Tree (the
+ * "opportunity" hand-off), with its redacted text and never the
+ * participant's name.
  *
  * Shared by the User Interviews page (its exports, markdown and AI
  * prompt), tool.user_interviews and the next steps. Pure and server-safe:
@@ -106,24 +108,68 @@ export function quotesTagged(
   );
 }
 
+/* ── The participant's name in the text ──────────────────────────────── */
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A name standing on its own: no letter, digit or underscore either side ("Ana", not "Banana"). */
+function nameRegExp(words: readonly string[]): RegExp {
+  const edge = "[\\p{L}\\p{N}_]";
+  return new RegExp(`(?<!${edge})${words.map(escapeRegExp).join("\\s+")}(?!${edge})`, "giu");
+}
+
+/** Whether `offset` in `text` begins a sentence (the text's start, or after . ! ? or a line break). */
+const opensSentence = (text: string, offset: number) =>
+  /(?:^|[.!?]\s|\n)\s*$/.test(text.slice(0, offset));
+
+/**
+ * `text` with the participant's own name replaced by `replacement`: the
+ * whole name in any case and spacing ("Dana  LEE"), and for a name of more
+ * than one word its first word too ("Dana said"), except when the name
+ * holds a digit (a label like "Customer 3" names no one, and its first word
+ * is an ordinary word). A replacement that opens a sentence is capitalised.
+ * Best effort, like redactPii: a surname alone, a nickname or someone
+ * else's name stays as typed. Names under 2 characters are left alone.
+ */
+export function withoutName(
+  text: string,
+  participant: string | undefined,
+  replacement: string
+): string {
+  const words = (participant ?? "").trim().split(/\s+/).filter(Boolean);
+  if (words.join(" ").length < 2) return text;
+  const fill = (_match: string, offset: number, whole: string) =>
+    opensSentence(whole, offset)
+      ? replacement.charAt(0).toUpperCase() + replacement.slice(1)
+      : replacement;
+  let out = text.replace(nameRegExp(words), fill);
+  if (words.length > 1 && words[0].length >= 2 && !/\d/.test(words.join(""))) {
+    out = out.replace(nameRegExp(words.slice(0, 1)), fill);
+  }
+  return out;
+}
+
 /**
  * The interviews as an anonymised export or AI prompt shows them: each
  * participant becomes "Participant N", numbered by first appearance in
  * the given order (the same person keeps one number, so themes still
  * count per participant), and the context and every quote go through
- * redactPii. Names inside the text are not caught: redactPii says so.
+ * redactPii, then withoutName (the participant's own name typed in them
+ * becomes the same pseudonym). Other people's names are not caught.
  */
 export function anonymiseInterviews(interviews: readonly Interview[]): Interview[] {
   const numbers = new Map<string, number>();
   return interviews.map((i) => {
     const key = participantKey(i);
     if (!numbers.has(key)) numbers.set(key, numbers.size + 1);
+    const pseudonym = `Participant ${numbers.get(key)}`;
+    const clean = (text: string) => withoutName(redactPii(text), i.participant, pseudonym);
     const out: Interview = {
       ...i,
-      participant: `Participant ${numbers.get(key)}`,
-      quotes: (i.quotes ?? []).map((q) => ({ ...q, text: redactPii(q.text ?? "") })),
+      participant: pseudonym,
+      quotes: (i.quotes ?? []).map((q) => ({ ...q, text: clean(q.text ?? "") })),
     };
-    if (i.context !== undefined) out.context = redactPii(i.context);
+    if (i.context !== undefined) out.context = clean(i.context);
     return out;
   });
 }
@@ -144,17 +190,18 @@ export function sentOpportunity(
 
 /**
  * What raising a quote as an opportunity hands over: its redacted text
- * (no participant name), the interview's day as the evidence, the node to
- * go under, and where it came from.
+ * (no participant name: the name typed in the quote reads "the
+ * participant"), the interview's day as the evidence, the node to go
+ * under, and where it came from.
  */
 export function quoteOpportunitySource(
   q: InterviewQuote,
-  i: Pick<Interview, "id" | "date">,
+  i: Pick<Interview, "id" | "date"> & Partial<Pick<Interview, "participant">>,
   parentId?: string
 ): HandoffSource {
   const day = (i.date ?? "").slice(0, 10);
   return {
-    title: redactPii(q.text ?? "").trim(),
+    title: withoutName(redactPii(q.text ?? ""), i.participant, "the participant").trim(),
     description: isDay(day) ? `From an interview on ${day}` : "From an interview",
     ...(parentId ? { parentId } : {}),
     sourceRef: { tool: "user-interviews", id: q.id, doc: i.id },

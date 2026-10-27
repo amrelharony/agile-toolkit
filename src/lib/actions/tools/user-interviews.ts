@@ -280,7 +280,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Raise an interview quote as an opportunity on the Opportunity Tree, as the page does: the quote's text with emails, phone numbers and keys redacted (never the participant's name) as the opportunity, 'From an interview on <day>' as its evidence, linked both ways. It goes under parentId (an outcome or an opportunity) or at the root. Once per quote while that opportunity exists. Params: interviewId, quoteId, parentId?. Returns {sent: true, nodeId, parentId, text} or {sent: false, reason: 'not_found' | 'example' | 'already_sent' (with nodeId) | 'parent_not_found' | 'kind' (the parent can't hold an opportunity) | 'blank'}.",
+    "Raise an interview quote as an opportunity on the Opportunity Tree, as the page does: the quote's text with emails, phone numbers and keys redacted, and the participant's own name in it read as 'the participant' (their name is never sent), as the opportunity, 'From an interview on <day>' as its evidence, linked both ways. It goes under parentId (an outcome or an opportunity) or at the root. Once per quote while that opportunity exists. Params: interviewId, quoteId, parentId?. Returns {sent: true, nodeId, parentId, text} or {sent: false, reason: 'not_found' | 'example' | 'already_sent' (with nodeId) | 'parent_not_found' | 'kind' (the parent can't hold an opportunity) | 'blank'}.",
   paramsSchema: SendSchema,
   handler: async (params) => sendQuote(browserStore, params),
   mcpHandler: async (params, ctx) => sendQuote(serverStore(ctx.userId), params),

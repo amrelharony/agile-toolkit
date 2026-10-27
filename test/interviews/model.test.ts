@@ -17,6 +17,7 @@ import {
   quotesTagged,
   sentOpportunity,
   themeCounts,
+  withoutName,
 } from "@/lib/interviews/model";
 
 const q = (id: string, tags: string[], text = `quote ${id}`): InterviewQuote => ({
@@ -127,6 +128,56 @@ describe("anonymiseInterviews", () => {
   it("adds no context an interview didn't have", () => {
     expect(anonymiseInterviews([iv("i1", "Ana", [])])[0]).not.toHaveProperty("context");
   });
+
+  it("replaces the participant's own name in the context and the quotes with the pseudonym", () => {
+    const out = anonymiseInterviews([
+      iv("i1", "Ben", []),
+      iv("i2", "Dana Lee", [q("q1", [], "As dana LEE put it: Dana's team waits a week.")], {
+        context: "Dana Lee, ops lead. dana@example.com. DANA joined late.",
+      }),
+    ]);
+    expect(out[1].context).toBe(
+      "Participant 2, ops lead. [redacted:email]. Participant 2 joined late."
+    );
+    expect(out[1].quotes[0].text).toBe(
+      "As Participant 2 put it: Participant 2's team waits a week."
+    );
+    expect(JSON.stringify(out[1])).not.toMatch(/dana|lee/i);
+  });
+});
+
+describe("withoutName", () => {
+  it("matches the name on its own, in any case and spacing, never inside a word", () => {
+    expect(withoutName("Ana and Banana; ANA, ana.", "Ana", "P1")).toBe("P1 and Banana; P1, P1.");
+    expect(withoutName("Dana\n Lee said", " dana  lee ", "P1")).toBe("P1 said");
+    expect(withoutName("Leeds, not Lee", "Dana Lee", "P1")).toBe("Leeds, not Lee");
+  });
+
+  it("takes a longer name's first word too, unless the name is a numbered label", () => {
+    expect(withoutName("Dana said so", "Dana Lee", "the participant")).toBe(
+      "The participant said so"
+    );
+    expect(withoutName("Then Dana said so", "Dana Lee", "the participant")).toBe(
+      "Then the participant said so"
+    );
+    // "Customer 3" names no one: only the whole label goes.
+    expect(withoutName("Customer 3 says every customer waits", "Customer 3", "P1")).toBe(
+      "P1 says every customer waits"
+    );
+  });
+
+  it("leaves the text alone without a usable name", () => {
+    for (const name of [undefined, "", "  ", "A"]) {
+      expect(withoutName("A day with Ana", name, "P1"), String(name)).toBe("A day with Ana");
+    }
+  });
+
+  it("treats a name's regex characters as text", () => {
+    expect(withoutName("J.R. (Jr) said, JXR didn't", "J.R. (Jr)", "P1")).toBe(
+      "P1 said, JXR didn't"
+    );
+    expect(withoutName("Zoë Kim and Zoë", "Zoë Kim", "P1")).toBe("P1 and P1");
+  });
 });
 
 describe("raising a quote as an opportunity", () => {
@@ -138,7 +189,7 @@ describe("raising a quote as an opportunity", () => {
       "o1"
     );
     expect(src).toEqual({
-      title: "Ana here: write to [redacted:email]",
+      title: "The participant here: write to [redacted:email]",
       description: "From an interview on 2026-10-14",
       parentId: "o1",
       sourceRef: { tool: "user-interviews", id: "q1", doc: "i1" },

@@ -240,6 +240,22 @@ describe.each(TRANSPORTS)("%s", (path) => {
     ]);
   });
 
+  it("sends the participant's own name typed in the quote as 'the participant'", async () => {
+    const named: Interview = {
+      id: "i9",
+      date: "2026-10-20",
+      participant: "Ana Silva",
+      quotes: [{ id: "q9", text: "Ana Silva here. Ana wants it weekly", tags: [] }],
+    };
+    seed(path, [named], TREE);
+    const r = await run(path, "send_quote_to_opportunity", { interviewId: "i9", quoteId: "q9" });
+    expect(r).toMatchObject({
+      sent: true,
+      text: "The participant here. The participant wants it weekly",
+    });
+    expect(JSON.stringify(nodesOf(path))).not.toMatch(/Ana|Silva/);
+  });
+
   it("never sends an example, an unknown quote, or under a node that can't hold it", async () => {
     seed(path, LOG, TREE);
     const send = (p: Record<string, unknown>) => run(path, "send_quote_to_opportunity", p);
