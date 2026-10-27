@@ -46,9 +46,11 @@ export function currentTechDebt(): TechDebtItem[] {
 }
 
 /**
- * Save several items in one store write (the page's move), each stamped
- * `updatedAt`: each replaces the item with its id, and new ones go first,
- * newest-first as the page always listed them. Returns them as saved.
+ * Save several items in one store write (the page's move: its toAdd and
+ * toFill, the rows it only reports included, whose stamp settles them),
+ * each stamped `updatedAt`: each replaces the item with its id, and new
+ * ones go first, newest-first as the page always listed them. Returns them
+ * as saved.
  */
 export function saveTechDebt(list: readonly TechDebtItem[]): TechDebtItem[] {
   if (list.length === 0) return [];

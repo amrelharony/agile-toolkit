@@ -53,8 +53,9 @@ export function currentRisks(): Risk[] {
 }
 
 /**
- * Save several risks in one store write (the page's move: rows added and
- * gaps filled at once), each stamped `updatedAt`: each replaces the risk
+ * Save several risks in one store write (the page's move: its toAdd and
+ * toFill at once, the rows it only reports included, whose stamp settles
+ * them), each stamped `updatedAt`: each replaces the risk
  * with its id, and new ones go first, newest-first as the register always
  * listed them. Returns the rows as saved, in `list`'s order.
  */

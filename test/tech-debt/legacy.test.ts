@@ -2,8 +2,10 @@
  * The Tech Debt page's old blob moving into workspace.techDebt
  * (lib/tech-debt/legacy), the Risk Register's move with debt fields: adds,
  * gap fills, the later status (resolved), conflicts reported, a row saved
- * since the upgrade keeping everything (its resolvedAt included), moved
- * rows left alone, repeated ids, blank rows left, idempotence and a lost
+ * since the upgrade keeping everything (nothing filled, its resolvedAt
+ * included), rows only the workspace holds reported until saved (an empty
+ * blob too), every reported row saved so its notice shows once, moved rows
+ * left alone, repeated ids, blank rows left, idempotence and a lost
  * moved-ids write.
  */
 
@@ -14,6 +16,7 @@ import {
   TECH_DEBT_KEY,
   TECH_DEBT_MOVED_KEY,
   isPendingTechDebtRow,
+  listedTechDebt,
   planTechDebtMove,
   readTechDebtRows,
   withPendingTechDebt,
@@ -28,12 +31,17 @@ const rec = (over: Partial<TechDebtItem> = {}): TechDebtItem => ({
   ...over,
 });
 
+/** The page hook's steps on the pure parts, as saveTechDebt writes them: every saved row stamped. */
 function runMove(existing: TechDebtItem[], raw: unknown, moved: string[]) {
   const plan = planTechDebtMove(raw, existing, moved);
-  const fills = new Map(plan.toFill.map((t) => [t.id, t]));
+  const stamp = (t: TechDebtItem): TechDebtItem => ({
+    ...t,
+    updatedAt: "2026-10-27T09:00:00.000Z",
+  });
+  const fills = new Map(plan.toFill.map((t) => [t.id, stamp(t)]));
   return {
     plan,
-    items: [...plan.toAdd, ...existing.map((t) => fills.get(t.id) ?? t)],
+    items: [...plan.toAdd.map(stamp), ...existing.map((t) => fills.get(t.id) ?? t)],
     moved: plan.moved,
   };
 }
@@ -104,22 +112,32 @@ describe("planTechDebtMove", () => {
     const blob = [
       rec({ title: "Flaky deploy script ", description: "Page notes", impact: 4, interestRate: 2 }),
     ];
-    expect(planTechDebtMove(blob, [pushed], []).conflicts).toEqual([
+    const plan = planTechDebtMove(blob, [pushed], []);
+    expect(plan.conflicts).toEqual([
       { id: "d1", field: "description", blob: "Page notes", workspace: "Agent's notes" },
       { id: "d1", field: "interestRate", blob: 2, workspace: 1 },
     ]);
+    // Saved as it is (the same object), so the save's stamp settles it.
+    expect(plan.toFill).toHaveLength(1);
+    expect(plan.toFill[0]).toBe(pushed);
     expect(planTechDebtMove(blob, [pushed], ["d1"]).conflicts).toEqual([]);
   });
 
-  it("a row saved since the upgrade keeps everything: a reopen isn't undone, no conflicts", () => {
+  it("a row saved since the upgrade keeps everything: a reopen isn't undone, nothing fills, no conflicts", () => {
     // Reopened through a Phase 8 writer before the page's move ran.
     const reopened = rec({ description: "Agent's notes", updatedAt: "2026-10-26T10:00:00Z" });
     const blob = [rec({ description: "Page notes", area: "ci", resolvedAt: "2026-10-20" })];
     const plan = planTechDebtMove(blob, [reopened], []);
     expect(plan.conflicts).toEqual([]);
-    // Its gaps still fill; its status (no resolvedAt) stays.
-    expect(plan.toFill).toEqual([{ ...reopened, area: "ci" }]);
-    expect(withPendingTechDebt([reopened], blob, [])[0].resolvedAt).toBeUndefined();
+    expect(plan.toFill).toEqual([]);
+    expect(withPendingTechDebt([reopened], blob, [])).toEqual([reopened]);
+  });
+
+  it("a field cleared since the upgrade stays clear: no gap fill brings it back", () => {
+    const cleared = rec({ area: "", tags: [], updatedAt: "2026-10-26T10:00:00Z" });
+    const blob = [rec({ area: "ci", tags: ["deploy"], description: "Page notes" })];
+    expect(withPendingTechDebt([cleared], blob, [])[0]).toBe(cleared);
+    expect(listedTechDebt(cleared, blob, [])).toBe(cleared);
   });
 
   it("leaves moved rows alone, an unreadable blob plans nothing, and repeated ids count once", () => {
@@ -137,30 +155,78 @@ describe("planTechDebtMove", () => {
     expect(plan.moved).toEqual(["a", "b"]);
   });
 
-  it("names the workspace rows the old page never listed, on the first move only", () => {
+  it("names the workspace rows the old page never listed, until they are saved", () => {
     const existing = [rec({ id: "agent" }), rec({ id: "both" })];
     const blob = [rec({ id: "both" })];
-    expect(planTechDebtMove(blob, existing, []).appeared).toEqual(["agent"]);
-    expect(planTechDebtMove(blob, existing, ["both"]).appeared).toEqual([]);
+    const plan = planTechDebtMove(blob, existing, []);
+    expect(plan.appeared).toEqual(["agent"]);
+    expect(plan.toFill).toEqual([existing[0]]);
+    expect(plan.toFill[0]).toBe(existing[0]);
+    expect(planTechDebtMove(blob, existing, ["both"]).appeared).toEqual(["agent"]);
+    // Saved since the upgrade: a new item, not one that appeared; no blob: nothing to compare.
+    const stamped = { ...existing[0], updatedAt: "2026-10-26T10:00:00Z" };
+    expect(planTechDebtMove(blob, [stamped, existing[1]], []).appeared).toEqual([]);
+    expect(planTechDebtMove(null, existing, []).appeared).toEqual([]);
   });
 
-  it("is idempotent, and a lost moved-ids write plans no writes", () => {
-    const blob = [rec({ id: "a", area: "ci" }), rec({ id: "both", resolvedAt: "2026-10-20" })];
-    const existing = [rec({ id: "both" })];
+  it("an empty blob names the workspace-only rows once", () => {
+    const agentMade = [rec({ id: "w1" }), rec({ id: "w2" })];
+    const plan = planTechDebtMove([], agentMade, []);
+    expect(plan.appeared).toEqual(["w1", "w2"]);
+    expect(plan.toFill).toEqual(agentMade);
+    const once = runMove(agentMade, [], []);
+    expect(planTechDebtMove([], once.items, once.moved)).toEqual({
+      toAdd: [],
+      toFill: [],
+      conflicts: [],
+      appeared: [],
+      moved: [],
+      changed: false,
+    });
+  });
+
+  it("is idempotent, and a lost moved-ids write plans no writes and no notices", () => {
+    const blob = [
+      rec({ id: "a", area: "ci" }),
+      rec({ id: "both", resolvedAt: "2026-10-20" }),
+      rec({ id: "differs", description: "Page notes" }),
+    ];
+    const existing = [
+      rec({ id: "both" }),
+      rec({ id: "differs", description: "Agent's notes" }),
+      rec({ id: "agent" }),
+    ];
     const once = runMove(existing, blob, []);
+    expect(once.plan.conflicts.map((c) => [c.id, c.field])).toEqual([["differs", "description"]]);
+    expect(once.plan.appeared).toEqual(["agent"]);
     expect(once.items.map((t) => [t.id, t.resolvedAt ?? null])).toEqual([
       ["a", null],
       ["both", "2026-10-20"],
+      ["differs", null],
+      ["agent", null],
     ]);
     expect(planTechDebtMove(blob, once.items, once.moved)).toMatchObject({
       toAdd: [],
       toFill: [],
       conflicts: [],
+      appeared: [],
       changed: false,
     });
     const lost = planTechDebtMove(blob, once.items, []);
-    expect([lost.toAdd, lost.toFill]).toEqual([[], []]);
+    expect([lost.toAdd, lost.toFill, lost.conflicts, lost.appeared]).toEqual([[], [], [], []]);
     expect(runMove(once.items, blob, once.moved).items).toEqual(once.items);
+  });
+});
+
+describe("listedTechDebt", () => {
+  it("is a stored row as the page lists it: its pending blob copy folded in", () => {
+    const stored = rec({ title: "Agent's title" });
+    const blob = [rec({ area: "ci", resolvedAt: "2026-10-20" })];
+    expect(listedTechDebt(stored, blob, [])).toEqual(
+      rec({ title: "Agent's title", area: "ci", resolvedAt: "2026-10-20" })
+    );
+    expect(listedTechDebt(stored, blob, ["d1"])).toBe(stored);
+    expect(listedTechDebt(stored, null, [])).toBe(stored);
   });
 });
 

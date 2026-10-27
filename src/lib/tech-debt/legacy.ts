@@ -13,19 +13,32 @@
  * - A blob row the workspace doesn't have is added; a blank one (the old
  *   page's instant "New Debt": no title, description or area) is left in
  *   the backup.
- * - One both hold fills only the fields the workspace row lacks, never one
- *   it holds.
- * - Unless the workspace row was saved since the upgrade (`updatedAt`),
- *   the later status wins: resolved ranks after open, so a resolvedAt the
- *   workspace row lacks is filled from the blob and a workspace resolvedAt
- *   is kept; and each field both copies hold differently keeps the
- *   workspace's value and is reported (`conflicts`), for the page to offer
- *   the old page's value once. A row saved since keeps everything: its
- *   gaps are filled, but never its resolvedAt, which is its status (a
- *   reopen since the upgrade must not be undone).
+ * - A row saved since the upgrade (`updatedAt`; every Phase 8 writer saves
+ *   the row with the blob's copy folded in, see withPendingTechDebt and
+ *   listedTechDebt) keeps everything: nothing is filled, so a field
+ *   cleared since stays clear and a reopen since stays open, and nothing
+ *   is reported.
+ * - Otherwise one both hold fills only the fields the workspace row lacks,
+ *   never one it holds; the later status wins: resolved ranks after open,
+ *   so a resolvedAt the workspace row lacks is filled from the blob and a
+ *   workspace resolvedAt is kept; and each field both copies hold
+ *   differently keeps the workspace's value and is reported (`conflicts`),
+ *   for the page to offer the old page's value once.
+ * - Workspace rows the old page never listed (not in its blob; its delete
+ *   took the workspace copy too, so these are agent-made) are reported
+ *   (`appeared`) for the page's one-time notice.
+ * - The move saves every row it reports, as it is where nothing fills, and
+ *   the save stamps it (lib/tech-debt/store saveTechDebt), so a later plan
+ *   reports it no more, even when the moved-ids write was lost.
  * - A moved-ids record (`agile-toolkit:tech-debt:moved`) remembers what has
  *   been handled; a delete before the move marks the row moved
  *   (lib/tech-debt/store removeTechDebtRecord).
+ *
+ * A write on a pending row before the page's move ran (an agent's verb,
+ * the workspace.tech_debt CRUD, an edit on the page) saves the row as
+ * listed, stamped: a field the copies held differently keeps the
+ * workspace's value and reports no conflict (decision U3), so the old
+ * page's value is left in the backup only.
  *
  * The blob is never deleted: it is the backup. Pure and server-safe.
  */
@@ -134,11 +147,14 @@ const SKIP_FILL = new Set<keyof TechDebtItem>(["id", "resolvedAt", "updatedAt"])
 
 /**
  * The workspace row with the blob's copy folded in: each field the row
- * lacks is filled from the blob, never one it holds; a resolvedAt the row
- * lacks is filled (resolved is the later status) unless the row was saved
- * since the upgrade. The row itself when nothing changes.
+ * lacks is filled from the blob, never one it holds, and a resolvedAt the
+ * row lacks is filled (resolved is the later status). A row saved since
+ * the upgrade keeps everything (its writer folded the blob's copy in
+ * already: a field it lacks was cleared since). The row itself when
+ * nothing changes.
  */
 function filled(row: TechDebtItem, blob: TechDebtItem): TechDebtItem {
+  if (savedSinceUpgrade(row)) return row;
   const next: TechDebtItem = { ...row };
   const fields = next as unknown as Record<string, unknown>;
   let changed = false;
@@ -149,7 +165,7 @@ function filled(row: TechDebtItem, blob: TechDebtItem): TechDebtItem {
       changed = true;
     }
   }
-  if (!savedSinceUpgrade(row) && lacks(row.resolvedAt) && !lacks(blob.resolvedAt)) {
+  if (lacks(row.resolvedAt) && !lacks(blob.resolvedAt)) {
     next.resolvedAt = blob.resolvedAt;
     changed = true;
   }
@@ -159,14 +175,22 @@ function filled(row: TechDebtItem, blob: TechDebtItem): TechDebtItem {
 export interface TechDebtMove {
   /** Blob rows to add: not in the workspace and never moved before (blank rows are left behind). */
   toAdd: TechDebtItem[];
-  /** Workspace rows the blob's copy fills in (gaps only, and a resolution). */
+  /**
+   * Workspace rows the move saves: the ones the blob's copy fills in (gaps
+   * only, and a resolution), and, as they are, the ones it reports in
+   * `conflicts` or `appeared` with nothing to fill. Saving stamps them
+   * (saveTechDebt), so a later plan, after a lost moved-ids write too,
+   * reports them no more. A row saved as it is keeps its object.
+   */
   toFill: TechDebtItem[];
   /** Values the two copies hold differently, kept as the workspace has them (none for rows moved or saved since). */
   conflicts: TechDebtConflict[];
   /**
-   * Ids of workspace rows the old page never listed (not in its blob): items
-   * an agent made, or Pushed rows the page lost since. Reported on the first
-   * move only (no ids moved before, and a blob to move), for a one-time notice.
+   * Ids of workspace rows the old page never listed (not in its blob) and
+   * nobody has saved since the upgrade: items an agent made, or Pushed rows
+   * the page lost since. For the page's one-time notice. Only when the old
+   * page kept a blob (a list, an empty one included); a row made since the
+   * upgrade (stamped) is a new one, not one that appeared.
    */
   appeared: string[];
   /** The moved-ids record after this move: the old one and every blob id, each once. */
@@ -189,9 +213,6 @@ export function planTechDebtMove(
     new Set(Array.isArray(moved) ? moved.filter((id) => typeof id === "string") : [])
   );
   const rows = readTechDebtRows(raw);
-  if (rows.length === 0) {
-    return { toAdd: [], toFill: [], conflicts: [], appeared: [], moved: known, changed: false };
-  }
   const marked = new Set(known);
   const have = new Map(existing.map((t) => [t.id, t]));
   const toAdd: TechDebtItem[] = [];
@@ -205,12 +226,19 @@ export function planTechDebtMove(
       continue;
     }
     const next = filled(row, blob);
-    if (next !== row) toFill.push(next);
-    conflicts.push(...conflictsOf(row, blob));
+    const differ = conflictsOf(row, blob);
+    conflicts.push(...differ);
+    // Saved as it is when it only reports a conflict, so the stamp settles it.
+    if (next !== row || differ.length > 0) toFill.push(next);
   }
+  // Rows only the workspace holds, while nobody has saved them since the
+  // upgrade: saved as they are, so the notice is shown once.
   const inBlob = new Set(rows.map((t) => t.id));
-  const appeared =
-    known.length === 0 ? existing.filter((t) => !inBlob.has(t.id)).map((t) => t.id) : [];
+  const unlisted = Array.isArray(raw)
+    ? existing.filter((t) => !inBlob.has(t.id) && !savedSinceUpgrade(t))
+    : [];
+  toFill.push(...unlisted);
+  const appeared = unlisted.map((t) => t.id);
   const next = Array.from(new Set([...known, ...rows.map((t) => t.id)]));
   return {
     toAdd,
@@ -222,7 +250,11 @@ export function planTechDebtMove(
   };
 }
 
-/** The items as they will read once the move has run: `existing` with the blob's pending rows filled in and added. */
+/**
+ * The items as they will read once the move has run: `existing` with the
+ * blob's pending rows filled in and added (a row the move only saves, to
+ * stamp it, keeps its object).
+ */
 export function withPendingTechDebt(
   existing: readonly TechDebtItem[],
   raw: unknown,
@@ -232,4 +264,20 @@ export function withPendingTechDebt(
   if (plan.toAdd.length === 0 && plan.toFill.length === 0) return [...existing];
   const fills = new Map(plan.toFill.map((t) => [t.id, t]));
   return [...existing.map((t) => fills.get(t.id) ?? t), ...plan.toAdd];
+}
+
+/**
+ * One stored workspace item as the page lists it: with its copy in the old
+ * blob folded in while that copy waits for the page's move, else the row
+ * itself. What the workspace.tech_debt CRUD's update merges its patch
+ * into, as listedRisk.
+ */
+export function listedTechDebt(
+  row: TechDebtItem,
+  raw: unknown,
+  moved: readonly string[]
+): TechDebtItem {
+  if (!isPendingTechDebtRow(row.id, raw, moved)) return row;
+  const blob = readTechDebtRows(raw).find((t) => t.id === row.id);
+  return blob ? filled(row, blob) : row;
 }
