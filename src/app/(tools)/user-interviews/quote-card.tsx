@@ -136,17 +136,21 @@ export function QuoteCard({
   const name = `quote ${index}`;
   const editRef = useRef<HTMLButtonElement>(null);
   const sendRef = useRef<HTMLButtonElement>(null);
-  const returnTo = useRef<"edit" | "send" | null>(null);
+  const linkRef = useRef<HTMLAnchorElement>(null);
+  const returnTo = useRef<"edit" | "send" | "sent" | null>(null);
   const live = liveLink(q.sentTo, "opportunity");
   const blocked = example || isExampleId(q.id);
 
   useEffect(() => {
     if (mode !== "view" || !returnTo.current) return;
-    (returnTo.current === "edit" ? editRef : sendRef).current?.focus();
+    const to = returnTo.current;
     returnTo.current = null;
+    // Once sent, the form gives way to the link to its opportunity.
+    if (to === "sent") (linkRef.current ?? sendRef.current)?.focus();
+    else (to === "edit" ? editRef : sendRef).current?.focus();
   }, [mode]);
 
-  const back = (to: "edit" | "send") => {
+  const back = (to: "edit" | "send" | "sent") => {
     returnTo.current = to;
     setMode("view");
   };
@@ -203,6 +207,7 @@ export function QuoteCard({
 
       {live ? (
         <Link
+          ref={linkRef}
           href={getHandoffRoute("opportunity").targetHref(live.targetId)}
           className="inline-flex items-center gap-1 text-xs text-success underline-offset-2 hover:underline"
         >
@@ -215,7 +220,7 @@ export function QuoteCard({
           name={name}
           onSend={(parentId) => {
             onSend(q, parentId);
-            setMode("view");
+            back("sent");
           }}
           onCancel={() => back("send")}
         />
@@ -228,7 +233,8 @@ export function QuoteCard({
             variant="outline"
             className="gap-1"
             disabled={blocked || !q.text?.trim()}
-            aria-label={`Raise ${name} as an opportunity`}
+            // The visible words first, so speech input can say them.
+            aria-label={`Raise as an opportunity: ${name}`}
             onClick={() => setMode("send")}
           >
             <GitBranchPlus className="h-4 w-4" aria-hidden="true" />
@@ -257,6 +263,7 @@ function SendForm({
 }) {
   const [parentId, setParentId] = useState("");
   const groups = parentGroups(nodes);
+  const outcomes = groups.some((g) => g.outcomeId !== null);
   const selectId = useId();
   const ref = useRef<HTMLSelectElement>(null);
   useEffect(() => ref.current?.focus(), []);
@@ -288,9 +295,13 @@ function SendForm({
           value={parentId}
           onChange={(e) => setParentId(e.target.value)}
         >
-          <option value="">The top of the tree (no outcome yet)</option>
+          {/* Named for what it does: on a tree with outcomes, it sits under none of them. */}
+          <option value="">
+            {outcomes ? "The top of the tree, under no outcome" : "The top of the tree"}
+          </option>
           {groups.map((g) => (
-            <optgroup key={g.label} label={g.label}>
+            // By id: two outcomes can read the same ("Untitled outcome").
+            <optgroup key={g.outcomeId ?? "no-outcome"} label={g.label}>
               {g.options.map((o) => (
                 <option key={o.id} value={o.id}>
                   {short(o.label)}

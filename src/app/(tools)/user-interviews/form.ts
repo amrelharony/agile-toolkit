@@ -48,11 +48,16 @@ export function interviewDayError(day: string, today: string, kept?: string): st
   return null;
 }
 
+export const PARTICIPANT_REQUIRED = "Say who it was with: a pseudonym like “Customer 3” is fine.";
+
 /**
  * Check an interview's details. `stored` is the saved interview when
  * editing: a context longer than the cap that is left as it is stays, and
  * so does its day (an agent over MCP may have stamped the user's today,
- * the server's tomorrow).
+ * the server's tomorrow). A saved interview with no participant (the old
+ * page's "New Interview" saved them blank) keeps that blank while another
+ * field is edited, so its context and day can still be saved; the page's
+ * participant field asks for a name whenever it is itself edited.
  */
 export function validateInterview(
   d: InterviewDraft,
@@ -62,9 +67,10 @@ export function validateInterview(
   const errors: FormErrors<InterviewField> = {};
   const participant = d.participant.trim();
   const context = d.context.trim();
-  if (!participant)
-    errors.participant = "Say who it was with: a pseudonym like “Customer 3” is fine.";
-  else if (participant.length > PARTICIPANT_MAX && participant !== stored?.participant?.trim()) {
+  const blankKept = stored !== undefined && !(stored.participant ?? "").trim();
+  if (!participant) {
+    if (!blankKept) errors.participant = PARTICIPANT_REQUIRED;
+  } else if (participant.length > PARTICIPANT_MAX && participant !== stored?.participant?.trim()) {
     errors.participant = `Keep it to ${PARTICIPANT_MAX} characters or fewer.`;
   }
   const dayError = interviewDayError(

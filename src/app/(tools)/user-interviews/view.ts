@@ -77,6 +77,8 @@ export interface ParentOption {
 }
 
 export interface ParentGroup {
+  /** The outcome's node id; null for the opportunities under no outcome. */
+  outcomeId: string | null;
   label: string;
   options: ParentOption[];
 }
@@ -95,6 +97,7 @@ export function parentGroups(nodes: readonly TreeNode[]): ParentGroup[] {
   for (const n of real) {
     if (n.kind === "outcome") {
       groups.set(n.id, {
+        outcomeId: n.id,
         label: `Outcome: ${nodeTitle(n)}`,
         options: [{ id: n.id, label: `Directly under “${nodeTitle(n)}”` }],
       });
@@ -104,7 +107,9 @@ export function parentGroups(nodes: readonly TreeNode[]): ParentGroup[] {
     if (n.kind !== "opportunity") continue;
     const outcome = outcomeOf(n, byId);
     const key = outcome && groups.has(outcome.id) ? outcome.id : null;
-    if (!groups.has(key)) groups.set(key, { label: "Not under an outcome", options: [] });
+    if (!groups.has(key)) {
+      groups.set(key, { outcomeId: null, label: "Not under an outcome", options: [] });
+    }
     groups.get(key)!.options.push({ id: n.id, label: `Under “${nodeTitle(n)}”` });
   }
   // Opportunities under no outcome go last.

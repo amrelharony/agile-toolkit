@@ -4,7 +4,8 @@
  * The selected interview: who it was with, when and the context, edited
  * in place (a name can't be cleared, a day can't be in the future), its
  * quotes (edited in place, deleted with Undo, raised as opportunities),
- * a form for the next quote, and "Delete interview" with Undo.
+ * a form for the next quote (not on an example interview: "Clear example"
+ * removes it whole), and "Delete interview" with Undo.
  */
 
 import { forwardRef, useEffect, useId, useState } from "react";
@@ -18,6 +19,7 @@ import { CONTEXT_MAX, PARTICIPANT_MAX } from "@/lib/interviews/model";
 import type { Interview, InterviewQuote, TreeNode } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
 import {
+  PARTICIPANT_REQUIRED,
   interviewDraftFrom,
   validateInterview,
   type InterviewDraft,
@@ -54,6 +56,7 @@ export const InterviewPane = forwardRef<HTMLHeadingElement, InterviewPaneProps>(
     headingRef
   ) {
     const headingId = useId();
+    const [contextError, setContextError] = useState<string | null>(null);
     const example = isExampleId(i.id);
     const name = i.participant?.trim() || "an unnamed participant";
 
@@ -85,6 +88,9 @@ export const InterviewPane = forwardRef<HTMLHeadingElement, InterviewPaneProps>(
           <ParticipantInPlace
             value={i.participant ?? ""}
             validate={(v) => {
+              // Asked for whenever this field is edited, even on an older
+              // interview saved without one (whose other fields still save).
+              if (!v.trim()) return PARTICIPANT_REQUIRED;
               const r = check({ participant: v });
               return r.ok ? null : (r.errors.participant ?? null);
             }}
@@ -106,14 +112,24 @@ export const InterviewPane = forwardRef<HTMLHeadingElement, InterviewPaneProps>(
             />
           </div>
         </div>
-        <Field label="Context" hint="Optional. Blank removes it.">
+        <Field label="Context" hint="Optional. Blank removes it." error={contextError ?? undefined}>
           {(props) => (
             <BlurTextarea
               id={props.id}
               rows={2}
               maxLength={Math.max(CONTEXT_MAX, (i.context ?? "").length)}
               value={i.context ?? ""}
-              onCommit={(v) => save({ context: v }, "context")}
+              onCommit={(v) => {
+                // Never dropped in silence: a refused context says why, and
+                // the typed words stay in the field.
+                const r = save({ context: v }, "context");
+                setContextError(
+                  r.ok
+                    ? null
+                    : (r.errors.context ??
+                        `Not saved yet. ${Object.values(r.errors).find(Boolean)}`)
+                );
+              }}
               placeholder="Their role, how they use the product, what you were exploring"
               className="resize-none"
             />
@@ -141,7 +157,18 @@ export const InterviewPane = forwardRef<HTMLHeadingElement, InterviewPaneProps>(
               ))}
             </ul>
           )}
-          <AddQuoteForm participant={i.participant ?? ""} onAdd={(v) => onAddQuote(i, v)} />
+          {example ? (
+            // "Clear example" takes the whole example interview: a quote of
+            // the user's added here would go with it.
+            <p className="text-xs text-sub">
+              Example interviews take no new quotes: add your own interview to keep yours.
+            </p>
+          ) : (
+            // Where focus goes once the last quote is deleted.
+            <div data-add-quote="">
+              <AddQuoteForm participant={i.participant ?? ""} onAdd={(v) => onAddQuote(i, v)} />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end border-t border-border pt-3">

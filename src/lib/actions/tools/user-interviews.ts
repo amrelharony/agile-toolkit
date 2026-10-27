@@ -188,6 +188,9 @@ const AddQuoteSchema = z.object({
 async function addQuote(store: LogStore, p: z.infer<typeof AddQuoteSchema>) {
   const doc = await store.log();
   if (!doc || !doc.interviews.some((iv) => iv.id === p.interviewId)) return { added: false };
+  // The page's "Clear example" removes an example interview whole, with
+  // any quote added to it: the page offers no Add quote there either.
+  if (isExampleId(p.interviewId)) return { added: false, reason: "example" };
   const id = crypto.randomUUID();
   await store.put({
     ...doc,
@@ -208,7 +211,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Attach a quote (with optional tags) to an existing interview. tags are normalised (trimmed, lower-case, each once). Returns {added: false} when the interview id is unknown, else {added: true, id} (the quote id).",
+    "Attach a quote (with optional tags) to an existing interview. tags are normalised (trimmed, lower-case, each once). Returns {added: false} when the interview id is unknown, {added: false, reason: 'example'} for an example interview (id starting 'example-': the page's 'Clear example' would take the quote with it), else {added: true, id} (the quote id).",
   paramsSchema: AddQuoteSchema,
   handler: async (params) => addQuote(browserStore, params),
   mcpHandler: async (params, ctx) => addQuote(serverStore(ctx.userId), params),
@@ -239,6 +242,8 @@ async function sendQuote(store: LogStore, p: z.infer<typeof SendSchema>) {
   if (p.parentId !== undefined) {
     const parent = nodes.find((n) => n.id === p.parentId);
     if (!parent) return { sent: false, reason: "parent_not_found" };
+    // As the page's picker: "Clear example" would leave it without its parent.
+    if (isExampleId(parent.id)) return { sent: false, reason: "example" };
     if (!canParent(parent, "opportunity")) return { sent: false, reason: "kind" };
   }
   const src = quoteOpportunitySource(quote, interview, p.parentId);
@@ -280,7 +285,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Raise an interview quote as an opportunity on the Opportunity Tree, as the page does: the quote's text with emails, phone numbers and keys redacted, and the participant's own name in it read as 'the participant' (their name is never sent), as the opportunity, 'From an interview on <day>' as its evidence, linked both ways. It goes under parentId (an outcome or an opportunity) or at the root. Once per quote while that opportunity exists. Params: interviewId, quoteId, parentId?. Returns {sent: true, nodeId, parentId, text} or {sent: false, reason: 'not_found' | 'example' | 'already_sent' (with nodeId) | 'parent_not_found' | 'kind' (the parent can't hold an opportunity) | 'blank'}.",
+    "Raise an interview quote as an opportunity on the Opportunity Tree, as the page does: the quote's text with emails, phone numbers and keys redacted, and the participant's own name in it read as 'the participant' (their name is never sent), as the opportunity, 'From an interview on <day>' as its evidence, linked both ways. It goes under parentId (an outcome or an opportunity) or at the root. Once per quote while that opportunity exists. Params: interviewId, quoteId, parentId?. Returns {sent: true, nodeId, parentId, text} or {sent: false, reason: 'not_found' | 'example' (an example quote, interview or parent node) | 'already_sent' (with nodeId) | 'parent_not_found' | 'kind' (the parent can't hold an opportunity) | 'blank'}.",
   paramsSchema: SendSchema,
   handler: async (params) => sendQuote(browserStore, params),
   mcpHandler: async (params, ctx) => sendQuote(serverStore(ctx.userId), params),

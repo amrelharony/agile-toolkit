@@ -207,7 +207,31 @@ export function UserInterviewsClient() {
     announce("Saved the quote");
   }
 
+  /**
+   * Focus the quote after `q` (or the one before it) once `q` is gone, else
+   * the Add quote field, else the interview's heading: the Delete button
+   * that had focus goes with the quote. Ids go in no selector.
+   */
+  function focusPastQuote(i: Interview, q: InterviewQuote) {
+    const quotes = i.quotes ?? [];
+    const at = quotes.findIndex((x) => x.id === q.id);
+    const near = at >= 0 ? (quotes[at + 1] ?? quotes[at - 1]) : undefined;
+    requestAnimationFrame(() => {
+      const next = near
+        ? Array.from(document.querySelectorAll<HTMLElement>("[data-quote-delete]")).find(
+            (b) => b.getAttribute("data-quote-delete") === near.id
+          )
+        : undefined;
+      (
+        next ??
+        document.querySelector<HTMLElement>("[data-add-quote] textarea") ??
+        paneRef.current
+      )?.focus();
+    });
+  }
+
   function removeQuote(i: Interview, q: InterviewQuote) {
+    focusPastQuote(i, q);
     removeWithUndo<InterviewQuote>({
       label: "Deleted the quote",
       description: `From the interview with ${nameOf(i)}`,

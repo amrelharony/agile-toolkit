@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -382,6 +382,7 @@ describe("a quote raised as an opportunity", () => {
   it("offers the tree's outcomes and opportunities, never example nodes", () => {
     expect(parentGroups(tree)).toEqual([
       {
+        outcomeId: "o1",
         label: "Outcome: Teams see blockers sooner",
         options: [
           { id: "o1", label: "Directly under “Teams see blockers sooner”" },
@@ -404,7 +405,7 @@ describe("a quote raised as an opportunity", () => {
     renderPage();
     openInterview("Dana Lee");
     fireEvent.click(
-      within(pane()).getByRole("button", { name: "Raise quote 1 as an opportunity" })
+      within(pane()).getByRole("button", { name: "Raise as an opportunity: quote 1" })
     );
     fireEvent.change(within(pane()).getByLabelText("Put it under"), { target: { value: "op1" } });
     fireEvent.click(within(pane()).getByRole("button", { name: "Add to the tree" }));
@@ -428,7 +429,7 @@ describe("a quote raised as an opportunity", () => {
     expect(nodes().map((n) => n.id)).toEqual(["o1", "op1", "example-x"]);
     expect(one("i")?.quotes[0].sentTo ?? []).toEqual([]);
     expect(
-      within(pane()).getByRole("button", { name: "Raise quote 1 as an opportunity" })
+      within(pane()).getByRole("button", { name: "Raise as an opportunity: quote 1" })
     ).toBeEnabled();
   });
 
@@ -437,7 +438,7 @@ describe("a quote raised as an opportunity", () => {
     renderPage();
     openInterview("Sam");
     fireEvent.click(
-      within(pane()).getByRole("button", { name: "Raise quote 1 as an opportunity" })
+      within(pane()).getByRole("button", { name: "Raise as an opportunity: quote 1" })
     );
     fireEvent.click(within(pane()).getByRole("button", { name: "Add to the tree" }));
     expect(nodes()).toEqual([expect.objectContaining({ text: "Too slow", parentId: null })]);
@@ -451,7 +452,7 @@ describe("a quote raised as an opportunity", () => {
       1
     );
     expect(
-      within(pane()).getByRole("button", { name: "Raise quote 2 as an opportunity" })
+      within(pane()).getByRole("button", { name: "Raise as an opportunity: quote 2" })
     ).toBeEnabled();
   });
 });
@@ -513,5 +514,163 @@ describe("first run, example and export", () => {
     ]);
     renderPage();
     expect(screen.getByRole("button", { name: /^ux · 2 of 2 people/ })).toBeInTheDocument();
+  });
+});
+
+describe("after review", () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+  /** Runs the frames the page asked for, after React has rendered. */
+  const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+
+  it("saves the context and day of an older interview saved with no participant", () => {
+    // The old page's "New Interview" saved exactly this.
+    seed([interview("legacy", "", { date: ago(3) })]);
+    renderPage();
+    openInterview("unnamed");
+    const context = within(pane()).getByLabelText(/^Context/);
+    fireEvent.change(context, { target: { value: "Runs the Monday planning" } });
+    fireEvent.blur(context);
+    expect(one("legacy")).toMatchObject({ participant: "", context: "Runs the Monday planning" });
+    const day = within(pane()).getByLabelText(/^Interviewed on/);
+    fireEvent.change(day, { target: { value: ago(6) } });
+    fireEvent.blur(day);
+    expect(one("legacy")?.date).toBe(ago(6));
+    expect(within(pane()).queryByRole("alert")).toBeNull();
+    // The name is still asked for whenever its own field is edited.
+    const name = within(pane()).getByLabelText(/^Participant/);
+    fireEvent.change(name, { target: { value: "   " } });
+    fireEvent.blur(name);
+    expect(within(pane()).getByRole("alert")).toHaveTextContent(/pseudonym/);
+    fireEvent.change(name, { target: { value: "Customer 7" } });
+    fireEvent.blur(name);
+    expect(one("legacy")?.participant).toBe("Customer 7");
+  });
+
+  it("says why a context wasn't saved instead of dropping it", () => {
+    seed([interview("i", "Dana", { context: "Short" })]);
+    renderPage();
+    openInterview("Dana");
+    const context = within(pane()).getByLabelText(/^Context/);
+    fireEvent.change(context, { target: { value: "x".repeat(2001) } });
+    fireEvent.blur(context);
+    expect(one("i")?.context).toBe("Short");
+    expect(within(pane()).getByRole("alert")).toHaveTextContent(/2000 characters or fewer/);
+    fireEvent.change(context, { target: { value: "Fine now" } });
+    fireEvent.blur(context);
+    expect(one("i")?.context).toBe("Fine now");
+    expect(within(pane()).queryByRole("alert")).toBeNull();
+  });
+
+  it("takes no new quote on an example interview, on the page or from an agent", async () => {
+    seed(buildExample(TODAY));
+    renderPage();
+    openInterview("Sam");
+    expect(within(pane()).queryByRole("button", { name: "Add quote" })).toBeNull();
+    expect(
+      within(pane()).getByText(/Example interviews take no new quotes: add your own interview/)
+    ).toBeInTheDocument();
+    const exampleId = stored()[0].id;
+    expect(await run("add_quote", { interviewId: exampleId, text: "Mine" })).toEqual({
+      added: false,
+      reason: "example",
+    });
+    expect(one(exampleId)?.quotes.some((q) => q.text === "Mine")).toBe(false);
+  });
+
+  it("moves focus to the next quote after a delete, and to Add quote after the last", () => {
+    seed([interview("i", "Dana", { quotes: [quote("q1", "one"), quote("q2", "two")] })]);
+    renderPage();
+    openInterview("Dana");
+    nextFrame();
+    fireEvent.click(within(pane()).getByRole("button", { name: "Delete quote 1" }));
+    nextFrame();
+    // The quote left is now quote 1.
+    expect(document.activeElement).toBe(
+      within(pane()).getByRole("button", { name: "Delete quote 1" })
+    );
+    fireEvent.click(within(pane()).getByRole("button", { name: "Delete quote 1" }));
+    nextFrame();
+    expect(document.activeElement).toBe(within(pane()).getByLabelText(/^New quote from Dana/));
+  });
+
+  it("moves focus to the new link once a quote is on the tree", () => {
+    seed([interview("i", "Sam", { quotes: [quote("q", "Too slow")] })]);
+    renderPage();
+    openInterview("Sam");
+    fireEvent.click(
+      within(pane()).getByRole("button", { name: "Raise as an opportunity: quote 1" })
+    );
+    fireEvent.click(within(pane()).getByRole("button", { name: "Add to the tree" }));
+    expect(document.activeElement).toBe(
+      within(pane()).getByRole("link", { name: /On the Opportunity Tree · Open/ })
+    );
+  });
+
+  it("names the top of the tree for what it does, and keys two same-named outcomes apart", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    seed(
+      [interview("i", "Sam", { quotes: [quote("q", "Too slow")] })],
+      [
+        { id: "o1", kind: "outcome", text: "", parentId: null },
+        { id: "o2", kind: "outcome", text: "", parentId: null },
+      ]
+    );
+    renderPage();
+    openInterview("Sam");
+    fireEvent.click(
+      within(pane()).getByRole("button", { name: "Raise as an opportunity: quote 1" })
+    );
+    const picker = within(pane()).getByLabelText("Put it under");
+    expect(
+      within(picker).getByRole("option", { name: "The top of the tree, under no outcome" })
+    ).toBeInTheDocument();
+    expect(picker.querySelectorAll("optgroup")).toHaveLength(2);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+    expect(parentGroups([{ id: "o", kind: "opportunity", text: "Loose", parentId: null }])).toEqual(
+      [
+        {
+          outcomeId: null,
+          label: "Not under an outcome",
+          options: [{ id: "o", label: "Under “Loose”" }],
+        },
+      ]
+    );
+  });
+
+  it("reads plain “The top of the tree” on a tree with no outcome", () => {
+    seed([interview("i", "Sam", { quotes: [quote("q", "Too slow")] })]);
+    renderPage();
+    openInterview("Sam");
+    fireEvent.click(
+      within(pane()).getByRole("button", { name: "Raise as an opportunity: quote 1" })
+    );
+    expect(
+      within(within(pane()).getByLabelText("Put it under")).getByRole("option", {
+        name: "The top of the tree",
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("the agent puts no quote under an example node, as the picker offers none", async () => {
+    seed(
+      [interview("i", "Sam", { quotes: [quote("q", "Too slow")] })],
+      [{ id: "example-o", kind: "outcome", text: "Example outcome", parentId: null }]
+    );
+    expect(
+      await run("send_quote_to_opportunity", {
+        interviewId: "i",
+        quoteId: "q",
+        parentId: "example-o",
+      })
+    ).toEqual({ sent: false, reason: "example" });
+    expect(nodes()).toHaveLength(1);
   });
 });
