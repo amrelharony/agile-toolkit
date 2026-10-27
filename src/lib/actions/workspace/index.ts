@@ -45,7 +45,8 @@ import {
   serverGetEntity,
   serverListEntities,
 } from "../server-store";
-import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
+import { applyItemPatch, rowsUnlinkedFrom } from "@/lib/prioritization/binding";
+import { method, type Values } from "@/lib/prioritization/methods";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
@@ -2628,7 +2629,8 @@ const StoryMapSchema = z.object({
 
 // Every method input is optional since Phase 7: a missing one is Not scored,
 // never a default. The bounds stay as loose as before (any number), so no
-// stored item stops validating on update; the method engine judges the scale.
+// stored item stops validating on update; the CRUD's prepare judges what a
+// write sets by the methods' own rules (prepareBacklogItem).
 const BacklogItemSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -2641,7 +2643,7 @@ const BacklogItemSchema = z.object({
     .number()
     .optional()
     .describe(
-      "THE value: WSJF business value and the Value/Effort value axis, Fibonacci 1, 2, 3, 5, 8, 13, 20."
+      "THE value: WSJF business value and the Value/Effort value axis, Fibonacci 1, 2, 3, 5, 8, 13, 20. A write off the scale is refused unless the item already holds that value."
     ),
   timeCriticality: z.number().optional().describe("WSJF time criticality, Fibonacci 1-20."),
   riskReduction: z
@@ -2661,7 +2663,7 @@ const BacklogItemSchema = z.object({
     .number()
     .optional()
     .describe(
-      "Deprecated, read-only: the old 1-10 matrix value, read only when businessValue is missing. Write businessValue instead."
+      "Deprecated, read-only: the old 1-10 matrix value, read only when businessValue is missing. A create or update that writes it is refused; write businessValue instead (which drops it)."
     ),
   matrixEffort: z.number().optional().describe("Value/Effort effort, 1-10."),
   rank: z
@@ -2670,7 +2672,12 @@ const BacklogItemSchema = z.object({
     .positive()
     .optional()
     .describe("The decided order, 1 = first (set by the Prioritizer's Decide order)."),
-  updatedAt: z.string().optional(),
+  updatedAt: z
+    .string()
+    .optional()
+    .describe(
+      "Stamped by every create and update (a value given is ignored). An item without it was never saved by the current code, so a method whose every input still holds the old Add item default reads as Not scored; an update that changes the item clears those defaults from it."
+    ),
 }) as unknown as z.ZodType<BacklogItem>;
 
 const NpsResponseSchema = z.object({
@@ -3032,9 +3039,91 @@ defineCrudActions<StoryMap>({
 const BACKLOG_ITEM_KIND = "workspace:backlogItem";
 const PRIORITIZATION_KIND = "workspace:prioritization";
 
-// Delete keeps the method rows that scored the item on both transports:
-// removeBacklogItem in the tab, the same rowsUnlinkedFrom server-side, each
-// row frozen with the values it read through to the item, then unlinked.
+/** The methods whose rules judge a backlog item's inputs (MoSCoW's bucket is the schema's enum). */
+const CHECKED_BACKLOG_METHODS = ["wsjf", "rice", "value-effort"] as const;
+
+/**
+ * What `next` sets differently from the stored item: each changed key with
+ * its new value, and a key `next` no longer holds as undefined (a clear).
+ * The id and `updatedAt` are the engine's, never a change.
+ */
+function backlogItemChanges(next: BacklogItem, current: BacklogItem): Partial<BacklogItem> {
+  const a = next as unknown as Record<string, unknown>;
+  const b = current as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const keys = Object.keys(b).concat(Object.keys(a).filter((k) => !(k in b)));
+  for (const key of keys) {
+    if (key !== "id" && key !== "updatedAt" && a[key] !== b[key]) out[key] = a[key];
+  }
+  return out as Partial<BacklogItem>;
+}
+
+/**
+ * The problems with the inputs a write sets, by each method's own rule
+ * (lib/prioritization/methods), as tool.prioritizer.add_item and the hub's
+ * editors judge them: the WSJF parts and the one value field on the
+ * Fibonacci steps, RICE's confidence and 0.5 effort minimum, the matrix
+ * effort 1-10. `keep` is what the item reads as now, so a value it already
+ * holds stays valid; inputs the write leaves as they are aren't judged (a
+ * rename never fails on a legacy value). The legacy 1-10 `value` is never
+ * written again.
+ */
+function backlogInputProblems(set: Partial<BacklogItem>, current?: BacklogItem): string[] {
+  const problems = new Map<string, string>();
+  if (set.value !== undefined) {
+    problems.set(
+      "value",
+      "value: the old 1-10 matrix value is read-only; write businessValue (1, 2, 3, 5, 8, 13 or 20) instead."
+    );
+  }
+  for (const id of CHECKED_BACKLOG_METHODS) {
+    const m = method(id);
+    const draft: Values = {};
+    for (const input of m.inputs) {
+      const v = input.backlogKey ? set[input.backlogKey] : undefined;
+      if (typeof v === "number" || typeof v === "string") draft[input.key] = v;
+    }
+    if (Object.keys(draft).length === 0) continue;
+    const checked = m.validate(
+      draft,
+      current && m.fromBacklog ? m.fromBacklog(current) : undefined
+    );
+    if (checked.ok) continue;
+    for (const input of m.inputs) {
+      const message = checked.errors[input.key];
+      const key = input.backlogKey;
+      if (message && key && input.key in draft && !problems.has(key)) {
+        problems.set(key, `${key}: ${message}`);
+      }
+    }
+  }
+  return Array.from(problems.values());
+}
+
+/**
+ * The item as the engine saves it, the server twin of the hub's
+ * saveBacklogItem: the inputs a write sets are checked first (nothing is
+ * saved on a problem), a create is stamped as createBacklogItem stamps it,
+ * and an update applies what changed through applyItemPatch, which clears
+ * the untouched old-default fingerprints, drops the legacy `value` when
+ * businessValue is written and stamps `updatedAt` (lib/prioritization/
+ * defaults reads an unstamped item's old defaults as Not scored). An
+ * update that changes nothing leaves the item as it is.
+ */
+function prepareBacklogItem(next: BacklogItem, current: BacklogItem | undefined): BacklogItem {
+  const set = current ? backlogItemChanges(next, current) : next;
+  if (current && Object.keys(set).length === 0) return current;
+  const problems = backlogInputProblems(set, current);
+  if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
+  const now = new Date().toISOString();
+  return current ? applyItemPatch(current, set, now) : { ...next, updatedAt: now };
+}
+
+// Create and update go through the engine (prepareBacklogItem), as the
+// hub's writes do. Delete keeps the method rows that scored the item on
+// both transports: removeBacklogItem in the tab, the same rowsUnlinkedFrom
+// server-side, each row frozen with the values it read through to the
+// item, then unlinked.
 defineCrudActions<BacklogItem>({
   toolId: "workspace.backlog_item",
   entityName: "backlog item",
@@ -3043,6 +3132,7 @@ defineCrudActions<BacklogItem>({
   upsert: (x) => ws().upsertBacklogItem(x),
   remove: (id) => ws().removeBacklogItem(id),
   generateId: () => `backlog_${nanoid(8)}`,
+  prepare: prepareBacklogItem,
   cascade: {
     describe:
       "The method rows that scored it (RICE, WSJF, MoSCoW, …) stay, unlinked, each keeping the values it showed.",
