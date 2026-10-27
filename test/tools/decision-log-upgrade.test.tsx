@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -647,6 +648,35 @@ describe("?id=, Markdown, the verdict and the time to decide", () => {
     expect(header("ADR-0001")).toHaveAttribute("aria-expanded", "true");
     expect(header("ADR-0002")).toHaveAttribute("aria-expanded", "false");
     // Dropped once open, so the same link (a next step on this page) works again.
+    expect(window.location.search).toBe("");
+  });
+
+  it("?id= from a link on this page shows every form, so a record the chip hid opens now", () => {
+    seed([
+      rec({ id: "a", number: 1 }),
+      rec({ id: "b", number: 2, template: "daci", title: "Vendor" }),
+    ]);
+    const at = (query: string) => (
+      <SearchParamsContext.Provider value={new URLSearchParams(query)}>
+        <LiveAnnouncerProvider>
+          <TooltipProvider>
+            <DecisionLogClient />
+          </TooltipProvider>
+        </LiveAnnouncerProvider>
+      </SearchParamsContext.Provider>
+    );
+    const view = render(at(""));
+    fireEvent.click(screen.getByRole("button", { name: /^DACI\s*1$/ }));
+    expect(screen.queryByRole("button", { name: /ADR-0001/ })).not.toBeInTheDocument();
+    // A next step's "Open" for ADR-0001, on the same page: no remount, the DACI chip still pressed.
+    window.history.replaceState(null, "", "/decision-log?id=a");
+    view.rerender(at("id=a"));
+    expect(screen.getByRole("button", { name: /^All\s*2$/ })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(header("ADR-0001")).toHaveAttribute("aria-expanded", "true");
+    expect(document.activeElement).toBe(header("ADR-0001"));
     expect(window.location.search).toBe("");
   });
 

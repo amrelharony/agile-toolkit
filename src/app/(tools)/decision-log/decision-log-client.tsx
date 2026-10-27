@@ -108,9 +108,12 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
 
   // ?id= on load, and again when a link on this page (a next step) sets it.
   // It's dropped once the record is open, so the same link works again.
+  // Every form is shown, as a "Supersedes" jump does: a chip pressed before
+  // the link would hide a record of another form, and the jump would wait.
   const openFromUrl = useCallback((search: URLSearchParams) => {
     const id = readRecordParam(`?${search}`);
     if (!id) return;
+    setFilter("all");
     setOpen((s) => new Set(s).add(id));
     setJumpTo(id);
     dropSearchParam(RECORD_PARAM);
