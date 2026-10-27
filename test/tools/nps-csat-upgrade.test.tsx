@@ -61,6 +61,8 @@ import { NpsCsatClient, PERIOD_KEY } from "@/app/(tools)/nps-csat/nps-csat-clien
 import { buildExample } from "@/app/(tools)/nps-csat/example";
 import { toMarkdown, MD_VERBATIMS } from "@/app/(tools)/nps-csat/markdown";
 import {
+  RESPONDENT_MAX,
+  VERBATIM_MAX,
   emptyResponse,
   newResponse,
   responseDraft,
@@ -568,6 +570,19 @@ describe("changes with Undo", () => {
     expect(logs[0].payload).toEqual({ responseId: legacy.id, fields: ["tags"] });
   });
 
+  it("keeps a stored verbatim longer than the form's cap while it isn't changed, so the row can be tagged", () => {
+    const long = resp("nps", "2026-10-20", 3, {
+      respondent: "r".repeat(RESPONDENT_MAX + 5),
+      verbatim: "v".repeat(VERBATIM_MAX + 2000),
+    });
+    useWorkspaceStore.setState({ npsResponses: [long] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Edit NPS 3 of 2026-10-20/ }));
+    fireEvent.change(editForm().getByLabelText("Tags"), { target: { value: "pricing" } });
+    fireEvent.click(editForm().getByRole("button", { name: "Save response" }));
+    expect(stored()).toEqual([{ ...long, tags: ["pricing"] }]);
+  });
+
   it("imports pasted rows after the survey is picked, skipping saved copies, with Undo", () => {
     useWorkspaceStore.setState({ npsResponses: [resp("nps", "2026-10-01", 9)] });
     renderPage();
@@ -667,6 +682,30 @@ describe("a stored score stays on its own survey", () => {
     expect(
       validateResponse({ ...emptyResponse(TODAY, "nps"), score: 7.5 }, TODAY, { keepScore: 7.5 }).ok
     ).toBe(false);
+  });
+
+  it("keeps over-long stored text only while unchanged", () => {
+    const longVerbatim = "v".repeat(VERBATIM_MAX + 1);
+    const longName = "r".repeat(RESPONDENT_MAX + 1);
+    const draft = {
+      ...emptyResponse(TODAY, "nps"),
+      score: 9,
+      respondent: longName,
+      verbatim: longVerbatim,
+    };
+    const fresh = validateResponse(draft, TODAY);
+    expect(!fresh.ok && Object.keys(fresh.errors).sort()).toEqual(["respondent", "verbatim"]);
+    const kept = validateResponse(draft, TODAY, {
+      keepRespondent: longName,
+      keepVerbatim: longVerbatim,
+    });
+    expect(kept.ok && kept.values).toMatchObject({ respondent: longName, verbatim: longVerbatim });
+    // Changed, the new text is judged like any other.
+    const edited = validateResponse({ ...draft, verbatim: `${longVerbatim}!` }, TODAY, {
+      keepRespondent: longName,
+      keepVerbatim: longVerbatim,
+    });
+    expect(!edited.ok && Object.keys(edited.errors)).toEqual(["verbatim"]);
   });
 
   it("isn't offered as a custom CSAT score when an NPS 8 is switched to CSAT", () => {

@@ -34,6 +34,8 @@ import type { NpsResponse } from "@/lib/stores/workspace-types";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { periodSeries, summarizeCsat, summarizeNps, tagCounts } from "@/lib/nps/score";
 import { exampleId } from "@/lib/utils/example-id";
+// The page form's caps: record refuses what the form would refuse on the next edit.
+import { RESPONDENT_MAX, VERBATIM_MAX } from "@/app/(tools)/nps-csat/form";
 
 import "@/lib/actions/tools/nps-csat";
 
@@ -282,6 +284,31 @@ describe("tool.nps_csat.record", () => {
     const schema = registry.get("tool.nps_csat.record")!.paramsSchema;
     expect(schema.safeParse({ kind: "nps", score: 9, date: "2026-02-30" }).success).toBe(false);
     expect(schema.safeParse({ kind: "nps", score: 9, date: "yesterday" }).success).toBe(false);
+  });
+
+  it("refuses a respondent or a verbatim longer than the page's form saves, on both paths", async () => {
+    for (const read of [call, callMcp]) {
+      expect(
+        await read("record", { kind: "nps", score: 3, verbatim: "v".repeat(VERBATIM_MAX + 1) })
+      ).toMatchObject({ added: false, reason: "too_long", message: expect.stringMatching(/4000/) });
+      expect(
+        await read("record", { kind: "nps", score: 3, respondent: "r".repeat(RESPONDENT_MAX + 1) })
+      ).toMatchObject({ added: false, reason: "too_long", message: expect.stringMatching(/120/) });
+    }
+    expect(stored()).toEqual([]);
+    expect(rows.size).toBe(0);
+    // At the caps, and padded past them by spaces it trims, it saves.
+    const r = await call<{ added: boolean; id: string }>("record", {
+      kind: "nps",
+      score: 3,
+      respondent: ` ${"r".repeat(RESPONDENT_MAX)} `,
+      verbatim: `${"v".repeat(VERBATIM_MAX)}\n`,
+    });
+    expect(r).toMatchObject({ added: true });
+    expect(stored()[0]).toMatchObject({
+      respondent: "r".repeat(RESPONDENT_MAX),
+      verbatim: "v".repeat(VERBATIM_MAX),
+    });
   });
 
   it("over MCP writes the server store and takes the day after the server's", async () => {

@@ -156,13 +156,28 @@ registry.register({
 
 /* ── record ─────────────────────────────────────────────────────────── */
 
+/**
+ * The longest respondent and verbatim saved: the page's form and import
+ * caps (RESPONDENT_MAX / VERBATIM_MAX in app/(tools)/nps-csat/form.ts,
+ * which test/actions/tool-nps-csat.test.ts pins these to). A longer one
+ * would be stored, then refused by the page's form on its next edit.
+ */
+const RESPONDENT_MAX = 120;
+const VERBATIM_MAX = 4000;
+
 const recordParams = z.object({
   kind: z.enum(["nps", "csat"]),
   score: z
     .number()
     .describe("A whole number on the kind's scale: NPS 0-10, CSAT 1-5 (4-5 counts as satisfied)."),
-  respondent: z.string().optional(),
-  verbatim: z.string().optional(),
+  respondent: z
+    .string()
+    .optional()
+    .describe(`A name or an email, at most ${RESPONDENT_MAX} characters.`),
+  verbatim: z
+    .string()
+    .optional()
+    .describe(`What the customer wrote, at most ${VERBATIM_MAX} characters.`),
   tags: z
     .union([z.array(z.string()), z.string()])
     .optional()
@@ -190,7 +205,11 @@ const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(toda
 
 type RecordResult =
   | { added: true; id: string; date: string; tags: string[] }
-  | { added: false; reason: "off_scale" | "future_day" | "tags"; message: string };
+  | {
+      added: false;
+      reason: "off_scale" | "future_day" | "tags" | "too_long";
+      message: string;
+    };
 
 async function record(store: NpsStore, p: RecordParams, onServer: boolean): Promise<RecordResult> {
   if (!isValidScore(p.kind, p.score)) {
@@ -212,14 +231,28 @@ async function record(store: NpsStore, p: RecordParams, onServer: boolean): Prom
   }
   const problem = p.tags === undefined ? null : tagsProblem(p.tags);
   if (problem) return { added: false, reason: "tags", message: problem };
+  const respondent = p.respondent?.trim() ?? "";
+  const verbatim = p.verbatim?.trim() ?? "";
+  for (const [field, text, max] of [
+    ["respondent", respondent, RESPONDENT_MAX],
+    ["verbatim", verbatim, VERBATIM_MAX],
+  ] as const) {
+    if (text.length > max) {
+      return {
+        added: false,
+        reason: "too_long",
+        message: `The ${field} is ${text.length} characters; keep it to ${max}, as the page does.`,
+      };
+    }
+  }
   const tags = p.tags === undefined ? [] : normalizeTags(p.tags);
   const entry: NpsResponse = {
     id: `nps_${nanoid(8)}`,
     kind: p.kind,
     score: p.score,
     date,
-    ...(p.respondent?.trim() ? { respondent: p.respondent.trim() } : {}),
-    ...(p.verbatim?.trim() ? { verbatim: p.verbatim.trim() } : {}),
+    ...(respondent ? { respondent } : {}),
+    ...(verbatim ? { verbatim } : {}),
     ...(tags.length > 0 ? { tags } : {}),
   };
   await store.put(entry);
@@ -232,7 +265,7 @@ registry.register({
   name: "record",
   category: "write",
   requiresConfirmation: false,
-  description: `Record one survey response. Params: {kind: 'nps' (score a whole number 0-10) | 'csat' (1-5), score, respondent?, verbatim?, tags? (a list or a comma-separated string; at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters), date? (YYYY-MM-DD; default today; never a future day; over MCP the day after the server's is taken too)}. Returns {added: true, id, date, tags (as stored: lower-case, once each)} or {added: false, reason: 'off_scale' | 'future_day' | 'tags', message}.`,
+  description: `Record one survey response. Params: {kind: 'nps' (score a whole number 0-10) | 'csat' (1-5), score, respondent? (≤${RESPONDENT_MAX} characters), verbatim? (≤${VERBATIM_MAX}), tags? (a list or a comma-separated string; at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters), date? (YYYY-MM-DD; default today; never a future day; over MCP the day after the server's is taken too)}. Returns {added: true, id, date, tags (as stored: lower-case, once each)} or {added: false, reason: 'off_scale' | 'future_day' | 'tags' | 'too_long', message}.`,
   paramsSchema: recordParams,
   handler: (params) => record(browserStore, params, false),
   mcpHandler: (params, ctx) => record(serverStore(ctx.userId), params, true),

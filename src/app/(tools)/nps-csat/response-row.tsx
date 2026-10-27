@@ -95,6 +95,8 @@ export function ResponseRow({
           today={today}
           keepScore={r.score}
           keepKind={r.kind === "csat" ? "csat" : "nps"}
+          keepRespondent={r.respondent}
+          keepVerbatim={r.verbatim}
           autoFocus
           submitLabel="Save response"
           onSave={(values) => {

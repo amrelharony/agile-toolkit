@@ -59,6 +59,8 @@ export function ResponseForm({
   submitLabel,
   keepScore,
   keepKind,
+  keepRespondent,
+  keepVerbatim,
   autoFocus = false,
 }: {
   initial: ResponseDraft;
@@ -70,6 +72,9 @@ export function ResponseForm({
   keepScore?: number;
   /** The survey `keepScore` was given for: on the other one it isn't offered. */
   keepKind?: SurveyKind;
+  /** An edited row's stored respondent and verbatim, kept while unchanged even over the caps. */
+  keepRespondent?: string;
+  keepVerbatim?: string;
   /**
    * Opened by a click (Edit): focus the first control, as the row it
    * replaces took the focused button with it. Never on page load.
@@ -81,7 +86,8 @@ export function ResponseForm({
   const last = useRef({ date: initial.date, kind: initial.kind });
   const form = useItemForm<ResponseDraft, ResponseValues, ResponseField>({
     initial: onCancel ? initial : () => emptyResponse(last.current.date, last.current.kind),
-    validate: (d) => validateResponse(d, today, { keepScore, keepKind }),
+    validate: (d) =>
+      validateResponse(d, today, { keepScore, keepKind, keepRespondent, keepVerbatim }),
     onSave: (values, d) => {
       last.current = { date: d.date, kind: d.kind };
       onSave(values, d);

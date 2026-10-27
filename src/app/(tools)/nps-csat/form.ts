@@ -84,11 +84,24 @@ export const scaleText = (kind: SurveyKind) =>
  * fraction saved before Phase 8 (7.5) stays as it is unless the user picks
  * a new one, but only on that survey. Switched to the other one, the old
  * score is judged like any other, so an NPS 8 is never saved as CSAT 8.
+ * `keepRespondent` and `keepVerbatim` are the edited row's stored text: one
+ * longer than the caps (saved by an agent before they applied there) stays
+ * as it is while unchanged, so the row can still be edited, say to tag it.
  */
 export function validateResponse(
   d: ResponseDraft,
   today: string,
-  { keepScore, keepKind }: { keepScore?: number; keepKind?: SurveyKind } = {}
+  {
+    keepScore,
+    keepKind,
+    keepRespondent,
+    keepVerbatim,
+  }: {
+    keepScore?: number;
+    keepKind?: SurveyKind;
+    keepRespondent?: string;
+    keepVerbatim?: string;
+  } = {}
 ): Validation<ResponseValues, ResponseField> {
   const errors: Partial<Record<ResponseField, string>> = {};
   const date = d.date.trim();
@@ -102,9 +115,10 @@ export function validateResponse(
   if (!date) errors.date = "Pick the day the answer was given.";
   else if (!(date.length === 10 && isIsoDate(date))) errors.date = "Pick a day on the calendar.";
   else if (date > today) errors.date = "An answer can't be dated in the future.";
-  if (respondent.length > RESPONDENT_MAX)
+  if (respondent.length > RESPONDENT_MAX && respondent !== keepRespondent?.trim())
     errors.respondent = `Keep it to ${RESPONDENT_MAX} characters.`;
-  if (verbatim.length > VERBATIM_MAX) errors.verbatim = `Keep it to ${VERBATIM_MAX} characters.`;
+  if (verbatim.length > VERBATIM_MAX && verbatim !== keepVerbatim?.trim())
+    errors.verbatim = `Keep it to ${VERBATIM_MAX} characters.`;
   const tagIssue = tagsProblem(d.tags);
   if (tagIssue) errors.tags = tagIssue;
   if (Object.keys(errors).length > 0 || !d.kind || d.score === null) {
