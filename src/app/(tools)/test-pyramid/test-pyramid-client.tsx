@@ -1,393 +1,678 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ActionRow } from "@/components/shared/action-row";
-import { KpiGrid } from "@/components/shared/kpi-grid";
-import { StatCard } from "@/components/shared/stat-card";
-import { SectionCard } from "@/components/shared/section-card";
-import { CalloutAlert } from "@/components/shared/callout-alert";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Triangle, DollarSign } from "lucide-react";
-import { generateTestPyramidPrompts } from "@/lib/ai-prompts/test-pyramid";
+import dynamic from "next/dynamic";
+import { useMemo, useRef, useState } from "react";
+import { nanoid } from "nanoid";
 import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { Camera, Gauge, Trash2, Triangle } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { CalloutAlert } from "@/components/shared/callout-alert";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { IconButton } from "@/components/ui/icon-button";
+import { ToggleGroup } from "@/components/ui/toggle-group";
+import { generateTestPyramidPrompts } from "@/lib/ai-prompts/test-pyramid";
+import { enoughData } from "@/lib/analytics/min-sample";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { TEST_PYRAMID_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import {
+  PYRAMID_SHAPE_LABEL,
+  PYRAMID_SNAPSHOT_MAX,
+  TEST_LAYERS,
+  TEST_LAYER_LABEL,
+  TEST_PYRAMID_ID,
+  classifyShape,
+  hasAllRuntimes,
+  layerShares,
+  newSnapshotId,
+  relativeCost,
+  runCost,
+  shapeHistory,
+  shapeVerdict,
+  sharePercents,
+  snapshotOf,
+  snapshotsOf,
+  weightingOf,
+  withSnapshot,
+  withoutSnapshot,
+} from "@/lib/quality/pyramid";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  TestLayerRuntime,
+  TestPyramid,
+  TestPyramidSnapshot,
+  TestPyramidWeighting,
+} from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { undoable } from "@/lib/utils/undoable";
+import { buildExample } from "./example";
+import {
+  CountsForm,
+  RuntimeForm,
+  SnapshotForm,
+  type CountsValues,
+  type SnapshotDraft,
+} from "./forms";
+import { pyramidMarkdown } from "./markdown";
+import {
+  compareWithNow,
+  count,
+  dayLabel,
+  minutes,
+  runCostText,
+  shapeChartText,
+  shapePoints,
+  signed,
+} from "./view";
 
-/* ── Types ──────────────────────────────────────────────────────────────── */
+// Recharts loads with the chart, not the page; the fixed-height box
+// reserves the space while it does.
+const ShapeOverTimeChart = dynamic(() => import("./charts").then((m) => m.ShapeOverTimeChart), {
+  ssr: false,
+});
 
-interface TestCounts {
-  unit: number;
-  integration: number;
-  e2e: number;
-  description?: string;
-}
+/** Snapshots before the shape-over-time chart is drawn: one is a dot. */
+const CHART_MIN_SNAPSHOTS = 2;
 
-const DEFAULT_STATE: TestCounts = {
-  unit: 0,
-  integration: 0,
-  e2e: 0,
-};
+/** A change to the document: the next one, or null to remove it. */
+type Write = (fn: (doc: TestPyramid | null) => TestPyramid | null) => void;
 
-const TP_ID = "testPyramid:current"; // MUST match TP_ID in test-pyramid.ts.
+const storedDoc = () =>
+  (useWorkspaceStore.getState().testPyramids ?? []).find((d) => d.id === TEST_PYRAMID_ID) ?? null;
 
-// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
-// count writes round-trip into the UI. Drop-in [state, setState].
-function useTestPyramid(): [TestCounts, (u: TestCounts | ((p: TestCounts) => TestCounts)) => void] {
+/**
+ * The synced singleton (TEST_PYRAMID_ID) that agents write too. Every write
+ * starts from the stored document and spreads it, so the run times, the
+ * weighting, the snapshots and updatedOn that the counts form doesn't show
+ * are kept (the old hook upserted {id, counts, description} and erased them).
+ */
+function useTestPyramid(): [TestPyramid | null, Write] {
   const doc = useWorkspaceStore(
-    useShallow((s) => (s.testPyramids ?? []).find((d) => d.id === TP_ID))
+    useShallow((s) => (s.testPyramids ?? []).find((d) => d.id === TEST_PYRAMID_ID))
   );
   const upsert = useWorkspaceStore((s) => s.upsertTestPyramid);
-  const toCounts = (d: typeof doc): TestCounts =>
-    d
-      ? { unit: d.unit, integration: d.integration, e2e: d.e2e, description: d.description }
-      : DEFAULT_STATE;
-  const state = toCounts(doc);
-  const setState = (u: TestCounts | ((p: TestCounts) => TestCounts)) => {
-    const cur = (useWorkspaceStore.getState().testPyramids ?? []).find((d) => d.id === TP_ID);
-    const next = typeof u === "function" ? u(toCounts(cur)) : u;
-    upsert({ id: TP_ID, ...next });
-  };
-  return [state, setState];
-}
-
-// Cost-of-quality coefficients per the brief.
-const COST_PER_UNIT = 1;
-const COST_PER_INTEGRATION = 5;
-const COST_PER_E2E = 25;
-
-/* ── String-draft numeric input ─────────────────────────────────────────── */
-
-function NumericField({
-  id,
-  label,
-  value,
-  onChange,
-  hint,
-}: {
-  id: string;
-  label: string;
-  value: number;
-  onChange: (next: number) => void;
-  hint?: string;
-}) {
-  // Local string draft so the user can backspace mid-edit without snapping
-  // back to the clamped value.
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
-
-  const commit = () => {
-    const n = Number(draft);
-    if (!Number.isFinite(n) || n < 0) {
-      setDraft(String(value));
-      return;
+  const remove = useWorkspaceStore((s) => s.removeTestPyramid);
+  const write: Write = (fn) => {
+    const cur = storedDoc();
+    const next = fn(cur);
+    if (next === null) {
+      if (cur) remove(TEST_PYRAMID_ID);
+    } else if (next !== cur) {
+      upsert({ ...next, id: TEST_PYRAMID_ID });
     }
-    const rounded = Math.max(0, Math.round(n));
-    setDraft(String(rounded));
-    onChange(rounded);
   };
-
-  return (
-    <div className="space-y-1">
-      <Label htmlFor={id} className="text-xs text-sub">
-        {label}
-      </Label>
-      <Input
-        id={id}
-        type="text"
-        inputMode="numeric"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            commit();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        className="bg-bg border-border font-data"
-      />
-      {hint && <div className="text-xs text-sub">{hint}</div>}
-    </div>
-  );
+  return [doc ?? null, write];
 }
 
-/* ── Main client ────────────────────────────────────────────────────────── */
+const WEIGHTING_LABEL: Record<TestPyramidWeighting, string> = {
+  count: "Test count",
+  runtime: "Run time",
+};
 
 export function TestPyramidClient() {
-  const [state, setState] = useTestPyramid();
-  const { log } = useHistoryLogger("test-pyramid");
+  const [stored, writeStored] = useTestPyramid();
+  const today = todayLocalISO();
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<TestPyramid | null>(null);
+  const preview = example !== null;
+  const doc = example ?? stored;
+  // Bound to the mode the change was made in, so an Undo lands where it
+  // was made even if the example is loaded or cleared in between.
+  const write: Write = preview
+    ? (fn) => setExample((ex) => (ex ? (fn(ex) ?? ex) : ex))
+    : writeStored;
 
-  const update = (patch: Partial<TestCounts>) => {
-    setState((s) => ({ ...s, ...patch }));
-    log(TEST_PYRAMID_ACTIONS.COUNT_UPDATED, {
-      fields: Object.keys(patch),
+  const { log: logHistory } = useHistoryLogger("test-pyramid");
+  // The example's edits aren't the team's history, so they aren't logged.
+  const log: typeof logHistory = (...args) => {
+    if (!preview) logHistory(...args);
+  };
+  const announce = useAnnounce();
+  const exportRef = useRef<HTMLDivElement>(null);
+  const [compareId, setCompareId] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const weighting = weightingOf(doc);
+  const shares = doc ? layerShares(doc, weighting, doc.runtime) : null;
+  const shape = classifyShape(shares);
+  const verdict = shapeVerdict(shape, shares, weighting);
+  const percents = shares ? sharePercents(shares) : null;
+  const cost = doc ? runCost(doc, weighting, doc.runtime) : null;
+  const total = doc ? doc.unit + doc.integration + doc.e2e : 0;
+  const snapshots = useMemo(() => snapshotsOf(doc), [doc]);
+  const points = useMemo(() => shapePoints(snapshots, weighting), [snapshots, weighting]);
+  const chart = shapeChartText(points);
+  const timed = hasAllRuntimes(doc?.runtime);
+  const compared = snapshots.find((s) => s.id === compareId);
+
+  /* ── Changes ── */
+
+  function saveCounts(v: CountsValues) {
+    const changed = TEST_LAYERS.filter((l) => doc?.[l] !== v[l]);
+    const descriptionChanged = (doc?.description ?? undefined) !== v.description;
+    if (doc && changed.length === 0 && !descriptionChanged) {
+      announce("The counts are unchanged");
+      return;
+    }
+    write((d) => {
+      const next: TestPyramid = {
+        ...(d ?? {}),
+        id: TEST_PYRAMID_ID,
+        unit: v.unit,
+        integration: v.integration,
+        e2e: v.e2e,
+        updatedOn: today,
+      };
+      if (v.description) next.description = v.description;
+      else delete next.description;
+      return next;
     });
-  };
+    log(TEST_PYRAMID_ACTIONS.COUNT_UPDATED, {
+      fields: [...changed, ...(descriptionChanged ? ["description"] : [])],
+    });
+    const after = classifyShape(layerShares(v, weighting, doc?.runtime));
+    announce(`Saved the counts. Shape: ${PYRAMID_SHAPE_LABEL[after]}`);
+  }
 
-  // Local raw-text draft for the description so intermediate spaces survive
-  // mid-edit. We sync from persisted state when the field isn't focused, and
-  // normalize (trim → undefined) only on blur.
-  const descRef = useRef<HTMLTextAreaElement>(null);
-  const [descDraft, setDescDraft] = useState<string>(state.description ?? "");
-  const lastDescRef = useRef<string>(state.description ?? "");
-  useEffect(() => {
-    if (document.activeElement === descRef.current) return;
-    const next = state.description ?? "";
-    if (next === lastDescRef.current) return;
-    setDescDraft(next);
-    lastDescRef.current = next;
-  }, [state.description]);
+  function saveRuntime(runtime: TestLayerRuntime) {
+    // By run time needs all three: without them the page falls back to counts.
+    const nextWeighting: TestPyramidWeighting =
+      weighting === "runtime" && !hasAllRuntimes(runtime) ? "count" : weighting;
+    write((d) => {
+      if (!d) return d;
+      const next: TestPyramid = { ...d, updatedOn: today };
+      if (Object.keys(runtime).length > 0) next.runtime = runtime;
+      else delete next.runtime;
+      if (weightingOf(next) === "runtime" && !hasAllRuntimes(next.runtime)) {
+        next.weighting = "count";
+      }
+      return next;
+    });
+    log(TEST_PYRAMID_ACTIONS.RUNTIME_UPDATED, { runtime, weighting: nextWeighting });
+    announce(
+      nextWeighting !== weighting
+        ? "Saved the minutes. Weighing by test count: run time needs all three layers"
+        : "Saved the minutes"
+    );
+  }
 
-  const commitDescription = () => {
-    const raw = descDraft;
-    const next = raw.trim() ? raw : undefined;
-    lastDescRef.current = next ?? "";
-    setState((s) => ({ ...s, description: next }));
-  };
+  function setWeighting(next: TestPyramidWeighting) {
+    if (!doc || next === weighting) return;
+    if (next === "runtime" && !timed) return;
+    write((d) => (d ? { ...d, weighting: next } : d));
+    log(TEST_PYRAMID_ACTIONS.RUNTIME_UPDATED, { runtime: doc.runtime ?? {}, weighting: next });
+    announce(`Weighing the layers by ${WEIGHTING_LABEL[next].toLowerCase()}`);
+  }
 
-  /* ── Aggregations ───────────────────────────────────────────────────── */
+  function takeSnapshot({ takenOn, note }: SnapshotDraft) {
+    if (!doc) return;
+    const id = preview ? exampleId(`tps-${nanoid(6)}`) : newSnapshotId();
+    const snapshot = snapshotOf(doc, takenOn, id, note);
+    write((d) => (d ? withSnapshot(d, snapshot) : d));
+    log(TEST_PYRAMID_ACTIONS.SNAPSHOT_TAKEN, { snapshotId: id, takenOn });
+    announce(`Snapshot kept for ${dayLabel(takenOn)}`);
+  }
 
-  const total = state.unit + state.integration + state.e2e;
-  const unitPct = total ? (state.unit / total) * 100 : 0;
-  const integrationPct = total ? (state.integration / total) * 100 : 0;
-  const e2ePct = total ? (state.e2e / total) * 100 : 0;
-  const inverted = state.e2e > state.unit && total > 0;
-  const costEstimate =
-    state.unit * COST_PER_UNIT +
-    state.integration * COST_PER_INTEGRATION +
-    state.e2e * COST_PER_E2E;
+  function removeSnapshot(s: TestPyramidSnapshot) {
+    if (compareId === s.id) setCompareId("");
+    undoable({
+      label: `Deleted the snapshot of ${dayLabel(s.takenOn)}`,
+      apply: () => {
+        write((d) => (d ? (withoutSnapshot(d, s.id) ?? d) : d));
+        log(TEST_PYRAMID_ACTIONS.SNAPSHOT_REMOVED, { snapshotId: s.id, takenOn: s.takenOn });
+      },
+      revert: () =>
+        write((d) =>
+          d && !(d.snapshots ?? []).some((x) => x.id === s.id) ? withSnapshot(d, s) : d
+        ),
+    });
+    announce(`Deleted the snapshot of ${dayLabel(s.takenOn)}`);
+  }
 
-  /* ── Pyramid bar widths ─────────────────────────────────────────────── */
+  /** Each clear keeps the document it took for its own Undo. */
+  function clearAll() {
+    const before = storedDoc();
+    if (!before) return;
+    setCompareId("");
+    undoable({
+      label: "Cleared the counts and snapshots",
+      apply: () => {
+        write(() => null);
+        log(TEST_PYRAMID_ACTIONS.PYRAMID_RESET, { snapshots: (before.snapshots ?? []).length });
+      },
+      // A pyramid counted again since is kept: Undo never overwrites it.
+      revert: () => write((d) => d ?? before),
+    });
+  }
 
-  // Each bar's width is its % of the largest layer count, so the visualization
-  // always has at least one full-width row even when the absolute counts are
-  // small. Empty layers render at 0% width.
-  const maxCount = Math.max(state.unit, state.integration, state.e2e, 1);
-  const barWidth = (n: number) => `${(n / maxCount) * 100}%`;
+  /* ── Exports ── */
 
-  // Color by ideal-shape compliance.
-  // - E2E green if ≤ unit; red if > unit (inverted).
-  // - Integration green if between e2e and unit.
-  // - Unit always green when it's the largest layer.
-  // When total is 0 there's nothing to evaluate — use a neutral tone instead
-  // of misleading "all green".
-  const NEUTRAL_COLOR = "#6b7280";
-  const e2eColor = total === 0 ? NEUTRAL_COLOR : inverted ? "#ef4444" : "#34d399";
-  const intColor =
-    total === 0
-      ? NEUTRAL_COLOR
-      : state.integration <= state.unit && state.integration >= state.e2e
-        ? "#34d399"
-        : "#facc15";
-  const unitColor =
-    total === 0 ? NEUTRAL_COLOR : state.unit >= state.integration ? "#34d399" : "#facc15";
-
+  const countShares = doc ? layerShares(doc) : null;
+  const countPct = countShares ? sharePercents(countShares) : null;
   const promptConfig = useMemo(
     () => ({
       toolName: "Test Pyramid Analyzer",
-      prompts: generateTestPyramidPrompts({
-        unit: state.unit,
-        integration: state.integration,
-        e2e: state.e2e,
-        total,
-        unitPct,
-        e2ePct,
-        inverted,
-        costEstimate,
-        description: state.description,
-      }),
+      prompts: doc
+        ? generateTestPyramidPrompts({
+            unit: doc.unit,
+            integration: doc.integration,
+            e2e: doc.e2e,
+            total,
+            unitPct: countPct?.unit ?? 0,
+            e2ePct: countPct?.e2e ?? 0,
+            inverted: doc.e2e > doc.unit,
+            costEstimate: relativeCost(doc),
+            description: [PYRAMID_SHAPE_LABEL[shape], doc.description].filter(Boolean).join(". "),
+          })
+        : [],
     }),
-    [state, total, unitPct, e2ePct, inverted, costEstimate]
+    [doc, total, countPct, shape]
   );
+
+  const csvData = {
+    headers: ["Layer", "Tests", "Share of tests (%)", "Relative run cost", "Minutes"],
+    rows: doc
+      ? TEST_LAYERS.map((l) => [
+          TEST_LAYER_LABEL[l],
+          doc[l],
+          countPct ? countPct[l] : "",
+          runCost(doc)?.byLayer[l] ?? "",
+          typeof doc.runtime?.[l] === "number" ? (doc.runtime[l] as number) : "",
+        ])
+      : [],
+  };
+
+  const pointOf = new Map(points.map((p) => [p.id, p]));
+  const columns: DataTableColumn<TestPyramidSnapshot>[] = [
+    { key: "day", header: "Day", primary: true, cell: (s) => dayLabel(s.takenOn) },
+    ...TEST_LAYERS.map(
+      (l): DataTableColumn<TestPyramidSnapshot> => ({
+        key: l,
+        header: TEST_LAYER_LABEL[l],
+        align: "right",
+        cell: (s) => <span className="font-data">{count(s[l])}</span>,
+      })
+    ),
+    { key: "shape", header: "Shape", cell: (s) => pointOf.get(s.id)?.shape ?? "—" },
+    {
+      key: "note",
+      header: "Note",
+      hiddenBelow: "lg",
+      cell: (s) => <span className="text-sub">{s.note ?? ""}</span>,
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      align: "right",
+      cell: (s) => (
+        <IconButton
+          label={`Delete the snapshot of ${dayLabel(s.takenOn)}`}
+          icon={<Trash2 aria-hidden="true" />}
+          onClick={() => removeSnapshot(s)}
+          className="text-sub hover:text-danger"
+        />
+      ),
+    },
+  ];
+
+  const unitSeries = shapeHistory(snapshots, weighting)
+    .map((p) => p.unitShare)
+    .filter((x): x is number => x !== null);
+  const unitTrend = enoughData(unitSeries.length, "trend") ? mannKendall(unitSeries) : null;
+  const comparison = compared && doc ? compareWithNow(compared, doc) : null;
+  const runCostCard = runCostText(cost);
+  const maxShare = shares ? Math.max(shares.unit, shares.integration, shares.e2e) : 0;
 
   return (
     <ToolPageWrapper
       toolId="test-pyramid"
       title="Test Pyramid Analyzer"
-      description="Enter your test counts per layer; surface inverted-pyramid anti-patterns and a cost-of-quality estimate."
+      description="Enter your test counts per layer to see the shape they make (pyramid, ice-cream cone, hourglass or diamond), what a run costs, and how the shape changes across snapshots."
       category="Quality Engineering"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="test-pyramid"
-          csvData={{
-            headers: ["Layer", "Count", "% of Total", "Cost Units"],
-            rows: [
-              ["Unit", state.unit, unitPct.toFixed(1), state.unit * COST_PER_UNIT],
-              [
-                "Integration",
-                state.integration,
-                integrationPct.toFixed(1),
-                state.integration * COST_PER_INTEGRATION,
-              ],
-              ["E2E", state.e2e, e2ePct.toFixed(1), state.e2e * COST_PER_E2E],
-              ["Total", total, total === 0 ? "0.0" : "100.0", costEstimate],
-            ],
-          }}
-          jsonData={state}
-        />
-      </ActionRow>
-
-      <KpiGrid cols={4}>
-        <StatCard
-          variant="compact"
-          icon={Triangle}
-          label="Total tests"
-          value={total}
-          valueClassName="text-accent"
-        />
-        <StatCard
-          variant="compact"
-          label="% unit"
-          value={`${unitPct.toFixed(0)}%`}
-          tone={unitPct >= 60 ? "success" : "default"}
-        />
-        <StatCard
-          variant="compact"
-          label="% e2e"
-          value={`${e2ePct.toFixed(0)}%`}
-          tone={e2ePct > 20 ? "warning" : "default"}
-        />
-        <StatCard
-          variant="compact"
-          icon={DollarSign}
-          label="Cost-of-quality"
-          value={costEstimate}
-          hint="unit=1, int=5, e2e=25"
-        />
-      </KpiGrid>
-
-      {inverted && (
-        <CalloutAlert tone="danger" className="mb-4">
-          <strong>Inverted pyramid detected:</strong> e2e count ({state.e2e}) exceeds unit count (
-          {state.unit}). Slow feedback loops and brittle tests are likely.
-        </CalloutAlert>
-      )}
-
-      <SectionCard title="Test counts" icon={Triangle} className="mb-6 bg-surface border-border">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <NumericField
-            id="pyramid-unit"
-            label="Unit tests"
-            value={state.unit}
-            onChange={(n) => update({ unit: n })}
-            hint="Fast, isolated, in-process."
+      <div ref={exportRef} className="space-y-6">
+        {preview && (
+          <ExampleNotice
+            onClear={() => {
+              setExample(null);
+              setCompareId("");
+            }}
           />
-          <NumericField
-            id="pyramid-integration"
-            label="Integration tests"
-            value={state.integration}
-            onChange={(n) => update({ integration: n })}
-            hint="Multiple components or services."
-          />
-          <NumericField
-            id="pyramid-e2e"
-            label="E2E tests"
-            value={state.e2e}
-            onChange={(n) => update({ e2e: n })}
-            hint="Full stack, real browser/API."
-          />
-        </div>
-        <div className="space-y-1 mt-4">
-          <Label htmlFor="pyramid-description" className="text-xs text-sub">
-            Description (optional)
-          </Label>
-          <Textarea
-            id="pyramid-description"
-            ref={descRef}
-            rows={2}
-            value={descDraft}
-            onChange={(e) => setDescDraft(e.target.value)}
-            onBlur={commitDescription}
-            placeholder="Repo, snapshot date, framework notes..."
-            className="bg-bg border-border text-sm"
-          />
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Pyramid shape" icon={Triangle} className="mb-6 bg-surface border-border">
-        {total === 0 ? (
-          <div className="text-xs text-sub py-6 text-center">
-            Enter counts above to render the pyramid.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* E2E (top, smallest) */}
-            <PyramidBar
-              label="E2E"
-              count={state.e2e}
-              pct={e2ePct}
-              width={barWidth(state.e2e)}
-              color={e2eColor}
-            />
-            {/* Integration (middle) */}
-            <PyramidBar
-              label="Integration"
-              count={state.integration}
-              pct={integrationPct}
-              width={barWidth(state.integration)}
-              color={intColor}
-            />
-            {/* Unit (bottom, largest) */}
-            <PyramidBar
-              label="Unit"
-              count={state.unit}
-              pct={unitPct}
-              width={barWidth(state.unit)}
-              color={unitColor}
-            />
-          </div>
         )}
-      </SectionCard>
 
-      <CalloutAlert tone="info">
-        <strong>How to read this:</strong> a healthy test suite is unit-heavy (60-80% unit), with a
-        thin layer of e2e. The cost estimate uses the relative-cost rule of thumb — unit=1,
-        integration=5, e2e=25 — so a high cost number signals slow feedback loops, not just spend.
-      </CalloutAlert>
-    </ToolPageWrapper>
-  );
-}
+        <SectionCard title="Test counts" icon={Triangle} contentClassName="space-y-3">
+          <CountsForm
+            // A save from elsewhere (an agent, another device) refreshes the draft.
+            key={`${preview ? "example" : "saved"}:${doc?.unit}:${doc?.integration}:${doc?.e2e}:${doc?.description ?? ""}`}
+            doc={doc}
+            onSave={saveCounts}
+          />
+          {doc?.updatedOn && (
+            <p className="text-xs text-sub">Counts last saved {dayLabel(doc.updatedOn)}.</p>
+          )}
+        </SectionCard>
 
-/* ── Pyramid bar ────────────────────────────────────────────────────────── */
+        {!doc ? (
+          <EmptyState
+            icon={Triangle}
+            action={<LoadExampleButton onLoad={() => setExample(buildExample(today))} />}
+          >
+            Not counted yet. Enter the number of tests in each layer above to see the shape, or load
+            an example of a suite moving from an ice-cream cone to a pyramid.
+          </EmptyState>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-text">{verdict}</p>
 
-function PyramidBar({
-  label,
-  count,
-  pct,
-  width,
-  color,
-}: {
-  label: string;
-  count: number;
-  pct: number;
-  width: string;
-  color: string;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="w-24 text-xs text-sub uppercase tracking-wider shrink-0">{label}</div>
-      <div className="flex-1 min-w-0 h-8 bg-bg/60 rounded relative overflow-hidden">
-        <div
-          className="h-full rounded transition-all"
-          style={{ width, background: `${color}55`, borderRight: `2px solid ${color}` }}
-          aria-label={`${label}: ${count} (${pct.toFixed(0)}%)`}
-        />
-        <div className="absolute inset-0 flex items-center px-2 text-xs font-data">
-          <span className="text-text">{count}</span>
-          <span className="text-sub ml-2">({pct.toFixed(0)}%)</span>
-        </div>
+            <KpiGrid cols={4}>
+              <StatCard
+                variant="compact"
+                icon={Triangle}
+                label="Total tests"
+                value={count(total)}
+                valueClassName="text-accent"
+              />
+              <StatCard
+                variant="compact"
+                label="Shape"
+                value={PYRAMID_SHAPE_LABEL[shape]}
+                hint={weighting === "runtime" ? "By run time" : "By test count"}
+                tone={
+                  shape === "pyramid"
+                    ? "success"
+                    : shape === "ice-cream-cone" || shape === "hourglass"
+                      ? "warning"
+                      : "default"
+                }
+              />
+              <StatCard
+                variant="compact"
+                label={weighting === "runtime" ? "Unit share of run time" : "Unit share of tests"}
+                value={percents ? `${percents.unit}%` : "—"}
+                hint={percents ? `E2E ${percents.e2e}%` : undefined}
+              />
+              <StatCard
+                variant="compact"
+                icon={Gauge}
+                label={cost?.basis === "runtime" ? "Run time" : "Relative run cost"}
+                value={runCostCard.value}
+                hint={runCostCard.hint}
+              />
+            </KpiGrid>
+
+            <SectionCard
+              title="Pyramid shape"
+              icon={Triangle}
+              contentClassName="space-y-4"
+              actions={
+                <>
+                  <AiPromptGenerator config={promptConfig} />
+                  <ExportButton
+                    filename="test-pyramid"
+                    csvData={csvData}
+                    jsonData={doc}
+                    markdown={pyramidMarkdown(doc)}
+                    targetRef={exportRef}
+                  />
+                  {!preview && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="danger-ghost"
+                        size="sm"
+                        onClick={() => setConfirmClear(true)}
+                      >
+                        <Trash2 aria-hidden="true" />
+                        Clear
+                      </Button>
+                      <ConfirmDialog
+                        open={confirmClear}
+                        onOpenChange={setConfirmClear}
+                        title="Clear the counts and snapshots?"
+                        description={`The counts, run times and ${snapshots.length === 1 ? "1 snapshot" : `${snapshots.length} snapshots`} go, for agents too.`}
+                        confirmLabel="Clear"
+                        onConfirm={clearAll}
+                      />
+                    </>
+                  )}
+                </>
+              }
+            >
+              <ol className="space-y-3" aria-label="Layers, top of the pyramid first">
+                {[...TEST_LAYERS].reverse().map((l) => {
+                  const share = shares ? shares[l] : 0;
+                  const width = maxShare > 0 ? `${(share / maxShare) * 100}%` : "0%";
+                  const time = doc.runtime?.[l];
+                  return (
+                    <li key={l} className="flex items-center gap-3">
+                      <span className="w-20 shrink-0 text-xs uppercase tracking-wider text-sub sm:w-24">
+                        {TEST_LAYER_LABEL[l]}
+                      </span>
+                      <span className="relative h-8 min-w-0 flex-1 overflow-hidden rounded bg-surface">
+                        <span
+                          aria-hidden="true"
+                          className="absolute inset-y-0 left-0 rounded border-r-2 border-accent bg-accent/20 transition-all"
+                          style={{ width }}
+                        />
+                        <span className="absolute inset-0 flex items-center gap-2 px-2 text-xs font-data">
+                          <span className="text-text">{count(doc[l])}</span>
+                          {typeof time === "number" && (
+                            <span className="text-sub">{minutes(time)}</span>
+                          )}
+                          <span className="text-sub">({percents ? `${percents[l]}%` : "—"})</span>
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+
+              <div className="space-y-1.5">
+                <span className="text-sm text-text" aria-hidden="true">
+                  Weigh the layers by
+                </span>
+                <ToggleGroup
+                  label="Weigh the layers by"
+                  size="sm"
+                  value={weighting}
+                  onValueChange={setWeighting}
+                  aria-describedby="pyramid-weighting-note"
+                  options={[
+                    { value: "count", label: WEIGHTING_LABEL.count },
+                    {
+                      value: "runtime",
+                      label: WEIGHTING_LABEL.runtime,
+                      disabled: !timed,
+                      description: timed
+                        ? undefined
+                        : "Enter the minutes of all three layers first",
+                    },
+                  ]}
+                />
+                <p id="pyramid-weighting-note" className="text-xs text-sub">
+                  {timed
+                    ? "By run time, the minutes each layer takes replace the fixed 1 / 5 / 25 weights."
+                    : "Run time needs the minutes of all three layers (below)."}
+                </p>
+              </div>
+
+              <details
+                className="group rounded-lg border border-border"
+                open={Boolean(doc.runtime)}
+              >
+                <summary className="flex min-h-11 cursor-pointer list-none items-center px-3 text-sm text-text [&::-webkit-details-marker]:hidden">
+                  Run time per layer (optional)
+                </summary>
+                <div className="border-t border-border p-3">
+                  <RuntimeForm
+                    key={`${preview ? "example" : "saved"}:${JSON.stringify(doc.runtime ?? {})}`}
+                    runtime={doc.runtime}
+                    onSave={saveRuntime}
+                  />
+                </div>
+              </details>
+            </SectionCard>
+
+            <SectionCard
+              title={`Snapshots (${snapshots.length})`}
+              icon={Camera}
+              contentClassName="space-y-4"
+            >
+              {snapshots.length >= PYRAMID_SNAPSHOT_MAX ? (
+                <p className="text-sm text-sub">
+                  A pyramid keeps at most {PYRAMID_SNAPSHOT_MAX} snapshots: delete one to take
+                  another.
+                </p>
+              ) : (
+                <SnapshotForm
+                  key={preview ? "example" : "saved"}
+                  today={today}
+                  onSave={takeSnapshot}
+                />
+              )}
+
+              {snapshots.length === 0 ? (
+                <p className="text-sm text-sub">
+                  No snapshots yet. Take one now and again after a release or a cleanup to see the
+                  shape change.
+                </p>
+              ) : (
+                <>
+                  <DataTable
+                    caption="Snapshots, oldest first"
+                    columns={columns}
+                    rows={snapshots}
+                    rowKey={(s) => s.id}
+                  />
+
+                  <Field label="Compare today's counts with" className="sm:max-w-xs">
+                    {(props) => (
+                      <select
+                        {...props}
+                        className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm"
+                        value={compareId}
+                        onChange={(e) => setCompareId(e.target.value)}
+                      >
+                        <option value="">Pick a snapshot</option>
+                        {[...snapshots].reverse().map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {dayLabel(s.takenOn)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </Field>
+                  {comparison && compared && (
+                    <div className="scroll-x-snap relative">
+                      <table className="w-full min-w-[22rem] text-sm">
+                        <caption className="mb-2 text-left text-xs text-sub">
+                          {dayLabel(compared.takenOn)}: {comparison.thenShape.toLowerCase()} · now:{" "}
+                          {comparison.nowShape.toLowerCase()}
+                        </caption>
+                        <thead>
+                          <tr className="border-b border-border text-xs uppercase tracking-wide text-sub">
+                            <th className="px-2 py-1.5 text-left font-medium">Layer</th>
+                            <th className="px-2 py-1.5 text-right font-medium">
+                              {dayLabel(compared.takenOn)}
+                            </th>
+                            <th className="px-2 py-1.5 text-right font-medium">Now</th>
+                            <th className="px-2 py-1.5 text-right font-medium">Change</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {comparison.rows.map((r) => (
+                            <tr key={r.layer} className="border-b border-border last:border-0">
+                              <th scope="row" className="px-2 py-1.5 text-left font-normal">
+                                {r.label}
+                              </th>
+                              <td className="px-2 py-1.5 text-right font-data">
+                                {count(r.then)} ({r.thenPct ?? "—"}%)
+                              </td>
+                              <td className="px-2 py-1.5 text-right font-data">
+                                {count(r.now)} ({r.nowPct ?? "—"}%)
+                              </td>
+                              <td className="px-2 py-1.5 text-right font-data">
+                                {signed(r.change)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {points.length >= CHART_MIN_SNAPSHOTS ? (
+                <ChartFigure
+                  label="Layer shares across snapshots"
+                  summary={chart.summary}
+                  table={chart.table}
+                  plotClassName="h-[220px]"
+                >
+                  <ShapeOverTimeChart
+                    data={points.map((p) => ({
+                      day: dayLabel(p.takenOn),
+                      unit: p.percents?.unit ?? null,
+                      integration: p.percents?.integration ?? null,
+                      e2e: p.percents?.e2e ?? null,
+                    }))}
+                  />
+                </ChartFigure>
+              ) : (
+                <NotEnoughData
+                  have={points.length}
+                  need={CHART_MIN_SNAPSHOTS}
+                  unit={["snapshot", "snapshots"]}
+                  action="Take"
+                  what="the shape over time"
+                />
+              )}
+            </SectionCard>
+
+            <AdvancedAnalysis>
+              {unitTrend ? (
+                <p className="text-sm text-text">
+                  Mann-Kendall on the unit share over {unitSeries.length} snapshots:{" "}
+                  {unitTrend.trend === "none" || !unitTrend.significant
+                    ? "no clear trend"
+                    : `trending ${unitTrend.trend}`}{" "}
+                  (p = {unitTrend.pValue.toFixed(3)}).
+                </p>
+              ) : (
+                <NotEnoughData
+                  have={unitSeries.length}
+                  need="trend"
+                  unit={["snapshot", "snapshots"]}
+                  action="Take"
+                  what="a trend test on the unit share"
+                />
+              )}
+            </AdvancedAnalysis>
+          </>
+        )}
+
+        <CalloutAlert tone="info">
+          <strong>How to read this:</strong> a healthy suite is unit-heavy, with a thin layer of
+          e2e. Layers within 5 points of each other count as level, so one test never flips the
+          shape. Relative run cost weighs each test by the rule of thumb unit 1, integration 5, e2e
+          25; enter real minutes per layer to weigh by run time instead.
+        </CalloutAlert>
       </div>
-    </div>
+    </ToolPageWrapper>
   );
 }
