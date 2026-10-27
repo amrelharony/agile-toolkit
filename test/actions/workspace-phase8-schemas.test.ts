@@ -4,8 +4,10 @@
  * what the schema parsed, and z.object drops keys it doesn't know, so a
  * field missing from a schema would be erased by every agent update.
  *
- * Also: rows stored before Phase 8 still parse and load, and the bounds the
- * new fields bring.
+ * Also: rows stored before Phase 8 still parse and load; the bounds the new
+ * fields bring; the OKR update keeping a key result's check-ins when a
+ * keyResults patch leaves them out; and the risk and tech-debt CRUDs
+ * stamping updatedAt on both transports.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,7 +27,7 @@ import { registry, zodToJsonSchema } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
 import * as serverStore from "@/lib/actions/server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { KeyResult, Okr, Risk, Workspace } from "@/lib/stores/workspace-types";
+import type { KeyResult, Okr, Risk, TechDebtItem, Workspace } from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
 import {
   CODE_REVIEW_LOG,
@@ -49,6 +51,7 @@ import {
 } from "../stores/phase8-fixtures";
 
 const upsertEntity = vi.mocked(serverStore.serverUpsertEntity);
+const getEntity = vi.mocked(serverStore.serverGetEntity);
 
 type Doc = { id: string };
 
@@ -70,6 +73,14 @@ async function updateInTab(toolId: string, slice: keyof Workspace, doc: Doc, pat
   return (useWorkspaceStore.getState()[slice] as Doc[]).find((d) => d.id === doc.id);
 }
 
+/** Run the MCP `update` against a stored `doc` and return what it wrote. */
+async function updateOnServer(toolId: string, doc: Doc, patch = {}) {
+  getEntity.mockResolvedValueOnce(structuredClone(doc) as never);
+  await action(`${toolId}.update`).mcpHandler!({ id: doc.id, patch }, makeContext("u", "mcp"));
+  expect(upsertEntity).toHaveBeenCalledTimes(1);
+  return upsertEntity.mock.calls[0][2] as Doc;
+}
+
 const rejects = (toolId: string, entity: unknown) =>
   expect(parseCreate(toolId, entity).success, JSON.stringify(entity)).toBe(false);
 
@@ -85,11 +96,13 @@ function without<T extends object>(record: T, ...keys: (keyof T)[]): Partial<T> 
   return copy;
 }
 
+/** A record without the `updatedAt` the risk and tech-debt CRUDs stamp. */
+const unstamped = <T extends { updatedAt?: string }>(r: T | undefined) =>
+  without((r ?? {}) as T, "updatedAt");
+
 // Entities whose store upsert writes the parsed record as is.
 const FULL: [toolId: string, slice: keyof Workspace, doc: Doc][] = [
-  ["workspace.risk", "risks", RISK],
   ["workspace.okr", "okrs", OKR],
-  ["workspace.tech_debt", "techDebt", TECH_DEBT],
   ["workspace.test_pyramid", "testPyramids", TEST_PYRAMID],
   ["workspace.flaky_test_board", "flakyTestBoards", FLAKY_BOARD],
   ["workspace.code_review_log", "codeReviewLogs", CODE_REVIEW_LOG],
@@ -98,6 +111,12 @@ const FULL: [toolId: string, slice: keyof Workspace, doc: Doc][] = [
   ["workspace.user_interview_log", "userInterviewLogs", INTERVIEWS],
   ["workspace.opportunity_tree", "opportunityTrees", OPPORTUNITIES],
   ["workspace.nps_response", "npsResponses", NPS],
+];
+
+// The two whose CRUD stamps updatedAt on every write.
+const STAMPED: [toolId: string, slice: keyof Workspace, doc: Doc][] = [
+  ["workspace.risk", "risks", RISK],
+  ["workspace.tech_debt", "techDebt", TECH_DEBT],
 ];
 
 // Rows stored before Phase 8.
@@ -113,10 +132,11 @@ const LEGACY: [toolId: string, slice: keyof Workspace, doc: Doc][] = [
 beforeEach(() => {
   useWorkspaceStore.getState().resetWorkspace();
   upsertEntity.mockClear();
+  getEntity.mockClear();
 });
 
 describe("Phase 8 CRUD schemas keep every field", () => {
-  it.each(FULL)("%s parses a full record unchanged", (toolId, _slice, doc) => {
+  it.each([...FULL, ...STAMPED])("%s parses a full record unchanged", (toolId, _slice, doc) => {
     const parsed = parseCreate(toolId, doc);
     expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
     expect((parsed.data as { entity: Doc }).entity).toEqual(doc);
@@ -126,6 +146,11 @@ describe("Phase 8 CRUD schemas keep every field", () => {
     expect(await updateInTab(toolId, slice, doc)).toEqual(doc);
   });
 
+  it.each(STAMPED)("%s update keeps every field but the save stamp", async (toolId, slice, doc) => {
+    const stored = (await updateInTab(toolId, slice, doc)) as Risk | TechDebtItem;
+    expect(unstamped(stored)).toEqual(unstamped(doc as Risk));
+  });
+
   it.each(LEGACY)(
     "%s still parses and loads a row from before Phase 8",
     async (toolId, slice, doc) => {
@@ -133,13 +158,13 @@ describe("Phase 8 CRUD schemas keep every field", () => {
       expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
       expect((parsed.data as { entity: Doc }).entity).toEqual(doc);
       const stored = await updateInTab(toolId, slice, doc);
-      expect(stored).toEqual(doc);
+      expect(unstamped(stored as Risk)).toEqual(doc);
     }
   );
 
   it("every Phase 8 CRUD create schema converts to JSON Schema", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    for (const [toolId] of FULL) {
+    for (const [toolId] of [...FULL, ...STAMPED]) {
       const json = zodToJsonSchema(action(`${toolId}.create`).paramsSchema);
       expect(json, toolId).toHaveProperty("properties.entity");
     }
@@ -341,5 +366,109 @@ describe("bounds", () => {
     rejects("workspace.code_review_log", win("09:00", "09:00"));
     rejects("workspace.code_review_log", win("09:00", "24:00"));
     accepts("workspace.code_review_log", win("00:00", "23:59"));
+  });
+});
+
+describe("an OKR update keeps the key results' check-ins", () => {
+  // The patch an agent sends to retitle one key result: the whole list,
+  // each key result as list_state shows it, without its check-ins.
+  const retitle = (): { keyResults: KeyResult[] } => ({
+    keyResults: OKR.keyResults.map((stored) => {
+      const kr = without(stored, "checkIns") as KeyResult;
+      return kr.id === "kr_churn" ? { ...kr, title: "Monthly logo churn" } : kr;
+    }),
+  });
+
+  it("in the tab: a key result sent without checkIns keeps the stored ones", async () => {
+    const stored = (await updateInTab("workspace.okr", "okrs", OKR, retitle())) as Okr;
+    expect(stored.keyResults[0].title).toBe("Monthly logo churn");
+    expect(stored.keyResults[0].checkIns).toEqual(OKR.keyResults[0].checkIns);
+    expect(stored.keyResults[1].checkIns).toEqual([]);
+  });
+
+  it("over MCP: the same", async () => {
+    const written = (await updateOnServer("workspace.okr", OKR, retitle())) as Okr;
+    expect(written.keyResults[0].title).toBe("Monthly logo churn");
+    expect(written.keyResults[0].checkIns).toEqual(OKR.keyResults[0].checkIns);
+  });
+
+  it("checkIns sent (even []) are what's saved; a new key result has none to keep", async () => {
+    const patch = {
+      keyResults: [
+        { ...OKR.keyResults[0], checkIns: [] },
+        { id: "kr_new", title: "Win-backs", target: 10, current: 0 },
+      ],
+    };
+    const stored = (await updateInTab("workspace.okr", "okrs", OKR, patch)) as Okr;
+    expect(stored.keyResults[0].checkIns).toEqual([]);
+    expect(stored.keyResults[1]).toEqual(patch.keyResults[1]);
+    expect(stored.keyResults).toHaveLength(2);
+  });
+
+  it("a create keeps what it was given", async () => {
+    const rest = without(OKR, "id");
+    const result = (await action("workspace.okr.create").handler(
+      { entity: structuredClone(rest) },
+      makeContext("u", "agent")
+    )) as { id: string };
+    expect(useWorkspaceStore.getState().okrs.find((o) => o.id === result.id)).toEqual({
+      ...rest,
+      id: result.id,
+    });
+  });
+});
+
+describe("the risk and tech-debt CRUDs stamp updatedAt", () => {
+  const isFresh = (stamp: string | undefined, before: number) => {
+    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(Date.parse(stamp as string)).toBeGreaterThanOrEqual(before);
+  };
+
+  it.each([
+    ["workspace.risk", "risks", LEGACY_RISK],
+    ["workspace.tech_debt", "techDebt", LEGACY_TECH_DEBT],
+  ] as const)(
+    "%s create, in the tab and over MCP, a given value ignored",
+    async (toolId, slice, doc) => {
+      const before = Date.now() - 1;
+      const entity = { ...doc, updatedAt: "2000-01-01T00:00:00.000Z" };
+      await action(`${toolId}.create`).handler(
+        { entity: { ...entity } },
+        makeContext("u", "agent")
+      );
+      const inTab = (useWorkspaceStore.getState()[slice] as (Risk | TechDebtItem)[])[0];
+      isFresh(inTab.updatedAt, before);
+      expect(unstamped(inTab)).toEqual(doc);
+
+      await action(`${toolId}.create`).mcpHandler!(
+        { entity: { ...entity } },
+        makeContext("u", "mcp")
+      );
+      const onServer = upsertEntity.mock.calls[0][2] as Risk | TechDebtItem;
+      isFresh(onServer.updatedAt, before);
+      expect(unstamped(onServer)).toEqual(doc);
+    }
+  );
+
+  it.each([
+    ["workspace.risk", "risks", LEGACY_RISK, { status: "closed", resolvedAt: "2026-10-20" }],
+    ["workspace.tech_debt", "techDebt", LEGACY_TECH_DEBT, { area: "logging" }],
+  ] as const)("%s update, in the tab and over MCP", async (toolId, slice, doc, patch) => {
+    const before = Date.now() - 1;
+    const inTab = (await updateInTab(toolId, slice, doc, patch)) as Risk | TechDebtItem;
+    isFresh(inTab.updatedAt, before);
+    expect(unstamped(inTab)).toEqual({ ...doc, ...patch });
+
+    const onServer = (await updateOnServer(toolId, doc, patch)) as Risk | TechDebtItem;
+    isFresh(onServer.updatedAt, before);
+    expect(unstamped(onServer)).toEqual({ ...doc, ...patch });
+  });
+
+  it("a stored stamp is replaced by the new save's", async () => {
+    const stored = (await updateInTab("workspace.risk", "risks", RISK, {
+      title: "Renamed",
+    })) as Risk;
+    expect(stored.updatedAt).not.toBe(RISK.updatedAt);
+    expect(stored.title).toBe("Renamed");
   });
 });

@@ -241,10 +241,20 @@ const DayFromTimestamp = z.preprocess(
 // or effort, an assumption's risk or evidence.
 const Scale5 = z.number().int().min(1).max(5);
 
-// When a risk or tech-debt item was last saved. Its presence says the row
-// was saved since its tool moved into the workspace (Phase 8), so the old
-// page blob's copy can't be newer.
-const SavedAt = z.string().optional().describe("ISO timestamp of the last save.");
+// Stamped by the CRUD's prepare on every create and update; a value sent is
+// replaced. Its presence says the row was saved since its tool moved into
+// the workspace (Phase 8), so the old page blob's copy can't be newer.
+const SavedAt = z
+  .string()
+  .optional()
+  .describe(
+    "ISO timestamp of the last save; stamped by every create and update (a value given is ignored)."
+  );
+
+/** The record with `updatedAt` stamped now: what a risk's or tech-debt item's CRUD saves. */
+function stampUpdatedAt<T extends { updatedAt?: string }>(next: T): T {
+  return { ...next, updatedAt: new Date().toISOString() };
+}
 
 // The id of a singleton document: the one id its tool reads. Its CRUD has no
 // `generateId`, so `create` needs this id and defineCrudActions' duplicate
@@ -420,8 +430,30 @@ const KeyResultSchema = z.object({
     .array(KeyResultCheckInSchema)
     .max(KR_CHECK_IN_CAP)
     .optional()
-    .describe(`Dated check-ins, oldest first, at most ${KR_CHECK_IN_CAP}.`),
+    .describe(
+      `Dated check-ins, oldest first, at most ${KR_CHECK_IN_CAP}. An update whose keyResults leave a key result's checkIns out keeps the stored ones.`
+    ),
 });
+
+/**
+ * An OKR about to be saved, with each key result's stored check-ins kept
+ * where the write left them out: `update` replaces the whole keyResults
+ * list, so a patch that edits one key result's title would otherwise erase
+ * every key result's check-ins. A key result sent with checkIns (even [])
+ * keeps what was sent; a new key result id has none to keep.
+ */
+function keepCheckIns(next: Okr, current: Okr | undefined): Okr {
+  if (!current) return next;
+  const stored = new Map(current.keyResults.map((kr) => [kr.id, kr.checkIns]));
+  let changed = false;
+  const keyResults = next.keyResults.map((kr) => {
+    const checkIns = stored.get(kr.id);
+    if (kr.checkIns !== undefined || checkIns === undefined) return kr;
+    changed = true;
+    return { ...kr, checkIns };
+  });
+  return changed ? { ...next, keyResults } : next;
+}
 
 const OkrSchema = z.object({
   id: z.string(),
@@ -604,6 +636,8 @@ defineCrudActions<Risk>({
   upsert: (r) => ws().upsertRisk(r),
   remove: (id) => ws().removeRisk(id),
   generateId: () => `risk_${nanoid(8)}`,
+  // An agent's write is newer than the old Risk Register blob (lib/risks' move).
+  prepare: (next) => stampUpdatedAt(next),
 });
 
 defineCrudActions<Okr>({
@@ -614,6 +648,7 @@ defineCrudActions<Okr>({
   upsert: (o) => ws().upsertOkr(o),
   remove: (id) => ws().removeOkr(id),
   generateId: () => `okr_${nanoid(8)}`,
+  prepare: (next, current) => keepCheckIns(next, current),
 });
 
 defineCrudActions<Decision>({
@@ -634,6 +669,8 @@ defineCrudActions<TechDebtItem>({
   upsert: (t) => ws().upsertTechDebt(t),
   remove: (id) => ws().removeTechDebt(id),
   generateId: () => `td_${nanoid(8)}`,
+  // An agent's write is newer than the old Tech Debt blob (lib/tech-debt's move).
+  prepare: (next) => stampUpdatedAt(next),
 });
 
 defineCrudActions<TeamMember>({
