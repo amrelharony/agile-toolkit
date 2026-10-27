@@ -3,14 +3,20 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverGetWorkspaceBlob } from "../server-store";
 import type { Sprint, Risk, Impediment } from "@/lib/stores/workspace-types";
+import { isActiveRisk, riskScore } from "@/lib/risks/model";
+import { isExampleId } from "@/lib/utils/example-id";
+import { browserRiskStore, serverRiskStore } from "../tools/risk-register";
 
 /**
  * Compose-action: "what's going on in the workspace?"
  *
  * Returns a compact snapshot:
- *   - counts of every collection
+ *   - counts of every collection (the risks as the Risk Register lists
+ *     them: the old register page's rows still waiting for its one-time
+ *     move included, as tool.risk_register.list_state counts them)
  *   - the currently active sprint (if any)
- *   - top 3 open risks ranked by probability * impact
+ *   - top 3 active (open or mitigating) risks ranked by the register's
+ *     score, probability × impact (lib/risks), example rows left out
  *   - top 3 active impediments ranked by severity then recency
  *
  * Pure read — safe to call without confirmation.
@@ -23,23 +29,40 @@ const SEVERITY_RANK: Record<string, number> = {
   low: 1,
 };
 
+/** The 3 active risks with the highest score, example rows left out (they aren't the team's). */
+function topOpenRisks(risks: readonly Risk[]) {
+  return risks
+    .filter((r) => isActiveRisk(r) && !isExampleId(r.id))
+    .sort((a, b) => riskScore(b) - riskScore(a))
+    .slice(0, 3)
+    .map((r) => ({
+      id: r.id,
+      title: r.title,
+      probability: r.probability,
+      impact: r.impact,
+      score: riskScore(r),
+      status: r.status,
+    }));
+}
+
 registry.register({
   id: "intent.summarize_workspace",
   toolId: "intent",
   name: "summarize_workspace",
   category: "read",
   description:
-    "Return a compact JSON snapshot of the workspace: collection counts, the active sprint, top 3 open risks, and top 3 active impediments.",
+    "Return a compact JSON snapshot of the workspace: collection counts (risks: the risks the Risk Register lists, rows of the old register page not moved in yet included), the active sprint, the top 3 active (open or mitigating) risks by probability × impact (example rows left out), and the top 3 active impediments.",
   paramsSchema: z.object({}),
   handler: async () => {
     const s = useWorkspaceStore.getState();
+    const risks = (await browserRiskStore.list()).records;
 
     const counts = {
       teamMembers: s.teamMembers.length,
       sprints: s.sprints.length,
       stories: s.stories.length,
       impediments: s.impediments.length,
-      risks: s.risks.length,
+      risks: risks.length,
       okrs: s.okrs.length,
       decisions: s.decisions.length,
       techDebt: s.techDebt.length,
@@ -63,19 +86,7 @@ registry.register({
 
     const activeSprint = s.sprints.find((sp) => sp.status === "active") ?? null;
 
-    const topRisks = s.risks
-      .filter((r) => r.status === "open" || r.status === "mitigating")
-      .slice()
-      .sort((a, b) => b.probability * b.impact - a.probability * a.impact)
-      .slice(0, 3)
-      .map((r) => ({
-        id: r.id,
-        title: r.title,
-        probability: r.probability,
-        impact: r.impact,
-        score: r.probability * r.impact,
-        status: r.status,
-      }));
+    const topRisks = topOpenRisks(risks);
 
     const topImpediments = s.impediments
       .filter((i) => !i.resolvedAt)
@@ -146,7 +157,9 @@ registry.register({
       serverListEntities<Sprint>(ctx.userId, "workspace:sprint"),
       serverListEntities(ctx.userId, "workspace:story"),
       serverListEntities<Impediment>(ctx.userId, "workspace:impediment"),
-      serverListEntities<Risk>(ctx.userId, "workspace:risk"),
+      serverRiskStore(ctx.userId)
+        .list()
+        .then((r) => r.records),
       serverListEntities(ctx.userId, "workspace:okr"),
       serverListEntities(ctx.userId, "workspace:decision"),
       serverListEntities(ctx.userId, "workspace:techDebt"),
@@ -198,19 +211,7 @@ registry.register({
 
     const activeSprint = sprints.find((sp) => sp.status === "active") ?? null;
 
-    const topRisks = risks
-      .filter((r) => r.status === "open" || r.status === "mitigating")
-      .slice()
-      .sort((a, b) => b.probability * b.impact - a.probability * a.impact)
-      .slice(0, 3)
-      .map((r) => ({
-        id: r.id,
-        title: r.title,
-        probability: r.probability,
-        impact: r.impact,
-        score: r.probability * r.impact,
-        status: r.status,
-      }));
+    const topRisks = topOpenRisks(risks);
 
     const topImpediments = impediments
       .filter((i) => !i.resolvedAt)
