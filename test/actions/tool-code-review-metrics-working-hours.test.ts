@@ -6,8 +6,10 @@
  *      the legacy invalid row; the old means kept.
  *   2. add_sample — firstReviewAt, the page's checks naming each field,
  *      wall-clock storage, duplicate PR numbers.
- *   3. remove_sample, set_working_window.
- *   4. the browser and the server give the same answers.
+ *   3. update_sample — the page's edit in place: the id kept, the merged
+ *      PR checked, another PR's number refused.
+ *   4. remove_sample, set_working_window.
+ *   5. the browser and the server give the same answers.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -120,8 +122,8 @@ interface State {
 }
 
 describe("tool.code_review_metrics — registration", () => {
-  it("remove_sample and set_working_window write, without confirmation, on both paths", () => {
-    for (const verb of ["add_sample", "remove_sample", "set_working_window"]) {
+  it("the write verbs write, without confirmation, on both paths", () => {
+    for (const verb of ["add_sample", "update_sample", "remove_sample", "set_working_window"]) {
       const action = registry.get(`tool.code_review_metrics.${verb}`);
       expect(action?.category, verb).toBe("write");
       expect(action?.mcpHandler, verb).toBeTypeOf("function");
@@ -240,6 +242,89 @@ describe.each(PATHS)("tool.code_review_metrics.add_sample (%s)", (path) => {
       reason: "duplicate",
       id: "pr_1",
     });
+  });
+});
+
+describe.each(PATHS)("tool.code_review_metrics.update_sample (%s)", (path) => {
+  const [pr1, legacy] = CODE_REVIEW_LOG.samples;
+
+  it("fixes a PR in place, keeping its id, its place in the log and the window", async () => {
+    seed(path, CODE_REVIEW_LOG);
+    // The legacy row merged "before it was opened": the page's Edit fixes the day.
+    expect(
+      await run(path, "update_sample", {
+        sampleId: "pr_legacy",
+        patch: { mergedAt: "2026-09-03T15:00:00Z", prNumber: " 377 " },
+      })
+    ).toEqual({ updated: true, id: "pr_legacy", fields: ["mergedAt", "prNumber"] });
+    const doc = stored(path);
+    expect(doc?.samples).toEqual([
+      pr1,
+      { ...legacy, mergedAt: "2026-09-03T15:00", prNumber: "377" },
+    ]);
+    expect(doc?.workingWindow).toEqual({ start: "09:00", end: "17:30" });
+  });
+
+  it("clears an optional field with null or blank", async () => {
+    seed(path, CODE_REVIEW_LOG);
+    expect(
+      await run(path, "update_sample", {
+        sampleId: "pr_1",
+        patch: { firstReviewAt: null, description: "  " },
+      })
+    ).toEqual({ updated: true, id: "pr_1", fields: ["firstReviewAt", "description"] });
+    const cleared: PrSample = { ...pr1 };
+    delete cleared.firstReviewAt;
+    delete cleared.description;
+    expect(stored(path)?.samples[0]).toEqual(cleared);
+  });
+
+  it("checks the PR as patched, naming each field, and writes nothing then", async () => {
+    seed(path, CODE_REVIEW_LOG);
+    expect(
+      await run(path, "update_sample", {
+        sampleId: "pr_1",
+        patch: { firstReviewAt: "2026-10-20T09:00" },
+      })
+    ).toMatchObject({
+      updated: false,
+      reason: "invalid",
+      message: "firstReviewAt: The first review can't come after the merge.",
+    });
+    // The stored dates are checked too: a patch that leaves them out of order is refused.
+    expect(
+      await run(path, "update_sample", { sampleId: "pr_legacy", patch: { commentCount: 2 } })
+    ).toMatchObject({
+      reason: "invalid",
+      message: "mergedAt: It can't be merged before it was opened.",
+    });
+    expect(
+      await run(path, "update_sample", {
+        sampleId: "pr_1",
+        patch: { openedAt: "2027-01-01T09:00" },
+      })
+    ).toMatchObject({ reason: "invalid", message: "openedAt: That's in the future." });
+    expect(stored(path)).toBe(CODE_REVIEW_LOG);
+  });
+
+  it("refuses another PR's number, takes its own, and says when nothing changed", async () => {
+    seed(path, CODE_REVIEW_LOG);
+    expect(
+      await run(path, "update_sample", {
+        sampleId: "pr_legacy",
+        patch: { prNumber: "412", mergedAt: "2026-09-03T15:00" },
+      })
+    ).toEqual({ updated: false, reason: "duplicate", id: "pr_1" });
+    expect(
+      await run(path, "update_sample", {
+        sampleId: "pr_1",
+        patch: { prNumber: "412", author: "@Alice" },
+      })
+    ).toEqual({ updated: true, id: "pr_1", fields: [] });
+    expect(stored(path)).toBe(CODE_REVIEW_LOG);
+    expect(
+      await run(path, "update_sample", { sampleId: "pr_gone", patch: { commentCount: 1 } })
+    ).toEqual({ updated: false, reason: "not_found" });
   });
 });
 

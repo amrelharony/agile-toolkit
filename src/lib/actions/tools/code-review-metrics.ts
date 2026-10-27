@@ -15,7 +15,9 @@
  *                            verdict, plus the older means.
  *   2. add_sample          — record a PR, checked as the page checks it.
  *   3. remove_sample       — delete a PR.
- *   4. set_working_window  — the working hours a day counts, or whole days.
+ *   4. update_sample       — edit a PR in place (its id kept), checked as
+ *                            the page's edit form checks it.
+ *   5. set_working_window  — the working hours a day counts, or whole days.
  *
  * Working hours come from the team calendar (the ceremony cadence's working
  * days and holidays) and the log's working window. The maths lives in
@@ -51,6 +53,7 @@ import {
   windowMinutes,
   workingBasisLabel,
   workingWindowError,
+  type SampleDraft,
 } from "@/lib/quality/review";
 
 /** MUST match registerCollection("ceremonyCadence", …) in workspace-store.ts. */
@@ -247,6 +250,87 @@ registry.register({
   paramsSchema: RemoveParams,
   handler: async (params) => removeSample(browserStore, params),
   mcpHandler: async (params, ctx) => removeSample(serverStore(ctx.userId), params),
+});
+
+// ──────── tool.code_review_metrics.update_sample ────────
+
+const UpdateParams = z.object({
+  sampleId: z.string().min(1),
+  patch: z
+    .object({
+      author: AddParams.shape.author.optional(),
+      openedAt: WallClock.optional(),
+      firstReviewAt: WallClock.nullable().optional(),
+      mergedAt: WallClock.nullable().optional(),
+      reviewerCount: AddParams.shape.reviewerCount.optional(),
+      commentCount: AddParams.shape.commentCount.optional(),
+      linesChanged: AddParams.shape.linesChanged.optional(),
+      prNumber: z.string().max(REVIEW_PR_NUMBER_MAX).nullable().optional(),
+      description: z.string().max(REVIEW_DESCRIPTION_MAX).nullable().optional(),
+    })
+    .describe(
+      "Fields to change; null or blank clears firstReviewAt, mergedAt, prNumber or description. The PR as patched is checked as add_sample checks a new one."
+    ),
+});
+
+/** A logged PR as the draft its patch merges into: the page's edit form, prefilled. */
+function draftOf(s: PrSample): SampleDraft {
+  return {
+    author: s.author,
+    prNumber: s.prNumber ?? null,
+    openedAt: s.openedAt,
+    firstReviewAt: s.firstReviewAt ?? null,
+    mergedAt: s.mergedAt ?? null,
+    reviewerCount: s.reviewerCount,
+    commentCount: s.commentCount,
+    linesChanged: s.linesChanged,
+    description: s.description ?? null,
+  };
+}
+
+async function updateSample(store: ReviewStore, params: z.infer<typeof UpdateParams>) {
+  const doc = await store.getDoc();
+  const samples = samplesOf(doc);
+  const current = samples.find((s) => s.id === params.sampleId);
+  if (!doc || !current) return { updated: false as const, reason: "not_found" as const };
+  const patch = Object.fromEntries(
+    Object.entries(params.patch).filter(([, v]) => v !== undefined)
+  ) as SampleDraft;
+  const draft: SampleDraft = { ...draftOf(current), ...patch };
+  // The page's edit-in-place: the merged draft checked as a new PR is (the
+  // server doesn't know the person's zone, so only a time in the future in
+  // every zone is refused), and a PR number another PR holds refused.
+  const errors = sampleErrors(draft, latestWallClock());
+  const message = sampleErrorMessage(errors);
+  if (message) return { updated: false as const, reason: "invalid" as const, message, errors };
+  const prNumber = (draft.prNumber ?? "").trim();
+  const dup = prNumber
+    ? samples.find((s) => s.id !== current.id && (s.prNumber ?? "").trim() === prNumber)
+    : null;
+  if (dup) return { updated: false as const, reason: "duplicate" as const, id: dup.id };
+  const next: PrSample = sampleFromDraft(draft, current.id);
+  const keys = [...Object.keys(current), ...Object.keys(next)] as (keyof PrSample)[];
+  const fields = keys.filter((k, i) => keys.indexOf(k) === i && next[k] !== current[k]);
+  if (fields.length > 0) {
+    await store.putDoc({
+      ...doc,
+      samples: samples.map((s) => (s.id === current.id ? next : s)),
+    });
+  }
+  return { updated: true as const, id: current.id, fields };
+}
+
+registry.register({
+  id: "tool.code_review_metrics.update_sample",
+  toolId: "tool.code_review_metrics",
+  name: "update_sample",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Edit a logged pull request in place, as the page's Edit does: the PR keeps its id. patch holds the fields to change (add_sample's, as local wall-clock 'YYYY-MM-DDTHH:MM'); null or blank clears firstReviewAt, mergedAt, prNumber or description. The PR as patched must still read as add_sample requires (openedAt ≤ firstReviewAt ≤ mergedAt, none in the future, whole counts), and a prNumber another logged PR holds is refused. Returns {updated: true, id, fields (the stored fields that changed; [] when nothing did, and nothing is written)}, or {updated: false, reason: 'not_found'} | {updated: false, reason: 'invalid', message (names each field), errors} | {updated: false, reason: 'duplicate', id (the PR that holds the number)}.",
+  paramsSchema: UpdateParams,
+  handler: async (params) => updateSample(browserStore, params),
+  mcpHandler: async (params, ctx) => updateSample(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.code_review_metrics.set_working_window ────────
