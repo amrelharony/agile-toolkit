@@ -95,6 +95,21 @@ const UPGRADED_TOOLS = [
   "rapid-decision",
   "weighted-decision",
   "cynefin",
+  // Phase 8: Outcomes, quality & library. Risk Register and Tech Debt moved
+  // into the workspace (one store each); Agile at Work is a scoped upgrade
+  // (below).
+  "okrs",
+  "nps-csat",
+  "hypothesis-tracker",
+  "user-interviews",
+  "opportunity-tree",
+  "riskiest-assumption",
+  "risk-register",
+  "tech-debt",
+  "quality-cost",
+  "test-pyramid",
+  "flaky-tests",
+  "code-review-metrics",
 ];
 
 /**
