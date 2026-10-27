@@ -43,6 +43,7 @@ import {
   type Okr,
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { exampleId } from "@/lib/utils/example-id";
 
 const DOC = readFileSync(join(process.cwd(), "docs", "MCP-AGENTS.md"), "utf8");
 
@@ -57,6 +58,13 @@ function section(heading: string): string {
 }
 
 const OUTCOMES = section("### Outcomes, quality & library");
+
+/** One of the section's shared rules: the bullet that opens with `**title**`. */
+function bullet(title: string): string {
+  const line = OUTCOMES.split("\n").find((l) => l.startsWith(`- **${title}**`));
+  if (!line) throw new Error(`No "${title}" rule in the Outcomes section`);
+  return line;
+}
 const OKRS = section("#### OKR Tracker — `tool.okrs.*`");
 const NPS = section("#### NPS / CSAT — `tool.nps_csat.*`");
 const HYPOTHESES = section("#### Hypothesis Tracker — `tool.hypothesis_tracker.*`");
@@ -130,6 +138,93 @@ describe("MCP-AGENTS.md: the Outcomes, quality & library verbs", () => {
     expect(OUTCOMES).toContain("`pending: true` on an item");
     expect(OUTCOMES).toContain("refused with `pending_move`");
     expect(OUTCOMES).toContain("with an error starting `pending_move:`");
+  });
+
+  it("the shared hand-off rule gives each verb's own repeat refusal", () => {
+    const rule = bullet("Hand-offs are linked both ways.");
+    const handoffs = [
+      ["tool.user_interviews.send_quote_to_opportunity", INTERVIEWS],
+      ["tool.opportunity_tree.send_experiment_to_hypothesis", TREE],
+      ["tool.riskiest_assumption.test_assumption", ASSUMPTIONS],
+      ["tool.risk_register.raise_impediment", RISKS],
+      ["tool.tech_debt.add_to_backlog", DEBT],
+    ] as const;
+    for (const [id, text] of handoffs) {
+      const verb = id.slice(id.lastIndexOf(".") + 1);
+      const repeat = registry.get(id)?.description.match(/'(already_\w+)'/)?.[1];
+      expect(repeat, id).toBeDefined();
+      expect(rule, id).toContain(`\`${verb}\``);
+      expect(rule, id).toContain(`"${repeat}"`);
+      expect(text, id).toContain(`${repeat}`);
+    }
+    expect(rule).toContain('`"already_raised"` for `raise_impediment`');
+  });
+});
+
+describe("MCP-AGENTS.md: example rows in the Interview Log and the Opportunity Tree", () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      userInterviewLogs: [
+        {
+          id: UI_ID,
+          interviews: [
+            {
+              id: exampleId("i1"),
+              date: "2026-10-20",
+              participant: "Sam",
+              quotes: [{ id: exampleId("q1"), text: "Setup took ages", tags: ["onboarding"] }],
+            },
+          ],
+        },
+      ],
+      opportunityTrees: [
+        {
+          id: OPPORTUNITY_TREE_ID,
+          nodes: [
+            { id: exampleId("o1"), kind: "outcome", text: "Activation", parentId: null },
+            {
+              id: exampleId("p1"),
+              kind: "opportunity",
+              text: "Setup is slow",
+              parentId: exampleId("o1"),
+              target: true,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("are listed and counted as stored, and nothing is added under them", async () => {
+    const run = async (id: string, params: Record<string, unknown> = {}) =>
+      (await registry.get(id)!.handler(params, ctx())) as Record<string, unknown>;
+    expect(await run("tool.user_interviews.list_state")).toMatchObject({
+      totalInterviews: 1,
+      totalQuotes: 1,
+      participants: 1,
+      themes: [{ tag: "onboarding", participants: 1, quotes: 1 }],
+    });
+    expect(await run("tool.opportunity_tree.list_state")).toMatchObject({
+      total: 2,
+      byKind: { outcome: 1, opportunity: 1 },
+      targets: [{ id: exampleId("p1") }],
+    });
+    expect(
+      await run("tool.user_interviews.add_quote", { interviewId: exampleId("i1"), text: "More" })
+    ).toMatchObject({ added: false, reason: "example" });
+    expect(
+      await run("tool.opportunity_tree.add_node", {
+        kind: "solution",
+        text: "Wizard",
+        parentId: exampleId("p1"),
+      })
+    ).toMatchObject({ added: false, reason: "example" });
+
+    const rule = bullet("Example rows.");
+    expect(rule).toContain(
+      "The User Interview Log and the Opportunity Tree list and count example rows as stored"
+    );
+    expect(rule).toContain("nothing is added under an example (`add_quote`, `add_node`)");
   });
 });
 
