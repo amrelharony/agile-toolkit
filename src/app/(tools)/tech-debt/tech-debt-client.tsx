@@ -54,7 +54,14 @@ import {
   type TechDebtRecordSnapshot,
 } from "@/lib/tech-debt/store";
 import { undoable } from "@/lib/utils/undoable";
-import { countedDebt, heatTone, hotspotGrid, survivalChartText, timeToResolve } from "./analysis";
+import {
+  countedDebt,
+  exportedDebt,
+  heatTone,
+  hotspotGrid,
+  survivalChartText,
+  timeToResolve,
+} from "./analysis";
 import { AppearedNotice, ConflictNotice, withBlobValue } from "./conflict-notice";
 import { DebtForm, newDebt, type NewDebt } from "./debt-form";
 import { DebtRow, type BacklogStory } from "./debt-row";
@@ -136,7 +143,14 @@ export function TechDebtClient() {
 
   const counted = useMemo(() => countedDebt(records), [records]);
   const showsExampleOnly = records.length > 0 && records.every((t) => isExampleId(t.id));
-  const mixedExample = hasExampleItems(records) && !showsExampleOnly;
+  const hasExample = hasExampleItems(records);
+  const mixedExample = hasExample && !showsExampleOnly;
+  // The rows the move found only in the workspace, as they read now (one
+  // deleted since drops out of the notice).
+  const appearedItems = useMemo(
+    () => records.filter((t) => appeared.includes(t.id)),
+    [records, appeared]
+  );
   const summary = useMemo(
     () => debtSummary(counted, len, today, stories),
     [counted, len, today, stories]
@@ -327,6 +341,9 @@ export function TechDebtClient() {
   };
 
   const csv = debtCsv(records, len, today, backlogState);
+  // The JSON lists what the Markdown and the CSV list: the team's own items
+  // while there are any, never the example's mixed in with them.
+  const json = useMemo(() => exportedDebt(records), [records]);
   const interestValue =
     summary.open === 0
       ? "—"
@@ -358,7 +375,7 @@ export function TechDebtClient() {
         </p>
       ) : (
         <div className="space-y-4">
-          {hasExampleItems(records) && (
+          {hasExample && (
             <div>
               <ExampleNotice onClear={clearExample} />
               <p className="-mt-2 text-xs text-sub">
@@ -376,7 +393,7 @@ export function TechDebtClient() {
             onUseOld={takeOldValue}
             afterLast={() => newRef.current}
           />
-          <AppearedNotice count={appeared} onDismiss={dismissAppearedNotice} />
+          <AppearedNotice items={appearedItems} onDismiss={dismissAppearedNotice} />
 
           {pending && (
             <p role="status" className="text-xs text-sub">
@@ -392,7 +409,7 @@ export function TechDebtClient() {
                 <ExportButton
                   filename="tech-debt"
                   csvData={csv}
-                  jsonData={records}
+                  jsonData={json}
                   markdown={markdown}
                   clipboardText={markdown}
                 />
@@ -506,6 +523,11 @@ export function TechDebtClient() {
                     sprintLengthDays={len}
                     today={today}
                     example={isExampleId(t.id)}
+                    // The interest predictor averages every item in the
+                    // workspace, the example's made-up rates included: no
+                    // suggestion while the example is loaded, so Tab can't
+                    // write one into the team's own item.
+                    suggestInterest={!hasExample}
                     story={storyOf(t)}
                     onEdit={edit}
                     onResolve={resolve}

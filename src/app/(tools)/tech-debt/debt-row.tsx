@@ -41,6 +41,12 @@ export interface DebtRowProps {
   today: string;
   /** An example row: it isn't sent to the backlog. */
   example: boolean;
+  /**
+   * Whether the interest field offers the predictor's suggestion. Off
+   * while the example is loaded: the predictor reads every item in the
+   * workspace, the example's included. Defaults to on.
+   */
+  suggestInterest?: boolean;
   story: BacklogStory | null;
   onEdit: (item: TechDebtItem, patch: DebtPatch, field: string) => void;
   onResolve: (item: TechDebtItem) => void;
@@ -52,6 +58,9 @@ export interface DebtRowProps {
 }
 
 const titleOf = (t: TechDebtItem) => t.title.trim() || "Untitled item";
+
+/** No suggestion: no ghost, no chip, and Tab moves on. */
+const NO_SUGGESTION = { value: 0, confidence: "none" } as const;
 
 /**
  * Focus what `target` finds once React has re-rendered: the button an
@@ -130,16 +139,18 @@ function TitleInPlace({
  * "1e", "-" or "1,5" over as "", which read as an emptied field and
  * erased the estimate without a word. The predictor's suggestion shows as
  * a chip to accept (and Tab accepts it once it is more than a
- * low-confidence guess).
+ * low-confidence guess), unless `suggest` is off.
  */
 function InterestRateInput({
   value,
   commit,
   itemLabel,
+  suggest,
 }: {
   value: number | undefined;
   commit: (next: number | undefined) => void;
   itemLabel: string;
+  suggest: boolean;
 }) {
   const shown = typeof value === "number" && Number.isFinite(value) ? String(value) : "";
   const [draft, setDraft] = useState(shown);
@@ -153,7 +164,12 @@ function InterestRateInput({
     setDraft(shown);
     setError(null);
   }, [shown]);
-  const pred = usePredictedDefault<number>("tech-debt", "interestRate", 0.5);
+  // The hook runs either way (hooks keep their order); with `suggest` off
+  // its value isn't offered. lib/predictions/bootstrap's interestRate
+  // predictor doesn't leave example ids out yet, so the page holds it back
+  // while the example is loaded.
+  const predicted = usePredictedDefault<number>("tech-debt", "interestRate", 0.5);
+  const pred = suggest ? predicted : NO_SUGGESTION;
 
   const save = () => {
     if (draft === shown) {
@@ -240,6 +256,7 @@ export function DebtRow({
   sprintLengthDays,
   today,
   example,
+  suggestInterest = true,
   story,
   onEdit,
   onResolve,
@@ -354,6 +371,7 @@ export function DebtRow({
             value={t.interestRate}
             commit={(interestRate) => onEdit(t, { interestRate }, "interestRate")}
             itemLabel={name}
+            suggest={suggestInterest}
           />
         </div>
         <div className="flex min-w-0 flex-col gap-1">

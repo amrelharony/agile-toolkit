@@ -21,6 +21,7 @@ import {
   rankedDebt,
 } from "@/lib/tech-debt/model";
 import { registry } from "@/lib/actions/registry";
+import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
 
 /**
  * Tech Debt on one store (Phase 8): workspace.techDebt, which agents, the
@@ -60,8 +61,11 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 vi.mock("@/components/shared/export-button", () => ({
-  ExportButton: ({ markdown }: { markdown?: string }) => (
-    <pre data-testid="export-markdown">{markdown}</pre>
+  ExportButton: ({ markdown, jsonData }: { markdown?: string; jsonData?: unknown }) => (
+    <>
+      <pre data-testid="export-markdown">{markdown}</pre>
+      <pre data-testid="export-json">{JSON.stringify(jsonData)}</pre>
+    </>
   ),
 }));
 // Recharts has nothing to measure in jsdom; the chart's text is tested directly.
@@ -574,7 +578,9 @@ describe("the move from the old page's blob", () => {
     const notice = await screen.findByRole("region", { name: "Edited on the old Tech Debt page" });
     expect(find("x")?.resolvedAt).toBe(ago(2));
     fireEvent.click(
-      within(notice).getByRole("button", { name: "Use the old page's impact instead: New title" })
+      within(notice).getByRole("button", {
+        name: "Use this instead: the old page's impact for New title",
+      })
     );
     expect(find("x")?.impact).toBe(5);
     undoLast();
@@ -884,7 +890,7 @@ describe("the conflict notice reads the tracker as it is now", () => {
     expect(within(notice()!).queryByText(conflictText("impact", 2))).toBeNull();
     fireEvent.click(
       within(notice()!).getByRole("button", {
-        name: "Use the old page's impact instead: New title",
+        name: "Use this instead: the old page's impact for New title",
       })
     );
     expect(find("x")?.impact).toBe(5);
@@ -964,5 +970,87 @@ describe("focus after an action replaces its button", () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "New debt" }))
     );
+  });
+});
+
+/* ── After the second review ────────────────────────────────────────── */
+
+describe("the JSON export beside the example", () => {
+  it("lists the team's items only, as the Markdown and the CSV do", () => {
+    seed([...buildExample(new Date(2026, 9, 27)), debt({ id: "mine", title: "Mine" })]);
+    renderPage();
+    const json = JSON.parse(
+      screen.getByTestId("export-json").textContent ?? "[]"
+    ) as TechDebtItem[];
+    expect(json.map((t) => t.id)).toEqual(["mine"]);
+  });
+
+  it("lists the example's while it is all there is", () => {
+    seed(buildExample(new Date(2026, 9, 27)));
+    renderPage();
+    const json = JSON.parse(
+      screen.getByTestId("export-json").textContent ?? "[]"
+    ) as TechDebtItem[];
+    expect(json).toHaveLength(buildExample(new Date(2026, 9, 27)).length);
+  });
+});
+
+describe("the interest suggestion beside the example", () => {
+  const interest = (id: string, title: string) =>
+    within(row(id)).getByRole("textbox", { name: `Interest per sprint for ${title}` });
+
+  it("is offered from the team's own items, and Tab takes it", () => {
+    bootstrapPredictions();
+    seed([
+      ...[2, 1, 1, 1, 1].map((rate, i) =>
+        debt({ id: `r${i}`, title: `Rated ${i}`, interestRate: rate })
+      ),
+      debt({ id: "mine", title: "Mine" }),
+    ]);
+    renderPage();
+    const input = interest("mine", "Mine");
+    expect(input).toHaveAttribute("placeholder", "1.2");
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(find("mine")?.interestRate).toBe(1.2);
+  });
+
+  it("isn't offered while the example is loaded: its made-up rates never reach the team's item", () => {
+    bootstrapPredictions();
+    // The example alone gives the predictor 5 rates (mean 0.9, medium).
+    seed([...buildExample(new Date(2026, 9, 27)), debt({ id: "mine", title: "Mine" })]);
+    renderPage();
+    const input = interest("mine", "Mine");
+    expect(input).toHaveAttribute("placeholder", "Not estimated");
+    expect(
+      within(row("mine")).queryByRole("button", { name: /^(Predicted|Suggested):/ })
+    ).toBeNull();
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(find("mine")).not.toHaveProperty("interestRate");
+  });
+});
+
+describe("the items the move found only in the workspace", () => {
+  it("are named with a link to each row; one deleted leaves the notice", async () => {
+    blob([{ id: "old-1", title: "Old", impact: 2, effort: 2, raisedAt: ago(9) }]);
+    seed(
+      Array.from({ length: 7 }, (_, i) =>
+        debt({ id: `agent-${i + 1}`, title: `From an agent ${i + 1}` })
+      )
+    );
+    migrationMode.value = "local";
+    renderPage();
+    await screen.findByText(/7 items the old Tech Debt page didn't list are now here/);
+    const named = () => within(screen.getByRole("list", { name: "Now on the page" }));
+    const links = named().getAllByRole("link");
+    expect(links).toHaveLength(5);
+    expect(links[0]).toHaveAccessibleName("From an agent 1");
+    expect(links[0].getAttribute("href")).toBe("#debt-agent-1");
+    expect(document.getElementById("debt-agent-1")).not.toBeNull();
+    expect(named().getByText("and 2 more")).toBeInTheDocument();
+
+    fireEvent.click(within(row("agent-1")).getByRole("button", { name: "Delete From an agent 1" }));
+    expect(screen.getByText(/6 items the old Tech Debt page didn't list/)).toBeInTheDocument();
+    expect(named().queryByRole("link", { name: "From an agent 1" })).toBeNull();
+    expect(named().getByText("and 1 more")).toBeInTheDocument();
   });
 });

@@ -44,8 +44,12 @@ export interface LegacyDebt {
   conflicts: TechDebtConflict[];
   /** Stop showing one conflict (it was kept or replaced). */
   settleConflict: (c: TechDebtConflict) => void;
-  /** How many items the old page never listed the move found in the workspace (an agent's): shown once, then 0. */
-  appeared: number;
+  /**
+   * The ids of the items the old page never listed that the move found in
+   * the workspace (an agent's): shown once, then none. The notice names
+   * them so the team can find them.
+   */
+  appeared: string[];
   /** Stop showing the "appeared" notice. */
   dismissAppeared: () => void;
 }
@@ -85,7 +89,7 @@ export function useLegacyDebt(): LegacyDebt {
   const userId = useAuthOptional()?.user?.id ?? null;
   const [ready, setReady] = useState(false);
   const [conflicts, setConflicts] = useState<TechDebtConflict[]>(NO_CONFLICTS);
-  const [appeared, setAppeared] = useState(0);
+  const [appeared, setAppeared] = useState<string[]>(NO_IDS);
 
   useEffect(() => {
     if (mode === "local") {
@@ -123,7 +127,9 @@ export function useLegacyDebt(): LegacyDebt {
           ...now.conflicts.filter((c) => !list.some((x) => sameConflict(x, c))),
         ]);
       }
-      if (now.appeared.length > 0) setAppeared((n) => n + now.appeared.length);
+      if (now.appeared.length > 0) {
+        setAppeared((ids) => [...ids, ...now.appeared.filter((id) => !ids.includes(id))]);
+      }
       saveTechDebt([...now.toFill, ...now.toAdd]);
       if (now.moved.length !== known.length) setMoved(now.moved);
     })();
@@ -136,7 +142,7 @@ export function useLegacyDebt(): LegacyDebt {
     (c: TechDebtConflict) => setConflicts((list) => list.filter((x) => !sameConflict(x, c))),
     []
   );
-  const dismissAppeared = useCallback(() => setAppeared(0), []);
+  const dismissAppeared = useCallback(() => setAppeared(NO_IDS), []);
 
   return { records, pending, conflicts, settleConflict, appeared, dismissAppeared };
 }

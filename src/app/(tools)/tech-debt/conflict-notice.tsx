@@ -171,7 +171,8 @@ export function ConflictNotice({
                   type="button"
                   size="sm"
                   variant="outline"
-                  aria-label={`Use the old page's ${field} instead: ${t.title}`}
+                  // Starts with the visible text, so a voice-control user can say what they see.
+                  aria-label={`Use this instead: the old page's ${field} for ${t.title}`}
                   onClick={() => settle(onUseOld, c, at)}
                 >
                   Use this instead
@@ -185,25 +186,55 @@ export function ConflictNotice({
   );
 }
 
+/** How many of the items that appeared the notice names; the rest are counted. */
+export const APPEARED_NAMED = 5;
+
 /**
- * Shown once, after the move: how many items only the workspace held (an
- * agent's; the old page never listed them) are now on the page, which is
- * the one store. Each can be deleted, with Undo, like any other item.
+ * Shown once, after the move: the items only the workspace held (an
+ * agent's; the old page never listed them) that are now on the page,
+ * which is the one store, each named with a link to its row so the team
+ * can find it among the others. Each can be deleted, with Undo, like any
+ * other item; one deleted leaves the notice, which goes once none is left.
  */
-export function AppearedNotice({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+export function AppearedNotice({
+  items,
+  onDismiss,
+}: {
+  items: readonly Pick<TechDebtItem, "id" | "title">[];
+  onDismiss: () => void;
+}) {
+  const count = items.length;
   if (count <= 0) return null;
+  const named = items.slice(0, APPEARED_NAMED);
+  const more = count - named.length;
   return (
     <div
       role="status"
       className="flex flex-wrap items-start gap-3 rounded-lg border border-info/30 bg-info/10 px-4 py-2.5 text-sm text-text"
     >
       <Inbox className="mt-0.5 h-4 w-4 shrink-0 text-info" aria-hidden="true" />
-      <p className="min-w-0 flex-1">
-        {count === 1
-          ? "1 item the old Tech Debt page didn't list is now here"
-          : `${count} items the old Tech Debt page didn't list are now here`}
-        : an agent added them to the workspace. Delete any you don&apos;t need; Undo brings it back.
-      </p>
+      <div className="min-w-0 flex-1 space-y-1">
+        <p>
+          {count === 1
+            ? "1 item the old Tech Debt page didn't list is now here"
+            : `${count} items the old Tech Debt page didn't list are now here`}
+          : an agent added them to the workspace. Delete any you don&apos;t need; Undo brings it
+          back.
+        </p>
+        <ul aria-label="Now on the page" className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+          {named.map((t) => (
+            <li key={t.id} className="min-w-0 max-w-full">
+              <a
+                href={`#debt-${t.id}`}
+                className="break-words underline underline-offset-2 hover:text-accent"
+              >
+                {t.title.trim() || "Untitled item"}
+              </a>
+            </li>
+          ))}
+          {more > 0 && <li className="text-sub">and {more} more</li>}
+        </ul>
+      </div>
       <Button type="button" size="sm" variant="ghost" onClick={onDismiss}>
         <X aria-hidden="true" />
         Got it
