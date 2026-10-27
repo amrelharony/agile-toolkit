@@ -4,7 +4,8 @@
  *
  *   1. layerShares — by count, by runtime (needs all three), empty.
  *   2. classifyShape — each shape, ties inside the tolerance, the boundary.
- *   3. sharePercents + shapeVerdict — whole percents adding to 100.
+ *   3. sharePercents + shapeVerdict — whole percents adding to 100; an
+ *      even split's reading true of the percents beside it.
  *   4. runCost — the 1 / 5 / 25 index, or minutes.
  *   5. snapshots — day rule, order, removal, shape history; legacy docs.
  *   6. draft errors — counts and runtimes.
@@ -129,6 +130,26 @@ describe("sharePercents and shapeVerdict", () => {
     expect(shapeVerdict(classifyShape(byTime), byTime, "runtime")).toMatch(
       /^Ice-cream cone by run time: 10% unit, 26% integration, 64% e2e\./
     );
+  });
+
+  it("reads an even split truly, level or a little over the tolerance", () => {
+    const level = layerShares({ unit: 34, integration: 33, e2e: 33 });
+    expect(shapeVerdict(classifyShape(level), level)).toBe(
+      "Even: 34% unit, 33% integration, 33% e2e. No layer stands out by more than 5 points."
+    );
+    // Integration 7 points over unit but within 5 of e2e: no named shape,
+    // and the sentence says how far apart the layers are instead.
+    for (const [u, i, e, gap] of [
+      [30, 37, 33, 7],
+      [37, 30, 33, 7],
+      [29, 38, 33, 9],
+    ]) {
+      const shares = layerShares({ unit: u, integration: i, e2e: e });
+      expect(classifyShape(shares)).toBe("even");
+      expect(shapeVerdict("even", shares)).toBe(
+        `Even: ${u}% unit, ${i}% integration, ${e}% e2e. No clear shape: the layers are within ${gap} points of each other.`
+      );
+    }
   });
 
   it("has a sentence for nothing counted, by count and by runtime", () => {

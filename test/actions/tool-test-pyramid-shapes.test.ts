@@ -6,7 +6,8 @@
  *      lib/quality/pyramid; healthy / inverted keep their count meaning.
  *   2. set_counts — a new pyramid needs all three; runtimes merge; runtime
  *      weighting needs all three minutes; updatedOn stamped.
- *   3. take_snapshot / remove_snapshot — backdated, future refused, order.
+ *   3. take_snapshot / remove_snapshot — backdated, future refused (over
+ *      MCP the day after the server's is taken), order.
  *   4. the browser and the server give the same answers.
  */
 
@@ -221,7 +222,9 @@ describe.each(PATHS)("tool.test_pyramid snapshots (%s)", (path) => {
       "2026-10-27",
     ]);
     expect(stored(path)?.snapshots?.[3]).toMatchObject({ unit: 820, note: "release 4.2" });
-    expect(await run(path, "take_snapshot", { takenOn: "2026-10-28" })).toEqual({
+    // The server also takes the day after its own (a person ahead of UTC is already there).
+    const tooLate = path === "handler" ? "2026-10-28" : "2026-10-29";
+    expect(await run(path, "take_snapshot", { takenOn: tooLate })).toEqual({
       taken: false,
       reason: "invalid_date",
       message: "takenOn: The day can't be after today.",
@@ -232,6 +235,25 @@ describe.each(PATHS)("tool.test_pyramid snapshots (%s)", (path) => {
       removed: false,
       reason: "not_found",
     });
+  });
+});
+
+describe("tool.test_pyramid — the server's day can be behind the person's", () => {
+  it("take_snapshot over MCP takes the day after the server's; the default stays its today", async () => {
+    seed("mcpHandler", TEST_PYRAMID);
+    expect(await run("mcpHandler", "take_snapshot", { takenOn: "2026-10-28" })).toMatchObject({
+      taken: true,
+      takenOn: "2026-10-28",
+    });
+    expect(await run("mcpHandler", "take_snapshot")).toMatchObject({
+      taken: true,
+      takenOn: "2026-10-27",
+    });
+    expect(
+      stored("mcpHandler")
+        ?.snapshots?.slice(-2)
+        .map((s) => s.takenOn)
+    ).toEqual(["2026-10-27", "2026-10-28"]);
   });
 });
 

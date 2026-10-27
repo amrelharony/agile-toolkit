@@ -122,7 +122,9 @@ export function layerShares(
  *   ice-cream cone  e2e wider than unit; no layer wider than the one above it
  *   hourglass       unit and e2e both wider than integration
  *   diamond         integration wider than both (the testing trophy)
- *   even            anything else: no layer stands out
+ *   even            anything else: the layers are level, or close without
+ *                   a named shape's order (unit and e2e within `tol`, so no
+ *                   two layers are more than 2 × `tol` apart: 30 / 37 / 33)
  *   empty           no shares (nothing counted)
  */
 export function classifyShape(
@@ -158,13 +160,27 @@ export function sharePercents(shares: LayerShares): LayerValues {
   return { unit: out[0], integration: out[1], e2e: out[2] };
 }
 
-const SHAPE_READING: Record<Exclude<PyramidShape, "empty">, string> = {
+const SHAPE_READING: Record<Exclude<PyramidShape, "empty" | "even">, string> = {
   pyramid: "Most checks are the fast, cheap kind.",
   "ice-cream-cone": "Most checks run end to end, the slowest and flakiest layer.",
   hourglass: "The middle layer is thin.",
   diamond: "Integration tests carry the suite, as a testing trophy does.",
-  even: `No layer stands out by more than ${Math.round(SHAPE_TOLERANCE * 100)} points.`,
 };
+
+/**
+ * The even shape's reading, true of the percents printed beside it: "even"
+ * also covers layers a little more than the tolerance apart that make no
+ * named shape (30 / 37 / 33), so the sentence names the widest gap shown
+ * rather than claiming none is over the tolerance.
+ */
+function evenReading(p: LayerValues): string {
+  const values = TEST_LAYERS.map((l) => p[l]);
+  const gap = Math.max(...values) - Math.min(...values);
+  const tolerance = Math.round(SHAPE_TOLERANCE * 100);
+  return gap <= tolerance
+    ? `No layer stands out by more than ${tolerance} points.`
+    : `No clear shape: the layers are within ${gap} points of each other.`;
+}
 
 /**
  * The verdict sentence, e.g. "Hourglass: 48% unit, 6% integration, 46%
@@ -183,7 +199,8 @@ export function shapeVerdict(
   }
   const p = sharePercents(shares);
   const basis = weighting === "runtime" ? " by run time" : "";
-  return `${PYRAMID_SHAPE_LABEL[shape]}${basis}: ${p.unit}% unit, ${p.integration}% integration, ${p.e2e}% e2e. ${SHAPE_READING[shape]}`;
+  const reading = shape === "even" ? evenReading(p) : SHAPE_READING[shape];
+  return `${PYRAMID_SHAPE_LABEL[shape]}${basis}: ${p.unit}% unit, ${p.integration}% integration, ${p.e2e}% e2e. ${reading}`;
 }
 
 /** The 1 / 5 / 25 relative run cost of the counts: a unitless index, not money. */
@@ -232,7 +249,9 @@ export function newSnapshotId(): string {
 
 /**
  * Why a snapshot day can't be saved, or null: blank, not a date, or after
- * `today` (local "YYYY-MM-DD"). Backdating is fine.
+ * `today` (local "YYYY-MM-DD", the latest day allowed: the agent on the
+ * server passes the day after its own, which can be behind the person's).
+ * Backdating is fine.
  */
 export function snapshotDayError(takenOn: string | null | undefined, today: string): string | null {
   const day = typeof takenOn === "string" ? takenOn.trim() : "";

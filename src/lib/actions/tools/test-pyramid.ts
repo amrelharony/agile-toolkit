@@ -27,6 +27,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { TestLayerRuntime, TestPyramid } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { addDays } from "@/lib/impediments/model";
 import {
   PYRAMID_NOTE_MAX,
   PYRAMID_SNAPSHOT_MAX,
@@ -256,11 +257,25 @@ const TakeSnapshotParams = z.object({
   takenOn: z
     .string()
     .optional()
-    .describe("YYYY-MM-DD the counts are for; defaults to today; never after today."),
+    .describe(
+      "YYYY-MM-DD the counts are for, the user's local day; defaults to today; never after today: over MCP the default is the server's day, which may be a day behind theirs, so the day after it is taken too."
+    ),
   note: z.string().max(PYRAMID_NOTE_MAX).optional(),
 });
 
-async function takeSnapshot(store: PyramidStore, params: z.infer<typeof TakeSnapshotParams>) {
+/**
+ * The latest day a snapshot can be for. In the browser, today; on the
+ * server, whose day (UTC on a typical deploy) isn't the person's, the day
+ * after it, so a person ahead of UTC can snapshot on their own today, as
+ * the page does with the browser's day (decision-log's latestDay).
+ */
+const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(today, 1) : today);
+
+async function takeSnapshot(
+  store: PyramidStore,
+  params: z.infer<typeof TakeSnapshotParams>,
+  onServer: boolean
+) {
   const doc = await store.getDoc();
   if (!doc) {
     return {
@@ -271,7 +286,7 @@ async function takeSnapshot(store: PyramidStore, params: z.infer<typeof TakeSnap
   }
   const today = todayLocalISO();
   const takenOn = params.takenOn?.trim() || today;
-  const error = snapshotDayError(takenOn, today);
+  const error = snapshotDayError(takenOn, latestDay(today, onServer));
   if (error) return { taken: false, reason: "invalid_date" as const, message: `takenOn: ${error}` };
   if ((doc.snapshots ?? []).length >= PYRAMID_SNAPSHOT_MAX) {
     return {
@@ -292,10 +307,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Keep the current counts (and the minutes, when entered) as a dated snapshot, for the shape over time. takenOn may be backdated, never after today. Returns {taken: true, id, takenOn}, or {taken: false, reason: 'no_counts' | 'invalid_date' | 'too_many', message}.",
+    "Keep the current counts (and the minutes, when entered) as a dated snapshot, for the shape over time. takenOn (the user's local day) may be backdated, never after today; over MCP the day after the server's is taken too. Returns {taken: true, id, takenOn}, or {taken: false, reason: 'no_counts' | 'invalid_date' | 'too_many', message}.",
   paramsSchema: TakeSnapshotParams,
-  handler: async (params) => takeSnapshot(browserStore, params),
-  mcpHandler: async (params, ctx) => takeSnapshot(serverStore(ctx.userId), params),
+  handler: async (params) => takeSnapshot(browserStore, params, false),
+  mcpHandler: async (params, ctx) => takeSnapshot(serverStore(ctx.userId), params, true),
 });
 
 // ──────── tool.test_pyramid.remove_snapshot ────────
