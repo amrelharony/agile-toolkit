@@ -99,6 +99,25 @@ describe("the status day in the edit form", () => {
     expect(v.ok && "quarantinedAt" in v.values).toBe(false);
   });
 
+  it("keeps a stored day an agent dated the person's tomorrow when an edit leaves it alone", () => {
+    // A UTC server ahead of the person stored their tomorrow on both days.
+    const tomorrow = addDays(TODAY, 1);
+    const ahead = flaky("t", "checkout", {
+      status: "quarantined",
+      firstSeenAt: tomorrow,
+      quarantinedAt: tomorrow,
+    });
+    const v = validateTest({ ...draftFromTest(ahead), owner: "Ana" }, TODAY, ahead);
+    expect(v.ok).toBe(true);
+    // Typing a new future day is still refused.
+    const typed = validateTest(
+      { ...draftFromTest(ahead), quarantinedAt: addDays(TODAY, 2) },
+      TODAY,
+      ahead
+    );
+    expect(typed.ok).toBe(false);
+  });
+
   it("backdates the quarantine, never after today nor before the first-seen day", () => {
     const at = (day: string) =>
       validateTest({ ...draftFromTest(quarantined), quarantinedAt: day }, TODAY, quarantined);

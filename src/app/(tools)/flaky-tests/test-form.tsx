@@ -108,13 +108,19 @@ export function validateTest(
 ): Validation<TestValues, TestField> {
   const dayField = statusDayField(editing);
   const typedDay = dayField ? draft[dayField].trim() : "";
-  const dayError = typedDay ? flakyDayError(typedDay, today) : null;
+  // A stored day left as it is isn't judged against today again: an agent
+  // on a server ahead of the person may have stored their tomorrow.
+  const dayError =
+    typedDay && dayField && typedDay !== editing?.[dayField]
+      ? flakyDayError(typedDay, today)
+      : null;
   // The order checks run on the status day as edited, the other as stored.
   const days = { quarantinedAt: editing?.quarantinedAt ?? null, fixedAt: editing?.fixedAt ?? null };
   if (dayField && typedDay && !dayError) days[dayField] = typedDay;
   const legacy = editing !== undefined && !hasRunCounts(editing);
   const errors: FormErrors<TestField> = flakyTestErrors({ ...draft, ...days }, today, {
     allowBlankCounts: legacy,
+    keepFirstSeenAt: editing?.firstSeenAt,
   });
   if (dayField && dayError) errors[dayField] = dayError;
   else if (dayField && typedDay && typedDay !== editing?.[dayField]) {

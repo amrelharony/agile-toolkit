@@ -386,6 +386,9 @@ export function firstSeenOrderError(
  * before Phase 8, which holds only a rate), failures and runs may both be
  * left blank: the row keeps its rate, so fixing a typo in its name doesn't
  * demand numbers nobody has. One without the other is still an error.
+ * `keepFirstSeenAt` is the edited test's stored day: kept as it is, it
+ * isn't judged against today again (an agent on a server ahead of the
+ * person can store their tomorrow), only against the other days.
  */
 export function flakyTestErrors(
   draft: {
@@ -398,7 +401,10 @@ export function flakyTestErrors(
     fixedAt?: string | null;
   },
   today: string,
-  { allowBlankCounts = false }: { allowBlankCounts?: boolean } = {}
+  {
+    allowBlankCounts = false,
+    keepFirstSeenAt,
+  }: { allowBlankCounts?: boolean; keepFirstSeenAt?: string | null } = {}
 ): FormErrors<FlakyField> {
   const errors: FormErrors<FlakyField> = {};
   const name = (draft.name ?? "").trim();
@@ -420,8 +426,10 @@ export function flakyTestErrors(
     }
   }
   const firstSeen = (draft.firstSeenAt ?? "").trim();
+  const kept = firstSeen !== "" && firstSeen === (keepFirstSeenAt ?? "").trim();
   const day =
-    flakyDayError(firstSeen, today) ?? (firstSeen ? firstSeenOrderError(firstSeen, draft) : null);
+    (kept ? null : flakyDayError(firstSeen, today)) ??
+    (firstSeen ? firstSeenOrderError(firstSeen, draft) : null);
   if (day) errors.firstSeenAt = day;
   return errors;
 }
