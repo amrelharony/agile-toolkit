@@ -3,10 +3,16 @@
 import { MethodInputs } from "@/components/prioritization/method-inputs";
 import { shortName, type MethodInputsSlotProps } from "@/components/prioritization/method-tool";
 import { ScaleValue } from "@/components/shared/scale-picker";
-import type { BacklogItem } from "@/lib/stores/workspace-types";
-import { clearedKeys, ownedPatch, withSharedValueKept } from "@/lib/prioritization/binding";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
+import {
+  clearedKeys,
+  linkedItem,
+  ownedPatch,
+  withSharedValueKept,
+} from "@/lib/prioritization/binding";
 import { readBacklogItem } from "@/lib/prioritization/defaults";
-import type { Values } from "@/lib/prioritization/methods";
+import { WSJF, readThrough, type Values } from "@/lib/prioritization/methods";
+import { toNumber } from "@/lib/prioritization/methods/fields";
 import {
   FIBONACCI_STEPS,
   WSJF_KEYS,
@@ -30,6 +36,31 @@ export function keptBusinessValue(draft: Values, item: BacklogItem | undefined):
   const clears: Values = Object.fromEntries(WSJF_KEYS.map((k) => [k, undefined]));
   const patch = withSharedValueKept(read, ownedPatch("wsjf", clears, clearedKeys(clears)));
   return "businessValue" in patch ? null : read.businessValue;
+}
+
+/**
+ * What a cleared part of a linked row still shows once its clear is saved,
+ * and why: a business value the backlog item keeps because the
+ * Value/Effort matrix places the item with it (withSharedValueKept: no
+ * other WSJF part is left, and the item has a matrix effort). Column
+ * scoring says so instead of "cleared". Null when the clear went through
+ * (another part is set, nothing places it, the row is unlinked).
+ */
+export function keptAfterClear(
+  row: PrioritizationItem,
+  key: WsjfKey,
+  items: readonly BacklogItem[]
+): { value: number; item: BacklogItem } | null {
+  if (key !== "businessValue") return null;
+  const item = linkedItem(row, items);
+  if (!item) return null;
+  const value = toNumber(WSJF.read(readThrough(row, item))[key]);
+  return value === undefined ? null : { value, item };
+}
+
+/** "Business value 13 stays on the backlog item “Passkeys”: …" (keptAfterClear). */
+export function keptText(kept: { value: number; item: BacklogItem }): string {
+  return `Business value ${kept.value} stays on the backlog item “${shortName(kept.item.name)}”: the Value/Effort matrix places it with the same field.`;
 }
 
 /**

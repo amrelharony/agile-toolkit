@@ -520,6 +520,72 @@ describe("WSJF live binding", () => {
     expect(listItems()[0]).toHaveTextContent("Not scored");
   });
 
+  it("a column clear of a value the matrix places says it stays, by the cell too", async () => {
+    const passkeys: BacklogItem = {
+      id: "b2",
+      name: "Passkeys",
+      businessValue: 13,
+      matrixEffort: 3,
+      updatedAt: "2026-10-20T09:00:00.000Z",
+    };
+    const waiting = row("w2", "Passkeys", null, {
+      backlogItemId: "b2",
+      fields: { businessValue: 13 },
+    });
+    useWorkspaceStore.setState({ backlogItems: [passkeys], prioritizations: [waiting] });
+    render(
+      <LiveAnnouncerProvider>
+        <WsjfClient />
+      </LiveAnnouncerProvider>
+    );
+    // It waits on column 2; back to the business value, and Clear.
+    fireEvent.click(screen.getByRole("button", { name: "Previous column" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Passkeys" }));
+    const kept =
+      "Business value 13 stays on the backlog item “Passkeys”: the Value/Effort matrix places it with the same field.";
+    expect(storedItem("b2")).toMatchObject({ businessValue: 13, matrixEffort: 3 });
+    expect(radio("Passkeys", "13")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("note")).toHaveTextContent(kept);
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(`Passkeys: ${kept}`)
+    );
+    expect(screen.getByTestId("live-polite")).not.toHaveTextContent("cleared");
+    // The next pick saves and the note goes.
+    pick("Passkeys", "8");
+    expect(storedItem("b2")?.businessValue).toBe(8);
+    expect(screen.queryByText(kept)).toBeNull();
+  });
+
+  it("a column clear with another part set clears the value, as it says", async () => {
+    const item2: BacklogItem = {
+      id: "b2",
+      name: "Passkeys",
+      businessValue: 13,
+      timeCriticality: 5,
+      matrixEffort: 3,
+      updatedAt: "2026-10-20T09:00:00.000Z",
+    };
+    const partial = row("w2", "Passkeys", null, {
+      backlogItemId: "b2",
+      fields: { businessValue: 13, timeCriticality: 5 },
+    });
+    useWorkspaceStore.setState({ backlogItems: [item2], prioritizations: [partial] });
+    render(
+      <LiveAnnouncerProvider>
+        <WsjfClient />
+      </LiveAnnouncerProvider>
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "BV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Passkeys" }));
+    expect(storedItem("b2")).not.toHaveProperty("businessValue");
+    expect(screen.queryByRole("note")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Passkeys: Business value cleared."
+      )
+    );
+  });
+
   it("adds an item the matrix valued, its value kept, to wait in column scoring", async () => {
     const passkeys: BacklogItem = {
       id: "b2",

@@ -18,7 +18,7 @@ import {
 } from "@/lib/prioritization/methods/wsjf";
 import type { RankedRow } from "@/lib/prioritization/rank";
 import { relativeHint } from "./verdict";
-import { WSJF_SHORT } from "./wsjf-inputs";
+import { WSJF_SHORT, keptAfterClear, keptText } from "./wsjf-inputs";
 
 const NO_ROWS: PrioritizationItem[] = [];
 
@@ -109,6 +109,11 @@ export const ColumnScoring = forwardRef<
   const [, shown] = useState(0);
   // Set by a key press just before the picker reports it, read by pick.
   const arrowed = useRef(false);
+  // The last clear that left a value in place (keptAfterClear), shown by
+  // its cell until the next save.
+  const [keptNote, setKeptNote] = useState<{ rowId: string; key: WsjfKey; text: string } | null>(
+    null
+  );
 
   const commit = (row: PrioritizationItem, key: WsjfKey, value: number | undefined) => {
     const held = staged.current.get(row.id);
@@ -119,14 +124,22 @@ export const ColumnScoring = forwardRef<
     }
     save(row, key, value);
     // Read the saved row back: its score is the registry's, from the store.
-    const after = useWorkspaceStore.getState().prioritizations?.find((x) => x.id === row.id);
+    const s = useWorkspaceStore.getState();
+    const after = s.prioritizations?.find((x) => x.id === row.id);
     const done = after?.score !== undefined;
+    // A business value the matrix places stays on the item (and the row
+    // reads it through): say so, by the cell too, never "cleared".
+    const kept =
+      value === undefined && after ? keptAfterClear(after, key, s.backlogItems ?? []) : null;
+    setKeptNote(kept ? { rowId: row.id, key, text: keptText(kept) } : null);
     announce(
-      value === undefined
-        ? `${row.title}: ${WSJF_LABEL[key]} cleared.`
-        : `${row.title}: ${WSJF_LABEL[key]} ${value}.${
-            done ? ` WSJF ${WSJF.format(after!.score as number)}.` : ""
-          }`
+      kept
+        ? `${row.title}: ${keptText(kept)}`
+        : value === undefined
+          ? `${row.title}: ${WSJF_LABEL[key]} cleared.`
+          : `${row.title}: ${WSJF_LABEL[key]} ${value}.${
+              done ? ` WSJF ${WSJF.format(after!.score as number)}.` : ""
+            }`
     );
   };
   const flush = (rowId: string) => {
@@ -236,6 +249,11 @@ export const ColumnScoring = forwardRef<
                   onClear={() => commit(r.row, column, undefined)}
                   hint={standing(r)}
                 />
+                {keptNote?.rowId === r.row.id && keptNote.key === column && (
+                  <p role="note" className="mt-1 text-xs text-sub">
+                    {keptNote.text}
+                  </p>
+                )}
               </li>
             );
           })}
