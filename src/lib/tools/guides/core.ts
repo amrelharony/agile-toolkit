@@ -145,21 +145,34 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "okrs",
     summary:
-      "OKRs pair an inspiring Objective with 3–5 measurable Key Results that show whether you got there.",
+      "Set quarterly objectives and measure each key result from where it starts to its target, up or down, through dated check-ins with a confidence score.",
     whenToUse: [
       "Quarterly goal setting for a team or product.",
       "Aligning several teams on outcomes.",
     ],
     steps: [
-      "Write the Objective as a qualitative, ambitious outcome.",
-      "Add 3–5 Key Results that are measurable outcomes, not tasks.",
-      "Set a baseline and a target for each Key Result.",
-      "Check in weekly: update progress and confidence.",
-      "Score honestly at the end of the quarter and carry the lessons forward.",
+      "Press New objective, write the Objective, pick its Quarter and an Owner from your team, then press Add objective.",
+      "Under the objective press Add key result: name it, choose whether The number should Go up or Go down, enter the Baseline (where it starts) and the Target, and a Unit such as % if it has one.",
+      "Each week press Check in on a key result: the Day starts on today (backdate a missed week), enter the Value and, if the owner has one, a Confidence from 0 to 10; leave it clear when not scored. Press Save check-in.",
+      "Read the sentence under each objective: progress against the days gone in its quarter, and confidence with the way it moved since the reading before.",
+      "When objectives span quarters, use the quarter chips above the list to see another one, or All; the list opens on this quarter.",
+      "Open a key result's check-ins to see its history, and delete a wrong one (Undo brings it back).",
+      "Moves these sprint goals lists the sprint goals linked to each objective; link a goal to an OKR in Sprint Goal's Key Results step.",
+    ],
+    scales: [
+      {
+        name: "Confidence (0–10)",
+        values: [
+          { value: "0–3", meaning: "off track" },
+          { value: "4–6", meaning: "at risk" },
+          { value: "7–10", meaning: "on track" },
+        ],
+      },
     ],
     tips: [
       "Key Results measure outcomes (“churn below 3%”), not output (“ship feature X”).",
-      "Reaching about 70% of an ambitious OKR is a good result.",
+      "Progress over time draws from three days with a check-in, Confidence over time from three with a score; the trend test waits for six, under Advanced analysis.",
+      "A key result with no check-in for 14 days is flagged. Key results saved before baselines show No baseline: edit them to set where they started.",
     ],
   },
   {
@@ -306,20 +319,23 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "risk-register",
     summary:
-      "A risk register lists what could go wrong, how likely and how bad each risk is, and what you're doing about it.",
+      "A risk register lists what could knock the sprint or the release off course: how likely and how bad each risk is, who owns it, the plan and when it's due, and how it rates once the plan works. A risk that happens is raised as an impediment.",
     whenToUse: [
       "Projects with deadlines, dependencies or compliance needs.",
       "Reviewing risks each sprint.",
     ],
     steps: [
-      "Describe each risk as “because of X, Y may happen, leading to Z”.",
-      "Rate likelihood and impact from 1 to 5.",
-      "Agree a response (avoid, reduce, transfer or accept) and an owner.",
-      "Review the top risks regularly and close the ones that pass.",
+      "Press New risk, name it and pick its Likelihood and Impact (1–5); nothing is saved until both are rated. Add an Owner from the team, the Raised on day (backdate it if spotted earlier), a Mitigation plan, a Mitigation due day and, if you know it, the rating After mitigation. Press Add risk (or Enter).",
+      "Edit any risk in place: click its title to rename it or add More about it, and change its Likelihood, Impact, Status (Closed asks for the Closed on day), Owner, Raised on or Mitigation due. The list keeps its order until you press Re-sort.",
+      "Watch the badges (“Mitigation 3 days overdue”, “Now 16 → after 6”) and the verdict over the cards: Active, High or critical, Overdue, No owner, Exposure and Median time to mitigate.",
+      "Switch the Likelihood × impact matrix between Now and After mitigation to see where the plans take the risks.",
+      "When a risk happens, press Raise as impediment: it goes to the Impediments log with its level as the severity. Once that impediment is resolved, the row offers Close the risk.",
+      "Delete a risk with the bin button; Undo in the toast brings it back.",
     ],
     tips: [
-      "Focus on the few risks with high likelihood × impact.",
-      "A risk without an owner is a wish.",
+      "Describe each risk as “because of X, Y may happen, leading to Z”. A risk without an owner is a wish.",
+      "Advanced analysis shows a trend test, a forecast and change points once there are enough weeks of risks.",
+      "Risks from the old Risk Register page move in once. If a value was edited in both places, you're asked once: Keep it or Use this instead.",
     ],
   },
   {

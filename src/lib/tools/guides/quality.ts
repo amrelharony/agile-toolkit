@@ -5,42 +5,42 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "tech-debt",
     summary:
-      "A technical debt register lists the shortcuts and aging code that slow the team down. It scores each item by impact, effort and the “interest” it costs every sprint, and ranks what to pay down first.",
+      "A technical debt register lists the shortcuts that slow the team. Each item is scored by impact, effort and the interest it gains every sprint it stays, shows its age in sprints, and the top ones go on the backlog.",
     whenToUse: [
       "When the team keeps saying “we should fix that” but nothing gets scheduled.",
       "Before sprint or quarterly planning, to choose which debt to pay down.",
       "When you need to show stakeholders what debt costs in lost velocity.",
     ],
     steps: [
-      "Click New Debt for each item. Give it a short title, an Area (service or module) and an optional description.",
-      "Set Impact (how much it hurts delivery or quality) and Effort (how big the fix is), each from 1 to 5.",
-      "Enter the interest per sprint: roughly how many velocity points the debt costs each sprint it stays.",
-      "The list ranks itself by score. Impact counts most, effort lowers the score, and interest adds more the longer an item stays.",
-      "Use the Impact × Effort Heatmap: top-left cells (high impact, low effort) are the best paydown targets. Top Hotspot shows the area with the most impact points.",
-      "Review the list at refinement each sprint and pull one or two items into the sprint. Click Mark resolved once an item is paid down: it leaves Open Items, moves to the bottom of the list and feeds the Resolution survival curve.",
-    ],
-    tips: [
-      "Write each item as the problem it causes (“deploys take 40 minutes because…”), not just the code smell.",
-      "Reserve a steady share of every sprint for paydown instead of waiting for a cleanup sprint.",
-      "Debt that could cause an outage belongs in the Risk Register too.",
+      "Press New debt, name it, give an Area if it helps group hotspots, and pick Impact and Effort (1–5); nothing is saved until both are rated. Interest per sprint is optional: blank means not estimated. Set Raised on (backdate it if it's older) and press Add debt (or Enter).",
+      "Each row shows its age in sprints of your cadence (“≈ 4 sprints (14-day sprints)”) and its score, the sum spelled out. The interest part stops at 10 and is marked capped, so an old small item never outranks a fresh painful one.",
+      "Edit in place: click the title to rename it or add a description, or change the Area, Impact, Effort, Interest per sprint or Raised on. The list keeps its order until you press Re-sort.",
+      "Press Add to backlog to put an open item on the backlog as an unestimated story. The row then says On the backlog, and “Its backlog story is done” once the story is done.",
+      "Press Mark resolved when it's paid down; change the Paid down on day if it was earlier, or press Reopen.",
+      "Read the verdict, the cards (Open, Interest a sprint, Oldest open, On the backlog, Top hotspot) and the Impact × effort grid: top left is the best paydown. Delete an item with the bin button (Undo in the toast).",
     ],
     scales: [
       {
         name: "Impact",
         values: [
-          { value: "1–2", meaning: "annoying, but rarely slows work" },
-          { value: "3", meaning: "regularly slows the team or causes bugs" },
-          { value: "4–5", meaning: "blocks delivery or causes incidents" },
+          { value: "1", meaning: "barely noticed" },
+          { value: "3", meaning: "slows the team most sprints" },
+          { value: "5", meaning: "blocks work or causes incidents" },
         ],
       },
       {
         name: "Effort",
         values: [
-          { value: "1–2", meaning: "a day or two" },
+          { value: "1", meaning: "under a day" },
           { value: "3", meaning: "about a sprint" },
-          { value: "4–5", meaning: "several sprints; needs planning" },
+          { value: "5", meaning: "a project of its own" },
         ],
       },
+    ],
+    tips: [
+      "Write each item as the problem it causes (“deploys take 40 minutes because…”), not just the code smell.",
+      "Set your sprint length in the ceremony cadence: ages and scores use it. Advanced analysis shows how long debt takes to pay down once 5 items are paid down.",
+      "Items from the old Tech Debt page move in once. A value edited in both places is offered once with Keep or Use this instead.",
     ],
   },
   {
@@ -239,95 +239,98 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "test-pyramid",
     summary:
-      "The test pyramid says most automated tests should be fast unit tests, with fewer integration tests and only a few end-to-end (E2E) tests. Enter your counts to see your suite's shape and a relative cost estimate.",
+      "The test pyramid says most automated tests should be fast unit tests, with fewer integration tests and only a few end-to-end ones. Enter your counts to see the shape your suite makes, and track it over time.",
     whenToUse: [
       "When the test suite is slow or flaky and you want to see why.",
       "Planning test-automation work, or checking progress after it.",
     ],
     steps: [
-      "Count the tests in each layer from your test runner or CI report.",
-      "Enter Unit tests, Integration tests and E2E tests, and add the repo and date in the description.",
-      "Read the Pyramid shape. A healthy suite is widest at the bottom; an Inverted pyramid alert appears when E2E tests outnumber unit tests.",
-      "Check % unit (aim for 60–80%) and % e2e (above 20% is flagged).",
-      "Use the Cost-of-quality figure to compare over time. It weights each test by how slow and costly it is to run and maintain.",
-      "Update the counts each quarter and note the date.",
-    ],
-    tips: [
-      "Push checks down the pyramid: if an E2E test checks business logic, cover that logic with unit tests instead.",
-      "Speed and reliability matter more than raw counts. Track unstable tests in the Flaky Test Scoreboard.",
+      "In Test counts, enter Unit tests, Integration tests and End-to-end tests and press Save counts. All three are needed; nothing is saved until they are.",
+      "Read the verdict and the Shape: Pyramid, Ice-cream cone, Hourglass, Diamond (testing trophy) or Even. Layers within 5 points count as level.",
+      "Optional: open Run time per layer, enter the minutes each layer takes in CI and press Save minutes. With all three in, set Weigh the layers by to Run time: the shares and the Run time card then use minutes instead of the Relative run cost.",
+      "Under Snapshots, set Counts as of (backdate if you like), add a Note and press Take snapshot.",
+      "Pick a snapshot in Compare today's counts with to see each layer then and now. The shape over time draws from two snapshots; delete one with its bin button (Undo in the toast).",
     ],
     scales: [
       {
-        name: "Relative cost per test",
+        name: "Relative run cost per test",
         values: [
           { value: "Unit = 1", meaning: "fast, isolated, in-process" },
           { value: "Integration = 5", meaning: "several components or services together" },
-          { value: "E2E = 25", meaning: "full stack, real browser or API" },
+          { value: "End-to-end = 25", meaning: "full stack, real browser or API" },
         ],
       },
+    ],
+    tips: [
+      "Take a snapshot after each release or test cleanup.",
+      "An hourglass means the integration layer is thin; an ice-cream cone means most checks run end to end, the slowest and flakiest layer.",
+      "Push checks down the pyramid: if an end-to-end test checks business logic, cover that logic with unit tests instead.",
     ],
   },
   {
     toolId: "flaky-tests",
     summary:
-      "A flaky test passes and fails on the same code. The scoreboard logs each one with its failure rate, owner and status, so the team can triage, quarantine and fix them instead of re-running builds.",
+      "A flaky test passes and fails on the same code. The scoreboard logs each one with its failed runs out of all runs, its owner and status, so the team can triage it through quarantine to fixed instead of re-running builds.",
     whenToUse: [
       "When people re-run CI “until it goes green”.",
       "To run a weekly flaky-test triage.",
     ],
     steps: [
-      "Under Log a flaky test, enter the Test name, Suite, Owner, Failure rate (%) and what seems to trigger it, then click Add test.",
-      "Take the failure rate from CI history, e.g. failed runs ÷ total runs over the last two weeks.",
-      "Set each test's status: Active (still flaking in the main suite), Quarantined (pulled out of the blocking suite until fixed) or Fixed.",
-      "Use the Top 10 flakiest tests chart to pick what to fix first. Red bars fail more than 20% of the time.",
-      "Review the list weekly: confirm owners, fix or delete quarantined tests, and watch New flakies per week for a rising trend.",
+      "In Log a flaky test, enter the Test name, Failed runs and Runs (from CI history, e.g. the last two weeks). Suite, Owner (from your team) and Description are optional; set First seen to backdate (blank means today). Press Add test.",
+      "Read the verdict and the cards. Failure rate (by runs) weighs each test by how often it ran; older tests that hold only a rate are listed with it but left out of that rate.",
+      "Change a test's status to Quarantined when you mute it. Each card shows how long it has been quarantined, and from 14 days an alert lists it.",
+      "Set the status to Fixed when the fix lands; reopening keeps the fix date as Last fixed.",
+      "Press Edit on a card to change its counts or details in place, and delete it with the bin button (Undo in the toast).",
+      "Pick Sort by to order the list. A status change doesn't move a card until you press Re-sort.",
     ],
     tips: [
+      "A rate from under 10 runs carries a Few runs note: one more failure moves it a lot.",
       "Quarantine is a holding pen, not a fix. Give every quarantined test an owner and a deadline.",
-      "Common causes are timing, shared state between tests and test order. Look there first.",
-      "Many flaky E2E tests? Check the shape of your suite in the Test Pyramid Analyzer.",
+      "Common causes are timing, shared state between tests and test order. Weekly control limits and the trend test are in Advanced analysis.",
     ],
   },
   {
     toolId: "code-review-metrics",
     summary:
-      "Code review metrics show how pull requests (PRs) move through review: how long they take to merge, how big they are and how much discussion they get. Use them to spot slow or overloaded review, not to rate people.",
+      "Code review metrics show how pull requests (PRs) move through review: how long they wait for a first review and to merge, in the team's working hours, and how that changes with PR size. Use them to spot slow or overloaded review, not to rate people.",
     whenToUse: [
       "When PRs wait days for review and work piles up.",
       "To check whether smaller PRs really merge faster for your team.",
     ],
     steps: [
-      "Under Log PR sample, enter the PR #, Author, Opened at, Merged at, Reviewers, Comments and Lines changed, then click Add PR. Leave Merged at blank if the PR is still open.",
-      "To load many at once, paste rows into Bulk import (CSV) using the columns shown and click Parse & import.",
-      "Read the cards: Cycle median and Cycle P85 (hours from open to merge), Avg review depth (comments per PR) and Avg PR size.",
-      "Use the PR size vs. cycle hours chart to see whether big PRs are the slow ones.",
-      "Add PRs every week or sprint and watch the Weekly cycle-time mean chart for a trend.",
+      "In Log a pull request, enter the Author (from your team), when it was Opened, First review and Merged (both optional), and the Reviewers, Review comments and Lines changed. Press Add PR; times can't be in the future or out of order.",
+      "Or paste rows into Import from CSV and press Check rows: rows with errors are listed by line, and PR numbers already logged are skipped. Press Import to add the rest (Undo in the toast).",
+      "In Working hours, set Day starts and Day ends to count only those hours of each working day, or leave them blank for whole days. Working days and holidays come from the ceremony cadence.",
+      "Read the verdict and the cards: Median time to first review and Median cycle time show from 3 PRs, P85 cycle time from 5. The basis is printed under the cards.",
+      "Review flow by PR size compares small, medium and large PRs and flags large ones merged with no comment. The weekly median line draws once two weeks have three merges each.",
+      "Edit or delete a PR in the Logged pull requests table. Intervals, control limits and the trend test are in Advanced analysis.",
     ],
     tips: [
       "Look at P85, not just the median. The slow tail is where people wait.",
-      "Very few comments on a very large PR often means rubber-stamping, not quality.",
-      "Never use these numbers to rank individuals; people will game them.",
+      "PRs over 400 lines usually wait longer and get fewer comments; splitting them speeds review.",
+      "The view is the team's and never ranks authors: numbers used to rate people get gamed.",
     ],
   },
   {
     toolId: "quality-cost",
     summary:
-      "Cost of quality (COQ) adds up what you spend preventing and finding defects and what defects cost when they get through. It shows whether money goes into building quality in or into fixing failures.",
+      "Cost of quality (COQ) adds up what you spend preventing and finding defects and what defects cost when they get through, quarter by quarter, and tracks the share that goes on failures.",
     whenToUse: [
       "Making the case for more investment in testing, reviews or training.",
       "Quarterly or yearly quality reviews with leadership.",
     ],
     steps: [
-      "Pick one period, such as last quarter, and use it for all four numbers.",
-      "Enter Prevention costs (training, code review, design) and Detection costs (testing, inspection, audits).",
-      "Enter Internal failure costs (rework caught before release) and External failure costs (fixes after release, refunds, support, lost customers).",
-      "Compare Conformance (prevention + detection) with Non-conformance (internal + external failure), and check the External / Internal ratio.",
-      "Agree where to shift spending, usually from failure toward prevention, and recalculate next period.",
+      "Optional: in Log a quarter, type your Blended hourly rate, what an hour of the team's time costs. It stays unset until you type one.",
+      "Pick the Quarter and enter the costs you know: Prevention (training, code review), Detection (testing, audits; textbooks call it appraisal), Internal failure (rework caught before release) and External failure (fixes after release, refunds). A cost left blank reads Not entered, never $0.",
+      "For time spent, press Hours × rate under a category and type the hours: the cost is worked out from your rate. Press Save quarter.",
+      "Read the verdict and the four cards for the quarter shown, and pick another in Quarter shown.",
+      "Failure share by quarter draws from two quarters; Advanced analysis runs a trend test from six.",
+      "Edit or delete a quarter in the Quarters table (Undo in the toast). Clear history asks first and keeps the rate.",
+      "Figures saved before quarters appear under Figures from before quarters: pick the quarter they cover and press Save as a period, or Discard them.",
     ],
     tips: [
-      "Rough estimates are fine. Hours × a blended hourly rate is enough to see the balance.",
-      "An External / Internal ratio above 1 means more defects reach customers than you catch. Look at detection first.",
-      "Quality textbooks call detection “appraisal”. It's the same category.",
+      "A failure share above 30% is flagged. Mature teams often run about 70/30 conformance to non-conformance.",
+      "An External / internal ratio above 1 means more defects reach customers than you catch. Look at detection first.",
     ],
   },
   {
