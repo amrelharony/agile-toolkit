@@ -206,6 +206,7 @@ export function DebtForm({
         />
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Text, not type="number": a number input hands typed junk over as "", saved as "not estimated" without a word. */}
         <Field
           label="Interest per sprint"
           error={errors.interestRate}
@@ -214,11 +215,9 @@ export function DebtForm({
           {(props) => (
             <Input
               {...props}
-              type="number"
+              type="text"
               inputMode="decimal"
-              min={0}
-              max={INTEREST_RATE_MAX}
-              step={0.5}
+              autoComplete="off"
               value={draft.interestRate}
               onChange={(e) => update({ interestRate: e.target.value })}
             />

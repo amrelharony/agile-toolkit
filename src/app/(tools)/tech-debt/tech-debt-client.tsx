@@ -30,9 +30,8 @@ import { sendHandoff } from "@/lib/handoffs/send";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { TECH_DEBT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { normalizeCadence } from "@/lib/sprints/cadence";
 import { todayIso } from "@/lib/sprints/series";
-import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
+import { selectCadenceDoc, useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story, TechDebtItem } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
@@ -122,8 +121,13 @@ export function TechDebtClient() {
     useLegacyDebt();
   // Read so a backlog story finished on the board re-renders its row.
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
-  const cadence = useWorkspaceStore(selectCadenceDoc);
-  const len = useMemo(() => normalizeCadence(cadence).sprintLengthDays, [cadence]);
+  // The hook also moves an old per-browser cadence into the workspace, once.
+  const [{ sprintLengthDays: len }] = useCeremonyCadence();
+  // Whether that length is the team's or the default the ages fall back on
+  // (no cadence, or one without a usable length), which the page says.
+  const lenIsDefault = useWorkspaceStore(
+    (s) => Number(selectCadenceDoc(s)?.sprintLengthDays) !== len
+  );
   const { log } = useHistoryLogger(TOOL_ID);
   const announce = useAnnounce();
   const [today] = useState(() => todayIso());
@@ -164,8 +168,12 @@ export function TechDebtClient() {
 
   const markdown = useMemo(
     () =>
-      toMarkdown(records, new Date(), { sprintLengthDays: len, verdict, backlog: backlogState }),
-    [records, len, verdict, backlogState]
+      toMarkdown(records, new Date(), {
+        sprintLengthDays: lenIsDefault ? undefined : len,
+        verdict,
+        backlog: backlogState,
+      }),
+    [records, len, lenIsDefault, verdict, backlogState]
   );
 
   const promptConfig = useMemo(
@@ -310,6 +318,12 @@ export function TechDebtClient() {
       },
       revert: () => snapshots.forEach(restoreTechDebtRecord),
     });
+    // The notice (and its button) goes with the example.
+    focusSoon(null, newRef.current);
+  };
+  const dismissAppearedNotice = () => {
+    dismissAppeared();
+    focusSoon(null, newRef.current);
   };
 
   const csv = debtCsv(records, len, today, backlogState);
@@ -350,7 +364,7 @@ export function TechDebtClient() {
               <p className="-mt-2 text-xs text-sub">
                 {mixedExample
                   ? "The example's items are listed but not counted while you have your own."
-                  : "Example: a payments team's debt with 14-day sprints. It isn't put on your backlog."}
+                  : `Example: a payments team's debt, aged in your ${len}-day sprints. It isn't put on your backlog.`}
               </p>
             </div>
           )}
@@ -360,8 +374,9 @@ export function TechDebtClient() {
             records={records}
             onKeep={settleConflict}
             onUseOld={takeOldValue}
+            afterLast={() => newRef.current}
           />
-          <AppearedNotice count={appeared} onDismiss={dismissAppeared} />
+          <AppearedNotice count={appeared} onDismiss={dismissAppearedNotice} />
 
           {pending && (
             <p role="status" className="text-xs text-sub">
@@ -448,7 +463,11 @@ export function TechDebtClient() {
                       ? "—"
                       : `${summary.oldestSprints} ${summary.oldestSprints === 1 ? "sprint" : "sprints"}`
                   }
-                  hint={`${len}-day sprints`}
+                  hint={
+                    lenIsDefault
+                      ? `${len}-day sprints, the default: the team hasn't set a sprint length`
+                      : `${len}-day sprints`
+                  }
                 />
                 <StatCard
                   variant="compact"
@@ -477,7 +496,8 @@ export function TechDebtClient() {
                 </p>
               </SectionCard>
 
-              <ResortChip isStale={isStale} onResort={resort} what="Scores" />
+              {/* Resolving or reopening moves an item too: open debt sorts first. */}
+              <ResortChip isStale={isStale} onResort={resort} what="Scores or statuses" />
               <ul className="space-y-2" aria-label="Debt, open first by score">
                 {ordered.map((t) => (
                   <DebtRow

@@ -10,6 +10,7 @@ import {
   type TechDebtItem,
   type WhiteboardObject,
 } from "@/lib/stores/workspace-types";
+import { CADENCE_KEY } from "@/lib/sprints/use-ceremony-cadence";
 import { TECH_DEBT_KEY, TECH_DEBT_MOVED_KEY } from "@/lib/tech-debt/legacy";
 import {
   INTEREST_CAP,
@@ -85,7 +86,7 @@ import {
   validateDebtDraft,
   type DebtDraft,
 } from "@/app/(tools)/tech-debt/debt-form";
-import { withBlobValue } from "@/app/(tools)/tech-debt/conflict-notice";
+import { conflictText, withBlobValue } from "@/app/(tools)/tech-debt/conflict-notice";
 import { debtCsv, withPatch } from "@/app/(tools)/tech-debt/view";
 import { timeToResolve as agentTimeToResolve } from "@/lib/actions/tools/tech-debt";
 import "@/lib/actions/tools/tech-debt";
@@ -406,7 +407,7 @@ describe("the list", () => {
   it("clearing the interest leaves it unset, never 0", () => {
     seed([debt({ id: "a", title: "Alpha", interestRate: 2 })]);
     renderPage();
-    const input = within(row("a")).getByRole("spinbutton", {
+    const input = within(row("a")).getByRole("textbox", {
       name: "Interest per sprint for Alpha",
     });
     fireEvent.change(input, { target: { value: "" } });
@@ -657,7 +658,10 @@ describe("Markdown and CSV", () => {
     });
     expect(md).toMatch(/^# Tech Debt — 27 Oct 2026\n\n2 open items cost about 3 points a sprint/);
     expect(md).toContain(
-      "3 items: 2 open, 1 paid down. Interest on the open debt: about 3 points a sprint (1 not estimated). Ages are in 14-day sprints."
+      "3 items: 2 open, 1 paid down. Interest on the open debt: about 3 points a sprint (1 not estimated). Ages are in 14-day sprints (the default: the team hasn't set a sprint length)."
+    );
+    expect(toMarkdown(list, new Date(2026, 9, 27), { sprintLengthDays: 14 })).toContain(
+      "Ages are in 14-day sprints.\n"
     );
     expect(md).toContain(
       "| 1 | Date \\| maths | billing | 4 | 2 | 3 | 21 | 24 (capped) | On the backlog | Open |"
@@ -721,5 +725,244 @@ describe("page and agent parity", () => {
     expect(within(row("a")).getByText("On the backlog")).toBeInTheDocument();
     // A tag an agent added shows on the row.
     expect(within(row("a")).getByText("billing")).toBeInTheDocument();
+  });
+});
+
+/* ── After the review ───────────────────────────────────────────────── */
+
+describe("the interest field takes what was typed", () => {
+  it("is a text field: typed junk says why and keeps the estimate, never erases it", () => {
+    seed([debt({ id: "a", title: "Alpha", interestRate: 2 })]);
+    renderPage();
+    const input = within(row("a")).getByRole("textbox", { name: "Interest per sprint for Alpha" });
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).toHaveAttribute("inputmode", "decimal");
+    for (const junk of ["1,5", "1e", "-"]) {
+      fireEvent.change(input, { target: { value: junk } });
+      fireEvent.blur(input);
+      expect(find("a")?.interestRate).toBe(2);
+      const error = within(row("a")).getByRole("alert");
+      expect(error).toHaveTextContent("Enter a number, or leave it empty.");
+      expect(input).toHaveAttribute("aria-describedby", error.id);
+      expect(input).toHaveAttribute("aria-invalid", "true");
+    }
+    fireEvent.change(input, { target: { value: "1.5" } });
+    fireEvent.blur(input);
+    expect(find("a")?.interestRate).toBe(1.5);
+    expect(within(row("a")).queryByRole("alert")).toBeNull();
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("the New debt form refuses typed junk instead of saving 'not estimated'", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "New debt" }));
+    const title = screen.getByRole("textbox", { name: "Debt" });
+    fireEvent.change(title, { target: { value: "Old ORM" } });
+    const form = title.closest("form") as HTMLElement;
+    pick(form, "Impact", 3);
+    pick(form, "Effort", 4);
+    const interest = within(form).getByRole("textbox", { name: "Interest per sprint" });
+    expect(interest).toHaveAttribute("type", "text");
+    fireEvent.change(interest, { target: { value: "1,5" } });
+    fireEvent.submit(form);
+    expect(ws().techDebt).toEqual([]);
+    expect(within(form).getByText("Enter a number, or leave it empty.")).toBeInTheDocument();
+    fireEvent.change(interest, { target: { value: "1.5" } });
+    fireEvent.submit(form);
+    expect(ws().techDebt[0]).toMatchObject({ title: "Old ORM", interestRate: 1.5 });
+  });
+});
+
+describe("the Markdown when nothing is estimated", () => {
+  it("never writes 'about 0 points': it says none of the open debt is estimated", () => {
+    const md = toMarkdown(
+      [debt({ id: "a", title: "Alpha" }), debt({ id: "b", title: "Beta" })],
+      new Date(2026, 9, 27),
+      { sprintLengthDays: 14 }
+    );
+    expect(md).toContain(
+      "2 items: 2 open, 0 paid down. None of the open debt has an interest estimate. Ages are in 14-day sprints."
+    );
+    expect(md).not.toContain("about 0");
+    // Nothing open: no interest sentence at all.
+    expect(
+      toMarkdown([debt({ id: "c", title: "Gone", resolvedAt: ago(1) })], new Date(2026, 9, 27), {
+        sprintLengthDays: 14,
+      })
+    ).toContain("1 item: 0 open, 1 paid down. Ages are in 14-day sprints.");
+  });
+});
+
+describe("the exports beside the example", () => {
+  it("list and count only the team's items, and say how many example items are left out", () => {
+    const now = new Date(2026, 9, 27);
+    const list = [
+      ...buildExample(now),
+      debt({ id: "mine", title: "Mine", interestRate: 1, raisedAt: ago(28) }),
+    ];
+    const md = toMarkdown(list, now, { sprintLengthDays: 14 });
+    expect(md).toContain(
+      "1 item: 1 open, 0 paid down. Interest on the open debt: about 1 point a sprint. Ages are in 14-day sprints. The example's 6 items are left out."
+    );
+    expect(md).toContain("| 1 | Mine |");
+    expect(md).not.toContain("billing");
+    expect(debtCsv(list, 14, TODAY).rows.map((r) => r[0])).toEqual(["Mine"]);
+
+    // The example alone is the tracker: listed and counted.
+    const alone = toMarkdown(buildExample(now), now, { sprintLengthDays: 14 });
+    expect(alone).toContain("6 items: 5 open, 1 paid down.");
+    expect(alone).not.toContain("left out");
+    expect(debtCsv(buildExample(now), 14, TODAY).rows).toHaveLength(6);
+  });
+});
+
+describe("the sprint length the ages use", () => {
+  it("says when it is the default, and the example's note names the team's length", () => {
+    seed([debt({ id: "a", title: "Alpha" })]);
+    const first = renderPage();
+    expect(
+      screen.getByText("14-day sprints, the default: the team hasn't set a sprint length")
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "Ages are in 14-day sprints (the default: the team hasn't set a sprint length)."
+    );
+    first.unmount();
+
+    seed([], cadence(7));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(screen.getByText("7-day sprints")).toBeInTheDocument();
+    expect(screen.getByText(/aged in your 7-day sprints/)).toBeInTheDocument();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "Ages are in 7-day sprints."
+    );
+  });
+
+  it("moves a cadence still in the old per-browser blob in, as the other cadence readers do", () => {
+    localStorage.setItem(CADENCE_KEY, JSON.stringify({ sprintLengthDays: 7 }));
+    seed([debt({ id: "a", title: "Alpha", raisedAt: ago(21) })]);
+    renderPage();
+    expect(ws().ceremonyCadences).toEqual([
+      expect.objectContaining({ id: CEREMONY_CADENCE_ID, sprintLengthDays: 7 }),
+    ]);
+    expect(within(row("a")).getByText("≈ 3 sprints (7-day sprints)")).toBeInTheDocument();
+  });
+});
+
+describe("the re-sort chip", () => {
+  it("names statuses too: resolving an item moves it below the open ones", () => {
+    seed([
+      debt({ id: "a", title: "Alpha", impact: 5, effort: 1 }),
+      debt({ id: "b", title: "Beta", impact: 1, effort: 5 }),
+    ]);
+    renderPage();
+    fireEvent.click(within(row("a")).getByRole("button", { name: "Mark resolved: Alpha" }));
+    expect(screen.getByText(/Scores or statuses changed since the last sort/)).toBeInTheDocument();
+  });
+});
+
+describe("the conflict notice reads the tracker as it is now", () => {
+  const notice = () => screen.queryByRole("region", { name: "Edited on the old Tech Debt page" });
+  const setItem = (patch: Partial<TechDebtItem>) =>
+    act(() =>
+      useWorkspaceStore.setState({
+        techDebt: ws().techDebt.map((t) => (t.id === "x" ? { ...t, ...patch } : t)),
+      })
+    );
+  const start = async () => {
+    blob([{ id: "x", title: "Old title", impact: 5, effort: 2, raisedAt: ago(9) }]);
+    seed([debt({ id: "x", title: "New title", impact: 2, effort: 2, raisedAt: ago(9) })]);
+    migrationMode.value = "local";
+    renderPage();
+    await screen.findByRole("region", { name: "Edited on the old Tech Debt page" });
+  };
+
+  it("shows an edit made while it is open, and Undo goes back to that value", async () => {
+    await start();
+    setItem({ impact: 4 });
+    expect(within(notice()!).getByText(conflictText("impact", 4))).toBeInTheDocument();
+    expect(within(notice()!).queryByText(conflictText("impact", 2))).toBeNull();
+    fireEvent.click(
+      within(notice()!).getByRole("button", {
+        name: "Use the old page's impact instead: New title",
+      })
+    );
+    expect(find("x")?.impact).toBe(5);
+    undoLast();
+    expect(find("x")?.impact).toBe(4);
+  });
+
+  it("drops a value that now matches the old page's", async () => {
+    await start();
+    expect(within(notice()!).getAllByRole("listitem")).toHaveLength(2);
+    setItem({ title: "Old title" });
+    expect(within(notice()!).getAllByRole("listitem")).toHaveLength(1);
+    setItem({ impact: 5 });
+    expect(notice()).toBeNull();
+  });
+
+  it("settling one lands on the next, then on New debt", async () => {
+    await start();
+    fireEvent.click(
+      within(notice()!).getByRole("button", { name: "Keep the title in the tracker: New title" })
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Keep the impact in the tracker: New title" })
+      )
+    );
+    fireEvent.click(document.activeElement!);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "New debt" }))
+    );
+  });
+});
+
+describe("focus after an action replaces its button", () => {
+  it("Mark resolved lands on the paid-down day, Reopen on Mark resolved", async () => {
+    seed([debt({ id: "a", title: "Alpha", raisedAt: ago(30) })]);
+    renderPage();
+    fireEvent.click(within(row("a")).getByRole("button", { name: "Mark resolved: Alpha" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(row("a")).getByLabelText("Paid down on, Alpha"))
+    );
+    fireEvent.click(within(row("a")).getByRole("button", { name: "Reopen: Alpha" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("a")).getByRole("button", { name: "Mark resolved: Alpha" })
+      )
+    );
+  });
+
+  it("Add to backlog lands on the link to the story", async () => {
+    seed([debt({ id: "a", title: "Alpha" })]);
+    renderPage();
+    fireEvent.click(within(row("a")).getByRole("button", { name: "Add to backlog: Alpha" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row("a")).getByRole("link", { name: /On the backlog/ })
+      )
+    );
+  });
+
+  it("dismissing the appeared notice and clearing the example land on New debt", async () => {
+    blob([{ id: "old-1", title: "Old", impact: 2, effort: 2, raisedAt: ago(9) }]);
+    seed([debt({ id: "agent-1", title: "From an agent" })]);
+    migrationMode.value = "local";
+    const first = renderPage();
+    await screen.findByText(/1 item the old Tech Debt page didn't list/);
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "New debt" }))
+    );
+    first.unmount();
+
+    seed([]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "New debt" }))
+    );
   });
 });

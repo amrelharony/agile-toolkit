@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { History, Inbox, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toScale } from "@/lib/risks/model";
@@ -30,6 +31,26 @@ export function conflictText(field: TechDebtConflictField, v: string | number): 
 }
 
 /**
+ * The field as the tracker holds it now, read as the move compared it: a
+ * rating on the 1–5 scale, a rate in 0–100, or the trimmed text; null when
+ * it holds nothing.
+ */
+export function currentValue(
+  t: TechDebtItem,
+  field: TechDebtConflictField
+): string | number | null {
+  if (field === "impact" || field === "effort") return toScale(t[field]);
+  if (field === "interestRate") {
+    const r = t.interestRate;
+    return typeof r === "number" && Number.isFinite(r)
+      ? Math.max(0, Math.min(INTEREST_RATE_MAX, r))
+      : null;
+  }
+  const v = t[field];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+/**
  * The item with the old Tech Debt page's value for one field: a rating on
  * the 1–5 scale, a rate in 0–100 (as the move compared them), else the
  * text.
@@ -54,20 +75,46 @@ export function withBlobValue(t: TechDebtItem, c: TechDebtConflict): TechDebtIte
  * edit). The move kept the workspace's; each field offers the old page's
  * value with "Use this instead" (with Undo) or "Keep". The old value stays
  * in the old page's storage, the backup.
+ *
+ * "In the tracker now" is read from the tracker as it is, not as the move
+ * found it: a value edited on the row (or by an agent) while the notice is
+ * open shows here, so "Use this instead" never overwrites a value the team
+ * can't see, and one that now matches the old page's has nothing left to
+ * choose and goes. Settling one moves focus to the next, or to
+ * `afterLast()` once none is left, never to the page's body.
  */
 export function ConflictNotice({
   conflicts,
   records,
   onKeep,
   onUseOld,
+  afterLast,
 }: {
   conflicts: readonly TechDebtConflict[];
   records: readonly TechDebtItem[];
   onKeep: (c: TechDebtConflict) => void;
   onUseOld: (c: TechDebtConflict) => void;
+  /** Where focus goes once the last conflict is settled. */
+  afterLast: () => HTMLElement | null;
 }) {
-  const shown = conflicts.filter((c) => records.some((t) => t.id === c.id));
+  const listRef = useRef<HTMLUListElement>(null);
+  const shown = conflicts.flatMap((c) => {
+    const t = records.find((x) => x.id === c.id);
+    const now = t ? currentValue(t, c.field) : null;
+    return t && now !== c.blob ? [{ c, t, now }] : [];
+  });
   if (shown.length === 0) return null;
+
+  // The pressed button goes with its conflict: once React has re-rendered,
+  // focus the Keep of the one that took its place (or the new last one).
+  const settle = (act: (c: TechDebtConflict) => void, c: TechDebtConflict, at: number) => {
+    act(c);
+    requestAnimationFrame(() => {
+      const keeps = listRef.current?.querySelectorAll<HTMLElement>("[data-conflict-keep]");
+      const next = keeps && keeps.length > 0 ? keeps[Math.min(at, keeps.length - 1)] : null;
+      (next ?? afterLast())?.focus();
+    });
+  };
   return (
     <section
       aria-label="Edited on the old Tech Debt page"
@@ -83,9 +130,8 @@ export function ConflictNotice({
         The tracker kept the value under &ldquo;In the tracker now&rdquo;. Keep it, or use the old
         page&apos;s value instead.
       </p>
-      <ul className="space-y-3">
-        {shown.map((c) => {
-          const t = records.find((x) => x.id === c.id)!;
+      <ul ref={listRef} className="space-y-3">
+        {shown.map(({ c, t, now }, at) => {
           const field = FIELD_LABEL[c.field].toLowerCase();
           return (
             <li
@@ -100,7 +146,7 @@ export function ConflictNotice({
                 <div className="min-w-0">
                   <p className="text-xs text-sub">In the tracker now</p>
                   <p className="whitespace-pre-wrap break-words text-sm text-text">
-                    {conflictText(c.field, c.workspace)}
+                    {now === null ? "Empty" : conflictText(c.field, now)}
                   </p>
                 </div>
                 <div className="min-w-0">
@@ -115,8 +161,9 @@ export function ConflictNotice({
                   type="button"
                   size="sm"
                   variant="outline"
+                  data-conflict-keep=""
                   aria-label={`Keep the ${field} in the tracker: ${t.title}`}
-                  onClick={() => onKeep(c)}
+                  onClick={() => settle(onKeep, c, at)}
                 >
                   Keep
                 </Button>
@@ -125,7 +172,7 @@ export function ConflictNotice({
                   size="sm"
                   variant="outline"
                   aria-label={`Use the old page's ${field} instead: ${t.title}`}
-                  onClick={() => onUseOld(c)}
+                  onClick={() => settle(onUseOld, c, at)}
                 >
                   Use this instead
                 </Button>

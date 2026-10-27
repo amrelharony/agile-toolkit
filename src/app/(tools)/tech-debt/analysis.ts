@@ -36,6 +36,17 @@ export function countedDebt(records: readonly TechDebtItem[]): TechDebtItem[] {
   return records.map((t) => ({ ...t, id: t.id.slice(EXAMPLE_ID_PREFIX.length) }));
 }
 
+/**
+ * The items the Markdown and the CSV list: the team's own while there are
+ * any, the same set countedDebt counts, so an export never mixes the
+ * example's made-up rows in with the numbers it quotes; else the
+ * example's, under their own ids.
+ */
+export function exportedDebt(records: readonly TechDebtItem[]): TechDebtItem[] {
+  const real = records.filter((t) => !isExampleId(t.id));
+  return real.length > 0 ? real : [...records];
+}
+
 /* ── Age and score on a row ────────────────────────────────────────────── */
 
 /**

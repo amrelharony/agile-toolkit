@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, ListPlus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,16 @@ export interface DebtRowProps {
 }
 
 const titleOf = (t: TechDebtItem) => t.title.trim() || "Untitled item";
+
+/**
+ * Focus what `target` finds once React has re-rendered: the button an
+ * action was pressed on is gone by then (what it did replaces it), and
+ * focus would fall to the page's body. When the action was refused the
+ * target isn't there, and the button, still there, keeps focus.
+ */
+function focusSoon(target: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => target()?.focus());
+}
 
 /**
  * The title and the description, edited in place: the text is a button
@@ -115,9 +125,12 @@ function TitleInPlace({
 /**
  * The interest per sprint, saved when the field is left or on Enter. An
  * emptied field is "not estimated" (undefined), never 0; a value that
- * isn't a number from 0 to 100 isn't saved and says why. The predictor's
- * suggestion shows as a chip to accept (and Tab accepts it once it is
- * more than a low-confidence guess).
+ * isn't a number from 0 to 100 isn't saved and says why. A text field
+ * (with the decimal keypad), not type="number": a number input hands
+ * "1e", "-" or "1,5" over as "", which read as an emptied field and
+ * erased the estimate without a word. The predictor's suggestion shows as
+ * a chip to accept (and Tab accepts it once it is more than a
+ * low-confidence guess).
  */
 function InterestRateInput({
   value,
@@ -131,6 +144,7 @@ function InterestRateInput({
   const shown = typeof value === "number" && Number.isFinite(value) ? String(value) : "";
   const [draft, setDraft] = useState(shown);
   const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
   const lastShown = useRef(shown);
   // A change from elsewhere (an agent, Undo, another device) replaces the draft.
   useEffect(() => {
@@ -162,10 +176,9 @@ function InterestRateInput({
       render={({ ghost, accept, chip }) => (
         <div className="flex flex-col gap-1">
           <Input
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={0}
-            step={0.5}
+            autoComplete="off"
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
@@ -191,9 +204,10 @@ function InterestRateInput({
             className="h-9 font-data"
             aria-label={`Interest per sprint for ${itemLabel}`}
             aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
           />
           {error && (
-            <p className="text-xs text-danger" role="alert">
+            <p id={errorId} className="text-xs text-danger" role="alert">
               {error}
             </p>
           )}
@@ -235,6 +249,9 @@ export function DebtRow({
   onDelete,
 }: DebtRowProps) {
   const { item: t, ageSprints, score } = ranked;
+  const resolveRef = useRef<HTMLButtonElement>(null);
+  const paidDownRef = useRef<HTMLDivElement>(null);
+  const storyRef = useRef<HTMLAnchorElement>(null);
   const name = titleOf(t);
   const open = isOpenDebt(t);
   const resolvedDay = (t.resolvedAt ?? "").slice(0, 10);
@@ -284,6 +301,7 @@ export function DebtRow({
         )}
         {story && (
           <Link
+            ref={storyRef}
             href="/sprint-planning"
             className={cn(
               "inline-flex items-center gap-1 underline-offset-2 hover:underline",
@@ -360,19 +378,24 @@ export function DebtRow({
       <div className="flex flex-wrap items-end gap-2">
         {open ? (
           <Button
+            ref={resolveRef}
             type="button"
             size="sm"
             variant={story?.done ? "outline" : "ghost"}
             className="gap-1"
             aria-label={`Mark resolved: ${name}`}
-            onClick={() => onResolve(t)}
+            onClick={() => {
+              onResolve(t);
+              // On the day it was paid down, to backdate it.
+              focusSoon(() => paidDownRef.current?.querySelector("input"));
+            }}
           >
             <CheckCircle2 aria-hidden="true" />
             Mark resolved
           </Button>
         ) : (
           <>
-            <div className="flex flex-col gap-1">
+            <div ref={paidDownRef} className="flex flex-col gap-1">
               <Caption>Paid down on</Caption>
               <DayInput
                 label={`Paid down on, ${name}`}
@@ -389,7 +412,10 @@ export function DebtRow({
               variant="ghost"
               className="gap-1"
               aria-label={`Reopen: ${name}`}
-              onClick={() => onReopen(t)}
+              onClick={() => {
+                onReopen(t);
+                focusSoon(() => resolveRef.current);
+              }}
             >
               <RotateCcw aria-hidden="true" />
               Reopen
@@ -404,7 +430,10 @@ export function DebtRow({
             className="gap-1"
             disabled={!t.title.trim()}
             aria-label={`Add to backlog: ${name}`}
-            onClick={() => onSend(t)}
+            onClick={() => {
+              onSend(t);
+              focusSoon(() => storyRef.current);
+            }}
           >
             <ListPlus aria-hidden="true" />
             Add to backlog

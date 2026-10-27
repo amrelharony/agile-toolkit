@@ -9,7 +9,9 @@ type Row = Omit<TechDebtItem, "id" | "raisedAt" | "resolvedAt"> & {
 };
 
 /**
- * A payments team's debt, with 14-day sprints. The hand-rolled billing
+ * A payments team's debt, told here with the default 14-day sprints: the
+ * page ages it in the team's own sprint length, so with another length
+ * the ages (and which items hit the cap) shift. The hand-rolled billing
  * date maths has been piling up interest for months and hits the cap;
  * the payment SDK upgrade is the most painful item and still outranks the
  * copy-pasted form validation, which is old enough to hit the cap too but
