@@ -166,6 +166,21 @@ describe("withoutName", () => {
     );
   });
 
+  it("reads a 'name, role' participant by its name, its punctuation aside", () => {
+    const who = "Sam, engineering manager";
+    expect(withoutName("Sam said the export is slow.", who, "Participant 1")).toBe(
+      "Participant 1 said the export is slow."
+    );
+    expect(withoutName("Sam, engineering manager, joined; then Sam said so", who, "P1")).toBe(
+      "P1, joined; then P1 said so"
+    );
+    expect(withoutName("Ask Sam (EM) or Sam", "Sam (EM)", "P1")).toBe("Ask P1 or P1");
+    // A name typed with a trailing comma is still the name.
+    expect(withoutName("Thanks, Sam.", "Sam,", "P1")).toBe("Thanks, P1.");
+    // Samantha is someone else.
+    expect(withoutName("Samantha said", who, "P1")).toBe("Samantha said");
+  });
+
   it("leaves the text alone without a usable name", () => {
     for (const name of [undefined, "", "  ", "A"]) {
       expect(withoutName("A day with Ana", name, "P1"), String(name)).toBe("A day with Ana");

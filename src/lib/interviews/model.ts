@@ -124,26 +124,32 @@ const opensSentence = (text: string, offset: number) =>
 
 /**
  * `text` with the participant's own name replaced by `replacement`: the
- * whole name in any case and spacing ("Dana  LEE"), and for a name of more
- * than one word its first word too ("Dana said"), except when the name
- * holds a digit (a label like "Customer 3" names no one, and its first word
- * is an ordinary word). A replacement that opens a sentence is capitalised.
- * Best effort, like redactPii: a surname alone, a nickname or someone
- * else's name stays as typed. Names under 2 characters are left alone.
+ * whole name as typed, in any case and spacing ("Dana  LEE"), then without
+ * its commas, semicolons and brackets ("Sam," reads as "Sam"), and for a
+ * name of more than one word its first word too ("Dana said"; for "Sam,
+ * engineering manager", "Sam said"), except when the name holds a digit (a
+ * label like "Customer 3" names no one, and its first word is an ordinary
+ * word). A replacement that opens a sentence is capitalised. Best effort,
+ * like redactPii: a surname alone, a nickname or someone else's name stays
+ * as typed. Names under 2 characters are left alone.
  */
 export function withoutName(
   text: string,
   participant: string | undefined,
   replacement: string
 ): string {
-  const words = (participant ?? "").trim().split(/\s+/).filter(Boolean);
-  if (words.join(" ").length < 2) return text;
+  const name = (participant ?? "").trim().replace(/\s+/g, " ");
+  if (name.length < 2) return text;
+  // Its words without the punctuation a "name, role" label adds ("Sam,").
+  const words = name.split(/[\s,;()]+/).filter(Boolean);
+  const bare = words.join(" ");
   const fill = (_match: string, offset: number, whole: string) =>
     opensSentence(whole, offset)
       ? replacement.charAt(0).toUpperCase() + replacement.slice(1)
       : replacement;
-  let out = text.replace(nameRegExp(words), fill);
-  if (words.length > 1 && words[0].length >= 2 && !/\d/.test(words.join(""))) {
+  let out = text.replace(nameRegExp(name.split(" ")), fill);
+  if (bare !== name && bare.length >= 2) out = out.replace(nameRegExp(words), fill);
+  if (words.length > 1 && words[0].length >= 2 && !/\d/.test(bare)) {
     out = out.replace(nameRegExp(words.slice(0, 1)), fill);
   }
   return out;
