@@ -368,6 +368,49 @@ describe.each(["tab", "mcp"] as const)(
       expect(planTechDebtMove(blob, [saved], []).toFill).toEqual([]);
     });
 
+    it("an item only the old blob holds is updated as listed: the documented reopen works", async () => {
+      // Paid down on the old page and never pushed: list_state shows it pending and resolved.
+      const blob = [item({ id: "old", area: "ci", resolvedAt: "2026-10-20" })];
+      seed(transport, { blob });
+      expect(await crud("update", { id: "old", patch: { resolvedAt: "" } })).toEqual({
+        updated: true,
+      });
+      const [saved] = stored(transport).items;
+      expect(saved).toMatchObject({ id: "old", title: "Flaky deploy script", area: "ci" });
+      expect(saved.resolvedAt).toBe("");
+      expect(saved.updatedAt).toEqual(expect.any(String));
+      const s = await run<{ items: { id: string; open: boolean }[] }>(
+        transport,
+        "tool.tech_debt.list_state",
+        { today: TODAY }
+      );
+      expect(s.items.filter((t) => t.id === "old")).toEqual([
+        expect.objectContaining({ open: true }),
+      ]);
+      // Stamped: the page's move leaves it as saved.
+      expect(planTechDebtMove(blob, [saved], [])).toMatchObject({
+        toAdd: [],
+        toFill: [],
+        conflicts: [],
+      });
+      // A rating it sets is judged as on any row; an id nobody lists is still unknown.
+      await expect(crud("update", { id: "old", patch: { impact: 9 } })).rejects.toThrow(/impact/);
+      expect(await crud("update", { id: "nope", patch: { area: "x" } })).toEqual({
+        updated: false,
+      });
+    });
+
+    it("a blob row already moved, or blank, is no row to update", async () => {
+      seed(transport, {
+        blob: [item({ id: "gone" }), { id: "blank", title: "", impact: 3, effort: 3 }],
+        moved: ["gone"],
+      });
+      for (const id of ["gone", "blank"]) {
+        expect(await crud("update", { id, patch: { area: "x" } })).toEqual({ updated: false });
+      }
+      expect(stored(transport).items).toEqual([]);
+    });
+
     it("a delete of a row still in the old blob is refused; once moved, it goes", async () => {
       seed(transport, { items: [item()], blob: [item(), item({ id: "blob-only", title: "Old" })] });
       await expect(crud("delete", { id: "d1" })).rejects.toThrow("pending_move");

@@ -134,6 +134,17 @@ interface CrudOptions<T extends { id: string }, L = undefined> {
    */
   readAs?: (stored: T, env: CrudEnv<T>) => Promise<T>;
   /**
+   * Async, on both transports, on update when no stored record has the id:
+   * the record the patch is merged into instead, or undefined for
+   * `{updated: false}`. For an entity whose tool lists rows the workspace
+   * doesn't store yet (a risk or tech-debt item only its old page blob
+   * holds, waiting for the page's one-time move): the update then saves the
+   * row the caller saw listed, as the tool verbs do, and validation, `load`,
+   * `prepare` and `beforeWrite` all get it as the current record. Not with
+   * `versioned`.
+   */
+  readMissing?: (id: string, env: CrudEnv<T>) => Promise<T | undefined>;
+  /**
    * Async, on both transports, before delete removes the record: throw to
    * refuse (nothing is deleted). A risk or tech-debt item still waiting in
    * its old page blob is refused: only its page can mark it moved, or the
@@ -167,14 +178,21 @@ export function defineCrudActions<T extends { id: string }, L = undefined>(
   const serverKind = opts.serverKind ?? kindFromToolId(toolId);
   // A versioned update is a compare-and-set that re-runs a synchronous
   // prepare on each attempt: there is no place for an async step in it.
-  if (opts.versioned && (opts.load || opts.beforeWrite || opts.readAs)) {
-    throw new Error(`${toolId}: a versioned CRUD takes no load, beforeWrite or readAs hook.`);
+  if (opts.versioned && (opts.load || opts.beforeWrite || opts.readAs || opts.readMissing)) {
+    throw new Error(
+      `${toolId}: a versioned CRUD takes no load, beforeWrite or readAs hook, nor a readMissing one.`
+    );
   }
   const clientEnv: CrudEnv<T> = { all: async () => selectAll() };
   const serverEnv = (userId: string): CrudEnv<T> => ({
     all: () => serverListEntities<T>(userId, serverKind),
     userId,
   });
+  /** What an update merges its patch into: the stored record as read (readAs), else readMissing's; undefined when neither has one. */
+  const updateBase = async (stored: T | null | undefined, id: string, env: CrudEnv<T>) => {
+    if (stored) return opts.readAs ? opts.readAs(stored, env) : stored;
+    return opts.readMissing ? opts.readMissing(id, env) : undefined;
+  };
   /** load, then prepare, then beforeWrite: the record to save (a throw writes nothing). */
   const prepared = async (
     next: T,
@@ -315,8 +333,8 @@ export function defineCrudActions<T extends { id: string }, L = undefined>(
       patch: Record<string, unknown>;
     }): Promise<{ updated: boolean }> => {
       const stored = selectAll().find((e) => e.id === params.id);
-      if (!stored) return { updated: false };
-      const current = opts.readAs ? await opts.readAs(stored, clientEnv) : stored;
+      const current = await updateBase(stored, params.id, clientEnv);
+      if (!current) return { updated: false };
       // Validate the merged result against the entity schema — reject
       // if a malformed patch would produce an invalid entity.
       const merged = { ...current, ...params.patch, id: params.id };
@@ -356,9 +374,9 @@ export function defineCrudActions<T extends { id: string }, L = undefined>(
         return { updated: result !== null };
       }
       const stored = await serverGetEntity<T>(ctx.userId, serverKind, params.id);
-      if (!stored) return { updated: false };
       const env = serverEnv(ctx.userId);
-      const current = opts.readAs ? await opts.readAs(stored, env) : stored;
+      const current = await updateBase(stored, params.id, env);
+      if (!current) return { updated: false };
       const next = await prepared(validated(current), current, params.patch, env);
       await serverUpsertEntity<T>(ctx.userId, serverKind, next);
       return { updated: true };

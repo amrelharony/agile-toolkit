@@ -524,6 +524,53 @@ describe.each(["tab", "mcp"] as const)(
       );
     });
 
+    it("a risk only the old blob holds is updated as the register lists it, and saved stamped", async () => {
+      // Raised on the old page and never pushed: list_state shows it pending.
+      const blob = [risk({ id: "old", mitigation: "Cache the responses" })];
+      seed(transport, { blob });
+      expect(
+        await crud("update", { id: "old", patch: { title: "Sandbox outage", probability: 2 } })
+      ).toEqual({ updated: true });
+      const [saved] = stored(transport).risks;
+      expect(saved).toMatchObject({
+        id: "old",
+        title: "Sandbox outage",
+        probability: 2,
+        impact: 4,
+        mitigation: "Cache the responses",
+        status: "open",
+      });
+      expect(saved.updatedAt).toEqual(expect.any(String));
+      const s = await run<{ items: { id: string; title: string }[] }>(
+        transport,
+        "tool.risk_register.list_state"
+      );
+      expect(s.items.filter((i) => i.id === "old").map((i) => i.title)).toEqual(["Sandbox outage"]);
+      // Stamped: the page's move leaves it as saved.
+      expect(planRiskRegisterMove(blob, [saved], [])).toMatchObject({
+        toAdd: [],
+        toFill: [],
+        conflicts: [],
+      });
+      await expect(crud("update", { id: "old", patch: { impact: 9 } })).rejects.toThrow(
+        /impact: a whole number/
+      );
+      expect(await crud("update", { id: "nope", patch: { title: "x" } })).toEqual({
+        updated: false,
+      });
+    });
+
+    it("a blob row already moved, or blank, is no row to update", async () => {
+      seed(transport, {
+        blob: [risk({ id: "gone" }), { id: "blank", title: "", probability: 1, impact: 1 }],
+        moved: ["gone"],
+      });
+      for (const id of ["gone", "blank"]) {
+        expect(await crud("update", { id, patch: { owner: "Ana" } })).toEqual({ updated: false });
+      }
+      expect(stored(transport).risks).toEqual([]);
+    });
+
     it("a delete of a row still in the old blob is refused; once moved, it goes", async () => {
       seed(transport, {
         risks: [risk()],

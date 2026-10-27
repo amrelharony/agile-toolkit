@@ -66,12 +66,14 @@ import {
   RISK_REGISTER_MOVED_KEY,
   isPendingRiskRow,
   listedRisk,
+  withPendingRisks,
 } from "@/lib/risks/legacy-register";
 import {
   TECH_DEBT_KEY,
   TECH_DEBT_MOVED_KEY,
   isPendingTechDebtRow,
   listedTechDebt,
+  withPendingTechDebt,
 } from "@/lib/tech-debt/legacy";
 import { readLegacyBlob } from "../user-state-blob";
 import { normalizeTags, tagsProblem } from "@/lib/nps/score";
@@ -814,7 +816,10 @@ defineCrudActions<Impediment>({
  * lib/tech-debt/legacy). The CRUD's update starts from that listed row
  * (readAs), so its updatedAt stamp, which tells the move the workspace's
  * copy is the newer one, never lands on a bare row lacking the blob's later
- * status or values. A delete of a row still waiting in the blob is refused
+ * status or values. A row only the blob holds, which the reads list as
+ * pending, is updated from the blob's copy as listed (readMissing) and saved
+ * into the workspace, stamped, as the tool verbs save it; the move then
+ * leaves it alone. A delete of a row still waiting in the blob is refused
  * ('pending_move'), as tool.*.delete refuses it: only the page can mark it
  * moved, or the move would bring it straight back. */
 
@@ -838,11 +843,16 @@ defineCrudActions<Risk>({
   upsert: (r) => ws().upsertRisk(r),
   remove: (id) => ws().removeRisk(id),
   generateId: () => `risk_${nanoid(8)}`,
-  // An update merges into the risk as the register lists it; a delete of
-  // one still in the old blob is refused (see above).
+  // An update merges into the risk as the register lists it, one only the
+  // old blob holds included; a delete of one still in the blob is refused
+  // (see above).
   readAs: async (stored, env) => {
     const { raw, moved } = await riskBlob(env);
     return listedRisk(stored, raw, moved);
+  },
+  readMissing: async (id, env) => {
+    const { raw, moved } = await riskBlob(env);
+    return withPendingRisks([], raw, moved).find((r) => r.id === id);
   },
   beforeDelete: async (id, env) => {
     const { raw, moved } = await riskBlob(env);
@@ -886,11 +896,16 @@ defineCrudActions<TechDebtItem>({
   upsert: (t) => ws().upsertTechDebt(t),
   remove: (id) => ws().removeTechDebt(id),
   generateId: () => `td_${nanoid(8)}`,
-  // An update merges into the item as the page lists it; a delete of one
-  // still in the old blob is refused (see "Rows still moving in").
+  // An update merges into the item as the page lists it, one only the old
+  // blob holds included; a delete of one still in the blob is refused (see
+  // "Rows still moving in").
   readAs: async (stored, env) => {
     const { raw, moved } = await techDebtBlob(env);
     return listedTechDebt(stored, raw, moved);
+  },
+  readMissing: async (id, env) => {
+    const { raw, moved } = await techDebtBlob(env);
+    return withPendingTechDebt([], raw, moved).find((t) => t.id === id);
   },
   beforeDelete: async (id, env) => {
     const { raw, moved } = await techDebtBlob(env);
