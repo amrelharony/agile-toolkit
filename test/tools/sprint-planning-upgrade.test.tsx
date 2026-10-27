@@ -841,6 +841,27 @@ describe("Sprint Planning page", () => {
     expect(story("b1")?.backlogRank).toBe(1);
   });
 
+  it("says the imported stories follow the backlog's order, not WSJF alone", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        { id: "i-sso", name: "Single sign-on", rank: 1 },
+        { id: "i-export", name: "Exports" },
+      ],
+    });
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Import from the backlog (2)" }));
+    const [label, opts] = toastSpy.mock.calls.at(-1)!;
+    expect(label).toBe("2 stories imported from the backlog");
+    expect(opts.description).toBe("Ordered in the backlog's decided order, then by priority.");
+  });
+
+  it("says an import of items not ordered yet is by priority", () => {
+    useWorkspaceStore.setState({ backlogItems: [{ id: "i-export", name: "Exports" }] });
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Import from the backlog (1)" }));
+    expect(toastSpy.mock.calls.at(-1)![1].description).toBe("Ordered highest priority first.");
+  });
+
   it("validates the new story inline and saves nothing until it is valid", () => {
     renderPlanning();
     const before = state().stories.length;

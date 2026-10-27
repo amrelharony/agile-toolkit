@@ -339,7 +339,8 @@ export function PlanningBoard({
     const created = candidates.map((item) => storyFromBacklogItem(item, `story_${nanoid(8)}`));
     undoable({
       label: `${storiesCount(created.length)} imported from the backlog`,
-      description: "Ordered by their WSJF score",
+      // The backlog lists them in the shared order (compareBacklogOrder): say which.
+      description: `Ordered ${backlogOrderText(created)}.`,
       apply: () => {
         for (const s of created) writer.upsertStory(s);
       },
