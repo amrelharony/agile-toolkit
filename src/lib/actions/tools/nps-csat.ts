@@ -39,6 +39,8 @@ import {
   tagCounts,
   tagsProblem,
   type SurveyPeriod,
+  RESPONDENT_MAX,
+  VERBATIM_MAX,
 } from "@/lib/nps/score";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import { addDays } from "@/lib/impediments/model";
@@ -156,14 +158,8 @@ registry.register({
 
 /* ── record ─────────────────────────────────────────────────────────── */
 
-/**
- * The longest respondent and verbatim saved: the page's form and import
- * caps (RESPONDENT_MAX / VERBATIM_MAX in app/(tools)/nps-csat/form.ts,
- * which test/actions/tool-nps-csat.test.ts pins these to). A longer one
- * would be stored, then refused by the page's form on its next edit.
- */
-const RESPONDENT_MAX = 120;
-const VERBATIM_MAX = 4000;
+// RESPONDENT_MAX / VERBATIM_MAX (lib/nps): the page's form and import
+// caps. A longer one would be stored, then refused by the form's next edit.
 
 const recordParams = z.object({
   kind: z.enum(["nps", "csat"]),

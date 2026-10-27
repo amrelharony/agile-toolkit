@@ -5,7 +5,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { IconButton } from "@/components/ui/icon-button";
 import type { NpsResponse } from "@/lib/stores/workspace-types";
-import { csatCategory, isReadableScore, npsCategory } from "@/lib/nps/score";
+import { csatCategory, isReadableScore, normalizeTags, npsCategory } from "@/lib/nps/score";
 import { cn } from "@/lib/utils";
 import { responseDraft, type ResponseValues } from "./form";
 import { ResponseForm } from "./response-form";
@@ -147,7 +147,8 @@ export function ResponseRow({
             <li key={t}>
               <button
                 type="button"
-                onClick={() => onTag(t)}
+                // As the filter reads tags (a row an agent tagged before the CRUD normalised them).
+                onClick={() => onTag(normalizeTags(t)[0] ?? t)}
                 className="min-touch-coarse rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label={`Show only responses tagged ${t}`}
               >

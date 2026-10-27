@@ -195,6 +195,11 @@ export function normalizeTags(raw: string | readonly string[]): string[] {
   return out;
 }
 
+/** The longest respondent saved (a name or an email): the page's form and import, record and the CRUD. */
+export const RESPONDENT_MAX = 120;
+/** The longest verbatim saved, for the same writers. */
+export const VERBATIM_MAX = 4000;
+
 /**
  * Why `raw` can't be saved as a response's tags as typed, or null when it
  * can: more than NPS_TAG_LIMIT different tags, or one longer than

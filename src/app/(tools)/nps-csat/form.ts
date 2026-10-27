@@ -15,14 +15,14 @@ import {
   normalizeTags,
   tagsProblem,
   type SurveyKind,
+  RESPONDENT_MAX,
+  VERBATIM_MAX,
 } from "@/lib/nps/score";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import type { Validation } from "@/lib/utils/form";
 
-/** The longest respondent saved: a name or an email. */
-export const RESPONDENT_MAX = 120;
-/** The longest verbatim saved. */
-export const VERBATIM_MAX = 4000;
+/** The longest respondent and verbatim saved: one definition, in lib/nps. */
+export { RESPONDENT_MAX, VERBATIM_MAX };
 
 export interface ResponseDraft {
   /** Unset until picked: there is no default survey. */

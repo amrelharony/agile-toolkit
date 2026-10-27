@@ -76,7 +76,7 @@ import {
   withPendingTechDebt,
 } from "@/lib/tech-debt/legacy";
 import { readLegacyBlob } from "../user-state-blob";
-import { normalizeTags, tagsProblem } from "@/lib/nps/score";
+import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
 import {
@@ -3309,6 +3309,16 @@ function npsWriteProblems(
   }
   if (writes(next, current, "date", patch) && !ISO_DAY.test(next.date)) {
     problems.push('date: the day the answer was given, as "YYYY-MM-DD".');
+  }
+  // The page's form and import caps: a longer one would be stored, then
+  // refused by the form's next edit. Only what the write sets is judged.
+  const tooLong = (key: "respondent" | "verbatim", max: number) =>
+    writes(next, current, key, patch) && (next[key]?.trim().length ?? 0) > max;
+  if (tooLong("respondent", RESPONDENT_MAX)) {
+    problems.push(`respondent: at most ${RESPONDENT_MAX} characters.`);
+  }
+  if (tooLong("verbatim", VERBATIM_MAX)) {
+    problems.push(`verbatim: at most ${VERBATIM_MAX} characters.`);
   }
   return problems;
 }

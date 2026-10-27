@@ -359,6 +359,27 @@ describe("bounds", () => {
     expect((stored as typeof NPS).date).toBe("2026-08-02");
   });
 
+  it("a respondent or verbatim a write sets keeps to the page's caps; a stored one left alone stays", async () => {
+    const nps = "workspace.nps_response";
+    await refusesCreate(
+      nps,
+      "npsResponses",
+      { ...NPS, respondent: "r".repeat(121) },
+      /respondent: at most 120/
+    );
+    await refusesCreate(
+      nps,
+      "npsResponses",
+      { ...NPS, verbatim: "v".repeat(4001) },
+      /verbatim: at most 4000/
+    );
+    await savesCreate(nps, "npsResponses", { ...NPS, respondent: "r".repeat(120) });
+    // A long verbatim stored before the cap doesn't block an edit of something else.
+    const long = { ...NPS, verbatim: "v".repeat(5000) };
+    const stored = await updateInTab(nps, "npsResponses", long, { score: 9 });
+    expect((stored as typeof NPS).score).toBe(9);
+  });
+
   it("a response holds at most 10 tags of 1-40 characters", () => {
     rejects("workspace.nps_response", {
       ...NPS,
