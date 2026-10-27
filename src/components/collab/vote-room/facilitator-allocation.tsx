@@ -427,7 +427,7 @@ export function FacilitatorAllocation({
             ? `Type one person's split from their paper, then Add split: it is added to the totals and cleared. A blank box is ${money(0)}. Results show from ${need} splits, and how the amounts were spread from ${spreadNeed}.`
             : `Type what each item got in all, and how many people split ${money(sheet.budget)} each. A blank box is ${money(0)}. Results show from ${need} people; with totals only, how the amounts were spread isn't known.`}
         </p>
-        <fieldset disabled={saved} className="space-y-3">
+        <fieldset disabled={saved} className="min-w-0 space-y-3">
           <legend className="sr-only">
             {mode === "splits" ? "One person's split" : "Each item's total"}
           </legend>

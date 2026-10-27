@@ -238,7 +238,7 @@ export function PairAnswerForm({
             item.optional === true ? () => pick(key, null) : undefined;
           return (
             <li key={item.id}>
-              <fieldset className="space-y-3 rounded-lg border border-border bg-card p-3">
+              <fieldset className="min-w-0 space-y-3 rounded-lg border border-border bg-card p-3">
                 <legend className="px-1 text-sm font-medium text-text">
                   {i + 1}. {item.text}
                   {/* A real space, so the group's name reads "… (optional)". */}

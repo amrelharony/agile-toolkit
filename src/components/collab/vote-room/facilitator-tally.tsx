@@ -185,7 +185,10 @@ export function FacilitatorTally({
         <ol className="space-y-3">
           {questionnaire.questions.map((q, qi) => (
             <li key={q.id}>
-              <fieldset className="rounded-lg border border-border bg-card p-3" disabled={saved}>
+              <fieldset
+                className="min-w-0 rounded-lg border border-border bg-card p-3"
+                disabled={saved}
+              >
                 <legend className="px-1 text-sm font-medium text-text">
                   {qi + 1}. {q.text}
                   {q.optional === true && <span className="ml-1 text-xs text-sub">(optional)</span>}

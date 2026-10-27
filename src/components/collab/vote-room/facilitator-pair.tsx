@@ -200,7 +200,7 @@ export function FacilitatorPair({
           {sheet.items.map((item, i) => (
             <li key={item.id}>
               <fieldset
-                className="space-y-2 rounded-lg border border-border bg-card p-3"
+                className="min-w-0 space-y-2 rounded-lg border border-border bg-card p-3"
                 disabled={saved}
               >
                 <legend className="px-1 text-sm font-medium text-text">
