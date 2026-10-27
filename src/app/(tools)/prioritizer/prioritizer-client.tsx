@@ -19,13 +19,14 @@
  * (the methods registry and rank.ts), the code tool.prioritizer.* runs.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ArrowUpDown, Plus } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
+import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
 import { SectionCard } from "@/components/shared/section-card";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
@@ -62,8 +63,14 @@ import { MatrixTab } from "./components/matrix-tab";
 
 const NO_ROWS: PrioritizationItem[] = [];
 
-/** The Decide order step's anchor: a link to /prioritizer#decide-order opens it. */
+/** The Decide order step's anchor: a link to /prioritizer#decide-order opens it on load. */
 export const DECIDE_ORDER_HASH = "#decide-order";
+/**
+ * `?open=decide-order` opens it too, and also from a link on this page (a
+ * next step): a hash-only link changes nothing the page can listen to.
+ */
+export const OPEN_PARAM = "open";
+export const DECIDE_ORDER_OPEN = "decide-order";
 
 const TABS = [
   { value: "all", label: "All methods" },
@@ -97,10 +104,17 @@ export function PrioritizerClient() {
     decideTrigger.current?.focus();
   };
 
-  // A next step's "Decide order" link opens that tab.
-  useEffect(() => {
-    if (window.location.hash !== DECIDE_ORDER_HASH) return;
+  // A next step's "Decide order" link opens that tab: ?open=decide-order
+  // (dropped once handled, so the same link works again) or, on load only,
+  // the hash.
+  const loaded = useRef(false);
+  const openFromUrl = useCallback((search: URLSearchParams) => {
+    const onLoad = !loaded.current;
+    loaded.current = true;
+    const asked = search.get(OPEN_PARAM) === DECIDE_ORDER_OPEN;
+    if (!asked && !(onLoad && window.location.hash === DECIDE_ORDER_HASH)) return;
     setTab("decide");
+    if (asked) dropSearchParam(OPEN_PARAM);
     window.requestAnimationFrame(() =>
       document.getElementById(DECIDE_ORDER_HASH.slice(1))?.scrollIntoView({ block: "start" })
     );
@@ -214,6 +228,7 @@ export function PrioritizerClient() {
       description="Your shared backlog: score it with MoSCoW, WSJF, RICE and Value vs Effort here (ICE, Kano and Cost of Delay in their tools), compare every method side by side, and decide the order Sprint Planning imports in."
       category="Sprint Planning & Estimation"
     >
+      <OnSearchParams onChange={openFromUrl} />
       <div ref={exportRef} className="space-y-6">
         {hasExample && <ExampleNotice onClear={clearExample} />}
 

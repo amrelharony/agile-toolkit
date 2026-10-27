@@ -897,6 +897,18 @@ describe("Decide order", () => {
     openTab("RICE");
     expect(screen.getByRole("table", { name: "The backlog by RICE" })).toBeInTheDocument();
   });
+
+  it("opens Decide order from ?open=decide-order, and drops it so the link works again", () => {
+    load();
+    window.history.replaceState(null, "", "/prioritizer?open=decide-order");
+    renderHub();
+    expect(screen.getByRole("tab", { name: "Decide order" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(window.location.search).toBe("");
+    window.history.replaceState(null, "", "/prioritizer");
+  });
 });
 
 /* ── MoSCoW tab ───────────────────────────────────────────────────── */

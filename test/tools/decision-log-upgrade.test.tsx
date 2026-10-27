@@ -646,6 +646,8 @@ describe("?id=, Markdown, the verdict and the time to decide", () => {
     renderPage();
     expect(header("ADR-0001")).toHaveAttribute("aria-expanded", "true");
     expect(header("ADR-0002")).toHaveAttribute("aria-expanded", "false");
+    // Dropped once open, so the same link (a next step on this page) works again.
+    expect(window.location.search).toBe("");
   });
 
   it("exports each record as an ADR section and the log with its verdict", () => {

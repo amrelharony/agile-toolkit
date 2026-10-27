@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type Ref } from "react";
 import { FileText, Plus, Timer } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
 import { ResortChip } from "@/components/shared/resort-chip";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
@@ -105,11 +106,14 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
   // The New button at the top, where focus goes back when the form is cancelled.
   const newRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    const id = readRecordParam(window.location.search);
+  // ?id= on load, and again when a link on this page (a next step) sets it.
+  // It's dropped once the record is open, so the same link works again.
+  const openFromUrl = useCallback((search: URLSearchParams) => {
+    const id = readRecordParam(`?${search}`);
     if (!id) return;
     setOpen((s) => new Set(s).add(id));
     setJumpTo(id);
+    dropSearchParam(RECORD_PARAM);
   }, []);
 
   const shown = useMemo(() => records.filter((d) => matchesTemplate(d, filter)), [records, filter]);
@@ -288,6 +292,7 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
 
   return (
     <ToolPageWrapper toolId={page.toolId} title={page.title} description={page.description}>
+      <OnSearchParams onChange={openFromUrl} />
       {!hydrated ? (
         <p
           role="status"

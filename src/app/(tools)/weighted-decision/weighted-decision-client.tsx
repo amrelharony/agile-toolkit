@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ListChecks, PercentCircle, Scale } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
+import { OnSearchParams } from "@/components/shared/on-search-params";
 import { SectionCard } from "@/components/shared/section-card";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import {
@@ -86,8 +87,9 @@ export function WeightedDecisionClient() {
   const announce = useAnnounce();
   const [chosen, setChosen] = useState<string | null>(null);
 
-  useEffect(() => {
-    const id = readMatrixParam(window.location.search);
+  // ?matrix= on load, and again when a link on this page (a next step) sets it.
+  const chooseFromUrl = useCallback((search: URLSearchParams) => {
+    const id = readMatrixParam(`?${search}`);
     if (id) setChosen(id);
   }, []);
 
@@ -371,6 +373,7 @@ export function WeightedDecisionClient() {
       title="Weighted Decision Matrix (Pugh / MCDA)"
       description="Score each option against weighted criteria. Total = sum of score × weight, once every weighted cell is scored. Best for choosing between similar options."
     >
+      <OnSearchParams onChange={chooseFromUrl} />
       {!hydrated ? (
         <p
           role="status"
