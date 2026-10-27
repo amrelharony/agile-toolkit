@@ -326,13 +326,15 @@ const setOrder = async (store: MethodStore, params: z.infer<typeof SetOrderSchem
   });
   // Only an unstamped item reads its rows: no list is fetched otherwise.
   const rows = changes.some((item) => !savedByEngine(item)) ? await store.rows() : [];
-  const marks = changes.flatMap((item) => markLegacyDifferences(item, rows, { now }));
+  const written = changes.map((item) => ({
+    item,
+    next: applyItemPatch(withLegacyLinks(item, rows), { rank: ranks.get(item.id) }, now),
+  }));
+  const marks = written.flatMap(({ item, next }) =>
+    markLegacyDifferences(item, rows, { now, after: next })
+  );
   if (marks.length > 0) await store.putRows(marks);
-  for (const item of changes) {
-    await store.putItem(
-      applyItemPatch(withLegacyLinks(item, rows), { rank: ranks.get(item.id) }, now)
-    );
-  }
+  for (const { next } of written) await store.putItem(next);
   return { ranked: ranks.size, unranked: items.length - ranks.size, changed: changes.length };
 };
 

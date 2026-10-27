@@ -401,8 +401,9 @@ const setPosition = async (store: MethodStore, params: z.infer<typeof SetPositio
     if (backlogUpdated.length > 0) {
       // Its first save stamps it: the legacy rows that disagree with it
       // keep their question (but this row, whose save answers its own).
-      if (legacy) marks = markLegacyDifferences(item, legacy, { except: row.id, now });
-      await store.putItem(applyItemPatch(base, changes, now));
+      const next = applyItemPatch(base, changes, now);
+      if (legacy) marks = markLegacyDifferences(item, legacy, { except: row.id, now, after: next });
+      await store.putItem(next);
     }
   }
   await store.putRows([

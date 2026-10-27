@@ -90,13 +90,14 @@ function inputChanges(
 const hasChanges = (changes: Partial<BacklogItem>) => Object.keys(changes).length > 0;
 
 /**
- * Just before an item's save stamps it: mark each row linked to it that
- * disagrees with it from before Phase 7 (methods markLegacyDifferences), so
- * its tool still asks which value to keep once the stamp is on. `except` is
- * a row the same save writes itself. Nothing for an item already stamped.
+ * With a save of `stored` as `after`: the legacy marks of the rows linked
+ * to it (methods markLegacyDifferences). Its first save marks each row that
+ * disagrees with it from before Phase 7, so its tool still asks which value
+ * to keep once the stamp is on; a later save settles a question the item
+ * now answers. `except` is a row the same save writes itself.
  */
-function keepLegacyDifferences(stored: BacklogItem, except?: string): void {
-  for (const row of markLegacyDifferences(stored, ws().prioritizations ?? [], { except })) {
+function keepLegacyDifferences(stored: BacklogItem, after: BacklogItem, except?: string): void {
+  for (const row of markLegacyDifferences(stored, ws().prioritizations ?? [], { except, after })) {
     ws().upsertPrioritization(row);
   }
 }
@@ -112,8 +113,9 @@ function applyInputs(
 ): BacklogItem | undefined {
   if (!hasChanges(changes)) return undefined;
   const cur = findBacklogItem(item.id) ?? item;
-  keepLegacyDifferences(cur, except);
+  // The base first: the marks below restamp rows, which must not change it.
   const next = applyItemPatch(itemSaveBase(cur), changes);
+  keepLegacyDifferences(cur, next, except);
   ws().upsertBacklogItem(next);
   return next;
 }
@@ -177,8 +179,8 @@ export function saveBacklogItem(id: string, patch: Partial<BacklogItem>): Backlo
   const base = itemSaveBase(cur);
   const changes = itemPatchChanges(base, patch);
   if (!hasChanges(changes)) return cur;
-  keepLegacyDifferences(cur);
   const next = applyItemPatch(base, changes);
+  keepLegacyDifferences(cur, next);
   ws().upsertBacklogItem(next);
   return next;
 }

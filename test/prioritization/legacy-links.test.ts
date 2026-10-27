@@ -274,6 +274,46 @@ describe("a legacy row that disagrees with its item, past the item's first save"
     expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual([]);
   });
 
+  it("a hub pick of the row's value settles it for good: a later change doesn't ask again", () => {
+    saveBacklogItem("b1", { rank: 1 });
+    saveBacklogItem("b1", { moscow: "could" });
+    // Answered: the mark goes with the save that agreed.
+    expect(storedRow("m2")?.fields).toEqual({ bucket: "could" });
+    saveBacklogItem("b1", { moscow: "should" });
+    expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual([]);
+    expect(storedRow("m2")?.fields).toEqual({ bucket: "could" });
+  });
+
+  it("a first save that writes the row's own value marks nothing", () => {
+    saveBacklogItem("b1", { moscow: "could" });
+    expect(storedItem("b1")).toMatchObject({ moscow: "could" });
+    expect(storedRow("m2")?.fields).toEqual({ bucket: "could" });
+    expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual([]);
+  });
+
+  it("two legacy rows of one method: the older one asks about what the newer one wrote", () => {
+    const older = row(
+      "r1",
+      "rice",
+      { reach: 500, impact: 2, confidence: 50, effort: 2 },
+      {
+        updatedAt: "2026-09-01T09:00:00.000Z",
+      }
+    );
+    const newer = row("r2", "rice", { reach: 300, impact: 1, confidence: 50, effort: 1 });
+    useWorkspaceStore.setState({ backlogItems: [legacy("b1")], prioritizations: [older, newer] });
+    saveBacklogItem("b1", { rank: 1 });
+    // The item takes the newer row's values; the older row keeps its question.
+    expect(storedItem("b1")).toMatchObject({ reach: 300, impact: 1, effort: 1 });
+    expect(storedRow("r1")?.fields?.[LEGACY_DIFFERS_FIELD]).toBe("reach,impact,effort");
+    expect(legacyDifferences(storedRow("r1")!, storedItem("b1")).map((d) => d.key)).toEqual([
+      "reach",
+      "impact",
+      "effort",
+    ]);
+    expect(storedRow("r2")?.fields?.[LEGACY_DIFFERS_FIELD]).toBeUndefined();
+  });
+
   it("a save of the row answers it: the mark goes (Use this row's, Keep the item's, an edit)", () => {
     saveBacklogItem("b1", { rank: 1 });
     // Use this row's: its value written through.

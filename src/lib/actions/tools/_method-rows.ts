@@ -170,16 +170,20 @@ export interface Persisted {
 /**
  * What a persist may keep although it is off a strict scale: the values
  * the existing row shows (read through to its item), else, for a new row
- * linked to an item, what the item holds. The form passes the same.
+ * linked to an item, what the item reads as (its links made before Phase 7
+ * included: `rows`, given for an item the new code never saved). The form
+ * passes the same.
  */
 function heldValues(
   id: MethodId,
   prev: PrioritizationItem | undefined,
-  item: BacklogItem | undefined
+  item: BacklogItem | undefined,
+  rows?: readonly PrioritizationItem[]
 ): Values | undefined {
   const m = method(id);
   if (prev) return m.read(readThrough(prev, item));
-  return item && m.embedded && m.fromBacklog ? m.fromBacklog(item) : undefined;
+  if (!item || !m.embedded || !m.fromBacklog) return undefined;
+  return m.fromBacklog(rows ? withLegacyLinks(item, rows) : item);
 }
 
 /**
@@ -234,6 +238,10 @@ export async function persistMethodRows(
 ): Promise<Persisted[]> {
   const { ctx, mayOmit = [], keep = [], fallback = {} } = opts;
   const m = method(id);
+  // The rows as they were before this persist, read once and only for an
+  // item the new code never saved (legacyLinked).
+  let before: PrioritizationItem[] | undefined;
+  const rowsBefore = async () => (before ??= await store.rows());
   // Look everything up first, so an invalid input writes nothing.
   const planned: {
     input: PersistInput;
@@ -252,7 +260,8 @@ export async function persistMethodRows(
         `No backlog item ${input.backlogItemId}: list them with tool.prioritizer.list_state.`
       );
     }
-    const held = heldValues(id, prev, item);
+    const legacyRows = !prev && item && !savedByEngine(item) ? await rowsBefore() : undefined;
+    const held = heldValues(id, prev, item, legacyRows);
     const values = persistValues(input, held, keep, fallback);
     assertValid(id, values, input.title, mayOmit, held);
     planned.push({ input, values, prev, linkId });
@@ -260,10 +269,6 @@ export async function persistMethodRows(
   const now = new Date().toISOString();
   const out: Persisted[] = [];
   const itemWrites = new Map<string, BacklogItem>();
-  // The rows as they were before this persist, read once and only for an
-  // item the new code never saved (legacyLinked).
-  let before: PrioritizationItem[] | undefined;
-  const rowsBefore = async () => (before ??= await store.rows());
   const marks = new Map<string, PrioritizationItem>();
   for (const { input, values, prev, linkId } of planned) {
     const rowId = input.id ?? newRowId();
@@ -293,10 +298,13 @@ export async function persistMethodRows(
       if (written.length > 0) {
         // Its first save stamps it: mark the legacy rows that disagree with
         // it first, but for this row, whose save answers its own question.
-        for (const r of legacy ? markLegacyDifferences(item, legacy, { except: rowId, now }) : []) {
+        shownItem = applyItemPatch(base, changes, now);
+        const after = shownItem;
+        for (const r of legacy
+          ? markLegacyDifferences(item, legacy, { except: rowId, now, after })
+          : []) {
           marks.set(r.id, r);
         }
-        shownItem = applyItemPatch(base, changes, now);
         itemWrites.set(item.id, shownItem);
       }
     }

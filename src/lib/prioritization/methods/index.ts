@@ -229,33 +229,18 @@ export function withoutLegacyMark(fields: RowFields | undefined): RowFields | un
 }
 
 /**
- * Where a row linked before Phase 7 holds another value than its item:
- * old items carry no date, so nothing says which side is newer (a tool
- * edit changed only the row, a hub edit only the item). The item's value
- * counts, as the binding says; the tool asks once which to keep.
- *
- * For an item the new code never saved, every input both hold differently.
- * Once it is saved (stamped), only the inputs the row's legacy mark names
- * (LEGACY_DIFFERS_FIELD, written by markLegacyDifferences just before that
- * first save), while they still differ: the stamp says nothing about the
- * row, so the question outlives a save that never answered it (a Decide
- * order, a rename, another method's save). Empty when the row's own inputs
- * are the old defaults, and once the row is saved (its mark goes).
+ * Every input a linked row's own fields hold differently from what it
+ * shows through `item`: none for a row whose own inputs are the old
+ * defaults (they add nothing), or one not linked to `item`.
  */
-export function legacyDifferences(
-  row: PrioritizationItem,
-  item: BacklogItem | undefined
-): LegacyDifference[] {
+function rowDifferences(row: PrioritizationItem, item: BacklogItem): LegacyDifference[] {
   const m = methodFor(row.framework);
-  if (!m || !m.embedded || !m.fromBacklog || !item || row.backlogItemId !== item.id) return [];
-  const marked = savedByEngine(item) ? markedKeys(row) : undefined;
-  if (marked && marked.length === 0) return [];
+  if (!m || !m.embedded || !m.fromBacklog || row.backlogItemId !== item.id) return [];
   const own = m.read(row.fields ?? {});
   if (isOldDefaultCopy(m, own)) return [];
   const shown = m.read(readThrough(row, item));
   const out: LegacyDifference[] = [];
   for (const input of ownedInputs(m)) {
-    if (marked && !marked.includes(input.key)) continue;
     const a = own[input.key];
     const b = shown[input.key];
     if (a === undefined || b === undefined || a === b) continue;
@@ -265,35 +250,75 @@ export function legacyDifferences(
 }
 
 /**
- * The linked rows to write before `item`'s first save through the new
- * code, so their legacy differences outlive its stamp: each row linked to
- * it (except `except`, the row a save is writing itself) whose
- * legacyDifferences are not empty, with LEGACY_DIFFERS_FIELD set to the
- * differing input keys in its fields and `updatedAt` stamped `now`. A row
- * already marked with the same keys is left out.
+ * Where a row linked before Phase 7 holds another value than its item:
+ * old items carry no date, so nothing says which side is newer (a tool
+ * edit changed only the row, a hub edit only the item). The item's value
+ * counts, as the binding says; the tool asks once which to keep.
  *
- * Call it with the item as stored, before applyItemPatch stamps it (every
- * item-stamping path: the hub's saves, a method tool's write-through, the
- * agent's set_order, a backlog_item update), and upsert what it returns.
- * Empty for an item already stamped (its first save is past) or with no
- * such row. Pure; "Use this row's", "Keep the backlog item's" and any later
- * save of the row clear the mark (binding methodRow drops it).
+ * For an item the new code never saved, every input both hold differently.
+ * Once it is saved (stamped), only the inputs the row's legacy mark names
+ * (LEGACY_DIFFERS_FIELD, written by markLegacyDifferences at that first
+ * save), while they still differ: the stamp says nothing about the row, so
+ * the question outlives a save that never answered it (a Decide order, a
+ * rename, another method's save). Empty when the row's own inputs are the
+ * old defaults, and once the row is saved (its mark goes).
+ */
+export function legacyDifferences(
+  row: PrioritizationItem,
+  item: BacklogItem | undefined
+): LegacyDifference[] {
+  if (!item) return [];
+  const diffs = rowDifferences(row, item);
+  if (!savedByEngine(item)) return diffs;
+  const marked = markedKeys(row);
+  return marked.length === 0 ? [] : diffs.filter((d) => marked.includes(d.key));
+}
+
+/**
+ * The linked rows whose legacy mark a save of `item` changes; upsert what
+ * it returns with the save. `item` is the item as stored and `after` the
+ * item the save writes (stamped by applyItemPatch); without `after` the
+ * item is taken as unchanged. `except` is the row the save writes itself
+ * (its own save answers its question). `now` stamps the rows written.
+ *
+ * - The item's first save through the new code (`item` unstamped): each
+ *   row is marked with the inputs it holds differently from `after`, so
+ *   the question outlives the stamp. A save that writes the row's own
+ *   value answers it, so nothing is marked for that input.
+ * - A later save (`item` stamped): a marked input the item agrees with,
+ *   before or after this save, is answered and leaves the mark (the field
+ *   goes with its last key), so a later change of the item never brings
+ *   back a question that was settled. No input is ever added.
+ *
+ * Pure; every item-saving path calls it (the hub's saves, a method tool's
+ * write-through, the agent's set_order, persists and backlog_item writes).
+ * "Use this row's", "Keep the backlog item's" and any later save of the
+ * row clear the mark too (binding methodRow drops it).
  */
 export function markLegacyDifferences(
   item: BacklogItem,
   rows: readonly PrioritizationItem[],
-  opts: { except?: string; now?: string } = {}
+  opts: { except?: string; now?: string; after?: BacklogItem } = {}
 ): PrioritizationItem[] {
-  if (savedByEngine(item)) return [];
-  const now = opts.now ?? new Date().toISOString();
+  const after = opts.after ?? item;
+  const first = !savedByEngine(item);
   const out: PrioritizationItem[] = [];
+  let now: string | undefined;
   for (const row of rows) {
     if (row.backlogItemId !== item.id || row.id === opts.except) continue;
-    const diffs = legacyDifferences(row, item);
-    if (diffs.length === 0) continue;
-    const keys = diffs.map((d) => d.key).join(",");
-    if (row.fields?.[LEGACY_DIFFERS_FIELD] === keys) continue;
-    out.push({ ...row, fields: { ...row.fields, [LEGACY_DIFFERS_FIELD]: keys }, updatedAt: now });
+    const had = markedKeys(row);
+    if (!first && had.length === 0) continue;
+    const differs = new Set(rowDifferences(row, after).map((d) => d.key));
+    const keys = first
+      ? Array.from(differs)
+      : had.filter((k) => differs.has(k) && rowDifferences(row, item).some((d) => d.key === k));
+    if (keys.join(",") === had.join(",")) continue;
+    now ??= opts.now ?? new Date().toISOString();
+    const fields =
+      keys.length > 0
+        ? { ...row.fields, [LEGACY_DIFFERS_FIELD]: keys.join(",") }
+        : (withoutLegacyMark(row.fields) ?? {});
+    out.push({ ...row, fields, updatedAt: now });
   }
   return out;
 }
