@@ -1,37 +1,65 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import { Lightbulb, ListChecks, X } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Trash2, Lightbulb, Activity } from "lucide-react";
-import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
-import { generateHypothesisTrackerPrompts } from "@/lib/ai-prompts/hypothesis-tracker";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { HYPOTHESIS_ACTIONS } from "@/lib/history/event-actions";
-import { ActionRow } from "@/components/shared/action-row";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
+import { ChartFigure } from "@/components/shared/chart-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
+import { generateHypothesisTrackerPrompts } from "@/lib/ai-prompts/hypothesis-tracker";
+import { sourceLabel } from "@/lib/handoffs/registry";
+import { HYPOTHESIS_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import {
+  HYPOTHESIS_TRACKER_ID,
+  applyHypothesisValues,
+  formatMetric,
+  hypothesisVerdict,
+  missingFields,
+  suggestionText,
+  withHypothesis,
+  type HypothesisValues,
+} from "@/lib/hypotheses/model";
 import { emit as sonify } from "@/lib/sonification/emit";
-import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Hypothesis, HypothesisTracker } from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { removeWithUndo } from "@/lib/utils/undoable";
+import { buildExample } from "./example";
+import { HypothesisCard, type CardChange } from "./hypothesis-card";
+import { NewHypothesisForm } from "./hypothesis-form";
+import { hypothesesToMarkdown } from "./markdown";
+import {
+  STATUS_FILTERS,
+  countedRows,
+  filterCounts,
+  matchesFilter,
+  missingText,
+  rateOf,
+  rateText,
+  statusLabel,
+  targetText,
+  timeToLearn,
+  type StatusFilter,
+} from "./view";
 
 // Recharts loads with the survival chart, not the page.
 const SurvivalCurveChart = dynamic(() => import("./charts").then((m) => m.SurvivalCurveChart), {
@@ -41,452 +69,356 @@ const SurvivalCurveChart = dynamic(() => import("./charts").then((m) => m.Surviv
   ),
 });
 
-type Status = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
+// Stable empty lists: zustand re-renders forever on a selector that
+// returns a fresh array each call.
+const NO_TRACKERS: HypothesisTracker[] = [];
+const NONE: Hypothesis[] = [];
 
-interface Hypothesis {
-  id: string;
-  // Optional rationale/context captured at creation. Distinct from `outcome`,
-  // which is filled in only after the hypothesis resolves.
-  description?: string;
-  believe: string;
-  willDo: string;
-  toLearn: string;
-  successMetric: string;
-  experiment?: string;
-  outcome?: string;
-  status: Status;
-  raisedAt: string;
-  resolvedAt?: string;
-}
+const RESULTS = ["result", "results"] as const;
 
-function empty(): Hypothesis {
-  return {
-    id: nanoid(8),
-    believe: "",
-    willDo: "",
-    toLearn: "",
-    successMetric: "",
-    status: "drafted",
-    raisedAt: todayLocalISO(),
-  };
-}
+/** Added to the announcement when a change takes the card out of the filtered list. */
+const HIDDEN_NOTE = ", now hidden by the filter";
 
-function setStatus(h: Hypothesis, status: Status): Hypothesis {
-  const done = status === "validated" || status === "invalidated" || status === "inconclusive";
-  return { ...h, status, resolvedAt: done ? (h.resolvedAt ?? todayLocalISO()) : undefined };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type TextField =
-  | "description"
-  | "believe"
-  | "willDo"
-  | "toLearn"
-  | "successMetric"
-  | "experiment"
-  | "outcome";
-
-function useDraftField(value: string, commit: (next: string) => void) {
-  const [draft, setDraft] = useState(value);
-  const lastRef = useRef(value);
-  useEffect(() => {
-    setDraft(value);
-    lastRef.current = value;
-  }, [value]);
-  const onBlur = () => {
-    // Cap committed value at 4000 chars. Hypothesis statements / outcomes
-    // are essay-length but rarely book-length; without the cap a paste-bomb
-    // would balloon the persisted store past the 5 MB origin quota and
-    // silently kill writes for every other tool on this domain.
-    const next = draft.slice(0, 4000);
-    if (next !== lastRef.current) {
-      lastRef.current = next;
-      commit(next);
-    }
-  };
-  return { draft, setDraft, onBlur };
-}
-
-function HypothesisRow({
-  h,
-  update,
-  logUpdate,
-  updateStatus,
-  remove,
-}: {
-  h: Hypothesis;
-  update: (id: string, patch: Partial<Hypothesis>) => void;
-  logUpdate: (id: string, fields: string[]) => void;
-  updateStatus: (id: string, status: Status) => void;
-  remove: (id: string) => void;
-}) {
-  const uid = useId();
-  const description = useDraftField(h.description ?? "", (next) => {
-    update(h.id, { description: next });
-    logUpdate(h.id, ["description"]);
-  });
-  const believe = useDraftField(h.believe, (next) => {
-    update(h.id, { believe: next });
-    logUpdate(h.id, ["believe"]);
-  });
-  const willDo = useDraftField(h.willDo, (next) => {
-    update(h.id, { willDo: next });
-    logUpdate(h.id, ["willDo"]);
-  });
-  const toLearn = useDraftField(h.toLearn, (next) => {
-    update(h.id, { toLearn: next });
-    logUpdate(h.id, ["toLearn"]);
-  });
-  const successMetric = useDraftField(h.successMetric, (next) => {
-    update(h.id, { successMetric: next });
-    logUpdate(h.id, ["successMetric"]);
-  });
-  const experiment = useDraftField(h.experiment ?? "", (next) => {
-    update(h.id, { experiment: next });
-    logUpdate(h.id, ["experiment"]);
-  });
-  const outcome = useDraftField(h.outcome ?? "", (next) => {
-    update(h.id, { outcome: next });
-    logUpdate(h.id, ["outcome"]);
-  });
-
-  return (
-    <Card className="bg-surface border-border">
-      <CardContent className="p-4 space-y-3">
-        {/* Optional one-line context for the hypothesis. Captured at
-            creation, distinct from the post-hoc `outcome` field. */}
-        <Textarea
-          rows={2}
-          value={description.draft}
-          onChange={(e) => description.setDraft(e.target.value)}
-          onBlur={description.onBlur}
-          placeholder="Description (optional) — context, link, or rationale..."
-          className="bg-bg border-border text-sm"
-          aria-label="Description (optional)"
-        />
-        <div className="flex items-start gap-3">
-          <Lightbulb className="w-5 h-5 text-accent mt-0.5 shrink-0" />
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
-            <div>
-              <label htmlFor={`${uid}-believe`} className="block text-xs uppercase text-sub mb-1">
-                We believe
-              </label>
-              <Textarea
-                id={`${uid}-believe`}
-                rows={2}
-                value={believe.draft}
-                onChange={(e) => believe.setDraft(e.target.value)}
-                onBlur={believe.onBlur}
-                placeholder="... that users want X"
-                className="bg-bg border-border text-sm"
-              />
-            </div>
-            <div>
-              <label htmlFor={`${uid}-willDo`} className="block text-xs uppercase text-sub mb-1">
-                We will do
-              </label>
-              <Textarea
-                id={`${uid}-willDo`}
-                rows={2}
-                value={willDo.draft}
-                onChange={(e) => willDo.setDraft(e.target.value)}
-                onBlur={willDo.onBlur}
-                placeholder="... ship feature Y"
-                className="bg-bg border-border text-sm"
-              />
-            </div>
-            <div>
-              <label htmlFor={`${uid}-toLearn`} className="block text-xs uppercase text-sub mb-1">
-                To learn
-              </label>
-              <Textarea
-                id={`${uid}-toLearn`}
-                rows={2}
-                value={toLearn.draft}
-                onChange={(e) => toLearn.setDraft(e.target.value)}
-                onBlur={toLearn.onBlur}
-                placeholder="... whether users engage"
-                className="bg-bg border-border text-sm"
-              />
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 items-end">
-            <Select value={h.status} onValueChange={(v) => updateStatus(h.id, v as Status)}>
-              <SelectTrigger
-                className="bg-bg border-border w-full sm:w-36 capitalize"
-                aria-label="Hypothesis status"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(
-                  ["drafted", "running", "validated", "invalidated", "inconclusive"] as Status[]
-                ).map((s) => (
-                  <SelectItem key={s} value={s} className="capitalize">
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => remove(h.id)}
-              className="text-sub hover:text-danger"
-              aria-label="Delete hypothesis"
-            >
-              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <Input
-            value={successMetric.draft}
-            onChange={(e) => successMetric.setDraft(e.target.value)}
-            onBlur={successMetric.onBlur}
-            placeholder="Success metric (e.g. 30% DAU activation within 14 days)"
-            className="bg-bg border-border text-sm"
-            aria-label="Success metric"
-          />
-          <Input
-            value={experiment.draft}
-            onChange={(e) => experiment.setDraft(e.target.value)}
-            onBlur={experiment.onBlur}
-            placeholder="Experiment design"
-            className="bg-bg border-border text-sm"
-            aria-label="Experiment design"
-          />
-        </div>
-        {h.resolvedAt && (
-          <Textarea
-            rows={2}
-            value={outcome.draft}
-            onChange={(e) => outcome.setDraft(e.target.value)}
-            onBlur={outcome.onBlur}
-            placeholder="Outcome: what did we learn?"
-            className="bg-bg border-border text-sm"
-            aria-label="Outcome"
-          />
-        )}
-        <div className="text-xs text-sub flex items-center gap-3">
-          <Badge variant="outline" className="capitalize">
-            {h.status}
-          </Badge>
-          <span>raised {h.raisedAt}</span>
-          {h.resolvedAt && <span>resolved {h.resolvedAt}</span>}
-        </div>
-      </CardContent>
-    </Card>
+/** The Edit button of the card for `id`; ids go in no selector, so need no escaping. */
+function editButtonOf(id: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-hypothesis-edit]")).find(
+    (el) => el.getAttribute("data-hypothesis-edit") === id
   );
 }
 
-const HT_ID = "hypothesisTracker:current"; // MUST match HT_ID in hypothesis-tracker.ts.
-const EMPTY_HYPOTHESES: Hypothesis[] = [];
+const titleOf = (h: Pick<Hypothesis, "believe">) => h.believe?.trim() || "Untitled hypothesis";
 
-// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
-// the hypotheses[] array. Drop-in [state, setState] (structural types).
-function useHypotheses(): [
-  Hypothesis[],
-  (u: Hypothesis[] | ((p: Hypothesis[]) => Hypothesis[])) => void,
-] {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.hypothesisTrackers ?? []).find((d) => d.id === HT_ID))
-  );
-  const upsert = useWorkspaceStore((s) => s.upsertHypothesisTracker);
-  const items = doc?.hypotheses ?? EMPTY_HYPOTHESES;
-  const setItems = (u: Hypothesis[] | ((p: Hypothesis[]) => Hypothesis[])) => {
-    const cur =
-      (useWorkspaceStore.getState().hypothesisTrackers ?? []).find((d) => d.id === HT_ID)
-        ?.hypotheses ?? [];
-    const next = typeof u === "function" ? u(cur) : u;
-    upsert({ id: HT_ID, hypotheses: next });
-  };
-  return [items, setItems];
-}
-
+/**
+ * Hypothesis Tracker: product bets as testable hypotheses. A new one is
+ * saved only once it is complete (validateHypothesis, the same check the
+ * agent's add_hypothesis runs); a hand-off draft from Riskiest
+ * Assumption, the Opportunity Tree, Cynefin or a Design Sprint arrives
+ * with what it knows and reads "Needs detail" until it can run. A numeric
+ * target and the measured result suggest a verdict the team applies; the
+ * validation rate leaves inconclusive results out and reads "—" with no
+ * decisive result. Every number comes from lib/hypotheses, as
+ * tool.hypothesis_tracker reads it.
+ */
 export function HypothesisTrackerClient() {
-  const [items, setItems] = useHypotheses();
+  const hydrated = useWorkspaceHydrated();
+  const trackers = useWorkspaceStore((s) => s.hypothesisTrackers) ?? NO_TRACKERS;
+  const list = trackers.find((d) => d.id === HYPOTHESIS_TRACKER_ID)?.hypotheses ?? NONE;
+  const today = todayLocalISO();
   const { log } = useHistoryLogger("hypothesis-tracker");
+  const announce = useAnnounce();
+  const [filter, setFilter] = useState<StatusFilter>("all");
+  const exportRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
-  const add = () => {
-    const item = empty();
-    setItems((s) => [item, ...s]);
-    log(HYPOTHESIS_ACTIONS.HYPOTHESIS_ADDED, { hypothesisId: item.id });
-  };
-  const update = (id: string, patch: Partial<Hypothesis>) => {
-    setItems((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  };
-  const logUpdate = (id: string, fields: string[]) => {
-    log(HYPOTHESIS_ACTIONS.HYPOTHESIS_UPDATED, {
-      hypothesisId: id,
-      fields,
+  const counted = useMemo(() => countedRows(list), [list]);
+  // The same function the agent's list_state calls, over the same rows.
+  const rate = useMemo(() => rateOf(counted), [counted]);
+  const verdict = hypothesisVerdict(rate);
+  const learn = useMemo(() => timeToLearn(counted.rows, new Date()), [counted]);
+  const counts = useMemo(() => filterCounts(list), [list]);
+  const shown = useMemo(() => list.filter((h) => matchesFilter(h, filter)), [list, filter]);
+  const needsDetail = counts["needs-detail"];
+
+  /* ── Writes ── */
+
+  const ws = () => useWorkspaceStore.getState();
+  const current = () =>
+    (ws().hypothesisTrackers ?? []).find((d) => d.id === HYPOTHESIS_TRACKER_ID) ?? null;
+  const updateList = (fn: (list: readonly Hypothesis[]) => Hypothesis[]) => {
+    const doc = current();
+    ws().upsertHypothesisTracker({
+      ...(doc ?? {}),
+      id: HYPOTHESIS_TRACKER_ID,
+      hypotheses: fn(doc?.hypotheses ?? []),
     });
   };
-  const updateStatus = (id: string, status: Status) => {
-    if (status === "validated") sonify("hypothesis-tracker", "validated");
-    else if (status === "invalidated") sonify("hypothesis-tracker", "invalidated");
-    else sonify("hypothesis-tracker", "status-change");
-    const prev = items.find((x) => x.id === id);
-    setItems((s) => s.map((x) => (x.id === id ? setStatus(x, status) : x)));
-    log(HYPOTHESIS_ACTIONS.STATUS_CHANGED, {
-      hypothesisId: id,
-      from: prev?.status,
-      to: status,
-    });
-  };
-  const remove = (id: string) => {
-    const item = items.find((x) => x.id === id);
-    setItems((s) => s.filter((x) => x.id !== id));
-    log(HYPOTHESIS_ACTIONS.HYPOTHESIS_REMOVED, {
-      hypothesisId: id,
-      believe: item?.believe,
-    });
+  const put = (h: Hypothesis) => ws().upsertHypothesisTracker(withHypothesis(current(), h));
+  // Example rows aren't the team's history.
+  const record = (id: string, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(id)) log(action, payload);
   };
 
-  const validationRate = useMemo(() => {
-    const closed = items.filter((i) => i.resolvedAt);
-    if (closed.length === 0) return 0;
-    return closed.filter((i) => i.status === "validated").length / closed.length;
-  }, [items]);
-
-  // ── Tier-2: KM survival on validation time (raised → validated/invalidated) ──
-  const resolvedDurations = useMemo(
-    () =>
-      items
-        .filter((i) => i.resolvedAt)
-        .map((i) => {
-          const start = new Date(i.raisedAt).getTime();
-          const end = new Date(i.resolvedAt!).getTime();
-          // Bail out for malformed dates by returning NaN, which the
-          // `Number.isFinite` filter below excludes. Without this, a bad
-          // entry produced `NaN` (start) − `NaN` (end) = `NaN` which then
-          // poisoned the survival series and broke the chart.
-          if (!Number.isFinite(start) || !Number.isFinite(end)) return NaN;
-          return Math.max(0, Math.round((end - start) / 86_400_000));
-        })
-        .filter((d) => Number.isFinite(d)),
-    [items]
-  );
-
-  const survivalCurve = useMemo(() => {
-    if (resolvedDurations.length < 4) return [];
-    const obs = durationsFromTimeRanges(
-      items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt }))
+  /** Focus the card shown after `id` (or before it), else the "New hypothesis" button. */
+  function focusPast(id: string) {
+    const at = shown.findIndex((h) => h.id === id);
+    const near = at >= 0 ? (shown[at + 1] ?? shown[at - 1]) : undefined;
+    requestAnimationFrame(() =>
+      (
+        (near && editButtonOf(near.id)) ||
+        formRef.current?.querySelector<HTMLElement>("[data-new-hypothesis], input")
+      )?.focus()
     );
-    return kaplanMeier(obs);
-  }, [items, resolvedDurations.length]);
+  }
 
-  const medianTimeToValidate = medianSurvivalTime(survivalCurve);
+  function add(values: HypothesisValues) {
+    const h = applyHypothesisValues({ id: nanoid(8) }, values);
+    put(h);
+    record(h.id, HYPOTHESIS_ACTIONS.HYPOTHESIS_ADDED, { hypothesisId: h.id, status: h.status });
+    // A new hypothesis the filter would hide is shown: the filter goes back to All.
+    if (!matchesFilter(h, filter)) setFilter("all");
+    announce(`Added “${titleOf(h)}”`);
+  }
 
-  const survivalChartData = useMemo(
-    () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    [survivalCurve]
-  );
+  function save(h: Hypothesis, values: HypothesisValues, what: CardChange) {
+    const next = applyHypothesisValues(h, values);
+    if (JSON.stringify(next) === JSON.stringify(h)) return;
+    put(next);
+    if (next.status !== h.status) {
+      if (next.status === "validated") sonify("hypothesis-tracker", "validated");
+      else if (next.status === "invalidated") sonify("hypothesis-tracker", "invalidated");
+      else sonify("hypothesis-tracker", "status-change");
+      record(h.id, HYPOTHESIS_ACTIONS.STATUS_CHANGED, {
+        hypothesisId: h.id,
+        from: h.status,
+        to: next.status,
+      });
+    }
+    if (what === "result") {
+      record(h.id, HYPOTHESIS_ACTIONS.RESULT_RECORDED, {
+        hypothesisId: h.id,
+        actual: next.actual ?? null,
+      });
+    } else if (what !== "status") {
+      const fields = (Object.keys(values) as (keyof HypothesisValues)[]).filter(
+        (k) => JSON.stringify(next[k]) !== JSON.stringify(h[k])
+      );
+      record(h.id, HYPOTHESIS_ACTIONS.HYPOTHESIS_UPDATED, { hypothesisId: h.id, fields });
+    }
+    const hidden = !matchesFilter(next, filter);
+    const done =
+      next.status !== h.status
+        ? `“${titleOf(next)}” is now ${statusLabel(next.status).toLowerCase()}`
+        : what === "result"
+          ? (suggestionText(next) ?? `Cleared the result of “${titleOf(next)}”`)
+          : `Saved “${titleOf(next)}”`;
+    announce(`${done}${hidden ? HIDDEN_NOTE : ""}`);
+    if (hidden) focusPast(h.id);
+  }
 
+  function remove(h: Hypothesis) {
+    focusPast(h.id);
+    // Undo puts it back where it was, with its id, so a riskiest assumption
+    // or an experiment that sent it links to it again.
+    removeWithUndo<Hypothesis>({
+      label: `Deleted “${titleOf(h)}”`,
+      update: updateList,
+      match: (x) => x.id === h.id,
+    });
+    record(h.id, HYPOTHESIS_ACTIONS.HYPOTHESIS_REMOVED, {
+      hypothesisId: h.id,
+      believe: h.believe,
+    });
+    announce(`Deleted “${titleOf(h)}”`);
+  }
+
+  const loadExample = () => updateList((l) => [...buildExample(today), ...l]);
+  const clearExample = () => updateList((l) => l.filter((h) => !isExampleId(h.id)));
+
+  /* ── Exports ── */
+
+  const markdown = hypothesesToMarkdown(list, rate);
+  const csvData = {
+    headers: [
+      "We believe",
+      "We will",
+      "To learn",
+      "Success looks like",
+      "Target",
+      "Measured",
+      "Suggested verdict",
+      "Experiment",
+      "Context",
+      "What we learned",
+      "Status",
+      "Raised",
+      "Result on",
+      "Source",
+      "Needs detail",
+    ],
+    rows: list.map((h) => [
+      h.believe,
+      h.willDo,
+      h.toLearn,
+      h.successMetric,
+      h.target ? targetText(h.target) : "",
+      typeof h.actual === "number" ? formatMetric(h.actual, h.target?.unit) : "",
+      suggestionText(h) ?? "",
+      h.experiment ?? "",
+      h.description ?? "",
+      h.outcome ?? "",
+      statusLabel(h.status),
+      (h.raisedAt ?? "").slice(0, 10),
+      (h.resolvedAt ?? "").slice(0, 10),
+      sourceLabel(h.sourceRef) ?? "",
+      missingText(missingFields(h)),
+    ]),
+  };
   const promptConfig = useMemo(
     () => ({
       toolName: "Hypothesis Tracker",
-      prompts: generateHypothesisTrackerPrompts({ items, validationRate, medianTimeToValidate }),
+      prompts: generateHypothesisTrackerPrompts({
+        items: counted.rows,
+        // The prompt takes a number; with no decisive result it gets 0 and
+        // the verdict above says why (lib/ai-prompts is the main session's).
+        validationRate: rate.rate ?? 0,
+        medianTimeToValidate: learn.median,
+      }),
     }),
-    [items, validationRate, medianTimeToValidate]
+    [counted, rate, learn.median]
   );
+
+  const filterOptions: ToggleOption<StatusFilter>[] = STATUS_FILTERS.map(([value, label]) => ({
+    value,
+    label: `${label} (${counts[value]})`,
+  }));
 
   return (
     <ToolPageWrapper
       toolId="hypothesis-tracker"
       title="Hypothesis Tracker"
-      description="Frame product bets as testable hypotheses. Track validation rate and median time-to-learn."
+      description="Frame product bets as testable hypotheses, set a numeric target, and see which held up."
       category="Product Discovery"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="hypotheses"
-          csvData={{
-            headers: [
-              "Description",
-              "Believe",
-              "Will do",
-              "To learn",
-              "Success metric",
-              "Experiment",
-              "Outcome",
-              "Status",
-              "Raised",
-              "Resolved",
-            ],
-            rows: items.map((i) => [
-              i.description ?? "",
-              i.believe,
-              i.willDo,
-              i.toLearn,
-              i.successMetric,
-              i.experiment ?? "",
-              i.outcome ?? "",
-              i.status,
-              i.raisedAt,
-              i.resolvedAt ?? "",
-            ]),
-          }}
-          jsonData={items}
-        />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          New Hypothesis
-        </Button>
-      </ActionRow>
+      <div ref={exportRef} className="space-y-6">
+        {hasExampleItems(list) && <ExampleNotice onClear={clearExample} />}
 
-      <KpiGrid cols={3}>
-        <StatCard variant="compact" label="Total" value={items.length} />
-        <StatCard
-          variant="compact"
-          label="Validation Rate"
-          value={`${Math.round(validationRate * 100)}%`}
-          hint="of closed hypotheses"
-          valueClassName="text-accent"
-        />
-        <StatCard
-          variant="compact"
-          label="Median Time to Learn"
-          value={medianTimeToValidate !== null ? `${medianTimeToValidate}d` : "—"}
-        />
-      </KpiGrid>
+        <div ref={formRef}>
+          <NewHypothesisForm today={today} onAdd={add} />
+        </div>
 
-      {survivalChartData.length > 1 && (
-        <SectionCard
-          title="Validation survival curve"
-          icon={Activity}
-          titleSuffix={
-            medianTimeToValidate !== null ? `Median ${medianTimeToValidate}d` : undefined
-          }
-          className="my-4"
-        >
-          <div className="h-40 -mx-2">
-            <SurvivalCurveChart data={survivalChartData} />
-          </div>
-          <p className="text-xs text-sub mt-2">
-            Kaplan-Meier estimate over {resolvedDurations.length} resolved hypothes
-            {resolvedDurations.length === 1 ? "is" : "es"} (drafted / running are right-censored).
-            Y-axis: probability the hypothesis is still open after N days.
-          </p>
-        </SectionCard>
-      )}
+        {list.length === 0 ? (
+          hydrated && (
+            <EmptyState icon={Lightbulb} action={<LoadExampleButton onLoad={loadExample} />}>
+              No hypotheses yet. Use “New hypothesis” to frame a bet you can test, or load an
+              example to see the tracker filled in. Assumptions, experiments and complex problems
+              sent from Riskiest Assumption, the Opportunity Tree and Cynefin land here too.
+            </EmptyState>
+          )
+        ) : (
+          <>
+            <KpiGrid cols={3}>
+              <StatCard
+                variant="compact"
+                label="Open"
+                value={rate.open}
+                hint="drafted or running"
+              />
+              <StatCard
+                variant="compact"
+                label="Validation rate"
+                value={rateText(rate)}
+                hint={
+                  rate.rate === null
+                    ? "no decisive result yet"
+                    : `${rate.validated} of ${rate.decisive} decisive${rate.inconclusive > 0 ? ` · ${rate.inconclusive} inconclusive not counted` : ""}`
+                }
+                valueClassName="text-accent"
+              />
+              <StatCard
+                variant="compact"
+                label="Needs detail"
+                value={needsDetail}
+                hint="what we'll do or the success metric"
+                tone={needsDetail > 0 ? "warning" : "default"}
+              />
+            </KpiGrid>
 
-      <div className="space-y-3">
-        {items.map((h) => (
-          <HypothesisRow
-            key={h.id}
-            h={h}
-            update={update}
-            logUpdate={logUpdate}
-            updateStatus={updateStatus}
-            remove={remove}
-          />
-        ))}
-        {items.length === 0 && (
-          <EmptyState icon={Lightbulb}>
-            No hypotheses yet. Click &ldquo;New Hypothesis&rdquo; to start.
-          </EmptyState>
+            <SectionCard
+              title={`Hypotheses (${list.length})`}
+              icon={ListChecks}
+              actions={
+                <>
+                  <AiPromptGenerator config={promptConfig} />
+                  <ExportButton
+                    filename="hypotheses"
+                    csvData={csvData}
+                    jsonData={list}
+                    markdown={markdown}
+                    targetRef={exportRef}
+                  />
+                </>
+              }
+              contentClassName="space-y-4"
+            >
+              <p className="text-sm font-medium text-text">
+                {verdict}
+                {counted.example && <span className="text-sub"> (the example)</span>}
+              </p>
+
+              <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-sm text-text" aria-hidden="true">
+                    Show
+                  </span>
+                  <ToggleGroup
+                    label="Show hypotheses"
+                    size="sm"
+                    options={filterOptions}
+                    value={filter}
+                    onValueChange={setFilter}
+                  />
+                </div>
+                {filter !== "all" && (
+                  <p className="flex items-center gap-2 text-xs text-sub" role="status">
+                    Showing {shown.length} of {list.length}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => setFilter("all")}
+                    >
+                      <X aria-hidden="true" />
+                      Show all
+                    </Button>
+                  </p>
+                )}
+              </div>
+
+              {shown.length === 0 ? (
+                <p className="text-sm text-sub">No hypotheses match this filter.</p>
+              ) : (
+                // Stored order, newest first: an edit never moves a card.
+                <ul className="space-y-3" aria-label="Hypotheses, newest first">
+                  {shown.map((h) => (
+                    <li key={h.id} className="min-w-0">
+                      <HypothesisCard
+                        hypothesis={h}
+                        today={today}
+                        onSave={save}
+                        onRemove={remove}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
+
+            <AdvancedAnalysis summary="Advanced analysis: how long tests take">
+              {learn.enough && learn.points.length > 0 ? (
+                <ChartFigure
+                  label="Share of hypotheses still waiting for a result"
+                  summary={learn.summary}
+                  table={learn.table}
+                  plotClassName="h-40"
+                >
+                  <SurvivalCurveChart data={learn.points} />
+                </ChartFigure>
+              ) : (
+                <NotEnoughData
+                  have={learn.resolved}
+                  need="distribution"
+                  unit={RESULTS}
+                  action="Record"
+                  what="how long tests take to give a result"
+                />
+              )}
+              <p className="text-xs text-sub">
+                A Kaplan-Meier estimate over the days from raised to result; tests still open count
+                as still waiting.
+              </p>
+            </AdvancedAnalysis>
+          </>
         )}
       </div>
     </ToolPageWrapper>
