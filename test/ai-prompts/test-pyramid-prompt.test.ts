@@ -72,4 +72,24 @@ describe("generateTestPyramidPrompts", () => {
       generateTestPyramidPrompts({ doc: { id: "x", unit: 0, integration: 0, e2e: 0 } })
     ).toEqual([]);
   });
+
+  it("lists the latest 12 snapshots, says so, and reads the summary over all of them", () => {
+    // A pyramid in January, then an hourglass every week after it: 13 in all.
+    const snapshots = [
+      { id: "s0", takenOn: "2026-01-05", unit: 70, integration: 20, e2e: 10 },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        id: `s${i + 1}`,
+        takenOn: new Date(Date.UTC(2026, 6, 6 + 7 * i)).toISOString().slice(0, 10),
+        unit: 48,
+        integration: 6,
+        e2e: 46,
+      })),
+    ];
+    const [p] = generateTestPyramidPrompts({ doc: { ...HOURGLASS, snapshots } });
+    expect(p.prompt).toContain("(Showing the latest 12 of 13 snapshots)");
+    expect(p.prompt).not.toContain("| 2026-01-05 |");
+    expect(p.prompt).toContain("| 2026-07-06 | Hourglass |");
+    // As the page's chart reads it: from the first snapshot, not the first one listed.
+    expect(p.prompt).toContain("From 5 Jan 2026 to 21 Sept 2026 the suite went from pyramid");
+  });
 });

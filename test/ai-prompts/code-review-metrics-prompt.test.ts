@@ -101,4 +101,25 @@ describe("generateCodeReviewPrompts", () => {
     );
     expect(generateCodeReviewPrompts({ samples: [] })).toEqual([]);
   });
+
+  it("lists the latest 12 weeks, says so, and reads the weekly summary over all of them", () => {
+    // Three 2-hour merges a week for 13 weeks, the first in week 31.
+    const day = (offset: number) =>
+      new Date(Date.UTC(2026, 6, 27 + offset)).toISOString().slice(0, 10);
+    const weeks = Array.from({ length: 13 }, (_, w) =>
+      Array.from({ length: 3 }, (_, i) =>
+        pr(`w${w}-${i}`, {
+          openedAt: `${day(7 * w)}T09:00`,
+          firstReviewAt: `${day(7 * w)}T10:00`,
+          mergedAt: `${day(7 * w)}T11:00`,
+        })
+      )
+    ).flat();
+    const [, p] = generateCodeReviewPrompts({ samples: weeks, workingWindow: WINDOW });
+    expect(p.prompt).toContain("(Showing the latest 12 of 13 weeks)");
+    expect(p.prompt).not.toContain("| Week 31, 2026 |");
+    expect(p.prompt).toContain("| Week 32, 2026 | 3 | 2 |");
+    // As the page's chart reads it: from the first week, not the first one listed.
+    expect(p.prompt).toContain("from Week 31, 2026 to Week 43, 2026.");
+  });
 });

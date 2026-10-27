@@ -35,9 +35,9 @@ interface NpsCsatData {
   verdict?: string;
 }
 
-/** The most verbatims quoted, newest first. */
+/** The most verbatims quoted, newest first. A cut list says so. */
 const MAX_VERBATIMS = 30;
-/** The most periods and tags listed. */
+/** The most periods (the latest) and tags listed. A cut list says so. */
 const MAX_PERIODS = 24;
 const MAX_TAGS = 20;
 
@@ -75,10 +75,10 @@ function breakdown(nps: NpsSummary, csat: CsatSummary): string {
   return parts.length > 0 ? `${parts.join("; ")}.` : "";
 }
 
-/** `- 2026-10-02, CSAT 2 [checkout]: "Charged twice"`, newest first. */
-function verbatimLines(responses: readonly NpsResponse[]): string[] {
-  return responses
-    .filter((r) => r.verbatim?.trim())
+/** `- 2026-10-02, CSAT 2 [checkout]: "Charged twice"`, newest first, and how many there are in all. */
+function verbatimLines(responses: readonly NpsResponse[]): { lines: string[]; total: number } {
+  const withText = responses.filter((r) => r.verbatim?.trim());
+  const lines = withText
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .slice(0, MAX_VERBATIMS)
@@ -93,6 +93,7 @@ function verbatimLines(responses: readonly NpsResponse[]): string[] {
       const day = String(r.date ?? "").slice(0, 10) || "no date";
       return `- ${day}, ${r.kind.toUpperCase()} ${r.score}${tags}: "${sanitizePromptCell(r.verbatim as string, 400)}"`;
     });
+  return { lines, total: withText.length };
 }
 
 /**
@@ -108,7 +109,8 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
   const nps = summarizeNps(responses);
   const csat = summarizeCsat(responses);
   const series = periodSeries(responses, by, data.today ? { through: data.today } : {});
-  const trend = periodTrendText(series.points.slice(-MAX_PERIODS), by);
+  // The summary reads every period, as the page's chart does; the table lists the latest.
+  const trend = periodTrendText(series.points, by);
   const tag = data.tag?.trim() ? sanitizePromptCell(data.tag, 40) : "";
   // The tag is user-typed: the preamble only says a filter is on, and the
   // wrapped data names it.
@@ -127,25 +129,33 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
   ].filter(Boolean);
   const verdict = data.verdict ? `Verdict: ${sanitizePromptCell(data.verdict, 400)}\n\n` : "";
 
+  const periodRows = trend.table.rows;
+  const periodsMore =
+    periodRows.length > MAX_PERIODS
+      ? `\n(Showing the latest ${MAX_PERIODS} of ${periodRows.length} ${by}s)`
+      : "";
   const periodTable =
     series.points.length === 0
       ? "No dated responses."
       : `${formatTable(
           trend.table.columns,
-          trend.table.rows.map((r) => r.map(String))
-        )}\n\n${trend.summary}`;
+          periodRows.slice(-MAX_PERIODS).map((r) => r.map(String))
+        )}${periodsMore}\n\n${trend.summary}`;
   const periodsBlock = `## By ${by}\n\nA period with fewer than ${MIN_SAMPLE.surveyPeriod} responses of a kind is marked: one answer moves it by 100 ÷ n points.\n\n${periodTable}${
     notes.length > 0 ? `\n\n${notes.join(" ")}` : ""
   }`;
 
-  const tags = (data.tags ?? tagCounts(responses)).slice(0, MAX_TAGS);
+  const allTags = data.tags ?? tagCounts(responses);
+  const tags = allTags.slice(0, MAX_TAGS);
+  const tagsMore =
+    allTags.length > MAX_TAGS ? `\n(Showing ${MAX_TAGS} of ${allTags.length} tags)` : "";
   const tagTable =
     tags.length === 0
       ? "No response is tagged yet."
-      : formatTable(
+      : `${formatTable(
           ["Tag", "Responses", "Unhappy", "NPS", "CSAT % satisfied"],
           tags.map((t) => [t.tag, t.n, t.unhappy, tagNpsText(t), tagCsatText(t)])
-        );
+        )}${tagsMore}`;
   // With a tag filter on, the headline reads that tag's answers alone; the
   // page's tag table (passed as `tags`) still reads every response.
   const tagScope = !tag
@@ -156,7 +166,14 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
   const tagsBlock = `## Theme tags${tagScope}\n\nUnhappy = NPS detractors (0–6) and dissatisfied CSAT (1–2). A tag's own NPS or CSAT shows from ${MIN_SAMPLE.surveyPeriod} responses; below that, only its n.\n\n${tagTable}`;
 
   const verbatims = verbatimLines(responses);
-  const verbatimBlock = verbatims.length === 0 ? "No verbatim comments yet." : verbatims.join("\n");
+  const verbatimsMore =
+    verbatims.total > verbatims.lines.length
+      ? `\n(Showing the newest ${verbatims.lines.length} of ${verbatims.total} verbatims)`
+      : "";
+  const verbatimBlock =
+    verbatims.lines.length === 0
+      ? "No verbatim comments yet."
+      : `${verbatims.lines.join("\n")}${verbatimsMore}`;
 
   return [
     {

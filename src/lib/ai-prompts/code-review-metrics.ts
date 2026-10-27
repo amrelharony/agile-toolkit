@@ -96,11 +96,19 @@ export function generateCodeReviewPrompts(data: ReviewData): PromptDefinition[] 
   const sizeBlock = `## By PR size\n\n${tableOf(bands.table)}\n\n${bands.summary} Large PRs (over ${
     SIZE_BANDS[1].maxLines
   } lines) merged with no review comment: ${summary.largeNoComments}.`;
-  const weekly = weeklyChartText(summary.weekly.slice(-MAX_WEEKS));
+  // The summary reads every week, as the page's chart does; the table lists the latest.
+  const weekly = weeklyChartText(summary.weekly);
+  const weeksMore =
+    summary.weekly.length > MAX_WEEKS
+      ? `\n(Showing the latest ${MAX_WEEKS} of ${summary.weekly.length} weeks)`
+      : "";
   const weekBlock =
     summary.weekly.length === 0
       ? ""
-      : `\n\n## Weekly median cycle\n\n${tableOf(weekly.table)}\n\n${weekly.summary}`;
+      : `\n\n## Weekly median cycle\n\n${tableOf({
+          ...weekly.table,
+          rows: weekly.table.rows.slice(-MAX_WEEKS),
+        })}${weeksMore}\n\n${weekly.summary}`;
 
   const prs = formatTable(
     [

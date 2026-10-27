@@ -15,9 +15,10 @@ interface InterviewsData {
   anonymised: boolean;
 }
 
-/** The most quotes and interviews listed. */
+/** The most quotes, interviews and themes listed. A cut list says so. */
 const MAX_QUOTES = 40;
 const MAX_INTERVIEWS = 30;
+const MAX_THEMES = 50;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -48,6 +49,10 @@ export function generateUserInterviewsPrompts(
     const context = i.context?.trim() ? `: ${sanitizePromptCell(i.context, 300)}` : "";
     return `- ${dayOf(i)}, ${who(i)} (${plural((i.quotes ?? []).length, "quote")})${context}`;
   });
+  const interviewsMore =
+    interviews.length > MAX_INTERVIEWS
+      ? `\n(Showing ${MAX_INTERVIEWS} of ${interviews.length} interviews)`
+      : "";
   const quoteLines: string[] = [];
   for (const i of interviews) {
     for (const q of i.quotes ?? []) {
@@ -67,16 +72,18 @@ export function generateUserInterviewsPrompts(
     sample.length === 0
       ? "No quotes yet."
       : `${sample.join("\n")}${truncated ? `\n(Showing ${MAX_QUOTES} of ${totalCount} quotes)` : ""}`;
+  const themesMore =
+    themes.length > MAX_THEMES ? `\n(Showing ${MAX_THEMES} of ${themes.length} themes)` : "";
   const themeLines =
     themes.length === 0
       ? "No quote is tagged yet."
-      : themes
-          .slice(0, 50)
+      : `${themes
+          .slice(0, MAX_THEMES)
           .map(
             (t) =>
               `- ${sanitizePromptCell(t.tag, 30)}: ${t.participants} of ${plural(people, "participant")} (${plural(t.quotes, "quote")})`
           )
-          .join("\n");
+          .join("\n")}${themesMore}`;
   const verdict = `Verdict: ${sanitizePromptCell(interviewsVerdict(interviews), 400)}`;
   const privacy = data.anonymised
     ? " Participants are anonymised as “Participant N”, with contact details and their own names redacted from the text."
@@ -103,7 +110,7 @@ export function generateUserInterviewsPrompts(
           "User Interview Log",
           `${context} Good research surfaces what you don't know, not just what you do.`
         ) +
-        `${wrapUserContent(`${verdict}\n\n${themesBlock}\n\n## Interviews\n\n${interviewLines.join("\n")}`)}${wsContext}\n\n## Questions\n\n1. Which user segments, use cases, or jobs are under-represented?\n2. What contradictory quotes deserve follow-up?\n3. Recommend 3 next interview topics.`,
+        `${wrapUserContent(`${verdict}\n\n${themesBlock}\n\n## Interviews\n\n${interviewLines.join("\n")}${interviewsMore}`)}${wsContext}\n\n## Questions\n\n1. Which user segments, use cases, or jobs are under-represented?\n2. What contradictory quotes deserve follow-up?\n3. Recommend 3 next interview topics.`,
     },
   ];
 }

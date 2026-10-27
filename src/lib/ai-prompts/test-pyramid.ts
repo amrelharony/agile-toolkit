@@ -76,15 +76,20 @@ export function generateTestPyramidPrompts(data: PyramidData): PromptDefinition[
   const hint = costText.hint.charAt(0).toLowerCase() + costText.hint.slice(1);
   const costLine = `Run cost: ${costText.value} (${hint}).`;
 
-  const points = shapePoints(snapshotsOf(doc), weighting).slice(-MAX_SNAPSHOTS);
+  // The summary reads every snapshot, as the page's chart does; the table lists the latest.
+  const points = shapePoints(snapshotsOf(doc), weighting);
   const history = shapeChartText(points);
+  const snapshotsMore =
+    points.length > MAX_SNAPSHOTS
+      ? `\n(Showing the latest ${MAX_SNAPSHOTS} of ${points.length} snapshots)`
+      : "";
   const snapshots =
     points.length === 0
       ? "No snapshots taken yet."
       : `${formatTable(
           history.table.columns,
-          history.table.rows.map((r) => r.map(String))
-        )}\n\n${history.summary}`;
+          history.table.rows.slice(-MAX_SNAPSHOTS).map((r) => r.map(String))
+        )}${snapshotsMore}\n\n${history.summary}`;
   const notes = doc.description?.trim()
     ? `\n\n## Notes\n\n${wrapUserContent(sanitizePromptCell(doc.description, 1000))}`
     : "";

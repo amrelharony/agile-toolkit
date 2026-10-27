@@ -81,4 +81,23 @@ describe("generateUserInterviewsPrompts", () => {
     expect(text).toContain("- pricing: 2 of 3 participants (4 quotes)");
     expect(generateUserInterviewsPrompts({ interviews: [], anonymised: true })).toEqual([]);
   });
+
+  it("says when the interviews and themes are cut", () => {
+    // 31 interviews, one quote each, 51 themes between them.
+    const many: Interview[] = Array.from({ length: 31 }, (_, i) => ({
+      id: `i${i}`,
+      date: "2026-10-01",
+      participant: `Person ${i}`,
+      quotes: [{ id: `q${i}`, text: `Quote ${i}`, tags: [`theme ${i}`, `extra ${i % 20}`] }],
+    }));
+    const [synthesis, gaps] = generateUserInterviewsPrompts({
+      interviews: many,
+      anonymised: false,
+    });
+    expect(gaps.prompt).toContain(
+      "- 2026-10-01, Person 29 (1 quote)\n(Showing 30 of 31 interviews)"
+    );
+    expect(gaps.prompt).not.toContain("Person 30 (1 quote)");
+    expect(synthesis.prompt).toContain("(Showing 50 of 51 themes)");
+  });
 });

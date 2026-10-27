@@ -123,4 +123,25 @@ describe("generateNpsCsatPrompts", () => {
     expect(filtered).toContain("## Theme tags (within the filtered responses)");
     expect(filtered).toContain("| refunds | 1 | 0 | — (n 1) | — |");
   });
+
+  it("says when the periods, tags and verbatims are cut, and reads the trend over every period", () => {
+    // 31 answers over 26 months (Sep 2024 to Oct 2026), 21 tags, a verbatim each.
+    const long = Array.from({ length: 31 }, (_, i) =>
+      resp("nps", new Date(Date.UTC(2024, 8 + (i % 26), 15)).toISOString().slice(0, 10), 9, {
+        tags: [`t${i % 21}`],
+        verbatim: `Note ${i}`,
+      })
+    );
+    const prompts = generateNpsCsatPrompts({ responses: long, by: "month" });
+    const themes = prompts.find((p) => p.id === "nps-themes")!.prompt;
+    const trend = prompts.find((p) => p.id === "nps-trend")!.prompt;
+
+    expect(trend).toContain("(Showing the latest 24 of 26 months)");
+    expect(trend).not.toContain("| Sep 2024 |");
+    expect(trend).toContain("| Nov 2024 |");
+    // As the page's chart reads it: every period, not only the ones listed.
+    expect(trend).toContain("across 26 months, Sep 2024 to Oct 2026");
+    expect(themes).toContain("(Showing 20 of 21 tags)");
+    expect(themes).toContain("(Showing the newest 30 of 31 verbatims)");
+  });
 });
