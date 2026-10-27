@@ -123,36 +123,54 @@ const opensSentence = (text: string, offset: number) =>
   /(?:^|[.!?]\s|\n)\s*$/.test(text.slice(0, offset));
 
 /**
- * `text` with the participant's own name replaced by `replacement`: the
- * whole name as typed, in any case and spacing ("Dana  LEE"), then without
- * its commas, semicolons and brackets ("Sam," reads as "Sam"), and for a
- * name of more than one word its first word too ("Dana said"; for "Sam,
- * engineering manager", "Sam said"), except when the name holds a digit (a
- * label like "Customer 3" names no one, and its first word is an ordinary
- * word). A replacement that opens a sentence is capitalised. Best effort,
- * like redactPii: a surname alone, a nickname or someone else's name stays
- * as typed. Names under 2 characters are left alone.
+ * Whether a part of a participant label reads as a role, not a name: it
+ * starts in lower case ("engineering manager") or is one word in capitals
+ * ("PM", "CTO").
+ */
+const readsAsRole = (part: string) =>
+  new RegExp("^\\p{Ll}", "u").test(part) || new RegExp("^[\\p{Lu}\\p{N}]+$", "u").test(part);
+
+/**
+ * `text` with the participant's own name replaced by `replacement`. The
+ * participant may be typed as a label ("Dana Lee, PM", "PM (Sam)"), so
+ * each of these goes, in any case and spacing ("Dana  LEE"): the whole
+ * label (a comma or semicolon left at either end aside: "Sam," reads as
+ * "Sam"), the label without its commas, semicolons and brackets, its name
+ * (the first part between those that doesn't read as a role, readsAsRole,
+ * else the first part: "Dana Lee", "Sam") and, for a name of more than
+ * one word, its first word ("Dana said"), except when the name holds a
+ * digit (a label like "Customer 3" names no one, and its first word is an
+ * ordinary word). A replacement that opens a sentence is capitalised.
+ * Best effort, like redactPii: a surname alone, a nickname or someone
+ * else's name stays as typed. Names under 2 characters are left alone.
  */
 export function withoutName(
   text: string,
   participant: string | undefined,
   replacement: string
 ): string {
-  const name = (participant ?? "").trim().replace(/\s+/g, " ");
-  if (name.length < 2) return text;
-  // Its words without the punctuation a "name, role" label adds ("Sam,").
-  const words = name.split(/[\s,;()]+/).filter(Boolean);
-  const bare = words.join(" ");
+  const label = (participant ?? "").replace(/\s+/g, " ").replace(/^[\s,;]+|[\s,;]+$/g, "");
+  if (label.length < 2) return text;
+  const bare = label
+    .split(/[\s,;()]+/)
+    .filter(Boolean)
+    .join(" ");
+  const parts = label
+    .split(/[,;()]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const name = parts.find((p) => !readsAsRole(p)) ?? parts[0] ?? "";
+  const first = name.split(" ")[0];
+  const names = [label, bare, name];
+  if (first !== name && first.length >= 2 && !/\d/.test(name)) names.push(first);
   const fill = (_match: string, offset: number, whole: string) =>
     opensSentence(whole, offset)
       ? replacement.charAt(0).toUpperCase() + replacement.slice(1)
       : replacement;
-  let out = text.replace(nameRegExp(name.split(" ")), fill);
-  if (bare !== name && bare.length >= 2) out = out.replace(nameRegExp(words), fill);
-  if (words.length > 1 && words[0].length >= 2 && !/\d/.test(bare)) {
-    out = out.replace(nameRegExp(words.slice(0, 1)), fill);
-  }
-  return out;
+  // Longest first, so "Sam" never breaks up "Sam, engineering manager".
+  return names
+    .filter((n, i) => n.length >= 2 && names.indexOf(n) === i)
+    .reduce((out, n) => out.replace(nameRegExp(n.split(" ")), fill), text);
 }
 
 /**

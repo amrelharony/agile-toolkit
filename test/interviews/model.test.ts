@@ -175,10 +175,37 @@ describe("withoutName", () => {
       "P1, joined; then P1 said so"
     );
     expect(withoutName("Ask Sam (EM) or Sam", "Sam (EM)", "P1")).toBe("Ask P1 or P1");
-    // A name typed with a trailing comma is still the name.
+    // A name typed with a trailing comma is still the name, and the text keeps its own commas.
     expect(withoutName("Thanks, Sam.", "Sam,", "P1")).toBe("Thanks, P1.");
+    expect(withoutName("Thanks, Sam, see you", "Sam,", "P1")).toBe("Thanks, P1, see you");
     // Samantha is someone else.
     expect(withoutName("Samantha said", who, "P1")).toBe("Samantha said");
+  });
+
+  it("reads a two-word name before a role as the whole name, then its first word", () => {
+    for (const who of ["Dana Lee, PM", "Dana Lee (PM)", "Dana Lee; product"]) {
+      expect(withoutName("Dana Lee said the export is slow.", who, "Participant 1"), who).toBe(
+        "Participant 1 said the export is slow."
+      );
+      expect(withoutName("Then Dana said so", who, "P1"), who).toBe("Then P1 said so");
+    }
+    // A digit in the label's other part doesn't keep the name's first word.
+    expect(withoutName("Dana said", "Dana Lee, customer 3", "P1")).toBe("P1 said");
+    expect(withoutName("Dana said", "Dana (Customer 3)", "P1")).toBe("P1 said");
+  });
+
+  it("reads a role-first label by its name, leaving the role word alone", () => {
+    expect(withoutName("The PM said Sam was right", "PM, Sam", "P1")).toBe(
+      "The PM said P1 was right"
+    );
+    expect(withoutName("Ask the CTO; Dana Lee knows", "CTO (Dana Lee)", "P1")).toBe(
+      "Ask the CTO; P1 knows"
+    );
+    expect(
+      withoutName("The engineering manager said Sam agreed", "engineering manager, Sam", "P1")
+    ).toBe("The engineering manager said P1 agreed");
+    // Typed all in lower case, no part reads as a name: the first part is the name.
+    expect(withoutName("Dana Lee said, then Dana", "dana lee, pm", "P1")).toBe("P1 said, then P1");
   });
 
   it("leaves the text alone without a usable name", () => {
