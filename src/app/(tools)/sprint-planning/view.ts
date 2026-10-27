@@ -7,11 +7,14 @@
 
 import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
 import {
+  BACKLOG_SOURCE_TOOL,
   backlogByPriority,
+  backlogItemRank,
   compareBacklogOrder,
   selectStoriesForCapacity,
   storyPoints,
   totalStoryPoints,
+  withLiveBacklogRank,
   type CapacitySelection,
 } from "@/lib/sprints/plan";
 import { carryOver } from "@/lib/sprints/progress";
@@ -62,13 +65,18 @@ export function sprintStories(stories: readonly Story[], sprintId: string): Stor
 
 /**
  * Stories not in any sprint, in the shared backlog order: the decided rank
- * they were pulled in with, then priority score, highest first (unscored last).
+ * their backlog item holds now (`withLiveBacklogRank`, so a later Decide
+ * order reorders stories pulled earlier), then priority score, highest
+ * first (unscored last).
  */
-export function backlogStories(stories: readonly Story[]): Story[] {
-  return stories
-    .filter((s) => !s.sprintId && s.status === "backlog")
-    .slice()
-    .sort(compareBacklogOrder);
+export function backlogStories(
+  stories: readonly Story[],
+  backlogItems?: readonly BacklogItem[]
+): Story[] {
+  return withLiveBacklogRank(
+    stories.filter((s) => !s.sprintId && s.status === "backlog"),
+    backlogItems
+  ).sort(compareBacklogOrder);
 }
 
 /* ── Left over from a closed sprint ──────────────────────────────────── */
@@ -319,7 +327,7 @@ export function validateStory(d: StoryDraft): Validation<StoryValues, StoryField
 }
 
 /** Where a story pulled from the backlog came from. */
-export const BACKLOG_SOURCE_TOOL = "prioritizer";
+export { BACKLOG_SOURCE_TOOL };
 
 /**
  * Backlog items with no story yet (none pulled from them, none of the same
@@ -342,7 +350,8 @@ export function importCandidates(
 /**
  * A story from a backlog item: its name, the shared priority score (left
  * off when the item isn't WSJF-scored), the decided rank it was pulled in
- * with and a link back to the item.
+ * with (read live while the item exists: `withLiveBacklogRank`) and a link
+ * back to the item.
  */
 export function storyFromBacklogItem(item: BacklogItem, id: string): Story {
   const score = priorityScore(item);
@@ -353,9 +362,8 @@ export function storyFromBacklogItem(item: BacklogItem, id: string): Story {
     sourceRef: { tool: BACKLOG_SOURCE_TOOL, id: item.id },
   };
   if (score !== null) story.priorityScore = Math.round(score * 100) / 100;
-  if (typeof item.rank === "number" && Number.isFinite(item.rank) && item.rank > 0) {
-    story.backlogRank = item.rank;
-  }
+  const rank = backlogItemRank(item);
+  if (rank !== undefined) story.backlogRank = rank;
   return story;
 }
 

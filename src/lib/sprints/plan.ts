@@ -4,7 +4,47 @@
  * proposed by either is the same plan.
  */
 
-import type { Story } from "@/lib/stores/workspace-types";
+import type { BacklogItem, Story } from "@/lib/stores/workspace-types";
+
+/** Where a story pulled from the backlog came from (its sourceRef.tool). */
+export const BACKLOG_SOURCE_TOOL = "prioritizer";
+
+/**
+ * A backlog item's decided rank (BacklogItem.rank, set by the Prioritizer's
+ * Decide order: 1 first), or undefined while it is "Not ordered yet".
+ */
+export function backlogItemRank(item: Pick<BacklogItem, "rank">): number | undefined {
+  const r = item.rank;
+  return typeof r === "number" && Number.isFinite(r) && r > 0 ? r : undefined;
+}
+
+/**
+ * The stories with the decided rank their backlog item holds now. A story
+ * keeps the rank it was pulled in with (Story.backlogRank), but every
+ * Decide order renumbers the items, so stories pulled under different
+ * orders would compare ranks from different orders. A story pulled from
+ * an item still in `backlogItems` reads that item's rank instead (none once
+ * it is "Not ordered yet"); a story whose item is gone, or that wasn't
+ * pulled from the backlog, keeps what it holds. Only the stories whose rank
+ * changes are copied; the stored stories are never touched.
+ */
+export function withLiveBacklogRank(
+  stories: readonly Story[],
+  backlogItems: readonly Pick<BacklogItem, "id" | "rank">[] | undefined
+): Story[] {
+  if (!backlogItems || backlogItems.length === 0) return stories.slice();
+  const items = new Map(backlogItems.map((b) => [b.id, b]));
+  return stories.map((s) => {
+    const item = s.sourceRef?.tool === BACKLOG_SOURCE_TOOL ? items.get(s.sourceRef.id) : undefined;
+    if (!item) return s;
+    const live = backlogItemRank(item);
+    if (live === s.backlogRank) return s;
+    const next: Story = { ...s };
+    if (live === undefined) delete next.backlogRank;
+    else next.backlogRank = live;
+    return next;
+  });
+}
 
 /** Points of a story, 0 when unestimated. */
 export function storyPoints(story: Pick<Story, "points">): number {
@@ -21,10 +61,11 @@ const finiteOr = (n: number | undefined, fallback: number) =>
 
 /**
  * The one backlog order, shared by Sprint Planning, "Fill to capacity", the
- * agent's plan and Refinement: the decided order a story was pulled in with
- * first (`backlogRank`, 1 first; a story without one comes after every
- * ranked one), then the priority score, highest first (unscored last).
- * Returns 0 for a tie, so a stable sort keeps the stored order.
+ * agent's plan and Refinement: the backlog's decided order first
+ * (`backlogRank`, 1 first, read live through `withLiveBacklogRank`; a story
+ * without one comes after every ranked one), then the priority score,
+ * highest first (unscored last). Returns 0 for a tie, so a stable sort
+ * keeps the stored order.
  */
 export function compareBacklogOrder(
   a: Pick<Story, "backlogRank" | "priorityScore">,

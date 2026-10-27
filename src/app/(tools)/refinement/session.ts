@@ -5,10 +5,10 @@
  * definition of "ready".
  */
 
-import type { Story } from "@/lib/stores/workspace-types";
+import type { BacklogItem, Story } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { compareBacklogOrder } from "@/lib/sprints/plan";
+import { compareBacklogOrder, withLiveBacklogRank } from "@/lib/sprints/plan";
 import { checkCounts, type CheckValues, type Criterion, type StorySave } from "./store";
 
 /* -------------------------------------------------------------------------- */
@@ -52,7 +52,10 @@ export function isReady(story: Story): boolean {
   return story.readiness?.ready === true && !isUnsized(story);
 }
 
-/** The shared backlog order: decided rank, then priority score; ties keep their stored order. */
+/**
+ * The shared backlog order: decided rank (read live from the backlog items
+ * when given), then priority score; ties keep their stored order.
+ */
 const byPriority = compareBacklogOrder;
 
 export interface RefinementSession {
@@ -74,9 +77,14 @@ export interface RefinementSession {
   backlogUnsized: number;
 }
 
-export function refinementSession(stories: readonly Story[]): RefinementSession {
+export function refinementSession(
+  stories: readonly Story[],
+  backlogItems?: readonly BacklogItem[]
+): RefinementSession {
   // Array.prototype.sort is stable, so equal scores keep their stored order.
-  const candidates = stories.filter(isRefinementCandidate).sort(byPriority);
+  const candidates = withLiveBacklogRank(stories.filter(isRefinementCandidate), backlogItems).sort(
+    byPriority
+  );
   const toRefine = candidates.filter((s) => !isReady(s));
   return {
     toRefine,

@@ -814,6 +814,33 @@ describe("Sprint Planning page", () => {
     expect(within(rows[2]).queryByText(/^Rank/)).toBeNull();
   });
 
+  it("orders stories pulled under an earlier Decide order by their item's rank now", () => {
+    // Remove a saved card was pulled at rank 1, Apple Pay at rank 2. A later
+    // order put Apple Pay first: the backlog follows the order saved last.
+    const from = (itemId: string) => ({ tool: "prioritizer", id: itemId });
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) =>
+        s.id === "b1"
+          ? { ...s, backlogRank: 1, sourceRef: from("i-remove") }
+          : s.id === "b2"
+            ? { ...s, backlogRank: 2, sourceRef: from("i-apple") }
+            : { ...s }
+      ),
+      backlogItems: [
+        { id: "i-apple", name: "Apple Pay", rank: 1 },
+        { id: "i-remove", name: "Remove a saved card", rank: 3 },
+      ],
+    });
+    renderPlanning();
+    const rows = within(screen.getByRole("list", { name: "Backlog" })).getAllByRole("listitem");
+    expect(within(rows[0]).getByText("Apple Pay")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Rank 1")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Remove a saved card")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Rank 3")).toBeInTheDocument();
+    // The stored stories keep the rank they were pulled in with.
+    expect(story("b1")?.backlogRank).toBe(1);
+  });
+
   it("validates the new story inline and saves nothing until it is valid", () => {
     renderPlanning();
     const before = state().stories.length;

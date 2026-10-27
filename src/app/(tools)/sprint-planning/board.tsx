@@ -135,7 +135,8 @@ export function PlanningBoard({
   );
   const suggestion = suggestedPoints(capacity, velocity.average);
   const inSprint = useMemo(() => sprintStories(stories, sprint.id), [stories, sprint.id]);
-  const backlog = useMemo(() => backlogStories(stories), [stories]);
+  // In the backlog's decided order as it is now (a story reads its item's live rank).
+  const backlog = useMemo(() => backlogStories(stories, backlogItems), [stories, backlogItems]);
   const leftovers = useMemo(
     () => leftoverGroups(sprints, stories, sprint.id),
     [sprints, stories, sprint.id]
