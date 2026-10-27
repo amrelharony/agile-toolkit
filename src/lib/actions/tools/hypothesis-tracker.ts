@@ -34,6 +34,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { Hypothesis, HypothesisStatus, HypothesisTracker } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { isExampleId } from "@/lib/utils/example-id";
 import { addDays } from "@/lib/impediments/model";
 import {
   HYPOTHESIS_STATUSES,
@@ -121,6 +122,9 @@ const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(toda
 
 function summarize(doc: HypothesisTracker | null) {
   const hypotheses = doc?.hypotheses ?? [];
+  // Example rows are the page's demo: every count leaves them out, as the
+  // rate does, so one reply never gives two totals. They stay listed.
+  const real = hypotheses.filter((h) => !isExampleId(h.id));
   const byStatus: Record<HypothesisStatus, number> = {
     drafted: 0,
     running: 0,
@@ -128,17 +132,18 @@ function summarize(doc: HypothesisTracker | null) {
     invalidated: 0,
     inconclusive: 0,
   };
-  for (const h of hypotheses) if (h.status in byStatus) byStatus[h.status] += 1;
-  const rate = validationRate(hypotheses);
+  for (const h of real) if (h.status in byStatus) byStatus[h.status] += 1;
+  const rate = validationRate(real);
   return {
     exists: doc !== null,
-    total: hypotheses.length,
+    total: real.length,
+    examples: hypotheses.length - real.length,
     byStatus,
     decisive: rate.decisive,
     inconclusive: rate.inconclusive,
     validationRate: rate.rate === null ? null : round2(rate.rate),
     verdict: hypothesisVerdict(rate),
-    needsDetail: hypotheses.filter((h) => missingFields(h).length > 0).length,
+    needsDetail: real.filter((h) => missingFields(h).length > 0).length,
     hypotheses: hypotheses.map((h) => ({
       ...h,
       missing: missingFields(h),
@@ -154,7 +159,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise hypotheses, as the page does. Returns {exists, total, byStatus: {drafted, running, validated, invalidated, inconclusive}, decisive (validated + invalidated), inconclusive, validationRate (0..1, validated over decisive; null while no result is decisive; inconclusive results and example rows aren't counted), verdict (one sentence), needsDetail (hypotheses missing what we'll do or the success metric, e.g. hand-off drafts), hypotheses: each stored row plus missing ('willDo' | 'successMetric')[], suggestedVerdict ({verdict: 'validated' | 'invalidated', met, margin (actual − target, positive = better), moved? (actual − baseline)} or null without a target and a measured actual) and suggestion (that in words, or null)}. A suggestion is never applied: set_status does that.",
+    "Summarise hypotheses, as the page does. Example rows (ids starting 'example-') are the page's demo: every count and the verdict leave them out, and they are still listed in hypotheses. Returns {exists, total (hypotheses without the examples), examples (how many example rows), byStatus: {drafted, running, validated, invalidated, inconclusive}, decisive (validated + invalidated), inconclusive, validationRate (0..1, validated over decisive; null while no result is decisive; inconclusive results aren't counted), verdict (one sentence), needsDetail (hypotheses missing what we'll do or the success metric, e.g. hand-off drafts), hypotheses: each stored row plus missing ('willDo' | 'successMetric')[], suggestedVerdict ({verdict: 'validated' | 'invalidated', met, margin (actual − target, positive = better), moved? (actual − baseline)} or null without a target and a measured actual) and suggestion (that in words, or null)}. A suggestion is never applied: set_status does that.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.get()),
   mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).get()),

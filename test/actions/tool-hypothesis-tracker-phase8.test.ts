@@ -136,6 +136,30 @@ describe.each(TRANSPORTS)("%s", (path) => {
       expect(d.status).toBe("running");
       expect(r.hypotheses.find((h) => h.id === "e")!.missing).toEqual(["willDo", "successMetric"]);
     });
+
+    it("counts one population: example rows are listed, never counted", async () => {
+      seed(path, [
+        hyp("example-1", "inconclusive"),
+        hyp("example-2", "drafted", { willDo: "" }),
+        hyp("example-3", "validated"),
+      ]);
+      const only = await run(path, "list_state");
+      expect(only).toMatchObject({
+        total: 0,
+        examples: 3,
+        byStatus: { drafted: 0, running: 0, validated: 0, invalidated: 0, inconclusive: 0 },
+        decisive: 0,
+        inconclusive: 0,
+        needsDetail: 0,
+        verdict: "No hypotheses yet.",
+      });
+      expect((only.hypotheses as unknown[]).length).toBe(3);
+
+      seed(path, [hyp("example-1", "inconclusive"), hyp("a", "inconclusive"), hyp("b", "drafted")]);
+      const mixed = await run(path, "list_state");
+      expect(mixed).toMatchObject({ total: 2, examples: 1, inconclusive: 1 });
+      expect((mixed.byStatus as Record<string, number>).inconclusive).toBe(mixed.inconclusive);
+    });
   });
 
   describe("add_hypothesis", () => {
