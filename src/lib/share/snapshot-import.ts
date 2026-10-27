@@ -32,7 +32,7 @@ import {
   retroArchivesToPrune,
 } from "@/app/(tools)/retro/archive";
 import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
-import { withCheckIn } from "@/lib/okrs/progress";
+import { latestCheckInDay, withCheckIn } from "@/lib/okrs/progress";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
@@ -139,11 +139,11 @@ const isConfidence = (v: unknown): v is number => isNum(v) && v >= 0 && v <= 10;
 
 /**
  * A key result's dated check-ins (Phase 8), in the order sent: each with a
- * real "YYYY-MM-DD" day no later than `today` and a finite value, a 0–10
+ * real "YYYY-MM-DD" day no later than `latest` and a finite value, a 0–10
  * confidence and a short note kept when valid, a new id. Invalid and
  * future-dated entries are left out, as the OKR page refuses them.
  */
-function readCheckIns(raw: unknown, today: string): KeyResultCheckIn[] {
+function readCheckIns(raw: unknown, latest: string): KeyResultCheckIn[] {
   if (!isArr(raw)) return [];
   const out: KeyResultCheckIn[] = [];
   for (const entry of raw) {
@@ -153,7 +153,7 @@ function readCheckIns(raw: unknown, today: string): KeyResultCheckIn[] {
       !isStr(c.date, 10) ||
       !/^\d{4}-\d{2}-\d{2}$/.test(c.date) ||
       !isIsoDate(c.date) ||
-      c.date > today ||
+      c.date > latest ||
       !isNum(c.value)
     ) {
       continue;
@@ -171,7 +171,10 @@ function readCheckIns(raw: unknown, today: string): KeyResultCheckIn[] {
 
 function readOkrs(state: unknown): Okr[] | null {
   if (!isArr(state, 50)) return null;
-  const today = todayLocalISO();
+  // The check-ins were dated on the sharer's clock, whose today can be a day
+  // ahead of the visitor's: tomorrow is still taken, as tool.okrs.check_in
+  // takes it over MCP, so the link's newest check-in isn't lost.
+  const latest = latestCheckInDay(todayLocalISO(), true);
   const out: Okr[] = [];
   for (const raw of state) {
     const o = obj(raw);
@@ -201,7 +204,7 @@ function readOkrs(state: unknown): Okr[] | null {
       // the newest kept, and current and confidence mirrored from the newest,
       // so a link that disagrees with its own history can't import a stale
       // current. None valid: no check-ins, and the key result as sent.
-      krs.push(readCheckIns(kr.checkIns, today).reduce(withCheckIn, read));
+      krs.push(readCheckIns(kr.checkIns, latest).reduce(withCheckIn, read));
     }
     out.push({
       id: `okr-${nanoid(8)}`,

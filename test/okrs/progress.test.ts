@@ -22,6 +22,7 @@ import {
   krProgress,
   krProgressText,
   lastCheckIn,
+  latestCheckInDay,
   objectiveConfidence,
   objectivePercent,
   objectiveProgress,
@@ -350,6 +351,15 @@ describe("lastCheckIn and daysSinceCheckIn", () => {
     expect(daysSinceCheckIn(k, "2026-10-23")).toBe(14);
     expect(lastCheckIn(kr())).toBeNull();
     expect(daysSinceCheckIn(kr(), "2026-10-23")).toBeNull();
+  });
+});
+
+describe("latestCheckInDay", () => {
+  it("is today on the user's own clock, the day after on another", () => {
+    expect(latestCheckInDay("2026-10-27", false)).toBe("2026-10-27");
+    expect(latestCheckInDay("2026-10-27", true)).toBe("2026-10-28");
+    expect(latestCheckInDay("2026-12-31", true)).toBe("2027-01-01");
+    expect(latestCheckInDay("2028-02-28", true)).toBe("2028-02-29");
   });
 });
 

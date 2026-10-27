@@ -145,7 +145,7 @@ describe("snapshot import", () => {
     expect(useWorkspaceStore.getState().okrs).toHaveLength(0);
   });
 
-  it("records check-ins as the OKR page does: no future day, current and confidence mirrored", () => {
+  it("records check-ins as the OKR page does: nothing after tomorrow, current and confidence mirrored", () => {
     // 20 Oct 2026, noon local: only Date is faked.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 9, 20, 12));
@@ -166,15 +166,27 @@ describe("snapshot import", () => {
               checkIns: [
                 { date: "2026-10-13", value: 17, confidence: 4 },
                 { date: "2026-10-06", value: 19, confidence: 7 },
-                { date: "2026-10-21", value: 16, confidence: 9 }, // tomorrow
+                { date: "2026-10-22", value: 16, confidence: 9 }, // the day after tomorrow
                 { date: "2026-02-30", value: 18 }, // no such day
               ],
             },
-            // Every check-in in the future: none kept, the key result as sent.
+            // Checked in on the sharer's today, a zone ahead of the visitor's:
+            // tomorrow here, kept, and the key result reads it.
             {
               title: "Win-backs",
               target: 10,
               current: 2,
+              confidence: 5,
+              checkIns: [
+                { date: "2026-10-14", value: 3 },
+                { date: "2026-10-21", value: 4, confidence: 6 },
+              ],
+            },
+            // Every check-in in the future: none kept, the key result as sent.
+            {
+              title: "Referrals",
+              target: 8,
+              current: 1,
               confidence: 5,
               checkIns: [{ date: "2026-11-01", value: 9 }],
             },
@@ -184,14 +196,19 @@ describe("snapshot import", () => {
     } finally {
       vi.useRealTimers();
     }
-    const [churn, winBacks] = useWorkspaceStore.getState().okrs[0].keyResults;
+    const [churn, winBacks, referrals] = useWorkspaceStore.getState().okrs[0].keyResults;
     expect(churn.checkIns?.map((c) => [c.date, c.value])).toEqual([
       ["2026-10-06", 19],
       ["2026-10-13", 17],
     ]);
     expect(churn).toMatchObject({ current: 17, confidence: 4 });
-    expect(winBacks).not.toHaveProperty("checkIns");
-    expect(winBacks).toMatchObject({ current: 2, confidence: 5 });
+    expect(winBacks.checkIns?.map((c) => [c.date, c.value])).toEqual([
+      ["2026-10-14", 3],
+      ["2026-10-21", 4],
+    ]);
+    expect(winBacks).toMatchObject({ current: 4, confidence: 6 });
+    expect(referrals).not.toHaveProperty("checkIns");
+    expect(referrals).toMatchObject({ current: 1, confidence: 5 });
   });
 
   it("keeps at most KR_CHECK_IN_CAP check-ins on a key result, the newest", () => {

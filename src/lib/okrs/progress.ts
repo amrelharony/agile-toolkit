@@ -26,7 +26,7 @@ import {
   type Okr,
 } from "@/lib/stores/workspace-types";
 import { fmt } from "@/lib/charts/chart-text";
-import { isIsoDate, isoDayNumber } from "@/lib/sprints/calendar";
+import { isIsoDate, isoDayNumber, isoFromDayNumber } from "@/lib/sprints/calendar";
 import { normalizeQuarter, quarterBounds } from "@/lib/roadmap/quarters";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
@@ -39,6 +39,19 @@ export const CHECK_IN_NOTE_MAX = 500;
 
 /** Days without a check-in before a key result is flagged ("No check-in for 14 days"). */
 export const CHECK_IN_STALE_DAYS = 14;
+
+/**
+ * The latest day ("YYYY-MM-DD") a check-in may be for, read against
+ * `today`. A check-in is for its recorder's local day, never a later one:
+ * on the user's own clock (the page, the agent in their browser) that is
+ * `today`. A day set on another clock (an MCP server on UTC writing for
+ * the user; a snapshot link shared from a zone ahead of its visitor's) can
+ * be a day ahead of the reader's own, so then the day after is taken too.
+ */
+export function latestCheckInDay(today: string, otherClock: boolean): string {
+  const n = otherClock ? isoDayNumber(today) : null;
+  return n === null ? today : isoFromDayNumber(n + 1);
+}
 
 /**
  * Within this share of the quarter (5 points) progress counts as on pace:
@@ -243,7 +256,7 @@ function mirror(kr: KeyResult, list: KeyResultCheckIn[], fallback: number | unde
  * rolls a different value back (replacesUndated). One older than every kept
  * check-in of a full history is dropped at once: `checkIns` then lacks its
  * id, which a caller can check. Callers validate `c` first (a real day,
- * never after today; a finite value; confidence 0–10 or absent).
+ * never after latestCheckInDay; a finite value; confidence 0–10 or absent).
  */
 export function withCheckIn(kr: KeyResult, c: KeyResultCheckIn): KeyResult {
   const list = kr.checkIns ?? [];

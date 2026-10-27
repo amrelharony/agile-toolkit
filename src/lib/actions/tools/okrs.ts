@@ -53,6 +53,7 @@ import {
   krPercent,
   krProgressText,
   lastCheckIn,
+  latestCheckInDay,
   objectiveConfidence,
   objectivePercent,
   okrVerdict,
@@ -66,7 +67,6 @@ import {
 import { sprintGoalsFor } from "@/lib/okrs/links";
 import { normalizeQuarter } from "@/lib/roadmap/quarters";
 import { isIsoDate } from "@/lib/sprints/calendar";
-import { addDays } from "@/lib/impediments/model";
 import { isExampleId } from "@/lib/utils/example-id";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
@@ -223,13 +223,6 @@ const checkInParams = z.object({
 type CheckInParams = z.infer<typeof checkInParams>;
 
 /**
- * The latest day a check-in may be for. In the browser, today; on the
- * server, whose day (UTC on a typical deploy) isn't the user's, the day
- * after it, so a user ahead of UTC can check in on their own today.
- */
-const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(today, 1) : today);
-
-/**
  * The day a check-in with no date is for: today, or the key result's
  * newest check-in day when that is after today and still allowed (the
  * server's today can be the user's yesterday). A default before the newest
@@ -299,7 +292,10 @@ async function checkIn(
     };
   }
   const today = todayLocalISO();
-  const latest = latestDay(today, onServer);
+  // In the browser, today; on the server, whose day (UTC on a typical
+  // deploy) isn't the user's, the day after it too, so a user ahead of UTC
+  // can check in on their own today.
+  const latest = latestCheckInDay(today, onServer);
   const date = p.date ?? defaultDay(kr, today, latest);
   if (date > latest) {
     return {
