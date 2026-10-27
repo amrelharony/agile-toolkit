@@ -519,6 +519,34 @@ describe("WSJF live binding", () => {
     expect(evaluateItemIn(saved, [], "value-effort").bucket).toBe("quick_wins");
     expect(listItems()[0]).toHaveTextContent("Not scored");
   });
+
+  it("adds an item the matrix valued, its value kept, to wait in column scoring", async () => {
+    const passkeys: BacklogItem = {
+      id: "b2",
+      name: "Passkeys",
+      businessValue: 13,
+      matrixEffort: 3,
+      updatedAt: "2026-10-20T09:00:00.000Z",
+    };
+    useWorkspaceStore.setState({ backlogItems: [passkeys], prioritizations: [] });
+    render(<WsjfClient />);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Import from backlog" }), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Passkeys/ }));
+    expect(radio("Business value", "13")).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
+    expect(screen.queryAllByRole("alert")).toEqual([]);
+    const [added] = rows();
+    expect(added).toMatchObject({ title: "Passkeys", backlogItemId: "b2", status: "open" });
+    const saved = storedItem("b2")!;
+    expect(saved).toEqual(passkeys);
+    expect(evaluateItemIn(saved, [], "value-effort").bucket).toBe("quick_wins");
+    // It waits in column scoring for its other parts.
+    expect(screen.getByRole("heading", { name: "Column 2 of 4: Time criticality" })).toBeVisible();
+  });
 });
 
 describe("WSJF page and agent agree", () => {

@@ -20,7 +20,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { generateWsjfPrompts } from "@/lib/ai-prompts/wsjf";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { WSJF_ACTIONS } from "@/lib/history/event-actions";
-import { WSJF } from "@/lib/prioritization/methods";
+import { WSJF, type Values } from "@/lib/prioritization/methods";
 import { WSJF_KEYS, WSJF_LABEL, type WsjfKey } from "@/lib/prioritization/methods/wsjf";
 import type { RankedRow } from "@/lib/prioritization/rank";
 import { ColumnScoring, type SaveCell } from "./column-mode";
@@ -67,6 +67,18 @@ function firstBlankColumn(rows: readonly RankedRow[]): WsjfKey | null {
 
 /** Whether a feature still misses a part (what column scoring is for). */
 const hasBlank = (r: RankedRow) => WSJF_KEYS.some((k) => r.values[k] === undefined);
+
+/**
+ * Whether the backlog item an add was imported from holds some of WSJF's
+ * parts but not all (a value the Value/Effort matrix gave it, say): the
+ * feature lands partial and waits in column scoring for the rest, so the
+ * prefilled parts never have to be blanked (which would clear them on the
+ * item) to add it.
+ */
+const partlyHeld = (keep: Values | undefined) =>
+  keep !== undefined &&
+  WSJF_KEYS.some((k) => keep[k] !== undefined) &&
+  WSJF_KEYS.some((k) => keep[k] === undefined);
 
 /**
  * Above the list: the relative-scoring hint and column-by-column scoring.
@@ -251,10 +263,12 @@ export const WSJF_TOOL: MethodToolConfig = {
     "No features yet. Add one above (a title is enough to score it column by column), or load an example.",
   history: WSJF_ACTIONS,
   allowTitleOnly: true,
-  // A new feature is a title alone or all four parts; one already partial
-  // keeps its blanks through an edit (its parts are still to come by column).
+  // A new feature is a title alone or all four parts, unless the backlog
+  // item it is imported from holds only some (it lands partial, as that
+  // item reads); one already partial keeps its blanks through an edit (its
+  // parts are still to come by column).
   validate: (d, { editing, keep }) =>
-    editing && hasBlank(editing)
+    (editing ? hasBlank(editing) : partlyHeld(keep))
       ? validatePartialDraft(WSJF, d, keep)
       : validateMethodDraft(WSJF, d, true, keep),
   buildExample: () => buildExample(),
