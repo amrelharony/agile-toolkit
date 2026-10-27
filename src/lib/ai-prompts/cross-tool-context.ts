@@ -9,6 +9,7 @@ import {
 import { runAntiPatternRules, sortBySeverity } from "../analytics/anti-patterns";
 import { mean } from "../analytics/anomaly";
 import { sanitizePromptCell } from "./prompt-utils";
+import { isExampleId } from "../utils/example-id";
 
 export function buildWorkspaceContext(w: Workspace | undefined | null): string {
   if (!w) return "";
@@ -49,7 +50,8 @@ export function buildWorkspaceContext(w: Workspace | undefined | null): string {
     );
   }
 
-  const openRisks = selectOpenRisks(w);
+  // Example rows (the Risk Register's "Load an example") aren't the team's risks.
+  const openRisks = selectOpenRisks(w).filter((r) => !isExampleId(r.id));
   if (openRisks.length > 0) {
     parts.push(`Open risks: ${openRisks.length}`);
   }

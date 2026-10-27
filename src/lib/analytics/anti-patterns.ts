@@ -2,6 +2,7 @@ import type { Workspace } from "../stores/workspace-types";
 import { selectCompletedSprints, selectActiveImpediments } from "../stores/workspace-store";
 import { trendDirection } from "./anomaly";
 import { isActiveRisk, isHighRisk } from "../risks/model";
+import { isExampleId } from "../utils/example-id";
 import {
   SKILLS_MATRIX_ID,
   matrixColumns,
@@ -152,7 +153,10 @@ export function detectBusFactorRisk(w: Workspace): AntiPatternSignal | null {
 export function detectRiskStacking(w: Workspace): AntiPatternSignal | null {
   // The register's one meaning of high (lib/risks: P×I 10 and up, a
   // missing rating read as 1), on the risks still open or mitigating.
-  const high = (w.risks ?? []).filter((r) => isActiveRisk(r) && isHighRisk(r));
+  // Example rows (the register's "Load an example") aren't the team's risks.
+  const high = (w.risks ?? []).filter(
+    (r) => !isExampleId(r.id) && isActiveRisk(r) && isHighRisk(r)
+  );
   if (high.length < 3) return null;
   return {
     id: "RISK_STACKING",
@@ -169,10 +173,12 @@ export function detectRiskStacking(w: Workspace): AntiPatternSignal | null {
 
 export function detectTechDebtAcceleration(w: Workspace): AntiPatternSignal | null {
   const now = Date.now();
-  const last30 = w.techDebt.filter(
+  // Example rows (the Tech Debt page's "Load an example") aren't the team's debt.
+  const items = (w.techDebt ?? []).filter((t) => !isExampleId(t.id));
+  const last30 = items.filter(
     (t) => !t.resolvedAt && (now - new Date(t.raisedAt).getTime()) / (1000 * 60 * 60 * 24) <= 30
   );
-  const prev30 = w.techDebt.filter((t) => {
+  const prev30 = items.filter((t) => {
     const age = (now - new Date(t.raisedAt).getTime()) / (1000 * 60 * 60 * 24);
     return !t.resolvedAt && age > 30 && age <= 60;
   });
