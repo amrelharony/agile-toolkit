@@ -14,6 +14,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 // The MCP path talks to the server store: an in-memory row per kind + id.
 const rows = vi.hoisted(() => new Map<string, unknown>());
@@ -54,6 +56,8 @@ import { exampleId } from "@/lib/utils/example-id";
 import { FULL_CHECK_INS, LEGACY_OKR, OKR } from "../stores/phase8-fixtures";
 
 import "@/lib/actions/tools/okrs";
+// workspace.okr.* (the CRUD the descriptions send agents to).
+import "@/lib/actions/workspace";
 
 const ctx = { userId: "u", source: "agent" as const, squadProfileIds: [] as string[] };
 const run = <T>(path: "handler" | "mcpHandler", verb: string, params: Record<string, unknown>) => {
@@ -128,6 +132,20 @@ describe("tool.okrs — registration", () => {
       expect(a?.mcpHandler, verb).toBeTypeOf("function");
       expect(a?.requiresConfirmation, verb).toBe(false);
     }
+  });
+
+  it("sends agents only to workspace actions that exist (the check-in history is on .list)", () => {
+    const named = (text: string) =>
+      Array.from(text.matchAll(/workspace\.[a-z_]+\.[a-z_]+/g), (m) => m[0]);
+    const texts = registry
+      .list({ toolId: "tool.okrs" })
+      .filter((a) => a.toolId === "tool.okrs")
+      .flatMap((a) => [a.description, JSON.stringify(zodToJsonSchema(a.paramsSchema))]);
+    const doc = readFileSync(path.join(process.cwd(), "docs/MCP-AGENTS.md"), "utf8");
+    const section = doc.slice(doc.indexOf("#### OKR Tracker"), doc.indexOf("#### NPS / CSAT"));
+    const ids = [...texts, section].flatMap(named);
+    expect(ids).toContain("workspace.okr.list");
+    for (const id of ids) expect(registry.get(id), id).toBeDefined();
   });
 
   it("advertises every check_in param to MCP (the day's refinement converts)", () => {
