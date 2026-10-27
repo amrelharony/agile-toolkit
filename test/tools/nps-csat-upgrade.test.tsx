@@ -69,7 +69,7 @@ import {
 } from "@/app/(tools)/nps-csat/form";
 import { IMPORT_CAP, previewImport, readKind } from "@/app/(tools)/nps-csat/import";
 import { surveyVerdict, thinPeriodWarning } from "@/app/(tools)/nps-csat/verdict";
-import { npsCsatPrompts, promptHeadline } from "@/app/(tools)/nps-csat/prompt";
+import { generateNpsCsatPrompts } from "@/lib/ai-prompts/nps-csat";
 import { responseName } from "@/app/(tools)/nps-csat/response-row";
 import { hypothesisTag, recentResponses } from "@/app/(tools)/nps-csat/tags";
 
@@ -843,15 +843,17 @@ describe("the AI prompt", () => {
       resp("csat", "2026-10-01", 5, { verbatim: "Great" }),
       resp("csat", "2026-10-02", 2),
     ];
-    const themes = npsCsatPrompts(csatOnly, summarizeNps(csatOnly), summarizeCsat(csatOnly)).find(
+    const themes = generateNpsCsatPrompts({ responses: csatOnly, by: "month" }).find(
       (p) => p.id === "nps-themes"
     )!.prompt;
     expect(themes).toContain("No NPS responses. CSAT 50% satisfied (4–5) from 2 responses.");
     expect(themes).not.toMatch(/Current NPS|CSAT avg/);
-    expect(promptHeadline(summarizeNps([]), summarizeCsat([]))).toBe(
+    // Off-scale only: neither kind has an answer that counts.
+    const offScale = [resp("nps", "2026-10-01", 11)];
+    expect(generateNpsCsatPrompts({ responses: offScale, by: "month" })[0].prompt).toContain(
       "No NPS responses. No CSAT responses."
     );
-    expect(npsCsatPrompts([], summarizeNps([]), summarizeCsat([]))).toEqual([]);
+    expect(generateNpsCsatPrompts({ responses: [], by: "month" })).toEqual([]);
   });
 
   it("gets the numbers the page shows", () => {

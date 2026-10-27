@@ -30,6 +30,7 @@ import { ToggleGroup } from "@/components/ui/toggle-group";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
+import { generateNpsCsatPrompts } from "@/lib/ai-prompts/nps-csat";
 import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -61,7 +62,6 @@ import { emptyResponse, newResponse, withResponseValues, type ResponseValues } f
 import { ImportPanel } from "./import-panel";
 import type { ImportRow } from "./import";
 import { toMarkdown } from "./markdown";
-import { npsCsatPrompts } from "./prompt";
 import { ResponseForm } from "./response-form";
 import { DELETE_SELECTOR, ResponseRow, categoryOf } from "./response-row";
 import { RECENT_DAYS, hypothesisTag, tagCsatText, tagNpsText } from "./tags";
@@ -186,10 +186,10 @@ function NpsCsatTracker() {
   const promptConfig = useMemo(
     () => ({
       toolName: "NPS/CSAT Tracker",
-      // The page's own numbers: no NPS answers reads "No NPS responses", never 0.
-      prompts: npsCsatPrompts(shown, nps, csat),
+      // The page's own numbers (lib/nps): no NPS answers reads "No NPS responses", never 0.
+      prompts: generateNpsCsatPrompts({ responses: shown, by, today, tag: activeTag, verdict }),
     }),
-    [shown, nps, csat]
+    [shown, by, today, activeTag, verdict]
   );
 
   /** History for the team's own answers; the example's aren't the team's work. */
