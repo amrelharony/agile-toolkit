@@ -112,7 +112,10 @@ export function validateTest(
   // The order checks run on the status day as edited, the other as stored.
   const days = { quarantinedAt: editing?.quarantinedAt ?? null, fixedAt: editing?.fixedAt ?? null };
   if (dayField && typedDay && !dayError) days[dayField] = typedDay;
-  const errors: FormErrors<TestField> = flakyTestErrors({ ...draft, ...days }, today);
+  const legacy = editing !== undefined && !hasRunCounts(editing);
+  const errors: FormErrors<TestField> = flakyTestErrors({ ...draft, ...days }, today, {
+    allowBlankCounts: legacy,
+  });
   if (dayField && dayError) errors[dayField] = dayError;
   else if (dayField && typedDay && typedDay !== editing?.[dayField]) {
     const firstSeen = draft.firstSeenAt.trim() || editing?.firstSeenAt || "";
@@ -121,15 +124,6 @@ export function validateTest(
       errors[dayField] = `It can't come before the day it was first seen (${firstSeen}).`;
       if (errors.firstSeenAt === firstSeenOrderError(firstSeen, days)) delete errors.firstSeenAt;
     }
-  }
-  const keepsLegacyRate =
-    editing !== undefined &&
-    !hasRunCounts(editing) &&
-    draft.failures.trim() === "" &&
-    draft.runs.trim() === "";
-  if (keepsLegacyRate) {
-    delete errors.failures;
-    delete errors.runs;
   }
   if (draft.suite.trim().length > FLAKY_SUITE_MAX) {
     errors.suite = `Keep the suite to ${FLAKY_SUITE_MAX} characters.`;
@@ -144,6 +138,7 @@ export function validateTest(
   const opt = (v: string) => v.trim() || undefined;
   const firstSeen = draft.firstSeenAt.trim();
   const statusDay = dayField ? typedDay || editing?.[dayField] : undefined;
+  const keepsLegacyRate = legacy && draft.failures.trim() === "" && draft.runs.trim() === "";
   return {
     ok: true,
     values: {

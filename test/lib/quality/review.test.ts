@@ -310,6 +310,23 @@ describe("sampleErrors, sampleFromDraft and toWallClock", () => {
     });
   });
 
+  it("refuses a PR number another logged PR holds, given them", () => {
+    const existing = [
+      { id: "pr_1", prNumber: " 412 ", author: "a", openedAt: "2026-10-01T09:00" },
+      { id: "pr_2", author: "b", openedAt: "2026-10-02T09:00" },
+    ].map((s) => ({ ...s, reviewerCount: 1, commentCount: 0, linesChanged: 10 }));
+    expect(sampleErrors({ ...ok, prNumber: "412" }, NOW, { existing })).toEqual({
+      prNumber: "Already logged: PR 412.",
+    });
+    // The PR being edited may keep its own number; a blank number never clashes.
+    expect(sampleErrors({ ...ok, prNumber: "412" }, NOW, { existing, editingId: "pr_1" })).toEqual(
+      {}
+    );
+    expect(sampleErrors({ ...ok, prNumber: " " }, NOW, { existing })).toEqual({});
+    // Without them (the agent's check), the number isn't compared.
+    expect(sampleErrors({ ...ok, prNumber: "412" }, NOW)).toEqual({});
+  });
+
   it("stores the author without '@' and the times as wall-clock", () => {
     expect(sampleFromDraft({ ...ok, description: " ", prNumber: " 412 " }, "pr_x")).toEqual({
       id: "pr_x",

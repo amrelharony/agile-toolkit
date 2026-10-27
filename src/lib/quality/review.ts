@@ -463,17 +463,27 @@ const COUNT_FIELDS = [
  * Why a PR draft can't be saved, the one rule for the page's form, its
  * import and the agent: an author; an openedAt; firstReviewAt and mergedAt
  * optional, in the order opened ≤ first review ≤ merged, none after `now`
- * (a wall-clock "YYYY-MM-DDTHH:MM"); whole counts of 0 or more.
+ * (a wall-clock "YYYY-MM-DDTHH:MM"); whole counts of 0 or more. With
+ * `existing`, a PR number one of those samples holds (other than
+ * `editingId`, the one being edited) is an error too: the page's form. The
+ * agent leaves it out and answers a duplicate with the PR that holds it.
  */
-export function sampleErrors(draft: SampleDraft, now: string): FormErrors<SampleField> {
+export function sampleErrors(
+  draft: SampleDraft,
+  now: string,
+  { existing = [], editingId }: { existing?: readonly PrSample[]; editingId?: string } = {}
+): FormErrors<SampleField> {
   const errors: FormErrors<SampleField> = {};
   const author = cleanAuthor(draft.author ?? "");
   if (!author) errors.author = "Enter who opened the pull request.";
   else if (author.length > REVIEW_AUTHOR_MAX) {
     errors.author = `Keep the author to ${REVIEW_AUTHOR_MAX} characters.`;
   }
-  if ((draft.prNumber ?? "").trim().length > REVIEW_PR_NUMBER_MAX) {
+  const pr = (draft.prNumber ?? "").trim();
+  if (pr.length > REVIEW_PR_NUMBER_MAX) {
     errors.prNumber = `Keep the PR number to ${REVIEW_PR_NUMBER_MAX} characters.`;
+  } else if (pr && existing.some((s) => s.id !== editingId && (s.prNumber ?? "").trim() === pr)) {
+    errors.prNumber = `Already logged: PR ${pr}.`;
   }
   if ((draft.description ?? "").trim().length > REVIEW_DESCRIPTION_MAX) {
     errors.description = `Keep the description to ${REVIEW_DESCRIPTION_MAX} characters.`;

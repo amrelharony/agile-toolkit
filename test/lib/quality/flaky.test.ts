@@ -293,6 +293,25 @@ describe("flakyTestErrors", () => {
     });
   });
 
+  it("lets an edited rate-only row keep both counts blank, never just one", () => {
+    const legacy = { allowBlankCounts: true };
+    expect(flakyTestErrors({ name: "a", failures: " ", runs: "" }, TODAY, legacy)).toEqual({});
+    expect(flakyTestErrors({ name: "", failures: "", runs: "" }, TODAY, legacy)).toEqual({
+      name: "Enter the test's name.",
+    });
+    expect(flakyTestErrors({ name: "a", failures: "2", runs: "" }, TODAY, legacy)).toEqual({
+      runs: "Enter how many times it ran.",
+    });
+    expect(flakyTestErrors({ name: "a", failures: 5, runs: 4 }, TODAY, legacy)).toEqual({
+      failures: "It can't fail more often than it ran.",
+    });
+    // Without the option, blank counts are asked for.
+    expect(flakyTestErrors({ name: "a", failures: "", runs: "" }, TODAY)).toEqual({
+      failures: "Enter how many runs failed.",
+      runs: "Enter how many times it ran.",
+    });
+  });
+
   it("accepts a backdated first-seen day and refuses a future one", () => {
     const draft = { name: "a", failures: 1, runs: 4 };
     expect(flakyTestErrors({ ...draft, firstSeenAt: "2026-01-02" }, TODAY)).toEqual({});

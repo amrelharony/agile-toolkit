@@ -51,8 +51,9 @@ export function draftFromSample(s: PrSample): SampleDraftText {
 
 /**
  * Check a PR's draft: sampleErrors (lib/quality/review: the author, the
- * times in order and not in the future, whole counts), plus a PR number
- * logged already, which the agent's add_sample refuses too.
+ * times in order and not in the future, whole counts, and a PR number
+ * another logged PR holds, which the agent's add_sample and update_sample
+ * refuse too).
  */
 export function validateSample(
   draft: SampleDraftText,
@@ -60,15 +61,10 @@ export function validateSample(
   samples: readonly PrSample[],
   editingId?: string
 ): Validation<SampleDraftText, SampleField> {
-  const errors: FormErrors<SampleField> = sampleErrors(draft, now);
-  const pr = draft.prNumber.trim();
-  if (
-    !errors.prNumber &&
-    pr &&
-    samples.some((s) => (s.prNumber ?? "").trim() === pr && s.id !== editingId)
-  ) {
-    errors.prNumber = `Already logged: PR ${pr}.`;
-  }
+  const errors: FormErrors<SampleField> = sampleErrors(draft, now, {
+    existing: samples,
+    editingId,
+  });
   return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, values: draft };
 }
 

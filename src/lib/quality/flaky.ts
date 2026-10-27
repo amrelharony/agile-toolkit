@@ -335,7 +335,10 @@ export function firstSeenOrderError(
  * runs (1 or more) with no more failures than runs, and a first-seen day
  * that isn't after `today` (blank is allowed: the caller fills it in) nor
  * after the edited test's quarantinedAt or fixedAt, when the draft carries
- * them (firstSeenOrderError).
+ * them (firstSeenOrderError). With `allowBlankCounts` (editing a row from
+ * before Phase 8, which holds only a rate), failures and runs may both be
+ * left blank: the row keeps its rate, so fixing a typo in its name doesn't
+ * demand numbers nobody has. One without the other is still an error.
  */
 export function flakyTestErrors(
   draft: {
@@ -347,7 +350,8 @@ export function flakyTestErrors(
     quarantinedAt?: string | null;
     fixedAt?: string | null;
   },
-  today: string
+  today: string,
+  { allowBlankCounts = false }: { allowBlankCounts?: boolean } = {}
 ): FormErrors<FlakyField> {
   const errors: FormErrors<FlakyField> = {};
   const name = (draft.name ?? "").trim();
@@ -357,12 +361,16 @@ export function flakyTestErrors(
   }
   const failures = parseNumber(draft.failures ?? undefined);
   const runs = parseNumber(draft.runs ?? undefined);
-  if (failures === undefined) errors.failures = "Enter how many runs failed.";
-  else if (!isWhole(failures, 0)) errors.failures = "Enter a whole number of 0 or more.";
-  if (runs === undefined) errors.runs = "Enter how many times it ran.";
-  else if (!isWhole(runs, 1)) errors.runs = "Enter a whole number of 1 or more.";
-  if (!errors.failures && !errors.runs && (failures as number) > (runs as number)) {
-    errors.failures = "It can't fail more often than it ran.";
+  const blank = (v: string | number | null | undefined) => String(v ?? "").trim() === "";
+  const keepsRate = allowBlankCounts && blank(draft.failures) && blank(draft.runs);
+  if (!keepsRate) {
+    if (failures === undefined) errors.failures = "Enter how many runs failed.";
+    else if (!isWhole(failures, 0)) errors.failures = "Enter a whole number of 0 or more.";
+    if (runs === undefined) errors.runs = "Enter how many times it ran.";
+    else if (!isWhole(runs, 1)) errors.runs = "Enter a whole number of 1 or more.";
+    if (!errors.failures && !errors.runs && (failures as number) > (runs as number)) {
+      errors.failures = "It can't fail more often than it ran.";
+    }
   }
   const firstSeen = (draft.firstSeenAt ?? "").trim();
   const day =
