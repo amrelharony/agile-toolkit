@@ -161,12 +161,18 @@ describe("tool.okrs.list_state", () => {
         overallProgressPct: number;
         measuredObjectives: number;
         measuredProgressPct: number | null;
+        items: { id: string; progressPct: number | null }[];
       }>("list_state");
       expect(r).toMatchObject({
         overallProgressPct: 25,
         measuredObjectives: 1,
         measuredProgressPct: 50,
       });
+      // o2 isn't measured yet (the page's "Not measured yet"): null, never 0.
+      expect(r.items.map((i) => [i.id, i.progressPct])).toEqual([
+        ["o1", 50],
+        ["o2", null],
+      ]);
     }
     seed({ okrs: [okr("o3", [])] });
     expect(await call("list_state")).toMatchObject({

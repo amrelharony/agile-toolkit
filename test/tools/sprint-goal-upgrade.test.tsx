@@ -87,7 +87,12 @@ import {
 } from "@/app/(tools)/sprint-goal/example";
 import { toMarkdown } from "@/app/(tools)/sprint-goal/markdown";
 import { goalVerdict } from "@/app/(tools)/sprint-goal/verdict";
-import { krProgressText, resolveLinkedOkrs } from "@/app/(tools)/sprint-goal/okr-links";
+import {
+  krProgressText,
+  okrMeasuredPercent,
+  okrProgressLabel,
+  resolveLinkedOkrs,
+} from "@/app/(tools)/sprint-goal/okr-links";
 import { validateCriterion } from "@/app/(tools)/sprint-goal/criteria-step";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -554,7 +559,8 @@ describe("results", () => {
     expect(lines[0]).toBe("# Sprint Goal — Sprint 2 · 23 Oct 2026");
     expect(lines).toContain("SMART: 5/5");
     expect(lines).toContain("## Linked OKRs");
-    expect(lines).toContain("- **Grow repeat orders** (Q4 2026, 50% of the way)");
+    // The old intent's "Q4 2026" reads as the OKR page's "2026 Q4", as the step shows it.
+    expect(lines).toContain("- **Grow repeat orders** (2026 Q4, 50% of the way)");
     expect(lines).toContain("  - Weekly active teams: 40 of 80");
     expect(lines).toContain("## Key-result notes");
     expect(lines).toContain("- Old note");
@@ -562,6 +568,19 @@ describe("results", () => {
     expect(lines.at(-2)).toBe(
       "**The goal meets all five SMART checks, and 1 of 2 acceptance criteria passes every check.**"
     );
+  });
+
+  it("reads a linked objective with no key result as not measured yet, never 0%", () => {
+    const empty = okr("o1", "Win back churned teams", { keyResults: [] });
+    const md = toMarkdown(goalDoc("x", { okrIds: ["o1"] }), new Date(2026, 9, 23), {
+      okrs: [empty],
+    });
+    expect(md.split("\n")).toContain("- **Win back churned teams** (2026 Q4, not measured yet)");
+    expect(md).not.toContain("0% of the way");
+    expect(okrMeasuredPercent(empty)).toBeNull();
+    expect(okrProgressLabel(empty)).toBe("not measured yet");
+    expect(okrMeasuredPercent(okr("o2", "Grow"))).toBe(50);
+    expect(okrProgressLabel(okr("o2", "Grow"))).toBe("50% of the way");
   });
 
   it("counts a goal with only a linked OKR as something to export", () => {
@@ -1136,6 +1155,22 @@ describe("Sprint Goal criteria and key results", () => {
     expect(toastSpy.mock.calls.at(-1)![0]).toBe("Deleted “Activation 60%”");
     undoLast();
     expect(docById("sprint-goal:sprint:s2")?.keyResults).toEqual(["Activation 60%", "NPS 45"]);
+  });
+
+  it("shows a linked objective with no key result as not measured yet, in the step and the summary", () => {
+    useWorkspaceStore.setState({
+      okrs: [okr("o1", "Grow activation", { keyResults: [] }), okr("o2", "Cut churn")],
+      sprintGoals: [
+        goalDoc("sprint-goal:sprint:s2", { sprintId: "s2", goal: "G", okrIds: ["o1"] }),
+      ],
+    });
+    renderGoal();
+    openStep("Key Results");
+    const list = screen.getByRole("list", { name: "OKRs to link" });
+    expect(within(list).getByText("2026 Q4 · not measured yet")).toBeInTheDocument();
+    expect(within(list).getByText("2026 Q4 · 50% of the way")).toBeInTheDocument();
+    expect(screen.getByText("(not measured yet)")).toBeInTheDocument();
+    expect(screen.queryByText(/\b0% of the way/)).toBeNull();
   });
 
   it("offers to unlink OKRs that were deleted", () => {
