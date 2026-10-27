@@ -821,9 +821,9 @@ describe("quality-cost", () => {
     ).toEqual([
       {
         id: "quality-cost-flaky",
-        label: "See what the flaky tests cost",
+        label: "Count flaky reruns as internal failure cost",
         detail:
-          "1 flaky test is open, failing 10% of its runs. Its reruns and triage time are internal failure cost: count the hours × rate in this quarter's figures.",
+          "1 flaky test is open, failing 10% of its runs. Its reruns and triage time are internal failure cost: estimate the hours from the runs on the flaky board, then log them here under Internal failure with “Hours × rate”.",
         href: "/flaky-tests",
       },
       {
@@ -834,6 +834,34 @@ describe("quality-cost", () => {
         href: "/test-pyramid",
       },
     ]);
+  });
+
+  it("words the rate over the tests with run counts only", () => {
+    const detail = (tests: FlakyTest[]) =>
+      step("quality-cost", { flakyTestBoards: boards(tests) }, "quality-cost-flaky")?.detail;
+    // A legacy row with a rate and no run counts stays out of the rate, as on the page.
+    const legacy = flaky("f2", { failureRate: 0.5, failures: undefined, runs: undefined });
+    expect(detail([flaky("f1"), legacy])).toMatch(
+      /^2 flaky tests are open; the 1 with run counts fails 10% of its runs\. Their reruns/
+    );
+    expect(detail([flaky("f1"), flaky("f3", { failures: 4, runs: 20 }), legacy])).toMatch(
+      /^3 flaky tests are open; the 2 with run counts fail 15% of their runs\./
+    );
+    // Without any run counts there is no rate to give.
+    expect(detail([legacy])).toMatch(/^1 flaky test is open\. Its reruns/);
+    expect(detail([flaky("f1"), flaky("f3")])).toMatch(
+      /^2 flaky tests are open, failing 10% of their runs\./
+    );
+  });
+
+  it("names the run-time basis of a top-heavy shape", () => {
+    const timed = pyramid(70, 20, 10, {
+      weighting: "runtime",
+      runtime: { unit: 2, integration: 3, e2e: 30 },
+    });
+    expect(step("quality-cost", { testPyramids: timed }, "quality-cost-pyramid")?.detail).toBe(
+      "The suite is an ice-cream cone by run time: slow end-to-end checks are detection cost that unit tests cover for less."
+    );
   });
 
   it("stays quiet with no open flaky test and a pyramid-shaped suite", () => {
@@ -891,6 +919,18 @@ describe("test-pyramid", () => {
     });
     expect(ids("test-pyramid", { testPyramids: timed })).toEqual(["test-pyramid-retro"]);
     expect(ids("test-pyramid", {})).toEqual([]);
+    // And says so, as the page's verdict does.
+    const flakyStep = step(
+      "test-pyramid",
+      { testPyramids: timed, flakyTestBoards: boards([flaky("f1")]) },
+      "test-pyramid-flaky"
+    );
+    expect(flakyStep?.detail).toMatch(
+      /^The suite is an ice-cream cone by run time and 1 flaky test is open\./
+    );
+    expect(step("test-pyramid", { testPyramids: timed }, "test-pyramid-retro")?.detail).toMatch(
+      /^Ice-cream cone by run time: /
+    );
   });
 });
 

@@ -254,6 +254,7 @@ import type {
   RetroBoard,
   RiskiestAssumption,
   TestPyramid,
+  TestPyramidWeighting,
   TreeNode,
 } from "@/lib/stores/workspace-types";
 
@@ -867,8 +868,13 @@ function pyramidShape(docs: readonly TestPyramid[] | undefined) {
 /** Wider at the top than a pyramid should be: mostly end to end, or thin in the middle. */
 const TOP_HEAVY: ReadonlySet<PyramidShape> = new Set<PyramidShape>(["ice-cream-cone", "hourglass"]);
 
-/** "an ice-cream cone", "an hourglass": a top-heavy shape in a sentence. */
-const topHeavyName = (shape: PyramidShape) => `an ${PYRAMID_SHAPE_LABEL[shape].toLowerCase()}`;
+/**
+ * "an ice-cream cone", "an hourglass by run time": a top-heavy shape in a
+ * sentence, with the basis shapeVerdict names (a suite shaped like a
+ * pyramid by count can be a cone by run time).
+ */
+const topHeavyName = (shape: PyramidShape, weighting: TestPyramidWeighting) =>
+  `an ${PYRAMID_SHAPE_LABEL[shape].toLowerCase()}${weighting === "runtime" ? " by run time" : ""}`;
 
 /** The largest PRs' share of the logged ones from which PR size is worth a retro. */
 const LARGE_PR_SHARE = 0.25;
@@ -3705,6 +3711,8 @@ const RULES: Record<string, NextStepRule<object>> = {
             : top.ageSprints === 0
               ? ` and is under a sprint old (${len}-day sprints)`
               : ` and is ≈ ${plural(top.ageSprints, "sprint")} old (${len}-day sprints)`;
+        // The row disables "Add to backlog" while the title is blank: name it first.
+        const titled = (top.item.title ?? "").trim().length > 0;
         steps.push({
           id: "tech-debt-backlog",
           label: "Put the top debt item on the backlog",
@@ -3715,8 +3723,6 @@ const RULES: Record<string, NextStepRule<object>> = {
           }`,
           href: "/tech-debt",
         });
-        // The row disables "Add to backlog" while the title is blank: name it first.
-        const titled = (top.item.title ?? "").trim().length > 0;
       }
       return steps;
     },
@@ -3730,24 +3736,29 @@ const RULES: Record<string, NextStepRule<object>> = {
       const steps: NextStep[] = [];
       const open = openFlaky(flakyTestsOf(boards));
       if (open.length > 0) {
-        const { rate } = weightedFailureRate(open);
+        // The rate is the counted tests' only (as flakyVerdict words it):
+        // legacy rows with a rate and no run counts are left out of it.
+        const n = open.length;
+        const { rate, counted, rateOnly } = weightedFailureRate(open);
+        const failing =
+          rate === null
+            ? ""
+            : rateOnly === 0
+              ? `, failing ${ratePercent(rate)} of ${n === 1 ? "its" : "their"} runs`
+              : `; the ${counted} with run counts ${counted === 1 ? "fails" : "fail"} ${ratePercent(rate)} of ${counted === 1 ? "its" : "their"} runs`;
         steps.push({
           id: "quality-cost-flaky",
-          label: "See what the flaky tests cost",
-          detail: `${plural(open.length, "flaky test")} ${be(open.length)} open${
-            rate === null
-              ? ""
-              : `, failing ${ratePercent(rate)} of ${open.length === 1 ? "its" : "their"} runs`
-          }. ${open.length === 1 ? "Its" : "Their"} reruns and triage time are internal failure cost: count the hours × rate in this quarter's figures.`,
+          label: "Count flaky reruns as internal failure cost",
+          detail: `${plural(n, "flaky test")} ${be(n)} open${failing}. ${n === 1 ? "Its" : "Their"} reruns and triage time are internal failure cost: estimate the hours from the runs on the flaky board, then log them here under Internal failure with “Hours × rate”.`,
           href: "/flaky-tests",
         });
       }
-      const { shape } = pyramidShape(pyramids);
+      const { shape, weighting } = pyramidShape(pyramids);
       if (TOP_HEAVY.has(shape)) {
         steps.push({
           id: "quality-cost-pyramid",
           label: "Check the test pyramid's shape",
-          detail: `The suite is ${topHeavyName(shape)}: slow end-to-end checks are detection cost that unit tests cover for less.`,
+          detail: `The suite is ${topHeavyName(shape, weighting)}: slow end-to-end checks are detection cost that unit tests cover for less.`,
           href: "/test-pyramid",
         });
       }
@@ -3766,7 +3777,7 @@ const RULES: Record<string, NextStepRule<object>> = {
           {
             id: "test-pyramid-flaky",
             label: "Triage the flaky tests in a top-heavy suite",
-            detail: `The suite is ${topHeavyName(shape)} and ${plural(open, "flaky test")} ${be(open)} open. End-to-end tests are the slowest and flakiest layer: look there first.`,
+            detail: `The suite is ${topHeavyName(shape, weighting)} and ${plural(open, "flaky test")} ${be(open)} open. End-to-end tests are the slowest and flakiest layer: look there first.`,
             href: "/flaky-tests",
           },
         ];
