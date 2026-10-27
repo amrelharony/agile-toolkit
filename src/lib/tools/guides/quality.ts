@@ -9,7 +9,7 @@ export const GUIDES: ToolGuide[] = [
     whenToUse: [
       "When the team keeps saying “we should fix that” but nothing gets scheduled.",
       "Before sprint or quarterly planning, to choose which debt to pay down.",
-      "When you need to show stakeholders what debt costs in lost velocity.",
+      "When you need to show stakeholders which debt costs the team most and how long it has been left.",
     ],
     steps: [
       "Press New debt, name it, give an Area if it helps group hotspots, and pick Impact and Effort (1–5); nothing is saved until both are rated. Interest per sprint is optional: blank means not estimated. Set Raised on (backdate it if it's older) and press Add debt (or Enter).",
@@ -300,7 +300,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "In Log a pull request, enter the Author (from your team), when it was Opened, First review and Merged (both optional), and the Reviewers, Review comments and Lines changed. Press Add PR; times can't be in the future or out of order.",
       "Or paste rows into Import from CSV and press Check rows: rows with errors are listed by line, and PR numbers already logged are skipped. Press Import to add the rest (Undo in the toast).",
-      "In Working hours, set Day starts and Day ends to count only those hours of each working day, or leave them blank for whole days. Working days and holidays come from the ceremony cadence.",
+      "In Working hours, set Day starts and Day ends and press Save working hours to count only those hours of each working day; leave them blank for whole days, or press Count whole days instead to go back. Working days and holidays come from the ceremony cadence.",
       "Read the verdict and the cards: Median time to first review and Median cycle time show from 3 PRs, P85 cycle time from 5. The basis is printed under the cards.",
       "Review flow by PR size compares small, medium and large PRs and flags large ones merged with no comment. The weekly median line draws once two weeks have three merges each.",
       "Edit or delete a PR in the Logged pull requests table. Intervals, control limits and the trend test are in Advanced analysis.",

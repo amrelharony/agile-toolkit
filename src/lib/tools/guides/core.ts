@@ -155,7 +155,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       "Under the objective press Add key result: name it, choose whether The number should Go up or Go down, enter the Baseline (where it starts) and the Target, and a Unit such as % if it has one.",
       "Each week press Check in on a key result: the Day starts on today (backdate a missed week), enter the Value and, if the owner has one, a Confidence from 0 to 10; leave it clear when not scored. Press Save check-in.",
       "Read the sentence under each objective: progress against the days gone in its quarter, and confidence with the way it moved since the reading before.",
-      "When objectives span quarters, use the quarter chips above the list to see another one, or All; the list opens on this quarter.",
+      "When objectives span quarters, use the quarter chips above the list to see another one, or All; the list opens on this quarter when it has objectives, otherwise on All.",
       "Open a key result's check-ins to see its history, and delete a wrong one (Undo brings it back).",
       "Moves these sprint goals lists the sprint goals linked to each objective; link a goal to an OKR in Sprint Goal's Key Results step.",
     ],
@@ -335,7 +335,7 @@ export const CORE_GUIDES: ToolGuide[] = [
     tips: [
       "Describe each risk as “because of X, Y may happen, leading to Z”. A risk without an owner is a wish.",
       "Advanced analysis shows a trend test, a forecast and change points once there are enough weeks of risks.",
-      "Risks from the old Risk Register page move in once. If a value was edited in both places, you're asked once: Keep it or Use this instead.",
+      "Risks from the old Risk Register page move in once. If a value was edited in both places, you're asked once: Keep or Use this instead.",
     ],
   },
   {

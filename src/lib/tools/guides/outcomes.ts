@@ -53,7 +53,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Click New hypothesis and fill We believe, We will, To learn and Success looks like; Add hypothesis saves it (Enter works too). Move Raised on back if the test started earlier.",
       "Optionally set a Numeric target: The number should Rise to at least or Fall to at most a Target, with a Unit and the Baseline where it stands now.",
-      "Set the Status on the card as the test runs. A hypothesis sent from another tool (Riskiest Assumption, the Opportunity Tree, Cynefin) arrives Drafted, often with Needs detail: use Edit or Add the detail to fill what you'll do and the success metric before it can run.",
+      "Set the Status on the card as the test runs. A hypothesis sent from another tool (Riskiest Assumption, the Opportunity Tree, Cynefin or a Design Sprint) arrives Drafted, often with Needs detail: use Edit or Add the detail to fill what you'll do and the success metric before it can run.",
       "When the result is in, type it in Measured result. The card says whether the target was met and offers Mark validated or Mark invalidated; nothing changes until you click it. Set Result on to the day the test ended and note What we learned.",
       "Use Show to filter by Open, a result or Needs detail. Validation rate is validated ÷ (validated + invalidated); Advanced analysis shows how long tests take once five have a result.",
     ],

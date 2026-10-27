@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CORE_GUIDES } from "@/lib/tools/guides/core";
@@ -12,6 +12,8 @@ import { INTEREST_CAP } from "@/lib/tech-debt/model";
 import { FAILURE_SHARE_HIGH } from "@/lib/quality/cost";
 import { PYRAMID_SHAPE_LABEL, SHAPE_TOLERANCE } from "@/lib/quality/pyramid";
 import { FEW_RUNS, QUARANTINE_ALERT_DAYS } from "@/lib/quality/flaky";
+import type { Okr } from "@/lib/stores/workspace-types";
+import { ALL_QUARTERS, defaultQuarter } from "@/app/(tools)/okrs/view";
 
 /*
  * The Outcomes, quality & library guides name the pages' labels and quote
@@ -30,6 +32,8 @@ function guide(id: string): ToolGuide {
 }
 
 const allText = (g: ToolGuide) => [g.summary, ...g.steps, ...(g.tips ?? [])].join("\n");
+/** With the When to use lines: removed UI and dropped ideas stay out of those too. */
+const fullText = (g: ToolGuide) => [allText(g), ...g.whenToUse].join("\n");
 
 const source = (...files: string[]) =>
   files.map((f) => readFileSync(join(process.cwd(), f), "utf8")).join("\n");
@@ -51,7 +55,8 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
     ["opportunity-tree", /Add Outcome|remove branches/],
     ["riskiest-assumption", /Generate test card|pair of 3s/i],
     ["risk-register", /avoid, reduce, transfer or accept/i],
-    ["tech-debt", /New Debt|velocity points|Resolution survival curve/],
+    // Interest is score points a sprint now: the page shows no velocity cost.
+    ["tech-debt", /New Debt|[Vv]elocity|Resolution survival curve/],
     ["quality-cost", /recalculate next period|Pick one period/i],
     ["test-pyramid", /Cost-of-quality figure|Inverted pyramid alert|% unit \(aim/i],
     ["flaky-tests", /Failure rate \(%\)|single failure rate|Top 10 flakiest/i],
@@ -60,13 +65,61 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
       /Cycle median and Cycle P85|Weekly cycle-time mean|Parse & import|Log PR sample/,
     ],
   ])("%s drops the removed UI", (id, removed) => {
-    expect(allText(guide(id))).not.toMatch(removed);
+    expect(fullText(guide(id))).not.toMatch(removed);
   });
 
   it("the shared controls the guides name exist", () => {
     for (const label of ["Re-sort", "Load an example", "Clear example"]) {
       expect(SHARED, label).toContain(label);
     }
+  });
+
+  it("the old pages' conflict notices: the tips name the two buttons as they read", () => {
+    for (const id of ["risk-register", "tech-debt"]) {
+      const text = allText(guide(id));
+      expect(text, id).toContain("Keep or Use this instead");
+      expect(text, id).not.toContain("Keep it or");
+      const notice = tool(id, "conflict-notice.tsx");
+      expect(notice, id).toMatch(/>\s*Keep\s*</);
+      expect(notice, id).toMatch(/>\s*Use this instead\s*</);
+    }
+  });
+
+  it("OKRs: the list opens on this quarter only when it has objectives", () => {
+    const now = new Date(2026, 9, 27, 12);
+    const okr = (quarter: string): Okr => ({
+      id: quarter,
+      objective: "O",
+      quarter,
+      keyResults: [],
+    });
+    expect(defaultQuarter([okr("2026 Q4"), okr("2026 Q3")], now)).toBe("2026 Q4");
+    expect(defaultQuarter([okr("2026 Q3")], now)).toBe(ALL_QUARTERS);
+    expect(allText(guide("okrs"))).toContain(
+      "the list opens on this quarter when it has objectives, otherwise on All."
+    );
+  });
+
+  it("Hypothesis Tracker: names every tool that sends it a hypothesis", () => {
+    // A send on the "hypothesis" route: sendHandoff("hypothesis", …) or a Send to menu's routes.
+    const sends =
+      /sendHandoff\(\s*"hypothesis"|ROUTES[^=\n]*=\s*\[[^\]]*"hypothesis"|routes=\{\[[^\]]*"hypothesis"/;
+    const tools = join(process.cwd(), "src", "app", "(tools)");
+    const senders = new Set<string>();
+    for (const file of readdirSync(tools, { recursive: true, encoding: "utf8" })) {
+      if (!/\.tsx?$/.test(file)) continue;
+      if (sends.test(readFileSync(join(tools, file), "utf8"))) senders.add(file.split(/[\\/]/)[0]);
+    }
+    const named: Record<string, string> = {
+      "riskiest-assumption": "Riskiest Assumption",
+      "opportunity-tree": "the Opportunity Tree",
+      cynefin: "Cynefin",
+      "design-sprint": "a Design Sprint",
+    };
+    expect(Array.from(senders).sort()).toEqual(Object.keys(named).sort());
+    expect(allText(guide("hypothesis-tracker"))).toContain(
+      `(${Object.values(named).slice(0, -1).join(", ")} or ${Object.values(named).at(-1)})`
+    );
   });
 
   it.each([
@@ -314,6 +367,8 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
         "Working hours",
         "Day starts",
         "Day ends",
+        "Save working hours",
+        "Count whole days instead",
         "Median time to first review",
         "Median cycle time",
         "P85 cycle time",
