@@ -10,6 +10,7 @@ import {
   type CsatSummary,
   type NpsSummary,
   type SurveyPeriod,
+  type TagCount,
 } from "../nps/score";
 import { periodTrendText } from "@/app/(tools)/nps-csat/chart-text";
 import { tagCsatText, tagNpsText } from "@/app/(tools)/nps-csat/tags";
@@ -21,6 +22,12 @@ import { tagCsatText, tagNpsText } from "@/app/(tools)/nps-csat/tags";
  */
 interface NpsCsatData {
   responses: readonly NpsResponse[];
+  /**
+   * The page's tag table: tagCounts over every response, the tag filter
+   * aside, so a tag reads the same n and scores here as on the page.
+   * Counted from `responses` when absent.
+   */
+  tags?: readonly TagCount[];
   by: SurveyPeriod;
   /** "YYYY-MM-DD": the periods run on to today's, so quiet recent ones show as empty. */
   today?: string;
@@ -126,7 +133,7 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
     notes.length > 0 ? `\n\n${notes.join(" ")}` : ""
   }`;
 
-  const tags = tagCounts(responses).slice(0, MAX_TAGS);
+  const tags = (data.tags ?? tagCounts(responses)).slice(0, MAX_TAGS);
   const tagTable =
     tags.length === 0
       ? "No response is tagged yet."
@@ -134,7 +141,14 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
           ["Tag", "Responses", "Unhappy", "NPS", "CSAT % satisfied"],
           tags.map((t) => [t.tag, t.n, t.unhappy, tagNpsText(t), tagCsatText(t)])
         );
-  const tagsBlock = `## Theme tags\n\nUnhappy = NPS detractors (0–6) and dissatisfied CSAT (1–2). A tag's own NPS or CSAT shows from ${MIN_SAMPLE.surveyPeriod} responses; below that, only its n.\n\n${tagTable}`;
+  // With a tag filter on, the headline reads that tag's answers alone; the
+  // page's tag table (passed as `tags`) still reads every response.
+  const tagScope = !tag
+    ? ""
+    : data.tags
+      ? " (over all responses, the tag filter aside)"
+      : " (within the filtered responses)";
+  const tagsBlock = `## Theme tags${tagScope}\n\nUnhappy = NPS detractors (0–6) and dissatisfied CSAT (1–2). A tag's own NPS or CSAT shows from ${MIN_SAMPLE.surveyPeriod} responses; below that, only its n.\n\n${tagTable}`;
 
   const verbatims = verbatimLines(responses);
   const verbatimBlock = verbatims.length === 0 ? "No verbatim comments yet." : verbatims.join("\n");

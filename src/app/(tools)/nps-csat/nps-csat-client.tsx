@@ -187,9 +187,17 @@ function NpsCsatTracker() {
     () => ({
       toolName: "NPS/CSAT Tracker",
       // The page's own numbers (lib/nps): no NPS answers reads "No NPS responses", never 0.
-      prompts: generateNpsCsatPrompts({ responses: shown, by, today, tag: activeTag, verdict }),
+      // The tag table counts every response, as the page's does, the filter aside.
+      prompts: generateNpsCsatPrompts({
+        responses: shown,
+        tags,
+        by,
+        today,
+        tag: activeTag,
+        verdict,
+      }),
     }),
-    [shown, by, today, activeTag, verdict]
+    [shown, tags, by, today, activeTag, verdict]
   );
 
   /** History for the team's own answers; the example's aren't the team's work. */

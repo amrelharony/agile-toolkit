@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { generateNpsCsatPrompts } from "@/lib/ai-prompts/nps-csat";
+import { hasTag, tagCounts } from "@/lib/nps/score";
 import type { NpsResponse } from "@/lib/stores/workspace-types";
 
 /**
@@ -77,5 +78,31 @@ describe("generateNpsCsatPrompts", () => {
     );
     expect(p.prompt).not.toMatch(/NPS 0|Current NPS/);
     expect(generateNpsCsatPrompts({ responses: [], by: "month" })).toEqual([]);
+  });
+
+  it("counts the tag table over every response with a filter on, as the page's table does", () => {
+    const mixed = [
+      resp("nps", "2026-10-01", 10, { tags: ["checkout", "refunds"] }),
+      resp("nps", "2026-10-02", 2, { tags: ["refunds"] }),
+      resp("nps", "2026-10-03", 3, { tags: ["refunds"] }),
+    ];
+    const shown = mixed.filter((r) => hasTag(r, "checkout"));
+    const themesOf = (tags?: ReturnType<typeof tagCounts>) =>
+      generateNpsCsatPrompts({ responses: shown, tags, by: "month", tag: "checkout" }).find(
+        (p) => p.id === "nps-themes"
+      )!.prompt;
+
+    // The page's table: "refunds" over all three answers, not the one the filter keeps.
+    const all = themesOf(tagCounts(mixed));
+    expect(all).toContain("## Theme tags (over all responses, the tag filter aside)");
+    expect(all).toContain("| refunds | 3 | 2 | — (n 3) | — |");
+    expect(all).not.toContain("| refunds | 1 |");
+    // The headline still reads the filtered answers.
+    expect(all).toContain("NPS +100 from 1 response.");
+
+    // Without the page's counts the table says it reads the filtered answers.
+    const filtered = themesOf();
+    expect(filtered).toContain("## Theme tags (within the filtered responses)");
+    expect(filtered).toContain("| refunds | 1 | 0 | — (n 1) | — |");
   });
 });
