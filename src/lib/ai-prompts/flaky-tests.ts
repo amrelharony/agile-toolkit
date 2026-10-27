@@ -26,8 +26,9 @@ interface FlakyData {
   today: string;
 }
 
-/** The table lists this many tests. */
+/** The table lists this many tests; the long-quarantined list names this many. */
 const MAX_ROWS = 25;
+const MAX_LONG_QUARANTINED = 10;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -92,8 +93,17 @@ export function generateFlakyPrompts(data: FlakyData): PromptDefinition[] {
   );
   const more = tests.length > MAX_ROWS ? `\n(Showing ${MAX_ROWS} of ${tests.length} tests)` : "";
   const verdict = `Verdict: ${sanitizePromptCell(flakyVerdict(s), 400)}\n\n`;
-  // Names, suites, owners and descriptions are user-typed.
-  const body = wrapUserContent(`${verdict}${table}${more}`);
+  const shownLong = s.longQuarantined.slice(0, MAX_LONG_QUARANTINED);
+  const longMore = s.longQuarantined.length - shownLong.length;
+  const long =
+    shownLong.length > 0
+      ? `Quarantined ${QUARANTINE_ALERT_DAYS} days or more: ${shownLong
+          .map((q) => `“${sanitizePromptCell(q.name, 60)}” (${q.days} days)`)
+          .join(", ")}${longMore > 0 ? ` and ${longMore} more` : ""}.\n\n`
+      : "";
+  // Names, suites, owners and descriptions are user-typed, and the
+  // long-quarantined list names tests: all of it sits inside the wrapper.
+  const body = wrapUserContent(`${verdict}${long}${table}${more}`);
 
   const w = s.weighted;
   const weighted =
@@ -104,12 +114,9 @@ export function generateFlakyPrompts(data: FlakyData): PromptDefinition[] {
     w.rateOnly > 0
       ? ` ${plural(w.rateOnly, "open test")} without run counts ${w.rateOnly === 1 ? "is" : "are"} left out of it.`
       : "";
-  const long =
+  const longCount =
     s.longQuarantined.length > 0
-      ? ` Quarantined ${QUARANTINE_ALERT_DAYS} days or more: ${s.longQuarantined
-          .slice(0, 10)
-          .map((q) => `“${sanitizePromptCell(q.name, 60)}” (${q.days} days)`)
-          .join(", ")}.`
+      ? ` ${plural(s.longQuarantined.length, "test")} quarantined ${QUARANTINE_ALERT_DAYS} days or more.`
       : "";
   const unknown =
     s.quarantineDateUnknown > 0
@@ -117,7 +124,7 @@ export function generateFlakyPrompts(data: FlakyData): PromptDefinition[] {
       : "";
   const context = `${s.byStatus.active} active, ${s.byStatus.quarantined} quarantined, ${s.byStatus.fixed} fixed (${s.fixedThisQuarter} this quarter). ${weighted}${rateOnly} ${s.highRate} open above ${Math.round(
     FLAKY_HIGH_RATE * 100
-  )}%; ${s.fewRuns} with fewer than ${FEW_RUNS} runs.${long}${unknown}`;
+  )}%; ${s.fewRuns} with fewer than ${FEW_RUNS} runs.${longCount}${unknown}`;
 
   return [
     {

@@ -97,8 +97,12 @@ export function generateTechDebtPrompts(data: DebtData): PromptDefinition[] {
   );
   const more = items.length > MAX_ROWS ? `\n(Showing ${MAX_ROWS} of ${items.length} items)` : "";
   const verdict = `Verdict: ${sanitizePromptCell(debtVerdict(items, len, today), 400)}\n\n`;
-  // Titles, areas and descriptions are user-typed, and the verdict names a title.
-  const body = wrapUserContent(`${verdict}${table}${more}`);
+  const hotspot = s.hotspot
+    ? `Hotspot: ${sanitizePromptCell(s.hotspot.area, 60)} (${s.hotspot.impact} impact points open).\n\n`
+    : "";
+  // Titles, areas and descriptions are user-typed, the verdict names a
+  // title and the hotspot an area: all of it sits inside the wrapper.
+  const body = wrapUserContent(`${verdict}${hotspot}${table}${more}`);
 
   const basis = data.defaultLength
     ? `${len}-day sprints (the default: the team hasn't set a sprint length)`
@@ -113,12 +117,9 @@ export function generateTechDebtPrompts(data: DebtData): PromptDefinition[] {
           }.`;
   const oldest =
     s.oldestSprints === null ? "" : ` The oldest open item is ${ageText(s.oldestSprints)} old.`;
-  const hotspot = s.hotspot
-    ? ` Hotspot: ${sanitizePromptCell(s.hotspot.area, 60)} (${s.hotspot.impact} impact points open).`
-    : "";
   const unassigned = s.openByArea[UNASSIGNED_AREA] ?? 0;
   const noArea = unassigned > 0 ? ` ${plural(unassigned, "open item")} with no area.` : "";
-  const context = `Ages are in ${basis}; score = impact × 4 − effort + min(${INTEREST_CAP}, interest per sprint × age in sprints), with impact and effort 1–5. ${s.open} open, ${s.resolved} paid down, ${s.inBacklog} of the open on the backlog.${interest}${oldest}${hotspot}${noArea}`;
+  const context = `Ages are in ${basis}; score = impact × 4 − effort + min(${INTEREST_CAP}, interest per sprint × age in sprints), with impact and effort 1–5. ${s.open} open, ${s.resolved} paid down, ${s.inBacklog} of the open on the backlog.${interest}${oldest}${noArea}`;
 
   return [
     {

@@ -110,7 +110,12 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
   const series = periodSeries(responses, by, data.today ? { through: data.today } : {});
   const trend = periodTrendText(series.points.slice(-MAX_PERIODS), by);
   const tag = data.tag?.trim() ? sanitizePromptCell(data.tag, 40) : "";
-  const scope = tag ? `Only the responses tagged “${tag}”. ` : "";
+  // The tag is user-typed: the preamble only says a filter is on, and the
+  // wrapped data names it.
+  const scope = tag
+    ? "A tag filter is on: these numbers read only the responses with that tag (named in the data). "
+    : "";
+  const filter = tag ? `Tag filter: only the responses tagged “${tag}”.\n\n` : "";
   const context = `${scope}${headline(nps, csat)} ${breakdown(nps, csat)}`.trim();
   const notes = [
     series.undated > 0
@@ -160,8 +165,8 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
       description: "Cluster customer verbatims into themes and prioritize what to address.",
       prompt:
         buildPreamble("NPS/CSAT Tracker", context) +
-        // Tags and verbatims are user-typed (verbatims by customers).
-        `${wrapUserContent(`${verdict}${tagsBlock}\n\n## Verbatim comments (newest first)\n\n${verbatimBlock}`)}\n\n## Questions\n\n1. What 3-5 themes emerge from the verbatims? Do the team's tags capture them?\n2. Which themes drive detractors and dissatisfied answers vs. promoters?\n3. Prioritize what to address first for the biggest lift, and say which themes rest on too few answers to act on yet.`,
+        // The filter, tags and verbatims are user-typed (verbatims by customers).
+        `${wrapUserContent(`${filter}${verdict}${tagsBlock}\n\n## Verbatim comments (newest first)\n\n${verbatimBlock}`)}\n\n## Questions\n\n1. What 3-5 themes emerge from the verbatims? Do the team's tags capture them?\n2. Which themes drive detractors and dissatisfied answers vs. promoters?\n3. Prioritize what to address first for the biggest lift, and say which themes rest on too few answers to act on yet.`,
     },
     {
       id: "nps-trend",
@@ -172,7 +177,7 @@ export function generateNpsCsatPrompts(data: NpsCsatData): PromptDefinition[] {
           "NPS/CSAT Tracker",
           `${context} Trend shifts often correlate with product launches, outages, or policy changes.`
         ) +
-        `${wrapUserContent(`${verdict}${periodsBlock}`)}\n\n## Questions\n\n1. Is the trend rising, falling, or stable, counting only the periods with enough responses?\n2. What could have caused any notable shifts?\n3. What would you investigate next?`,
+        `${wrapUserContent(`${filter}${verdict}${periodsBlock}`)}\n\n## Questions\n\n1. Is the trend rising, falling, or stable, counting only the periods with enough responses?\n2. What could have caused any notable shifts?\n3. What would you investigate next?`,
     },
   ];
 }
