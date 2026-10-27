@@ -39,7 +39,6 @@ import {
   hasAllRuntimes,
   layerShares,
   newSnapshotId,
-  relativeCost,
   runCost,
   shapeHistory,
   shapeVerdict,
@@ -319,21 +318,10 @@ export function TestPyramidClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Test Pyramid Analyzer",
-      prompts: doc
-        ? generateTestPyramidPrompts({
-            unit: doc.unit,
-            integration: doc.integration,
-            e2e: doc.e2e,
-            total,
-            unitPct: countPct?.unit ?? 0,
-            e2ePct: countPct?.e2e ?? 0,
-            inverted: doc.e2e > doc.unit,
-            costEstimate: relativeCost(doc),
-            description: [PYRAMID_SHAPE_LABEL[shape], doc.description].filter(Boolean).join(". "),
-          })
-        : [],
+      // The page's shape, weighting, run cost and snapshots, read from the document.
+      prompts: generateTestPyramidPrompts({ doc }),
     }),
-    [doc, total, countPct, shape]
+    [doc]
   );
 
   const csvData = {
