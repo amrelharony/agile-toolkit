@@ -51,8 +51,8 @@ function SmartBadge({
       title={tooltip}
       className={
         passes
-          ? "bg-accent-green/15 text-accent-green border-accent-green/30 hover:bg-accent-green/25"
-          : "bg-danger/15 text-danger border-danger/30 hover:bg-danger/25"
+          ? "bg-accent-green/15 text-accent-green border-accent-green/30 hover:bg-accent-green/20"
+          : "bg-danger/15 text-danger border-danger/30 hover:bg-danger/20"
       }
     >
       {label}

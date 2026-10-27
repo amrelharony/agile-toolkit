@@ -575,7 +575,7 @@ export function OnboardingTrackerClient() {
                               className={cn(
                                 "mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse",
                                 completed
-                                  ? "bg-success/30 border-success/60 text-success"
+                                  ? "bg-success/20 border-success/60 text-success"
                                   : "border-border bg-surface text-transparent hover:text-sub"
                               )}
                               role="checkbox"
