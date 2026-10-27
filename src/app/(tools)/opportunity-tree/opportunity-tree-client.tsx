@@ -1,129 +1,265 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { nanoid } from "nanoid";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { Button } from "@/components/ui/button";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Plus, Trash2, Workflow } from "lucide-react";
-import { generateOpportunityTreePrompts } from "@/lib/ai-prompts/opportunity-tree";
+import { Plus, Workflow } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { OPPORTUNITY_TREE_ACTIONS } from "@/lib/history/event-actions";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ActionRow } from "@/components/shared/action-row";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { generateOpportunityTreePrompts } from "@/lib/ai-prompts/opportunity-tree";
+import { sendHandoff } from "@/lib/handoffs/send";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { OPPORTUNITY_TREE_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { HYPOTHESIS_TRACKER_ID, linkedTest } from "@/lib/hypotheses/model";
+import {
+  OPPORTUNITY_TREE_ID,
+  experimentHypothesisSource,
+  nodeTitle,
+  outcomeOf,
+  withTarget,
+} from "@/lib/opportunity-tree/model";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  Hypothesis,
+  HypothesisTracker,
+  JobStory,
+  OpportunityTree,
+  TreeNode,
+  TreeNodeKind,
+  Workspace,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
+import { removeWithUndo } from "@/lib/utils/undoable";
+import { buildExample } from "./example";
+import { applyNodeValues, type NodeValues } from "./form";
+import { treeToMarkdown } from "./markdown";
+import { NodeCard } from "./node-card";
+import { AddNodeForm } from "./node-form";
+import {
+  KIND_LABEL,
+  deleteNote,
+  deleteQuestion,
+  drawTree,
+  subtreeSummary,
+  treeVerdict,
+} from "./view";
 
-type NodeKind = "outcome" | "opportunity" | "solution" | "experiment";
+// Stable empty lists: zustand re-renders forever on a selector that
+// returns a fresh array each call.
+const NO_TREES: OpportunityTree[] = [];
+const NO_TRACKERS: HypothesisTracker[] = [];
+const NO_JOBS: JobStory[] = [];
+const NONE: TreeNode[] = [];
+const NO_HYPOTHESES: Hypothesis[] = [];
 
-interface TreeNode {
-  id: string;
-  kind: NodeKind;
-  text: string;
-  parentId: string | null;
-  evidence?: string;
-  // Optional elaboration applicable to any node kind. Distinct from
-  // `evidence`, which is only meaningful for opportunity/experiment nodes.
-  description?: string;
-}
+/**
+ * Deeper than this is a hand-edited chain: the page stops drawing there
+ * (the AI prompt's renderTree caps at the same depth).
+ */
+const MAX_DEPTH = 30;
+/** Levels that indent; deeper ones line up under their parent so a phone keeps its width. */
+const INDENT_LEVELS = 3;
 
-const KIND_COLORS: Record<NodeKind, string> = {
-  outcome: "#00f0ff",
-  opportunity: "#a855f7",
-  solution: "#34d399",
-  experiment: "#f59e0b",
-};
-
-const CHILD_KIND: Record<NodeKind, NodeKind | null> = {
-  outcome: "opportunity",
-  opportunity: "solution",
-  solution: "experiment",
-  experiment: null,
-};
-
-const OT_ID = "opportunityTree:current"; // MUST match OT_ID in opportunity-tree.ts.
-const EMPTY_NODES: TreeNode[] = [];
-
-// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
-// the nodes[] array. Drop-in [state, setState] (structural types).
-function useNodes(): [TreeNode[], (u: TreeNode[] | ((p: TreeNode[]) => TreeNode[])) => void] {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.opportunityTrees ?? []).find((d) => d.id === OT_ID))
-  );
-  const upsert = useWorkspaceStore((s) => s.upsertOpportunityTree);
-  const nodes = doc?.nodes ?? EMPTY_NODES;
-  const setNodes = (u: TreeNode[] | ((p: TreeNode[]) => TreeNode[])) => {
-    const cur =
-      (useWorkspaceStore.getState().opportunityTrees ?? []).find((d) => d.id === OT_ID)?.nodes ??
-      [];
-    const next = typeof u === "function" ? u(cur) : u;
-    upsert({ id: OT_ID, nodes: next });
-  };
-  return [nodes, setNodes];
-}
-
+/**
+ * Opportunity Solution Tree (Teresa Torres): an outcome, the opportunities
+ * that serve it (split into sub-opportunities as deep as needed), their
+ * solutions and the experiments that test them. Nothing is saved without
+ * its text; one opportunity per outcome can be the team's target; an
+ * experiment becomes a hypothesis to test in the Hypothesis Tracker, and
+ * shows its result; deleting a node with anything under it asks first,
+ * and Undo puts the whole branch back with its ids, so JTBD jobs linked to
+ * it link again. The rules are lib/opportunity-tree's, which
+ * tool.opportunity_tree shares.
+ */
 export function OpportunityTreeClient() {
-  const [nodes, setNodes] = useNodes();
+  const hydrated = useWorkspaceHydrated();
+  const trees = useWorkspaceStore((s) => s.opportunityTrees) ?? NO_TREES;
+  const trackers = useWorkspaceStore((s) => s.hypothesisTrackers) ?? NO_TRACKERS;
+  const jobs = useWorkspaceStore((s) => s.jobStories) ?? NO_JOBS;
+  const nodes = trees.find((d) => d.id === OPPORTUNITY_TREE_ID)?.nodes ?? NONE;
+  const hypotheses =
+    trackers.find((d) => d.id === HYPOTHESIS_TRACKER_ID)?.hypotheses ?? NO_HYPOTHESES;
   const { log } = useHistoryLogger("opportunity-tree");
+  const announce = useAnnounce();
+  const [addingOutcome, setAddingOutcome] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<TreeNode | null>(null);
+  const addOutcomeRef = useRef<HTMLButtonElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
 
-  const addRoot = () => {
-    const node = { id: nanoid(6), kind: "outcome" as const, text: "", parentId: null };
-    setNodes((s) => [...s, node]);
-    log(OPPORTUNITY_TREE_ACTIONS.NODE_ADDED, { nodeId: node.id, kind: node.kind });
+  const drawn = useMemo(() => drawTree(nodes), [nodes]);
+  const verdict = treeVerdict(nodes, hypotheses);
+
+  /* ── Writes ── */
+
+  const ws = () => useWorkspaceStore.getState();
+  const currentTree = () => (ws().opportunityTrees ?? []).find((d) => d.id === OPPORTUNITY_TREE_ID);
+  const updateNodes = (fn: (list: readonly TreeNode[]) => TreeNode[]) => {
+    const doc = currentTree();
+    ws().upsertOpportunityTree({
+      ...(doc ?? {}),
+      id: OPPORTUNITY_TREE_ID,
+      nodes: fn(doc?.nodes ?? []),
+    });
   };
-  const addChild = (parent: TreeNode) => {
-    const nextKind = CHILD_KIND[parent.kind];
-    if (!nextKind) return;
-    const node = { id: nanoid(6), kind: nextKind, text: "", parentId: parent.id };
-    setNodes((s) => [...s, node]);
-    log(OPPORTUNITY_TREE_ACTIONS.NODE_ADDED, {
+  const fresh = (id: string) => currentTree()?.nodes.find((n) => n.id === id);
+  const patch = (id: string, fn: (n: TreeNode) => TreeNode) =>
+    updateNodes((list) => list.map((n) => (n.id === id ? fn(n) : n)));
+  // Example rows aren't the team's history.
+  const record = (id: string, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(id)) log(action, payload);
+  };
+
+  /** Focus a node's Edit button once the tree has re-rendered. */
+  const focusNode = (id: string | undefined) =>
+    requestAnimationFrame(() => {
+      const el = id
+        ? Array.from(document.querySelectorAll<HTMLElement>("[data-node-edit]")).find(
+            (b) => b.getAttribute("data-node-edit") === id
+          )
+        : undefined;
+      (el ?? addOutcomeRef.current)?.focus();
+    });
+
+  function add(parent: TreeNode | null, kind: TreeNodeKind, values: NodeValues) {
+    const node = applyNodeValues(
+      { id: nanoid(8), kind, text: "", parentId: parent?.id ?? null },
+      values
+    );
+    updateNodes((list) => [...list, node]);
+    record(node.id, OPPORTUNITY_TREE_ACTIONS.NODE_ADDED, {
+      nodeId: node.id,
+      kind,
+      parentId: parent?.id ?? null,
+    });
+    announce(
+      `Added ${KIND_LABEL[kind].toLowerCase()} “${nodeTitle(node)}”${parent ? ` under “${nodeTitle(parent)}”` : ""}`
+    );
+  }
+
+  function save(node: TreeNode, values: NodeValues) {
+    const next = applyNodeValues(node, values);
+    if (JSON.stringify(next) === JSON.stringify(node)) return;
+    patch(node.id, (n) => applyNodeValues(n, values));
+    const fields = (["text", "description", "evidence"] as const).filter(
+      (k) => next[k] !== node[k]
+    );
+    record(node.id, OPPORTUNITY_TREE_ACTIONS.NODE_UPDATED, { nodeId: node.id, fields });
+    announce(`Saved “${nodeTitle(next)}”`);
+  }
+
+  function toggleTarget(node: TreeNode) {
+    const on = !node.target;
+    const before = currentTree()?.nodes ?? [];
+    const byId = new Map(before.map((n) => [n.id, n]));
+    const outcome = outcomeOf(node, byId);
+    const replaced = on
+      ? before.filter(
+          (n) =>
+            n.id !== node.id &&
+            n.kind === "opportunity" &&
+            n.target &&
+            (outcomeOf(n, byId)?.id ?? null) === (outcome?.id ?? null)
+        )
+      : [];
+    // At most one target per outcome: withTarget clears the others.
+    updateNodes((list) => withTarget(list, node.id, on));
+    record(node.id, OPPORTUNITY_TREE_ACTIONS.TARGET_CHANGED, { nodeId: node.id, on });
+    announce(
+      on
+        ? `“${nodeTitle(node)}” is now the target${outcome ? ` for “${nodeTitle(outcome)}”` : ""}${replaced.length > 0 ? `, instead of “${nodeTitle(replaced[0])}”` : ""}`
+        : `“${nodeTitle(node)}” is no longer the target`
+    );
+  }
+
+  function test(node: TreeNode) {
+    const current = fresh(node.id) ?? node;
+    const link = sendHandoff(
+      "hypothesis",
+      experimentHypothesisSource(current, currentTree()?.nodes ?? nodes),
+      {
+        getLinks: () => fresh(node.id)?.sentTo,
+        setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) =>
+          patch(node.id, (n) => ({ ...n, sentTo: update(n.sentTo) })),
+      }
+    );
+    if (!link) return;
+    record(node.id, OPPORTUNITY_TREE_ACTIONS.EXPERIMENT_SENT, {
+      nodeId: node.id,
+      hypothesisId: link.targetId,
+    });
+    announce(`“${nodeTitle(node)}” is now a hypothesis to test`);
+    focusNode(node.id);
+  }
+
+  /** A leaf goes at once; a node with anything under it asks first. Undo either way. */
+  function askDelete(node: TreeNode) {
+    if (subtreeSummary(nodes, node.id).ids.size > 1) setPendingDelete(node);
+    else remove(node);
+  }
+
+  function remove(node: TreeNode) {
+    // From the tree as it is now: a child added since the dialog opened goes too.
+    const summary = subtreeSummary(currentTree()?.nodes ?? nodes, node.id, jobs);
+    const count = summary.ids.size;
+    const parentId = node.parentId ?? undefined;
+    removeWithUndo<TreeNode>({
+      label:
+        count > 1
+          ? `Deleted “${nodeTitle(node)}” and ${count - 1} below it`
+          : `Deleted “${nodeTitle(node)}”`,
+      update: updateNodes,
+      match: (n) => summary.ids.has(n.id),
+    });
+    record(node.id, OPPORTUNITY_TREE_ACTIONS.NODE_REMOVED, {
       nodeId: node.id,
       kind: node.kind,
-      parentId: parent.id,
+      removed: count,
     });
-  };
-  const update = (id: string, patch: Partial<TreeNode>) =>
-    setNodes((s) => s.map((n) => (n.id === id ? { ...n, ...patch } : n)));
-  const remove = (id: string) => {
-    const node = nodes.find((n) => n.id === id);
-    log(OPPORTUNITY_TREE_ACTIONS.NODE_REMOVED, { nodeId: id, kind: node?.kind });
-    // Compute the descendant set INSIDE the functional updater so we read the
-    // freshest state (avoids losing a child added between this render and the
-    // setNodes call). Use a visited set to terminate even on corrupted
-    // imports where parentId forms a cycle.
-    setNodes((s) => {
-      const toDelete = new Set<string>([id]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const n of s) {
-          if (n.parentId && toDelete.has(n.parentId) && !toDelete.has(n.id)) {
-            toDelete.add(n.id);
-            grew = true;
-          }
-        }
-      }
-      return s.filter((n) => !toDelete.has(n.id));
-    });
-  };
+    announce(
+      count > 1
+        ? `Deleted “${nodeTitle(node)}” and ${count - 1} below it`
+        : `Deleted “${nodeTitle(node)}”`
+    );
+    focusNode(parentId);
+  }
 
-  // Index children by parent once per render — the previous filter was O(n)
-  // per call and was invoked twice per node (once to test length, once to
-  // iterate), pushing the recursive renderNode into O(n²) territory.
-  const childrenIndex = useMemo(() => {
-    const map = new Map<string | null, TreeNode[]>();
-    for (const n of nodes) {
-      const list = map.get(n.parentId) ?? [];
-      list.push(n);
-      map.set(n.parentId, list);
-    }
-    return map;
-  }, [nodes]);
-  const childrenOf = (pid: string | null) => childrenIndex.get(pid) ?? [];
+  const loadExample = () => updateNodes((list) => [...buildExample(), ...list]);
+  const clearExample = () => updateNodes((list) => list.filter((n) => !isExampleId(n.id)));
 
+  /* ── Exports ── */
+
+  const markdown = treeToMarkdown(nodes, hypotheses);
+  const csvData = {
+    headers: ["Kind", "Text", "Description", "Parent", "Evidence", "Target", "Hypothesis"],
+    // Parents by their text: raw ids mean nothing in a spreadsheet.
+    rows: nodes.map((n) => {
+      const parentText = n.parentId ? (nodes.find((p) => p.id === n.parentId)?.text ?? "") : "";
+      const t = linkedTest(n.sentTo, hypotheses);
+      return [
+        n.kind,
+        n.text,
+        n.description ?? "",
+        parentText,
+        n.evidence ?? "",
+        n.target ? "yes" : "",
+        t.state === "none" ? "" : t.state === "tested" ? t.result : t.status,
+      ];
+    }),
+  };
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -140,101 +276,49 @@ export function OpportunityTreeClient() {
       })
     )
   );
-
   const promptConfig = useMemo(
     () => ({
       toolName: "Opportunity Solution Tree",
-      prompts: generateOpportunityTreePrompts({ nodes }, workspace),
+      prompts: generateOpportunityTreePrompts({ nodes: [...nodes] }, workspace),
     }),
     [nodes, workspace]
   );
 
-  const renderNode = (node: TreeNode, depth: number): React.ReactNode => {
-    // Cap recursion at 30 plies. The UI only creates 4 levels via
-    // `CHILD_KIND`, but a corrupted persisted state (or a future schema)
-    // could land with a pathological chain — without a cap we'd blow the
-    // stack instead of just truncating the render. The AI prompt
-    // (renderTree in lib/ai-prompts/opportunity-tree.ts) applies the same
-    // cap; keep these aligned.
-    if (depth > 30) return null;
-    // Defensive lookup — corrupted state could land an unknown kind here.
-    // Default to outcome's cyan rather than rendering broken inline CSS.
-    const kindColor = KIND_COLORS[node.kind] ?? KIND_COLORS.outcome;
+  /* ── Drawing ── */
+
+  const seen = new Set<string>();
+  const renderNode = (node: TreeNode, depth: number): ReactNode => {
+    if (depth > MAX_DEPTH || seen.has(node.id)) return null;
+    seen.add(node.id);
+    const children = drawn.childrenOf(node.id);
     return (
-      <div key={node.id} className="space-y-2">
-        <div
-          className="rounded-lg border bg-bg p-3"
-          style={{ borderColor: `${kindColor}66`, borderLeftWidth: 3, borderLeftColor: kindColor }}
-        >
-          <div className="flex items-start gap-2">
-            <span
-              className="text-xs uppercase tracking-wider px-1.5 py-0.5 rounded font-data flex-shrink-0"
-              style={{ background: `${kindColor}22`, color: kindColor }}
-            >
-              {node.kind}
-            </span>
-            <div className="flex-1 min-w-0 space-y-2">
-              <BlurTextarea
-                rows={2}
-                value={node.text}
-                onCommit={(v) => update(node.id, { text: v })}
-                placeholder={`${node.kind}...`}
-                className="bg-surface border-border text-sm"
-              />
-              {/* Description input applies to any node kind — distinct from
-                evidence (opportunity/experiment only). The visible input
-                doubles as the display, mirroring how the main `text` field
-                works above. */}
-              <BlurInput
-                value={node.description ?? ""}
-                onCommit={(v) => update(node.id, { description: v })}
-                placeholder="Description (optional)..."
-                className="bg-surface border-border text-xs"
-              />
-              {(node.kind === "opportunity" || node.kind === "experiment") && (
-                <BlurInput
-                  value={node.evidence ?? ""}
-                  onCommit={(v) => update(node.id, { evidence: v })}
-                  placeholder="Evidence / data..."
-                  className="bg-surface border-border text-xs"
-                />
-              )}
-            </div>
-            <div className="flex flex-col gap-1 flex-shrink-0">
-              {CHILD_KIND[node.kind] && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => addChild(node)}
-                  className="min-touch md:min-h-0 md:h-7 text-sub hover:text-accent gap-1"
-                  aria-label={`Add ${CHILD_KIND[node.kind]}`}
-                >
-                  <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />
-                  <span className="text-xs hidden xs:inline">{CHILD_KIND[node.kind]}</span>
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => remove(node.id)}
-                className="md:min-h-0 md:min-w-0 md:h-7 md:w-7 text-sub hover:text-danger"
-                aria-label={`Remove ${node.kind}`}
-              >
-                <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-        {childrenOf(node.id).length > 0 && (
-          <div className="pl-3 md:pl-6 space-y-2 border-l border-border ml-1 md:ml-2">
-            {childrenOf(node.id).map((child) => renderNode(child, depth + 1))}
-          </div>
+      <li key={node.id} className="min-w-0 space-y-2">
+        <NodeCard
+          node={node}
+          test={linkedTest(node.sentTo, hypotheses)}
+          example={isExampleId(node.id)}
+          onSave={save}
+          onAdd={(parent, kind, values) => add(parent, kind, values)}
+          onToggleTarget={toggleTarget}
+          onTest={test}
+          onDelete={askDelete}
+        />
+        {children.length > 0 && (
+          <ul
+            className={cn(
+              "space-y-2 border-l border-border",
+              depth < INDENT_LEVELS ? "ml-1 pl-3 md:ml-2 md:pl-6" : "pl-1"
+            )}
+            aria-label={`Under ${nodeTitle(node)}`}
+          >
+            {children.map((c) => renderNode(c, depth + 1))}
+          </ul>
         )}
-      </div>
+      </li>
     );
   };
 
-  const rootNodes = childrenOf(null);
+  const pending = pendingDelete ? subtreeSummary(nodes, pendingDelete.id, jobs) : null;
 
   return (
     <ToolPageWrapper
@@ -243,37 +327,81 @@ export function OpportunityTreeClient() {
       description="Map outcomes to opportunities, solutions, and experiments (Teresa Torres framework)."
       category="Product Discovery"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="opportunity-tree"
-          csvData={{
-            headers: ["Kind", "Text", "Description", "Parent", "Evidence"],
-            // Resolve parentId to the parent node's `text` for the CSV export.
-            // Raw nanoids are useless to a human reading the spreadsheet, and
-            // they tie the export to internal IDs that change on import.
-            rows: nodes.map((n) => {
-              const parentText = n.parentId
-                ? (nodes.find((p) => p.id === n.parentId)?.text ?? "")
-                : "";
-              return [n.kind, n.text, n.description ?? "", parentText, n.evidence ?? ""];
-            }),
-          }}
-          jsonData={nodes}
-        />
-        <Button onClick={addRoot} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          Add Outcome
-        </Button>
-      </ActionRow>
+      <div ref={exportRef} className="space-y-4">
+        {hasExampleItems(nodes) && <ExampleNotice onClear={clearExample} />}
+        <ActionRow>
+          {nodes.length > 0 && (
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="opportunity-tree"
+                csvData={csvData}
+                jsonData={nodes}
+                markdown={markdown}
+                targetRef={exportRef}
+              />
+            </>
+          )}
+          {!addingOutcome && (
+            <Button
+              ref={addOutcomeRef}
+              variant="toolkit"
+              className="gap-2"
+              onClick={() => setAddingOutcome(true)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add outcome
+            </Button>
+          )}
+        </ActionRow>
 
-      {rootNodes.length === 0 ? (
-        <EmptyState icon={Workflow}>
-          No outcomes yet. Start by defining a clear outcome you want to drive.
-        </EmptyState>
-      ) : (
-        <div className="space-y-4">{rootNodes.map((n) => renderNode(n, 0))}</div>
-      )}
+        {addingOutcome && (
+          <AddNodeForm
+            kind="outcome"
+            parent={null}
+            onAdd={(values) => {
+              add(null, "outcome", values);
+              setAddingOutcome(false);
+              requestAnimationFrame(() => addOutcomeRef.current?.focus());
+            }}
+            onCancel={() => {
+              setAddingOutcome(false);
+              requestAnimationFrame(() => addOutcomeRef.current?.focus());
+            }}
+          />
+        )}
+
+        {nodes.length === 0 ? (
+          hydrated &&
+          !addingOutcome && (
+            <EmptyState icon={Workflow} action={<LoadExampleButton onLoad={loadExample} />}>
+              No outcomes yet. Start with the outcome you want to move, then map the customer
+              opportunities, solutions and experiments under it, or load an example. Quotes raised
+              from User Interviews land here as opportunities.
+            </EmptyState>
+          )
+        ) : (
+          <>
+            <p className="text-sm font-medium text-text">{verdict}</p>
+            <ul className="space-y-4" aria-label="Opportunity tree">
+              {drawn.roots.map((n) => renderNode(n, 0))}
+            </ul>
+          </>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title={pendingDelete && pending ? deleteQuestion(pendingDelete, pending) : ""}
+        description={pending ? deleteNote(pending) : undefined}
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (pendingDelete) remove(pendingDelete);
+        }}
+      />
     </ToolPageWrapper>
   );
 }
