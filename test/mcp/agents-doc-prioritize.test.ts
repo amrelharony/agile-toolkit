@@ -184,6 +184,27 @@ describe("MCP-AGENTS.md: the Prioritize & decide rules", () => {
     expect(VE).toContain(`effort is 1–10 (${VE_HIGH_EFFORT_FROM} or more is high)`);
   });
 
+  it("a backlog_item update: what its patch sets, the old defaults cleared in every method", () => {
+    const bullet =
+      PRIORITIZE.split("\n").find((l) =>
+        l.startsWith("- **`workspace.backlog_item` writes go through the engine")
+      ) ?? "";
+    expect(bullet).toContain("each compared with what the item reads as");
+    expect(bullet).toContain("a stored old default sent again included");
+    expect(bullet).toContain("clears the old defaults the item still holds in every method");
+    expect(bullet).not.toContain("in the methods it doesn't touch");
+    expect(bullet).toContain("a `rank` another item holds is refused");
+    expect(PRIORITIZE).toContain("- **Rows linked before Phase 7 keep their values.**");
+    expect(VE).toContain("which clears it even while WSJF's other parts are set");
+  });
+
+  it("Buy-a-Feature's next-round cap is the need rounded up to a whole amount", () => {
+    expect(BAF).toContain("what it still needs, rounded up to a whole amount");
+    expect(registry.get("tool.buy_a_feature.list_state")?.description).toContain(
+      "cap = what each still needs, rounded up to a whole amount"
+    );
+  });
+
   it("the method minimums are the libraries' own", () => {
     expect(METHODS).toContain(`at most about ${Math.round(MUST_BUDGET_SHARE * 100)}%`);
     expect(METHODS).toContain(`\`share\` is null below ${MUST_BUDGET_MIN_SIZED} sized items`);
