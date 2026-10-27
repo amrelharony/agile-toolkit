@@ -262,6 +262,21 @@ describe("riskSummary and riskVerdict", () => {
     expect(riskVerdict([list[5]], TODAY)).toBe("No risks logged yet.");
     expect(riskVerdict([], TODAY)).toBe("No risks logged yet.");
   });
+
+  it("counts example rows when asked, for a page holding only its example", () => {
+    const opts = { includeExamples: true };
+    expect(riskSummary([list[5]], TODAY, opts)).toMatchObject({
+      total: 1,
+      active: 1,
+      high: 1,
+      unowned: 1,
+      exposure: 25,
+    });
+    expect(riskSummary(list, TODAY, opts)).toMatchObject({ total: 6, active: 4, exposure: 58 });
+    expect(riskVerdict([list[5]], TODAY, opts)).toBe(
+      "1 active risk, 1 high or critical; the top one, “Vendor API rate limits”, scores 25 (critical); 1 high or critical risk has no owner."
+    );
+  });
 });
 
 describe("the impediment hand-off", () => {

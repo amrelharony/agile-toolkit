@@ -24,7 +24,7 @@ import { fmt, listAnd, type ChartText } from "@/lib/charts/chart-text";
 import { closedOn, isActiveRisk, residualScore, riskAgeDays, toScale } from "@/lib/risks/model";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import type { Risk } from "@/lib/stores/workspace-types";
-import { EXAMPLE_ID_PREFIX, isExampleId } from "@/lib/utils/example-id";
+import { isExampleId } from "@/lib/utils/example-id";
 
 /** The weeks the chart and the statistics read: the latest half year. */
 export const WEEK_CAP = 26;
@@ -40,25 +40,21 @@ export const FORECAST_WEEKS = 4;
  * (the example's are listed but not counted, as the agent and the next
  * steps leave them out), else the example's, so a loaded example shows
  * its own verdict, matrix and chart. lib/risks leaves example ids out of
- * every count it makes, so the example's rows are read here under their
- * ids without the prefix.
+ * every count by default, so the page reads these rows with
+ * `{ includeExamples: true }`: they never mix the example's in with the
+ * team's own.
  */
 export function countedRisks(records: readonly Risk[]): Risk[] {
   const real = records.filter((r) => !isExampleId(r.id));
-  if (real.length > 0) return real;
-  return records.map((r) => ({ ...r, id: r.id.slice(EXAMPLE_ID_PREFIX.length) }));
+  return real.length > 0 ? real : [...records];
 }
 
 /**
- * The risks the Markdown and the CSV list: the team's own while there are
- * any, the same set countedRisks counts, so an export never mixes the
- * example's made-up rows in with the numbers it quotes (it goes to a
- * steering group); else the example's, under their own ids.
+ * The risks the Markdown and the CSV list: the same set countedRisks
+ * counts, so an export never mixes the example's made-up rows in with the
+ * numbers it quotes (it goes to a steering group).
  */
-export function exportedRisks(records: readonly Risk[]): Risk[] {
-  const real = records.filter((r) => !isExampleId(r.id));
-  return real.length > 0 ? real : [...records];
-}
+export const exportedRisks = countedRisks;
 
 /**
  * Closed, but with no close day the register can read (closedOn is

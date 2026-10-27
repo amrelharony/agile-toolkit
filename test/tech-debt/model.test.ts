@@ -202,6 +202,23 @@ describe("debtSummary and debtVerdict", () => {
     );
     expect(debtVerdict([list[4]], 14, TODAY)).toBe("No tech debt logged yet.");
   });
+
+  it("counts example rows when asked, for a page holding only its example", () => {
+    const opts = { includeExamples: true };
+    expect(debtSummary([list[4]], 14, TODAY, undefined, opts)).toMatchObject({
+      open: 1,
+      interestPerSprint: 9,
+      hotspot: { area: "ci", impact: 5 },
+    });
+    expect(debtSummary(list, 14, TODAY, undefined, opts)).toMatchObject({
+      open: 4,
+      interestPerSprint: 11.5,
+      hotspot: { area: "ci", impact: 9 },
+    });
+    expect(debtVerdict([list[4]], 14, TODAY, opts)).toBe(
+      "1 open item costs about 9 points a sprint; the top one, “Example”, was raised this sprint and scores 17."
+    );
+  });
 });
 
 describe("normalizeTechDebt", () => {

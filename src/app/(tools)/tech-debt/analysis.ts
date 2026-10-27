@@ -13,7 +13,7 @@ import { enoughData } from "@/lib/analytics/min-sample";
 import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { fmt, type ChartText } from "@/lib/charts/chart-text";
 import type { TechDebtItem } from "@/lib/stores/workspace-types";
-import { EXAMPLE_ID_PREFIX, isExampleId } from "@/lib/utils/example-id";
+import { isExampleId } from "@/lib/utils/example-id";
 import {
   INTEREST_CAP,
   debtAgeDays,
@@ -27,25 +27,21 @@ import {
  * (the example's are listed but not counted, as the agent and the next
  * steps leave them out), else the example's, so a loaded example shows
  * its own verdict and matrix. lib/tech-debt leaves example ids out of
- * every count it makes, so the example's rows are read here under their
- * ids without the prefix.
+ * every count by default, so the page reads these rows with
+ * `{ includeExamples: true }`: they never mix the example's in with the
+ * team's own.
  */
 export function countedDebt(records: readonly TechDebtItem[]): TechDebtItem[] {
   const real = records.filter((t) => !isExampleId(t.id));
-  if (real.length > 0) return real;
-  return records.map((t) => ({ ...t, id: t.id.slice(EXAMPLE_ID_PREFIX.length) }));
+  return real.length > 0 ? real : [...records];
 }
 
 /**
- * The items the Markdown and the CSV list: the team's own while there are
- * any, the same set countedDebt counts, so an export never mixes the
- * example's made-up rows in with the numbers it quotes; else the
- * example's, under their own ids.
+ * The items the Markdown and the CSV list: the same set countedDebt
+ * counts, so an export never mixes the example's made-up rows in with the
+ * numbers it quotes.
  */
-export function exportedDebt(records: readonly TechDebtItem[]): TechDebtItem[] {
-  const real = records.filter((t) => !isExampleId(t.id));
-  return real.length > 0 ? real : [...records];
-}
+export const exportedDebt = countedDebt;
 
 /* ── Age and score on a row ────────────────────────────────────────────── */
 

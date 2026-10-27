@@ -189,8 +189,17 @@ export function debtStoryOf(
   return story ? { storyId: story.id, done: story.status === "done" } : null;
 }
 
+/**
+ * Whether example rows count. Left out by default (the agent and the next
+ * steps count the team's own); a page holding only its example passes
+ * true to show the example's own numbers.
+ */
+export interface DebtCountOptions {
+  includeExamples?: boolean;
+}
+
 export interface DebtSummary {
-  /** Real open items (example rows are left out of every count here). */
+  /** Real open items (example rows are left out of every count here, unless included). */
   open: number;
   resolved: number;
   /** Σ interest per sprint over open items whose interest is estimated. */
@@ -207,12 +216,13 @@ export interface DebtSummary {
   inBacklog: number;
 }
 
-/** The page's numbers, examples left out. Pass `stories` to count only links whose story still exists. */
+/** The page's numbers, examples left out unless included. Pass `stories` to count only links whose story still exists. */
 export function debtSummary(
   items: readonly TechDebtItem[],
   sprintLengthDays: number,
   today: string,
-  stories?: readonly Pick<Story, "id" | "status">[]
+  stories?: readonly Pick<Story, "id" | "status">[],
+  { includeExamples = false }: DebtCountOptions = {}
 ): DebtSummary {
   const s: DebtSummary = {
     open: 0,
@@ -226,7 +236,7 @@ export function debtSummary(
   };
   const impactByArea = new Map<string, number>();
   for (const t of items) {
-    if (isExampleId(t.id)) continue;
+    if (!includeExamples && isExampleId(t.id)) continue;
     if (!isOpenDebt(t)) {
       s.resolved += 1;
       continue;
@@ -260,19 +270,20 @@ function quote(title: string): string {
 }
 
 /**
- * One sentence on the debt, examples left out: how many items are open and
- * what they cost a sprint, then the top one by score and its age, e.g.
- * '7 open items cost about 4.5 points a sprint; the top one, “Flaky deploy
- * script”, is 6 sprints old.'
+ * One sentence on the debt, examples left out unless included: how many
+ * items are open and what they cost a sprint, then the top one by score
+ * and its age, e.g. '7 open items cost about 4.5 points a sprint; the top
+ * one, “Flaky deploy script”, is 6 sprints old.'
  */
 export function debtVerdict(
   items: readonly TechDebtItem[],
   sprintLengthDays: number,
-  today: string
+  today: string,
+  { includeExamples = false }: DebtCountOptions = {}
 ): string {
-  const real = items.filter((t) => !isExampleId(t.id));
+  const real = includeExamples ? items : items.filter((t) => !isExampleId(t.id));
   if (real.length === 0) return "No tech debt logged yet.";
-  const s = debtSummary(real, sprintLengthDays, today);
+  const s = debtSummary(real, sprintLengthDays, today, undefined, { includeExamples });
   if (s.open === 0) {
     return s.resolved === 1
       ? "The one debt item logged is paid down."

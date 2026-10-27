@@ -63,9 +63,9 @@ export function toMarkdown(
   const counted = countedDebt(items);
   const listed = exportedDebt(items);
   const left = items.length - listed.length;
-  const verdict = opts.verdict ?? debtVerdict(counted, len, today);
+  const verdict = opts.verdict ?? debtVerdict(counted, len, today, { includeExamples: true });
   // The counts are the summary's, over the same items as the verdict and the interest.
-  const s = debtSummary(counted, len, today);
+  const s = debtSummary(counted, len, today, undefined, { includeExamples: true });
   const total = s.open + s.resolved;
   const cost =
     s.open === 0

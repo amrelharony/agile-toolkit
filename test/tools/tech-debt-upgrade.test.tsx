@@ -321,7 +321,12 @@ describe("age in sprints and the capped score", () => {
   it("counts the team's items, or the example's while it is all there is", () => {
     const example = buildExample(new Date(2026, 9, 27));
     expect(debtVerdict(example, 14, TODAY)).toBe("No tech debt logged yet.");
-    expect(debtVerdict(countedDebt(example), 14, TODAY)).toMatch(/^5 open items cost about/);
+    // The example's rows keep their own ids; the page counts them through the option.
+    const counted = countedDebt(example);
+    expect(counted.map((t) => t.id)).toEqual(example.map((t) => t.id));
+    expect(debtVerdict(counted, 14, TODAY, { includeExamples: true })).toMatch(
+      /^5 open items cost about/
+    );
     expect(countedDebt([...example, debt({ id: "mine" })]).map((t) => t.id)).toEqual(["mine"]);
   });
 });

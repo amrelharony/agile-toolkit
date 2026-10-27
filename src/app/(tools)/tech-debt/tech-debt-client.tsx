@@ -144,6 +144,7 @@ export function TechDebtClient() {
   const showsExampleOnly = records.length > 0 && records.every((t) => isExampleId(t.id));
   const hasExample = hasExampleItems(records);
   const mixedExample = hasExample && !showsExampleOnly;
+  // countedDebt never mixes the example in with the team's rows: count what it holds.
   // The rows the move found only in the workspace, as they read now (one
   // deleted since drops out of the notice).
   const appearedItems = useMemo(
@@ -151,10 +152,13 @@ export function TechDebtClient() {
     [records, appeared]
   );
   const summary = useMemo(
-    () => debtSummary(counted, len, today, stories),
+    () => debtSummary(counted, len, today, stories, { includeExamples: true }),
     [counted, len, today, stories]
   );
-  const verdict = useMemo(() => debtVerdict(counted, len, today), [counted, len, today]);
+  const verdict = useMemo(
+    () => debtVerdict(counted, len, today, { includeExamples: true }),
+    [counted, len, today]
+  );
   const hotspot = useMemo(() => hotspotGrid(counted), [counted]);
   const survival = useMemo(() => timeToResolve(counted, today), [counted, today]);
   const chart = useMemo(() => survivalChartText(survival), [survival]);

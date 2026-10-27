@@ -407,8 +407,12 @@ describe("the numbers behind the page", () => {
   it("counts the team's risks, or the example's while it is all there is", () => {
     const example = buildExample(new Date(2026, 9, 27));
     expect(riskVerdict(example, TODAY)).toBe("No risks logged yet.");
+    // The example's rows keep their own ids; the page counts them through the option.
     const counted = countedRisks(example);
-    expect(riskVerdict(counted, TODAY)).toMatch(/^1 mitigation is overdue/);
+    expect(counted.map((r) => r.id)).toEqual(example.map((r) => r.id));
+    expect(riskVerdict(counted, TODAY, { includeExamples: true })).toMatch(
+      /^1 mitigation is overdue/
+    );
     const mixed = countedRisks([...example, risk({ id: "mine" })]);
     expect(mixed.map((r) => r.id)).toEqual(["mine"]);
   });
@@ -780,7 +784,7 @@ describe("the example", () => {
     expect(ex.filter((r) => riskDaysOverdue(r, TODAY) > 0).map((r) => r.id)).toEqual([
       "example-risk-1",
     ]);
-    const s = riskSummary(countedRisks(ex), TODAY);
+    const s = riskSummary(countedRisks(ex), TODAY, { includeExamples: true });
     expect(s).toMatchObject({ active: 4, overdue: 1, unowned: 1 });
   });
 });

@@ -85,14 +85,17 @@ export interface ValidationRate {
 /**
  * How the tests stand. An inconclusive result isn't counted either way (it
  * neither held up nor failed), so the rate is validated over decisive, on
- * the page and for an agent alike; example rows are left out.
+ * the page and for an agent alike; example rows are left out unless
+ * `includeExamples` (a page holding only its example shows the example's
+ * own rate).
  */
 export function validationRate(
-  hypotheses: readonly Pick<Hypothesis, "id" | "status">[] | undefined
+  hypotheses: readonly Pick<Hypothesis, "id" | "status">[] | undefined,
+  { includeExamples = false }: { includeExamples?: boolean } = {}
 ): ValidationRate {
   const r = { validated: 0, invalidated: 0, inconclusive: 0, open: 0 };
   for (const h of hypotheses ?? []) {
-    if (isExampleId(h.id)) continue;
+    if (!includeExamples && isExampleId(h.id)) continue;
     if (h.status === "validated") r.validated += 1;
     else if (h.status === "invalidated") r.invalidated += 1;
     else if (h.status === "inconclusive") r.inconclusive += 1;

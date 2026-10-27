@@ -235,8 +235,17 @@ export function compareRisks(a: Risk, b: Risk, today: string): number {
 
 /* ── Summary and verdict ───────────────────────────────────────────────── */
 
+/**
+ * Whether example rows count. Left out by default (the agent, the next
+ * steps and the dashboards count the team's own); a page holding only its
+ * example passes true to show the example's own numbers.
+ */
+export interface RiskCountOptions {
+  includeExamples?: boolean;
+}
+
 export interface RiskSummary {
-  /** Real risks (example rows are left out of every count here). */
+  /** Real risks (example rows are left out of every count here, unless included). */
   total: number;
   byStatus: Record<Risk["status"], number>;
   /** Active risks per level of their current rating (the matrix's set). */
@@ -264,8 +273,12 @@ const emptyByStatus = (): Record<Risk["status"], number> => ({
   closed: 0,
 });
 
-/** The register's numbers, examples left out. A status outside the lifecycle (a hand-crafted row) counts in `total` only. */
-export function riskSummary(risks: readonly Risk[], today: string): RiskSummary {
+/** The register's numbers, examples left out unless included. A status outside the lifecycle (a hand-crafted row) counts in `total` only. */
+export function riskSummary(
+  risks: readonly Risk[],
+  today: string,
+  { includeExamples = false }: RiskCountOptions = {}
+): RiskSummary {
   const s: RiskSummary = {
     total: 0,
     byStatus: emptyByStatus(),
@@ -279,7 +292,7 @@ export function riskSummary(risks: readonly Risk[], today: string): RiskSummary 
     residualAssessed: 0,
   };
   for (const r of risks) {
-    if (isExampleId(r.id)) continue;
+    if (!includeExamples && isExampleId(r.id)) continue;
     s.total += 1;
     if (isStatus(r.status)) s.byStatus[r.status] += 1;
     if (!isActiveRisk(r)) continue;
@@ -307,14 +320,18 @@ function quote(title: string): string {
 }
 
 /**
- * One sentence on the register, examples left out: overdue mitigations
- * lead (the longest overdue named), else the top active risk; high or
- * critical risks with no owner are called out.
+ * One sentence on the register, examples left out unless included: overdue
+ * mitigations lead (the longest overdue named), else the top active risk;
+ * high or critical risks with no owner are called out.
  */
-export function riskVerdict(risks: readonly Risk[], today: string): string {
-  const real = risks.filter((r) => !isExampleId(r.id));
+export function riskVerdict(
+  risks: readonly Risk[],
+  today: string,
+  { includeExamples = false }: RiskCountOptions = {}
+): string {
+  const real = includeExamples ? risks : risks.filter((r) => !isExampleId(r.id));
   if (real.length === 0) return "No risks logged yet.";
-  const s = riskSummary(real, today);
+  const s = riskSummary(real, today, { includeExamples });
   if (s.active === 0) {
     const parts = [
       s.byStatus.closed > 0 ? `${s.byStatus.closed} closed` : "",

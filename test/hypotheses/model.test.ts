@@ -111,6 +111,17 @@ describe("validationRate", () => {
     expect(r.rate).toBe(0);
     expect(r.open).toBe(1);
   });
+
+  it("counts example rows when asked, for a page holding only its example", () => {
+    const example = [hyp("example-1", "validated"), hyp("example-2", "invalidated")];
+    expect(validationRate(example).decisive).toBe(0);
+    expect(validationRate(example, { includeExamples: true })).toMatchObject({
+      validated: 1,
+      decisive: 2,
+      rate: 0.5,
+    });
+    expect(validationRate(example, { includeExamples: false }).rate).toBeNull();
+  });
 });
 
 describe("hypothesisVerdict", () => {

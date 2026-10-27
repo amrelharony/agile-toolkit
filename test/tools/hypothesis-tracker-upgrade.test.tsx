@@ -129,6 +129,8 @@ describe("the rate, the filter and the target", () => {
   it("counts the team's rows only, and the example's while it is alone", () => {
     const example = buildExample(TODAY);
     expect(countedRows(example).example).toBe(true);
+    // The example's rows keep their own ids; rateOf counts them through the option.
+    expect(countedRows(example).rows.map((h) => h.id)).toEqual(example.map((h) => h.id));
     expect(rateOf(countedRows(example)).decisive).toBe(2);
     const mixed = [...example, hyp("real", { status: "validated", resolvedAt: ago(1) })];
     expect(countedRows(mixed)).toMatchObject({ example: false });

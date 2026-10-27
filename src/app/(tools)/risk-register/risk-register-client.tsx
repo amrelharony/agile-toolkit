@@ -157,8 +157,15 @@ export function RiskRegisterClient() {
   );
   const showsExampleOnly = records.length > 0 && records.every((r) => isExampleId(r.id));
   const mixedExample = hasExampleItems(records) && !showsExampleOnly;
-  const summary = useMemo(() => riskSummary(counted, today), [counted, today]);
-  const verdict = useMemo(() => riskVerdict(counted, today), [counted, today]);
+  // countedRisks never mixes the example in with the team's rows: count what it holds.
+  const summary = useMemo(
+    () => riskSummary(counted, today, { includeExamples: true }),
+    [counted, today]
+  );
+  const verdict = useMemo(
+    () => riskVerdict(counted, today, { includeExamples: true }),
+    [counted, today]
+  );
   const ttc = useMemo(() => timeToClose(counted, today), [counted, today]);
   const weeks = useMemo(() => weeklyRiskSeries(counted, today), [counted, today]);
   // Closed risks with no close day: left out of the chart's "open" and the

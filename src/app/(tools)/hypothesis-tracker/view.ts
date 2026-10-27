@@ -18,7 +18,7 @@ import {
   type MissingField,
   type ValidationRate,
 } from "@/lib/hypotheses/model";
-import { EXAMPLE_ID_PREFIX, isExampleId } from "@/lib/utils/example-id";
+import { isExampleId } from "@/lib/utils/example-id";
 
 export const STATUS_LABEL: Record<HypothesisStatus, string> = {
   drafted: "Drafted",
@@ -109,19 +109,21 @@ export interface Counted {
  * The rows the validation rate and the time to learn count: the team's own,
  * as tool.hypothesis_tracker counts them. While the tracker holds only the
  * example, the example's rows are counted instead, so "Load an example"
- * shows a filled-in verdict; lib/hypotheses' validationRate leaves example
- * ids out, so they are read without the prefix here.
+ * shows a filled-in verdict.
  */
 export function countedRows(list: readonly Hypothesis[]): Counted {
   const real = list.filter((h) => !isExampleId(h.id));
   if (real.length > 0 || list.length === 0) return { rows: real, example: false };
-  return {
-    rows: list.map((h) => ({ ...h, id: h.id.slice(EXAMPLE_ID_PREFIX.length) })),
-    example: true,
-  };
+  return { rows: [...list], example: true };
 }
 
-export const rateOf = (counted: Counted): ValidationRate => validationRate(counted.rows);
+/**
+ * The rate over the counted rows. lib/hypotheses leaves example ids out by
+ * default; these rows never mix the example's in with the team's own, so
+ * every one of them counts.
+ */
+export const rateOf = (counted: Counted): ValidationRate =>
+  validationRate(counted.rows, { includeExamples: true });
 
 /** "60%", or "—" while no result is decisive (never 0%). */
 export const rateText = (r: ValidationRate) =>

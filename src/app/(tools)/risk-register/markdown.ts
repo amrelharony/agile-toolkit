@@ -76,8 +76,8 @@ export function toMarkdown(
   const counted = countedRisks(risks);
   const listed = exportedRisks(risks);
   const left = risks.length - listed.length;
-  const verdict = opts.verdict ?? riskVerdict(counted, today);
-  const s = riskSummary(counted, today);
+  const verdict = opts.verdict ?? riskVerdict(counted, today, { includeExamples: true });
+  const s = riskSummary(counted, today, { includeExamples: true });
   const ordered = listed.sort((a, b) => compareRisks(a, b, today));
   // The counts are the summary's, over the same rows as the verdict and the exposure.
   const counts = RISK_STATUSES.filter((st) => s.byStatus[st] > 0).map(
