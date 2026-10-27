@@ -305,6 +305,29 @@ describe("tool.okrs.check_in", () => {
     ]);
   });
 
+  it("says when a backdated first check-in rolls a typed value back, on both paths", async () => {
+    seed({ okrs: [LEGACY_OKR] });
+    const params = { okrId: LEGACY_OKR.id, keyResultId: "kr_a", value: 20, date: "2026-09-15" };
+    const back = await call<Record<string, unknown>>("check_in", params);
+    expect(back).toMatchObject({
+      recorded: true,
+      current: 20,
+      replacedUndated: {
+        current: 40,
+        confidence: null,
+        message:
+          "A key result's first check-in becomes its current reading whatever its date, so this one (2026-09-15) replaced the undated current 40 with 20. If the old value was newer, check it in for today.",
+      },
+    });
+    // The MCP path reads the same from the server rows.
+    const mcp = await callMcp<Record<string, unknown>>("check_in", params);
+    expect({ ...mcp, checkInId: back.checkInId }).toEqual(back);
+    // Today's reading after it replaces nothing undated.
+    expect(
+      await call("check_in", { okrId: LEGACY_OKR.id, keyResultId: "kr_a", value: 40 })
+    ).toMatchObject({ recorded: true, current: 40, replacedUndated: null });
+  });
+
   it("refuses a future day, an unknown key result, and one older than a full history", async () => {
     const full: Okr = {
       ...start(),
@@ -371,10 +394,32 @@ describe("tool.okrs.update_key_result", () => {
       "update_key_result",
       { okrId: "o1", keyResultId: "k1", current: 80 }
     );
-    expect(r).toMatchObject({ updated: true, progressPct: 80, current: 80 });
+    expect(r).toMatchObject({ updated: true, progressPct: 80, current: 80, replacedUndated: null });
     const kr = storedKr("o1", "k1")!;
     expect(kr.current).toBe(80);
     expect(kr.checkIns).toEqual([{ id: r.checkInId, date: "2026-11-03", value: 80 }]);
+  });
+
+  it("passes check_in's word on a backdated first check-in through", async () => {
+    seed({ okrs: [LEGACY_OKR] });
+    const r = await call("update_key_result", {
+      okrId: LEGACY_OKR.id,
+      keyResultId: "kr_a",
+      current: 20,
+      confidence: 3,
+      date: "2026-09-15",
+    });
+    expect(r).toMatchObject({
+      updated: true,
+      current: 20,
+      replacedUndated: {
+        current: 40,
+        confidence: 5,
+        message: expect.stringContaining(
+          "replaced the undated current 40 with 20 and the undated confidence 5 with 3. If the old values were newer, check them in"
+        ),
+      },
+    });
   });
 
   it("returns {updated:false} for unknown okr or key result", async () => {

@@ -28,6 +28,7 @@ import {
   okrVerdict,
   overallProgress,
   quarterPace,
+  replacesUndated,
   withCheckIn,
   withoutCheckIn,
 } from "@/lib/okrs/progress";
@@ -255,6 +256,48 @@ describe("withCheckIn", () => {
   });
 });
 
+describe("replacesUndated", () => {
+  const TODAY = "2026-11-03";
+  // A row from before Phase 8: current 40 and confidence 5, typed, no check-ins.
+  const legacy = LEGACY_OKR.keyResults[0];
+
+  it("names the typed value a backdated first check-in rolls back", () => {
+    expect(replacesUndated(legacy, ci("x", "2026-09-15", 20), TODAY)).toEqual({
+      current: 40,
+      confidence: null,
+    });
+    expect(replacesUndated(legacy, ci("x", "2026-09-15", 20, 3), TODAY)).toEqual({
+      current: 40,
+      confidence: 5,
+    });
+    // withCheckIn still records it as the newest reading there is.
+    expect(withCheckIn(legacy, ci("x", "2026-09-15", 20, 3))).toMatchObject({
+      current: 20,
+      confidence: 3,
+    });
+  });
+
+  it("is null for today's reading, the same value, or a key result already checked in", () => {
+    expect(replacesUndated(legacy, ci("x", TODAY, 20, 3), TODAY)).toBeNull();
+    expect(replacesUndated(legacy, ci("x", "2026-09-15", 40, 5), TODAY)).toBeNull();
+    expect(replacesUndated(legacy, ci("x", "soon", 20, 3), TODAY)).toBeNull();
+    const checked = withCheckIn(legacy, ci("a", "2026-10-20", 45, 6));
+    expect(replacesUndated(checked, ci("x", "2026-09-15", 20, 3), TODAY)).toBeNull();
+  });
+
+  it("names a typed confidence the first scored check-in replaces under unscored ones", () => {
+    const unscored = withCheckIn(legacy, ci("a", "2026-10-20", 45));
+    expect(replacesUndated(unscored, ci("x", "2026-09-15", 20, 3), TODAY)).toEqual({
+      current: null,
+      confidence: 5,
+    });
+    expect(withCheckIn(unscored, ci("x", "2026-09-15", 20, 3))).toMatchObject({
+      current: 45,
+      confidence: 3,
+    });
+  });
+});
+
 describe("withoutCheckIn", () => {
   const base = kr({ baseline: 2, target: 10, current: 0, checkIns: [] });
   const three = [
@@ -286,6 +329,7 @@ describe("withoutCheckIn", () => {
   it("keeps the value of a key result with no baseline when its last check-in goes", () => {
     const one = withCheckIn(kr({ current: 40, confidence: 7 }), ci("x", "2026-10-01", 50));
     const none = withoutCheckIn(one, "x");
+    // The typed 40 isn't kept anywhere: a caller's undo keeps the whole key result.
     expect(none.current).toBe(50);
     // An unscored check-in leaves the typed confidence alone.
     expect(none.confidence).toBe(7);

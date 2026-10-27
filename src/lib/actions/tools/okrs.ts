@@ -54,6 +54,8 @@ import {
   objectivePercent,
   okrVerdict,
   overallProgress,
+  replacesUndated,
+  type UndatedReplaced,
   withCheckIn,
 } from "@/lib/okrs/progress";
 import { sprintGoalsFor } from "@/lib/okrs/links";
@@ -222,19 +224,48 @@ function defaultDay(kr: KeyResult, today: string, latest: string): string {
   return newest !== undefined && newest > today && newest <= latest ? newest : today;
 }
 
+/** A backdated first check-in's roll-back, with a sentence for the agent to relay. */
+type ReplacedUndated = (UndatedReplaced & { message: string }) | null;
+
 type CheckInResult =
   | {
       recorded: true;
       checkInId: string;
       date: string;
-      /** The key result's value after it: unchanged by a check-in older than its newest. */
+      /**
+       * The key result's value after it: unchanged by a check-in older than
+       * its newest; a key result's first check-in sets it whatever its date.
+       */
       current: number;
       confidence: number | null;
       keyResultProgressPct: number;
       /** The objective's progress after it. */
       progressPct: number;
+      /** Set when a first check-in dated before today replaced a different undated value. */
+      replacedUndated: ReplacedUndated;
     }
   | { recorded: false; reason: "not_found" | "future_day" | "too_old"; message: string };
+
+/**
+ * What a backdated first check-in replaced (lib/okrs replacesUndated), told
+ * plainly: the agent may have meant to add history, not to roll a newer
+ * typed value back, and can check that value in for today.
+ */
+function replacedUndated(kr: KeyResult, entry: KeyResultCheckIn, today: string): ReplacedUndated {
+  const r = replacesUndated(kr, entry, today);
+  if (!r) return null;
+  const parts = [
+    ...(r.current !== null ? [`the undated current ${r.current} with ${entry.value}`] : []),
+    ...(r.confidence !== null
+      ? [`the undated confidence ${r.confidence} with ${entry.confidence}`]
+      : []),
+  ];
+  const many = parts.length > 1;
+  return {
+    ...r,
+    message: `A key result's first check-in becomes its current reading whatever its date, so this one (${entry.date}) replaced ${parts.join(" and ")}. If the old ${many ? "values were" : "value was"} newer, check ${many ? "them" : "it"} in for today.`,
+  };
+}
 
 async function checkIn(
   store: OkrStore,
@@ -269,6 +300,7 @@ async function checkIn(
     ...(p.confidence !== undefined ? { confidence: p.confidence } : {}),
     ...(note ? { note } : {}),
   };
+  const replaced = replacedUndated(kr, entry, today);
   const nextKr = withCheckIn(kr, entry);
   if (!(nextKr.checkIns ?? []).some((c) => c.id === entry.id)) {
     return {
@@ -290,6 +322,7 @@ async function checkIn(
     confidence: isConfidence(nextKr.confidence) ? nextKr.confidence : null,
     keyResultProgressPct: krPercent(nextKr),
     progressPct: objectivePercent(next),
+    replacedUndated: replaced,
   };
 }
 
@@ -299,7 +332,7 @@ registry.register({
   name: "check_in",
   category: "write",
   requiresConfirmation: false,
-  description: `Record a dated check-in on one key result: its value that day, and optionally a 0-10 confidence and a note (≤${CHECK_IN_NOTE_MAX}). It joins the key result's history (the newest ${KR_CHECK_IN_CAP} kept) and its objective's confidence trend; the key result's current value and confidence follow the newest-dated check-in, so a backdated one older than the newest leaves them as they are. Params: {okrId, keyResultId, value, confidence?, date? (YYYY-MM-DD, the user's local day; default today; never a future day; over MCP the day after the server's is taken too), note?}. Returns {recorded: true, checkInId, date, current, confidence | null, keyResultProgressPct, progressPct (the objective's)} or {recorded: false, reason: 'not_found' | 'future_day' | 'too_old', message}.`,
+  description: `Record a dated check-in on one key result: its value that day, and optionally a 0-10 confidence and a note (≤${CHECK_IN_NOTE_MAX}). It joins the key result's history (the newest ${KR_CHECK_IN_CAP} kept) and its objective's confidence trend; the key result's current value and confidence follow the newest-dated check-in, so a backdated one older than the newest leaves them as they are. A key result's first check-in becomes its current value (and, scored, its confidence) whatever its date, as a typed value has no date to weigh it against: when one dated before today replaces a different value, replacedUndated says which, so check that value in for today if it was newer. Params: {okrId, keyResultId, value, confidence?, date? (YYYY-MM-DD, the user's local day; default today; never a future day; over MCP the day after the server's is taken too), note?}. Returns {recorded: true, checkInId, date, current, confidence | null, keyResultProgressPct, progressPct (the objective's), replacedUndated: {current | null, confidence | null, message} | null} or {recorded: false, reason: 'not_found' | 'future_day' | 'too_old', message}.`,
   paramsSchema: checkInParams,
   handler: (params) => checkIn(browserStore, params, false),
   mcpHandler: (params, ctx) => checkIn(serverStore(ctx.userId), params, true),
@@ -325,7 +358,13 @@ async function updateKeyResult(
   const { current, ...rest } = p;
   const r = await checkIn(store, { ...rest, value: current }, onServer);
   if (!r.recorded) return { updated: false, reason: r.reason, message: r.message };
-  return { updated: true, progressPct: r.progressPct, checkInId: r.checkInId, current: r.current };
+  return {
+    updated: true,
+    progressPct: r.progressPct,
+    checkInId: r.checkInId,
+    current: r.current,
+    replacedUndated: r.replacedUndated,
+  };
 }
 
 registry.register({
@@ -335,7 +374,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a key result's value by recording a check-in for it (tool.okrs.check_in with value = current), so the update joins its history and trend. Params: {okrId, keyResultId, current, confidence? (0-10), date? (YYYY-MM-DD; default today; never a future day), note?}. Returns {updated: true, progressPct (the objective's), checkInId, current} or {updated: false, reason: 'not_found' | 'future_day' | 'too_old', message}.",
+    "Set a key result's value by recording a check-in for it (tool.okrs.check_in with value = current), so the update joins its history and trend. Params: {okrId, keyResultId, current, confidence? (0-10), date? (YYYY-MM-DD; default today; never a future day), note?}. Returns {updated: true, progressPct (the objective's), checkInId, current, replacedUndated (as check_in's: set when a backdated first check-in replaced a different undated value) | null} or {updated: false, reason: 'not_found' | 'future_day' | 'too_old', message}.",
   paramsSchema: updateParams,
   handler: (params) => updateKeyResult(browserStore, params, false),
   mcpHandler: (params, ctx) => updateKeyResult(serverStore(ctx.userId), params, true),

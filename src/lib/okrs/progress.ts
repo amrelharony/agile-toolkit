@@ -235,10 +235,14 @@ function mirror(kr: KeyResult, list: KeyResultCheckIn[], fallback: number | unde
  * holds, replaced in place): sorted by date, capped at KR_CHECK_IN_CAP with
  * the oldest dropped, and `current` / `confidence` mirrored from the newest
  * (see mirror). A backdated check-in older than the newest joins the
- * history without changing `current`. One older than every kept check-in
- * of a full history is dropped at once: `checkIns` then lacks its id, which
- * a caller can check. Callers validate `c` first (a real day, never after
- * today; a finite value; confidence 0–10 or absent).
+ * history without changing `current`. The first check-in on a key result
+ * with none becomes `current` (and, scored, its confidence) whatever its
+ * date: a typed value has no date to weigh it against, and "current is the
+ * newest check-in's" stays true for every reader. Callers warn when that
+ * rolls a different value back (replacesUndated). One older than every kept
+ * check-in of a full history is dropped at once: `checkIns` then lacks its
+ * id, which a caller can check. Callers validate `c` first (a real day,
+ * never after today; a finite value; confidence 0–10 or absent).
  */
 export function withCheckIn(kr: KeyResult, c: KeyResultCheckIn): KeyResult {
   const list = kr.checkIns ?? [];
@@ -255,7 +259,9 @@ export function withCheckIn(kr: KeyResult, c: KeyResultCheckIn): KeyResult {
  * With none left, `current` goes back to the baseline (where a key result
  * starts; one with no baseline keeps its value, as nothing older is known).
  * A removed scored check-in takes its confidence with it when no scored one
- * is left. Unknown id: the key result as it was.
+ * is left. The value typed before the first check-in isn't kept anywhere,
+ * so a caller that deletes check-ins keeps the whole key result to undo
+ * with. Unknown id: the key result as it was.
  */
 export function withoutCheckIn(kr: KeyResult, checkInId: string): KeyResult {
   const list = kr.checkIns ?? [];
@@ -267,6 +273,44 @@ export function withoutCheckIn(kr: KeyResult, checkInId: string): KeyResult {
   if (rest.some(readable)) return next;
   const base = krBaseline(kr);
   return base === null ? next : { ...next, current: base };
+}
+
+/** What a backdated first check-in rolls back (see replacesUndated). */
+export interface UndatedReplaced {
+  /** The typed `current` it replaces, or null when it leaves current as it was. */
+  current: number | null;
+  /** The confidence, scored without a dated check-in, it replaces; or null. */
+  confidence: number | null;
+}
+
+/**
+ * What recording `c` would replace that no check-in dated, or null when it
+ * replaces nothing: withCheckIn makes a key result's first check-in its
+ * `current` (and first scored one its confidence) whatever the date, so a
+ * check-in dated before `today` ("YYYY-MM-DD") on a key result with none may
+ * roll a newer typed value back (an agent backfilling history on a row from
+ * before Phase 8, whose `current` is the latest known). The check-in is
+ * still recorded; the page and tool.okrs.check_in say what it replaced, so
+ * the user can check in today's value if the typed one was newer. Only a
+ * different value counts.
+ */
+export function replacesUndated(
+  kr: KeyResult,
+  c: KeyResultCheckIn,
+  today: string
+): UndatedReplaced | null {
+  if (!readable(c) || c.date >= today) return null;
+  const list = kr.checkIns ?? [];
+  const current =
+    !list.some(readable) && finite(kr.current) && kr.current !== c.value ? kr.current : null;
+  const confidence =
+    isConfidence(c.confidence) &&
+    isConfidence(kr.confidence) &&
+    kr.confidence !== c.confidence &&
+    !list.some((x) => readable(x) && isConfidence(x.confidence))
+      ? kr.confidence
+      : null;
+  return current === null && confidence === null ? null : { current, confidence };
 }
 
 /** A key result's newest-dated readable check-in, or null when it has none. */
