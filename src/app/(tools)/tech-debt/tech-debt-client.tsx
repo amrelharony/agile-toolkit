@@ -42,7 +42,6 @@ import {
   debtSummary,
   debtVerdict,
   rankDebt,
-  rankedDebt,
 } from "@/lib/tech-debt/model";
 import {
   currentTechDebt,
@@ -194,11 +193,14 @@ export function TechDebtClient() {
     () => ({
       toolName: "Technical Debt Tracker",
       prompts: generateTechDebtPrompts({
-        items: rankedDebt(counted, len, today).map((r) => r.item),
-        totalInterestPerSprint: summary.interestPerSprint,
+        items: counted,
+        sprintLengthDays: len,
+        defaultLength: lenIsDefault,
+        today,
+        stories,
       }),
     }),
-    [counted, len, today, summary.interestPerSprint]
+    [counted, len, lenIsDefault, today, stories]
   );
 
   /* ── Changes ──────────────────────────────────────────────────────── */
