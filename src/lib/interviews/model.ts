@@ -6,7 +6,8 @@
  * once are four. A participant is matched by name across interviews
  * (ignoring case and spacing), so two sessions with the same person count
  * once. Anonymising gives each participant a stable pseudonym for the
- * export ("Participant 1" … in order of first appearance) and runs the
+ * export ("Participant 1" … by their first interview, oldest logged
+ * first, so logging another interview never renumbers anyone) and runs the
  * context and the quotes through redactPii and withoutName (the
  * participant's own name typed in them becomes the pseudonym). A quote
  * can be raised as an opportunity on the Opportunity Tree (the
@@ -174,19 +175,38 @@ export function withoutName(
 }
 
 /**
- * The interviews as an anonymised export or AI prompt shows them: each
- * participant becomes "Participant N", numbered by first appearance in
- * the given order (the same person keeps one number, so themes still
- * count per participant), and the context and every quote go through
+ * The order interviews were logged in, oldest first: by day, and on one
+ * day the later in `interviews` first. The log keeps the newest logged at
+ * the front (the page's add and tool.user_interviews.add_interview both
+ * put a new interview there), and sorting it by day with a stable sort
+ * keeps that order among the interviews of one day.
+ */
+function loggedOrder(interviews: readonly Interview[]): Interview[] {
+  const day = (i: Interview) => (i.date ?? "").slice(0, 10);
+  return interviews
+    .map((i, at) => ({ i, at, day: day(i) }))
+    .sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : y.at - x.at))
+    .map((x) => x.i);
+}
+
+/**
+ * The interviews as an anonymised export or AI prompt shows them, in the
+ * given order: each participant becomes "Participant N", numbered by
+ * their first interview in the order they were logged, oldest first
+ * (loggedOrder), so logging another interview, even on the same day,
+ * never renumbers anyone. The same person keeps one number, so themes
+ * still count per participant. The context and every quote go through
  * redactPii, then withoutName (the participant's own name typed in them
  * becomes the same pseudonym). Other people's names are not caught.
  */
 export function anonymiseInterviews(interviews: readonly Interview[]): Interview[] {
   const numbers = new Map<string, number>();
-  return interviews.map((i) => {
+  for (const i of loggedOrder(interviews)) {
     const key = participantKey(i);
     if (!numbers.has(key)) numbers.set(key, numbers.size + 1);
-    const pseudonym = `Participant ${numbers.get(key)}`;
+  }
+  return interviews.map((i) => {
+    const pseudonym = `Participant ${numbers.get(participantKey(i))}`;
     const clean = (text: string) => withoutName(redactPii(text), i.participant, pseudonym);
     const out: Interview = {
       ...i,

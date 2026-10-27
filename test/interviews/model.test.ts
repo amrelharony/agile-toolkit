@@ -19,6 +19,7 @@ import {
   themeCounts,
   withoutName,
 } from "@/lib/interviews/model";
+import { anonymisedById, forExport } from "@/app/(tools)/user-interviews/view";
 
 const q = (id: string, tags: string[], text = `quote ${id}`): InterviewQuote => ({
   id,
@@ -97,19 +98,76 @@ describe("themeCounts", () => {
 });
 
 describe("anonymiseInterviews", () => {
-  it("gives each participant a stable pseudonym by first appearance", () => {
+  it("gives each participant a stable pseudonym by their first interview, oldest first", () => {
+    // The log as stored, newest logged at the front; the output keeps its order.
     const out = anonymiseInterviews([
-      iv("i1", "Ben", []),
-      iv("i2", "Ana", []),
-      iv("i3", " ben ", []),
-      iv("i4", "", []),
+      iv("i4", "", [], { date: "2026-10-16" }),
+      iv("i3", " ben ", [], { date: "2026-10-15" }),
+      iv("i2", "Ana", [], { date: "2026-10-14" }),
+      iv("i1", "Ben", [], { date: "2026-10-12" }),
     ]);
-    expect(out.map((i) => i.participant)).toEqual([
-      "Participant 1",
-      "Participant 2",
-      "Participant 1",
-      "Participant 3",
+    expect(out.map((i) => [i.id, i.participant])).toEqual([
+      ["i4", "Participant 3"],
+      ["i3", "Participant 1"],
+      ["i2", "Participant 2"],
+      ["i1", "Participant 1"],
     ]);
+  });
+
+  it("numbers one day's interviews in the order they were logged, so a new one renumbers no one", () => {
+    const names = (list: Interview[]) =>
+      Object.fromEntries(anonymiseInterviews(list).map((i) => [i.id, i.participant]));
+    // Ana, then Ben, logged on one day: each new interview goes to the front of the log.
+    const ana = iv("ana", "Ana", []);
+    const ben = iv("ben", "Ben", []);
+    const cara = iv("cara", "Cara", []);
+    expect(names([ana])).toEqual({ ana: "Participant 1" });
+    expect(names([ben, ana])).toEqual({ ben: "Participant 2", ana: "Participant 1" });
+    expect(names([cara, ben, ana])).toEqual({
+      cara: "Participant 3",
+      ben: "Participant 2",
+      ana: "Participant 1",
+    });
+    // A backdated interview takes its day's place among the older ones.
+    const early = iv("early", "Dee", [], { date: "2026-10-01" });
+    expect(names([early, cara, ben, ana])).toMatchObject({
+      early: "Participant 1",
+      ana: "Participant 2",
+    });
+  });
+
+  it("numbers the same through the page's oldest-first copy (a stable sort by day)", () => {
+    const log = [
+      iv("c", "Cara", []),
+      iv("old", "Old", [], { date: "2026-10-02" }),
+      iv("b", "Ben", []),
+      iv("a", "Ana", []),
+    ];
+    const byDay = [...log].sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+    const of = (list: Interview[]) =>
+      Object.fromEntries(anonymiseInterviews(list).map((i) => [i.id, i.participant]));
+    expect(of(byDay)).toEqual(of(log));
+    expect(of(log)).toEqual({
+      old: "Participant 1",
+      a: "Participant 2",
+      b: "Participant 3",
+      c: "Participant 4",
+    });
+  });
+
+  it("keeps the page's export pseudonyms when another interview is logged on the same day", () => {
+    const ana = iv("ana", "Ana", []);
+    const ben = iv("ben", "Ben", []);
+    const cara = iv("cara", "Cara", []);
+    const exported = (log: Interview[]) =>
+      Object.fromEntries(forExport(log, true).map((i, n) => [log[n].id, i.participant]));
+    expect(exported([ben, ana])).toEqual({ ben: "Participant 2", ana: "Participant 1" });
+    expect(exported([cara, ben, ana])).toEqual({
+      cara: "Participant 3",
+      ben: "Participant 2",
+      ana: "Participant 1",
+    });
+    expect(anonymisedById([cara, ben, ana]).get("ana")?.participant).toBe("Participant 1");
   });
 
   it("redacts the context and every quote, and keeps tags so themes still count", () => {
@@ -131,7 +189,7 @@ describe("anonymiseInterviews", () => {
 
   it("replaces the participant's own name in the context and the quotes with the pseudonym", () => {
     const out = anonymiseInterviews([
-      iv("i1", "Ben", []),
+      iv("i1", "Ben", [], { date: "2026-10-13" }),
       iv("i2", "Dana Lee", [q("q1", [], "As dana LEE put it: Dana's team waits a week.")], {
         context: "Dana Lee, ops lead. dana@example.com. DANA joined late.",
       }),
