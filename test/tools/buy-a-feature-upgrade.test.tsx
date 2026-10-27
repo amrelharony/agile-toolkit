@@ -32,7 +32,11 @@ import {
   withPrice,
   withRaised,
 } from "@/lib/buy-a-feature/game";
-import type { AllocationRoundResult } from "@/lib/realtime/vote-room/allocation";
+import {
+  allocationCountProblem,
+  sheetProblem,
+  type AllocationRoundResult,
+} from "@/lib/realtime/vote-room/allocation";
 import { registry } from "@/lib/actions/registry";
 
 /**
@@ -1286,5 +1290,63 @@ describe("tool.buy_a_feature.record_round, after review", () => {
     expect(
       await callServer("record_round", { totals, players: 5, date: addDays(todayIso(), 3) })
     ).toMatchObject({ saved: false, reason: "A round can't be dated in the future." });
+  });
+});
+
+describe("an old row's fractional raised", () => {
+  // An old purchase of "12.5" (the Phase 6 form parsed it as a float):
+  // $37.50 still to go on Search. 5 × $30 = $150 against $210 of prices.
+  const LEGACY = () => [
+    feature("a", "Search", 50, 12.5),
+    feature("b", "Exports", 40),
+    feature("c", "SSO", 120),
+  ];
+
+  it("offers a whole cap, so the round can run live and on paper", () => {
+    const next = nextRound(LEGACY().map(featureLedger), GAME, []);
+    expect(next.blocked).toBeNull();
+    const sheet = next.sheet!;
+    expect(sheet.items.map((x) => [x.id, x.cap])).toEqual([
+      ["a", 38],
+      ["b", 40],
+      ["c", 120],
+    ]);
+    expect(sheetProblem(sheet)).toBeNull();
+    expect(allocationCountProblem(sheet)).toBeNull();
+  });
+
+  it("caps the round's total at the exact need: the half goes back to the pool", () => {
+    const applied = applyAllocationRound(
+      LEGACY().map(featureLedger),
+      result([
+        { id: "a", text: "Search", total: 38 },
+        { id: "b", text: "Exports", total: 20 },
+      ])
+    );
+    expect(Object.fromEntries(applied.next)).toEqual({ a: 50, b: 20 });
+    expect(applied).toMatchObject({ funded: ["a"], refunded: 0.5, spends: 57.5 });
+  });
+
+  it("lets the agent record the round's typed totals", async () => {
+    useWorkspaceStore.setState({ prioritizations: LEGACY(), buyAFeatureGames: [GAME] });
+    const saved = await (registry
+      .get("tool.buy_a_feature.record_round")
+      ?.handler({ totals: { a: 38, b: 20, c: 10 }, players: 5 }, ctx()) as Promise<
+      Record<string, unknown>
+    >);
+    expect(saved).toMatchObject({
+      saved: true,
+      round: 1,
+      funded: [{ id: "a", title: "Search" }],
+      refunded: 0.5,
+    });
+    expect([raisedOf("a"), raisedOf("b"), raisedOf("c")]).toEqual([50, 20, 10]);
+  });
+
+  it("offers the page's count entry instead of a cap nobody set", () => {
+    useWorkspaceStore.setState({ prioritizations: LEGACY(), buyAFeatureGames: [GAME] });
+    renderPage();
+    expect(screen.queryByText(/This round can't run/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Add split" })).toBeInTheDocument();
   });
 });

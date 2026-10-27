@@ -288,7 +288,10 @@ export function buyAFeatureSheet(
     unit,
     spendAll: false,
     items: open.map((f) => {
-      const need = remaining(f);
+      // The kit's caps are whole: an old row's fractional `raised` (12.5 of
+      // 50) rounds what's still needed up (38), and the save caps the total
+      // at the exact need, so the half goes back to the pool.
+      const cap = Math.ceil(remaining(f));
       return {
         id: f.id,
         text: f.title.slice(0, FEATURE_TITLE_MAX),
@@ -297,7 +300,7 @@ export function buyAFeatureSheet(
             ? `Priced ${money(f.price as number)}, ${money(f.raised)} raised`
             : `Priced ${money(f.price as number)}`,
         // Above the kit's cap the budget binds anyway; the save caps the total.
-        ...(need <= VOTE_LIMITS.maxCap ? { cap: need } : {}),
+        ...(cap <= VOTE_LIMITS.maxCap ? { cap } : {}),
       };
     }),
   };
