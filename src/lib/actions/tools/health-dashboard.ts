@@ -39,6 +39,8 @@ import {
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { completionPct, predictability } from "@/lib/sprints/metrics";
 import { impedimentSummary } from "@/lib/impediments/model";
+import { overallProgress } from "@/lib/okrs/progress";
+import { isActiveRisk, isHighRisk } from "@/lib/risks/model";
 import {
   HEALTH_KPI_IDS,
   KPI_DEFINITIONS,
@@ -148,25 +150,21 @@ function buildSummary(d: DashboardInput) {
   };
 
   const riskList = real(d.risks);
-  const openRisks = riskList.filter((r) => r.status === "open" || r.status === "mitigating");
+  const openRisks = riskList.filter(isActiveRisk);
   const risks = {
     total: riskList.length,
     open: openRisks.length,
-    high: openRisks.filter((r) => r.probability * r.impact >= 15).length,
+    // The register's one meaning of high: rated high or critical (lib/risks).
+    high: openRisks.filter(isHighRisk).length,
   };
 
-  let krCount = 0;
-  let krSum = 0;
-  const okrList = real(d.okrs);
-  for (const o of okrList) {
-    for (const kr of Array.isArray(o.keyResults) ? o.keyResults : []) {
-      krCount += 1;
-      krSum += kr.target > 0 ? Math.max(0, Math.min(1, kr.current / kr.target)) : 0;
-    }
-  }
+  // The OKR page's overall progress (lib/okrs: baseline → target, per
+  // objective), so the dashboard and the page agree.
+  const okrList = real(d.okrs).filter((o) => Array.isArray(o.keyResults));
+  const withKrs = okrList.filter((o) => o.keyResults.length > 0);
   const okrs = {
     total: okrList.length,
-    avgProgress: krCount > 0 ? Math.round((krSum / krCount) * 100) : null,
+    avgProgress: withKrs.length > 0 ? Math.round(overallProgress(withKrs) * 100) : null,
   };
 
   const team = byId.get("team-health");

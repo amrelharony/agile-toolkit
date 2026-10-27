@@ -1,6 +1,7 @@
 import type { Workspace } from "../stores/workspace-types";
 import { selectCompletedSprints, selectActiveImpediments } from "../stores/workspace-store";
 import { trendDirection } from "./anomaly";
+import { isActiveRisk, isHighRisk } from "../risks/model";
 import {
   SKILLS_MATRIX_ID,
   matrixColumns,
@@ -149,20 +150,16 @@ export function detectBusFactorRisk(w: Workspace): AntiPatternSignal | null {
 }
 
 export function detectRiskStacking(w: Workspace): AntiPatternSignal | null {
-  const high = w.risks.filter(
-    // R10: NaN guard — `undefined * undefined === NaN`, `NaN >= 12 === false`,
-    // so risks with missing probability/impact (legacy or corrupted
-    // import) silently disappeared from the count. Coerce to 0.
-    (r) =>
-      (r.status === "open" || r.status === "mitigating") &&
-      (r.probability ?? 0) * (r.impact ?? 0) >= 12
-  );
+  // The register's one meaning of high (lib/risks: P×I 10 and up, a
+  // missing rating read as 1), on the risks still open or mitigating.
+  const high = (w.risks ?? []).filter((r) => isActiveRisk(r) && isHighRisk(r));
   if (high.length < 3) return null;
   return {
     id: "RISK_STACKING",
     title: `${high.length} high-severity risks open`,
     severity: "critical",
-    description: "Multiple risks with P×I ≥ 12 are unresolved. Compound delivery exposure.",
+    description:
+      "Multiple risks rated high or critical (P×I 10 or more) are unresolved. Compound delivery exposure.",
     recommendation:
       "Rank these by P×I, assign a named risk owner per item, and set mitigation deadlines.",
     relatedTools: ["risk-register"],
