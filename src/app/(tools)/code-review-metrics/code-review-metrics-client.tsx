@@ -22,10 +22,9 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
-import { generateCodeReviewPrompts } from "@/lib/ai-prompts/code-review-metrics";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { xmrLimits } from "@/lib/analytics/control-chart";
-import { enoughData, needMore } from "@/lib/analytics/min-sample";
+import { enoughData } from "@/lib/analytics/min-sample";
 import { periodLabel } from "@/lib/analytics/periods";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { plural } from "@/lib/charts/chart-text";
@@ -56,10 +55,12 @@ import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { CsvImport } from "./csv-import";
 import { buildExample } from "./example";
 import { reviewMarkdown } from "./markdown";
+import { reviewPrompts } from "./prompts";
 import { SampleForm, type SampleDraftText } from "./sample-form";
 import {
   bandChartText,
   hoursText,
+  moreToSee,
   scatterText,
   stateText,
   weeklyChartText,
@@ -158,6 +159,8 @@ function neighbourPr(id: string): string | null {
 
 const finite = (xs: readonly (number | null)[]) =>
   xs.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+
+const MERGED: [string, string] = ["merged PR", "merged PRs"];
 
 const prName = (s: PrSample) =>
   s.prNumber ? `PR ${s.prNumber}` : `the PR opened ${whenText(s.openedAt)}`;
@@ -265,17 +268,34 @@ export function CodeReviewMetricsClient() {
     announce(`Deleted ${prName(s)}`);
   }
 
-  function importRows(added: PrSample[], skipped: number) {
+  function importRows(checked: PrSample[], skipped: number) {
+    // The rows were checked against the log at "Check rows". A PR number
+    // logged since (by the form, an Undo or an agent's add_sample) is
+    // dropped here, as the form and add_sample refuse it, so an import never
+    // stores a second copy of one.
+    const logged = new Set(
+      samplesOf(preview ? example : storedLog())
+        .map((s) => (s.prNumber ?? "").trim())
+        .filter((n) => n !== "")
+    );
+    const added = checked.filter((s) => !logged.has((s.prNumber ?? "").trim()));
+    const late = checked.length - added.length;
+    if (added.length === 0) {
+      announce(`Nothing imported: ${plural(late, "row was", "rows were")} logged since the check`);
+      return;
+    }
+    const lateNote = late > 0 ? `${plural(late, "row")} skipped, logged since the check` : "";
     const ids = new Set(added.map((s) => s.id));
     undoable({
       label: `Imported ${plural(added.length, "pull request")}`,
+      description: lateNote || undefined,
       apply: () => {
         write((d) => ({ ...d, samples: [...d.samples, ...added] }));
-        log(CODE_REVIEW_ACTIONS.PRS_IMPORTED, { added: added.length, skipped });
+        log(CODE_REVIEW_ACTIONS.PRS_IMPORTED, { added: added.length, skipped: skipped + late });
       },
       revert: () => write((d) => ({ ...d, samples: d.samples.filter((s) => !ids.has(s.id)) })),
     });
-    announce(`Imported ${plural(added.length, "pull request")}`);
+    announce(`Imported ${plural(added.length, "pull request")}${lateNote ? `; ${lateNote}` : ""}`);
   }
 
   function setWindow(next: CodeReviewWorkingWindow | null) {
@@ -321,28 +341,10 @@ export function CodeReviewMetricsClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Code Review Metrics",
-      prompts: generateCodeReviewPrompts({
-        samples: rows.map(({ sample: s, times }) => ({
-          prNumber: s.prNumber,
-          author: s.author,
-          cycleHours: times.cycleWorkingH,
-          reviewerCount: s.reviewerCount,
-          commentCount: s.commentCount,
-          linesChanged: s.linesChanged,
-          description: s.description,
-        })),
-        // The median working cycle (the page's headline), not a mean.
-        avgCycleHours: h.medianCycleWorkingH,
-        avgReviewDepth: samples.length
-          ? samples.reduce((a, s) => a + s.commentCount, 0) / samples.length
-          : 0,
-        avgPrSize: samples.length
-          ? samples.reduce((a, s) => a + s.linesChanged, 0) / samples.length
-          : 0,
-        unmerged: summary.open,
-      }),
+      // The median working cycle (the page's headline), labelled as one.
+      prompts: reviewPrompts(rows, summary, basis),
     }),
-    [rows, samples, h.medianCycleWorkingH, summary.open]
+    [rows, summary, basis]
   );
 
   const csvData = {
@@ -493,10 +495,10 @@ export function CodeReviewMetricsClient() {
     },
   ];
 
-  const medianHint = (count: number, elapsed: number | null, what: string) =>
+  const medianHint = (count: number, elapsed: number | null, unit: [string, string]) =>
     enoughData(count, "average")
       ? `${hoursText(elapsed)} elapsed · ${plural(count, "PR")}`
-      : `Shows once ${needMore(count, "average")} more ${what}`;
+      : moreToSee(count, "average", unit);
 
   return (
     <ToolPageWrapper
@@ -565,11 +567,10 @@ export function CodeReviewMetricsClient() {
                   icon={Clock}
                   label="Median time to first review"
                   value={hoursText(h.medianFirstReviewWorkingH)}
-                  hint={medianHint(
-                    summary.firstReview.count,
-                    h.medianFirstReviewH,
-                    "PRs with a first review"
-                  )}
+                  hint={medianHint(summary.firstReview.count, h.medianFirstReviewH, [
+                    "PR with a first review",
+                    "PRs with a first review",
+                  ])}
                   valueClassName="text-accent"
                 />
                 <StatCard
@@ -577,7 +578,7 @@ export function CodeReviewMetricsClient() {
                   icon={Clock}
                   label="Median cycle time"
                   value={hoursText(h.medianCycleWorkingH)}
-                  hint={medianHint(summary.cycle.count, h.medianCycleH, "merged PRs")}
+                  hint={medianHint(summary.cycle.count, h.medianCycleH, MERGED)}
                   valueClassName="text-accent"
                 />
                 <StatCard
@@ -588,7 +589,7 @@ export function CodeReviewMetricsClient() {
                   hint={
                     enoughData(summary.cycle.count, "distribution")
                       ? "85% merge within this"
-                      : `Shows once ${needMore(summary.cycle.count, "distribution")} more merged PRs`
+                      : moreToSee(summary.cycle.count, "distribution", MERGED)
                   }
                 />
                 <StatCard

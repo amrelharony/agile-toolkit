@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { FileUp, ListChecks } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,7 +23,9 @@ const ERRORS_SHOWN = 20;
  * through parseReviewCsv (lib/quality/review, on lib/utils/csv): a blank
  * number is a row error, never 0; a PR number logged already is skipped;
  * zone-suffixed times are read in this browser's time zone. Rows with
- * errors are listed by line, inline, and never imported.
+ * errors are listed by line, inline, and never imported. The page checks
+ * the PR numbers against the log once more on import (onImport), for a PR
+ * logged between the check and the import.
  */
 export function CsvImport({
   existing,
@@ -38,9 +41,15 @@ export function CsvImport({
   const [checked, setChecked] = useState<ReviewCsvResult | null>(null);
   const resultId = useId();
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const announce = useAnnounce();
 
-  const check = () =>
-    setChecked(parseReviewCsv(text, { existing, now: nowWallClock(), localize: true, newId }));
+  const check = () => {
+    const result = parseReviewCsv(text, { existing, now: nowWallClock(), localize: true, newId });
+    setChecked(result);
+    // The result appears with its text in one render, which a live region
+    // there would miss: the page's announcer reads the sentence out.
+    announce(checkSummary(result));
+  };
 
   const skipped = checked ? checked.errors.length + checked.duplicates.length + checked.notRead : 0;
 
@@ -99,18 +108,8 @@ export function CsvImport({
         )}
       </div>
       {checked && (
-        <div id={resultId} role="status" className="space-y-1 text-xs">
-          <p className="text-text">
-            {checked.samples.length === 0
-              ? "No rows ready to import."
-              : `${plural(checked.samples.length, "row")} ready to import.`}
-            {checked.duplicates.length > 0 &&
-              ` ${plural(checked.duplicates.length, "row")} skipped as already logged (${checked.duplicates
-                .map((d) => `row ${d.row}: PR ${d.prNumber}`)
-                .join(", ")}).`}
-            {checked.notRead > 0 &&
-              ` ${plural(checked.notRead, "row")} past the first ${REVIEW_IMPORT_MAX} not read.`}
-          </p>
+        <div id={resultId} className="space-y-1 text-xs">
+          <p className="text-text">{checkSummary(checked)}</p>
           {checked.errors.length > 0 && (
             <ul className="space-y-0.5 text-danger" aria-label="Rows that can't be imported">
               {checked.errors.slice(0, ERRORS_SHOWN).map((e) => (
@@ -129,4 +128,27 @@ export function CsvImport({
       )}
     </div>
   );
+}
+
+/**
+ * The check in one sentence, shown and announced: what is ready, how many
+ * rows have errors (listed under it), and what was skipped and why.
+ */
+export function checkSummary(checked: ReviewCsvResult): string {
+  const parts = [
+    checked.samples.length === 0
+      ? "No rows ready to import."
+      : `${plural(checked.samples.length, "row")} ready to import.`,
+  ];
+  if (checked.errors.length > 0) {
+    parts.push(`${plural(checked.errors.length, "row")} can't be imported (listed below).`);
+  }
+  if (checked.duplicates.length > 0) {
+    const which = checked.duplicates.map((d) => `row ${d.row}: PR ${d.prNumber}`).join(", ");
+    parts.push(`${plural(checked.duplicates.length, "row")} skipped as already logged (${which}).`);
+  }
+  if (checked.notRead > 0) {
+    parts.push(`${plural(checked.notRead, "row")} past the first ${REVIEW_IMPORT_MAX} not read.`);
+  }
+  return parts.join(" ");
 }

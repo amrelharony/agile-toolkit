@@ -7,6 +7,7 @@
  */
 
 import { NO_VALUE, plural, type ChartText } from "@/lib/charts/chart-text";
+import { needMore, type SampleKind } from "@/lib/analytics/min-sample";
 import { periodLabel } from "@/lib/analytics/periods";
 import {
   formatReviewHours,
@@ -18,6 +19,13 @@ import {
 /** "3.5 h", or "—" for a number not worth quoting. */
 export const hoursText = (h: number | null) =>
   h === null ? NO_VALUE : `${formatReviewHours(h)} h`;
+
+/**
+ * What a KPI under its minimum sample (`kind`) still needs, as a full
+ * clause with the right plural: "Log 1 more merged PR to see it".
+ */
+export const moreToSee = (count: number, kind: SampleKind, [one, many]: [string, string]) =>
+  `Log ${plural(needMore(count, kind), `more ${one}`, `more ${many}`)} to see it`;
 
 /** A stored wall-clock time as people read it: "16 Oct, 16:30". */
 export function whenText(value: string | undefined): string {
