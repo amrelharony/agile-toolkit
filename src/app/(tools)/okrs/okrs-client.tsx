@@ -164,8 +164,11 @@ function OkrTracker() {
     [shown, now, goals, sprints]
   );
   const promptConfig = useMemo(
-    () => ({ toolName: "OKR Tracker", prompts: generateOkrsPrompts({ okrs: shown }) }),
-    [shown]
+    () => ({
+      toolName: "OKR Tracker",
+      prompts: generateOkrsPrompts({ okrs: shown, verdict, now }),
+    }),
+    [shown, verdict, now]
   );
 
   /** History for the team's own objectives; the example's edits aren't the team's work. */
