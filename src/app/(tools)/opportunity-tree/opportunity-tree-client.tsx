@@ -282,9 +282,9 @@ export function OpportunityTreeClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Opportunity Solution Tree",
-      prompts: generateOpportunityTreePrompts({ nodes: [...nodes] }, workspace),
+      prompts: generateOpportunityTreePrompts({ nodes, hypotheses }, workspace),
     }),
-    [nodes, workspace]
+    [nodes, hypotheses, workspace]
   );
 
   /* ── Drawing ── */
