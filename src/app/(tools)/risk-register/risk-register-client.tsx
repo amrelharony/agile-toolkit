@@ -1,763 +1,651 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import { nanoid } from "nanoid";
+import { useCallback, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { nanoid } from "nanoid";
+import { Plus, ShieldAlert, TrendingUp } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
-import { SourceLink } from "@/components/handoff/source-link";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Trash2, ShieldAlert, TrendingUp } from "lucide-react";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Risk } from "@/lib/stores/workspace-types";
-import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
-import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
-import { mannKendall } from "@/lib/analytics/trend-test";
-import { cusum } from "@/lib/analytics/changepoint";
-import { generateRiskRegisterPrompts } from "@/lib/ai-prompts/risk-register";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { RISK_ACTIONS } from "@/lib/history/event-actions";
-import { ActionRow } from "@/components/shared/action-row";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
-import { SectionCard } from "@/components/shared/section-card";
+import { ChartFigure } from "@/components/shared/chart-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { SmartInput } from "@/components/shared/smart-input";
-import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
-import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
-import type { PredictedValue } from "@/lib/predictions/registry";
-import { emit as sonify } from "@/lib/sonification/emit";
-import { usePersisted } from "@/lib/utils/use-persisted";
-import { todayLocalISO } from "@/lib/utils/formatters";
-import { undoable } from "@/lib/utils/undoable";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
 import {
   ExampleNotice,
   LoadExampleButton,
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup } from "@/components/ui/toggle-group";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import { generateRiskRegisterPrompts } from "@/lib/ai-prompts/risk-register";
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
+import { sendHandoff } from "@/lib/handoffs/send";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { RISK_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import type { RiskRegisterConflict } from "@/lib/risks/legacy-register";
+import {
+  RISK_STATUS_LABEL,
+  compareRisks,
+  impedimentLinkOf,
+  riskImpedimentSource,
+  riskLevel,
+  riskSummary,
+  riskVerdict,
+} from "@/lib/risks/model";
+import {
+  currentRisks,
+  patchRisk,
+  removeRiskRecord,
+  restoreRiskRecord,
+  saveRisk,
+  saveRisks,
+  type RiskRecordSnapshot,
+} from "@/lib/risks/store";
+import { emit as sonify } from "@/lib/sonification/emit";
+import { todayIso } from "@/lib/sprints/series";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Risk } from "@/lib/stores/workspace-types";
+import { findRosterMember } from "@/lib/team/names";
+import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { undoable } from "@/lib/utils/undoable";
+import {
+  CHART_MIN_WEEKS,
+  analyseRisks,
+  countedRisks,
+  daysText,
+  riskMatrix,
+  timeToClose,
+  weekName,
+  weeklyChartText,
+  weeklyRiskSeries,
+  type MatrixView,
+} from "./analysis";
+import { AppearedNotice, ConflictNotice, withBlobValue } from "./conflict-notice";
 import { buildExample } from "./example";
-import { toMarkdown } from "./markdown";
+import { toMarkdown, type ImpedimentState } from "./markdown";
+import { RiskForm, newRisk, type NewRisk } from "./risk-form";
+import { RiskRow, type RaisedImpediment } from "./risk-row";
+import { LEVEL_TONE } from "./scales";
+import { useLegacyRisks } from "./use-legacy-risks";
+import { risksCsv, withPatch, withStatus, type RiskPatch } from "./view";
 
-// Recharts loads with the chart, not the page; the placeholder fills the
-// chart's fixed-height box while it does.
-const OpenRiskForecastChart = dynamic(
-  () => import("./charts").then((m) => m.OpenRiskForecastChart),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
-    ),
-  }
-);
+export const TOOL_ID = "risk-register";
+
+// Recharts loads with the chart, not the page; the fixed-height box
+// reserves the space while it does.
+const OpenRisksChart = dynamic(() => import("./charts").then((m) => m.OpenRisksChart), {
+  ssr: false,
+});
+
+const keyOf = (r: Risk) => r.id;
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
-  const t = name.trim();
+  const t = name.trim() || "Untitled risk";
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
-function emptyRisk(): Risk {
-  return {
-    id: nanoid(8),
-    title: "",
-    probability: 3,
-    impact: 3,
-    status: "open",
-    raisedAt: todayLocalISO(),
-  };
+/** Focus the title of the risk with `id` (or `fallback`) once React has re-rendered. */
+function focusSoon(id: string | null, fallback?: HTMLElement | null) {
+  requestAnimationFrame(() => {
+    const el = id
+      ? Array.from(document.querySelectorAll<HTMLElement>("[data-risk-title]")).find(
+          (b) => b.getAttribute("data-risk-title") === id
+        )
+      : undefined;
+    (el ?? fallback)?.focus();
+  });
 }
 
-function clampToScale(v: unknown): number {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return 1;
-  return Math.max(1, Math.min(5, Math.round(n)));
+/** A risk's links after `update`, the list dropped when it empties. */
+function withLinks(
+  r: Risk,
+  update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+): Risk {
+  const links = update(r.sentTo);
+  return links.length > 0 ? { ...r, sentTo: links } : withPatch(r, { sentTo: undefined });
 }
 
-function riskScore(r: Risk): number {
-  return clampToScale(r.probability) * clampToScale(r.impact);
-}
-
-function riskColor(score: number): string {
-  if (score >= 16) return "#ef4444";
-  if (score >= 10) return "#f59e0b";
-  if (score >= 5) return "#facc15";
-  return "#34d399";
-}
-
-/** Parse an ISO yyyy-mm-dd date string into a UTC-anchored Date. */
-function parseISODate(iso: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return null;
-  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-}
-
-/** Format a Date as yyyy-mm-dd in UTC. */
-function toISODate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-/** Add N days to a yyyy-mm-dd ISO date string (UTC). */
-function addDaysISO(iso: string, days: number): string {
-  const d = parseISODate(iso) ?? new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  return toISODate(d);
-}
+const MATRIX_VIEWS = [
+  { value: "now" as const, label: "Now" },
+  { value: "after" as const, label: "After mitigation" },
+];
 
 /**
- * Bucket a series of risk timestamps into weekly counts and open-counts.
- * Buckets are Sunday-anchored UTC weeks; the series is capped to the most
- * recent 26 weeks (ending at today's week) so long histories don't dilute
- * the trend/forecast and short histories still show every week they have.
+ * The Risk Register: one store, workspace.risks, which agents, the
+ * premortem's hand-off, the dashboards and the next steps read. Risks are
+ * added through a form that saves nothing until the risk is named and
+ * rated, edited in place, kept in a stable order while edited (Re-sort
+ * catches up), owned by someone on the roster, flagged when their
+ * mitigation is overdue, rated again for after the mitigation, raised as
+ * an impediment once they happen, and deleted with Undo. The old page's
+ * own storage moves in once (useLegacyRisks).
  */
-function buildWeeklyRiskSeries(risks: Risk[]): {
-  raisedPerWeek: number[];
-  openAtWeek: number[];
-  weekLabels: string[];
-} {
-  if (risks.length === 0) return { raisedPerWeek: [], openAtWeek: [], weekLabels: [] };
-  const raisedDates = risks
-    .map((r) => parseISODate(r.raisedAt))
-    .filter((d): d is Date => d !== null);
-  if (raisedDates.length === 0) return { raisedPerWeek: [], openAtWeek: [], weekLabels: [] };
-
-  // Use `reduce` instead of `Math.min(...spread)` — spreading a large
-  // array (>~100k items) into a call site can throw RangeError on V8
-  // ("Maximum call stack size exceeded"). Same fix already applied in
-  // impediments-client.tsx. The argument-count cap is theoretical for
-  // a normal risk register but the pattern is known-bad.
-  const earliest = new Date(raisedDates.reduce((min, d) => Math.min(min, d.getTime()), Infinity));
-  // Anchor on the Sunday of the earliest week (UTC).
-  const dayOfWeek = earliest.getUTCDay();
-  const weekStart = new Date(earliest);
-  weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
-  weekStart.setUTCHours(0, 0, 0, 0);
-
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const totalWeeks = Math.max(
-    1,
-    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
-  );
-  const cappedWeeks = Math.min(totalWeeks, 26);
-  // The cap must keep the MOST RECENT 26 weeks. Anchoring at the earliest
-  // event and truncating the loop kept the OLDEST 26 weeks instead — once a
-  // register was older than half a year, the chart, the Mann-Kendall trend
-  // chip, and the open-risk forecast silently froze on stale data while
-  // newly raised risks fell outside every bucket. Shift the anchor forward
-  // by whole weeks so Sunday alignment is preserved and the window ends at
-  // today's week.
-  if (totalWeeks > cappedWeeks) {
-    weekStart.setUTCDate(weekStart.getUTCDate() + (totalWeeks - cappedWeeks) * 7);
-  }
-
-  const raisedPerWeek = new Array(cappedWeeks).fill(0) as number[];
-  const openAtWeek = new Array(cappedWeeks).fill(0) as number[];
-  const weekLabels: string[] = [];
-
-  // Pre-parse each risk's dates once — previously `parseISODate` was called
-  // per (risk × week), which is O(N·W) parses. For N=200 risks across W=26
-  // weeks that's 5200 parses per render; the cache drops it to N.
-  const parsedRisks = risks
-    .map((r) => {
-      const raised = parseISODate(r.raisedAt);
-      if (!raised) return null;
-      return {
-        raisedT: raised.getTime(),
-        resolvedT: r.resolvedAt ? (parseISODate(r.resolvedAt)?.getTime() ?? null) : null,
-      };
-    })
-    .filter((x): x is { raisedT: number; resolvedT: number | null } => x !== null);
-
-  for (let w = 0; w < cappedWeeks; w++) {
-    const weekStartT = weekStart.getTime() + w * 7 * 86_400_000;
-    const weekEndT = weekStartT + 7 * 86_400_000;
-    weekLabels.push(toISODate(new Date(weekStartT)));
-
-    let raised = 0;
-    let open = 0;
-    for (const r of parsedRisks) {
-      if (r.raisedT >= weekStartT && r.raisedT < weekEndT) raised++;
-      // Open as of the END of the week: raised on/before week-end and not yet resolved by week-end.
-      if (r.raisedT < weekEndT) {
-        if (r.resolvedT === null || r.resolvedT >= weekEndT) open++;
-      }
-    }
-    raisedPerWeek[w] = raised;
-    openAtWeek[w] = open;
-  }
-
-  return { raisedPerWeek, openAtWeek, weekLabels };
-}
-
 export function RiskRegisterClient() {
-  const [risks, setRisks] = usePersisted<Risk[]>("agile-toolkit:risk-register", []);
-  const workspaceRisks = useWorkspaceStore((s) => s.risks);
-  const upsertWorkspaceRisk = useWorkspaceStore((s) => s.upsertRisk);
-  const { log } = useHistoryLogger("risk-register");
+  const hydrated = useWorkspaceHydrated();
+  const { records, pending, conflicts, settleConflict, appeared, dismissAppeared } =
+    useLegacyRisks();
+  // Read so a resolved impediment re-renders the row's "Close the risk".
+  const impediments = useWorkspaceStore((s) => s.impediments);
+  const roster = useTeamRoster();
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const [formOpen, setFormOpen] = useState(false);
+  const [view, setView] = useState<MatrixView>("now");
+  const newRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    useWorkspaceStore.persist.rehydrate();
-  }, []);
+  const counted = useMemo(() => countedRisks(records), [records]);
+  const showsExampleOnly = records.length > 0 && records.every((r) => isExampleId(r.id));
+  const mixedExample = hasExampleItems(records) && !showsExampleOnly;
+  const summary = useMemo(() => riskSummary(counted, today), [counted, today]);
+  const verdict = useMemo(() => riskVerdict(counted, today), [counted, today]);
+  const ttc = useMemo(() => timeToClose(counted, today), [counted, today]);
+  const weeks = useMemo(() => weeklyRiskSeries(counted, today), [counted, today]);
+  const chart = useMemo(() => weeklyChartText(weeks), [weeks]);
+  const analysis = useMemo(() => analyseRisks(weeks), [weeks]);
+  const matrix = useMemo(() => riskMatrix(counted, view), [counted, view]);
 
-  const add = () => {
-    sonify("risk-register", "risk-added");
-    const risk = emptyRisk();
-    setRisks((r) => [risk, ...r]);
-    log(RISK_ACTIONS.RISK_ADDED, { riskId: risk.id });
-  };
-  // Title + mitigation text fields commit via BlurInput/BlurTextarea,
-  // so we no longer need the split quiet/logged pair. `update` writes
-  // state AND emits a single audit event per blur. Numeric / select /
-  // status fields keep using `update` directly since each click is a
-  // meaningful event.
-  const update = (id: string, patch: Partial<Risk>) => {
-    setRisks((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    log(RISK_ACTIONS.RISK_UPDATED, { riskId: id, fields: Object.keys(patch) });
-  };
-  const remove = (id: string) => {
-    const index = risks.findIndex((x) => x.id === id);
-    const risk = risks[index];
-    if (!risk) return;
-    undoable({
-      label: risk.title.trim() ? `Removed “${shortName(risk.title)}”` : "Removed an untitled risk",
-      apply: () => {
-        setRisks((r) => r.filter((x) => x.id !== id));
-        log(RISK_ACTIONS.RISK_REMOVED, { riskId: id, title: risk.title });
-      },
-      // Back at its old position (unless something already put it back).
-      revert: () =>
-        setRisks((r) => {
-          if (r.some((x) => x.id === id)) return r;
-          const next = [...r];
-          next.splice(Math.min(index, next.length), 0, risk);
-          return next;
-        }),
-    });
-  };
-
-  // Loading is offered only on an empty register. Neither is logged: the
-  // example isn't the user's own work.
-  const loadExample = () => setRisks((r) => [...buildExample(), ...r]);
-  const clearExample = () => {
-    const removed = risks
-      .map((risk, index) => ({ risk, index }))
-      .filter(({ risk }) => isExampleId(risk.id));
-    undoable({
-      label: "Cleared the example",
-      apply: () => setRisks((r) => r.filter((x) => !isExampleId(x.id))),
-      // Each back at its old position (unless something already put it back).
-      revert: () =>
-        setRisks((r) => {
-          const next = [...r];
-          for (const { risk, index } of removed) {
-            if (!next.some((x) => x.id === risk.id)) {
-              next.splice(Math.min(index, next.length), 0, risk);
-            }
-          }
-          return next;
-        }),
-    });
-  };
-
-  const markdown = useMemo(() => toMarkdown(risks), [risks]);
-
-  const matrix = useMemo(() => {
-    const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
-    // Exclude "closed" AND "accepted" — accepted risks are explicitly
-    // out-of-scope (the team has decided not to mitigate them), so
-    // keeping them on the actionable heatmap misled risk reviews.
-    // Matches the openRisks selector in workspace-store.ts.
-    for (const r of risks.filter((x) => x.status !== "closed" && x.status !== "accepted")) {
-      const p = clampToScale(r.probability);
-      const i = clampToScale(r.impact);
-      grid[p - 1][i - 1]++;
-    }
-    return grid;
-  }, [risks]);
-
-  const survivalCurve = useMemo(() => {
-    const obs = durationsFromTimeRanges(
-      risks.map((r) => ({ raisedAt: r.raisedAt, resolvedAt: r.resolvedAt }))
-    );
-    return kaplanMeier(obs);
-  }, [risks]);
-
-  const medianTTM = medianSurvivalTime(survivalCurve);
-
-  // ── Phase-15 analytics: weekly trend, forecast, changepoints ─────────
-  const { raisedPerWeek, openAtWeek, weekLabels } = useMemo(
-    () => buildWeeklyRiskSeries(risks),
-    [risks]
+  // Active first, then score, then days overdue. An edit doesn't move a
+  // row out from under the cursor; "Re-sort" catches the order up.
+  const { ordered, isStale, resort } = useStableOrder(records, keyOf, (a, b) =>
+    compareRisks(a, b, today)
   );
 
-  // Mann-Kendall on the raised-per-week series (need n>=5 for meaningful trend).
-  const raisedTrend = useMemo(() => {
-    if (raisedPerWeek.length < 5) return null;
-    return mannKendall(raisedPerWeek);
-  }, [raisedPerWeek]);
-
-  // Bayesian forecast on the open-risks series — 4-week horizon.
-  const openForecast = useMemo(() => {
-    if (openAtWeek.length < 3) return [];
-    return forecastBayesianHolt(openAtWeek, 4, { priorWeight: 2 });
-  }, [openAtWeek]);
-
-  // CUSUM on the open-risks series — flag regime shifts.
-  const openChangepoints = useMemo(() => {
-    if (openAtWeek.length < 4) return [];
-    return cusum(openAtWeek);
-  }, [openAtWeek]);
-
-  // Annotations rendered as <CausalLine> inside the forecast chart.
-  const causalAnnotations = useMemo<CausalAnnotationData[]>(
-    () =>
-      openChangepoints.map((cp) => ({
-        x: weekLabels[cp.index] ?? cp.index,
-        label: cp.direction === "up" ? "Open-risk surge" : "Open-risk drop",
-        detail: `CUSUM detected a ${cp.direction === "up" ? "rise" : "fall"} regime shift in open-risk count at week ${weekLabels[cp.index] ?? cp.index} (cumulative stat ${cp.cumulativeStat.toFixed(2)}σ).`,
-        confidence: Math.abs(cp.cumulativeStat) > 6 ? "strong" : "moderate",
-      })),
-    [openChangepoints, weekLabels]
+  const impedimentOf = useCallback(
+    (r: Risk): RaisedImpediment | null => {
+      const link = impedimentLinkOf(r);
+      const route = getHandoffRoute("impediment");
+      if (!link || !route.exists(link.targetId)) return null;
+      return { id: link.targetId, resolved: route.isDone?.(link.targetId) ?? false };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the route reads this slice
+    [impediments]
+  );
+  const impedimentState = useCallback(
+    (r: Risk): ImpedimentState => {
+      const imp = impedimentOf(r);
+      return imp ? (imp.resolved ? "resolved" : "raised") : null;
+    },
+    [impedimentOf]
   );
 
-  // Build the chart data: historical actuals + forecast band.
-  const forecastChartData = useMemo(() => {
-    const data: Array<{
-      x: string;
-      actual?: number;
-      yHat?: number;
-      band80Lower?: number;
-      band80Upper?: number;
-    }> = weekLabels.map((label, i) => ({ x: label, actual: openAtWeek[i] }));
-    // Bridge actual → forecast at the boundary so the forecast line is connected.
-    if (data.length > 0 && openForecast.length > 0) {
-      const last = data[data.length - 1];
-      data[data.length - 1] = {
-        ...last,
-        yHat: last.actual,
-        band80Lower: last.actual,
-        band80Upper: last.actual,
-      };
-      const lastDate = parseISODate(weekLabels[weekLabels.length - 1]) ?? new Date();
-      openForecast.forEach((f, i) => {
-        const next = new Date(lastDate.getTime() + (i + 1) * 7 * 86_400_000);
-        data.push({
-          x: toISODate(next),
-          yHat: f.yHat,
-          band80Lower: Math.max(0, f.lower80),
-          band80Upper: f.upper80,
-        });
-      });
-    }
-    return data;
-  }, [weekLabels, openAtWeek, openForecast]);
-
-  // Smart-default predictor for mitigation lead-time (in days).
-  const mitigationDaysPrediction = usePredictedDefault<number>(
-    "risk-register",
-    "mitigationDays",
-    14
+  const markdown = useMemo(
+    () => toMarkdown(records, new Date(), { verdict, impediment: impedimentState }),
+    [records, verdict, impedimentState]
   );
-
-  // Pre-compute per-risk SmartInput.predicted objects keyed by risk id so the
-  // inline `{ value: addDaysISO(...) }` is not recreated on every render —
-  // SmartInput compares predicted by identity to decide whether to refresh
-  // the ghost. The map only changes when the prediction outputs or any
-  // risk's raisedAt changes. Type matches SmartInputProps<string>['predicted'].
-  const predictedMitigationByRisk = useMemo(() => {
-    type PredictedDate = PredictedValue<string> | { value: string; confidence: "none" };
-    const m = new Map<string, PredictedDate>();
-    for (const r of risks) {
-      if (mitigationDaysPrediction.confidence === "none") {
-        m.set(r.id, { value: "", confidence: "none" });
-      } else {
-        m.set(r.id, {
-          value: addDaysISO(r.raisedAt, mitigationDaysPrediction.value),
-          confidence: mitigationDaysPrediction.confidence,
-          source:
-            mitigationDaysPrediction.source ??
-            `${mitigationDaysPrediction.value}-day median lead time`,
-        });
-      }
-    }
-    return m;
-  }, [
-    risks,
-    mitigationDaysPrediction.value,
-    mitigationDaysPrediction.confidence,
-    mitigationDaysPrediction.source,
-  ]);
-
-  const handleImport = () => {
-    const fresh = workspaceRisks.filter((w) => !risks.find((r) => r.id === w.id));
-    setRisks((r) => [...fresh, ...r]);
-    return fresh.length;
-  };
-  const handlePush = () => {
-    let n = 0;
-    for (const r of risks) {
-      if (r.title.trim()) {
-        upsertWorkspaceRisk(r);
-        n++;
-      }
-    }
-    return n;
-  };
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Risk Register",
-      prompts: generateRiskRegisterPrompts({ risks, medianTTM }),
+      prompts: generateRiskRegisterPrompts({ risks: counted, medianTTM: ttc.medianDays }),
     }),
-    [risks, medianTTM]
+    [counted, ttc.medianDays]
   );
+
+  /* ── Changes ──────────────────────────────────────────────────────── */
+
+  // Example risks aren't the team's history.
+  const record = (r: Pick<Risk, "id">, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(r.id)) log(action, payload);
+  };
+
+  const add = (values: NewRisk) => {
+    const risk = saveRisk(newRisk(values, `risk_${nanoid(8)}`));
+    sonify(TOOL_ID, "risk-added");
+    record(risk, RISK_ACTIONS.RISK_ADDED, { riskId: risk.id, title: risk.title });
+    announce(`Added “${risk.title}”`);
+  };
+
+  const edit = (r: Risk, patch: RiskPatch, field: string) => {
+    // The owner keeps the roster's spelling, as the agent's set_owner stores it.
+    const owner = patch.owner?.trim();
+    const fixed: RiskPatch =
+      field === "owner"
+        ? { owner: owner ? (findRosterMember(roster, owner)?.name ?? owner) : undefined }
+        : patch;
+    if (patchRisk(r.id, (x) => withPatch(x, fixed))) {
+      record(r, RISK_ACTIONS.RISK_UPDATED, { riskId: r.id, fields: [field] });
+    }
+  };
+
+  const setStatus = (r: Risk, status: Risk["status"]) => {
+    const prev = currentRisks().find((x) => x.id === r.id);
+    if (!prev || prev.status === status) return;
+    const next = withStatus(prev, status, today);
+    const label =
+      status === "closed"
+        ? `Closed “${shortName(r.title)}”`
+        : `Moved “${shortName(r.title)}” to ${RISK_STATUS_LABEL[status].toLowerCase()}`;
+    undoable({
+      label,
+      apply: () => {
+        saveRisk(next);
+        record(r, RISK_ACTIONS.RISK_UPDATED, {
+          riskId: r.id,
+          fields: ["status"],
+          from: prev.status,
+          to: status,
+        });
+      },
+      revert: () => {
+        saveRisk(prev);
+      },
+    });
+    announce(label);
+  };
+
+  const raise = (r: Risk) => {
+    const link = sendHandoff("impediment", riskImpedimentSource(r), {
+      getLinks: () => currentRisks().find((x) => x.id === r.id)?.sentTo,
+      setLinks: (update) => {
+        patchRisk(r.id, (x) => withLinks(x, update));
+      },
+    });
+    if (!link) return;
+    record(r, RISK_ACTIONS.RISK_ESCALATED, { riskId: r.id, impedimentId: link.targetId });
+    announce(`Raised “${shortName(r.title)}” as an impediment`);
+  };
+
+  const remove = (r: Risk) => {
+    let snapshot: RiskRecordSnapshot | null = null;
+    // Focus moves to the next risk on screen (or the one before) as this one goes.
+    const at = ordered.findIndex((x) => x.id === r.id);
+    const neighbour = ordered[at + 1] ?? ordered[at - 1];
+    undoable({
+      label: `Deleted “${shortName(r.title)}”`,
+      apply: () => {
+        snapshot = removeRiskRecord(r.id);
+        record(r, RISK_ACTIONS.RISK_REMOVED, { riskId: r.id, title: r.title });
+      },
+      revert: () => {
+        if (snapshot) restoreRiskRecord(snapshot);
+        focusSoon(r.id);
+      },
+    });
+    focusSoon(neighbour?.id ?? null, newRef.current);
+    announce(`Deleted “${shortName(r.title)}”`);
+  };
+
+  const takeOldValue = (c: RiskRegisterConflict) => {
+    const prev = currentRisks().find((x) => x.id === c.id);
+    settleConflict(c);
+    if (!prev) return;
+    const label = `Used the old page's value on “${shortName(prev.title)}”`;
+    undoable({
+      label,
+      apply: () => {
+        saveRisk(withBlobValue(prev, c));
+      },
+      revert: () => {
+        saveRisk(prev);
+      },
+    });
+    announce(label);
+  };
+
+  // Loading is offered only on an empty register. Neither is logged: the
+  // example isn't the team's work. The example's ids start with
+  // "example-", so agents, next steps and the dashboards leave them out.
+  const loadExample = () => {
+    saveRisks(buildExample());
+    setFormOpen(false);
+  };
+  const clearExample = () => {
+    const ids = currentRisks()
+      .filter((r) => isExampleId(r.id))
+      .map((r) => r.id);
+    let snapshots: RiskRecordSnapshot[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        snapshots = ids.map(removeRiskRecord);
+      },
+      revert: () => snapshots.forEach(restoreRiskRecord),
+    });
+  };
+
+  const newButton = () => (
+    <Button
+      ref={newRef}
+      type="button"
+      size="sm"
+      className="gap-1"
+      aria-expanded={formOpen}
+      onClick={() => setFormOpen((o) => !o)}
+    >
+      <Plus className="h-4 w-4" aria-hidden="true" />
+      New risk
+    </Button>
+  );
+
+  const csv = risksCsv(records, today, impedimentState);
+  const active = summary.active;
 
   return (
     <ToolPageWrapper
-      toolId="risk-register"
+      toolId={TOOL_ID}
       title="Risk Register"
-      description="Track risks on a 5×5 probability × impact matrix with mitigation plans and time-to-mitigate survival analysis."
+      description="Track risks on a 5×5 likelihood × impact matrix: who owns each, the plan and when it's due, the rating after mitigation, and raise one as an impediment once it happens."
       category="Risk & Governance"
     >
-      {hasExampleItems(risks) && <ExampleNotice onClear={clearExample} />}
-      <ActionRow>
-        <WorkspaceSyncButton toolName="Risk Register" onImport={handleImport} onPush={handlePush} />
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="risk-register"
-          csvData={{
-            headers: [
-              "Title",
-              "Probability",
-              "Impact",
-              "Score",
-              "Status",
-              "Mitigation",
-              "Mitigation Due",
-              "Raised",
-              "Resolved",
-            ],
-            rows: risks.map((r) => [
-              r.title,
-              r.probability,
-              r.impact,
-              riskScore(r),
-              r.status,
-              r.mitigation ?? "",
-              r.mitigationDueAt ?? "",
-              r.raisedAt,
-              r.resolvedAt ?? "",
-            ]),
-          }}
-          jsonData={risks}
-          markdown={markdown}
-        />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          New Risk
-        </Button>
-      </ActionRow>
-
-      <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-6 mb-6">
-        <Card className="bg-surface border-border">
-          <CardContent className="p-4">
-            <div className="text-sm font-semibold text-text mb-3 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-accent" />
-              5×5 Matrix
+      {!hydrated ? (
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading risks…
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {hasExampleItems(records) && (
+            <div>
+              <ExampleNotice onClear={clearExample} />
+              <p className="-mt-2 text-xs text-sub">
+                {mixedExample
+                  ? "The example's risks are listed but not counted while you have your own."
+                  : "Example: a checkout team's register five weeks before a holiday release. Its people aren't added to your team, and it isn't raised anywhere."}
+              </p>
             </div>
-            <div className="grid grid-cols-6 gap-1 text-xs">
-              <div />
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={`h${i}`} className="text-center text-sub font-data">
-                  I{i}
-                </div>
-              ))}
-              {[5, 4, 3, 2, 1].map((prob) => (
-                <div key={`row${prob}`} style={{ display: "contents" }}>
-                  <div className="text-sub font-data text-right pr-1">P{prob}</div>
-                  {[1, 2, 3, 4, 5].map((imp) => {
-                    const count = matrix[prob - 1][imp - 1];
-                    const score = prob * imp;
-                    return (
-                      <div
-                        key={`${prob}-${imp}`}
-                        className="h-8 rounded flex items-center justify-center font-data text-xs"
-                        style={{
-                          background: `${riskColor(score)}33`,
-                          color: riskColor(score),
-                          border: `1px solid ${riskColor(score)}66`,
-                        }}
-                      >
-                        {count || ""}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-        <KpiGrid cols={4} marginBottom="none">
-          <StatCard
-            variant="compact"
-            label="Open"
-            value={risks.filter((r) => r.status === "open").length}
-            valueClassName="text-accent"
-          />
-          <StatCard
-            variant="compact"
-            label="Mitigating"
-            value={risks.filter((r) => r.status === "mitigating").length}
-          />
-          <StatCard
-            variant="compact"
-            label="Closed"
-            value={risks.filter((r) => r.status === "closed").length}
-          />
-          <StatCard
-            variant="compact"
-            label="Median TTM"
-            value={medianTTM !== null ? `${medianTTM}d` : "—"}
-          />
-        </KpiGrid>
-      </div>
+          )}
 
-      {/* Trend chip — Mann-Kendall over weekly raised count. */}
-      {raisedTrend && (
-        <div className="mb-4">
-          {raisedTrend.significant ? (
-            <span
-              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
-                raisedTrend.trend === "up"
-                  ? "border-danger/40 text-danger bg-danger/10"
-                  : "border-[#34d399]/40 text-[#34d399] bg-[#34d399]/10"
-              }`}
-            >
-              <TrendingUp
-                className={`w-3 h-3 ${raisedTrend.trend === "down" ? "rotate-180" : ""}`}
+          <ConflictNotice
+            conflicts={conflicts}
+            records={records}
+            onKeep={settleConflict}
+            onUseOld={takeOldValue}
+          />
+          <AppearedNotice count={appeared} onDismiss={dismissAppeared} />
+
+          {pending && (
+            <p role="status" className="text-xs text-sub">
+              Some risks from the old Risk Register page are still moving in; they&apos;re listed as
+              they&apos;ll read once moved.
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {records.length > 0 && (
+              <>
+                <AiPromptGenerator config={promptConfig} />
+                <ExportButton
+                  filename="risk-register"
+                  csvData={csv}
+                  jsonData={records}
+                  markdown={markdown}
+                  clipboardText={markdown}
+                />
+              </>
+            )}
+            {newButton()}
+          </div>
+
+          {formOpen && (
+            <SectionCard title="New risk" icon={Plus}>
+              <RiskForm
+                today={today}
+                roster={roster}
+                typicalDays={ttc.medianDays}
+                onSave={add}
+                onCancel={() => {
+                  setFormOpen(false);
+                  newRef.current?.focus();
+                }}
               />
-              Risk creation trending {raisedTrend.trend} significantly
-              <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
-            </span>
+            </SectionCard>
+          )}
+
+          {records.length === 0 ? (
+            !formOpen && (
+              <EmptyState
+                icon={ShieldAlert}
+                action={
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <LoadExampleButton onLoad={loadExample} />
+                  </div>
+                }
+              >
+                No risks logged yet. Use &ldquo;New risk&rdquo; for anything that could knock the
+                sprint or the release off course, or load an example to see a register filled in.
+                Causes sent from a Premortem land here too.
+              </EmptyState>
+            )
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-[var(--surface-hover)]">
-              <TrendingUp className="w-3 h-3" />
-              Risk creation trend: no significant change
-            </span>
+            <>
+              <p className="text-sm font-medium text-text">{verdict}</p>
+
+              <KpiGrid cols={[2, 3, 3]} marginBottom="none">
+                <StatCard
+                  variant="compact"
+                  label="Active"
+                  value={active}
+                  hint={`${summary.byStatus.open} open, ${summary.byStatus.mitigating} mitigating`}
+                />
+                <StatCard
+                  variant="compact"
+                  label="High or critical"
+                  value={summary.high}
+                  tone={summary.high > 0 ? "warning" : "default"}
+                />
+                <StatCard
+                  variant="compact"
+                  label="Overdue"
+                  value={summary.overdue}
+                  tone={summary.overdue > 0 ? "danger" : "default"}
+                  hint="Active, mitigation past due"
+                />
+                <StatCard
+                  variant="compact"
+                  label="No owner"
+                  value={summary.unowned}
+                  hint="Active risks"
+                />
+                <StatCard
+                  variant="compact"
+                  label="Exposure"
+                  value={active > 0 ? summary.exposure : "—"}
+                  hint={
+                    active > 0
+                      ? `${summary.residualExposure} after mitigation (${summary.residualAssessed} of ${active} assessed)`
+                      : "No active risks"
+                  }
+                />
+                <StatCard
+                  variant="compact"
+                  label="Median time to mitigate"
+                  value={daysText(ttc.medianDays)}
+                  hint={
+                    ttc.closed < MIN_SAMPLE.average
+                      ? `Shows once ${MIN_SAMPLE.average} are closed (${ttc.closed} so far)`
+                      : ttc.medianDays === null
+                        ? "Fewer than half have closed yet"
+                        : `Over ${ttc.closed} closed`
+                  }
+                />
+              </KpiGrid>
+
+              <SectionCard
+                title="Likelihood × impact"
+                icon={ShieldAlert}
+                actions={
+                  <ToggleGroup
+                    label="Matrix shows"
+                    size="sm"
+                    options={MATRIX_VIEWS}
+                    value={view}
+                    onValueChange={setView}
+                  />
+                }
+              >
+                <RiskMatrix grid={matrix.grid} />
+                <p className="mt-2 text-xs text-sub">
+                  {view === "now"
+                    ? `${matrix.placed} active ${matrix.placed === 1 ? "risk" : "risks"} by their current rating. Closed and accepted risks are left out.`
+                    : `${matrix.placed} active ${matrix.placed === 1 ? "risk" : "risks"} by their rating after mitigation${
+                        matrix.unassessed > 0
+                          ? `; ${matrix.unassessed} not assessed ${matrix.unassessed === 1 ? "isn't" : "aren't"} shown`
+                          : ""
+                      }.`}
+                </p>
+              </SectionCard>
+
+              <ResortChip isStale={isStale} onResort={resort} what="Ratings or statuses" />
+              <ul className="space-y-2" aria-label="Risks, active first">
+                {ordered.map((r) => (
+                  <RiskRow
+                    key={r.id}
+                    risk={r}
+                    today={today}
+                    example={isExampleId(r.id)}
+                    impediment={impedimentOf(r)}
+                    onEdit={edit}
+                    onStatus={setStatus}
+                    onClosedOn={(risk, day) => edit(risk, { resolvedAt: day }, "resolvedAt")}
+                    onRaise={raise}
+                    onDelete={remove}
+                  />
+                ))}
+              </ul>
+
+              <SectionCard title="Open risks over time" icon={TrendingUp}>
+                {weeks.length >= CHART_MIN_WEEKS ? (
+                  <ChartFigure
+                    label="Open risks over time"
+                    summary={chart.summary}
+                    table={chart.table}
+                    caption="Risks per week"
+                    plotClassName="h-[240px]"
+                  >
+                    <OpenRisksChart
+                      data={weeks.map((w) => ({
+                        week: weekName(w),
+                        raised: w.raised,
+                        open: w.open,
+                      }))}
+                    />
+                  </ChartFigure>
+                ) : (
+                  <NotEnoughData
+                    have={weeks.length}
+                    need={CHART_MIN_WEEKS}
+                    unit={["week", "weeks"]}
+                    action="Keep the register for"
+                    what="the open risks week by week"
+                  />
+                )}
+              </SectionCard>
+
+              <AdvancedAnalysis summary="Advanced analysis: trend, forecast and shifts">
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-text">Risks raised per week</h3>
+                  {analysis.trend ? (
+                    <p className="text-sm text-text">{analysis.trend}</p>
+                  ) : (
+                    <NotEnoughData
+                      have={analysis.weeks}
+                      need="trend"
+                      unit={["week", "weeks"]}
+                      action="Keep the register for"
+                      what="a trend test"
+                    />
+                  )}
+                </section>
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-text">Open risks ahead</h3>
+                  {analysis.forecast ? (
+                    <p className="text-sm text-text">{analysis.forecast}</p>
+                  ) : (
+                    <NotEnoughData
+                      have={analysis.weeks}
+                      need="forecast"
+                      unit={["week", "weeks"]}
+                      action="Keep the register for"
+                      what="a forecast"
+                    />
+                  )}
+                  {analysis.shifts ? (
+                    <p className="text-sm text-text">{analysis.shifts}</p>
+                  ) : (
+                    <NotEnoughData
+                      have={analysis.weeks}
+                      need="changePoint"
+                      unit={["week", "weeks"]}
+                      action="Keep the register for"
+                      what="change points"
+                    />
+                  )}
+                </section>
+                <p className="text-xs text-sub">
+                  Counted over the last {weeks.length === 1 ? "week" : `${weeks.length} weeks`}. A
+                  reopened risk counts as open again.
+                </p>
+              </AdvancedAnalysis>
+            </>
           )}
         </div>
       )}
-
-      {/* Open-risks forecast with CUSUM markers — only when we have enough history. */}
-      {openAtWeek.length >= 3 && (
-        <div className="mb-6">
-          <SectionCard title="Open Risks Over Time" icon={TrendingUp}>
-            <div className="h-64 -mx-2">
-              <OpenRiskForecastChart data={forecastChartData} annotations={causalAnnotations} />
-            </div>
-            {causalAnnotations.length > 0 && (
-              <div className="mt-2 text-xs text-sub">
-                {causalAnnotations.length} regime shift{causalAnnotations.length !== 1 ? "s" : ""}{" "}
-                detected (CUSUM markers)
-              </div>
-            )}
-          </SectionCard>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {risks
-          .slice()
-          .sort((a, b) => riskScore(b) - riskScore(a))
-          .map((r) => {
-            const score = riskScore(r);
-            return (
-              <Card key={r.id} className="bg-surface border-border">
-                <CardContent className="p-3 space-y-2">
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr_80px_80px_140px_auto] gap-2">
-                    <div className="space-y-0.5">
-                      <BlurInput
-                        value={r.title}
-                        onCommit={(v) => update(r.id, { title: v })}
-                        placeholder="Risk title"
-                        className="bg-bg border-border"
-                        aria-label="Risk title"
-                      />
-                      {/* Mitigation preview under the title — mirrors the
-                          kanban description style so the gist is visible at a
-                          glance before the user reaches the editable textarea
-                          below. */}
-                      {r.mitigation && r.mitigation.trim().length > 0 && (
-                        <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
-                          {r.mitigation}
-                        </div>
-                      )}
-                      {/* Sent here from another tool (a premortem cause). */}
-                      <SourceLink sourceRef={r.sourceRef} />
-                    </div>
-                    <Select
-                      value={String(r.probability)}
-                      onValueChange={(v) =>
-                        update(r.id, { probability: Number(v) as Risk["probability"] })
-                      }
-                    >
-                      <SelectTrigger
-                        className="bg-bg border-border font-data"
-                        aria-label={`Probability for ${r.title || "risk"}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, 4, 5].map((i) => (
-                          <SelectItem key={i} value={String(i)}>
-                            P{i}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={String(r.impact)}
-                      onValueChange={(v) => update(r.id, { impact: Number(v) as Risk["impact"] })}
-                    >
-                      <SelectTrigger
-                        className="bg-bg border-border font-data"
-                        aria-label={`Impact for ${r.title || "risk"}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, 4, 5].map((i) => (
-                          <SelectItem key={i} value={String(i)}>
-                            I{i}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={r.status}
-                      onValueChange={(v) => {
-                        // R5: when REOPENING a previously-closed risk
-                        // (non-closed transition), preserve the existing
-                        // `resolvedAt` rather than wiping it. The K-M
-                        // survival analysis chart relies on the
-                        // historical closure timestamp, and the old
-                        // behaviour of `resolvedAt: undefined` on every
-                        // non-closed transition silently corrupted that
-                        // data the moment a user moved a risk from
-                        // closed → mitigating to add a follow-up note.
-                        const next: Partial<Risk> = { status: v as Risk["status"] };
-                        if (v === "closed" && !r.resolvedAt) {
-                          next.resolvedAt = todayLocalISO();
-                        }
-                        update(r.id, next);
-                      }}
-                    >
-                      <SelectTrigger
-                        className="bg-bg border-border capitalize"
-                        aria-label={`Status for ${r.title || "risk"}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="open">Open</SelectItem>
-                        <SelectItem value="mitigating">Mitigating</SelectItem>
-                        <SelectItem value="accepted">Accepted</SelectItem>
-                        <SelectItem value="closed">Closed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="px-2 py-1 rounded-md font-data text-sm"
-                        style={{
-                          background: `${riskColor(score)}22`,
-                          color: riskColor(score),
-                          border: `1px solid ${riskColor(score)}66`,
-                        }}
-                      >
-                        {score}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => remove(r.id)}
-                        className="text-sub hover:text-danger min-touch-coarse"
-                        aria-label={`Remove ${r.title || "risk"}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      </Button>
-                    </div>
-                  </div>
-                  <BlurTextarea
-                    rows={2}
-                    value={r.mitigation ?? ""}
-                    onCommit={(v) => update(r.id, { mitigation: v })}
-                    placeholder="Mitigation plan..."
-                    className="bg-bg border-border text-sm"
-                    aria-label={`Mitigation plan for ${r.title || "risk"}`}
-                  />
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <label
-                        htmlFor={`risk-due-${r.id}`}
-                        className="text-xs uppercase tracking-wider text-sub font-mono shrink-0 w-32"
-                      >
-                        Mitigation due
-                      </label>
-                      <SmartInput<string>
-                        predicted={
-                          predictedMitigationByRisk.get(r.id) ?? {
-                            value: "",
-                            confidence: "none",
-                          }
-                        }
-                        onAccept={(value) => update(r.id, { mitigationDueAt: value })}
-                        render={({ ghost, accept, chip }) => (
-                          <div className="flex flex-col gap-1 flex-1">
-                            <Input
-                              id={`risk-due-${r.id}`}
-                              type="date"
-                              value={r.mitigationDueAt ?? ""}
-                              onChange={(e) =>
-                                update(r.id, { mitigationDueAt: e.target.value || undefined })
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Tab" && !r.mitigationDueAt && ghost) {
-                                  e.preventDefault();
-                                  accept();
-                                }
-                              }}
-                              placeholder={ghost}
-                              className="bg-bg border-border text-sm font-data h-8"
-                            />
-                            {!r.mitigationDueAt && chip}
-                          </div>
-                        )}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        {risks.length === 0 && (
-          <EmptyState icon={ShieldAlert} action={<LoadExampleButton onLoad={loadExample} />}>
-            No risks logged. Click &ldquo;New Risk&rdquo; to start.
-          </EmptyState>
-        )}
-      </div>
     </ToolPageWrapper>
+  );
+}
+
+const LIKELIHOODS = [5, 4, 3, 2, 1] as const;
+const IMPACTS = [1, 2, 3, 4, 5] as const;
+
+/**
+ * The 5×5 matrix as a table: likelihood down (5 at the top), impact
+ * across, each cell the number of active risks there, tinted by the
+ * level its score falls in (theme tokens).
+ */
+function RiskMatrix({ grid }: { grid: number[][] }) {
+  return (
+    <div className="relative max-w-sm">
+      <table className="w-full table-fixed border-separate border-spacing-1 text-xs">
+        <caption className="sr-only">
+          Active risks by likelihood (rows, 5 at the top) and impact (columns)
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col" className="w-8">
+              <span className="sr-only">Likelihood</span>
+            </th>
+            {IMPACTS.map((i) => (
+              <th key={i} scope="col" className="text-center font-data font-normal text-sub">
+                I{i}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {LIKELIHOODS.map((p) => (
+            <tr key={p}>
+              <th scope="row" className="pr-1 text-right font-data font-normal text-sub">
+                P{p}
+              </th>
+              {IMPACTS.map((i) => {
+                const count = grid[p - 1][i - 1];
+                return (
+                  <td
+                    key={i}
+                    className={`h-8 rounded border text-center font-data ${LEVEL_TONE[riskLevel(p * i)]}`}
+                  >
+                    {count > 0 ? count : <span className="sr-only">0</span>}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

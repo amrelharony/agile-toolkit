@@ -3,78 +3,65 @@
 // Recharts lives here so the Risk Register route loads it only when the
 // chart mounts. risk-register-client.tsx imports this via next/dynamic.
 import {
+  Bar,
+  CartesianGrid,
   ComposedChart,
-  Area,
+  Legend,
   Line,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
 } from "recharts";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { chartTheme } from "@/components/charts/chart-theme";
 
-export interface OpenRiskForecastPoint {
-  x: string;
-  actual?: number;
-  yHat?: number;
-  band80Lower?: number;
-  band80Upper?: number;
+export interface OpenRiskPoint {
+  /** "Week 42". */
+  week: string;
+  raised: number;
+  open: number;
 }
 
-interface OpenRiskForecastChartProps {
-  data: OpenRiskForecastPoint[];
-  /** CUSUM regime shifts, drawn as vertical markers. */
-  annotations: CausalAnnotationData[];
-}
-
-export function OpenRiskForecastChart({ data, annotations }: OpenRiskForecastChartProps) {
+/**
+ * Risks raised each week (bars) and still open at each week's end (the
+ * line), oldest first. The legend and the table name both series, so the
+ * colour is never the only cue.
+ */
+export function OpenRisksChart({ data }: { data: OpenRiskPoint[] }) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart data={data} margin={{ top: 12, right: 24, bottom: 24, left: 12 }}>
-        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-        <XAxis dataKey="x" stroke={chartTheme.axisColor} fontSize={11} />
-        <YAxis stroke={chartTheme.axisColor} fontSize={11} allowDecimals={false} />
+    <ResponsiveContainer width="100%" height={240}>
+      {/* ChartFigure hides the plot behind its summary and table, so the SVG
+          mustn't be a tab stop. */}
+      <ComposedChart
+        data={data}
+        margin={{ top: 10, right: 12, left: -20, bottom: 0 }}
+        accessibilityLayer={false}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+        <XAxis
+          dataKey="week"
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
+          tickLine={false}
+          interval="preserveStartEnd"
+        />
+        <YAxis
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={false}
+          tickLine={false}
+          allowDecimals={false}
+        />
         <Tooltip contentStyle={chartTheme.tooltipStyle} />
         <Legend wrapperStyle={chartTheme.legendStyle} />
-        <Area
-          dataKey="band80Upper"
-          stroke="none"
-          fill={chartTheme.colors.cyan}
-          fillOpacity={0.18}
-          name="80% band"
-          connectNulls
-        />
-        <Area
-          dataKey="band80Lower"
-          stroke="none"
-          fill={chartTheme.background}
-          fillOpacity={1}
-          legendType="none"
-          connectNulls
-        />
+        <Bar dataKey="raised" name="Raised" fill={chartTheme.colors.purple} radius={[3, 3, 0, 0]} />
         <Line
-          dataKey="actual"
+          dataKey="open"
+          name="Open at week end"
           stroke={chartTheme.colors.cyan}
           strokeWidth={2}
           dot={{ fill: chartTheme.colors.cyan, r: 3 }}
-          name="Open risks"
-          connectNulls={false}
+          isAnimationActive={false}
         />
-        <Line
-          dataKey="yHat"
-          stroke={chartTheme.colors.cyan}
-          strokeWidth={2}
-          strokeDasharray="5 5"
-          dot={false}
-          name="Forecast"
-          connectNulls
-        />
-        {annotations.map((ann, i) => (
-          <CausalLine key={`cp-${i}`} annotation={ann} />
-        ))}
       </ComposedChart>
     </ResponsiveContainer>
   );
