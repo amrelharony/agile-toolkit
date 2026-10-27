@@ -45,6 +45,7 @@ import {
   objectivePercent,
   okrVerdict,
   overallProgress,
+  progressTrend,
   withoutCheckIn,
 } from "@/lib/okrs/progress";
 import { sprintGoalsFor } from "@/lib/okrs/links";
@@ -212,6 +213,7 @@ describe("tool.okrs.list_state", () => {
       confidence: number | null;
       verdict: string;
       confidenceTrend: unknown;
+      progressTrend: unknown;
       linkedSprintGoals: unknown;
       keyResults: Record<string, unknown>[];
     };
@@ -230,6 +232,20 @@ describe("tool.okrs.list_state", () => {
       confidenceTrend: confidenceTrend(OKR),
       linkedSprintGoals: sprintGoalsFor(OKR.id, [GOAL], [SPRINT]),
     });
+    // lib/okrs progressTrend, as the page's chart plots it: churn checked in
+    // at 19, 18 and 17 (22 → 15), NPS never checked in, at 31 of 20 → 40 every day.
+    expect(a.progressTrend).toEqual(
+      progressTrend(OKR).map((p) => ({
+        date: p.date,
+        progressPct: Math.round(p.progress * 100),
+        measured: p.measured,
+      }))
+    );
+    expect(a.progressTrend).toEqual([
+      { date: "2026-10-01", progressPct: 49, measured: 1 },
+      { date: "2026-10-02", progressPct: 56, measured: 1 },
+      { date: "2026-10-03", progressPct: 63, measured: 1 },
+    ]);
     expect(a.linkedSprintGoals).toEqual([
       {
         goalId: GOAL.id,
@@ -258,7 +274,12 @@ describe("tool.okrs.list_state", () => {
     });
     expect(a.keyResults[1]).toMatchObject({ confidence: null, lastCheckIn: null, checkInCount: 0 });
     // A row from before Phase 8: "Q4 2026" normalised, no baseline, no owner.
-    expect(b).toMatchObject({ quarter: "2026 Q4", owner: null, progressPct: 40 });
+    expect(b).toMatchObject({
+      quarter: "2026 Q4",
+      owner: null,
+      progressPct: 40,
+      progressTrend: [],
+    });
     expect(b.keyResults[0]).toMatchObject({ baseline: null, direction: "increase", confidence: 5 });
   });
 
