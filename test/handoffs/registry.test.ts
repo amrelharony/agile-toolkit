@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  HANDOFF_ROUTE_IDS,
   OPPORTUNITY_TREE_ID,
   type HandoffLink,
   type HandoffRouteId,
   type KanbanCard,
   type Risk,
+  type TreeNode,
 } from "@/lib/stores/workspace-types";
 import { registry } from "@/lib/actions/registry";
 
@@ -118,6 +120,7 @@ beforeEach(() => {
     hypothesisTrackers: [],
     decisions: [],
     dependencyMaps: [],
+    opportunityTrees: [],
   });
 });
 
@@ -314,6 +317,7 @@ describe("source back-links", () => {
         "hypothesis",
         "impediment",
         "kanban",
+        "opportunity",
         "poker-queue",
         "retro-action",
         "retro-topic",
@@ -321,29 +325,107 @@ describe("source back-links", () => {
       ].sort()
     );
     for (const route of ROUTES) expect(getHandoffRoute(route).id).toBe(route);
+    // One route per id the workspace schemas accept on a stored link.
+    expect([...ROUTES].sort()).toEqual([...HANDOFF_ROUTE_IDS].sort());
   });
 });
 
-describe("a route id whose target isn't registered yet", () => {
-  // An agent's workspace.*.update can store a link on "opportunity" before
-  // lib/handoffs/targets/opportunity.ts lands: readers must not throw on it.
-  const stored: HandoffLink[] = [
-    { route: "opportunity", targetId: "node_9", at: "2026-10-15T09:00:00.000Z" },
-    { route: "impediment", targetId: "imp_gone", at: "2026-10-15T09:00:00.000Z" },
-  ];
+describe("opportunity", () => {
+  const tree = () => (ws().opportunityTrees ?? []).find((d) => d.id === OPPORTUNITY_TREE_ID);
+  const nodes = () => tree()?.nodes ?? [];
+  const node = (id: string, kind: TreeNode["kind"], parentId: string | null): TreeNode => ({
+    id,
+    kind,
+    text: `${kind} ${id}`,
+    parentId,
+  });
+  const quote = (over: Partial<HandoffSource> = {}) =>
+    src({
+      title: "I export to a spreadsheet every Friday",
+      description: "From an interview on 2026-10-14",
+      sourceRef: { tool: "user-interviews", id: "q_1", doc: "int_1" },
+      ...over,
+    });
+  const seed = (list: TreeNode[]) =>
+    ws().upsertOpportunityTree({ id: OPPORTUNITY_TREE_ID, nodes: list });
 
-  it("reads as a route with no target: the link isn't live, nothing is done", () => {
-    const route = getHandoffRoute("opportunity");
-    expect(route.id).toBe("opportunity");
-    expect(route.label).toBe("Opportunity");
-    expect(route.exists("node_9")).toBe(false);
-    expect(route.isDone?.("node_9") ?? false).toBe(false);
-    expect(route.targetHref("node_9")).toBe("/opportunity-tree");
-    expect(liveLink(stored, "opportunity")).toBeUndefined();
-    expect(() => route.remove("node_9")).not.toThrow();
+  it("adds an opportunity under the picked outcome, with the quote as evidence", () => {
+    seed([node("o1", "outcome", null)]);
+    const link = sendHandoff("opportunity", quote({ parentId: "o1" }), linkStore())!;
+    expect(nodes().map((n) => n.id)).toEqual(["o1", link.targetId]);
+    expect(nodes()[1]).toEqual({
+      id: link.targetId,
+      kind: "opportunity",
+      text: "I export to a spreadsheet every Friday",
+      parentId: "o1",
+      evidence: "From an interview on 2026-10-14",
+      sourceRef: { tool: "user-interviews", id: "q_1", doc: "int_1" },
+    });
+    expect(getHandoffRoute("opportunity").targetHref(link.targetId)).toBe("/opportunity-tree");
+    expect(getHandoffRoute("opportunity").isDone).toBeUndefined();
   });
 
-  it("never sends", () => {
-    expect(() => getHandoffRoute("opportunity").send(src())).toThrow(/isn't available yet/);
+  it("nests under an opportunity, and goes to the root under no parent, a gone one or one that can't hold it", () => {
+    seed([
+      node("o1", "outcome", null),
+      node("p1", "opportunity", "o1"),
+      node("s1", "solution", "p1"),
+    ]);
+    const under = sendHandoff("opportunity", quote({ parentId: "p1" }), linkStore())!;
+    const root = sendHandoff("opportunity", quote(), linkStore())!;
+    const gone = sendHandoff("opportunity", quote({ parentId: "nope" }), linkStore())!;
+    const unfit = sendHandoff("opportunity", quote({ parentId: "s1" }), linkStore())!;
+    const parentOf = (id: string) => nodes().find((n) => n.id === id)?.parentId;
+    expect(parentOf(under.targetId)).toBe("p1");
+    expect(parentOf(root.targetId)).toBeNull();
+    expect(parentOf(gone.targetId)).toBeNull();
+    expect(parentOf(unfit.targetId)).toBeNull();
+  });
+
+  it("caps the text at the tree's limit and starts a tree that doesn't exist yet", () => {
+    const link = sendHandoff(
+      "opportunity",
+      quote({ title: `  ${"x".repeat(2500)}  ` }),
+      linkStore()
+    )!;
+    expect(tree()).toBeDefined();
+    expect(nodes().find((n) => n.id === link.targetId)?.text).toBe("x".repeat(2000));
+  });
+
+  it("Undo takes the node out alone: what was added under it moves up to its parent", () => {
+    seed([node("o1", "outcome", null)]);
+    const store = linkStore();
+    const link = sendHandoff("opportunity", quote({ parentId: "o1" }), store)!;
+    // Added under the new opportunity before Undo.
+    seed([
+      ...nodes(),
+      node("sub", "opportunity", link.targetId),
+      node("sol", "solution", link.targetId),
+    ]);
+    undo.last!.revert();
+    expect(nodes().map((n) => [n.id, n.parentId])).toEqual([
+      ["o1", null],
+      ["sub", "o1"],
+      ["sol", "o1"],
+    ]);
+    expect(store.links).toEqual([]);
+  });
+
+  it("reads as gone once the node is deleted on the tree, so the quote can be sent again", () => {
+    const store = linkStore();
+    const first = sendHandoff("opportunity", quote(), store)!;
+    expect(getHandoffRoute("opportunity").exists(first.targetId)).toBe(true);
+    seed(nodes().filter((n) => n.id !== first.targetId));
+    expect(getHandoffRoute("opportunity").exists(first.targetId)).toBe(false);
+    expect(liveLink(store.links, "opportunity")).toBeUndefined();
+    const again = sendHandoff("opportunity", quote(), store)!;
+    expect(again.targetId).not.toBe(first.targetId);
+    expect(store.links).toEqual([again]);
+  });
+
+  it("ignores Undo of a node already gone, and keeps the rest of the tree", () => {
+    seed([node("o1", "outcome", null)]);
+    expect(() => getHandoffRoute("opportunity").remove("nope")).not.toThrow();
+    expect(nodes().map((n) => n.id)).toEqual(["o1"]);
   });
 });

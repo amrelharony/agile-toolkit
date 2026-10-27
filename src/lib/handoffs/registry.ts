@@ -9,6 +9,8 @@
  * RAPID share (workspace.decisions, lib/decisions). A route whose target
  * entity doesn't exist yet writes to today's closest slice: `dependency` to
  * the Dependency Map's graph (until the one dependency model lands).
+ * `opportunity` adds a node to the Opportunity Tree (an interview quote
+ * raised as an opportunity).
  */
 
 import type { HandoffLink, HandoffRef, HandoffRoute, HandoffRouteId } from "./types";
@@ -22,40 +24,10 @@ import { retroActionRoute } from "./targets/retro-action";
 import { hypothesisRoute } from "./targets/hypothesis";
 import { decisionRoute } from "./targets/decision";
 import { dependencyRoute } from "./targets/dependency";
+import { opportunityRoute } from "./targets/opportunity";
 
-/**
- * Route ids a stored link may already carry (HANDOFF_ROUTE_IDS lists them,
- * so the workspace schemas accept them, and an agent's update can store
- * one) whose target isn't registered yet: "opportunity" until
- * lib/handoffs/targets/opportunity.ts lands in Phase 8. No send menu
- * offers one meanwhile. Empty this, and PENDING_ROUTES, once its route is in.
- */
-type PendingRouteId = "opportunity";
-
-/**
- * What getHandoffRoute gives for a pending id: a route with no target, so
- * a stored link on it reads as gone (`exists` false: liveLink is undefined,
- * the item can be sent again once the route lands) and a caller that reads
- * `.label`, `.isDone?.()` or `.targetHref()` keeps working. It never sends.
- */
-const PENDING_ROUTES: Readonly<Record<PendingRouteId, HandoffRoute>> = {
-  opportunity: {
-    id: "opportunity",
-    label: "Opportunity",
-    doneLabel: "Added as an opportunity",
-    targetToolId: "opportunity-tree",
-    targetHref: () => "/opportunity-tree",
-    send: () => {
-      throw new Error("The Opportunity Tree hand-off isn't available yet.");
-    },
-    remove: () => {},
-    exists: () => false,
-  },
-};
-
-export const HANDOFF_ROUTES: Readonly<
-  Record<Exclude<HandoffRouteId, PendingRouteId>, HandoffRoute>
-> = {
+/** One route per id in HANDOFF_ROUTE_IDS: a stored link on any of them reads through its route. */
+export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   impediment: impedimentRoute,
   kanban: kanbanRoute,
   risk: riskRoute,
@@ -66,13 +38,11 @@ export const HANDOFF_ROUTES: Readonly<
   hypothesis: hypothesisRoute,
   decision: decisionRoute,
   dependency: dependencyRoute,
+  opportunity: opportunityRoute,
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {
-  // A pending id has no target yet: its inert stand-in (see PENDING_ROUTES).
-  return Object.prototype.hasOwnProperty.call(PENDING_ROUTES, id)
-    ? PENDING_ROUTES[id as PendingRouteId]
-    : HANDOFF_ROUTES[id as Exclude<HandoffRouteId, PendingRouteId>];
+  return HANDOFF_ROUTES[id];
 }
 
 /* ── Sources ─────────────────────────────────────────────────────────── */
