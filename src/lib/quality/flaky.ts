@@ -267,8 +267,10 @@ const thousands = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 export const ratePercent = (rate: number) => `${(rate * 100).toFixed(1).replace(/\.0$/, "")}%`;
 
 /**
- * The verdict, e.g. "5 open flaky tests fail 7.4% of 1,240 runs; 2 have
- * been quarantined two weeks or more."
+ * The verdict, e.g. "5 open flaky tests fail 7.4% of 1,240 runs (2 more
+ * tests without run counts); 2 have been quarantined 14 days or more."
+ * The rate names only the tests it is worked out from (weighted.counted);
+ * the open rate-only rows are named beside it, never folded into it.
  */
 export function flakyVerdict(summary: FlakySummary): string {
   if (summary.total === 0) return "No flaky tests logged yet.";
@@ -276,11 +278,12 @@ export function flakyVerdict(summary: FlakySummary): string {
   if (openCount === 0) {
     return `No flaky tests open: ${summary.total === 1 ? "the one logged is" : `all ${summary.total} are`} fixed.`;
   }
-  const { rate, runs } = summary.weighted;
+  const { rate, runs, counted, rateOnly } = summary.weighted;
+  const uncounted = rateOnly > 0 ? ` (${plural(rateOnly, "more test")} without run counts)` : "";
   const head =
     rate === null
       ? `${plural(openCount, "open flaky test")}, none with run counts yet`
-      : `${plural(openCount, "open flaky test")} ${openCount === 1 ? "fails" : "fail"} ${ratePercent(rate)} of ${thousands(runs)} runs`;
+      : `${plural(counted, "open flaky test")} ${counted === 1 ? "fails" : "fail"} ${ratePercent(rate)} of ${thousands(runs)} runs${uncounted}`;
   const long = summary.longQuarantined.length;
   const tail =
     long === 0
@@ -294,7 +297,9 @@ export function flakyVerdict(summary: FlakySummary): string {
 export type FlakyField = "name" | "failures" | "runs" | "firstSeenAt";
 
 /**
- * Why a draft day can't be saved, or null: not a date, or after `today`.
+ * Why a draft day can't be saved, or null: not a date, or after `today`
+ * (the latest day allowed: the page's today; the agent on the server
+ * passes the day after its own, which can be behind the person's).
  * Blank is fine here (the caller decides what blank means).
  */
 export function flakyDayError(day: string | null | undefined, today: string): string | null {
@@ -306,9 +311,31 @@ export function flakyDayError(day: string | null | undefined, today: string): st
 }
 
 /**
+ * Why `firstSeenAt` can't go with the days a test already carries, or
+ * null: a test can't be first seen after it went into quarantine or was
+ * fixed (a fixedAt kept from before a reopen included). The other side of
+ * the order add_test checks on a new test's status day.
+ */
+export function firstSeenOrderError(
+  firstSeenAt: string,
+  t: { quarantinedAt?: string | null; fixedAt?: string | null }
+): string | null {
+  const day = firstSeenAt.trim();
+  if (isIsoDate(t.quarantinedAt) && day > (t.quarantinedAt as string)) {
+    return `It can't come after the day it went into quarantine (${t.quarantinedAt}).`;
+  }
+  if (isIsoDate(t.fixedAt) && day > (t.fixedAt as string)) {
+    return `It can't come after the day it was fixed (${t.fixedAt}).`;
+  }
+  return null;
+}
+
+/**
  * Why a test's draft can't be saved: a name, whole failures (0 or more) and
  * runs (1 or more) with no more failures than runs, and a first-seen day
- * that isn't after `today` (blank is allowed: the caller fills it in).
+ * that isn't after `today` (blank is allowed: the caller fills it in) nor
+ * after the edited test's quarantinedAt or fixedAt, when the draft carries
+ * them (firstSeenOrderError).
  */
 export function flakyTestErrors(
   draft: {
@@ -316,6 +343,9 @@ export function flakyTestErrors(
     failures?: string | number | null;
     runs?: string | number | null;
     firstSeenAt?: string | null;
+    /** The edited test's stored days, for the order check; absent on a new test. */
+    quarantinedAt?: string | null;
+    fixedAt?: string | null;
   },
   today: string
 ): FormErrors<FlakyField> {
@@ -334,7 +364,9 @@ export function flakyTestErrors(
   if (!errors.failures && !errors.runs && (failures as number) > (runs as number)) {
     errors.failures = "It can't fail more often than it ran.";
   }
-  const day = flakyDayError(draft.firstSeenAt, today);
+  const firstSeen = (draft.firstSeenAt ?? "").trim();
+  const day =
+    flakyDayError(firstSeen, today) ?? (firstSeen ? firstSeenOrderError(firstSeen, draft) : null);
   if (day) errors.firstSeenAt = day;
   return errors;
 }

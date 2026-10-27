@@ -6,8 +6,10 @@
  *   2. weightedFailureRate — 1 of 2 vs 30 of 200; legacy rows counted, not averaged.
  *   3. quarantinedDays / longQuarantined — 13 vs 14 days, unknown dates.
  *   4. applyFlakyStatus — quarantinedAt, fixedAt kept on reopen.
- *   5. flakySummary, worstOffenders, weeklyNewFlakies, the verdict.
- *   6. flakyTestErrors — inline errors for the add form.
+ *   5. flakySummary, worstOffenders, weeklyNewFlakies, the verdict (the
+ *      rate over counted tests, rate-only ones named beside it).
+ *   6. firstSeenOrderError — never after the quarantine or the fix.
+ *   7. flakyTestErrors — inline errors for the add and edit forms.
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,6 +19,7 @@ import {
   QUARANTINE_ALERT_DAYS,
   applyFlakyStatus,
   fewRuns,
+  firstSeenOrderError,
   fixedInQuarter,
   flakyDayError,
   flakyRate,
@@ -213,8 +216,9 @@ describe("flakySummary and friends", () => {
 
   it("says it in one sentence", () => {
     expect(flakyVerdict(flakySummary([], TODAY))).toBe("No flaky tests logged yet.");
+    // The 15% of 200 runs is ft_1's alone: the rate-only ft_legacy is named beside it.
     expect(flakyVerdict(flakySummary(FLAKY_BOARD.tests, TODAY))).toBe(
-      "2 open flaky tests fail 15% of 200 runs; 1 has been quarantined 14 days or more."
+      "1 open flaky test fails 15% of 200 runs (1 more test without run counts); 1 has been quarantined 14 days or more."
     );
     const many = [counted("a", 50, 1000), counted("b", 42, 240)];
     expect(flakyVerdict(flakySummary(many, TODAY))).toBe(
@@ -228,6 +232,39 @@ describe("flakySummary and friends", () => {
       "No flaky tests open: the one logged is fixed."
     );
     expect(ratePercent(0.15)).toBe("15%");
+  });
+
+  it("quotes the rate over the tests it counts, naming the rate-only ones beside it", () => {
+    const mixed = [
+      counted("a", 50, 1000),
+      counted("b", 42, 240),
+      test({ id: "l1", failureRate: 0.4 }),
+      test({ id: "l2", failureRate: 0.1, status: "quarantined" }),
+      // Fixed: out of the rate and out of the rate-only count.
+      test({ id: "l3", failureRate: 0.9, status: "fixed" }),
+    ];
+    const s = flakySummary(mixed, TODAY);
+    expect(s.weighted).toMatchObject({ counted: 2, rateOnly: 2, runs: 1240 });
+    expect(flakyVerdict(s)).toBe(
+      "2 open flaky tests fail 7.4% of 1,240 runs (2 more tests without run counts)."
+    );
+  });
+});
+
+describe("firstSeenOrderError", () => {
+  it("refuses a first-seen day after the quarantine or the fix the test carries", () => {
+    const t = { quarantinedAt: "2026-10-05" };
+    expect(firstSeenOrderError("2026-10-05", t)).toBeNull();
+    expect(firstSeenOrderError("2026-10-06", t)).toBe(
+      "It can't come after the day it went into quarantine (2026-10-05)."
+    );
+    // A fixedAt kept from before a reopen still holds the order.
+    expect(firstSeenOrderError("2026-10-11", { fixedAt: "2026-10-10" })).toBe(
+      "It can't come after the day it was fixed (2026-10-10)."
+    );
+    // No days carried, or a legacy day that can't be read: nothing to order against.
+    expect(firstSeenOrderError("2026-10-20", {})).toBeNull();
+    expect(firstSeenOrderError("2026-10-20", { fixedAt: "soon" })).toBeNull();
   });
 });
 
@@ -263,5 +300,18 @@ describe("flakyTestErrors", () => {
       firstSeenAt: "The day can't be after today.",
     });
     expect(flakyDayError("2026-13-01", TODAY)).toBe("Enter a date as YYYY-MM-DD.");
+  });
+
+  it("checks an edited test's first-seen day against its stored status days", () => {
+    const draft = { name: "a", failures: 1, runs: 4, quarantinedAt: "2026-10-05" };
+    expect(flakyTestErrors({ ...draft, firstSeenAt: "2026-10-01" }, TODAY)).toEqual({});
+    expect(flakyTestErrors({ ...draft, firstSeenAt: "2026-10-06" }, TODAY)).toEqual({
+      firstSeenAt: "It can't come after the day it went into quarantine (2026-10-05).",
+    });
+    // Blank is the caller's to fill in; the future-day error comes first.
+    expect(flakyTestErrors({ ...draft, firstSeenAt: "" }, TODAY)).toEqual({});
+    expect(flakyTestErrors({ ...draft, firstSeenAt: "2026-10-28" }, TODAY)).toEqual({
+      firstSeenAt: "The day can't be after today.",
+    });
   });
 });

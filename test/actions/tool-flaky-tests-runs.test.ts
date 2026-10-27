@@ -3,10 +3,13 @@
  *
  *   1. add_test — failures / runs, a bare rate for legacy-style rows,
  *      inline-error refusals, the local day, status dates.
- *   2. update_test — counts checked with the stored ones; clears; dates.
- *   3. set_status — lib/quality/flaky's rule: fixedAt kept on reopen.
- *   4. remove_test.
- *   5. list_state — the weighted rate, long quarantines, open-only worst
+ *   2. the server's day — the day after it is taken (a person ahead of
+ *      UTC), and no status is stamped before the first-seen day.
+ *   3. update_test — counts checked with the stored ones; clears; dates,
+ *      never after the quarantine or the fix.
+ *   4. set_status — lib/quality/flaky's rule: fixedAt kept on reopen.
+ *   5. remove_test.
+ *   6. list_state — the weighted rate, long quarantines, open-only worst
  *      offenders, all equal to flakySummary; both transports agree.
  */
 
@@ -44,6 +47,9 @@ const run = <T>(path: Path, verb: string, params: Record<string, unknown> = {}) 
 };
 
 const TODAY = "2026-10-27";
+const TOMORROW = "2026-10-28";
+/** The first day each path refuses: the server also takes the day after its own (latestDay). */
+const tooLate = (path: Path) => (path === "handler" ? TOMORROW : "2026-10-29");
 
 function seed(path: Path, doc: FlakyTestBoard) {
   if (path === "handler") useWorkspaceStore.setState({ flakyTestBoards: [doc] });
@@ -119,11 +125,23 @@ describe.each(PATHS)("tool.flaky_tests.add_test (%s)", (path) => {
     });
     expect(await run(path, "add_test", { name: "a" })).toMatchObject({ reason: "missing_rate" });
     expect(
-      await run(path, "add_test", { name: "a", failures: 1, runs: 2, firstSeenAt: "2026-10-28" })
+      await run(path, "add_test", { name: "a", failures: 1, runs: 2, firstSeenAt: tooLate(path) })
     ).toEqual({
       added: false,
       reason: "invalid_date",
       message: "firstSeenAt: The day can't be after today.",
+    });
+    expect(
+      await run(path, "add_test", {
+        name: "a",
+        failureRate: 0.1,
+        status: "quarantined",
+        quarantinedAt: tooLate(path),
+      })
+    ).toEqual({
+      added: false,
+      reason: "invalid_date",
+      message: "quarantinedAt: The day can't be after today.",
     });
     expect(tests(path)).toEqual([]);
   });
@@ -156,6 +174,56 @@ describe.each(PATHS)("tool.flaky_tests.add_test (%s)", (path) => {
       reason: "invalid_date",
       message: "fixedAt: It can't come before firstSeenAt.",
     });
+  });
+});
+
+describe("tool.flaky_tests — the server's day can be behind the person's", () => {
+  // On a UTC server, a person ahead of UTC is already on the server's tomorrow.
+  it("add_test takes the day after the server's, and stamps no status before it", async () => {
+    const r = await run<{ added: boolean; id: string }>("mcpHandler", "add_test", {
+      name: "q",
+      failures: 1,
+      runs: 20,
+      status: "quarantined",
+      firstSeenAt: TOMORROW,
+    });
+    expect(r.added).toBe(true);
+    // Left out, the quarantine day is the first-seen day, not the server's earlier today.
+    expect(byId("mcpHandler", r.id)).toMatchObject({
+      firstSeenAt: TOMORROW,
+      quarantinedAt: TOMORROW,
+    });
+    // Left out entirely, the first-seen day is still the server's today.
+    const plain = await run<{ id: string }>("mcpHandler", "add_test", {
+      name: "p",
+      failureRate: 0.1,
+    });
+    expect(byId("mcpHandler", plain.id)?.firstSeenAt).toBe(TODAY);
+  });
+
+  it("the browser keeps its own today as the latest day", async () => {
+    expect(
+      await run("handler", "add_test", { name: "a", failureRate: 0.1, firstSeenAt: TOMORROW })
+    ).toMatchObject({ added: false, reason: "invalid_date" });
+  });
+
+  it("set_status stamps the test's own later day, never a day before it was first seen", async () => {
+    const r = await run<{ id: string }>("mcpHandler", "add_test", {
+      name: "late",
+      failures: 1,
+      runs: 20,
+      firstSeenAt: TOMORROW,
+    });
+    expect(await run("mcpHandler", "set_status", { testId: r.id, status: "quarantined" })).toEqual({
+      updated: true,
+      status: "quarantined",
+      fixedAt: null,
+      quarantinedAt: TOMORROW,
+    });
+    // A test first seen in the past is stamped with the server's today, as before.
+    seed("mcpHandler", FLAKY_BOARD);
+    await run("mcpHandler", "set_status", { testId: "ft_legacy", status: "fixed" });
+    expect(byId("mcpHandler", "ft_legacy")?.fixedAt).toBe(TODAY);
   });
 });
 
@@ -198,8 +266,35 @@ describe.each(PATHS)("tool.flaky_tests.update_test (%s)", (path) => {
     await run(path, "update_test", { testId: "ft_2", patch: { firstSeenAt: "2026-07-01" } });
     expect(byId(path, "ft_2")?.firstSeenAt).toBe("2026-07-01");
     expect(
-      await run(path, "update_test", { testId: "ft_2", patch: { firstSeenAt: "2026-10-28" } })
-    ).toMatchObject({ updated: false, reason: "invalid_date" });
+      await run(path, "update_test", { testId: "ft_legacy", patch: { firstSeenAt: tooLate(path) } })
+    ).toEqual({
+      updated: false,
+      reason: "invalid_date",
+      message: "firstSeenAt: The day can't be after today.",
+    });
+  });
+
+  it("never moves the first-seen day after the quarantine or the fix it carries", async () => {
+    // ft_1 went into quarantine on 2026-10-05.
+    expect(
+      await run(path, "update_test", { testId: "ft_1", patch: { firstSeenAt: "2026-10-06" } })
+    ).toEqual({
+      updated: false,
+      reason: "invalid_date",
+      message: "firstSeenAt: It can't come after the day it went into quarantine (2026-10-05).",
+    });
+    await run(path, "update_test", { testId: "ft_1", patch: { firstSeenAt: "2026-10-05" } });
+    expect(byId(path, "ft_1")?.firstSeenAt).toBe("2026-10-05");
+    // ft_2 was fixed on 2026-10-10; reopened, it keeps that day, and the order with it.
+    await run(path, "set_status", { testId: "ft_2", status: "active" });
+    expect(
+      await run(path, "update_test", { testId: "ft_2", patch: { firstSeenAt: "2026-10-11" } })
+    ).toEqual({
+      updated: false,
+      reason: "invalid_date",
+      message: "firstSeenAt: It can't come after the day it was fixed (2026-10-10).",
+    });
+    expect(byId(path, "ft_2")?.firstSeenAt).toBe("2026-08-01");
   });
 
   it("says when the test isn't there", async () => {

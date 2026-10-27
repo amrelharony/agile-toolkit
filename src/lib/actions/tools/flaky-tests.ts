@@ -29,6 +29,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { FlakyStatus, FlakyTest, FlakyTestBoard } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { addDays } from "@/lib/impediments/model";
 import {
   FLAKY_BOARD_ID,
   FLAKY_BOARD_KIND,
@@ -38,6 +39,7 @@ import {
   FLAKY_STATUSES,
   FLAKY_SUITE_MAX,
   applyFlakyStatus,
+  firstSeenOrderError,
   flakyDayError,
   flakySummary,
   flakyTestErrors,
@@ -74,6 +76,29 @@ function serverStore(userId: string): FlakyStore {
 }
 
 const testsOf = (doc: FlakyTestBoard | null) => (Array.isArray(doc?.tests) ? doc.tests : []);
+
+/**
+ * The latest day a verb takes. In the browser, today; on the server, whose
+ * day (UTC on a typical deploy) isn't the person's, the day after it, so a
+ * person ahead of UTC can date a test on their own today, as the page does
+ * with the browser's day (decision-log's latestDay, mood check-ins).
+ */
+const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(today, 1) : today);
+
+/**
+ * The day a status change is stamped with: today, or the latest day the
+ * test already carries when that is after today and still allowed. On the
+ * server today can be the person's yesterday, and a test they first saw on
+ * their own today must not read as quarantined or fixed before it. In the
+ * browser `latest` is today, so this is today, as the page stamps.
+ */
+function stampDay(t: FlakyTest, today: string, latest: string): string {
+  let day = today;
+  for (const v of [t.firstSeenAt, t.quarantinedAt, t.fixedAt]) {
+    if (typeof v === "string" && !flakyDayError(v, latest) && v > day) day = v;
+  }
+  return day;
+}
 
 /** The first error of a draft as "field: message", for an agent. */
 const firstError = (errors: Partial<Record<string, string>>) => {
@@ -122,7 +147,11 @@ registry.register({
 
 // ──────── tool.flaky_tests.add_test ────────
 
-const Day = z.string().describe("YYYY-MM-DD, never after today.");
+const Day = z
+  .string()
+  .describe(
+    "YYYY-MM-DD, the user's local day, never after today: over MCP the server's day may be a day behind theirs, so the day after the server's is taken too."
+  );
 
 const AddParams = z.object({
   name: z.string().trim().min(1).max(FLAKY_NAME_MAX),
@@ -153,8 +182,13 @@ type AddResult =
       message: string;
     };
 
-async function addTest(store: FlakyStore, params: z.infer<typeof AddParams>): Promise<AddResult> {
+async function addTest(
+  store: FlakyStore,
+  params: z.infer<typeof AddParams>,
+  onServer: boolean
+): Promise<AddResult> {
   const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
   const hasRuns = params.failures !== undefined || params.runs !== undefined;
   if (hasRuns) {
     const error = firstError(
@@ -169,20 +203,27 @@ async function addTest(store: FlakyStore, params: z.infer<typeof AddParams>): Pr
     };
   }
   const firstSeenAt = params.firstSeenAt?.trim() || today;
+  const seenError = flakyDayError(firstSeenAt, latest);
+  if (seenError) {
+    return { added: false, reason: "invalid_date", message: `firstSeenAt: ${seenError}` };
+  }
   const status = params.status ?? "active";
+  // A status day left out is today, or the first-seen day when that is the
+  // later one (the server's today can be the person's yesterday).
+  const stamp = firstSeenAt > today ? firstSeenAt : today;
   const statusDay =
     status === "quarantined"
-      ? params.quarantinedAt?.trim() || today
+      ? params.quarantinedAt?.trim() || stamp
       : status === "fixed"
-        ? params.fixedAt?.trim() || today
+        ? params.fixedAt?.trim() || stamp
         : null;
-  for (const [field, day] of [
-    ["firstSeenAt", firstSeenAt],
-    [status === "fixed" ? "fixedAt" : "quarantinedAt", statusDay],
-  ] as const) {
-    if (day === null) continue;
-    const error = flakyDayError(day, today);
-    if (error) return { added: false, reason: "invalid_date", message: `${field}: ${error}` };
+  const statusError = statusDay === null ? null : flakyDayError(statusDay, latest);
+  if (statusError) {
+    return {
+      added: false,
+      reason: "invalid_date",
+      message: `${status === "fixed" ? "fixedAt" : "quarantinedAt"}: ${statusError}`,
+    };
   }
   if (statusDay !== null && statusDay < firstSeenAt) {
     return {
@@ -218,10 +259,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Log a flaky test from failures out of runs (failureRate is then failures ÷ runs); a bare failureRate (0..1) is for a test without run counts. status defaults to 'active'; firstSeenAt to today (backdatable); a quarantined or fixed test gets quarantinedAt or fixedAt (today unless given). Creates the board if absent. Returns {added: true, id}, or {added: false, reason: 'invalid_runs' | 'missing_rate' | 'invalid_date', message}.",
+    "Log a flaky test from failures out of runs (failureRate is then failures ÷ runs); a bare failureRate (0..1) is for a test without run counts. status defaults to 'active'; firstSeenAt to today (backdatable; pass the user's local day: over MCP the default is the server's day, and the day after it is still accepted); a quarantined or fixed test gets quarantinedAt or fixedAt (unless given, today, or firstSeenAt when that is later; never before firstSeenAt). Creates the board if absent. Returns {added: true, id}, or {added: false, reason: 'invalid_runs' | 'missing_rate' | 'invalid_date', message}.",
   paramsSchema: AddParams,
-  handler: async (params) => addTest(browserStore, params),
-  mcpHandler: async (params, ctx) => addTest(serverStore(ctx.userId), params),
+  handler: async (params) => addTest(browserStore, params, false),
+  mcpHandler: async (params, ctx) => addTest(serverStore(ctx.userId), params, true),
 });
 
 // ──────── tool.flaky_tests.update_test ────────
@@ -243,7 +284,11 @@ const UpdateParams = z.object({
     ),
 });
 
-async function updateTest(store: FlakyStore, params: z.infer<typeof UpdateParams>) {
+async function updateTest(
+  store: FlakyStore,
+  params: z.infer<typeof UpdateParams>,
+  onServer: boolean
+) {
   const doc = await store.getDoc();
   const current = testsOf(doc).find((t) => t.id === params.testId);
   if (!doc || !current) return { updated: false, reason: "not_found" as const };
@@ -259,7 +304,10 @@ async function updateTest(store: FlakyStore, params: z.infer<typeof UpdateParams
   }
   if (p.firstSeenAt !== undefined) {
     const day = p.firstSeenAt.trim();
-    const error = day ? flakyDayError(day, today) : "Enter a date as YYYY-MM-DD.";
+    // Never after the quarantine or the fix the test carries: add_test's order, from this side.
+    const error = day
+      ? (flakyDayError(day, latestDay(today, onServer)) ?? firstSeenOrderError(day, current))
+      : "Enter a date as YYYY-MM-DD.";
     if (error) {
       return { updated: false, reason: "invalid_date" as const, message: `firstSeenAt: ${error}` };
     }
@@ -286,21 +334,27 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Edit a flaky test: name, suite, owner, failures, runs, description or firstSeenAt (YYYY-MM-DD, never after today). failures and runs keep failureRate equal to failures ÷ runs; a test without run counts needs both. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'invalid_runs' | 'invalid_date', message?}.",
+    "Edit a flaky test: name, suite, owner, failures, runs, description or firstSeenAt (YYYY-MM-DD, never after today, nor after the test's quarantinedAt or fixedAt). failures and runs keep failureRate equal to failures ÷ runs; a test without run counts needs both. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'invalid_runs' | 'invalid_date', message?}.",
   paramsSchema: UpdateParams,
-  handler: async (params) => updateTest(browserStore, params),
-  mcpHandler: async (params, ctx) => updateTest(serverStore(ctx.userId), params),
+  handler: async (params) => updateTest(browserStore, params, false),
+  mcpHandler: async (params, ctx) => updateTest(serverStore(ctx.userId), params, true),
 });
 
 // ──────── tool.flaky_tests.set_status ────────
 
 const StatusParams = z.object({ testId: z.string(), status: StatusSchema });
 
-async function setStatus(store: FlakyStore, params: z.infer<typeof StatusParams>) {
+async function setStatus(
+  store: FlakyStore,
+  params: z.infer<typeof StatusParams>,
+  onServer: boolean
+) {
   const doc = await store.getDoc();
   const current = testsOf(doc).find((t) => t.id === params.testId);
   if (!doc || !current) return { updated: false };
-  const next = applyFlakyStatus(current, params.status, todayLocalISO());
+  const today = todayLocalISO();
+  const day = stampDay(current, today, latestDay(today, onServer));
+  const next = applyFlakyStatus(current, params.status, day);
   if (next !== current) {
     await store.putDoc({
       ...doc,
@@ -322,10 +376,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a flaky test's status (active | quarantined | fixed), as the page does: going into quarantine stamps quarantinedAt with today (leaving clears it); becoming fixed stamps fixedAt with today, and reopening keeps it; the same status changes nothing. Returns {updated: true, status, fixedAt, quarantinedAt}, or {updated: false} when the test id is unknown.",
+    "Set a flaky test's status (active | quarantined | fixed), as the page does: going into quarantine stamps quarantinedAt with today (leaving clears it); becoming fixed stamps fixedAt with today, and reopening keeps it (over MCP the stamp is the test's own later day when the server's today is behind it); the same status changes nothing. Returns {updated: true, status, fixedAt, quarantinedAt}, or {updated: false} when the test id is unknown.",
   paramsSchema: StatusParams,
-  handler: async (params) => setStatus(browserStore, params),
-  mcpHandler: async (params, ctx) => setStatus(serverStore(ctx.userId), params),
+  handler: async (params) => setStatus(browserStore, params, false),
+  mcpHandler: async (params, ctx) => setStatus(serverStore(ctx.userId), params, true),
 });
 
 // ──────── tool.flaky_tests.remove_test ────────
