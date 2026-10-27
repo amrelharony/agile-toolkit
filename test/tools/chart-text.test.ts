@@ -8,7 +8,9 @@ import { flowChartText, wipChartText } from "@/app/(tools)/cumulative-flow/chart
 import { simulationHistogramText } from "@/app/(tools)/release-planner/chart-text";
 import { healthTrendText } from "@/app/(tools)/health-check/chart-text";
 import { histogramText } from "@/app/(tools)/cycle-time/chart-text";
-import { scoreTrendText } from "@/app/(tools)/nps-csat/chart-text";
+import { periodTrendText } from "@/app/(tools)/nps-csat/chart-text";
+import { periodSeries } from "@/lib/nps/score";
+import type { NpsResponse } from "@/lib/stores/workspace-types";
 import { dailyMoodText } from "@/app/(tools)/mood-tracker/chart-text";
 import { fmt, move, plural } from "@/lib/charts/chart-text";
 
@@ -317,16 +319,30 @@ describe("cycle time, NPS / CSAT and mood", () => {
     );
   });
 
-  it("summarises the score trend", () => {
-    const text = scoreTrendText([
-      { date: "2026-10-01", nps: -20, csat: 3.8 },
-      { date: "2026-10-02", nps: 10 },
-      { date: "2026-10-03", nps: 35, csat: 4.25 },
-    ]);
-    expect(text.summary).toBe(
-      "NPS rose from -20 to 35 and CSAT rose from 3.8 to 4.3 across 3 dates, 2026-10-01 to 2026-10-03."
+  it("summarises the score trend per month, with the n behind each", () => {
+    // Phase 8: periods, not answer days; CSAT as % satisfied.
+    const r = (id: string, kind: "nps" | "csat", date: string, score: number): NpsResponse => ({
+      id,
+      kind,
+      date,
+      score,
+    });
+    const { points } = periodSeries(
+      [
+        r("a", "nps", "2026-08-03", 3),
+        r("b", "nps", "2026-08-04", 9),
+        r("c", "csat", "2026-08-05", 4),
+        r("d", "nps", "2026-10-02", 10),
+        r("e", "csat", "2026-10-02", 2),
+      ],
+      "month"
     );
-    expect(text.table.rows[1]).toEqual(["2026-10-02", 10, "—"]);
+    const text = periodTrendText(points, "month");
+    expect(text.summary).toBe(
+      "NPS rose from 0 to +100 and CSAT fell from 100% satisfied to 0% satisfied across 3 months, Aug 2026 to Oct 2026; 2 months have fewer than 10 responses of a kind, so read them with care."
+    );
+    expect(text.table.rows[1]).toEqual(["Sep 2026", "—", 0, "—", 0]);
+    expect(text.table.rows[2]).toEqual(["Oct 2026", "+100", "1 (below 10)", "0%", "1 (below 10)"]);
   });
 
   it("summarises the daily-average mood", () => {
