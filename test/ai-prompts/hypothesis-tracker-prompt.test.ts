@@ -29,6 +29,7 @@ const ITEMS: Hypothesis[] = [
     target: { direction: "increase", value: 12, unit: "%", baseline: 10 },
     actual: 14,
     outcome: "Held up",
+    description: `Pricing page redesign, see the research doc. ${"x".repeat(80)}`,
   }),
   hyp("missed", {
     target: { direction: "decrease", value: 3, unit: "days" },
@@ -62,19 +63,24 @@ describe("generateHypothesisTrackerPrompts", () => {
 
   it("states each target, the measured result and the suggested verdict", () => {
     expect(quality.prompt).toContain(
-      "| Belief met | Run a test | Sign-up rate | at least 12% (from 10%) | 14% | validated (target met) | Validated | Held up |"
-    );
-    expect(quality.prompt).toContain(
-      "| Belief missed | Run a test | Sign-up rate | at most 3 days | 5 days | invalidated (target missed) | Running | — |"
+      "| Belief missed | Run a test | Sign-up rate | at most 3 days | 5 days | invalidated (target missed) | Running | — | — |"
     );
     expect(portfolio.prompt).toContain(
-      "| Belief odd | Run a test | Sign-up rate | No numeric target | — | — | Inconclusive | — |"
+      "| Belief odd | Run a test | Sign-up rate | No numeric target | — | — | Inconclusive | — | — |"
     );
+  });
+
+  it("keeps the team's context (the description), clamped at 80 characters", () => {
+    const context = `Pricing page redesign, see the research doc. ${"x".repeat(80)}`.slice(0, 80);
+    expect(quality.prompt).toContain(
+      `| Belief met | Run a test | Sign-up rate | at least 12% (from 10%) | 14% | validated (target met) | Validated | Held up | ${context} |`
+    );
+    expect(portfolio.prompt).toContain(`| ${context} |`);
   });
 
   it("names what a hand-off draft still needs", () => {
     expect(quality.prompt).toContain(
-      "| Belief draft | — | — | No numeric target | — | — | Drafted (needs what we'll do and the success metric) | — |"
+      "| Belief draft | — | — | No numeric target | — | — | Drafted (needs what we'll do and the success metric) | — | — |"
     );
   });
 

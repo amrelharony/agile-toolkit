@@ -59,7 +59,18 @@ export function generateTechDebtPrompts(data: DebtData): PromptDefinition[] {
   const s = debtSummary(items, len, today, data.stories);
   const ranked = rankedDebt(items, len, today);
   const table = formatTable(
-    ["#", "Item", "Area", "Impact", "Effort", "Interest/sprint", "Age", "Score", "Status"],
+    [
+      "#",
+      "Item",
+      "Area",
+      "Impact",
+      "Effort",
+      "Interest/sprint",
+      "Age",
+      "Score",
+      "Status",
+      "Description",
+    ],
     ranked.slice(0, MAX_ROWS).map(({ item: t, ageSprints, score }, i) => {
       // Without the board's stories, any backlog link counts, as debtSummary counts it.
       const story = data.stories
@@ -80,12 +91,13 @@ export function generateTechDebtPrompts(data: DebtData): PromptDefinition[] {
         ageText(ageSprints),
         `${fmt(score.total)} (${scoreSum(t, score)})`,
         status,
+        (t.description ?? "").slice(0, 80) || "—",
       ];
     })
   );
   const more = items.length > MAX_ROWS ? `\n(Showing ${MAX_ROWS} of ${items.length} items)` : "";
   const verdict = `Verdict: ${sanitizePromptCell(debtVerdict(items, len, today), 400)}\n\n`;
-  // Titles and areas are user-typed, and the verdict names a title.
+  // Titles, areas and descriptions are user-typed, and the verdict names a title.
   const body = wrapUserContent(`${verdict}${table}${more}`);
 
   const basis = data.defaultLength

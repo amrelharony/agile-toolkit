@@ -24,7 +24,11 @@ const A = (id: string, statement: string, extra: Partial<Assumption> = {}): Assu
 
 const ASSUMPTIONS: Assumption[] = [
   A("a2", "Admins adopt it", { riskLevel: 4, evidenceLevel: 1, testIdea: "Ask 5 admins" }),
-  A("a1", "Teams pay monthly", { riskLevel: 5, evidenceLevel: 2 }),
+  A("a1", "Teams pay monthly", {
+    riskLevel: 5,
+    evidenceLevel: 2,
+    description: `Annual plans are the norm in our segment. ${"x".repeat(80)}`,
+  }),
   A("a3", "Half-rated", { riskLevel: 4 }),
   A("a4", "Already proven", { riskLevel: 5, evidenceLevel: 1, status: "validated" }),
   A("a5", "Disproved by test", { riskLevel: 5, evidenceLevel: 1, sentTo: link("h1") }),
@@ -43,14 +47,17 @@ describe("generateRiskiestAssumptionPrompts", () => {
   });
 
   it("ranks with the tie-breaks: a tie on score goes to the higher risk", () => {
+    // The description is clamped at 80 characters.
+    const described = `Annual plans are the norm in our segment. ${"x".repeat(80)}`.slice(0, 80);
     expect(ranking.prompt).toContain(
-      "| 1 | Teams pay monthly | 5 | 2 | 20 | Test first | Untested | — | — |"
+      `| 1 | Teams pay monthly | 5 | 2 | 20 | Test first | Untested | — | — | ${described} |`
     );
+    expect(design.prompt).toContain(`| ${described} |`);
     expect(ranking.prompt).toContain(
-      "| 2 | Admins adopt it | 4 | 1 | 20 | Test first | Untested | — | Ask 5 admins |"
+      "| 2 | Admins adopt it | 4 | 1 | 20 | Test first | Untested | — | Ask 5 admins | — |"
     );
     expect(design.prompt).toContain(
-      "| 3 | Unclear result | 3 | 3 | 9 | Test first | Untested | tested: inconclusive (test again) | — |"
+      "| 3 | Unclear result | 3 | 3 | 9 | Test first | Untested | tested: inconclusive (test again) | — | — |"
     );
     expect(ranking.prompt).toContain(
       "Verdict: Test “Teams pay monthly” first: risk 5, evidence 2, score 20. 1 assumption isn't rated yet."

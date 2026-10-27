@@ -44,6 +44,7 @@ const ITEMS: TechDebtItem[] = [
     effort: 2,
     interestRate: 0.5,
     raisedAt: "2026-07-07",
+    description: `Retries hide a race in the artifact upload. ${"x".repeat(80)}`,
     sentTo: [{ route: "backlog-story", targetId: "s1", at: "2026-10-01T09:00:00.000Z" }],
   }),
 ];
@@ -58,14 +59,18 @@ describe("generateTechDebtPrompts", () => {
     stories: STORIES,
   });
 
+  // The description is clamped at 80 characters.
+  const described = `Retries hide a race in the artifact upload. ${"x".repeat(80)}`.slice(0, 80);
+
   it("ages each item in sprints and shows how its capped score adds up, in the page's order", () => {
     const rows = paydown.prompt.split("\n").filter((l) => /^\| \d+ \|/.test(l));
     expect(rows).toEqual([
-      "| 1 | Flaky deploy script | CI | 4 | 2 | 0.5 | ≈ 8 sprints | 18 (4 × 4 − 2 + 4 interest) | Open, on the backlog |",
-      "| 2 | Old ORM | DB | 3 | 5 | 3 | ≈ 14 sprints | 17 (3 × 4 − 5 + 10 interest (capped at 10)) | Open |",
-      "| 3 | No estimate | — | 2 | 1 | Not estimated | under a sprint | 7 (2 × 4 − 1) | Open |",
-      "| 4 | Paid | — | 5 | 1 | 1 | ≈ 2 sprints | 21 (5 × 4 − 1 + 2 interest) | Paid down 2026-09-01 |",
+      `| 1 | Flaky deploy script | CI | 4 | 2 | 0.5 | ≈ 8 sprints | 18 (4 × 4 − 2 + 4 interest) | Open, on the backlog | ${described} |`,
+      "| 2 | Old ORM | DB | 3 | 5 | 3 | ≈ 14 sprints | 17 (3 × 4 − 5 + 10 interest (capped at 10)) | Open | — |",
+      "| 3 | No estimate | — | 2 | 1 | Not estimated | under a sprint | 7 (2 × 4 − 1) | Open | — |",
+      "| 4 | Paid | — | 5 | 1 | 1 | ≈ 2 sprints | 21 (5 × 4 − 1 + 2 interest) | Paid down 2026-09-01 | — |",
     ]);
+    expect(systemic.prompt).toContain(`| ${described} |`);
   });
 
   it("states the cadence, the interest, the oldest item, the hotspot and the verdict", () => {
@@ -89,7 +94,7 @@ describe("generateTechDebtPrompts", () => {
       "Ages are in 7-day sprints (the default: the team hasn't set a sprint length)"
     );
     expect(p.prompt).toContain(
-      "| 1 | Flaky deploy script | CI | 4 | 2 | 0.5 | ≈ 16 sprints | 22 (4 × 4 − 2 + 8 interest) | Open, on the backlog |"
+      `| 1 | Flaky deploy script | CI | 4 | 2 | 0.5 | ≈ 16 sprints | 22 (4 × 4 − 2 + 8 interest) | Open, on the backlog | ${described} |`
     );
     expect(generateTechDebtPrompts({ items: [], sprintLengthDays: 14, today: TODAY })).toEqual([]);
   });

@@ -44,7 +44,8 @@ function suggestedText(h: Hypothesis): string {
  * with no decisive result, the median time to learn, and per hypothesis
  * its numeric target, the measured result, the verdict those numbers
  * suggest (binary: target met → validated, missed → invalidated; the team
- * applies it) and what a hand-off draft still needs.
+ * applies it), what a hand-off draft still needs and the team's context
+ * (the page's "Context" line, the stored description).
  */
 export function generateHypothesisTrackerPrompts(data: HypothesisData): PromptDefinition[] {
   const { items } = data;
@@ -69,6 +70,7 @@ export function generateHypothesisTrackerPrompts(data: HypothesisData): PromptDe
       "Suggested verdict",
       "Status",
       "What we learned",
+      "Context",
     ],
     items.slice(0, MAX_ROWS).map((h) => {
       const missing = missingFields(h);
@@ -81,6 +83,7 @@ export function generateHypothesisTrackerPrompts(data: HypothesisData): PromptDe
         suggestedText(h),
         `${statusLabel(h.status)}${missing.length > 0 ? ` (needs ${missingText(missing)})` : ""}`,
         (h.outcome ?? "").slice(0, 60) || "—",
+        (h.description ?? "").slice(0, 80) || "—",
       ];
     })
   );

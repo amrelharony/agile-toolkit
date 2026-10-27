@@ -76,6 +76,7 @@ export function generateRiskiestAssumptionPrompts(
             "Status",
             "Test",
             "Test idea",
+            "Description",
           ],
           view.ranked.slice(0, MAX_ROWS).map((r) => {
             const a = r.assumption;
@@ -89,6 +90,7 @@ export function generateRiskiestAssumptionPrompts(
               statusLabel(a.status),
               testText(linkedTest(a.sentTo, hypotheses)),
               (a.testIdea ?? "").slice(0, 60) || "—",
+              (a.description ?? "").slice(0, 80) || "—",
             ];
           })
         );
@@ -113,7 +115,7 @@ export function generateRiskiestAssumptionPrompts(
           view.tested.map((a) => `${quote(a)} (${resultText(a, hypotheses).toLowerCase()})`)
         )}.`;
   const verdict = `Verdict: ${sanitizePromptCell(assumptionsVerdict(view), 400)}\n\n`;
-  // Statements, test ideas and the verdict that names them are user-typed.
+  // Statements, test ideas, descriptions and the verdict that names them are user-typed.
   const body = wrapUserContent(`${verdict}${table}${more}${unrated}${tested}`);
   const counts = `${assumptions.length} assumptions logged: ${view.ranked.length} ranked, ${view.unrated.length} not rated, ${view.tested.length} tested. ${view.untestedRisky} ranked with risk 4 or 5 and no test yet.`;
 
