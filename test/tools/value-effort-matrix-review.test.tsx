@@ -249,6 +249,64 @@ describe("Value vs Effort fixes: Place in… keeps what the item already holds",
   });
 });
 
+describe("Value vs Effort fixes: a tray row that kept its value can be edited", () => {
+  const editor = () => screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+  const rename = (from: string, to: string) => {
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${from}` }));
+    fireEvent.change(within(editor()).getByLabelText(/Item title/), { target: { value: to } });
+    fireEvent.submit(editor());
+  };
+
+  it("renames a linked row whose item holds a value and no effort, keeping the value", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", "Passkeys", { businessValue: 13, updatedAt: STAMP })],
+      prioritizations: [row("a", "Passkeys", {}, { backlogItemId: "b1" })],
+    });
+    renderPage();
+    rename("Passkeys", "Passkeys for admins");
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(stored("a")?.title).toBe("Passkeys for admins");
+    expect(storedItem("b1")).toMatchObject({ name: "Passkeys for admins", businessValue: 13 });
+    expect(storedItem("b1")?.matrixEffort).toBeUndefined();
+    expect(listed("Not placed yet")).toEqual([expect.stringContaining("Passkeys for admins")]);
+  });
+
+  it("renames an unlinked row that holds a value and no effort, keeping its value", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [row("a", "Old row", { businessValue: 8 })],
+    });
+    renderPage();
+    rename("Old row", "Old row, renamed");
+    expect(stored("a")).toMatchObject({ title: "Old row, renamed", fields: { businessValue: 8 } });
+  });
+
+  it("still asks for an effort when the value changes, or when a placed row loses only its effort", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        item("b1", "Passkeys", { businessValue: 13, updatedAt: STAMP }),
+        item("b2", "Audit log", { businessValue: 8, matrixEffort: 3, updatedAt: STAMP }),
+      ],
+      prioritizations: [
+        row("a", "Passkeys", {}, { backlogItemId: "b1" }),
+        row("b", "Audit log", {}, { backlogItemId: "b2" }),
+      ],
+    });
+    renderPage();
+    const effortError = "Pick an effort too, or leave both empty and place it on the matrix later.";
+    fireEvent.click(screen.getByRole("button", { name: "Edit Passkeys" }));
+    pick(editor(), "Value", "20");
+    fireEvent.submit(editor());
+    expect(within(editor()).getByText(effortError)).toBeInTheDocument();
+    expect(storedItem("b1")?.businessValue).toBe(13);
+    fireEvent.click(within(editor()).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Audit log" }));
+    fireEvent.click(within(editor()).getByRole("button", { name: "Clear Effort" }));
+    fireEvent.submit(editor());
+    expect(within(editor()).getByText(effortError)).toBeInTheDocument();
+    expect(storedItem("b2")?.matrixEffort).toBe(3);
+  });
+});
+
 describe("Value vs Effort fixes: a value from the old 1–10 value says so", () => {
   it("names the old value on a row and on a linked item, and nowhere else", () => {
     useWorkspaceStore.setState({

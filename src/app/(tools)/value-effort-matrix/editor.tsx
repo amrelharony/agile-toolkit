@@ -4,11 +4,16 @@ import { createContext, useContext } from "react";
 import { MethodInputs } from "@/components/prioritization/method-inputs";
 import {
   MethodRowEditor,
+  validateMethodDraft,
   type MethodDraft,
   type MethodInputsSlotProps,
   type MethodToolConfig,
+  type MethodValidateContext,
 } from "@/components/prioritization/method-tool";
+import { VALUE_EFFORT } from "@/lib/prioritization/methods";
+import { toNumber } from "@/lib/prioritization/methods/fields";
 import type { RankedRow } from "@/lib/prioritization/rank";
+import type { Validation } from "@/lib/utils/form";
 import { VE_CONFIG } from "./config";
 import { placeOf, trayNote } from "./model";
 
@@ -41,7 +46,38 @@ function VeEditorInputs(props: MethodInputsSlotProps) {
   );
 }
 
-const EDITOR_CONFIG: MethodToolConfig = { ...VE_CONFIG, Inputs: VeEditorInputs };
+/**
+ * The editor's check: the method's (validateMethodDraft), except for a row
+ * that waits in the tray holding a value but no effort (a linked item's
+ * value, WSJF's business value too, kept when it was un-placed or
+ * imported). That value left as it is may stay without an effort, so the
+ * row can be renamed or its note edited. A new value still needs an
+ * effort, and a placed row that loses only its effort is still told to
+ * clear both (and then sees the tray note).
+ */
+function checkEdit(
+  d: MethodDraft,
+  { editing, keep }: MethodValidateContext
+): Validation<MethodDraft, string> {
+  const held = editing ? placeOf(editing) : null;
+  if (
+    held &&
+    held.value !== null &&
+    held.effort === null &&
+    blank(d.effort) &&
+    toNumber(d.value) === held.value
+  ) {
+    const checked = validateMethodDraft(VALUE_EFFORT, { ...d, value: undefined }, true, keep);
+    return checked.ok ? { ok: true, values: { ...checked.values, value: held.value } } : checked;
+  }
+  return validateMethodDraft(VALUE_EFFORT, d, true, keep);
+}
+
+const EDITOR_CONFIG: MethodToolConfig = {
+  ...VE_CONFIG,
+  Inputs: VeEditorInputs,
+  validate: checkEdit,
+};
 
 /**
  * Edit a row in place (the method shell's editor: Enter saves, Escape
