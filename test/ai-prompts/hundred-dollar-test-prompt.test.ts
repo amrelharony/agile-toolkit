@@ -62,6 +62,9 @@ describe("generateHundredDollarPrompts", () => {
     expect(p.prompt.indexOf("| Search |")).toBeLessThan(p.prompt.indexOf("| Exports |"));
     expect(p.prompt).toContain("All $100 of the agreed split is given out.");
     expect(p.prompt).toContain("Verdict: Agreed split: Search leads with $60.");
+    // No round, no backers: question 2 asks about the agreed split alone.
+    expect(p.prompt).toContain("2. Which items got an outsized fraction of the agreed split,");
+    expect(p.prompt).not.toContain("Use how many gave each something");
   });
 
   it("gives each item's team average from the latest round beside the agreed split", () => {
@@ -75,6 +78,9 @@ describe("generateHundredDollarPrompts", () => {
     expect(p.prompt).toContain(
       "Verdict: 4 people split $100 each: Search leads with $50 on average."
     );
+    // Under 5 answers the backers column is all "—", so question 2 doesn't lean on it.
+    expect(p.prompt).toContain("The round doesn't show how many gave each something");
+    expect(p.prompt).not.toContain("Use how many gave each something");
   });
 
   it("shows backers and the middle half once the round kept its spread", () => {
@@ -91,6 +97,9 @@ describe("generateHundredDollarPrompts", () => {
     const [p] = generateHundredDollarPrompts({ items, rounds: [withBands] }, null);
     expect(p.prompt).toContain(`| Search | $60 | $50 | 5 | ${middle} |`);
     expect(p.prompt).not.toContain("The spread shows from");
+    expect(p.prompt).toContain(
+      "2. Which items got an outsized fraction — strong consensus or a few big amounts? Use how many gave each something."
+    );
   });
 
   it("leaves other tools' rows out and has nothing to ask without items or rounds", () => {

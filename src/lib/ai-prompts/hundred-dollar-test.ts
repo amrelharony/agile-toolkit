@@ -57,11 +57,15 @@ export function generateHundredDollarPrompts(
 
   let table: string;
   let round = "";
+  // Whether the table says how many gave each item something: only a round that kept its spread does.
+  let backersShown = false;
   if (latest) {
     const money = (n: number) => allocationAmount(n, latest.unit);
+    const compared = compareSplit(items, latest);
+    backersShown = compared.some((c) => c.backers !== null);
     table = formatTable(
       ["Item", "Agreed split", "Team average", "People who gave something", "Middle half"],
-      compareSplit(items, latest).map((c) => [
+      compared.map((c) => [
         c.current ? c.text : `${c.text} (deleted since)`,
         agreedText(c.agreed),
         c.mean === null ? "Not in this round" : money(c.mean),
@@ -80,6 +84,12 @@ export function generateHundredDollarPrompts(
   }
   // The verdict and the table name items: both sit in the untrusted block.
   const verdict = `Verdict: ${sanitizePromptCell(hundredDollarVerdict(items, latest), 400)}`;
+  // Ask about backers only when the table has them.
+  const outsized = backersShown
+    ? `2. Which items got an outsized fraction — strong consensus or a few big amounts? Use how many gave each something.\n`
+    : latest
+      ? `2. Which items got an outsized fraction of the team's averages? The round doesn't show how many gave each something, so say where an average could rest on a few big amounts.\n`
+      : `2. Which items got an outsized fraction of the agreed split, and what would check that the whole group backs it?\n`;
 
   return [
     {
@@ -95,7 +105,7 @@ export function generateHundredDollarPrompts(
         context +
         `\n## Questions\n\n` +
         `1. Where would you draw the cut line based on the amounts?\n` +
-        `2. Which items got an outsized fraction — strong consensus or a few big amounts? Use how many gave each something.\n` +
+        outsized +
         (latest
           ? `3. Where do the agreed split and the team's averages disagree, and what would you ask about it?\n`
           : `3. What follow-up would deepen the signal? A team round shows how each person would split it.\n`) +
