@@ -55,6 +55,7 @@ import {
 import { MethodInputControl, MethodInputs } from "@/components/prioritization/method-inputs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { saveBacklogItem } from "@/lib/prioritization/backlog-links";
 import { RICE, WSJF } from "@/lib/prioritization/methods";
 import { MOSCOW_BUCKETS, MOSCOW_LABEL } from "@/lib/prioritization/methods/moscow";
 import { rankMethodRows, type RankedRow } from "@/lib/prioritization/rank";
@@ -860,5 +861,37 @@ describe("MethodTool legacy links", () => {
     act(() => undo.last?.revert());
     expect(rows()[0].fields?.businessValue).toBe(8);
     expect(within(listed()[0]).getByRole("note")).toBeInTheDocument();
+  });
+
+  it("still asks after the item's first save elsewhere (Decide order's Save order)", () => {
+    renderTool();
+    act(() => {
+      saveBacklogItem("b1", { rank: 1 });
+    });
+    // Stamped now, with its own values: the row's 8 is still the question.
+    expect(storedItem("b1")).toMatchObject({ rank: 1, businessValue: 13 });
+    expect(storedItem("b1")?.updatedAt).toBeTruthy();
+    const note = within(listed()[0]).getByRole("note");
+    expect(note).toHaveTextContent("Business value 8 here, 13 on the backlog item.");
+    fireEvent.click(
+      within(note).getByRole("button", { name: "Keep the backlog item's WSJF values for Checkout" })
+    );
+    expect(within(listed()[0]).queryByRole("note")).toBeNull();
+    expect(rows()[0].fields).toEqual({
+      businessValue: 13,
+      timeCriticality: 8,
+      rrOe: 3,
+      jobSize: 5,
+    });
+    expect(screen.getByRole("button", { name: "Edit Checkout" })).toHaveFocus();
+    // Undo puts the question back.
+    act(() => undo.last?.revert());
+    expect(within(listed()[0]).getByRole("note")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use this row's WSJF values for Checkout" })
+    );
+    expect(storedItem("b1")?.businessValue).toBe(8);
+    expect(within(listed()[0]).queryByRole("note")).toBeNull();
+    expect(rows()[0].fields).not.toHaveProperty("legacyDiffers");
   });
 });

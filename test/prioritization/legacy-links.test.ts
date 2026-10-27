@@ -31,10 +31,13 @@ import {
 } from "@/lib/prioritization/backlog-links";
 import { OLD_BACKLOG_DEFAULTS } from "@/lib/prioritization/defaults";
 import {
+  LEGACY_DIFFERS_FIELD,
   evaluateItemIn,
   evaluateRow,
   legacyDifferences,
+  markLegacyDifferences,
   withLegacyLinks,
+  withoutLegacyMark,
 } from "@/lib/prioritization/methods";
 import { rankMethodRows } from "@/lib/prioritization/rank";
 import { frameworkScores } from "@/lib/prioritization/scores";
@@ -210,9 +213,90 @@ describe("a legacy row that disagrees with its item", () => {
       { key: "rrOe", row: 2, item: 5 },
       { key: "jobSize", row: 1, item: 5 },
     ]);
-    // Saved by the new code, or a row of old defaults: nothing to ask.
+    // Saved by the new code with no mark, or a row of old defaults: nothing to ask.
     expect(legacyDifferences(could, { ...item, updatedAt: STAMP })).toEqual([]);
     expect(legacyDifferences(row("m3", "moscow", { bucket: "should" }), item)).toEqual([]);
     expect(legacyDifferences(could, undefined)).toEqual([]);
+  });
+});
+
+describe("a legacy row that disagrees with its item, past the item's first save", () => {
+  const item = legacy("b1", { moscow: "must" });
+  const could = row("m2", "moscow", { bucket: "could" });
+  const marked = { ...could, fields: { bucket: "could", [LEGACY_DIFFERS_FIELD]: "bucket" } };
+  const asked = [{ key: "bucket", row: "could", item: "must" }];
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ backlogItems: [item], prioritizations: [could, rice] });
+  });
+
+  it("markLegacyDifferences: the rows to mark before the stamp, and only those", () => {
+    const at = "2026-10-27T09:00:00.000Z";
+    expect(markLegacyDifferences(item, [could, rice], { now: at })).toEqual([
+      { ...marked, updatedAt: at },
+    ]);
+    // The row the save writes itself, a row already marked so, an item
+    // already stamped, a row of old defaults: nothing to write.
+    expect(markLegacyDifferences(item, [could], { except: "m2" })).toEqual([]);
+    expect(markLegacyDifferences(item, [marked])).toEqual([]);
+    expect(markLegacyDifferences({ ...item, updatedAt: STAMP }, [could])).toEqual([]);
+    expect(markLegacyDifferences(item, [row("m3", "moscow", { bucket: "should" })])).toEqual([]);
+    // The mark is no input: the row reads and scores as before.
+    expect(evaluateRow(marked, item).bucket).toBe("must");
+    expect(withoutLegacyMark(marked.fields)).toEqual({ bucket: "could" });
+  });
+
+  it("Decide order's rank save stamps the item and the row still asks", () => {
+    saveBacklogItem("b1", { rank: 1 });
+    const saved = storedItem("b1")!;
+    expect(saved).toMatchObject({ rank: 1, moscow: "must" });
+    expect(saved.updatedAt).toBeTruthy();
+    expect(storedRow("m2")?.fields).toEqual(marked.fields);
+    expect(legacyDifferences(storedRow("m2")!, saved)).toEqual(asked);
+    // The item's value still counts.
+    expect(evaluateRow(storedRow("m2")!, saved).bucket).toBe("must");
+  });
+
+  it("so do a hub rename and a save in another method", () => {
+    renameEverywhere("b1", "Checkout v2");
+    expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual(asked);
+    expect(storedRow("m2")?.title).toBe("Checkout v2");
+    useWorkspaceStore.setState({ backlogItems: [item], prioritizations: [could, rice] });
+    saveMethodRow("r1", { effort: 3 });
+    expect(storedItem("b1")?.updatedAt).toBeTruthy();
+    expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual(asked);
+  });
+
+  it("asks only about the marked inputs, while they still differ", () => {
+    saveBacklogItem("b1", { rank: 1 });
+    // The hub picks the row's bucket: nothing left to ask.
+    saveBacklogItem("b1", { moscow: "could" });
+    expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual([]);
+  });
+
+  it("a save of the row answers it: the mark goes (Use this row's, Keep the item's, an edit)", () => {
+    saveBacklogItem("b1", { rank: 1 });
+    // Use this row's: its value written through.
+    saveMethodRow("m2", { bucket: "could" });
+    expect(storedItem("b1")?.moscow).toBe("could");
+    expect(storedRow("m2")?.fields).toEqual({ bucket: "could" });
+    expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual([]);
+    // Keep the item's (the row takes what it shows), on a fresh mark.
+    useWorkspaceStore.setState({
+      backlogItems: [{ ...item, updatedAt: STAMP }],
+      prioritizations: [marked],
+    });
+    saveMethodRow("m2", {});
+    expect(storedRow("m2")?.fields).toEqual({ bucket: "must" });
+    expect(legacyDifferences(storedRow("m2")!, storedItem("b1"))).toEqual([]);
+  });
+
+  it("deleting the item freezes the row without its mark", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [{ ...item, updatedAt: STAMP }],
+      prioritizations: [marked],
+    });
+    removeBacklogItemWithUndo("b1");
+    expect(storedRow("m2")?.fields).toEqual({ bucket: "must" });
   });
 });

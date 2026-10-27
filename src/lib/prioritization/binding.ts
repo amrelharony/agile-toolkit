@@ -19,7 +19,9 @@
  * - A link made before Phase 7 whose item still holds a method's old
  *   defaults reads the row's own value there (methods legacyRowValues),
  *   and a save of the item starts from `withLegacyLinks(item, rows)`, so
- *   the item's first save through the new code keeps that value.
+ *   the item's first save through the new code keeps that value. A legacy
+ *   row that disagrees with its item is marked just before that save
+ *   (methods markLegacyDifferences), so its tool still asks which to keep.
  *
  * Cross-device sync is whole-entity last-writer-wins (lib/sync/lww): two
  * devices editing different fields of one item at once keep one side. That
@@ -34,6 +36,7 @@ import {
   method,
   readThrough,
   scoreCache,
+  withoutLegacyMark,
   type EvalContext,
   type MethodId,
   type RowFields,
@@ -189,8 +192,10 @@ export function applyItemPatch(
 
 /**
  * A row made from a method's inputs: `values` written over the previous
- * row's fields (its other keys kept), the score cache from the engine and
- * the link kept unless `backlogItemId` says otherwise.
+ * row's fields (its other keys kept, but for a legacy mark: a save of the
+ * row answers the question it kept, methods markLegacyDifferences), the
+ * score cache from the engine and the link kept unless `backlogItemId`
+ * says otherwise.
  */
 export function methodRow(input: {
   id: string;
@@ -203,7 +208,7 @@ export function methodRow(input: {
   ctx?: EvalContext;
 }): PrioritizationItem {
   const m = method(input.framework);
-  const fields = m.write(input.prev?.fields, input.values);
+  const fields = m.write(withoutLegacyMark(input.prev?.fields), input.values);
   const cache = scoreCache(m.evaluate(m.read(fields), input.ctx), input.prev?.status);
   const row: PrioritizationItem = {
     ...input.prev,
@@ -234,7 +239,8 @@ export function frozenRow(
 ): PrioritizationItem {
   const m = methodFor(row.framework);
   if (!m || !m.embedded || row.backlogItemId !== item.id) return row;
-  const fields = effectiveFields(row, item);
+  // Unlinked, it owns its values: there is no item left to disagree with.
+  const fields = withoutLegacyMark(effectiveFields(row, item));
   const cache = scoreCache(m.evaluate(m.read(fields)), row.status);
   const next: PrioritizationItem = { ...row, fields, status: cache.status, updatedAt: now };
   if (cache.score === undefined) delete next.score;

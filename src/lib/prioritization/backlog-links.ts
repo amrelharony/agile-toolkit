@@ -6,7 +6,9 @@
  * through the store's upsert/remove actions. A backlog item is always
  * saved through `applyItemPatch` (old-default fingerprints cleared,
  * `updatedAt` stamped), starting from what its links made before Phase 7
- * still hold (`itemSaveBase`). Cross-tool writes (creating a backlog item,
+ * still hold (`itemSaveBase`), and the first such save marks the legacy
+ * rows that disagree with it (`keepLegacyDifferences`), so their tools
+ * still ask which value to keep. Cross-tool writes (creating a backlog item,
  * writing a row's inputs to it) run inside `undoable`, and Undo puts back
  * only what nobody has changed since: a hub edit made inside the Undo
  * window stays.
@@ -29,7 +31,7 @@ import {
 } from "./binding";
 import { withoutOldDefaults } from "./defaults";
 import { createBacklogItem } from "./frameworks";
-import { methodFor, withLegacyLinks, type Values } from "./methods";
+import { markLegacyDifferences, methodFor, withLegacyLinks, type Values } from "./methods";
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -87,10 +89,30 @@ function inputChanges(
 
 const hasChanges = (changes: Partial<BacklogItem>) => Object.keys(changes).length > 0;
 
-/** Write `changes` onto the freshest copy of the backlog item; returns what was stored. */
-function applyInputs(item: BacklogItem, changes: Partial<BacklogItem>): BacklogItem | undefined {
+/**
+ * Just before an item's save stamps it: mark each row linked to it that
+ * disagrees with it from before Phase 7 (methods markLegacyDifferences), so
+ * its tool still asks which value to keep once the stamp is on. `except` is
+ * a row the same save writes itself. Nothing for an item already stamped.
+ */
+function keepLegacyDifferences(stored: BacklogItem, except?: string): void {
+  for (const row of markLegacyDifferences(stored, ws().prioritizations ?? [], { except })) {
+    ws().upsertPrioritization(row);
+  }
+}
+
+/**
+ * Write `changes` onto the freshest copy of the backlog item; returns what
+ * was stored. `except` is the row the save comes from (keepLegacyDifferences).
+ */
+function applyInputs(
+  item: BacklogItem,
+  changes: Partial<BacklogItem>,
+  except?: string
+): BacklogItem | undefined {
   if (!hasChanges(changes)) return undefined;
   const cur = findBacklogItem(item.id) ?? item;
+  keepLegacyDifferences(cur, except);
   const next = applyItemPatch(itemSaveBase(cur), changes);
   ws().upsertBacklogItem(next);
   return next;
@@ -145,7 +167,8 @@ function unlinkRow(rowId: string, backlogItemId: string): void {
 /**
  * Save a backlog item through the new code (the hub's cell edits, renames):
  * `patch` over the freshest copy, a key set to undefined cleared, the
- * old-default fingerprints unset and `updatedAt` stamped. A patch that
+ * old-default fingerprints unset and `updatedAt` stamped (its legacy rows
+ * that disagree with it marked first: keepLegacyDifferences). A patch that
  * changes nothing the engine reads writes nothing. Returns the stored item.
  */
 export function saveBacklogItem(id: string, patch: Partial<BacklogItem>): BacklogItem | undefined {
@@ -154,6 +177,7 @@ export function saveBacklogItem(id: string, patch: Partial<BacklogItem>): Backlo
   const base = itemSaveBase(cur);
   const changes = itemPatchChanges(base, patch);
   if (!hasChanges(changes)) return cur;
+  keepLegacyDifferences(cur);
   const next = applyItemPatch(base, changes);
   ws().upsertBacklogItem(next);
   return next;
@@ -258,7 +282,7 @@ export function saveMethodRow(
     label: opts.label ?? `Updated “${shortName(item.name)}” in the backlog`,
     apply: () => {
       ws().upsertPrioritization(nextRow);
-      written = applyInputs(item, changes);
+      written = applyInputs(item, changes, rowId);
       siblings = renamed ? renameLinkedRows(item.id, renamed, rowId) : [];
     },
     revert: () => {
