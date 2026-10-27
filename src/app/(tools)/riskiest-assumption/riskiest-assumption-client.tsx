@@ -362,9 +362,12 @@ export function RiskiestAssumptionClient() {
     () => ({
       toolName: "Riskiest Assumption Canvas",
       // The rows the page ranks: example rows next to the team's own stay out.
-      prompts: generateRiskiestAssumptionPrompts({ assumptions: [...counted.rows] }, workspace),
+      prompts: generateRiskiestAssumptionPrompts(
+        { assumptions: counted.rows, hypotheses },
+        workspace
+      ),
     }),
-    [counted, workspace]
+    [counted, hypotheses, workspace]
   );
 
   const cardProps = (a: Assumption): AssumptionCardProps => {
