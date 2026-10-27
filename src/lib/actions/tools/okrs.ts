@@ -17,6 +17,9 @@
  *   3. update_key_result   — the older verb: sets `current` by recording a
  *                            check-in, so an agent's update leaves a trend
  *                            point like the page's.
+ *   4. remove_check_in     — delete one check-in, as the page's check-in
+ *                            history does: current and confidence follow
+ *                            the newest check-in left.
  *
  * Every number comes from lib/okrs (progress and links), the formula the
  * page, Sprint Goal and the AI prompt share. Example rows (`example-` ids)
@@ -57,6 +60,7 @@ import {
   replacesUndated,
   type UndatedReplaced,
   withCheckIn,
+  withoutCheckIn,
 } from "@/lib/okrs/progress";
 import { sprintGoalsFor } from "@/lib/okrs/links";
 import { normalizeQuarter } from "@/lib/roadmap/quarters";
@@ -378,4 +382,81 @@ registry.register({
   paramsSchema: updateParams,
   handler: (params) => updateKeyResult(browserStore, params, false),
   mcpHandler: (params, ctx) => updateKeyResult(serverStore(ctx.userId), params, true),
+});
+
+/* ── remove_check_in ────────────────────────────────────────────────── */
+
+const removeParams = z.object({
+  okrId: z.string(),
+  keyResultId: z.string(),
+  checkInId: z.string().describe("A check-in's id, from workspace.okr.get or check_in's result."),
+});
+
+type RemoveResult =
+  | {
+      removed: true;
+      /** The key result's value after it: the newest check-in left's, else its baseline. */
+      current: number;
+      confidence: number | null;
+      keyResultProgressPct: number;
+      progressPct: number;
+      checkInCount: number;
+    }
+  | { removed: false; reason: "not_found"; message: string };
+
+/**
+ * The page's check-in delete (lib/okrs withoutCheckIn): the rest re-mirror
+ * the key result's current value and confidence; with none left, current
+ * goes back to the baseline. The page offers Undo; an agent re-records the
+ * check-in with check_in instead.
+ */
+async function removeCheckIn(
+  store: OkrStore,
+  p: z.infer<typeof removeParams>
+): Promise<RemoveResult> {
+  const okr = await store.okr(p.okrId);
+  const kr = okr?.keyResults.find((k) => k.id === p.keyResultId);
+  if (!okr || !kr) {
+    return {
+      removed: false,
+      reason: "not_found",
+      message: okr
+        ? `OKR "${p.okrId}" has no key result "${p.keyResultId}".`
+        : `No OKR "${p.okrId}".`,
+    };
+  }
+  const nextKr = withoutCheckIn(kr, p.checkInId);
+  if (nextKr === kr) {
+    return {
+      removed: false,
+      reason: "not_found",
+      message: `Key result "${p.keyResultId}" has no check-in "${p.checkInId}".`,
+    };
+  }
+  const next: Okr = {
+    ...okr,
+    keyResults: okr.keyResults.map((k) => (k.id === kr.id ? nextKr : k)),
+  };
+  await store.put(next);
+  return {
+    removed: true,
+    current: nextKr.current,
+    confidence: isConfidence(nextKr.confidence) ? nextKr.confidence : null,
+    keyResultProgressPct: krPercent(nextKr),
+    progressPct: objectivePercent(next),
+    checkInCount: (nextKr.checkIns ?? []).length,
+  };
+}
+
+registry.register({
+  id: "tool.okrs.remove_check_in",
+  toolId: "tool.okrs",
+  name: "remove_check_in",
+  category: "write",
+  requiresConfirmation: true,
+  description:
+    "Delete one check-in from a key result, as the OKR page's check-in history does. The key result's current value and confidence then follow the newest check-in left; with none left, current goes back to its baseline (a key result with no baseline keeps its value) and an unscored key result has no confidence. Params: {okrId, keyResultId, checkInId}. Returns {removed: true, current, confidence | null, keyResultProgressPct, progressPct (the objective's), checkInCount} or {removed: false, reason: 'not_found', message}.",
+  paramsSchema: removeParams,
+  handler: (params) => removeCheckIn(browserStore, params),
+  mcpHandler: (params, ctx) => removeCheckIn(serverStore(ctx.userId), params),
 });

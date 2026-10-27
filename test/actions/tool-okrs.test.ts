@@ -45,6 +45,7 @@ import {
   objectivePercent,
   okrVerdict,
   overallProgress,
+  withoutCheckIn,
 } from "@/lib/okrs/progress";
 import { sprintGoalsFor } from "@/lib/okrs/links";
 import { blankGoal } from "@/lib/sprints/goal-doc";
@@ -443,5 +444,69 @@ describe("tool.okrs.update_key_result", () => {
     expect(r).toMatchObject({ updated: true, progressPct: 25 });
     expect(serverKr("o1", "k1")).toMatchObject({ current: 25, confidence: 6 });
     expect(serverKr("o1", "k1")!.checkIns).toHaveLength(1);
+  });
+});
+
+describe("tool.okrs.remove_check_in", () => {
+  const churn = () => OKR.keyResults[0];
+  const ids = () => churn().checkIns!.map((c) => c.id);
+
+  it("is a confirmed write on both transports", () => {
+    const a = registry.get("tool.okrs.remove_check_in");
+    expect(a?.category).toBe("write");
+    expect(a?.requiresConfirmation).toBe(true);
+    expect(a?.mcpHandler).toBeTypeOf("function");
+  });
+
+  it("deletes one check-in and re-mirrors from the rest, as the page does", async () => {
+    seed({ okrs: [OKR] });
+    const newest = ids()[2];
+    const r = await call("remove_check_in", {
+      okrId: OKR.id,
+      keyResultId: "kr_churn",
+      checkInId: newest,
+    });
+    const expected = withoutCheckIn(churn(), newest);
+    expect(storedKr(OKR.id, "kr_churn")).toEqual(expected);
+    expect(r).toEqual({
+      removed: true,
+      current: expected.current,
+      confidence: 6,
+      keyResultProgressPct: krPercent(expected),
+      progressPct: objectivePercent({ ...OKR, keyResults: [expected, OKR.keyResults[1]] }),
+      checkInCount: 2,
+    });
+  });
+
+  it("goes back to the baseline once the last check-in goes, over MCP too", async () => {
+    const one: Okr = {
+      ...OKR,
+      keyResults: [{ ...churn(), checkIns: [churn().checkIns![0]], current: 19 }],
+    };
+    seed({ okrs: [one] });
+    const r = await callMcp("remove_check_in", {
+      okrId: OKR.id,
+      keyResultId: "kr_churn",
+      checkInId: ids()[0],
+    });
+    expect(r).toMatchObject({ removed: true, current: 22, checkInCount: 0 });
+    expect(serverKr(OKR.id, "kr_churn")).toMatchObject({ current: 22, checkIns: [] });
+    // The browser store is untouched by the MCP path.
+    expect(storedKr(OKR.id, "kr_churn")!.checkIns).toHaveLength(1);
+  });
+
+  it("refuses an unknown objective, key result or check-in", async () => {
+    seed({ okrs: [OKR] });
+    for (const p of [
+      { okrId: "nope", keyResultId: "kr_churn", checkInId: ids()[0] },
+      { okrId: OKR.id, keyResultId: "nope", checkInId: ids()[0] },
+      { okrId: OKR.id, keyResultId: "kr_churn", checkInId: "nope" },
+    ]) {
+      expect(await call("remove_check_in", p)).toMatchObject({
+        removed: false,
+        reason: "not_found",
+      });
+    }
+    expect(storedKr(OKR.id, "kr_churn")).toEqual(churn());
   });
 });
