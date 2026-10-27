@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SNAPSHOT_IMPORTERS, snapshotValidators } from "@/lib/share/snapshot-import";
-import type { StoryMap } from "@/lib/stores/workspace-types";
+import { KR_CHECK_IN_CAP, type StoryMap } from "@/lib/stores/workspace-types";
 
 beforeEach(() => {
   useWorkspaceStore.setState({ retroBoards: [], prioritizations: [], okrs: [], storyMaps: [] });
@@ -96,6 +96,72 @@ describe("snapshot import", () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     undo!();
     expect(useWorkspaceStore.getState().prioritizations).toHaveLength(0);
+  });
+
+  it("keeps a key result's baseline, direction and dated check-ins, validated, with new ids", () => {
+    const undo = SNAPSHOT_IMPORTERS.okrs.importState([
+      {
+        id: "okr_shared",
+        objective: "Customers stay with us",
+        quarter: "2026 Q4",
+        keyResults: [
+          {
+            id: "kr_churn",
+            title: "Monthly churn",
+            target: 15,
+            current: 18,
+            unit: "%",
+            confidence: 6,
+            baseline: 22,
+            direction: "decrease",
+            checkIns: [
+              { id: "c2", date: "2026-10-08", value: 19, confidence: 6, note: "Price fix shipped" },
+              { id: "c1", date: "2026-10-01", value: 22 },
+              { id: "bad-date", date: "1 Oct", value: 20 },
+              { id: "bad-value", date: "2026-10-02", value: "20" },
+              { id: "c3", date: "2026-10-15", value: 18, confidence: 42, note: 7 },
+            ],
+          },
+          // A legacy key result: none of the three, and a confidence off the scale.
+          { title: "Win-backs", target: 10, current: 2, confidence: 70, direction: "up" },
+        ],
+      },
+    ]);
+    const [okr] = useWorkspaceStore.getState().okrs;
+    const [churn, winBacks] = okr.keyResults;
+    expect(churn).toMatchObject({ baseline: 22, direction: "decrease", confidence: 6 });
+    expect(churn.id).not.toBe("kr_churn");
+    expect(churn.checkIns?.map((c) => [c.date, c.value, c.confidence, c.note])).toEqual([
+      ["2026-10-01", 22, undefined, undefined],
+      ["2026-10-08", 19, 6, "Price fix shipped"],
+      ["2026-10-15", 18, undefined, undefined],
+    ]);
+    expect(churn.checkIns?.map((c) => c.id)).not.toContain("c1");
+    expect(winBacks).not.toHaveProperty("baseline");
+    expect(winBacks).not.toHaveProperty("direction");
+    expect(winBacks).not.toHaveProperty("checkIns");
+    expect(winBacks).not.toHaveProperty("confidence");
+    undo!();
+    expect(useWorkspaceStore.getState().okrs).toHaveLength(0);
+  });
+
+  it("keeps at most KR_CHECK_IN_CAP check-ins on a key result, the newest", () => {
+    const checkIns = Array.from({ length: KR_CHECK_IN_CAP + 3 }, (_, i) => ({
+      id: `c${i}`,
+      date: `2026-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`,
+      value: i,
+    }));
+    SNAPSHOT_IMPORTERS.okrs.importState([
+      {
+        objective: "Grow",
+        quarter: "2026 Q1",
+        keyResults: [{ title: "Sign-ups", target: 100, current: 54, checkIns }],
+      },
+    ]);
+    const kept = useWorkspaceStore.getState().okrs[0].keyResults[0].checkIns ?? [];
+    expect(kept).toHaveLength(KR_CHECK_IN_CAP);
+    expect(kept[0].value).toBe(3);
+    expect(kept[kept.length - 1].value).toBe(KR_CHECK_IN_CAP + 2);
   });
 
   it("rejects state that doesn't match the tool", () => {

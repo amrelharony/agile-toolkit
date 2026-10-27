@@ -16,14 +16,16 @@
 
 import { nanoid } from "nanoid";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type {
-  KeyResult,
-  Okr,
-  PrioritizationItem,
-  RetroBoard,
-  RetroCard,
-  StoryMap,
-  StoryMapCard,
+import {
+  KR_CHECK_IN_CAP,
+  type KeyResult,
+  type KeyResultCheckIn,
+  type Okr,
+  type PrioritizationItem,
+  type RetroBoard,
+  type RetroCard,
+  type StoryMap,
+  type StoryMapCard,
 } from "@/lib/stores/workspace-types";
 import {
   RETRO_ARCHIVE_LIMIT,
@@ -131,6 +133,36 @@ function readRows(
 
 // ── OKRs ─────────────────────────────────────────────────────────────────
 
+const isConfidence = (v: unknown): v is number => isNum(v) && v >= 0 && v <= 10;
+
+/**
+ * A key result's dated check-ins (Phase 8): each with a "YYYY-MM-DD" date
+ * and a finite value, a 0–10 confidence and a short note kept when valid,
+ * a new id. Oldest first, at most KR_CHECK_IN_CAP (the newest kept), as the
+ * OKR page keeps them. Invalid entries are left out; none valid: absent.
+ */
+function readCheckIns(raw: unknown): KeyResultCheckIn[] | undefined {
+  if (!isArr(raw)) return undefined;
+  const out: KeyResultCheckIn[] = [];
+  for (const entry of raw) {
+    const c = obj(entry);
+    if (!c || !isStr(c.date, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(c.date) || !isNum(c.value)) {
+      continue;
+    }
+    out.push({
+      id: `ci-${nanoid(8)}`,
+      date: c.date,
+      value: c.value,
+      ...(isConfidence(c.confidence) ? { confidence: c.confidence } : {}),
+      ...(isStr(c.note, 500) ? { note: c.note } : {}),
+    });
+  }
+  if (out.length === 0) return undefined;
+  // A stable sort: same-day check-ins keep the order they were sent in.
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out.slice(-KR_CHECK_IN_CAP);
+}
+
 function readOkrs(state: unknown): Okr[] | null {
   if (!isArr(state, 50)) return null;
   const out: Okr[] = [];
@@ -142,14 +174,22 @@ function readOkrs(state: unknown): Okr[] | null {
     for (const k of o.keyResults) {
       const kr = obj(k);
       if (!kr || !isStr(kr.title, 500) || !isNum(kr.target) || !isNum(kr.current)) return null;
+      const checkIns = readCheckIns(kr.checkIns);
       krs.push({
         id: `kr-${nanoid(8)}`,
         title: kr.title,
         target: kr.target,
         current: kr.current,
         ...(isStr(kr.unit, 40) ? { unit: kr.unit } : {}),
-        ...(isNum(kr.confidence) ? { confidence: kr.confidence } : {}),
+        ...(isConfidence(kr.confidence) ? { confidence: kr.confidence } : {}),
         ...(isStr(kr.description) ? { description: kr.description } : {}),
+        // Phase 8: without these a "decrease" key result (baseline 22 →
+        // target 15) would import as an "increase" from 0.
+        ...(isNum(kr.baseline) ? { baseline: kr.baseline } : {}),
+        ...(kr.direction === "increase" || kr.direction === "decrease"
+          ? { direction: kr.direction }
+          : {}),
+        ...(checkIns ? { checkIns } : {}),
       });
     }
     out.push({
