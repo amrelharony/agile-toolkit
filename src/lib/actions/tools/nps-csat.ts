@@ -87,7 +87,9 @@ const listParams = z.object({
     .min(1)
     .max(260)
     .optional()
-    .describe("At most this many periods, the latest kept (default 52 weeks or 24 months)."),
+    .describe(
+      "At most this many periods returned, the latest kept (default 52 weeks or 24 months); the headline still reads every period."
+    ),
 });
 
 type ListParams = z.infer<typeof listParams>;
@@ -100,12 +102,13 @@ async function listState(store: NpsStore, p: ListParams) {
   const nps = summarizeNps(matching);
   const csat = summarizeCsat(matching);
   // Run on to today's period, so a recent quiet stretch shows as empty periods.
-  const series = periodSeries(matching, by, {
-    maxPeriods: p.maxPeriods ?? DEFAULT_PERIODS[by],
-    through: todayLocalISO(),
-  });
+  // The headline reads every period, as the page's cards do (a busy period
+  // older than the returned window still heads them); only `periods` keeps
+  // the latest maxPeriods.
+  const series = periodSeries(matching, by, { through: todayLocalISO() });
   const npsHead = latestEnough(series.points, "nps");
   const csatHead = latestEnough(series.points, "csat");
+  const periods = series.points.slice(-(p.maxPeriods ?? DEFAULT_PERIODS[by]));
   return {
     total: real.length,
     tag: tag ?? null,
@@ -115,7 +118,7 @@ async function listState(store: NpsStore, p: ListParams) {
     csat: { ...csat, count: csat.n },
     by,
     minPerPeriod: MIN_SAMPLE.surveyPeriod,
-    periods: series.points,
+    periods,
     headline: {
       nps: npsHead
         ? {
@@ -145,7 +148,7 @@ registry.register({
   toolId: "tool.nps_csat",
   name: "list_state",
   category: "read",
-  description: `Summarise NPS/CSAT responses as the page reads them. Params: {by?: 'week' | 'month' (default month), tag? (only responses with it), maxPeriods? (1-260; default 52 weeks or 24 months, the latest kept)}. Returns {total (the team's responses), tag | null, matching (with the tag), nps: {n, count (= n), score (−100..100 = %promoters − %detractors; null with no NPS responses), promoters (9-10), passives (7-8), detractors (0-6)}, csat: {n, count (= n), satisfied (4-5), satisfiedPct (0-100; null with none), average (1-5 to one decimal; null with none)}, by, minPerPeriod (${MIN_SAMPLE.surveyPeriod}: below it a period's score reads with a warning, one answer moving it by about 100/n points), periods: {period ('2026-W42' | '2026-10'), label, from, to, nps, csat, enoughNps, enoughCsat}[] (oldest first, from the first response's period to today's, empty periods kept with n 0), headline: {nps: {period, label, score, n} | null, csat: {period, label, satisfiedPct, n} | null} (the latest period with enough responses), undated (responses with no readable day: in the totals, in no period), offScale (scores off their kind's scale, saved before Phase 8: left out of every number), tags: {tag, n, promoters, detractors, satisfied, dissatisfied (CSAT 1-2), unhappy (detractors + dissatisfied), nps, csat}[] (over every response, most unhappy first)}. Example rows are left out.`,
+  description: `Summarise NPS/CSAT responses as the page reads them. Params: {by?: 'week' | 'month' (default month), tag? (only responses with it), maxPeriods? (1-260; default 52 weeks or 24 months, the latest kept)}. Returns {total (the team's responses), tag | null, matching (with the tag), nps: {n, count (= n), score (−100..100 = %promoters − %detractors; null with no NPS responses), promoters (9-10), passives (7-8), detractors (0-6)}, csat: {n, count (= n), satisfied (4-5), satisfiedPct (0-100; null with none), average (1-5 to one decimal; null with none)}, by, minPerPeriod (${MIN_SAMPLE.surveyPeriod}: below it a period's score reads with a warning, one answer moving it by about 100/n points), periods: {period ('2026-W42' | '2026-10'), label, from, to, nps, csat, enoughNps, enoughCsat}[] (oldest first, from the first response's period to today's, empty periods kept with n 0), headline: {nps: {period, label, score, n} | null, csat: {period, label, satisfiedPct, n} | null} (the latest period with enough responses, read over every period as the page's cards are, even one older than the periods returned), undated (responses with no readable day: in the totals, in no period), offScale (scores off their kind's scale, saved before Phase 8: left out of every number), tags: {tag, n, promoters, detractors, satisfied, dissatisfied (CSAT 1-2), unhappy (detractors + dissatisfied), nps, csat}[] (over every response, most unhappy first)}. Example rows are left out.`,
   paramsSchema: listParams,
   handler: (params) => listState(browserStore, params),
   mcpHandler: (params, ctx) => listState(serverStore(ctx.userId), params),

@@ -183,6 +183,35 @@ describe("tool.nps_csat.list_state", () => {
     expect((r.tags as { tag: string }[]).map((t) => t.tag)).toEqual(["support", "pricing"]);
   });
 
+  it("heads with the latest period with enough answers even when it is older than the periods returned", async () => {
+    // A busy week 14 months ago, a few answers a month since: the page's
+    // cards read every period, so that week still heads them.
+    const busy = Array.from({ length: 12 }, () =>
+      resp({ kind: "nps", score: 10, date: "2025-09-03" })
+    );
+    const since = ["2026-01-14", "2026-06-10", "2026-10-21"].map((date) =>
+      resp({ kind: "nps", score: 3, date })
+    );
+    seed([...busy, ...since]);
+    const page = periodSeries([...busy, ...since], "week", { through: TODAY });
+    for (const read of [call, callMcp]) {
+      const r = await read<State>("list_state", { by: "week" });
+      expect(r.periods).toHaveLength(52);
+      expect((r.periods[0] as { period: string }).period).toBe(
+        page.points[page.points.length - 52].period
+      );
+      expect(r.periods).toEqual(page.points.slice(-52));
+      expect(r.headline).toEqual({
+        nps: { period: "2025-W36", label: expect.any(String), score: 100, n: 12 },
+        csat: null,
+      });
+    }
+    // A shorter window keeps the same headline.
+    const short = await call<State>("list_state", { by: "week", maxPeriods: 2 });
+    expect(short.periods).toHaveLength(2);
+    expect((short.headline as { nps: { period: string } }).nps.period).toBe("2025-W36");
+  });
+
   it("returns the same over MCP as in the browser", async () => {
     seed([
       resp({ kind: "nps", score: 10, date: "2026-08-03", tags: ["board"] }),
