@@ -482,6 +482,34 @@ describe("opportunity-tree", () => {
     ]);
   });
 
+  it("skips an experiment the card can't test until it is named", () => {
+    // No text, under a solution with no text: "Test as a hypothesis" is disabled.
+    const blank = [
+      ...TREE.filter((n) => n.id !== "s1" && n.id !== "e1"),
+      node("s1", "solution", "p1", { text: " " }),
+      node("e1", "experiment", "s1", { text: "" }),
+      node("e3", "experiment", "s1", { text: "Fake-door test" }),
+    ];
+    expect(
+      step("opportunity-tree", { opportunityTrees: trees(blank) }, "opportunity-tree-test")
+    ).toEqual({
+      id: "opportunity-tree-test",
+      label: "Test “Fake-door test” as a hypothesis",
+      detail:
+        "It sits under your target opportunity “Node p1” and hasn't been tested yet. “Test as a hypothesis” on it sends it to the Hypothesis Tracker.",
+      href: "/opportunity-tree",
+    });
+    expect(
+      ids("opportunity-tree", { opportunityTrees: trees(blank.filter((n) => n.id !== "e3")) })
+    ).toEqual([]);
+    // A blank experiment under a named solution believes the solution: testable.
+    const underNamed = TREE.map((n) => (n.id === "e1" ? { ...n, text: "" } : n));
+    expect(
+      step("opportunity-tree", { opportunityTrees: trees(underNamed) }, "opportunity-tree-test")
+        ?.label
+    ).toBe("Test “Untitled experiment” as a hypothesis");
+  });
+
   it("reads a result from the last month, not an older one", () => {
     const tested = TREE.map((n) =>
       n.id === "e1" ? { ...n, sentTo: [link("hypothesis", "h1")] } : n
@@ -749,6 +777,14 @@ describe("tech-debt", () => {
       step("tech-debt", { techDebt: fast, ceremonyCadences: cadence(7) }, "tech-debt-backlog")
         ?.detail
     ).toContain("scores 29 (interest capped) and is ≈ 7 sprints old (7-day sprints)");
+  });
+
+  it("asks to name an untitled top item before it goes on the backlog", () => {
+    // Its row disables "Add to backlog" while the title is blank.
+    const techDebt = [debt("d1"), debt("d2", { title: "  ", impact: 5, effort: 1 })];
+    expect(step("tech-debt", { techDebt }, "tech-debt-backlog")?.detail).toBe(
+      "The untitled item scores 19 and is ≈ 3 sprints old (14-day sprints): the highest of the open items. Give it a title on its row, then “Add to backlog” makes a story to pay it down."
+    );
   });
 
   it("ignores example items and resolved ones", () => {

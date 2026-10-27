@@ -192,7 +192,12 @@ import { RECENT_DAYS, hypothesisTag, recentResponses } from "@/app/(tools)/nps-c
 import { formatMetric, linkedTest, missingFields, suggestVerdict } from "@/lib/hypotheses/model";
 import { missingText } from "@/app/(tools)/hypothesis-tracker/view";
 import { RA_ID, rankAssumptions, ratingOf } from "@/lib/assumptions/model";
-import { nodeTitle, outcomeOf, treeNodes } from "@/lib/opportunity-tree/model";
+import {
+  experimentHypothesisSource,
+  nodeTitle,
+  outcomeOf,
+  treeNodes,
+} from "@/lib/opportunity-tree/model";
 import {
   UI_ID,
   participantCount,
@@ -3478,10 +3483,16 @@ const RULES: Record<string, NextStepRule<object>> = {
       const byId = new Map(nodes.map((n) => [n.id, n]));
       const experiments = own.filter((n) => n.kind === "experiment");
       const steps: NextStep[] = [];
-      // Under the opportunity the team pursues, and not tested yet.
+      // Under the opportunity the team pursues, and not tested yet. One with
+      // nothing to believe (no text, under no named solution) is left out:
+      // its card disables "Test as a hypothesis" until it is named.
       const untested = experiments.flatMap((n) => {
         const target = targetAbove(n, byId);
-        return target && linkedTest(n.sentTo, hypotheses).state === "none" ? [{ n, target }] : [];
+        return target &&
+          linkedTest(n.sentTo, hypotheses).state === "none" &&
+          experimentHypothesisSource(n, nodes).title.trim().length > 0
+          ? [{ n, target }]
+          : [];
       });
       const [test] = untested;
       if (test) {
@@ -3697,9 +3708,15 @@ const RULES: Record<string, NextStepRule<object>> = {
         steps.push({
           id: "tech-debt-backlog",
           label: "Put the top debt item on the backlog",
-          detail: `${quote(top.item.title, "The untitled item")} scores ${fmt(top.score.total)}${top.score.capped ? " (interest capped)" : ""}${age}: the highest of the open items. “Add to backlog” on its row makes a story to pay it down.`,
+          detail: `${titled ? quote(top.item.title, "") : "The untitled item"} scores ${fmt(top.score.total)}${top.score.capped ? " (interest capped)" : ""}${age}: the highest of the open items. ${
+            titled
+              ? "“Add to backlog” on its row makes a story to pay it down."
+              : "Give it a title on its row, then “Add to backlog” makes a story to pay it down."
+          }`,
           href: "/tech-debt",
         });
+        // The row disables "Add to backlog" while the title is blank: name it first.
+        const titled = (top.item.title ?? "").trim().length > 0;
       }
       return steps;
     },
