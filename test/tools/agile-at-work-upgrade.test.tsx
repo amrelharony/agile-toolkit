@@ -529,7 +529,12 @@ describe("reader with a transcript", () => {
       "Speaker One: Fixture line one.Fixture caption."
     );
     // Outside the crossfade, inside the reader region.
-    expect(stage()).toContainElement(document.getElementById(id!));
+    const desc = document.getElementById(id!);
+    const fade = img.closest(".absolute.inset-0");
+    expect(fade).not.toBeNull();
+    expect(fade).not.toContainElement(desc);
+    expect(stage()).toContainElement(desc);
+    expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1);
     expect(img).toHaveAccessibleDescription("Speaker One: Fixture line one. Fixture caption.");
 
     // A wordless page has a description (alt) but nothing to link.
@@ -543,12 +548,20 @@ describe("reader with a transcript", () => {
     const toggle = screen.getByRole("button", { name: "Transcript" });
     expect(toggle).toHaveAttribute("aria-disabled", "true");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // Why it is unavailable, on screen (no title tooltip) and as its description.
+    expect(toggle).not.toHaveAttribute("title");
+    expect(toggle).toHaveAccessibleDescription("No transcript on this page yet");
+    const note = document.getElementById(toggle.getAttribute("aria-describedby")!);
+    expect(note).toHaveTextContent("No transcript on this page yet");
+    expect(note?.className).not.toMatch(/\bsr-only\b/);
     fireEvent.click(toggle);
     expect(screen.queryByRole("region", { name: "Transcript" })).toBeNull();
 
     next();
     await screen.findByAltText(/^Page 2 of 24/);
     expect(toggle).toHaveAttribute("aria-disabled", "false");
+    expect(toggle).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByText(/^No transcript on th/)).toBeNull();
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     const panel = screen.getByRole("region", { name: "Transcript" });
@@ -563,6 +576,7 @@ describe("reader with a transcript", () => {
     const img = screen.getByAltText(/^Page 2 of 24/);
     const desc = document.getElementById(img.getAttribute("aria-describedby")!);
     expect(desc?.parentElement).toHaveAttribute("hidden");
+    expect(img).toHaveAccessibleDescription("Speaker One: Fixture line one. Fixture caption.");
 
     // A page without a transcript: no panel, the preference kept.
     fireEvent.keyDown(window, { key: "ArrowLeft" });
@@ -643,6 +657,52 @@ describe("reader with chapters", () => {
       { current: true }
     );
     expect(current).toHaveAccessibleName(/^Fixture chapter B/);
+  });
+
+  it("keeps a one-page chapter picked in Contents current, on a spread's left-hand page", async () => {
+    const content: ComicContent = {
+      chapters: [
+        { title: "Fixture chapter A", firstPage: 2, tools: ["kanban"] },
+        { title: "Fixture one-pager", firstPage: 4, tools: ["impediments"] },
+        { title: "Fixture chapter B", firstPage: 5, tools: ["retro-actions"] },
+      ],
+      pages: [],
+    };
+    await openOn(1, content);
+    fireEvent.click(screen.getByRole("button", { name: "Spread" }));
+    const toggle = screen.getByRole("button", { name: "Contents" });
+    const currentEntry = () =>
+      within(screen.getByRole("navigation", { name: "Contents" })).getByRole("button", {
+        current: true,
+      });
+
+    fireEvent.click(toggle);
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "Contents" })).getByRole("button", {
+        name: /^Fixture one-pager/,
+      })
+    );
+    // 4–5: page 5 opens chapter B, but the reader asked for the one-pager.
+    await screen.findByAltText(genericAlt(4));
+    expect(screen.getByAltText(genericAlt(5))).toBeInTheDocument();
+    expect(live()).toBe("Pages 4–5 of 24 — Fixture one-pager");
+    expect(
+      screen.getByRole("complementary", { name: "Tools from “Fixture one-pager”" })
+    ).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(currentEntry()).toHaveAccessibleName(/^Fixture one-pager/);
+    fireEvent.click(toggle);
+
+    // Paged away and back, the spread is chapter B's again (its right-hand page).
+    next();
+    await screen.findByAltText(genericAlt(6));
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    await screen.findByAltText(genericAlt(4));
+    expect(
+      screen.getByRole("complementary", { name: "Tools from “Fixture chapter B”" })
+    ).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(currentEntry()).toHaveAccessibleName(/^Fixture chapter B/);
   });
 
   it("names the chapter in the live region when the view enters it", async () => {
@@ -744,5 +804,72 @@ describe("reader with chapters", () => {
     for (const title of within(nav).getAllByText(/^Fixture chapter/)) {
       expect(title.className).toMatch(/\bbreak-words\b/);
     }
+  });
+});
+
+describe("panels on screen", () => {
+  // jsdom has no scrollIntoView; the stub records what was revealed.
+  const scrolled = vi.fn();
+  beforeEach(() => {
+    scrolled.mockReset();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrolled,
+    });
+  });
+  afterEach(() => {
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it("brings a panel opened under the fold into view, with its toggles", async () => {
+    await openOn(2);
+    expect(scrolled).not.toHaveBeenCalled();
+    const contents = screen.getByRole("button", { name: "Contents" });
+    const toggles = contents.parentElement!.parentElement!;
+
+    fireEvent.click(contents);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(scrolled.mock.calls[0][0]).toMatchObject({ block: "nearest" });
+    expect(scrolled.mock.contexts[0]).toBe(toggles);
+    expect(toggles).toContainElement(screen.getByRole("navigation", { name: "Contents" }));
+
+    // Closing scrolls nothing; the Transcript opening does.
+    fireEvent.click(contents);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+    expect(scrolled).toHaveBeenCalledTimes(2);
+    expect(scrolled.mock.contexts[1]).toBe(toggles);
+  });
+
+  it("never scrolls for a panel open from the stored preference or a page turn", async () => {
+    localStorage.setItem(COMIC_TRANSCRIPT_KEY, "true");
+    await openOn(1);
+    next(); // page 2 has a transcript: the panel reappears
+    await screen.findByRole("region", { name: "Transcript" });
+    next();
+    await screen.findByAltText(/^Page 3 of 24/);
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+
+  it("scrolls inside the fullscreen panels, which are relative and keyboard-scrollable", async () => {
+    await openOn(2);
+    // Inline, the panels are not a scroller of their own.
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+    expect(screen.queryByRole("region", { name: "Reader panels" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+    scrolled.mockReset();
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
+    const dialog = await screen.findByRole("dialog", { name: "Agile at Work reader" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Contents" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Transcript" }));
+    const scroller = within(dialog).getByRole("region", { name: "Reader panels" });
+    const transcript = within(scroller).getByRole("region", { name: "Transcript" });
+    expect(scroller).toHaveAttribute("tabindex", "0");
+    expect(scroller.className).toMatch(/\brelative\b/);
+    expect(scroller.className).toMatch(/\boverflow-y-auto\b/);
+    expect(scroller.className).toMatch(/\bfocus-visible:ring-2\b/);
+    // The panel just opened, not the page: fullscreen has no page to scroll.
+    expect(scrolled.mock.contexts.at(-1)).toBe(transcript);
   });
 });

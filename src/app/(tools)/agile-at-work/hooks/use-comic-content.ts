@@ -69,8 +69,16 @@ export interface ReaderComic {
   content: ComicContent;
   transcripts: ReadonlyMap<number, ComicTranscript>;
   /** The chapter of the LAST page on screen: a spread can open a new
-   * chapter on its right-hand page, and that is where the reader now is. */
+   * chapter on its right-hand page, and that is where the reader now is.
+   * The exception is a chapter just picked in Contents, while its first
+   * page is on screen (see `pickChapter`). */
   chapter: ComicChapter | null;
+  /** Contents picked the chapter starting on `firstPage`: it is the
+   * current chapter until its first page leaves the screen. Otherwise a
+   * one-page chapter on a spread's left-hand page, followed straight away
+   * by the next chapter, could never be current: picking it would mark,
+   * announce and link the next chapter instead. */
+  pickChapter: (firstPage: number) => void;
   /** The pages on screen that have a transcript, in view order. */
   viewTranscripts: ComicTranscript[];
   transcriptOpen: boolean;
@@ -96,10 +104,17 @@ export function useReaderComic({
     () => new Map(normalized.pages.map((t) => [t.page, t] as const)),
     [normalized]
   );
+  const [picked, setPicked] = useState<number | null>(null);
+  const pinned = picked !== null && view.includes(picked) ? picked : null;
+  // "Adjusting state while rendering": once the picked page is off screen,
+  // paging back to it follows the usual rule again.
+  if (picked !== null && pinned === null) setPicked(null);
   const lastInView = view[view.length - 1] ?? 1;
   const chapter = useMemo(
-    () => chapterForPage(normalized.chapters, lastInView),
-    [normalized, lastInView]
+    () =>
+      normalized.chapters.find((c) => c.firstPage === pinned) ??
+      chapterForPage(normalized.chapters, lastInView),
+    [normalized, lastInView, pinned]
   );
   const viewTranscripts = useMemo(
     () => view.flatMap((p) => transcripts.get(p) ?? []),
@@ -112,6 +127,7 @@ export function useReaderComic({
     content: normalized,
     transcripts,
     chapter,
+    pickChapter: setPicked,
     viewTranscripts,
     // Anything but `true` in the slot (a hand edit) reads as closed.
     transcriptOpen: storedOpen === true,

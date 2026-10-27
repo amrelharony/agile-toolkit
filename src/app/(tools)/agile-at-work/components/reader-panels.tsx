@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import { BookMarked, Captions, ListOrdered } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { chapterLastPage, pageRangeLabel, type ComicTranscript } from "@/lib/comic/content";
@@ -24,7 +25,7 @@ const TOGGLE = "min-h-11 md:h-11 aria-disabled:cursor-not-allowed aria-disabled:
  * the reader looks as it did before they existed. Contents shows only with
  * chapters, Transcript only with transcripts; on a page without one the
  * Transcript toggle stays (focus never drops to <body> mid-read) but is
- * unavailable and no panel shows.
+ * unavailable, says why next to it, and no panel shows.
  */
 export function ReaderPanels({
   comic,
@@ -43,17 +44,36 @@ export function ReaderPanels({
   const [contentsOpen, setContentsOpen] = useState(false);
   const contentsId = useId();
   const transcriptId = useId();
+  const noTranscriptId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const reducedMotion = useReducedMotion();
+  // The panel a click just opened. Only a click reveals one: a panel open
+  // from the stored preference, or reappearing on a page turn, never
+  // scrolls the page.
+  const revealRef = useRef<string | null>(null);
   const { content, chapter, viewTranscripts, transcriptOpen, setTranscriptOpen } = comic;
   const hasChapters = content.chapters.length > 0;
   const hasTranscripts = content.pages.length > 0;
-  if (!hasChapters && !hasTranscripts) return null;
-
   const transcriptHere = viewTranscripts.length > 0;
   const transcriptShown = transcriptOpen && transcriptHere;
   const contentsShown = contentsOpen && hasChapters;
 
+  useEffect(() => {
+    const id = revealRef.current;
+    if (!id) return;
+    revealRef.current = null;
+    // Inline, the stage fills the screen down to the toolbar, so a panel
+    // opens below the fold: bring the toggles and the panel into view. In
+    // fullscreen everything is on screen, but the panel can open below
+    // the other one in the panels' own scroller. jsdom has no scrollIntoView.
+    const target = isFullscreen ? document.getElementById(id) : rootRef.current;
+    target?.scrollIntoView?.({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
+  }, [contentsShown, transcriptShown, isFullscreen, reducedMotion]);
+
+  if (!hasChapters && !hasTranscripts) return null;
+
   return (
-    <div className={cn("flex flex-col gap-2", isFullscreen && "shrink-0")}>
+    <div ref={rootRef} className={cn("flex flex-col gap-2", isFullscreen && "shrink-0")}>
       <div className="flex flex-wrap items-center gap-2">
         {hasChapters && (
           <Button
@@ -61,7 +81,10 @@ export function ReaderPanels({
             className={cn(TOGGLE, contentsShown && ON)}
             aria-expanded={contentsShown}
             aria-controls={contentsShown ? contentsId : undefined}
-            onClick={() => setContentsOpen((open) => !open)}
+            onClick={() => {
+              if (!contentsShown) revealRef.current = contentsId;
+              setContentsOpen((open) => !open);
+            }}
           >
             <ListOrdered aria-hidden="true" />
             Contents
@@ -74,16 +97,26 @@ export function ReaderPanels({
             aria-expanded={transcriptShown}
             aria-controls={transcriptShown ? transcriptId : undefined}
             // aria-disabled, not disabled: focus stays on the toggle when
-            // the page turns to one without a transcript.
+            // the page turns to one without a transcript. The reason is on
+            // screen (a title shows neither on touch nor on focus).
             aria-disabled={!transcriptHere}
-            title={transcriptHere ? undefined : "No transcript for this page yet"}
+            aria-describedby={transcriptHere ? undefined : noTranscriptId}
             onClick={() => {
-              if (transcriptHere) setTranscriptOpen((open) => !open);
+              if (!transcriptHere) return;
+              if (!transcriptShown) revealRef.current = transcriptId;
+              setTranscriptOpen((open) => !open);
             }}
           >
             <Captions aria-hidden="true" />
             Transcript
           </Button>
+        )}
+        {hasTranscripts && !transcriptHere && (
+          <span id={noTranscriptId} className="text-xs text-sub">
+            {view.length > 1
+              ? "No transcript on these pages yet"
+              : "No transcript on this page yet"}
+          </span>
         )}
         {chapter && (
           <p className="flex min-w-0 basis-full items-start gap-1.5 text-sm text-sub sm:flex-1 sm:basis-0">
@@ -97,11 +130,18 @@ export function ReaderPanels({
       </div>
 
       {(contentsShown || transcriptShown) && (
-        // In fullscreen the stage keeps the rest of the screen.
+        // In fullscreen the stage keeps the rest of the screen, and the
+        // panels scroll: relative, so their sr-only (absolute) headings
+        // scroll with them; focusable and named, so the keyboard can
+        // scroll a long transcript (Safari never focuses a scroller).
         <div
+          role={isFullscreen ? "region" : undefined}
+          aria-label={isFullscreen ? "Reader panels" : undefined}
+          tabIndex={isFullscreen ? 0 : undefined}
           className={cn(
             "flex flex-col gap-2",
-            isFullscreen && "max-h-[35vh] overflow-y-auto overscroll-contain"
+            isFullscreen &&
+              "relative max-h-[35vh] overflow-y-auto overscroll-contain rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           )}
         >
           {contentsShown && (
@@ -111,6 +151,7 @@ export function ReaderPanels({
               numPages={numPages}
               onJump={(page) => {
                 onJump(page);
+                comic.pickChapter(page);
                 // Like a menu: it closes once a chapter is chosen.
                 setContentsOpen(false);
               }}
