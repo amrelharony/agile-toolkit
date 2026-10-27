@@ -377,7 +377,7 @@ export function riskVerdict(
 /* ── Time to close ─────────────────────────────────────────────────────── */
 
 export interface RiskTimeToClose {
-  /** Risks closed (as their status now says). */
+  /** Risks closed on a day the register can read (closedOn), raised on one too. */
   closed: number;
   /**
    * The Kaplan-Meier median days from raised to closed, open risks counted
@@ -392,8 +392,10 @@ export interface RiskTimeToClose {
  * and tool.risk_register.list_state's timeToClose: days raised → closed
  * (riskAgeDays, closedOn), open and mitigating risks censored at today.
  * Accepted risks are left out: the team chose not to mitigate them; so is
- * a closed risk with no close day (isClosedUndated), whose duration isn't
- * known. Every risk passed counts, so the caller leaves the examples out.
+ * a closed risk with no close day (isClosedUndated: closed through the
+ * old generic CRUD, or an agent's write before Phase 8), whose duration isn't known:
+ * counted as still waiting at today, it would stretch the median. Every
+ * risk passed counts, so the caller leaves the examples out.
  */
 export function riskTimeToClose(risks: readonly Risk[], today: string): RiskTimeToClose {
   const observations = risks.flatMap((r) => {

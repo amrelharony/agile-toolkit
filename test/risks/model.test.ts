@@ -300,6 +300,23 @@ describe("riskTimeToClose", () => {
       medianDays: null,
     });
   });
+
+  it("leaves out a closed risk with no close day: when it closed isn't known", () => {
+    const dated = [
+      closed("a", "2026-10-05"),
+      closed("b", "2026-10-09"),
+      closed("c", "2026-10-13"),
+      risk({ id: "d", status: "open" }),
+    ];
+    // Counted as still waiting at today (26 days), it would pull the median from 8 to 12.
+    for (const resolvedAt of [undefined, "", "not a day"]) {
+      const undated = risk({ id: "f", status: "closed", resolvedAt });
+      expect(riskTimeToClose([...dated, undated], TODAY), String(resolvedAt)).toEqual(
+        riskTimeToClose(dated, TODAY)
+      );
+    }
+    expect(riskTimeToClose(dated, TODAY)).toEqual({ closed: 3, medianDays: 8 });
+  });
 });
 
 describe("the impediment hand-off", () => {

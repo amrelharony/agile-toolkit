@@ -2,8 +2,8 @@
  * tool.risk_register.list_state's timeToClose, on both transports: the
  * page's "Median time to mitigate" (lib/risks/model riskTimeToClose, the
  * one function both read) for the same risks, examples left out, accepted
- * risks and closed ones with no close day left out, a reopened risk counted as still waiting, and null
- * below 3 closed.
+ * risks and closed ones with no close day left out, a reopened risk
+ * counted as still waiting, and null below 3 closed.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
