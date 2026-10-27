@@ -263,10 +263,11 @@ export function HypothesisTrackerClient() {
         items: counted.rows,
         validationRate: rate.rate,
         medianTimeToValidate: learn.median,
+        results: learn.resolved,
         verdict,
       }),
     }),
-    [counted, rate, learn.median, verdict]
+    [counted, rate, learn.median, learn.resolved, verdict]
   );
 
   const filterOptions: ToggleOption<StatusFilter>[] = STATUS_FILTERS.map(([value, label]) => ({

@@ -1,6 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { Hypothesis } from "../stores/workspace-types";
+import { MIN_SAMPLE, enoughData } from "../analytics/min-sample";
 import { formatMetric, missingFields, suggestVerdict } from "../hypotheses/model";
 import { missingText, statusLabel, targetText } from "@/app/(tools)/hypothesis-tracker/view";
 
@@ -14,13 +15,22 @@ interface HypothesisData {
   items: readonly Hypothesis[];
   /** validated ÷ decisive (lib/hypotheses validationRate), 0..1; null with no decisive result ("—", never 0%). */
   validationRate: number | null;
-  /** Median days from raised to result, or null below the sample. */
+  /** Median days from raised to result, or null below the sample or while fewer than half have one. */
   medianTimeToValidate: number | null;
+  /**
+   * Tests with a result so far (timeToLearn's resolved): the median's
+   * sample. With MIN_SAMPLE.distribution of them and still no median,
+   * fewer than half have given a result, which the prompt says, as the
+   * page's chart does.
+   */
+  results: number;
   verdict?: string;
 }
 
 /** The table lists this many hypotheses. */
 const MAX_ROWS = 20;
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** "validated (target met)", from the numbers; "—" without a target and a measured result. */
 function suggestedText(h: Hypothesis): string {
@@ -43,10 +53,12 @@ export function generateHypothesisTrackerPrompts(data: HypothesisData): PromptDe
     data.validationRate === null
       ? "Validation rate: — (no decisive result yet)."
       : `Validation rate: ${Math.round(data.validationRate * 100)}% of decisive results held up (inconclusive ones aren't counted).`;
-  const learn =
-    data.medianTimeToValidate === null
-      ? "Median time to a result: — (too few results yet)."
-      : `Median time to a result: ${data.medianTimeToValidate} days.`;
+  // The page's readings (view.ts timeToLearn): below the sample, fewer than half with a result, the median.
+  const learn = !enoughData(data.results, "distribution")
+    ? `Median time to a result: — (shows once ${MIN_SAMPLE.distribution} tests have a result; ${data.results} so far).`
+    : data.medianTimeToValidate === null
+      ? `Median time to a result: — (over ${plural(data.results, "result")}, fewer than half of the tests have given a result yet).`
+      : `Median time to a result: ${plural(data.medianTimeToValidate, "day")} (over ${plural(data.results, "result")}; open tests count as still waiting).`;
   const table = formatTable(
     [
       "We believe",

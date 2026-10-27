@@ -1,6 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { Risk } from "../stores/workspace-types";
+import { MIN_SAMPLE } from "../analytics/min-sample";
 import {
   RISK_LEVEL_LABEL,
   RISK_STATUS_LABEL,
@@ -25,6 +26,12 @@ interface RiskData {
   /** "YYYY-MM-DD". */
   today: string;
   medianTTM: number | null;
+  /**
+   * Risks closed so far (timeToClose's closed): the median's sample. With
+   * MIN_SAMPLE.average of them and still no median, fewer than half have
+   * closed, which the prompt says, as the page's card does.
+   */
+  closed: number;
 }
 
 /** The table lists this many risks, in the register's order. */
@@ -92,10 +99,13 @@ export function generateRiskRegisterPrompts(data: RiskData): PromptDefinition[] 
   const verdict = `Verdict: ${sanitizePromptCell(riskVerdict(risks, today), 400)}\n\n`;
   // Titles, owners and plans are user-typed, and the verdict names a title.
   const body = wrapUserContent(`${verdict}${table}${more}`);
+  // The page card's three readings: below the sample, fewer than half closed, the median.
   const ttm =
-    data.medianTTM === null
-      ? "Median time to mitigate: — (too few closed risks yet)."
-      : `Median time to mitigate: ${plural(data.medianTTM, "day")}.`;
+    data.closed < MIN_SAMPLE.average
+      ? `Median time to mitigate: — (shows once ${MIN_SAMPLE.average} are closed; ${data.closed} so far).`
+      : data.medianTTM === null
+        ? `Median time to mitigate: — (fewer than half have closed yet, over ${data.closed} closed).`
+        : `Median time to mitigate: ${plural(data.medianTTM, "day")} (over ${data.closed} closed).`;
   const counts = `${plural(s.active, "active risk")} (open or mitigating), ${s.high} high or critical, ${plural(s.overdue, "mitigation")} overdue, ${s.unowned} with no owner. Exposure (sum of active scores) ${s.exposure} now, ${s.residualExposure} after mitigation (${s.residualAssessed} of ${s.active} rated for after). ${ttm}`;
   const scale =
     "Each risk is rated 1–5 for probability and impact; the score is their product, and its level is critical from 16, high from 10, medium from 5, else low.";

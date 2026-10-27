@@ -58,6 +58,7 @@ describe("generateRiskRegisterPrompts", () => {
     risks: RISKS,
     today: TODAY,
     medianTTM: null,
+    closed: 1,
   });
 
   it("lists each risk's score, level, owner, overdue days and rating after mitigation, in order", () => {
@@ -74,7 +75,7 @@ describe("generateRiskRegisterPrompts", () => {
 
   it("states the counts, the exposure and the page's verdict", () => {
     expect(prioritize.prompt).toContain(
-      "3 active risks (open or mitigating), 2 high or critical, 1 mitigation overdue, 1 with no owner. Exposure (sum of active scores) 38 now, 27 after mitigation (2 of 3 rated for after). Median time to mitigate: — (too few closed risks yet)."
+      "3 active risks (open or mitigating), 2 high or critical, 1 mitigation overdue, 1 with no owner. Exposure (sum of active scores) 38 now, 27 after mitigation (2 of 3 rated for after). Median time to mitigate: — (shows once 3 are closed; 1 so far)."
     );
     expect(mitigation.prompt).toContain(
       "Verdict: 1 mitigation is overdue, “Vendor outage” by 7 days; 3 active risks, 2 high or critical; 1 high or critical risk has no owner."
@@ -82,8 +83,29 @@ describe("generateRiskRegisterPrompts", () => {
   });
 
   it("quotes the median time to mitigate once there is one", () => {
-    const [p] = generateRiskRegisterPrompts({ risks: RISKS, today: TODAY, medianTTM: 12 });
-    expect(p.prompt).toContain("Median time to mitigate: 12 days.");
-    expect(generateRiskRegisterPrompts({ risks: [], today: TODAY, medianTTM: null })).toEqual([]);
+    const [p] = generateRiskRegisterPrompts({
+      risks: RISKS,
+      today: TODAY,
+      medianTTM: 12,
+      closed: 5,
+    });
+    expect(p.prompt).toContain("Median time to mitigate: 12 days (over 5 closed).");
+    expect(
+      generateRiskRegisterPrompts({ risks: [], today: TODAY, medianTTM: null, closed: 0 })
+    ).toEqual([]);
+  });
+
+  it("tells too few closed apart from fewer than half closed, as the page's card does", () => {
+    // Enough closed for the sample, but the Kaplan-Meier median isn't reached yet.
+    const [p] = generateRiskRegisterPrompts({
+      risks: RISKS,
+      today: TODAY,
+      medianTTM: null,
+      closed: 4,
+    });
+    expect(p.prompt).toContain(
+      "Median time to mitigate: — (fewer than half have closed yet, over 4 closed)."
+    );
+    expect(p.prompt).not.toContain("shows once");
   });
 });

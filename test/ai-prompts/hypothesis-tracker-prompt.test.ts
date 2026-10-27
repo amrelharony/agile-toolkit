@@ -44,6 +44,7 @@ describe("generateHypothesisTrackerPrompts", () => {
     items: ITEMS,
     validationRate: rate.rate,
     medianTimeToValidate: null,
+    results: 2,
     verdict: hypothesisVerdict(rate),
   });
 
@@ -51,7 +52,9 @@ describe("generateHypothesisTrackerPrompts", () => {
     expect(quality.prompt).toContain(
       "Validation rate: 100% of decisive results held up (inconclusive ones aren't counted)."
     );
-    expect(quality.prompt).toContain("Median time to a result: — (too few results yet).");
+    expect(quality.prompt).toContain(
+      "Median time to a result: — (shows once 5 tests have a result; 2 so far)."
+    );
     expect(quality.prompt).toContain(
       "Verdict: 1 of 1 decisive test held up (100%); 1 inconclusive isn't counted; 2 still open."
     );
@@ -80,16 +83,34 @@ describe("generateHypothesisTrackerPrompts", () => {
       items: [hyp("open")],
       validationRate: null,
       medianTimeToValidate: 9,
+      results: 6,
     });
     expect(p.prompt).toContain("Validation rate: — (no decisive result yet).");
     expect(p.prompt).not.toContain("0%");
-    expect(p.prompt).toContain("Median time to a result: 9 days.");
+    expect(p.prompt).toContain(
+      "Median time to a result: 9 days (over 6 results; open tests count as still waiting)."
+    );
     expect(
       generateHypothesisTrackerPrompts({
         items: [],
         validationRate: null,
         medianTimeToValidate: null,
+        results: 0,
       })
     ).toEqual([]);
+  });
+
+  it("tells too few results apart from fewer than half with a result, as the page does", () => {
+    // Enough results for the sample, but the Kaplan-Meier median isn't reached yet.
+    const [p] = generateHypothesisTrackerPrompts({
+      items: ITEMS,
+      validationRate: rate.rate,
+      medianTimeToValidate: null,
+      results: 5,
+    });
+    expect(p.prompt).toContain(
+      "Median time to a result: — (over 5 results, fewer than half of the tests have given a result yet)."
+    );
+    expect(p.prompt).not.toContain("shows once");
   });
 });
