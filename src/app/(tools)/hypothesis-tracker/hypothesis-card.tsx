@@ -65,9 +65,13 @@ const firstError = (errors: Partial<Record<string, string>>) =>
 export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: HypothesisCardProps) {
   const [editing, setEditing] = useState(false);
   const [statusError, setStatusError] = useState<{ message: string; detail: boolean } | null>(null);
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const titleId = useId();
   const editRef = useRef<HTMLButtonElement>(null);
+  const statusRef = useRef<HTMLSelectElement>(null);
   const refocusEdit = useRef(false);
+  /** Words typed in "What we learned" that the row's check refused, held until it passes. */
+  const heldOutcome = useRef<string | null>(null);
 
   const missing = missingFields(h);
   const resolved = isResolved(h.status);
@@ -80,9 +84,12 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
     editRef.current?.focus();
   }, [editing]);
 
-  /** The saved row with `patch` typed over it, checked as the editor checks it. */
-  const check = (patch: Partial<HypothesisDraft>) =>
-    validateHypothesis({ ...hypothesisDraftFrom(h), ...patch }, today, { stored: h });
+  /**
+   * The saved row with `patch` typed over it, checked as the editor checks
+   * it. `latest` is the latest day allowed (today unless said otherwise).
+   */
+  const check = (patch: Partial<HypothesisDraft>, latest = today) =>
+    validateHypothesis({ ...hypothesisDraftFrom(h), ...patch }, latest, { stored: h });
 
   /** A result's day: the one already stamped, else today (or the raised day when an agent's is later). */
   const resultDay = () => {
@@ -92,9 +99,14 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
     return raised > today ? raised : today;
   };
 
-  const setStatus = (status: HypothesisStatus) => {
-    if (status === h.status) return;
-    const r = check({ status, resolvedAt: isResolved(status) ? resultDay() : "" });
+  /** Apply `status`; true once saved, else the reason shows under the status. */
+  const setStatus = (status: HypothesisStatus): boolean => {
+    if (status === h.status) return false;
+    const day = isResolved(status) ? resultDay() : "";
+    // Over MCP an agent's raised day is the server's, which can be the
+    // user's tomorrow: the result may then come on that day, as the agent's
+    // set_status allows, rather than be refused as a future day.
+    const r = check({ status, resolvedAt: day }, day > today ? day : today);
     if (!r.ok) {
       const detail = Boolean(r.errors.willDo || r.errors.successMetric);
       setStatusError({
@@ -103,10 +115,49 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
           : (firstError(r.errors) ?? "This change can't be saved."),
         detail,
       });
-      return;
+      return false;
     }
     setStatusError(null);
     onSave(h, r.values, "status");
+    return true;
+  };
+
+  /** "Mark validated": the button goes once applied, so focus moves to the status it set. */
+  const markSuggested = (verdict: HypothesisStatus) => {
+    // Left alone when the card leaves the filter: the page then focuses the next card.
+    if (setStatus(verdict)) requestAnimationFrame(() => statusRef.current?.focus());
+  };
+
+  /**
+   * "What we learned", saved on leaving the field. The whole row is
+   * checked, so an older row with a result but no result day refuses it
+   * until that day is picked: the reason shows under the field, the words
+   * stay in it, and they are saved once the row changes and passes.
+   */
+  function commitOutcome(v: string) {
+    const r = check({ outcome: v });
+    if (!r.ok) {
+      heldOutcome.current = v;
+      setOutcomeError(
+        r.errors.outcome ??
+          `Not saved yet. ${firstError(r.errors) ?? "This change can't be saved."}`
+      );
+      return;
+    }
+    heldOutcome.current = null;
+    setOutcomeError(null);
+    onSave(h, r.values, "outcome");
+  }
+  useEffect(() => {
+    if (heldOutcome.current !== null) commitOutcome(heldOutcome.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per change of the stored row
+  }, [h]);
+
+  /** The editor holds every field, "What we learned" as stored: words held back are dropped. */
+  const startEditing = () => {
+    heldOutcome.current = null;
+    setOutcomeError(null);
+    setEditing(true);
   };
 
   const dayCheck = (key: "raisedAt" | "resolvedAt") => (day: string) => {
@@ -161,7 +212,7 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
             className="text-sub hover:text-text"
             // Where focus goes when the card next to it is deleted or leaves the filter.
             data-hypothesis-edit={h.id}
-            onClick={() => setEditing(true)}
+            onClick={startEditing}
           />
           <IconButton
             label={`Delete ${title}`}
@@ -226,8 +277,9 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
                   size="sm"
                   variant="outline"
                   className="gap-1"
-                  aria-label={`Mark “${title}” ${suggestion.verdict}`}
-                  onClick={() => setStatus(suggestion.verdict)}
+                  // The visible words first, so speech input can say them.
+                  aria-label={`Mark ${suggestion.verdict}: “${title}”`}
+                  onClick={() => markSuggested(suggestion.verdict)}
                 >
                   <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                   Mark {suggestion.verdict}
@@ -243,6 +295,7 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
           {(props) => (
             <select
               {...props}
+              ref={statusRef}
               className={SELECT_CLASS}
               value={h.status}
               onChange={(e) => setStatus(e.target.value as HypothesisStatus)}
@@ -302,7 +355,7 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
               variant="outline"
               onClick={() => {
                 setStatusError(null);
-                setEditing(true);
+                startEditing();
               }}
             >
               Add the detail
@@ -312,7 +365,7 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
       )}
 
       {(resolved || h.outcome) && (
-        <Field label="What we learned" className="gap-1">
+        <Field label="What we learned" className="gap-1" error={outcomeError ?? undefined}>
           {(props) => (
             <BlurTextarea
               id={props.id}
@@ -321,10 +374,7 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
               maxLength={Math.max(HYPOTHESIS_TEXT_MAX, (h.outcome ?? "").length)}
               placeholder="What did the test show?"
               className="resize-none text-sm"
-              onCommit={(v) => {
-                const r = check({ outcome: v });
-                if (r.ok) onSave(h, r.values, "outcome");
-              }}
+              onCommit={commitOutcome}
             />
           )}
         </Field>

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -33,7 +33,11 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({
+  AiPromptGenerator: ({ config }: { config: { prompts: { prompt: string }[] } }) => (
+    <pre data-testid="ai-prompts">{config.prompts.map((p) => p.prompt).join("\n")}</pre>
+  ),
+}));
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: ({ markdown }: { markdown?: string }) => (
     <pre data-testid="export-markdown">{markdown}</pre>
@@ -299,13 +303,13 @@ describe("a card", () => {
 
     fireEvent.click(
       within(card("trials convert")).getByRole("button", {
-        name: /Mark “trials convert” validated/,
+        name: "Mark validated: “trials convert”",
       })
     );
     expect(one("t")).toMatchObject({ status: "validated", resolvedAt: TODAY });
     // Applied: no button to apply it again.
     expect(
-      within(card("trials convert")).queryByRole("button", { name: /Mark .* validated/ })
+      within(card("trials convert")).queryByRole("button", { name: /^Mark validated/ })
     ).toBeNull();
   });
 
@@ -597,5 +601,140 @@ describe("first run, example and export", () => {
     seed(hyp("a", { believe: "on screen" }));
     renderPage();
     expect(screen.getByTestId("export-markdown").textContent).toContain("### We believe on screen");
+  });
+});
+
+describe("after review", () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  /** Runs the frames the page asked for, after React has rendered. */
+  const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+  const measured = (over: Partial<Hypothesis> = {}) =>
+    hyp("m", {
+      believe: "measured one",
+      status: "running",
+      target: { direction: "increase", value: 12, unit: "%", baseline: 10 },
+      actual: 14,
+      ...over,
+    });
+
+  it("lets a measured hypothesis drop its target: the result shows why until it is cleared", () => {
+    seed(measured());
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit measured one" }));
+    fireEvent.change(screen.getByLabelText(/^The number should/), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText(/^Target/), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText(/^Baseline/), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(one("m")?.target).toBeDefined();
+    // The refused result stays on screen with its reason, and takes focus.
+    const result = screen.getByLabelText(/^Measured result/);
+    expect(result).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(/Set a target first/)).toBeInTheDocument();
+    expect(screen.getByText("Clear it to save without a target.")).toBeInTheDocument();
+    expect(document.activeElement).toBe(result);
+    fireEvent.change(result, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(one("m")).not.toHaveProperty("target");
+    expect(one("m")).not.toHaveProperty("actual");
+  });
+
+  it("keeps the result field while it holds a value, and hides it once blank with no target", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "New hypothesis" }));
+    expect(screen.queryByLabelText(/^Measured result/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/^The number should/), {
+      target: { value: "increase" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Measured result/), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText(/^The number should/), { target: { value: "" } });
+    // Typed, then the direction cleared: still shown, so its error can be seen.
+    expect(screen.getByLabelText(/^Measured result/)).toHaveValue("3");
+    fireEvent.change(screen.getByLabelText(/^Measured result/), { target: { value: "" } });
+    expect(screen.queryByLabelText(/^Measured result/)).toBeNull();
+  });
+
+  it("says why “What we learned” waits on a result with no day, and saves it once the day is in", () => {
+    // The old add_hypothesis left a result status without its day.
+    seed(hyp("l", { believe: "legacy result", status: "validated" }));
+    renderPage();
+    const learned = within(card("legacy result")).getByLabelText("What we learned");
+    fireEvent.change(learned, { target: { value: "It held." } });
+    fireEvent.blur(learned);
+    expect(one("l")).not.toHaveProperty("outcome");
+    expect(
+      within(card("legacy result")).getByText(
+        "Not saved yet. Pick the day the test gave its result."
+      )
+    ).toBeInTheDocument();
+    const day = within(card("legacy result")).getByLabelText(/^Result on, legacy result/);
+    fireEvent.change(day, { target: { value: ago(2) } });
+    fireEvent.blur(day);
+    expect(one("l")).toMatchObject({ resolvedAt: ago(2), outcome: "It held." });
+    expect(within(card("legacy result")).queryByText(/Not saved yet/)).toBeNull();
+  });
+
+  it("drops the held words when the editor opens, so they never overwrite its save", () => {
+    seed(hyp("l", { believe: "legacy result", status: "validated", outcome: "First take." }));
+    renderPage();
+    const learned = within(card("legacy result")).getByLabelText("What we learned");
+    fireEvent.change(learned, { target: { value: "Typed on the card." } });
+    fireEvent.blur(learned);
+    expect(one("l")?.outcome).toBe("First take.");
+    fireEvent.click(screen.getByRole("button", { name: "Edit legacy result" }));
+    fireEvent.change(screen.getByLabelText(/^Result on/), { target: { value: ago(2) } });
+    fireEvent.change(screen.getByLabelText("What we learned"), {
+      target: { value: "From the editor." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(one("l")).toMatchObject({ resolvedAt: ago(2), outcome: "From the editor." });
+  });
+
+  it("marks a result on an agent's raised day that is the user's tomorrow", async () => {
+    const tomorrow = addDays(TODAY, 1) as string;
+    seed(measured({ raisedAt: tomorrow }));
+    renderPage();
+    fireEvent.click(
+      within(card("measured one")).getByRole("button", { name: "Mark validated: “measured one”" })
+    );
+    expect(one("m")).toMatchObject({ status: "validated", resolvedAt: tomorrow });
+  });
+
+  it("moves focus to the status once “Mark validated” is applied and its button goes", () => {
+    seed(measured());
+    renderPage();
+    fireEvent.click(
+      within(card("measured one")).getByRole("button", { name: "Mark validated: “measured one”" })
+    );
+    nextFrame();
+    expect(document.activeElement).toBe(
+      within(card("measured one")).getByLabelText("Status of measured one")
+    );
+  });
+
+  it("says the Open count leaves the example out while it sits next to the team's rows", () => {
+    seed(...buildExample(TODAY), hyp("mine", { status: "running" }));
+    const { unmount } = renderPage();
+    expect(screen.getByText("drafted or running, examples not counted")).toBeInTheDocument();
+    unmount();
+    seed(hyp("mine", { status: "running" }));
+    renderPage();
+    expect(screen.getByText("drafted or running")).toBeInTheDocument();
+  });
+
+  it("gives the AI prompt “—” instead of 0% with no decisive result", () => {
+    seed(hyp("n", { status: "inconclusive", resolvedAt: ago(1) }));
+    const { unmount } = renderPage();
+    const text = screen.getByTestId("ai-prompts").textContent ?? "";
+    expect(text).toContain("Validation rate: — (no decisive result yet)");
+    expect(text).not.toContain("Validation rate: 0%");
+    unmount();
+    seed(hyp("v", { status: "validated", resolvedAt: ago(1) }));
+    renderPage();
+    expect(screen.getByTestId("ai-prompts").textContent).toContain("Validation rate: 100%");
   });
 });

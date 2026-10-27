@@ -222,8 +222,14 @@ export function HypothesisFields({
             )}
           </Field>
         )}
-        {draft.direction && (
-          <Field label="Measured result" hint="Blank until measured." error={errors.actual}>
+        {/* Shown while it holds a value, too: with "No number" picked a stored
+            result is refused, and its error needs a field to sit under. */}
+        {(draft.direction || !isBlank(draft.actual)) && (
+          <Field
+            label="Measured result"
+            hint={draft.direction ? "Blank until measured." : "Clear it to save without a target."}
+            error={errors.actual}
+          >
             {(props) => (
               <Input
                 {...props}

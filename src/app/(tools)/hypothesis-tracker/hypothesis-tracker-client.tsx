@@ -111,6 +111,8 @@ export function HypothesisTrackerClient() {
   const formRef = useRef<HTMLDivElement>(null);
 
   const counted = useMemo(() => countedRows(list), [list]);
+  /** Example rows next to the team's own: on the page, but not in the numbers. */
+  const mixed = !counted.example && counted.rows.length < list.length;
   // The same function the agent's list_state calls, over the same rows.
   const rate = useMemo(() => rateOf(counted), [counted]);
   const verdict = hypothesisVerdict(rate);
@@ -253,19 +255,29 @@ export function HypothesisTrackerClient() {
       missingText(missingFields(h)),
     ]),
   };
-  const promptConfig = useMemo(
-    () => ({
+  const promptConfig = useMemo(() => {
+    const prompts = generateHypothesisTrackerPrompts({
+      items: counted.rows,
+      validationRate: rate.rate ?? 0,
+      medianTimeToValidate: learn.median,
+    });
+    return {
       toolName: "Hypothesis Tracker",
-      prompts: generateHypothesisTrackerPrompts({
-        items: counted.rows,
-        // The prompt takes a number; with no decisive result it gets 0 and
-        // the verdict above says why (lib/ai-prompts is the main session's).
-        validationRate: rate.rate ?? 0,
-        medianTimeToValidate: learn.median,
-      }),
-    }),
-    [counted, rate, learn.median]
-  );
+      // The prompt takes a number only, so with no decisive result it would
+      // read "0%"; it says "—" here, as the page does, until
+      // lib/ai-prompts/hypothesis-tracker takes a null rate.
+      prompts:
+        rate.rate === null
+          ? prompts.map((p) => ({
+              ...p,
+              prompt: p.prompt.replace(
+                "Validation rate: 0%",
+                "Validation rate: — (no decisive result yet)"
+              ),
+            }))
+          : prompts,
+    };
+  }, [counted, rate, learn.median]);
 
   const filterOptions: ToggleOption<StatusFilter>[] = STATUS_FILTERS.map(([value, label]) => ({
     value,
@@ -301,7 +313,9 @@ export function HypothesisTrackerClient() {
                 variant="compact"
                 label="Open"
                 value={rate.open}
-                hint="drafted or running"
+                // The filter's counts take in every row on the page; the KPIs
+                // count the team's own once any exist, so say which.
+                hint={mixed ? "drafted or running, examples not counted" : "drafted or running"}
               />
               <StatCard
                 variant="compact"
