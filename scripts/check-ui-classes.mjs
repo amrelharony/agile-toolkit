@@ -13,6 +13,10 @@
  *   with hover:bg-accent/10.
  * - Opacity modifiers on border-border (border-border/40): --border is
  *   already translucent and the base layer paints every border with it.
+ * - Own-colour text on a tint of itself stronger than 20% (bg-accent/25 with
+ *   text-accent on the same line, hover and other variants included): the
+ *   light theme's tokens keep 4.5:1 only up to /20
+ *   (test/design/theme-contrast.test.ts). Use /20 or less, or text-text.
  *
  * Exits 0 when clean. Prints file:line and the offending class otherwise.
  */
@@ -55,6 +59,27 @@ function walk(dir, out = []) {
 // Solid status dots (bg-[#22c55e] with no opacity) read fine in every theme.
 const ALLOWED = /^(?:[a-z0-9-]+:)*bg-\[#(?:22c55e|ef4444|eab308)\]$/i;
 
+// Colours used as text on tints of themselves. Up to 60% counts as a tint;
+// above that the fill is near-solid and own-colour text is a different bug.
+const TINT_TOKENS =
+  "accent|accent-cyan|accent-3|accent-green|accent-amber|accent-magenta|primary|success|warning|danger|error|info|destructive|status-green|status-yellow|status-red";
+const TINT_RE = new RegExp(
+  `(?<![\\w-])(?:[a-z0-9-]+:)*bg-(${TINT_TOKENS})\\/(\\d+)(?![\\w-])`,
+  "g"
+);
+const MAX_OWN_TINT = 20;
+
+function strongOwnTints(line) {
+  const found = [];
+  for (const m of line.matchAll(TINT_RE)) {
+    const pct = Number(m[2]);
+    if (pct <= MAX_OWN_TINT || pct > 60) continue;
+    const ownText = new RegExp(`(?<![\\w-])(?:[a-z0-9-]+:)*text-${m[1]}(?![\\w/-])`);
+    if (ownText.test(line)) found.push(m[0]);
+  }
+  return found;
+}
+
 export function findViolations(source) {
   const found = [];
   const lines = source.split("\n");
@@ -66,6 +91,14 @@ export function findViolations(source) {
         if (ALLOWED.test(m[0])) continue;
         found.push({ line: i + 1, rule: rule.id, match: m[0], hint: rule.hint });
       }
+    }
+    for (const match of strongOwnTints(line)) {
+      found.push({
+        line: i + 1,
+        rule: "strong-own-tint",
+        match,
+        hint: `tint at most /${MAX_OWN_TINT} under its own text colour, or use text-text`,
+      });
     }
   });
   return found;
