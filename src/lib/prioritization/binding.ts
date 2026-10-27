@@ -16,6 +16,10 @@
  * - When the item goes, its rows FREEZE a copy of the values they showed
  *   (`frozenRow`) before they are unlinked (`rowsUnlinkedFrom`), however it
  *   is deleted: the hub, the store, the agent's CRUD on either transport.
+ * - A link made before Phase 7 whose item still holds a method's old
+ *   defaults reads the row's own value there (methods legacyRowValues),
+ *   and a save of the item starts from `withLegacyLinks(item, rows)`, so
+ *   the item's first save through the new code keeps that value.
  *
  * Cross-device sync is whole-entity last-writer-wins (lib/sync/lww): two
  * devices editing different fields of one item at once keep one side. That

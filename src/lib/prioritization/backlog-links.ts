@@ -5,7 +5,8 @@
  * Every write reads the freshest workspace state right before it and goes
  * through the store's upsert/remove actions. A backlog item is always
  * saved through `applyItemPatch` (old-default fingerprints cleared,
- * `updatedAt` stamped). Cross-tool writes (creating a backlog item, writing
+ * `updatedAt` stamped), starting from what its links made before Phase 7
+ * still hold (`saveBase`). Cross-tool writes (creating a backlog item, writing
  * a row's inputs to it) run inside `undoable`, and Undo puts back only what
  * nobody has changed since: a hub edit made inside the Undo window stays.
  *
@@ -27,7 +28,7 @@ import {
 } from "./binding";
 import { withoutOldDefaults } from "./defaults";
 import { createBacklogItem } from "./frameworks";
-import { methodFor, type Values } from "./methods";
+import { methodFor, withLegacyLinks, type Values } from "./methods";
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -51,6 +52,21 @@ export function linkedBacklogItem(
 }
 
 /**
+ * The item a save starts from: as its legacy links say it reads (rows
+ * linked before Phase 7 that still hold the only real value, methods
+ * withLegacyLinks), so the first save through the new code writes those
+ * values to the item instead of hiding them for good with its stamp.
+ */
+const saveBase = (item: BacklogItem) => withLegacyLinks(item, ws().prioritizations ?? []);
+
+/**
+ * What an Undo puts a saved item back to once someone has saved it since:
+ * the item as the engine read it before the save (old defaults unset, its
+ * legacy links' values in). Taken before the save changes any row.
+ */
+const undoBaseline = (item: BacklogItem) => withoutOldDefaults(saveBase(item));
+
+/**
  * The backlog fields a row's stored inputs set, limited to the ones that
  * change the item; `cleared` names inputs the user blanked (clearedKeys),
  * which clear the item's field too.
@@ -62,7 +78,7 @@ function inputChanges(
 ): Partial<BacklogItem> {
   const m = methodFor(row.framework);
   if (!m || !m.embedded) return {};
-  return itemPatchChanges(item, ownedPatch(m.id, m.read(row.fields), cleared));
+  return itemPatchChanges(saveBase(item), ownedPatch(m.id, m.read(row.fields), cleared));
 }
 
 const hasChanges = (changes: Partial<BacklogItem>) => Object.keys(changes).length > 0;
@@ -71,7 +87,7 @@ const hasChanges = (changes: Partial<BacklogItem>) => Object.keys(changes).lengt
 function applyInputs(item: BacklogItem, changes: Partial<BacklogItem>): BacklogItem | undefined {
   if (!hasChanges(changes)) return undefined;
   const cur = findBacklogItem(item.id) ?? item;
-  const next = applyItemPatch(cur, changes);
+  const next = applyItemPatch(saveBase(cur), changes);
   ws().upsertBacklogItem(next);
   return next;
 }
@@ -84,16 +100,22 @@ function applyInputs(item: BacklogItem, changes: Partial<BacklogItem>): BacklogI
  * The save also unset the old-default fingerprints and stamped `updatedAt`
  * (applyItemPatch), and those two go back only together. While the stamp
  * is still ours, nobody saved the item since and it returns to exactly
- * what it was, fingerprints and all (they read as Not scored again).
- * Once someone has saved it, the stamp stays, so the item is read as
- * chosen: the baseline is then `before` as the engine read it (the
- * fingerprints unset), never an old default brought back as a score.
+ * what it was, fingerprints and all (they read as Not scored again, and
+ * its legacy links read as before). Once someone has saved it, the stamp
+ * stays, so the item is read as chosen: the baseline is then `baseline`,
+ * `before` as the engine read it (undoBaseline: the fingerprints unset,
+ * the legacy links' values in), never an old default brought back as a
+ * score.
  */
-function restoreInputs(before: BacklogItem, written: BacklogItem | undefined): void {
+function restoreInputs(
+  before: BacklogItem,
+  written: BacklogItem | undefined,
+  baseline: BacklogItem
+): void {
   if (!written) return;
   const cur = findBacklogItem(before.id);
   if (!cur) return;
-  const base = cur.updatedAt === written.updatedAt ? before : withoutOldDefaults(before);
+  const base = cur.updatedAt === written.updatedAt ? before : baseline;
   const back: Record<string, unknown> = { ...cur };
   let changed = false;
   const keys = Array.from(new Set([...Object.keys(base), ...Object.keys(written)]));
@@ -125,9 +147,10 @@ function unlinkRow(rowId: string, backlogItemId: string): void {
 export function saveBacklogItem(id: string, patch: Partial<BacklogItem>): BacklogItem | undefined {
   const cur = findBacklogItem(id);
   if (!cur) return undefined;
-  const changes = itemPatchChanges(cur, patch);
+  const base = saveBase(cur);
+  const changes = itemPatchChanges(base, patch);
   if (!hasChanges(changes)) return cur;
-  const next = applyItemPatch(cur, changes);
+  const next = applyItemPatch(base, changes);
   ws().upsertBacklogItem(next);
   return next;
 }
@@ -158,12 +181,13 @@ export function linkNewRow(
   const changes = inputChanges(item, row, values ? clearedKeys(values) : []);
   if (hasChanges(changes)) {
     let written: BacklogItem | undefined;
+    const baseline = undoBaseline(item);
     undoable({
       label: `Updated “${shortName(item.name)}” in the backlog`,
       apply: () => {
         written = applyInputs(item, changes);
       },
-      revert: () => restoreInputs(item, written),
+      revert: () => restoreInputs(item, written, baseline),
     });
   }
   return { ...row, backlogItemId: item.id };
@@ -209,7 +233,10 @@ export function saveMethodRow(
   });
   const changes: Partial<BacklogItem> =
     item && m.embedded
-      ? itemPatchChanges(item, ownedPatch(m.id, m.read(nextRow.fields), clearedKeys(values)))
+      ? itemPatchChanges(
+          saveBase(item),
+          ownedPatch(m.id, m.read(nextRow.fields), clearedKeys(values))
+        )
       : {};
   const renamed = item && nextRow.title !== cur.title ? nextRow.title : undefined;
   if (renamed && item && renamed !== item.name) changes.name = renamed;
@@ -222,6 +249,7 @@ export function saveMethodRow(
 
   let written: BacklogItem | undefined;
   let siblings: RenamedRow[] = [];
+  const baseline = undoBaseline(item);
   undoable({
     label: opts.label ?? `Updated “${shortName(item.name)}” in the backlog`,
     apply: () => {
@@ -230,7 +258,7 @@ export function saveMethodRow(
       siblings = renamed ? renameLinkedRows(item.id, renamed, rowId) : [];
     },
     revert: () => {
-      restoreInputs(item, written);
+      restoreInputs(item, written, baseline);
       const now2 = findRow(rowId);
       // The row goes back only if nobody saved it since.
       if (now2 && now2.updatedAt === nextRow.updatedAt) ws().upsertPrioritization(cur);
@@ -261,8 +289,9 @@ export function addRowToBacklog(row: PrioritizationItem): string {
     : undefined;
 
   if (existing) {
-    const changes = itemPatchChanges(existing, patch);
+    const changes = itemPatchChanges(saveBase(existing), patch);
     let written: BacklogItem | undefined;
+    const baseline = undoBaseline(existing);
     undoable({
       label: `Linked “${shortName(row.title)}” to the backlog`,
       apply: () => {
@@ -270,7 +299,7 @@ export function addRowToBacklog(row: PrioritizationItem): string {
         linkRow(existing.id);
       },
       revert: () => {
-        restoreInputs(existing, written);
+        restoreInputs(existing, written, baseline);
         unlinkRow(row.id, existing.id);
       },
     });

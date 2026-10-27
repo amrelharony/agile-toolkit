@@ -13,11 +13,11 @@
  *   the rows linked to it in the method tools read the change at once.
  */
 
-import type { BacklogItem, ReachPeriod } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem, ReachPeriod } from "@/lib/stores/workspace-types";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import { clearedKeys, ownedPatch, withSharedValueKept } from "@/lib/prioritization/binding";
 import { readBacklogItem } from "@/lib/prioritization/defaults";
-import { method, type Values } from "@/lib/prioritization/methods";
+import { itemValues, method, type Values } from "@/lib/prioritization/methods";
 import { defined, toNumber } from "@/lib/prioritization/methods/fields";
 
 /* ── Add item ─────────────────────────────────────────────────────── */
@@ -90,18 +90,32 @@ export function blankScores(id: HubMethodId, draft: Values): boolean {
   return HUB_INPUTS[id].filter((k) => !FRAME_KEYS.has(k)).every((k) => isBlank(draft[k]));
 }
 
-/** The item's inputs in one method, as the engine reads them (old defaults cleared). */
-export function heldScores(id: HubMethodId, item: BacklogItem): Values {
-  return method(id).fromBacklog?.(item) ?? {};
+/**
+ * The item's inputs in one method, as the engine reads them (old defaults
+ * cleared); with the workspace's method `rows`, also what a row linked
+ * before Phase 7 still holds for it (methods itemValues), as the hub's
+ * "All methods" and Decide order read it.
+ */
+export function heldScores(
+  id: HubMethodId,
+  item: BacklogItem,
+  rows: readonly PrioritizationItem[] = []
+): Values {
+  return itemValues(item, rows, id);
 }
 
 /**
  * The editor's first draft: what the item holds, nothing filled in. A RICE
  * score the item doesn't have yet starts at the reach period last picked
- * (`period`), shown and changeable, never hidden.
+ * (`period`), shown and changeable, never hidden. `rows` as heldScores.
  */
-export function scoreDraft(id: HubMethodId, item: BacklogItem, period?: ReachPeriod): Values {
-  const held = heldScores(id, item);
+export function scoreDraft(
+  id: HubMethodId,
+  item: BacklogItem,
+  period?: ReachPeriod,
+  rows: readonly PrioritizationItem[] = []
+): Values {
+  const held = heldScores(id, item, rows);
   const out: Values = {};
   for (const key of HUB_INPUTS[id]) if (held[key] !== undefined) out[key] = held[key];
   if (id === "rice" && period && item.reachPeriod === undefined && held.reach === undefined) {

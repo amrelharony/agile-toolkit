@@ -3,7 +3,9 @@
  *
  * MoSCoW, WSJF, RICE and value/effort come from the BacklogItem's own
  * inputs (old defaults cleared, the legacy value read onto the one value
- * field). ICE, Kano and Cost of Delay come from the latest row in those
+ * field, and what a row linked before Phase 7 still holds where the old
+ * defaults hid the item's: methods withLegacyLinks). ICE, Kano and Cost
+ * of Delay come from the latest row in those
  * tools that is linked to the item. Every number comes from the method
  * registry (./methods), the same code the tools, Sprint Planning and the
  * agent actions use; a method that isn't scored reads null, never a

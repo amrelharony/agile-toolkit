@@ -20,6 +20,11 @@
  * Known limit: a legacy item whose MoSCoW bucket really was "should" (or
  * whose four WSJF parts really were 5) reads as Not scored until it is
  * scored again; the defaults left no way to tell.
+ *
+ * A method row linked to such an item before Phase 7 may hold the real
+ * value (old tools wrote their later edits to the row only): the methods
+ * registry reads it there (methods legacyRowValues / withLegacyLinks), and
+ * the item's first save through the new code writes it to the item.
  */
 
 import type { BacklogItem } from "@/lib/stores/workspace-types";
