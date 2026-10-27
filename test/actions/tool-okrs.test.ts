@@ -246,6 +246,11 @@ describe("tool.okrs.list_state", () => {
       { date: "2026-10-02", progressPct: 56, measured: 1 },
       { date: "2026-10-03", progressPct: 63, measured: 1 },
     ]);
+    // Churn's current (18) was set without a check-in, as workspace.okr.update
+    // can, so the trend's last point (its newest check-in, 17) isn't the
+    // headline; the description says the last point is progressPct only
+    // while current mirrors the newest check-in.
+    expect(a.progressPct).toBe(56);
     expect(a.linkedSprintGoals).toEqual([
       {
         goalId: GOAL.id,
@@ -281,6 +286,14 @@ describe("tool.okrs.list_state", () => {
       progressTrend: [],
     });
     expect(b.keyResults[0]).toMatchObject({ baseline: null, direction: "increase", confidence: 5 });
+  });
+
+  it("describes the progress trend's two conditional rules", () => {
+    const text = registry.get("tool.okrs.list_state")!.description;
+    expect(text).toContain("at its baseline before its first (0% with no baseline)");
+    expect(text).toContain(
+      "the last point is progressPct while each key result's current is its newest check-in's value"
+    );
   });
 
   it("leaves example rows out", async () => {
