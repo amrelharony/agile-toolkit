@@ -200,9 +200,9 @@ export function RiskRegisterClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Risk Register",
-      prompts: generateRiskRegisterPrompts({ risks: counted, medianTTM: ttc.medianDays }),
+      prompts: generateRiskRegisterPrompts({ risks: counted, today, medianTTM: ttc.medianDays }),
     }),
-    [counted, ttc.medianDays]
+    [counted, today, ttc.medianDays]
   );
 
   /* ── Changes ──────────────────────────────────────────────────────── */
