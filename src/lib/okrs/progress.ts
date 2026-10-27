@@ -301,21 +301,32 @@ export interface ConfidencePoint {
 /**
  * An objective's confidence over time, oldest first: one point per day a
  * check-in scored confidence, each the mean of every key result's latest
- * scored confidence as of that day (key results not scored yet are left
- * out, as `scored` says). A confidence typed without a check-in has no day
- * and isn't plotted. Gate a trend statistic on the points with MIN_SAMPLE.
+ * scored confidence as of that day, over the key results the headline
+ * (objectiveConfidence) reads. A key result scored with no dated scored
+ * check-in (typed, set by an agent, the 5 rows from before Phase 8 carry,
+ * or kept over unscored check-ins) has no day its score changed, so it
+ * counts that score on every day: without it the mean would jump between
+ * the trend and the headline on a score nobody moved. One whose scored
+ * check-ins all come after a day isn't scored yet that day, as `scored`
+ * says. The last point is the headline while `confidence` mirrors the
+ * check-ins (withCheckIn). Gate a trend statistic on the points with
+ * MIN_SAMPLE.
  */
 export function confidenceTrend(okr: Pick<Okr, "keyResults">): ConfidencePoint[] {
-  const perKr = (okr.keyResults ?? []).map((kr) =>
-    byDate((kr.checkIns ?? []).filter((c) => readable(c) && isConfidence(c.confidence)))
-  );
-  const days = Array.from(new Set(perKr.flat().map((c) => c.date))).sort();
+  const perKr = (okr.keyResults ?? []).map((kr) => {
+    const dated = byDate(
+      (kr.checkIns ?? []).filter((c) => readable(c) && isConfidence(c.confidence))
+    );
+    const undated = dated.length === 0 && isConfidence(kr.confidence) ? kr.confidence : undefined;
+    return { dated, undated };
+  });
+  const days = Array.from(new Set(perKr.flatMap((k) => k.dated.map((c) => c.date)))).sort();
   return days.map((day) => {
     let sum = 0;
     let scored = 0;
-    for (const list of perKr) {
-      let latest: number | undefined;
-      for (const c of list) {
+    for (const { dated, undated } of perKr) {
+      let latest = undated;
+      for (const c of dated) {
         if (c.date > day) break;
         latest = c.confidence;
       }
@@ -404,7 +415,14 @@ function progressClause(okr: Okr, today: string): string {
   )}% of the quarter gone): ${word}`;
 }
 
-/** The confidence half: the mean now, and which way it moved since the reading before. */
+/**
+ * The confidence half: the mean now, and which way it moved since the
+ * reading before. The reading before is a trend point, which counts the
+ * same key results as the mean now (a score with no dated check-in on
+ * every day), so a score nobody moved can't read as a move. When a
+ * different number of key results was scored that day (one scored for the
+ * first time since), the sentence says so: that mean was over fewer.
+ */
 function confidenceClause(okr: Okr): string {
   const now = objectiveConfidence(okr);
   if (now === null) return "confidence not scored";
@@ -420,7 +438,9 @@ function confidenceClause(okr: Okr): string {
       : now > before.confidence
         ? `up from ${fmt(before.confidence)}`
         : "unchanged";
-  return `confidence ${fmt(now)}/10${of}, ${moved} since ${shortDay(before.date)}`;
+  const then =
+    before.scored !== scored ? ` (${before.scored} of ${krs.length} key results scored then)` : "";
+  return `confidence ${fmt(now)}/10${of}, ${moved} since ${shortDay(before.date)}${then}`;
 }
 
 /**

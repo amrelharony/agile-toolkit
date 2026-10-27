@@ -339,6 +339,22 @@ describe("confidence", () => {
     ]);
     expect(confidenceTrend(okr([kr({ confidence: 5 })]))).toEqual([]);
   });
+
+  it("counts a score with no dated check-in on every day, so the last point is the headline", () => {
+    // kr_a from before Phase 8 keeps its default 5; the other key result
+    // is checked in twice, and one only over unscored check-ins keeps its typed 9.
+    const checked = [ci("c1", "2026-10-01", 1, 8), ci("c2", "2026-10-08", 2, 6)].reduce(
+      withCheckIn,
+      kr({ confidence: 5 })
+    );
+    const unscored = withCheckIn(kr({ confidence: 9 }), ci("u1", "2026-10-05", 3));
+    const o = okr([LEGACY_OKR.keyResults[0], checked, unscored]);
+    expect(confidenceTrend(o)).toEqual([
+      { date: "2026-10-01", confidence: 7.3, scored: 3 }, // (5 + 8 + 9) / 3
+      { date: "2026-10-08", confidence: 6.7, scored: 3 }, // (5 + 6 + 9) / 3
+    ]);
+    expect(confidenceTrend(o).at(-1)?.confidence).toBe(objectiveConfidence(o));
+  });
 });
 
 describe("quarterPace", () => {
@@ -371,6 +387,32 @@ describe("okrVerdict", () => {
     );
     const steady = withCheckIn(climbing, ci("c3", "2026-10-25", 63, 6));
     expect(okrVerdict(okr([steady]), NOW)).toMatch(/confidence 6\/10, unchanged since 20 Oct\.$/);
+  });
+
+  it("reads no move when only a key result with an undated score sits beside the checked-in one", () => {
+    // Both key results carry the old silent default 5; one is then checked
+    // in twice at 8. The mean is 6.5 throughout: nothing moved.
+    const legacy = (id: string) => kr({ id, current: 50, confidence: 5 });
+    const k1 = [ci("c1", "2026-10-01", 50, 8), ci("c2", "2026-10-08", 55, 8)].reduce(
+      withCheckIn,
+      legacy("k1")
+    );
+    expect(okrVerdict(okr([k1, legacy("k2")]), NOW)).toMatch(
+      /; confidence 6\.5\/10, unchanged since 1 Oct\.$/
+    );
+    // A real move on the checked-in key result reads against the same mean.
+    const down = withCheckIn(k1, ci("c3", "2026-10-20", 56, 6));
+    expect(okrVerdict(okr([down, legacy("k2")]), NOW)).toMatch(
+      /; confidence 5\.5\/10, down from 6\.5 since 8 Oct\.$/
+    );
+  });
+
+  it("says when fewer key results were scored at the reading before", () => {
+    const a = withCheckIn(kr({ id: "a", current: 50 }), ci("a1", "2026-10-01", 50, 8));
+    const b = withCheckIn(kr({ id: "b", current: 50 }), ci("b1", "2026-10-08", 50, 4));
+    expect(okrVerdict(okr([a, b]), NOW)).toMatch(
+      /; confidence 6\/10, down from 8 since 1 Oct \(1 of 2 key results scored then\)\.$/
+    );
   });
 
   it("reads on pace within 5 points and behind below", () => {
