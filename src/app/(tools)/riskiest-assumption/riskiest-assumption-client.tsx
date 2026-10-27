@@ -57,6 +57,9 @@ const DEFAULT_STATE: State = { assumptions: [] };
 
 const RA_ID = "riskiestAssumption:current"; // MUST match RA_ID in riskiest-assumption.ts.
 
+/** The rating `rated` shows for an absent one: display only, never saved (see toStored). */
+const UNRATED_SHOWN_AS = 3;
+
 /**
  * The stored assumptions with both ratings, as this page has always read
  * them. Since Phase 8 a rating may be absent (not rated); until the page
@@ -66,9 +69,33 @@ const RA_ID = "riskiestAssumption:current"; // MUST match RA_ID in riskiest-assu
 function rated(list: readonly WorkspaceAssumption[]): Assumption[] {
   return list.map((a) => ({
     ...a,
-    riskLevel: a.riskLevel ?? 3,
-    evidenceLevel: a.evidenceLevel ?? 3,
+    riskLevel: a.riskLevel ?? UNRATED_SHOWN_AS,
+    evidenceLevel: a.evidenceLevel ?? UNRATED_SHOWN_AS,
   }));
+}
+
+/**
+ * The assumptions to save, with `rated`'s display default taken back out:
+ * a rating the store holds absent that still reads UNRATED_SHOWN_AS stays
+ * absent, so an edit elsewhere on the page doesn't save a 3/3 nobody gave
+ * (setting an unrated one to 3, the value it already shows, isn't a rating
+ * until the page shows "Not rated"). Phase 8 builder replaces this.
+ */
+function toStored(
+  next: readonly Assumption[],
+  stored: readonly WorkspaceAssumption[]
+): WorkspaceAssumption[] {
+  const before = new Map(stored.map((a) => [a.id, a]));
+  return next.map((a) => {
+    const was = before.get(a.id);
+    if (!was) return a;
+    const out: WorkspaceAssumption = { ...a };
+    if (was.riskLevel === undefined && a.riskLevel === UNRATED_SHOWN_AS) delete out.riskLevel;
+    if (was.evidenceLevel === undefined && a.evidenceLevel === UNRATED_SHOWN_AS) {
+      delete out.evidenceLevel;
+    }
+    return out;
+  });
 }
 
 // Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
@@ -87,7 +114,7 @@ function useRiskiestAssumption(): [State, (u: State | ((p: State) => State)) => 
     );
     const curState: State = cur ? { assumptions: rated(cur.assumptions) } : DEFAULT_STATE;
     const next = typeof u === "function" ? u(curState) : u;
-    upsert({ id: RA_ID, assumptions: next.assumptions });
+    upsert({ id: RA_ID, assumptions: toStored(next.assumptions, cur?.assumptions ?? []) });
   };
   return [state, setState];
 }
