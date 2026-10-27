@@ -266,22 +266,10 @@ export function FlakyTestsClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Flaky Test Scoreboard",
-      prompts: generateFlakyPrompts({
-        tests: tests.map((t) => ({
-          name: t.name,
-          suite: t.suite,
-          owner: t.owner,
-          failureRate: flakyRate(t) ?? 0,
-          status: t.status,
-          description: t.description,
-        })),
-        active: summary.byStatus.active,
-        quarantined: summary.byStatus.quarantined,
-        fixedThisQuarter: summary.fixedThisQuarter,
-        avgFailureRate: summary.weighted.rate ?? summary.meanRate ?? 0,
-      }),
+      // Failures of runs, the weighted rate and quarantine ages, as the page reads them.
+      prompts: generateFlakyPrompts({ tests, today }),
     }),
-    [tests, summary]
+    [tests, today]
   );
 
   const csvData = {
