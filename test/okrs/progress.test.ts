@@ -27,6 +27,7 @@ import {
   objectiveProgress,
   okrVerdict,
   overallProgress,
+  progressTrend,
   quarterPace,
   replacesUndated,
   withCheckIn,
@@ -398,6 +399,54 @@ describe("confidence", () => {
       { date: "2026-10-08", confidence: 6.7, scored: 3 }, // (5 + 6 + 9) / 3
     ]);
     expect(confidenceTrend(o).at(-1)?.confidence).toBe(objectiveConfidence(o));
+  });
+});
+
+describe("progressTrend", () => {
+  it("replays objectiveProgress per check-in day, so the last point is the headline", () => {
+    // Churn 22% → 15%, checked in on 1 and 8 Oct; sign-ups checked in from
+    // 8 Oct only; a row from before Phase 8 never checked in (40 of 100).
+    const churn = [ci("a", "2026-10-01", 21), ci("b", "2026-10-08", 19)].reduce(
+      withCheckIn,
+      kr({ baseline: 22, direction: "decrease", target: 15, current: 22 })
+    );
+    const signups = withCheckIn(
+      kr({ baseline: 20, target: 120, current: 20 }),
+      ci("c", "2026-10-08", 70)
+    );
+    const o = okr([churn, signups, LEGACY_OKR.keyResults[0]]);
+    const points = progressTrend(o);
+    expect(points.map((p) => p.date)).toEqual(["2026-10-01", "2026-10-08"]);
+    // (1/7 + 0 at its baseline + 0.4) / 3, then (3/7 + 0.5 + 0.4) / 3.
+    expect(points[0].progress).toBeCloseTo((1 / 7 + 0 + 0.4) / 3, 10);
+    expect(points[0].measured).toBe(1);
+    expect(points[1].progress).toBeCloseTo((3 / 7 + 0.5 + 0.4) / 3, 10);
+    expect(points[1].measured).toBe(2);
+    expect(points.at(-1)?.progress).toBe(objectiveProgress(o));
+  });
+
+  it("reads a key result at its baseline before its first check-in, 0 with none", () => {
+    // A number to hold (baseline = target) is held at its baseline; a falling
+    // key result from before Phase 8 has no start, so it reads 0, not "reached".
+    const hold = withCheckIn(
+      kr({ baseline: 99, target: 99, current: 99 }),
+      ci("h", "2026-10-08", 98)
+    );
+    const noBase = withCheckIn(
+      kr({ direction: "decrease", target: 15, current: 30 }),
+      ci("n", "2026-10-08", 12)
+    );
+    const early = withCheckIn(kr({ target: 10, current: 0 }), ci("e", "2026-10-01", 5));
+    const points = progressTrend(okr([hold, noBase, early]));
+    expect(points[0]).toEqual({ date: "2026-10-01", progress: (1 + 0 + 0.5) / 3, measured: 1 });
+    // 8 Oct: the hold slipped (0), the falling one reached its target (1).
+    expect(points[1]).toEqual({ date: "2026-10-08", progress: (0 + 1 + 0.5) / 3, measured: 3 });
+  });
+
+  it("has no point without a readable dated check-in", () => {
+    expect(progressTrend(okr([]))).toEqual([]);
+    expect(progressTrend(okr([kr({ current: 40 })]))).toEqual([]);
+    expect(progressTrend(okr([kr({ checkIns: [ci("bad", "soon", 3)] })]))).toEqual([]);
   });
 });
 

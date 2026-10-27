@@ -17,6 +17,7 @@ import {
   objectiveConfidence,
   objectivePercent,
   okrVerdict,
+  progressTrend,
   sprintGoalsFor,
 } from "@/lib/okrs/progress";
 import { enoughData, MIN_SAMPLE } from "@/lib/analytics/min-sample";
@@ -34,7 +35,6 @@ import {
 import { KeyResultForm } from "./key-result-form";
 import { ConfidenceBadge, KR_DELETE_SELECTOR, KeyResultRow } from "./key-result-row";
 import { ObjectiveForm } from "./objective-form";
-import { progressTrend } from "./progress";
 import { quarterKey } from "./view";
 
 // Recharts loads with the chart, not the page; the fixed-height box

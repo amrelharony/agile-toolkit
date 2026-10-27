@@ -13,9 +13,8 @@ import {
   YAxis,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
-import type { ConfidencePoint } from "@/lib/okrs/progress";
-import { dayLabel } from "./chart-text";
-import type { ProgressPoint } from "./progress";
+import type { ConfidencePoint, ProgressPoint } from "@/lib/okrs/progress";
+import { dayLabel, progressPct } from "./chart-text";
 
 const { colors } = chartTheme;
 
@@ -55,13 +54,13 @@ export function ProgressTrendChart({ data }: { data: ProgressPoint[] }) {
           contentStyle={chartTheme.tooltipStyle}
           labelFormatter={(d) => dayLabel(String(d))}
           formatter={(value, _name, item) => {
-            const checkedIn = (item?.payload as ProgressPoint | undefined)?.checkedIn;
-            return [`${value}%${checkedIn ? ` (${checkedIn} checked in)` : ""}`, "Progress"];
+            const measured = (item?.payload as ProgressPoint | undefined)?.measured;
+            return [`${value}%${measured ? ` (${measured} checked in)` : ""}`, "Progress"];
           }}
         />
         <Line
           type="monotone"
-          dataKey="pct"
+          dataKey={progressPct}
           name="Progress"
           stroke={colors.green}
           strokeWidth={2}

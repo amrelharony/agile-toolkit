@@ -16,6 +16,7 @@ import {
   krPercent,
   objectivePercent,
   okrVerdict,
+  progressTrend,
   withCheckIn,
   withoutCheckIn,
 } from "@/lib/okrs/progress";
@@ -70,9 +71,9 @@ import {
   CHART_MIN_DAYS,
   confidenceTrendText,
   dayLabel,
+  progressPct,
   progressTrendText,
 } from "@/app/(tools)/okrs/chart-text";
-import { progressTrend } from "@/app/(tools)/okrs/progress";
 import {
   EMPTY_KEY_RESULT,
   emptyCheckIn,
@@ -1041,24 +1042,25 @@ describe("progress over time", () => {
       ],
     });
     o.keyResults[1] = withCheckIn(o.keyResults[1], ci("d", "2026-10-08", 5));
+    // The chart plots lib/okrs progressTrend, rounded as the headline is.
     const points = progressTrend(o);
-    expect(points).toEqual([
+    expect(points.map((p) => [p.date, progressPct(p), p.measured])).toEqual([
       // (1/7 + 0 + 0.4) / 3
-      { date: "2026-10-01", pct: 18, checkedIn: 1 },
+      ["2026-10-01", 18, 1],
       // (2/7 + 0.5 + 0.4) / 3
-      { date: "2026-10-08", pct: 40, checkedIn: 2 },
-      { date: "2026-10-15", pct: 44, checkedIn: 2 },
+      ["2026-10-08", 40, 2],
+      ["2026-10-15", 44, 2],
     ]);
-    expect(points[points.length - 1].pct).toBe(objectivePercent(o));
+    expect(progressPct(points[points.length - 1])).toBe(objectivePercent(o));
     expect(progressTrend(okr("none"))).toEqual([]);
     expect(progressTrend(okr("x", { keyResults: [kr("k3", { current: 40 })] }))).toEqual([]);
   });
 
   it("says how progress moved, with the n behind each day", () => {
     const t = progressTrendText([
-      { date: "2026-10-01", pct: 14, checkedIn: 1 },
-      { date: "2026-10-08", pct: 29, checkedIn: 1 },
-      { date: "2026-10-15", pct: 43, checkedIn: 2 },
+      { date: "2026-10-01", progress: 0.14, measured: 1 },
+      { date: "2026-10-08", progress: 0.29, measured: 1 },
+      { date: "2026-10-15", progress: 0.4286, measured: 2 },
     ]);
     expect(t.summary).toBe(
       "Progress rose from 14% to 43% over 3 check-in days, 1 Oct 2026 to 15 Oct 2026."

@@ -11,7 +11,8 @@
  * before Phase 8 have no baseline and read it as 0, so their numbers don't
  * change. Dated check-ins hold the history; `current` and `confidence`
  * mirror the newest one (withCheckIn), so every reader that only looks at
- * `current` stays right.
+ * `current` stays right; confidenceTrend and progressTrend replay the
+ * history per check-in day.
  *
  * Pure; server-safe (the MCP route calls it): no "use client" module, React
  * or store anywhere below it.
@@ -380,6 +381,60 @@ export function confidenceTrend(okr: Pick<Okr, "keyResults">): ConfidencePoint[]
       }
     }
     return { date: day, confidence: round1(sum / scored), scored };
+  });
+}
+
+export interface ProgressPoint {
+  /** "YYYY-MM-DD": a day a key result was checked in. */
+  date: string;
+  /** The objective's progress that day, 0..1 (objectiveProgress as its key results read then). */
+  progress: number;
+  /** How many key results had a check-in by then. */
+  measured: number;
+}
+
+/**
+ * An objective's progress over time, oldest first: one point per day a key
+ * result was checked in, each objectiveProgress replayed on that day (every
+ * key result's krProgress at its latest check-in value by then). It needs
+ * no confidence, so a team that checks in values without scoring them
+ * still sees how far the objective moved. Before its first check-in a key
+ * result reads at its baseline (where it starts; 0 with none). One with no
+ * dated check-in at all has no day its value changed, so its current value
+ * counts on every day, as confidenceTrend counts an undated score: without
+ * it the line would end away from the headline on a value nobody moved.
+ * While current mirrors the newest check-in (withCheckIn), the last point
+ * is objectiveProgress. Gate a trend statistic on the points with
+ * MIN_SAMPLE.
+ */
+export function progressTrend(okr: Pick<Okr, "keyResults">): ProgressPoint[] {
+  const perKr = (okr.keyResults ?? []).map((kr) => ({
+    kr,
+    dated: byDate((kr.checkIns ?? []).filter(readable)),
+  }));
+  const days = Array.from(new Set(perKr.flatMap((k) => k.dated.map((c) => c.date)))).sort();
+  return days.map((day) => {
+    let sum = 0;
+    let measured = 0;
+    for (const { kr, dated } of perKr) {
+      if (dated.length === 0) {
+        sum += krProgress(kr);
+        continue;
+      }
+      let value: number | undefined;
+      for (const c of dated) {
+        if (c.date > day) break;
+        value = c.value;
+      }
+      if (value === undefined) {
+        const base = krBaseline(kr);
+        if (base !== null) sum += krProgress({ ...kr, current: base });
+        continue;
+      }
+      measured += 1;
+      sum += krProgress({ ...kr, current: value });
+    }
+    return { date: day, progress: sum / perKr.length, measured };
   });
 }
 
