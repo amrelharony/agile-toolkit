@@ -20,7 +20,9 @@
  *   7. raise_impediment   — the risk happened: raise it as an impediment
  *                           (its level becomes the severity) and link it.
  * Backing CRUD: workspace.risk.{create,list,update,delete} (defineCrudActions
- * in workspace/index.ts; every write there stamps updatedAt too).
+ * in workspace/index.ts; every write there stamps updatedAt too, an update
+ * merges into the risk as listed here, and a delete of a row still in the
+ * old blob is refused with 'pending_move' as below).
  *
  * One store: workspace.risks since Phase 8. Every number comes from
  * lib/risks/model, the same reading the page, the hand-off and the next

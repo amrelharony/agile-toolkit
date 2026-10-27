@@ -39,10 +39,15 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { RISK_REGISTER_KEY, RISK_REGISTER_MOVED_KEY } from "@/lib/risks/legacy-register";
+import {
+  RISK_REGISTER_KEY,
+  RISK_REGISTER_MOVED_KEY,
+  planRiskRegisterMove,
+} from "@/lib/risks/legacy-register";
 import { addDays } from "@/lib/impediments/model";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import "@/lib/actions/tools/risk-register";
+import "@/lib/actions/workspace";
 
 const TODAY = todayLocalISO();
 const ws = () => useWorkspaceStore.getState();
@@ -467,3 +472,69 @@ describe("tool.risk_register in the tab", () => {
     expect(() => schema.parse({ id: "r1", residualProbability: 6, residualImpact: 2 })).toThrow();
   });
 });
+
+describe.each(["tab", "mcp"] as const)(
+  "the workspace.risk CRUD on a row still in the old blob, %s",
+  (transport) => {
+    const crud = <T>(verb: string, params: Record<string, unknown>) =>
+      run<T>(transport, `workspace.risk.${verb}`, params);
+    /** Record ids as moved, as the page's move would, on this transport. */
+    const markMoved = (ids: string[]) => {
+      if (transport === "tab") localStorage.setItem(RISK_REGISTER_MOVED_KEY, JSON.stringify(ids));
+      else blobs.set(RISK_REGISTER_MOVED_KEY, ids);
+    };
+
+    it("an update merges into the risk as listed, so the move keeps the blob's later status", async () => {
+      // Pushed, then closed on the old page; the workspace's copy is still open.
+      const blob = [
+        risk({ status: "closed", resolvedAt: "2026-10-20", mitigation: "Cache the responses" }),
+      ];
+      seed(transport, { risks: [risk()], blob });
+      expect(await crud("update", { id: "r1", patch: { owner: "Ana" } })).toEqual({
+        updated: true,
+      });
+      const [saved] = stored(transport).risks;
+      expect(saved).toMatchObject({
+        status: "closed",
+        resolvedAt: "2026-10-20",
+        mitigation: "Cache the responses",
+        owner: "Ana",
+      });
+      expect(saved.updatedAt).toEqual(expect.any(String));
+      // Stamped and complete: the page's move has nothing left to change.
+      const plan = planRiskRegisterMove(blob, [saved], []);
+      expect(plan.toFill).toEqual([]);
+      expect(plan.conflicts).toEqual([]);
+    });
+
+    it("an update is validated and judged on the risk as listed", async () => {
+      // The residual pair is only in the blob's copy: one half patched makes
+      // a whole pair on the listed row (on the bare stored row it would be half).
+      seed(transport, {
+        risks: [risk()],
+        blob: [risk({ residualProbability: 2, residualImpact: 2 })],
+      });
+      await crud("update", { id: "r1", patch: { residualProbability: 1 } });
+      expect(stored(transport).risks[0]).toMatchObject({
+        residualProbability: 1,
+        residualImpact: 2,
+      });
+      await expect(crud("update", { id: "r1", patch: { impact: 9 } })).rejects.toThrow(
+        /impact: a whole number/
+      );
+    });
+
+    it("a delete of a row still in the old blob is refused; once moved, it goes", async () => {
+      seed(transport, {
+        risks: [risk()],
+        blob: [risk(), risk({ id: "blob-only", title: "Old page only" })],
+      });
+      await expect(crud("delete", { id: "r1" })).rejects.toThrow("pending_move");
+      await expect(crud("delete", { id: "blob-only" })).rejects.toThrow("pending_move");
+      expect(stored(transport).risks.map((r) => r.id)).toEqual(["r1"]);
+      markMoved(["r1", "blob-only"]);
+      expect(await crud("delete", { id: "r1" })).toEqual({ deleted: true });
+      expect(stored(transport).risks).toEqual([]);
+    });
+  }
+);

@@ -21,6 +21,8 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
     serverListEntities: vi.fn(async () => []),
     serverGetEntity: vi.fn(async () => null),
     serverDeleteEntity: vi.fn(async () => {}),
+    // The risk and tech-debt CRUDs read the old page blobs (none here).
+    serverGetUserStateBlob: vi.fn(async () => null),
   };
 });
 

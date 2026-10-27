@@ -124,6 +124,23 @@ interface CrudOptions<T extends { id: string }, L = undefined> {
     loaded: L | undefined
   ) => Promise<void>;
   /**
+   * Async, on both transports, on update: the record the patch is merged
+   * into, given the stored one. For an entity whose tool lists a stored
+   * row with more folded in (a risk or tech-debt item whose copy in its
+   * old page blob still waits for the page's one-time move): the update
+   * then saves the row the caller saw and the tool verbs would save, not
+   * the bare stored row, and validation, `load`, `prepare` and
+   * `beforeWrite` all get it as the current record. Not with `versioned`.
+   */
+  readAs?: (stored: T, env: CrudEnv<T>) => Promise<T>;
+  /**
+   * Async, on both transports, before delete removes the record: throw to
+   * refuse (nothing is deleted). A risk or tech-debt item still waiting in
+   * its old page blob is refused: only its page can mark it moved, or the
+   * move would bring it straight back.
+   */
+  beforeDelete?: (id: string, env: CrudEnv<T>) => Promise<void>;
+  /**
    * For an entity whose store `remove` takes other rows with it (a weighted
    * matrix's options and criteria): `describe` says what goes, in the delete
    * verb's description, and `server` does the same on the MCP transport —
@@ -150,8 +167,8 @@ export function defineCrudActions<T extends { id: string }, L = undefined>(
   const serverKind = opts.serverKind ?? kindFromToolId(toolId);
   // A versioned update is a compare-and-set that re-runs a synchronous
   // prepare on each attempt: there is no place for an async step in it.
-  if (opts.versioned && (opts.load || opts.beforeWrite)) {
-    throw new Error(`${toolId}: a versioned CRUD takes no load or beforeWrite hook.`);
+  if (opts.versioned && (opts.load || opts.beforeWrite || opts.readAs)) {
+    throw new Error(`${toolId}: a versioned CRUD takes no load, beforeWrite or readAs hook.`);
   }
   const clientEnv: CrudEnv<T> = { all: async () => selectAll() };
   const serverEnv = (userId: string): CrudEnv<T> => ({
@@ -297,8 +314,9 @@ export function defineCrudActions<T extends { id: string }, L = undefined>(
       id: string;
       patch: Record<string, unknown>;
     }): Promise<{ updated: boolean }> => {
-      const current = selectAll().find((e) => e.id === params.id);
-      if (!current) return { updated: false };
+      const stored = selectAll().find((e) => e.id === params.id);
+      if (!stored) return { updated: false };
+      const current = opts.readAs ? await opts.readAs(stored, clientEnv) : stored;
       // Validate the merged result against the entity schema — reject
       // if a malformed patch would produce an invalid entity.
       const merged = { ...current, ...params.patch, id: params.id };
@@ -337,9 +355,11 @@ export function defineCrudActions<T extends { id: string }, L = undefined>(
         );
         return { updated: result !== null };
       }
-      const current = await serverGetEntity<T>(ctx.userId, serverKind, params.id);
-      if (!current) return { updated: false };
-      const next = await prepared(validated(current), current, params.patch, serverEnv(ctx.userId));
+      const stored = await serverGetEntity<T>(ctx.userId, serverKind, params.id);
+      if (!stored) return { updated: false };
+      const env = serverEnv(ctx.userId);
+      const current = opts.readAs ? await opts.readAs(stored, env) : stored;
+      const next = await prepared(validated(current), current, params.patch, env);
       await serverUpsertEntity<T>(ctx.userId, serverKind, next);
       return { updated: true };
     },
@@ -356,10 +376,12 @@ export function defineCrudActions<T extends { id: string }, L = undefined>(
       : `Delete a ${entityName} by id.`,
     paramsSchema: z.object({ id: z.string() }),
     handler: async (params: { id: string }): Promise<{ deleted: boolean }> => {
+      if (opts.beforeDelete) await opts.beforeDelete(params.id, clientEnv);
       remove(params.id);
       return { deleted: true };
     },
     mcpHandler: async (params, ctx) => {
+      if (opts.beforeDelete) await opts.beforeDelete(params.id, serverEnv(ctx.userId));
       if (opts.cascade) await opts.cascade.server(ctx.userId, params.id);
       else await serverDeleteEntity(ctx.userId, serverKind, params.id);
       return { deleted: true };

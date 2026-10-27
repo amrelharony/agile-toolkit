@@ -37,10 +37,11 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { TECH_DEBT_KEY, TECH_DEBT_MOVED_KEY } from "@/lib/tech-debt/legacy";
+import { TECH_DEBT_KEY, TECH_DEBT_MOVED_KEY, planTechDebtMove } from "@/lib/tech-debt/legacy";
 import { addDays } from "@/lib/impediments/model";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import "@/lib/actions/tools/tech-debt";
+import "@/lib/actions/workspace";
 
 const TODAY = todayLocalISO();
 const ws = () => useWorkspaceStore.getState();
@@ -332,3 +333,51 @@ describe.each(["tab", "mcp"] as const)("tool.tech_debt over %s", (transport) => 
     }
   });
 });
+
+describe.each(["tab", "mcp"] as const)(
+  "the workspace.tech_debt CRUD on a row still in the old blob, %s",
+  (transport) => {
+    const crud = <T>(verb: string, params: Record<string, unknown>) =>
+      run<T>(transport, `workspace.tech_debt.${verb}`, params);
+
+    it("an update merges into the item as listed, so the move keeps the blob's resolution", async () => {
+      // Pushed, then paid down on the old page; the workspace's copy is still open.
+      const blob = [item({ area: "ci", resolvedAt: "2026-10-20" })];
+      seed(transport, { items: [item()], blob });
+      expect(await crud("update", { id: "d1", patch: { tags: ["deploy"] } })).toEqual({
+        updated: true,
+      });
+      const [saved] = stored(transport).items;
+      expect(saved).toMatchObject({ area: "ci", resolvedAt: "2026-10-20", tags: ["deploy"] });
+      expect(saved.updatedAt).toEqual(expect.any(String));
+      expect(planTechDebtMove(blob, [saved], [])).toMatchObject({ toFill: [], conflicts: [] });
+    });
+
+    it("reopens with an empty resolvedAt, and the move doesn't resolve it again", async () => {
+      const blob = [item({ resolvedAt: "2026-10-20" })];
+      seed(transport, { items: [item()], blob });
+      await crud("update", { id: "d1", patch: { resolvedAt: "" } });
+      const [saved] = stored(transport).items;
+      expect(saved.resolvedAt).toBe("");
+      const s = await run<{ items: { id: string; open: boolean }[] }>(
+        transport,
+        "tool.tech_debt.list_state",
+        { today: TODAY }
+      );
+      expect(s.items.find((t) => t.id === "d1")?.open).toBe(true);
+      expect(planTechDebtMove(blob, [saved], []).toFill).toEqual([]);
+    });
+
+    it("a delete of a row still in the old blob is refused; once moved, it goes", async () => {
+      seed(transport, { items: [item()], blob: [item(), item({ id: "blob-only", title: "Old" })] });
+      await expect(crud("delete", { id: "d1" })).rejects.toThrow("pending_move");
+      await expect(crud("delete", { id: "blob-only" })).rejects.toThrow("pending_move");
+      expect(stored(transport).items.map((t) => t.id)).toEqual(["d1"]);
+      if (transport === "tab") {
+        localStorage.setItem(TECH_DEBT_MOVED_KEY, JSON.stringify(["d1", "blob-only"]));
+      } else blobs.set(TECH_DEBT_MOVED_KEY, ["d1", "blob-only"]);
+      expect(await crud("delete", { id: "d1" })).toEqual({ deleted: true });
+      expect(stored(transport).items).toEqual([]);
+    });
+  }
+);

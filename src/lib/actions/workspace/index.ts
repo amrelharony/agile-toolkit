@@ -62,6 +62,19 @@ import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
 import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
 import {
+  RISK_REGISTER_KEY,
+  RISK_REGISTER_MOVED_KEY,
+  isPendingRiskRow,
+  listedRisk,
+} from "@/lib/risks/legacy-register";
+import {
+  TECH_DEBT_KEY,
+  TECH_DEBT_MOVED_KEY,
+  isPendingTechDebtRow,
+  listedTechDebt,
+} from "@/lib/tech-debt/legacy";
+import { readLegacyBlob } from "../user-state-blob";
+import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
   STORY_STATUS_HISTORY_CAP,
@@ -744,6 +757,30 @@ defineCrudActions<Impediment>({
   generateId: () => `imp_${nanoid(8)}`,
 });
 
+/* ── Rows still moving in from an old page blob ────────────────────────
+ * The Risk Register's and the Tech Debt page's old blobs move into
+ * workspace.risks / workspace.techDebt through each page's one-time move;
+ * until it runs, the pages and the tool verbs list a row both stores hold
+ * with the blob's copy folded in (lib/risks/legacy-register,
+ * lib/tech-debt/legacy). The CRUD's update starts from that listed row
+ * (readAs), so its updatedAt stamp, which tells the move the workspace's
+ * copy is the newer one, never lands on a bare row lacking the blob's later
+ * status or values. A delete of a row still waiting in the blob is refused
+ * ('pending_move'), as tool.*.delete refuses it: only the page can mark it
+ * moved, or the move would bring it straight back. */
+
+const RISK_PENDING_DELETE =
+  "pending_move: this risk is still moving in from the old Risk Register page: open the Risk Register once, then delete it (or delete it there). Nothing was deleted.";
+const TECH_DEBT_PENDING_DELETE =
+  "pending_move: this item is still moving in from the old Tech Debt page: open Tech Debt once, then delete it (or delete it there). Nothing was deleted.";
+
+/** The Risk Register's old blob and moved ids, on the CRUD's transport. */
+const riskBlob = (env: CrudEnv<Risk>) =>
+  readLegacyBlob(RISK_REGISTER_KEY, RISK_REGISTER_MOVED_KEY, env.userId);
+/** The Tech Debt page's old blob and moved ids, on the CRUD's transport. */
+const techDebtBlob = (env: CrudEnv<TechDebtItem>) =>
+  readLegacyBlob(TECH_DEBT_KEY, TECH_DEBT_MOVED_KEY, env.userId);
+
 defineCrudActions<Risk>({
   toolId: "workspace.risk",
   entityName: "risk",
@@ -752,6 +789,16 @@ defineCrudActions<Risk>({
   upsert: (r) => ws().upsertRisk(r),
   remove: (id) => ws().removeRisk(id),
   generateId: () => `risk_${nanoid(8)}`,
+  // An update merges into the risk as the register lists it; a delete of
+  // one still in the old blob is refused (see above).
+  readAs: async (stored, env) => {
+    const { raw, moved } = await riskBlob(env);
+    return listedRisk(stored, raw, moved);
+  },
+  beforeDelete: async (id, env) => {
+    const { raw, moved } = await riskBlob(env);
+    if (isPendingRiskRow(id, raw, moved)) throw new Error(RISK_PENDING_DELETE);
+  },
   // The ratings a write sets are judged; an agent's write is newer than the
   // old Risk Register blob (lib/risks' move).
   prepare: (next, current, patch) =>
@@ -788,6 +835,16 @@ defineCrudActions<TechDebtItem>({
   upsert: (t) => ws().upsertTechDebt(t),
   remove: (id) => ws().removeTechDebt(id),
   generateId: () => `td_${nanoid(8)}`,
+  // An update merges into the item as the page lists it; a delete of one
+  // still in the old blob is refused (see "Rows still moving in").
+  readAs: async (stored, env) => {
+    const { raw, moved } = await techDebtBlob(env);
+    return listedTechDebt(stored, raw, moved);
+  },
+  beforeDelete: async (id, env) => {
+    const { raw, moved } = await techDebtBlob(env);
+    if (isPendingTechDebtRow(id, raw, moved)) throw new Error(TECH_DEBT_PENDING_DELETE);
+  },
   // The ratings and rate a write sets are judged; an agent's write is newer
   // than the old Tech Debt blob (lib/tech-debt's move).
   prepare: (next, current, patch) =>

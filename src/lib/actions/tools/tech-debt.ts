@@ -16,7 +16,9 @@
  *   7. add_to_backlog   — put an open item on the backlog as a story and
  *                         link it, as the page's "Add to backlog" does.
  * Backing CRUD: workspace.tech_debt.* (defineCrudActions in
- * workspace/index.ts; every write there stamps updatedAt too).
+ * workspace/index.ts; every write there stamps updatedAt too, an update
+ * merges into the item as listed here, and a delete of a row still in the
+ * old blob is refused with 'pending_move' as below).
  *
  * One store: workspace.techDebt since Phase 8. Every number comes from
  * lib/tech-debt/model, the page's own reading:
@@ -386,7 +388,7 @@ registry.register({
   category: "write",
   requiresConfirmation: true,
   description:
-    "Mark a tech-debt item resolved (paid down) on a day: resolvedAt YYYY-MM-DD, default today; backdate it, never in the future, never before it was raised (a timestamp is read as its date). An item already resolved is re-dated. Its age in sprints stops at that day. Returns {updated: true, resolvedAt} or {updated: false, reason: 'not_found' | 'not_a_day' | 'future_day' | 'before_raised'}. Reopen it on the page (Undo) or with workspace.tech_debt.update.",
+    "Mark a tech-debt item resolved (paid down) on a day: resolvedAt YYYY-MM-DD, default today; backdate it, never in the future, never before it was raised (a timestamp is read as its date). An item already resolved is re-dated. Its age in sprints stops at that day. Returns {updated: true, resolvedAt} or {updated: false, reason: 'not_found' | 'not_a_day' | 'future_day' | 'before_raised'}. Reopen it on the page (Undo) or with workspace.tech_debt.update {id, patch: {resolvedAt: \"\"}} (an empty resolvedAt reads as open).",
   paramsSchema: MarkResolvedSchema,
   handler: async (params) => markResolved(browserTechDebtStore, params),
   mcpHandler: async (params, ctx) => markResolved(serverTechDebtStore(ctx.userId), params),
