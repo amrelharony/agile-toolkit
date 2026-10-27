@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
-import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
+import { OnSearchParams, dropSearchParam, replaceUrl } from "@/components/shared/on-search-params";
 
 /** A page hears its query string on load and on a same-page link, not only on mount. */
 
@@ -42,5 +42,14 @@ describe("OnSearchParams", () => {
     );
     dropSearchParam("missing");
     expect(window.location.search).toBe("?x=1");
+  });
+
+  it("replaces the URL with a null state, so Next's router syncs its query too", () => {
+    // Next skips its sync for a state that is its own entry (window.history.state),
+    // and then the same link later reads as no change.
+    window.history.replaceState({ __NA: true }, "", "/weighted-decision?matrix=a");
+    replaceUrl(new URL("/weighted-decision?matrix=b", window.location.href));
+    expect(window.location.search).toBe("?matrix=b");
+    expect(window.history.state).toBeNull();
   });
 });

@@ -34,13 +34,27 @@ function Listener({ onChange }: { onChange: OnChange }) {
   return null;
 }
 
+/**
+ * Replaces the address bar's URL so the app router hears it too. The state
+ * must not be Next's own entry (window.history.state): Next then skips its
+ * sync, still holds the old query, and the same link later reads as no
+ * change. With null, Next copies its state into the entry and syncs.
+ */
+export function replaceUrl(url: URL) {
+  try {
+    window.history.replaceState(null, "", url);
+  } catch {
+    /* no history API: the address stays, which is harmless */
+  }
+}
+
 /** Drops `name` from the address bar (after it was acted on), so the same link works again. */
 export function dropSearchParam(name: string) {
   try {
     const url = new URL(window.location.href);
     if (!url.searchParams.has(name)) return;
     url.searchParams.delete(name);
-    window.history.replaceState(window.history.state, "", url);
+    replaceUrl(url);
   } catch {
     /* no history API: the param stays, which is harmless */
   }
