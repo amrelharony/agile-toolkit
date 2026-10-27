@@ -16,6 +16,7 @@ import {
   type RankedAssumption,
 } from "@/lib/assumptions/model";
 import { linkedTest } from "@/lib/hypotheses/model";
+import { isExampleId } from "@/lib/utils/example-id";
 
 type Hypotheses = readonly Pick<Hypothesis, "id" | "status">[];
 
@@ -60,13 +61,36 @@ export const QUADRANTS: readonly {
   },
 ];
 
+/* ── What the ranking counts ─────────────────────────────────────────── */
+
+export interface Counted {
+  /** The rows ranked, counted and placed: the team's own once any exist. */
+  rows: Assumption[];
+  /** Example rows next to the team's own: shown apart, ranked on their own, never counted. */
+  aside: Assumption[];
+  /** True while only the example is on the canvas: the numbers are the example's. */
+  example: boolean;
+}
+
+/**
+ * The rows the page ranks: the team's own, as tool.riskiest_assumption
+ * ranks them, so the page and an agent name the same assumption to test
+ * first. While the canvas holds only the example, the example is ranked
+ * instead, so "Load an example" shows a filled-in canvas.
+ */
+export function countedAssumptions(list: readonly Assumption[]): Counted {
+  const real = list.filter((a) => !isExampleId(a.id));
+  if (real.length === 0) return { rows: [...list], aside: [], example: list.length > 0 };
+  return { rows: real, aside: list.filter((a) => isExampleId(a.id)), example: false };
+}
+
 export interface CanvasView {
   ranked: RankedAssumption[];
   unrated: Assumption[];
   tested: Assumption[];
   /** Ranked only: an unrated or tested assumption isn't placed. */
   quadrants: Record<Quadrant, Assumption[]>;
-  /** Untested, rated risk 4 or 5, and not tested yet. */
+  /** Ranked, rated risk 4 or 5, and with no test yet: untested, and no hypothesis testing it. */
   untestedRisky: number;
 }
 
@@ -82,8 +106,12 @@ export function canvasView(assumptions: readonly Assumption[], hypotheses: Hypot
     const q = quadrantOf(r.assumption);
     if (q) quadrants[q].push(r.assumption);
   }
+  // One whose hypothesis is running is being tested, whatever its own status says.
   const untestedRisky = ranked.filter(
-    (r) => r.assumption.status === "untested" && (ratingOf(r.assumption.riskLevel) ?? 0) >= 4
+    (r) =>
+      r.assumption.status === "untested" &&
+      linkedTest(r.assumption.sentTo, hypotheses).state === "none" &&
+      (ratingOf(r.assumption.riskLevel) ?? 0) >= 4
   ).length;
   return { ranked, unrated, tested, quadrants, untestedRisky };
 }

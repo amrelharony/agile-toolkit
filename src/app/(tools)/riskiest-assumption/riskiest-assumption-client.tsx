@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { CheckCircle2, CircleDashed, Grid2x2, ListOrdered } from "lucide-react";
+import { CheckCircle2, CircleDashed, FlaskConical, Grid2x2, ListOrdered } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -56,6 +56,7 @@ import {
   QUADRANTS,
   assumptionsVerdict,
   canvasView,
+  countedAssumptions,
   offeredStatus,
   resultText,
   statusLabel,
@@ -70,6 +71,41 @@ const NO_HYPOTHESES: Hypothesis[] = [];
 
 const keyOf = (a: Assumption) => a.id;
 const titleOf = (a: Pick<Assumption, "statement">) => a.statement?.trim() || "Untitled assumption";
+
+/** The control on a card that takes focus back after a change. */
+type FocusTarget = "riskLevel" | "evidenceLevel" | "status" | "test";
+
+/** The card for `id`, wherever it is drawn now; ids go in no selector, so need no escaping. */
+function cardOf(id: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-assumption-card]")).find(
+    (el) => el.getAttribute("data-assumption-card") === id
+  );
+}
+
+/**
+ * Put focus back on `target` in the card for `id` once the page has drawn
+ * the change, when focus was lost: a rating or a status moves the card to
+ * another list (Ranked, Not rated, Tested), which draws it anew, and Test
+ * and "Mark …" swap the control that had focus for another. A control
+ * that kept focus is left alone.
+ */
+function refocus(id: string, target: FocusTarget) {
+  requestAnimationFrame(() => {
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const card = cardOf(id);
+    if (!card) return;
+    const el =
+      target === "status"
+        ? card.querySelector<HTMLElement>("select")
+        : target === "test"
+          ? card.querySelector<HTMLElement>("[data-assumption-test]")
+          : card.querySelector<HTMLElement>(
+              `[data-rating="${target}"] [role="radio"][tabindex="0"]`
+            );
+    (el ?? card.querySelector<HTMLElement>("[data-assumption-edit]"))?.focus();
+  });
+}
 
 /**
  * Riskiest Assumption Canvas: the assumptions behind a bet, rated on risk
@@ -92,11 +128,23 @@ export function RiskiestAssumptionClient() {
   const { log } = useHistoryLogger("riskiest-assumption");
   const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
-  const view = useMemo(() => canvasView(list, hypotheses), [list, hypotheses]);
+  // The team's rows once any exist, as the agent ranks them; example rows
+  // next to them are shown apart and ranked on their own.
+  const counted = useMemo(() => countedAssumptions(list), [list]);
+  const view = useMemo(() => canvasView(counted.rows, hypotheses), [counted, hypotheses]);
+  const aside = useMemo(
+    () => (counted.aside.length > 0 ? canvasView(counted.aside, hypotheses) : null),
+    [counted, hypotheses]
+  );
   const rankOf = useMemo(
     () => new Map(view.ranked.map((r) => [r.assumption.id, r])),
     [view.ranked]
+  );
+  const asideRankOf = useMemo(
+    () => new Map((aside?.ranked ?? []).map((r) => [r.assumption.id, r])),
+    [aside]
   );
   // The ranking as it was last sorted: a rating change marks it stale
   // ("Re-sort") instead of moving the card being rated.
@@ -126,12 +174,37 @@ export function RiskiestAssumptionClient() {
   const record = (id: string, action: string, payload: Record<string, unknown>) => {
     if (!isExampleId(id)) log(action, payload);
   };
-  /** Where an assumption stands after a change, for the announcement. */
+  /** Where an assumption stands after a change (its list too), for the announcement. */
   const standing = (id: string) => {
-    const after = currentDoc()?.assumptions ?? [];
-    const r = rankAssumptions(after, hypotheses).ranked.find((x) => x.assumption.id === id);
-    return r ? `ranked #${r.rank}, score ${r.score}` : "not rated, so not ranked";
+    const c = countedAssumptions(currentDoc()?.assumptions ?? []);
+    const group = c.rows.some((a) => a.id === id) ? c.rows : c.aside;
+    const { ranked, tested } = rankAssumptions(group, hypotheses);
+    const r = ranked.find((x) => x.assumption.id === id);
+    if (r) return `ranked #${r.rank}, score ${r.score}`;
+    return tested.some((a) => a.id === id)
+      ? "tested, so out of the ranking"
+      : "not rated, so not ranked";
   };
+
+  /** Focus the card drawn after `id` (or before it), else the add form, once it is gone. */
+  function focusPast(id: string) {
+    const shown = [
+      ...ordered,
+      ...view.unrated,
+      ...view.tested,
+      ...(aside
+        ? [...aside.ranked.map((r) => r.assumption), ...aside.unrated, ...aside.tested]
+        : []),
+    ];
+    const at = shown.findIndex((a) => a.id === id);
+    const near = at >= 0 ? (shown[at + 1] ?? shown[at - 1]) : undefined;
+    requestAnimationFrame(() =>
+      (
+        (near && cardOf(near.id)?.querySelector<HTMLElement>("[data-assumption-edit]")) ||
+        formRef.current?.querySelector<HTMLElement>("input, textarea")
+      )?.focus()
+    );
+  }
 
   function add(values: AssumptionValues) {
     const a = applyAssumptionValues(
@@ -186,13 +259,15 @@ export function RiskiestAssumptionClient() {
     announce(
       `${key === "riskLevel" ? "Risk" : "Evidence"} ${value ?? "cleared"}: “${titleOf(a)}” is ${standing(a.id)}`
     );
+    refocus(a.id, key);
   }
 
   function setStatus(a: Assumption, status: AssumptionStatus) {
     if (status === a.status) return;
     patch(a.id, (x) => ({ ...x, status }));
     record(a.id, RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, { assumptionId: a.id, status });
-    announce(`“${titleOf(a)}” is now ${statusLabel(status).toLowerCase()}`);
+    announce(`“${titleOf(a)}” is now ${statusLabel(status).toLowerCase()}: ${standing(a.id)}`);
+    refocus(a.id, "status");
   }
 
   function test(a: Assumption) {
@@ -214,9 +289,11 @@ export function RiskiestAssumptionClient() {
       hypothesisId: link.targetId,
     });
     announce(`“${titleOf(a)}” is now a hypothesis to test in the Hypothesis Tracker`);
+    refocus(a.id, "test");
   }
 
   function remove(a: Assumption) {
+    focusPast(a.id);
     // Its hypothesis, if it has one, stays in the tracker.
     removeWithUndo<Assumption>({
       label: `Deleted “${titleOf(a)}”`,
@@ -284,13 +361,15 @@ export function RiskiestAssumptionClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Riskiest Assumption Canvas",
-      prompts: generateRiskiestAssumptionPrompts({ assumptions: [...list] }, workspace),
+      // The rows the page ranks: example rows next to the team's own stay out.
+      prompts: generateRiskiestAssumptionPrompts({ assumptions: [...counted.rows] }, workspace),
     }),
-    [list, workspace]
+    [counted, workspace]
   );
 
   const cardProps = (a: Assumption): AssumptionCardProps => {
-    const r = rankOf.get(a.id);
+    // An example row aside is ranked among the example only.
+    const r = rankOf.get(a.id) ?? asideRankOf.get(a.id);
     return {
       assumption: a,
       rank: r ? { rank: r.rank, score: r.score } : null,
@@ -298,7 +377,7 @@ export function RiskiestAssumptionClient() {
       test: linkedTest(a.sentTo, hypotheses),
       offered: offeredStatus(a, hypotheses),
       example: isExampleId(a.id),
-      first: r?.rank === 1 && view.ranked.length > 1,
+      first: view.ranked[0]?.assumption.id === a.id && view.ranked.length > 1,
       onWords: saveWords,
       onRate: rate,
       onStatus: setStatus,
@@ -330,7 +409,9 @@ export function RiskiestAssumptionClient() {
           </ActionRow>
         )}
 
-        <AddAssumptionForm onAdd={add} />
+        <div ref={formRef}>
+          <AddAssumptionForm onAdd={add} />
+        </div>
 
         {list.length === 0 ? (
           hydrated && (
@@ -341,7 +422,10 @@ export function RiskiestAssumptionClient() {
           )
         ) : (
           <>
-            <p className="text-sm font-medium text-text">{verdict}</p>
+            <p className="text-sm font-medium text-text">
+              {verdict}
+              {counted.example && <span className="text-sub"> (the example)</span>}
+            </p>
             <KpiGrid cols={4}>
               <StatCard
                 variant="compact"
@@ -353,7 +437,7 @@ export function RiskiestAssumptionClient() {
                 variant="compact"
                 label="Untested + risky"
                 value={view.untestedRisky}
-                hint="risk 4 or 5"
+                hint="risk 4 or 5, no test yet"
                 tone={view.untestedRisky > 0 ? "danger" : "default"}
               />
               <StatCard
@@ -441,6 +525,30 @@ export function RiskiestAssumptionClient() {
               <SectionCard title={`Tested (${view.tested.length})`} icon={CheckCircle2}>
                 <ul className="space-y-3" aria-label="Tested assumptions">
                   {view.tested.map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <AssumptionCard {...cardProps(a)} />
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
+
+            {aside && (
+              <SectionCard
+                title={`Example (${counted.aside.length})`}
+                icon={FlaskConical}
+                titleSuffix={
+                  <span className="text-xs text-sub">
+                    ranked on its own, not counted with yours
+                  </span>
+                }
+              >
+                <ul className="space-y-3" aria-label="Example assumptions, not counted">
+                  {[
+                    ...aside.ranked.map((r) => r.assumption),
+                    ...aside.unrated,
+                    ...aside.tested,
+                  ].map((a) => (
                     <li key={a.id} className="min-w-0">
                       <AssumptionCard {...cardProps(a)} />
                     </li>

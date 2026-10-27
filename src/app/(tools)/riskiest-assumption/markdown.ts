@@ -1,7 +1,13 @@
 import type { Assumption, Hypothesis } from "@/lib/stores/workspace-types";
 import { ratingOf } from "@/lib/assumptions/model";
 import { linkedTest } from "@/lib/hypotheses/model";
-import { assumptionsVerdict, canvasView, resultText, statusLabel } from "./view";
+import {
+  assumptionsVerdict,
+  canvasView,
+  countedAssumptions,
+  resultText,
+  statusLabel,
+} from "./view";
 
 const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ").trim();
 /** A table cell: one line, with pipes escaped so they don't split the cell. */
@@ -17,7 +23,8 @@ function testText(a: Assumption, hypotheses: readonly Pick<Hypothesis, "id" | "s
 /**
  * The canvas as Markdown: the verdict, the ranking with its scores (the
  * order to test them in), the assumptions not rated yet, and the tested
- * ones with what settled them.
+ * ones with what settled them. The rows the page ranks (countedAssumptions):
+ * example rows next to the team's own are left out, and say so.
  */
 export function assumptionsToMarkdown(
   assumptions: readonly Assumption[],
@@ -28,8 +35,16 @@ export function assumptionsToMarkdown(
     lines.push("No assumptions yet.");
     return `${lines.join("\n")}\n`;
   }
-  const view = canvasView(assumptions, hypotheses);
-  lines.push(`> ${assumptionsVerdict(view)}`, "");
+  const counted = countedAssumptions(assumptions);
+  const view = canvasView(counted.rows, hypotheses);
+  lines.push(`> ${assumptionsVerdict(view)}${counted.example ? " (the example)" : ""}`, "");
+  if (counted.aside.length > 0) {
+    const n = counted.aside.length;
+    lines.push(
+      `_The example's ${n} ${n === 1 ? "assumption is" : "assumptions are"} left out._`,
+      ""
+    );
+  }
   if (view.ranked.length > 0) {
     lines.push(
       "## Ranking (score = risk × (6 − evidence))",

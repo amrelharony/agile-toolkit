@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -332,9 +332,9 @@ describe("testing an assumption", () => {
       within(section("Tested assumptions")).getByRole("article", { name: "Teams will pay" })
     ).toBeInTheDocument();
     expect(one("a")?.status).toBe("untested");
-    fireEvent.click(screen.getByRole("button", { name: "Mark “Teams will pay” validated" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark validated: “Teams will pay”" }));
     expect(one("a")?.status).toBe("validated");
-    expect(screen.queryByRole("button", { name: /^Mark “Teams will pay”/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Mark validated/ })).toBeNull();
   });
 
   it("keeps an inconclusive test in the ranking with a note to test again", () => {
@@ -432,5 +432,150 @@ describe("delete, example and export", () => {
     expect(md).toContain("## Not rated\n\n- Admins want SSO");
     expect(md).toContain("## Tested\n\n- Trials needed: validated");
     expect(assumptionsToMarkdown([], [])).toContain("No assumptions yet.");
+  });
+});
+
+describe("after review", () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  /** Runs the frames the page asked for, after React has rendered. */
+  const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+  const radio = (scope: HTMLElement, scale: "Risk" | "Evidence", value: number) =>
+    within(within(scope).getByRole("radiogroup", { name: scale })).getByRole("radio", {
+      name: String(value),
+    });
+
+  it("ranks the team's rows apart from the example, as the agent does", async () => {
+    seed([
+      ...buildExample(),
+      as("mine", "Our buyers read the changelog", { riskLevel: 3, evidenceLevel: 2 }),
+    ]);
+    const agent = await run<{ riskiest: { id: string } | null; ranking: { id: string }[] }>(
+      "list_state"
+    );
+    renderPage();
+    expect(agent.riskiest?.id).toBe("mine");
+    expect(rankedTitles()).toEqual(["Our buyers read the changelog"]);
+    expect(screen.getByText(/^Test “Our buyers read the changelog” first/)).toBeInTheDocument();
+    expect(
+      within(card("Our buyers read the changelog")).getByText("#1 · score 12")
+    ).toBeInTheDocument();
+    // The example sits apart, ranked among itself, and counts for nothing above.
+    const examples = within(section("Example assumptions, not counted")).getAllByRole("article");
+    expect(examples).toHaveLength(6);
+    expect(screen.queryByText("(the example)")).toBeNull();
+    const md = screen.getByTestId("export-markdown").textContent ?? "";
+    expect(md).toContain("_The example's 6 assumptions are left out._");
+    expect(md).toContain("| 1 | Our buyers read the changelog |");
+    expect(agent.ranking.map((r) => r.id)).toEqual(["mine"]);
+  });
+
+  it("ranks the example while it is alone, and says the numbers are the example's", () => {
+    seed(buildExample());
+    renderPage();
+    expect(screen.getByText("(the example)")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Example assumptions, not counted" })).toBeNull();
+  });
+
+  it("doesn't count an assumption its hypothesis is testing as untested", () => {
+    const list = [
+      as("a", "Being tested", { riskLevel: 5, evidenceLevel: 1, sentTo: link("h1") }),
+      as("b", "Not tested", { riskLevel: 4, evidenceLevel: 2 }),
+    ];
+    expect(canvasView(list, [hyp("h1", "running")]).untestedRisky).toBe(1);
+    expect(canvasView(list, []).untestedRisky).toBe(2);
+  });
+
+  it("follows a card into Ranked with focus when its second rating is picked", () => {
+    seed([as("u", "Admins want SSO", { riskLevel: 4 })]);
+    renderPage();
+    const five = radio(card("Admins want SSO"), "Evidence", 2);
+    five.focus();
+    fireEvent.click(five);
+    nextFrame();
+    const moved = within(section("Ranked assumptions, test the first one first")).getByRole(
+      "article",
+      { name: "Admins want SSO" }
+    );
+    expect(document.activeElement).toBe(radio(moved, "Evidence", 2));
+  });
+
+  it("follows a card back to Not rated when a rating is cleared", () => {
+    seed([as("r", "Teams pay", { riskLevel: 5, evidenceLevel: 1 })]);
+    renderPage();
+    fireEvent.click(within(card("Teams pay")).getByRole("button", { name: "Clear Risk" }));
+    nextFrame();
+    const moved = within(section("Assumptions not rated yet")).getByRole("article", {
+      name: "Teams pay",
+    });
+    expect(document.activeElement).toBe(
+      within(within(moved).getByRole("radiogroup", { name: "Risk" })).getAllByRole("radio")[0]
+    );
+  });
+
+  it("follows a card into Tested with focus on its status, and after Mark", () => {
+    seed(
+      [
+        as("a", "Teams will pay", { riskLevel: 5, evidenceLevel: 1, sentTo: link("h1") }),
+        as("b", "Admins want SSO", { riskLevel: 4, evidenceLevel: 2 }),
+      ],
+      [{ ...hyp("h1", "validated"), resolvedAt: TODAY }]
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Mark validated: “Teams will pay”" }));
+    nextFrame();
+    expect(document.activeElement).toBe(
+      within(card("Teams will pay")).getByLabelText("Status of Teams will pay")
+    );
+    // The select being changed has focus, and goes with the card's old place.
+    const select = within(card("Admins want SSO")).getByLabelText("Status of Admins want SSO");
+    select.focus();
+    fireEvent.change(select, { target: { value: "invalidated" } });
+    nextFrame();
+    const tested = within(section("Tested assumptions")).getByRole("article", {
+      name: "Admins want SSO",
+    });
+    expect(document.activeElement).toBe(within(tested).getByLabelText("Status of Admins want SSO"));
+  });
+
+  it("moves focus to the hypothesis link once Test makes one", () => {
+    seed([as("a", "Teams will pay", { riskLevel: 5, evidenceLevel: 1 })]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Test Teams will pay" }));
+    nextFrame();
+    expect(document.activeElement).toBe(
+      within(card("Teams will pay")).getByRole("link", { name: /Testing \(drafted\)/ })
+    );
+  });
+
+  it("moves focus to the next card after a delete, and to the form after the last", () => {
+    seed([
+      as("a", "One", { riskLevel: 5, evidenceLevel: 1 }),
+      as("b", "Two", { riskLevel: 4, evidenceLevel: 1 }),
+    ]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete One" }));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit Two" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Two" }));
+    nextFrame();
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Assumption/));
+  });
+
+  it("leaves focus alone when the control that had it is still there", () => {
+    seed([
+      as("a", "One", { riskLevel: 3, evidenceLevel: 3 }),
+      as("b", "Two", { riskLevel: 2, evidenceLevel: 2 }),
+    ]);
+    renderPage();
+    const other = screen.getByRole("button", { name: "Edit Two" });
+    other.focus();
+    fireEvent.click(radio(card("One"), "Risk", 4));
+    nextFrame();
+    expect(document.activeElement).toBe(other);
   });
 });

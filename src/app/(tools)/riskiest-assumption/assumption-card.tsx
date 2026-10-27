@@ -121,6 +121,9 @@ export function AssumptionCard({
         "space-y-3 rounded-lg border border-border bg-card p-3 sm:p-4",
         first && "border-l-4 border-l-accent"
       )}
+      // A rating or a status can move the card to another list, which draws
+      // it anew: the page finds it here to put focus back.
+      data-assumption-card={a.id}
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1 space-y-1">
@@ -181,26 +184,30 @@ export function AssumptionCard({
         role="group"
         aria-label={`Ratings of ${title}`}
       >
-        <ScalePicker
-          label="Risk"
-          size="sm"
-          steps={RISK_STEPS}
-          // A value stored off the 1–5 scale (an older agent's 7) shows as
-          // "Custom" until a step is picked; it ranks as its nearest step.
-          value={offRisk ?? risk}
-          onValueChange={(v) => onRate(a, "riskLevel", v as AssumptionLevel)}
-          onClear={() => onRate(a, "riskLevel", null)}
-          hint={ratingHint(RISK_STEPS, risk, offRisk)}
-        />
-        <ScalePicker
-          label="Evidence"
-          size="sm"
-          steps={EVIDENCE_STEPS}
-          value={offEvidence ?? evidence}
-          onValueChange={(v) => onRate(a, "evidenceLevel", v as AssumptionLevel)}
-          onClear={() => onRate(a, "evidenceLevel", null)}
-          hint={ratingHint(EVIDENCE_STEPS, evidence, offEvidence)}
-        />
+        <div className="min-w-0" data-rating="riskLevel">
+          <ScalePicker
+            label="Risk"
+            size="sm"
+            steps={RISK_STEPS}
+            // A value stored off the 1–5 scale (an older agent's 7) shows as
+            // "Custom" until a step is picked; it ranks as its nearest step.
+            value={offRisk ?? risk}
+            onValueChange={(v) => onRate(a, "riskLevel", v as AssumptionLevel)}
+            onClear={() => onRate(a, "riskLevel", null)}
+            hint={ratingHint(RISK_STEPS, risk, offRisk)}
+          />
+        </div>
+        <div className="min-w-0" data-rating="evidenceLevel">
+          <ScalePicker
+            label="Evidence"
+            size="sm"
+            steps={EVIDENCE_STEPS}
+            value={offEvidence ?? evidence}
+            onValueChange={(v) => onRate(a, "evidenceLevel", v as AssumptionLevel)}
+            onClear={() => onRate(a, "evidenceLevel", null)}
+            hint={ratingHint(EVIDENCE_STEPS, evidence, offEvidence)}
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
@@ -247,6 +254,7 @@ export function AssumptionCard({
         ) : (
           <Link
             href={hypothesisHref}
+            data-assumption-test=""
             className={cn(
               "inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline",
               test.state === "tested" ? "text-success" : "text-accent"
@@ -266,7 +274,8 @@ export function AssumptionCard({
             size="sm"
             variant="outline"
             className="gap-1"
-            aria-label={`Mark “${title}” ${offered}`}
+            // The visible words first, so speech input can say them.
+            aria-label={`Mark ${offered}: “${title}”`}
             onClick={() => onStatus(a, offered)}
           >
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
