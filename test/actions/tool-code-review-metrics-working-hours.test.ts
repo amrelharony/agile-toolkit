@@ -138,8 +138,9 @@ describe.each(PATHS)("tool.code_review_metrics.list_state (%s)", (path) => {
     seed(path, CODE_REVIEW_LOG, CADENCE);
     const r = await run<State>(path, "list_state");
     expect(r).toMatchObject({ total: 2, mergedCount: 1, openCount: 0, invalidCount: 1 });
-    // One merged PR: too few for a median.
+    // One merged PR: too few for a median, overall or for its week.
     expect(r.medianCycleWorkingHours).toBeNull();
+    expect(r.weekly).toEqual([{ week: "2026-W43", n: 1, medianCycleWorkingHours: null }]);
     expect(r.workingBasis).toEqual({
       label: "Mon–Fri, holidays excluded, 09:00–17:30",
       workingDays: [1, 2, 3, 4, 5],

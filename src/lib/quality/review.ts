@@ -271,7 +271,12 @@ export interface ReviewSummary {
   bySize: ReviewBand[];
   /** Large PRs (over 400 lines) merged with no review comment. */
   largeNoComments: number;
-  /** Median working cycle per ISO week of the merge, oldest first, quiet weeks with n 0. */
+  /**
+   * Median working cycle per ISO week of the merge, oldest first, quiet
+   * weeks with n 0. Each median is quoted from MIN_SAMPLE.average merges
+   * in its week, as the headline and the bands are; a thinner week is a
+   * gap (null) with its n, never one PR's time read as the week's median.
+   */
   weekly: { week: string; n: number; medianCycleWorkingH: number | null }[];
 }
 
@@ -328,7 +333,11 @@ export function reviewSummary(
     ).length,
     weekly: bucketByPeriod(merged, (r) => r.s.mergedAt, "week").map((b) => {
       const xs = finite(b.items.map((r) => r.t.cycleWorkingH));
-      return { week: b.period, n: b.items.length, medianCycleWorkingH: percentile(xs, 50) };
+      return {
+        week: b.period,
+        n: b.items.length,
+        medianCycleWorkingH: quoted(percentile(xs, 50), xs.length, "average"),
+      };
     }),
   };
 }

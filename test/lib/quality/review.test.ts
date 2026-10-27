@@ -5,7 +5,8 @@
  *   1. reviewTimes — a weekend-spanning review, a holiday, a window, the
  *      same minute, out of order, a bare date, a zone suffix, legacy rows.
  *   2. reviewSummary — median not mean, gated at 3 (P85 at 5); bands;
- *      large PRs with no comments; dense weekly medians; total adds up.
+ *      large PRs with no comments; dense weekly medians, gated at 3 a
+ *      week; total adds up.
  *   3. workingBasisLabel, reviewVerdict.
  *   4. sampleErrors / sampleFromDraft / toWallClock.
  *   5. parseReviewCsv — header or positional, row errors (never 0),
@@ -173,17 +174,19 @@ describe("reviewSummary", () => {
     expect(s.largeNoComments).toBe(2);
   });
 
-  it("gives a dense weekly median by merge week", () => {
+  it("gives a dense weekly median by merge week, quoted from 3 merges in the week", () => {
     const s = reviewSummary([
       pr({ openedAt: "2026-10-05T09:00", mergedAt: "2026-10-05T10:00" }),
       pr({ openedAt: "2026-10-06T09:00", mergedAt: "2026-10-06T13:00" }),
       pr({ openedAt: "2026-10-06T09:00", mergedAt: "2026-10-06T15:00" }),
       pr({ openedAt: "2026-10-19T09:00", mergedAt: "2026-10-19T11:00" }),
+      pr({ openedAt: "2026-10-20T09:00", mergedAt: "2026-10-20T12:00" }),
     ]);
+    // W43 has two merges: its n is there, its median isn't (MIN_SAMPLE.average, as the headline).
     expect(s.weekly).toEqual([
       { week: "2026-W41", n: 3, medianCycleWorkingH: 4 },
       { week: "2026-W42", n: 0, medianCycleWorkingH: null },
-      { week: "2026-W43", n: 1, medianCycleWorkingH: 2 },
+      { week: "2026-W43", n: 2, medianCycleWorkingH: null },
     ]);
   });
 
