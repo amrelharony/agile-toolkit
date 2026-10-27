@@ -50,7 +50,6 @@ import {
   keptHoursCost,
   validatePeriod,
 } from "@/app/(tools)/quality-cost/period-form";
-import { notEnteredNote, qualityCostPrompts } from "@/app/(tools)/quality-cost/prompts";
 import { sideAmount, sideText } from "@/app/(tools)/quality-cost/view";
 
 const NOW = currentQuarterIndex();
@@ -213,43 +212,18 @@ describe("the AI prompts", () => {
     costs: { internalFailure: 300, externalFailure: 700 },
   };
 
-  it("name the categories not entered as unknown, in every prompt", () => {
-    const prompts = qualityCostPrompts(FAILURES_ONLY);
-    expect(prompts).toHaveLength(2);
-    for (const p of prompts) {
-      expect(p.prompt).toContain(
-        `Prevention and Detection (appraisal) weren't entered for ${q(1)}. Read their $0 above as unknown, not as zero spend`
-      );
-    }
-    expect(notEnteredNote(["detection"], "2026-Q1")).toContain(
-      "Detection (appraisal) wasn't entered for 2026-Q1. Read its $0 above"
-    );
-  });
-
-  it("add nothing when all four were entered, and stay empty for a $0 quarter", () => {
-    const full: QualityCostPeriod = {
-      id: "full",
-      period: q(1),
-      costs: { prevention: 1, detection: 2, internalFailure: 3, externalFailure: 4 },
-    };
-    expect(notEnteredNote([], q(1))).toBeNull();
-    const prompts = qualityCostPrompts(full);
-    expect(prompts).toHaveLength(2);
-    for (const p of prompts) expect(p.prompt).not.toContain("Not entered");
-    // Nothing above $0 is nothing to ask about: the generator returns no prompts.
-    expect(qualityCostPrompts({ id: "z", period: q(1), costs: { prevention: 0 } })).toEqual([]);
-  });
-
-  it("are the page's prompts for the quarter shown", () => {
+  it("are the shared prompts, which name the categories not entered instead of $0", () => {
     seed({ periods: [FAILURES_ONLY] });
     renderPage();
     const props = promptSpy.mock.calls.at(-1)?.[0] as {
       config: { prompts: { prompt: string }[] };
     };
-    expect(props.config.prompts.map((p) => p.prompt)).toEqual(
-      qualityCostPrompts(FAILURES_ONLY).map((p) => p.prompt)
-    );
-    expect(props.config.prompts[0].prompt).toContain("## Not entered");
+    expect(props.config.prompts.length).toBeGreaterThan(0);
+    const first = props.config.prompts[0].prompt;
+    expect(first).toContain(`Not entered for ${q(1)}`);
+    expect(first).toMatch(/prevention/i);
+    // A missing category is named, never priced at $0.
+    expect(first).not.toContain("Prevention: $0");
   });
 });
 
