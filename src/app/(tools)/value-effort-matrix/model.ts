@@ -14,12 +14,15 @@
 
 import type { BacklogItem } from "@/lib/stores/workspace-types";
 import type { MethodDraft } from "@/components/prioritization/method-tool";
+import type { MatrixAt } from "@/lib/utils/matrix";
 import { withoutOldDefaults } from "@/lib/prioritization/defaults";
 import { FIBONACCI_TEXT, isFibonacci } from "@/lib/prioritization/methods/fibonacci";
 import { toNumber } from "@/lib/prioritization/methods/fields";
 import { VALUE_EFFORT, type Values } from "@/lib/prioritization/methods";
 import {
   VE_EFFORT_STEPS,
+  VE_HIGH_EFFORT_FROM,
+  VE_HIGH_VALUE_FROM,
   VE_LABEL,
   VE_MEANING,
   VE_QUADRANTS,
@@ -174,6 +177,26 @@ export function trayDraft(draft: MethodDraft, linked: boolean): MethodDraft {
   const out: MethodDraft = { ...draft };
   delete out.value;
   return out;
+}
+
+/**
+ * Where "Place in…" puts a row from the tray: the picked quadrant's spot
+ * (`at`, effort across, value up), except that a value or an effort the
+ * row already shows on the picked side of its line (value 8, effort 6)
+ * stays as it is. Only what must move to reach the quadrant moves: the
+ * value is the backlog's one value field, WSJF's business value too, so
+ * picking a quadrant it already lands in never rewrites it.
+ */
+export function pickedSpot(
+  held: { value: number | null; effort: number | null },
+  at: MatrixAt
+): { value: number; effort: number } {
+  const keeps = (v: number | null, to: number, highFrom: number): v is number =>
+    v !== null && v >= highFrom === to >= highFrom;
+  return {
+    value: keeps(held.value, at.y, VE_HIGH_VALUE_FROM) ? held.value : at.y,
+    effort: keeps(held.effort, at.x, VE_HIGH_EFFORT_FROM) ? held.effort : at.x,
+  };
 }
 
 /** What the editor says before a linked row's save that sends it back to the tray. */

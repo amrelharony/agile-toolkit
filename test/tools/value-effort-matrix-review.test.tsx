@@ -181,6 +181,74 @@ describe("Value vs Effort fixes: the tray never wipes WSJF's value", () => {
   });
 });
 
+describe("Value vs Effort fixes: Place in… keeps what the item already holds", () => {
+  const wsjf = (businessValue: number): Partial<BacklogItem> => ({
+    businessValue,
+    timeCriticality: 8,
+    riskReduction: 3,
+    jobSize: 5,
+    updatedAt: STAMP,
+  });
+  const placeIn = (name: string, quadrant: string) =>
+    fireEvent.change(screen.getByLabelText(`Place ${name} in`), { target: { value: quadrant } });
+  const polite = () => screen.getByTestId("live-polite");
+
+  it("keeps a linked item's business value that already lands in the picked quadrant", async () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", "Export", wsjf(20))],
+      prioritizations: [row("a", "Export", {}, { backlogItemId: "b1" })],
+    });
+    renderPage();
+    placeIn("Export", "big_bets");
+    // Only the effort moves: WSJF's business value 20 is already high.
+    expect(storedItem("b1")).toMatchObject({
+      ...wsjf(20),
+      matrixEffort: 8,
+      updatedAt: expect.any(String),
+    });
+    expect(listed("Big Bets")).toEqual([expect.stringContaining("Export")]);
+    await waitFor(() => expect(polite()).toHaveTextContent("Export: value 20, effort 8, Big Bets"));
+  });
+
+  it("keeps a low value picked into a low quadrant, and an effort on the picked side", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        item("b1", "Export", wsjf(5)),
+        item("b2", "Audit log", { matrixEffort: 4, updatedAt: STAMP }),
+      ],
+      prioritizations: [
+        row("a", "Export", {}, { backlogItemId: "b1" }),
+        row("b", "Audit log", {}, { backlogItemId: "b2" }),
+        row("c", "Own value", { businessValue: 2 }),
+      ],
+    });
+    renderPage();
+    placeIn("Export", "fill_ins");
+    expect(storedItem("b1")).toMatchObject({ businessValue: 5, matrixEffort: 3 });
+    placeIn("Audit log", "quick_wins");
+    expect(storedItem("b2")).toMatchObject({ businessValue: 13, matrixEffort: 4 });
+    placeIn("Own value", "time_wasters");
+    expect(stored("c")?.fields).toEqual({ businessValue: 2, effort: 8 });
+  });
+
+  it("changes a value on the other side of the line, and says WSJF's value changes with it", async () => {
+    useWorkspaceStore.setState({
+      backlogItems: [item("b1", "Export", wsjf(5))],
+      prioritizations: [row("a", "Export", {}, { backlogItemId: "b1" })],
+    });
+    renderPage();
+    placeIn("Export", "big_bets");
+    expect(storedItem("b1")).toMatchObject({ businessValue: 13, matrixEffort: 8 });
+    await waitFor(() =>
+      expect(polite()).toHaveTextContent(
+        "Export: value 13, effort 8, Big Bets. Its value went from 5 to 13 on the backlog item: WSJF's business value is the same field."
+      )
+    );
+    act(() => lastUndo()());
+    expect(storedItem("b1")).toEqual(item("b1", "Export", wsjf(5)));
+  });
+});
+
 describe("Value vs Effort fixes: a value from the old 1–10 value says so", () => {
   it("names the old value on a row and on a linked item, and nowhere else", () => {
     useWorkspaceStore.setState({

@@ -52,7 +52,9 @@ const PANES: readonly [DragMatrixPane, DragMatrixPane, DragMatrixPane, DragMatri
 
 /**
  * "Place in…": a spot in the middle of each quadrant, on the scales (effort
- * 3 or 8; value 13 high, 3 low). An explicit choice, never a default.
+ * 3 or 8; value 13 high, 3 low). An explicit choice, never a default. A
+ * value or effort the row already shows on the picked side stays as it is
+ * (model.ts pickedSpot), so only what must move to reach the quadrant does.
  */
 const PLACES: readonly DragMatrixPlace[] = [
   { id: "quick_wins", label: VE_LABEL.quick_wins, at: { x: 3, y: 13 } },

@@ -10,7 +10,9 @@
  *   actions put an item in the same quadrant.
  * - Dragging or arrow-keying a dot writes value and effort back; a row
  *   linked to a backlog item reads them from the item and writes them to
- *   it, in one undoable (saveMethodRow).
+ *   it, in one undoable (saveMethodRow). "Place in…" on a tray chip keeps
+ *   a value or effort the row already shows on the picked side
+ *   (pickedSpot), and says so when WSJF's business value has to change.
  * - A title alone is a valid item: it waits under "Not placed yet" (the
  *   matrix's tray) until it is placed. One score without the other is an
  *   error. Sending a linked item to the tray clears only its effort on the
@@ -69,6 +71,7 @@ import {
   UNPLACED_LABEL,
   customValues,
   legacyValueNote,
+  pickedSpot,
   placeOf,
   positionText,
   quadrantOf,
@@ -184,12 +187,22 @@ export function ValueEffortMatrixClient() {
   const place = (id: string, at: MatrixAt, how: PlaceHow) => {
     const r = ranked.find((x) => x.row.id === id);
     if (!r) return;
-    actions.save(id, { title: r.row.title, value: at.y, effort: at.x });
+    // A drag or a key puts the dot where it's moved to; a quadrant picked
+    // from the tray keeps a value or effort the row already shows on that
+    // side (pickedSpot): the value is WSJF's business value too.
+    const held = placeOf(r);
+    const spot = how === "pick" ? pickedSpot(held, at) : { value: at.y, effort: at.x };
+    actions.save(id, { title: r.row.title, value: spot.value, effort: spot.effort });
     setMoved(true);
     setSelectedId(id);
     // A drag and the arrow keys announce as they go; the picker says where it went.
     if (how === "pick") {
-      announce(`${shortName(r.row.title)}: ${positionText({ value: at.y, effort: at.x })}`);
+      const where = `${shortName(r.row.title)}: ${positionText(spot)}`;
+      announce(
+        r.live && held.value !== null && held.value !== spot.value
+          ? `${where}. Its value went from ${held.value} to ${spot.value} on the backlog item: WSJF's business value is the same field.`
+          : where
+      );
     }
   };
 
