@@ -56,6 +56,7 @@ import {
   persistMethodRows,
   serverStore,
   type MethodStore,
+  type PersistInput,
 } from "./_method-rows";
 
 const FRAMEWORK = "value-effort" as const;
@@ -419,7 +420,9 @@ const PersistSchema = z.object({
         fields: z
           .object({ value: ValueSchema.optional(), effort: EffortSchema.optional() })
           .optional()
-          .describe("Both, or neither (the item is listed as Not placed yet)"),
+          .describe(
+            "Both, or neither (the item is listed as Not placed yet; a linked row loses its effort on the backlog item and keeps its value)"
+          ),
         backlogItemId: z.string().optional().describe("Link the row to this backlog item"),
       })
     )
@@ -429,17 +432,27 @@ const PersistSchema = z.object({
   effortThreshold: DeprecatedThreshold,
 });
 
+/**
+ * One persist item as the method's inputs. Given neither value nor effort,
+ * it goes to Not placed yet the way set_position un-places a row: its
+ * effort is cleared, on a linked item too (matrixEffort), and a linked
+ * row's value stays on the item, the backlog's one value field and WSJF's
+ * business value (an unlinked row loses its own value with the write).
+ */
+const persistInput = (it: z.infer<typeof PersistSchema>["items"][number]): PersistInput => {
+  const values = valuesOf(it.fields);
+  const neither = values.value === undefined && values.effort === undefined;
+  return {
+    id: it.id,
+    title: it.title,
+    values,
+    backlogItemId: it.backlogItemId,
+    ...(neither ? { cleared: ["effort"] } : {}),
+  };
+};
+
 const persistAll = async (store: MethodStore, params: z.infer<typeof PersistSchema>) => {
-  const saved = await persistMethodRows(
-    store,
-    FRAMEWORK,
-    params.items.map((it) => ({
-      id: it.id,
-      title: it.title,
-      values: valuesOf(it.fields),
-      backlogItemId: it.backlogItemId,
-    }))
-  );
+  const saved = await persistMethodRows(store, FRAMEWORK, params.items.map(persistInput));
   return {
     written: saved.map((s) => s.row.id),
     count: saved.length,
@@ -454,7 +467,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Persist a batch of value/effort items to workspace.prioritization with framework='value-effort'. Each item gives both value and effort, or neither (it waits under 'Not placed yet'); one without the other is refused and nothing is written. The quadrant is derived, never stored. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, placed}.",
+    "Persist a batch of value/effort items to workspace.prioritization with framework='value-effort'. Each item gives both value and effort, or neither (it waits under 'Not placed yet'); one without the other is refused and nothing is written. Neither on a row linked to a backlog item (or a new row with backlogItemId) un-places it as set_position does: the item's effort (matrixEffort) is cleared and its value stays, being WSJF's business value too. The quadrant is derived, never stored. Items without an id get one generated; an existing id is updated in place, keeping its other fields and backlog link. Returns {written, count, placed}: each item's quadrant and score as list_items then shows them (a linked row's from its item).",
   paramsSchema: PersistSchema,
   handler: async (params) => persistAll(clientStore(), params),
   mcpHandler: async (params, ctx) => persistAll(serverStore(ctx.userId), params),

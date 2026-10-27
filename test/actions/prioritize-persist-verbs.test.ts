@@ -41,6 +41,7 @@ import "@/lib/actions/tools/rice-scoring";
 import "@/lib/actions/tools/moscow";
 import "@/lib/actions/tools/cost-of-delay";
 import "@/lib/actions/tools/eisenhower";
+import "@/lib/actions/tools/value-effort-matrix";
 
 const ctx = () => ({ userId: "u", source: "mcp" as const, squadProfileIds: [] as string[] });
 /** Run a verb the way the transport does: params parsed first. */
@@ -222,5 +223,67 @@ describe("persist verbs keep the optional inputs a call leaves out", () => {
       important: "false",
       dueAt: "2026-12-01",
     });
+  });
+});
+
+describe("tool.value_effort_matrix.persist_to_prioritization with neither value nor effort", () => {
+  type Listed = {
+    groups: Record<string, { id: string }[]>;
+    unplaced: { id: string; value: number | null; effort: number | null }[];
+  };
+  type Placed = { placed: { id: string; quadrant: string | null; score: number | null }[] };
+  const quickWin: BacklogItem = {
+    id: "b1",
+    name: "Passkeys",
+    businessValue: 8,
+    matrixEffort: 3,
+    updatedAt: STAMP,
+  };
+
+  it("sends a linked row back to Not placed yet: the item's effort goes, its value stays", async () => {
+    useWorkspaceStore.setState({
+      backlogItems: [quickWin],
+      prioritizations: [
+        row("v1", "value-effort", {}, { backlogItemId: "b1", score: 8 / 3, status: "scored" }),
+      ],
+    });
+    const r = await run<Placed>("tool.value_effort_matrix.persist_to_prioritization", {
+      items: [{ id: "v1", title: "Passkeys" }],
+    });
+    expect(r.placed).toEqual([{ id: "v1", quadrant: null, score: null }]);
+    expect(storedItem("b1")?.matrixEffort).toBeUndefined();
+    expect(storedItem("b1")?.businessValue).toBe(8);
+    expect(storedRow("v1")).toMatchObject({ status: "open", backlogItemId: "b1" });
+    expect(storedRow("v1")?.score).toBeUndefined();
+    // What the response says is what list_items (and the page) shows.
+    const listed = await run<Listed>("tool.value_effort_matrix.list_items", {});
+    expect(listed.groups.quick_wins).toEqual([]);
+    expect(listed.unplaced).toMatchObject([{ id: "v1", value: 8, effort: null }]);
+  });
+
+  it("does the same for a new row linked to a placed item, on the server", async () => {
+    server.rows.set("workspace:backlogItem/b1", quickWin);
+    const r = await run<Placed>(
+      "tool.value_effort_matrix.persist_to_prioritization",
+      { items: [{ id: "v2", title: "Passkeys", backlogItemId: "b1" }] },
+      true
+    );
+    expect(r.placed).toEqual([{ id: "v2", quadrant: null, score: null }]);
+    const item = server.rows.get("workspace:backlogItem/b1") as BacklogItem;
+    expect(item.matrixEffort).toBeUndefined();
+    expect(item.businessValue).toBe(8);
+    const listed = await run<Listed>("tool.value_effort_matrix.list_items", {}, true);
+    expect(listed.unplaced.map((x) => x.id)).toEqual(["v2"]);
+  });
+
+  it("clears both on an unlinked row", async () => {
+    useWorkspaceStore.setState({
+      prioritizations: [row("v3", "value-effort", { businessValue: 13, effort: 2 })],
+    });
+    await run("tool.value_effort_matrix.persist_to_prioritization", {
+      items: [{ id: "v3", title: "Export", fields: {} }],
+    });
+    expect(storedRow("v3")?.fields).toEqual({});
+    expect(storedRow("v3")?.status).toBe("open");
   });
 });

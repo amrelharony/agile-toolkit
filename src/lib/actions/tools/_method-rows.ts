@@ -35,6 +35,7 @@ import {
 import {
   method,
   readThrough,
+  scoreCache,
   type EvalContext,
   type MethodId,
   type Values,
@@ -269,15 +270,26 @@ export async function persistMethodRows(
       ctx,
     });
     let written: string[] = [];
+    let shownItem = item;
     if (item && m.embedded) {
       const changes = itemPatchChanges(
         item,
         ownedPatch(id, m.read(row.fields), input.cleared ?? [])
       );
       written = Object.keys(changes);
-      if (written.length > 0) itemWrites.set(item.id, applyItemPatch(item, changes, now));
+      if (written.length > 0) {
+        shownItem = applyItemPatch(item, changes, now);
+        itemWrites.set(item.id, shownItem);
+      }
     }
-    const result = m.evaluate(m.read(row.fields), ctx);
+    // What every reader shows (list_*, the page, the hub): the row read
+    // through to its item as written, which can hold inputs the call didn't
+    // give. The result and the row's score cache say the same.
+    const result = m.evaluate(m.read(readThrough(row, shownItem)), ctx);
+    const cache = scoreCache(result, prev?.status);
+    row.status = cache.status;
+    if (cache.score === undefined) delete row.score;
+    else row.score = cache.score;
     out.push({
       row,
       score: result.score,
