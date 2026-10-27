@@ -2,12 +2,14 @@ import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
 import { buildWorkspaceContext } from "./cross-tool-context";
 import type { Workspace } from "../stores/workspace-types";
+import { assumptionScore } from "../assumptions/model";
 
 interface Assumption {
   id: string;
   statement: string;
-  riskLevel: 1 | 2 | 3 | 4 | 5;
-  evidenceLevel: 1 | 2 | 3 | 4 | 5;
+  /** Absent: not rated (listed last, never scored). */
+  riskLevel?: 1 | 2 | 3 | 4 | 5;
+  evidenceLevel?: 1 | 2 | 3 | 4 | 5;
   testIdea?: string;
   status: "untested" | "testing" | "validated" | "invalidated";
   description?: string;
@@ -22,9 +24,10 @@ export function generateRiskiestAssumptionPrompts(
   if (data.assumptions.length === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
 
+  // lib/assumptions' score; an unrated assumption has none and goes last.
   const ranked = [...data.assumptions]
-    .map((a) => ({ a, score: a.riskLevel * (6 - a.evidenceLevel) }))
-    .sort((x, y) => y.score - x.score);
+    .map((a) => ({ a, score: assumptionScore(a) }))
+    .sort((x, y) => (y.score ?? -1) - (x.score ?? -1));
 
   const table = formatTable(
     ["Statement", "Risk", "Evidence", "Status", "Test idea", "Description"],
@@ -32,8 +35,8 @@ export function generateRiskiestAssumptionPrompts(
       .slice(0, 20)
       .map(({ a }) => [
         a.statement.slice(0, 80),
-        a.riskLevel,
-        a.evidenceLevel,
+        a.riskLevel ?? "not rated",
+        a.evidenceLevel ?? "not rated",
         a.status,
         (a.testIdea ?? "—").slice(0, 60),
         (a.description ?? "—").slice(0, 80),
@@ -41,7 +44,7 @@ export function generateRiskiestAssumptionPrompts(
   );
 
   const untestedHigh = data.assumptions.filter(
-    (a) => a.status === "untested" && a.riskLevel >= 4
+    (a) => a.status === "untested" && (a.riskLevel ?? 0) >= 4
   ).length;
   const validated = data.assumptions.filter((a) => a.status === "validated").length;
   const invalidated = data.assumptions.filter((a) => a.status === "invalidated").length;
