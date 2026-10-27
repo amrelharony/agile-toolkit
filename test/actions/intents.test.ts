@@ -167,7 +167,7 @@ describe("intent.start_retro_for_sprint", () => {
 describe("intent.create_okr_for_sprint", () => {
   beforeEach(reset);
 
-  it("derives the quarter from the sprint startDate and creates KRs at 0/1", async () => {
+  it("derives the quarter from the sprint startDate and creates KRs from 0 to 1", async () => {
     useWorkspaceStore.setState({
       sprints: [sprint({ id: "sp1", name: "Sprint 1", startDate: "2026-04-15" })],
     });
@@ -177,11 +177,30 @@ describe("intent.create_okr_for_sprint", () => {
         { sprintId: "sp1", objective: "Ship v2", keyResults: ["Adopt", "Retain"] },
         ctx()
       )) as { okrId: string; quarter: string; keyResultIds: string[] };
-    expect(res.quarter).toBe("Q2 2026");
+    // The OKR page's quarter form ("2026 Q2"), which its picker and filter read.
+    expect(res.quarter).toBe("2026 Q2");
     expect(res.keyResultIds).toHaveLength(2);
     const okr = useWorkspaceStore.getState().okrs.find((o: Okr) => o.id === res.okrId)!;
     expect(okr.objective).toBe("Ship v2");
-    expect(okr.keyResults.every((k) => k.target === 1 && k.current === 0)).toBe(true);
+    expect(okr.quarter).toBe("2026 Q2");
+    // Counted from a baseline of 0, as every new key result is since Phase 8.
+    expect(
+      okr.keyResults.every(
+        (k) => k.target === 1 && k.current === 0 && k.baseline === 0 && k.direction === "increase"
+      )
+    ).toBe(true);
+  });
+
+  it("puts an early-January sprint in Q1 of its own year", async () => {
+    useWorkspaceStore.setState({
+      sprints: [sprint({ id: "sp1", name: "Sprint 1", startDate: "2027-01-01" })],
+    });
+    const res = (await registry
+      .get("intent.create_okr_for_sprint")!
+      .handler({ sprintId: "sp1", objective: "New year", keyResults: ["One"] }, ctx())) as {
+      quarter: string;
+    };
+    expect(res.quarter).toBe("2027 Q1");
   });
 });
 

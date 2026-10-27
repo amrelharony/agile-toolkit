@@ -4,13 +4,44 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { Okr, KeyResult, Sprint } from "@/lib/stores/workspace-types";
+import { quarterLabel } from "@/lib/roadmap/quarters";
 
-function quarterFromSprintStart(startDate: string): string {
+/**
+ * The quarter a sprint starts in, as the OKR page and its quarter picker
+ * write it ("2026 Q2"). Before Phase 8 this wrote "Q2 2026", which the
+ * page's quarter filter and picker didn't read as their own form.
+ *
+ * UTC parsing: startDate is an ISO yyyy-mm-dd, which `new Date` parses as
+ * UTC midnight, so the UTC month is the day's own (a local-tz read would
+ * put an early-January start in Q4 of the year before, west of UTC).
+ */
+function quarterFromSprintStart(startDate: string, sprintId: string): string {
   const d = new Date(startDate);
   if (Number.isNaN(d.getTime())) {
-    throw new Error(`Sprint has invalid startDate.`);
+    throw new Error(`Sprint ${sprintId} has invalid startDate.`);
   }
-  return `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`;
+  return quarterLabel(d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3) + 1);
+}
+
+/**
+ * The key results the intent creates: each counted from 0 (its baseline,
+ * so progress reads from where it starts, as every new key result does
+ * since Phase 8) to a target of 1. The caller is expected to refine the
+ * metric afterwards via workspace.okr.update, and check in values with
+ * tool.okrs.check_in.
+ */
+function newKeyResults(titles: readonly string[]): KeyResult[] {
+  return titles.map(
+    (title): KeyResult => ({
+      id: `kr_${nanoid(8)}`,
+      title,
+      target: 1,
+      current: 0,
+      baseline: 0,
+      direction: "increase",
+      checkIns: [],
+    })
+  );
 }
 
 /**
@@ -18,10 +49,10 @@ function quarterFromSprintStart(startDate: string): string {
  *
  * The OKR's `quarter` field is computed from the sprint's startDate so
  * the resulting OKR slots into the right quarterly view automatically
- * (e.g. a sprint starting 2026-04-15 produces quarter "Q2 2026").
+ * (e.g. a sprint starting 2026-04-15 produces quarter "2026 Q2").
  *
- * Each Key Result is created with target=1, current=0 — the caller is
- * expected to refine the metric afterwards via workspace.okr.update.
+ * It links nothing: Sprint Goal is the one writer of a goal's OKR links
+ * (tool.sprint_goal.link_okr).
  */
 
 registry.register({
@@ -30,7 +61,7 @@ registry.register({
   name: "create_okr_for_sprint",
   category: "intent",
   description:
-    "Create a new OKR linked to a sprint. Quarter is derived from the sprint's startDate. Accepts 1–3 key result titles which become KRs with target=1, current=0.",
+    "Create a new OKR for a sprint's quarter. Quarter is derived from the sprint's startDate ('2026 Q2', the OKR page's form). Accepts 1–3 key result titles which become KRs counted from a baseline of 0 to target=1 (current=0). It links nothing to the sprint: link the OKR from the sprint's goal with tool.sprint_goal.link_okr.",
   paramsSchema: z.object({
     sprintId: z.string(),
     objective: z.string(),
@@ -47,23 +78,8 @@ registry.register({
     const sprint = state.sprints.find((s) => s.id === params.sprintId);
     if (!sprint) throw new Error(`Sprint ${params.sprintId} not found.`);
 
-    // Derive quarter from sprint.startDate. Use UTC parsing — startDate
-    // is an ISO yyyy-mm-dd; new Date("yyyy-mm-dd") parses as UTC, and
-    // getMonth() in UTC is what we want for quarter math (local-tz
-    // shifts would land an early-Jan UTC date in Q4 of the prior year
-    // for users in negative offsets).
-    const d = new Date(sprint.startDate);
-    if (Number.isNaN(d.getTime())) {
-      throw new Error(`Sprint ${params.sprintId} has invalid startDate.`);
-    }
-    const quarter = `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`;
-
-    const krs: KeyResult[] = params.keyResults.map((title) => ({
-      id: `kr_${nanoid(8)}`,
-      title,
-      target: 1,
-      current: 0,
-    }));
+    const quarter = quarterFromSprintStart(sprint.startDate, params.sprintId);
+    const krs = newKeyResults(params.keyResults);
 
     const okr: Okr = {
       id: `okr_${nanoid(8)}`,
@@ -85,13 +101,8 @@ registry.register({
   mcpHandler: async (params, ctx) => {
     const sprint = await serverGetEntity<Sprint>(ctx.userId, "workspace:sprint", params.sprintId);
     if (!sprint) throw new Error(`Sprint ${params.sprintId} not found.`);
-    const quarter = quarterFromSprintStart(sprint.startDate);
-    const krs: KeyResult[] = params.keyResults.map((title) => ({
-      id: `kr_${nanoid(8)}`,
-      title,
-      target: 1,
-      current: 0,
-    }));
+    const quarter = quarterFromSprintStart(sprint.startDate, params.sprintId);
+    const krs = newKeyResults(params.keyResults);
     const okr: Okr = {
       id: `okr_${nanoid(8)}`,
       objective: params.objective,
