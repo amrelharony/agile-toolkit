@@ -46,6 +46,7 @@ import {
   method,
   readThrough,
   withLegacyLinks,
+  withoutLegacyMark,
   type Values,
 } from "@/lib/prioritization/methods";
 import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
@@ -222,7 +223,8 @@ function groupByQuadrant(rows: readonly PrioritizationItem[], items: readonly Ba
     const quadrant = (r.result.bucket as Quadrant | null) ?? null;
     const listed: ListedVeRow = {
       ...r.row,
-      fields: VALUE_EFFORT.write(r.row.fields, r.values),
+      // The legacy mark is bookkeeping, not a field (as the page's export).
+      fields: VALUE_EFFORT.write(withoutLegacyMark(r.row.fields), r.values),
       value: typeof r.values.value === "number" ? r.values.value : null,
       effort: typeof r.values.effort === "number" ? r.values.effort : null,
       quadrant,

@@ -39,6 +39,7 @@ import {
   readThrough,
   scoreCache,
   withLegacyLinks,
+  withoutLegacyMark,
   type EvalContext,
   type MethodId,
   type Values,
@@ -355,7 +356,8 @@ export function listedRows(id: MethodId, ranked: readonly RankedRow[]): ListedRo
   return ranked.map((r) => ({
     id: r.row.id,
     title: r.row.title,
-    fields: m.write(r.row.fields, r.values),
+    // The legacy mark is bookkeeping, not a field (as the page's export).
+    fields: m.write(withoutLegacyMark(r.row.fields), r.values),
     values: defined(r.values) as Record<string, number | string>,
     score: r.result.score,
     rank: r.rank,

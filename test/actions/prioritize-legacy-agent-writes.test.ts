@@ -10,7 +10,7 @@ import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-typ
  * marked before its stamp (markLegacyDifferences), so their tools still
  * ask which value to keep. Covered: tool.prioritizer.set_order, the method
  * persists (persistMethodRows), tool.value_effort_matrix.set_position and
- * workspace.backlog_item.update.
+ * workspace.backlog_item.update. The lists leave the mark out.
  */
 
 const server = vi.hoisted(() => ({ rows: new Map<string, { id: string }>() }));
@@ -108,6 +108,12 @@ const storedRow = (id: string, onServer: boolean) =>
   onServer
     ? (server.rows.get(`${ROWS}/${id}`) as PrioritizationItem | undefined)
     : (useWorkspaceStore.getState().prioritizations ?? []).find((p) => p.id === id);
+const storedRows = (onServer: boolean) =>
+  onServer
+    ? Array.from(server.rows.entries())
+        .filter(([k]) => k.startsWith(`${ROWS}/`))
+        .map(([, v]) => v as PrioritizationItem)
+    : (useWorkspaceStore.getState().prioritizations ?? []);
 
 /** The RICE values the legacy row held, now on the item. */
 const RICE_KEPT = { reach: 500, impact: 2, confidence: 50, effort: 2 };
@@ -238,5 +244,38 @@ describe.each([
     await run("tool.prioritizer.set_order", { ids: ["b1"] }, onServer);
     await run("workspace.backlog_item.update", { id: "b1", patch: { name: "Pay" } }, onServer);
     expect(storedRow("m2", onServer)).toEqual(could);
+  });
+
+  it("the lists leave the mark out of a row's fields", async () => {
+    const mark = { [LEGACY_DIFFERS_FIELD]: "bucket" };
+    seed(
+      [{ id: "b1", name: "Checkout", moscow: "must", businessValue: 8, updatedAt: STAMP }],
+      [
+        { ...could, fields: { ...could.fields, ...mark } },
+        { ...wsjf, fields: { ...wsjf.fields, ...mark } },
+        row("v1", "value-effort", { businessValue: 13, effort: 2, ...mark }),
+      ],
+      onServer
+    );
+    const moscow = await run<{ must: { fields: object }[] }>(
+      "tool.moscow.list_items",
+      {},
+      onServer
+    );
+    expect(moscow.must[0].fields).toEqual({ bucket: "must" });
+    const scored = await run<{ items: { fields: object }[] }>(
+      "tool.wsjf.list_scored",
+      {},
+      onServer
+    );
+    expect(scored.items[0].fields).not.toHaveProperty(LEGACY_DIFFERS_FIELD);
+    const ve = await run<{ unplaced: { fields: object }[] }>(
+      "tool.value_effort_matrix.list_items",
+      {},
+      onServer
+    );
+    expect(ve.unplaced[0].fields).not.toHaveProperty(LEGACY_DIFFERS_FIELD);
+    // The rows themselves keep it (a list writes nothing).
+    expect(storedRows(onServer).every((r) => LEGACY_DIFFERS_FIELD in (r.fields ?? {}))).toBe(true);
   });
 });

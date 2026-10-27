@@ -35,7 +35,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import { linkedItem } from "@/lib/prioritization/binding";
-import { method, readThrough, type Values } from "@/lib/prioritization/methods";
+import { method, readThrough, withoutLegacyMark, type Values } from "@/lib/prioritization/methods";
 import {
   MOSCOW_BUCKETS,
   MOSCOW_MEANING,
@@ -177,7 +177,8 @@ function groupByCategory(rows: readonly PrioritizationItem[], items: readonly Ba
     const item = linkedItem(row, items);
     const fields = readThrough(row, item);
     const bucket = toChoice(MOSCOW_BUCKETS, MOSCOW.read(fields).bucket) ?? null;
-    grouped[bucket ?? "unsorted"].push({ ...row, fields });
+    // The legacy mark is bookkeeping, not a field (as the page's export).
+    grouped[bucket ?? "unsorted"].push({ ...row, fields: withoutLegacyMark(fields) });
     entries.push({ bucket, effort: moscowEffort(fields, item) });
   }
   // Sort each bucket newest-first; ties keep insertion order (stable
