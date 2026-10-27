@@ -1,9 +1,9 @@
 /**
  * tool.risk_register.list_state's timeToClose, on both transports: the
- * page's "Median time to mitigate" (risk-register/analysis.ts timeToClose)
- * for the same risks, examples left out, accepted risks and closed ones
- * with no close day left out, a reopened risk counted as still waiting,
- * and null below 3 closed.
+ * page's "Median time to mitigate" (lib/risks/model riskTimeToClose, the
+ * one function both read) for the same risks, examples left out, accepted
+ * risks and closed ones with no close day left out, a reopened risk counted as still waiting, and null
+ * below 3 closed.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,7 +30,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { timeToClose as pageTimeToClose } from "@/app/(tools)/risk-register/analysis";
+import { riskTimeToClose } from "@/lib/risks/model";
 import "@/lib/actions/tools/risk-register";
 
 const TODAY = "2026-10-27";
@@ -79,7 +79,7 @@ describe("list_state timeToClose", () => {
     if (transport === "tab") useWorkspaceStore.setState({ risks: RISKS });
     else for (const r of RISKS) rows.set(`workspace:risk/${r.id}`, r);
     const { timeToClose } = await listState(transport);
-    const page = pageTimeToClose(
+    const page = riskTimeToClose(
       RISKS.filter((r) => !r.id.startsWith("example-")),
       TODAY
     );

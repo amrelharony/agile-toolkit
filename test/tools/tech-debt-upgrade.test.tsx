@@ -17,6 +17,7 @@ import {
   debtAgeSprints,
   debtScore,
   debtSummary,
+  debtTimeToResolve,
   debtVerdict,
   rankedDebt,
 } from "@/lib/tech-debt/model";
@@ -92,7 +93,6 @@ import {
 } from "@/app/(tools)/tech-debt/debt-form";
 import { conflictText, withBlobValue } from "@/app/(tools)/tech-debt/conflict-notice";
 import { debtCsv, withPatch } from "@/app/(tools)/tech-debt/view";
-import { timeToResolve as agentTimeToResolve } from "@/lib/actions/tools/tech-debt";
 import "@/lib/actions/tools/tech-debt";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
@@ -721,7 +721,7 @@ describe("page and agent parity", () => {
     });
     const ours = timeToResolve(page, TODAY);
     expect(state.timeToResolve).toEqual({ resolved: ours.resolved, medianDays: ours.medianDays });
-    expect(agentTimeToResolve(page, TODAY).medianDays).toBe(ours.medianDays);
+    expect(debtTimeToResolve(page, TODAY)).toEqual(state.timeToResolve);
     renderPage();
     expect(screen.getByText(state.verdict)).toBeInTheDocument();
   });

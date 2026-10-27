@@ -40,6 +40,7 @@ import {
   riskImpedimentSource,
   riskLevel,
   riskSummary,
+  riskTimeToClose,
   riskVerdict,
 } from "@/lib/risks/model";
 import {
@@ -66,7 +67,6 @@ import {
   daysText,
   exportedRisks,
   riskMatrix,
-  timeToClose,
   undatedClosedNote,
   weekName,
   weeklyChartText,
@@ -166,7 +166,7 @@ export function RiskRegisterClient() {
     () => riskVerdict(counted, today, { includeExamples: true }),
     [counted, today]
   );
-  const ttc = useMemo(() => timeToClose(counted, today), [counted, today]);
+  const ttc = useMemo(() => riskTimeToClose(counted, today), [counted, today]);
   const weeks = useMemo(() => weeklyRiskSeries(counted, today), [counted, today]);
   // Closed risks with no close day: left out of the chart's "open" and the
   // time to mitigate, and named so the team can date them.

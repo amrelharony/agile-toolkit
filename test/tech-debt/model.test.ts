@@ -15,10 +15,12 @@ import {
   debtAgeDays,
   debtAgeSprints,
   debtComparator,
+  debtPayDownObservations,
   debtScale,
   debtScore,
   debtStoryOf,
   debtSummary,
+  debtTimeToResolve,
   debtVerdict,
   interestOf,
   isInterestEstimated,
@@ -218,6 +220,34 @@ describe("debtSummary and debtVerdict", () => {
     expect(debtVerdict([list[4]], 14, TODAY, opts)).toBe(
       "1 open item costs about 9 points a sprint; the top one, “Example”, was raised this sprint and scores 17."
     );
+  });
+});
+
+describe("debtTimeToResolve", () => {
+  const paid = (id: string, resolvedAt: string) => item({ id, raisedAt: "2026-10-01", resolvedAt });
+
+  it("reads days raised → resolved, open items waiting at today, the median from 5 paid down", () => {
+    const four = [
+      paid("a", "2026-10-03"),
+      paid("b", "2026-10-05"),
+      paid("c", "2026-10-07"),
+      paid("d", "2026-10-09"),
+      item({ id: "open", raisedAt: "2026-10-01" }),
+      // No raised day: its duration isn't known.
+      item({ id: "undated", raisedAt: "" }),
+    ];
+    expect(debtPayDownObservations(four, TODAY)).toEqual([
+      { duration: 2, event: true },
+      { duration: 4, event: true },
+      { duration: 6, event: true },
+      { duration: 8, event: true },
+      { duration: 26, event: false },
+    ]);
+    expect(debtTimeToResolve(four, TODAY)).toEqual({ resolved: 4, medianDays: null });
+    expect(debtTimeToResolve([...four, paid("e", "2026-10-11")], TODAY)).toEqual({
+      resolved: 5,
+      medianDays: 6,
+    });
   });
 });
 

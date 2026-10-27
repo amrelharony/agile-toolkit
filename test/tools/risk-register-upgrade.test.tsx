@@ -6,7 +6,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Impediment, Risk, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { RISK_REGISTER_KEY, RISK_REGISTER_MOVED_KEY } from "@/lib/risks/legacy-register";
-import { closedOn, riskDaysOverdue, riskSummary, riskVerdict } from "@/lib/risks/model";
+import {
+  closedOn,
+  riskDaysOverdue,
+  riskSummary,
+  riskTimeToClose,
+  riskVerdict,
+} from "@/lib/risks/model";
 import { registry } from "@/lib/actions/registry";
 
 /**
@@ -64,7 +70,6 @@ import {
   closedUndatedCount,
   countedRisks,
   riskMatrix,
-  timeToClose,
   undatedClosedNote,
   weeklyChartText,
   weeklyRiskSeries,
@@ -82,7 +87,6 @@ import {
 } from "@/app/(tools)/risk-register/risk-form";
 import { conflictText, withBlobValue } from "@/app/(tools)/risk-register/conflict-notice";
 import { risksCsv, withPatch, withStatus } from "@/app/(tools)/risk-register/view";
-import { timeToClose as agentTimeToClose } from "@/lib/actions/tools/risk-register";
 import "@/lib/actions/tools/risk-register";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
@@ -330,7 +334,7 @@ describe("the numbers behind the page", () => {
     const closed = risk({ id: "b", raisedAt: ago(20), status: "closed", resolvedAt: ago(10) });
     const points = weeklyRiskSeries([reopened, closed], TODAY);
     expect(points.at(-1)?.open).toBe(1);
-    expect(timeToClose([reopened, closed], TODAY).closed).toBe(1);
+    expect(riskTimeToClose([reopened, closed], TODAY).closed).toBe(1);
   });
 
   it("leaves accepted risks out of 'open' and the time to mitigate; keeps quiet weeks", () => {
@@ -359,11 +363,11 @@ describe("the numbers behind the page", () => {
   it("the median time to mitigate waits for 3 closed risks", () => {
     const closed = (id: string, days: number) =>
       risk({ id, raisedAt: ago(days + 1), status: "closed", resolvedAt: ago(1) });
-    expect(timeToClose([closed("a", 4), closed("b", 6)], TODAY)).toEqual({
+    expect(riskTimeToClose([closed("a", 4), closed("b", 6)], TODAY)).toEqual({
       closed: 2,
       medianDays: null,
     });
-    expect(timeToClose([closed("a", 4), closed("b", 6), closed("c", 8)], TODAY)).toEqual({
+    expect(riskTimeToClose([closed("a", 4), closed("b", 6), closed("c", 8)], TODAY)).toEqual({
       closed: 3,
       medianDays: 6,
     });
@@ -853,8 +857,7 @@ describe("page and agent parity", () => {
       overdue: 1,
       exposure: 16,
     });
-    expect(state.timeToClose).toEqual(timeToClose(page, TODAY));
-    expect(agentTimeToClose(page, TODAY)).toEqual(timeToClose(page, TODAY));
+    expect(state.timeToClose).toEqual(riskTimeToClose(page, TODAY));
     renderPage();
     expect(screen.getByText(state.verdict)).toBeInTheDocument();
   });
@@ -877,7 +880,7 @@ describe("the example's time to mitigate", () => {
   it("has three closed risks, so the median and the form's due-day suggestion show", () => {
     const ex = buildExample(new Date(2026, 9, 27));
     expect(ex.filter((r) => r.status === "closed")).toHaveLength(3);
-    expect(timeToClose(countedRisks(ex), TODAY)).toEqual({ closed: 3, medianDays: 21 });
+    expect(riskTimeToClose(countedRisks(ex), TODAY)).toEqual({ closed: 3, medianDays: 21 });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(screen.getByText("21 days")).toBeInTheDocument();
@@ -1084,11 +1087,13 @@ describe("a closed risk with no close day", () => {
   it("is left out of the time to mitigate, on the page and for the agent", () => {
     const done = [closed("b", 4), closed("c", 6), closed("d", 8), closed("e", 10)];
     const withUndated = [...done, undated({ raisedAt: ago(30) })];
-    expect(timeToClose(withUndated, TODAY)).toEqual({ closed: 4, medianDays: 6 });
-    expect(timeToClose(withUndated, TODAY)).toEqual(timeToClose(done, TODAY));
+    expect(riskTimeToClose(withUndated, TODAY)).toEqual({ closed: 4, medianDays: 6 });
+    expect(riskTimeToClose(withUndated, TODAY)).toEqual(riskTimeToClose(done, TODAY));
     // Counted as still waiting, it would have moved the median.
-    expect(timeToClose([...done, risk({ id: "u", raisedAt: ago(30) })], TODAY).medianDays).toBe(8);
-    expect(agentTimeToClose(withUndated, TODAY)).toEqual(timeToClose(withUndated, TODAY));
+    expect(riskTimeToClose([...done, risk({ id: "u", raisedAt: ago(30) })], TODAY).medianDays).toBe(
+      8
+    );
+    // The agent's list_state reads the same lib function (the parity test holds it).
   });
 
   it("is named under the chart on the page", () => {

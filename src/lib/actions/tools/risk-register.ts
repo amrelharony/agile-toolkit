@@ -62,8 +62,6 @@ import {
   type Risk,
   type TeamMember,
 } from "@/lib/stores/workspace-types";
-import { enoughData } from "@/lib/analytics/min-sample";
-import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { normalizeCadence } from "@/lib/sprints/cadence";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import {
@@ -85,6 +83,7 @@ import {
   riskLevel,
   riskScore,
   riskSummary,
+  riskTimeToClose,
   riskVerdict,
 } from "@/lib/risks/model";
 import {
@@ -277,35 +276,6 @@ export function riskView(
   };
 }
 
-/**
- * How long risks take to close, as the page's "Median time to mitigate"
- * reads it (app/(tools)/risk-register/analysis.ts timeToClose, the same
- * lib calls): days from raised to closed (riskAgeDays, closedOn), open
- * and mitigating risks counted as still waiting at today, accepted ones
- * left out, and so is a closed risk with no close day (its duration isn't
- * known); the Kaplan-Meier median from MIN_SAMPLE.average closed risks
- * (null below it, or while fewer than half have closed). A copy of the
- * page's until it moves into lib/risks/model: the parity tests hold the
- * two together.
- */
-export function timeToClose(
-  risks: readonly Risk[],
-  today: string
-): { closed: number; medianDays: number | null } {
-  const observations = risks.flatMap((r) => {
-    if (r.status === "accepted" || (r.status === "closed" && closedOn(r) === undefined)) return [];
-    const duration = riskAgeDays(r, today);
-    return duration === null ? [] : [{ duration, event: closedOn(r) !== undefined }];
-  });
-  const closed = observations.filter((o) => o.event).length;
-  return {
-    closed,
-    medianDays: enoughData(closed, "average")
-      ? medianSurvivalTime(kaplanMeier(observations))
-      : null,
-  };
-}
-
 /* ── Schemas ─────────────────────────────────────────────────────────── */
 
 const StatusSchema = z.enum(RISK_STATUSES);
@@ -396,7 +366,7 @@ async function listState(store: RiskStore, params: { today?: string }) {
     residualExposure: s.residualExposure,
     residualAssessed: s.residualAssessed,
     verdict: riskVerdict(records, today),
-    timeToClose: timeToClose(
+    timeToClose: riskTimeToClose(
       records.filter((r) => !isExampleId(r.id)),
       today
     ),

@@ -10,14 +10,15 @@
 
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { enoughData } from "@/lib/analytics/min-sample";
-import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
+import { kaplanMeier } from "@/lib/analytics/survival";
 import { fmt, type ChartText } from "@/lib/charts/chart-text";
 import type { TechDebtItem } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
 import {
   INTEREST_CAP,
-  debtAgeDays,
+  debtPayDownObservations,
   debtScale,
+  debtTimeToResolve,
   isOpenDebt,
   type DebtScore,
 } from "@/lib/tech-debt/model";
@@ -104,27 +105,27 @@ export interface DebtSurvival {
 }
 
 /**
- * How long debt takes to pay down: days raised → resolved (lib/tech-debt
- * debtAgeDays), open items counted as still waiting at today. Below
- * MIN_SAMPLE.distribution resolved items nothing is estimated. The
- * agent's list_state gives the same median (tool.tech_debt:
- * timeToResolve).
+ * How long debt takes to pay down: days raised → resolved, open items
+ * counted as still waiting at today (lib/tech-debt debtTimeToResolve, the
+ * median the agent's list_state gives too), with the curve and an
+ * interval around it. Below MIN_SAMPLE.distribution resolved items
+ * nothing is estimated.
  */
 export function timeToResolve(items: readonly TechDebtItem[], today: string): DebtSurvival {
-  const observations = items.flatMap((t) => {
-    const duration = debtAgeDays(t, today);
-    return duration === null ? [] : [{ duration, event: !isOpenDebt(t) }];
-  });
-  const durations = observations.filter((o) => o.event).map((o) => o.duration);
-  if (!enoughData(durations.length, "distribution")) {
-    return { resolved: durations.length, points: [], medianDays: null, interval: null };
+  const { resolved, medianDays } = debtTimeToResolve(items, today);
+  if (!enoughData(resolved, "distribution")) {
+    return { resolved, points: [], medianDays: null, interval: null };
   }
+  const observations = debtPayDownObservations(items, today);
   const curve = kaplanMeier(observations);
-  const ci = bootstrapQuantile(durations, 0.5);
+  const ci = bootstrapQuantile(
+    observations.filter((o) => o.event).map((o) => o.duration),
+    0.5
+  );
   return {
-    resolved: durations.length,
+    resolved,
     points: curve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    medianDays: medianSurvivalTime(curve),
+    medianDays,
     interval:
       Number.isFinite(ci.lower) && Number.isFinite(ci.upper)
         ? { low: Math.round(ci.lower), high: Math.round(ci.upper) }

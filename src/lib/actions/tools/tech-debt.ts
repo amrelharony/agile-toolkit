@@ -60,19 +60,17 @@ import {
   type Story,
   type TechDebtItem,
 } from "@/lib/stores/workspace-types";
-import { enoughData } from "@/lib/analytics/min-sample";
-import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { normalizeCadence } from "@/lib/sprints/cadence";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import {
   INTEREST_CAP,
   INTEREST_RATE_MAX,
   UNASSIGNED_AREA,
-  debtAgeDays,
   debtScale,
   debtScore,
   debtStoryOf,
   debtSummary,
+  debtTimeToResolve,
   debtVerdict,
   isOpenDebt,
   rankedDebt,
@@ -285,31 +283,6 @@ function itemView(r: RankedDebt, stories: readonly Story[], pendingIds: readonly
   };
 }
 
-/**
- * How long debt takes to pay down, as the page's "Advanced analysis"
- * reads it (app/(tools)/tech-debt/analysis.ts timeToResolve, the same lib
- * calls): days from raised to resolved (debtAgeDays), open items counted
- * as still waiting at today; the Kaplan-Meier median from
- * MIN_SAMPLE.distribution paid-down items (null below it, or while fewer
- * than half are).
- */
-export function timeToResolve(
-  items: readonly TechDebtItem[],
-  today: string
-): { resolved: number; medianDays: number | null } {
-  const observations = items.flatMap((t) => {
-    const duration = debtAgeDays(t, today);
-    return duration === null ? [] : [{ duration, event: !isOpenDebt(t) }];
-  });
-  const resolved = observations.filter((o) => o.event).length;
-  return {
-    resolved,
-    medianDays: enoughData(resolved, "distribution")
-      ? medianSurvivalTime(kaplanMeier(observations))
-      : null,
-  };
-}
-
 async function listState(store: TechDebtStore, params: { today?: string }) {
   const today = params.today ?? todayLocalISO();
   const [{ records, pendingIds }, stories, sprintLengthDays] = await Promise.all([
@@ -350,7 +323,7 @@ async function listState(store: TechDebtStore, params: { today?: string }) {
     oldestSprints: s.oldestSprints,
     inBacklog: s.inBacklog,
     verdict: debtVerdict(records, sprintLengthDays, today),
-    timeToResolve: timeToResolve(
+    timeToResolve: debtTimeToResolve(
       records.filter((t) => !isExampleId(t.id)),
       today
     ),

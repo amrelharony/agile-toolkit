@@ -16,12 +16,18 @@
  * estimated. The cap keeps an old trivial item from outranking a fresh
  * critical one (the old score grew with days without bound).
  *
- * Pure and server-safe: only types, lib/utils/example-id and the sprint
- * calendar and the risk scale, so the agent actions can run it inside the
- * MCP route handler.
+ * Pure and server-safe: only types, lib/utils/example-id, the sprint
+ * calendar, the risk scale and lib/analytics' sample sizes and survival
+ * curve, so the agent actions can run it inside the MCP route handler.
  */
 
 import type { HandoffLink, Story, TechDebtItem } from "@/lib/stores/workspace-types";
+import { enoughData } from "@/lib/analytics/min-sample";
+import {
+  kaplanMeier,
+  medianSurvivalTime,
+  type SurvivalObservation,
+} from "@/lib/analytics/survival";
 import { isExampleId } from "@/lib/utils/example-id";
 import { isIsoDate, isoDayNumber } from "@/lib/sprints/calendar";
 import { linksOf, sprintLengthOr, toScale } from "@/lib/risks/model";
@@ -307,6 +313,53 @@ export function debtVerdict(
   return `${cost}; the top one, ${quote(top.item.title)}, ${age}scores ${num(top.score.total)}${
     top.score.capped ? " (interest capped)" : ""
   }.`;
+}
+
+/* ── Time to pay down ──────────────────────────────────────────────────── */
+
+/**
+ * Days raised → resolved for each item with a raised day (debtAgeDays),
+ * open items censored at today (still waiting): what the time to pay down
+ * and the page's survival curve are read from.
+ */
+export function debtPayDownObservations(
+  items: readonly TechDebtItem[],
+  today: string
+): SurvivalObservation[] {
+  return items.flatMap((t) => {
+    const duration = debtAgeDays(t, today);
+    return duration === null ? [] : [{ duration, event: !isOpenDebt(t) }];
+  });
+}
+
+export interface DebtTimeToResolve {
+  /** Items paid down. */
+  resolved: number;
+  /**
+   * The Kaplan-Meier median days from raised to resolved, open items
+   * counted as still waiting; null below MIN_SAMPLE.distribution paid-down
+   * items, or while fewer than half are.
+   */
+  medianDays: number | null;
+}
+
+/**
+ * How long debt takes to pay down, the median under the page's survival
+ * curve and tool.tech_debt.list_state's timeToResolve. Every item passed
+ * counts, so the caller leaves the examples out.
+ */
+export function debtTimeToResolve(
+  items: readonly TechDebtItem[],
+  today: string
+): DebtTimeToResolve {
+  const observations = debtPayDownObservations(items, today);
+  const resolved = observations.filter((o) => o.event).length;
+  return {
+    resolved,
+    medianDays: enoughData(resolved, "distribution")
+      ? medianSurvivalTime(kaplanMeier(observations))
+      : null,
+  };
 }
 
 /* ── Reading a stored row ──────────────────────────────────────────────── */

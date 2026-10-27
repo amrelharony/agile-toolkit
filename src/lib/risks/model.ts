@@ -9,9 +9,10 @@
  * rounded and clamped, and one that isn't a number at all as 1, as the old
  * page scored it. Days are "YYYY-MM-DD"; a timestamp is read by its date.
  *
- * Pure and server-safe: only types, lib/utils/example-id and the sprint
- * calendar and cadence helpers, so the agent actions can run it inside the
- * MCP route handler.
+ * Pure and server-safe: only types, lib/utils/example-id, the sprint
+ * calendar and cadence helpers and lib/analytics' sample sizes and
+ * survival curve, so the agent actions can run it inside the MCP route
+ * handler.
  */
 
 import type {
@@ -23,6 +24,8 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { HANDOFF_ROUTE_IDS } from "@/lib/stores/workspace-types";
 import type { HandoffSource } from "@/lib/handoffs/types";
+import { enoughData } from "@/lib/analytics/min-sample";
+import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { isExampleId } from "@/lib/utils/example-id";
 import { isIsoDate, isoDayNumber } from "@/lib/sprints/calendar";
 import { DEFAULT_CADENCE } from "@/lib/sprints/cadence";
@@ -320,6 +323,15 @@ function quote(title: string): string {
 }
 
 /**
+ * Closed, but with no close day the register can read (closedOn is
+ * undefined): when it stopped being open isn't known, so the weekly
+ * series and the time to mitigate leave it out instead of counting it
+ * open (or still waiting) up to today. Its row's "Closed on" takes one.
+ */
+export const isClosedUndated = (r: Pick<Risk, "status" | "resolvedAt">): boolean =>
+  r.status === "closed" && closedOn(r) === undefined;
+
+/**
  * One sentence on the register, examples left out unless included: overdue
  * mitigations lead (the longest overdue named), else the top active risk;
  * high or critical risks with no owner are called out.
@@ -360,6 +372,42 @@ export function riskVerdict(
   return `${counts}; the top one, ${quote(top.title)}, scores ${score} (${riskLevel(
     score
   )})${owners}.`;
+}
+
+/* ── Time to close ─────────────────────────────────────────────────────── */
+
+export interface RiskTimeToClose {
+  /** Risks closed (as their status now says). */
+  closed: number;
+  /**
+   * The Kaplan-Meier median days from raised to closed, open risks counted
+   * as still waiting; null below MIN_SAMPLE.average closed risks, or while
+   * fewer than half have closed.
+   */
+  medianDays: number | null;
+}
+
+/**
+ * How long risks take to close, the register's "Median time to mitigate"
+ * and tool.risk_register.list_state's timeToClose: days raised → closed
+ * (riskAgeDays, closedOn), open and mitigating risks censored at today.
+ * Accepted risks are left out: the team chose not to mitigate them; so is
+ * a closed risk with no close day (isClosedUndated), whose duration isn't
+ * known. Every risk passed counts, so the caller leaves the examples out.
+ */
+export function riskTimeToClose(risks: readonly Risk[], today: string): RiskTimeToClose {
+  const observations = risks.flatMap((r) => {
+    if (r.status === "accepted" || isClosedUndated(r)) return [];
+    const duration = riskAgeDays(r, today);
+    return duration === null ? [] : [{ duration, event: closedOn(r) !== undefined }];
+  });
+  const closed = observations.filter((o) => o.event).length;
+  return {
+    closed,
+    medianDays: enoughData(closed, "average")
+      ? medianSurvivalTime(kaplanMeier(observations))
+      : null,
+  };
 }
 
 /* ── Hand-off ──────────────────────────────────────────────────────────── */

@@ -1,6 +1,7 @@
 /**
  * Risk Register: the numbers behind the matrix, the "Open risks over time"
- * chart, the time to mitigate and "Advanced analysis". Pure.
+ * chart and "Advanced analysis". Pure. The time to mitigate is
+ * lib/risks/model riskTimeToClose, which the agent reads too.
  *
  * Every rating, level, age and close date comes from lib/risks/model (the
  * one reading the agent, the hand-off and the next steps use) and every
@@ -18,10 +19,9 @@ import { cusum } from "@/lib/analytics/changepoint";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { enoughData } from "@/lib/analytics/min-sample";
 import { periodBounds, periodLabel, periodRange } from "@/lib/analytics/periods";
-import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { fmt, listAnd, type ChartText } from "@/lib/charts/chart-text";
-import { closedOn, isActiveRisk, residualScore, riskAgeDays, toScale } from "@/lib/risks/model";
+import { closedOn, isActiveRisk, isClosedUndated, residualScore, toScale } from "@/lib/risks/model";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import type { Risk } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
@@ -56,14 +56,8 @@ export function countedRisks(records: readonly Risk[]): Risk[] {
  */
 export const exportedRisks = countedRisks;
 
-/**
- * Closed, but with no close day the register can read (closedOn is
- * undefined): when it stopped being open isn't known, so the weekly
- * series and the time to mitigate leave it out instead of counting it
- * open (or still waiting) up to today. Its row's "Closed on" takes one.
- */
-export const isClosedUndated = (r: Pick<Risk, "status" | "resolvedAt">): boolean =>
-  r.status === "closed" && closedOn(r) === undefined;
+/** Closed with no close day (lib/risks/model): the weekly series and the time to mitigate leave it out. */
+export { isClosedUndated };
 
 /** How many of `risks` are closed with no close day (isClosedUndated). */
 export const closedUndatedCount = (risks: readonly Risk[]): number =>
@@ -202,42 +196,6 @@ export function weeklyChartText(points: readonly WeekPoint[], undated = 0): Char
       undated > 0 ? ` ${undatedClosedNote(undated)}` : ""
     }`,
     table,
-  };
-}
-
-/* ── Time to mitigate ──────────────────────────────────────────────────── */
-
-export interface TimeToClose {
-  /** Risks closed (as their status now says). */
-  closed: number;
-  /**
-   * The Kaplan-Meier median days from raised to closed, open risks counted
-   * as still waiting; null below MIN_SAMPLE.average closed risks, or while
-   * fewer than half have closed.
-   */
-  medianDays: number | null;
-}
-
-/**
- * How long risks take to close: days raised → closed (lib/risks/model
- * riskAgeDays), open and mitigating risks censored at today. Accepted
- * risks are left out: the team chose not to mitigate them; so is a
- * closed risk with no close day (isClosedUndated), whose duration isn't
- * known. The agent's list_state computes the same (tool.risk_register:
- * timeToClose); lib/risks/model is where the one copy belongs.
- */
-export function timeToClose(risks: readonly Risk[], today: string): TimeToClose {
-  const observations = risks.flatMap((r) => {
-    if (r.status === "accepted" || isClosedUndated(r)) return [];
-    const duration = riskAgeDays(r, today);
-    return duration === null ? [] : [{ duration, event: closedOn(r) !== undefined }];
-  });
-  const closed = observations.filter((o) => o.event).length;
-  return {
-    closed,
-    medianDays: enoughData(closed, "average")
-      ? medianSurvivalTime(kaplanMeier(observations))
-      : null,
   };
 }
 

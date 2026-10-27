@@ -31,6 +31,7 @@ import {
   riskLevelOf,
   riskScore,
   riskSummary,
+  riskTimeToClose,
   riskVerdict,
   sprintLengthOr,
   toScale,
@@ -276,6 +277,28 @@ describe("riskSummary and riskVerdict", () => {
     expect(riskVerdict([list[5]], TODAY, opts)).toBe(
       "1 active risk, 1 high or critical; the top one, “Vendor API rate limits”, scores 25 (critical); 1 high or critical risk has no owner."
     );
+  });
+});
+
+describe("riskTimeToClose", () => {
+  const closed = (id: string, resolvedAt: string) => risk({ id, status: "closed", resolvedAt });
+
+  it("is the Kaplan-Meier median of days raised → closed, from 3 closed risks", () => {
+    const list = [
+      closed("a", "2026-10-05"),
+      closed("b", "2026-10-09"),
+      closed("c", "2026-10-13"),
+      // Reopened: the old close day stays, but it is still waiting at today.
+      risk({ id: "d", status: "mitigating", resolvedAt: "2026-10-02" }),
+      // Accepted: the team chose not to mitigate it.
+      risk({ id: "e", status: "accepted" }),
+    ];
+    expect(riskTimeToClose(list, TODAY)).toEqual({ closed: 3, medianDays: 8 });
+    expect(riskTimeToClose(list.slice(0, 2), TODAY)).toEqual({ closed: 2, medianDays: null });
+    expect(riskTimeToClose([risk({ raisedAt: "" })], TODAY)).toEqual({
+      closed: 0,
+      medianDays: null,
+    });
   });
 });
 
