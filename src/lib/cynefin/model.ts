@@ -325,10 +325,16 @@ export function hypothesisStateOf(
     : "testing";
 }
 
-/** "We believe <title>" for a complex item's hypothesis (left as typed when it already says so). */
+/**
+ * A complex item's title as its hypothesis's "We believe" line, as the
+ * other hand-offs send theirs. The Hypothesis Tracker labels that field
+ * "We believe" itself, so a title that starts with the words loses them
+ * ("We believe that X" reads "that X", the tracker's own placeholder);
+ * a title that is only the words stays as typed.
+ */
 export function hypothesisTitle(title: string): string {
   const t = title.trim();
-  return /^we believe\b/i.test(t) ? t : `We believe ${t.charAt(0).toLowerCase()}${t.slice(1)}`;
+  return t.replace(/^we believe\b[\s,:]*/i, "") || t;
 }
 
 /** What a complex item hands to the Hypothesis Tracker. */

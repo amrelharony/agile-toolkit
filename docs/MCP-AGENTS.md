@@ -786,7 +786,7 @@ The guided questions (`crisis`, `known`, `analysable`, `emergent`, `disagree`; a
 - **`list_state`** (read) — `{clear, complicated, complex, chaotic, confused, total, verdict, complexNotTested, questions}`. Each item adds `plan`, `customPlan` and `hypothesis` (none | testing | tested); an unknown or legacy domain reads as confused.
 - **`record_domain`** (write) `{id? | title, domain, rationale?, answers?}` — `{recorded: true, id, domain, created}`: files a problem under the domain the team confirmed, or moves one (a plan written for it survives the move). `domain` is required.
 - **`classify_and_persist`** (write, kept) files a new item from an explicit `domain`, or from `answers` / `signals`. Nothing is filed under a default: `{persisted: false, reason: "no_suggestion"}` comes back when they point nowhere. **`set_recommended_action`** `{id, recommendedAction}` writes the item's own plan.
-- **`send_to_hypothesis`** (write) `{id}` — `{sent: true, hypothesisId, believe}`: a drafted hypothesis in the Hypothesis Tracker ("We believe <title>", the rationale as what to learn), linked both ways. Complex items only, once, and not for examples.
+- **`send_to_hypothesis`** (write) `{id}` — `{sent: true, hypothesisId, believe}`: a drafted hypothesis in the Hypothesis Tracker (the title as its "We believe" line, without the words again: the tracker labels the field; the rationale as what to learn), linked both ways. Complex items only, once, and not for examples.
 
 ### Run a retro for a sprint (composed intent)
 

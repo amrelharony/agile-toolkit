@@ -415,7 +415,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Turn a complex Cynefin item into a drafted hypothesis in the Hypothesis Tracker ('We believe <title>', its rationale as what to learn), linked both ways, as the page's 'Turn into a hypothesis' does. Once per item while that hypothesis exists; complex items only. Params: id. Returns {sent: true, hypothesisId, believe} or {sent: false, reason: 'not_found' | 'not_complex' | 'example' | 'already_sent', hypothesisId?}.",
+    "Turn a complex Cynefin item into a drafted hypothesis in the Hypothesis Tracker (its title as the 'We believe' line, without a leading 'We believe' since the tracker labels the field so; its rationale as what to learn), linked both ways, as the page's 'Turn into a hypothesis' does. Once per item while that hypothesis exists; complex items only. Params: id. Returns {sent: true, hypothesisId, believe} or {sent: false, reason: 'not_found' | 'not_complex' | 'example' | 'already_sent', hypothesisId?}.",
   paramsSchema: z.object({ id: z.string() }),
   handler: async (params) => sendToHypothesis(browserStore, params.id),
   mcpHandler: async (params, ctx) => sendToHypothesis(serverStore(ctx.userId), params.id),

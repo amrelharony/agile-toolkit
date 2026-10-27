@@ -153,8 +153,12 @@ describe("the guided questions suggest, they don't decide", () => {
       text: "Spike the auth flow",
       custom: true,
     });
-    expect(hypothesisTitle("Customers churn")).toBe("We believe customers churn");
-    expect(hypothesisTitle("We believe X")).toBe("We believe X");
+    // The tracker labels the field "We believe": the title fills it, without the words again.
+    expect(hypothesisTitle(" Customers churn ")).toBe("Customers churn");
+    expect(hypothesisTitle("We believe X")).toBe("X");
+    expect(hypothesisTitle("we believe that users want X")).toBe("that users want X");
+    expect(hypothesisTitle("We believers")).toBe("We believers");
+    expect(hypothesisTitle("We believe")).toBe("We believe");
   });
 
   it("knows where a complex item's test stands, and says it in the verdict", () => {
@@ -273,7 +277,7 @@ describe("items on the board", () => {
     fireEvent.click(screen.getByRole("button", { name: "Turn into a hypothesis" }));
     expect(hypotheses()).toHaveLength(1);
     expect(hypotheses()[0]).toMatchObject({
-      believe: "We believe new pricing page",
+      believe: "New pricing page",
       toLearn: "We can't predict how customers react",
       status: "drafted",
       sourceRef: { tool: "cynefin", id: "c1" },
@@ -417,10 +421,14 @@ describe("the agent says the same", () => {
       sent: false,
       reason: "not_complex",
     });
-    const sent = await run<{ sent: boolean; hypothesisId: string }>("send_to_hypothesis", {
-      id: "c1",
-    });
+    const sent = await run<{ sent: boolean; hypothesisId: string; believe: string }>(
+      "send_to_hypothesis",
+      { id: "c1" }
+    );
     expect(sent.sent).toBe(true);
+    // Under the tracker's own "We believe" label: the title as typed.
+    expect(sent.believe).toBe("New pricing page");
+    expect(hypotheses()[0].believe).toBe("New pricing page");
     expect(hypotheses().map((h) => h.id)).toEqual([sent.hypothesisId]);
     expect(items()[0].sentTo?.[0].targetId).toBe(sent.hypothesisId);
     expect(await run("send_to_hypothesis", { id: "c1" })).toMatchObject({

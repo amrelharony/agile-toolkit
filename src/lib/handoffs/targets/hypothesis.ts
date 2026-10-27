@@ -3,8 +3,9 @@
  *
  * Adds a drafted hypothesis to the Hypothesis Tracker's document
  * (`hypothesisTracker:current`), newest first as the tracker adds its own:
- * the item becomes "We believe …", its description the "To learn" line, and
- * the tracker asks for the rest (what we'll do, the success metric). Keeps
+ * the item's title fills the "We believe" line (the tracker's label holds
+ * the words), its description the "To learn" line, and the tracker asks
+ * for the rest (what we'll do, the success metric). Keeps
  * `sourceRef` (a riskiest assumption, a complex Cynefin item, an experiment
  * on the opportunity tree).
  */
