@@ -160,6 +160,9 @@ commits; nothing else is needed.
   replacing the file; on Vercel the push that adds it rebuilds.
 - After bumping `pdfjs-dist`, run `npm run pdf:worker` so the public worker
   matches the library version.
+- Page transcripts, the contents list and each chapter's tool links come
+  from a hand-written file that ships empty: its format is in
+  [RUNBOOK.md, "Transcripts and contents"](RUNBOOK.md#transcripts-and-contents).
 
 ## MCP integration
 
