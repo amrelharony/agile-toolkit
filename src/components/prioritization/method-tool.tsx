@@ -71,6 +71,7 @@ import {
   method as methodById,
   readThrough,
   scoreCache,
+  withoutLegacyMark,
   type MethodId,
   type MethodInput,
   type PrioritizationMethod,
@@ -790,7 +791,8 @@ function defaultCsv(m: PrioritizationMethod, rows: readonly RankedRow[]) {
  * the backlog holds reads through to its item, and hub or agent edits are
  * never copied back to the row, so the stored fields and score can be
  * stale: the export writes the shown inputs over them and recomputes the
- * score cache, as the screen, the CSV and the Markdown read.
+ * score cache, as the screen, the CSV and the Markdown read. A legacy
+ * row's mark (methods LEGACY_DIFFERS_FIELD) is bookkeeping and stays out.
  */
 export function exportRows(
   m: PrioritizationMethod,
@@ -800,7 +802,7 @@ export function exportRows(
     const cache = scoreCache(r.result, r.row.status);
     const out: PrioritizationItem = {
       ...r.row,
-      fields: m.write(r.row.fields, r.values),
+      fields: m.write(withoutLegacyMark(r.row.fields), r.values),
       status: cache.status,
     };
     if (cache.score === undefined) delete out.score;

@@ -411,6 +411,17 @@ describe("MethodTool", () => {
     );
     expect(blank).toMatchObject({ status: "open" });
     expect(blank).not.toHaveProperty("score");
+    // A legacy row's mark is bookkeeping, not something the screen shows.
+    const [marked] = exportRows(
+      WSJF,
+      rankMethodRows(
+        "wsjf",
+        [{ ...stored, fields: { ...stored.fields, legacyDiffers: "businessValue" } }],
+        [item]
+      )
+    );
+    expect(marked.fields).not.toHaveProperty("legacyDiffers");
+    expect(marked.fields).toMatchObject({ businessValue: 20, note: "keep" });
   });
 
   it("saves a title-only row when the tool allows it", () => {
