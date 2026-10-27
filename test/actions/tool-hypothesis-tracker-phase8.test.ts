@@ -101,6 +101,13 @@ describe("registration", () => {
     expect(a?.mcpHandler).toBeTypeOf("function");
     expect(a?.requiresConfirmation).toBe(false);
   });
+
+  it("adds update_hypothesis as a write with a server path", () => {
+    const a = registry.get("tool.hypothesis_tracker.update_hypothesis");
+    expect(a?.category).toBe("write");
+    expect(a?.mcpHandler).toBeTypeOf("function");
+    expect(a?.requiresConfirmation).toBe(false);
+  });
 });
 
 describe.each(TRANSPORTS)("%s", (path) => {
@@ -240,6 +247,119 @@ describe.each(TRANSPORTS)("%s", (path) => {
     });
   });
 
+  describe("update_hypothesis", () => {
+    it("fills a hand-off draft's missing lines and a target, so it can run and be judged", async () => {
+      seed(path, [
+        hyp("h", "drafted", {
+          willDo: "",
+          successMetric: "",
+          sourceRef: { tool: "riskiest-assumption", id: "a1" },
+        }),
+      ]);
+      expect(await run(path, "set_status", { hypothesisId: "h", status: "running" })).toMatchObject(
+        { reason: "needs_detail" }
+      );
+      // One line at a time: the other may stay blank while it is drafted.
+      expect(
+        await run(path, "update_hypothesis", { hypothesisId: "h", willDo: " Run it " })
+      ).toEqual({ updated: true, id: "h", missing: ["successMetric"], suggestedVerdict: null });
+      const r = await run(path, "update_hypothesis", {
+        hypothesisId: "h",
+        successMetric: "8% click",
+        target: { direction: "increase", value: 8, unit: "%", baseline: 5 },
+      });
+      expect(r).toEqual({ updated: true, id: "h", missing: [], suggestedVerdict: null });
+      expect(stored(path)[0]).toEqual({
+        ...hyp("h", "drafted"),
+        willDo: "Run it",
+        successMetric: "8% click",
+        sourceRef: { tool: "riskiest-assumption", id: "a1" },
+        target: { direction: "increase", value: 8, unit: "%", baseline: 5 },
+      });
+      expect(
+        (await run(path, "set_status", { hypothesisId: "h", status: "running" })).updated
+      ).toBe(true);
+      expect(await run(path, "record_result", { hypothesisId: "h", actual: 9 })).toMatchObject({
+        updated: true,
+        suggestedVerdict: { verdict: "validated" },
+      });
+    });
+
+    it("clears an optional line and a target, keeping the rest of the row", async () => {
+      seed(path, [
+        hyp("h", "running", {
+          experiment: "A/B",
+          outcome: "x",
+          target: { direction: "decrease", value: 3 },
+        }),
+        hyp("other", "drafted"),
+      ]);
+      expect(
+        await run(path, "update_hypothesis", {
+          hypothesisId: "h",
+          experiment: null,
+          outcome: "",
+          target: null,
+        })
+      ).toMatchObject({ updated: true });
+      const [h, other] = stored(path);
+      for (const key of ["experiment", "outcome", "target"]) expect(h, key).not.toHaveProperty(key);
+      expect(h).toMatchObject({ status: "running", raisedAt: "2026-10-01", believe: "b h" });
+      expect(other).toEqual(hyp("other", "drafted"));
+    });
+
+    it("refuses what the page's edit form refuses, by the agent's param names", async () => {
+      const row = hyp("h", "validated", {
+        raisedAt: "2026-10-10",
+        resolvedAt: "2026-10-12",
+        target: { direction: "increase", value: 3 },
+        actual: 4,
+      });
+      seed(path, [row]);
+      const errorsOf = async (params: Record<string, unknown>) => {
+        const r = await run(path, "update_hypothesis", { hypothesisId: "h", ...params });
+        expect(r).toMatchObject({ updated: false, reason: "invalid" });
+        return r.errors as Record<string, string>;
+      };
+      // A line the row has can't be cleared.
+      expect(Object.keys(await errorsOf({ willDo: " " }))).toEqual(["willDo"]);
+      expect(
+        (await errorsOf({ target: { direction: "increase", value: 5, baseline: 9 } }))[
+          "target.value"
+        ]
+      ).toMatch(/above the baseline/);
+      expect((await errorsOf({ raisedAt: "2026-10-13" })).resolvedAt).toMatch(
+        /before the day it was raised/
+      );
+      expect((await errorsOf({ raisedAt: "2026-10-29" })).raisedAt).toMatch(/hasn't happened/);
+      // A measured result needs its target: the reply names the verb that clears it.
+      expect((await errorsOf({ target: null })).actual).toMatch(/record_result \(actual: null\)/);
+      expect(stored(path)).toEqual([row]);
+    });
+
+    it("keeps a day after the page's today that the row already has, and longer saved text", async () => {
+      const long = "q".repeat(2001);
+      // An agent's add_hypothesis over MCP can stamp the server's tomorrow.
+      seed(path, [hyp("h", "drafted", { raisedAt: "2026-10-28", toLearn: long })]);
+      expect(
+        await run(path, "update_hypothesis", { hypothesisId: "h", outcome: "Early signs" })
+      ).toMatchObject({ updated: true });
+      expect(stored(path)[0]).toMatchObject({ raisedAt: "2026-10-28", toLearn: long });
+    });
+
+    it("needs a known hypothesis and something to change", async () => {
+      seed(path, [hyp("h", "drafted")]);
+      expect(await run(path, "update_hypothesis", { hypothesisId: "x", willDo: "w" })).toEqual({
+        updated: false,
+        reason: "not_found",
+      });
+      expect(await run(path, "update_hypothesis", { hypothesisId: "h" })).toEqual({
+        updated: false,
+        reason: "nothing_to_update",
+      });
+    });
+  });
+
   describe("set_status", () => {
     it("backdates a result's day, and clears it when the test reopens", async () => {
       seed(path, [hyp("h", "running", { raisedAt: "2026-10-10" })]);
@@ -287,6 +407,7 @@ describe.each(TRANSPORTS)("%s", (path) => {
         updated: false,
         reason: "needs_detail",
         missing: ["willDo", "successMetric"],
+        message: "Fill willDo and successMetric with update_hypothesis first.",
       });
       expect(
         (await run(path, "set_status", { hypothesisId: "h", status: "drafted" })).updated
@@ -323,6 +444,7 @@ describe.each(TRANSPORTS)("%s", (path) => {
       expect(await run(path, "record_result", { hypothesisId: "h", actual: 3 })).toEqual({
         updated: false,
         reason: "no_target",
+        message: expect.stringMatching(/update_hypothesis/),
       });
       expect(await run(path, "record_result", { hypothesisId: "x", actual: 3 })).toEqual({
         updated: false,

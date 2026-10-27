@@ -16,10 +16,13 @@
  *                         suggests.
  *   2. add_hypothesis   — log a hypothesis, first in the list, checked as the
  *                         page's form checks it (backdating, a target).
- *   3. set_status       — move through the lifecycle; stamps resolvedAt (a
+ *   3. update_hypothesis — edit its lines, raised day and target, as the
+ *                         page's edit form does: how a hand-off draft gets
+ *                         what we'll do, the success metric and a target.
+ *   4. set_status       — move through the lifecycle; stamps resolvedAt (a
  *                         day that can be backdated) on a result. A hand-off
  *                         draft needs its missing lines before it moves on.
- *   4. record_result    — the measured number; returns the suggested
+ *   5. record_result    — the measured number; returns the suggested
  *                         verdict and never applies it.
  *
  * Every rule comes from lib/hypotheses (the page uses it too). Entity kind
@@ -35,6 +38,7 @@ import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { Hypothesis, HypothesisStatus, HypothesisTracker } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { isExampleId } from "@/lib/utils/example-id";
+import type { FormErrors } from "@/lib/utils/form";
 import { addDays } from "@/lib/impediments/model";
 import {
   HYPOTHESIS_STATUSES,
@@ -42,6 +46,7 @@ import {
   HYPOTHESIS_TRACKER_ID,
   HYPOTHESIS_UNIT_MAX,
   applyHypothesisValues,
+  hypothesisDraftFrom,
   hypothesisVerdict,
   isDay,
   isResolved,
@@ -159,7 +164,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise hypotheses, as the page does. Example rows (ids starting 'example-') are the page's demo: every count and the verdict leave them out, and they are still listed in hypotheses. Returns {exists, total (hypotheses without the examples), examples (how many example rows), byStatus: {drafted, running, validated, invalidated, inconclusive}, decisive (validated + invalidated), inconclusive, validationRate (0..1, validated over decisive; null while no result is decisive; inconclusive results aren't counted), verdict (one sentence), needsDetail (hypotheses missing what we'll do or the success metric, e.g. hand-off drafts), hypotheses: each stored row plus missing ('willDo' | 'successMetric')[], suggestedVerdict ({verdict: 'validated' | 'invalidated', met, margin (actual − target, positive = better), moved? (actual − baseline)} or null without a target and a measured actual) and suggestion (that in words, or null)}. A suggestion is never applied: set_status does that.",
+    "Summarise hypotheses, as the page does. Example rows (ids starting 'example-') are the page's demo: every count and the verdict leave them out, and they are still listed in hypotheses. Returns {exists, total (hypotheses without the examples), examples (how many example rows), byStatus: {drafted, running, validated, invalidated, inconclusive}, decisive (validated + invalidated), inconclusive, validationRate (0..1, validated over decisive; null while no result is decisive; inconclusive results aren't counted), verdict (one sentence), needsDetail (hypotheses missing what we'll do or the success metric, e.g. hand-off drafts: fill them with update_hypothesis), hypotheses: each stored row plus missing ('willDo' | 'successMetric')[], suggestedVerdict ({verdict: 'validated' | 'invalidated', met, margin (actual − target, positive = better), moved? (actual − baseline)} or null without a target and a measured actual) and suggestion (that in words, or null)}. A suggestion is never applied: set_status does that.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.get()),
   mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).get()),
@@ -198,6 +203,13 @@ const PARAM_OF: Partial<Record<HypothesisField, string>> = {
   baseline: "target.baseline",
   unit: "target.unit",
 };
+
+/** The form's errors under the agent's param names. */
+function paramErrors(errors: FormErrors<HypothesisField>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(errors).map(([k, v]) => [PARAM_OF[k as HypothesisField] ?? k, v ?? ""])
+  );
+}
 
 /** The params as the page's form would hold them, so validateHypothesis judges both alike. */
 function draftOf(p: AddParams, today: string): HypothesisDraft {
@@ -238,12 +250,7 @@ async function addHypothesis(store: TrackerStore, p: AddParams) {
     };
   }
   const checked = validateHypothesis(draftOf(p, today), latestDay(today, store.onServer));
-  if (!checked.ok) {
-    const errors = Object.fromEntries(
-      Object.entries(checked.errors).map(([k, v]) => [PARAM_OF[k as HypothesisField] ?? k, v])
-    );
-    return { added: false, reason: "invalid", errors };
-  }
+  if (!checked.ok) return { added: false, reason: "invalid", errors: paramErrors(checked.errors) };
   const h = applyHypothesisValues({ id: nanoid(8) }, checked.values);
   await store.put(withHypothesis(await store.get(), h));
   return { added: true, id: h.id, suggestedVerdict: suggestVerdict(h) };
@@ -260,6 +267,117 @@ registry.register({
   paramsSchema: AddSchema,
   handler: async (params) => addHypothesis(browserStore, params),
   mcpHandler: async (params, ctx) => addHypothesis(serverStore(ctx.userId), params),
+});
+
+/* ── update_hypothesis ───────────────────────────────────────────────── */
+
+/** An optional line: a string sets it, null or "" clears it. */
+const OptionalText = z.string().max(HYPOTHESIS_TEXT_MAX).nullable().optional();
+
+const UpdateSchema = z.object({
+  hypothesisId: z.string(),
+  believe: z
+    .string()
+    .max(HYPOTHESIS_TEXT_MAX)
+    .optional()
+    .describe("We believe … (without the words 'We believe')."),
+  willDo: z.string().max(HYPOTHESIS_TEXT_MAX).optional().describe("What we'll do to test it."),
+  toLearn: z.string().max(HYPOTHESIS_TEXT_MAX).optional(),
+  successMetric: z
+    .string()
+    .max(HYPOTHESIS_TEXT_MAX)
+    .optional()
+    .describe("What counts as success, in words."),
+  experiment: OptionalText,
+  description: OptionalText,
+  outcome: OptionalText.describe("What the test showed; null clears it."),
+  raisedAt: IsoDay.optional().describe(
+    "The user's local day it was raised (backdated; not in the future; not after its result's day)."
+  ),
+  target: TargetSchema.nullable()
+    .optional()
+    .describe("The number the test aims for; null clears it (and needs no measured result)."),
+});
+type UpdateParams = z.infer<typeof UpdateSchema>;
+
+/** The fields update_hypothesis edits: one of them must be given. */
+const UPDATE_FIELDS = [
+  "believe",
+  "willDo",
+  "toLearn",
+  "successMetric",
+  "experiment",
+  "description",
+  "outcome",
+  "raisedAt",
+  "target",
+] as const;
+
+/**
+ * The saved row as the page's edit form opens it, with the params typed
+ * over it: validateHypothesis then judges what changed as the page does
+ * (a day or a long text left alone is kept; a hand-off draft's blank line
+ * may stay blank while it is drafted).
+ */
+function editedDraft(h: Hypothesis, p: UpdateParams): HypothesisDraft {
+  const d = hypothesisDraftFrom(h);
+  for (const key of ["believe", "willDo", "toLearn", "successMetric"] as const) {
+    if (p[key] !== undefined) d[key] = p[key];
+  }
+  for (const key of ["experiment", "description", "outcome"] as const) {
+    if (p[key] !== undefined) d[key] = p[key] ?? "";
+  }
+  if (p.raisedAt !== undefined) d.raisedAt = p.raisedAt;
+  if (p.target !== undefined) {
+    d.direction = p.target?.direction ?? "";
+    d.targetValue = p.target ? String(p.target.value) : "";
+    d.unit = p.target?.unit ?? "";
+    d.baseline = p.target?.baseline !== undefined ? String(p.target.baseline) : "";
+  }
+  return d;
+}
+
+async function updateHypothesis(store: TrackerStore, p: UpdateParams) {
+  if (!UPDATE_FIELDS.some((key) => p[key] !== undefined)) {
+    return { updated: false, reason: "nothing_to_update" };
+  }
+  const doc = await store.get();
+  const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
+  if (!doc || !h) return { updated: false, reason: "not_found" };
+  const draft = editedDraft(h, p);
+  const checked = validateHypothesis(draft, latestDay(todayLocalISO(), store.onServer), {
+    stored: h,
+  });
+  if (!checked.ok) {
+    const errors = paramErrors(checked.errors);
+    // The measured number isn't a param here: say which verb clears it.
+    if (errors.actual && !draft.direction) {
+      errors.actual =
+        "It has a measured result, which needs a target to compare with: give it a target, or clear the result first with record_result (actual: null).";
+    }
+    return { updated: false, reason: "invalid", errors };
+  }
+  const next = applyHypothesisValues(h, checked.values);
+  await store.put(withHypothesis(doc, next));
+  return {
+    updated: true,
+    id: next.id,
+    missing: missingFields(next),
+    suggestedVerdict: suggestVerdict(next),
+  };
+}
+
+registry.register({
+  id: "tool.hypothesis_tracker.update_hypothesis",
+  toolId: "tool.hypothesis_tracker",
+  name: "update_hypothesis",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Edit a hypothesis in place, as the page's edit form does; how a hand-off draft (from Riskiest Assumption, the Opportunity Tree, Cynefin or a Design Sprint) gets what we'll do, its success metric and a target before set_status moves it on. Params: hypothesisId, and any of believe, willDo, toLearn, successMetric (each up to 2000 characters; a line the saved row has can't be cleared), experiment, description, outcome (null or '' clears), raisedAt (YYYY-MM-DD, backdated; not in the future, not after its result's day), target ({direction: increase | decrease, value, unit?, baseline? (below value for increase, above it for decrease)}, or null to clear it). Only what changes is judged: a day or a longer text the row already has is kept. The status and its result's day go through set_status, the measured number through record_result. Returns {updated: true, id, missing ('willDo' | 'successMetric')[] (empty once it can run), suggestedVerdict} or {updated: false, reason: 'nothing_to_update' | 'not_found' | 'invalid' (with errors: {param: message})}.",
+  paramsSchema: UpdateSchema,
+  handler: async (params) => updateHypothesis(browserStore, params),
+  mcpHandler: async (params, ctx) => updateHypothesis(serverStore(ctx.userId), params),
 });
 
 /* ── set_status ──────────────────────────────────────────────────────── */
@@ -280,7 +398,14 @@ async function setStatus(store: TrackerStore, p: z.infer<typeof SetStatusSchema>
   // the success metric; it can stay drafted, and a status it already had is kept.
   if (p.status !== h.status && p.status !== "drafted") {
     const missing = missingFields(h);
-    if (missing.length > 0) return { updated: false, reason: "needs_detail", missing };
+    if (missing.length > 0) {
+      return {
+        updated: false,
+        reason: "needs_detail",
+        missing,
+        message: `Fill ${missing.join(" and ")} with update_hypothesis first.`,
+      };
+    }
   }
   let next: Hypothesis;
   if (isResolved(p.status)) {
@@ -316,7 +441,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a hypothesis's status (drafted | running | validated | invalidated | inconclusive). A status with a result stamps resolvedAt: the resolvedAt param (YYYY-MM-DD, backdated; not before raisedAt; not in the future), else the day already stamped, else today; moving back to drafted or running clears it. A hypothesis missing what we'll do or its success metric (a hand-off draft) stays drafted until they're filled. Returns {updated: true, status, resolvedAt?} or {updated: false, reason: 'not_found' | 'needs_detail' (with missing) | 'not_a_day' | 'future_day' | 'before_raised' | 'no_result' (resolvedAt with a status that has no result)}.",
+    "Set a hypothesis's status (drafted | running | validated | invalidated | inconclusive). A status with a result stamps resolvedAt: the resolvedAt param (YYYY-MM-DD, backdated; not before raisedAt; not in the future), else the day already stamped, else today; moving back to drafted or running clears it. A hypothesis missing what we'll do or its success metric (a hand-off draft) stays drafted until they're filled with update_hypothesis. Returns {updated: true, status, resolvedAt?} or {updated: false, reason: 'not_found' | 'needs_detail' (with missing and a message) | 'not_a_day' | 'future_day' | 'before_raised' | 'no_result' (resolvedAt with a status that has no result)}.",
   paramsSchema: SetStatusSchema,
   handler: async (params) => setStatus(browserStore, params),
   mcpHandler: async (params, ctx) => setStatus(serverStore(ctx.userId), params),
@@ -337,7 +462,14 @@ async function recordResult(store: TrackerStore, p: z.infer<typeof RecordSchema>
   const doc = await store.get();
   const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
   if (!doc || !h) return { updated: false, reason: "not_found" };
-  if (p.actual !== null && !h.target) return { updated: false, reason: "no_target" };
+  if (p.actual !== null && !h.target) {
+    return {
+      updated: false,
+      reason: "no_target",
+      message:
+        "Give it a target with update_hypothesis first, so the result has something to compare with.",
+    };
+  }
   const next: Hypothesis = { ...h };
   if (p.actual === null) delete next.actual;
   else next.actual = p.actual;
@@ -357,7 +489,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record the measured result of a hypothesis with a target (null clears it). Returns the verdict it suggests (target met → validated, missed → invalidated) without applying it: the status changes only through set_status, once the user agrees. Returns {updated: true, actual, suggestedVerdict: {verdict, met, margin, moved?} | null, suggestion} or {updated: false, reason: 'not_found' | 'no_target'}.",
+    "Record the measured result of a hypothesis with a target (null clears it). Returns the verdict it suggests (target met → validated, missed → invalidated) without applying it: the status changes only through set_status, once the user agrees. Returns {updated: true, actual, suggestedVerdict: {verdict, met, margin, moved?} | null, suggestion} or {updated: false, reason: 'not_found' | 'no_target' (give it one with update_hypothesis; with a message)}.",
   paramsSchema: RecordSchema,
   handler: async (params) => recordResult(browserStore, params),
   mcpHandler: async (params, ctx) => recordResult(serverStore(ctx.userId), params),

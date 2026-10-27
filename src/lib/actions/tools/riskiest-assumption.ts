@@ -357,7 +357,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Test an assumption, as the page's 'Test' does: a drafted hypothesis in the Hypothesis Tracker (the statement as 'We believe', its description as what to learn, its test idea as what we'll do), linked both ways. The tracker then needs the success metric (and what we'll do, when there was no test idea) before it runs. Once per assumption while that hypothesis exists; the assumption's status is left as it is. Params: assumptionId. Returns {sent: true, hypothesisId, believe, missing} or {sent: false, reason: 'not_found' | 'example' | 'already_sent' (with hypothesisId) | 'tested' | 'blank'}.",
+    "Test an assumption, as the page's 'Test' does: a drafted hypothesis in the Hypothesis Tracker (the statement as 'We believe', its description as what to learn, its test idea as what we'll do), linked both ways. The tracker then needs the success metric (and what we'll do, when there was no test idea) before it runs: fill them, and a target, with tool.hypothesis_tracker.update_hypothesis. Once per assumption while that hypothesis exists; the assumption's status is left as it is. Params: assumptionId. Returns {sent: true, hypothesisId, believe, missing} or {sent: false, reason: 'not_found' | 'example' | 'already_sent' (with hypothesisId) | 'tested' | 'blank'}.",
   paramsSchema: z.object({ assumptionId: z.string() }),
   handler: async (params) => testAssumption(browserStore, params.assumptionId),
   mcpHandler: async (params, ctx) => testAssumption(serverStore(ctx.userId), params.assumptionId),
