@@ -196,6 +196,11 @@ export function TestPyramidClient() {
   const chart = shapeChartText(points);
   const timed = hasAllRuntimes(doc?.runtime);
   const compared = snapshots.find((s) => s.id === compareId);
+  // Nothing to share out and no snapshots is the first run. The old page
+  // wrote {unit: 0, integration: 0, e2e: 0} as soon as a count field was
+  // left, so a document alone doesn't mean the suite was counted: those
+  // users still get the empty state and the example.
+  const firstRun = !doc || (layerShares(doc) === null && snapshots.length === 0);
 
   /* ── Changes ── */
 
@@ -415,7 +420,7 @@ export function TestPyramidClient() {
           )}
         </SectionCard>
 
-        {!doc ? (
+        {firstRun || !doc ? (
           <EmptyState
             icon={Triangle}
             action={<LoadExampleButton onLoad={() => setExample(buildExample(today))} />}
@@ -719,9 +724,10 @@ export function TestPyramidClient() {
 
         <CalloutAlert tone="info">
           <strong>How to read this:</strong> a healthy suite is unit-heavy, with a thin layer of
-          e2e. Layers within 5 points of each other count as level, so one test never flips the
-          shape. Relative run cost weighs each test by the rule of thumb unit 1, integration 5, e2e
-          25; enter real minutes per layer to weigh by run time instead.
+          e2e. Layers within 5 points of each other count as level, so a small change between
+          near-equal layers doesn&apos;t flip the shape. Relative run cost weighs each test by the
+          rule of thumb unit 1, integration 5, e2e 25; enter real minutes per layer to weigh by run
+          time instead.
         </CalloutAlert>
       </div>
     </ToolPageWrapper>

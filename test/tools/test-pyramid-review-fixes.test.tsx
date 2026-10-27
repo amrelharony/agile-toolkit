@@ -16,7 +16,9 @@ import { LEGACY_TEST_PYRAMID, TEST_PYRAMID } from "../stores/phase8-fixtures";
  * reads "—" rather than "—%", the chart summary counts the snapshots with
  * shares, the forms stay mounted across a save (focus stays on Save; an
  * agent's save never replaces unsaved typing), an unchanged minutes save
- * writes nothing, and focus has somewhere to go after a delete or a clear.
+ * writes nothing, focus has somewhere to go after a delete or a clear, and
+ * the all-zero document the old page wrote on a blur still opens on the
+ * empty state and the example.
  */
 
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
@@ -244,5 +246,55 @@ describe("focus after a delete or a clear", () => {
     await waitFor(() => expect(screen.getByLabelText(/^Unit tests/)).toHaveFocus());
     // The counts form followed the clear: no stale numbers left in it.
     expect(screen.getByLabelText(/^Unit tests/)).toHaveValue("");
+  });
+});
+
+describe("the all-zero document the old page wrote on a blur", () => {
+  /** What the old page upserted when a count field was focused and left. */
+  const ZEROS: TestPyramid = { id: TEST_PYRAMID_ID, unit: 0, integration: 0, e2e: 0 };
+
+  it("opens on the empty state and the example, not a dashboard of zeros", () => {
+    seed(ZEROS);
+    renderPage();
+    expect(screen.getByText(/Not counted yet/)).toBeInTheDocument();
+    expect(screen.queryByText("Total tests")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Take snapshot" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save minutes" })).toBeNull();
+    // The counts form shows what is stored.
+    expect(screen.getByLabelText(/^Unit tests/)).toHaveValue("0");
+
+    fireEvent.click(screen.getByRole("button", { name: /Load an example/ }));
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+    expect(screen.getByText("Total tests")).toBeInTheDocument();
+    // The example never touched the stored document.
+    expect(doc()).toEqual(ZEROS);
+  });
+
+  it("shows the dashboard once a count above 0 is saved", async () => {
+    seed(ZEROS);
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/^Unit tests/), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save counts" }));
+    await waitFor(() => expect(doc()?.unit).toBe(40));
+    expect(screen.queryByText(/Not counted yet\. Enter/)).toBeNull();
+    expect(screen.getByText("Total tests")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Take snapshot" })).toBeInTheDocument();
+  });
+
+  it("keeps the dashboard for zero counts with snapshots, which have a history to show", () => {
+    seed({ ...ZEROS, snapshots: TEST_PYRAMID.snapshots });
+    renderPage();
+    expect(screen.queryByText(/Not counted yet\. Enter/)).toBeNull();
+    expect(screen.getByRole("heading", { name: /^Snapshots/ })).toBeInTheDocument();
+  });
+});
+
+describe("the guidance", () => {
+  it("says what the 5-point tolerance does without promising one test can't flip a shape", () => {
+    renderPage();
+    expect(
+      screen.getByText(/a small change between near-equal layers doesn.t flip the shape/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/one test never flips/)).toBeNull();
   });
 });
