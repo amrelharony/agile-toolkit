@@ -48,8 +48,11 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 vi.mock("@/components/shared/export-button", () => ({
-  ExportButton: ({ markdown }: { markdown?: string }) => (
-    <pre data-testid="export-markdown">{markdown}</pre>
+  ExportButton: ({ markdown, jsonData }: { markdown?: string; jsonData?: unknown }) => (
+    <>
+      <pre data-testid="export-markdown">{markdown}</pre>
+      <pre data-testid="export-json">{JSON.stringify(jsonData)}</pre>
+    </>
   ),
 }));
 // Recharts has nothing to measure in jsdom; the chart's text is tested directly.
@@ -58,14 +61,16 @@ vi.mock("@/app/(tools)/risk-register/charts", () => ({ OpenRisksChart: () => nul
 import { RiskRegisterClient } from "@/app/(tools)/risk-register/risk-register-client";
 import {
   analyseRisks,
+  closedUndatedCount,
   countedRisks,
   riskMatrix,
   timeToClose,
+  undatedClosedNote,
   weeklyChartText,
   weeklyRiskSeries,
 } from "@/app/(tools)/risk-register/analysis";
 import { buildExample } from "@/app/(tools)/risk-register/example";
-import { toMarkdown } from "@/app/(tools)/risk-register/markdown";
+import { residualText, toMarkdown } from "@/app/(tools)/risk-register/markdown";
 import {
   closedDayError,
   dueDayError,
@@ -708,7 +713,7 @@ describe("the move from the old page's blob", () => {
     expect(within(notice).getAllByRole("listitem")).toHaveLength(2);
     fireEvent.click(
       within(notice).getByRole("button", {
-        name: "Use the old page's likelihood instead: New title",
+        name: "Use this instead: the old page's likelihood for New title",
       })
     );
     expect(find("x")?.probability).toBe(5);
@@ -801,7 +806,7 @@ describe("Markdown and CSV", () => {
     });
     expect(md).toMatch(/^# Risk Register — 27 Oct 2026\n\n1 mitigation is overdue/);
     expect(md).toContain(
-      "2 risks: 1 open, 1 closed. Exposure of the active risks: 16 now, 6 after mitigation (1 of 1 assessed)."
+      "2 risks: 1 open, 1 closed. Exposure of the active risks: 16 now, 6 after mitigation."
     );
     expect(md).toContain(
       "| 1 | Vendor \\| lock-in | Priya | 4 × 4 | 16 (critical) | 2 × 3 = 6 | Open | Abstract the API behind a port | 2026-10-24 (3 days overdue) | Raised |"
@@ -874,7 +879,7 @@ describe("the example's time to mitigate", () => {
     expect(screen.getByText("21 days")).toBeInTheDocument();
     expect(screen.getByText("Over 3 closed")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "New risk" }));
-    expect(screen.getByText(/risks here take 21 days to/)).toBeInTheDocument();
+    expect(screen.getByText("Risks here take 21 days to close.")).toBeInTheDocument();
   });
 });
 
@@ -884,7 +889,7 @@ describe("the exports beside the example", () => {
     const list = [...buildExample(now), risk({ id: "mine", title: "Mine" })];
     const md = toMarkdown(list, now);
     expect(md).toContain(
-      "1 risk: 1 open. Exposure of the active risks: 9 now, 9 after mitigation (0 of 1 assessed). The example's 8 risks are left out."
+      "1 risk: 1 open. Exposure of the active risks: 9 now, 9 after mitigation; the 1 not assessed counts at its current score. The example's 8 risks are left out."
     );
     expect(md).toContain("| 1 | Mine |");
     expect(md).not.toContain("Payment provider");
@@ -921,7 +926,7 @@ describe("the conflict notice reads the register as it is now", () => {
     expect(within(notice()!).queryByText(conflictText("probability", 2))).toBeNull();
     fireEvent.click(
       within(notice()!).getByRole("button", {
-        name: "Use the old page's likelihood instead: New title",
+        name: "Use this instead: the old page's likelihood for New title",
       })
     );
     expect(find("x")?.probability).toBe(5);
@@ -1024,5 +1029,137 @@ describe("the owner names its risk", () => {
     renderPage();
     const group = within(row("a")).getByRole("group", { name: "Owner of Alpha" });
     expect(within(group).getByRole("button", { name: "Owner: Priya. Change" })).toBeInTheDocument();
+  });
+});
+
+/* ── After the second review ────────────────────────────────────────── */
+
+describe("the JSON export beside the example", () => {
+  it("lists the team's risks only, as the Markdown and the CSV do", () => {
+    const now = new Date(2026, 9, 27);
+    seed([...buildExample(now), risk({ id: "mine", title: "Mine" })]);
+    renderPage();
+    const json = JSON.parse(screen.getByTestId("export-json").textContent ?? "[]") as Risk[];
+    expect(json.map((r) => r.id)).toEqual(["mine"]);
+  });
+
+  it("lists the example's while it is all there is", () => {
+    seed(buildExample(new Date(2026, 9, 27)));
+    renderPage();
+    const json = JSON.parse(screen.getByTestId("export-json").textContent ?? "[]") as Risk[];
+    expect(json).toHaveLength(8);
+  });
+});
+
+describe("a closed risk with no close day", () => {
+  // Closed through the old generic CRUD: no resolvedAt.
+  const undated = (over: Partial<Risk> = {}) =>
+    risk({ id: "u", title: "Undated", status: "closed", raisedAt: ago(21), ...over });
+  const closed = (id: string, days: number) =>
+    risk({ id, raisedAt: ago(days + 1), status: "closed", resolvedAt: ago(1) });
+
+  it("isn't counted open in every week, and the chart says how many", () => {
+    const list = [risk({ id: "a", raisedAt: ago(21) }), undated()];
+    const points = weeklyRiskSeries(list, TODAY);
+    // Still raised that week; never open, as the matrix and the KPIs read it.
+    expect(points.map((p) => p.raised)).toEqual([2, 0, 0, 0]);
+    expect(points.map((p) => p.open)).toEqual([1, 1, 1, 1]);
+    expect(closedUndatedCount(list)).toBe(1);
+    expect(closedUndatedCount([risk(), closed("b", 3)])).toBe(0);
+    expect(weeklyChartText(points, 1).summary).toBe(
+      "Over the last 4 weeks, 2 risks were raised and 1 open at the end of each week shown. Accepted risks aren't counted as open. 1 closed risk has no close day, so it isn't counted as open or in the time to mitigate: give it one under its “Closed on”."
+    );
+    expect(undatedClosedNote(2)).toBe(
+      "2 closed risks have no close day, so they aren't counted as open or in the time to mitigate: give each one under its “Closed on”."
+    );
+    expect(undatedClosedNote(0)).toBe("");
+    // A timestamp that isn't a day reads as no close day too.
+    expect(closedUndatedCount([undated({ resolvedAt: "soon" })])).toBe(1);
+  });
+
+  it("is left out of the time to mitigate, on the page and for the agent", () => {
+    const done = [closed("b", 4), closed("c", 6), closed("d", 8), closed("e", 10)];
+    const withUndated = [...done, undated({ raisedAt: ago(30) })];
+    expect(timeToClose(withUndated, TODAY)).toEqual({ closed: 4, medianDays: 6 });
+    expect(timeToClose(withUndated, TODAY)).toEqual(timeToClose(done, TODAY));
+    // Counted as still waiting, it would have moved the median.
+    expect(timeToClose([...done, risk({ id: "u", raisedAt: ago(30) })], TODAY).medianDays).toBe(8);
+    expect(agentTimeToClose(withUndated, TODAY)).toEqual(timeToClose(withUndated, TODAY));
+  });
+
+  it("is named under the chart on the page", () => {
+    seed([risk({ id: "a", title: "Alpha", raisedAt: ago(21) }), undated()]);
+    renderPage();
+    expect(screen.getByText(/1 closed risk has no close day/)).toBeInTheDocument();
+    expect(within(row("u")).getByLabelText("Closed on, Undated")).toHaveValue("");
+  });
+});
+
+describe("the exposure after mitigation", () => {
+  it("says the risks not assessed count at their current score", () => {
+    expect(residualText({ active: 3, residualAssessed: 3, residualExposure: 12 })).toBe(
+      "12 after mitigation"
+    );
+    expect(residualText({ active: 3, residualAssessed: 2, residualExposure: 12 })).toBe(
+      "12 after mitigation; the 1 not assessed counts at its current score"
+    );
+    expect(residualText({ active: 5, residualAssessed: 2, residualExposure: 30 })).toBe(
+      "30 after mitigation; the 3 not assessed count at their current score"
+    );
+  });
+
+  it("on the page's KPI and in the Markdown alike", () => {
+    seed([
+      risk({ id: "a", title: "Alpha", probability: 4, impact: 4 }),
+      risk({ id: "b", title: "Beta", residualProbability: 1, residualImpact: 2 }),
+      risk({ id: "c", title: "Gamma", probability: 2, impact: 2 }),
+    ]);
+    renderPage();
+    // 16 + 2 + 4: Alpha and Gamma at their current score.
+    const text = "22 after mitigation; the 2 not assessed count at their current score";
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      `Exposure of the active risks: 29 now, ${text}.`
+    );
+  });
+});
+
+describe("the due-day suggestion", () => {
+  it("is a short button, with the reason under it as its description", () => {
+    seed(buildExample(new Date(2026, 9, 27)));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "New risk" }));
+    const use = screen.getByRole("button", { name: /^Use \d{4}-\d{2}-\d{2}$/ });
+    const reason = screen.getByText("Risks here take 21 days to close.");
+    expect(use.getAttribute("aria-describedby")).toBe(reason.id);
+    expect(use.className).not.toContain("mb-6");
+  });
+});
+
+describe("the risks the move found only in the workspace", () => {
+  it("are named with a link to each row; one deleted leaves the notice", async () => {
+    blob([
+      { id: "old-1", title: "Old", probability: 2, impact: 2, status: "open", raisedAt: ago(9) },
+    ]);
+    seed(
+      Array.from({ length: 7 }, (_, i) =>
+        risk({ id: `agent-${i + 1}`, title: `From an agent ${i + 1}` })
+      )
+    );
+    migrationMode.value = "local";
+    renderPage();
+    await screen.findByText(/7 risks the old register page didn't list/);
+    const named = () => within(screen.getByRole("list", { name: "Now in the register" }));
+    const links = named().getAllByRole("link");
+    expect(links).toHaveLength(5);
+    expect(links[0]).toHaveAccessibleName("From an agent 1");
+    expect(links[0].getAttribute("href")).toBe("#risk-agent-1");
+    expect(document.getElementById("risk-agent-1")).not.toBeNull();
+    expect(named().getByText("and 2 more")).toBeInTheDocument();
+
+    fireEvent.click(within(row("agent-1")).getByRole("button", { name: "Delete From an agent 1" }));
+    expect(screen.getByText(/6 risks the old register page didn't list/)).toBeInTheDocument();
+    expect(named().queryByRole("link", { name: "From an agent 1" })).toBeNull();
+    expect(named().getByText("and 1 more")).toBeInTheDocument();
   });
 });

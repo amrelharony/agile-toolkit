@@ -1,8 +1,9 @@
 /**
  * tool.risk_register.list_state's timeToClose, on both transports: the
  * page's "Median time to mitigate" (risk-register/analysis.ts timeToClose)
- * for the same risks, examples left out, accepted risks left out, a
- * reopened risk counted as still waiting, and null below 3 closed.
+ * for the same risks, examples left out, accepted risks and closed ones
+ * with no close day left out, a reopened risk counted as still waiting,
+ * and null below 3 closed.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -53,6 +54,9 @@ const RISKS: Risk[] = [
   // Reopened: the old close day stays, but it is still waiting.
   risk({ id: "d", status: "mitigating", raisedAt: "2026-10-01", resolvedAt: "2026-10-02" }),
   risk({ id: "e", status: "accepted", raisedAt: "2026-10-01" }),
+  // Closed with no close day (the old generic CRUD): its duration isn't
+  // known, so it is left out; counted as waiting it would make the median 12.
+  risk({ id: "f", status: "closed", raisedAt: "2026-10-01" }),
   risk({ id: "example-x", status: "closed", raisedAt: "2026-10-01", resolvedAt: "2026-10-02" }),
 ];
 

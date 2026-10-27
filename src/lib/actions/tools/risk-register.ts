@@ -282,15 +282,18 @@ export function riskView(
  * reads it (app/(tools)/risk-register/analysis.ts timeToClose, the same
  * lib calls): days from raised to closed (riskAgeDays, closedOn), open
  * and mitigating risks counted as still waiting at today, accepted ones
- * left out; the Kaplan-Meier median from MIN_SAMPLE.average closed risks
- * (null below it, or while fewer than half have closed).
+ * left out, and so is a closed risk with no close day (its duration isn't
+ * known); the Kaplan-Meier median from MIN_SAMPLE.average closed risks
+ * (null below it, or while fewer than half have closed). A copy of the
+ * page's until it moves into lib/risks/model: the parity tests hold the
+ * two together.
  */
 export function timeToClose(
   risks: readonly Risk[],
   today: string
 ): { closed: number; medianDays: number | null } {
   const observations = risks.flatMap((r) => {
-    if (r.status === "accepted") return [];
+    if (r.status === "accepted" || (r.status === "closed" && closedOn(r) === undefined)) return [];
     const duration = riskAgeDays(r, today);
     return duration === null ? [] : [{ duration, event: closedOn(r) !== undefined }];
   });
@@ -408,7 +411,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List the risks as the Risk Register shows them, in its order (active first, then score, then days overdue, then title), including rows of the old register page not moved in yet. Params: today? (YYYY-MM-DD, the user's day; default today). Returns {today, sprintLengthDays (the cadence's; 14 when unset), total, byStatus: {open, mitigating, closed, accepted}, byLevel: {low, medium, high, critical} (these three count every listed risk, examples included), topRisks (≤10 by score), items: Risk & {score, level, residualScore | null, residualLevel | null, residualAboveCurrent, active, overdue, daysOverdue, ageDays | null, ageSprints | null (whole sprints of the cadence), closedOn | null (resolvedAt only while closed: a reopened risk counts as open), impediment: {id, resolved} | null (what it was raised as), example, pending}, active, high (active and high or critical), overdue, unowned (active with no owner), exposure (Σ score of active risks), residualExposure (Σ residual-or-current score of active risks), residualAssessed, verdict (one sentence), timeToClose: {closed, medianDays | null} (the page's 'Median time to mitigate': the Kaplan-Meier median of days raised → closed, open risks counted as still waiting, accepted ones left out; null below 3 closed risks or while fewer than half have closed), pending (old rows not moved yet), examples} — the summary keys after items leave example rows out.",
+    "List the risks as the Risk Register shows them, in its order (active first, then score, then days overdue, then title), including rows of the old register page not moved in yet. Params: today? (YYYY-MM-DD, the user's day; default today). Returns {today, sprintLengthDays (the cadence's; 14 when unset), total, byStatus: {open, mitigating, closed, accepted}, byLevel: {low, medium, high, critical} (these three count every listed risk, examples included), topRisks (≤10 by score), items: Risk & {score, level, residualScore | null, residualLevel | null, residualAboveCurrent, active, overdue, daysOverdue, ageDays | null, ageSprints | null (whole sprints of the cadence), closedOn | null (resolvedAt only while closed: a reopened risk counts as open), impediment: {id, resolved} | null (what it was raised as), example, pending}, active, high (active and high or critical), overdue, unowned (active with no owner), exposure (Σ score of active risks), residualExposure (Σ residual-or-current score of active risks), residualAssessed, verdict (one sentence), timeToClose: {closed, medianDays | null} (the page's 'Median time to mitigate': the Kaplan-Meier median of days raised → closed, open risks counted as still waiting, accepted ones and closed ones with no close day left out; null below 3 closed risks or while fewer than half have closed), pending (old rows not moved yet), examples} — the summary keys after items leave example rows out.",
   paramsSchema: z.object({ today: DaySchema.optional() }),
   handler: async (params) => listState(browserRiskStore, params),
   mcpHandler: async (params, ctx) => listState(serverRiskStore(ctx.userId), params),

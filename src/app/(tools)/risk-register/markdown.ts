@@ -10,6 +10,7 @@ import {
   riskSummary,
   riskVerdict,
   toScale,
+  type RiskSummary,
 } from "@/lib/risks/model";
 import { todayIso } from "@/lib/sprints/series";
 import { countedRisks, exportedRisks } from "./analysis";
@@ -25,6 +26,23 @@ function cell(v: unknown): string {
     .replace(/\s*[\r\n]+\s*/g, " ")
     .replace(/\|/g, "\\|")
     .trim();
+}
+
+/**
+ * "30 after mitigation; the 3 not assessed count at their current score":
+ * riskSummary counts a risk not assessed yet at its current score, so the
+ * page's KPI and the Markdown say so rather than read as the assessed
+ * risks' sum alone.
+ */
+export function residualText(
+  s: Pick<RiskSummary, "active" | "residualAssessed" | "residualExposure">
+): string {
+  const after = `${s.residualExposure} after mitigation`;
+  const unassessed = s.active - s.residualAssessed;
+  if (unassessed <= 0) return after;
+  return unassessed === 1
+    ? `${after}; the 1 not assessed counts at its current score`
+    : `${after}; the ${unassessed} not assessed count at their current score`;
 }
 
 /** What became of the impediment a risk was raised as, for its cell. */
@@ -66,9 +84,7 @@ export function toMarkdown(
     (st) => `${s.byStatus[st]} ${st}`
   );
   const exposure =
-    s.active > 0
-      ? ` Exposure of the active risks: ${s.exposure} now, ${s.residualExposure} after mitigation (${s.residualAssessed} of ${s.active} assessed).`
-      : "";
+    s.active > 0 ? ` Exposure of the active risks: ${s.exposure} now, ${residualText(s)}.` : "";
   const leftOut =
     left > 0 ? ` The example's ${left} ${left === 1 ? "risk is" : "risks are"} left out.` : "";
 

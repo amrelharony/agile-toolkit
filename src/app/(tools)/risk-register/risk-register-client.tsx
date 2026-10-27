@@ -61,10 +61,13 @@ import { undoable } from "@/lib/utils/undoable";
 import {
   CHART_MIN_WEEKS,
   analyseRisks,
+  closedUndatedCount,
   countedRisks,
   daysText,
+  exportedRisks,
   riskMatrix,
   timeToClose,
+  undatedClosedNote,
   weekName,
   weeklyChartText,
   weeklyRiskSeries,
@@ -72,7 +75,7 @@ import {
 } from "./analysis";
 import { AppearedNotice, ConflictNotice, withBlobValue } from "./conflict-notice";
 import { buildExample } from "./example";
-import { toMarkdown, type ImpedimentState } from "./markdown";
+import { residualText, toMarkdown, type ImpedimentState } from "./markdown";
 import { RiskForm, newRisk, type NewRisk } from "./risk-form";
 import { RiskRow, type RaisedImpediment } from "./risk-row";
 import { LEVEL_TONE } from "./scales";
@@ -146,13 +149,22 @@ export function RiskRegisterClient() {
   const newRef = useRef<HTMLButtonElement>(null);
 
   const counted = useMemo(() => countedRisks(records), [records]);
+  // The rows the move found only in the workspace, as they read now (one
+  // deleted since drops out of the notice).
+  const appearedRisks = useMemo(
+    () => records.filter((r) => appeared.includes(r.id)),
+    [records, appeared]
+  );
   const showsExampleOnly = records.length > 0 && records.every((r) => isExampleId(r.id));
   const mixedExample = hasExampleItems(records) && !showsExampleOnly;
   const summary = useMemo(() => riskSummary(counted, today), [counted, today]);
   const verdict = useMemo(() => riskVerdict(counted, today), [counted, today]);
   const ttc = useMemo(() => timeToClose(counted, today), [counted, today]);
   const weeks = useMemo(() => weeklyRiskSeries(counted, today), [counted, today]);
-  const chart = useMemo(() => weeklyChartText(weeks), [weeks]);
+  // Closed risks with no close day: left out of the chart's "open" and the
+  // time to mitigate, and named so the team can date them.
+  const undated = useMemo(() => closedUndatedCount(counted), [counted]);
+  const chart = useMemo(() => weeklyChartText(weeks, undated), [weeks, undated]);
   const analysis = useMemo(() => analyseRisks(weeks), [weeks]);
   const matrix = useMemo(() => riskMatrix(counted, view), [counted, view]);
 
@@ -336,6 +348,9 @@ export function RiskRegisterClient() {
   );
 
   const csv = risksCsv(records, today, impedimentState);
+  // The JSON lists what the Markdown and the CSV list: the team's own risks
+  // while there are any, never the example's mixed in with them.
+  const json = useMemo(() => exportedRisks(records), [records]);
   const active = summary.active;
 
   return (
@@ -372,7 +387,7 @@ export function RiskRegisterClient() {
             onUseOld={takeOldValue}
             afterLast={() => newRef.current}
           />
-          <AppearedNotice count={appeared} onDismiss={dismissAppearedNotice} />
+          <AppearedNotice risks={appearedRisks} onDismiss={dismissAppearedNotice} />
 
           {pending && (
             <p role="status" className="text-xs text-sub">
@@ -388,7 +403,7 @@ export function RiskRegisterClient() {
                 <ExportButton
                   filename="risk-register"
                   csvData={csv}
-                  jsonData={records}
+                  jsonData={json}
                   markdown={markdown}
                   clipboardText={markdown}
                 />
@@ -461,11 +476,7 @@ export function RiskRegisterClient() {
                   variant="compact"
                   label="Exposure"
                   value={active > 0 ? summary.exposure : "—"}
-                  hint={
-                    active > 0
-                      ? `${summary.residualExposure} after mitigation (${summary.residualAssessed} of ${active} assessed)`
-                      : "No active risks"
-                  }
+                  hint={active > 0 ? residualText(summary) : "No active risks"}
                 />
                 <StatCard
                   variant="compact"
@@ -542,13 +553,19 @@ export function RiskRegisterClient() {
                     />
                   </ChartFigure>
                 ) : (
-                  <NotEnoughData
-                    have={weeks.length}
-                    need={CHART_MIN_WEEKS}
-                    unit={["week", "weeks"]}
-                    action="Keep the register for"
-                    what="the open risks week by week"
-                  />
+                  <>
+                    <NotEnoughData
+                      have={weeks.length}
+                      need={CHART_MIN_WEEKS}
+                      unit={["week", "weeks"]}
+                      action="Keep the register for"
+                      what="the open risks week by week"
+                    />
+                    {/* The chart's summary says it once the chart shows. */}
+                    {undated > 0 && (
+                      <p className="mt-2 text-xs text-sub">{undatedClosedNote(undated)}</p>
+                    )}
+                  </>
                 )}
               </SectionCard>
 
@@ -594,7 +611,8 @@ export function RiskRegisterClient() {
                 </section>
                 <p className="text-xs text-sub">
                   Counted over the last {weeks.length === 1 ? "week" : `${weeks.length} weeks`}. A
-                  reopened risk counts as open again.
+                  reopened risk counts as open again
+                  {undated > 0 ? "; a closed risk with no close day isn't counted" : ""}.
                 </p>
               </AdvancedAnalysis>
             </>

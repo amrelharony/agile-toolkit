@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -217,6 +218,7 @@ export function RiskForm({
   );
   const suggested =
     typicalDays !== null && isIsoDate(draft.raisedAt) ? addDays(draft.raisedAt, typicalDays) : null;
+  const suggestionId = useId();
 
   return (
     <ItemForm
@@ -315,17 +317,23 @@ export function RiskForm({
             />
           )}
         </Field>
+        {/* A short label with the reason under it: the button doesn't wrap, and a
+            label with the reason in it ran past the card at 375 px. */}
         {suggested && !draft.mitigationDueAt && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="mb-6"
-            onClick={() => update({ mitigationDueAt: suggested })}
-          >
-            Use {suggested} (risks here take {typicalDays} {typicalDays === 1 ? "day" : "days"} to
-            close)
-          </Button>
+          <div className="flex min-w-0 max-w-full flex-col items-start gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-describedby={suggestionId}
+              onClick={() => update({ mitigationDueAt: suggested })}
+            >
+              Use {suggested}
+            </Button>
+            <p id={suggestionId} className="text-xs text-sub">
+              Risks here take {typicalDays} {typicalDays === 1 ? "day" : "days"} to close.
+            </p>
+          </div>
         )}
       </div>
       <fieldset className="space-y-2 rounded-md border border-border p-3">

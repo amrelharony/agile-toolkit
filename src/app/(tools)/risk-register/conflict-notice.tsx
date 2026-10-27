@@ -150,7 +150,8 @@ export function ConflictNotice({
                 type="button"
                 size="sm"
                 variant="outline"
-                aria-label={`Use the old page's ${FIELD_LABEL[c.field].toLowerCase()} instead: ${r.title}`}
+                // Starts with the visible text, so a voice-control user can say what they see.
+                aria-label={`Use this instead: the old page's ${FIELD_LABEL[c.field].toLowerCase()} for ${r.title}`}
                 onClick={() => settle(onUseOld, c, at)}
               >
                 Use this instead
@@ -163,26 +164,55 @@ export function ConflictNotice({
   );
 }
 
+/** How many of the risks that appeared the notice names; the rest are counted. */
+export const APPEARED_NAMED = 5;
+
 /**
- * Shown once, after the move: how many risks only the workspace held (the
- * old page never listed them) are now in the register, which is the one
- * store. Each can be deleted, with Undo, like any other risk.
+ * Shown once, after the move: the risks only the workspace held (the old
+ * page never listed them) that are now in the register, which is the one
+ * store, each named with a link to its row so the team can find it among
+ * the others. Each can be deleted, with Undo, like any other risk; one
+ * deleted leaves the notice, which goes once none is left.
  */
-export function AppearedNotice({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+export function AppearedNotice({
+  risks,
+  onDismiss,
+}: {
+  risks: readonly Pick<Risk, "id" | "title">[];
+  onDismiss: () => void;
+}) {
+  const count = risks.length;
   if (count <= 0) return null;
+  const named = risks.slice(0, APPEARED_NAMED);
+  const more = count - named.length;
   return (
     <div
       role="status"
       className="flex flex-wrap items-start gap-3 rounded-lg border border-info/30 bg-info/10 px-4 py-2.5 text-sm text-text"
     >
       <Inbox className="mt-0.5 h-4 w-4 shrink-0 text-info" aria-hidden="true" />
-      <p className="min-w-0 flex-1">
-        {count === 1
-          ? "1 risk the old register page didn't list is now in the register"
-          : `${count} risks the old register page didn't list are now in the register`}
-        : added by an agent, sent from a premortem, or deleted on the old page after a Push. Delete
-        any you don&apos;t need; Undo brings it back.
-      </p>
+      <div className="min-w-0 flex-1 space-y-1">
+        <p>
+          {count === 1
+            ? "1 risk the old register page didn't list is now in the register"
+            : `${count} risks the old register page didn't list are now in the register`}
+          : added by an agent, sent from a premortem, or deleted on the old page after a Push.
+          Delete any you don&apos;t need; Undo brings it back.
+        </p>
+        <ul aria-label="Now in the register" className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+          {named.map((r) => (
+            <li key={r.id} className="min-w-0 max-w-full">
+              <a
+                href={`#risk-${r.id}`}
+                className="break-words underline underline-offset-2 hover:text-accent"
+              >
+                {r.title.trim() || "Untitled risk"}
+              </a>
+            </li>
+          ))}
+          {more > 0 && <li className="text-sub">and {more} more</li>}
+        </ul>
+      </div>
       <Button type="button" size="sm" variant="ghost" onClick={onDismiss}>
         <X aria-hidden="true" />
         Got it

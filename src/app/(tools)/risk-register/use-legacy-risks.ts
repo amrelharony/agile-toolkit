@@ -45,12 +45,13 @@ export interface LegacyRisks {
   /** Stop showing one conflict (it was kept or replaced). */
   settleConflict: (c: RiskRegisterConflict) => void;
   /**
-   * How many risks the old page never listed the move found in the
-   * workspace (an agent's, a premortem's sent after the old page was last
-   * opened, or one the old page deleted from its own copy only): shown
-   * once, then 0. They are listed like any other risk.
+   * The ids of the risks the old page never listed that the move found in
+   * the workspace (an agent's, a premortem's sent after the old page was
+   * last opened, or one the old page deleted from its own copy only):
+   * shown once, then none. They are listed like any other risk; the
+   * notice names them so the team can find them.
    */
-  appeared: number;
+  appeared: string[];
   /** Stop showing the "appeared" notice. */
   dismissAppeared: () => void;
 }
@@ -88,7 +89,7 @@ export function useLegacyRisks(): LegacyRisks {
   const userId = useAuthOptional()?.user?.id ?? null;
   const [ready, setReady] = useState(false);
   const [conflicts, setConflicts] = useState<RiskRegisterConflict[]>(NO_CONFLICTS);
-  const [appeared, setAppeared] = useState(0);
+  const [appeared, setAppeared] = useState<string[]>(NO_IDS);
 
   useEffect(() => {
     if (mode === "local") {
@@ -126,7 +127,9 @@ export function useLegacyRisks(): LegacyRisks {
           ...now.conflicts.filter((c) => !list.some((x) => sameConflict(x, c))),
         ]);
       }
-      if (now.appeared.length > 0) setAppeared((n) => n + now.appeared.length);
+      if (now.appeared.length > 0) {
+        setAppeared((ids) => [...ids, ...now.appeared.filter((id) => !ids.includes(id))]);
+      }
       saveRisks([...now.toFill, ...now.toAdd]);
       if (now.moved.length !== known.length) setMoved(now.moved);
     })();
@@ -139,7 +142,7 @@ export function useLegacyRisks(): LegacyRisks {
     (c: RiskRegisterConflict) => setConflicts((list) => list.filter((x) => !sameConflict(x, c))),
     []
   );
-  const dismissAppeared = useCallback(() => setAppeared(0), []);
+  const dismissAppeared = useCallback(() => setAppeared(NO_IDS), []);
 
   return { records, pending, conflicts, settleConflict, appeared, dismissAppeared };
 }

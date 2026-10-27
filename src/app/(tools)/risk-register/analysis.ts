@@ -7,7 +7,11 @@
  * week from lib/analytics/periods; this module only arranges them. A
  * reopened risk keeps the day it was first closed, but only `closedOn`
  * (resolvedAt while the status is closed) counts as closed here, so it
- * reads as open again in the chart and the time to mitigate.
+ * reads as open again in the chart and the time to mitigate. A closed
+ * risk with no close day (closed through the old generic CRUD, or an
+ * agent's write before Phase 8) is left out of both, as an accepted one
+ * is, and the chart says how many: counted open in every week, it would
+ * disagree with the matrix and the KPIs, which read it as closed.
  */
 
 import { cusum } from "@/lib/analytics/changepoint";
@@ -55,6 +59,19 @@ export function exportedRisks(records: readonly Risk[]): Risk[] {
   const real = records.filter((r) => !isExampleId(r.id));
   return real.length > 0 ? real : [...records];
 }
+
+/**
+ * Closed, but with no close day the register can read (closedOn is
+ * undefined): when it stopped being open isn't known, so the weekly
+ * series and the time to mitigate leave it out instead of counting it
+ * open (or still waiting) up to today. Its row's "Closed on" takes one.
+ */
+export const isClosedUndated = (r: Pick<Risk, "status" | "resolvedAt">): boolean =>
+  r.status === "closed" && closedOn(r) === undefined;
+
+/** How many of `risks` are closed with no close day (isClosedUndated). */
+export const closedUndatedCount = (risks: readonly Risk[]): number =>
+  risks.filter(isClosedUndated).length;
 
 /** The "YYYY-MM-DD" a stored date starts with when it is a real day. */
 function dayOf(v: unknown): string | undefined {
@@ -114,14 +131,17 @@ export interface WeekPoint {
  * risk was raised to this week, at most the latest WEEK_CAP weeks, with
  * quiet weeks kept. An accepted risk is left out of "open": the team chose
  * not to mitigate it, as the matrix leaves it out (the day it was accepted
- * isn't recorded, so it is left out of every week).
+ * isn't recorded, so it is left out of every week). A closed risk with no
+ * close day is left out of "open" the same way (isClosedUndated); both
+ * still count in the week they were raised.
  */
 export function weeklyRiskSeries(risks: readonly Risk[], today: string): WeekPoint[] {
   const now = dayOf(today);
   if (!now) return [];
   const rows = risks.flatMap((r) => {
     const raised = dayOf(r.raisedAt);
-    return raised ? [{ raised, closed: closedOn(r), accepted: r.status === "accepted" }] : [];
+    const uncounted = r.status === "accepted" || isClosedUndated(r);
+    return raised ? [{ raised, closed: closedOn(r), uncounted }] : [];
   });
   if (rows.length === 0) return [];
   // A reduce, not Math.min(...), so a very long register can't overflow the stack.
@@ -133,7 +153,7 @@ export function weeklyRiskSeries(risks: readonly Risk[], today: string): WeekPoi
     let open = 0;
     for (const r of rows) {
       if (r.raised >= bounds.from && r.raised <= bounds.to) raised += 1;
-      if (!r.accepted && r.raised <= bounds.to && !(r.closed && r.closed <= bounds.to)) open += 1;
+      if (!r.uncounted && r.raised <= bounds.to && !(r.closed && r.closed <= bounds.to)) open += 1;
     }
     return [{ period, from: bounds.from, to: bounds.to, raised, open }];
   });
@@ -145,8 +165,22 @@ export function weekName(point: Pick<WeekPoint, "period">, withYear = false): st
   return withYear ? label : label.replace(/,\s*\d{4}$/, "");
 }
 
-/** The chart's one-sentence summary and its rows as a table. */
-export function weeklyChartText(points: readonly WeekPoint[]): ChartText {
+/**
+ * "1 closed risk has no close day, so it isn't counted as open or in the
+ * time to mitigate: give it one under its “Closed on”." Empty when none.
+ */
+export function undatedClosedNote(undated: number): string {
+  if (undated <= 0) return "";
+  return undated === 1
+    ? "1 closed risk has no close day, so it isn't counted as open or in the time to mitigate: give it one under its “Closed on”."
+    : `${undated} closed risks have no close day, so they aren't counted as open or in the time to mitigate: give each one under its “Closed on”.`;
+}
+
+/**
+ * The chart's one-sentence summary and its rows as a table; the `undated`
+ * closed risks with no close day (left out of "open") are named after it.
+ */
+export function weeklyChartText(points: readonly WeekPoint[], undated = 0): ChartText {
   const table = {
     columns: ["Week", "Raised", "Open at week end"],
     rows: points.map((p) => [weekName(p, true), p.raised, p.open]),
@@ -168,7 +202,9 @@ export function weeklyChartText(points: readonly WeekPoint[]): ChartText {
   return {
     summary: `Over the last ${points.length === 1 ? "week" : `${points.length} weeks`}, ${raised} ${
       raised === 1 ? "risk was" : "risks were"
-    } raised and ${open}${most}. Accepted risks aren't counted as open.`,
+    } raised and ${open}${most}. Accepted risks aren't counted as open.${
+      undated > 0 ? ` ${undatedClosedNote(undated)}` : ""
+    }`,
     table,
   };
 }
@@ -189,12 +225,14 @@ export interface TimeToClose {
 /**
  * How long risks take to close: days raised → closed (lib/risks/model
  * riskAgeDays), open and mitigating risks censored at today. Accepted
- * risks are left out: the team chose not to mitigate them. The agent's
- * list_state computes the same (tool.risk_register: timeToClose).
+ * risks are left out: the team chose not to mitigate them; so is a
+ * closed risk with no close day (isClosedUndated), whose duration isn't
+ * known. The agent's list_state computes the same (tool.risk_register:
+ * timeToClose); lib/risks/model is where the one copy belongs.
  */
 export function timeToClose(risks: readonly Risk[], today: string): TimeToClose {
   const observations = risks.flatMap((r) => {
-    if (r.status === "accepted") return [];
+    if (r.status === "accepted" || isClosedUndated(r)) return [];
     const duration = riskAgeDays(r, today);
     return duration === null ? [] : [{ duration, event: closedOn(r) !== undefined }];
   });
