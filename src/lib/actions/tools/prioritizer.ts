@@ -30,11 +30,13 @@ import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-typ
 import { REACH_PERIODS } from "@/lib/stores/workspace-types";
 import { applyItemPatch } from "@/lib/prioritization/binding";
 import { createBacklogItem } from "@/lib/prioritization/frameworks";
-import { readBacklogItem } from "@/lib/prioritization/defaults";
+import { readBacklogItem, savedByEngine } from "@/lib/prioritization/defaults";
 import {
   HUB_METHOD_IDS,
   evaluateItem,
+  markLegacyDifferences,
   method,
+  withLegacyLinks,
   type MethodId,
   type MethodScore,
   type Values,
@@ -299,6 +301,15 @@ const SetOrderSchema = z.object({
     ),
 });
 
+/**
+ * Save a decided order, as the page's Save order does (saveBacklogItem
+ * {rank} on each item it changes). An item the new code never saved is
+ * saved from what its links made before Phase 7 say it reads
+ * (withLegacyLinks), so its first save keeps their values, and the legacy
+ * rows that disagree with it are marked first (markLegacyDifferences), so
+ * their tools still ask which value to keep. Both read the rows as they
+ * were before the save.
+ */
 const setOrder = async (store: MethodStore, params: z.infer<typeof SetOrderSchema>) => {
   const items = await store.items();
   const known = new Set(items.map((i) => i.id));
@@ -308,15 +319,21 @@ const setOrder = async (store: MethodStore, params: z.infer<typeof SetOrderSchem
   }
   const ranks = ranksFromOrder(params.ids);
   const now = new Date().toISOString();
-  let changed = 0;
-  for (const item of items) {
+  const changes = items.filter((item) => {
     const next = ranks.get(item.id);
     const cur = readBacklogItem(item).rank;
-    if (next === cur || (next === undefined && cur === undefined)) continue;
-    await store.putItem(applyItemPatch(item, { rank: next }, now));
-    changed += 1;
+    return !(next === cur || (next === undefined && cur === undefined));
+  });
+  // Only an unstamped item reads its rows: no list is fetched otherwise.
+  const rows = changes.some((item) => !savedByEngine(item)) ? await store.rows() : [];
+  const marks = changes.flatMap((item) => markLegacyDifferences(item, rows, { now }));
+  if (marks.length > 0) await store.putRows(marks);
+  for (const item of changes) {
+    await store.putItem(
+      applyItemPatch(withLegacyLinks(item, rows), { rank: ranks.get(item.id) }, now)
+    );
   }
-  return { ranked: ranks.size, unranked: items.length - ranks.size, changed };
+  return { ranked: ranks.size, unranked: items.length - ranks.size, changed: changes.length };
 };
 
 registry.register({

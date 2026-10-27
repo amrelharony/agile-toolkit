@@ -32,10 +32,13 @@ import {
   methodRow,
   ownedPatch,
 } from "@/lib/prioritization/binding";
+import { savedByEngine } from "@/lib/prioritization/defaults";
 import {
+  markLegacyDifferences,
   method,
   readThrough,
   scoreCache,
+  withLegacyLinks,
   type EvalContext,
   type MethodId,
   type Values,
@@ -256,6 +259,11 @@ export async function persistMethodRows(
   const now = new Date().toISOString();
   const out: Persisted[] = [];
   const itemWrites = new Map<string, BacklogItem>();
+  // The rows as they were before this persist, read once and only for an
+  // item the new code never saved (legacyLinked).
+  let before: PrioritizationItem[] | undefined;
+  const rowsBefore = async () => (before ??= await store.rows());
+  const marks = new Map<string, PrioritizationItem>();
   for (const { input, values, prev, linkId } of planned) {
     const rowId = input.id ?? newRowId();
     const item = linkId ? (itemWrites.get(linkId) ?? (await store.item(linkId))) : undefined;
@@ -272,13 +280,22 @@ export async function persistMethodRows(
     let written: string[] = [];
     let shownItem = item;
     if (item && m.embedded) {
+      // The item as it reads (its links made before Phase 7 included), as
+      // the page's write-through saves it (backlog-links itemSaveBase).
+      const legacy = savedByEngine(item) ? undefined : await rowsBefore();
+      const base = legacy ? withLegacyLinks(item, legacy) : item;
       const changes = itemPatchChanges(
-        item,
+        base,
         ownedPatch(id, m.read(row.fields), input.cleared ?? [])
       );
       written = Object.keys(changes);
       if (written.length > 0) {
-        shownItem = applyItemPatch(item, changes, now);
+        // Its first save stamps it: mark the legacy rows that disagree with
+        // it first, but for this row, whose save answers its own question.
+        for (const r of legacy ? markLegacyDifferences(item, legacy, { except: rowId, now }) : []) {
+          marks.set(r.id, r);
+        }
+        shownItem = applyItemPatch(base, changes, now);
         itemWrites.set(item.id, shownItem);
       }
     }
@@ -298,7 +315,10 @@ export async function persistMethodRows(
       backlogUpdated: written,
     });
   }
-  await store.putRows(out.map((p) => p.row));
+  // A marked row this persist writes itself goes as written: its save
+  // drops the mark (binding methodRow).
+  for (const p of out) marks.delete(p.row.id);
+  await store.putRows([...Array.from(marks.values()), ...out.map((p) => p.row)]);
   for (const item of Array.from(itemWrites.values())) await store.putItem(item);
   return out;
 }

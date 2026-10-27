@@ -46,7 +46,13 @@ import {
   serverListEntities,
 } from "../server-store";
 import { applyItemPatch, itemPatchChanges, rowsUnlinkedFrom } from "@/lib/prioritization/binding";
-import { method, type Values } from "@/lib/prioritization/methods";
+import { savedByEngine } from "@/lib/prioritization/defaults";
+import {
+  markLegacyDifferences,
+  method,
+  withLegacyLinks,
+  type Values,
+} from "@/lib/prioritization/methods";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
@@ -3128,23 +3134,53 @@ function backlogInputProblems(set: Partial<BacklogItem>, current?: BacklogItem):
   return Array.from(problems.values());
 }
 
+/** What a backlog item's write reads besides the item (backlogWriteRows). */
+interface BacklogWriteContext {
+  /** The method rows, for an update of an item the new code never saved; else none. */
+  rows: readonly PrioritizationItem[];
+}
+
+/** The method rows on a write's transport: the browser store's, or the caller's on the server. */
+const prioritizationRowsOn = async (
+  env: CrudEnv<BacklogItem>
+): Promise<readonly PrioritizationItem[]> =>
+  env.userId
+    ? serverListEntities<PrioritizationItem>(env.userId, PRIORITIZATION_KIND)
+    : (ws().prioritizations ?? []);
+
+/**
+ * The rows an update of an item the new code never saved works from: its
+ * links made before Phase 7 may hold the values it reads as (methods
+ * withLegacyLinks), and the ones that disagree with it are marked before
+ * its stamp (markLegacyDifferences). None for a create or a stamped item:
+ * nothing reads them there, so no list is fetched.
+ */
+async function backlogWriteRows(
+  current: BacklogItem | undefined,
+  env: CrudEnv<BacklogItem>
+): Promise<BacklogWriteContext> {
+  return { rows: current && !savedByEngine(current) ? await prioritizationRowsOn(env) : [] };
+}
+
 /**
  * The item as the engine saves it, the server twin of the hub's
  * saveBacklogItem: the inputs a write sets are checked first (nothing is
  * saved on a problem), a create is stamped as createBacklogItem stamps it,
- * and an update takes each key the patch sets that differs from what the
- * item reads as (itemPatchChanges: a stored old default sent again is a
- * choice; a value equal to what it reads is no change) and applies them
- * through applyItemPatch, which clears the old-default fingerprints in
- * every method, drops the legacy `value` when businessValue is written and
- * stamps `updatedAt` (lib/prioritization/defaults reads an unstamped
- * item's old defaults as Not scored). An update that changes nothing
- * leaves the item as it is.
+ * and an update starts from the item as its links made before Phase 7 say
+ * it reads (withLegacyLinks), takes each key the patch sets that differs
+ * from what the item reads as (itemPatchChanges: a stored old default sent
+ * again is a choice; a value equal to what it reads is no change) and
+ * applies them through applyItemPatch, which clears the old-default
+ * fingerprints in every method, drops the legacy `value` when
+ * businessValue is written and stamps `updatedAt` (lib/prioritization/
+ * defaults reads an unstamped item's old defaults as Not scored). An
+ * update that changes nothing leaves the item as it is.
  */
 function prepareBacklogItem(
   next: BacklogItem,
   current: BacklogItem | undefined,
-  patch?: Readonly<Record<string, unknown>>
+  patch?: Readonly<Record<string, unknown>>,
+  loaded?: BacklogWriteContext
 ): BacklogItem {
   const now = new Date().toISOString();
   if (!current) {
@@ -3152,26 +3188,32 @@ function prepareBacklogItem(
     if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
     return { ...next, updatedAt: now };
   }
+  const base = withLegacyLinks(current, loaded?.rows ?? []);
   const set = itemPatchChanges(
-    current,
+    base,
     patch ? patchedFields(next, patch) : backlogItemChanges(next, current)
   );
   if (Object.keys(set).length === 0) return current;
-  const problems = backlogInputProblems(set, current);
+  const problems = backlogInputProblems(set, base);
   if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
-  return applyItemPatch(current, set, now);
+  return applyItemPatch(base, set, now);
 }
 
 /**
  * The last step before a backlog item's create or update writes, on both
  * transports. A rank the write sets that another item holds is refused:
  * rank is the decided order, one place per item, and
- * tool.prioritizer.set_order saves a whole order.
+ * tool.prioritizer.set_order saves a whole order. Then, as the hub's
+ * saves do, the first save of an item the new code never saved marks its
+ * legacy rows that disagree with it (markLegacyDifferences, from the item
+ * as stored and the rows its save base was read from), so their tools
+ * still ask which value to keep once the stamp is on.
  */
 async function beforeBacklogItemWrite(
   next: BacklogItem,
   current: BacklogItem | undefined,
-  env: CrudEnv<BacklogItem>
+  env: CrudEnv<BacklogItem>,
+  loaded?: BacklogWriteContext
 ): Promise<void> {
   if (next === current) return;
   if (typeof next.rank === "number" && next.rank !== current?.rank) {
@@ -3182,15 +3224,20 @@ async function beforeBacklogItemWrite(
       );
     }
   }
+  if (!current || !loaded?.rows.length) return;
+  const marks = markLegacyDifferences(current, loaded.rows, { now: next.updatedAt });
+  if (marks.length === 0) return;
+  if (env.userId) await serverBulkUpsertEntities(env.userId, PRIORITIZATION_KIND, marks);
+  else for (const row of marks) ws().upsertPrioritization(row);
 }
 
 // Create and update go through the engine as the hub's writes do
-// (prepareBacklogItem, then beforeBacklogItemWrite's rank check). Delete
-// keeps the method rows that scored the item on both transports:
-// removeBacklogItem in the tab, the same rowsUnlinkedFrom server-side,
-// each row frozen with the values it read through to the item, then
-// unlinked.
-defineCrudActions<BacklogItem>({
+// (backlogWriteRows, prepareBacklogItem, then beforeBacklogItemWrite's
+// rank check and legacy marks). Delete keeps the method rows that scored
+// the item on both transports: removeBacklogItem in the tab, the same
+// rowsUnlinkedFrom server-side, each row frozen with the values it read
+// through to the item, then unlinked.
+defineCrudActions<BacklogItem, BacklogWriteContext>({
   toolId: "workspace.backlog_item",
   entityName: "backlog item",
   schema: BacklogItemSchema,
@@ -3198,6 +3245,7 @@ defineCrudActions<BacklogItem>({
   upsert: (x) => ws().upsertBacklogItem(x),
   remove: (id) => ws().removeBacklogItem(id),
   generateId: () => `backlog_${nanoid(8)}`,
+  load: backlogWriteRows,
   prepare: prepareBacklogItem,
   beforeWrite: beforeBacklogItemWrite,
   cascade: {

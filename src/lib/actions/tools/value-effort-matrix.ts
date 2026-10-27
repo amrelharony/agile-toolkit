@@ -40,7 +40,14 @@ import {
   methodRow,
   ownedPatch,
 } from "@/lib/prioritization/binding";
-import { method, readThrough, type Values } from "@/lib/prioritization/methods";
+import { savedByEngine } from "@/lib/prioritization/defaults";
+import {
+  markLegacyDifferences,
+  method,
+  readThrough,
+  withLegacyLinks,
+  type Values,
+} from "@/lib/prioritization/methods";
 import { FIBONACCI_VALUES } from "@/lib/prioritization/methods/fibonacci";
 import {
   VE_HIGH_EFFORT_FROM,
@@ -377,13 +384,24 @@ const setPosition = async (store: MethodStore, params: z.infer<typeof SetPositio
   };
   const now = new Date().toISOString();
   let backlogUpdated: string[] = [];
+  let marks: PrioritizationItem[] = [];
   if (item) {
+    // The item as it reads, its links made before Phase 7 included (the
+    // page's itemSaveBase), from the rows as they were before this write.
+    const legacy = savedByEngine(item) ? undefined : await store.rows();
+    const base = legacy ? withLegacyLinks(item, legacy) : item;
     // A linked row reads through to its item: what it clears goes there too.
-    const changes = itemPatchChanges(item, ownedPatch(FRAMEWORK, values, clearedKeys(values)));
+    const changes = itemPatchChanges(base, ownedPatch(FRAMEWORK, values, clearedKeys(values)));
     backlogUpdated = Object.keys(changes);
-    if (backlogUpdated.length > 0) await store.putItem(applyItemPatch(item, changes, now));
+    if (backlogUpdated.length > 0) {
+      // Its first save stamps it: the legacy rows that disagree with it
+      // keep their question (but this row, whose save answers its own).
+      if (legacy) marks = markLegacyDifferences(item, legacy, { except: row.id, now });
+      await store.putItem(applyItemPatch(base, changes, now));
+    }
   }
   await store.putRows([
+    ...marks,
     methodRow({ id: row.id, framework: FRAMEWORK, title: row.title, values, prev: row, now }),
   ]);
   return {
