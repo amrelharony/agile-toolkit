@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Assumption, RiskiestAssumption } from "@/lib/stores/workspace-types";
 
 /**
- * Riskiest Assumption, until the Phase 8 page shows "Not rated": an
- * assumption an agent created without ratings reads as 3/3 on the page, but
- * that is display only. An edit anywhere on the page saves the canvas, and
- * the unrated assumption keeps its absent ratings (absent = not rated, never
- * ranked or placed); only a rating the user changes is saved.
+ * Riskiest Assumption: an assumption an agent created without ratings is
+ * "Not rated" on the page (absent = not rated, never ranked or placed). An
+ * edit anywhere on the page saves the canvas, and the unrated assumption
+ * keeps its absent ratings; only a rating the user picks is saved.
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -56,18 +56,29 @@ const stored = (id: string) =>
     .find((d) => d.id === RA_ID)
     ?.assumptions.find((a) => a.id === id);
 
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <RiskiestAssumptionClient />
+    </TooltipProvider>
+  );
+const addAnother = (statement: string) => {
+  const input = screen
+    .getAllByLabelText(/^Assumption/)
+    .find((el) => (el as HTMLInputElement).value === "")!;
+  fireEvent.change(input, { target: { value: statement } });
+  fireEvent.click(screen.getByRole("button", { name: "Add assumption" }));
+};
+
 beforeEach(() => {
   const doc: RiskiestAssumption = { id: RA_ID, assumptions: [UNRATED, RATED] };
   useWorkspaceStore.setState({ riskiestAssumptions: [doc] });
 });
 
-describe("an unrated assumption on today's page", () => {
+describe("an unrated assumption on the page", () => {
   it("keeps its absent ratings when another assumption is added", () => {
-    render(<RiskiestAssumptionClient />);
-    fireEvent.change(screen.getByLabelText("Assumption statement"), {
-      target: { value: "Teams pay for a second seat" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Add assumption/ }));
+    renderPage();
+    addAnother("Teams pay for a second seat");
 
     const list = useWorkspaceStore.getState().riskiestAssumptions?.[0]?.assumptions ?? [];
     expect(list).toHaveLength(3);
@@ -76,11 +87,15 @@ describe("an unrated assumption on today's page", () => {
   });
 
   it("saves the one rating the user changes, and only that one", () => {
-    render(<RiskiestAssumptionClient />);
-    // Ranked by risk × (6 − evidence): the rated one (25) first, the unrated (3×3 = 9) second.
-    const risk = screen.getByLabelText("Risk for assumption #2");
-    fireEvent.change(risk, { target: { value: "4" } });
-    fireEvent.blur(risk);
+    renderPage();
+    // The unrated one waits under "Not rated"; rating its risk alone keeps it there.
+    const card = screen.getByRole("article", { name: UNRATED.statement });
+    expect(within(card).getByText("Not rated", { selector: "span" })).toBeInTheDocument();
+    fireEvent.click(
+      within(within(card).getByRole("radiogroup", { name: "Risk" })).getByRole("radio", {
+        name: "4",
+      })
+    );
 
     expect(stored("as_agent")).toEqual({ ...UNRATED, riskLevel: 4 });
     expect(stored("as_agent")).not.toHaveProperty("evidenceLevel");
@@ -92,11 +107,8 @@ describe("an unrated assumption on today's page", () => {
     useWorkspaceStore.setState({
       riskiestAssumptions: [{ id: RA_ID, assumptions: [UNRATED, three] }],
     });
-    render(<RiskiestAssumptionClient />);
-    fireEvent.change(screen.getByLabelText("Assumption statement"), {
-      target: { value: "Another" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Add assumption/ }));
+    renderPage();
+    addAnother("Another");
     expect(stored("as_rated")).toEqual(three);
     expect(stored("as_agent")).toEqual(UNRATED);
   });
