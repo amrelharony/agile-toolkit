@@ -837,7 +837,7 @@ NPS = round((promoters 9–10 − detractors 0–6) ÷ n × 100), `null` with no
   - `headline` is the page's cards: `{nps: {period, label, score, n} | null, csat: {period, label, satisfiedPct, n} | null}`, the latest period with enough answers.
   - `tags` are over every response, most unhappy first: `{tag, n, promoters, detractors, satisfied, dissatisfied, unhappy (detractors + CSAT 1–2), nps, csat}`.
 - **`record`** (write) `{kind: nps | csat, score, respondent?, verbatim?, tags?, date?}` — one response. The score is a whole number on the kind's scale, the one the customer gave: the page has no default score. `tags` is a list or a comma-separated string, stored lower-case and once each (at most 10, 40 characters each). Returns `{added: true, id, date, tags}` or `{added: false, reason: off_scale | future_day | tags, message}`.
-- The CSV and paste import is the page's only (up to 1,000 rows; exact copies of stored answers are skipped). Edit or delete a response with `workspace.nps_response.update` / `delete`.
+- The CSV and paste import is the page's only (up to 1,000 rows; exact copies of stored answers are skipped). Edit or delete a response with `workspace.nps_response.update` / `delete`; tags a write sets are stored as `record` stores them (lower-case, once each, within its limits).
 
 #### Hypothesis Tracker — `tool.hypothesis_tracker.*`
 

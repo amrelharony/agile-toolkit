@@ -365,6 +365,44 @@ describe("bounds", () => {
     });
   });
 
+  it("tags a write sets are stored as the page and record store them: lower-case, once each", async () => {
+    const nps = "workspace.nps_response";
+    // A create, in the tab and over MCP.
+    const typed = { ...NPS, tags: ["Pricing", " pricing ", "Slow  Support"] };
+    await savesCreate(nps, "npsResponses", typed);
+    expect(useWorkspaceStore.getState().npsResponses?.[0].tags).toEqual([
+      "pricing",
+      "slow support",
+    ]);
+    expect((upsertEntity.mock.calls[0][2] as NpsResponse).tags).toEqual([
+      "pricing",
+      "slow support",
+    ]);
+    // An update, on both transports.
+    for (const row of await updateOnBoth(nps, "npsResponses", LEGACY_CSAT, {
+      tags: ["Onboarding", "ONBOARDING"],
+    })) {
+      expect((row as NpsResponse).tags).toEqual(["onboarding"]);
+    }
+    // Nothing left once normalised: the key goes.
+    for (const row of await updateOnBoth(nps, "npsResponses", NPS, { tags: [" "] })) {
+      expect(row).toEqual(without(NPS, "tags"));
+    }
+    // One comma-separated string counts each tag it holds.
+    await refusesUpdate(
+      nps,
+      "npsResponses",
+      LEGACY_CSAT,
+      { tags: [Array.from({ length: 11 }, (_, i) => `t${i}`).join(",")] },
+      /tags: At most 10 tags on a response \(11 given\)/
+    );
+    // Stored tags a write leaves alone stay as they are.
+    const odd = { ...LEGACY_CSAT, tags: ["Pricing"] };
+    for (const row of await updateOnBoth(nps, "npsResponses", odd, { score: 5 })) {
+      expect(row).toEqual({ ...odd, score: 5 });
+    }
+  });
+
   it("an assumption's ratings written are whole 1-5 or absent (not rated)", async () => {
     const ra = "workspace.riskiest_assumption";
     const one = (patch: Record<string, unknown>) => ({

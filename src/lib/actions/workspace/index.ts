@@ -74,6 +74,7 @@ import {
   listedTechDebt,
 } from "@/lib/tech-debt/legacy";
 import { readLegacyBlob } from "../user-state-blob";
+import { normalizeTags, tagsProblem } from "@/lib/nps/score";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -3198,7 +3199,7 @@ const NpsResponseSchema = z.object({
     .max(NPS_TAG_LIMIT)
     .optional()
     .describe(
-      `Theme tags on the verbatim, lower-case and unique; at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters.`
+      `Theme tags on the verbatim; stored lower-case and once each (as tool.nps_csat.record stores them), at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters.`
     ),
 }) as unknown as z.ZodType<NpsResponse>;
 
@@ -3206,7 +3207,7 @@ const NpsResponseSchema = z.object({
  * A survey response's write, judged on what it sets (see "Bounds a write
  * must meet"): a score, or a kind that re-reads the score, is a whole
  * number on the kind's scale (NPS 0–10, CSAT 1–5); a date is a
- * "YYYY-MM-DD" day.
+ * "YYYY-MM-DD" day; tags fit lib/nps's limits.
  */
 function npsWriteProblems(
   next: NpsResponse,
@@ -3214,6 +3215,9 @@ function npsWriteProblems(
   patch?: Readonly<Record<string, unknown>>
 ): string[] {
   const problems: string[] = [];
+  const tags = next.tags !== undefined && writes(next, current, "tags", patch);
+  const tagProblem = tags ? tagsProblem(next.tags ?? []) : null;
+  if (tagProblem) problems.push(`tags: ${tagProblem}`);
   const scored = writes(next, current, "score", patch) || writes(next, current, "kind", patch);
   const [min, max] = next.kind === "nps" ? [0, 10] : [1, 5];
   if (scored && !isWholeIn(next.score, min, max)) {
@@ -3225,6 +3229,25 @@ function npsWriteProblems(
     problems.push('date: the day the answer was given, as "YYYY-MM-DD".');
   }
   return problems;
+}
+
+/**
+ * The response with the tags a write sets stored as lib/nps stores them:
+ * lower-case, once each, the key dropped when none is left. The page's tag
+ * chip and filter, and tool.nps_csat.record, read and write that form, so a
+ * "Pricing" saved as typed would filter nothing. Stored tags the write
+ * leaves alone stay as they are.
+ */
+function withStoredTags(
+  next: NpsResponse,
+  current: NpsResponse | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): NpsResponse {
+  if (next.tags === undefined || !writes(next, current, "tags", patch)) return next;
+  const tags = normalizeTags(next.tags);
+  const out: NpsResponse = { ...next, tags };
+  if (tags.length === 0) delete out.tags;
+  return out;
 }
 
 // A check-in's day. Before Phase 6 this CRUD and tool.mood_tracker.record took
@@ -3806,7 +3829,8 @@ defineCrudActions<NpsResponse>({
   upsert: (x) => ws().upsertNpsResponse(x),
   remove: (id) => ws().removeNpsResponse(id),
   generateId: () => `nps_${nanoid(8)}`,
-  prepare: (next, current, patch) => unlessRefused(next, npsWriteProblems(next, current, patch)),
+  prepare: (next, current, patch) =>
+    withStoredTags(unlessRefused(next, npsWriteProblems(next, current, patch)), current, patch),
 });
 
 defineCrudActions<MoodEntry>({
