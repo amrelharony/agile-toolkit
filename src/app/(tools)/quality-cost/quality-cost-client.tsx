@@ -64,6 +64,8 @@ import {
   money,
   periodRows,
   sharePct,
+  sideAmount,
+  sideText,
   type PeriodRow,
 } from "./view";
 
@@ -86,18 +88,44 @@ type Update = (fn: (s: QualityCostState) => QualityCostState) => void;
 const taken = (s: QualityCostState, period: string) =>
   (s.periods ?? []).some((p) => p.period === period);
 
+/** Focus what `find` returns once React has re-rendered (the focused control may have gone). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+const firstFieldOf = (root: HTMLElement | null) =>
+  root?.querySelector<HTMLElement>("select, input, textarea");
+
 /**
- * Focus the Edit button of quarter `id` once React has re-rendered. The
- * table and its phone cards both render it (one of them hidden), so the
- * one on screen gets focus.
+ * The quarters' Edit buttons, one per quarter in screen order. The table
+ * and its phone cards both render them (one of the two hidden), so the
+ * ones on screen are used when any are.
  */
-function focusEditButton(id: string) {
-  requestAnimationFrame(() => {
-    const buttons = Array.from(document.querySelectorAll<HTMLElement>("[data-edit-period]")).filter(
-      (el) => el.getAttribute("data-edit-period") === id
-    );
-    (buttons.find((el) => el.getClientRects().length > 0) ?? buttons[0])?.focus();
+function editButtons(): HTMLElement[] {
+  const all = Array.from(document.querySelectorAll<HTMLElement>("[data-edit-period]"));
+  const shown = all.filter((el) => el.getClientRects().length > 0);
+  const seen = new Set<string>();
+  return (shown.length > 0 ? shown : all).filter((el) => {
+    const id = el.getAttribute("data-edit-period") ?? "";
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
   });
+}
+
+const editButtonOf = (id: string) =>
+  editButtons().find((el) => el.getAttribute("data-edit-period") === id);
+
+/** Focus the Edit button of quarter `id` once React has re-rendered. */
+function focusEditButton(id: string) {
+  focusSoon(() => editButtonOf(id));
+}
+
+/** The quarter after `id` on screen, else the one before it: where focus goes when it is deleted. */
+function neighbourPeriod(id: string): string | null {
+  const ids = editButtons().map((el) => el.getAttribute("data-edit-period"));
+  const at = ids.indexOf(id);
+  return (at < 0 ? null : (ids[at + 1] ?? ids[at - 1])) ?? null;
 }
 
 /** Focus the first control under `root` once it has mounted (an editor just opened). */
@@ -132,6 +160,7 @@ export function QualityCostClient() {
   };
   const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [shownId, setShownId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -181,6 +210,10 @@ export function QualityCostClient() {
 
   function removePeriod(p: QualityCostPeriod) {
     if (editingId === p.id) setEditingId(null);
+    // The focused Delete button goes with its row: focus moves to the
+    // neighbouring quarter's Edit, or to the form once none are left.
+    const near = neighbourPeriod(p.id);
+    focusSoon(() => (near && editButtonOf(near)) || firstFieldOf(formRef.current));
     undoable({
       label: `Deleted ${p.period}`,
       apply: () => {
@@ -209,6 +242,8 @@ export function QualityCostClient() {
           periods: [...(s.periods ?? []), ...removed.filter((p) => !taken(s, p.period))],
         })),
     });
+    // The history and its Clear button give way to the empty state.
+    focusSoon(() => firstFieldOf(formRef.current));
   }
 
   function setRate(rate: number | undefined) {
@@ -306,8 +341,9 @@ export function QualityCostClient() {
       p.period,
       ...COST_CATEGORIES.map((c) => p.costs[c] ?? ""),
       b.total,
-      b.conformance,
-      b.nonConformance,
+      // A side with nothing entered is a blank cell, never 0.
+      sideAmount(p.costs, "conformance") ?? "",
+      sideAmount(p.costs, "nonConformance") ?? "",
       b.failureShare === null ? "" : Math.round(b.failureShare * 1000) / 10,
       p.note ?? "",
     ]),
@@ -412,12 +448,14 @@ export function QualityCostClient() {
             onCommit={setRate}
             key={preview ? "example" : "saved"}
           />
-          <PeriodForm
-            key={preview ? "example-form" : "form"}
-            periods={periods}
-            hourlyRate={state.hourlyRate}
-            onSave={addPeriod}
-          />
+          <div ref={formRef}>
+            <PeriodForm
+              key={preview ? "example-form" : "form"}
+              periods={periods}
+              hourlyRate={state.hourlyRate}
+              onSave={addPeriod}
+            />
+          </div>
         </SectionCard>
 
         {periods.length === 0 ? (
@@ -474,7 +512,7 @@ export function QualityCostClient() {
                     variant="compact"
                     icon={ShieldCheck}
                     label="Conformance"
-                    value={money(shownBreakdown.conformance)}
+                    value={sideText(shown.costs, "conformance")}
                     hint={
                       shownBreakdown.failureShare === null
                         ? "Share needs a cost on each side"
@@ -491,7 +529,7 @@ export function QualityCostClient() {
                     variant="compact"
                     icon={AlertTriangle}
                     label="Non-conformance"
-                    value={money(shownBreakdown.nonConformance)}
+                    value={sideText(shown.costs, "nonConformance")}
                     hint={
                       shownBreakdown.failureShare === null
                         ? "Share needs a cost on each side"

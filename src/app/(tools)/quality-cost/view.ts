@@ -7,8 +7,10 @@
 
 import { NO_VALUE, type ChartText } from "@/lib/charts/chart-text";
 import {
+  CONFORMANCE_CATEGORIES,
   COST_CATEGORIES,
   COST_CATEGORY_LABEL,
+  FAILURE_CATEGORIES,
   FAILURE_SHARE_HIGH,
   costBreakdown,
   type CostBreakdown,
@@ -29,6 +31,26 @@ export const sharePct = (share: number) => `${Math.round(share * 100)}%`;
 /** An entered amount, or "Not entered" (never $0) for a category left out. */
 export const amountText = (costs: CostFigures, c: CostCategory) =>
   costs[c] === undefined ? "Not entered" : money(costs[c] as number);
+
+/**
+ * A side's sum as costBreakdown adds it (conformance: prevention +
+ * detection; non-conformance: the two failures), or null when none of its
+ * categories was entered: costBreakdown sums a side with nothing in it to
+ * 0, and that side reads "Not entered" (a blank CSV cell), never $0.
+ */
+export function sideAmount(
+  costs: CostFigures,
+  side: "conformance" | "nonConformance"
+): number | null {
+  const cats = side === "conformance" ? CONFORMANCE_CATEGORIES : FAILURE_CATEGORIES;
+  return cats.some((c) => costs[c] !== undefined) ? costBreakdown(costs)[side] : null;
+}
+
+/** A side's sum, or "Not entered" when none of its categories was. */
+export function sideText(costs: CostFigures, side: "conformance" | "nonConformance"): string {
+  const n = sideAmount(costs, side);
+  return n === null ? "Not entered" : money(n);
+}
 
 /** The short category names the chart and table use. */
 export const SHORT_LABEL: Record<CostCategory, string> = {

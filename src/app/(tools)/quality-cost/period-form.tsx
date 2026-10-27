@@ -91,16 +91,38 @@ const cleanMoney = (raw: string) => raw.replace(/[$,\s]/g, "");
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
+ * The cost `saved` (the quarter being edited) holds for category `c` when
+ * the draft still takes it as the same hours, or undefined. A logged
+ * quarter keeps the price its hours were worked out at: the period stores
+ * no rate, so pricing them again at today's rate would quietly rewrite a
+ * past quarter on a note-only edit (or block the save once the rate is
+ * cleared). Only hours changed in this edit are priced at the current rate.
+ */
+export function keptHoursCost(
+  draft: PeriodDraft,
+  c: CostCategory,
+  saved: QualityCostPeriod | undefined
+): number | undefined {
+  if (!saved || !draft.byHours[c]) return undefined;
+  const h = parseNumber(draft.hours[c]);
+  const was = saved.hours?.[c];
+  const cost = saved.costs[c];
+  return h !== undefined && h === was && cost !== undefined ? cost : undefined;
+}
+
+/**
  * Check a quarter's draft. The quarter and the amounts go through
  * costPeriodErrors (lib/quality/cost); a category taken as hours needs
  * hours of 0 or more and an hourly rate, and its cost is hours × rate
- * (hoursTimesRate). Nothing blank becomes $0.
+ * (hoursTimesRate), except hours an edit left as `saved` holds them, which
+ * keep their stored cost (keptHoursCost). Nothing blank becomes $0.
  */
 export function validatePeriod(
   draft: PeriodDraft,
   periods: readonly QualityCostPeriod[],
   hourlyRate: number | undefined,
-  editingId?: string
+  editingId?: string,
+  saved?: QualityCostPeriod
 ): Validation<PeriodValues, PeriodField> {
   const errors: FormErrors<PeriodField> = {};
   const typed: Partial<ByCategory<string | number>> = {};
@@ -115,7 +137,11 @@ export function validatePeriod(
     // A category with hours typed counts as entered, so "Enter at least
     // one cost" doesn't fire beside the hours' own error.
     typed[c] = 0;
-    if (!Number.isFinite(h) || h < 0) errors[`hours-${c}`] = "Enter hours of 0 or more.";
+    const kept = keptHoursCost(draft, c, saved);
+    if (kept !== undefined) {
+      typed[c] = kept;
+      hours[c] = h;
+    } else if (!Number.isFinite(h) || h < 0) errors[`hours-${c}`] = "Enter hours of 0 or more.";
     else if (hourlyRate === undefined) errors[`hours-${c}`] = "Enter the hourly rate first.";
     else {
       const cost = hoursTimesRate(h, hourlyRate);
@@ -177,7 +203,7 @@ export function PeriodForm({
 }) {
   const form = useItemForm<PeriodDraft, PeriodValues, PeriodField>({
     initial: () => (editing ? draftFromPeriod(editing) : emptyPeriodDraft()),
-    validate: (d) => validatePeriod(d, periods, hourlyRate, editing?.id),
+    validate: (d) => validatePeriod(d, periods, hourlyRate, editing?.id, editing),
     onSave: (values) => onSave(values),
     resetOnSave: !editing,
   });
@@ -217,23 +243,26 @@ export function PeriodForm({
           const label = COST_CATEGORY_LABEL[c];
           const byHours = draft.byHours[c];
           const h = parseNumber(draft.hours[c]);
+          const kept = keptHoursCost(draft, c, editing);
           const worked =
             byHours && h !== undefined && hourlyRate !== undefined
               ? hoursTimesRate(h, hourlyRate)
               : null;
+          const hoursHint =
+            kept !== undefined
+              ? `= ${money(kept)}, as saved for these hours`
+              : worked !== null
+                ? `= ${money(worked)} at ${money(hourlyRate as number)} an hour`
+                : HINT[c];
           return (
             <div key={c} className="flex min-w-0 flex-col gap-1.5" data-category={c}>
               {byHours ? (
                 <Field
                   label={`${label} hours`}
-                  hint={
-                    worked !== null
-                      ? `= ${money(worked)} at ${money(hourlyRate as number)} an hour`
-                      : HINT[c]
-                  }
+                  hint={hoursHint}
                   error={
                     errors[`hours-${c}`] ??
-                    (h !== undefined && hourlyRate === undefined
+                    (h !== undefined && hourlyRate === undefined && kept === undefined
                       ? "Enter the hourly rate first."
                       : undefined)
                   }
@@ -269,12 +298,13 @@ export function PeriodForm({
                   )}
                 </Field>
               )}
+              {/* Named for what it does next, so no aria-pressed: "pressed"
+                  beside a name that flips would read the wrong way round. */}
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="self-start"
-                aria-pressed={byHours}
                 aria-label={
                   byHours ? `Enter ${label} as an amount` : `Work out ${label} as hours × rate`
                 }
