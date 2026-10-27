@@ -797,3 +797,68 @@ describe("Choice inputs", () => {
     expect(container).not.toHaveTextContent("*");
   });
 });
+
+describe("MethodTool legacy links", () => {
+  // Linked before Phase 7: the item got 13/8/3/5 at link time and was
+  // never saved by the new code; the row was re-scored in the tool after
+  // that (value 8), which wrote only the row.
+  const legacyItem: BacklogItem = {
+    id: "b1",
+    name: "Checkout",
+    businessValue: 13,
+    timeCriticality: 8,
+    riskReduction: 3,
+    jobSize: 5,
+  };
+  const legacyRow: PrioritizationItem = {
+    id: "w1",
+    framework: "wsjf",
+    title: "Checkout",
+    fields: { businessValue: 8, timeCriticality: 8, rrOe: 3, jobSize: 5 },
+    status: "scored",
+    backlogItemId: "b1",
+    updatedAt: STAMP,
+  };
+  const listed = () =>
+    within(screen.getByRole("list", { name: /Features/ })).getAllByRole("listitem");
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ backlogItems: [legacyItem], prioritizations: [legacyRow] });
+  });
+
+  it("shows the item's value and asks once which one stays: this row's", () => {
+    renderTool();
+    expect(listed()[0]).toHaveTextContent("4.80");
+    const note = within(listed()[0]).getByRole("note");
+    expect(note).toHaveTextContent(
+      "this row and “Checkout” disagree: Business value 8 here, 13 on the backlog item."
+    );
+    fireEvent.click(
+      within(note).getByRole("button", { name: "Use this row's WSJF values for Checkout" })
+    );
+    expect(storedItem("b1")).toMatchObject({ businessValue: 8, timeCriticality: 8 });
+    expect(storedItem("b1")?.updatedAt).toBeTruthy();
+    expect(within(listed()[0]).queryByRole("note")).toBeNull();
+    expect(listed()[0]).toHaveTextContent("3.80");
+    expect(screen.getByRole("button", { name: "Edit Checkout" })).toHaveFocus();
+  });
+
+  it("or the backlog item's, copied into the row, with Undo", () => {
+    renderTool();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep the backlog item's WSJF values for Checkout" })
+    );
+    expect(rows()[0].fields).toEqual({
+      businessValue: 13,
+      timeCriticality: 8,
+      rrOe: 3,
+      jobSize: 5,
+    });
+    expect(storedItem("b1")).toEqual(legacyItem);
+    expect(within(listed()[0]).queryByRole("note")).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit Checkout" })).toHaveFocus();
+    act(() => undo.last?.revert());
+    expect(rows()[0].fields?.businessValue).toBe(8);
+    expect(within(listed()[0]).getByRole("note")).toBeInTheDocument();
+  });
+});

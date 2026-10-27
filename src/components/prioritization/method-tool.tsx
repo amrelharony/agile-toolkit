@@ -49,6 +49,7 @@ import { ExportButton } from "@/components/shared/export-button";
 import { ResortChip } from "@/components/shared/resort-chip";
 import { ItemForm, useItemForm, type ItemFormState } from "@/components/shared/item-form";
 import { ScaleValue } from "@/components/shared/scale-picker";
+import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
@@ -66,10 +67,12 @@ import type { FormErrors, Validation } from "@/lib/utils/form";
 import { linkNewRow, saveMethodRow } from "@/lib/prioritization/backlog-links";
 import { linkedItem, methodRow } from "@/lib/prioritization/binding";
 import {
+  legacyDifferences,
   method as methodById,
   readThrough,
   scoreCache,
   type MethodId,
+  type MethodInput,
   type PrioritizationMethod,
   type Values,
 } from "@/lib/prioritization/methods";
@@ -551,17 +554,88 @@ function DefaultRowValues({
   );
 }
 
+/** One input's value as a sentence shows it ("Must have", "80%", "13"). */
+function inputText(input: MethodInput, v: string | number): string {
+  if (input.kind === "choice") return input.options.find((o) => o.id === v)?.label ?? String(v);
+  if (input.kind === "scale" && input.format === "pct") return `${v}%`;
+  if (input.kind === "scale" && input.format === "x") return `${v}x`;
+  return String(v);
+}
+
+/**
+ * A row linked before Phase 7 that holds another value than its backlog
+ * item (legacyDifferences): old items carry no date, so the tool asks once
+ * which one stays. The item's value counts until then, as everywhere.
+ */
+function LegacyChoice({
+  method: m,
+  row,
+  onUseRow,
+  onKeepItem,
+}: {
+  method: PrioritizationMethod;
+  row: PrioritizationItem;
+  onUseRow: (values: Values) => void;
+  onKeepItem: () => void;
+}) {
+  const item = useWorkspaceStore((s) => linkedItem(row, s.backlogItems ?? NO_ITEMS));
+  const diffs = legacyDifferences(row, item);
+  if (!item || diffs.length === 0) return null;
+  const parts = diffs.map((d) => {
+    const input = m.inputs.find((i) => i.key === d.key) as MethodInput;
+    return `${input.label} ${inputText(input, d.row)} here, ${inputText(input, d.item)} on the backlog item`;
+  });
+  const own: Values = Object.fromEntries(diffs.map((d) => [d.key, d.row]));
+  return (
+    <div
+      role="note"
+      className="basis-full space-y-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-text"
+    >
+      <p>
+        From before the backlog item became the one source, this row and “{shortName(item.name)}”
+        disagree: {parts.join("; ")}. The backlog item&apos;s value counts until you choose.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`Use this row's ${m.label} values for ${row.title}`}
+          onClick={() => onUseRow(own)}
+        >
+          Use this row&apos;s
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`Keep the backlog item's ${m.label} values for ${row.title}`}
+          onClick={onKeepItem}
+        >
+          Keep the backlog item&apos;s
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function MethodRow({
   config,
   ranked,
   onEdit,
   onRemove,
+  onUseRow,
+  onKeepItem,
   editRef,
 }: {
   config: MethodToolConfig;
   ranked: RankedRow;
   onEdit: () => void;
   onRemove: () => void;
+  /** A legacy row's choice (LegacyChoice): write its own values through to the item. */
+  onUseRow: (values: Values) => void;
+  /** …or take the item's values into the row's own copy. */
+  onKeepItem: () => void;
   /** The Edit button, where focus comes back to after the editor closes. */
   editRef?: (el: HTMLElement | null) => void;
 }) {
@@ -613,6 +687,9 @@ function MethodRow({
       </span>
       {result.warnings.length > 0 && (
         <p className="basis-full text-xs text-warning">{result.warnings.join(" ")}</p>
+      )}
+      {ranked.live && (
+        <LegacyChoice method={m} row={row} onUseRow={onUseRow} onKeepItem={onKeepItem} />
       )}
     </div>
   );
@@ -803,6 +880,38 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
     actions.remove(r.row);
   };
 
+  // A legacy row's choice (LegacyChoice). Its own values: written through
+  // to the item (saveMethodRow, with Undo). The item's: copied into the
+  // row's own fields, so nothing disagrees any more (with Undo too). Focus
+  // goes to the row's Edit button, as the note it was in goes away.
+  const takeRowValues = (r: RankedRow, values: Values) => {
+    returnTo(`edit:${r.row.id}`);
+    actions.save(r.row.id, { ...values, title: r.row.title });
+    announce(`Kept this row's ${m.label} values for “${shortName(r.row.title)}”.`);
+  };
+  const keepItemValues = (r: RankedRow) => {
+    const before = r.row;
+    const next = methodRow({
+      id: before.id,
+      framework: m.id,
+      title: before.title,
+      values: r.values,
+      prev: before,
+    });
+    const store = () => useWorkspaceStore.getState();
+    returnTo(`edit:${before.id}`);
+    undoable({
+      label: `Kept the backlog item's values for “${shortName(before.title)}”`,
+      apply: () => store().upsertPrioritization(next),
+      revert: () => {
+        const cur = (store().prioritizations ?? []).find((p) => p.id === before.id);
+        // Back only if nobody saved the row since.
+        if (cur && cur.updatedAt === next.updatedAt) store().upsertPrioritization(before);
+      },
+    });
+    announce(`Kept the backlog item's ${m.label} values for “${shortName(before.title)}”.`);
+  };
+
   const renderRow = (r: RankedRow) => (
     <li key={r.row.id} ref={editingId === r.row.id ? editorRef : undefined} className="py-3">
       {editingId === r.row.id ? (
@@ -819,6 +928,8 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
           ranked={r}
           onEdit={() => setEditingId(r.row.id)}
           onRemove={() => removeRow(r)}
+          onUseRow={(values) => takeRowValues(r, values)}
+          onKeepItem={() => keepItemValues(r)}
           editRef={refFor(`edit:${r.row.id}`)}
         />
       )}
