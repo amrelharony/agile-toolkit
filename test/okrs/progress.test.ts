@@ -318,6 +318,22 @@ describe("replacesUndated", () => {
     expect(replacesUndated(checked, ci("x", "2026-09-15", 20, 3), TODAY)).toBeNull();
   });
 
+  it("is null when the current it replaces is the baseline a new key result starts at", () => {
+    // Made on the page: baseline 18 → target 40, current 18, no check-in yet.
+    // Last Friday's 20, backdated, replaces nothing anyone typed.
+    const fresh = kr({ baseline: 18, target: 40, current: 18, checkIns: [] });
+    expect(replacesUndated(fresh, ci("x", "2026-10-30", 20), TODAY)).toBeNull();
+    // As the intent writes one: counted from 0, current 0.
+    const intent = kr({ baseline: 0, target: 1, current: 0, checkIns: [] });
+    expect(replacesUndated(intent, ci("x", "2026-10-30", 1), TODAY)).toBeNull();
+    // A current set apart from the baseline (workspace.okr.update) still counts.
+    const typed = kr({ baseline: 18, target: 40, current: 25, checkIns: [] });
+    expect(replacesUndated(typed, ci("x", "2026-10-30", 20), TODAY)).toEqual({
+      current: 25,
+      confidence: null,
+    });
+  });
+
   it("names a typed confidence the first scored check-in replaces under unscored ones", () => {
     const unscored = withCheckIn(legacy, ci("a", "2026-10-20", 45));
     expect(replacesUndated(unscored, ci("x", "2026-09-15", 20, 3), TODAY)).toEqual({

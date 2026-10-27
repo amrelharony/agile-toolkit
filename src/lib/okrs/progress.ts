@@ -320,7 +320,11 @@ export interface UndatedReplaced {
  * before Phase 8, whose `current` is the latest known). The check-in is
  * still recorded; the page and tool.okrs.check_in say what it replaced, so
  * the user can check in today's value if the typed one was newer. Only a
- * different value counts.
+ * different value counts, and a `current` equal to the baseline is where
+ * the key result starts (every new one does: the page, the intent and a
+ * baseline edit set it there), not a reading anyone typed, so replacing it
+ * rolls nothing back. A row with no baseline (from before Phase 8) has no
+ * start to tell apart: its `current` is always the typed one.
  */
 export function replacesUndated(
   kr: KeyResult,
@@ -329,8 +333,14 @@ export function replacesUndated(
 ): UndatedReplaced | null {
   if (!readable(c) || c.date >= today) return null;
   const list = kr.checkIns ?? [];
+  const base = krBaseline(kr);
   const current =
-    !list.some(readable) && finite(kr.current) && kr.current !== c.value ? kr.current : null;
+    !list.some(readable) &&
+    finite(kr.current) &&
+    kr.current !== c.value &&
+    (base === null || kr.current !== base)
+      ? kr.current
+      : null;
   const confidence =
     isConfidence(c.confidence) &&
     isConfidence(kr.confidence) &&

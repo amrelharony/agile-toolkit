@@ -698,6 +698,16 @@ describe("check-ins", () => {
     expect(storedKr("o1", "kr_a")).toEqual(LEGACY_OKR.keyResults[0]);
   });
 
+  it("a backdated first check-in on a new key result replaces only its baseline, so says nothing", () => {
+    setup(kr("k1", { title: "Signups", baseline: 18, target: 40, current: 18, checkIns: [] }));
+    fireEvent.change(screen.getByLabelText(/^Day/), { target: { value: "2026-10-23" } });
+    fireEvent.change(screen.getByLabelText("Value for Signups"), { target: { value: "20" } });
+    submit(screen.getByLabelText("Value for Signups"));
+    expect(storedKr("o1", "k1")?.current).toBe(20);
+    expect(lastToast()[0]).toBe("Checked in “Signups”");
+    expect((lastToast()[1] as { description?: string }).description).toBeUndefined();
+  });
+
   it("an objective reaching its target plays okr-achieved once", () => {
     setup(
       kr("k1", {

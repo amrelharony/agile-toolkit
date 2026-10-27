@@ -392,6 +392,29 @@ describe("tool.okrs.check_in", () => {
     ).toMatchObject({ recorded: true, current: 40, replacedUndated: null });
   });
 
+  it("says nothing was replaced when a backdated first check-in moves a new key result off its baseline", async () => {
+    // start() is a key result as the page and create_okr_for_sprint make
+    // one: current at its baseline (0), no check-in yet.
+    seed({ okrs: [start()] });
+    const params = { okrId: "o1", keyResultId: "k1", value: 20, date: "2026-10-30" };
+    for (const read of [call, callMcp]) {
+      expect(await read("check_in", params)).toMatchObject({
+        recorded: true,
+        current: 20,
+        replacedUndated: null,
+      });
+    }
+    seed({ okrs: [start()] });
+    expect(
+      await call("update_key_result", {
+        okrId: "o1",
+        keyResultId: "k1",
+        current: 20,
+        date: "2026-10-30",
+      })
+    ).toMatchObject({ updated: true, current: 20, replacedUndated: null });
+  });
+
   it("refuses a future day, an unknown key result, and one older than a full history", async () => {
     const full: Okr = {
       ...start(),
