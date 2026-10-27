@@ -330,7 +330,7 @@ describe("hypothesis-tracker", () => {
         id: "hypothesis-tracker-needs-detail",
         label: "Finish the 2 drafted hypotheses",
         detail:
-          "“Belief h1” still needs what you'll do and a success metric before it can run, and 1 other draft needs detail too. The “Needs detail” filter lists them all.",
+          "“Belief h1” still needs what we'll do and the success metric before it can run, and 1 other draft needs detail too. The “Needs detail” filter lists them all.",
         href: "/hypothesis-tracker",
       },
     ]);

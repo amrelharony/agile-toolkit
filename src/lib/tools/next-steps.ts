@@ -189,13 +189,8 @@ import { BUY_A_FEATURE_ID } from "@/lib/stores/workspace-types";
 import { CHECK_IN_STALE_DAYS, daysSinceCheckIn, quarterPace } from "@/lib/okrs/progress";
 import { realResponses } from "@/lib/nps/score";
 import { RECENT_DAYS, hypothesisTag, recentResponses } from "@/app/(tools)/nps-csat/tags";
-import {
-  formatMetric,
-  linkedTest,
-  missingFields,
-  suggestVerdict,
-  type MissingField,
-} from "@/lib/hypotheses/model";
+import { formatMetric, linkedTest, missingFields, suggestVerdict } from "@/lib/hypotheses/model";
+import { missingText } from "@/app/(tools)/hypothesis-tracker/view";
 import { RA_ID, rankAssumptions, ratingOf } from "@/lib/assumptions/model";
 import { nodeTitle, outcomeOf, treeNodes } from "@/lib/opportunity-tree/model";
 import {
@@ -875,12 +870,6 @@ const LARGE_PR_SHARE = 0.25;
 
 /** Large PRs this many times slower to merge than small ones are worth naming (as reviewVerdict does). */
 const LARGE_PR_SLOWER = 1.5;
-
-/** What a hypothesis still needs, as the tracker's form names it. */
-const MISSING_LABEL: Record<MissingField, string> = {
-  willDo: "what you'll do",
-  successMetric: "a success metric",
-};
 
 /** What to do on the tree once an experiment's hypothesis has its result. */
 const RESULT_NEXT: Record<"validated" | "invalidated" | "inconclusive", string> = {
@@ -3398,7 +3387,7 @@ const RULES: Record<string, NextStepRule<object>> = {
         steps.push({
           id: "hypothesis-tracker-needs-detail",
           label: n === 1 ? "Finish the drafted hypothesis" : `Finish the ${n} drafted hypotheses`,
-          detail: `${quote(clip(draft.believe), "An untitled hypothesis")} still needs ${listAnd(missingFields(draft).map((f) => MISSING_LABEL[f]))} before it can run${more}. The “Needs detail” filter lists ${n === 1 ? "it" : "them all"}.`,
+          detail: `${quote(clip(draft.believe), "An untitled hypothesis")} still needs ${missingText(missingFields(draft))} before it can run${more}. The “Needs detail” filter lists ${n === 1 ? "it" : "them all"}.`,
           href: "/hypothesis-tracker",
         });
       }
