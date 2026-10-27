@@ -236,10 +236,39 @@ describe("bounds", () => {
       ...ALLOCATION_ROUND,
       items: [{ ...item, bands: [0, -1, 0, 0, 0] }],
     });
-    rejects("workspace.allocation_round", {
+  });
+
+  it("an allocation round counted on paper keeps more than 20 items through create and update", async () => {
+    // The 20-item limit is the live round's: a count entry or record_round
+    // saves a round of 24 paper splits, and the CRUD must take it back.
+    const paper = {
       ...ALLOCATION_ROUND,
-      items: Array.from({ length: 21 }, (_, i) => ({ ...item, itemId: `i${i}` })),
-    });
+      id: "allocationRound_paper24",
+      roundId: "tally-paper",
+      source: "facilitator" as const,
+      spreadKnown: false,
+      ballots: 5,
+      items: Array.from({ length: 24 }, (_, i) => ({
+        itemId: `prio_${i}`,
+        text: `Item ${i + 1}`,
+        total: 20,
+        backers: null,
+        bands: null,
+      })),
+    };
+    const parsed = parseCreate("workspace.allocation_round", paper);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    await createViaTransport("workspace.allocation_round", paper);
+    await createViaTransport("workspace.allocation_round", paper, true);
+    expect(upsertEntity).toHaveBeenCalledTimes(1);
+    const result = await action("workspace.allocation_round.update").handler(
+      { id: paper.id, patch: { date: "2026-10-21" } },
+      makeContext("u", "agent")
+    );
+    expect(result).toEqual({ updated: true });
+    expect(useWorkspaceStore.getState().allocationRounds).toEqual([
+      { ...paper, date: "2026-10-21" },
+    ]);
   });
 
   it("an allocation round keeps the kit's record rules", () => {

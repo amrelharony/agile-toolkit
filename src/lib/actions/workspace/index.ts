@@ -2300,10 +2300,14 @@ const AllocationRoundSchema = z
             ),
         })
       )
-      // The kit's sheets hold 2 to 20 items.
+      // Two items at least, as on every sheet. The 20-item limit is the
+      // live round's only (VOTE_LIMITS.maxAllocationItems): a round counted
+      // on paper or typed in, and saved by the page or record_round, can
+      // hold more, so no maximum here.
       .min(2)
-      .max(20)
-      .describe("Aggregates per item only, never anyone's split."),
+      .describe(
+        "Aggregates per item only, never anyone's split. 2 items at least; a live round holds up to 20, one counted on paper or typed in can hold more."
+      ),
   })
   .superRefine((r, ctx) =>
     checkAllocationRound(r as AllocationRound, ctx)
