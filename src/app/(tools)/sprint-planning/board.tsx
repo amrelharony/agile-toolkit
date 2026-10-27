@@ -23,6 +23,7 @@ import { ExportButton } from "@/components/shared/export-button";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
 import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
@@ -336,7 +337,12 @@ export function PlanningBoard({
 
   const importFromBacklog = () => {
     if (candidates.length === 0) return;
-    const created = candidates.map((item) => storyFromBacklogItem(item, `story_${nanoid(8)}`));
+    // With the method rows, so an item whose WSJF only a row linked before
+    // Phase 7 holds imports with that score, as the hub shows it.
+    const rows = useWorkspaceStore.getState().prioritizations ?? [];
+    const created = candidates.map((item) =>
+      storyFromBacklogItem(item, `story_${nanoid(8)}`, rows)
+    );
     undoable({
       label: `${storiesCount(created.length)} imported from the backlog`,
       // The backlog lists them in the shared order (compareBacklogOrder): say which.

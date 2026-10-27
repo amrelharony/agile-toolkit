@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { OLD_BACKLOG_DEFAULTS } from "@/lib/prioritization/defaults";
 
 /**
  * Sprint Planning's upgrade to the tool UX contract: stories a closed
@@ -853,6 +854,35 @@ describe("Sprint Planning page", () => {
     const [label, opts] = toastSpy.mock.calls.at(-1)!;
     expect(label).toBe("2 stories imported from the backlog");
     expect(opts.description).toBe("Ordered in the backlog's decided order, then by priority.");
+  });
+
+  it("imports an item whose WSJF only a row linked before Phase 7 holds with that score", () => {
+    // The item still holds the old Add item defaults (WSJF 5/5/5/5, never
+    // saved by the new code); its WSJF row was re-scored in the old tool.
+    useWorkspaceStore.setState({
+      backlogItems: [
+        {
+          ...OLD_BACKLOG_DEFAULTS,
+          id: "i-legacy",
+          name: "Saved filters",
+        } as never,
+      ],
+      prioritizations: [
+        {
+          id: "w-legacy",
+          framework: "wsjf",
+          title: "Saved filters",
+          fields: { businessValue: 8, timeCriticality: 3, rrOe: 2, jobSize: 1 },
+          status: "scored",
+          updatedAt: "2026-09-01T09:00:00.000Z",
+          backlogItemId: "i-legacy",
+        },
+      ],
+    });
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Import from the backlog (1)" }));
+    const pulled = state().stories.find((s) => s.title === "Saved filters");
+    expect(pulled?.priorityScore).toBe(13);
   });
 
   it("says an import of items not ordered yet is by priority", () => {
