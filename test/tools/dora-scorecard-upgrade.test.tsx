@@ -231,11 +231,16 @@ describe("quarters in the dash form", () => {
 
 describe("samples", () => {
   it("orders by quarter, unreadable ones last, and reads the latest by quarter", () => {
-    const list = [s("c", "2026-Q2"), s("x", "Q1 2026"), s("a", "2025-Q4"), s("b", "2026 Q1")];
+    const list = [s("c", "2026-Q2"), s("x", "Spring 2026"), s("a", "2025-Q4"), s("b", "2026 Q1")];
     expect(sortSamples(list).map((x) => x.id)).toEqual(["a", "b", "c", "x"]);
     // The agent used to report the last added; the page the latest quarter.
     expect(latestSample(list)?.id).toBe("c");
-    expect(latestSample([s("x", "Q1 2026")])).toBeNull();
+    expect(latestSample([s("x", "Spring 2026")])).toBeNull();
+    // Since Phase 8 the year may follow the quarter (lib/roadmap/quarters).
+    expect(sortSamples([s("c", "2026-Q2"), s("y", "Q1 2026")]).map((x) => x.id)).toEqual([
+      "y",
+      "c",
+    ]);
   });
 
   it("reads old or odd stored lists without crashing", () => {
@@ -334,7 +339,9 @@ describe("the draft", () => {
       changeFailRatePct: "7",
       leadTimeHours: "48",
     });
-    expect(draftFrom(s("a", "Q1 2026")).quarter).toBe("");
+    expect(draftFrom(s("a", "Spring 2026")).quarter).toBe("");
+    // "Qn YYYY" reads as a quarter since Phase 8, so it shows as the dash form too.
+    expect(draftFrom(s("a", "Q1 2026")).quarter).toBe("2026-Q1");
   });
 
   it("fills only what the data could give, keeping what was typed", () => {
