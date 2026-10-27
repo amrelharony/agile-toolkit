@@ -166,6 +166,46 @@ describe("tool.value_effort_matrix.set_position", () => {
     expect(saved.updatedAt).toBeTruthy();
   });
 
+  it("clears the value with clearBacklog even while WSJF's other parts are set", async () => {
+    const wsjfToo = item("b1", {
+      businessValue: 8,
+      timeCriticality: 8,
+      riskReduction: 3,
+      jobSize: 5,
+      matrixEffort: 3,
+      updatedAt: STAMP,
+    });
+    const linked = row("a", { businessValue: 8, effort: 3 }, "b1");
+    for (const [run, stored] of [
+      [browser, storedItem],
+      [mcp, serverItem],
+    ] as const) {
+      useWorkspaceStore.setState({ backlogItems: [wsjfToo], prioritizations: [linked] });
+      server.rows.set("workspace:backlogItem/b1", wsjfToo);
+      server.rows.set("workspace:prioritization/a", linked);
+      const r = await run<{ backlogUpdated: string[] }>("tool.value_effort_matrix.set_position", {
+        id: "a",
+        value: null,
+        effort: null,
+        clearBacklog: true,
+      });
+      expect(r.backlogUpdated.sort()).toEqual(["businessValue", "matrixEffort"]);
+      const saved = stored("b1")!;
+      expect(saved).not.toHaveProperty("businessValue");
+      expect(saved).not.toHaveProperty("matrixEffort");
+      // WSJF's other parts stay; WSJF now waits for a business value.
+      expect(saved).toMatchObject({ timeCriticality: 8, riskReduction: 3, jobSize: 5 });
+    }
+    // Without it, the value stays while WSJF uses it, as the page does.
+    useWorkspaceStore.setState({ backlogItems: [wsjfToo], prioritizations: [linked] });
+    const kept = await browser<{ backlogUpdated: string[] }>(
+      "tool.value_effort_matrix.set_position",
+      { id: "a", value: null, effort: null }
+    );
+    expect(kept.backlogUpdated).toEqual(["matrixEffort"]);
+    expect(storedItem("b1")?.businessValue).toBe(8);
+  });
+
   it("names an unknown id", async () => {
     await expect(
       browser("tool.value_effort_matrix.set_position", { id: "gone", value: null, effort: null })

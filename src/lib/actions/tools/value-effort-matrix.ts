@@ -350,7 +350,7 @@ const SetPositionSchema = z
       .boolean()
       .optional()
       .describe(
-        "Un-placing a row linked to a backlog item clears only the item's effort (matrixEffort), as the page does: its value stays, because businessValue is also WSJF's business value. Pass true to clear the item's value too."
+        "Un-placing a row linked to a backlog item clears only the item's effort (matrixEffort), as the page does: its value stays, because businessValue is also WSJF's business value. Pass true to clear the item's value too, even while WSJF's other parts are set."
       ),
   })
   .refine((p) => (p.value === null) === (p.effort === null), {
@@ -390,8 +390,11 @@ const setPosition = async (store: MethodStore, params: z.infer<typeof SetPositio
     // page's itemSaveBase), from the rows as they were before this write.
     const legacy = savedByEngine(item) ? undefined : await store.rows();
     const base = legacy ? withLegacyLinks(item, legacy) : item;
-    // A linked row reads through to its item: what it clears goes there too.
-    const changes = itemPatchChanges(base, ownedPatch(FRAMEWORK, values, clearedKeys(values)));
+    // A linked row reads through to its item: what it clears goes there
+    // too. clearBacklog clears the value although WSJF still uses it.
+    const changes = itemPatchChanges(base, ownedPatch(FRAMEWORK, values, clearedKeys(values)), {
+      keepSharedValue: !params.clearBacklog,
+    });
     backlogUpdated = Object.keys(changes);
     if (backlogUpdated.length > 0) {
       // Its first save stamps it: the legacy rows that disagree with it
