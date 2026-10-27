@@ -9,12 +9,9 @@ import { Progress } from "@/components/ui/progress";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { usePersistedLocal } from "@/lib/utils/use-persisted";
 import { emit } from "@/lib/sonification/emit";
-import {
-  COMIC_ID,
-  COMIC_LAST_PAGE_KEY,
-  COMIC_LAYOUT_KEY,
-  COMIC_TITLE,
-} from "@/lib/comic/agile-at-work";
+import { COMIC_ID, COMIC_LAYOUT_KEY, COMIC_TITLE } from "@/lib/comic/agile-at-work";
+import type { ComicContent } from "@/lib/comic/content";
+import { resumablePage } from "@/lib/comic/last-page";
 import {
   clampPage,
   fitScale,
@@ -36,8 +33,13 @@ import { useRenderedPages } from "../hooks/use-rendered-page";
 import { usePageSwipe, useIsZoomed, useSettledZoom } from "../hooks/use-page-swipe";
 import { useBodyScrollLock, useFullscreen, useInertSiblings } from "../hooks/use-fullscreen";
 import { useElementSize } from "../hooks/use-element-size";
+import { useLastPage } from "../hooks/use-last-page";
+import { useLiveLabel, useReaderComic } from "../hooks/use-comic-content";
 import { ReaderToolbar, type LayoutMode } from "./reader-toolbar";
 import { ComicComingSoon, ComicErrorPanel } from "./comic-status";
+import { ReaderPanels } from "./reader-panels";
+import { PageDescriptions } from "./page-descriptions";
+import { ChapterToolsCard } from "./chapter-tools";
 
 const LAYOUT_MODES: readonly LayoutMode[] = ["auto", "single", "spread"];
 /** Space between the stage edge and the pages (includes the 1 px border). */
@@ -56,24 +58,6 @@ const STAGE_HEIGHT = [
   "xl:h-[calc(100vh-17rem)] xl:supports-[height:100dvh]:h-[calc(100dvh-17rem)]",
 ].join(" ");
 
-function readLastPage(): number | null {
-  try {
-    const raw = localStorage.getItem(COMIC_LAST_PAGE_KEY);
-    const page = raw === null ? NaN : Number(JSON.parse(raw));
-    return Number.isInteger(page) && page >= 1 ? page : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLastPage(page: number): void {
-  try {
-    localStorage.setItem(COMIC_LAST_PAGE_KEY, JSON.stringify(page));
-  } catch {
-    // Private mode / quota — resuming is a nicety, not a requirement.
-  }
-}
-
 /** Largest w × h (CSS px) of the given aspect ratio that fits the box. */
 function containSize(aspect: number, boxW: number, boxH: number): { w: number; h: number } {
   if (!(aspect > 0) || !(boxW > 0) || !(boxH > 0)) return { w: 0, h: 0 };
@@ -85,25 +69,38 @@ function containSize(aspect: number, boxW: number, boxH: number): { w: number; h
  * The "Agile at Work" reader: opens the PDF, then hands a loading or ready
  * document to the view. A missing file falls back to "coming soon"; any
  * other failure shows Retry + Download.
+ *
+ * `content` (transcripts and chapters) defaults to the shipped file,
+ * lib/comic/agile-at-work-content.ts, loaded on demand.
  */
-export function ComicReader({ src, size }: { src: string; size: number | null }) {
+export function ComicReader({
+  src,
+  size,
+  content,
+}: {
+  src: string;
+  size: number | null;
+  content?: ComicContent;
+}) {
   const pdf = usePdfDocument(src);
   if (pdf.status === "error") {
     if (pdf.kind === "missing") return <ComicComingSoon />;
     return <ComicErrorPanel kind={pdf.kind} onRetry={pdf.retry} src={src} size={size} />;
   }
   // Same element for loading and ready, so the stage never remounts.
-  return <ReaderView pdf={pdf} src={src} size={size} />;
+  return <ReaderView pdf={pdf} src={src} size={size} content={content} />;
 }
 
 function ReaderView({
   pdf,
   src,
   size,
+  content,
 }: {
   pdf: Exclude<PdfDocumentState, { status: "error" }>;
   src: string;
   size: number | null;
+  content: ComicContent | undefined;
 }) {
   const doc = pdf.status === "ready" ? pdf.doc : null;
   const numPages = pdf.status === "ready" ? pdf.numPages : 0;
@@ -144,8 +141,10 @@ function ReaderView({
   const atStart = view[0] <= 1;
   const atEnd = view[view.length - 1] >= total;
   const [resumePage, setResumePage] = useState<number | null>(null);
+  const [savedPage, saveLastPage] = useLastPage();
   const [hashReady, setHashReady] = useState(false);
   const navigatedRef = useRef(false);
+  const comic = useReaderComic({ content, numPages, view });
 
   const goTo = useCallback(
     (target: number) => {
@@ -167,6 +166,14 @@ function ReaderView({
   const goPrev = useCallback(() => {
     if (!atStart) goTo(prevView(page, total, spread)[0]);
   }, [atStart, goTo, page, total, spread]);
+  // From the contents: the chosen entry closes, so focus goes to the stage.
+  const jumpTo = useCallback(
+    (target: number) => {
+      goTo(target);
+      stageRef.current?.focus();
+    },
+    [goTo]
+  );
 
   // ── Deep link (#page=N) and resume ───────────────────────────────────
   useEffect(() => {
@@ -176,12 +183,13 @@ function ReaderView({
       navigatedRef.current = true;
       setPage(fromHash);
     } else {
-      // Offer, don't jump: a fresh visit should open on the cover.
-      const saved = readLastPage();
-      if (saved !== null && saved > 1 && saved <= numPages) setResumePage(saved);
+      // Offer, don't jump: a fresh visit should open on the cover. The saved
+      // page is read in a mount effect, which runs before the PDF can open.
+      const saved = resumablePage(savedPage, numPages);
+      if (saved !== null) setResumePage(saved);
     }
     setHashReady(true);
-  }, [numPages, hashReady]);
+  }, [numPages, hashReady, savedPage]);
 
   useEffect(() => {
     if (!hashReady) return;
@@ -212,9 +220,9 @@ function ReaderView({
 
   useEffect(() => {
     if (!navigatedRef.current || !numPages) return;
-    const timer = setTimeout(() => writeLastPage(page), 500);
+    const timer = setTimeout(() => saveLastPage(page), 500);
     return () => clearTimeout(timer);
-  }, [page, numPages]);
+  }, [page, numPages, saveLastPage]);
 
   // Gamification hook (tool:agile-at-work:finished), once per visit.
   const finishedRef = useRef(false);
@@ -309,6 +317,7 @@ function ReaderView({
 
   // ── View ─────────────────────────────────────────────────────────────
   const label = numPages ? pageLabel(view, numPages) : "";
+  const liveLabel = useLiveLabel(label, comic.chapter);
   const loadProgress = pdf.status === "loading" ? 5 + Math.round(70 * (pdf.progress ?? 0)) : 85;
   // Off while a page shows its "Try again" button, which a zone could cover.
   const tapZonesOn = numPages > 0 && !zoomed && failed.size === 0;
@@ -371,7 +380,8 @@ function ReaderView({
                     // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/no-noninteractive-element-interactions
                     <img
                       src={url}
-                      alt={`${COMIC_TITLE} — page ${p} of ${numPages}`}
+                      alt={comic.alt(p)}
+                      aria-describedby={comic.descriptionId(p)}
                       decoding="async"
                       draggable={false}
                       onLoad={() => setFirstShown(true)}
@@ -407,6 +417,7 @@ function ReaderView({
             })}
           </motion.div>
         </AnimatePresence>
+        <PageDescriptions comic={comic} />
 
         {/* Tap zones: left/right 30% turn pages. Hidden from AT — the toolbar
             buttons and arrow keys are the accessible route. Off while
@@ -483,7 +494,7 @@ function ReaderView({
         )}
 
         <p className="sr-only" aria-live="polite" aria-atomic="true">
-          {label}
+          {liveLabel}
         </p>
       </div>
 
@@ -502,6 +513,14 @@ function ReaderView({
         src={src}
         size={size}
       />
+      <ReaderPanels
+        comic={comic}
+        view={view}
+        numPages={numPages}
+        isFullscreen={isFullscreen}
+        onJump={jumpTo}
+      />
+      {!isFullscreen && <ChapterToolsCard chapter={comic.chapter} />}
     </div>
   );
 
