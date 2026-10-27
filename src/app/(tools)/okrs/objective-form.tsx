@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Check, Plus } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ export function ObjectiveForm({
   submitLabel,
   quarters,
   offerAddToRoster = true,
+  autoFocus = false,
 }: {
   initial: ObjectiveDraft;
   onSave: (values: ObjectiveValues) => void;
@@ -37,6 +39,8 @@ export function ObjectiveForm({
   quarters: readonly string[];
   /** Offer "Add to the team" for a name off the roster; never on an example objective. */
   offerAddToRoster?: boolean;
+  /** Opened by a click (New objective, Edit): focus the objective's words. Never on page load. */
+  autoFocus?: boolean;
 }) {
   const form = useItemForm<ObjectiveDraft, ObjectiveValues, ObjectiveField>({
     initial,
@@ -44,7 +48,10 @@ export function ObjectiveForm({
     onSave,
     resetOnSave: !onCancel,
   });
-  const { draft, update, errors } = form;
+  const { draft, update, errors, formRef } = form;
+  useEffect(() => {
+    if (autoFocus) formRef.current?.querySelector<HTMLElement>("input")?.focus();
+  }, [autoFocus, formRef]);
   return (
     <ItemForm
       form={form}

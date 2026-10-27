@@ -1,17 +1,19 @@
 /**
- * The "Confidence over time" chart in words, from lib/okrs confidenceTrend:
- * one point per day a check-in scored confidence. Pure, so the summary and
- * table render before the chart's chunk loads.
+ * The "Progress over time" and "Confidence over time" charts in words, from
+ * the page's progressTrend (one point per check-in day) and lib/okrs
+ * confidenceTrend (one per day a check-in scored confidence). Pure, so the
+ * summary and table render before the chart's chunk loads.
  */
 
 import { cell, fmt, move, plural, type ChartText } from "@/lib/charts/chart-text";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import type { ConfidencePoint } from "@/lib/okrs/progress";
+import type { ProgressPoint } from "./progress";
 
 /**
- * Check-in days before the confidence line is drawn: three, the fewest
- * means MIN_SAMPLE counts as worth quoting. Fewer, and the verdict's
- * "down from 8 since 3 Oct" says it better than a line would.
+ * Check-in days before a trend line is drawn: three, the fewest means
+ * MIN_SAMPLE counts as worth quoting. Fewer, and the verdict's "down from 8
+ * since 3 Oct" says it better than a line would.
  */
 export const CHART_MIN_DAYS = MIN_SAMPLE.average;
 
@@ -35,6 +37,30 @@ export function dayLabel(iso: string): string {
   return m >= 1 && m <= 12
     ? `${Number(iso.slice(8, 10))} ${months[m - 1]} ${iso.slice(0, 4)}`
     : iso;
+}
+
+export function progressTrendText(points: readonly ProgressPoint[]): ChartText {
+  const show = (v: number) => `${v}%`;
+  let summary: string;
+  if (points.length === 0) summary = "No check-in yet.";
+  else if (points.length === 1)
+    summary = `Progress was ${show(points[0].pct)} on ${dayLabel(points[0].date)}.`;
+  else {
+    const first = points[0];
+    const last = points[points.length - 1];
+    summary = `Progress ${move(first.pct, last.pct, show)} over ${plural(
+      points.length,
+      "check-in day"
+    )}, ${dayLabel(first.date)} to ${dayLabel(last.date)}.`;
+  }
+  return {
+    summary,
+    table: {
+      caption: "Objective progress (the mean of its key results'), by check-in day",
+      columns: ["Day", "Progress", "Key results checked in"],
+      rows: points.map((p) => [dayLabel(p.date), show(p.pct), p.checkedIn]),
+    },
+  };
 }
 
 export function confidenceTrendText(points: readonly ConfidencePoint[]): ChartText {

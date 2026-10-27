@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId } from "react";
 import { Check, Plus } from "lucide-react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import {
   DESCRIPTION_MAX,
   TITLE_MAX,
   UNIT_MAX,
+  needsBaseline,
   validateKeyResult,
   type KeyResultDraft,
   type KeyResultField,
@@ -32,7 +33,8 @@ const DIRECTIONS: { value: KeyResultDirection; label: string; description: strin
  * direction starts unset (no silent "increase"), and the target is checked
  * against the baseline and the direction as they're typed once a save has
  * been tried. A key result saved before baselines existed may keep none
- * (`requireBaseline` false): its progress still counts from 0.
+ * (`requireBaseline` false) while it goes up: its progress still counts
+ * from 0. Going down, it needs one (forms needsBaseline).
  */
 export function KeyResultForm({
   initial,
@@ -40,12 +42,18 @@ export function KeyResultForm({
   onCancel,
   submitLabel,
   requireBaseline = true,
+  autoFocus = false,
 }: {
   initial: KeyResultDraft;
   onSave: (values: KeyResultValues) => void;
   onCancel?: () => void;
   submitLabel: string;
   requireBaseline?: boolean;
+  /**
+   * Opened by a click (Edit, Add key result): focus the title, as the
+   * control that opened the form went with the row it replaced.
+   */
+  autoFocus?: boolean;
 }) {
   const form = useItemForm<KeyResultDraft, KeyResultValues, KeyResultField>({
     initial,
@@ -53,10 +61,14 @@ export function KeyResultForm({
     onSave,
     resetOnSave: !onCancel,
   });
-  const { draft, update, errors } = form;
+  const { draft, update, errors, formRef } = form;
+  useEffect(() => {
+    if (autoFocus) formRef.current?.querySelector<HTMLElement>("input")?.focus();
+  }, [autoFocus, formRef]);
   const directionErrorId = useId();
   const up = draft.direction === "increase";
   const down = draft.direction === "decrease";
+  const baselineNeeded = needsBaseline(draft.direction, requireBaseline);
   return (
     <ItemForm
       form={form}
@@ -105,9 +117,9 @@ export function KeyResultForm({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Field
           label="Baseline"
-          hint={requireBaseline ? "Where it starts." : "Blank: counted from 0, as before."}
+          hint={baselineNeeded ? "Where it starts." : "Blank: counted from 0, as before."}
           error={errors.baseline}
-          required={requireBaseline}
+          required={baselineNeeded}
         >
           {(props) => (
             <Input

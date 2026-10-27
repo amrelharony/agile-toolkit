@@ -143,7 +143,35 @@ describe("tool.okrs.list_state", () => {
     const r = await call<{ total: number; overallProgressPct: number; items: unknown[] }>(
       "list_state"
     );
-    expect(r).toEqual({ total: 0, overallProgressPct: 0, items: [] });
+    expect(r).toEqual({
+      total: 0,
+      overallProgressPct: 0,
+      measuredObjectives: 0,
+      measuredProgressPct: null,
+      items: [],
+    });
+  });
+
+  it("measures only objectives with a key result, as the page's headline does (both transports)", async () => {
+    // o1 at 50%; o2 has no key result: overall 25 counts it as 0, measured reads 50.
+    seed({ okrs: [okr("o1", [{ id: "k1", target: 100, current: 50 }]), okr("o2", [])] });
+    for (const read of [call, callMcp]) {
+      const r = await read<{
+        overallProgressPct: number;
+        measuredObjectives: number;
+        measuredProgressPct: number | null;
+      }>("list_state");
+      expect(r).toMatchObject({
+        overallProgressPct: 25,
+        measuredObjectives: 1,
+        measuredProgressPct: 50,
+      });
+    }
+    seed({ okrs: [okr("o3", [])] });
+    expect(await call("list_state")).toMatchObject({
+      measuredObjectives: 0,
+      measuredProgressPct: null,
+    });
   });
 
   it("computes per-OKR and overall progress", async () => {

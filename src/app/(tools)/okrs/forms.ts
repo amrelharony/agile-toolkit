@@ -167,12 +167,21 @@ export function keyResultDraft(kr: KeyResult): KeyResultDraft {
 }
 
 /**
+ * Whether a key result's form needs a baseline: always on a new one, and on
+ * any that goes down. A key result saved before baselines existed may keep
+ * none while it goes up (progress counts from 0, as it always did); going
+ * down with no start, lib/okrs can only read it as 0% until it reaches the
+ * target and 100% after, so a 30%-of-the-way key result would jump to done.
+ */
+export const needsBaseline = (direction: KeyResultDirection | null, requireBaseline: boolean) =>
+  requireBaseline || direction === "decrease";
+
+/**
  * Check a key result. Title, direction and target are required, and so is
- * the baseline on a new one (`requireBaseline`). A key result saved before
- * baselines existed may keep none: left blank, progress still counts from 0
- * as it always did. With a baseline, the target must differ from it and
- * sit on the side the direction says: an "increase" target below its
- * baseline would read as done at once.
+ * the baseline on a new one (`requireBaseline`) or one that goes down (see
+ * needsBaseline). With a baseline, the target must differ from it and sit
+ * on the side the direction says: an "increase" target below its baseline
+ * would read as done at once.
  */
 export function validateKeyResult(
   d: KeyResultDraft,
@@ -189,6 +198,8 @@ export function validateKeyResult(
   if (!d.direction) errors.direction = "Pick whether the number should go up or down.";
   if (baseline === undefined) {
     if (requireBaseline) errors.baseline = "Enter the value it starts from.";
+    else if (d.direction === "decrease")
+      errors.baseline = "To go down, enter the value it starts from: progress is measured from it.";
   } else if (!Number.isFinite(baseline)) errors.baseline = "Enter a number.";
   if (target === undefined) errors.target = "Enter the value to reach.";
   else if (!Number.isFinite(target)) errors.target = "Enter a number.";

@@ -10,12 +10,11 @@ import {
   lastCheckIn,
   objectivePercent,
   okrVerdict,
-  overallProgress,
   sprintGoalsFor,
 } from "@/lib/okrs/progress";
 import { GOAL_OUTCOME_LABEL } from "@/lib/sprints/goal-doc";
-import { fmt } from "@/lib/charts/chart-text";
-import { quarterKey } from "./view";
+import { fmt, plural } from "@/lib/charts/chart-text";
+import { measuredObjectives, measuredProgressPct, quarterKey } from "./view";
 import { dayLabel } from "./chart-text";
 
 /** "18 Oct 2026" */
@@ -71,18 +70,26 @@ export function toMarkdown(
   if (okrs.length === 0) return `${title}\n\nNo objectives yet.\n`;
 
   const krCount = okrs.reduce((n, o) => n + o.keyResults.length, 0);
+  // Only objectives with a key result are measured; the rest are named, never averaged in as 0%.
+  const pct = measuredProgressPct(okrs);
+  const measured = measuredObjectives(okrs).length;
+  const unmeasured = okrs.length - measured;
   const lines = [
     title,
     "",
-    `**${Math.round(overallProgress(okrs) * 100)}% average progress** across ${okrs.length} objective${
-      okrs.length === 1 ? "" : "s"
-    } and ${krCount} key result${krCount === 1 ? "" : "s"}.`,
+    pct === null
+      ? `**Not measured yet**: ${plural(okrs.length, "objective")}, no key results.`
+      : `**${pct}% average progress** across ${plural(measured, "objective")} and ${plural(
+          krCount,
+          "key result"
+        )}${unmeasured > 0 ? `; ${unmeasured} more with no key results yet` : ""}.`,
   ];
 
   for (const o of okrs) {
     const name = oneLine(o.objective) || "Untitled objective";
     const quarter = quarterKey(o.quarter);
-    lines.push("", `## ${name} (${quarter}) — ${objectivePercent(o)}%`);
+    const reading = o.keyResults.length > 0 ? `${objectivePercent(o)}%` : "not measured yet";
+    lines.push("", `## ${name} (${quarter}) — ${reading}`);
     const meta = [o.owner && `Owner: ${oneLine(o.owner)}`, o.description && oneLine(o.description)]
       .filter(Boolean)
       .join(". ");

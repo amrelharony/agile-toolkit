@@ -165,9 +165,14 @@ async function listState(store: OkrStore) {
   const real = okrs.filter((o) => !isExampleId(o.id));
   const now = new Date();
   const today = todayLocalISO(now);
+  // The page's headline: only objectives with a key result are measured, so
+  // one with none isn't averaged in as 0% (as the health dashboard reads it).
+  const measured = real.filter((o) => (o.keyResults ?? []).length > 0);
   return {
     total: real.length,
     overallProgressPct: Math.round(overallProgress(real) * 100),
+    measuredObjectives: measured.length,
+    measuredProgressPct: measured.length > 0 ? Math.round(overallProgress(measured) * 100) : null,
     items: real.map((o) => okrView(o, goals, sprints, now, today)),
   };
 }
@@ -178,7 +183,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List the team's OKRs as the OKR page reads them. Returns {total, overallProgressPct (the mean of each objective's progress), items: {id, objective, description, quarter ('2026 Q4' however it was stored; text that isn't a quarter as stored), owner | null, progressPct (mean of its key results'), confidence (mean of the scored key results', 0-10) | null, verdict (one sentence: progress against the days gone in its quarter, confidence and its direction), confidenceTrend: {date, confidence, scored}[] (per day a check-in scored confidence: the mean of each key result's latest score by then, a key result scored without a dated check-in counting on every day),linkedSprintGoals: {goalId, sprintId | null (null: the draft goal), sprintName, goal, met?: 'met' | 'partly' | 'not-met'}[] (Sprint Goal writes these links), keyResults: {id, title, description, unit, baseline | null (null: not set, progress reads it as 0), direction: 'increase' | 'decrease', target, current, progressPct (baseline → target, clamped 0-100), progressText, confidence 0-10 | null (null: not scored), confidenceBand: 'off-track' (≤3) | 'at-risk' (4-6) | 'on-track' (≥7) | null, lastCheckIn: {id, date, value, confidence | null, note | null} | null, daysSinceCheckIn | null, checkInCount}[]}[]}. Example rows are left out; the full check-in history is on workspace.okr.get.",
+    "List the team's OKRs as the OKR page reads them. Returns {total, overallProgressPct (the mean of each objective's progress, an objective with no key results counting as 0), measuredObjectives (how many have at least one key result), measuredProgressPct (the page's headline: the mean over those measured objectives only) | null (null: none has a key result), items: {id, objective, description, quarter ('2026 Q4' however it was stored; text that isn't a quarter as stored), owner | null, progressPct (mean of its key results'), confidence (mean of the scored key results', 0-10) | null, verdict (one sentence: progress against the days gone in its quarter, confidence and its direction), confidenceTrend: {date, confidence, scored}[] (per day a check-in scored confidence: the mean of each key result's latest score by then, a key result scored without a dated check-in counting on every day),linkedSprintGoals: {goalId, sprintId | null (null: the draft goal), sprintName, goal, met?: 'met' | 'partly' | 'not-met'}[] (Sprint Goal writes these links), keyResults: {id, title, description, unit, baseline | null (null: not set, progress reads it as 0), direction: 'increase' | 'decrease', target, current, progressPct (baseline → target, clamped 0-100), progressText, confidence 0-10 | null (null: not scored), confidenceBand: 'off-track' (≤3) | 'at-risk' (4-6) | 'on-track' (≥7) | null, lastCheckIn: {id, date, value, confidence | null, note | null} | null, daysSinceCheckIn | null, checkInCount}[]}[]}. Example rows are left out; the full check-in history is on workspace.okr.get.",
   paramsSchema: z.object({}),
   handler: () => listState(browserStore),
   mcpHandler: (_params, ctx) => listState(serverStore(ctx.userId)),

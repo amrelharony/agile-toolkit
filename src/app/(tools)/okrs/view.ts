@@ -73,21 +73,46 @@ export function isStale(kr: Pick<KeyResult, "checkIns">, today: string): boolean
   return days !== null && days >= CHECK_IN_STALE_DAYS;
 }
 
+/** The objectives that have a key result: the only ones progress can be read for. */
+export const measuredObjectives = (okrs: readonly Okr[]) =>
+  okrs.filter((o) => (o.keyResults ?? []).length > 0);
+
 /**
- * One sentence on the objectives on screen: how far along they are on
- * average (each objective weighing the same, lib/okrs overallProgress),
- * how many key results read off track or at risk by their confidence, and
- * how many have gone CHECK_IN_STALE_DAYS without a check-in.
+ * Progress across the measured objectives (lib/okrs overallProgress, each
+ * weighing the same), as a whole percentage; null when none has a key
+ * result. An objective with none isn't 0% of the way, it isn't measured:
+ * averaging it in as 0 pulled the figure down (the agent's list_state
+ * measuredProgressPct and the health dashboard read it the same way).
+ */
+export function measuredProgressPct(okrs: readonly Okr[]): number | null {
+  const measured = measuredObjectives(okrs);
+  return measured.length === 0 ? null : Math.round(overallProgress(measured) * 100);
+}
+
+/**
+ * One sentence on the objectives on screen: how far along the measured
+ * ones are on average (measuredProgressPct), how many have no key result
+ * yet, how many key results read off track or at risk by their
+ * confidence, and how many have gone CHECK_IN_STALE_DAYS without a
+ * check-in.
  */
 export function okrsVerdict(okrs: readonly Okr[], filter: string, today: string): string {
   if (okrs.length === 0) return "No objectives yet.";
   const scope = filter === ALL_QUARTERS ? "" : ` for ${filter}`;
   const krs = okrs.flatMap((o) => o.keyResults ?? []);
-  const pct = Math.round(overallProgress(okrs) * 100);
-  const head = `${plural(okrs.length, "objective")}${scope} ${
-    okrs.length === 1 ? "is" : "are"
-  } ${pct}% of the way${okrs.length === 1 ? "" : " on average"}`;
-  if (krs.length === 0) return `${head}; add key results to measure them.`;
+  const measured = measuredObjectives(okrs).length;
+  const pct = measuredProgressPct(okrs);
+  if (pct === null) {
+    return `${plural(okrs.length, "objective")}${scope}, none measured yet: add key results to measure ${
+      okrs.length === 1 ? "it" : "them"
+    }.`;
+  }
+  const unmeasured = okrs.length - measured;
+  const head = `${plural(measured, "objective")}${scope} ${
+    measured === 1 ? "is" : "are"
+  } ${pct}% of the way${measured === 1 ? "" : " on average"}${
+    unmeasured > 0 ? ` (${unmeasured} more with no key results yet)` : ""
+  }`;
   const bands = krs.map((kr) => confidenceBand(kr.confidence));
   const off = bands.filter((b) => b === "off-track").length;
   const risk = bands.filter((b) => b === "at-risk").length;

@@ -58,12 +58,21 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 // Recharts has nothing to measure in jsdom; the chart's text is tested directly.
-vi.mock("@/app/(tools)/okrs/charts", () => ({ ConfidenceTrendChart: () => null }));
+vi.mock("@/app/(tools)/okrs/charts", () => ({
+  ConfidenceTrendChart: () => null,
+  ProgressTrendChart: () => null,
+}));
 
 import { OkrsClient } from "@/app/(tools)/okrs/okrs-client";
 import { buildExample } from "@/app/(tools)/okrs/example";
 import { toMarkdown } from "@/app/(tools)/okrs/markdown";
-import { CHART_MIN_DAYS, confidenceTrendText, dayLabel } from "@/app/(tools)/okrs/chart-text";
+import {
+  CHART_MIN_DAYS,
+  confidenceTrendText,
+  dayLabel,
+  progressTrendText,
+} from "@/app/(tools)/okrs/chart-text";
+import { progressTrend } from "@/app/(tools)/okrs/progress";
 import {
   EMPTY_KEY_RESULT,
   emptyCheckIn,
@@ -81,6 +90,7 @@ import {
   ALL_QUARTERS,
   NO_QUARTER,
   defaultQuarter,
+  measuredProgressPct,
   okrsVerdict,
   quarterChips,
   quarterKey,
@@ -366,8 +376,9 @@ describe("quarters", () => {
 describe("okrsVerdict", () => {
   it("says what's on screen when nothing is measured yet", () => {
     expect(okrsVerdict([], ALL_QUARTERS, TODAY)).toBe("No objectives yet.");
+    // An objective with no key result isn't 0% of the way: it isn't measured.
     expect(okrsVerdict([okr("a")], "2026 Q4", TODAY)).toBe(
-      "1 objective for 2026 Q4 is 0% of the way; add key results to measure them."
+      "1 objective for 2026 Q4, none measured yet: add key results to measure it."
     );
   });
 
@@ -717,7 +728,7 @@ describe("check-ins", () => {
     useWorkspaceStore.setState({ okrs: [okr("o1", { keyResults: [k] })] });
     renderPage();
     fireEvent.click(
-      screen.getByRole("button", { name: "Delete the check-in of 15 Oct 2026 on Churn" })
+      screen.getByRole("button", { name: "Delete the check-in of 15 Oct 2026 (18) on Churn" })
     );
     expect(storedKr("o1", "k1")).toMatchObject({ current: 20, confidence: 8 });
     expect(storedKr("o1", "k1")?.checkIns?.map((c) => c.id)).toEqual(["a"]);
@@ -757,9 +768,11 @@ describe("the objective card", () => {
     );
     useWorkspaceStore.setState({ okrs: [okr("o1", { keyResults: [two] })] });
     const { unmount } = renderPage();
+    // Every scored check-in day is a check-in day: one message covers both trends.
     expect(
-      screen.getByText("Check in on 1 more day with a scored check-in to see how confidence moves.")
+      screen.getByText("Check in on 1 more day to see how progress and confidence move.")
     ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Confidence over time" })).toBeNull();
     unmount();
     const three = withCheckIn(two, ci("c", "2026-10-15", 19, 6));
     useWorkspaceStore.setState({ okrs: [okr("o1", { keyResults: [three] })] });
@@ -962,5 +975,313 @@ describe("Sprint Goal's linked OKRs", () => {
     expect(screen.getByText(`2026 Q4 · ${objectivePercent(OKR)}% of the way`)).toBeInTheDocument();
     // Stored as "Q4 2026" by the old intent.
     expect(screen.getByText("2026 Q4 · 40% of the way")).toBeInTheDocument();
+  });
+});
+
+/* ── Review fixes ───────────────────────────────────────────────────── */
+
+const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+describe("a key result going down needs a baseline", () => {
+  const legacy: KeyResult = { id: "k", title: "Tickets", target: 50, current: 60 };
+
+  it("is refused without one, even on a key result saved before baselines", () => {
+    const down = validateKeyResult(
+      { ...keyResultDraft(legacy), direction: "decrease" },
+      { requireBaseline: false }
+    );
+    expect(!down.ok && down.errors.baseline).toBe(
+      "To go down, enter the value it starts from: progress is measured from it."
+    );
+    // Going up it may still keep none, as before.
+    expect(validateKeyResult(keyResultDraft(legacy), { requireBaseline: false }).ok).toBe(true);
+  });
+
+  it("asks for it in the edit form once Go down is picked", () => {
+    useWorkspaceStore.setState({ okrs: [LEGACY_OKR] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit key result: Beta testers" }));
+    expect(screen.getByText("Blank: counted from 0, as before.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Go down" }));
+    expect(screen.getByText("Where it starts.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Target/), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save key result" }));
+    expect(storedKr(LEGACY_OKR.id, "kr_a")).toEqual(LEGACY_OKR.keyResults[0]);
+    expect(screen.getByText(/To go down, enter the value it starts from/)).toBeInTheDocument();
+  });
+
+  it("says how a stored decrease with no baseline reads", () => {
+    useWorkspaceStore.setState({
+      okrs: [
+        okr("o1", { keyResults: [kr("k", { direction: "decrease", target: 50, current: 60 })] }),
+      ],
+    });
+    renderPage();
+    expect(
+      screen.getByText(/No baseline: it reads 0% until it reaches the target, then 100%/)
+    ).toBeInTheDocument();
+  });
+});
+
+describe("progress over time", () => {
+  const churn = (checkIns: KeyResultCheckIn[]) =>
+    checkIns.reduce(
+      (acc, c) => withCheckIn(acc, c),
+      kr("k1", { baseline: 22, direction: "decrease", target: 15, current: 22, checkIns: [] })
+    );
+
+  it("reads each check-in day through krProgress, the last day the headline", () => {
+    const o = okr("o", {
+      keyResults: [
+        churn([ci("a", "2026-10-01", 21), ci("b", "2026-10-08", 20), ci("c", "2026-10-15", 19)]),
+        // Checked in from 8 Oct only: where it starts (0%) before that.
+        kr("k2", { baseline: 0, direction: "increase", target: 10, current: 0, checkIns: [] }),
+        // Never checked in: its typed value counts on every day.
+        kr("k3", { target: 100, current: 40 }),
+      ],
+    });
+    o.keyResults[1] = withCheckIn(o.keyResults[1], ci("d", "2026-10-08", 5));
+    const points = progressTrend(o);
+    expect(points).toEqual([
+      // (1/7 + 0 + 0.4) / 3
+      { date: "2026-10-01", pct: 18, checkedIn: 1 },
+      // (2/7 + 0.5 + 0.4) / 3
+      { date: "2026-10-08", pct: 40, checkedIn: 2 },
+      { date: "2026-10-15", pct: 44, checkedIn: 2 },
+    ]);
+    expect(points[points.length - 1].pct).toBe(objectivePercent(o));
+    expect(progressTrend(okr("none"))).toEqual([]);
+    expect(progressTrend(okr("x", { keyResults: [kr("k3", { current: 40 })] }))).toEqual([]);
+  });
+
+  it("says how progress moved, with the n behind each day", () => {
+    const t = progressTrendText([
+      { date: "2026-10-01", pct: 14, checkedIn: 1 },
+      { date: "2026-10-08", pct: 29, checkedIn: 1 },
+      { date: "2026-10-15", pct: 43, checkedIn: 2 },
+    ]);
+    expect(t.summary).toBe(
+      "Progress rose from 14% to 43% over 3 check-in days, 1 Oct 2026 to 15 Oct 2026."
+    );
+    expect(t.table.columns).toEqual(["Day", "Progress", "Key results checked in"]);
+    expect(t.table.rows[2]).toEqual(["15 Oct 2026", "43%", 2]);
+    expect(progressTrendText([]).summary).toBe("No check-in yet.");
+  });
+
+  it("is drawn from three check-in days even when no confidence is scored", () => {
+    const o = okr("o1", {
+      keyResults: [
+        churn([ci("a", "2026-10-01", 21), ci("b", "2026-10-08", 20), ci("c", "2026-10-15", 19)]),
+      ],
+    });
+    useWorkspaceStore.setState({ okrs: [o] });
+    renderPage();
+    expect(screen.getByRole("heading", { name: "Progress over time" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Progress rose from 14% to 43% over 3 check-in days, 1 Oct 2026 to 15 Oct 2026."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Check in on 3 more days with a scored check-in to see how confidence moves."
+      )
+    ).toBeInTheDocument();
+  });
+});
+
+describe("an objective with no key result", () => {
+  const measured = okr("a", {
+    objective: "Measured",
+    keyResults: [kr("k", { target: 100, current: 50 })],
+  });
+  const empty = okr("b", { objective: "Just added" });
+
+  it("reads Not measured yet on its card, never 0%", () => {
+    useWorkspaceStore.setState({ okrs: [empty] });
+    renderPage();
+    const card = within(screen.getByRole("article", { name: "Just added" }));
+    expect(card.getByText("Not measured yet")).toBeInTheDocument();
+    expect(card.queryByRole("progressbar")).toBeNull();
+    expect(card.queryByText("0%")).toBeNull();
+  });
+
+  it("isn't averaged into the verdict, the Markdown or the agent's headline as 0", async () => {
+    expect(measuredProgressPct([measured, empty])).toBe(50);
+    expect(measuredProgressPct([empty])).toBeNull();
+    expect(okrsVerdict([measured, empty], ALL_QUARTERS, TODAY)).toBe(
+      "1 objective is 50% of the way (1 more with no key results yet); no key result's confidence is scored yet; none checked in yet."
+    );
+    const md = toMarkdown([measured, empty], NOW).split("\n");
+    expect(md).toContain(
+      "**50% average progress** across 1 objective and 1 key result; 1 more with no key results yet."
+    );
+    expect(md).toContain("## Just added (2026 Q4) — not measured yet");
+    expect(md).toContain("## Measured (2026 Q4) — 50%");
+    expect(toMarkdown([empty], NOW)).toContain(
+      "**Not measured yet**: 1 objective, no key results."
+    );
+
+    await import("@/lib/actions/tools/okrs");
+    const { registry } = await import("@/lib/actions/registry");
+    useWorkspaceStore.setState({ okrs: [measured, empty] });
+    const action = registry.get("tool.okrs.list_state")!;
+    const state = (await action.handler!(action.paramsSchema.parse({}), {
+      userId: "u",
+      source: "agent",
+      squadProfileIds: [],
+    })) as { measuredProgressPct: number | null; measuredObjectives: number };
+    expect(state).toMatchObject({
+      measuredProgressPct: measuredProgressPct([measured, empty]),
+      measuredObjectives: 1,
+    });
+  });
+});
+
+describe("editing an objective's quarter", () => {
+  it("moves the list to that quarter, so the card and its focus stay", () => {
+    useWorkspaceStore.setState({
+      okrs: [okr("a", { objective: "Customers stay" }), okr("b", { objective: "Other" })],
+    });
+    // The list opens on today's quarter, 2026 Q4.
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit objective: Customers stay" }));
+    fireEvent.change(screen.getByLabelText(/^Quarter/), { target: { value: "2027 Q1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save objective" }));
+    expect(stored()[0].quarter).toBe("2027 Q1");
+    expect(screen.getByRole("heading", { name: "Customers stay" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /2027 Q1/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("heading", { name: "Other" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit objective: Customers stay" })).toHaveFocus();
+  });
+});
+
+describe("focus", () => {
+  it("each form takes focus when a click opens it", () => {
+    useWorkspaceStore.setState({
+      okrs: [
+        okr("o1", {
+          objective: "Cut support load",
+          keyResults: [
+            kr("k1", {
+              title: "Tickets",
+              baseline: 80,
+              direction: "decrease",
+              target: 50,
+              current: 80,
+            }),
+          ],
+        }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "New objective" }));
+    expect(screen.getByLabelText(/^Objective/)).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit objective: Cut support load" }));
+    expect(screen.getByLabelText(/^Objective/)).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add key result to Cut support load" }));
+    expect(screen.getByLabelText(/^Key result\*?$/)).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit key result: Tickets" }));
+    expect(screen.getByLabelText(/^Key result\*?$/)).toHaveValue("Tickets");
+    expect(screen.getByLabelText(/^Key result\*?$/)).toHaveFocus();
+  });
+
+  it("closing New objective hands focus back, and a saved one moves it to Add key result", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "New objective" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(screen.getByRole("button", { name: "New objective" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "New objective" }));
+    fireEvent.change(screen.getByLabelText(/^Objective/), { target: { value: "Grow" } });
+    fireEvent.change(screen.getByLabelText(/^Quarter/), { target: { value: "2026 Q4" } });
+    submit(screen.getByLabelText(/^Objective/));
+    await settle();
+    expect(screen.getByRole("button", { name: "Add key result to Grow" })).toHaveFocus();
+  });
+
+  it("a deleted objective hands focus to the next card's delete, then to New objective", async () => {
+    useWorkspaceStore.setState({
+      okrs: [okr("a", { objective: "First" }), okr("b", { objective: "Second" })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete objective: First" }));
+    await settle();
+    expect(screen.getByRole("button", { name: "Delete objective: Second" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete objective: Second" }));
+    await settle();
+    expect(screen.getByRole("button", { name: "New objective" })).toHaveFocus();
+  });
+
+  it("a deleted key result hands focus to the next one's delete, then to Add key result", async () => {
+    useWorkspaceStore.setState({
+      okrs: [
+        okr("o1", {
+          objective: "Cut support load",
+          keyResults: [kr("k1", { title: "One" }), kr("k2", { title: "Two" })],
+        }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete key result: One" }));
+    await settle();
+    expect(screen.getByRole("button", { name: "Delete key result: Two" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete key result: Two" }));
+    await settle();
+    expect(
+      screen.getByRole("button", { name: "Add key result to Cut support load" })
+    ).toHaveFocus();
+  });
+
+  it("a deleted check-in hands focus to the next one's delete, then to Check in", async () => {
+    const k = [ci("a", "2026-10-01", 20), ci("b", "2026-10-01", 18)].reduce(
+      (acc, c) => withCheckIn(acc, c),
+      kr("k1", {
+        title: "Churn",
+        baseline: 22,
+        direction: "decrease",
+        target: 15,
+        current: 22,
+        checkIns: [],
+      })
+    );
+    useWorkspaceStore.setState({ okrs: [okr("o1", { keyResults: [k] })] });
+    renderPage();
+    // Two check-ins on one day: the value names them apart.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete the check-in of 1 Oct 2026 (18) on Churn" })
+    );
+    await settle();
+    expect(
+      screen.getByRole("button", { name: "Delete the check-in of 1 Oct 2026 (20) on Churn" })
+    ).toHaveFocus();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete the check-in of 1 Oct 2026 (20) on Churn" })
+    );
+    await settle();
+    expect(screen.getByRole("button", { name: "Check in on Churn" })).toHaveFocus();
+  });
+});
+
+describe("a page left open past midnight", () => {
+  it("moves the check-in form on to the new day", () => {
+    useWorkspaceStore.setState({
+      okrs: [okr("o1", { keyResults: [kr("k1", { title: "Churn" })] })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Check in on Churn" }));
+    expect(screen.getByLabelText(/^Day/)).toHaveAttribute("max", TODAY);
+    vi.setSystemTime(new Date(2026, 9, 28, 0, 5));
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(screen.getByLabelText(/^Day/)).toHaveAttribute("max", "2026-10-28");
   });
 });

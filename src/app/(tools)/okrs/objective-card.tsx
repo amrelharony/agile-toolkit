@@ -23,7 +23,8 @@ import { enoughData, MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { GOAL_OUTCOME_LABEL } from "@/lib/sprints/goal-doc";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
-import { CHART_MIN_DAYS, confidenceTrendText } from "./chart-text";
+import { focusAfterRemoval } from "@/app/(tools)/sprint-goal/focus";
+import { CHART_MIN_DAYS, confidenceTrendText, progressTrendText } from "./chart-text";
 import {
   EMPTY_KEY_RESULT,
   objectiveDraft,
@@ -31,13 +32,18 @@ import {
   type ObjectiveValues,
 } from "./forms";
 import { KeyResultForm } from "./key-result-form";
-import { ConfidenceBadge, KeyResultRow } from "./key-result-row";
+import { ConfidenceBadge, KR_DELETE_SELECTOR, KeyResultRow } from "./key-result-row";
 import { ObjectiveForm } from "./objective-form";
+import { progressTrend } from "./progress";
 import { quarterKey } from "./view";
 
 // Recharts loads with the chart, not the page; the fixed-height box
 // reserves the space while it does.
 const ConfidenceTrendChart = dynamic(() => import("./charts").then((m) => m.ConfidenceTrendChart), {
+  ssr: false,
+  loading: () => <div className="h-[200px]" aria-hidden="true" />,
+});
+const ProgressTrendChart = dynamic(() => import("./charts").then((m) => m.ProgressTrendChart), {
   ssr: false,
   loading: () => <div className="h-[200px]" aria-hidden="true" />,
 });
@@ -58,11 +64,18 @@ export interface ObjectiveHandlers {
   onRemoveCheckIn: (krId: string, checkIn: KeyResultCheckIn) => void;
 }
 
+/** An objective card's delete button, where the page moves focus after a delete (the next card's). */
+export const OBJECTIVE_DELETE_SELECTOR = "[data-objective-delete]";
+
+/** The "Add key result" button of the card for objective `okrId`. */
+export const addKrSelector = (okrId: string) => `[data-okr-id="${okrId}"] [data-add-kr]`;
+
 /**
- * One objective: its progress (the mean of its key results', lib/okrs),
- * confidence, verdict, key results with their check-ins, the confidence
- * trend from those check-ins, and the sprint goals that link it (Sprint
- * Goal writes those links; this card only reads them).
+ * One objective: its progress (the mean of its key results', lib/okrs;
+ * "Not measured yet" with none, never 0%), confidence, verdict, key results
+ * with their check-ins, the progress and confidence trends from those
+ * check-ins, and the sprint goals that link it (Sprint Goal writes those
+ * links; this card only reads them).
  */
 export function ObjectiveCard({
   okr,
@@ -94,28 +107,42 @@ export function ObjectiveCard({
     (returnTo.current === "edit" ? editRef : addRef).current?.focus();
     returnTo.current = null;
   }, [editing, adding]);
+  const krListRef = useRef<HTMLUListElement>(null);
   const headingId = useId();
   const chartId = useId();
+  const progressChartId = useId();
 
+  const measured = okr.keyResults.length > 0;
   const pct = objectivePercent(okr);
   const confidence = objectiveConfidence(okr);
   const verdict = okrVerdict(okr, now);
+  const progress = useMemo(() => progressTrend(okr), [okr]);
+  const progressText = useMemo(() => progressTrendText(progress), [progress]);
   const trend = useMemo(() => confidenceTrend(okr), [okr]);
   const trendText = useMemo(() => confidenceTrendText(trend), [trend]);
   const mk = enoughData(trend.length, "trend") ? mannKendall(trend.map((p) => p.confidence)) : null;
   const links = sprintGoalsFor(okr.id, goals, sprints);
   const name = okr.objective.trim() || "Untitled objective";
 
+  /** Delete a key result; focus moves to the next one's delete, or to "Add key result". */
+  const deleteKr = (krId: string) => {
+    const index = okr.keyResults.findIndex((k) => k.id === krId);
+    handlers.onDeleteKr(krId);
+    focusAfterRemoval(krListRef, KR_DELETE_SELECTOR, Math.max(0, index), () => addRef.current);
+  };
+
   if (editing) {
     return (
       <article
         className="rounded-lg border border-accent/40 bg-surface p-4"
         aria-label={`Edit ${name}`}
+        data-okr-id={okr.id}
       >
         <ObjectiveForm
           initial={objectiveDraft(okr)}
           quarters={quarters}
           offerAddToRoster={!example}
+          autoFocus
           submitLabel="Save objective"
           onSave={(values) => {
             handlers.onEdit(values);
@@ -135,6 +162,7 @@ export function ObjectiveCard({
     <article
       className="space-y-4 rounded-lg border border-border bg-surface p-4"
       aria-labelledby={headingId}
+      data-okr-id={okr.id}
     >
       <header className="space-y-2">
         <div className="flex items-start gap-3">
@@ -167,18 +195,28 @@ export function ObjectiveCard({
               icon={<Trash2 className="h-3.5 w-3.5" />}
               onClick={handlers.onDelete}
               className="text-sub hover:text-danger"
+              data-objective-delete=""
             />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Progress
-            value={pct}
-            className="h-2 min-w-[120px] flex-1"
-            aria-label={`${name}: ${pct}% of the way`}
-          />
-          <Badge variant="outline" className="font-data">
-            {pct}%
-          </Badge>
+          {measured ? (
+            <>
+              <Progress
+                value={pct}
+                className="h-2 min-w-[120px] flex-1"
+                aria-label={`${name}: ${pct}% of the way`}
+              />
+              <Badge variant="outline" className="font-data">
+                {pct}%
+              </Badge>
+            </>
+          ) : (
+            // With no key result nothing is measured: no bar at 0%.
+            <Badge variant="outline" className="text-sub">
+              Not measured yet
+            </Badge>
+          )}
           <ConfidenceBadge confidence={confidence} />
         </div>
         <p className="text-sm text-text">{verdict}</p>
@@ -186,14 +224,14 @@ export function ObjectiveCard({
 
       <section aria-label={`Key results of ${name}`} className="space-y-2">
         {okr.keyResults.length > 0 && (
-          <ul className="space-y-2">
+          <ul ref={krListRef} className="space-y-2">
             {okr.keyResults.map((kr) => (
               <KeyResultRow
                 key={kr.id}
                 kr={kr}
                 today={today}
                 onEdit={(values) => handlers.onEditKr(kr.id, values)}
-                onDelete={() => handlers.onDeleteKr(kr.id)}
+                onDelete={() => deleteKr(kr.id)}
                 onCheckIn={(values) => handlers.onCheckIn(kr.id, values)}
                 onRemoveCheckIn={(c) => handlers.onRemoveCheckIn(kr.id, c)}
               />
@@ -204,6 +242,7 @@ export function ObjectiveCard({
           <div className="rounded-md border border-accent/40 bg-bg p-3">
             <KeyResultForm
               initial={EMPTY_KEY_RESULT}
+              autoFocus
               submitLabel="Add key result"
               onSave={(values) => {
                 handlers.onAddKr(values);
@@ -225,6 +264,7 @@ export function ObjectiveCard({
             className="gap-2"
             onClick={() => setAdding(true)}
             aria-label={`Add key result to ${name}`}
+            data-add-kr=""
           >
             <Plus className="h-3.5 w-3.5" aria-hidden="true" />
             Add key result
@@ -232,7 +272,34 @@ export function ObjectiveCard({
         )}
       </section>
 
-      {okr.keyResults.length > 0 && (
+      {measured && (
+        <section aria-labelledby={progressChartId} className="space-y-2">
+          <h3 id={progressChartId} className="text-sm font-semibold text-text">
+            Progress over time
+          </h3>
+          {progress.length >= CHART_MIN_DAYS ? (
+            <ChartFigure
+              labelledBy={progressChartId}
+              summary={progressText.summary}
+              table={progressText.table}
+              plotClassName="h-[200px]"
+            >
+              <ProgressTrendChart data={progress} />
+            </ChartFigure>
+          ) : (
+            // Every scored check-in is a check-in day, so this covers confidence too.
+            <NotEnoughData
+              have={progress.length}
+              need={CHART_MIN_DAYS}
+              unit={["day", "days"]}
+              action="Check in on"
+              what="how progress and confidence move"
+            />
+          )}
+        </section>
+      )}
+
+      {measured && progress.length >= CHART_MIN_DAYS && (
         <section aria-labelledby={chartId} className="space-y-2">
           <h3 id={chartId} className="text-sm font-semibold text-text">
             Confidence over time

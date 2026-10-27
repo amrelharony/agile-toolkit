@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Flag, Plus } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { generateOkrsPrompts } from "@/lib/ai-prompts/okrs";
+import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { OKR_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import {
@@ -44,6 +45,7 @@ import type {
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
+import { focusAfterRemoval, focusSoon } from "@/app/(tools)/sprint-goal/focus";
 import { dayLabel } from "./chart-text";
 import { buildExample } from "./example";
 import {
@@ -57,7 +59,7 @@ import {
   type ObjectiveValues,
 } from "./forms";
 import { toMarkdown } from "./markdown";
-import { ObjectiveCard } from "./objective-card";
+import { OBJECTIVE_DELETE_SELECTOR, ObjectiveCard, addKrSelector } from "./objective-card";
 import { ObjectiveForm } from "./objective-form";
 import {
   ALL_QUARTERS,
@@ -134,9 +136,18 @@ function OkrTracker() {
   const removeOkr = useWorkspaceStore((s) => s.removeOkr);
   const { log } = useHistoryLogger("okrs");
   const announce = useAnnounce();
-  const [now] = useState(() => new Date());
+  const [now, setNow] = useState(() => new Date());
   const today = todayLocalISO(now);
+  // A page left open past midnight moves on to the new day: the check-in
+  // form would otherwise refuse today as "in the future" and count stale
+  // days from yesterday.
+  useVisibilityTick(true, 60_000, () => {
+    const next = new Date();
+    if (todayLocalISO(next) !== today) setNow(next);
+  });
   const [creating, setCreating] = useState(false);
+  const newRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   // null until a chip is pressed: the list opens on today's quarter.
   const [chosen, setChosen] = useState<string | null>(null);
 
@@ -183,14 +194,25 @@ function OkrTracker() {
 
   /* ── Objectives ───────────────────────────────────────────────────── */
 
+  /** Whether the list, as filtered now, would hide an objective in `quarter`. */
+  const hiddenByFilter = (quarter: string) =>
+    filter !== ALL_QUARTERS && quarterKey(quarter) !== filter;
+
   const addObjective = (values: ObjectiveValues) => {
     const okr = newObjective(values);
     upsertOkr(okr);
     log(OKR_ACTIONS.OBJECTIVE_ADDED, { okrId: okr.id });
     setCreating(false);
     // The new objective stays in view, even when the list showed another quarter.
-    if (filter !== ALL_QUARTERS && quarterKey(okr.quarter) !== filter) setChosen(okr.quarter);
+    if (hiddenByFilter(okr.quarter)) setChosen(okr.quarter);
     announce(`Added “${shortName(okr.objective)}” to ${okr.quarter}. Add its key results next.`);
+    // Its next step is a key result: focus goes to that button on the new card.
+    focusSoon(() => document.querySelector<HTMLElement>(addKrSelector(okr.id)));
+  };
+
+  const cancelNewObjective = () => {
+    setCreating(false);
+    focusSoon(() => newRef.current);
   };
 
   const editObjective = (okrId: string, values: ObjectiveValues) => {
@@ -199,6 +221,15 @@ function OkrTracker() {
     if (!before || !next) return;
     const fields = changed(before, next, ["objective", "quarter", "owner", "description"]);
     if (fields.length > 0) record(okrId, OKR_ACTIONS.OBJECTIVE_UPDATED, { okrId, fields });
+    // Moved to a quarter the list isn't showing: the list follows it, so the
+    // card (and the focus its Edit button gets back) stays on screen.
+    if (hiddenByFilter(next.quarter)) {
+      setChosen(quarterKey(next.quarter));
+      announce(
+        `Saved “${shortName(next.objective)}”, moved to ${quarterKey(next.quarter)}; showing ${quarterKey(next.quarter)}`
+      );
+      return;
+    }
     announce(`Saved “${shortName(next.objective)}”`);
   };
 
@@ -206,6 +237,7 @@ function OkrTracker() {
     const index = okrs.findIndex((o) => o.id === okrId);
     if (index === -1) return;
     const obj = okrs[index];
+    const shownIndex = shown.findIndex((o) => o.id === okrId);
     undoable({
       label: obj.objective.trim()
         ? `Deleted “${shortName(obj.objective)}”`
@@ -224,6 +256,14 @@ function OkrTracker() {
       },
     });
     announce(`Deleted “${shortName(obj.objective || "untitled objective")}”`);
+    // The pressed button went with its card: the next card's delete takes
+    // focus, or "New objective" when none is left on screen.
+    focusAfterRemoval(
+      listRef,
+      OBJECTIVE_DELETE_SELECTOR,
+      Math.max(0, shownIndex),
+      () => newRef.current
+    );
   };
 
   /* ── Key results ──────────────────────────────────────────────────── */
@@ -436,6 +476,7 @@ function OkrTracker() {
           shareState={okrs}
         />
         <Button
+          ref={newRef}
           type="button"
           onClick={() => setCreating((c) => !c)}
           aria-expanded={creating}
@@ -452,9 +493,10 @@ function OkrTracker() {
             <ObjectiveForm
               initial={emptyObjective(filter === ALL_QUARTERS ? "" : normalizeQuarter(filter))}
               quarters={quarters}
+              autoFocus
               submitLabel="Add objective"
               onSave={addObjective}
-              onCancel={() => setCreating(false)}
+              onCancel={cancelNewObjective}
             />
           </SectionCard>
         )}
@@ -497,7 +539,7 @@ function OkrTracker() {
                 </Button>
               </div>
             )}
-            <div className="space-y-4">
+            <div ref={listRef} className="space-y-4">
               {shown.map((o) => (
                 <ObjectiveCard
                   key={o.id}

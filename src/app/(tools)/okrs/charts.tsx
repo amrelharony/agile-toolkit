@@ -1,7 +1,7 @@
 "use client";
 
-// Recharts lives here so the OKRs page loads it only when a confidence
-// chart mounts. Import this module through next/dynamic.
+// Recharts lives here so the OKRs page loads it only when a trend chart
+// mounts. Import this module through next/dynamic.
 import {
   CartesianGrid,
   Line,
@@ -15,8 +15,63 @@ import {
 import { chartTheme } from "@/components/charts/chart-theme";
 import type { ConfidencePoint } from "@/lib/okrs/progress";
 import { dayLabel } from "./chart-text";
+import type { ProgressPoint } from "./progress";
 
 const { colors } = chartTheme;
+
+/**
+ * An objective's progress over time (0–100%), one point per check-in day.
+ * The table and the summary name the numbers, so the line is never the
+ * only way to read them.
+ */
+export function ProgressTrendChart({ data }: { data: ProgressPoint[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      {/* ChartFigure hides the plot behind its summary and table, so the SVG
+          mustn't be a tab stop. */}
+      <LineChart
+        data={data}
+        margin={{ top: 8, right: 12, left: -20, bottom: 0 }}
+        accessibilityLayer={false}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+        <XAxis
+          dataKey="date"
+          tickFormatter={(d: string) => dayLabel(d).replace(/ \d{4}$/, "")}
+          tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
+          tickLine={false}
+          interval="preserveStartEnd"
+        />
+        <YAxis
+          domain={[0, 100]}
+          ticks={[0, 50, 100]}
+          tickFormatter={(v: number) => `${v}%`}
+          tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <Tooltip
+          contentStyle={chartTheme.tooltipStyle}
+          labelFormatter={(d) => dayLabel(String(d))}
+          formatter={(value, _name, item) => {
+            const checkedIn = (item?.payload as ProgressPoint | undefined)?.checkedIn;
+            return [`${value}%${checkedIn ? ` (${checkedIn} checked in)` : ""}`, "Progress"];
+          }}
+        />
+        <Line
+          type="monotone"
+          dataKey="pct"
+          name="Progress"
+          stroke={colors.green}
+          strokeWidth={2}
+          dot={{ r: 3 }}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
 
 /**
  * An objective's confidence over time (0–10), one point per check-in day.

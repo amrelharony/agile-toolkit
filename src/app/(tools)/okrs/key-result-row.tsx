@@ -22,6 +22,7 @@ import {
 } from "@/lib/okrs/progress";
 import { fmt } from "@/lib/charts/chart-text";
 import { cn } from "@/lib/utils";
+import { focusAfterRemoval } from "@/app/(tools)/sprint-goal/focus";
 import { CheckInForm } from "./check-in-form";
 import { dayLabel } from "./chart-text";
 import { keyResultDraft, type KeyResultValues } from "./forms";
@@ -59,6 +60,10 @@ export function withUnit(kr: Pick<KeyResult, "unit">, n: number): string {
 
 type Mode = "view" | "edit" | "check-in";
 
+/** A key result's delete button, where its objective moves focus after a delete (the next one's). */
+export const KR_DELETE_SELECTOR = "[data-kr-delete]";
+const CHECK_IN_DELETE_SELECTOR = "[data-check-in-delete]";
+
 /**
  * One key result: how far it is from its baseline to its target (lib/okrs),
  * its confidence, its last check-in (flagged after CHECK_IN_STALE_DAYS),
@@ -84,6 +89,7 @@ export function KeyResultRow({
   const [mode, setMode] = useState<Mode>("view");
   const editRef = useRef<HTMLButtonElement>(null);
   const checkInRef = useRef<HTMLButtonElement>(null);
+  const historyRef = useRef<HTMLUListElement>(null);
   // The control that opened the form gets focus back when it closes.
   const returnTo = useRef<"edit" | "check-in" | null>(null);
   useEffect(() => {
@@ -105,12 +111,19 @@ export function KeyResultRow({
   const stale = days !== null && days >= CHECK_IN_STALE_DAYS;
   const history = [...(kr.checkIns ?? [])].reverse();
 
+  /** Delete a check-in; focus moves to the next one's delete, or to "Check in" when none is left. */
+  const removeCheckIn = (c: KeyResultCheckIn, index: number) => {
+    onRemoveCheckIn(c);
+    focusAfterRemoval(historyRef, CHECK_IN_DELETE_SELECTOR, index, () => checkInRef.current);
+  };
+
   if (mode === "edit") {
     return (
       <li className="rounded-md border border-accent/40 bg-bg p-3">
         <KeyResultForm
           initial={keyResultDraft(kr)}
           requireBaseline={base !== null}
+          autoFocus
           submitLabel="Save key result"
           onSave={(values) => {
             onEdit(values);
@@ -157,6 +170,7 @@ export function KeyResultRow({
             icon={<Trash2 className="h-3.5 w-3.5" />}
             onClick={onDelete}
             className="text-sub hover:text-danger"
+            data-kr-delete=""
           />
         </div>
       </div>
@@ -193,7 +207,9 @@ export function KeyResultRow({
         )}
         {base === null && (
           <span className="text-sub">
-            No baseline: progress counts from 0. Edit it to set where it started.
+            {direction === "decrease"
+              ? "No baseline: it reads 0% until it reaches the target, then 100%. Edit it to set where it started."
+              : "No baseline: progress counts from 0. Edit it to set where it started."}
           </span>
         )}
       </div>
@@ -217,10 +233,11 @@ export function KeyResultRow({
             {history.length === 1 ? "1 check-in" : `${history.length} check-ins`}
           </summary>
           <ul
+            ref={historyRef}
             className="divide-y divide-border border-t border-border"
             aria-label={`Check-ins on ${title}`}
           >
-            {history.map((c) => (
+            {history.map((c, i) => (
               <li
                 key={c.id}
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs"
@@ -235,10 +252,12 @@ export function KeyResultRow({
                 </span>
                 {c.note && <span className="min-w-0 flex-1 break-words text-sub">“{c.note}”</span>}
                 <IconButton
-                  label={`Delete the check-in of ${dayLabel(c.date)} on ${title}`}
+                  // The value tells two check-ins of one day apart.
+                  label={`Delete the check-in of ${dayLabel(c.date)} (${withUnit(kr, c.value)}) on ${title}`}
                   icon={<Trash2 className="h-3.5 w-3.5" />}
-                  onClick={() => onRemoveCheckIn(c)}
+                  onClick={() => removeCheckIn(c, i)}
                   className="ml-auto text-sub hover:text-danger"
+                  data-check-in-delete=""
                 />
               </li>
             ))}
