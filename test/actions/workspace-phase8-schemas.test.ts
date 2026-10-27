@@ -451,6 +451,68 @@ describe("bounds", () => {
     accepts("workspace.opportunity_tree", flagged("opportunity"));
   });
 
+  it("a tree write keeps one target per outcome, a re-parent included, on both transports", async () => {
+    const tree = "workspace.opportunity_tree";
+    // Two outcomes, each with its target: node_9 under node_1, node_21 under node_2.
+    const twoOutcomes = {
+      ...OPPORTUNITIES,
+      nodes: [
+        ...OPPORTUNITIES.nodes,
+        { id: "node_2", kind: "outcome", text: "Fewer missed deadlines", parentId: null },
+        { id: "node_21", kind: "opportunity", text: "I miss the due date", parentId: "node_2" },
+      ],
+    } as typeof OPPORTUNITIES;
+    twoOutcomes.nodes[5] = { ...twoOutcomes.nodes[5], target: true };
+    const moved = (patch: Record<string, unknown>) => ({
+      nodes: twoOutcomes.nodes.map((n) => (n.id === "node_21" ? { ...n, ...patch } : n)),
+    });
+    // node_21 moved under node_1, which has node_9 as its target.
+    await refusesUpdate(
+      tree,
+      "opportunityTrees",
+      twoOutcomes,
+      moved({ parentId: "node_1" }),
+      /outcome node_1 holds 2 \(node_9, node_21\).*tool\.opportunity_tree\.set_target/
+    );
+    // Two targets written straight under one outcome, or at the root.
+    const second = {
+      id: "node_12",
+      kind: "opportunity",
+      text: "I can't see who is blocked",
+      parentId: "node_1",
+      target: true,
+    };
+    await refusesCreate(
+      tree,
+      "opportunityTrees",
+      { ...OPPORTUNITIES, nodes: [...OPPORTUNITIES.nodes, second] },
+      /outcome node_1 holds 2/
+    );
+    await refusesCreate(
+      tree,
+      "opportunityTrees",
+      {
+        ...OPPORTUNITIES,
+        nodes: [
+          { id: "r1", kind: "opportunity", text: "a", parentId: null, target: true },
+          { id: "r2", kind: "opportunity", text: "b", parentId: null, target: true },
+        ],
+      },
+      /the opportunities under no outcome hold 2 \(r1, r2\)/
+    );
+    // Moved with its target cleared: saved.
+    for (const row of await updateOnBoth(
+      tree,
+      "opportunityTrees",
+      twoOutcomes,
+      moved({ parentId: "node_1", target: undefined })
+    )) {
+      const node = (row as typeof OPPORTUNITIES).nodes.find((n) => n.id === "node_21");
+      expect(node).toMatchObject({ parentId: "node_1" });
+      expect(node?.target).toBeUndefined();
+    }
+  });
+
   it("weighting a pyramid by runtime needs all three runtimes; counts in snapshots are whole", () => {
     rejects("workspace.test_pyramid", { ...TEST_PYRAMID, runtime: { unit: 4, integration: 11 } });
     rejects("workspace.test_pyramid", { ...TEST_PYRAMID, runtime: undefined });

@@ -214,6 +214,36 @@ export function withTarget(nodes: readonly TreeNode[], id: string, on: boolean):
   });
 }
 
+/** An outcome holding more than one target opportunity (outcomeId null: the opportunities under no outcome). */
+export interface TargetClash {
+  outcomeId: string | null;
+  /** The target opportunities' ids, in the tree's order. */
+  ids: string[];
+}
+
+/**
+ * The outcomes with more than one target opportunity, grouped as withTarget
+ * groups them (the opportunities under no outcome count as one group), in
+ * the tree's order; empty when each has at most one. What a writer that
+ * sets the nodes wholesale (the workspace.opportunity_tree CRUD, where a
+ * re-parent can move a target under an outcome that has one) must not
+ * leave behind.
+ */
+export function targetClashes(nodes: readonly TreeNode[]): TargetClash[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const groups = new Map<string | null, string[]>();
+  for (const n of nodes) {
+    if (n.kind !== "opportunity" || !n.target) continue;
+    const key = outcomeOf(n, byId)?.id ?? null;
+    const ids = groups.get(key);
+    if (ids) ids.push(n.id);
+    else groups.set(key, [n.id]);
+  }
+  return Array.from(groups, ([outcomeId, ids]) => ({ outcomeId, ids })).filter(
+    (g) => g.ids.length > 1
+  );
+}
+
 /* ── Hand-offs ───────────────────────────────────────────────────────── */
 
 /**

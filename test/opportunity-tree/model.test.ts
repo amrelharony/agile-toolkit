@@ -18,6 +18,7 @@ import {
   opportunityGroups,
   outcomeOf,
   subtreeIds,
+  targetClashes,
   treeNodes,
   withTarget,
   withoutNode,
@@ -138,6 +139,27 @@ describe("withTarget", () => {
   it("leaves anything but an opportunity alone", () => {
     expect(withTarget(TREE, "s1", true)).toEqual(TREE);
     expect(withTarget(TREE, "nope", true)).toEqual(TREE);
+  });
+});
+
+describe("targetClashes", () => {
+  it("finds no clash in a tree with one target per outcome, nor in what withTarget leaves", () => {
+    expect(targetClashes(TREE)).toEqual([]);
+    expect(targetClashes(withTarget(TREE, "p2", true))).toEqual([]);
+    expect(targetClashes(withTarget(TREE, "r2", true))).toEqual([]);
+  });
+
+  it("names each outcome holding two or more, nested opportunities and moves included", () => {
+    const twice = TREE.map((n) => (n.id === "p2" ? { ...n, target: true } : n));
+    expect(targetClashes(twice)).toEqual([{ outcomeId: "o1", ids: ["p1", "p2"] }]);
+    // p4, o2's target, moved under o1: o1 now holds two.
+    const moved = TREE.map((n) => (n.id === "p4" ? { ...n, parentId: "o1" } : n));
+    expect(targetClashes(moved)).toEqual([{ outcomeId: "o1", ids: ["p1", "p4"] }]);
+  });
+
+  it("counts the opportunities under no outcome as one group", () => {
+    const roots = TREE.map((n) => (n.id === "r2" ? { ...n, target: true } : n));
+    expect(targetClashes(roots)).toEqual([{ outcomeId: null, ids: ["r1", "r2"] }]);
   });
 });
 

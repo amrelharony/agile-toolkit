@@ -869,6 +869,7 @@ One document, `opportunityTree:current`. Kinds go where the page lets them: an o
 - **`set_target`** (write) `{nodeId, on}` — the opportunity the team pursues under its outcome; an outcome has at most one, so turning one on clears the others. Returns `{updated: true, target, cleared}` or `{updated: false, reason: not_found | not_opportunity}`.
 - **`remove_node`** (write, asks first) `{nodeId}` — removes the node and its whole branch; the confirmation names how many nodes go. A JTBD job linked to a removed opportunity reads "Opportunity removed". Returns `{removed: true, ids, count}`, `{removed: false, reason: not_found}` or `{removed: false, confirmed: false}`. The page offers Undo; an agent's remove is final.
 - **`send_experiment_to_hypothesis`** (write) `{nodeId}` — tests an experiment as a drafted hypothesis: we believe the solution it sits under (the experiment's own text when there is none), we'll do the experiment, to learn about the nearest opportunity above. Returns `{sent: true, hypothesisId, believe, missing}` or `{sent: false, reason: not_found | not_experiment | example | already_sent (hypothesisId) | blank}`.
+- No verb moves a node: a re-parent, like any other edit, goes through `workspace.opportunity_tree.update` with the whole `nodes` list. A write that leaves two targets under one outcome is refused.
 
 #### Riskiest Assumption Canvas — `tool.riskiest_assumption.*`
 

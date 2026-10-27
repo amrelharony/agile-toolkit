@@ -76,6 +76,7 @@ import {
 import { readLegacyBlob } from "../user-state-blob";
 import { normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
+import { targetClashes } from "@/lib/opportunity-tree/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -2355,7 +2356,9 @@ const TreeNodeSchema = z
     target: z
       .boolean()
       .optional()
-      .describe("The opportunity pursued under its outcome: opportunities only, one per outcome."),
+      .describe(
+        "The opportunity pursued under its outcome: opportunities only, one per outcome (a write leaving two under one is refused; tool.opportunity_tree.set_target clears the others)."
+      ),
     sentTo: z.array(HandoffLinkSchema).optional(),
     sourceRef: HandoffRefSchema.optional(),
   })
@@ -2373,6 +2376,20 @@ const OpportunityTreeSchema = z.object({
   id: z.string(),
   nodes: z.array(TreeNodeSchema),
 }) as unknown as z.ZodType<OpportunityTree>;
+
+/**
+ * A tree's write, judged on its targets: at most one target opportunity per
+ * outcome (lib/opportunity-tree targetClashes), as the page's toggle and
+ * tool.opportunity_tree.set_target keep it. No verb moves a node, so a
+ * re-parent goes through this update with the whole nodes list, and could
+ * otherwise put a target under an outcome that has one.
+ */
+function treeTargetProblems(next: OpportunityTree): string[] {
+  return targetClashes(next.nodes ?? []).map(
+    (c) =>
+      `nodes: one target opportunity per outcome, and ${c.outcomeId === null ? "the opportunities under no outcome hold" : `outcome ${c.outcomeId} holds`} ${c.ids.length} (${c.ids.join(", ")}); clear all but one, or set it with tool.opportunity_tree.set_target.`
+  );
+}
 
 // S8 — Incidents & Reliability
 const RunbookSchema = z.object({
@@ -2634,6 +2651,7 @@ defineCrudActions<OpportunityTree>({
   upsert: (x) => ws().upsertOpportunityTree(x),
   remove: (id) => ws().removeOpportunityTree(id),
   generateId: () => `opportunityTree_${nanoid(8)}`,
+  prepare: (next) => unlessRefused(next, treeTargetProblems(next)),
 });
 
 defineCrudActions<RunbookScorer>({
