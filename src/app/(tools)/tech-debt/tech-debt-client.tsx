@@ -1,637 +1,580 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { nanoid } from "nanoid";
+import { useCallback, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { nanoid } from "nanoid";
+import { Activity, Flame, Plus, Wrench } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput } from "@/components/shared/blur-fields";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Trash2, Wrench, Activity, CheckCircle2, RotateCcw } from "lucide-react";
-import { undoable } from "@/lib/utils/undoable";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { TechDebtItem } from "@/lib/stores/workspace-types";
-import { generateTechDebtPrompts } from "@/lib/ai-prompts/tech-debt";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { TECH_DEBT_ACTIONS } from "@/lib/history/event-actions";
-import { ActionRow } from "@/components/shared/action-row";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
+import { ChartFigure } from "@/components/shared/chart-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { ResortChip } from "@/components/shared/resort-chip";
 import { SectionCard } from "@/components/shared/section-card";
-import { usePersisted } from "@/lib/utils/use-persisted";
-import { todayLocalISO } from "@/lib/utils/formatters";
-import { SmartInput } from "@/components/shared/smart-input";
-import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
-import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
-import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+import { StatCard } from "@/components/shared/stat-card";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import { generateTechDebtPrompts } from "@/lib/ai-prompts/tech-debt";
+import { fmt } from "@/lib/charts/chart-text";
+import { sendHandoff } from "@/lib/handoffs/send";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { TECH_DEBT_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { normalizeCadence } from "@/lib/sprints/cadence";
+import { todayIso } from "@/lib/sprints/series";
+import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Story, TechDebtItem } from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import type { TechDebtConflict } from "@/lib/tech-debt/legacy";
+import {
+  debtComparator,
+  debtStoryOf,
+  debtSummary,
+  debtVerdict,
+  rankDebt,
+  rankedDebt,
+} from "@/lib/tech-debt/model";
+import {
+  currentTechDebt,
+  patchDebt,
+  removeTechDebtRecord,
+  restoreTechDebtRecord,
+  saveDebt,
+  saveTechDebt,
+  type TechDebtRecordSnapshot,
+} from "@/lib/tech-debt/store";
+import { undoable } from "@/lib/utils/undoable";
+import { countedDebt, heatTone, hotspotGrid, survivalChartText, timeToResolve } from "./analysis";
+import { AppearedNotice, ConflictNotice, withBlobValue } from "./conflict-notice";
+import { DebtForm, newDebt, type NewDebt } from "./debt-form";
+import { DebtRow, type BacklogStory } from "./debt-row";
+import { buildExample } from "./example";
+import { toMarkdown, type BacklogState } from "./markdown";
+import { useLegacyDebt } from "./use-legacy-debt";
+import { debtCsv, withPatch, type DebtPatch } from "./view";
 
-// Recharts loads with the chart, not the page; the placeholder fills the
-// chart's fixed-height box while it does.
+export const TOOL_ID = "tech-debt";
+
+// Recharts loads with the chart, not the page; the fixed-height box
+// reserves the space while it does.
 const ResolutionSurvivalChart = dynamic(
   () => import("./charts").then((m) => m.ResolutionSurvivalChart),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
-    ),
-  }
+  { ssr: false }
 );
 
-function emptyItem(): TechDebtItem {
-  return {
-    id: nanoid(8),
-    title: "",
-    impact: 3,
-    effort: 3,
-    interestRate: 1,
-    raisedAt: todayLocalISO(),
-  };
+const keyOf = (t: TechDebtItem) => t.id;
+const NO_STORIES: Story[] = [];
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim() || "Untitled item";
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
-function ageDays(item: TechDebtItem): number {
-  // Guard against NaN propagation when raisedAt is missing or unparseable —
-  // an unparseable date would otherwise yield NaN days, which then poisons
-  // every priorityScore() that depends on it.
-  const t = new Date(item.raisedAt).getTime();
-  if (!Number.isFinite(t)) return 0;
-  return Math.floor((Date.now() - t) / 86_400_000);
+/** Focus the title of the item with `id` (or `fallback`) once React has re-rendered. */
+function focusSoon(id: string | null, fallback?: HTMLElement | null) {
+  requestAnimationFrame(() => {
+    const el = id
+      ? Array.from(document.querySelectorAll<HTMLElement>("[data-debt-title]")).find(
+          (b) => b.getAttribute("data-debt-title") === id
+        )
+      : undefined;
+    (el ?? fallback)?.focus();
+  });
 }
 
-function priorityScore(item: TechDebtItem): number {
-  const interest = (item.interestRate ?? 0) * ageDays(item);
-  return item.impact * 4 - item.effort + interest * 0.5;
+/** An item's links after `update`, the list dropped when it empties. */
+function withLinks(
+  t: TechDebtItem,
+  update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+): TechDebtItem {
+  const links = update(t.sentTo);
+  return links.length > 0 ? { ...t, sentTo: links } : withPatch(t, { sentTo: undefined });
 }
+
+const IMPACTS = [5, 4, 3, 2, 1] as const;
+const EFFORTS = [1, 2, 3, 4, 5] as const;
 
 /**
- * Per-row interest-rate input wired to the smart-default predictor. The
- * SmartInput chip appears for empty (or zero-default) values, and pressing
- * Tab on an empty field accepts the prediction. We display a string draft
- * so the placeholder/ghost is visible while the user thinks.
+ * The Tech Debt tracker: one store, workspace.techDebt, which agents, the
+ * anti-patterns, the predictor and the next steps read. Items are added
+ * through a form that saves nothing until the debt is named and rated,
+ * edited in place, kept in a stable order while edited (Re-sort catches
+ * up), aged in sprints of the team's cadence, scored with the interest
+ * term capped, put on the backlog as a story, resolved on a day (with
+ * Undo), and deleted with Undo. The old page's own storage moves in once
+ * (useLegacyDebt).
  */
-function InterestRateInput({
-  value,
-  commit,
-  itemLabel,
-}: {
-  value: number | undefined;
-  commit: (next: number) => void;
-  itemLabel: string;
-}) {
-  const isUnset = value === undefined || value === 0;
-  const [draft, setDraft] = useState<string>(isUnset ? "" : String(value));
-  const lastSyncedRef = useRef<number | undefined>(value);
-  // Sync external changes (e.g. workspace import) into local draft when
-  // the field isn't being edited — same pattern as DescriptionEditor.
-  useEffect(() => {
-    if (lastSyncedRef.current === value) return;
-    lastSyncedRef.current = value;
-    setDraft(value === undefined || value === 0 ? "" : String(value));
-  }, [value]);
-  const pred = usePredictedDefault<number>("tech-debt", "interestRate", 0.5);
-
-  return (
-    <SmartInput<number>
-      predicted={pred}
-      onAccept={(v) => {
-        setDraft(String(v));
-        lastSyncedRef.current = v;
-        commit(v);
-      }}
-      render={({ ghost, accept, chip }) => (
-        <div className="flex flex-col gap-0.5">
-          <Input
-            type="number"
-            step="0.5"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => {
-              if (draft === "") {
-                if (value !== 0 && value !== undefined) commit(0);
-                return;
-              }
-              const n = Number(draft);
-              if (Number.isFinite(n) && n !== value) {
-                lastSyncedRef.current = n;
-                commit(n);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Tab" && draft === "") {
-                e.preventDefault();
-                accept();
-              }
-            }}
-            placeholder={ghost ?? "Int/sprint"}
-            className="bg-bg border-border font-data"
-            aria-label={`Interest per sprint for ${itemLabel}`}
-          />
-          {draft === "" && chip}
-        </div>
-      )}
-    />
-  );
-}
-
-/**
- * Inline-edit description with local draft state. Avoids the
- * per-keystroke pattern that would (a) write to localStorage on every
- * character and (b) flood the history log with ITEM_UPDATED events. We
- * commit on blur, only firing the upstream update if the value actually
- * changed since the last commit.
- */
-function DescriptionEditor({
-  value,
-  commit,
-  itemLabel,
-}: {
-  value: string;
-  commit: (next: string | undefined) => void;
-  itemLabel: string;
-}) {
-  const [draft, setDraft] = useState(value);
-  const lastCommittedRef = useRef(value);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (typeof document !== "undefined" && document.activeElement === inputRef.current) {
-      return;
-    }
-    if (value === lastCommittedRef.current) return;
-    setDraft(value);
-    lastCommittedRef.current = value;
-  }, [value]);
-  return (
-    <Textarea
-      ref={inputRef}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft === lastCommittedRef.current) return;
-        lastCommittedRef.current = draft;
-        commit(draft.trim() ? draft : undefined);
-      }}
-      placeholder="Description (optional)..."
-      rows={2}
-      className="bg-bg border-border resize-none text-xs"
-      aria-label={`Description for ${itemLabel}`}
-    />
-  );
-}
-
 export function TechDebtClient() {
-  const [items, setItems] = usePersisted<TechDebtItem[]>("agile-toolkit:tech-debt", []);
-  const workspaceDebt = useWorkspaceStore((s) => s.techDebt);
-  const upsertDebt = useWorkspaceStore((s) => s.upsertTechDebt);
-  const { log } = useHistoryLogger("tech-debt");
+  const hydrated = useWorkspaceHydrated();
+  const { records, pending, conflicts, settleConflict, appeared, dismissAppeared } =
+    useLegacyDebt();
+  // Read so a backlog story finished on the board re-renders its row.
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const cadence = useWorkspaceStore(selectCadenceDoc);
+  const len = useMemo(() => normalizeCadence(cadence).sprintLengthDays, [cadence]);
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const [formOpen, setFormOpen] = useState(false);
+  const newRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    useWorkspaceStore.persist.rehydrate();
-  }, []);
+  const counted = useMemo(() => countedDebt(records), [records]);
+  const showsExampleOnly = records.length > 0 && records.every((t) => isExampleId(t.id));
+  const mixedExample = hasExampleItems(records) && !showsExampleOnly;
+  const summary = useMemo(
+    () => debtSummary(counted, len, today, stories),
+    [counted, len, today, stories]
+  );
+  const verdict = useMemo(() => debtVerdict(counted, len, today), [counted, len, today]);
+  const hotspot = useMemo(() => hotspotGrid(counted), [counted]);
+  const survival = useMemo(() => timeToResolve(counted, today), [counted, today]);
+  const chart = useMemo(() => survivalChartText(survival), [survival]);
 
-  const add = () => {
-    const item = emptyItem();
-    setItems((s) => [item, ...s]);
-    log(TECH_DEBT_ACTIONS.ITEM_ADDED, { itemId: item.id });
-  };
-  const update = (id: string, patch: Partial<TechDebtItem>) => {
-    // Use the functional setter so we observe the freshest list, not a value
-    // captured at render time. A rapid double-update would otherwise see a
-    // stale `prev` and miss the resolve transition.
-    setItems((items) => {
-      const prev = items.find((x) => x.id === id);
-      const next = items.map((x) => (x.id === id ? { ...x, ...patch } : x));
-      if (patch.resolvedAt && !prev?.resolvedAt) {
-        log(TECH_DEBT_ACTIONS.ITEM_RESOLVED, { itemId: id, title: prev?.title });
-      } else {
-        log(TECH_DEBT_ACTIONS.ITEM_UPDATED, { itemId: id, fields: Object.keys(patch) });
-      }
-      return next;
-    });
-  };
-  const remove = (id: string) => {
-    const item = items.find((x) => x.id === id);
-    setItems((s) => s.filter((x) => x.id !== id));
-    // R10: mirror to workspace store so the item disappears for any
-    // downstream consumer (dashboards, anti-pattern detectors, canvas
-    // stickies via the workspace cascade). Previously local-only,
-    // leaving a zombie in `workspace.techDebt` after push.
-    try {
-      useWorkspaceStore.getState().removeTechDebt(id);
-    } catch {
-      /* workspace store may be unavailable in tests */
-    }
-    log(TECH_DEBT_ACTIONS.ITEM_REMOVED, { itemId: id, title: item?.title });
-  };
-  // Nothing in the UI used to set `resolvedAt`, so "Open Items" counted
-  // everything and the resolution survival curve never had data.
-  const resolve = (id: string) => {
-    const item = items.find((x) => x.id === id);
-    if (!item || item.resolvedAt) return;
-    const title = item.title.trim();
-    undoable({
-      label: title
-        ? `Resolved “${title.length > 40 ? `${title.slice(0, 39)}…` : title}”`
-        : "Resolved an untitled item",
-      apply: () => update(id, { resolvedAt: todayLocalISO() }),
-      revert: () => update(id, { resolvedAt: undefined }),
-    });
-  };
-  const reopen = (id: string) => update(id, { resolvedAt: undefined });
+  // Open first, then score, then age. An edit doesn't move a row out from
+  // under the cursor; "Re-sort" catches the order up.
+  const comparator = useMemo(() => debtComparator(len, today), [len, today]);
+  const { ordered, isStale, resort } = useStableOrder(records, keyOf, comparator);
 
-  const handleImport = () => {
-    // Merge by id with workspace-as-newer-wins: existing items are replaced
-    // with the workspace version, and brand-new ones are prepended. This
-    // turns Import into a true sync rather than a one-time copy that ignored
-    // updates.
-    let imported = 0;
-    setItems((existing) => {
-      const byId = new Map(existing.map((i) => [i.id, i] as const));
-      let replaced = 0;
-      let added = 0;
-      for (const w of workspaceDebt) {
-        if (byId.has(w.id)) replaced++;
-        else added++;
-        byId.set(w.id, w);
-      }
-      imported = replaced + added;
-      // Preserve original ordering when possible: keep existing-id items in
-      // their previous order, append any genuinely new ones at the front so
-      // the user notices them.
-      const existingIds = new Set(existing.map((i) => i.id));
-      const newOnes = workspaceDebt.filter((w) => !existingIds.has(w.id));
-      const merged = existing.map((i) => byId.get(i.id) ?? i);
-      return [...newOnes, ...merged];
-    });
-    return imported;
-  };
-  const handlePush = () => {
-    let n = 0;
-    for (const i of items) {
-      if (i.title.trim()) {
-        upsertDebt(i);
-        n++;
-      }
-    }
-    return n;
-  };
+  const storyOf = useCallback(
+    (t: TechDebtItem): BacklogStory | null => {
+      const s = debtStoryOf(t, stories);
+      return s ? { id: s.storyId, done: s.done } : null;
+    },
+    [stories]
+  );
+  const backlogState = useCallback(
+    (t: TechDebtItem): BacklogState => {
+      const s = storyOf(t);
+      return s ? (s.done ? "done" : "sent") : null;
+    },
+    [storyOf]
+  );
 
-  // Open items by priority, then resolved ones (their score no longer
-  // matters) at the bottom.
-  const ranked = useMemo(
+  const markdown = useMemo(
     () =>
-      items
-        .slice()
-        .sort(
-          (a, b) =>
-            Number(Boolean(a.resolvedAt)) - Number(Boolean(b.resolvedAt)) ||
-            priorityScore(b) - priorityScore(a)
-        ),
-    [items]
-  );
-  const totalInterestPerSprint = useMemo(
-    () => items.filter((i) => !i.resolvedAt).reduce((a, b) => a + (b.interestRate ?? 0), 0),
-    [items]
-  );
-
-  const hotspotMatrix = useMemo(() => {
-    const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
-    // Clamp impact/effort into [1,5] before indexing — corrupted persisted
-    // values (e.g. 0, 6, NaN) would otherwise reach `grid[-1][...]` or
-    // `grid[5][...]` and throw at runtime.
-    //
-    // ROUND as well as clamp: clamping alone bounds the range but not the
-    // domain, so a fractional 2.5 yielded `grid[1.5]` → `undefined[c]++` →
-    // TypeError inside a useMemo during render, unmounting the whole Tech
-    // Debt route on every mount thereafter (the value is persisted). The
-    // UI's Select only ever writes 1-5, but the agent action
-    // `workspace.tech_debt` declares `impact: z.number()` with no `.int()`,
-    // and "Import from Workspace" copies it verbatim. Mirrors the guard in
-    // threat-model-client.tsx.
-    const bucket = (v: number) =>
-      (Number.isFinite(v) ? Math.min(5, Math.max(1, Math.round(v))) : 3) - 1;
-    for (const item of items.filter((x) => !x.resolvedAt)) {
-      grid[bucket(item.impact)][bucket(item.effort)]++;
-    }
-    return grid;
-  }, [items]);
-
-  const areas = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const i of items) {
-      if (!i.area) continue;
-      m.set(i.area, (m.get(i.area) ?? 0) + i.impact);
-    }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
-  }, [items]);
-
-  // ── Tier-2 KM survival on resolution time ────────────────────────────
-  // Both the bootstrap CI on the median and the KM curve are derived from
-  // the same observation set so any negative-duration filtering or rounding
-  // applied by `durationsFromTimeRanges` lines up — otherwise the two
-  // medians can disagree on the same data.
-  const survivalObservations = useMemo(
-    () =>
-      durationsFromTimeRanges(
-        items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt }))
-      ),
-    [items]
-  );
-
-  const resolvedDurations = useMemo(
-    () => survivalObservations.filter((o) => o.event).map((o) => o.duration),
-    [survivalObservations]
-  );
-
-  const survivalCurve = useMemo(() => {
-    if (resolvedDurations.length < 4) return [];
-    return kaplanMeier(survivalObservations);
-  }, [survivalObservations, resolvedDurations.length]);
-
-  const medianResolutionDays = useMemo(() => medianSurvivalTime(survivalCurve), [survivalCurve]);
-
-  const medianCI = useMemo(() => {
-    if (resolvedDurations.length < 3) return null;
-    return bootstrapQuantile(resolvedDurations, 0.5);
-  }, [resolvedDurations]);
-
-  const survivalChartData = useMemo(
-    () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    [survivalCurve]
+      toMarkdown(records, new Date(), { sprintLengthDays: len, verdict, backlog: backlogState }),
+    [records, len, verdict, backlogState]
   );
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Technical Debt Tracker",
-      prompts: generateTechDebtPrompts({ items: ranked, totalInterestPerSprint }),
+      prompts: generateTechDebtPrompts({
+        items: rankedDebt(counted, len, today).map((r) => r.item),
+        totalInterestPerSprint: summary.interestPerSprint,
+      }),
     }),
-    [ranked, totalInterestPerSprint]
+    [counted, len, today, summary.interestPerSprint]
   );
+
+  /* ── Changes ──────────────────────────────────────────────────────── */
+
+  // Example items aren't the team's history.
+  const record = (
+    t: Pick<TechDebtItem, "id">,
+    action: string,
+    payload: Record<string, unknown>
+  ) => {
+    if (!isExampleId(t.id)) log(action, payload);
+  };
+
+  const add = (values: NewDebt) => {
+    const item = saveDebt(newDebt(values, `td_${nanoid(8)}`));
+    record(item, TECH_DEBT_ACTIONS.ITEM_ADDED, { itemId: item.id, title: item.title });
+    announce(`Added “${item.title}”`);
+  };
+
+  const edit = (t: TechDebtItem, patch: DebtPatch, field: string) => {
+    if (patchDebt(t.id, (x) => withPatch(x, patch))) {
+      record(t, TECH_DEBT_ACTIONS.ITEM_UPDATED, { itemId: t.id, fields: [field] });
+    }
+  };
+
+  const resolve = (t: TechDebtItem) => {
+    const prev = currentTechDebt().find((x) => x.id === t.id);
+    if (!prev || prev.resolvedAt) return;
+    const label = `Resolved “${shortName(t.title)}”`;
+    undoable({
+      label,
+      apply: () => {
+        saveDebt({ ...prev, resolvedAt: today });
+        record(t, TECH_DEBT_ACTIONS.ITEM_RESOLVED, { itemId: t.id, title: t.title });
+      },
+      revert: () => {
+        saveDebt(prev);
+      },
+    });
+    announce(label);
+  };
+
+  const reopen = (t: TechDebtItem) => {
+    const prev = currentTechDebt().find((x) => x.id === t.id);
+    if (!prev || !prev.resolvedAt) return;
+    const label = `Reopened “${shortName(t.title)}”`;
+    undoable({
+      label,
+      apply: () => {
+        saveDebt(withPatch(prev, { resolvedAt: undefined }));
+        record(t, TECH_DEBT_ACTIONS.ITEM_UPDATED, { itemId: t.id, fields: ["resolvedAt"] });
+      },
+      revert: () => {
+        saveDebt(prev);
+      },
+    });
+    announce(label);
+  };
+
+  const send = (t: TechDebtItem) => {
+    // No points: effort 1–5 isn't story points, so the story lands
+    // unestimated and Planning Poker's nudge picks it up.
+    const link = sendHandoff(
+      "backlog-story",
+      { title: t.title, sourceRef: { tool: TOOL_ID, id: t.id } },
+      {
+        getLinks: () => currentTechDebt().find((x) => x.id === t.id)?.sentTo,
+        setLinks: (update) => {
+          patchDebt(t.id, (x) => withLinks(x, update));
+        },
+      }
+    );
+    if (!link) return;
+    record(t, TECH_DEBT_ACTIONS.ITEM_SENT_TO_BACKLOG, { itemId: t.id, storyId: link.targetId });
+    announce(`Put “${shortName(t.title)}” on the backlog`);
+  };
+
+  const remove = (t: TechDebtItem) => {
+    let snapshot: TechDebtRecordSnapshot | null = null;
+    // Focus moves to the next item on screen (or the one before) as this one goes.
+    const at = ordered.findIndex((x) => x.id === t.id);
+    const neighbour = ordered[at + 1] ?? ordered[at - 1];
+    undoable({
+      label: `Deleted “${shortName(t.title)}”`,
+      apply: () => {
+        snapshot = removeTechDebtRecord(t.id);
+        record(t, TECH_DEBT_ACTIONS.ITEM_REMOVED, { itemId: t.id, title: t.title });
+      },
+      revert: () => {
+        if (snapshot) restoreTechDebtRecord(snapshot);
+        focusSoon(t.id);
+      },
+    });
+    focusSoon(neighbour?.id ?? null, newRef.current);
+    announce(`Deleted “${shortName(t.title)}”`);
+  };
+
+  const takeOldValue = (c: TechDebtConflict) => {
+    const prev = currentTechDebt().find((x) => x.id === c.id);
+    settleConflict(c);
+    if (!prev) return;
+    const label = `Used the old page's value on “${shortName(prev.title)}”`;
+    undoable({
+      label,
+      apply: () => {
+        saveDebt(withBlobValue(prev, c));
+      },
+      revert: () => {
+        saveDebt(prev);
+      },
+    });
+    announce(label);
+  };
+
+  // Loading is offered only on an empty tracker. Neither is logged: the
+  // example isn't the team's work. Its ids start with "example-", so
+  // agents, next steps and the anti-patterns leave them out.
+  const loadExample = () => {
+    saveTechDebt(buildExample());
+    setFormOpen(false);
+  };
+  const clearExample = () => {
+    const ids = currentTechDebt()
+      .filter((t) => isExampleId(t.id))
+      .map((t) => t.id);
+    let snapshots: TechDebtRecordSnapshot[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        snapshots = ids.map(removeTechDebtRecord);
+      },
+      revert: () => snapshots.forEach(restoreTechDebtRecord),
+    });
+  };
+
+  const csv = debtCsv(records, len, today, backlogState);
+  const interestValue =
+    summary.open === 0
+      ? "—"
+      : summary.unestimated === summary.open
+        ? "—"
+        : fmt(summary.interestPerSprint);
+  const interestHint =
+    summary.open === 0
+      ? "No open debt"
+      : summary.unestimated === summary.open
+        ? "None estimated yet"
+        : summary.unestimated > 0
+          ? `Points a sprint; ${summary.unestimated} not estimated`
+          : "Points a sprint, open debt";
 
   return (
     <ToolPageWrapper
-      toolId="tech-debt"
+      toolId={TOOL_ID}
       title="Technical Debt Tracker"
-      description="Register tech debt with impact × effort, track interest cost per sprint, and find hotspots."
+      description="Register tech debt with impact × effort and the interest it gains each sprint, rank it by a capped score, find the hotspots, and put the top items on the backlog."
       category="Risk & Governance"
     >
-      <ActionRow>
-        <WorkspaceSyncButton toolName="Tech Debt" onImport={handleImport} onPush={handlePush} />
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="tech-debt"
-          csvData={{
-            headers: [
-              "Title",
-              "Description",
-              "Area",
-              "Impact",
-              "Effort",
-              "Interest/Sprint",
-              "Age (d)",
-              "Score",
-            ],
-            rows: ranked.map((i) => [
-              i.title,
-              i.description ?? "",
-              i.area ?? "",
-              i.impact,
-              i.effort,
-              i.interestRate ?? 0,
-              ageDays(i),
-              priorityScore(i).toFixed(1),
-            ]),
-          }}
-          jsonData={items}
-        />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          New Debt
-        </Button>
-      </ActionRow>
-
-      <KpiGrid cols={3}>
-        <StatCard
-          variant="compact"
-          label="Open Items"
-          value={items.filter((i) => !i.resolvedAt).length}
-          valueClassName="text-accent"
-        />
-        <StatCard
-          variant="compact"
-          label="Interest/Sprint"
-          value={totalInterestPerSprint.toFixed(1)}
-          valueClassName="text-warning"
-          hint="velocity-units bleed"
-        />
-        <StatCard
-          variant="compact"
-          label="Top Hotspot"
-          value={areas[0]?.[0] ?? "—"}
-          valueClassName="text-lg truncate"
-          hint={areas[0] ? `${areas[0][1]} impact points` : "Add areas to items"}
-        />
-      </KpiGrid>
-
-      <Card className="bg-surface border-border mb-6">
-        <CardContent className="p-4">
-          <div className="text-sm font-semibold text-text mb-3">Impact × Effort Heatmap</div>
-          <div className="grid grid-cols-6 gap-1 text-xs">
-            <div />
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={`h${i}`} className="text-center text-sub font-data">
-                E{i}
-              </div>
-            ))}
-            {[5, 4, 3, 2, 1].map((imp) => (
-              <div key={`row${imp}`} style={{ display: "contents" }}>
-                <div className="text-sub font-data text-right pr-1">I{imp}</div>
-                {[1, 2, 3, 4, 5].map((eff) => {
-                  const count = hotspotMatrix[imp - 1][eff - 1];
-                  const intensity = Math.min(1, count / 5);
-                  return (
-                    <div
-                      key={`${imp}-${eff}`}
-                      className="h-8 rounded flex items-center justify-center font-data text-xs border"
-                      style={{
-                        background: `rgba(0,240,255,${intensity * 0.5})`,
-                        borderColor: `rgba(0,240,255,${intensity * 0.6})`,
-                        color: count ? "#00f0ff" : "#555",
-                      }}
-                    >
-                      {count || ""}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-          <div className="text-xs text-sub mt-2">
-            Top-left (high impact, low effort) = best paydown targets.
-          </div>
-        </CardContent>
-      </Card>
-
-      {survivalChartData.length > 1 && (
-        <SectionCard
-          title="Resolution survival curve"
-          icon={Activity}
-          titleSuffix={
-            medianResolutionDays !== null
-              ? `Median ${medianResolutionDays}d${
-                  medianCI
-                    ? ` · 95% CI [${Math.round(medianCI.lower)}, ${Math.round(medianCI.upper)}]`
-                    : ""
-                }`
-              : undefined
-          }
-          className="mb-6"
+      {!hydrated ? (
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
         >
-          <div className="h-40 -mx-2">
-            <ResolutionSurvivalChart data={survivalChartData} />
-          </div>
-          <p className="text-xs text-sub mt-2">
-            Kaplan-Meier estimate over {resolvedDurations.length} resolved item
-            {resolvedDurations.length === 1 ? "" : "s"}. Y-axis: probability the debt is still open
-            after N days.
-          </p>
-        </SectionCard>
-      )}
+          Loading tech debt…
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {hasExampleItems(records) && (
+            <div>
+              <ExampleNotice onClear={clearExample} />
+              <p className="-mt-2 text-xs text-sub">
+                {mixedExample
+                  ? "The example's items are listed but not counted while you have your own."
+                  : "Example: a payments team's debt with 14-day sprints. It isn't put on your backlog."}
+              </p>
+            </div>
+          )}
 
-      <div className="space-y-2">
-        {ranked.map((i) => (
-          <Card key={i.id} className="bg-surface border-border">
-            <CardContent className="p-3 space-y-2">
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_120px_80px_80px_80px_60px_auto] gap-2 items-center">
-                <BlurInput
-                  value={i.title}
-                  onCommit={(v) => update(i.id, { title: v })}
-                  placeholder="Debt item"
-                  aria-label="Debt item"
-                  className="bg-bg border-border"
+          <ConflictNotice
+            conflicts={conflicts}
+            records={records}
+            onKeep={settleConflict}
+            onUseOld={takeOldValue}
+          />
+          <AppearedNotice count={appeared} onDismiss={dismissAppeared} />
+
+          {pending && (
+            <p role="status" className="text-xs text-sub">
+              Some items from the old Tech Debt page are still moving in; they&apos;re listed as
+              they&apos;ll read once moved.
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {records.length > 0 && (
+              <>
+                <AiPromptGenerator config={promptConfig} />
+                <ExportButton
+                  filename="tech-debt"
+                  csvData={csv}
+                  jsonData={records}
+                  markdown={markdown}
+                  clipboardText={markdown}
                 />
-                <BlurInput
-                  value={i.area ?? ""}
-                  onCommit={(v) => update(i.id, { area: v })}
-                  placeholder="Area"
-                  aria-label={`Area for ${i.title || "debt item"}`}
-                  className="bg-bg border-border"
-                />
-                <Select
-                  value={String(i.impact)}
-                  onValueChange={(v) =>
-                    update(i.id, { impact: Number(v) as TechDebtItem["impact"] })
-                  }
-                >
-                  <SelectTrigger
-                    aria-label={`Impact for ${i.title || "debt item"}`}
-                    className="bg-bg border-border font-data"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <SelectItem key={n} value={String(n)}>
-                        Impact {n}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={String(i.effort)}
-                  onValueChange={(v) =>
-                    update(i.id, { effort: Number(v) as TechDebtItem["effort"] })
-                  }
-                >
-                  <SelectTrigger
-                    aria-label={`Effort for ${i.title || "debt item"}`}
-                    className="bg-bg border-border font-data"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <SelectItem key={n} value={String(n)}>
-                        Effort {n}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <InterestRateInput
-                  value={i.interestRate}
-                  commit={(next) => update(i.id, { interestRate: next })}
-                  itemLabel={i.title || "debt item"}
-                />
-                <div
-                  className="text-center"
-                  title="Priority score: impact × 4 − effort + interest per sprint × age in days ÷ 2"
-                >
-                  <div className="text-xs uppercase tracking-wider text-sub">Score</div>
-                  <div className="font-data text-sm text-accent">{priorityScore(i).toFixed(0)}</div>
-                </div>
-                <div className="flex items-center justify-end gap-1">
-                  {i.resolvedAt ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => reopen(i.id)}
-                      aria-label={`Reopen debt item: ${i.title || "untitled"}`}
-                      className="gap-1 text-xs text-sub hover:text-text min-touch-coarse"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
-                      Reopen
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => resolve(i.id)}
-                      aria-label={`Mark resolved: ${i.title || "untitled"}`}
-                      className="gap-1 text-xs text-sub hover:text-success min-touch-coarse"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      Mark resolved
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => remove(i.id)}
-                    aria-label={`Remove debt item: ${i.title || "untitled"}`}
-                    className="text-sub hover:text-danger min-touch-coarse"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                  </Button>
-                </div>
-              </div>
-              {i.resolvedAt && (
-                <div className="text-xs text-success">Resolved {i.resolvedAt.slice(0, 10)}</div>
-              )}
-              <DescriptionEditor
-                value={i.description ?? ""}
-                commit={(next) => update(i.id, { description: next })}
-                itemLabel={i.title || "debt item"}
+              </>
+            )}
+            <Button
+              ref={newRef}
+              type="button"
+              size="sm"
+              className="gap-1"
+              aria-expanded={formOpen}
+              onClick={() => setFormOpen((o) => !o)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New debt
+            </Button>
+          </div>
+
+          {formOpen && (
+            <SectionCard title="New debt" icon={Plus}>
+              <DebtForm
+                today={today}
+                onSave={add}
+                onCancel={() => {
+                  setFormOpen(false);
+                  newRef.current?.focus();
+                }}
               />
-            </CardContent>
-          </Card>
-        ))}
-        {items.length === 0 && (
-          <EmptyState icon={Wrench}>
-            No debt logged. Click &ldquo;New Debt&rdquo; to start.
-          </EmptyState>
-        )}
-      </div>
+            </SectionCard>
+          )}
+
+          {records.length === 0 ? (
+            !formOpen && (
+              <EmptyState
+                icon={Wrench}
+                action={
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <LoadExampleButton onLoad={loadExample} />
+                  </div>
+                }
+              >
+                No debt logged yet. Use &ldquo;New debt&rdquo; for the shortcuts that slow the team
+                down, or load an example to see a tracker filled in.
+              </EmptyState>
+            )
+          ) : (
+            <>
+              <p className="text-sm font-medium text-text">{verdict}</p>
+
+              <KpiGrid cols={[2, 3, 5]} marginBottom="none">
+                <StatCard
+                  variant="compact"
+                  label="Open"
+                  value={summary.open}
+                  hint={`${summary.resolved} paid down`}
+                />
+                <StatCard
+                  variant="compact"
+                  label="Interest a sprint"
+                  value={interestValue}
+                  hint={interestHint}
+                />
+                <StatCard
+                  variant="compact"
+                  label="Oldest open"
+                  value={
+                    summary.oldestSprints === null
+                      ? "—"
+                      : `${summary.oldestSprints} ${summary.oldestSprints === 1 ? "sprint" : "sprints"}`
+                  }
+                  hint={`${len}-day sprints`}
+                />
+                <StatCard
+                  variant="compact"
+                  label="On the backlog"
+                  value={summary.inBacklog}
+                  hint="Open items with a story"
+                />
+                <StatCard
+                  variant="compact"
+                  label="Top hotspot"
+                  value={summary.hotspot?.area ?? "—"}
+                  valueClassName="truncate"
+                  hint={
+                    summary.hotspot
+                      ? `${summary.hotspot.impact} impact points of open debt`
+                      : "Give open items an area"
+                  }
+                />
+              </KpiGrid>
+
+              <SectionCard title="Impact × effort" icon={Flame}>
+                <HotspotMatrix grid={hotspot.grid} />
+                <p className="mt-2 text-xs text-sub">
+                  {hotspot.open} open {hotspot.open === 1 ? "item" : "items"}. Top left (high
+                  impact, low effort) is the best paydown.
+                </p>
+              </SectionCard>
+
+              <ResortChip isStale={isStale} onResort={resort} what="Scores" />
+              <ul className="space-y-2" aria-label="Debt, open first by score">
+                {ordered.map((t) => (
+                  <DebtRow
+                    key={t.id}
+                    ranked={rankDebt(t, len, today)}
+                    sprintLengthDays={len}
+                    today={today}
+                    example={isExampleId(t.id)}
+                    story={storyOf(t)}
+                    onEdit={edit}
+                    onResolve={resolve}
+                    onResolvedOn={(item, day) => edit(item, { resolvedAt: day }, "resolvedAt")}
+                    onReopen={reopen}
+                    onSend={send}
+                    onDelete={remove}
+                  />
+                ))}
+              </ul>
+
+              <AdvancedAnalysis summary="Advanced analysis: how long debt takes to pay down">
+                {survival.points.length > 1 ? (
+                  <ChartFigure
+                    label="Debt still open after each number of days"
+                    summary={chart.summary}
+                    table={chart.table}
+                    caption="Debt still open, Kaplan-Meier"
+                    plotClassName="h-[180px]"
+                  >
+                    <ResolutionSurvivalChart data={survival.points} />
+                  </ChartFigure>
+                ) : (
+                  <NotEnoughData
+                    have={survival.resolved}
+                    need="distribution"
+                    unit={["paid-down item", "paid-down items"]}
+                    action="Pay down"
+                    what="how long debt takes to pay down"
+                  />
+                )}
+                <p className="flex items-start gap-2 text-xs text-sub">
+                  <Activity className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  Kaplan-Meier over every item: open ones count as still waiting.
+                </p>
+              </AdvancedAnalysis>
+            </>
+          )}
+        </div>
+      )}
     </ToolPageWrapper>
+  );
+}
+
+/**
+ * The 5×5 hotspot matrix as a table: impact down (5 at the top), effort
+ * across, each cell the number of open items there, tinted by how many
+ * (accent tints, never a hex).
+ */
+function HotspotMatrix({ grid }: { grid: number[][] }) {
+  return (
+    <div className="relative max-w-sm">
+      <table className="w-full table-fixed border-separate border-spacing-1 text-xs">
+        <caption className="sr-only">
+          Open debt by impact (rows, 5 at the top) and effort (columns)
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col" className="w-8">
+              <span className="sr-only">Impact</span>
+            </th>
+            {EFFORTS.map((e) => (
+              <th key={e} scope="col" className="text-center font-data font-normal text-sub">
+                E{e}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {IMPACTS.map((i) => (
+            <tr key={i}>
+              <th scope="row" className="pr-1 text-right font-data font-normal text-sub">
+                I{i}
+              </th>
+              {EFFORTS.map((e) => {
+                const count = grid[i - 1][e - 1];
+                return (
+                  <td
+                    key={e}
+                    className={`h-8 rounded border text-center font-data ${heatTone(count)}`}
+                  >
+                    {count > 0 ? count : <span className="sr-only">0</span>}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
