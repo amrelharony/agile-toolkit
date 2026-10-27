@@ -16,16 +16,15 @@
 
 import { nanoid } from "nanoid";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import {
-  KR_CHECK_IN_CAP,
-  type KeyResult,
-  type KeyResultCheckIn,
-  type Okr,
-  type PrioritizationItem,
-  type RetroBoard,
-  type RetroCard,
-  type StoryMap,
-  type StoryMapCard,
+import type {
+  KeyResult,
+  KeyResultCheckIn,
+  Okr,
+  PrioritizationItem,
+  RetroBoard,
+  RetroCard,
+  StoryMap,
+  StoryMapCard,
 } from "@/lib/stores/workspace-types";
 import {
   RETRO_ARCHIVE_LIMIT,
@@ -33,6 +32,9 @@ import {
   retroArchivesToPrune,
 } from "@/app/(tools)/retro/archive";
 import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
+import { withCheckIn } from "@/lib/okrs/progress";
+import { isIsoDate } from "@/lib/sprints/calendar";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 export interface SnapshotImporter {
   /** What "Copy into my browser" will do, in one sentence. */
@@ -136,17 +138,24 @@ function readRows(
 const isConfidence = (v: unknown): v is number => isNum(v) && v >= 0 && v <= 10;
 
 /**
- * A key result's dated check-ins (Phase 8): each with a "YYYY-MM-DD" date
- * and a finite value, a 0–10 confidence and a short note kept when valid,
- * a new id. Oldest first, at most KR_CHECK_IN_CAP (the newest kept), as the
- * OKR page keeps them. Invalid entries are left out; none valid: absent.
+ * A key result's dated check-ins (Phase 8), in the order sent: each with a
+ * real "YYYY-MM-DD" day no later than `today` and a finite value, a 0–10
+ * confidence and a short note kept when valid, a new id. Invalid and
+ * future-dated entries are left out, as the OKR page refuses them.
  */
-function readCheckIns(raw: unknown): KeyResultCheckIn[] | undefined {
-  if (!isArr(raw)) return undefined;
+function readCheckIns(raw: unknown, today: string): KeyResultCheckIn[] {
+  if (!isArr(raw)) return [];
   const out: KeyResultCheckIn[] = [];
   for (const entry of raw) {
     const c = obj(entry);
-    if (!c || !isStr(c.date, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(c.date) || !isNum(c.value)) {
+    if (
+      !c ||
+      !isStr(c.date, 10) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(c.date) ||
+      !isIsoDate(c.date) ||
+      c.date > today ||
+      !isNum(c.value)
+    ) {
       continue;
     }
     out.push({
@@ -157,14 +166,12 @@ function readCheckIns(raw: unknown): KeyResultCheckIn[] | undefined {
       ...(isStr(c.note, 500) ? { note: c.note } : {}),
     });
   }
-  if (out.length === 0) return undefined;
-  // A stable sort: same-day check-ins keep the order they were sent in.
-  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  return out.slice(-KR_CHECK_IN_CAP);
+  return out;
 }
 
 function readOkrs(state: unknown): Okr[] | null {
   if (!isArr(state, 50)) return null;
+  const today = todayLocalISO();
   const out: Okr[] = [];
   for (const raw of state) {
     const o = obj(raw);
@@ -174,8 +181,7 @@ function readOkrs(state: unknown): Okr[] | null {
     for (const k of o.keyResults) {
       const kr = obj(k);
       if (!kr || !isStr(kr.title, 500) || !isNum(kr.target) || !isNum(kr.current)) return null;
-      const checkIns = readCheckIns(kr.checkIns);
-      krs.push({
+      const read: KeyResult = {
         id: `kr-${nanoid(8)}`,
         title: kr.title,
         target: kr.target,
@@ -189,8 +195,13 @@ function readOkrs(state: unknown): Okr[] | null {
         ...(kr.direction === "increase" || kr.direction === "decrease"
           ? { direction: kr.direction }
           : {}),
-        ...(checkIns ? { checkIns } : {}),
-      });
+      };
+      // Recorded as the OKR page records them (lib/okrs withCheckIn): oldest
+      // first (same-day ones in the order sent), at most KR_CHECK_IN_CAP with
+      // the newest kept, and current and confidence mirrored from the newest,
+      // so a link that disagrees with its own history can't import a stale
+      // current. None valid: no check-ins, and the key result as sent.
+      krs.push(readCheckIns(kr.checkIns, today).reduce(withCheckIn, read));
     }
     out.push({
       id: `okr-${nanoid(8)}`,
