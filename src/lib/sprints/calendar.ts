@@ -7,7 +7,8 @@
  * never moves a day. Ranges are half-open: `workingDaysBetween(a, b)` counts
  * the working dates from `a` up to, but not including, `b`. That matches the
  * sprint's day numbers (./series.ts): by the morning of day `d`, the work of
- * days 0 … d-1 is done.
+ * days 0 … d-1 is done. Working hours (`workingHoursBetween`, at the end)
+ * count the same days by the minute, for times shorter than a sprint.
  */
 
 /** Weekdays the team works when nothing else is set: Monday to Friday. */
@@ -190,4 +191,97 @@ export function addWorkingDays(
     day++;
   }
   return isoFromDayNumber(day);
+}
+
+/* ── Working hours ─────────────────────────────────────────────────────
+ * For elapsed times shorter than a day (a pull request waiting for its
+ * first review). Times are read as wall-clock: the "YYYY-MM-DD" and
+ * "HH:MM" written in the value, never converted through the host's time
+ * zone, so the browser and the server agree on the same stored string. */
+
+/** Minutes in a day: a window's end may be this (midnight at the end of the day). */
+const MINUTES_PER_DAY = 1440;
+
+const WALL_CLOCK =
+  /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/i;
+
+/**
+ * A "YYYY-MM-DD[THH:MM[:SS]]" value as its day and the minute of that day
+ * (0 for a bare date; seconds are dropped), or null when it isn't one. A
+ * zone suffix ("Z", "+02:00") is ignored: the written time is the one
+ * counted. The date must exist ("2026-02-30" doesn't), unlike isoDayNumber.
+ */
+export function parseWallClock(
+  value: string | null | undefined
+): { day: string; minute: number } | null {
+  const m = WALL_CLOCK.exec(typeof value === "string" ? value.trim() : "");
+  if (!m || !isIsoDate(m[1])) return null;
+  const hour = m[2] === undefined ? 0 : Number(m[2]);
+  const minute = m[3] === undefined ? 0 : Number(m[3]);
+  const second = m[4] === undefined ? 0 : Number(m[4]);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  return { day: m[1], minute: hour * 60 + minute };
+}
+
+/** A local "HH:MM" (24-hour) as the minute of the day, or null when it isn't one. */
+export function parseClockTime(value: string | null | undefined): number | null {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(typeof value === "string" ? value.trim() : "");
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** The part of each working day that counts, as minutes of the day: start before end. */
+export interface WorkingWindowMinutes {
+  startMinute: number;
+  endMinute: number;
+}
+
+/**
+ * Working hours from `start` to `end`: the minutes that fall on working
+ * days (the calendar's weekdays, minus its holidays), clipped to `window`
+ * when one is given (a whole working day counts otherwise), in hours.
+ * Friday 17:00 to Monday 10:00 is 17 hours on whole days, 1 hour with a
+ * 09:00–17:00 window. 0 when both are the same moment; null when either
+ * isn't a wall-clock value, `end` comes before `start`, or the window isn't
+ * 0 ≤ start < end ≤ 1440. Constant time in the length of the range.
+ */
+export function workingHoursBetween(
+  start: string,
+  end: string,
+  calendar: WorkingCalendar = DEFAULT_CALENDAR,
+  window?: WorkingWindowMinutes
+): number | null {
+  const a = parseWallClock(start);
+  const b = parseWallClock(end);
+  if (a === null || b === null) return null;
+  const dayA = isoDayNumber(a.day) as number;
+  const dayB = isoDayNumber(b.day) as number;
+  if (dayB * MINUTES_PER_DAY + b.minute < dayA * MINUTES_PER_DAY + a.minute) return null;
+  let from = 0;
+  let to = MINUTES_PER_DAY;
+  if (window !== undefined) {
+    const { startMinute, endMinute } = window;
+    if (
+      !Number.isFinite(startMinute) ||
+      !Number.isFinite(endMinute) ||
+      startMinute < 0 ||
+      endMinute > MINUTES_PER_DAY ||
+      startMinute >= endMinute
+    ) {
+      return null;
+    }
+    from = startMinute;
+    to = endMinute;
+  }
+  /** The minutes of [s, e) inside the window. */
+  const clip = (s: number, e: number) => Math.max(0, Math.min(e, to) - Math.max(s, from));
+  let minutes: number;
+  if (dayA === dayB) {
+    minutes = isWorkingDay(a.day, calendar) ? clip(a.minute, b.minute) : 0;
+  } else {
+    minutes =
+      (isWorkingDay(a.day, calendar) ? clip(a.minute, MINUTES_PER_DAY) : 0) +
+      (isWorkingDay(b.day, calendar) ? clip(0, b.minute) : 0) +
+      countWorkingDays(dayA + 1, dayB, calendar) * (to - from);
+  }
+  return minutes / 60;
 }
