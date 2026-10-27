@@ -22,6 +22,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
+import { generateCodeReviewPrompts } from "@/lib/ai-prompts/code-review-metrics";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { enoughData } from "@/lib/analytics/min-sample";
@@ -55,7 +56,6 @@ import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { CsvImport } from "./csv-import";
 import { buildExample } from "./example";
 import { reviewMarkdown } from "./markdown";
-import { reviewPrompts } from "./prompts";
 import { SampleForm, type SampleDraftText } from "./sample-form";
 import {
   bandChartText,
@@ -341,10 +341,10 @@ export function CodeReviewMetricsClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Code Review Metrics",
-      // The median working cycle (the page's headline), labelled as one.
-      prompts: reviewPrompts(rows, summary, basis),
+      // The page's medians in working hours, on its calendar and working window.
+      prompts: generateCodeReviewPrompts({ samples, calendar, workingWindow }),
     }),
-    [rows, summary, basis]
+    [samples, calendar, workingWindow]
   );
 
   const csvData = {

@@ -299,7 +299,7 @@ describe("the AI prompts", () => {
   type Props = { config: { prompts: { description: string; prompt: string }[] } };
   const prompts = () => (promptSpy.mock.calls.at(-1)?.[0] as Props).config.prompts;
 
-  it("call the headline the median of working hours, on the page's basis", () => {
+  it("are the shared prompts: medians in working hours on the page's basis, no author figures", () => {
     // Monday to Wednesday, 3 working hours each.
     seed({
       id: CODE_REVIEW_LOG_ID,
@@ -308,26 +308,25 @@ describe("the AI prompts", () => {
     });
     renderPage();
     const basis = workingBasisLabel(cadenceCalendar(normalizeCadence(undefined)), WINDOW);
-    const [bottlenecks, size] = prompts();
-    expect(bottlenecks.prompt).toContain(`Median cycle: 3.0h of working time (${basis}).`);
-    expect(size.prompt).toContain("median cycle 3.0h of working time.");
+    const [bottlenecks] = prompts();
+    expect(bottlenecks.prompt).toContain(`Working hours count ${basis}.`);
+    expect(bottlenecks.prompt).toContain(
+      "Median cycle, opened to merged: 3 h working (3 h elapsed)"
+    );
     for (const p of prompts()) {
       expect(p.prompt).not.toMatch(/avg cycle/i);
       expect(p.prompt).toContain("| Cycle (working h) |");
-      expect(p.prompt).not.toContain("| Cycle (h) |");
-      expect(p.prompt).not.toContain("authors/reviewers");
+      expect(p.prompt).not.toContain("Ana");
       expect(p.description).not.toContain("by author");
     }
-    expect(bottlenecks.description).toContain("by review comments");
   });
 
-  it("say there is no merged PR yet rather than '—h'", () => {
+  it("say what a median still needs while no PR is merged", () => {
     const open = { ...merged(20, "2026-10-19"), mergedAt: undefined };
     seed({ id: CODE_REVIEW_LOG_ID, samples: [open] });
     renderPage();
-    const [bottlenecks, size] = prompts();
-    expect(bottlenecks.prompt).toContain("No merged PRs — cycle time unavailable.");
-    expect(size.prompt).toContain("no merged PRs yet.");
-    expect(size.prompt).not.toContain("—h");
+    const [bottlenecks] = prompts();
+    expect(bottlenecks.prompt).toContain("Median cycle, opened to merged: — (needs 3 merged PRs)");
+    expect(bottlenecks.prompt).not.toContain("—h");
   });
 });
