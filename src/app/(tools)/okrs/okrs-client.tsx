@@ -1,57 +1,78 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
-import { nanoid } from "nanoid";
+import { useMemo, useState } from "react";
+import { Flag, Plus } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ChartCard } from "@/components/shared/chart-card";
-import { SmartInput } from "@/components/shared/smart-input";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { Flag, Plus, Trash2, Target } from "lucide-react";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Okr, KeyResult } from "@/lib/stores/workspace-types";
-// Note: a previous Holt-only `forecastLinear` against KR-index was removed
-// because that ordering is editorial. We bring forecasting back with the
-// Bayesian Holt primitive, but **only** apply it to per-OKR KR-progress
-// series with a clear "across KR sequence" caveat in the UI — never as a
-// dishonest "over time" projection.
-import {
-  forecastBayesianHolt,
-  bayesianForecastConfidence,
-} from "@/lib/analytics/forecasting-bayesian";
-import { mannKendall } from "@/lib/analytics/trend-test";
-import { cusum } from "@/lib/analytics/changepoint";
-import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
-import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
-import { generateOkrsPrompts } from "@/lib/ai-prompts/okrs";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { OKR_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
-import { undoable } from "@/lib/utils/undoable";
+import { ExportButton } from "@/components/shared/export-button";
+import { SectionCard } from "@/components/shared/section-card";
 import {
   ExampleNotice,
   LoadExampleButton,
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { generateOkrsPrompts } from "@/lib/ai-prompts/okrs";
+import { OKR_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import {
+  isConfidence,
+  krBaseline,
+  krDirection,
+  krPercent,
+  lastCheckIn,
+  objectiveProgress,
+  replacesUndated,
+  withCheckIn,
+  withoutCheckIn,
+} from "@/lib/okrs/progress";
+import { normalizeQuarter } from "@/lib/roadmap/quarters";
+import { emit as sonify } from "@/lib/sonification/emit";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  KeyResult,
+  KeyResultCheckIn,
+  Okr,
+  Sprint,
+  SprintGoal,
+} from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
+import { dayLabel } from "./chart-text";
 import { buildExample } from "./example";
+import {
+  emptyObjective,
+  newCheckIn,
+  newKeyResult,
+  newObjective,
+  withKeyResultValues,
+  withObjectiveValues,
+  type KeyResultValues,
+  type ObjectiveValues,
+} from "./forms";
 import { toMarkdown } from "./markdown";
-import { krProgress, objectiveHealth } from "./progress";
-// usePersisted no longer used — workspace store is the single source of truth.
+import { ObjectiveCard } from "./objective-card";
+import { ObjectiveForm } from "./objective-form";
+import {
+  ALL_QUARTERS,
+  defaultQuarter,
+  inQuarter,
+  okrsVerdict,
+  quarterChips,
+  quarterKey,
+} from "./view";
 
-// Recharts loads with the KR-progress chart, not the page. ChartCard's
-// fixed-height box holds the space while it loads.
-const KrProgressChart = dynamic(() => import("./charts").then((m) => m.KrProgressChart), {
-  ssr: false,
-});
+// Stable empty lists: zustand re-renders forever on a selector that
+// returns a fresh array each call.
+const NO_OKRS: Okr[] = [];
+const NO_GOALS: SprintGoal[] = [];
+const NO_SPRINTS: Sprint[] = [];
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -59,247 +80,314 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+const sameIds = (a: readonly KeyResultCheckIn[] = [], b: readonly KeyResultCheckIn[] = []) =>
+  a.length === b.length && a.every((c, i) => c.id === b[i].id);
+
 /**
- * Numeric input with a string draft buffer so typing a multi-digit value
- * doesn't snap mid-edit (e.g. typing "1500" wouldn't briefly show "1" → "15"
- * → "150" coerced through Number()). Commits on blur or Enter.
+ * The key result back as `before` was (check-ins, current value and
+ * confidence) when nothing changed its check-ins since `after`; otherwise
+ * `fallback` (put the one check-in back, or take it out), so a check-in
+ * someone added meanwhile survives the Undo. Restoring `before` matters:
+ * a key result's first check-in replaces its typed current value, which
+ * withoutCheckIn can't bring back.
  */
-function NumCell({
-  value,
-  onChange,
-  min,
-  max,
-  className,
-  placeholder,
-  title,
-  ariaLabel,
-}: {
-  value: number;
-  onChange: (n: number) => void;
-  min?: number;
-  max?: number;
-  className?: string;
-  placeholder?: string;
-  title?: string;
-  ariaLabel?: string;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const commit = () => {
-    const n = Number(draft);
-    if (Number.isFinite(n)) {
-      const clamped = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n));
-      onChange(clamped);
-      setDraft(String(clamped));
-    } else {
-      setDraft(String(value));
-    }
-  };
-  return (
-    <Input
-      type="number"
-      min={min}
-      max={max}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      className={className}
-      placeholder={placeholder}
-      title={title}
-      aria-label={ariaLabel}
-    />
-  );
+function undoCheckIns(
+  live: KeyResult,
+  before: KeyResult,
+  after: KeyResult,
+  fallback: (kr: KeyResult) => KeyResult
+): KeyResult {
+  if (!sameIds(live.checkIns, after.checkIns)) return fallback(live);
+  const next: KeyResult = { ...live, checkIns: before.checkIns, current: before.current };
+  if (before.confidence === undefined) delete next.confidence;
+  else next.confidence = before.confidence;
+  return next;
 }
 
-function emptyKr(): KeyResult {
-  return { id: nanoid(6), title: "", target: 100, current: 0, confidence: 5 };
-}
-
-function emptyOkr(): Okr {
-  return {
-    id: nanoid(8),
-    objective: "",
-    keyResults: [emptyKr()],
-    quarter: currentQuarter(),
-  };
-}
-
-function currentQuarter(): string {
-  const now = new Date();
-  return `${now.getFullYear()} Q${Math.floor(now.getMonth() / 3) + 1}`;
+/** The changed keys of an edit, for the history log. */
+function changed<T extends object>(before: T, after: T, keys: readonly (keyof T)[]): string[] {
+  return keys.filter((k) => before[k] !== after[k]).map(String);
 }
 
 export function OkrsClient() {
-  // BUG-T5-okrs-4: SINGLE source of truth. The prior dual-store design
-  // (`usePersisted("agile-toolkit:okrs", ...)` + workspace.okrs with
-  // Import/Push buttons to ferry data between) raced cross-tab edits
-  // and silently overwrote workspace data on Push. The workspace store
-  // is already persisted + cloud-synced; we read/write through it
-  // directly, so there is no Workspace import/push button.
-  const okrs = useWorkspaceStore((s) => s.okrs);
+  return (
+    // The app root has a provider; this one keeps the rows' icon-button
+    // tooltips working wherever the page renders on its own.
+    <TooltipProvider delayDuration={300}>
+      <OkrTracker />
+    </TooltipProvider>
+  );
+}
+
+/**
+ * The OKR Tracker. Objectives belong to a quarter and an owner; each key
+ * result runs from a baseline to a target, up or down, and moves through
+ * dated check-ins, whose confidence draws the trend. The workspace store
+ * is the one source (the agents' tool.okrs.* and Sprint Goal read it), and
+ * every number on the page comes from lib/okrs.
+ */
+function OkrTracker() {
+  const okrs = useWorkspaceStore((s) => s.okrs) ?? NO_OKRS;
+  const goals = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
+  const sprints = useWorkspaceStore((s) => s.sprints) ?? NO_SPRINTS;
   const upsertOkr = useWorkspaceStore((s) => s.upsertOkr);
   const removeOkr = useWorkspaceStore((s) => s.removeOkr);
   const { log } = useHistoryLogger("okrs");
+  const announce = useAnnounce();
+  const [now] = useState(() => new Date());
+  const today = todayLocalISO(now);
+  const [creating, setCreating] = useState(false);
+  // null until a chip is pressed: the list opens on today's quarter.
+  const [chosen, setChosen] = useState<string | null>(null);
 
-  // Smart-default predictor for the KR target field. Returns the mean
-  // target across prior KRs (capped low/medium confidence) — anchors new
-  // KRs against the team's historical sizing.
-  const krTargetPrediction = usePredictedDefault<number>("okrs", "krTargetExtrapolation", 100);
+  const chips = useMemo(() => quarterChips(okrs, now), [okrs, now]);
+  const filter =
+    chosen !== null && (chosen === ALL_QUARTERS || chips.some((c) => c.key === chosen))
+      ? chosen
+      : defaultQuarter(okrs, now);
+  const shown = useMemo(() => okrs.filter((o) => inQuarter(o, filter)), [okrs, filter]);
+  const quarters = useMemo(() => okrs.map((o) => o.quarter), [okrs]);
+  const verdict = okrsVerdict(shown, filter, today);
+  const markdown = useMemo(
+    () => toMarkdown(shown, now, { sprintGoals: goals, sprints }),
+    [shown, now, goals, sprints]
+  );
+  const promptConfig = useMemo(
+    () => ({ toolName: "OKR Tracker", prompts: generateOkrsPrompts({ okrs: shown }) }),
+    [shown]
+  );
 
-  const add = () => {
-    const obj = emptyOkr();
-    upsertOkr(obj);
-    log(OKR_ACTIONS.OBJECTIVE_ADDED, { okrId: obj.id });
+  /** History for the team's own objectives; the example's edits aren't the team's work. */
+  const record = (okrId: string, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(okrId)) log(action, payload);
   };
-  const remove = (id: string) => {
-    const obj = okrs.find((o) => o.id === id);
-    if (!obj) return;
+
+  /** Change one objective as it is in the store now; false when it's gone. */
+  const write = (okrId: string, update: (o: Okr) => Okr): Okr | null => {
+    const current = useWorkspaceStore.getState().okrs.find((o) => o.id === okrId);
+    if (!current) return null;
+    const next = update(current);
+    upsertOkr(next);
+    return next;
+  };
+  const writeKr = (okrId: string, krId: string, update: (kr: KeyResult) => KeyResult) =>
+    write(okrId, (o) => ({
+      ...o,
+      keyResults: o.keyResults.map((k) => (k.id === krId ? update(k) : k)),
+    }));
+  const findKr = (okrId: string, krId: string) =>
+    useWorkspaceStore
+      .getState()
+      .okrs.find((o) => o.id === okrId)
+      ?.keyResults.find((k) => k.id === krId);
+
+  /* ── Objectives ───────────────────────────────────────────────────── */
+
+  const addObjective = (values: ObjectiveValues) => {
+    const okr = newObjective(values);
+    upsertOkr(okr);
+    log(OKR_ACTIONS.OBJECTIVE_ADDED, { okrId: okr.id });
+    setCreating(false);
+    // The new objective stays in view, even when the list showed another quarter.
+    if (filter !== ALL_QUARTERS && quarterKey(okr.quarter) !== filter) setChosen(okr.quarter);
+    announce(`Added “${shortName(okr.objective)}” to ${okr.quarter}. Add its key results next.`);
+  };
+
+  const editObjective = (okrId: string, values: ObjectiveValues) => {
+    const before = okrs.find((o) => o.id === okrId);
+    const next = write(okrId, (o) => withObjectiveValues(o, values));
+    if (!before || !next) return;
+    const fields = changed(before, next, ["objective", "quarter", "owner", "description"]);
+    if (fields.length > 0) record(okrId, OKR_ACTIONS.OBJECTIVE_UPDATED, { okrId, fields });
+    announce(`Saved “${shortName(next.objective)}”`);
+  };
+
+  const deleteObjective = (okrId: string) => {
+    const index = okrs.findIndex((o) => o.id === okrId);
+    if (index === -1) return;
+    const obj = okrs[index];
     undoable({
       label: obj.objective.trim()
         ? `Deleted “${shortName(obj.objective)}”`
         : "Deleted an untitled objective",
       apply: () => {
-        removeOkr(id);
-        log(OKR_ACTIONS.OBJECTIVE_REMOVED, { okrId: id, objective: obj.objective });
+        removeOkr(okrId);
+        record(okrId, OKR_ACTIONS.OBJECTIVE_REMOVED, { okrId, objective: obj.objective });
       },
-      // Comes back with its key results; lands at the end of the list.
+      // Back with its key results and check-ins, at its old place in the list.
       revert: () => {
-        if (!useWorkspaceStore.getState().okrs.some((o) => o.id === id)) upsertOkr(obj);
+        const list = useWorkspaceStore.getState().okrs;
+        if (list.some((o) => o.id === okrId)) return;
+        const next = [...list];
+        next.splice(Math.min(index, next.length), 0, obj);
+        useWorkspaceStore.setState({ okrs: next });
       },
     });
-  };
-  const update = (id: string, patch: Partial<Okr>) => {
-    const current = okrs.find((o) => o.id === id);
-    if (!current) return;
-    upsertOkr({ ...current, ...patch });
+    announce(`Deleted “${shortName(obj.objective || "untitled objective")}”`);
   };
 
-  const addKr = (okrId: string) => {
-    const current = okrs.find((o) => o.id === okrId);
-    if (!current) return;
-    const kr = emptyKr();
-    upsertOkr({ ...current, keyResults: [...current.keyResults, kr] });
-    log(OKR_ACTIONS.KEY_RESULT_ADDED, { okrId, krId: kr.id });
+  /* ── Key results ──────────────────────────────────────────────────── */
+
+  const addKr = (okrId: string, values: KeyResultValues) => {
+    const kr = newKeyResult(values);
+    if (!write(okrId, (o) => ({ ...o, keyResults: [...o.keyResults, kr] }))) return;
+    record(okrId, OKR_ACTIONS.KEY_RESULT_ADDED, { okrId, krId: kr.id });
+    announce(`Added key result “${shortName(kr.title)}”`);
   };
-  const updateKr = (okrId: string, krId: string, patch: Partial<KeyResult>) => {
-    const current = okrs.find((o) => o.id === okrId);
-    if (!current) return;
-    upsertOkr({
-      ...current,
-      keyResults: current.keyResults.map((k) => (k.id === krId ? { ...k, ...patch } : k)),
-    });
-    if (patch.current !== undefined || patch.target !== undefined) {
-      log(OKR_ACTIONS.PROGRESS_UPDATED, { okrId, krId, ...patch });
+
+  const editKr = (okrId: string, krId: string, values: KeyResultValues) => {
+    const before = findKr(okrId, krId);
+    if (!before) return;
+    const after = withKeyResultValues(before, values);
+    writeKr(okrId, krId, () => after);
+    const fields = changed(before, after, [
+      "title",
+      "direction",
+      "baseline",
+      "target",
+      "unit",
+      "description",
+    ]);
+    if (fields.length > 0) {
+      record(okrId, OKR_ACTIONS.KEY_RESULT_UPDATED, { okrId, krId, fields });
+      // A new target or start moves progress: Epic Roadmap counts these.
+      if (fields.includes("target") || fields.includes("baseline")) {
+        record(okrId, OKR_ACTIONS.PROGRESS_UPDATED, {
+          okrId,
+          krId,
+          target: after.target,
+          baseline: after.baseline,
+        });
+      }
     }
+    announce(`Saved key result “${shortName(after.title)}”`);
   };
-  const removeKr = (okrId: string, krId: string) => {
-    const current = okrs.find((o) => o.id === okrId);
-    const index = current?.keyResults.findIndex((k) => k.id === krId) ?? -1;
-    if (!current || index === -1) return;
-    const kr = current.keyResults[index];
+
+  const deleteKr = (okrId: string, krId: string) => {
+    const parent = okrs.find((o) => o.id === okrId);
+    const index = parent?.keyResults.findIndex((k) => k.id === krId) ?? -1;
+    if (!parent || index === -1) return;
+    const kr = parent.keyResults[index];
     undoable({
       label: kr.title.trim()
         ? `Deleted “${shortName(kr.title)}”`
         : "Deleted an untitled key result",
       apply: () => {
-        upsertOkr({
-          ...current,
-          keyResults: current.keyResults.filter((k) => k.id !== krId),
-        });
-        log(OKR_ACTIONS.KEY_RESULT_REMOVED, { okrId, krId });
+        write(okrId, (o) => ({ ...o, keyResults: o.keyResults.filter((k) => k.id !== krId) }));
+        record(okrId, OKR_ACTIONS.KEY_RESULT_REMOVED, { okrId, krId });
       },
-      // Back into its objective at its old position, keeping any edits made
-      // since. Nothing to do if the objective itself was deleted meanwhile.
+      // Back into its objective at its old position, with its check-ins,
+      // keeping edits made to the others since. Nothing to do if the
+      // objective itself was deleted meanwhile.
       revert: () => {
-        const parent = useWorkspaceStore.getState().okrs.find((o) => o.id === okrId);
-        if (!parent || parent.keyResults.some((k) => k.id === krId)) return;
-        const keyResults = [...parent.keyResults];
+        const live = useWorkspaceStore.getState().okrs.find((o) => o.id === okrId);
+        if (!live || live.keyResults.some((k) => k.id === krId)) return;
+        const keyResults = [...live.keyResults];
         keyResults.splice(Math.min(index, keyResults.length), 0, kr);
-        upsertOkr({ ...parent, keyResults });
+        upsertOkr({ ...live, keyResults });
       },
     });
+    announce(`Deleted key result “${shortName(kr.title || "untitled")}”`);
   };
+
+  /* ── Check-ins ────────────────────────────────────────────────────── */
+
+  const checkIn = (okrId: string, krId: string, values: Omit<KeyResultCheckIn, "id">) => {
+    const okr = useWorkspaceStore.getState().okrs.find((o) => o.id === okrId);
+    const before = okr?.keyResults.find((k) => k.id === krId);
+    if (!okr || !before) return;
+    const entry = newCheckIn(values);
+    const after = withCheckIn(before, entry);
+    // The form refuses a day older than a full history keeps; this is the backstop.
+    if (!(after.checkIns ?? []).some((c) => c.id === entry.id)) {
+      toast.error("That day is older than every check-in kept, so it wasn't saved.");
+      return;
+    }
+    const replaced = replacesUndated(before, entry, today);
+    const wasDone = objectiveProgress(okr) >= 1;
+    const next = write(okrId, (o) => ({
+      ...o,
+      keyResults: o.keyResults.map((k) => (k.id === krId ? after : k)),
+    }));
+    if (!next) return;
+    const example = isExampleId(okrId);
+    const title = shortName(before.title || "key result");
+    undoable({
+      label: `Checked in “${title}”`,
+      description: replaced
+        ? `Its first check-in, dated ${dayLabel(entry.date)}, replaced ${[
+            replaced.current !== null ? `the current value ${replaced.current}` : "",
+            replaced.confidence !== null ? `the confidence ${replaced.confidence}` : "",
+          ]
+            .filter(Boolean)
+            .join(" and ")} typed before. If that was newer, check it in for today too.`
+        : undefined,
+      apply: () => {
+        if (example) return;
+        record(okrId, OKR_ACTIONS.CHECK_IN_RECORDED, {
+          okrId,
+          krId,
+          checkInId: entry.id,
+          date: entry.date,
+          value: entry.value,
+          confidence: entry.confidence,
+        });
+        // Epic Roadmap's "OKR progress this fortnight" counts these.
+        record(okrId, OKR_ACTIONS.PROGRESS_UPDATED, { okrId, krId, current: after.current });
+        sonify("okrs", "kr-updated");
+        if (!wasDone && objectiveProgress(next) >= 1) sonify("okrs", "okr-achieved");
+      },
+      revert: () =>
+        writeKr(okrId, krId, (live) =>
+          undoCheckIns(live, before, after, (kr) => withoutCheckIn(kr, entry.id))
+        ),
+    });
+    const latest = lastCheckIn(after);
+    announce(
+      latest?.id === entry.id
+        ? `Checked in “${title}”: now ${krPercent(after)}% of the way`
+        : `Checked in “${title}” for ${dayLabel(entry.date)}; a newer check-in still sets its value`
+    );
+  };
+
+  const removeCheckIn = (okrId: string, krId: string, c: KeyResultCheckIn) => {
+    const before = findKr(okrId, krId);
+    if (!before) return;
+    const after = withoutCheckIn(before, c.id);
+    if (after === before) return;
+    const title = shortName(before.title || "key result");
+    undoable({
+      label: `Deleted the check-in of ${dayLabel(c.date)} on “${title}”`,
+      apply: () => {
+        writeKr(okrId, krId, () => after);
+        record(okrId, OKR_ACTIONS.CHECK_IN_REMOVED, { okrId, krId, checkInId: c.id, date: c.date });
+      },
+      revert: () =>
+        writeKr(okrId, krId, (live) =>
+          undoCheckIns(live, before, after, (kr) => withCheckIn(kr, c))
+        ),
+    });
+    announce(`Deleted the check-in of ${dayLabel(c.date)}`);
+  };
+
+  /* ── Example ──────────────────────────────────────────────────────── */
 
   // Example objectives are written like any other but never logged: loading
   // an example isn't the user's own planning work.
   const loadExample = () => {
-    for (const o of buildExample()) upsertOkr(o);
+    for (const o of buildExample(now)) upsertOkr(o);
+    setChosen(null);
   };
   const clearExample = () => {
-    for (const o of okrs) if (isExampleId(o.id)) removeOkr(o.id);
+    for (const o of useWorkspaceStore.getState().okrs) if (isExampleId(o.id)) removeOkr(o.id);
+    setChosen(null);
   };
-
-  const markdown = useMemo(() => toMarkdown(okrs), [okrs]);
-
-  const promptConfig = useMemo(
-    () => ({
-      toolName: "OKR Tracker",
-      prompts: generateOkrsPrompts({ okrs }),
-    }),
-    [okrs]
-  );
-
-  // Hoist per-OKR analytics into a single memo keyed on `okrs`. Previously
-  // these chained five recomputations (Mann-Kendall, Bayesian Holt, CUSUM,
-  // chart data, annotations) on every render *inside* the .map callback —
-  // expensive on multi-OKR boards. The map below now just looks up the
-  // pre-computed result by OKR id.
-  type OkrAnalytics = {
-    mk: ReturnType<typeof mannKendall> | null;
-    fc: ReturnType<typeof forecastBayesianHolt>;
-    fcConfidence: ReturnType<typeof bayesianForecastConfidence> | null;
-    cps: ReturnType<typeof cusum>;
-    krChartData: { kr: string; progressPct: number }[];
-    krAnnotations: CausalAnnotationData[];
-    measurableKrCount: number;
-  };
-  const analyticsByOkr = useMemo(() => {
-    const map = new Map<string, OkrAnalytics>();
-    for (const o of okrs) {
-      // Filter out KRs with target<=0 — those are placeholder/invalid rows
-      // that always evaluate to 0 progress and would bias both Mann-Kendall
-      // and CUSUM toward "down" / spurious changepoints.
-      const measurableKrs = o.keyResults.filter((kr) => kr.target > 0);
-      const progressSeries = measurableKrs.map((kr) => krProgress(kr));
-      const mk = progressSeries.length >= 5 ? mannKendall(progressSeries) : null;
-      const fc =
-        progressSeries.length >= 3
-          ? forecastBayesianHolt(progressSeries, 1, { priorWeight: 1 })
-          : [];
-      const fcConfidence =
-        progressSeries.length >= 3 ? bayesianForecastConfidence(progressSeries) : null;
-      const cps = progressSeries.length >= 4 ? cusum(progressSeries) : [];
-      const krChartData = measurableKrs.map((kr, idx) => ({
-        kr: kr.title.slice(0, 24) || `KR${idx + 1}`,
-        progressPct: Math.round(krProgress(kr) * 100),
-      }));
-      const krAnnotations: CausalAnnotationData[] = cps.map((cp) => ({
-        x: krChartData[cp.index]?.kr ?? String(cp.index),
-        label: `Progress regime ${cp.direction === "up" ? "↑" : "↓"}`,
-        detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in progress at this KR (across the KR sequence — not temporal).`,
-        confidence: "weak" as const,
-      }));
-      map.set(o.id, {
-        mk,
-        fc,
-        fcConfidence,
-        cps,
-        krChartData,
-        krAnnotations,
-        measurableKrCount: measurableKrs.length,
-      });
-    }
-    return map;
-  }, [okrs]);
 
   return (
     <ToolPageWrapper
       toolId="okrs"
       title="OKR Tracker"
-      description="Track quarterly Objectives and Key Results with confidence scores and trajectory forecasts."
+      description="Quarterly Objectives and Key Results, each measured from its baseline to its target through dated check-ins with a confidence score."
       category="Outcomes & Pulse"
     >
       {hasExampleItems(okrs) && <ExampleNotice onClear={clearExample} />}
@@ -311,25 +399,35 @@ export function OkrsClient() {
             headers: [
               "Quarter",
               "Objective",
+              "Owner",
               "Objective Description",
               "KR",
               "KR Description",
+              "Direction",
+              "Baseline",
               "Current",
               "Target",
+              "Unit",
               "Progress %",
               "Confidence",
+              "Last check-in",
             ],
-            rows: okrs.flatMap((o) =>
+            rows: shown.flatMap((o) =>
               o.keyResults.map((kr) => [
-                o.quarter,
+                quarterKey(o.quarter),
                 o.objective,
+                o.owner ?? "",
                 o.description ?? "",
                 kr.title,
                 kr.description ?? "",
+                krDirection(kr),
+                krBaseline(kr) ?? "",
                 kr.current,
                 kr.target,
-                Math.round(krProgress(kr) * 100),
-                kr.confidence ?? "",
+                kr.unit ?? "",
+                krPercent(kr),
+                isConfidence(kr.confidence) ? kr.confidence : "",
+                lastCheckIn(kr)?.date ?? "",
               ])
             ),
           }}
@@ -337,231 +435,93 @@ export function OkrsClient() {
           markdown={markdown}
           shareState={okrs}
         />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          New Objective
+        <Button
+          type="button"
+          onClick={() => setCreating((c) => !c)}
+          aria-expanded={creating}
+          className="gap-2 bg-accent text-bg hover:bg-accent/90"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          New objective
         </Button>
       </ActionRow>
 
       <div className="space-y-4">
-        {okrs.length === 0 && (
-          <EmptyState icon={Flag} action={<LoadExampleButton onLoad={loadExample} />}>
-            No objectives yet. Click &ldquo;New Objective&rdquo; to start.
-          </EmptyState>
+        {creating && (
+          <SectionCard title="New objective" icon={Flag}>
+            <ObjectiveForm
+              initial={emptyObjective(filter === ALL_QUARTERS ? "" : normalizeQuarter(filter))}
+              quarters={quarters}
+              submitLabel="Add objective"
+              onSave={addObjective}
+              onCancel={() => setCreating(false)}
+            />
+          </SectionCard>
         )}
-        {okrs.map((o) => {
-          const health = objectiveHealth(o);
 
-          // Per-OKR analytics now hoisted into `analyticsByOkr` (single useMemo
-          // keyed on `okrs`) — the previous inline computation re-ran 5
-          // analytics primitives on every render. Lookup is O(1) and the
-          // memo is invalidated only when the OKR list itself changes.
-          const a = analyticsByOkr.get(o.id);
-          const mk = a?.mk ?? null;
-          const fc = a?.fc ?? [];
-          const fcConfidence = a?.fcConfidence ?? null;
-          const krChartData = a?.krChartData ?? [];
-          const krAnnotations = a?.krAnnotations ?? [];
-          const measurableKrCount = a?.measurableKrCount ?? 0;
-
-          return (
-            <Card key={o.id} className="bg-surface border-border">
-              <CardHeader className="pb-3">
-                <div className="flex items-start gap-3">
-                  <Target className="w-5 h-5 text-accent mt-0.5 shrink-0" />
-                  <div className="flex-1 space-y-2">
-                    <div className="grid grid-cols-1 md:grid-cols-[1fr_140px] gap-2">
-                      <BlurInput
-                        value={o.objective}
-                        onCommit={(v) => update(o.id, { objective: v })}
-                        placeholder="Achieve X by end of quarter"
-                        aria-label="Objective"
-                        className="bg-bg border-border text-text"
-                      />
-                      <BlurInput
-                        value={o.quarter}
-                        onCommit={(v) => update(o.id, { quarter: v })}
-                        placeholder="2026 Q2"
-                        aria-label={`Quarter for ${o.objective || "objective"}`}
-                        className="bg-bg border-border text-text font-data"
-                      />
-                    </div>
-                    <BlurTextarea
-                      value={o.description ?? ""}
-                      onCommit={(v) =>
-                        update(o.id, {
-                          description: v.trim() ? v : undefined,
-                        })
-                      }
-                      placeholder="Description (optional)..."
-                      rows={2}
-                      className="bg-bg border-border resize-none text-xs"
-                      aria-label="Objective description"
-                    />
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <Progress value={health * 100} className="h-2 flex-1 min-w-[120px]" />
-                      <Badge variant="outline" className="font-data">
-                        {Math.round(health * 100)}%
-                      </Badge>
-                      {/* BUG-T5-okrs-3: only surface the cross-KR
-                          trend chip + Bayesian projection when there
-                          are ≥10 KRs on the objective — below that,
-                          the across-the-list signal is statistical
-                          noise that invites real decision-making
-                          errors. Adding one low-progress KR at the end
-                          flipped "trend up" to "trend down" instantly
-                          in the prior gate. */}
-                      {mk && measurableKrCount >= 10 && (
-                        <Badge
-                          variant="outline"
-                          className={`font-mono text-xs tracking-wider uppercase ${
-                            !mk.significant || mk.trend === "none"
-                              ? "text-sub border-border"
-                              : mk.trend === "up"
-                                ? "border-success/40 text-success bg-success/10"
-                                : "border-warning/40 text-warning bg-warning/10"
-                          }`}
-                          title="Mann-Kendall trend across the KR list (NOT temporal). Shown only with ≥10 KRs."
-                        >
-                          {!mk.significant || mk.trend === "none"
-                            ? "List flat"
-                            : mk.trend === "up"
-                              ? "List ↗"
-                              : "List ↘"}
-                        </Badge>
-                      )}
-                      {fc.length > 0 && fcConfidence && measurableKrCount >= 10 && (
-                        <Badge
-                          variant="outline"
-                          className="font-mono text-xs tracking-wider uppercase text-accent border-accent/40 bg-accent/10"
-                          title={`Across-the-list projection (NOT temporal). Confidence: ${fcConfidence}. Shown only with ≥10 KRs.`}
-                        >
-                          List proj ~ {Math.round(Math.max(0, Math.min(1, fc[0].yHat)) * 100)}%
-                        </Badge>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => remove(o.id)}
-                        aria-label={`Delete objective: ${o.objective || "untitled"}`}
-                        className="text-sub hover:text-danger"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {o.keyResults.map((kr) => {
-                  // Only show the SmartInput chip on a KR whose target
-                  // hasn't been edited yet (still at the default 100). Avoids
-                  // chip clutter on already-set KRs.
-                  const showTargetChip = kr.target === 100;
-                  return (
-                    <div
-                      key={kr.id}
-                      className="space-y-2 rounded-md border border-border bg-bg p-2"
-                    >
-                      <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center">
-                        <BlurInput
-                          value={kr.title}
-                          onCommit={(v) => updateKr(o.id, kr.id, { title: v })}
-                          placeholder="KR: Increase DAU from 1k to 10k"
-                          aria-label="Key result"
-                          className="bg-surface border-border col-span-2 sm:col-span-1"
-                        />
-                        <div className="flex flex-wrap gap-2 col-span-2 sm:contents">
-                          <NumCell
-                            value={kr.current}
-                            onChange={(n) => updateKr(o.id, kr.id, { current: n })}
-                            placeholder="Current"
-                            ariaLabel={`Current value for ${kr.title || "key result"}`}
-                            className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
-                          />
-                          {showTargetChip ? (
-                            <SmartInput<number>
-                              predicted={krTargetPrediction}
-                              onAccept={(v) => updateKr(o.id, kr.id, { target: v })}
-                              render={({ chip }) => (
-                                <div className="flex flex-col gap-0 flex-1 min-w-[80px] sm:flex-none sm:min-w-0">
-                                  <NumCell
-                                    value={kr.target}
-                                    onChange={(n) => updateKr(o.id, kr.id, { target: n })}
-                                    placeholder="Target"
-                                    ariaLabel={`Target for ${kr.title || "key result"}`}
-                                    className="bg-surface border-border font-data"
-                                  />
-                                  {chip}
-                                </div>
-                              )}
-                            />
-                          ) : (
-                            <NumCell
-                              value={kr.target}
-                              onChange={(n) => updateKr(o.id, kr.id, { target: n })}
-                              placeholder="Target"
-                              ariaLabel={`Target for ${kr.title || "key result"}`}
-                              className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
-                            />
-                          )}
-                          <NumCell
-                            value={kr.confidence ?? 5}
-                            onChange={(n) => updateKr(o.id, kr.id, { confidence: n })}
-                            min={0}
-                            max={10}
-                            title="Confidence (0-10)"
-                            ariaLabel={`Confidence (0-10) for ${kr.title || "key result"}`}
-                            className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeKr(o.id, kr.id)}
-                            aria-label={`Delete key result: ${kr.title || "untitled"}`}
-                            className="text-sub hover:text-danger shrink-0"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                          </Button>
-                        </div>
-                      </div>
-                      <BlurTextarea
-                        value={kr.description ?? ""}
-                        onCommit={(v) =>
-                          updateKr(o.id, kr.id, {
-                            description: v.trim() ? v : undefined,
-                          })
-                        }
-                        placeholder="Description (optional)..."
-                        rows={2}
-                        className="bg-surface border-border resize-none text-xs"
-                        aria-label="Key result description"
-                      />
-                    </div>
-                  );
-                })}
-                {/* KR-progress mini-chart with CUSUM regime markers, only
-                    when there are enough *measurable* KRs (target>0, n>=4)
-                    for the analysis to mean anything — placeholder rows
-                    with target=0 are excluded from the analytics series. */}
-                {measurableKrCount >= 4 && (
-                  <ChartCard title="KR progress (across KR sequence)" height={180} className="mt-2">
-                    <KrProgressChart data={krChartData} annotations={krAnnotations} />
-                  </ChartCard>
-                )}
+        {okrs.length === 0 ? (
+          !creating && (
+            <EmptyState icon={Flag} action={<LoadExampleButton onLoad={loadExample} />}>
+              No objectives yet. Press &ldquo;New objective&rdquo; to set one for a quarter, then
+              give it key results measured from where they start.
+            </EmptyState>
+          )
+        ) : (
+          <>
+            <p className="text-sm font-medium text-text">{verdict}</p>
+            {chips.length > 1 && (
+              <div role="group" aria-label="Quarter" className="flex flex-wrap gap-1">
+                {chips.map((c) => (
+                  <Button
+                    key={c.key}
+                    type="button"
+                    size="sm"
+                    variant={filter === c.key ? "default" : "outline"}
+                    aria-pressed={filter === c.key}
+                    onClick={() => setChosen(c.key)}
+                  >
+                    {c.key}
+                    {c.current && <span className="ml-1 text-xs opacity-80">(this quarter)</span>}
+                    <span className="ml-1 font-mono text-xs opacity-80">{c.count}</span>
+                  </Button>
+                ))}
                 <Button
-                  variant="outline"
+                  type="button"
                   size="sm"
-                  onClick={() => addKr(o.id)}
-                  className="gap-2 border-border text-sub hover:text-accent hover:border-accent/30"
+                  variant={filter === ALL_QUARTERS ? "default" : "outline"}
+                  aria-pressed={filter === ALL_QUARTERS}
+                  onClick={() => setChosen(ALL_QUARTERS)}
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Key Result
+                  All
+                  <span className="ml-1 font-mono text-xs opacity-80">{okrs.length}</span>
                 </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
+              </div>
+            )}
+            <div className="space-y-4">
+              {shown.map((o) => (
+                <ObjectiveCard
+                  key={o.id}
+                  okr={o}
+                  now={now}
+                  today={today}
+                  quarters={quarters}
+                  goals={goals}
+                  sprints={sprints}
+                  example={isExampleId(o.id)}
+                  handlers={{
+                    onEdit: (v) => editObjective(o.id, v),
+                    onDelete: () => deleteObjective(o.id),
+                    onAddKr: (v) => addKr(o.id, v),
+                    onEditKr: (krId, v) => editKr(o.id, krId, v),
+                    onDeleteKr: (krId) => deleteKr(o.id, krId),
+                    onCheckIn: (krId, v) => checkIn(o.id, krId, v),
+                    onRemoveCheckIn: (krId, c) => removeCheckIn(o.id, krId, c),
+                  }}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </ToolPageWrapper>
   );
