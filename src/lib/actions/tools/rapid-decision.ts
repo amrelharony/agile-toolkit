@@ -48,8 +48,10 @@ import {
   browserDecisionStore,
   changeRecord,
   deciderRefusal,
+  latestDay,
   rosterName,
   serverDecisionStore,
+  stampDay,
   type DecisionStore,
 } from "./decision-log";
 
@@ -120,9 +122,11 @@ const SetStatusSchema = z.object({ id: z.string(), status: StatusSchema });
 async function setStatus(
   store: DecisionStore,
   p: z.infer<typeof SetStatusSchema>,
-  ctx: ActionContext
+  ctx: ActionContext,
+  onServer: boolean
 ) {
   const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
   return changeRecord(store, p.id, { updated: false }, async (d) => {
     if (!isRapid(d)) return { refuse: { updated: false, reason: "not-rapid" as const } };
     if (rapidStatus(d) === p.status) {
@@ -140,7 +144,9 @@ async function setStatus(
       );
       if (!ok) return { refuse: { updated: false, reason: "declined" as const } };
     }
-    return { next: withLegacyStatus(d, p.status, today, "rapid"), result: { updated: true } };
+    // Never a day before the record's own (the server's day can be behind the user's).
+    const day = stampDay(d, today, latest);
+    return { next: withLegacyStatus(d, p.status, day, "rapid"), result: { updated: true } };
   });
 }
 
@@ -151,10 +157,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a RAPID record's status in RAPID's words: open (proposed; a decided record is reopened today, reopenedAt, as the page's Reopen does), decided (accepted; dated today when it was open), implemented (decided and carried out today; asks for confirmation when the caller can confirm). Deciding an open record needs its Decide (D) named first, as on the page (set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'already-in-status' | 'declined' | 'not-rapid' | 'no_decider', message?}.",
+    "Set a RAPID record's status in RAPID's words: open (proposed; a decided record is reopened today, reopenedAt, as the page's Reopen does), decided (accepted; dated today when it was open), implemented (decided and carried out today; asks for confirmation when the caller can confirm). Today is never before a day the record carries: over MCP the server's day may be behind the user's, so the record's own later day is used then. Deciding an open record needs its Decide (D) named first, as on the page (set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'already-in-status' | 'declined' | 'not-rapid' | 'no_decider', message?}.",
   paramsSchema: SetStatusSchema,
-  handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx),
-  mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx),
+  handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx, false),
+  mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx, true),
 });
 
 // ──────── tool.rapid_decision.assign_role ────────

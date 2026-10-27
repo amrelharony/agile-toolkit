@@ -6,7 +6,7 @@
  * write a Decision under the record's id, leaving the old rows alone.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DACIDecision, Decision, RAPIDDecision } from "@/lib/stores/workspace-types";
 
 const rows = vi.hoisted(() => new Map<string, unknown>());
@@ -239,6 +239,89 @@ describe("the DACI and RAPID aliases over MCP", () => {
   it("RAPID's set_recommend names the R in the roster's spelling", async () => {
     await mcp("tool.rapid_decision.set_recommend", { id: "rapid-1", recommendation: "ana" });
     expect(get<Decision>("decision", "rapid-1")?.roles?.recommend).toEqual(["Ana"]);
+  });
+});
+
+describe("the user's day over MCP (the server's day can be a day behind it)", () => {
+  // The server's day; a user ahead of UTC is already on the next one.
+  const SERVER_DAY = "2026-10-27";
+  const USER_DAY = "2026-10-28";
+  const run = <T>(id: string, params: Record<string, unknown> = {}) => {
+    const action = registry.get(id)!;
+    return action.handler(action.paramsSchema.parse(params), ctx) as Promise<T>;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 27, 12, 0, 0));
+    // Raised on the page on the user's today.
+    const fresh: Decision = { ...adr, id: "fresh", number: 9, date: USER_DAY };
+    const freshDaci: Decision = {
+      ...adr,
+      id: "fresh-daci",
+      number: 10,
+      template: "daci",
+      decider: "Ben",
+      date: USER_DAY,
+    };
+    put("decision", fresh);
+    put("decision", freshDaci);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("decide takes the user's today, and defaults to it when the record was raised on it", async () => {
+    const out = await mcp<{ decided: boolean; decidedAt: string }>("tool.decision_log.decide", {
+      id: "fresh",
+      outcome: "Go",
+    });
+    expect(out).toMatchObject({ decided: true, decidedAt: USER_DAY });
+    await mcp("tool.decision_log.reopen", { id: "fresh", date: USER_DAY });
+    expect(get<Decision>("decision", "fresh")).toMatchObject({
+      status: "proposed",
+      reopenedAt: USER_DAY,
+    });
+    expect(
+      await mcp("tool.decision_log.decide", { id: "fresh", outcome: "Go", date: USER_DAY })
+    ).toMatchObject({ decided: true, decidedAt: USER_DAY });
+    // Two days ahead is no one's today.
+    expect(
+      await mcp("tool.decision_log.decide", { id: "a", outcome: "Go", date: "2026-10-29" })
+    ).toEqual({ decided: false, reason: "future_day" });
+  });
+
+  it("the status verbs never stamp a day before the record was raised", async () => {
+    await mcp("tool.decision_log.set_status", { id: "fresh-daci", status: "accepted" });
+    expect(get<Decision>("decision", "fresh-daci")?.decidedAt).toBe(USER_DAY);
+    await mcp("tool.daci.set_status", { id: "fresh-daci", status: "revisit" });
+    expect(get<Decision>("decision", "fresh-daci")?.reopenedAt).toBe(USER_DAY);
+    await mcp("tool.daci.set_status", { id: "fresh-daci", status: "decided" });
+    expect(get<Decision>("decision", "fresh-daci")?.decidedAt).toBe(USER_DAY);
+    // A record raised before the server's day is stamped with it, as before.
+    const older: Decision = {
+      ...adr,
+      id: "older",
+      template: "rapid",
+      decider: "Morgan",
+      number: 11,
+    };
+    put("decision", older);
+    await mcp("tool.rapid_decision.set_status", { id: "older", status: "decided" });
+    expect(get<Decision>("decision", "older")?.decidedAt).toBe(SERVER_DAY);
+  });
+
+  it("add_decision takes the user's today over MCP, and only today in the browser", async () => {
+    expect(
+      await mcp("tool.decision_log.add_decision", { title: "Ahead", date: USER_DAY })
+    ).toMatchObject({ created: true });
+    expect(
+      await mcp("tool.decision_log.add_decision", { title: "Later", date: "2026-10-29" })
+    ).toEqual({ created: false, reason: "future_day" });
+    // The browser's day is the user's own: tomorrow is in the future there.
+    expect(await run("tool.decision_log.add_decision", { title: "Ahead", date: USER_DAY })).toEqual(
+      { created: false, reason: "future_day" }
+    );
   });
 });
 

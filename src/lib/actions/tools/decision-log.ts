@@ -92,6 +92,7 @@ import {
 } from "@/lib/decisions/legacy-log";
 import { findRosterMember, nameKey } from "@/lib/team/names";
 import { isIsoDate } from "@/lib/sprints/calendar";
+import { addDays } from "@/lib/impediments/model";
 import { isExampleId } from "@/lib/utils/example-id";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
@@ -304,7 +305,9 @@ const RoleSchema = z.enum(DECISION_ROLES);
 const DaySchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .describe("YYYY-MM-DD; today or earlier (it can be backdated)");
+  .describe(
+    "YYYY-MM-DD, the user's local day; today or earlier (it can be backdated). Pass the user's date: over MCP the server's day may be a day behind theirs, so the day after the server's is taken too."
+  );
 const PersonSchema = z.string().trim().min(1).max(NAME_MAX);
 
 /** The roles a record can name; driver and recommend hold one person at most. */
@@ -326,11 +329,41 @@ const RolesSchema = z
 /** Lifecycle-terminal statuses ask for confirmation when the caller can confirm. */
 const TERMINAL = new Set<DecisionStatus>(["deprecated", "superseded"]);
 
-/** Why `day` can't be used (a future day), or null. */
-function futureDay(day: string | undefined, today: string): string | null {
+/**
+ * The latest day a decision verb takes. In the browser, today; on the
+ * server, whose day (UTC on a typical deploy) isn't the user's, the day
+ * after it, so a user ahead of UTC can date a move on their own today, as
+ * the page does with the browser's day (mood check-ins and the vote
+ * rounds do the same).
+ */
+export const latestDay = (today: string, onServer: boolean): string =>
+  onServer ? addDays(today, 1) : today;
+
+/** Why `day` can't be used (after `latest`, from latestDay), or null. */
+function futureDay(day: string | undefined, latest: string): string | null {
   if (day === undefined) return null;
   if (!isIsoDate(day)) return "not_a_day";
-  return day > today ? "future_day" : null;
+  return day > latest ? "future_day" : null;
+}
+
+const ONE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The day a lifecycle move on `d` is stamped with when the caller names
+ * none: today, or the latest day the record already carries (raised,
+ * decided, reopened, carried out) when that is after today and still
+ * allowed (`latest`, from latestDay). On the server today can be the
+ * user's yesterday, and a record they raised or decided on the page on
+ * their own today carries that day: a move stamped before it would read as
+ * decided before it was raised. In the browser `latest` is today, so this
+ * is today, as the page's own forms default to.
+ */
+export function stampDay(d: Decision, today: string, latest: string): string {
+  let day = today;
+  for (const v of [d.date, d.decidedAt, d.reopenedAt, d.implementedAt]) {
+    if (v && ONE_DAY.test(v) && isIsoDate(v) && v > day && v <= latest) day = v;
+  }
+  return day;
 }
 
 /**
@@ -462,11 +495,15 @@ const AddSchema = z.object({
   date: DaySchema.optional().describe("The day it was raised (default today)"),
 });
 
-async function addDecision(store: DecisionStore, p: z.infer<typeof AddSchema>): Promise<Out> {
+async function addDecision(
+  store: DecisionStore,
+  p: z.infer<typeof AddSchema>,
+  onServer: boolean
+): Promise<Out> {
   const today = todayLocalISO();
   const template = p.template ?? "adr";
   const spec = TEMPLATES[template];
-  const why = futureDay(p.date, today);
+  const why = futureDay(p.date, latestDay(today, onServer));
   if (why) return { created: false, reason: why };
   const roster = await store.roster();
   const roles: Partial<Record<DecisionRole, string[]>> = {};
@@ -516,10 +553,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Raise a proposed decision record, numbered in the log's one sequence. Params: template? (adr default | daci | rapid), title, context?, options? (texts in order; no two alike, ignoring case), recommendation? (what is proposed; any form), decider?, roles? (only the form's roles; driver and recommend hold one person), date? (YYYY-MM-DD, not in the future). Names on the team are stored with the roster's spelling. Returns {created: true, id, number, label} or {created: false, reason: 'future_day' | 'not_a_day' | 'role_not_in_template' | 'duplicate_option', option?}.",
+    "Raise a proposed decision record, numbered in the log's one sequence. Params: template? (adr default | daci | rapid), title, context?, options? (texts in order; no two alike, ignoring case), recommendation? (what is proposed; any form), decider?, roles? (only the form's roles; driver and recommend hold one person), date? (YYYY-MM-DD, the user's local day it was raised; default today, not in the future: over MCP the day after the server's is taken, as the server's day may be behind the user's). Names on the team are stored with the roster's spelling. Returns {created: true, id, number, label} or {created: false, reason: 'future_day' | 'not_a_day' | 'role_not_in_template' | 'duplicate_option', option?}.",
   paramsSchema: AddSchema,
-  handler: async (params) => addDecision(browserDecisionStore, params),
-  mcpHandler: async (params, ctx) => addDecision(serverDecisionStore(ctx.userId), params),
+  handler: async (params) => addDecision(browserDecisionStore, params, false),
+  mcpHandler: async (params, ctx) => addDecision(serverDecisionStore(ctx.userId), params, true),
 });
 
 /* ── tool.decision_log.decide ────────────────────────────────────────── */
@@ -534,11 +571,17 @@ const DecideSchema = z.object({
   date: DaySchema.optional().describe("The day it was decided (default today)"),
 });
 
-async function decideRecord(store: DecisionStore, p: z.infer<typeof DecideSchema>) {
+async function decideRecord(
+  store: DecisionStore,
+  p: z.infer<typeof DecideSchema>,
+  onServer: boolean
+) {
   const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
   return changeRecord(store, p.id, { decided: false, reason: "not_found" }, (d, _all, roster) => {
-    const date = p.date ?? today;
-    const why = futureDay(date, today);
+    // Never before it was raised, as the page's decide form starts at the later of the two days.
+    const date = p.date ?? stampDay(d, today, latest);
+    const why = futureDay(date, latest);
     if (why) return { refuse: { decided: false, reason: why } };
     if (d.date && date < d.date) return { refuse: { decided: false, reason: "before_raised" } };
     const options = optionsOf(d);
@@ -572,10 +615,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Record a decision: accepts the record with its outcome. Params: id, outcome, chosenOption? (an option id or its exact text), decider? (DACI Approver / RAPID Decide must be named here or already), date? (YYYY-MM-DD, default today, not before it was raised). Clears a reopen and a replacement. Returns {decided: true, label, decidedAt} or {decided: false, reason: 'not_found' | 'future_day' | 'before_raised' | 'unknown_option' | 'invalid', message?}.",
+    "Record a decision: accepts the record with its outcome. Params: id, outcome, chosenOption? (an option id or its exact text), decider? (DACI Approver / RAPID Decide must be named here or already), date? (YYYY-MM-DD, the user's local day; default today, or the record's own later day when the server's today is behind it; not in the future, not before it was raised). Clears a reopen and a replacement. Returns {decided: true, label, decidedAt} or {decided: false, reason: 'not_found' | 'future_day' | 'before_raised' | 'unknown_option' | 'invalid', message?}.",
   paramsSchema: DecideSchema,
-  handler: async (params) => decideRecord(browserDecisionStore, params),
-  mcpHandler: async (params, ctx) => decideRecord(serverDecisionStore(ctx.userId), params),
+  handler: async (params) => decideRecord(browserDecisionStore, params, false),
+  mcpHandler: async (params, ctx) => decideRecord(serverDecisionStore(ctx.userId), params, true),
 });
 
 /* ── tool.decision_log.supersede ─────────────────────────────────────── */
@@ -634,13 +677,18 @@ const ReopenSchema = z.object({
   date: DaySchema.optional().describe("The day it was reopened (default today)"),
 });
 
-async function reopenRecord(store: DecisionStore, p: z.infer<typeof ReopenSchema>) {
+async function reopenRecord(
+  store: DecisionStore,
+  p: z.infer<typeof ReopenSchema>,
+  onServer: boolean
+) {
   const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
   return changeRecord(store, p.id, { reopened: false, reason: "not_found" }, (d) => {
-    const why = futureDay(p.date, today);
+    const why = futureDay(p.date, latest);
     if (why) return { refuse: { reopened: false, reason: why } };
     if (d.status === "proposed") return { same: { reopened: false, reason: "already_proposed" } };
-    const next = reopen(d, p.date ?? today);
+    const next = reopen(d, p.date ?? stampDay(d, today, latest));
     return { next, result: { reopened: true, label: decisionLabel(next) } };
   });
 }
@@ -652,10 +700,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Take a decided record back to proposed (DACI's 'revisit'): sets reopenedAt and drops 'carried out' and any replacement; the outcome written stays as what is being revisited. Params: id, date? (YYYY-MM-DD, default today). Returns {reopened: true, label} or {reopened: false, reason: 'not_found' | 'already_proposed' | 'future_day'}.",
+    "Take a decided record back to proposed (DACI's 'revisit'): sets reopenedAt and drops 'carried out' and any replacement; the outcome written stays as what is being revisited. Params: id, date? (YYYY-MM-DD, the user's local day; default today, or the record's own later day when the server's today is behind it; not in the future). Returns {reopened: true, label} or {reopened: false, reason: 'not_found' | 'already_proposed' | 'future_day'}.",
   paramsSchema: ReopenSchema,
-  handler: async (params) => reopenRecord(browserDecisionStore, params),
-  mcpHandler: async (params, ctx) => reopenRecord(serverDecisionStore(ctx.userId), params),
+  handler: async (params) => reopenRecord(browserDecisionStore, params, false),
+  mcpHandler: async (params, ctx) => reopenRecord(serverDecisionStore(ctx.userId), params, true),
 });
 
 /* ── tool.decision_log.set_status (kept) ─────────────────────────────── */
@@ -694,9 +742,11 @@ function withStatus(d: Decision, status: DecisionStatus, today: string): Decisio
 async function setStatus(
   store: DecisionStore,
   p: z.infer<typeof SetStatusSchema>,
-  ctx: ActionContext
+  ctx: ActionContext,
+  onServer: boolean
 ) {
   const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
   return changeRecord(store, p.id, { updated: false }, async (d, all) => {
     // Refusals first, so nobody is asked to confirm a move that can't happen.
     if (p.status === "accepted") {
@@ -719,7 +769,7 @@ async function setStatus(
       const next = repeat ? null : supersede(d, p.supersededBy);
       return next ? { next, result: { updated: true } } : { same: { updated: true } };
     }
-    const next = withStatus(d, p.status, today);
+    const next = withStatus(d, p.status, stampDay(d, today, latest));
     return next === d ? { same: { updated: true } } : { next, result: { updated: true } };
   });
 }
@@ -731,10 +781,10 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a record's lifecycle status (proposed | accepted | deprecated | superseded) on any form's record. Proposed reopens it (reopenedAt); accepted from proposed dates decidedAt today (use decide to write the outcome), and a DACI or RAPID proposal needs its Approver / Decide (D) named first, as on the page; superseded with supersededBy links the replacement (supersede's rules). Deprecated and superseded ask for confirmation when the caller can confirm. Returns {updated: boolean, confirmed?: false, reason?: 'no_decider' | 'replacement_not_found' | 'example_mismatch' | 'replacement_not_in_force' | 'supersede_loop', message?}.",
+    "Set a record's lifecycle status (proposed | accepted | deprecated | superseded) on any form's record. Proposed reopens it (reopenedAt); accepted from proposed dates decidedAt today (or the record's own later day, when the server's today is behind the user's; use decide to write the outcome and the day), and a DACI or RAPID proposal needs its Approver / Decide (D) named first, as on the page; superseded with supersededBy links the replacement (supersede's rules). Deprecated and superseded ask for confirmation when the caller can confirm. Returns {updated: boolean, confirmed?: false, reason?: 'no_decider' | 'replacement_not_found' | 'example_mismatch' | 'replacement_not_in_force' | 'supersede_loop', message?}.",
   paramsSchema: SetStatusSchema,
-  handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx),
-  mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx),
+  handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx, false),
+  mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx, true),
 });
 
 /* ── tool.decision_log.add_alternative (kept) and add_option ─────────── */

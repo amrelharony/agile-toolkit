@@ -47,8 +47,10 @@ import {
   browserDecisionStore,
   changeRecord,
   deciderRefusal,
+  latestDay,
   rosterName,
   serverDecisionStore,
+  stampDay,
   withRole,
   type DecisionStore,
 } from "./decision-log";
@@ -114,8 +116,13 @@ async function listState(store: DecisionStore) {
 // ──────── tool.daci.set_status ────────
 const SetStatusSchema = z.object({ id: z.string(), status: StatusSchema });
 
-async function setStatus(store: DecisionStore, p: z.infer<typeof SetStatusSchema>) {
+async function setStatus(
+  store: DecisionStore,
+  p: z.infer<typeof SetStatusSchema>,
+  onServer: boolean
+) {
   const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
   return changeRecord(store, p.id, { updated: false }, (d) => {
     if (!isDaci(d)) return { refuse: { updated: false, reason: "not_daci" } };
     // Deciding an open record needs its Approver, as the page's decide form asks.
@@ -123,7 +130,8 @@ async function setStatus(store: DecisionStore, p: z.infer<typeof SetStatusSchema
       const why = deciderRefusal(d);
       if (why) return { refuse: { updated: false, ...why } };
     }
-    const next = withLegacyStatus(d, p.status, today, "daci");
+    // Never a day before the record's own (the server's day can be behind the user's).
+    const next = withLegacyStatus(d, p.status, stampDay(d, today, latest), "daci");
     return next === d ? { same: { updated: true } } : { next, result: { updated: true } };
   });
 }
@@ -134,10 +142,10 @@ registry.register({
   name: "set_status",
   category: "write",
   description:
-    "Set a DACI record's status in DACI's words: open (proposed), decided (accepted; dated today when it was open), implemented (decided and carried out today), revisit (reopened today). Deciding an open or revisited record needs its Approver named first, as on the page (tool.decision_log.set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'not_daci' | 'no_decider', message?} (no reason: an unknown id).",
+    "Set a DACI record's status in DACI's words: open (proposed), decided (accepted; dated today when it was open), implemented (decided and carried out today), revisit (reopened today). Today is never before a day the record carries: over MCP the server's day may be behind the user's, so the record's own later day is used then. Deciding an open or revisited record needs its Approver named first, as on the page (tool.decision_log.set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'not_daci' | 'no_decider', message?} (no reason: an unknown id).",
   paramsSchema: SetStatusSchema,
-  handler: async (params) => setStatus(browserDecisionStore, params),
-  mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params),
+  handler: async (params) => setStatus(browserDecisionStore, params, false),
+  mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, true),
 });
 
 // ──────── tool.daci.add_contributor / add_informed ────────

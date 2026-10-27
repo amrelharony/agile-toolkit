@@ -745,6 +745,7 @@ One entity, `workspace.decision`, holds every record the Decision Log, DACI and 
 
 - **One numbering sequence** runs across the forms, labelled by form (`ADR-0003`, `DACI-0004`, `RAPID-0005`): a new record gets one past the highest number in the log. Example rows keep their own numbers and don't count, and deleting the highest-numbered record frees its number for the next one.
 - **Reads list what the page lists**: the stored records, the old DACI and RAPID rows read through as records under their own ids, and the old Decision Log page's rows not moved in yet (`pending`, read only). A write saves a record under the same id and leaves an old row behind as a backup. Names use the roster's spelling when the person is on the team.
+- **Days are the user's** (`YYYY-MM-DD`): pass the user's local date. Over MCP the server's day (UTC on a typical deploy) may be a day behind theirs, so the day after the server's today is taken too, and a move with no `date` (`decide`, `reopen`, `set_status`, and the DACI and RAPID `set_status`) is never stamped before a day the record already carries.
 
 - **`list_state`** (read) `{template?, status?}` — `{total, byStatus, byTemplate, pending, items, verdict, timeToDecide}`.
   - Each item is the record plus `template`, `label`, `options [{id, text, note?}]`, `issues [{kind, message}]`, `supersedes` (ids), `onTeam {name: boolean}`, `example` and `pending`.
