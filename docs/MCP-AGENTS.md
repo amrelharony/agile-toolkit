@@ -340,7 +340,7 @@ The dashboard's numbers come from the synced workspace through `lib/health-dashb
 
   Each KPI has `value` (null without data or below the minimum sample: 3 pointed sprints, 5 finished items), `status` (green/amber/red, or null), `n`, `hasData`, `enough`, `basis`, `detail`, `threshold` and `source`.
 
-  It also returns `overall` (the average of the lit KPIs), `verdict`, `thresholds` and `windows`, plus the older roll-ups (`sprints`, `stories`, `impediments`, `risks`, `okrs`, `healthCheck`). It returns `flags`: one per KPI that isn't green, plus `high_risks_open` and `low_story_completion`.
+  It also returns `overall` (the average of the lit KPIs), `verdict`, `thresholds` and `windows`, plus the older roll-ups (`sprints`, `stories`, `impediments`, `risks`, `okrs`, `healthCheck`). `risks` reads the risks the Risk Register lists (old-page rows not moved in yet included), and `risks.high` counts the active ones rated high or critical (probability × impact 10 or more, the register's bands). It returns `flags`: one per KPI that isn't green, plus `high_risks_open` and `low_story_completion`.
 
 - `set_thresholds` (write) takes `{thresholds?: {<kpiId>: {green?, amber?}}, sprintWindow?, blockerWindowDays?, cycleWindowDays?, reset?}`.
   - It merges over the current settings and checks the whole set as the page's form does.
