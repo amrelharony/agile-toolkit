@@ -255,29 +255,19 @@ export function HypothesisTrackerClient() {
       missingText(missingFields(h)),
     ]),
   };
-  const promptConfig = useMemo(() => {
-    const prompts = generateHypothesisTrackerPrompts({
-      items: counted.rows,
-      validationRate: rate.rate ?? 0,
-      medianTimeToValidate: learn.median,
-    });
-    return {
+  const promptConfig = useMemo(
+    () => ({
       toolName: "Hypothesis Tracker",
-      // The prompt takes a number only, so with no decisive result it would
-      // read "0%"; it says "—" here, as the page does, until
-      // lib/ai-prompts/hypothesis-tracker takes a null rate.
-      prompts:
-        rate.rate === null
-          ? prompts.map((p) => ({
-              ...p,
-              prompt: p.prompt.replace(
-                "Validation rate: 0%",
-                "Validation rate: — (no decisive result yet)"
-              ),
-            }))
-          : prompts,
-    };
-  }, [counted, rate, learn.median]);
+      // The page's numbers: with no decisive result the rate reads "—", never 0%.
+      prompts: generateHypothesisTrackerPrompts({
+        items: counted.rows,
+        validationRate: rate.rate,
+        medianTimeToValidate: learn.median,
+        verdict,
+      }),
+    }),
+    [counted, rate, learn.median, verdict]
+  );
 
   const filterOptions: ToggleOption<StatusFilter>[] = STATUS_FILTERS.map(([value, label]) => ({
     value,
