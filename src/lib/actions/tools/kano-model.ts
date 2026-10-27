@@ -237,23 +237,18 @@ registry.register({
   mcpHandler: async (_params, ctx) => listItems(serverStore(ctx.userId)),
 });
 
-/** Persist features; a deprecated category-only one is stored as "Picked by hand". */
+/**
+ * Persist features; a deprecated category-only one is stored as "Picked by
+ * hand". Every item is checked before anything is written, so a batch is
+ * refused whole: the hand-picked rows are looked up and built first (a
+ * missing backlog item throws here), then persistMethodRows checks the
+ * answered ones before it writes them, and the hand-picked rows go last.
+ */
 async function persistFeatures(
   store: MethodStore,
   items: readonly { id?: string; title: string; fields: KanoFields; backlogItemId?: string }[]
 ) {
-  const answered = items.filter((it) => !pickedOnly(it.fields));
-  const saved = await persistMethodRows(
-    store,
-    FRAMEWORK,
-    answered.map((it) => ({
-      id: it.id,
-      title: it.title,
-      values: valuesOf(it.fields),
-      backlogItemId: it.backlogItemId,
-    }))
-  );
-  const byInput = new Map(answered.map((it, i) => [it, saved[i].row]));
+  const byInput = new Map<(typeof items)[number], PrioritizationItem>();
   const picked: PrioritizationItem[] = [];
   for (const it of items) {
     if (!pickedOnly(it.fields)) continue;
@@ -282,6 +277,18 @@ async function persistFeatures(
     picked.push(row);
     byInput.set(it, row);
   }
+  const answered = items.filter((it) => !pickedOnly(it.fields));
+  const saved = await persistMethodRows(
+    store,
+    FRAMEWORK,
+    answered.map((it) => ({
+      id: it.id,
+      title: it.title,
+      values: valuesOf(it.fields),
+      backlogItemId: it.backlogItemId,
+    }))
+  );
+  answered.forEach((it, i) => byInput.set(it, saved[i].row));
   if (picked.length > 0) await store.putRows(picked);
   return items.map((it) => {
     const row = byInput.get(it) as PrioritizationItem;

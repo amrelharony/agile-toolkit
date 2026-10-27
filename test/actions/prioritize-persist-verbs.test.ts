@@ -42,6 +42,7 @@ import "@/lib/actions/tools/moscow";
 import "@/lib/actions/tools/cost-of-delay";
 import "@/lib/actions/tools/eisenhower";
 import "@/lib/actions/tools/value-effort-matrix";
+import "@/lib/actions/tools/kano-model";
 
 const ctx = () => ({ userId: "u", source: "mcp" as const, squadProfileIds: [] as string[] });
 /** Run a verb the way the transport does: params parsed first. */
@@ -285,5 +286,44 @@ describe("tool.value_effort_matrix.persist_to_prioritization with neither value 
     });
     expect(storedRow("v3")?.fields).toEqual({});
     expect(storedRow("v3")?.status).toBe("open");
+  });
+});
+
+describe("tool.kano_model.persist_to_prioritization refuses a batch whole", () => {
+  const batch = {
+    items: [
+      { title: "A", fields: { functional: "like", dysfunctional: "neutral" } },
+      { title: "B", fields: { category: "attractive" }, backlogItemId: "missing" },
+    ],
+  };
+
+  it.each([
+    ["in the tab", false],
+    ["over MCP", true],
+  ] as const)(
+    "a hand-picked item linked to a missing backlog item writes nothing, %s",
+    async (_where, onServer) => {
+      await expect(
+        run("tool.kano_model.persist_to_prioritization", batch, onServer)
+      ).rejects.toThrow(/No backlog item missing/);
+      expect(state().prioritizations).toEqual([]);
+      expect(server.rows.size).toBe(0);
+    }
+  );
+
+  it("still saves a valid mixed batch, answered and hand-picked", async () => {
+    useWorkspaceStore.setState({ backlogItems: [{ id: "b1", name: "B", updatedAt: STAMP }] });
+    const r = await run<{ written: { id: string; category: string | null }[] }>(
+      "tool.kano_model.persist_to_prioritization",
+      {
+        items: [batch.items[0], { ...batch.items[1], backlogItemId: "b1" }],
+      }
+    );
+    expect(r.written.map((w) => w.category)).toEqual(["attractive", "attractive"]);
+    expect(state().prioritizations).toHaveLength(2);
+    expect(state().prioritizations?.find((p) => p.title === "B")).toMatchObject({
+      backlogItemId: "b1",
+      fields: { category: "attractive" },
+    });
   });
 });
