@@ -60,6 +60,7 @@ describe("the Phase 8 history actions", () => {
     expect(TECH_DEBT_ACTIONS.ITEM_SENT_TO_BACKLOG).toBe("item_sent_to_backlog");
     expect(TEST_PYRAMID_ACTIONS.SNAPSHOT_TAKEN).toBe("snapshot_taken");
     expect(TEST_PYRAMID_ACTIONS.SNAPSHOT_REMOVED).toBe("snapshot_removed");
+    expect(TEST_PYRAMID_ACTIONS.RUNTIME_UPDATED).toBe("runtime_updated");
     expect(QUALITY_COST_ACTIONS.PERIOD_SAVED).toBe("period_saved");
     expect(QUALITY_COST_ACTIONS.PERIOD_REMOVED).toBe("period_removed");
     expect(CODE_REVIEW_ACTIONS.PR_UPDATED).toBe("pr_updated");
@@ -79,6 +80,7 @@ describe("the Phase 8 history actions", () => {
       ["risk-register", RISK_ACTIONS.RISK_ESCALATED],
       ["tech-debt", TECH_DEBT_ACTIONS.ITEM_SENT_TO_BACKLOG],
       ["test-pyramid", TEST_PYRAMID_ACTIONS.SNAPSHOT_TAKEN],
+      ["test-pyramid", TEST_PYRAMID_ACTIONS.RUNTIME_UPDATED],
       ["quality-cost", QUALITY_COST_ACTIONS.PERIOD_SAVED],
       ["code-review-metrics", CODE_REVIEW_ACTIONS.PRS_IMPORTED],
     ];

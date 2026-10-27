@@ -554,6 +554,11 @@ export const TEST_PYRAMID_ACTIONS = {
   /** The counts were kept as a dated snapshot. Payload: snapshotId, takenOn. */
   SNAPSHOT_TAKEN: "snapshot_taken",
   SNAPSHOT_REMOVED: "snapshot_removed",
+  /**
+   * The minutes per layer, or the count / runtime weighting, changed.
+   * Payload: runtime ({unit?, integration?, e2e?}), weighting.
+   */
+  RUNTIME_UPDATED: "runtime_updated",
 } as const;
 
 export const FLAKY_TEST_ACTIONS = {
