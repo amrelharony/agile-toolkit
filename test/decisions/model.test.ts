@@ -512,6 +512,7 @@ describe("the DACI / RAPID status vocabulary (agent aliases)", () => {
         "daci"
       )
     ).toEqual(rec({ status: "proposed", decidedAt: "2026-10-04", reopenedAt: today }));
+    // RAPID has no revisit: a decided record set to open is reopened today, as the page's Reopen.
     expect(
       withLegacyStatus(
         rec({ status: "accepted", implementedAt: "2026-10-05" }),
@@ -519,7 +520,7 @@ describe("the DACI / RAPID status vocabulary (agent aliases)", () => {
         today,
         "rapid"
       )
-    ).toEqual(rec({ status: "proposed" }));
+    ).toEqual(rec({ status: "proposed", reopenedAt: today }));
     const same = rec({ status: "accepted", implementedAt: "2026-10-05" });
     expect(withLegacyStatus(same, "implemented", today, "daci")).toBe(same);
     expect(withLegacyStatus(same, "implemented", today, "rapid")).toBe(same);
@@ -532,6 +533,23 @@ describe("the DACI / RAPID status vocabulary (agent aliases)", () => {
     expect(open).toEqual(rec({ decidedAt: "2026-09-01" }));
     expect(legacyStatusOf(open, "daci")).toBe("open");
     expect(withLegacyStatus(reopened, "open", today, "rapid")).toBe(reopened);
+  });
+
+  it("open on a decided RAPID record reopens it today, so its wait starts now", () => {
+    const today = "2026-10-27";
+    // Raised 60 days ago and decided since.
+    const decided = rec({ date: "2026-08-28", status: "accepted", decidedAt: "2026-09-01" });
+    const open = withLegacyStatus(decided, "open", today, "rapid");
+    expect(open).toEqual({ ...decided, status: "proposed", reopenedAt: today });
+    // As the page's Reopen (and tool.decision_log.reopen) leave it.
+    expect(open).toEqual(reopen(decided, today));
+    expect(daysWaiting(open, today)).toBe(0);
+    expect(decisionIssues(open, today).map((i) => i.kind)).not.toContain("stale_proposed");
+    // A repeat is a no-op: a reopened RAPID record reads as open already.
+    expect(legacyStatusOf(open, "rapid")).toBe("open");
+    expect(withLegacyStatus(open, "open", "2026-11-02", "rapid")).toBe(open);
+    // DACI keeps "open" as not revisited: reopening is its "revisit".
+    expect(withLegacyStatus(decided, "open", today, "daci").reopenedAt).toBeUndefined();
   });
 
   it("dates a decision only when it is made: a reopened one is decided again today", () => {

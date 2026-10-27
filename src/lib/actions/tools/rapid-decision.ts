@@ -9,7 +9,8 @@
  *           RAPID form (template "rapid"): Decide (D) is its decider,
  *           Recommend, Agree, Perform and Input are its roles, and RAPID's
  *           old statuses map onto the record's lifecycle:
- *             open        = proposed
+ *             open        = proposed (a decided one set to open is
+ *                           reopened: reopenedAt, as the page's Reopen)
  *             decided     = accepted (or deprecated / superseded)
  *             implemented = decided and carried out (implementedAt)
  *
@@ -150,7 +151,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a RAPID record's status in RAPID's words: open (proposed), decided (accepted; dated today when it was open), implemented (decided and carried out today; asks for confirmation when the caller can confirm). Deciding an open record needs its Decide (D) named first, as on the page (set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'already-in-status' | 'declined' | 'not-rapid' | 'no_decider', message?}.",
+    "Set a RAPID record's status in RAPID's words: open (proposed; a decided record is reopened today, reopenedAt, as the page's Reopen does), decided (accepted; dated today when it was open), implemented (decided and carried out today; asks for confirmation when the caller can confirm). Deciding an open record needs its Decide (D) named first, as on the page (set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'already-in-status' | 'declined' | 'not-rapid' | 'no_decider', message?}.",
   paramsSchema: SetStatusSchema,
   handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx),
   mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx),

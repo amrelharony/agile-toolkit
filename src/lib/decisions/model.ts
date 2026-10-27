@@ -587,15 +587,17 @@ export function legacyStatusOf(d: Decision, kind: "daci" | "rapid"): LegacyDecis
 
 /**
  * The record with a DACI/RAPID status set, as their agent aliases do it,
- * read in `kind`'s vocabulary (legacyStatusOf). Open is proposed and not
- * reopened: a DACI "revisit" set to open is no longer revisited, while for
- * RAPID, which has no revisit, every proposal is open already. Revisit
- * reopens it today. Decided is accepted, and implemented is accepted and
- * carried out today. A proposal decided through either is decided today,
- * as `decide` dates it (a reopened one too: its earlier day was the first
- * decision); one already decided keeps the day it has, or none (an old
- * DACI / RAPID row never had one, and today isn't it). A record already in
- * that status is returned as it is.
+ * read in `kind`'s vocabulary (legacyStatusOf). Open is proposed. For DACI
+ * it is not reopened: a "revisit" set to open is no longer revisited, and
+ * reopening a decision is "revisit", which reopens it today. RAPID has no
+ * revisit, so open on a decided record reopens it today, as the page's
+ * Reopen and tool.decision_log.reopen do (its wait counts from then), and
+ * every RAPID proposal is open already. Decided is accepted, and
+ * implemented is accepted and carried out today. A proposal decided
+ * through either is decided today, as `decide` dates it (a reopened one
+ * too: its earlier day was the first decision); one already decided keeps
+ * the day it has, or none (an old DACI / RAPID row never had one, and
+ * today isn't it). A record already in that status is returned as it is.
  */
 export function withLegacyStatus(
   d: Decision,
@@ -611,7 +613,9 @@ export function withLegacyStatus(
       : { ...rest, status: "accepted" };
   switch (status) {
     case "open":
-      return { ...rest, status: "proposed" };
+      return kind === "rapid" && d.status !== "proposed"
+        ? { ...rest, status: "proposed", reopenedAt: today }
+        : { ...rest, status: "proposed" };
     case "revisit":
       return { ...rest, status: "proposed", reopenedAt: today };
     case "decided":

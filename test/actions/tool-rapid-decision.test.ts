@@ -20,6 +20,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RAPIDDecision } from "@/lib/stores/workspace-types";
 import { allDecisions } from "@/lib/decisions/model";
 import { rapidView } from "@/lib/actions/tools/rapid-decision";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 // Side-effect import — registers the actions on the singleton.
 import "@/lib/actions/tools/rapid-decision";
@@ -160,6 +161,25 @@ describe("tool.rapid_decision.set_status — lifecycle transitions", () => {
     };
     expect(result.updated).toBe(true);
     expect(stored().status).toBe("decided");
+  });
+
+  it("open on a decided record reopens it today, as the page's Reopen does", async () => {
+    useWorkspaceStore.setState({
+      rapidDecisions: [
+        seed({ id: "d1", status: "decided", decide: "Morgan", date: "2026-01-05T09:00:00.000Z" }),
+      ],
+    });
+    const action = registry.get("tool.rapid_decision.set_status")!;
+    const result = (await action.handler({ id: "d1", status: "open" }, ctx())) as {
+      updated: boolean;
+    };
+    expect(result.updated).toBe(true);
+    const today = todayLocalISO();
+    const saved = useWorkspaceStore.getState().decisions.find((d) => d.id === "d1")!;
+    expect(saved).toMatchObject({ status: "proposed", reopenedAt: today });
+    // Its wait counts from today, not from the day it was raised.
+    expect(rapidView(saved, today).issues.map((i) => i.kind)).not.toContain("stale_proposed");
+    expect(rapidView(saved, today).status).toBe("open");
   });
 
   it("returns updated=false for an unknown id (idempotent precheck-free)", async () => {
