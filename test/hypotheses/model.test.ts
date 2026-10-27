@@ -469,6 +469,55 @@ describe("validateHypothesis", () => {
     expect(ok.ok && ok.values.resolvedAt).toBe("2026-10-10");
   });
 
+  it("keeps a saved row's day after today while it is unchanged (an agent's tomorrow)", () => {
+    // Over MCP an agent may stamp the user's today, the page's tomorrow.
+    const stored = hyp("h", "validated", {
+      raisedAt: "2026-10-28",
+      resolvedAt: "2026-10-28",
+    });
+    const edit = validateHypothesis({ ...hypothesisDraftFrom(stored), outcome: "It held" }, TODAY, {
+      stored,
+    });
+    expect(edit.ok).toBe(true);
+    if (edit.ok)
+      expect(edit.values).toMatchObject({ raisedAt: "2026-10-28", resolvedAt: "2026-10-28" });
+
+    // A day the edit changes is judged as on a new row.
+    const moved = validateHypothesis(
+      { ...hypothesisDraftFrom(stored), raisedAt: "2026-10-29" },
+      TODAY,
+      { stored }
+    );
+    expect(!moved.ok && moved.errors.raisedAt).toMatch(/hasn't happened/);
+    const resolved = validateHypothesis(
+      { ...hypothesisDraftFrom(stored), resolvedAt: "2026-10-29" },
+      TODAY,
+      { stored }
+    );
+    expect(!resolved.ok && resolved.errors.resolvedAt).toMatch(/hasn't happened/);
+  });
+
+  it("checks the two days' order once either changes, never a saved pair left alone", () => {
+    // A legacy row whose result predates its raised day stays editable…
+    const stored = hyp("h", "validated", { raisedAt: "2026-10-10", resolvedAt: "2026-10-05" });
+    expect(validateHypothesis(hypothesisDraftFrom(stored), TODAY, { stored }).ok).toBe(true);
+    // …but moving either day keeps the order.
+    const raised = validateHypothesis(
+      { ...hypothesisDraftFrom(stored), raisedAt: "2026-10-12" },
+      TODAY,
+      { stored }
+    );
+    expect(!raised.ok && raised.errors.resolvedAt).toMatch(/before the day it was raised/);
+    // A result stamped today on a row an agent raised tomorrow comes before it.
+    const ahead = hyp("a", "running", { raisedAt: "2026-10-28" });
+    const result = validateHypothesis(
+      { ...hypothesisDraftFrom(ahead), status: "validated", resolvedAt: TODAY },
+      TODAY,
+      { stored: ahead }
+    );
+    expect(!result.ok && result.errors.resolvedAt).toMatch(/before the day it was raised/);
+  });
+
   it("reads a target from a direction and a number, with an optional unit and baseline", () => {
     const r = validateHypothesis(
       draft({

@@ -406,12 +406,27 @@ export function isDay(value: string | undefined): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && isIsoDate(value);
 }
 
-/** Why a typed day can't be used, or null. */
-function dayError(day: string, latest: string, blank: string, future: string): string | null {
+/**
+ * Why a typed day can't be used, or null. A day `kept` from the saved row
+ * isn't judged against `latest` again: it was checked when it was written,
+ * and an agent over MCP may have stamped the user's today (the server's
+ * tomorrow, see tool.hypothesis_tracker's latestDay) while it is still the
+ * page's yesterday.
+ */
+function dayError(
+  day: string,
+  latest: string,
+  blank: string,
+  future: string,
+  kept = false
+): string | null {
   if (!day.trim()) return blank;
   if (!isDay(day)) return "Pick a date from the calendar.";
-  return day > latest ? future : null;
+  return day > latest && !kept ? future : null;
 }
+
+/** A saved row's day as the form holds it ("" when it has none). */
+const storedDay = (value: string | undefined) => (value ?? "").slice(0, 10);
 
 /**
  * Check the page's form.
@@ -425,7 +440,9 @@ function dayError(day: string, latest: string, blank: string, future: string): s
  *   kept while it is unchanged (`opts.stored`).
  * - Days are YYYY-MM-DD, never after `today` (the latest day allowed); a
  *   result's day is needed once the status has one, not before the day it
- *   was raised.
+ *   was raised. Only the days an edit changes are judged: a saved row's day
+ *   left as it is stays valid after `today`, and the two days' order is
+ *   checked once either of them changes.
  * - A target is a direction and a number; a baseline must be on the far
  *   side of it (below a rise's target, above a fall's). A measured result
  *   needs a target to be compared with.
@@ -469,12 +486,15 @@ export function validateHypothesis(
     errors.toLearn = REQUIRED_MESSAGES.toLearn;
   }
 
-  // Days.
+  // Days. One the saved row already has is kept as it is (see dayError).
+  const raisedKept = stored !== undefined && d.raisedAt === storedDay(stored.raisedAt);
+  const resolvedKept = stored !== undefined && d.resolvedAt === storedDay(stored.resolvedAt);
   const raisedError = dayError(
     d.raisedAt,
     today,
     "Pick the day it was raised.",
-    "It can't be raised on a day that hasn't happened yet."
+    "It can't be raised on a day that hasn't happened yet.",
+    raisedKept
   );
   if (raisedError) errors.raisedAt = raisedError;
   const resolved = isResolved(d.status);
@@ -483,10 +503,11 @@ export function validateHypothesis(
       d.resolvedAt,
       today,
       "Pick the day the test gave its result.",
-      "The result can't come on a day that hasn't happened yet."
+      "The result can't come on a day that hasn't happened yet.",
+      resolvedKept
     );
     if (resolvedError) errors.resolvedAt = resolvedError;
-    else if (!raisedError && d.resolvedAt < d.raisedAt) {
+    else if (!raisedError && !(raisedKept && resolvedKept) && d.resolvedAt < d.raisedAt) {
       errors.resolvedAt = "The result can't come before the day it was raised.";
     }
   }
