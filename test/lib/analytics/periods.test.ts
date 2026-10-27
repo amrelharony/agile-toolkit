@@ -1,7 +1,8 @@
 /**
  * Calendar periods: ISO weeks across a year boundary (2026 has a week 53),
- * months and quarters; dense ranges with the quiet periods kept; the cap
- * keeping the latest; bounds, order and labels.
+ * months and quarters in both orders; a value dated by the day written at
+ * its start (never by Date.parse); dense ranges with the quiet periods
+ * kept; the cap keeping the latest; bounds, order and labels.
  */
 
 import { describe, expect, it } from "vitest";
@@ -35,10 +36,22 @@ describe("periodOf", () => {
     expect(periodOf("2026-04-01", "quarter")).toBe("2026-Q2");
   });
 
-  it("reads a timestamp as its local day, and nothing else", () => {
-    const local = new Date(2026, 9, 19, 23, 30); // 19 October, late evening, local time
-    expect(periodOf(local.toISOString(), "month")).toBe("2026-10");
-    expect(periodOf(local.toISOString(), "week")).toBe("2026-W43");
+  it("reads a time by the day written at its start, its zone ignored, as working hours do", () => {
+    // Sunday 18 October, late evening: week 42 wherever the code runs (a
+    // host at UTC+3 read it as Monday, week 43, before).
+    expect(periodOf("2026-10-18T23:30:00Z", "week")).toBe("2026-W42");
+    expect(periodOf("2026-10-18T23:30:00.000+03:00", "week")).toBe("2026-W42");
+    expect(periodOf("2026-10-18T23:30", "week")).toBe("2026-W42");
+    expect(periodOf("2026-10-31 23:59", "month")).toBe("2026-10");
+    expect(periodOf("2026-12-31T23:30:00-05:00", "quarter")).toBe("2026-Q4");
+  });
+
+  it("anything that doesn't start with a real day is undated, never guessed at", () => {
+    // Date.parse reads each of these as a date ("Sprint 5" as May 2001).
+    for (const value of ["1", "Sprint 5", "abc 12", "Spring 2026", "2026", "Oct 19, 2026"]) {
+      expect(periodOf(value, "month"), value).toBeNull();
+    }
+    expect(periodOf("2026-02-30", "month")).toBeNull();
     expect(periodOf("", "week")).toBeNull();
     expect(periodOf(null, "month")).toBeNull();
     expect(periodOf("not a day", "quarter")).toBeNull();
@@ -66,6 +79,8 @@ describe("periodRange", () => {
     expect(periodRange("2026-12-30", "2027-01-05", "week")).toEqual(["2026-W53", "2027-W01"]);
     expect(periodRange("2026-10-01", "2026-12-31", "quarter")).toEqual(["2026-Q4"]);
     expect(periodRange("2026 Q4", "2027 Q1", "quarter")).toEqual(["2026-Q4", "2027-Q1"]);
+    expect(periodRange("Q4 2026", "Q1 2027", "quarter")).toEqual(["2026-Q4", "2027-Q1"]);
+    expect(periodRange("Q4 2026", "2027-Q1", "quarter")).toEqual(["2026-Q4", "2027-Q1"]);
   });
 
   it("is empty when an end can't be read, is of another kind, or comes first", () => {
@@ -119,6 +134,14 @@ describe("bucketByPeriod", () => {
     expect(bucketByPeriod([], (a: Answer) => a.date, "week")).toEqual([]);
   });
 
+  it("a value Date.parse would read as a date stays out, and doesn't stretch the series", () => {
+    const odd = [...answers, { id: "f", date: "1" }, { id: "g", date: "Sprint 5" }];
+    const buckets = bucketByPeriod(odd, (a) => a.date, "month");
+    expect(buckets[0].period).toBe("2026-08");
+    expect(buckets).toHaveLength(4);
+    expect(buckets.flatMap((b) => b.items.map((i) => i.id))).toEqual(["a", "b", "c"]);
+  });
+
   it("counts weeks over the year boundary without a gap or a repeat", () => {
     const days = ["2026-12-21", "2027-01-11"].map((date, i) => ({ id: String(i), date }));
     expect(
@@ -144,6 +167,8 @@ describe("bounds, order and labels", () => {
     expect(periodBounds("2026-W01")).toEqual({ from: "2025-12-29", to: "2026-01-04" });
     expect(periodBounds("2028-02")).toEqual({ from: "2028-02-01", to: "2028-02-29" });
     expect(periodBounds("2026-Q4")).toEqual({ from: "2026-10-01", to: "2026-12-31" });
+    expect(periodBounds("Q4 2026")).toEqual({ from: "2026-10-01", to: "2026-12-31" });
+    expect(periodBounds("q1-2027")).toEqual({ from: "2027-01-01", to: "2027-03-31" });
     expect(periodBounds("2026-W00")).toBeNull();
     expect(periodBounds("2026-00")).toBeNull();
     expect(periodBounds("Q5 2026")).toBeNull();
@@ -154,6 +179,8 @@ describe("bounds, order and labels", () => {
     expect(periodKindOf("2026-10")).toBe("month");
     expect(periodKindOf("2026-Q4")).toBe("quarter");
     expect(periodKindOf("2026 Q4")).toBe("quarter");
+    expect(periodKindOf("Q4 2026")).toBe("quarter");
+    expect(periodKindOf("Q4 2026 extra")).toBeNull();
     expect(periodKindOf("2026-10-19")).toBeNull();
     expect(periodKindOf(undefined)).toBeNull();
   });
@@ -167,9 +194,10 @@ describe("bounds, order and labels", () => {
       "also bad",
       "nope",
     ]);
-    expect(["2026-Q4", "2026-Q1", "2025-Q4"].sort(comparePeriods)).toEqual([
+    expect(["2026-Q4", "2026-Q1", "2025-Q4", "Q2 2026"].sort(comparePeriods)).toEqual([
       "2025-Q4",
       "2026-Q1",
+      "Q2 2026",
       "2026-Q4",
     ]);
     expect(["2026-12", "2026-02", "2026-10"].sort(comparePeriods)).toEqual([
@@ -185,6 +213,7 @@ describe("bounds, order and labels", () => {
     expect(periodLabel("2026-10")).toBe("Oct 2026");
     expect(periodLabel("2027-01")).toBe("Jan 2027");
     expect(periodLabel("2026-Q4")).toBe("Q4 2026");
+    expect(periodLabel("Q4 2026")).toBe("Q4 2026");
     expect(periodLabel("whenever")).toBe("whenever");
   });
 });

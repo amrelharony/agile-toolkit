@@ -8,13 +8,18 @@
  *
  * Periods are labelled "2026-W42" (ISO week, the year of its Thursday, as
  * lib/flow/throughput's weekOf), "2026-10" and "2026-Q4" (the dash quarter
- * lib/roadmap/quarters writes). Days are local calendar days: a timestamp
- * is read as its local day (lib/flow/days), then stepped as a day number,
- * so no time zone or daylight-saving change moves one. Pure; server-safe.
+ * lib/roadmap/quarters writes; "2026 Q4" and "Q4 2026" read as it too).
+ *
+ * A value is dated by the day written at its start, "YYYY-MM-DD" or a
+ * wall-clock or ISO time that starts with one ("2026-10-18T23:30Z" is
+ * 18 October): a time and a zone suffix are ignored, as lib/sprints/
+ * calendar's working hours read them, so the browser and the server put
+ * one stored string in the same period. Anything else ("Sprint 5", "1",
+ * a blank) is undated, never guessed at. Days are then stepped as day
+ * numbers, so no daylight-saving change moves one. Pure; server-safe.
  */
 
-import { isoDayNumber, isoFromDayNumber } from "@/lib/sprints/calendar";
-import { dayNumber } from "@/lib/flow/days";
+import { isoDayNumber, isoFromDayNumber, parseWallClock } from "@/lib/sprints/calendar";
 import { weekOf } from "@/lib/flow/throughput";
 import { dashQuarter, quarterBounds, quarterIndex } from "@/lib/roadmap/quarters";
 
@@ -75,7 +80,8 @@ function parsePeriod(period: string): Parsed | null {
     const m = Number(month[2]);
     return m >= 1 && m <= 12 ? { kind: "month", ord: Number(month[1]) * 12 + (m - 1) } : null;
   }
-  if (/^\d{4}[\s-]*Q[1-4]$/i.test(period.trim())) {
+  // Either order, as quarterIndex reads it: "2026-Q4", "2026 Q4", "Q4 2026".
+  if (/^(?:\d{4}[\s-]*Q[1-4]|Q[1-4][\s-]*\d{4})$/i.test(period.trim())) {
     const q = quarterIndex(period);
     return q === 0 ? null : { kind: "quarter", ord: q };
   }
@@ -92,20 +98,21 @@ function labelOf(ord: number, kind: PeriodKind): string {
 const stepOf = (kind: PeriodKind) => (kind === "week" ? 7 : 1);
 
 /**
- * The period ("2026-W42" | "2026-10" | "2026-Q4") a local day or timestamp
- * falls in, or null when it isn't a date.
+ * The period ("2026-W42" | "2026-10" | "2026-Q4") of the day a value starts
+ * with ("YYYY-MM-DD", or a time on one: its zone is ignored), or null when
+ * it isn't one. Never Date.parse, which reads "Sprint 5" as May 2001.
  */
 export function periodOf(day: string | null | undefined, kind: PeriodKind): string | null {
-  const n = dayNumber(day);
-  if (n === null) return null;
-  const iso = isoFromDayNumber(n);
+  const written = parseWallClock(day);
+  if (written === null) return null;
+  const iso = written.day;
   if (kind === "week") return weekOf(iso);
   if (kind === "month") return iso.slice(0, 7);
   const month = Number(iso.slice(5, 7));
   return `${iso.slice(0, 4)}-Q${Math.floor((month - 1) / 3) + 1}`;
 }
 
-/** The kind of a period label, or null when it isn't one ("2026 Q4" reads as a quarter). */
+/** The kind of a period label, or null when it isn't one ("2026 Q4" and "Q4 2026" read as quarters). */
 export function periodKindOf(period: string | null | undefined): PeriodKind | null {
   return typeof period === "string" ? (parsePeriod(period)?.kind ?? null) : null;
 }
