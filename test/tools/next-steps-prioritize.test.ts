@@ -130,6 +130,22 @@ describe("prioritizer", () => {
     expect(ids("prioritizer", { backlogItems: [legacy] })).toEqual(["prioritizer-score"]);
   });
 
+  it("counts a WSJF row linked before Phase 7 as the item's score, as the hub reads it", () => {
+    // The item still holds the old defaults; the row was re-scored in the tool.
+    const legacy: BacklogItem = {
+      id: "old",
+      name: "Old",
+      ...{ businessValue: 5, timeCriticality: 5, riskReduction: 5, jobSize: 5 },
+    };
+    const wsjf = row(
+      "w1",
+      "wsjf",
+      { businessValue: 8, timeCriticality: 3, rrOe: 2, jobSize: 1 },
+      { backlogItemId: "old" }
+    );
+    expect(ids("prioritizer", { backlogItems: [legacy], prioritizations: [wsjf] })).toEqual([]);
+  });
+
   it("asks to decide the order for scored items without a rank", () => {
     const ws = {
       backlogItems: [item("a", WSJF_PARTS), item("b", { ...WSJF_PARTS, jobSize: 5 })],

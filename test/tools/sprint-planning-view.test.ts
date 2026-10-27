@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BacklogItem, Sprint, Story } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem, Sprint, Story } from "@/lib/stores/workspace-types";
 import { BACKLOG_DEFAULTS } from "@/lib/prioritization/frameworks";
 import {
   backlogStories,
@@ -47,6 +47,29 @@ describe("priorityScore", () => {
         item("c", { businessValue: 2, timeCriticality: 1, riskReduction: 1, jobSize: 0.5 })
       )
     ).toBe(4);
+  });
+
+  it("reads a WSJF row linked before Phase 7, as the Prioritizer does", () => {
+    // Every WSJF part still at the old default (never saved since), the
+    // row re-scored in the tool: (8 + 3 + 2) ÷ 1.
+    const legacy: BacklogItem = {
+      id: "old",
+      name: "Checkout",
+      ...{ businessValue: 5, timeCriticality: 5, riskReduction: 5, jobSize: 5 },
+    };
+    const rows: PrioritizationItem[] = [
+      {
+        id: "w1",
+        framework: "wsjf",
+        title: "Checkout",
+        fields: { businessValue: 8, timeCriticality: 3, rrOe: 2, jobSize: 1 },
+        backlogItemId: "old",
+        updatedAt: "2026-10-01T09:00:00.000Z",
+      },
+    ];
+    expect(priorityScore(legacy)).toBeNull();
+    expect(priorityScore(legacy, rows)).toBe(13);
+    expect(storyFromBacklogItem(legacy, "s1", rows).priorityScore).toBe(13);
   });
 });
 

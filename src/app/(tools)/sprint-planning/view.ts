@@ -5,7 +5,13 @@
  * forecast, and the warnings shown before committing. Pure.
  */
 
-import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
+import type {
+  BacklogItem,
+  CapacityPlan,
+  PrioritizationItem,
+  Sprint,
+  Story,
+} from "@/lib/stores/workspace-types";
 import {
   BACKLOG_SOURCE_TOOL,
   backlogByPriority,
@@ -50,10 +56,15 @@ export const pointsCount = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "poin
  * method registry, so it is the number the Prioritizer, the WSJF tool and
  * the agent show for the item. Null when the item isn't WSJF-scored. A
  * story keeps the score it was imported with (to 2 decimal places, as the
- * board shows it).
+ * board shows it). With the workspace's method `rows`, a WSJF row linked
+ * before Phase 7 scores the item where its old defaults hide the parts
+ * (methods withLegacyLinks), as the Prioritizer and the WSJF tool read it.
  */
-export function priorityScore(item: BacklogItem): number | null {
-  return evaluateItemIn(item, [], "wsjf").score;
+export function priorityScore(
+  item: BacklogItem,
+  rows: readonly PrioritizationItem[] = []
+): number | null {
+  return evaluateItemIn(item, rows, "wsjf").score;
 }
 
 /** Stories planned into `sprintId`, done last so the open work reads first. */
@@ -351,10 +362,14 @@ export function importCandidates(
  * A story from a backlog item: its name, the shared priority score (left
  * off when the item isn't WSJF-scored), the decided rank it was pulled in
  * with (read live while the item exists: `withLiveBacklogRank`) and a link
- * back to the item.
+ * back to the item. `rows` as priorityScore.
  */
-export function storyFromBacklogItem(item: BacklogItem, id: string): Story {
-  const score = priorityScore(item);
+export function storyFromBacklogItem(
+  item: BacklogItem,
+  id: string,
+  rows: readonly PrioritizationItem[] = []
+): Story {
+  const score = priorityScore(item, rows);
   const story: Story = {
     id,
     title: item.name.trim().slice(0, 200),

@@ -1942,10 +1942,12 @@ const RULES: Record<string, NextStepRule<object>> = {
     steps: ({ items, rows, stories }) => {
       const { backlog, rows: team } = teamBacklog(items, rows);
       const steps: NextStep[] = [];
+      // With the rows, as the hub reads it: a WSJF or RICE row linked
+      // before Phase 7 still scores an item whose old defaults hide it.
       const unscored = backlog.filter(
         (b) =>
-          evaluateItemIn(b, [], "wsjf").score === null &&
-          evaluateItemIn(b, [], "rice").score === null
+          evaluateItemIn(b, team, "wsjf").score === null &&
+          evaluateItemIn(b, team, "rice").score === null
       );
       const [first] = unscored;
       if (first) {
