@@ -4,7 +4,7 @@ import { buildWorkspaceContext } from "@/lib/ai-prompts/cross-tool-context";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { buildExample as riskExample } from "@/app/(tools)/risk-register/example";
 import { buildExample as debtExample } from "@/app/(tools)/tech-debt/example";
-import type { Risk, TechDebtItem, Workspace } from "@/lib/stores/workspace-types";
+import type { Risk, RiskScale, TechDebtItem, Workspace } from "@/lib/stores/workspace-types";
 
 /**
  * Since Phase 8 the Risk Register's and Tech Debt's "Load an example" save
@@ -17,7 +17,7 @@ import type { Risk, TechDebtItem, Workspace } from "@/lib/stores/workspace-types
 const workspace = (over: Partial<Workspace>): Workspace =>
   ({ ...useWorkspaceStore.getState(), ...over }) as unknown as Workspace;
 
-const risk = (id: string, probability: number, impact: number): Risk => ({
+const risk = (id: string, probability: RiskScale, impact: RiskScale): Risk => ({
   id,
   title: `Risk ${id}`,
   probability,

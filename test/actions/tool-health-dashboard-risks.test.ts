@@ -8,7 +8,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Risk } from "@/lib/stores/workspace-types";
+import type { Risk, RiskScale } from "@/lib/stores/workspace-types";
 
 const rows = vi.hoisted(() => new Map<string, unknown>());
 const blobs = vi.hoisted(() => new Map<string, unknown>());
@@ -45,7 +45,12 @@ function summary(transport: "tab" | "mcp"): Promise<Summary> {
   ) as Promise<Summary>;
 }
 
-const risk = (id: string, probability: number, impact: number, over: Partial<Risk> = {}): Risk => ({
+const risk = (
+  id: string,
+  probability: RiskScale,
+  impact: RiskScale,
+  over: Partial<Risk> = {}
+): Risk => ({
   id,
   title: `Risk ${id}`,
   probability,
