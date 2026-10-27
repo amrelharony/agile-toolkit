@@ -565,9 +565,11 @@ function inputText(input: MethodInput, v: string | number): string {
 /**
  * A row linked before Phase 7 that holds another value than its backlog
  * item (legacyDifferences): old items carry no date, so the tool asks once
- * which one stays. The item's value counts until then, as everywhere.
+ * which one stays. The item's value counts until then, as everywhere. The
+ * shell's rows show it; a tool with its own rows (Value vs Effort) renders
+ * it too, wired with useLegacyChoice.
  */
-function LegacyChoice({
+export function LegacyChoice({
   method: m,
   row,
   onUseRow,
@@ -617,6 +619,65 @@ function LegacyChoice({
       </div>
     </div>
   );
+}
+
+/** What a tool wires LegacyChoice's two buttons to (useLegacyChoice). */
+export interface LegacyChoiceActions {
+  /** "Use this row's": its own values written through to the item. */
+  takeRow: (r: RankedRow, values: Values) => void;
+  /** "Keep the backlog item's": the values the row shows copied into its own fields. */
+  keepItem: (r: RankedRow) => void;
+}
+
+/**
+ * A legacy row's two answers (LegacyChoice). This row's values: written
+ * through to the item by `save` (saveMethodRow, with Undo). The item's:
+ * copied into the row's own fields, so nothing disagrees any more (with
+ * Undo too). Either save drops the row's legacy mark. Focus goes to the
+ * row's Edit button (`returnTo("edit:<id>")`), as the note it was in goes
+ * away, and the choice is announced; `afterTake`, read once the row's
+ * values are saved, adds to that announcement (a move to another quadrant,
+ * a value WSJF shares).
+ */
+export function useLegacyChoice(
+  m: PrioritizationMethod,
+  save: (rowId: string, draft: MethodDraft) => void,
+  returnTo: (key: string) => void,
+  afterTake?: (r: RankedRow, values: Values) => string | null
+): LegacyChoiceActions {
+  const announce = useAnnounce();
+  return {
+    takeRow(r, values) {
+      returnTo(`edit:${r.row.id}`);
+      save(r.row.id, { ...values, title: r.row.title });
+      const more = afterTake?.(r, values);
+      announce(
+        `Kept this row's ${m.label} values for “${shortName(r.row.title)}”.${more ? ` ${more}` : ""}`
+      );
+    },
+    keepItem(r) {
+      const before = r.row;
+      const next = methodRow({
+        id: before.id,
+        framework: m.id,
+        title: before.title,
+        values: r.values,
+        prev: before,
+      });
+      const store = () => useWorkspaceStore.getState();
+      returnTo(`edit:${before.id}`);
+      undoable({
+        label: `Kept the backlog item's values for “${shortName(before.title)}”`,
+        apply: () => store().upsertPrioritization(next),
+        revert: () => {
+          const cur = (store().prioritizations ?? []).find((p) => p.id === before.id);
+          // Back only if nobody saved the row since.
+          if (cur && cur.updatedAt === next.updatedAt) store().upsertPrioritization(before);
+        },
+      });
+      announce(`Kept the backlog item's ${m.label} values for “${shortName(before.title)}”.`);
+    },
+  };
 }
 
 function MethodRow({
@@ -880,37 +941,8 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
     actions.remove(r.row);
   };
 
-  // A legacy row's choice (LegacyChoice). Its own values: written through
-  // to the item (saveMethodRow, with Undo). The item's: copied into the
-  // row's own fields, so nothing disagrees any more (with Undo too). Focus
-  // goes to the row's Edit button, as the note it was in goes away.
-  const takeRowValues = (r: RankedRow, values: Values) => {
-    returnTo(`edit:${r.row.id}`);
-    actions.save(r.row.id, { ...values, title: r.row.title });
-    announce(`Kept this row's ${m.label} values for “${shortName(r.row.title)}”.`);
-  };
-  const keepItemValues = (r: RankedRow) => {
-    const before = r.row;
-    const next = methodRow({
-      id: before.id,
-      framework: m.id,
-      title: before.title,
-      values: r.values,
-      prev: before,
-    });
-    const store = () => useWorkspaceStore.getState();
-    returnTo(`edit:${before.id}`);
-    undoable({
-      label: `Kept the backlog item's values for “${shortName(before.title)}”`,
-      apply: () => store().upsertPrioritization(next),
-      revert: () => {
-        const cur = (store().prioritizations ?? []).find((p) => p.id === before.id);
-        // Back only if nobody saved the row since.
-        if (cur && cur.updatedAt === next.updatedAt) store().upsertPrioritization(before);
-      },
-    });
-    announce(`Kept the backlog item's ${m.label} values for “${shortName(before.title)}”.`);
-  };
+  // A legacy row's choice (LegacyChoice).
+  const legacy = useLegacyChoice(m, actions.save, returnTo);
 
   const renderRow = (r: RankedRow) => (
     <li key={r.row.id} ref={editingId === r.row.id ? editorRef : undefined} className="py-3">
@@ -928,8 +960,8 @@ export function MethodTool({ config }: { config: MethodToolConfig }) {
           ranked={r}
           onEdit={() => setEditingId(r.row.id)}
           onRemove={() => removeRow(r)}
-          onUseRow={(values) => takeRowValues(r, values)}
-          onKeepItem={() => keepItemValues(r)}
+          onUseRow={(values) => legacy.takeRow(r, values)}
+          onKeepItem={() => legacy.keepItem(r)}
           editRef={refFor(`edit:${r.row.id}`)}
         />
       )}

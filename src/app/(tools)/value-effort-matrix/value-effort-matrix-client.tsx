@@ -20,6 +20,9 @@
  *   the editor says so before Save.
  * - Lists go quadrant by quadrant in do-first order, best value ÷ effort
  *   first, and hold still while a row is being edited.
+ * - A row linked before Phase 7 that disagrees with its backlog item asks
+ *   once which values stay, as the other method tools' rows do
+ *   (LegacyChoice, useLegacyChoice).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -42,6 +45,7 @@ import { MethodInputs } from "@/components/prioritization/method-inputs";
 import {
   draftFrom,
   exportRows,
+  useLegacyChoice,
   useMethodActions,
   useMethodRows,
   validateMethodDraft,
@@ -58,7 +62,7 @@ import { VALUE_EFFORT_ACTIONS } from "@/lib/history/event-actions";
 import { hasExampleItems } from "@/lib/utils/example-id";
 import type { MatrixAt } from "@/lib/utils/matrix";
 import { method, type Values } from "@/lib/prioritization/methods";
-import { defined } from "@/lib/prioritization/methods/fields";
+import { defined, toNumber } from "@/lib/prioritization/methods/fields";
 import { VE_LABEL } from "@/lib/prioritization/methods/value-effort";
 import { rankMethodRows, type RankedRow } from "@/lib/prioritization/rank";
 import { VE_CONFIG } from "./config";
@@ -167,6 +171,28 @@ export function ValueEffortMatrixClient() {
     setEditingId(null);
     returnTo(`edit:${id}`);
   };
+  // A row linked before Phase 7 that disagrees with its backlog item
+  // (LegacyChoice): this row's value and effort written through, or the
+  // item's kept, with Undo, focus back on the row's Edit button wherever
+  // it lands. Taking the row's value changes WSJF's business value too,
+  // and the row may change quadrant: both are said.
+  const legacy = useLegacyChoice(VALUE_EFFORT, actions.save, returnTo, (r, values) => {
+    const s = useWorkspaceStore.getState();
+    const after = rankMethodRows(FRAMEWORK, s.prioritizations ?? [], s.backlogItems ?? []).find(
+      (x) => x.row.id === r.row.id
+    );
+    const notes: string[] = [];
+    const from = placeOf(r).value;
+    const to = toNumber(values.value);
+    if (from !== null && to !== undefined && to !== from) {
+      notes.push(
+        `Its value went from ${from} to ${to} on the backlog item: WSJF's business value is the same field.`
+      );
+    }
+    const q = after ? quadrantOf(after) : null;
+    if (after && q !== quadrantOf(r)) notes.push(`Moved to ${q ? VE_LABEL[q] : UNPLACED_LABEL}.`);
+    return notes.length > 0 ? notes.join(" ") : null;
+  });
   const linkedName = (r: RankedRow): string | undefined =>
     r.live ? (items.find((b) => b.id === r.row.backlogItemId)?.name ?? "") : undefined;
   // An edit that changes value or effort can move the row: say where to, as a drag does.
@@ -382,6 +408,8 @@ export function ValueEffortMatrixClient() {
                                 selected={selectedId === r.row.id}
                                 onEdit={() => setEditingId(r.row.id)}
                                 onRemove={() => actions.remove(r.row)}
+                                onUseRow={(values) => legacy.takeRow(r, values)}
+                                onKeepItem={() => legacy.keepItem(r)}
                                 editRef={refFor(`edit:${r.row.id}`)}
                                 legacyNote={legacyValueNote(r, items)}
                               />

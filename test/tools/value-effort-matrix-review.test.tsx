@@ -356,6 +356,65 @@ describe("Value vs Effort fixes: one-sentence verdict", () => {
   });
 });
 
+describe("Value vs Effort fixes: a row linked before Phase 7 asks which values stay", () => {
+  // Never saved by the new code: the item got WSJF's 13 and a matrix effort
+  // of 3; the row was moved on the old matrix afterwards, which wrote only it.
+  const legacyItem = item("b1", "Checkout", {
+    businessValue: 13,
+    timeCriticality: 8,
+    riskReduction: 3,
+    jobSize: 5,
+    matrixEffort: 3,
+  });
+  const legacyRow = row("v1", "Checkout", { value: 3, effort: 2 }, { backlogItemId: "b1" });
+  const note = () => within(list("Quick Wins")).getByRole("note");
+  const editButton = () => screen.getByRole("button", { name: "Edit Checkout" });
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ backlogItems: [legacyItem], prioritizations: [legacyRow] });
+  });
+
+  it("shows the item's values and asks once; this row's moves it, with Undo", async () => {
+    renderPage();
+    expect(note()).toHaveTextContent(
+      "this row and “Checkout” disagree: Value 3 here, 13 on the backlog item; Effort 2 here, 3 on the backlog item."
+    );
+    fireEvent.click(
+      within(note()).getByRole("button", {
+        name: "Use this row's Value/Effort values for Checkout",
+      })
+    );
+    expect(storedItem("b1")).toMatchObject({ businessValue: 3, matrixEffort: 2 });
+    expect(listed("Fill-Ins")).toEqual([expect.stringContaining("Checkout")]);
+    expect(within(list("Fill-Ins")).queryByRole("note")).toBeNull();
+    expect(document.activeElement).toBe(editButton());
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Kept this row's Value/Effort values for “Checkout”. Its value went from 13 to 3 on the backlog item: WSJF's business value is the same field. Moved to Fill-Ins."
+      )
+    );
+    act(() => lastUndo()());
+    expect(storedItem("b1")).toEqual(legacyItem);
+    expect(note()).toBeInTheDocument();
+  });
+
+  it("or the backlog item's, copied into the row, with Undo", () => {
+    renderPage();
+    fireEvent.click(
+      within(note()).getByRole("button", {
+        name: "Keep the backlog item's Value/Effort values for Checkout",
+      })
+    );
+    expect(stored("v1")?.fields).toEqual({ businessValue: 13, effort: 3 });
+    expect(storedItem("b1")).toEqual(legacyItem);
+    expect(within(list("Quick Wins")).queryByRole("note")).toBeNull();
+    expect(document.activeElement).toBe(editButton());
+    act(() => lastUndo()());
+    expect(stored("v1")?.fields).toEqual({ value: 3, effort: 2 });
+    expect(note()).toBeInTheDocument();
+  });
+});
+
 describe("Value vs Effort fixes: announcements and focus", () => {
   it("announces where an edit moved the row and puts focus back on its Edit button", async () => {
     useWorkspaceStore.setState({
