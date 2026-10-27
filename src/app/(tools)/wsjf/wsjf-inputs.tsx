@@ -1,8 +1,12 @@
 "use client";
 
 import { MethodInputs } from "@/components/prioritization/method-inputs";
-import type { MethodInputsSlotProps } from "@/components/prioritization/method-tool";
+import { shortName, type MethodInputsSlotProps } from "@/components/prioritization/method-tool";
 import { ScaleValue } from "@/components/shared/scale-picker";
+import type { BacklogItem } from "@/lib/stores/workspace-types";
+import { clearedKeys, ownedPatch, withSharedValueKept } from "@/lib/prioritization/binding";
+import { readBacklogItem } from "@/lib/prioritization/defaults";
+import type { Values } from "@/lib/prioritization/methods";
 import {
   FIBONACCI_STEPS,
   WSJF_KEYS,
@@ -11,14 +15,42 @@ import {
 } from "@/lib/prioritization/methods/wsjf";
 import type { RankedRow } from "@/lib/prioritization/rank";
 
+const isBlank = (v: unknown) => v === undefined || (typeof v === "string" && v.trim() === "");
+
+/**
+ * The business value a save with every part blank leaves on the backlog
+ * item, because the Value/Effort matrix still places the item with it
+ * (the binding's withSharedValueKept); null when the save clears it or
+ * there is no item.
+ */
+export function keptBusinessValue(draft: Values, item: BacklogItem | undefined): number | null {
+  if (!item || !WSJF_KEYS.every((k) => isBlank(draft[k]))) return null;
+  const read = readBacklogItem(item);
+  if (read.businessValue === undefined) return null;
+  const clears: Values = Object.fromEntries(WSJF_KEYS.map((k) => [k, undefined]));
+  const patch = withSharedValueKept(read, ownedPatch("wsjf", clears, clearedKeys(clears)));
+  return "businessValue" in patch ? null : read.businessValue;
+}
+
 /**
  * WSJF's inputs in the method-tool shell: the registry's four parts, each
  * on the modified Fibonacci scale 1, 2, 3, 5, 8, 13, 20 (one row of seven
  * from 640 px), under the relative-scoring legend. A title with no parts
  * is allowed: it waits as "Not scored" for the column-by-column scoring
- * above the list (between the add form and the list).
+ * above the list (between the add form and the list). Blanking every part
+ * of a feature whose backlog item sits on the Value/Effort matrix says
+ * that its business value stays there.
  */
-export function WsjfInputs({ method, draft, update, errors, custom, size }: MethodInputsSlotProps) {
+export function WsjfInputs({
+  method,
+  draft,
+  update,
+  errors,
+  custom,
+  size,
+  item,
+}: MethodInputsSlotProps) {
+  const kept = keptBusinessValue(draft, item);
   return (
     <div className="space-y-3">
       <p className="text-xs text-sub">
@@ -33,6 +65,12 @@ export function WsjfInputs({ method, draft, update, errors, custom, size }: Meth
         size={size}
         className="xl:grid-cols-2"
       />
+      {kept !== null && item && (
+        <p role="note" className="text-xs text-sub">
+          Its business value {kept} stays on the backlog item “{shortName(item.name)}”: the
+          Value/Effort matrix places it with the same field.
+        </p>
+      )}
     </div>
   );
 }

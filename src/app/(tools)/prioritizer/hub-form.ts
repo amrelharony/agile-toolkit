@@ -15,7 +15,7 @@
 
 import type { BacklogItem, ReachPeriod } from "@/lib/stores/workspace-types";
 import type { FormErrors, Validation } from "@/lib/utils/form";
-import { clearedKeys, ownedPatch } from "@/lib/prioritization/binding";
+import { clearedKeys, ownedPatch, withSharedValueKept } from "@/lib/prioritization/binding";
 import { readBacklogItem } from "@/lib/prioritization/defaults";
 import { method, type Values } from "@/lib/prioritization/methods";
 import { defined, toNumber } from "@/lib/prioritization/methods/fields";
@@ -147,9 +147,6 @@ export function validateScores(
     : { ok: true, values: defined(v) as Values };
 }
 
-/** WSJF's parts other than the value: while any is set, WSJF still uses the value. */
-const WSJF_OTHER_PARTS = ["timeCriticality", "riskReduction", "jobSize"] as const;
-
 /**
  * The backlog fields a saved editor writes: every input it shows, a blank
  * one cleared (lib/prioritization/binding ownedPatch with the clears).
@@ -158,8 +155,10 @@ const WSJF_OTHER_PARTS = ["timeCriticality", "riskReduction", "jobSize"] as cons
  * Value/Effort value at once. Clearing one of those two methods whole
  * leaves the value to the other while it still uses it: clearing
  * Value/Effort unplaces the item (its effort goes) but keeps WSJF's
- * business value, and clearing WSJF keeps a value the matrix places.
- * Clearing a RICE score keeps its reach period.
+ * business value, and clearing WSJF keeps a value the matrix places. That
+ * is the binding's rule (withSharedValueKept), the one the method tools
+ * and the agent actions save with too. Clearing a RICE score keeps its
+ * reach period.
  */
 export function scorePatch(
   id: HubMethodId,
@@ -168,17 +167,12 @@ export function scorePatch(
 ): Partial<BacklogItem> {
   const keys = HUB_INPUTS[id];
   const empty = blankScores(id, values);
-  const read = readBacklogItem(item);
   const full: Values = {};
   for (const k of keys) {
     if (empty && FRAME_KEYS.has(k)) continue;
     full[k] = isBlank(values[k]) ? undefined : values[k];
   }
-  if (empty && id === "wsjf" && read.matrixEffort !== undefined) delete full.businessValue;
-  if (empty && id === "value-effort" && WSJF_OTHER_PARTS.some((k) => read[k] !== undefined)) {
-    delete full.value;
-  }
-  return ownedPatch(id, full, clearedKeys(full));
+  return withSharedValueKept(readBacklogItem(item), ownedPatch(id, full, clearedKeys(full)));
 }
 
 /** Off-scale values the item holds, kept on offer in the pickers as "Custom". */

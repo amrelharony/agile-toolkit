@@ -45,6 +45,8 @@ import { buildExample } from "@/app/(tools)/wsjf/example";
 import { toMarkdown } from "@/app/(tools)/wsjf/markdown";
 import { columnsMissingOne, wsjfVerdict } from "@/app/(tools)/wsjf/verdict";
 import { rankMethodRows } from "@/lib/prioritization/rank";
+import { evaluateItemIn } from "@/lib/prioritization/methods";
+import { WSJF_LABEL } from "@/lib/prioritization/methods/wsjf";
 import { registry } from "@/lib/actions/registry";
 import "@/lib/actions/tools/wsjf";
 
@@ -493,6 +495,29 @@ describe("WSJF live binding", () => {
     expect(label).toBe("Updated “Single sign-on” in the backlog");
     act(() => opts.action.onClick());
     expect(storedItem("b1")?.riskReduction).toBe(3);
+  });
+
+  it("clearing every part keeps the business value the Value/Effort matrix places, and says so", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [{ ...item, matrixEffort: 3 }],
+      prioritizations: [linked],
+    });
+    render(<WsjfClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Single sign-on" }));
+    const editor = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLElement;
+    for (const part of Object.values(WSJF_LABEL)) {
+      fireEvent.click(within(editor).getByRole("button", { name: `Clear ${part}` }));
+    }
+    expect(within(editor).getByRole("note")).toHaveTextContent(
+      "Its business value 13 stays on the backlog item “Single sign-on”: the Value/Effort matrix places it with the same field."
+    );
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    const saved = storedItem("b1")!;
+    expect(saved).toMatchObject({ businessValue: 13, matrixEffort: 3 });
+    expect(saved).not.toHaveProperty("jobSize");
+    // Still a Quick Win on the matrix; WSJF reads Not scored.
+    expect(evaluateItemIn(saved, [], "value-effort").bucket).toBe("quick_wins");
+    expect(listItems()[0]).toHaveTextContent("Not scored");
   });
 });
 

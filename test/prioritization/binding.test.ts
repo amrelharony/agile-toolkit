@@ -359,14 +359,74 @@ describe("saveMethodRow (write-through)", () => {
     expect(storedRow("e1")?.fields).not.toHaveProperty("dueAt");
     expect(storedRow("e1")?.fields).not.toHaveProperty("delegateTo");
 
-    // Both Value/Effort inputs cleared on a linked row: back to Not placed yet.
+    // Both Value/Effort inputs cleared on a linked row: back to Not placed
+    // yet. Its value stays, as the hub keeps it: WSJF's time criticality
+    // still uses the one value field.
     saveMethodRow("v1", { value: undefined, effort: undefined });
-    expect(storedItem("b1")).not.toHaveProperty("businessValue");
+    expect(storedItem("b1")?.businessValue).toBe(13);
     expect(storedItem("b1")).not.toHaveProperty("matrixEffort");
     expect(storedItem("b1")?.timeCriticality).toBe(3);
     expect(evaluateRow(storedRow("v1")!, storedItem("b1"))).toMatchObject({ score: null });
     lastUndo().revert();
     expect(storedItem("b1")).toMatchObject({ businessValue: 13, matrixEffort: 2 });
+  });
+
+  it("clearing WSJF whole keeps a value the matrix places, as the hub does", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        item("b1", {
+          businessValue: 8,
+          timeCriticality: 5,
+          riskReduction: 3,
+          jobSize: 2,
+          matrixEffort: 3,
+          value: 6,
+        }),
+        item("b2", { businessValue: 8, timeCriticality: 5, riskReduction: 3, jobSize: 2 }),
+      ],
+      prioritizations: [
+        row("w1", "wsjf", {}, { backlogItemId: "b1" }),
+        row("w2", "wsjf", {}, { backlogItemId: "b2" }),
+      ],
+    });
+    const blank = {
+      businessValue: undefined,
+      timeCriticality: undefined,
+      rrOe: undefined,
+      jobSize: undefined,
+    };
+    saveMethodRow("w1", blank);
+    const kept = storedItem("b1")!;
+    expect(kept).toMatchObject({ businessValue: 8, matrixEffort: 3, value: 6 });
+    expect(kept).not.toHaveProperty("timeCriticality");
+    expect(kept).not.toHaveProperty("riskReduction");
+    expect(kept).not.toHaveProperty("jobSize");
+    // The matrix still places it; WSJF reads the value alone: Not scored.
+    const ve = row("v", "value-effort", {}, { backlogItemId: "b1" });
+    expect(evaluateRow(ve, kept).bucket).toBe("quick_wins");
+    expect(evaluateRow(storedRow("w1")!, kept).score).toBeNull();
+    // Nobody else uses the value: it goes with the rest of WSJF.
+    saveMethodRow("w2", blank);
+    expect(storedItem("b2")).not.toHaveProperty("businessValue");
+  });
+
+  it("clears the shared value alone, or when asked to, whoever else uses it", () => {
+    const placed = item("p", { businessValue: 8, timeCriticality: 5, matrixEffort: 3 });
+    // (Keys, not toEqual: a key present as undefined is the clear itself.)
+    const cleared = (patch: Partial<BacklogItem>, opts?: { keepSharedValue?: boolean }) =>
+      Object.keys(itemPatchChanges(placed, patch, opts)).sort();
+    // A clear of the value alone, WSJF's other parts kept: a deliberate clear.
+    expect(cleared({ businessValue: undefined })).toEqual(["businessValue"]);
+    // Value/Effort cleared whole while WSJF's time criticality uses the value.
+    const unplace = { businessValue: undefined, matrixEffort: undefined };
+    expect(cleared(unplace)).toEqual(["matrixEffort"]);
+    expect(cleared(unplace, { keepSharedValue: false })).toEqual(["businessValue", "matrixEffort"]);
+    // Both methods cleared at once: nobody uses it.
+    expect(cleared({ ...unplace, timeCriticality: undefined })).toEqual([
+      "businessValue",
+      "matrixEffort",
+      "timeCriticality",
+    ]);
   });
 
   it("a cleared business value stays cleared, the legacy value with it", () => {
@@ -393,7 +453,10 @@ describe("saveMethodRow (write-through)", () => {
 
   it("links a new row, a value blanked from the import's prefill clearing the item's", () => {
     useWorkspaceStore.setState({
-      backlogItems: [item("b1", { businessValue: 8, matrixEffort: 4, jobSize: 5 })],
+      backlogItems: [
+        item("b1", { businessValue: 8, matrixEffort: 4 }),
+        item("b3", { businessValue: 13, matrixEffort: 3 }),
+      ],
     });
     const values = { value: undefined, effort: undefined };
     const linked = linkNewRow(
@@ -403,7 +466,17 @@ describe("saveMethodRow (write-through)", () => {
     );
     expect(linked.backlogItemId).toBe("b1");
     expect(storedItem("b1")).not.toHaveProperty("businessValue");
-    expect(storedItem("b1")?.jobSize).toBe(5);
+    expect(storedItem("b1")).not.toHaveProperty("matrixEffort");
+    // A WSJF title-only add that blanked the imported value: the matrix
+    // still places the item with it, so it stays.
+    const blank = {
+      businessValue: undefined,
+      timeCriticality: undefined,
+      rrOe: undefined,
+      jobSize: undefined,
+    };
+    linkNewRow(methodRow({ id: "w3", framework: "wsjf", title: "T", values: blank }), "b3", blank);
+    expect(storedItem("b3")).toMatchObject({ businessValue: 13, matrixEffort: 3 });
     // Without `values`, nothing the row lacks is a clear.
     useWorkspaceStore.setState({ backlogItems: [item("b2", { businessValue: 8 })] });
     linkNewRow(methodRow({ id: "v2", framework: "value-effort", title: "T", values: {} }), "b2");

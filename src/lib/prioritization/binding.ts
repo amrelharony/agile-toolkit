@@ -91,6 +91,38 @@ export function ownedPatch(
 /** True when `a` and `b` hold the same value (numbers compared exactly). */
 const same = (a: unknown, b: unknown) => a === b;
 
+/** WSJF's parts other than the value: while any is set, WSJF still uses the value. */
+const WSJF_OTHER_PARTS = ["timeCriticality", "riskReduction", "jobSize"] as const;
+
+/**
+ * The one value field (`businessValue`) is WSJF's business value and the
+ * Value/Effort value at once, so a save that clears one of those two
+ * methods whole leaves the value to the other while it still uses it:
+ * - clearing WSJF (none of its other parts left) keeps a value the matrix
+ *   places (the item keeps a matrix effort);
+ * - clearing Value/Effort (its effort cleared with it) keeps WSJF's
+ *   business value while one of WSJF's other parts is set.
+ * A clear of the value alone, with the rest of its method kept, still
+ * clears it, and so does a whole clear nobody else uses the value for.
+ * `read` is the item as the engine reads it (readBacklogItem). Every save
+ * of an item's inputs applies it (itemPatchChanges): the hub, the method
+ * tools and the agent actions alike.
+ */
+export function withSharedValueKept(
+  read: BacklogItem,
+  patch: Partial<BacklogItem>
+): Partial<BacklogItem> {
+  if (!("businessValue" in patch) || patch.businessValue !== undefined) return patch;
+  const after = (k: keyof BacklogItem) => (k in patch ? patch[k] : read[k]);
+  const effortCleared = "matrixEffort" in patch && patch.matrixEffort === undefined;
+  const wsjfUses = WSJF_OTHER_PARTS.some((k) => after(k) !== undefined);
+  const matrixUses = after("matrixEffort") !== undefined;
+  if (effortCleared ? !wsjfUses : wsjfUses || !matrixUses) return patch;
+  const out = { ...patch };
+  delete out.businessValue;
+  return out;
+}
+
 /**
  * The keys of `patch` that change the item as the engine reads it: a value
  * equal to what the item already reads as is no change, so a backlog
@@ -98,16 +130,20 @@ const same = (a: unknown, b: unknown) => a === b;
  * defaults hid (a stored "should" read as Not sorted) is a change; a
  * business value the legacy 1–10 value already reads as is not. A key set
  * to undefined (a clear) is a change only while the item reads a value
- * there.
+ * there. A clear of the shared value the other method still uses is no
+ * change (withSharedValueKept), unless `keepSharedValue: false` (an
+ * explicit request to clear it, as set_position's clearBacklog).
  */
 export function itemPatchChanges(
   item: BacklogItem,
-  patch: Partial<BacklogItem>
+  patch: Partial<BacklogItem>,
+  opts: { keepSharedValue?: boolean } = {}
 ): Partial<BacklogItem> {
   const read = readBacklogItem(item);
+  const given = opts.keepSharedValue === false ? patch : withSharedValueKept(read, patch);
   const out: Partial<BacklogItem> = {};
-  for (const key of Object.keys(patch) as (keyof BacklogItem)[]) {
-    const next = patch[key];
+  for (const key of Object.keys(given) as (keyof BacklogItem)[]) {
+    const next = given[key];
     let cur: unknown = read[key];
     if (next === undefined) {
       if (cur !== undefined) (out as Record<string, unknown>)[key] = undefined;
