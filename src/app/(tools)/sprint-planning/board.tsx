@@ -26,7 +26,7 @@ import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/work
 import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
-import { storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
+import { backlogOrderText, storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
 import { currentPokerLog, pokerQueueRoute } from "@/lib/handoffs/targets/poker-queue";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
@@ -317,7 +317,7 @@ export function PlanningBoard({
     const before = fill.selected.map(fresh);
     undoable({
       label: `${storiesCount(before.length)} added to ${sprint.name}`,
-      description: [`${fmt(fill.totalPoints)} points, highest priority first.`, skipped]
+      description: [`${fmt(fill.totalPoints)} points, ${backlogOrderText(fill.selected)}.`, skipped]
         .filter(Boolean)
         .join(" "),
       apply: () => {
@@ -659,7 +659,7 @@ export function PlanningBoard({
             >
               Backlog{" "}
               <span className="font-normal text-sub">
-                · {storiesCount(backlog.length)}, highest priority first
+                · {storiesCount(backlog.length)}, {backlogOrderText(backlog)}
               </span>
             </h3>
             {backlog.length === 0 ? (

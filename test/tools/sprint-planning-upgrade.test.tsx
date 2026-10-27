@@ -788,6 +788,32 @@ describe("Sprint Planning page", () => {
     expect(within(done).queryByText(/Ready|Not refined/)).toBeNull();
   });
 
+  it("names the backlog's decided order and each story's rank, so a lower score above reads right", () => {
+    // Apple Pay (priority 8) was ranked above Remove a saved card (priority 9) in Decide order.
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) =>
+        s.id === "b2"
+          ? { ...s, backlogRank: 1 }
+          : s.id === "b1"
+            ? { ...s, backlogRank: 2 }
+            : { ...s }
+      ),
+    });
+    renderPlanning();
+    expect(
+      screen.getByText(/in the backlog's decided order, then by priority/)
+    ).toBeInTheDocument();
+    const backlog = screen.getByRole("list", { name: "Backlog" });
+    const rows = within(backlog).getAllByRole("listitem");
+    expect(within(rows[0]).getByText("Apple Pay")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Rank 1")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Priority 8")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Rank 2")).toBeInTheDocument();
+    // Unranked stories follow by priority, with no rank shown.
+    expect(within(rows[2]).getByText("Fraud checks")).toBeInTheDocument();
+    expect(within(rows[2]).queryByText(/^Rank/)).toBeNull();
+  });
+
   it("validates the new story inline and saves nothing until it is valid", () => {
     renderPlanning();
     const before = state().stories.length;

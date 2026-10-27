@@ -39,6 +39,21 @@ export function compareBacklogOrder(
   return 0;
 }
 
+/** A story pulled with its backlog item's decided rank (Story.backlogRank). */
+export const isRankedStory = (s: Pick<Story, "backlogRank">): s is { backlogRank: number } =>
+  typeof s.backlogRank === "number" && Number.isFinite(s.backlogRank);
+
+/**
+ * How the backlog is ordered, for a heading or a toast: the decided order
+ * when any story carries one (compareBacklogOrder puts ranked stories
+ * first), else the priority score.
+ */
+export function backlogOrderText(stories: readonly Pick<Story, "backlogRank">[]): string {
+  return stories.some(isRankedStory)
+    ? "in the backlog's decided order, then by priority"
+    : "highest priority first";
+}
+
 /** Backlog stories in the backlog order (compareBacklogOrder); ties keep their stored order. */
 export function backlogByPriority(stories: readonly Story[]): Story[] {
   return stories
