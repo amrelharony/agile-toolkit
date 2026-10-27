@@ -234,6 +234,8 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     // here, which JSON-stringified as null and silently broke any
     // subscriber that expected a number.
     onAdded: (r) => {
+      // Example rows (the Risk Register's Load an example) aren't the team's risks.
+      if (isExampleId(r.id)) return;
       // R10: importing a CLOSED risk previously emitted a spurious
       // `risk.opened` — dashboards counted it as fresh. Gate on
       // open-state so closed/accepted imports stay quiet.
@@ -285,7 +287,11 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
 
   // Tech debt
   diffById(prev.techDebt, next.techDebt, (t) => t.id, {
-    onAdded: (t) => emit("techDebt.added", "workspace", { itemId: t.id, impact: t.impact }),
+    onAdded: (t) => {
+      // Example rows (the Tech Debt example) aren't the team's debt.
+      if (isExampleId(t.id)) return;
+      emit("techDebt.added", "workspace", { itemId: t.id, impact: t.impact });
+    },
     onChanged: (before, after) => {
       if (!before.resolvedAt && after.resolvedAt) {
         emit("techDebt.resolved", "workspace", { itemId: after.id });
