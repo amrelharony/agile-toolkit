@@ -23,7 +23,17 @@ import { hypothesisRoute } from "./targets/hypothesis";
 import { decisionRoute } from "./targets/decision";
 import { dependencyRoute } from "./targets/dependency";
 
-export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
+/**
+ * Route ids a stored link may already carry (HANDOFF_ROUTE_IDS lists them,
+ * so the workspace schemas accept them) whose target isn't registered yet:
+ * "opportunity" until lib/handoffs/targets/opportunity.ts lands in Phase 8.
+ * No send menu offers one meanwhile. Empty this once its route is in.
+ */
+type PendingRouteId = "opportunity";
+
+export const HANDOFF_ROUTES: Readonly<
+  Record<Exclude<HandoffRouteId, PendingRouteId>, HandoffRoute>
+> = {
   impediment: impedimentRoute,
   kanban: kanbanRoute,
   risk: riskRoute,
@@ -37,7 +47,8 @@ export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {
-  return HANDOFF_ROUTES[id];
+  // A pending id has no route yet (see PendingRouteId); nothing sends on one.
+  return HANDOFF_ROUTES[id as Exclude<HandoffRouteId, PendingRouteId>];
 }
 
 /* ── Sources ─────────────────────────────────────────────────────────── */

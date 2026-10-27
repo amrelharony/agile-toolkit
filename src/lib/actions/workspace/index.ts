@@ -29,7 +29,10 @@ import {
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
+  KR_CHECK_IN_CAP,
   MOOD_TRACKER_ID,
+  NPS_TAG_LIMIT,
+  NPS_TAG_MAX_LENGTH,
   RACI_ID,
   REACH_PERIODS,
   WEIGHTED_CRITERION_KIND,
@@ -53,7 +56,8 @@ import {
   withLegacyLinks,
   type Values,
 } from "@/lib/prioritization/methods";
-import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
+import { CeremonyCadenceSchema, TimeSchema } from "@/lib/sprints/cadence-schema";
+import { isoDayNumber, parseClockTime, parseWallClock } from "@/lib/sprints/calendar";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
 import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
@@ -225,6 +229,23 @@ const HandoffLinkSchema = z.object({
 
 const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
 
+// A stored day an earlier agent may have written as a timestamp (a free
+// date string was accepted before Phase 8): one is read as its first ten
+// characters, so an update to such a row stores the day instead of failing.
+const DayFromTimestamp = z.preprocess(
+  (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? v.slice(0, 10) : v),
+  IsoDay
+);
+
+// A 1–5 rating: a risk's probability or impact, a tech-debt item's impact
+// or effort, an assumption's risk or evidence.
+const Scale5 = z.number().int().min(1).max(5);
+
+// When a risk or tech-debt item was last saved. Its presence says the row
+// was saved since its tool moved into the workspace (Phase 8), so the old
+// page blob's copy can't be newer.
+const SavedAt = z.string().optional().describe("ISO timestamp of the last save.");
+
 // The id of a singleton document: the one id its tool reads. Its CRUD has no
 // `generateId`, so `create` needs this id and defineCrudActions' duplicate
 // guard runs: a second create is an error, never a silent overwrite of the
@@ -324,18 +345,52 @@ const ImpedimentSchema = z.object({
   expectedResolutionDays: z.number().int().min(0).optional(),
 }) as unknown as z.ZodType<Impediment>;
 
-const RiskSchema = z.object({
+// Mirrors `Risk` field for field (z.object drops keys it doesn't know).
+const RiskSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    probability: Scale5.describe("1–5, how likely it is."),
+    impact: Scale5.describe("1–5, how bad it would be."),
+    mitigation: z.string().optional(),
+    mitigationDueAt: z.string().optional(),
+    status: z.enum(["open", "mitigating", "closed", "accepted"]),
+    raisedAt: z.string(),
+    resolvedAt: z.string().optional(),
+    sourceRef: HandoffRefSchema.optional(),
+    owner: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .describe("Who owns it: the roster's spelling when they're on the team."),
+    description: z.string().max(4000).optional(),
+    residualProbability: Scale5.optional().describe(
+      "1–5 once the mitigation has worked; set with residualImpact (both or neither)."
+    ),
+    residualImpact: Scale5.optional().describe(
+      "1–5 once the mitigation has worked; set with residualProbability (both or neither)."
+    ),
+    sentTo: z.array(HandoffLinkSchema).optional(),
+    updatedAt: SavedAt,
+  })
+  .superRefine((r, ctx) => {
+    if ((r.residualProbability === undefined) !== (r.residualImpact === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [r.residualProbability === undefined ? "residualProbability" : "residualImpact"],
+        message: "Set the residual probability and impact together, or neither.",
+      });
+    }
+  }) as unknown as z.ZodType<Risk>;
+
+const KeyResultCheckInSchema = z.object({
   id: z.string(),
-  title: z.string(),
-  probability: z.number(),
-  impact: z.number(),
-  mitigation: z.string().optional(),
-  mitigationDueAt: z.string().optional(),
-  status: z.enum(["open", "mitigating", "closed", "accepted"]),
-  raisedAt: z.string(),
-  resolvedAt: z.string().optional(),
-  sourceRef: HandoffRefSchema.optional(),
-}) as unknown as z.ZodType<Risk>;
+  date: IsoDay.describe("The local day the value was read (backdated; never after today)."),
+  value: z.number().finite(),
+  confidence: z.number().min(0).max(10).optional().describe("0–10; absent = not scored."),
+  note: z.string().max(500).optional(),
+});
 
 const KeyResultSchema = z.object({
   id: z.string(),
@@ -344,7 +399,28 @@ const KeyResultSchema = z.object({
   target: z.number(),
   current: z.number(),
   unit: z.string().optional(),
-  confidence: z.number().optional(),
+  confidence: z
+    .number()
+    .min(0)
+    .max(10)
+    .optional()
+    .describe("The latest scored confidence, 0–10; absent = not scored."),
+  baseline: z
+    .number()
+    .finite()
+    .optional()
+    .describe("The value at the start; progress runs baseline → target. Absent: read as 0."),
+  direction: z
+    .enum(["increase", "decrease"])
+    .optional()
+    .describe(
+      '"decrease" for a number that should fall (target below baseline). Absent: "increase".'
+    ),
+  checkIns: z
+    .array(KeyResultCheckInSchema)
+    .max(KR_CHECK_IN_CAP)
+    .optional()
+    .describe(`Dated check-ins, oldest first, at most ${KR_CHECK_IN_CAP}.`),
 });
 
 const OkrSchema = z.object({
@@ -430,17 +506,25 @@ const DecisionSchema = z.object({
     .describe('Id of the decision that replaced this one (status "superseded").'),
 }) as unknown as z.ZodType<Decision>;
 
+// Mirrors `TechDebtItem` field for field (z.object drops keys it doesn't know).
 const TechDebtSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().optional(),
   area: z.string().optional(),
-  impact: z.number(),
-  effort: z.number(),
-  interestRate: z.number().optional(),
+  impact: Scale5.describe("1–5, how much it slows the team."),
+  effort: Scale5.describe("1–5, how much work paying it down is."),
+  interestRate: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe("Score points it gains per sprint left unpaid (≥ 0)."),
   raisedAt: z.string(),
   resolvedAt: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
+  updatedAt: SavedAt,
 }) as unknown as z.ZodType<TechDebtItem>;
 
 const TeamMemberSchema = z.object({
@@ -1029,46 +1113,175 @@ defineCrudActions<A11yTracker>({
 /* ── S10 — Quality Engineering (singleton-doc tools). quality-cost is a pure
  * calculator (no entity) — its compute action lives in ../tools/. */
 
-const TestPyramidSchema = z.object({
-  id: z.string(),
-  unit: z.number(),
-  integration: z.number(),
-  e2e: z.number(),
-  description: z.string().optional(),
-}) as unknown as z.ZodType<TestPyramid>;
-
-const FlakyTestSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  suite: z.string().optional(),
-  owner: z.string().optional(),
-  failureRate: z.number(),
-  status: z.enum(["active", "quarantined", "fixed"]),
-  firstSeenAt: z.string(),
-  fixedAt: z.string().optional(),
-  description: z.string().optional(),
+// Each mirrors its workspace type field for field (z.object drops keys it
+// doesn't know, so a field missing here is erased by every agent update).
+const LayerMinutes = z.number().finite().min(0);
+const TestLayerRuntimeSchema = z.object({
+  unit: LayerMinutes.optional(),
+  integration: LayerMinutes.optional(),
+  e2e: LayerMinutes.optional(),
 });
+const LayerCount = z.number().int().min(0);
+
+const TestPyramidSnapshotSchema = z.object({
+  id: z.string(),
+  takenOn: IsoDay.describe("The local day the counts are for (backdated; never after today)."),
+  unit: LayerCount,
+  integration: LayerCount,
+  e2e: LayerCount,
+  runtime: TestLayerRuntimeSchema.optional(),
+  note: z.string().max(500).optional(),
+});
+
+const TestPyramidSchema = z
+  .object({
+    id: z.string(),
+    unit: z.number(),
+    integration: z.number(),
+    e2e: z.number(),
+    description: z.string().optional(),
+    runtime: TestLayerRuntimeSchema.optional().describe(
+      "Minutes of CI wall-clock per layer; a layer left out isn't timed."
+    ),
+    weighting: z
+      .enum(["count", "runtime"])
+      .optional()
+      .describe(
+        'What the shares are worked out from; "runtime" needs all three runtimes. Absent: "count".'
+      ),
+    snapshots: z
+      .array(TestPyramidSnapshotSchema)
+      .optional()
+      .describe("Dated copies of the counts, oldest first."),
+    updatedOn: IsoDay.optional().describe("The local day the counts were last saved."),
+  })
+  .superRefine((p, ctx) => {
+    const r = p.runtime;
+    if (
+      p.weighting === "runtime" &&
+      !(r && r.unit !== undefined && r.integration !== undefined && r.e2e !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["weighting"],
+        message: "Weighting by runtime needs the minutes of all three layers.",
+      });
+    }
+  }) as unknown as z.ZodType<TestPyramid>;
+
+const FlakyTestSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    suite: z.string().optional(),
+    owner: z.string().optional(),
+    failureRate: z.number().describe("0..1; kept equal to failures / runs when both are set."),
+    status: z.enum(["active", "quarantined", "fixed"]),
+    firstSeenAt: z.string(),
+    fixedAt: z.string().optional(),
+    description: z.string().optional(),
+    failures: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Failed runs in the window counted; set with runs."),
+    runs: z.number().int().min(1).optional().describe("Runs in that window, at least failures."),
+    quarantinedAt: IsoDay.optional().describe("The local day it went into quarantine."),
+    sentTo: z.array(HandoffLinkSchema).optional(),
+  })
+  .superRefine((t, ctx) => {
+    if ((t.failures === undefined) !== (t.runs === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [t.failures === undefined ? "failures" : "runs"],
+        message: "Set failures and runs together, or neither.",
+      });
+    } else if (t.failures !== undefined && t.runs !== undefined && t.failures > t.runs) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["failures"],
+        message: "A test can't fail more often than it ran.",
+      });
+    }
+  });
 
 const FlakyTestBoardSchema = z.object({
   id: z.string(),
   tests: z.array(FlakyTestSchema),
 }) as unknown as z.ZodType<FlakyTestBoard>;
 
-const PrSampleSchema = z.object({
-  id: z.string(),
-  prNumber: z.string().optional(),
-  author: z.string(),
-  openedAt: z.string(),
-  mergedAt: z.string().optional(),
-  reviewerCount: z.number(),
-  commentCount: z.number(),
-  linesChanged: z.number(),
-  description: z.string().optional(),
-});
+/** A wall-clock value ("YYYY-MM-DDTHH:MM") as minutes from day 0, for ordering; null when it isn't one. */
+function wallClockOrder(value: string | undefined): number | null {
+  const w = parseWallClock(value);
+  return w === null ? null : (isoDayNumber(w.day) as number) * 1440 + w.minute;
+}
+
+const PrSampleSchema = z
+  .object({
+    id: z.string(),
+    prNumber: z.string().optional(),
+    author: z.string(),
+    openedAt: z.string(),
+    mergedAt: z.string().optional(),
+    reviewerCount: z.number(),
+    commentCount: z.number(),
+    linesChanged: z.number(),
+    description: z.string().optional(),
+    firstReviewAt: z
+      .string()
+      .refine((v) => parseWallClock(v) !== null, 'a local time as "YYYY-MM-DDTHH:MM"')
+      .optional()
+      .describe(
+        'When the first review landed, local wall-clock "YYYY-MM-DDTHH:MM", between openedAt and mergedAt.'
+      ),
+  })
+  .superRefine((s, ctx) => {
+    // Only a first review is checked against the other two: rows from
+    // before Phase 8 may hold a merge before the open, which the page flags.
+    const review = wallClockOrder(s.firstReviewAt);
+    if (review === null) return;
+    const opened = wallClockOrder(s.openedAt);
+    const merged = wallClockOrder(s.mergedAt);
+    if (opened !== null && review < opened) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["firstReviewAt"],
+        message: "The first review can't come before the pull request was opened.",
+      });
+    }
+    if (merged !== null && review > merged) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["firstReviewAt"],
+        message: "The first review can't come after the pull request was merged.",
+      });
+    }
+  });
+
+const CodeReviewWorkingWindowSchema = z
+  .object({
+    start: TimeSchema,
+    end: TimeSchema,
+  })
+  .superRefine((w, ctx) => {
+    const start = parseClockTime(w.start);
+    const end = parseClockTime(w.end);
+    if (start !== null && end !== null && end <= start) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["end"],
+        message: "The window must end after it starts.",
+      });
+    }
+  });
 
 const CodeReviewLogSchema = z.object({
   id: z.string(),
   samples: z.array(PrSampleSchema),
+  workingWindow: CodeReviewWorkingWindowSchema.optional().describe(
+    'The working hours the review medians count, local "HH:MM"; absent: whole working days.'
+  ),
 }) as unknown as z.ZodType<CodeReviewLog>;
 
 defineCrudActions<TestPyramid>({
@@ -1388,11 +1601,12 @@ const DesignSprintSchema = z.object({
 const AssumptionSchema = z.object({
   id: z.string(),
   statement: z.string(),
-  riskLevel: z.number(),
-  evidenceLevel: z.number(),
+  riskLevel: Scale5.optional().describe("1–5, how badly it hurts if wrong; absent = not rated."),
+  evidenceLevel: Scale5.optional().describe("1–5, how much evidence backs it; absent = not rated."),
   testIdea: z.string().optional(),
   status: z.enum(["untested", "testing", "validated", "invalidated"]),
   description: z.string().optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
 });
 
 const RiskiestAssumptionSchema = z.object({
@@ -1503,6 +1717,16 @@ const HypothesisSchema = z.object({
   raisedAt: z.string(),
   resolvedAt: z.string().optional(),
   sourceRef: HandoffRefSchema.optional(),
+  target: z
+    .object({
+      direction: z.enum(["increase", "decrease"]),
+      value: z.number().finite(),
+      unit: z.string().max(40).optional(),
+      baseline: z.number().finite().optional(),
+    })
+    .optional()
+    .describe("Success is at least (increase) or at most (decrease) value."),
+  actual: z.number().finite().optional().describe("The measured result, in target.unit."),
 });
 
 const HypothesisTrackerSchema = z.object({
@@ -1514,6 +1738,7 @@ const InterviewQuoteSchema = z.object({
   id: z.string(),
   text: z.string(),
   tags: z.array(z.string()),
+  sentTo: z.array(HandoffLinkSchema).optional(),
 });
 
 const InterviewSchema = z.object({
@@ -1827,14 +2052,30 @@ const PokerEstimationLogSchema = z.object({
     .optional(),
 }) as unknown as z.ZodType<PokerEstimationLog>;
 
-const TreeNodeSchema = z.object({
-  id: z.string(),
-  kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
-  text: z.string(),
-  parentId: z.string().nullable(),
-  evidence: z.string().optional(),
-  description: z.string().optional(),
-});
+const TreeNodeSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
+    text: z.string(),
+    parentId: z.string().nullable(),
+    evidence: z.string().optional(),
+    description: z.string().optional(),
+    target: z
+      .boolean()
+      .optional()
+      .describe("The opportunity pursued under its outcome: opportunities only, one per outcome."),
+    sentTo: z.array(HandoffLinkSchema).optional(),
+    sourceRef: HandoffRefSchema.optional(),
+  })
+  .superRefine((n, ctx) => {
+    if (n.target === true && n.kind !== "opportunity") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["target"],
+        message: "Only an opportunity can be its outcome's target.",
+      });
+    }
+  });
 
 const OpportunityTreeSchema = z.object({
   id: z.string(),
@@ -2690,14 +2931,32 @@ const BacklogItemSchema = z.object({
     ),
 }) as unknown as z.ZodType<BacklogItem>;
 
-const NpsResponseSchema = z.object({
-  id: z.string(),
-  kind: z.enum(["nps", "csat"]),
-  date: z.string(),
-  score: z.number(),
-  respondent: z.string().optional(),
-  verbatim: z.string().optional(),
-}) as unknown as z.ZodType<NpsResponse>;
+const NpsResponseSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(["nps", "csat"]),
+    date: DayFromTimestamp.describe("The day the answer was given, YYYY-MM-DD."),
+    score: z.number().int().describe("A whole number: NPS 0–10, CSAT 1–5."),
+    respondent: z.string().optional(),
+    verbatim: z.string().optional(),
+    tags: z
+      .array(z.string().min(1).max(NPS_TAG_MAX_LENGTH))
+      .max(NPS_TAG_LIMIT)
+      .optional()
+      .describe(
+        `Theme tags on the verbatim, lower-case and unique; at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters.`
+      ),
+  })
+  .superRefine((r, ctx) => {
+    const [min, max] = r.kind === "nps" ? [0, 10] : [1, 5];
+    if (r.score < min || r.score > max) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["score"],
+        message: r.kind === "nps" ? "An NPS score is 0–10." : "A CSAT score is 1–5.",
+      });
+    }
+  }) as unknown as z.ZodType<NpsResponse>;
 
 // A check-in's day. Before Phase 6 this CRUD and tool.mood_tracker.record took
 // any string, so an agent may have stored a timestamp. One is read as its

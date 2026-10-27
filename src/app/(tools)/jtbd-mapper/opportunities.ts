@@ -1,5 +1,10 @@
 import { isExampleId } from "@/components/tool-frame/example-data";
-import type { JobStory, OpportunityTree, TreeNode } from "@/lib/stores/workspace-types";
+import {
+  OPPORTUNITY_TREE_ID,
+  type JobStory,
+  type OpportunityTree,
+  type TreeNode,
+} from "@/lib/stores/workspace-types";
 
 /**
  * A job can name the Opportunity Tree opportunity it serves
@@ -9,8 +14,8 @@ import type { JobStory, OpportunityTree, TreeNode } from "@/lib/stores/workspace
  * renamed opportunity reads right here at once.
  */
 
-/** The tree's one document. MUST match OT_ID in opportunity-tree-client.tsx and the MCP action. */
-export const OPPORTUNITY_TREE_ID = "opportunityTree:current";
+/** The tree's one document: defined with the workspace types since Phase 8, re-exported for JTBD's callers. */
+export { OPPORTUNITY_TREE_ID };
 
 /** Where the link chip and the "no opportunities yet" pointer go. */
 export const OPPORTUNITY_TREE_HREF = "/opportunity-tree";

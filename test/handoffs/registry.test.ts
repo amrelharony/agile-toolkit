@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { HandoffLink, HandoffRouteId, KanbanCard, Risk } from "@/lib/stores/workspace-types";
+import {
+  OPPORTUNITY_TREE_ID,
+  type HandoffLink,
+  type HandoffRouteId,
+  type KanbanCard,
+  type Risk,
+} from "@/lib/stores/workspace-types";
 import { registry } from "@/lib/actions/registry";
 
 import "@/lib/actions/tools/kanban";
@@ -90,6 +96,12 @@ function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
       return [ws().decisions.some((d) => d.id === id)];
     case "dependency":
       return [depNodes().some((n) => n.id === id)];
+    case "opportunity":
+      return [
+        (ws().opportunityTrees ?? [])
+          .find((d) => d.id === OPPORTUNITY_TREE_ID)
+          ?.nodes.some((n) => n.id === id) ?? false,
+      ];
   }
 }
 

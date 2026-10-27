@@ -34,7 +34,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RISKIEST_ASSUMPTION_ACTIONS } from "@/lib/history/event-actions";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Assumption as WorkspaceAssumption, Workspace } from "@/lib/stores/workspace-types";
 
 type Level = 1 | 2 | 3 | 4 | 5;
 type Status = "untested" | "testing" | "validated" | "invalidated";
@@ -57,6 +57,20 @@ const DEFAULT_STATE: State = { assumptions: [] };
 
 const RA_ID = "riskiestAssumption:current"; // MUST match RA_ID in riskiest-assumption.ts.
 
+/**
+ * The stored assumptions with both ratings, as this page has always read
+ * them. Since Phase 8 a rating may be absent (not rated); until the page
+ * shows "Not rated", an unrated one reads as the add form's 3.
+ * Phase 8 builder replaces this.
+ */
+function rated(list: readonly WorkspaceAssumption[]): Assumption[] {
+  return list.map((a) => ({
+    ...a,
+    riskLevel: a.riskLevel ?? 3,
+    evidenceLevel: a.evidenceLevel ?? 3,
+  }));
+}
+
 // Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
 // writes round-trip into the UI. Drop-in [state, setState] (structural types).
 function useRiskiestAssumption(): [State, (u: State | ((p: State) => State)) => void] {
@@ -64,12 +78,14 @@ function useRiskiestAssumption(): [State, (u: State | ((p: State) => State)) => 
     useShallow((s) => (s.riskiestAssumptions ?? []).find((d) => d.id === RA_ID))
   );
   const upsert = useWorkspaceStore((s) => s.upsertRiskiestAssumption);
-  const state: State = doc ? { assumptions: doc.assumptions } : DEFAULT_STATE;
+  // Memoised on the stored list, so the page's memos keep a stable input.
+  const assumptions = useMemo(() => (doc ? rated(doc.assumptions) : null), [doc]);
+  const state: State = assumptions ? { assumptions } : DEFAULT_STATE;
   const setState = (u: State | ((p: State) => State)) => {
     const cur = (useWorkspaceStore.getState().riskiestAssumptions ?? []).find(
       (d) => d.id === RA_ID
     );
-    const curState: State = cur ? { assumptions: cur.assumptions } : DEFAULT_STATE;
+    const curState: State = cur ? { assumptions: rated(cur.assumptions) } : DEFAULT_STATE;
     const next = typeof u === "function" ? u(curState) : u;
     upsert({ id: RA_ID, assumptions: next.assumptions });
   };

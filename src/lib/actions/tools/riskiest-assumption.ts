@@ -57,9 +57,16 @@ function summarize(doc: RiskiestAssumption | null) {
   for (const a of assumptions) if (a.status in byStatus) byStatus[a.status] += 1;
   // The "riskiest" assumption to test first = highest risk AND lowest
   // evidence. Score = riskLevel - evidenceLevel; ties broken by higher risk.
-  // Only consider not-yet-resolved (untested/testing) assumptions.
-  const candidates = assumptions.filter((a) => a.status === "untested" || a.status === "testing");
-  let riskiest: Assumption | null = null;
+  // Only consider not-yet-resolved (untested/testing) assumptions, and only
+  // rated ones: since Phase 8 a rating may be absent (not rated), and an
+  // unrated assumption is never ranked. Phase 8 builder replaces this.
+  const candidates = assumptions.filter(
+    (a): a is Assumption & Required<Pick<Assumption, "riskLevel" | "evidenceLevel">> =>
+      (a.status === "untested" || a.status === "testing") &&
+      a.riskLevel !== undefined &&
+      a.evidenceLevel !== undefined
+  );
+  let riskiest: (typeof candidates)[number] | null = null;
   let bestScore = -Infinity;
   for (const a of candidates) {
     const score = a.riskLevel - a.evidenceLevel;
