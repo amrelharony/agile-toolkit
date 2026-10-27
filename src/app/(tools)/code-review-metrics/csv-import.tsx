@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { FileUp, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -37,6 +37,7 @@ export function CsvImport({
   const [text, setText] = useState("");
   const [checked, setChecked] = useState<ReviewCsvResult | null>(null);
   const resultId = useId();
+  const textRef = useRef<HTMLTextAreaElement>(null);
 
   const check = () =>
     setChecked(parseReviewCsv(text, { existing, now: nowWallClock(), localize: true, newId }));
@@ -58,6 +59,7 @@ export function CsvImport({
         {(props) => (
           <Textarea
             {...props}
+            ref={textRef}
             aria-describedby={
               [props["aria-describedby"], checked ? resultId : undefined]
                 .filter(Boolean)
@@ -87,6 +89,8 @@ export function CsvImport({
               onImport(checked.samples, skipped);
               setText("");
               setChecked(null);
+              // This button goes once the rows are in: back to the box for the next paste.
+              textRef.current?.focus();
             }}
           >
             <FileUp aria-hidden="true" />

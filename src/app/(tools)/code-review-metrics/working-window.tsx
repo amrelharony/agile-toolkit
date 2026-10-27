@@ -1,13 +1,15 @@
 "use client";
 
 import { Clock } from "lucide-react";
-import { ItemForm, useItemForm } from "@/components/shared/item-form";
+import { ItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { workingWindowError } from "@/lib/quality/review";
 import type { CodeReviewWorkingWindow } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
+// The pyramid's forms share the need: edit a stored value in place, and stay mounted.
+import { useStoredItemForm } from "@/app/(tools)/test-pyramid/use-stored-form";
 
 interface WindowDraft {
   start: string;
@@ -37,13 +39,18 @@ export function WorkingWindowForm({
   onSave: (window: CodeReviewWorkingWindow) => void;
   onClear: () => void;
 }) {
-  const form = useItemForm<WindowDraft, CodeReviewWorkingWindow, "start" | "end">({
-    initial: () => ({ start: window?.start ?? "", end: window?.end ?? "" }),
-    validate: validateWindow,
-    onSave,
-    resetOnSave: false,
-  });
-  const { draft, update, errors } = form;
+  // Stays mounted across a save (its own, an agent's), so focus stays put.
+  const form = useStoredItemForm<WindowDraft, CodeReviewWorkingWindow, "start" | "end">(
+    { start: window?.start ?? "", end: window?.end ?? "" },
+    { validate: validateWindow, onSave }
+  );
+  const { draft, update, errors, reset, formRef } = form;
+  const countWholeDays = () => {
+    reset({ start: "", end: "" });
+    onClear();
+    // The button goes with the window it clears: focus the first time instead.
+    requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>("input")?.focus());
+  };
   return (
     <ItemForm
       form={form}
@@ -51,7 +58,7 @@ export function WorkingWindowForm({
       submitIcon={<Clock aria-hidden="true" />}
       footer={
         window ? (
-          <Button type="button" variant="ghost" onClick={onClear}>
+          <Button type="button" variant="ghost" onClick={countWholeDays}>
             Count whole days instead
           </Button>
         ) : undefined

@@ -116,14 +116,44 @@ function useCodeReviewLog(): [CodeReviewLog | null, Write] {
   return [doc ?? null, write];
 }
 
-/** Focus the Edit button of PR `id` (the one on screen: the table's or its phone card's). */
-function focusEditButton(id: string) {
-  requestAnimationFrame(() => {
-    const buttons = Array.from(document.querySelectorAll<HTMLElement>("[data-edit-pr]")).filter(
-      (el) => el.getAttribute("data-edit-pr") === id
-    );
-    (buttons.find((el) => el.getClientRects().length > 0) ?? buttons[0])?.focus();
+/** Focus what `find` returns once React has re-rendered (the focused control may have gone). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+const firstFieldOf = (root: HTMLElement | null) =>
+  root?.querySelector<HTMLElement>("input, select, textarea");
+
+/**
+ * The PRs' Edit buttons, one per PR in screen order (the table's sort). The
+ * table and its phone cards both render them (one of the two hidden), so
+ * the ones on screen are used when any are.
+ */
+function editButtons(): HTMLElement[] {
+  const all = Array.from(document.querySelectorAll<HTMLElement>("[data-edit-pr]"));
+  const shown = all.filter((el) => el.getClientRects().length > 0);
+  const seen = new Set<string>();
+  return (shown.length > 0 ? shown : all).filter((el) => {
+    const id = el.getAttribute("data-edit-pr") ?? "";
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
   });
+}
+
+const editButtonOf = (id: string) =>
+  editButtons().find((el) => el.getAttribute("data-edit-pr") === id);
+
+/** Focus the Edit button of PR `id` once React has re-rendered. */
+function focusEditButton(id: string) {
+  focusSoon(() => editButtonOf(id));
+}
+
+/** The PR after `id` on screen, else the one before it: where focus goes when it is deleted. */
+function neighbourPr(id: string): string | null {
+  const ids = editButtons().map((el) => el.getAttribute("data-edit-pr"));
+  const at = ids.indexOf(id);
+  return (at < 0 ? null : (ids[at + 1] ?? ids[at - 1])) ?? null;
 }
 
 const finite = (xs: readonly (number | null)[]) =>
@@ -149,7 +179,17 @@ export function CodeReviewMetricsClient() {
   const doc = example ?? stored;
   const samples = samplesOf(doc);
   const workingWindow = doc?.workingWindow;
-  const win = windowMinutes(workingWindow);
+  // windowMinutes returns a fresh object, and the memos below run
+  // workingHoursBetween over every PR: key it on the times, not the object.
+  const winStart = workingWindow?.start;
+  const winEnd = workingWindow?.end;
+  const win = useMemo(
+    () =>
+      winStart === undefined || winEnd === undefined
+        ? undefined
+        : windowMinutes({ start: winStart, end: winEnd }),
+    [winStart, winEnd]
+  );
   // Bound to the mode the change was made in, so an Undo lands where it
   // was made even if the example is loaded or cleared in between.
   const write: Write = preview ? (fn) => setExample((ex) => (ex ? fn(ex) : ex)) : writeStored;
@@ -162,6 +202,7 @@ export function CodeReviewMetricsClient() {
   };
   const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
@@ -171,6 +212,8 @@ export function CodeReviewMetricsClient() {
     [samples, calendar, win]
   );
   const verdict = reviewVerdict(summary);
+  // The export works the summary out again from the log: only when it changes.
+  const markdown = useMemo(() => reviewMarkdown(doc, calendar), [doc, calendar]);
   const basis = workingBasisLabel(calendar, workingWindow);
   const h = summary.headline;
   const editing = samples.find((s) => s.id === editingId);
@@ -209,6 +252,10 @@ export function CodeReviewMetricsClient() {
 
   function remove(s: PrSample) {
     if (editingId === s.id) setEditingId(null);
+    // The focused Delete button goes with its row: focus moves to the
+    // neighbouring PR's Edit, or to the log form once none are left.
+    const near = neighbourPr(s.id);
+    focusSoon(() => (near && editButtonOf(near)) || firstFieldOf(formRef.current));
     removeWithUndo<PrSample>({
       label: `Deleted ${prName(s)}`,
       update: (fn) => write((d) => ({ ...d, samples: fn(d.samples) })),
@@ -265,6 +312,8 @@ export function CodeReviewMetricsClient() {
           samples: [...removed.filter((r) => !d.samples.some((x) => x.id === r.id)), ...d.samples],
         })),
     });
+    // The log and its Delete all button give way to the empty state.
+    focusSoon(() => firstFieldOf(formRef.current));
   }
 
   /* ── Exports ── */
@@ -467,7 +516,9 @@ export function CodeReviewMetricsClient() {
         )}
 
         <SectionCard title="Log a pull request" icon={GitPullRequest}>
-          <SampleForm key={preview ? "example" : "saved"} samples={samples} onSave={add} />
+          <div ref={formRef}>
+            <SampleForm key={preview ? "example" : "saved"} samples={samples} onSave={add} />
+          </div>
         </SectionCard>
 
         <SectionCard title="Import from CSV" icon={FileUp}>
@@ -486,7 +537,9 @@ export function CodeReviewMetricsClient() {
             to count whole days.
           </p>
           <WorkingWindowForm
-            key={`${preview ? "example" : "saved"}:${workingWindow?.start ?? ""}-${workingWindow?.end ?? ""}`}
+            // It follows a save from elsewhere itself (useStoredItemForm), so
+            // a save here leaves focus where it was.
+            key={preview ? "example" : "saved"}
             window={workingWindow}
             onSave={(w) => setWindow(w)}
             onClear={() => setWindow(null)}
@@ -618,7 +671,7 @@ export function CodeReviewMetricsClient() {
                     filename="code-review-metrics"
                     csvData={csvData}
                     jsonData={doc}
-                    markdown={reviewMarkdown(doc, calendar)}
+                    markdown={markdown}
                     targetRef={exportRef}
                   />
                   <Button
