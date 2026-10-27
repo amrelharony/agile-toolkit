@@ -50,8 +50,8 @@ describe("tool.user_interviews lifecycle", () => {
     };
     expect(r.totalInterviews).toBe(1);
     expect(r.totalQuotes).toBe(2);
-    // "UX" + "ux" normalise to one tag "ux" with count 2
-    expect(r.topTags[0]).toEqual({ tag: "ux", count: 2 });
+    // "UX" + "ux" normalise to one tag "ux" with count 2 (quotes), from one participant
+    expect(r.topTags[0]).toEqual({ tag: "ux", count: 2, participants: 1 });
   });
 
   it("add_quote refuses an unknown interview id", async () => {
