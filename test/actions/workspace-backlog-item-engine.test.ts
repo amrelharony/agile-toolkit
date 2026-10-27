@@ -168,6 +168,18 @@ describe.each([
     ).rejects.toThrow(/value: the old 1-10 matrix value is read-only/);
   });
 
+  it("an item echoed back from list with a new name saves: its stored read-only value isn't a write", async () => {
+    seed(LEGACY, onServer);
+    const echo: Partial<BacklogItem> = { ...LEGACY, name: "Old v2" };
+    delete echo.id;
+    await run("workspace.backlog_item.update", { id: "b_old", patch: echo }, onServer);
+    expect(stored("b_old", onServer)).toMatchObject({ name: "Old v2", businessValue: 5 });
+    // A changed value is still refused.
+    await expect(
+      run("workspace.backlog_item.update", { id: "b_old", patch: { value: 7 } }, onServer)
+    ).rejects.toThrow(/value: the old 1-10 matrix value is read-only/);
+  });
+
   it("judges only what a write changes: a rename keeps a held off-scale value", async () => {
     const custom: BacklogItem = { id: "b1", name: "Search", businessValue: 7, updatedAt: STAMP };
     seed(custom, onServer);

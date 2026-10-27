@@ -3078,16 +3078,21 @@ function backlogItemChanges(next: BacklogItem, current: BacklogItem): Partial<Ba
  * merged over the stored item): every key the caller sent, also one equal
  * to what the item stores, so a stored old default sent again is a choice,
  * as the hub's saveBacklogItem takes it. A key the schema doesn't know
- * (dropped from `next`) and the engine's keys are left out.
+ * (dropped from `next`) and the engine's keys are left out, and so is the
+ * read-only legacy `value` sent back unchanged (an item echoed from list):
+ * re-sending what is stored there is never a write.
  */
 function patchedFields(
   next: BacklogItem,
-  patch: Readonly<Record<string, unknown>>
+  patch: Readonly<Record<string, unknown>>,
+  current: BacklogItem
 ): Partial<BacklogItem> {
   const valid = next as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(patch)) {
-    if (!ENGINE_KEYS.has(key) && key in valid) out[key] = valid[key];
+    if (ENGINE_KEYS.has(key) || !(key in valid)) continue;
+    if (key === "value" && valid.value === current.value) continue;
+    out[key] = valid[key];
   }
   return out as Partial<BacklogItem>;
 }
@@ -3191,7 +3196,7 @@ function prepareBacklogItem(
   const base = withLegacyLinks(current, loaded?.rows ?? []);
   const set = itemPatchChanges(
     base,
-    patch ? patchedFields(next, patch) : backlogItemChanges(next, current)
+    patch ? patchedFields(next, patch, current) : backlogItemChanges(next, current)
   );
   if (Object.keys(set).length === 0) return current;
   const problems = backlogInputProblems(set, base);
@@ -3225,7 +3230,7 @@ async function beforeBacklogItemWrite(
     }
   }
   if (!current || !loaded?.rows.length) return;
-  const marks = markLegacyDifferences(current, loaded.rows, { now: next.updatedAt });
+  const marks = markLegacyDifferences(current, loaded.rows, { now: next.updatedAt, after: next });
   if (marks.length === 0) return;
   if (env.userId) await serverBulkUpsertEntities(env.userId, PRIORITIZATION_KIND, marks);
   else for (const row of marks) ws().upsertPrioritization(row);
