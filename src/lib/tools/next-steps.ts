@@ -481,7 +481,7 @@ const missingPoints = (sprints: readonly Sprint[] | undefined) =>
     (s) => !(typeof s.pointsCompleted === "number" && Number.isFinite(s.pointsCompleted))
   );
 
-/** MUST match BACKLOG_SOURCE_TOOL in app/(tools)/sprint-planning/view.ts: the tool a story pulled from the backlog names. */
+/** MUST match BACKLOG_SOURCE_TOOL in lib/sprints/plan.ts: the tool a story pulled from the backlog names. */
 const BACKLOG_SOURCE_TOOL = "prioritizer";
 
 /**
