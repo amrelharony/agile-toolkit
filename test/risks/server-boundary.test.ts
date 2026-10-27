@@ -4,17 +4,19 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
- * lib/risks' model and legacy-register, and lib/tech-debt's model and
- * legacy, are read by the tool.risk_register / tool.tech_debt agent
- * actions inside the MCP route handler. There a "use client" module's
- * exports are client references, not functions, so nothing they import,
- * however deep, may be one; nor React or the store. (store.ts in each is
- * the browser half and is left out.)
+ * lib/risks' model, legacy-register and scales, and lib/tech-debt's model
+ * and legacy, are read by the tool.risk_register / tool.tech_debt agent
+ * actions inside the MCP route handler (scales by any that quote a
+ * rating). There a "use client" module's exports are client references,
+ * not functions, so nothing they import, however deep, may be one; nor
+ * React or the store. (store.ts in each is the browser half and is left
+ * out.)
  */
 const ROOT = process.cwd();
 const ENTRIES = [
   "src/lib/risks/model.ts",
   "src/lib/risks/legacy-register.ts",
+  "src/lib/risks/scales.ts",
   "src/lib/tech-debt/model.ts",
   "src/lib/tech-debt/legacy.ts",
 ].map((f) => path.join(ROOT, f));
