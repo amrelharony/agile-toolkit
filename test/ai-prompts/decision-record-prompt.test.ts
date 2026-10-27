@@ -32,6 +32,8 @@ const LIST: Decision[] = [
     title: "Use Postgres for the event log",
     status: "accepted",
     decision: "We use Postgres with a partitioned events table.",
+    context: "The event log outgrew SQLite.",
+    consequences: "We run a Postgres instance.",
     decider: "Priya",
     date: "2026-10-01",
     decidedAt: "2026-10-03",
@@ -75,13 +77,13 @@ describe("generateDecisionLogPrompts", () => {
 
   it("lists every record with its number, template and lifecycle, newest number first", () => {
     expect(review.prompt).toContain(
-      "| Number | Template | Title | Status | Raised | Decided | Decider | Outcome |"
+      "| Number | Template | Title | Status | Raised | Decided | Decider | Outcome | Written up |"
     );
     expect(review.prompt).toContain(
-      "| ADR-0001 | ADR | Use Postgres for the event log | Accepted | 2026-10-01 | 2026-10-03 | Priya | We use Postgres with a partitioned events table. |"
+      "| ADR-0001 | ADR | Use Postgres for the event log | Accepted | 2026-10-01 | 2026-10-03 | Priya | We use Postgres with a partitioned events table. | Context and consequences |"
     );
     expect(review.prompt).toContain(
-      "| RAPID-0003 | RAPID | Weekly releases | Accepted, carried out 2026-10-22 | 2026-10-10 | 2026-10-20 | Morgan | Not written down |"
+      "| RAPID-0003 | RAPID | Weekly releases | Accepted, carried out 2026-10-22 | 2026-10-10 | 2026-10-20 | Morgan | Not written down | Neither |"
     );
     expect(review.prompt).toContain(
       "- RAPID-0003: Accepted, but what was decided isn't written down."

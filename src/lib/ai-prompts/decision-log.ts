@@ -107,6 +107,19 @@ export function needsSection(shown: readonly Decision[], today: string): string 
 }
 
 /**
+ * Which of a record's context and consequences are written down, so the
+ * review question about them has something to read.
+ */
+function writtenUp(d: Pick<Decision, "context" | "consequences">): string {
+  const context = !!d.context?.trim();
+  const consequences = !!d.consequences?.trim();
+  if (context && consequences) return "Context and consequences";
+  if (context) return "Context only";
+  if (consequences) return "Consequences only";
+  return "Neither";
+}
+
+/**
  * The ADR prompts over the log: each record's number (one sequence across
  * the templates, ADR-0003 / DACI-0004), its template, the ADR lifecycle
  * status, who decided and what still needs doing, with the log's verdict
@@ -124,7 +137,17 @@ export function generateDecisionLogPrompts(
   const { shown, note } = listedRecords(list);
 
   const table = formatTable(
-    ["Number", "Template", "Title", "Status", "Raised", "Decided", "Decider", "Outcome"],
+    [
+      "Number",
+      "Template",
+      "Title",
+      "Status",
+      "Raised",
+      "Decided",
+      "Decider",
+      "Outcome",
+      "Written up",
+    ],
     shown.map((d) => [
       decisionLabel(d),
       TEMPLATES[templateOf(d)].label,
@@ -134,6 +157,7 @@ export function generateDecisionLogPrompts(
       d.decidedAt ?? "—",
       d.decider?.trim() || "—",
       d.decision.trim() ? d.decision.slice(0, 80) : "Not written down",
+      writtenUp(d),
     ])
   );
   // Titles, outcomes and names are user-typed, and the verdict counts them.
