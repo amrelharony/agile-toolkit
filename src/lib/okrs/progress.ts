@@ -269,6 +269,20 @@ export function withCheckIn(kr: KeyResult, c: KeyResultCheckIn): KeyResult {
 }
 
 /**
+ * The key result as withCheckIn leaves one, for a writer that sets its
+ * whole check-in list at once (the workspace.okr CRUD): check-ins sorted
+ * oldest first and capped, `current` the newest readable one's value and
+ * `confidence` the newest scored one's (the key result's own when none is
+ * scored). The key result itself when it has no readable check-in: then
+ * nothing dated says what `current` is.
+ */
+export function withMirroredCheckIns(kr: KeyResult): KeyResult {
+  const list = kr.checkIns ?? [];
+  if (!list.some(readable)) return kr;
+  return mirror(kr, byDate(list).slice(-KR_CHECK_IN_CAP), kr.confidence);
+}
+
+/**
  * The key result without check-in `checkInId`, re-mirrored from the rest.
  * With none left, `current` goes back to the baseline (where a key result
  * starts; one with no baseline keeps its value, as nothing older is known).

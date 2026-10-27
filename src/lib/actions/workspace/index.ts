@@ -75,6 +75,7 @@ import {
 } from "@/lib/tech-debt/legacy";
 import { readLegacyBlob } from "../user-state-blob";
 import { normalizeTags, tagsProblem } from "@/lib/nps/score";
+import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -487,7 +488,11 @@ const KeyResultSchema = z.object({
   title: z.string(),
   description: z.string().optional(),
   target: z.number(),
-  current: z.number(),
+  current: z
+    .number()
+    .describe(
+      "The latest value. With check-ins it is the newest one's value: a write setting anything else is refused (record a value with tool.okrs.check_in)."
+    ),
   unit: z.string().optional(),
   // Any number here: before Phase 8 this took any, so a write that sets it
   // is judged by okrWriteProblems instead (a stored one stays editable around).
@@ -495,7 +500,7 @@ const KeyResultSchema = z.object({
     .number()
     .optional()
     .describe(
-      "The latest scored confidence, 0–10; absent = not scored. A write outside 0–10 is refused."
+      "The latest scored confidence, 0–10; absent = not scored. A write outside 0–10 is refused, and with a scored check-in so is anything but the newest scored one's."
     ),
   baseline: z
     .number()
@@ -513,7 +518,7 @@ const KeyResultSchema = z.object({
     .max(KR_CHECK_IN_CAP)
     .optional()
     .describe(
-      `Dated check-ins, oldest first, at most ${KR_CHECK_IN_CAP}. An update whose keyResults leave a key result's checkIns out keeps the stored ones.`
+      `Dated check-ins, at most ${KR_CHECK_IN_CAP}; stored oldest first, with current and confidence taken from the newest. An update whose keyResults leave a key result's checkIns out keeps the stored ones.`
     ),
 });
 
@@ -535,6 +540,48 @@ function keepCheckIns(next: Okr, current: Okr | undefined): Okr {
     return { ...kr, checkIns };
   });
   return changed ? { ...next, keyResults } : next;
+}
+
+/**
+ * An OKR about to be saved (its check-ins kept), with each key result's
+ * `current` and `confidence` held to its check-ins as tool.okrs.check_in
+ * holds them (lib/okrs withMirroredCheckIns): the next check-in re-mirrors
+ * both from the newest one, so a value set apart from it would read on the
+ * page until then and be dropped without a word. On a key result with a
+ * readable check-in, a write that sets `current` to anything but the newest
+ * check-in's value, or `confidence` to anything but the newest scored one's,
+ * is a problem pointing to check_in. A key result whose write sets its
+ * current, confidence or check-ins is stored mirrored (check-ins sent out
+ * of order sorted oldest first; a confidence left out comes back from a
+ * scored check-in). One the write leaves alone stays as stored.
+ */
+function withCheckInsMirrored(next: Okr, current: Okr | undefined): [Okr, string[]] {
+  const stored = new Map((current?.keyResults ?? []).map((kr) => [kr.id, kr]));
+  const problems: string[] = [];
+  let changed = false;
+  const keyResults = next.keyResults.map((kr) => {
+    const mirrored = withMirroredCheckIns(kr);
+    if (mirrored === kr) return kr;
+    const sets = (key: "current" | "confidence" | "checkIns") => writes(kr, stored.get(kr.id), key);
+    if (sets("current") && kr.current !== mirrored.current) {
+      problems.push(
+        `keyResults ${kr.id}: current is its newest check-in's value (${mirrored.current}); record a new value with tool.okrs.check_in.`
+      );
+    }
+    if (
+      kr.confidence !== undefined &&
+      sets("confidence") &&
+      kr.confidence !== mirrored.confidence
+    ) {
+      problems.push(
+        `keyResults ${kr.id}: confidence is its newest scored check-in's (${mirrored.confidence}); score it with tool.okrs.check_in.`
+      );
+    }
+    if (!sets("current") && !sets("confidence") && !sets("checkIns")) return kr;
+    changed = true;
+    return mirrored;
+  });
+  return [changed ? { ...next, keyResults } : next, problems];
 }
 
 /**
@@ -814,8 +861,10 @@ defineCrudActions<Okr>({
   upsert: (o) => ws().upsertOkr(o),
   remove: (id) => ws().removeOkr(id),
   generateId: () => `okr_${nanoid(8)}`,
-  prepare: (next, current) =>
-    keepCheckIns(unlessRefused(next, okrWriteProblems(next, current)), current),
+  prepare: (next, current) => {
+    const [okr, problems] = withCheckInsMirrored(keepCheckIns(next, current), current);
+    return unlessRefused(okr, [...okrWriteProblems(next, current), ...problems]);
+  },
 });
 
 defineCrudActions<Decision>({

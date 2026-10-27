@@ -61,6 +61,12 @@ import {
   TEST_PYRAMID,
 } from "../stores/phase8-fixtures";
 
+/** OKR with churn's current on its newest check-in (17), as tool.okrs.check_in keeps it. */
+const CHECKED_IN: Okr = {
+  ...OKR,
+  keyResults: [{ ...OKR.keyResults[0], current: 17 }, OKR.keyResults[1]],
+};
+
 const upsertEntity = vi.mocked(serverStore.serverUpsertEntity);
 const getEntity = vi.mocked(serverStore.serverGetEntity);
 
@@ -291,9 +297,10 @@ describe("bounds", () => {
   });
 
   it("a key result's confidence is 0-10 on write, on both transports", async () => {
+    // Without check-ins: with one scored, confidence is the newest scored one's.
     const kr = (patch: Partial<KeyResult>): Okr => ({
       ...OKR,
-      keyResults: [{ ...OKR.keyResults[0], ...patch }],
+      keyResults: [{ ...(without(OKR.keyResults[0], "checkIns") as KeyResult), ...patch }],
     });
     await refusesCreate("workspace.okr", "okrs", kr({ confidence: 11 }), /confidence is from 0/);
     await refusesCreate("workspace.okr", "okrs", kr({ confidence: -1 }), /kr_churn: confidence/);
@@ -683,7 +690,8 @@ describe("an OKR update keeps the key results' check-ins", () => {
   });
 
   it("a create keeps what it was given", async () => {
-    const rest = without(OKR, "id");
+    // Churn's current is its newest check-in's (17), as check_in keeps it.
+    const rest = without(CHECKED_IN, "id");
     const result = (await action("workspace.okr.create").handler(
       { entity: structuredClone(rest) },
       makeContext("u", "agent")
@@ -692,6 +700,98 @@ describe("an OKR update keeps the key results' check-ins", () => {
       ...rest,
       id: result.id,
     });
+  });
+});
+
+describe("an OKR write keeps current and confidence on the newest check-in", () => {
+  // Churn is checked in at 19, 18 (scored 6) and 17: current 17, confidence 6.
+  const churn = CHECKED_IN.keyResults[0];
+  const withChurn = (patch: Partial<KeyResult>) => ({
+    keyResults: [{ ...churn, ...patch }, CHECKED_IN.keyResults[1]],
+  });
+
+  it("a current set apart from the check-ins is refused on both transports, pointing to check_in", async () => {
+    // Sent without checkIns, as list_state shows a key result: the stored ones are kept.
+    const typed = withChurn({ current: 60 });
+    delete typed.keyResults[0].checkIns;
+    await refusesUpdate(
+      "workspace.okr",
+      "okrs",
+      CHECKED_IN,
+      typed,
+      /kr_churn: current is its newest check-in's value \(17\); record a new value with tool\.okrs\.check_in/
+    );
+    await refusesUpdate(
+      "workspace.okr",
+      "okrs",
+      CHECKED_IN,
+      withChurn({ confidence: 9 }),
+      /kr_churn: confidence is its newest scored check-in's \(6\)/
+    );
+    await refusesCreate(
+      "workspace.okr",
+      "okrs",
+      { ...CHECKED_IN, keyResults: [{ ...churn, current: 60 }] },
+      /kr_churn: current is its newest check-in's value/
+    );
+  });
+
+  it("check-ins sent out of order are stored oldest first, current and confidence from the newest", async () => {
+    const [c1, c2, c3] = churn.checkIns!;
+    const added = { id: "ci_4", date: "2026-10-04", value: 16, confidence: 7 };
+    // A new check-in sent first, with current and confidence left as they were.
+    for (const row of await updateOnBoth(
+      "workspace.okr",
+      "okrs",
+      CHECKED_IN,
+      withChurn({ checkIns: [added, c3, c1, c2] })
+    )) {
+      const kr = (row as Okr).keyResults[0];
+      expect(kr.checkIns!.map((c) => c.id)).toEqual(["ci_1", "ci_2", "ci_3", "ci_4"]);
+      expect(kr).toMatchObject({ current: 16, confidence: 7 });
+    }
+    // A backdated one older than the newest joins without changing current.
+    const backdated = { id: "ci_0", date: "2026-09-30", value: 21 };
+    for (const row of await updateOnBoth(
+      "workspace.okr",
+      "okrs",
+      CHECKED_IN,
+      withChurn({ checkIns: [...churn.checkIns!, backdated] })
+    )) {
+      expect((row as Okr).keyResults[0]).toMatchObject({ current: 17, confidence: 6 });
+      expect((row as Okr).keyResults[0].checkIns![0].id).toBe("ci_0");
+    }
+  });
+
+  it("a confidence left out comes back from the scored check-in; the value sent with a check-in is taken", async () => {
+    const unscored = withChurn({});
+    delete unscored.keyResults[0].confidence;
+    for (const row of await updateOnBoth("workspace.okr", "okrs", CHECKED_IN, unscored)) {
+      expect((row as Okr).keyResults[0].confidence).toBe(6);
+    }
+    const added = { id: "ci_4", date: "2026-10-04", value: 16 };
+    for (const row of await updateOnBoth(
+      "workspace.okr",
+      "okrs",
+      CHECKED_IN,
+      withChurn({ current: 16, checkIns: [...churn.checkIns!, added] })
+    )) {
+      expect((row as Okr).keyResults[0]).toMatchObject({ current: 16, confidence: 6 });
+    }
+  });
+
+  it("a key result with no check-in takes any current; one the write leaves alone stays as stored", async () => {
+    const [nps] = await updateOnBoth("workspace.okr", "okrs", CHECKED_IN, {
+      keyResults: [churn, { ...CHECKED_IN.keyResults[1], current: 35 }],
+    });
+    expect((nps as Okr).keyResults[1].current).toBe(35);
+    // The shared fixture holds churn at 18 beside a newest check-in of 17
+    // (stored before this rule): a retitle leaves it as it is.
+    for (const row of await updateOnBoth("workspace.okr", "okrs", OKR, {
+      objective: "Keep customers",
+    })) {
+      expect(row).toEqual({ ...OKR, objective: "Keep customers" });
+    }
   });
 });
 

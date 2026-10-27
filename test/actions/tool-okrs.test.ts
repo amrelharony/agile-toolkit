@@ -247,7 +247,8 @@ describe("tool.okrs.list_state", () => {
       { date: "2026-10-03", progressPct: 63, measured: 1 },
     ]);
     // Churn's current (18) was set without a check-in, as workspace.okr.update
-    // can, so the trend's last point (its newest check-in, 17) isn't the
+    // could before it held current to the newest check-in (a row stored
+    // then), so the trend's last point (its newest check-in, 17) isn't the
     // headline; the description says the last point is progressPct only
     // while current mirrors the newest check-in.
     expect(a.progressPct).toBe(56);

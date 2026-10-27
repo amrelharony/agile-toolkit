@@ -32,6 +32,7 @@ import {
   quarterPace,
   replacesUndated,
   withCheckIn,
+  withMirroredCheckIns,
   withoutCheckIn,
 } from "@/lib/okrs/progress";
 import { FULL_CHECK_INS, LEGACY_OKR, OKR } from "../stores/phase8-fixtures";
@@ -255,6 +256,36 @@ describe("withCheckIn", () => {
     expect(old.checkIns).toHaveLength(KR_CHECK_IN_CAP);
     expect(old.checkIns?.some((c) => c.id === "old")).toBe(false);
     expect(old.current).toBe(51);
+  });
+});
+
+describe("withMirroredCheckIns", () => {
+  it("reads a whole check-in list as withCheckIn leaves it: sorted, current and confidence from the newest", () => {
+    const list = [
+      ci("c3", "2026-10-09", 7),
+      ci("c1", "2026-10-01", 2, 4),
+      ci("c2", "2026-10-05", 5, 6),
+    ];
+    const next = withMirroredCheckIns(kr({ current: 60, confidence: 9, checkIns: list }));
+    expect(next.checkIns?.map((c) => c.id)).toEqual(["c1", "c2", "c3"]);
+    expect(next).toMatchObject({ current: 7, confidence: 6 });
+    // The same as recording them one by one.
+    const oneByOne = list.reduce(withCheckIn, kr());
+    expect(next).toEqual({ ...oneByOne, current: 7, confidence: 6 });
+  });
+
+  it("keeps the key result's own confidence when no check-in is scored", () => {
+    const next = withMirroredCheckIns(kr({ confidence: 8, checkIns: [ci("c", "2026-10-01", 3)] }));
+    expect(next).toMatchObject({ current: 3, confidence: 8 });
+    const none = withMirroredCheckIns(kr({ checkIns: [ci("c", "2026-10-01", 3)] }));
+    expect(none).not.toHaveProperty("confidence");
+  });
+
+  it("leaves a key result with no readable check-in as it is", () => {
+    const typed = kr({ current: 40, checkIns: [] });
+    expect(withMirroredCheckIns(typed)).toBe(typed);
+    const odd = kr({ current: 40, checkIns: [ci("c", "October", 3)] });
+    expect(withMirroredCheckIns(odd)).toBe(odd);
   });
 });
 
