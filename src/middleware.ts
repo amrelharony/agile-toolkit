@@ -425,7 +425,7 @@ export const config = {
   //   - _next/static, _next/image, _next/data         (build artifacts)
   //   - favicon.ico, robots.txt, sitemap.xml, manifest (root statics)
   //   - .well-known/*                                  (security.txt et al.)
-  //   - a file directly under /comics or a .glb directly under /mascot
+  //   - a file directly under /comics or a .webp directly under /mascot
   //   - any top-level file with an extension served from /public (.svg, …)
   //
   // The inner `(?!…)` is a negative lookahead consumed by Next's matcher
@@ -443,7 +443,7 @@ export const config = {
     // requests: running middleware per chunk would cost the owner a getUser
     // round-trip each time. Only a FILE directly under /comics is exempt,
     // never the bare `comics/` prefix, which would also exempt any future
-    // page or nested route under /comics. Same idea for the mascot model.
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/[^/]+\\.[a-zA-Z0-9]+$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
+    // page or nested route under /comics. Same idea for Amr's sprite sheet.
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/[^/]+\\.[a-zA-Z0-9]+$|mascot/[^/]+\\.webp$|[^/]+\\.[a-zA-Z0-9]+$).*)",
   ],
 };
