@@ -167,21 +167,13 @@ describe("MascotAssistant — comic reader", () => {
     vi.unstubAllGlobals();
   });
 
-  // The reader's toolbar sits at the bottom of the viewport at every width,
-  // so the figure's hit box would cover Download PDF on a laptop too.
-  it.each([
-    ["on a phone", true],
-    ["on a wide screen", false],
-  ])("hides the floating mascot on /agile-at-work %s", (_label, isPhone) => {
-    stubPhoneWidth(isPhone);
-    h.pathname = "/agile-at-work";
-    render(<MascotAssistant />);
-    expect(screen.queryByRole("button", { name: "Open assistant" })).toBeNull();
-  });
-
   it.each([
     ["another page on a phone", "/kudos", true],
     ["another page on a wide screen", "/kudos", false],
+    // A character stays visible for everyone, the comics included: only the
+    // comics' full-screen panel covers it.
+    ["the comics on a phone", "/comics", true],
+    ["the comics on a wide screen", "/comics", false],
   ])("keeps the mascot on %s", async (_label, pathname, isPhone) => {
     stubPhoneWidth(isPhone);
     h.pathname = pathname;

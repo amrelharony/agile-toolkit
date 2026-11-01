@@ -407,6 +407,8 @@ describe("bypass paths", () => {
     "/api/mcp/x",
     "/api/agent/stream",
     "/api/guest/redeem",
+    "/api/comics/hit",
+    "/api/comics/licence",
     "/guest",
     "/guest/join",
     "/auth/callback",
@@ -444,5 +446,59 @@ describe("bypass paths", () => {
     const res = await run(req("/api/guest/kudos", { cookie: "agile-toolkit:guest=g1" }));
     expect(passes(res)).toBe(true);
     expect(setCookie(res, "agile-toolkit:guest")).toBeUndefined();
+  });
+});
+
+describe("/comics addresses", () => {
+  const rewrite = (res: Response) => res.headers.get("x-middleware-rewrite");
+  const target = (res: Response) => {
+    const url = new URL(rewrite(res)!);
+    return url.pathname + url.search;
+  };
+
+  it("rewrites a valid number with no I/O for a visitor", async () => {
+    const res = await run(req("/comics?ep=07"));
+    expect(target(res)).toBe("/comics/ep/7?ep=07");
+    expect(h.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it("rewrites for the owner too, and keeps their rotated cookies", async () => {
+    h.writes = [{ name: "sb-ref-auth-token.0", value: "rotated" }];
+    const res = await run(req("/comics?ep=07&b=03", { cookie: CHUNKED }));
+    expect(target(res)).toBe("/comics/poster/7?ep=07&b=03");
+    expect(h.createServerClient).toHaveBeenCalled();
+    expect(setCookie(res, "sb-ref-auth-token.0")).toContain("rotated");
+  });
+
+  it("still rewrites when the auth config is missing or the session isn't the owner's", async () => {
+    signedInAs(STRANGER);
+    expect(target(await run(req("/comics?ep=27", { cookie: CHUNKED })))).toBe(
+      "/comics/ep/27?ep=27"
+    );
+    vi.stubEnv("AUTHORIZED_EMAILS", "");
+    expect(target(await run(req("/comics?ep=27", { cookie: CHUNKED })))).toBe(
+      "/comics/ep/27?ep=27"
+    );
+  });
+
+  it("leaves a plain or invalid address as the normal page", async () => {
+    for (const path of ["/comics", "/comics?ep=abc", "/comics?ep=0", "/comics?b=01"]) {
+      const res = await run(req(path));
+      expect(rewrite(res), path).toBeNull();
+      expect(passes(res), path).toBe(true);
+    }
+  });
+
+  it("only touches /comics itself", async () => {
+    for (const path of ["/retro?ep=1", "/comics/license?ep=1", "/comicsx?ep=1"]) {
+      expect(rewrite(await run(req(path))), path).toBeNull();
+    }
+  });
+
+  it("sends a direct visit to an internal page back to the public address", async () => {
+    expectRedirect(await run(req("/comics/ep/27")), "/comics?ep=27");
+    expectRedirect(await run(req("/comics/poster/5")), "/comics?ep=5");
+    expectRedirect(await run(req("/comics/ep/nonsense")), "/comics");
+    expect(h.createServerClient).not.toHaveBeenCalled();
   });
 });

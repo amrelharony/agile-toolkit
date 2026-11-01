@@ -13,7 +13,7 @@ describe("tool guides", () => {
   it("cover every tool except the comic library", async () => {
     const guided = new Set((await getAllGuides()).map((g) => g.toolId));
     const missing = SECTIONS.flatMap((s) => s.toolIds).filter(
-      (id) => id !== "agile-at-work" && !guided.has(id)
+      (id) => id !== "comics" && !guided.has(id)
     );
     expect(missing).toEqual([]);
   });

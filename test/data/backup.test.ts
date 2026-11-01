@@ -21,6 +21,29 @@ describe("toolkit backup", () => {
     expect(isBackupKey("someone-else:key")).toBe(false);
   });
 
+  it("keeps the comics count marks out of a backup, in both directions", () => {
+    const mark = "agile-toolkit:comics:entry:poster:12:3";
+    expect(isBackupKey(mark)).toBe(false);
+    expect(isBackupKey("agile-toolkit:comics:entry:direct")).toBe(false);
+
+    localStorage.setItem(mark, "2026-11-01");
+    localStorage.setItem("agile-toolkit:retro", "{}");
+    expect(Object.keys(collectBackup(localStorage).keys)).toEqual(["agile-toolkit:retro"]);
+
+    localStorage.clear();
+    const parsed = parseBackup(
+      JSON.stringify({
+        format: "agile-toolkit-backup",
+        version: 1,
+        createdAt: "",
+        keys: { [mark]: "2026-11-01" },
+      })
+    );
+    if (!parsed.ok) throw new Error(parsed.error);
+    restoreBackup(parsed.backup, localStorage);
+    expect(localStorage.getItem(mark)).toBeNull();
+  });
+
   it("round-trips the toolkit's data through a file", () => {
     localStorage.setItem("agile-toolkit:workspace", JSON.stringify({ state: { okrs: [1] } }));
     localStorage.setItem("agile-toolkit:burndown", JSON.stringify({ state: { points: 40 } }));

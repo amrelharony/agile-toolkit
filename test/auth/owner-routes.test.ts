@@ -23,7 +23,7 @@ describe("routeKind", () => {
   it.each([
     "/",
     "/planning-poker",
-    "/agile-at-work",
+    "/comics",
     "/settings",
     "/settings/appearance",
     "/settings/access-tokens-old",

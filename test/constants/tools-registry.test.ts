@@ -47,11 +47,11 @@ describe("tool registry", () => {
   });
 
   it("files the Agile at Work comic as reading material in the Library", () => {
-    const comic = tools.find((t) => t.id === "agile-at-work");
+    const comic = tools.find((t) => t.id === "comics");
     expect(comic).toMatchObject({
       category: "Library",
       kind: "reading",
-      path: "/agile-at-work",
+      path: "/comics",
       isRealtime: false,
       usesWorkspace: false,
     });

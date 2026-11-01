@@ -5,13 +5,11 @@ import { Compass, ShieldCheck, TrendingUp } from "lucide-react";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { PageHeader } from "@/components/shared/page-header";
 import { InsightsEngine } from "@/components/shared/insights-engine";
-import { FeaturedComicBanner } from "@/components/comic/featured-comic-banner";
 import { HomeSearch } from "@/components/home/home-search";
 import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
 import { ToolSections } from "@/components/home/tool-sections";
 import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
-import { comicAsset } from "@/lib/comic/agile-at-work";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 
@@ -23,8 +21,6 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
  * workspace has loaded.
  */
 export default function Home() {
-  // Build-time flag (scripts/comic-asset.mjs): no banner until the PDF is committed.
-  const showComic = comicAsset().available;
   const { tools: visibleTools, shelfCount, showAll } = useToolVisibility();
   const hydrated = useWorkspaceHydrated();
   const hasSprints = useWorkspaceStore((s) => (s.sprints?.length ?? 0) > 0);
@@ -77,8 +73,6 @@ export default function Home() {
           <SprintCockpit compact />
         </section>
       )}
-
-      {showComic && <FeaturedComicBanner />}
 
       <JobLauncher />
 

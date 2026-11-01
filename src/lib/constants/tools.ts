@@ -88,6 +88,7 @@ import {
   Gauge,
   type LucideIcon,
 } from "lucide-react";
+import { navPathname } from "@/lib/comics/entry";
 
 export type ToolCategory =
   // Reading material (the "Agile at Work" comic) — not interactive tools
@@ -276,13 +277,13 @@ export const tools: ToolDefinition[] = [
   // Library — reading material. No action module, AI prompt or MCP entry:
   // the reader has no workspace data to act on.
   {
-    id: "agile-at-work",
+    id: "comics",
     code: "LB1",
     name: "Agile at Work",
     description:
-      "Read the “Agile at Work” comic book — page by page or as spreads, fullscreen, keyboard and swipe — or download the PDF",
+      "Workplace comics: capable colleagues, familiar habits and small choices that make work better. A new story every week",
     category: "Library",
-    path: "/agile-at-work",
+    path: "/comics",
     icon: BookImage,
     badge: "new",
     requiresAuth: false,
@@ -2436,7 +2437,8 @@ export const tools: ToolDefinition[] = [
 ];
 
 export function getToolByPath(path: string): ToolDefinition | undefined {
-  return tools.find((t) => t.path === path);
+  const current = navPathname(path);
+  return tools.find((t) => t.path === current);
 }
 
 export function getToolById(id: string): ToolDefinition | undefined {

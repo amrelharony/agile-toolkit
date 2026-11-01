@@ -93,7 +93,7 @@ let cached: { index: KbIndex; byId: Map<string, ToolDefinition> } | null = null;
 function getIndex() {
   if (cached) return cached;
   // Everything but an unshipped comic: shelved tools must stay findable by name.
-  const visible = getVisibleTools(undefined, true);
+  const visible = getVisibleTools(true);
   const index = buildKbIndex(
     visible.map((t) => ({
       id: t.id,

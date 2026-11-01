@@ -143,19 +143,19 @@ If any of those steps fails, check:
 
 ## Troubleshooting
 
-| Symptom                                                                           | Likely cause                                                | Fix                                                                                               |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `/api/*` returns 503 `auth_unavailable`                                           | `AUTHORIZED_EMAILS` empty or Supabase env missing           | Check `.env.local`, restart dev server (tool pages keep working meanwhile)                        |
-| Sign-in lands on "Not the owner account"                                          | Google account not in `AUTHORIZED_EMAILS`                   | Sign in with the owner account; check the allowlist spelling                                      |
-| Sign-in lands on "Owner sign-in unavailable"                                      | `AUTHORIZED_EMAILS` empty on that deployment                | Set it (e.g. Vercel → Preview env); no session was created, nothing to undo                       |
-| Header says "Cloud sync is paused"                                                | Signed-out work in this browser awaits merge/discard        | Click **Review** in the notice, then **Merge** or **Discard**                                     |
-| `/auth/sign-in` works but bounces back unauth'd                                   | Google redirect URI mismatch                                | Add `http://localhost:3000` to Supabase Auth → URL config                                         |
-| Agent sheet won't open / says "no GLM key"                                        | Neither `ZAI_API_KEY` set nor BYOK configured               | Set the server key, or click avatar → **AI settings (BYOK)** and paste a GLM key                  |
-| Agent returns "Insufficient balance"                                              | z.ai account has no credit AND you picked a paid model      | Top up at z.ai/manage-pricing OR set `ZAI_AGENT_MODEL=glm-4.5-flash` (free tier)                  |
-| MCP returns 401                                                                   | PAT typo, revoked, or `SUPABASE_SERVICE_ROLE_KEY` missing   | Verify token in `/settings/access-tokens`; verify env on server                                   |
-| `tools/list` returns empty over MCP                                               | Action registry didn't load on the API route runtime        | Restart dev server; check `src/app/api/mcp/route.ts` still imports `register-all`                 |
-| Two tabs show different workspace                                                 | Sync not running (owner unverified, or prompt pending)      | Check console for `[sync:*]` errors; verify Supabase and `/api/auth/owner`                        |
-| `test/pdf/worker-version` or `test/comic/comic-asset-script` fail only on Windows | Checkout made before `.gitattributes` (CRLF working copies) | Re-checkout once: `git rm -q --cached -r . && git reset --hard` (commit or stash your work first) |
+| Symptom                                         | Likely cause                                                | Fix                                                                                               |
+| ----------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `/api/*` returns 503 `auth_unavailable`         | `AUTHORIZED_EMAILS` empty or Supabase env missing           | Check `.env.local`, restart dev server (tool pages keep working meanwhile)                        |
+| Sign-in lands on "Not the owner account"        | Google account not in `AUTHORIZED_EMAILS`                   | Sign in with the owner account; check the allowlist spelling                                      |
+| Sign-in lands on "Owner sign-in unavailable"    | `AUTHORIZED_EMAILS` empty on that deployment                | Set it (e.g. Vercel → Preview env); no session was created, nothing to undo                       |
+| Header says "Cloud sync is paused"              | Signed-out work in this browser awaits merge/discard        | Click **Review** in the notice, then **Merge** or **Discard**                                     |
+| `/auth/sign-in` works but bounces back unauth'd | Google redirect URI mismatch                                | Add `http://localhost:3000` to Supabase Auth → URL config                                         |
+| Agent sheet won't open / says "no GLM key"      | Neither `ZAI_API_KEY` set nor BYOK configured               | Set the server key, or click avatar → **AI settings (BYOK)** and paste a GLM key                  |
+| Agent returns "Insufficient balance"            | z.ai account has no credit AND you picked a paid model      | Top up at z.ai/manage-pricing OR set `ZAI_AGENT_MODEL=glm-4.5-flash` (free tier)                  |
+| MCP returns 401                                 | PAT typo, revoked, or `SUPABASE_SERVICE_ROLE_KEY` missing   | Verify token in `/settings/access-tokens`; verify env on server                                   |
+| `tools/list` returns empty over MCP             | Action registry didn't load on the API route runtime        | Restart dev server; check `src/app/api/mcp/route.ts` still imports `register-all`                 |
+| Two tabs show different workspace               | Sync not running (owner unverified, or prompt pending)      | Check console for `[sync:*]` errors; verify Supabase and `/api/auth/owner`                        |
+| `test/pdf/worker-version` fails only on Windows | Checkout made before `.gitattributes` (CRLF working copies) | Re-checkout once: `git rm -q --cached -r . && git reset --hard` (commit or stash your work first) |
 
 ---
 
@@ -435,48 +435,15 @@ Burndown, Burnup, Velocity, Sprint Comparison and Sprint Metrics share one list 
 
 ---
 
-## Publishing the "Agile at Work" comic
+## The "Agile at Work" comics
 
-The reader at `/agile-at-work` shows "Coming soon" until the PDF exists, and the home banner and sitemap entry stay hidden. Availability is decided at build time (`scripts/comic-asset.mjs` → `NEXT_PUBLIC_COMIC_PDF_SIZE` / `NEXT_PUBLIC_COMIC_PDF_VERSION`).
+The comics live at `/comics` and every story is `/comics?ep=NN`: book episodes are 1-26, weekly stories continue from 27. Printed posters add `&b=NN`, so those 260 links can never change. The middleware rewrites a valid number to a static page and leaves the address bar alone.
 
-1. Export the PDF for the web:
-   - **Linearized** ("Fast Web View" / "Optimize for fast web view"), so page 1 shows before the whole file downloads.
-   - Images as **JPEG at 150–200 dpi**; fonts **embedded**.
-   - **No JPEG2000 or JBIG2** images — the reader doesn't configure pdf.js's WASM decoders for them, so those images won't render.
-   - Aim for **50 MB or less**.
-2. Commit it as `public/comics/agile-at-work.pdf`. GitHub's web uploader caps files at **25 MB** and `git push` rejects files over **100 MB**, so push anything over 25 MB with git.
-3. Restart `npm run dev` locally (the build-time check runs once per start). On Vercel the push that adds the file rebuilds.
-4. Verify: `curl -I https://<domain>/comics/agile-at-work.pdf` → `200`, `content-type: application/pdf`, `accept-ranges: bytes`, `cache-control: public, max-age=86400, stale-while-revalidate=604800`. Then open `/agile-at-work`.
-5. Replacing the file later needs no other change: the reader requests `?v=<content hash>`, so browsers never mix byte ranges of the old and new file.
-
-### Transcripts and contents
-
-The reader can show a transcript for each page (real alt text for screen readers, plus a **Transcript** panel under the page), a **Contents** list of chapters, and "Try <tool>" links for each chapter. All three come from one hand-written file, `src/lib/comic/agile-at-work-content.ts`, which ships **empty**. While it is empty the reader shows none of them, and every page keeps its generic alt text ("Agile at Work — page 3 of 24"). Nothing generates the file or extracts it from the PDF: the owner writes it.
-
-The file exports `AGILE_AT_WORK_CONTENT` with two lists (`…` marks where your text goes):
-
-```ts
-export const AGILE_AT_WORK_CONTENT: ComicContent = {
-  chapters: [
-    // title, the chapter's first page, and 1–3 tool ids (most relevant first)
-    { title: "…", firstPage: 3, tools: ["…"] },
-  ],
-  pages: [
-    // the page, 1–2 sentences on what it shows (its alt text), and the
-    // lettering in reading order; leave out `speaker` for captions
-    { page: 3, alt: "…", lines: [{ speaker: "…", text: "…" }, { text: "…" }] },
-  ],
-};
-```
-
-- **Page numbers** are PDF page indexes: the cover is page 1, whatever the printed page number says. They must match the published PDF, so re-check them after any re-export that adds or removes pages. A chapter runs from its `firstPage` to the page before the next chapter starts; the last chapter runs to the last page.
-- **Tool ids** are the `id` values in `src/lib/constants/tools.ts`, which are also each tool's URL path (`retro-actions` is `/retro-actions`). The links take their names and paths from the catalog.
-- A wordless page gets `lines: []`. A page you leave out keeps the generic alt text and shows no transcript.
-- **One file serves both editions.** The colour edition reads the same file, on the assumption that its pages match the printed edition's page for page.
-- **Check an edit** with `npx vitest run test/tools/agile-at-work-upgrade.test.tsx`. Its first test fails with a list of every problem it finds, such as an unknown tool id, a page listed twice, a chapter out of page order, or a blank title or line. The reader itself skips bad entries, and pages past the PDF's last page, so a typo hides some text rather than breaking the page.
-- The file loads on demand while the PDF opens, so a long script doesn't slow down the page's first load.
-
-After bumping `pdfjs-dist`, run `npm run pdf:worker` (copies the matching worker to `public/pdf.worker.legacy.min.mjs`) and commit the result.
+- **Stories** are rows in `comic_stories`, with art in the `comic-panels` bucket. Both are closed to the public API; pages read through `src/lib/comics/store.ts`.
+- **Release:** a story shows once its `release_at` has passed, within about 10 minutes (`revalidate = 600`). A number that isn't released shows "coming soon" with no content.
+- **If Supabase is down** the read throws, the ISR refresh fails and pages keep their last good copy. All 26 book episodes are prerendered at build, so printed links keep working even before anything is imported.
+- **Free-tier download allowance:** pages load the 768 px file, and the 1536 px file only when a panel opens full screen. Don't add `srcset`: a 3x phone would pick the larger file.
+- **Entry counts** are anonymous daily totals in `comic_entry_counts`, and licence requests wait in `comic_licence_requests`. Neither stores an IP address or user agent.
 
 ---
 

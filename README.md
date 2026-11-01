@@ -142,27 +142,13 @@ The public "Owner sign in" button lets anyone start a Google sign-in, so:
   deployments. Previews share the production Supabase project and would
   otherwise be public.
 
-## "Agile at Work" comic
+## "Agile at Work" comics
 
-The reader lives at `/agile-at-work`. The PDF is a static file the owner
-commits; nothing else is needed.
+The comics live at `/comics`, and every story is `/comics?ep=NN`. See
+[RUNBOOK.md, "The Agile at Work comics"](RUNBOOK.md#the-agile-at-work-comics).
 
-- Put it at `public/comics/agile-at-work.pdf`.
-- Keep it at **50 MB or less**. GitHub's web uploader caps files at 25 MB
-  and `git push` rejects files over 100 MB, so push larger files with git.
-- Export it for the web: **linearized ("Fast Web View")**, JPEG images at
-  **150–200 dpi**, fonts embedded. Avoid JPEG2000 and JBIG2 images — the
-  reader doesn't configure pdf.js's WASM decoders for them, so they won't
-  render.
-- Availability is decided at build time (`scripts/comic-asset.mjs`): until
-  the file exists the page shows "Coming soon", and the home banner and the
-  sitemap entry stay hidden. Restart `npm run dev` after adding or
-  replacing the file; on Vercel the push that adds it rebuilds.
-- After bumping `pdfjs-dist`, run `npm run pdf:worker` so the public worker
-  matches the library version.
-- Page transcripts, the contents list and each chapter's tool links come
-  from a hand-written file that ships empty: its format is in
-  [RUNBOOK.md, "Transcripts and contents"](RUNBOOK.md#transcripts-and-contents).
+After bumping `pdfjs-dist`, run `npm run pdf:worker` so the public worker the
+whiteboard's PDF import loads matches the library version.
 
 ## MCP integration
 

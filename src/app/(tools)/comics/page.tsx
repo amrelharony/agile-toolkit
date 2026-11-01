@@ -1,33 +1,23 @@
 import type { Metadata } from "next";
-import { bookEpisodeFor } from "@/lib/comics/book-episodes";
-import { ComicsView } from "./comics-view";
+import { COMICS_ROUTE } from "@/lib/comics/entry";
+import { listReleasedWeekly } from "@/lib/comics/store";
+import { comicMetadata } from "./comic-metadata";
+import { ComicsGallery } from "./components/comics-gallery";
 
-const ROUTE = "/comics";
-const TITLE = "Agile at Work — workplace comics";
-const DESCRIPTION =
-  "Capable colleagues, familiar workplace habits, and small choices that make work better.";
+/**
+ * Static, refreshed about every 10 minutes, which is also how a Monday's story
+ * goes live with no scheduler. A /comics address with a valid number never gets
+ * here: the middleware rewrites it to ep/[n] or poster/[n].
+ */
+export const revalidate = 600;
 
-interface ComicsPageProps {
-  searchParams: { ep?: string | string[] };
-}
+export const metadata: Metadata = comicMetadata({
+  title: "Agile at Work — workplace comics",
+  description:
+    "Capable colleagues, familiar workplace habits, and small choices that make work better.",
+  canonical: COMICS_ROUTE,
+});
 
-// Reading searchParams keeps the first paint right for someone scanning a
-// poster, with no flash of the wrong page while JavaScript loads.
-export function generateMetadata({ searchParams }: ComicsPageProps): Metadata {
-  const episode = bookEpisodeFor(searchParams.ep);
-  const title = episode ? `${episode.title} — Agile at Work` : TITLE;
-  const description = episode ? episode.lesson : DESCRIPTION;
-  return {
-    title,
-    description,
-    alternates: { canonical: ROUTE },
-    // A book episode is reached from its poster; only the section is listed.
-    ...(episode ? { robots: { index: false, follow: true } } : {}),
-    openGraph: { type: "website", siteName: "Agile Toolkit", url: ROUTE, title, description },
-    twitter: { card: "summary", title, description },
-  };
-}
-
-export default function ComicsPage({ searchParams }: ComicsPageProps) {
-  return <ComicsView episode={bookEpisodeFor(searchParams.ep)} />;
+export default async function ComicsPage() {
+  return <ComicsGallery stories={await listReleasedWeekly()} />;
 }

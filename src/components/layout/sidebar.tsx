@@ -5,6 +5,7 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { navPathname } from "@/lib/comics/entry";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { getToolById, getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
@@ -113,7 +114,7 @@ function SidebarToolLink({
 }
 
 export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
-  const pathname = usePathname();
+  const pathname = navPathname(usePathname());
   // Persist sidebar prefs so a user who collapses the rail or closes a
   // category section keeps that layout across page loads. Without this,
   // every refresh resets the sidebar back to fully-expanded, which is

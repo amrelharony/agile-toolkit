@@ -215,7 +215,7 @@ export const SECTIONS: ToolSection[] = [
     id: "library",
     label: "Library",
     icon: BookOpen,
-    toolIds: ["agile-at-work"],
+    toolIds: ["comics"],
   },
 ];
 

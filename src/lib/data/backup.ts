@@ -34,6 +34,7 @@ const EXCLUDED_PREFIXES = [
   "agile-toolkit:sync:",
   "agile-toolkit:kudos:pending-sync",
   "agile-toolkit:backup:", // this browser's own backup bookkeeping
+  "agile-toolkit:comics:entry:", // this device's daily count marks: which posters it scanned
 ];
 
 /** Preferences stored outside the `agile-toolkit:` prefix that are worth keeping. */
