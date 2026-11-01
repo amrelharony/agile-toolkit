@@ -2020,6 +2020,29 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Points on to Retro Actions. Nothing in this file ever points at a VIP tool.
+  "squad-session": rule({
+    select: (ws) => ({ boards: ws.retroBoards }),
+    steps: ({ boards }) => {
+      // An archived board keeps its cards' ids, so each card counts once.
+      const open = new Set(
+        (boards ?? [])
+          .flatMap((b) => b.cards)
+          .filter((c) => c.isActionItem && !c.done && c.sourceRef?.tool === "squad-session")
+          .map((c) => c.id)
+      );
+      if (open.size === 0) return [];
+      return [
+        {
+          id: "squad-session-follow-up",
+          label: "Follow up your session's actions",
+          detail: `${plural(open.size, "action")} from your squad sessions ${open.size === 1 ? "is" : "are"} still open.`,
+          href: "/retro-actions",
+        },
+      ];
+    },
+  }),
+
   "six-hats": rule({
     select: (ws) => ({
       decisions: ws.decisions,
