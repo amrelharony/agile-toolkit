@@ -1,6 +1,6 @@
-import { exampleId } from "@/components/tool-frame/example-data";
+import { exampleId } from "@/lib/utils/example-id";
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
-import { iceScore } from "@/lib/analytics/scoring-rubric";
+import { methodRow } from "@/lib/prioritization/binding";
 
 type Scores = { impact: number; confidence: number; ease: number };
 
@@ -20,15 +20,10 @@ const ROWS: [string, Scores][] = [
   ["Referral programme with account credits", { impact: 8, confidence: 5, ease: 3 }],
 ];
 
+/** The example rows, scored by the registry (example- ids, so Clear example removes them). */
 export function buildExample(now: Date = new Date()): PrioritizationItem[] {
   const updatedAt = now.toISOString();
-  return ROWS.map(([title, fields], i) => ({
-    id: exampleId(`ice-${i + 1}`),
-    framework: "ice",
-    title,
-    score: iceScore(fields.impact, fields.confidence, fields.ease),
-    fields,
-    status: "scored",
-    updatedAt,
-  }));
+  return ROWS.map(([title, values], i) =>
+    methodRow({ id: exampleId(`ice-${i + 1}`), framework: "ice", title, values, now: updatedAt })
+  );
 }

@@ -1,10 +1,17 @@
 /**
- * Anonymous vote rounds (Health Check, Psych Safety, Mood Tracker): the wire
- * protocol.
+ * Anonymous vote rounds (Health Check, Psych Safety, Mood Tracker; Kano;
+ * Buy-a-Feature and the $100 Test): the wire protocol.
  *
  * A host publishes a questionnaire (questions on one scale) in a visitor
  * room, `visitor:<tool>:<code>`. Participants answer with numbers only, and
- * the host keeps per-question counts. Nothing else crosses the wire:
+ * the host keeps per-question counts. Two newer kinds of round ride the same
+ * messages (`VOTE_ROUND_KIND` says which a tool runs): a "pair" round asks
+ * two linked questions per item and keeps their joint counts (`pair.ts`),
+ * and an "allocation" round has each person split a budget across items and
+ * keeps per-item totals (`allocation.ts`). Their states are v2, with a
+ * `kind`; scale states, ballots, kicks and ends stay v1 byte for byte, so a
+ * Phase 6 client reads what it always read and ignores the rest. Nothing
+ * else crosses the wire:
  *
  *   host → everyone      "vote:state"   Signed<VoteStateBody>  (throttled
  *                                       500 ms, 500 ms after a join, 30 s
@@ -50,9 +57,23 @@
  */
 
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
-import { cleanText, isWithinJsonSize, shareableText } from "../sanitize";
+import { isWithinJsonSize, shareableText } from "../sanitize";
 import { VISITOR_LIMITS, isVisitorMemberId, type VisitorTool } from "../visitor-rooms";
 import { readSignature, type Signed } from "../room-control";
+import {
+  B64URL_RE,
+  ID_RE,
+  ID_RULE,
+  IV_RE,
+  KEY_RE,
+  ROUND_ID_RE,
+  b64urlChars,
+  isCleanText,
+  isCount,
+  obj,
+} from "./wire";
+import type { AllocationSheet, AllocationStateBody } from "./allocation";
+import type { PairSheet, PairStateBody } from "./pair";
 
 export type { Signed } from "../room-control";
 
@@ -63,11 +84,61 @@ export const VOTE_ROOM_TOOLS = [
   "health-check",
   "psych-safety",
   "mood-tracker",
+  "kano-model",
+  "buy-a-feature",
+  "hundred-dollar-test",
 ] as const satisfies readonly VisitorTool[];
 export type VoteRoomTool = (typeof VOTE_ROOM_TOOLS)[number];
 
 export function isVoteRoomTool(v: unknown): v is VoteRoomTool {
   return typeof v === "string" && (VOTE_ROOM_TOOLS as readonly string[]).includes(v);
+}
+
+/**
+ * What a round asks:
+ *  - "scale": questions on one scale, one answer each (`Questionnaire`);
+ *  - "pair": two questions per item on one short scale, kept as their joint
+ *    count per item (Kano's functional and dysfunctional questions, `PairSheet`);
+ *  - "allocation": a budget each person splits across items, kept as
+ *    per-item totals (Buy-a-Feature, the $100 Test, `AllocationSheet`).
+ */
+export type VoteRoundKind = "scale" | "pair" | "allocation";
+
+/**
+ * The kind of round each vote tool runs. A tool's kind is fixed: the host
+ * can't start, and a participant won't read, a round of another kind for it.
+ */
+export const VOTE_ROUND_KIND = {
+  "health-check": "scale",
+  "psych-safety": "scale",
+  "mood-tracker": "scale",
+  "kano-model": "pair",
+  "buy-a-feature": "allocation",
+  "hundred-dollar-test": "allocation",
+} as const satisfies Readonly<Record<VoteRoomTool, VoteRoundKind>>;
+
+/** Vote tools whose rounds are of kind `K`. */
+type ToolsOfKind<K extends VoteRoundKind> = {
+  [T in VoteRoomTool]: (typeof VOTE_ROUND_KIND)[T] extends K ? T : never;
+}[VoteRoomTool];
+
+/** The scale-round tools (Phase 6): Health Check, Psych Safety, Mood Tracker. */
+export type ScaleRoomTool = ToolsOfKind<"scale">;
+/** The pair-round tools: Kano. */
+export type PairRoomTool = ToolsOfKind<"pair">;
+/** The allocation-round tools: Buy-a-Feature and the $100 Test. */
+export type AllocationRoomTool = ToolsOfKind<"allocation">;
+
+export function isScaleRoomTool(v: unknown): v is ScaleRoomTool {
+  return isVoteRoomTool(v) && VOTE_ROUND_KIND[v] === "scale";
+}
+
+export function isPairRoomTool(v: unknown): v is PairRoomTool {
+  return isVoteRoomTool(v) && VOTE_ROUND_KIND[v] === "pair";
+}
+
+export function isAllocationRoomTool(v: unknown): v is AllocationRoomTool {
+  return isVoteRoomTool(v) && VOTE_ROUND_KIND[v] === "allocation";
 }
 
 export const VOTE_ROOM_EVENTS = {
@@ -79,6 +150,14 @@ export const VOTE_ROOM_EVENTS = {
 export type VoteRoomEvent = (typeof VOTE_ROOM_EVENTS)[keyof typeof VOTE_ROOM_EVENTS];
 
 export const VOTE_ROOM_PROTOCOL_VERSION = 1 as const;
+
+/**
+ * The wire version of pair and allocation states. Scale states, ballots,
+ * kicks and ends stay `VOTE_ROOM_PROTOCOL_VERSION` (1): a Phase 6 reader
+ * refuses a v2 state on its `v`, and a v2 state signs under its own domain,
+ * so neither can pass for the other.
+ */
+export const KIND_STATE_VERSION = 2 as const;
 
 export const VOTE_LIMITS = {
   maxQuestions: 32,
@@ -95,7 +174,10 @@ export const VOTE_LIMITS = {
   maxPointValue: 100,
   /** Largest vote message accepted or sent, in JSON characters. */
   maxPayloadChars: 20_000,
-  /** A ballot's ciphertext, base64url: 32 answers plus the 16-byte tag fit. */
+  /**
+   * A ballot's ciphertext, base64url: 32 answers (or an 80-byte split,
+   * `maxAllocationBytes`) plus the 16-byte tag fit.
+   */
   maxCiphertextChars: 128,
   /** Ballot ids the host acknowledges in one state (more than the ballot cap). */
   maxAcks: 64,
@@ -111,6 +193,39 @@ export const VOTE_LIMITS = {
   minNFloor: MIN_SAMPLE.anonymous,
   /** Psych Safety's minN, and its floor: its rounds never reveal from fewer. */
   minNPsychSafety: MIN_SAMPLE.psychSafety,
+
+  // Pair rounds (Kano): `pair.ts`.
+  /** Items (features) in one pair round: one answer character each, like a question. */
+  maxPairItems: 32,
+  /** Answers on a pair's scale. Two answers make one character, so P² ≤ `PAIR_ALPHABET`'s 25. */
+  minPairPoints: 2,
+  maxPairPoints: 5,
+  /** Each of the two questions asked about every item. */
+  maxPairPromptChars: 200,
+
+  // Allocation rounds (Buy-a-Feature, the $100 Test): `allocation.ts`.
+  minAllocationItems: 2,
+  maxAllocationItems: 20,
+  /** Whole units each person splits. Four digits at most, so an amount is 2 to 4 characters. */
+  minBudget: 10,
+  maxBudget: 9_999,
+  /** An item's cap (Buy-a-Feature: what's left of its price). */
+  maxCap: 1_000_000,
+  /** The unit shown with amounts ("$", "pts"). */
+  maxUnitChars: 4,
+  /**
+   * An answer's bytes: items × digits of the budget. 80 plus the 16-byte
+   * tag is 96 bytes, exactly `maxCiphertextChars` (128) in base64url, so
+   * every allocation ballot fits the envelope reader as it is.
+   */
+  maxAllocationBytes: 80,
+  /**
+   * Allocation rounds show who gave an item something, and the bands of the
+   * amounts, only from this many answers (`MIN_SAMPLE.distribution`). A
+   * split's bands are linked across items, so at three answers they would
+   * narrow each person's split more than one scale answer does.
+   */
+  minNSpread: MIN_SAMPLE.distribution,
 } as const;
 
 /**
@@ -244,6 +359,8 @@ export type AnswerDraft = Record<string, number | null>;
 // ── Signing ──────────────────────────────────────────────────────────
 
 const SIGNING_DOMAIN = "agile-toolkit:vote-room:v1";
+/** Pair and allocation states: a domain of their own, so no v2 signature verifies as v1. */
+const SIGNING_DOMAIN_V2 = "agile-toolkit:vote-room:v2";
 
 function questionnaireTuple(q: Questionnaire): unknown[] {
   return [
@@ -255,15 +372,71 @@ function questionnaireTuple(q: Questionnaire): unknown[] {
   ];
 }
 
+function pairSheetTuple(s: PairSheet): unknown[] {
+  return [
+    s.id,
+    s.title,
+    [s.prompts.first, s.prompts.second],
+    s.answers,
+    s.items.map((x) => [x.id, x.text, x.hint ?? null, x.optional === true]),
+  ];
+}
+
+function allocationSheetTuple(s: AllocationSheet): unknown[] {
+  return [
+    s.id,
+    s.title,
+    s.budget,
+    s.unit,
+    s.spendAll,
+    s.items.map((x) => [x.id, x.text, x.hint ?? null, x.cap ?? null]),
+  ];
+}
+
+/** A pair or allocation state's signed text: the v1 order, with the kind and its sheet. */
+function kindStateInput(event: VoteRoomEvent, body: PairStateBody | AllocationStateBody): string {
+  const sheet =
+    body.kind === "allocation" ? allocationSheetTuple(body.sheet) : pairSheetTuple(body.sheet);
+  let revealed: unknown = null;
+  if (body.revealed !== null) {
+    revealed =
+      body.kind === "allocation"
+        ? body.revealed.map((r) => [r.total, r.backers, r.bands])
+        : body.revealed.map((r) => [r.responses, r.joint]);
+  }
+  return JSON.stringify([
+    SIGNING_DOMAIN_V2,
+    event,
+    body.v,
+    body.by,
+    body.seq,
+    body.tool,
+    body.roundId,
+    body.endsAt,
+    body.minN,
+    body.kind,
+    sheet,
+    body.keys.sig,
+    body.keys.ecdh,
+    body.phase,
+    body.ballots,
+    body.acks,
+    revealed,
+  ]);
+}
+
 /**
  * The text the host signs for `event`: a JSON array of the field values in
  * a fixed order, so the signature never depends on key order, and the
  * event name is part of it, so a state's signature can't pass for a kick's.
+ * Scale states sign exactly as in Phase 6; pair and allocation states sign
+ * under the v2 domain with their kind.
  */
 export function signingInput(
   event: VoteRoomEvent,
-  body: VoteStateBody | VoteKickBody | VoteEndBody
+  body: VoteStateBody | PairStateBody | AllocationStateBody | VoteKickBody | VoteEndBody
 ): string {
+  if (event === VOTE_ROOM_EVENTS.state && "kind" in body) return kindStateInput(event, body);
   const head = [SIGNING_DOMAIN, event, body.v, body.by];
   if (event === VOTE_ROOM_EVENTS.state && "questionnaire" in body) {
     return JSON.stringify([
@@ -292,15 +465,6 @@ export function signingInput(
 
 // ── Host side: what it may share ─────────────────────────────────────
 
-/** Up to `VOTE_LIMITS.maxIdChars`. */
-const ID_RE = /^[A-Za-z0-9:_-]{1,64}$/;
-const ROUND_ID_RE = /^[A-Za-z0-9_-]{12}$/;
-/** A raw P-256 public key (65 bytes), unpadded base64url. */
-const KEY_RE = /^[A-Za-z0-9_-]{87}$/;
-/** A 12-byte AES-GCM nonce, unpadded base64url. */
-const IV_RE = /^[A-Za-z0-9_-]{16}$/;
-const B64URL_RE = /^[A-Za-z0-9_-]+$/;
-
 function isPointValue(v: unknown): v is number {
   return (
     typeof v === "number" &&
@@ -309,8 +473,6 @@ function isPointValue(v: unknown): v is number {
     v <= VOTE_LIMITS.maxPointValue
   );
 }
-
-const ID_RULE = "use up to 64 letters, digits, ':', '_' or '-'";
 
 type WireCheck = { ok: true; questionnaire: Questionnaire } | { ok: false; problem: string };
 
@@ -448,11 +610,6 @@ export function readAnswerString(plain: string, q: Questionnaire): number[] | nu
   return answered > 0 ? out : null;
 }
 
-/** Unpadded base64url length of `bytes` bytes. */
-function b64urlChars(bytes: number): number {
-  return Math.floor(bytes / 3) * 4 + (bytes % 3 === 0 ? 0 : (bytes % 3) + 1);
-}
-
 /**
  * The exact ciphertext length (base64url) of a ballot for `questionCount`
  * questions: one byte per answer plus the 16-byte GCM tag. The host drops a
@@ -463,16 +620,6 @@ export function ballotCiphertextChars(questionCount: number): number {
 }
 
 // ── Readers ──────────────────────────────────────────────────────────
-
-const obj = (v: unknown): Record<string, unknown> | null =>
-  v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-
-const isCount = (v: unknown, max: number): v is number =>
-  typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max;
-
-/** Text a participant will render: exactly what `cleanText` makes of it. */
-const isCleanText = (v: unknown, max: number): v is string =>
-  typeof v === "string" && cleanText(v, max) === v;
 
 /** A questionnaire from the wire, or null. Accepts exactly what `toWireQuestionnaire` builds. */
 function readQuestionnaire(raw: unknown): Questionnaire | null {
@@ -545,7 +692,8 @@ function readRevealed(
 /**
  * A host state for this page's `tool`, or null. Checks shape, caps and the
  * reveal rules; whether the signature is the pinned host's is the hook's
- * call (it needs WebCrypto).
+ * call (it needs WebCrypto). Scale rounds only: a tool whose rounds are of
+ * another kind reads its states with `readPairState` / `readAllocationState`.
  */
 export function readVoteState(raw: unknown, tool: VoteRoomTool): VoteStateMessage | null {
   if (!isWithinJsonSize(raw, VOTE_LIMITS.maxPayloadChars)) return null;
@@ -553,6 +701,7 @@ export function readVoteState(raw: unknown, tool: VoteRoomTool): VoteStateMessag
   if (!m || m.v !== VOTE_ROOM_PROTOCOL_VERSION || !isVisitorMemberId(m.by)) return null;
   if (typeof m.seq !== "number" || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
   if (m.tool !== tool || !isVoteRoomTool(m.tool)) return null;
+  if (VOTE_ROUND_KIND[m.tool] !== "scale") return null;
   if (typeof m.roundId !== "string" || !ROUND_ID_RE.test(m.roundId)) return null;
   if (typeof m.endsAt !== "number" || !Number.isFinite(m.endsAt) || m.endsAt <= 0) return null;
   // The tool's floor, whatever the host claims: Psych Safety never shows fewer than 5.
@@ -602,6 +751,80 @@ export function readVoteState(raw: unknown, tool: VoteRoomTool): VoteStateMessag
     ballots: m.ballots,
     acks,
     revealed,
+    sig,
+  };
+}
+
+/** What every pair or allocation state carries besides its sheet and results. */
+export interface KindStateHead {
+  by: string;
+  seq: number;
+  roundId: string;
+  endsAt: number;
+  minN: number;
+  keys: HostKeys;
+  phase: RoundPhase;
+  ballots: number;
+  acks: string[];
+  sig: string;
+}
+
+/**
+ * The common part of a v2 (pair or allocation) state for this page's
+ * `tool`, read and checked as `readVoteState` checks a scale state's: the
+ * version, the kind (which must be the tool's), sender, sequence, round,
+ * minN (never under the tool's floor), keys, signature, phase, ballot
+ * count and acks, and the reveal rules that don't depend on the sheet
+ * (enough ballots, no acks once revealed). The kind's reader checks the
+ * sheet and the revealed results. Null when anything is off.
+ */
+export function readKindStateHead(
+  m: Record<string, unknown>,
+  tool: VoteRoomTool,
+  kind: Exclude<VoteRoundKind, "scale">
+): KindStateHead | null {
+  if (m.v !== KIND_STATE_VERSION || m.kind !== kind || !isVisitorMemberId(m.by)) return null;
+  if (typeof m.seq !== "number" || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
+  if (m.tool !== tool || !isVoteRoomTool(m.tool) || VOTE_ROUND_KIND[m.tool] !== kind) return null;
+  if (typeof m.roundId !== "string" || !ROUND_ID_RE.test(m.roundId)) return null;
+  if (typeof m.endsAt !== "number" || !Number.isFinite(m.endsAt) || m.endsAt <= 0) return null;
+  if (
+    typeof m.minN !== "number" ||
+    !Number.isInteger(m.minN) ||
+    m.minN < voteMinNFloor(m.tool) ||
+    m.minN > VISITOR_LIMITS.maxMembers
+  ) {
+    return null;
+  }
+  const keys = obj(m.keys);
+  if (!keys || typeof keys.sig !== "string" || !KEY_RE.test(keys.sig)) return null;
+  if (typeof keys.ecdh !== "string" || !KEY_RE.test(keys.ecdh)) return null;
+  const sig = readSignature(m);
+  if (!sig) return null;
+  if (m.phase !== "open" && m.phase !== "revealed") return null;
+  if (!isCount(m.ballots, VOTE_LIMITS.maxBallotsPerRound)) return null;
+  if (!Array.isArray(m.acks) || m.acks.length > VOTE_LIMITS.maxAcks) return null;
+  const acks: string[] = [];
+  for (const a of m.acks) {
+    if (typeof a !== "string" || !ROUND_ID_RE.test(a)) return null;
+    acks.push(a);
+  }
+  if (m.phase === "open") {
+    if (m.revealed !== null) return null;
+  } else if (m.ballots < m.minN || acks.length > 0) {
+    // Revealed: enough ballots, and the ledger of who answered gone.
+    return null;
+  }
+  return {
+    by: m.by,
+    seq: m.seq,
+    roundId: m.roundId,
+    endsAt: m.endsAt,
+    minN: m.minN,
+    keys: { sig: keys.sig, ecdh: keys.ecdh },
+    phase: m.phase,
+    ballots: m.ballots,
+    acks,
     sig,
   };
 }

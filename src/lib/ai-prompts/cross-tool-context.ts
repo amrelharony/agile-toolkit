@@ -1,5 +1,11 @@
-import type { Workspace } from "../stores/workspace-types";
-import { selectActiveSprint, selectCompletedSprints, selectActiveImpediments, selectOpenRisks } from "../stores/workspace-store";
+import type { DecisionTemplate, Workspace } from "../stores/workspace-types";
+import { allDecisions, templateOf } from "../decisions/model";
+import {
+  selectActiveSprint,
+  selectCompletedSprints,
+  selectActiveImpediments,
+  selectOpenRisks,
+} from "../stores/workspace-store";
 import { runAntiPatternRules, sortBySeverity } from "../analytics/anti-patterns";
 import { mean } from "../analytics/anomaly";
 import { sanitizePromptCell } from "./prompt-utils";
@@ -35,7 +41,9 @@ export function buildWorkspaceContext(w: Workspace | undefined | null): string {
 
   const activeImpediments = selectActiveImpediments(w);
   if (activeImpediments.length > 0) {
-    const critical = activeImpediments.filter((i) => i.severity === "critical" || i.severity === "high");
+    const critical = activeImpediments.filter(
+      (i) => i.severity === "critical" || i.severity === "high"
+    );
     parts.push(
       `Active impediments: ${activeImpediments.length}${critical.length > 0 ? ` (${critical.length} high/critical)` : ""}`
     );
@@ -50,21 +58,18 @@ export function buildWorkspaceContext(w: Workspace | undefined | null): string {
     parts.push(`Team maturity: Level ${w.maturityLevel}/5`);
   }
 
-  // Surface decision activity from ALL frameworks, not just classic ADRs.
-  // 28 tools per-prompt only forward `s.decisions`, missing the DACI /
-  // RAPID slices. Roll them up here so cross-tool prompts (retro, post-
-  // mortem, ADKAR, etc.) see the full decision-making footprint without
-  // each tool having to re-select the additional slices.
-  const allDecisions =
-    (w.decisions?.length ?? 0) +
-    (w.daciDecisions?.length ?? 0) +
-    (w.rapidDecisions?.length ?? 0);
-  if (allDecisions > 0) {
-    const breakdown: string[] = [];
-    if (w.decisions?.length) breakdown.push(`${w.decisions.length} ADR`);
-    if (w.daciDecisions?.length) breakdown.push(`${w.daciDecisions.length} DACI`);
-    if (w.rapidDecisions?.length) breakdown.push(`${w.rapidDecisions.length} RAPID`);
-    parts.push(`Decisions captured: ${allDecisions} (${breakdown.join(", ")})`);
+  // Decision activity across the one decision record (ADR, DACI, RAPID).
+  // The old DACI and RAPID rows stay behind as backups once their record
+  // is saved, so they're read through allDecisions (a record with the same
+  // id wins) rather than added on top, which counted them twice.
+  const records = allDecisions(w.decisions, w.daciDecisions, w.rapidDecisions);
+  if (records.length > 0) {
+    const byTemplate: Record<DecisionTemplate, number> = { adr: 0, daci: 0, rapid: 0 };
+    for (const d of records) byTemplate[templateOf(d)] += 1;
+    const breakdown = (["adr", "daci", "rapid"] as const)
+      .filter((t) => byTemplate[t] > 0)
+      .map((t) => `${byTemplate[t]} ${t.toUpperCase()}`);
+    parts.push(`Decisions captured: ${records.length} (${breakdown.join(", ")})`);
   }
 
   // Canvas / whiteboard surface — counts only. The AI doesn't need every
@@ -81,7 +86,7 @@ export function buildWorkspaceContext(w: Workspace | undefined | null): string {
     const stickies = objects.filter((o) => o.type === "sticky").length;
     parts.push(
       `Whiteboards: ${boards.length} board${boards.length === 1 ? "" : "s"} ` +
-      `(${totalObjects} object${totalObjects === 1 ? "" : "s"}, ${stickies} sticky note${stickies === 1 ? "" : "s"})`,
+        `(${totalObjects} object${totalObjects === 1 ? "" : "s"}, ${stickies} sticky note${stickies === 1 ? "" : "s"})`
     );
   }
 

@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { KanoModelClient } from "./kano-model-client";
 
-export const metadata: Metadata = {
-  title: "Kano Model Builder",
-  description:
-    "Classify features as Must-Be / Performance / Attractive / Indifferent / Reverse from customer research.",
-};
+export const metadata: Metadata = toolMetadata("kano-model");
 
 export default function Page() {
   return <KanoModelClient />;

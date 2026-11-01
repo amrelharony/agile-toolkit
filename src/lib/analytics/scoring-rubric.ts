@@ -1,6 +1,8 @@
 /**
  * Generic weighted-scoring helpers reused by RICE / ICE / WSJF / Pugh /
- * Vendor / 9-Box / Buy-a-Feature.
+ * Vendor / 9-Box / Buy-a-Feature. The RICE, ICE and WSJF formulas live in
+ * the prioritization method registry; the wrappers here only keep their
+ * old numeric signatures.
  *
  * Each framework has its own scoring formula but the *shape* of the
  * input data is similar enough that one set of helpers covers all of
@@ -9,6 +11,9 @@
  */
 
 import { quantile } from "./anomaly";
+import { ICE } from "@/lib/prioritization/methods/ice";
+import { LEGACY_REACH_PERIOD, RICE } from "@/lib/prioritization/methods/rice";
+import { WSJF } from "@/lib/prioritization/methods/wsjf";
 
 export interface ScoredItem<T = Record<string, number>> {
   id: string;
@@ -29,10 +34,20 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** A finite number, else undefined (not set: the engine says Not scored). */
+function finite(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : Number(v);
+  return v === null || v === undefined || !Number.isFinite(n) ? undefined : n;
+}
+
 /**
- * Compute the RICE score: (Reach * Impact * Confidence) / Effort.
- * Confidence is expressed as a percentage 0..100. Effort floor at 0.5
- * to avoid divide-by-zero blowups on quick-input typos.
+ * RICE, through the method registry (lib/prioritization/methods/rice): reach
+ * (per quarter) × impact × confidence% ÷ effort. Confidence is a percentage
+ * 0..100. A legacy effort under 0.5 counts as 0.5; an effort of 0 (or any
+ * missing input) is Not scored, which this numeric wrapper reports as 0.
+ *
+ * @deprecated Kept so the method pages compile with the old signature;
+ * call `method("rice").evaluate(…)` and show null as "Not scored".
  */
 export function riceScore(
   reach: number,
@@ -40,20 +55,37 @@ export function riceScore(
   confidencePct: number,
   effort: number
 ): number {
-  const eff = Math.max(0.5, num(effort, 0.5));
-  const conf = Math.max(0, Math.min(100, num(confidencePct, 0))) / 100;
-  return (Math.max(0, num(reach)) * Math.max(0, num(impact)) * conf) / eff;
-}
-
-/** ICE: Impact * Confidence * Ease, all 1-10. */
-export function iceScore(impact: number, confidence: number, ease: number): number {
-  const clamp = (v: number) => Math.max(1, Math.min(10, num(v, 1)));
-  return clamp(impact) * clamp(confidence) * clamp(ease);
+  return (
+    RICE.evaluate({
+      reach: finite(reach),
+      reachPeriod: LEGACY_REACH_PERIOD,
+      impact: finite(impact),
+      confidence: finite(confidencePct),
+      effort: finite(effort),
+    }).score ?? 0
+  );
 }
 
 /**
- * WSJF: (Business Value + Time Criticality + Risk Reduction/Opportunity Enablement)
- *       ÷ Job Size.
+ * ICE through the method registry: impact × confidence × ease, each held to
+ * 1–10; a missing input reports 0 (Not scored).
+ *
+ * @deprecated Call `method("ice").evaluate(…)`.
+ */
+export function iceScore(impact: number, confidence: number, ease: number): number {
+  return (
+    ICE.evaluate({ impact: finite(impact), confidence: finite(confidence), ease: finite(ease) })
+      .score ?? 0
+  );
+}
+
+/**
+ * WSJF through the method registry: (Business Value + Time Criticality +
+ * Risk Reduction/Opportunity Enablement) ÷ Job Size, the job size at least 1
+ * (the bottom of the Fibonacci scale). A job size of 0 or a missing part
+ * reports 0 (Not scored).
+ *
+ * @deprecated Call `method("wsjf").evaluate(…)`.
  */
 export function wsjfScore(
   businessValue: number,
@@ -61,10 +93,13 @@ export function wsjfScore(
   rrOe: number,
   jobSize: number
 ): number {
-  const size = Math.max(0.5, num(jobSize, 0.5));
   return (
-    (Math.max(0, num(businessValue)) + Math.max(0, num(timeCriticality)) + Math.max(0, num(rrOe))) /
-    size
+    WSJF.evaluate({
+      businessValue: finite(businessValue),
+      timeCriticality: finite(timeCriticality),
+      rrOe: finite(rrOe),
+      jobSize: finite(jobSize),
+    }).score ?? 0
   );
 }
 

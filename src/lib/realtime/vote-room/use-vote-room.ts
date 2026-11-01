@@ -47,6 +47,14 @@
  * channel can't open. A terminal status drops the room code, so `useRoom`
  * closes the channel. Nothing is written to the workspace: the tool saves
  * `result`, and only when the host asks.
+ *
+ * Every kind of round runs this one state machine (`kinds.ts` holds the
+ * kind-aware steps): a tool's kind (`VOTE_ROUND_KIND`) decides which of
+ * `questionnaire` (scale), `pairSheet` (pair, Kano) or `sheet` (allocation,
+ * Buy-a-Feature and the $100 Test) the host must give, the size every
+ * ballot must have, how a plaintext is read and counted, what Reveal shows,
+ * and which result comes out (`result`, `pairResult`, `allocationResult`).
+ * Ballots, kicks, ends, seats, acks and the warnings are the same for all.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -68,19 +76,12 @@ import { toast } from "@/lib/utils/toast";
 import {
   VOTE_LIMITS,
   VOTE_ROOM_EVENTS,
-  ballotCiphertextChars,
-  encodeAnswers,
   isVoteRoomTool,
-  questionnaireProblem,
-  readAnswerString,
   readBallotEnvelope,
   readVoteEnd,
   readVoteKick,
-  readVoteState,
   signingInput,
-  toWireQuestionnaire,
   voteMinNFloor,
-  type AnswerDraft,
   type BallotEnvelope,
   type Questionnaire,
   type RevealedQuestion,
@@ -88,24 +89,45 @@ import {
   type VoteEndBody,
   type VoteKickBody,
   type VoteRoomTool,
-  type VoteStateBody,
-  type VoteStateMessage,
+  type VoteRoundKind,
 } from "./protocol";
 import {
-  canReveal as tallyCanReveal,
   effectiveMinN,
   emptyLedger,
-  emptyTally,
-  foldBallot,
   precheckBallot,
-  revealTally,
-  toRoundResult,
   type BallotLedger,
   type BallotRejection,
   type FoldContext,
-  type Tally,
   type VoteRoundResult,
 } from "./aggregate";
+import type { AllocationRoundResult, AllocationSheet, RevealedAllocation } from "./allocation";
+import type { PairRoundResult, PairSheet, RevealedPair } from "./pair";
+import {
+  canRevealCounts,
+  emptyCounts,
+  encodeDraft,
+  isAllocationResult,
+  isPairResult,
+  isScaleResult,
+  openPlain,
+  readRoundState,
+  revealCounts,
+  revealedOfState,
+  roundKindOf,
+  roundResult,
+  specCiphertextChars,
+  specOfState,
+  stateBodyFor,
+  wireSpec,
+  type RoundCounts,
+  type RoundDraft,
+  type RoundInput,
+  type RoundResult,
+  type RoundRevealed,
+  type RoundSpec,
+  type RoundStateBody,
+  type RoundStateMessage,
+} from "./kinds";
 import {
   ballotAad,
   isVoteFingerprint,
@@ -176,10 +198,20 @@ interface VoteRoomBaseOptions {
   crypto?: VoteCrypto | null;
 }
 
+/**
+ * The host gives exactly one of `questionnaire`, `pairSheet` and `sheet`:
+ * the one its tool's kind asks (`VOTE_ROUND_KIND`). Anything else (none,
+ * two, or another kind's) makes the room "unavailable" before any key or
+ * channel exists.
+ */
 export interface UseVoteRoomHostOptions extends VoteRoomBaseOptions {
   role: "host";
-  /** The first round's questions. Later changes need `newRound(next)`. */
-  questionnaire: Questionnaire;
+  /** Scale tools: the first round's questions. Later changes need `newRound(next)`. */
+  questionnaire?: Questionnaire;
+  /** Pair tools (Kano): the first round's sheet. */
+  pairSheet?: PairSheet;
+  /** Allocation tools (Buy-a-Feature, the $100 Test): the first round's sheet. */
+  sheet?: AllocationSheet;
   /** Ballots needed to reveal (clamped by `effectiveMinN`, never under the tool's floor). */
   minN?: number;
   /** When the room started (epoch ms). Defaults to mount time. */
@@ -206,7 +238,14 @@ export interface VoteRoom {
   members: PresenceMember[];
   /** Ids the host removed (host only). */
   removedIds: ReadonlySet<string>;
+  /** The kind of round this tool runs (`VOTE_ROUND_KIND`); null for a tool outside the kit. */
+  kind: VoteRoundKind | null;
+  /** Scale rounds: the questions. Null for other kinds. */
   questionnaire: Questionnaire | null;
+  /** Pair rounds (Kano): the sheet. Null for other kinds. */
+  pairSheet: PairSheet | null;
+  /** Allocation rounds: the sheet being split. Null for other kinds. */
+  sheet: AllocationSheet | null;
   roundId: string | null;
   phase: RoundPhase | null;
   minN: number;
@@ -227,12 +266,19 @@ export interface VoteRoom {
   unconfirmed: boolean;
   /** Participant: someone else sent answers under this tab's id this round. */
   impersonated: boolean;
-  /** After Reveal: per question, its distribution only from minN answers. */
+  /** Scale rounds, after Reveal: per question, its distribution only from minN answers. */
   revealed: readonly RevealedQuestion[] | null;
+  /** Pair rounds, after Reveal: per item, its joint count only from minN answers. */
+  pairRevealed: readonly RevealedPair[] | null;
+  /** Allocation rounds, after Reveal: per item, its total; who backed it and the bands from 5 answers. */
+  allocationRevealed: readonly RevealedAllocation[] | null;
   /** When the room closes for everyone (epoch ms), once known. */
   endsAt: number | null;
-  /** Send (participant) or count (host) this client's answers for the open round. */
-  submit: (draft: AnswerDraft) => Promise<VoteSubmitResult>;
+  /**
+   * Send (participant) or count (host) this client's answers for the open
+   * round: an `AnswerDraft`, `PairDraft` or `AllocationDraft`, by kind.
+   */
+  submit: (draft: RoundDraft) => Promise<VoteSubmitResult>;
   /** `/join/<tool>/<code>#k=<fingerprint>`, once the host key exists. */
   joinPath: string | null;
   /** Host: Reveal would work now. */
@@ -241,10 +287,17 @@ export interface VoteRoom {
   revealBlockedReason: string | null;
   /** Host: close the round and show the totals. */
   reveal: () => void;
-  /** After Reveal: totals only, ready for the tool's `onSave`. */
+  /** Scale rounds, after Reveal: totals only, ready for the tool's `onSave`. */
   result: VoteRoundResult | null;
-  /** Host: start a new round (new round id and key), optionally with new questions. */
-  newRound: (next?: Questionnaire) => void;
+  /** Pair rounds, after Reveal: joint totals only, ready for the tool's `onSave`. */
+  pairResult: PairRoundResult | null;
+  /** Allocation rounds, after Reveal: totals only, ready for the tool's `onSave`. */
+  allocationResult: AllocationRoundResult | null;
+  /**
+   * Host: start a new round (new round id and key), optionally with new
+   * questions or a new sheet of the same kind (another kind is refused).
+   */
+  newRound: (next?: RoundInput) => void;
   /** Host: remove a member (soft). */
   kick: (id: string) => void;
   /** Host: end the room for everyone. */
@@ -358,9 +411,10 @@ function storedRound(code: string, roundId: string): AnsweredRound | null {
 /** Everything the host keeps about the current round. Only `ballots` leaves before Reveal. */
 interface HostRound {
   roundId: string;
-  questionnaire: Questionnaire;
+  /** What the round asks; `counts` and `revealed` are always of the same kind. */
+  spec: RoundSpec;
   phase: RoundPhase;
-  tally: Tally;
+  counts: RoundCounts;
   ledger: BallotLedger;
   /** Accepted ballot ids, oldest first. */
   acks: string[];
@@ -370,20 +424,20 @@ interface HostRound {
   refusedDuplicates: Set<string>;
   /** Ballots counted (frozen at Reveal, when the tally is dropped). */
   ballots: number;
-  revealed: RevealedQuestion[] | null;
+  revealed: RoundRevealed | null;
   /** Names (lower-cased) of the people who could answer this round, for the stuffing warning. */
   namesSeen: Set<string>;
   /** The host's own answers are in. */
   hostAnswered: boolean;
 }
 
-function freshRound(q: Questionnaire, names: Iterable<string>): HostRound {
+function freshRound(spec: RoundSpec, names: Iterable<string>): HostRound {
   const roundId = nanoid(12);
   return {
     roundId,
-    questionnaire: q,
+    spec,
     phase: "open",
-    tally: emptyTally(roundId, q),
+    counts: emptyCounts(roundId, spec),
     ledger: emptyLedger(),
     acks: [],
     ackedFrom: new Map(),
@@ -397,12 +451,12 @@ function freshRound(q: Questionnaire, names: Iterable<string>): HostRound {
 
 /** What both roles render. */
 interface RoundView {
-  questionnaire: Questionnaire;
+  spec: RoundSpec;
   roundId: string;
   phase: RoundPhase;
   minN: number;
   ballots: number;
-  revealed: RevealedQuestion[] | null;
+  revealed: RoundRevealed | null;
   endsAt: number;
   /** Participant: accepted ballot ids from the host's last state. */
   acks: string[];
@@ -427,6 +481,22 @@ interface PendingBallot {
   resends: number;
 }
 
+/**
+ * The host's first round, from its options: exactly one of `questionnaire`,
+ * `pairSheet` and `sheet`, the one the tool's kind asks for, and shareable.
+ * Null otherwise (the room is then "unavailable").
+ */
+function firstSpecFor(opts: UseVoteRoomHostOptions): RoundSpec | null {
+  const kind = roundKindOf(opts.tool);
+  const given = [opts.questionnaire, opts.pairSheet, opts.sheet].filter((x) => x !== undefined);
+  if (!kind || given.length !== 1) return null;
+  const input =
+    kind === "scale" ? opts.questionnaire : kind === "pair" ? opts.pairSheet : opts.sheet;
+  if (input === undefined) return null;
+  const checked = wireSpec(kind, input);
+  return checked.ok ? checked.spec : null;
+}
+
 function submitResultFor(reason: string): VoteSubmitResult {
   switch (reason) {
     case "duplicate":
@@ -447,13 +517,14 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const selfId = identity.id;
   const hostFingerprint = opts.role === "participant" ? opts.hostFingerprint : null;
 
-  // Fixed at mount: the crypto, the host's first questionnaire and minN.
+  // Fixed at mount: the crypto, the host's first round and minN.
   const [cryptoImpl] = useState<VoteCrypto | null>(() =>
     opts.crypto !== undefined ? opts.crypto : webVoteCrypto()
   );
-  const [firstQuestionnaire] = useState<Questionnaire | null>(() =>
-    opts.role === "host" ? toWireQuestionnaire(opts.questionnaire) : null
+  const [firstSpec] = useState<RoundSpec | null>(() =>
+    opts.role === "host" ? firstSpecFor(opts) : null
   );
+  const roundKind = roundKindOf(tool);
   const [hostMinN] = useState(() =>
     effectiveMinN(
       opts.role === "host" ? opts.minN : undefined,
@@ -472,12 +543,12 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     ) {
       return "unavailable";
     }
-    if (role === "host") return firstQuestionnaire ? "preparing" : "unavailable";
+    if (role === "host") return firstSpec ? "preparing" : "unavailable";
     return "connecting";
   });
   const [endReason, setEndReason] = useState<VoteEndReason | null>(null);
   const [view, setView] = useState<RoundView | null>(null);
-  const [result, setResult] = useState<VoteRoundResult | null>(null);
+  const [result, setResult] = useState<RoundResult | null>(null);
   const [hostId, setHostId] = useState<string | null>(role === "host" ? selfId : null);
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [idlePrompt, setIdlePrompt] = useState(false);
@@ -525,7 +596,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   // Participant.
   const pinnedRef = useRef<{ by: string; sigKey: string } | null>(null);
   const lastSeqRef = useRef(-1);
-  const pendingStateRef = useRef<VoteStateMessage | null>(null);
+  const pendingStateRef = useRef<RoundStateMessage | null>(null);
   const hostEcdhRef = useRef<string | null>(null);
   const myBallotRef = useRef<PendingBallot | null>(null);
   const sentBidsRef = useRef<{ roundId: string; bids: Set<string> } | null>(null);
@@ -631,7 +702,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     const round = hostRoundRef.current;
     if (!round) return;
     const next: RoundView = {
-      questionnaire: round.questionnaire,
+      spec: round.spec,
       roundId: round.roundId,
       phase: round.phase,
       minN: hostMinN,
@@ -662,25 +733,27 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
 
   // ── Host: sending ────────────────────────────────────────────────
 
-  const buildState = useCallback((): VoteStateBody | null => {
+  const buildState = useCallback((): RoundStateBody | null => {
     const k = keysRef.current;
     const round = hostRoundRef.current;
     if (!k || !round || !isVoteRoomTool(tool)) return null;
-    return {
-      v: 1,
-      by: selfId,
-      seq: seqRef.current + 1,
-      tool,
-      roundId: round.roundId,
-      endsAt: endsAtRef.current,
-      minN: hostMinN,
-      questionnaire: round.questionnaire,
-      keys: k.publicKeys,
-      phase: round.phase,
-      ballots: round.ballots,
-      acks: round.phase === "open" ? round.acks.slice(-VOTE_LIMITS.maxAcks) : [],
-      revealed: round.phase === "revealed" ? round.revealed : null,
-    };
+    // Scale rounds: the Phase 6 v1 body, field for field. Others: v2 with their kind.
+    return stateBodyFor(
+      round.spec,
+      {
+        by: selfId,
+        seq: seqRef.current + 1,
+        tool,
+        roundId: round.roundId,
+        endsAt: endsAtRef.current,
+        minN: hostMinN,
+        keys: k.publicKeys,
+        phase: round.phase,
+        ballots: round.ballots,
+        acks: round.phase === "open" ? round.acks.slice(-VOTE_LIMITS.maxAcks) : [],
+      },
+      round.phase === "revealed" ? round.revealed : null
+    );
   }, [hostMinN, selfId, tool]);
 
   /** Sign and send the current state now (after anything already queued). */
@@ -738,7 +811,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   // ── Host: keys and the first round ───────────────────────────────
 
   useEffect(() => {
-    if (role !== "host" || status !== "preparing" || !cryptoImpl || !firstQuestionnaire) return;
+    if (role !== "host" || status !== "preparing" || !cryptoImpl || !firstSpec) return;
     let cancelled = false;
     cryptoImpl
       .createHostKeys()
@@ -746,7 +819,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
         if (cancelled) return;
         keysRef.current = k;
         // The host's own name joins `namesSeen` only once its own answers are in.
-        hostRoundRef.current = freshRound(firstQuestionnaire, []);
+        hostRoundRef.current = freshRound(firstSpec, []);
         setFingerprint(k.fingerprint);
         publishHost();
         setStatus((s) => (s === "preparing" ? "connecting" : s));
@@ -757,7 +830,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     return () => {
       cancelled = true;
     };
-  }, [role, status, cryptoImpl, firstQuestionnaire, publishHost, stop]);
+  }, [role, status, cryptoImpl, firstSpec, publishHost, stop]);
 
   // ── Host: ending ─────────────────────────────────────────────────
 
@@ -812,12 +885,12 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
         scheduleState();
         return;
       }
-      const refused = precheckBallot(env, round.ledger, round.tally, foldContext());
+      const refused = precheckBallot(env, round.ledger, round.counts.tally, foldContext());
       if (refused) {
         refuseBallot(env, refused);
         return;
       }
-      if (env.ct.length !== ballotCiphertextChars(round.questionnaire.questions.length)) return;
+      if (env.ct.length !== specCiphertextChars(round.spec)) return;
       const opening = openingRef.current;
       opening.add(env.by);
       void cryptoImpl
@@ -828,18 +901,18 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
           if (plain === null || !now || now.roundId !== round.roundId || keysRef.current !== keys) {
             return;
           }
-          const answers = readAnswerString(plain, now.questionnaire);
-          if (!answers) return;
-          const res = foldBallot(now.tally, now.ledger, env.by, answers, foldContext());
+          // Read by the round's kind, counted, and dropped: only the counts stay.
+          const res = openPlain(now.spec, now.counts, now.ledger, env.by, plain, foldContext());
+          if (!res) return;
           if (!res.ok) {
             refuseBallot(env, res.reason);
             return;
           }
           hostRoundRef.current = {
             ...now,
-            tally: res.tally,
+            counts: res.counts,
             ledger: res.ledger,
-            ballots: res.tally.ballots,
+            ballots: res.counts.tally.ballots,
             acks: [...now.acks, env.bid].slice(-VOTE_LIMITS.maxAcks),
             ackedFrom: new Map(now.ackedFrom).set(env.bid, env.by),
           };
@@ -883,13 +956,14 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
         scheduleState();
         return;
       }
-      // Everything cheap before anything is decrypted.
-      const refused = precheckBallot(env, round.ledger, round.tally, foldContext());
+      // Everything cheap before anything is decrypted. Every ballot of a
+      // round has one size, from its public parameters: any other is dropped.
+      const refused = precheckBallot(env, round.ledger, round.counts.tally, foldContext());
       if (refused) {
         refuseBallot(env, refused);
         return;
       }
-      if (env.ct.length !== ballotCiphertextChars(round.questionnaire.questions.length)) return;
+      if (env.ct.length !== specCiphertextChars(round.spec)) return;
       const waiting = waitingRef.current;
       if (waiting.some((w) => w.by === env.by && w.bid === env.bid)) return;
       // Bounded by the round's cap; past it the sender's resend gets another turn.
@@ -913,16 +987,16 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
 
   /** Participant: show a verified state from the pinned host. */
   const applyState = useCallback(
-    (msg: VoteStateMessage) => {
+    (msg: RoundStateMessage) => {
       const prev = viewRef.current;
       const sameRound = prev?.roundId === msg.roundId;
       const next: RoundView = {
-        questionnaire: msg.questionnaire,
+        spec: specOfState(msg),
         roundId: msg.roundId,
         phase: msg.phase,
         minN: msg.minN,
         ballots: msg.ballots,
-        revealed: msg.revealed,
+        revealed: revealedOfState(msg),
         endsAt: msg.endsAt,
         acks: msg.acks,
         selfAnswered: false,
@@ -963,7 +1037,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
 
   /** Participant: verify `msg` (pinning the host on first use), then apply it. */
   const acceptState = useCallback(
-    (msg: VoteStateMessage) =>
+    (msg: RoundStateMessage) =>
       enqueue(async () => {
         if (!activeRef.current || !cryptoImpl) return;
         const pinned = pinnedRef.current;
@@ -1036,8 +1110,9 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     });
     const offState = r.subscribeToEvent(VOTE_ROOM_EVENTS.state, (raw) => {
       // The host's own round is the only truth: inbound state is never applied.
+      // Read by this tool's kind: a state of any other kind is ignored.
       if (role !== "participant" || !activeRef.current || !isVoteRoomTool(tool)) return;
-      const msg = readVoteState(raw, tool);
+      const msg = readRoundState(raw, tool);
       if (!msg || msg.by === selfId) return;
       const pinned = pinnedRef.current;
       if (pinned) {
@@ -1234,24 +1309,24 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   // ── Actions ──────────────────────────────────────────────────────
 
   const submit = useCallback(
-    async (draft: AnswerDraft): Promise<VoteSubmitResult> => {
+    async (draft: RoundDraft): Promise<VoteSubmitResult> => {
       const v = viewRef.current;
       if (!activeRef.current || !v || v.phase !== "open") return "closed";
 
       if (role === "host") {
         const round = hostRoundRef.current;
         if (!round || round.roundId !== v.roundId) return "closed";
-        const answerString = encodeAnswers(draft, round.questionnaire);
-        if (answerString === null) return "incomplete";
-        const answers = readAnswerString(answerString, round.questionnaire);
-        if (!answers) return "incomplete";
-        const res = foldBallot(round.tally, round.ledger, selfId, answers, foldContext());
+        // The host's own answers take the participants' path: encoded, read back, folded.
+        const plain = encodeDraft(round.spec, draft);
+        if (plain === null) return "incomplete";
+        const res = openPlain(round.spec, round.counts, round.ledger, selfId, plain, foldContext());
+        if (!res) return "incomplete";
         if (!res.ok) return submitResultFor(res.reason);
         hostRoundRef.current = {
           ...round,
-          tally: res.tally,
+          counts: res.counts,
           ledger: res.ledger,
-          ballots: res.tally.ballots,
+          ballots: res.counts.tally.ballots,
           hostAnswered: true,
           // Now the host is one of the people who answered.
           namesSeen: new Set(round.namesSeen).add(identity.name.toLowerCase()),
@@ -1265,7 +1340,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       if (countedRoundRef.current === v.roundId || myBallotRef.current?.roundId === v.roundId) {
         return "already-answered";
       }
-      const answers = encodeAnswers(draft, v.questionnaire);
+      const answers = encodeDraft(v.spec, draft);
       if (answers === null) return "incomplete";
       if (!present(selfId)) return "not-admitted";
       const hostKey = hostEcdhRef.current;
@@ -1326,28 +1401,30 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const reveal = useCallback(() => {
     const round = hostRoundRef.current;
     if (role !== "host" || !activeRef.current || !round || round.phase !== "open") return;
-    if (!tallyCanReveal(round.tally, hostMinN)) return;
-    const revealed = revealTally(round.tally, hostMinN);
+    if (!isVoteRoomTool(tool) || !canRevealCounts(round.counts, hostMinN)) return;
+    const revealed = revealCounts(round.counts, hostMinN);
+    if (!revealed) return;
     const closedAt = new Date().toISOString();
+    const ballots = round.counts.tally.ballots;
     setResult(
-      toRoundResult(round.questionnaire, revealed, {
+      roundResult(round.spec, revealed, {
         tool,
         roundId: round.roundId,
         closedAt,
         minN: hostMinN,
-        ballots: round.tally.ballots,
+        ballots,
         source: "live",
       })
     );
-    // The counts behind withheld questions, the ledger, the acks and the
+    // The counts behind withheld results, the ledger, the acks and the
     // ballots still waiting go now.
     waitingRef.current = [];
     hostRoundRef.current = {
       ...round,
       phase: "revealed",
       revealed,
-      ballots: round.tally.ballots,
-      tally: emptyTally(round.roundId, round.questionnaire),
+      ballots,
+      counts: emptyCounts(round.roundId, round.spec),
       ledger: emptyLedger(),
       acks: [],
       ackedFrom: new Map(),
@@ -1363,18 +1440,23 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   }, [hostMinN, publishHost, role, sendState, tool, touch]);
 
   const newRound = useCallback(
-    (next?: Questionnaire) => {
+    (next?: RoundInput) => {
       const keys = keysRef.current;
       const current = hostRoundRef.current;
       if (role !== "host" || !activeRef.current || !keys || !current || !cryptoImpl) return;
-      let q = current.questionnaire;
+      let spec = current.spec;
       if (next) {
-        const wire = toWireQuestionnaire(next);
-        if (!wire) {
-          toast.error(`These questions can't be shared live. ${questionnaireProblem(next) ?? ""}`);
+        // The same kind as the room's first round: another kind is refused.
+        const wire = wireSpec(current.spec.kind, next);
+        if (!wire.ok) {
+          toast.error(
+            current.spec.kind === "scale"
+              ? `These questions can't be shared live. ${wire.problem}`
+              : `This round can't be shared live. ${wire.problem}`
+          );
           return;
         }
-        q = wire;
+        spec = wire.spec;
       }
       cryptoImpl
         .rotateRoundKey(keys)
@@ -1383,7 +1465,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
           keysRef.current = k;
           waitingRef.current = [];
           hostRoundRef.current = freshRound(
-            q,
+            spec,
             roomRef.current.members.filter((m) => m.id !== selfId).map((m) => m.name)
           );
           setResult(null);
@@ -1420,7 +1502,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const participantResult = useMemo(() => {
     if (role !== "participant" || !view || view.phase !== "revealed" || !view.revealed) return null;
     if (!isVoteRoomTool(tool)) return null;
-    return toRoundResult(view.questionnaire, view.revealed, {
+    return roundResult(view.spec, view.revealed, {
       tool,
       roundId: view.roundId,
       closedAt: view.revealedAt ?? new Date().toISOString(),
@@ -1429,6 +1511,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       source: "live",
     });
   }, [role, tool, view]);
+  const anyResult = role === "host" ? result : participantResult;
 
   const minN =
     view?.minN ??
@@ -1496,7 +1579,10 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     hostName,
     members: room.members,
     removedIds,
-    questionnaire: view?.questionnaire ?? null,
+    kind: roundKind,
+    questionnaire: view?.spec.kind === "scale" ? view.spec.questionnaire : null,
+    pairSheet: view?.spec.kind === "pair" ? view.spec.sheet : null,
+    sheet: view?.spec.kind === "allocation" ? view.spec.sheet : null,
     roundId,
     phase,
     minN,
@@ -1505,14 +1591,18 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     awaitingAck,
     unconfirmed,
     impersonated,
-    revealed: view?.revealed ?? null,
+    revealed: view?.revealed?.kind === "scale" ? view.revealed.rows : null,
+    pairRevealed: view?.revealed?.kind === "pair" ? view.revealed.rows : null,
+    allocationRevealed: view?.revealed?.kind === "allocation" ? view.revealed.rows : null,
     endsAt: role === "host" ? endsAtRef.current : (view?.endsAt ?? null),
     submit,
     joinPath,
     canReveal: hostCanReveal,
     revealBlockedReason,
     reveal,
-    result: role === "host" ? result : participantResult,
+    result: isScaleResult(anyResult) ? anyResult : null,
+    pairResult: isPairResult(anyResult) ? anyResult : null,
+    allocationResult: isAllocationResult(anyResult) ? anyResult : null,
     newRound,
     kick,
     end,

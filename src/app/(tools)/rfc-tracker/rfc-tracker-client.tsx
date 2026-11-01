@@ -31,7 +31,6 @@ import {
   Clock,
 } from "lucide-react";
 import { usePersisted } from "@/lib/utils/use-persisted";
-import { setCloudPersistedValue } from "@/lib/sync/use-cloud-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RFC_TRACKER_ACTIONS } from "@/lib/history/event-actions";
@@ -40,7 +39,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { toast } from "@/lib/utils/toast";
-import type { Decision } from "@/lib/stores/workspace-types";
+import { decisionLabel } from "@/lib/decisions/model";
+import { pushRfcDecision } from "./push-decision";
 
 type RfcStatus = "draft" | "in_review" | "decided" | "withdrawn";
 
@@ -225,73 +225,16 @@ export function RfcTrackerClient() {
     log(RFC_TRACKER_ACTIONS.RFC_UPDATED, { rfcId: id, fields: ["comments"] });
   };
 
+  // A decided RFC becomes an accepted decision record (./push-decision).
   const pushToDecisionLog = (rfc: Rfc) => {
     if (rfc.status !== "decided") return;
-    const STORAGE_KEY = "agile-toolkit:decision-log";
-    let existing: Decision[] = [];
-    try {
-      const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
-      // R9: validate Array shape before treating as Decision[]. A
-      // tampered/older persisted blob containing an object made
-      // `existing.find(...)` crash with "find is not a function".
-      if (raw) {
-        const parsed: unknown = JSON.parse(raw);
-        existing = Array.isArray(parsed) ? (parsed as Decision[]) : [];
-      }
-    } catch {
-      existing = [];
-    }
-    // R11-fix: per-item shape validation. The previous code assumed
-    // every element in `existing` had a string `title`, but a tampered
-    // / older-schema localStorage entry could contain `[{ random:
-    // "junk" }]` — `d.title.toLowerCase()` then crashes with
-    // "Cannot read properties of undefined (reading 'toLowerCase')",
-    // killing the RFC publish flow. Filter to items that match the
-    // shape before scanning.
-    if (
-      existing.some(
-        (d) =>
-          d &&
-          typeof (d as { title?: unknown }).title === "string" &&
-          (d as { title: string }).title.toLowerCase() === rfc.title.toLowerCase()
-      )
-    ) {
+    const result = pushRfcDecision(rfc);
+    if (result.ok) {
+      toast.success(`Pushed to the Decision Log as ${decisionLabel(result.decision)}`);
+    } else if (result.reason === "already-pushed") {
+      toast.error(`This RFC is in the Decision Log already, as ${decisionLabel(result.existing)}.`);
+    } else {
       toast.error("A decision with this title already exists in the log.");
-      return;
-    }
-    const decision: Decision = {
-      id: crypto.randomUUID(),
-      title: rfc.title,
-      context: rfc.description ?? "",
-      decision: rfc.decision ?? "",
-      consequences: "",
-      alternatives: [],
-      status: "accepted",
-      date: rfc.decidedAt ?? todayLocalISO(),
-    };
-    try {
-      const updated = [decision, ...existing];
-      // BUG-T7-rfc-tracker-2: route through `setCloudPersistedValue`
-      // instead of a raw `localStorage.setItem`. The helper writes
-      // localStorage AND notifies same-tab `useCloudPersisted`
-      // subscribers AND fires the cloud-sync `markDirty` so the
-      // Decision Log mounted in another tab refreshes immediately and
-      // the new decision is mirrored to Supabase. The prior direct
-      // write didn't do any of that — silent loss on a cross-tab race
-      // and no Supabase mirror.
-      setCloudPersistedValue(STORAGE_KEY, updated);
-      // Synthetic StorageEvent kept for back-compat with any cross-tool
-      // listener that may have been added meanwhile; the helper already
-      // covers the same-tab subscribers path.
-      window.dispatchEvent(
-        new StorageEvent("storage", {
-          key: STORAGE_KEY,
-          newValue: JSON.stringify(updated),
-        })
-      );
-      toast.success("Pushed to Decision Log");
-    } catch {
-      toast.error("Failed to push to decision log");
     }
   };
 

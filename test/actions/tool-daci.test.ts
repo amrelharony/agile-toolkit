@@ -24,6 +24,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { DACIDecision } from "@/lib/stores/workspace-types";
+import { allDecisions } from "@/lib/decisions/model";
+import { daciView } from "@/lib/actions/tools/daci";
 
 // Side-effect import — registers the actions on the singleton.
 import "@/lib/actions/tools/daci";
@@ -55,6 +57,18 @@ function seed(partial: Partial<DACIDecision> & Pick<DACIDecision, "id" | "title"
   };
 }
 
+/**
+ * The record as the DACI alias reads it: the merged decision (a Decision
+ * saved under the id shadows the old row) in DACI's old shape.
+ */
+function stored(id: string) {
+  const ws = useWorkspaceStore.getState();
+  const d = allDecisions(ws.decisions, ws.daciDecisions, ws.rapidDecisions).find(
+    (x) => x.id === id
+  );
+  return d ? daciView(d, "2026-10-27") : undefined;
+}
+
 describe("tool.daci — registration", () => {
   it("registers all 4 expected actions", () => {
     for (const id of EXPECTED_ACTIONS) {
@@ -84,7 +98,7 @@ describe("tool.daci — registration", () => {
 
 describe("tool.daci.list_state — summary + roundtrip", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ daciDecisions: [] });
+    useWorkspaceStore.setState({ decisions: [], daciDecisions: [] });
   });
 
   it("returns zeroed buckets and empty items when the workspace is empty", async () => {
@@ -133,13 +147,14 @@ describe("tool.daci.list_state — summary + roundtrip", () => {
 
 describe("tool.daci.set_status — convenience update", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ daciDecisions: [] });
+    useWorkspaceStore.setState({ decisions: [], daciDecisions: [] });
   });
 
   it("updates an existing decision's status and returns {updated: true}", async () => {
+    // Deciding needs the Approver named, as on the page.
     useWorkspaceStore
       .getState()
-      .upsertDACIDecision(seed({ id: "d1", title: "Pricing", status: "open" }));
+      .upsertDACIDecision(seed({ id: "d1", title: "Pricing", status: "open", approver: "Bob" }));
 
     const action = registry.get("tool.daci.set_status");
     const result = (await action!.handler({ id: "d1", status: "decided" }, ctx())) as {
@@ -147,8 +162,7 @@ describe("tool.daci.set_status — convenience update", () => {
     };
     expect(result.updated).toBe(true);
 
-    const stored = useWorkspaceStore.getState().daciDecisions ?? [];
-    expect(stored.find((d) => d.id === "d1")?.status).toBe("decided");
+    expect(stored("d1")?.status).toBe("decided");
   });
 
   it("returns {updated: false} for an unknown id (no throw)", async () => {
@@ -175,7 +189,7 @@ describe("tool.daci.set_status — convenience update", () => {
     const action = registry.get("tool.daci.set_status");
     await action!.handler({ id: "d2", status: "decided" }, ctx());
 
-    const updated = (useWorkspaceStore.getState().daciDecisions ?? []).find((d) => d.id === "d2");
+    const updated = stored("d2");
     expect(updated?.driver).toBe("Alice");
     expect(updated?.approver).toBe("Bob");
     expect(updated?.contributors).toEqual(["Carol"]);
@@ -185,7 +199,7 @@ describe("tool.daci.set_status — convenience update", () => {
 
 describe("tool.daci.add_contributor — idempotent append", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ daciDecisions: [] });
+    useWorkspaceStore.setState({ decisions: [], daciDecisions: [] });
   });
 
   it("appends to an empty contributors list and returns {added: true}", async () => {
@@ -199,8 +213,8 @@ describe("tool.daci.add_contributor — idempotent append", () => {
     };
     expect(result.added).toBe(true);
 
-    const stored = (useWorkspaceStore.getState().daciDecisions ?? []).find((d) => d.id === "d1");
-    expect(stored?.contributors).toEqual(["Alice"]);
+    const row = stored("d1");
+    expect(row?.contributors).toEqual(["Alice"]);
   });
 
   it("is idempotent — second call with same name returns {added: false}", async () => {
@@ -214,8 +228,8 @@ describe("tool.daci.add_contributor — idempotent append", () => {
     };
     expect(result.added).toBe(false);
 
-    const stored = (useWorkspaceStore.getState().daciDecisions ?? []).find((d) => d.id === "d1");
-    expect(stored?.contributors).toEqual(["Alice"]); // not duplicated
+    const row = stored("d1");
+    expect(row?.contributors).toEqual(["Alice"]); // not duplicated
   });
 
   it("appends to an absent contributors slot (undefined → [name])", async () => {
@@ -229,8 +243,8 @@ describe("tool.daci.add_contributor — idempotent append", () => {
     };
     expect(result.added).toBe(true);
 
-    const stored = (useWorkspaceStore.getState().daciDecisions ?? []).find((d) => d.id === "d2");
-    expect(stored?.contributors).toEqual(["Dan"]);
+    const row = stored("d2");
+    expect(row?.contributors).toEqual(["Dan"]);
   });
 
   it("returns {added: false} for an unknown id", async () => {
@@ -245,7 +259,7 @@ describe("tool.daci.add_contributor — idempotent append", () => {
 
 describe("tool.daci.add_informed — idempotent append", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ daciDecisions: [] });
+    useWorkspaceStore.setState({ decisions: [], daciDecisions: [] });
   });
 
   it("appends to an empty informed list and returns {added: true}", async () => {
@@ -259,8 +273,8 @@ describe("tool.daci.add_informed — idempotent append", () => {
     };
     expect(result.added).toBe(true);
 
-    const stored = (useWorkspaceStore.getState().daciDecisions ?? []).find((d) => d.id === "d1");
-    expect(stored?.informed).toEqual(["Eve"]);
+    const row = stored("d1");
+    expect(row?.informed).toEqual(["Eve"]);
   });
 
   it("is idempotent — second call with same name returns {added: false}", async () => {
@@ -274,8 +288,8 @@ describe("tool.daci.add_informed — idempotent append", () => {
     };
     expect(result.added).toBe(false);
 
-    const stored = (useWorkspaceStore.getState().daciDecisions ?? []).find((d) => d.id === "d1");
-    expect(stored?.informed).toEqual(["Eve"]); // not duplicated
+    const row = stored("d1");
+    expect(row?.informed).toEqual(["Eve"]); // not duplicated
   });
 
   it("returns {added: false} for an unknown id", async () => {

@@ -39,16 +39,21 @@ describe("visitorRoomsEnabled", () => {
 });
 
 describe("tools and codes", () => {
-  it("allows Planning Poker, Retro and the three vote-round tools", () => {
+  it("allows Planning Poker, Retro and the six vote-round tools", () => {
     expect(VISITOR_TOOLS).toEqual([
       "planning-poker",
       "retro",
       "health-check",
       "psych-safety",
       "mood-tracker",
+      "kano-model",
+      "buy-a-feature",
+      "hundred-dollar-test",
     ]);
     expect(isVisitorTool("retro")).toBe(true);
     expect(isVisitorTool("mood-tracker")).toBe(true);
+    expect(isVisitorTool("kano-model")).toBe(true);
+    expect(isVisitorTool("hundred-dollar-test")).toBe(true);
     for (const t of ["canvas", "kudos", "Retro", "", null, 1]) expect(isVisitorTool(t)).toBe(false);
   });
 
@@ -59,6 +64,9 @@ describe("tools and codes", () => {
       "health-check": "vote",
       "psych-safety": "vote",
       "mood-tracker": "vote",
+      "kano-model": "vote",
+      "buy-a-feature": "vote",
+      "hundred-dollar-test": "vote",
     });
     expect(Object.keys(VISITOR_ROOM_KIND).sort()).toEqual([...VISITOR_TOOLS].sort());
   });

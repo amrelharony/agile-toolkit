@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BacklogItem, Sprint, Story } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem, Sprint, Story } from "@/lib/stores/workspace-types";
 import { BACKLOG_DEFAULTS } from "@/lib/prioritization/frameworks";
 import {
   backlogStories,
@@ -35,11 +35,41 @@ describe("priorityScore", () => {
         item("a", { businessValue: 8, timeCriticality: 5, riskReduction: 3, jobSize: 4 })
       )
     ).toBe(4);
+    // Phase 7: a job size of 0 is Not scored (it was floored at 1), and a
+    // legacy 0 < size < 1 divides by 1, the WSJF tool's and the hub's floor.
     expect(
       priorityScore(
         item("b", { businessValue: 2, timeCriticality: 1, riskReduction: 1, jobSize: 0 })
       )
+    ).toBeNull();
+    expect(
+      priorityScore(
+        item("c", { businessValue: 2, timeCriticality: 1, riskReduction: 1, jobSize: 0.5 })
+      )
     ).toBe(4);
+  });
+
+  it("reads a WSJF row linked before Phase 7, as the Prioritizer does", () => {
+    // Every WSJF part still at the old default (never saved since), the
+    // row re-scored in the tool: (8 + 3 + 2) ÷ 1.
+    const legacy: BacklogItem = {
+      id: "old",
+      name: "Checkout",
+      ...{ businessValue: 5, timeCriticality: 5, riskReduction: 5, jobSize: 5 },
+    };
+    const rows: PrioritizationItem[] = [
+      {
+        id: "w1",
+        framework: "wsjf",
+        title: "Checkout",
+        fields: { businessValue: 8, timeCriticality: 3, rrOe: 2, jobSize: 1 },
+        backlogItemId: "old",
+        updatedAt: "2026-10-01T09:00:00.000Z",
+      },
+    ];
+    expect(priorityScore(legacy)).toBeNull();
+    expect(priorityScore(legacy, rows)).toBe(13);
+    expect(storyFromBacklogItem(legacy, "s1", rows).priorityScore).toBe(13);
   });
 });
 
@@ -71,7 +101,14 @@ describe("stories", () => {
       item("Refund flow", { businessValue: 9, timeCriticality: 6, riskReduction: 3, jobSize: 3 }),
       "story_1"
     );
-    expect(s).toEqual({ id: "story_1", title: "Refund flow", status: "backlog", priorityScore: 6 });
+    expect(s).toEqual({
+      id: "story_1",
+      title: "Refund flow",
+      status: "backlog",
+      priorityScore: 6,
+      // Phase 7: a story pulled from the backlog links back to its item.
+      sourceRef: { tool: "prioritizer", id: "Refund flow" },
+    });
   });
 
   it("describes the plan in one line", () => {

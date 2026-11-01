@@ -13,20 +13,48 @@
 
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { defineCrudActions } from "../define-crud";
+import { defineCrudActions, type CrudEnv } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   ADKAR_DOC_ID,
   ADKAR_ELEMENTS,
+  ALLOCATION_ROUND_TOOLS,
+  BUY_A_FEATURE_ID,
   CEREMONY_CADENCE_ID,
+  CYNEFIN_ANSWERS,
+  CYNEFIN_QUESTION_IDS,
+  DECISION_STATUSES,
+  DECISION_TEMPLATES,
+  DEFAULT_WEIGHTED_MATRIX_ID,
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
   MOOD_TRACKER_ID,
   RACI_ID,
+  REACH_PERIODS,
+  WEIGHTED_CRITERION_KIND,
+  WEIGHTED_MATRIX_KIND,
+  WEIGHTED_OPTION_KIND,
   WORKING_AGREEMENT_ID,
+  weightedMatrixRemoval,
+  withoutWeightedScores,
 } from "@/lib/stores/workspace-types";
+import {
+  serverBulkUpsertEntities,
+  serverDeleteEntity,
+  serverGetEntity,
+  serverListEntities,
+} from "../server-store";
+import { applyItemPatch, itemPatchChanges, rowsUnlinkedFrom } from "@/lib/prioritization/binding";
+import { savedByEngine } from "@/lib/prioritization/defaults";
+import {
+  markLegacyDifferences,
+  method,
+  withLegacyLinks,
+  type Values,
+} from "@/lib/prioritization/methods";
 import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
 import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
 import {
@@ -44,6 +72,7 @@ import type {
   Risk,
   Okr,
   Decision,
+  DecisionRole,
   TechDebtItem,
   TeamMember,
   // Phase 19 — AI / LLM PM
@@ -110,10 +139,15 @@ import type {
   MoodPulse,
   // Phase 20 — Prioritization
   PrioritizationItem,
+  // Phase 7 — Prioritize & decide
+  AllocationRound,
+  BuyAFeatureGame,
+  WeightedMatrix,
   // Phase 21 — Decision Frameworks
   DACIDecision,
   RAPIDDecision,
   WeightedOption,
+  WeightedCriterion,
   SixHatsThought,
   SixHatsSession,
   OODACycle,
@@ -262,6 +296,14 @@ const StorySchema = z.object({
     .describe(
       "Definition-of-Done criteria ticked on the story's board card. Whether it meets the DoD is derived against today's required criteria (workspace.definition_of_done)."
     ),
+  backlogRank: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "The decided backlog order it was pulled in with (its backlog item's rank, 1 = first). Absent: not ordered."
+    ),
 }) as unknown as z.ZodType<Story>;
 
 const ImpedimentSchema = z.object({
@@ -314,16 +356,78 @@ const OkrSchema = z.object({
   owner: z.string().optional(),
 }) as unknown as z.ZodType<Okr>;
 
+// Roster spellings per decision role. DACI's Driver and RAPID's Recommend
+// are one person each; strict, so an unknown role is refused, not dropped.
+const RoleHolders = z.array(z.string());
+const DecisionRolesSchema = z
+  .object({
+    driver: RoleHolders.max(1).optional().describe("DACI Driver: one person at most."),
+    contributor: RoleHolders.optional().describe("DACI Contributors."),
+    informed: RoleHolders.optional().describe("DACI Informed."),
+    recommend: RoleHolders.max(1).optional().describe("RAPID Recommend: one person at most."),
+    agree: RoleHolders.optional().describe("RAPID Agree (a veto)."),
+    perform: RoleHolders.optional().describe("RAPID Perform."),
+    input: RoleHolders.optional().describe("RAPID Input."),
+  } satisfies Record<DecisionRole, z.ZodType>)
+  .strict();
+
+// Every Phase 7 field is listed so an update keeps it (z.object drops keys it
+// doesn't know). Dates stay loose strings, as `date` always was: older rows
+// and agents may hold a timestamp, which lib/decisions reads as its day.
 const DecisionSchema = z.object({
   id: z.string(),
   title: z.string(),
   context: z.string().optional(),
-  decision: z.string(),
+  decision: z.string().describe('The outcome ("We will …"); "" until decided.'),
   consequences: z.string().optional(),
-  alternatives: z.array(z.string()).optional(),
-  status: z.enum(["proposed", "accepted", "deprecated", "superseded"]),
-  date: z.string(),
+  alternatives: z
+    .array(z.string())
+    .optional()
+    .describe("Pre-template ADRs: one option per line. New records use options."),
+  status: z.enum(DECISION_STATUSES),
+  date: z.string().describe("YYYY-MM-DD the record was raised (can be backdated)."),
   sourceRef: HandoffRefSchema.optional(),
+  template: z
+    .enum(DECISION_TEMPLATES)
+    .optional()
+    .describe('The form it was raised with; absent: "adr".'),
+  number: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "One numbering sequence across templates (ADR-0003, DACI-0004); never changed, and no two records share one."
+    ),
+  options: z
+    .array(z.object({ id: z.string(), text: z.string(), note: z.string().optional() }))
+    .optional()
+    .describe("The options weighed: {id, text, note (why rejected, or its trade-offs)}."),
+  chosenOptionId: z.string().optional().describe("The option the outcome picked."),
+  recommendation: z
+    .string()
+    .optional()
+    .describe("The DACI Driver's or RAPID Recommender's proposal."),
+  decider: z
+    .string()
+    .optional()
+    .describe("Roster spelling: the one person with the final say (DACI Approver, RAPID Decide)."),
+  roles: DecisionRolesSchema.optional().describe(
+    "Roster spellings per role; driver and recommend hold at most one."
+  ),
+  decidedAt: z.string().optional().describe("YYYY-MM-DD it was accepted on."),
+  implementedAt: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD it was carried out (DACI/RAPID "implemented").'),
+  reopenedAt: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD an accepted decision went back to proposed (DACI "revisit").'),
+  supersededBy: z
+    .string()
+    .optional()
+    .describe('Id of the decision that replaced this one (status "superseded").'),
 }) as unknown as z.ZodType<Decision>;
 
 const TechDebtSchema = z.object({
@@ -2075,6 +2179,10 @@ const PrioritizationItemSchema = z.object({
   status: z.enum(["open", "scored", "decided", "shipped", "dropped"]).optional(),
   updatedAt: z.string(),
   backlogItemId: z.string().optional(),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where this row was sent (a funded Buy-a-Feature feature: a backlog story)."),
 }) as unknown as z.ZodType<PrioritizationItem>;
 
 defineCrudActions<PrioritizationItem>({
@@ -2085,6 +2193,168 @@ defineCrudActions<PrioritizationItem>({
   upsert: (x) => ws().upsertPrioritization(x),
   remove: (id) => ws().removePrioritization(id),
   generateId: () => `prio_${nanoid(8)}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 7 — Prioritize & decide: group allocation rounds and the
+ * Buy-a-Feature game
+ * ────────────────────────────────────────────────────────────────── */
+
+// Whole units of play money: the vote-room kit's allocation budget bounds.
+const AllocationBudget = z.number().int().min(10).max(9_999);
+const AllocationUnit = z.string().max(4);
+
+/**
+ * The record rules the vote-room kit applies before it saves a round, so an
+ * agent's create or update can't store what no room would: it was revealed
+ * (ballots ≥ minN), each item's bands cover every ballot once on the round's
+ * band edges, nobody counted twice as a backer, nothing above what everyone
+ * had to give, and no spread (backers, bands) under MIN_SAMPLE.distribution
+ * answers (the Phase 7 decisions: totals from 3 answers, bands from 5) or
+ * for totals typed by hand (spreadKnown false, a count entry's only).
+ * zod runs it only on a record whose fields already parsed.
+ */
+function checkAllocationRound(r: AllocationRound, ctx: z.RefinementCtx): void {
+  const issue = (path: (string | number)[], message: string) =>
+    ctx.addIssue({ code: "custom", path, message });
+  if (r.ballots < r.minN) {
+    issue(
+      ["ballots"],
+      `A round is saved once revealed: ballots must be at least minN (${r.minN}).`
+    );
+  }
+  if (r.bandEdges[0] !== 0 || r.bandEdges.some((e, i) => i > 0 && e <= r.bandEdges[i - 1])) {
+    issue(["bandEdges"], "Band edges start at 0 and ascend.");
+  }
+  const typed = r.spreadKnown === false;
+  if (typed && r.source !== "facilitator") {
+    issue(
+      ["spreadKnown"],
+      "Only totals typed by hand (source facilitator) have an unknown spread."
+    );
+  }
+  const spreadShown = !typed && r.ballots >= MIN_SAMPLE.distribution;
+  const withheld = typed
+    ? "Null for typed totals (spreadKnown false): the spread isn't known."
+    : `Withheld (null) under ${MIN_SAMPLE.distribution} answers.`;
+  r.items.forEach((item, i) => {
+    if (item.total > r.budget * r.ballots) {
+      issue(["items", i, "total"], "More than everyone's budget added up.");
+    }
+    if (item.backers !== null) {
+      if (!spreadShown) {
+        issue(["items", i, "backers"], withheld);
+      } else if (item.backers > r.ballots) {
+        issue(["items", i, "backers"], "More backers than ballots.");
+      }
+    }
+    if (item.bands !== null) {
+      if (!spreadShown) {
+        issue(["items", i, "bands"], withheld);
+      } else if (item.bands.length !== r.bandEdges.length) {
+        issue(["items", i, "bands"], "One count per band edge.");
+      } else if (item.bands.reduce((a, b) => a + b, 0) !== r.ballots) {
+        issue(
+          ["items", i, "bands"],
+          "Each ballot falls in exactly one band: they add up to ballots."
+        );
+      }
+    }
+  });
+}
+
+const AllocationRoundSchema = z
+  .object({
+    id: z.string(),
+    tool: z.enum(ALLOCATION_ROUND_TOOLS),
+    roundId: z.string().describe('The live round\'s id, or "tally-<base36>" for a count entry.'),
+    title: z.string(),
+    budget: AllocationBudget.describe("Whole units each person split."),
+    unit: AllocationUnit.describe('Shown before amounts, e.g. "$".'),
+    spendAll: z
+      .boolean()
+      .describe("true: each split used the whole budget ($100 Test); false: up to it."),
+    date: IsoDay.describe("The day the round is for (can be backdated)."),
+    closedAt: z.string(),
+    minN: PeopleCount.min(1).describe("The fewest answers the totals showed from."),
+    ballots: PeopleCount.describe("How many people answered."),
+    source: z.enum(["room", "facilitator"]),
+    spreadKnown: z
+      .boolean()
+      .optional()
+      .describe(
+        "false: the totals were typed by hand, so the spread isn't known (no backers or bands). Absent: read from the bands."
+      ),
+    bandEdges: z
+      .array(z.number().int().min(0))
+      .describe("Lower edge of each band, ascending from 0."),
+    items: z
+      .array(
+        z.object({
+          itemId: z.string().describe("The prioritization row this line was."),
+          text: z.string(),
+          cap: z.number().int().min(0).optional(),
+          total: z.number().int().min(0).describe("Everyone's amounts on the item, added up."),
+          backers: PeopleCount.nullable().describe(
+            "People who gave it more than 0; null when the spread was withheld."
+          ),
+          bands: z
+            .array(PeopleCount)
+            .nullable()
+            .describe(
+              "People per band; null when withheld (under 5 answers, or totals typed by hand)."
+            ),
+        })
+      )
+      // Two items at least, as on every sheet. The 20-item limit is the
+      // live round's only (VOTE_LIMITS.maxAllocationItems): a round counted
+      // on paper or typed in, and saved by the page or record_round, can
+      // hold more, so no maximum here.
+      .min(2)
+      .describe(
+        "Aggregates per item only, never anyone's split. 2 items at least; a live round holds up to 20, one counted on paper or typed in can hold more."
+      ),
+  })
+  .superRefine((r, ctx) =>
+    checkAllocationRound(r as AllocationRound, ctx)
+  ) as unknown as z.ZodType<AllocationRound>;
+
+defineCrudActions<AllocationRound>({
+  toolId: "workspace.allocation_round",
+  entityName: "anonymous allocation round",
+  schema: AllocationRoundSchema,
+  selectAll: () => ws().allocationRounds ?? [],
+  upsert: (x) => ws().upsertAllocationRound(x),
+  remove: (id) => ws().removeAllocationRound(id),
+  generateId: () => `allocationRound_${nanoid(8)}`,
+});
+
+const BuyAFeatureGameSchema = z.object({
+  id: SingletonId(BUY_A_FEATURE_ID),
+  budgetPerPlayer: AllocationBudget.optional().describe(
+    "Play money each player gets. Unset until the facilitator sets it."
+  ),
+  players: z
+    .number()
+    .int()
+    .min(1)
+    .max(999)
+    .optional()
+    .describe("Players in the game. Unset until set (never assumed from the roster)."),
+  unit: AllocationUnit.optional().describe('Shown before amounts, e.g. "$".'),
+  updatedAt: z.string(),
+}) as unknown as z.ZodType<BuyAFeatureGame>;
+
+// A singleton like the Phase 6 documents: the page and tool.buy_a_feature.*
+// read only BUY_A_FEATURE_ID, so there is no generateId and create needs the
+// id (see SingletonId). The kind kindFromToolId derives is BUY_A_FEATURE_KIND.
+defineCrudActions<BuyAFeatureGame>({
+  toolId: "workspace.buy_a_feature_game",
+  entityName: `Buy-a-Feature game settings (singleton id ${BUY_A_FEATURE_ID})`,
+  schema: BuyAFeatureGameSchema,
+  selectAll: () => ws().buyAFeatureGames ?? [],
+  upsert: (x) => ws().upsertBuyAFeatureGame(x),
+  remove: (id) => ws().removeBuyAFeatureGame(id),
 });
 
 /* ────────────────────────────────────────────────────────────────────
@@ -2118,11 +2388,45 @@ const RAPIDDecisionSchema = z.object({
   date: z.string(),
 }) as unknown as z.ZodType<RAPIDDecision>;
 
+// Not "": an empty id would put the row in no matrix (weightedMatrixIdOf
+// reads it as the default one, but nothing should write it).
+const WeightedMatrixIdField = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(`The matrix it is in; absent: the default matrix (${DEFAULT_WEIGHTED_MATRIX_ID}).`);
+
 const WeightedOptionSchema = z.object({
   id: z.string(),
   name: z.string(),
   scores: z.record(z.string(), z.number()),
+  matrixId: WeightedMatrixIdField,
+  note: z.string().optional().describe("Why it scored as it did, or a caveat."),
 }) as unknown as z.ZodType<WeightedOption>;
+
+const WeightedCriterionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  weight: z.number().min(0),
+  matrixId: WeightedMatrixIdField,
+  low: z.string().optional().describe("What a score of 1 means on this criterion."),
+  high: z.string().optional().describe("What a score of 10 means on this criterion."),
+}) as unknown as z.ZodType<WeightedCriterion>;
+
+const WeightedMatrixSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  question: z
+    .string()
+    .optional()
+    .describe("What is being decided; becomes the decision record's title."),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where the result went (a decision record)."),
+}) as unknown as z.ZodType<WeightedMatrix>;
 
 const SixHatsHatSchema = z.enum(["white", "red", "black", "yellow", "green", "blue"]);
 
@@ -2164,6 +2468,16 @@ const CynefinItemSchema = z.object({
   rationale: z.string().optional(),
   recommendedAction: z.string().optional(),
   loggedAt: z.string(),
+  answers: z
+    .partialRecord(z.enum(CYNEFIN_QUESTION_IDS), z.enum(CYNEFIN_ANSWERS))
+    .optional()
+    .describe(
+      "The guided sense-making answers (crisis, known, analysable, emergent, disagree: yes, no or unsure) the suggested domain came from."
+    ),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where it was sent (a complex item: a hypothesis to test)."),
 }) as unknown as z.ZodType<CynefinItem>;
 
 const PolaritySchema = z.object({
@@ -2323,21 +2637,57 @@ const StoryMapSchema = z.object({
   ),
 }) as unknown as z.ZodType<StoryMap>;
 
+// Every method input is optional since Phase 7: a missing one is Not scored,
+// never a default. The bounds stay as loose as before (any number), so no
+// stored item stops validating on update; the CRUD's prepare judges what a
+// write sets by the methods' own rules (prepareBacklogItem).
 const BacklogItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  moscow: z.enum(["must", "should", "could", "wont"]),
-  businessValue: z.number(),
-  timeCriticality: z.number(),
-  riskReduction: z.number(),
-  jobSize: z.number(),
-  reach: z.number(),
-  impact: z.number(),
-  confidence: z.number(),
-  effort: z.number(),
-  value: z.number(),
-  matrixEffort: z.number(),
+  moscow: z
+    .enum(["must", "should", "could", "wont"])
+    .optional()
+    .describe("MoSCoW bucket; absent: not sorted yet."),
+  businessValue: z
+    .number()
+    .optional()
+    .describe(
+      "THE value: WSJF business value and the Value/Effort value axis, Fibonacci 1, 2, 3, 5, 8, 13, 20. A write off the scale is refused unless the item already holds that value."
+    ),
+  timeCriticality: z.number().optional().describe("WSJF time criticality, Fibonacci 1-20."),
+  riskReduction: z
+    .number()
+    .optional()
+    .describe("WSJF risk reduction / opportunity enablement, Fibonacci 1-20."),
+  jobSize: z.number().optional().describe("WSJF job size, Fibonacci 1-20."),
+  reach: z.number().optional().describe("RICE reach: people per reachPeriod."),
+  reachPeriod: z
+    .enum(REACH_PERIODS)
+    .optional()
+    .describe("The period reach counts over; absent: per quarter."),
+  impact: z.number().optional().describe("RICE impact: 3, 2, 1, 0.5 or 0.25 (exact value kept)."),
+  confidence: z.number().optional().describe("RICE confidence, percent: 100, 80 or 50."),
+  effort: z.number().optional().describe("RICE effort, person-months (minimum 0.5)."),
+  value: z
+    .number()
+    .optional()
+    .describe(
+      "Deprecated, read-only: the old 1-10 matrix value, read only when businessValue is missing. A create or update that writes it is refused; write businessValue instead (which drops it)."
+    ),
+  matrixEffort: z.number().optional().describe("Value/Effort effort, 1-10."),
+  rank: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("The decided order, 1 = first (set by the Prioritizer's Decide order)."),
+  updatedAt: z
+    .string()
+    .optional()
+    .describe(
+      "Stamped by every create and update (a value given is ignored). An item without it was never saved by the current code, so a method whose every input still holds the old Add item default reads as Not scored; an update that changes the item clears those defaults from it."
+    ),
 }) as unknown as z.ZodType<BacklogItem>;
 
 const NpsResponseSchema = z.object({
@@ -2498,6 +2848,62 @@ defineCrudActions<WeightedOption>({
   generateId: () => `weightedOpt_${nanoid(8)}`,
 });
 
+// The criteria the page always kept (WEIGHTED_CRITERION_KIND) had no CRUD
+// before Phase 7; kindFromToolId derives the kind the browser syncs. Delete
+// strips the criterion's score from every option on both transports, as
+// removeWeightedCriterion does in the tab (its R5 fix).
+defineCrudActions<WeightedCriterion>({
+  toolId: "workspace.weighted_criterion",
+  entityName: "weighted-decision criterion",
+  schema: WeightedCriterionSchema,
+  selectAll: () => ws().weightedCriteria ?? [],
+  upsert: (x) => ws().upsertWeightedCriterion(x),
+  remove: (id) => ws().removeWeightedCriterion(id),
+  generateId: () => `weightedCrit_${nanoid(8)}`,
+  cascade: {
+    describe: "Also removes its score from every option.",
+    server: async (userId, id) => {
+      const options = await serverListEntities<WeightedOption>(userId, WEIGHTED_OPTION_KIND);
+      await serverBulkUpsertEntities(
+        userId,
+        WEIGHTED_OPTION_KIND,
+        withoutWeightedScores(options, new Set([id]))
+      );
+      await serverDeleteEntity(userId, WEIGHTED_CRITERION_KIND, id);
+    },
+  },
+});
+
+// Kind WEIGHTED_MATRIX_KIND, which kindFromToolId derives. Delete removes
+// the matrix's options and criteria on both transports: removeWeightedMatrix
+// in the tab, the same weightedMatrixRemoval plan server-side (canvas links
+// are cleared in the tab only, as for every delete).
+defineCrudActions<WeightedMatrix>({
+  toolId: "workspace.weighted_matrix",
+  entityName: "weighted-decision matrix",
+  schema: WeightedMatrixSchema,
+  selectAll: () => ws().weightedMatrices ?? [],
+  upsert: (x) => ws().upsertWeightedMatrix(x),
+  remove: (id) => ws().removeWeightedMatrix(id),
+  generateId: () => `weightedMatrix_${nanoid(8)}`,
+  cascade: {
+    describe: `Also deletes the options and criteria in it (for the default matrix ${DEFAULT_WEIGHTED_MATRIX_ID}, which needs no stored row: every option and criterion without a matrixId), and removes those criteria's scores from other options. There is no undo.`,
+    server: async (userId, id) => {
+      const [options, criteria] = await Promise.all([
+        serverListEntities<WeightedOption>(userId, WEIGHTED_OPTION_KIND),
+        serverListEntities<WeightedCriterion>(userId, WEIGHTED_CRITERION_KIND),
+      ]);
+      const plan = weightedMatrixRemoval(id, options, criteria);
+      await serverBulkUpsertEntities(userId, WEIGHTED_OPTION_KIND, plan.rescored);
+      await Promise.all([
+        ...plan.optionIds.map((o) => serverDeleteEntity(userId, WEIGHTED_OPTION_KIND, o)),
+        ...plan.criterionIds.map((c) => serverDeleteEntity(userId, WEIGHTED_CRITERION_KIND, c)),
+      ]);
+      await serverDeleteEntity(userId, WEIGHTED_MATRIX_KIND, id);
+    },
+  },
+});
+
 defineCrudActions<SixHatsThought>({
   toolId: "workspace.six_hats_thought",
   entityName: "Six Hats thought",
@@ -2638,7 +3044,205 @@ defineCrudActions<StoryMap>({
   generateId: () => `storyMap_${nanoid(8)}`,
 });
 
-defineCrudActions<BacklogItem>({
+// The kinds kindFromToolId derives for workspace.backlog_item and
+// workspace.prioritization (the method tools' rows).
+const BACKLOG_ITEM_KIND = "workspace:backlogItem";
+const PRIORITIZATION_KIND = "workspace:prioritization";
+
+/** The methods whose rules judge a backlog item's inputs (MoSCoW's bucket is the schema's enum). */
+const CHECKED_BACKLOG_METHODS = ["wsjf", "rice", "value-effort"] as const;
+
+/** The engine's own keys: never something a write sets. */
+const ENGINE_KEYS = new Set(["id", "updatedAt"]);
+
+/**
+ * What `next` sets differently from the stored item: each changed key with
+ * its new value, and a key `next` no longer holds as undefined (a clear).
+ * The id and `updatedAt` are the engine's, never a change. For a write
+ * without the caller's patch at hand; an update judges the patch itself
+ * (patchedFields).
+ */
+function backlogItemChanges(next: BacklogItem, current: BacklogItem): Partial<BacklogItem> {
+  const a = next as unknown as Record<string, unknown>;
+  const b = current as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const keys = Object.keys(b).concat(Object.keys(a).filter((k) => !(k in b)));
+  for (const key of keys) {
+    if (!ENGINE_KEYS.has(key) && a[key] !== b[key]) out[key] = a[key];
+  }
+  return out as Partial<BacklogItem>;
+}
+
+/**
+ * The fields an update's patch sets, as validated (`next` is the patch
+ * merged over the stored item): every key the caller sent, also one equal
+ * to what the item stores, so a stored old default sent again is a choice,
+ * as the hub's saveBacklogItem takes it. A key the schema doesn't know
+ * (dropped from `next`) and the engine's keys are left out, and so is the
+ * read-only legacy `value` sent back unchanged (an item echoed from list):
+ * re-sending what is stored there is never a write.
+ */
+function patchedFields(
+  next: BacklogItem,
+  patch: Readonly<Record<string, unknown>>,
+  current: BacklogItem
+): Partial<BacklogItem> {
+  const valid = next as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    if (ENGINE_KEYS.has(key) || !(key in valid)) continue;
+    if (key === "value" && valid.value === current.value) continue;
+    out[key] = valid[key];
+  }
+  return out as Partial<BacklogItem>;
+}
+
+/**
+ * The problems with the inputs a write sets, by each method's own rule
+ * (lib/prioritization/methods), as tool.prioritizer.add_item and the hub's
+ * editors judge them: the WSJF parts and the one value field on the
+ * Fibonacci steps, RICE's confidence and 0.5 effort minimum, the matrix
+ * effort 1-10. `keep` is what the item reads as now, so a value it already
+ * holds stays valid; inputs the write leaves as they are aren't judged (a
+ * rename never fails on a legacy value). The legacy 1-10 `value` is never
+ * written again.
+ */
+function backlogInputProblems(set: Partial<BacklogItem>, current?: BacklogItem): string[] {
+  const problems = new Map<string, string>();
+  if (set.value !== undefined) {
+    problems.set(
+      "value",
+      "value: the old 1-10 matrix value is read-only; write businessValue (1, 2, 3, 5, 8, 13 or 20) instead."
+    );
+  }
+  for (const id of CHECKED_BACKLOG_METHODS) {
+    const m = method(id);
+    const draft: Values = {};
+    for (const input of m.inputs) {
+      const v = input.backlogKey ? set[input.backlogKey] : undefined;
+      if (typeof v === "number" || typeof v === "string") draft[input.key] = v;
+    }
+    if (Object.keys(draft).length === 0) continue;
+    const checked = m.validate(
+      draft,
+      current && m.fromBacklog ? m.fromBacklog(current) : undefined
+    );
+    if (checked.ok) continue;
+    for (const input of m.inputs) {
+      const message = checked.errors[input.key];
+      const key = input.backlogKey;
+      if (message && key && input.key in draft && !problems.has(key)) {
+        problems.set(key, `${key}: ${message}`);
+      }
+    }
+  }
+  return Array.from(problems.values());
+}
+
+/** What a backlog item's write reads besides the item (backlogWriteRows). */
+interface BacklogWriteContext {
+  /** The method rows, for an update of an item the new code never saved; else none. */
+  rows: readonly PrioritizationItem[];
+}
+
+/** The method rows on a write's transport: the browser store's, or the caller's on the server. */
+const prioritizationRowsOn = async (
+  env: CrudEnv<BacklogItem>
+): Promise<readonly PrioritizationItem[]> =>
+  env.userId
+    ? serverListEntities<PrioritizationItem>(env.userId, PRIORITIZATION_KIND)
+    : (ws().prioritizations ?? []);
+
+/**
+ * The rows an update of an item the new code never saved works from: its
+ * links made before Phase 7 may hold the values it reads as (methods
+ * withLegacyLinks), and the ones that disagree with it are marked before
+ * its stamp (markLegacyDifferences). None for a create or a stamped item:
+ * nothing reads them there, so no list is fetched.
+ */
+async function backlogWriteRows(
+  current: BacklogItem | undefined,
+  env: CrudEnv<BacklogItem>
+): Promise<BacklogWriteContext> {
+  return { rows: current && !savedByEngine(current) ? await prioritizationRowsOn(env) : [] };
+}
+
+/**
+ * The item as the engine saves it, the server twin of the hub's
+ * saveBacklogItem: the inputs a write sets are checked first (nothing is
+ * saved on a problem), a create is stamped as createBacklogItem stamps it,
+ * and an update starts from the item as its links made before Phase 7 say
+ * it reads (withLegacyLinks), takes each key the patch sets that differs
+ * from what the item reads as (itemPatchChanges: a stored old default sent
+ * again is a choice; a value equal to what it reads is no change) and
+ * applies them through applyItemPatch, which clears the old-default
+ * fingerprints in every method, drops the legacy `value` when
+ * businessValue is written and stamps `updatedAt` (lib/prioritization/
+ * defaults reads an unstamped item's old defaults as Not scored). An
+ * update that changes nothing leaves the item as it is.
+ */
+function prepareBacklogItem(
+  next: BacklogItem,
+  current: BacklogItem | undefined,
+  patch?: Readonly<Record<string, unknown>>,
+  loaded?: BacklogWriteContext
+): BacklogItem {
+  const now = new Date().toISOString();
+  if (!current) {
+    const problems = backlogInputProblems(next);
+    if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
+    return { ...next, updatedAt: now };
+  }
+  const base = withLegacyLinks(current, loaded?.rows ?? []);
+  const set = itemPatchChanges(
+    base,
+    patch ? patchedFields(next, patch, current) : backlogItemChanges(next, current)
+  );
+  if (Object.keys(set).length === 0) return current;
+  const problems = backlogInputProblems(set, base);
+  if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
+  return applyItemPatch(base, set, now);
+}
+
+/**
+ * The last step before a backlog item's create or update writes, on both
+ * transports. A rank the write sets that another item holds is refused:
+ * rank is the decided order, one place per item, and
+ * tool.prioritizer.set_order saves a whole order. Then, as the hub's
+ * saves do, the first save of an item the new code never saved marks its
+ * legacy rows that disagree with it (markLegacyDifferences, from the item
+ * as stored and the rows its save base was read from), so their tools
+ * still ask which value to keep once the stamp is on.
+ */
+async function beforeBacklogItemWrite(
+  next: BacklogItem,
+  current: BacklogItem | undefined,
+  env: CrudEnv<BacklogItem>,
+  loaded?: BacklogWriteContext
+): Promise<void> {
+  if (next === current) return;
+  if (typeof next.rank === "number" && next.rank !== current?.rank) {
+    const holder = (await env.all()).find((b) => b.id !== next.id && b.rank === next.rank);
+    if (holder) {
+      throw new Error(
+        `rank: ${next.rank} is already the place of “${holder.name}” (${holder.id}) in the decided order, and each place holds one item. Save a whole order with tool.prioritizer.set_order. Nothing was saved.`
+      );
+    }
+  }
+  if (!current || !loaded?.rows.length) return;
+  const marks = markLegacyDifferences(current, loaded.rows, { now: next.updatedAt, after: next });
+  if (marks.length === 0) return;
+  if (env.userId) await serverBulkUpsertEntities(env.userId, PRIORITIZATION_KIND, marks);
+  else for (const row of marks) ws().upsertPrioritization(row);
+}
+
+// Create and update go through the engine as the hub's writes do
+// (backlogWriteRows, prepareBacklogItem, then beforeBacklogItemWrite's
+// rank check and legacy marks). Delete keeps the method rows that scored
+// the item on both transports: removeBacklogItem in the tab, the same
+// rowsUnlinkedFrom server-side, each row frozen with the values it read
+// through to the item, then unlinked.
+defineCrudActions<BacklogItem, BacklogWriteContext>({
   toolId: "workspace.backlog_item",
   entityName: "backlog item",
   schema: BacklogItemSchema,
@@ -2646,6 +3250,24 @@ defineCrudActions<BacklogItem>({
   upsert: (x) => ws().upsertBacklogItem(x),
   remove: (id) => ws().removeBacklogItem(id),
   generateId: () => `backlog_${nanoid(8)}`,
+  load: backlogWriteRows,
+  prepare: prepareBacklogItem,
+  beforeWrite: beforeBacklogItemWrite,
+  cascade: {
+    describe:
+      "The method rows that scored it (RICE, WSJF, MoSCoW, …) stay, unlinked, each keeping the values it showed.",
+    server: async (userId, id) => {
+      const [item, rows] = await Promise.all([
+        serverGetEntity<BacklogItem>(userId, BACKLOG_ITEM_KIND, id),
+        serverListEntities<PrioritizationItem>(userId, PRIORITIZATION_KIND),
+      ]);
+      const unlinked = rowsUnlinkedFrom(rows, id, item ?? undefined);
+      if (unlinked.length > 0) {
+        await serverBulkUpsertEntities(userId, PRIORITIZATION_KIND, unlinked);
+      }
+      await serverDeleteEntity(userId, BACKLOG_ITEM_KIND, id);
+    },
+  },
 });
 
 defineCrudActions<NpsResponse>({

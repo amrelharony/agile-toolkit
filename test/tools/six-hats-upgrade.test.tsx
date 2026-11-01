@@ -8,7 +8,7 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Decision, SixHatsSession, SixHatsThought } from "@/lib/stores/workspace-types";
 import { countdown, useDockTimer } from "@/lib/timer/dock-timer";
-import { DECISION_LOG_KEY } from "@/lib/handoffs/targets/decision";
+import { DECISION_LOG_KEY } from "@/lib/decisions/legacy-log";
 import { DEFAULT_HAT_ORDER } from "@/lib/actions/tools/six-hats";
 
 /**
@@ -664,25 +664,28 @@ describe("the Blue-hat summary", () => {
 
     openMenu("Send to… Adopt trunk-based development?");
     fireEvent.click(screen.getByRole("menuitem", { name: "Decision record" }));
-    const blob = decisionBlob();
-    expect(blob).toHaveLength(1);
-    expect(blob[0]).toMatchObject({
+    // One numbered ADR in the workspace; the Decision Log's old blob isn't written.
+    const [record] = ws().decisions;
+    expect(ws().decisions).toHaveLength(1);
+    expect(record).toMatchObject({
       title: "Adopt trunk-based development?",
       context: "Try it for one sprint.",
       status: "proposed",
+      template: "adr",
+      number: 1,
       sourceRef: { tool: "six-hats", id: "s1" },
     });
-    expect(ws().decisions).toEqual([blob[0]]);
+    expect(decisionBlob()).toEqual([]);
     expect(sessionById("s1").sentTo).toEqual([
-      expect.objectContaining({ route: "decision", targetId: blob[0].id }),
+      expect.objectContaining({ route: "decision", targetId: record.id }),
     ]);
+    // "Open" goes to the record itself.
     expect(screen.getByRole("link", { name: /Proposed in the Decision Log/ })).toHaveAttribute(
       "href",
-      "/decision-log"
+      `/decision-log?id=${record.id}`
     );
 
     undoLast();
-    expect(decisionBlob()).toEqual([]);
     expect(ws().decisions).toEqual([]);
     expect(sessionById("s1").sentTo).toEqual([]);
   });

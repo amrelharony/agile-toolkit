@@ -552,6 +552,35 @@ describe("walking the backlog", () => {
     expect(within(panel()).getByText("Story 1 of 3 to refine")).toBeInTheDocument();
   });
 
+  it("lists pulled stories by the rank their backlog item holds now", () => {
+    // Pulled under an earlier Decide order (Later first); the backlog has
+    // been re-ordered since (Sooner first).
+    useWorkspaceStore.setState({
+      stories: [
+        story("x", {
+          title: "Later",
+          backlogRank: 1,
+          sourceRef: { tool: "prioritizer", id: "b-later" },
+        }),
+        story("y", {
+          title: "Sooner",
+          backlogRank: 2,
+          sourceRef: { tool: "prioritizer", id: "b-sooner" },
+        }),
+      ],
+      backlogItems: [
+        { id: "b-later", name: "Later", rank: 2 },
+        { id: "b-sooner", name: "Sooner", rank: 1 },
+      ],
+    });
+    renderPage();
+    expect(toRefine()).toEqual([
+      expect.stringContaining("Sooner"),
+      expect.stringContaining("Later"),
+    ]);
+    useWorkspaceStore.setState({ backlogItems: [] });
+  });
+
   it("won't mark an unsized or unticked story ready, and says why", () => {
     renderPage();
     fireEvent.click(within(panel()).getByRole("button", { name: "Mark ready" }));

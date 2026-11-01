@@ -17,7 +17,12 @@
  * adds the route contract.
  */
 
-import type { HandoffLink, HandoffRef, HandoffRouteId } from "@/lib/stores/workspace-types";
+import type {
+  DecisionTemplate,
+  HandoffLink,
+  HandoffRef,
+  HandoffRouteId,
+} from "@/lib/stores/workspace-types";
 
 export type { HandoffLink, HandoffRef, HandoffRouteId };
 
@@ -42,6 +47,17 @@ export interface HandoffSource {
   tone?: "concern" | "appreciation";
   /** A dependency's other side: the team or deliverable it waits on. */
   dependsOn?: string;
+  /**
+   * What a proposed decision record starts from (the "decision" route): the
+   * form to raise it with (absent: "adr"), the options weighed in order (a
+   * weighted matrix's, ranked), and the proposal (its leader). Absent: the
+   * record gets the title and description only, as before Phase 7.
+   */
+  decision?: {
+    template?: DecisionTemplate;
+    options?: string[];
+    recommendation?: string;
+  };
   /** Where the item lives, so the target can link back to it. */
   sourceRef: HandoffRef;
 }

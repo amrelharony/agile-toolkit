@@ -27,6 +27,10 @@ import { buildExample } from "@/app/(tools)/ice-score/example";
 import { toMarkdown } from "@/app/(tools)/ice-score/markdown";
 import { iceVerdict } from "@/app/(tools)/ice-score/verdict";
 import { EMPTY_ICE_DRAFT, validateIce } from "@/app/(tools)/ice-score/ice-inputs";
+import { rankMethodRows } from "@/lib/prioritization/rank";
+
+/** The rows as the page ranks them (the registry's order). */
+const ranked = (items: PrioritizationItem[]) => rankMethodRows("ice", items);
 
 const rows = () =>
   (useWorkspaceStore.getState().prioritizations ?? []).filter((r) => r.framework === "ice");
@@ -165,28 +169,101 @@ describe("ICE logic", () => {
   });
 
   it("names ties and warns when the front-runner is a hunch", () => {
-    expect(iceVerdict([])).toBe("No ideas scored yet.");
+    expect(iceVerdict(ranked([]))).toBe("No ideas scored yet.");
     expect(
-      iceVerdict([
-        row("a", "A", { impact: 10, confidence: 2, ease: 10 }),
-        row("b", "B", { impact: 5, confidence: 5, ease: 5 }),
-      ])
+      iceVerdict(
+        ranked([
+          row("a", "A", { impact: 10, confidence: 2, ease: 10 }),
+          row("b", "B", { impact: 5, confidence: 5, ease: 5 }),
+        ])
+      )
     ).toBe("Do first: “A” (ICE 200). Confidence is low, so test it cheaply before building.");
     expect(
-      iceVerdict([
-        row("a", "A", { impact: 4, confidence: 5, ease: 5 }),
-        row("b", "B", { impact: 5, confidence: 4, ease: 5 }),
-      ])
+      iceVerdict(
+        ranked([
+          row("a", "A", { impact: 4, confidence: 5, ease: 5 }),
+          row("b", "B", { impact: 5, confidence: 4, ease: 5 }),
+        ])
+      )
     ).toBe("Do first: “A” and “B” tie at ICE 100.");
   });
 
   it("exports a ranked Markdown table with the verdict", () => {
-    const md = toMarkdown(buildExample(), new Date("2026-10-23T12:00:00Z"));
+    const md = toMarkdown(ranked(buildExample()), new Date("2026-10-23T12:00:00Z"));
     expect(md).toContain("# ICE Scores — 23 Oct 2026");
     expect(md).toContain("| 1 | Setup-checklist email on day 1 | 6 | 8 | 9 | 432 |");
     // The two in-app nudges tie for second place.
     expect(md.match(/\| 2 \|/g)).toHaveLength(2);
     expect(md).toContain("**Do first: “Setup-checklist email on day 1” (ICE 432).**");
-    expect(toMarkdown([])).toContain("No ideas scored yet.");
+    expect(toMarkdown(ranked([]))).toContain("No ideas scored yet.");
+  });
+});
+
+describe("ICE on the method registry", () => {
+  it("shows a row without a full score as Not scored, ranked last, never 0", () => {
+    useWorkspaceStore.setState({
+      prioritizations: [
+        // An agent or legacy row with no ease (and no score), first in the store.
+        {
+          ...row("x", "Half scored", { impact: 9, confidence: 9, ease: 9 }),
+          score: undefined,
+          fields: { impact: 9, confidence: 9 },
+        },
+        row("a", "Alpha", { impact: 2, confidence: 5, ease: 2 }),
+      ],
+    });
+    renderIce();
+    expect(titles()[0]).toContain("Alpha");
+    expect(titles()[1]).toContain("Half scored");
+    expect(titles()[1]).toContain("Not scored");
+    expect(within(list()).getByLabelText("Not ranked")).toBeInTheDocument();
+    expect(
+      screen.getByText("Do first: “Alpha” (ICE 20). 1 idea not scored yet.")
+    ).toBeInTheDocument();
+  });
+
+  it("lists the same order and scores as the agent's list_scored", async () => {
+    const { registry } = await import("@/lib/actions/registry");
+    await import("@/lib/actions/tools/ice-score");
+    const items = [
+      row("a", "Alpha", { impact: 4, confidence: 5, ease: 5 }),
+      row("b", "Beta", { impact: 9, confidence: 9, ease: 9 }),
+      { ...row("c", "Gamma", { impact: 1, confidence: 1, ease: 1 }), fields: { impact: 3 } },
+      row("d", "Delta", { impact: 5, confidence: 4, ease: 5 }),
+    ];
+    useWorkspaceStore.setState({ prioritizations: items });
+    renderIce();
+    const listed = (await registry
+      .get("tool.ice_score.list_scored")!
+      .handler({}, { userId: "u", source: "agent", squadProfileIds: [] })) as {
+      items: { id: string; score: number | null; rank: number | null }[];
+    };
+    const page = ranked(items);
+    expect(listed.items.map((i) => [i.id, i.score, i.rank])).toEqual(
+      page.map((r) => [r.row.id, r.result.score, r.rank])
+    );
+    expect(listed.items.map((i) => i.id)).toEqual(["b", "a", "d", "c"]);
+    // The screen lists them in that order too.
+    expect(
+      titles().map((t) => ["Beta", "Alpha", "Delta", "Gamma"].find((n) => t.includes(n)))
+    ).toEqual(["Beta", "Alpha", "Delta", "Gamma"]);
+  });
+
+  it("routes an already-scored backlog item to its row's editor instead of a duplicate", async () => {
+    useWorkspaceStore.setState({
+      backlogItems: [{ id: "b1", name: "Passkeys" }],
+      prioritizations: [
+        { ...row("a", "Passkeys", { impact: 4, confidence: 4, ease: 4 }), backlogItemId: "b1" },
+      ],
+    });
+    renderIce();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Import from backlog" }), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Passkeys.*Already scored/ }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(rows()).toHaveLength(1);
   });
 });

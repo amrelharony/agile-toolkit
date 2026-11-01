@@ -23,6 +23,20 @@ import {
   type VoteStateBody,
   type VoteStateMessage,
 } from "@/lib/realtime/vote-room/protocol";
+import type { AllocationRoomTool } from "@/lib/realtime/vote-room/protocol";
+import {
+  KANO_PAIR_ANSWERS,
+  KANO_PAIR_PROMPTS,
+  PAIR_ALPHABET,
+  type PairSheet,
+  type PairStateBody,
+  type RevealedPair,
+} from "@/lib/realtime/vote-room/pair";
+import type {
+  AllocationSheet,
+  AllocationStateBody,
+  RevealedAllocation,
+} from "@/lib/realtime/vote-room/allocation";
 
 export const CODE = "ABCDEFGHJKMN";
 export const NOW = Date.parse("2026-10-26T10:00:00.000Z");
@@ -163,6 +177,12 @@ export interface StateOverrides {
 
 export const ROUND = "round_000001";
 
+/**
+ * A scale round's state as the host builds it. `endsAt` defaults to 3 h
+ * from the clock, as the v2 fixtures' do: tests on fake timers (set to
+ * `NOW`) get `NOW` + 3 h as before, and a participant test on the real
+ * clock no longer sees the room closed once 13:00 UTC on 2026-10-26 passes.
+ */
 export function stateBody(by: string, keys: HostKeyPair, o: StateOverrides = {}): VoteStateBody {
   return {
     v: 1,
@@ -170,7 +190,7 @@ export function stateBody(by: string, keys: HostKeyPair, o: StateOverrides = {})
     seq: o.seq ?? 1,
     tool: o.tool ?? "health-check",
     roundId: o.roundId ?? ROUND,
-    endsAt: o.endsAt ?? NOW + 3 * 60 * 60 * 1000,
+    endsAt: o.endsAt ?? Date.now() + 3 * 60 * 60 * 1000,
     minN: o.minN ?? 3,
     questionnaire: o.questionnaire ?? QUESTIONNAIRE,
     keys: keys.publicKeys,
@@ -211,4 +231,130 @@ export async function signedEnd(
 /** The answer string for point indexes (-1 skipped). */
 export function answerString(indexes: number[]): string {
   return indexes.map((i) => (i < 0 ? "-" : ANSWER_ALPHABET[i])).join("");
+}
+
+// ── Pair (Kano) and allocation rounds ────────────────────────────────
+
+/** Three features on Kano's five answers; the last one is optional. */
+export const PAIR_SHEET: PairSheet = {
+  id: "kano:round",
+  title: "Feature survey",
+  prompts: { ...KANO_PAIR_PROMPTS },
+  answers: [...KANO_PAIR_ANSWERS],
+  items: [
+    { id: "dark", text: "Dark mode", hint: "Across the whole app" },
+    { id: "export", text: "CSV export" },
+    { id: "emoji", text: "Emoji reactions", optional: true },
+  ],
+};
+
+/** A $100 Test sheet: four items, $100 each, all of it given out. */
+export const ALLOCATION_SHEET: AllocationSheet = {
+  id: "hundred:round",
+  title: "Where would you put $100?",
+  budget: 100,
+  unit: "$",
+  spendAll: true,
+  items: [
+    { id: "search", text: "Search" },
+    { id: "export", text: "Exports" },
+    { id: "sso", text: "Single sign-on" },
+    { id: "themes", text: "Themes" },
+  ],
+};
+
+/** A Buy-a-Feature sheet: $50 each to give, up to it, features capped at what's left of their price. */
+export const BUY_SHEET: AllocationSheet = {
+  id: "buy:round-1",
+  title: "Buy-a-Feature, round 1",
+  budget: 50,
+  unit: "$",
+  spendAll: false,
+  items: [
+    { id: "search", text: "Search", cap: 60 },
+    { id: "export", text: "Exports", cap: 30, hint: "Priced 40, 10 raised" },
+    { id: "sso", text: "Single sign-on", cap: 120 },
+  ],
+};
+
+/** The split string for amounts at `width` digits each. */
+export function allocationString(amounts: number[], width: number): string {
+  return amounts.map((a) => String(a).padStart(width, "0")).join("");
+}
+
+/** The pair answer string for joint indexes (-1 skipped). */
+export function pairString(joints: number[]): string {
+  return joints.map((j) => (j < 0 ? "-" : PAIR_ALPHABET[j])).join("");
+}
+
+export interface KindStateOverrides {
+  seq?: number;
+  roundId?: string;
+  phase?: "open" | "revealed";
+  ballots?: number;
+  acks?: string[];
+  minN?: number;
+  endsAt?: number;
+}
+
+/** A pair round's state as the host builds it. `endsAt` defaults to 3 h from the real clock. */
+export function pairStateBody(
+  by: string,
+  keys: Pick<HostKeyPair, "publicKeys">,
+  o: KindStateOverrides & { sheet?: PairSheet; revealed?: RevealedPair[] | null } = {}
+): PairStateBody {
+  return {
+    v: 2,
+    kind: "pair",
+    by,
+    seq: o.seq ?? 1,
+    tool: "kano-model",
+    roundId: o.roundId ?? ROUND,
+    endsAt: o.endsAt ?? Date.now() + 3 * 60 * 60 * 1000,
+    minN: o.minN ?? 3,
+    sheet: o.sheet ?? PAIR_SHEET,
+    keys: keys.publicKeys,
+    phase: o.phase ?? "open",
+    ballots: o.ballots ?? 0,
+    acks: o.acks ?? [],
+    revealed: o.revealed ?? null,
+  };
+}
+
+/** An allocation round's state as the host builds it. `endsAt` defaults to 3 h from the real clock. */
+export function allocationStateBody(
+  by: string,
+  keys: Pick<HostKeyPair, "publicKeys">,
+  o: KindStateOverrides & {
+    sheet?: AllocationSheet;
+    tool?: AllocationRoomTool;
+    revealed?: RevealedAllocation[] | null;
+  } = {}
+): AllocationStateBody {
+  return {
+    v: 2,
+    kind: "allocation",
+    by,
+    seq: o.seq ?? 1,
+    tool: o.tool ?? "hundred-dollar-test",
+    roundId: o.roundId ?? ROUND,
+    endsAt: o.endsAt ?? Date.now() + 3 * 60 * 60 * 1000,
+    minN: o.minN ?? 3,
+    sheet: o.sheet ?? ALLOCATION_SHEET,
+    keys: keys.publicKeys,
+    phase: o.phase ?? "open",
+    ballots: o.ballots ?? 0,
+    acks: o.acks ?? [],
+    revealed: o.revealed ?? null,
+  };
+}
+
+/** A v2 state as the host would sign it (JSON round-tripped like the wire). */
+export async function signedKindState<B extends PairStateBody | AllocationStateBody>(
+  c: VoteCrypto,
+  keys: HostKeyPair,
+  body: B
+): Promise<B & { sig: string }> {
+  const sig = await c.sign(keys, signingInput(VOTE_ROOM_EVENTS.state, body));
+  return JSON.parse(JSON.stringify({ ...body, sig })) as B & { sig: string };
 }

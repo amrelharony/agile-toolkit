@@ -12,6 +12,7 @@
  */
 
 import { isIsoDate, isoDayNumber } from "@/lib/sprints/calendar";
+import { nudge, snap, type MatrixAxis } from "@/lib/utils/matrix";
 
 export const STORAGE_KEY = "agile-toolkit:stakeholder-map";
 
@@ -108,8 +109,17 @@ const sentiment = (v: unknown): Sentiment | null =>
 export const isIsoDay = (v: unknown): v is string =>
   typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && isIsoDate(v);
 
+/** The map's scale on both axes: 0–10 in whole steps; a keyboard move of an unplaced axis starts mid-way. */
+export const STAKEHOLDER_AXIS: MatrixAxis = {
+  kind: "linear",
+  min: 0,
+  max: 10,
+  step: 1,
+  start: HIGH,
+};
+
 /** 0–10, whole: the map's scale. */
-export const clampScore = (n: number) => Math.min(10, Math.max(0, Math.round(n)));
+export const clampScore = (n: number) => snap(STAKEHOLDER_AXIS, n);
 
 // A saved position keeps its exact value (kept on the scale, not rounded),
 // so it stays in the quadrant it was in.
@@ -203,8 +213,7 @@ export function daysToTouch(s: Pick<Stakeholder, "nextTouchAt">, today: string):
 
 /** One step on an axis, kept on the scale; an unplaced axis starts mid-way. */
 export function moveBy(s: Stakeholder, axis: "interest" | "authority", delta: number): Stakeholder {
-  const from = s[axis] ?? HIGH;
-  return { ...s, [axis]: clampScore(from + delta) };
+  return { ...s, [axis]: nudge(STAKEHOLDER_AXIS, s[axis], delta) };
 }
 
 /** Put someone in the middle of a quadrant (an explicit choice, never a default). */

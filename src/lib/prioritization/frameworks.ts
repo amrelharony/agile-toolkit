@@ -1,17 +1,17 @@
 /**
- * The prioritization methods that score the shared backlog.
+ * The prioritization methods that score the shared backlog: where each
+ * one's tool lives and when to pick it.
  *
  * The Backlog Prioritizer (`/prioritizer`) owns the backlog: workspace
  * `backlogItems`, where each item holds its MoSCoW, WSJF, RICE and
  * value/effort inputs. Seven method tools score backlog items as rows in
  * workspace `prioritizations`, linked back through `backlogItemId`.
  *
- * This registry is the one place that says, per method: where its tool
- * lives, which `PrioritizationItem.framework` key its rows carry, when to
- * pick it, and how its row fields map to BacklogItem fields where both
- * sides hold the same input. Methods the backlog holds inputs for are
- * `embedded`: the hub reads them from the BacklogItem, and a linked row
- * writes its inputs to the item when it's added (no live two-way sync).
+ * The scoring itself, and how a row's inputs map to the item's, live in
+ * the method registry (./methods); this list adds the hub's routing. A
+ * method the backlog holds inputs for is `embedded`: the item owns them, a
+ * linked row reads them from the item and a save in the tool writes them
+ * back, live in both directions (./binding, ./backlog-links).
  *
  * Eisenhower (personal tasks), Buy-a-Feature and $100 (group games) are
  * deliberately left out.
@@ -19,55 +19,38 @@
 
 import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import { JOBS } from "@/lib/constants/jobs";
+import { ownedPatch } from "./binding";
+import { OLD_BACKLOG_DEFAULTS } from "./defaults";
+import { defined, toNumber } from "./methods/fields";
+import { method, type MethodId, type RowFields } from "./methods";
+
+export type { RowFields };
+export { isMoscowBucket, type MoscowBucket } from "./methods/moscow";
 
 export type FrameworkKey = PrioritizationItem["framework"];
-export type RowFields = Record<string, number | string>;
-export type ImpactValue = BacklogItem["impact"];
-export type MoscowBucket = BacklogItem["moscow"];
+/** The RICE impact steps. BacklogItem.impact is a plain number since Phase 7
+ *  (an exact custom value is kept); the steps are what snapImpact rounds to. */
+export type ImpactValue = 0.25 | 0.5 | 1 | 2 | 3;
 
 /** The query parameter a "Score with…" link uses to preselect a backlog item. */
 export const BACKLOG_ITEM_PARAM = "backlogItem";
 
-/** The RICE impact steps the backlog allows. */
+/** The RICE impact steps. */
 export const IMPACT_STEPS: readonly ImpactValue[] = [0.25, 0.5, 1, 2, 3];
 
-const MOSCOW_BUCKETS: readonly MoscowBucket[] = ["must", "should", "could", "wont"];
-
-/** A finite number from a row field (numbers or numeric strings), else undefined. */
-function num(v: unknown): number | undefined {
-  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
-  if (typeof v === "string" && v.trim() !== "") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : undefined;
-  }
-  return undefined;
-}
-
 /**
- * The nearest allowed RICE impact (0.25, 0.5, 1, 2 or 3). A value halfway
+ * The nearest RICE impact step (0.25, 0.5, 1, 2 or 3). A value halfway
  * between two steps takes the lower one; anything unreadable becomes 1.
+ * For display only: the backlog keeps the exact impact (no snapping).
  */
 export function snapImpact(v: unknown): ImpactValue {
-  const n = num(v);
+  const n = toNumber(v);
   if (n === undefined) return 1;
   let best = IMPACT_STEPS[0];
   for (const step of IMPACT_STEPS) {
     if (Math.abs(step - n) < Math.abs(best - n)) best = step;
   }
   return best;
-}
-
-export function isMoscowBucket(v: unknown): v is MoscowBucket {
-  return typeof v === "string" && (MOSCOW_BUCKETS as readonly string[]).includes(v);
-}
-
-/** Drop the keys whose value is undefined. */
-function compact<T extends Record<string, unknown>>(
-  o: T
-): { [K in keyof T]?: Exclude<T[K], undefined> } {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(o)) if (v !== undefined) out[k] = v;
-  return out as { [K in keyof T]?: Exclude<T[K], undefined> };
 }
 
 export interface PrioritizationFramework {
@@ -94,6 +77,18 @@ function jobPickWhen(toolId: string, fallback: string): string {
   return job?.alternatives.find((a) => a.toolId === toolId)?.pickWhen ?? fallback;
 }
 
+/** The registry's prefill for a method: the inputs the item holds, by input key. */
+const prefillFor =
+  (id: MethodId) =>
+  (item: BacklogItem): RowFields =>
+    defined(method(id).fromBacklog?.(item) ?? {}) as RowFields;
+
+/** The registry's owned backlog fields for a row's stored inputs. */
+const backlogFor =
+  (id: MethodId) =>
+  (fields: RowFields | undefined): Partial<BacklogItem> =>
+    ownedPatch(id, method(id).read(fields));
+
 /** In the order the hub shows them. */
 export const FRAMEWORKS: readonly PrioritizationFramework[] = [
   {
@@ -103,8 +98,8 @@ export const FRAMEWORKS: readonly PrioritizationFramework[] = [
     path: "/moscow",
     pickWhen: jobPickWhen("moscow", "you need a quick must/should/could cut for a release"),
     embedded: true,
-    fromBacklog: (item): RowFields => (isMoscowBucket(item.moscow) ? { bucket: item.moscow } : {}),
-    toBacklog: (fields) => (isMoscowBucket(fields?.bucket) ? { moscow: fields.bucket } : {}),
+    fromBacklog: prefillFor("moscow"),
+    toBacklog: backlogFor("moscow"),
   },
   {
     id: "wsjf",
@@ -113,20 +108,8 @@ export const FRAMEWORKS: readonly PrioritizationFramework[] = [
     path: "/wsjf",
     pickWhen: jobPickWhen("wsjf", "you're in SAFe or want cost of delay over job size"),
     embedded: true,
-    fromBacklog: (item) =>
-      compact({
-        businessValue: num(item.businessValue),
-        timeCriticality: num(item.timeCriticality),
-        rrOe: num(item.riskReduction),
-        jobSize: num(item.jobSize),
-      }),
-    toBacklog: (fields) =>
-      compact({
-        businessValue: num(fields?.businessValue),
-        timeCriticality: num(fields?.timeCriticality),
-        riskReduction: num(fields?.rrOe),
-        jobSize: num(fields?.jobSize),
-      }),
+    fromBacklog: prefillFor("wsjf"),
+    toBacklog: backlogFor("wsjf"),
   },
   {
     id: "rice-scoring",
@@ -135,21 +118,8 @@ export const FRAMEWORKS: readonly PrioritizationFramework[] = [
     path: "/rice-scoring",
     pickWhen: jobPickWhen("rice-scoring", "you know reach and impact for each idea"),
     embedded: true,
-    fromBacklog: (item) =>
-      compact({
-        reach: num(item.reach),
-        impact: num(item.impact),
-        confidence: num(item.confidence),
-        effort: num(item.effort),
-      }),
-    toBacklog: (fields) =>
-      compact({
-        reach: num(fields?.reach),
-        impact: num(fields?.impact) === undefined ? undefined : snapImpact(fields?.impact),
-        // Rows saved by the MCP action store `confidencePct`; the UI stores `confidence`.
-        confidence: num(fields?.confidence) ?? num(fields?.confidencePct),
-        effort: num(fields?.effort),
-      }),
+    fromBacklog: prefillFor("rice"),
+    toBacklog: backlogFor("rice"),
   },
   {
     id: "value-effort-matrix",
@@ -158,9 +128,8 @@ export const FRAMEWORKS: readonly PrioritizationFramework[] = [
     path: "/value-effort-matrix",
     pickWhen: "you want a quick 2×2 to spot the quick wins",
     embedded: true,
-    fromBacklog: (item) => compact({ value: num(item.value), effort: num(item.matrixEffort) }),
-    toBacklog: (fields) =>
-      compact({ value: num(fields?.value), matrixEffort: num(fields?.effort) }),
+    fromBacklog: prefillFor("value-effort"),
+    toBacklog: backlogFor("value-effort"),
   },
   {
     id: "ice-score",
@@ -183,7 +152,7 @@ export const FRAMEWORKS: readonly PrioritizationFramework[] = [
     framework: "cost-of-delay",
     label: "Cost of Delay",
     path: "/cost-of-delay",
-    pickWhen: "you can put a money figure on every week of waiting",
+    pickWhen: "you can say what a week of waiting costs and how long the work takes",
     embedded: false,
   },
 ];
@@ -207,42 +176,31 @@ export function readBacklogItemParam(search: string): string | null {
   return id && id.trim() ? id : null;
 }
 
-/** Defaults for a new backlog item: mid values, matching the Prioritizer's "Add Item". */
-export const BACKLOG_DEFAULTS: Omit<BacklogItem, "id" | "name"> = {
-  moscow: "should",
-  businessValue: 5,
-  timeCriticality: 5,
-  riskReduction: 5,
-  jobSize: 5,
-  reach: 100,
-  impact: 1,
-  confidence: 80,
-  effort: 1,
-  value: 5,
-  matrixEffort: 5,
-};
-
-const clamp10 = (n: number) => Math.min(10, Math.max(1, n));
+/**
+ * @deprecated The pre-Phase 7 "Add item" mid values. Nothing applies them
+ * any more (a new item starts Not scored); they are the old-default
+ * fingerprints lib/prioritization/defaults clears on read.
+ */
+export const BACKLOG_DEFAULTS = OLD_BACKLOG_DEFAULTS;
 
 /**
- * A new backlog item named `name` with `patch` over the defaults.
- *
- * The Prioritizer edits WSJF business value and the matrix value as one
- * "Value" column, so when the patch sets only one of them the other
- * follows (kept on the matrix's 1–10 scale).
+ * A new backlog item named `name` with `patch`, and nothing else: every
+ * method it isn't given starts Not scored (no mid-range defaults, and the
+ * one value field `businessValue` isn't copied anywhere). Stamped as saved
+ * by the new code, so its values are read as chosen.
  */
 export function createBacklogItem(
   name: string,
   patch: Partial<BacklogItem> = {},
-  id: string = crypto.randomUUID()
+  id: string = crypto.randomUUID(),
+  now: string = new Date().toISOString()
 ): BacklogItem {
-  const coupled: Partial<BacklogItem> = { ...patch };
-  if (patch.businessValue !== undefined && patch.value === undefined) {
-    coupled.value = clamp10(patch.businessValue);
-  } else if (patch.value !== undefined && patch.businessValue === undefined) {
-    coupled.businessValue = patch.value;
-  }
-  return { ...BACKLOG_DEFAULTS, ...coupled, id, name: name.trim().slice(0, 200) };
+  return {
+    ...(defined(patch) as Partial<BacklogItem>),
+    id,
+    name: name.trim().slice(0, 200),
+    updatedAt: now,
+  };
 }
 
 /** Only the fields of `patch` that would change `item`. */

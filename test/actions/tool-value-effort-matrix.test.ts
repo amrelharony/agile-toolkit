@@ -69,84 +69,65 @@ describe("tool.value_effort_matrix — registration", () => {
   });
 });
 
+// Phase 7 decision: one rule everywhere. Value is the backlog's one value
+// field on the Fibonacci scale (8 or more is high), effort 1–10 (6 or more
+// is high); the old per-call thresholds are ignored. `score` is the sort
+// score value ÷ effort, and the old 4..1 rank is `quadrantScore`.
 describe("tool.value_effort_matrix.compute_quadrant — pure classifier", () => {
-  it("classifies the four canonical corners with default thresholds (5, 5)", async () => {
+  it("classifies the four corners by the one rule", async () => {
     const action = registry.get("tool.value_effort_matrix.compute_quadrant");
+    const at = async (value: number, effort: number) =>
+      (await action!.handler({ value, effort }, ctx())) as {
+        quadrant: string;
+        score: number;
+        quadrantScore: number;
+      };
 
-    // High value, low effort → quick_wins
-    const qw = (await action!.handler({ value: 9, effort: 2 }, ctx())) as {
-      quadrant: string;
-      score: number;
-    };
-    expect(qw.quadrant).toBe("quick_wins");
-    expect(qw.score).toBe(4);
-
-    // High value, high effort → big_bets
-    const bb = (await action!.handler({ value: 9, effort: 8 }, ctx())) as {
-      quadrant: string;
-      score: number;
-    };
-    expect(bb.quadrant).toBe("big_bets");
-    expect(bb.score).toBe(3);
-
-    // Low value, low effort → fill_ins
-    const fi = (await action!.handler({ value: 2, effort: 2 }, ctx())) as {
-      quadrant: string;
-      score: number;
-    };
-    expect(fi.quadrant).toBe("fill_ins");
-    expect(fi.score).toBe(2);
-
-    // Low value, high effort → time_wasters
-    const tw = (await action!.handler({ value: 2, effort: 8 }, ctx())) as {
-      quadrant: string;
-      score: number;
-    };
-    expect(tw.quadrant).toBe("time_wasters");
-    expect(tw.score).toBe(1);
+    expect(await at(13, 2)).toMatchObject({ quadrant: "quick_wins", score: 6.5, quadrantScore: 4 });
+    expect(await at(13, 8)).toMatchObject({ quadrant: "big_bets", quadrantScore: 3 });
+    expect(await at(2, 2)).toMatchObject({ quadrant: "fill_ins", score: 1, quadrantScore: 2 });
+    expect(await at(2, 8)).toMatchObject({
+      quadrant: "time_wasters",
+      score: 0.25,
+      quadrantScore: 1,
+    });
   });
 
-  it("treats the boundary value (>= threshold) as HIGH — mirrors the client's hiV = value >= 5", async () => {
+  it("puts the boundaries at value 8 and effort 6", async () => {
     const action = registry.get("tool.value_effort_matrix.compute_quadrant");
-    // value=5 exactly: HIGH; effort=4: LOW → quick_wins
-    const res = (await action!.handler({ value: 5, effort: 4 }, ctx())) as { quadrant: string };
-    expect(res.quadrant).toBe("quick_wins");
+    const q = async (value: number, effort: number) =>
+      ((await action!.handler({ value, effort }, ctx())) as { quadrant: string }).quadrant;
+    expect(await q(8, 5)).toBe("quick_wins");
+    expect(await q(5, 5)).toBe("fill_ins");
+    expect(await q(8, 6)).toBe("big_bets");
+    expect(await q(5, 6)).toBe("time_wasters");
   });
 
-  it("respects per-call threshold overrides (e.g. 0-100 scale)", async () => {
+  it("ignores the old per-call thresholds", async () => {
     const action = registry.get("tool.value_effort_matrix.compute_quadrant");
-    // On a 1-100 scale with midpoints (50, 50):
-    // value=70, effort=20 → quick_wins
     const res = (await action!.handler(
-      { value: 70, effort: 20, valueThreshold: 50, effortThreshold: 50 },
+      { value: 3, effort: 2, valueThreshold: 1, effortThreshold: 50 },
       ctx()
     )) as { quadrant: string };
-    expect(res.quadrant).toBe("quick_wins");
-
-    // Same raw inputs on the default (5, 5) thresholds: both are HIGH → big_bets
-    const resDefault = (await action!.handler({ value: 70, effort: 20 }, ctx())) as {
-      quadrant: string;
-    };
-    expect(resDefault.quadrant).toBe("big_bets");
+    expect(res.quadrant).toBe("fill_ins");
   });
 
-  it("floors effort at 0.5 (defuses caller-supplied 0)", async () => {
+  it("does not place an effort of 0 (Not placed, never floored)", async () => {
     const action = registry.get("tool.value_effort_matrix.compute_quadrant");
     const res = (await action!.handler({ value: 8, effort: 0 }, ctx())) as {
-      quadrant: string;
-      score: number;
+      quadrant: string | null;
+      score: number | null;
     };
-    // Effort 0 → floored to 0.5 → LOW; value 8 → HIGH → quick_wins
-    expect(res.quadrant).toBe("quick_wins");
-    expect(res.score).toBe(4);
+    expect(res.quadrant).toBeNull();
+    expect(res.score).toBeNull();
   });
 
-  it("echoes the thresholds it used so the agent can confirm the cut point", async () => {
+  it("echoes the rule's boundaries so the agent can confirm the cut point", async () => {
     const action = registry.get("tool.value_effort_matrix.compute_quadrant");
     const res = (await action!.handler({ value: 5, effort: 5 }, ctx())) as {
       thresholds: { value: number; effort: number };
     };
-    expect(res.thresholds).toEqual({ value: 5, effort: 5 });
+    expect(res.thresholds).toEqual({ value: 8, effort: 6 });
   });
 });
 
@@ -156,10 +137,10 @@ describe("tool.value_effort_matrix.compute_and_rank — batch + sort", () => {
     const result = (await action!.handler(
       {
         items: [
-          { id: "tw", title: "Time Waster", fields: { value: 2, effort: 9 } }, // score 1
-          { id: "qw", title: "Quick Win", fields: { value: 9, effort: 2 } }, // score 4
-          { id: "fi", title: "Fill In", fields: { value: 2, effort: 2 } }, // score 2
-          { id: "bb", title: "Big Bet", fields: { value: 9, effort: 9 } }, // score 3
+          { id: "tw", title: "Time Waster", fields: { value: 2, effort: 9 } },
+          { id: "qw", title: "Quick Win", fields: { value: 13, effort: 2 } },
+          { id: "fi", title: "Fill In", fields: { value: 2, effort: 2 } },
+          { id: "bb", title: "Big Bet", fields: { value: 13, effort: 9 } },
         ],
       },
       ctx()
@@ -177,17 +158,17 @@ describe("tool.value_effort_matrix.compute_and_rank — batch + sort", () => {
       "fill_ins",
       "time_wasters",
     ]);
-    expect(result.thresholds).toEqual({ value: 5, effort: 5 });
+    expect(result.thresholds).toEqual({ value: 8, effort: 6 });
   });
 
-  it("preserves input order on quadrant ties (stable sort)", async () => {
+  it("orders within a quadrant by value ÷ effort, ties in input order", async () => {
     const action = registry.get("tool.value_effort_matrix.compute_and_rank");
     const result = (await action!.handler(
       {
         items: [
           { id: "qw1", title: "QW first", fields: { value: 8, effort: 1 } },
-          { id: "qw2", title: "QW second", fields: { value: 9, effort: 2 } },
-          { id: "qw3", title: "QW third", fields: { value: 10, effort: 3 } },
+          { id: "qw2", title: "QW second", fields: { value: 8, effort: 2 } },
+          { id: "qw3", title: "QW third", fields: { value: 8, effort: 2 } },
         ],
       },
       ctx()
@@ -198,11 +179,11 @@ describe("tool.value_effort_matrix.compute_and_rank — batch + sort", () => {
   it("attaches the computed quadrant to each item's fields", async () => {
     const action = registry.get("tool.value_effort_matrix.compute_and_rank");
     const result = (await action!.handler(
-      { items: [{ title: "x", fields: { value: 9, effort: 2 } }] },
+      { items: [{ title: "x", fields: { value: 13, effort: 2 } }] },
       ctx()
     )) as { ranked: Array<{ fields: { quadrant: string; value: number; effort: number } }> };
     expect(result.ranked[0].fields.quadrant).toBe("quick_wins");
-    expect(result.ranked[0].fields.value).toBe(9);
+    expect(result.ranked[0].fields.value).toBe(13);
     expect(result.ranked[0].fields.effort).toBe(2);
   });
 });
@@ -305,21 +286,21 @@ describe("tool.value_effort_matrix.classify_and_persist — classify + write rou
   it("classifies and stores the item with framework='value-effort'", async () => {
     const action = registry.get("tool.value_effort_matrix.classify_and_persist");
     const result = (await action!.handler(
-      { title: "Add SSO", fields: { value: 9, effort: 2 } },
+      { title: "Add SSO", fields: { value: 13, effort: 2 } },
       ctx()
-    )) as { id: string; quadrant: string; score: number };
+    )) as { id: string; quadrant: string; score: number; quadrantScore: number };
 
     expect(result.quadrant).toBe("quick_wins");
-    expect(result.score).toBe(4);
+    expect(result.score).toBe(6.5);
+    expect(result.quadrantScore).toBe(4);
 
     const stored = useWorkspaceStore.getState().prioritizations;
     expect(stored).toHaveLength(1);
     expect(stored![0].framework).toBe("value-effort");
     expect(stored![0].title).toBe("Add SSO");
-    expect(stored![0].score).toBe(4);
-    expect(stored![0].fields?.quadrant).toBe("quick_wins");
-    expect(stored![0].fields?.value).toBe(9);
-    expect(stored![0].fields?.effort).toBe(2);
+    expect(stored![0].score).toBe(6.5);
+    // The quadrant is derived, never stored; the value is the one value field.
+    expect(stored![0].fields).toEqual({ businessValue: 13, effort: 2 });
     expect(stored![0].status).toBe("scored");
   });
 
@@ -332,32 +313,15 @@ describe("tool.value_effort_matrix.classify_and_persist — classify + write rou
     expect(result.id).toBe("explicit-id");
   });
 
-  it("respects per-call thresholds when persisting", async () => {
+  it("refuses an effort off the 1–10 scale instead of flooring or rescaling it", async () => {
     const action = registry.get("tool.value_effort_matrix.classify_and_persist");
-    // On a 0-100 scale with thresholds (50, 50), (70, 20) is a quick win.
-    const result = (await action!.handler(
-      {
-        title: "Big-scale item",
-        fields: { value: 70, effort: 20 },
-        valueThreshold: 50,
-        effortThreshold: 50,
-      },
-      ctx()
-    )) as { quadrant: string };
-    expect(result.quadrant).toBe("quick_wins");
-
-    const stored = useWorkspaceStore.getState().prioritizations![0];
-    expect(stored.fields?.quadrant).toBe("quick_wins");
-    expect(stored.fields?.value).toBe(70);
-    expect(stored.fields?.effort).toBe(20);
-  });
-
-  it("floors effort at 0.5 in the persisted payload", async () => {
-    const action = registry.get("tool.value_effort_matrix.classify_and_persist");
-    await action!.handler({ title: "Zero-effort fix", fields: { value: 7, effort: 0 } }, ctx());
-    const stored = useWorkspaceStore.getState().prioritizations![0];
-    expect(stored.fields?.effort).toBe(0.5);
-    expect(stored.fields?.quadrant).toBe("quick_wins");
+    await expect(
+      action!.handler({ title: "Big-scale item", fields: { value: 8, effort: 20 } }, ctx())
+    ).rejects.toThrow("Effort runs from 1 to 10.");
+    await expect(
+      action!.handler({ title: "Zero-effort fix", fields: { value: 8, effort: 0 } }, ctx())
+    ).rejects.toThrow("Effort runs from 1 to 10.");
+    expect(useWorkspaceStore.getState().prioritizations).toEqual([]);
   });
 });
 
@@ -371,7 +335,7 @@ describe("tool.value_effort_matrix.persist_to_prioritization — bulk write", ()
     const result = (await action!.handler(
       {
         items: [
-          { id: "i1", title: "Feature 1", fields: { value: 9, effort: 2 } },
+          { id: "i1", title: "Feature 1", fields: { value: 13, effort: 2 } },
           { title: "Feature 2 (auto-id)", fields: { value: 3, effort: 9 } },
         ],
       },
@@ -384,14 +348,15 @@ describe("tool.value_effort_matrix.persist_to_prioritization — bulk write", ()
 
     const stored = useWorkspaceStore.getState().prioritizations!;
     expect(stored).toHaveLength(2);
-    // Re-classification is consistent: i1 (9,2) → quick_wins (score 4),
-    // auto-id (3,9) → time_wasters (score 1).
+    // The score is value ÷ effort; the quadrant is derived, never stored.
+    const r = result as unknown as { placed: { id: string; quadrant: string; score: number }[] };
+    expect(r.placed[0]).toMatchObject({ id: "i1", quadrant: "quick_wins", score: 6.5 });
+    expect(r.placed[1]).toMatchObject({ quadrant: "time_wasters" });
     const byId = new Map(stored.map((s) => [s.id, s]));
-    expect(byId.get("i1")!.fields?.quadrant).toBe("quick_wins");
-    expect(byId.get("i1")!.score).toBe(4);
+    expect(byId.get("i1")!.fields?.quadrant).toBeUndefined();
+    expect(byId.get("i1")!.score).toBe(6.5);
     const auto = stored.find((s) => s.id !== "i1")!;
-    expect(auto.fields?.quadrant).toBe("time_wasters");
-    expect(auto.score).toBe(1);
+    expect(auto.score).toBeCloseTo(1 / 3, 6);
   });
 
   it("every persisted item carries framework='value-effort'", async () => {

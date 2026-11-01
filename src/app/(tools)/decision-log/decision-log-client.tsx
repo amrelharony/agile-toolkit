@@ -1,383 +1,473 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { nanoid } from "nanoid";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type Ref } from "react";
+import { FileText, Plus, Timer } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { FileText, Plus, Trash2 } from "lucide-react";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Decision } from "@/lib/stores/workspace-types";
-import { generateDecisionLogPrompts } from "@/lib/ai-prompts/decision-log";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { DECISION_ACTIONS } from "@/lib/history/event-actions";
-import { ActionRow } from "@/components/shared/action-row";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { EmptyState } from "@/components/shared/empty-state";
-import { usePersisted } from "@/lib/utils/use-persisted";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import { generateDaciPrompts } from "@/lib/ai-prompts/daci";
+import { generateDecisionLogPrompts } from "@/lib/ai-prompts/decision-log";
+import { generateRapidPrompts } from "@/lib/ai-prompts/rapid-decision";
+import {
+  decisionLabel,
+  decisionVerdict,
+  isDecided,
+  templateOf,
+  timeToDecide,
+} from "@/lib/decisions/model";
+import {
+  createDecision,
+  newDecisionId,
+  removeDecisionRecord,
+  restoreDecisionRecord,
+  saveDecision,
+  saveDecisions,
+  type DecisionRecordSnapshot,
+} from "@/lib/decisions/store";
+import { DECISION_STATUS_LABEL, TEMPLATES } from "@/lib/decisions/templates";
+import type { DecisionLogConflict } from "@/lib/decisions/legacy-log";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { todayIso } from "@/lib/sprints/series";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Decision, DecisionStatus, DecisionTemplate } from "@/lib/stores/workspace-types";
+import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { undoable } from "@/lib/utils/undoable";
+import { ConflictNotice, withOldText } from "./conflict-notice";
+import { DecisionCard, type ChangeHow } from "./decision-card";
+import { DecisionForm, type NewDecision } from "./decision-form";
+import { buildExample } from "./example";
+import { decisionsToMarkdown } from "./markdown";
+import { TemplateSwitch } from "./template-switch";
+import { useLegacyDecisions } from "./use-legacy-decisions";
+import {
+  HISTORY,
+  PAGE,
+  byNumberDesc,
+  countByTemplate,
+  decisionsCsv,
+  matchesTemplate,
+  type TemplateFilter,
+} from "./view";
 
-const STATUSES: Decision["status"][] = ["proposed", "accepted", "deprecated", "superseded"];
+/** `?id=<record>` opens one record (the hand-offs' and next steps' "Open"). */
+export const RECORD_PARAM = "id";
 
-function emptyDecision(): Decision {
-  return {
-    id: nanoid(8),
-    title: "",
-    context: "",
-    decision: "",
-    consequences: "",
-    alternatives: [],
-    status: "proposed",
-    date: todayLocalISO(),
-  };
+/** `?id=` from a query string, or null. */
+export function readRecordParam(search: string): string | null {
+  const v = new URLSearchParams(search).get(RECORD_PARAM);
+  return v && v.length <= 128 ? v : null;
 }
 
-export function DecisionLogClient() {
-  const [decisions, setDecisions] = usePersisted<Decision[]>("agile-toolkit:decision-log", []);
-  const [editing, setEditing] = useState<Decision | null>(null);
-  const uid = useId();
-  const workspaceDecisions = useWorkspaceStore((s) => s.decisions);
-  const upsertWorkspaceDecision = useWorkspaceStore((s) => s.upsertDecision);
-  const tableRef = useRef<HTMLDivElement>(null);
-  const { log } = useHistoryLogger("decision-log");
+const STATUSES: DecisionStatus[] = ["proposed", "accepted", "deprecated", "superseded"];
+const FILTERS: readonly TemplateFilter[] = ["all", "adr", "daci", "rapid"];
+const NOTHING_OPEN: ReadonlySet<string> = new Set();
 
-  useEffect(() => {
-    useWorkspaceStore.persist.rehydrate();
+/**
+ * The decision log: one list of records for the Decision Log (ADR), DACI
+ * and RAPID, each route opening with its own form as the default for New.
+ * Records are numbered in one sequence (ADR-0003, DACI-0004), edited in
+ * place, decided with the outcome and the decider, superseded both ways,
+ * and deleted with Undo. The old DACI and RAPID rows and the old Decision
+ * Log's own storage move in once (useLegacyDecisions).
+ */
+export function DecisionLogClient({ template = "adr" }: { template?: DecisionTemplate }) {
+  const page = PAGE[template];
+  const spec = TEMPLATES[template];
+  const hydrated = useWorkspaceHydrated();
+  const { records, pending, conflicts, settleConflict } = useLegacyDecisions();
+  const roster = useTeamRoster();
+  const { log } = useHistoryLogger(page.toolId);
+  const history = HISTORY[template];
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const [filter, setFilter] = useState<TemplateFilter>("all");
+  const [open, setOpen] = useState<ReadonlySet<string>>(NOTHING_OPEN);
+  const [formOpen, setFormOpen] = useState(false);
+  // The record to scroll to once it is on screen (from ?id= or a "Supersedes" link).
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
+  const filterId = useId();
+  // The New button at the top, where focus goes back when the form is cancelled.
+  const newRef = useRef<HTMLButtonElement>(null);
+
+  // ?id= on load, and again when a link on this page (a next step) sets it.
+  // It's dropped once the record is open, so the same link works again.
+  // Every form is shown, as a "Supersedes" jump does: a chip pressed before
+  // the link would hide a record of another form, and the jump would wait.
+  const openFromUrl = useCallback((search: URLSearchParams) => {
+    const id = readRecordParam(`?${search}`);
+    if (!id) return;
+    setFilter("all");
+    setOpen((s) => new Set(s).add(id));
+    setJumpTo(id);
+    dropSearchParam(RECORD_PARAM);
   }, []);
 
-  const addDecision = () => {
-    const fresh = emptyDecision();
-    setDecisions((d) => [fresh, ...d]);
-    setEditing(fresh);
-    log(DECISION_ACTIONS.DECISION_ADDED, { decisionId: fresh.id });
-  };
+  const shown = useMemo(() => records.filter((d) => matchesTemplate(d, filter)), [records, filter]);
+  const { ordered, isStale, resort } = useStableOrder(shown, (d) => d.id, byNumberDesc);
 
-  const updateDecision = (id: string, patch: Partial<Decision>) => {
-    // BUG-T2-decision-log-1: do NOT call `log()` from inside the
-    // setState updater. React 18 StrictMode re-invokes pure updaters
-    // in dev, which previously double-logged every status change. The
-    // freshest snapshot is the live store, NOT the closure — read it
-    // via `setDecisions((d) => …)` ONLY to compute `next`, and call
-    // the side-effecting log AFTER the dispatch using the current
-    // closure's prev (acceptable: this same render's value is what
-    // the user saw when they clicked).
-    const prev = patch.status ? decisions.find((x) => x.id === id) : undefined;
-    setDecisions((d) => d.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    if (patch.status && prev) {
-      log(DECISION_ACTIONS.STATUS_CHANGED, {
-        decisionId: id,
-        title: prev.title,
-        from: prev.status,
-        to: patch.status,
-      });
-    }
-    if (editing?.id === id) setEditing((prev) => (prev ? { ...prev, ...patch } : prev));
-  };
+  useEffect(() => {
+    if (!jumpTo) return;
+    const el = document.getElementById(`decision-${jumpTo}`);
+    if (!el) return;
+    el.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    el.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus();
+    setJumpTo(null);
+  }, [jumpTo, ordered]);
 
-  const removeDecision = (id: string) => {
-    const prev = decisions.find((x) => x.id === id);
-    setDecisions((d) => d.filter((x) => x.id !== id));
-    // R5: also cascade through the workspace store so any canvas
-    // sticky/card pinned to this decision via sourceRef is cleaned up.
-    // Without this, removing a previously-pushed decision left an
-    // orphan in `workspace.decisions` (and dangling canvas refs)
-    // until the next workspace export/import cycle.
-    try {
-      useWorkspaceStore.getState().removeDecision(id);
-    } catch {
-      /* workspace store may be unavailable in tests */
-    }
-    if (editing?.id === id) setEditing(null);
-    log(DECISION_ACTIONS.DECISION_REMOVED, {
-      decisionId: id,
-      title: prev?.title,
-    });
-  };
-
-  const counts = useMemo(() => {
-    const c: Record<Decision["status"], number> = {
+  const counts = useMemo(() => countByTemplate(records), [records]);
+  const byStatus = useMemo(() => {
+    const c: Record<DecisionStatus, number> = {
       proposed: 0,
       accepted: 0,
       deprecated: 0,
       superseded: 0,
     };
-    // Guard against legacy / imported decisions whose status falls
-    // outside the known set. Without this, `c[d.status] += 1` becomes
-    // `undefined + 1 = NaN`, and every KPI card on the page renders
-    // "NaN" until the offending row is removed.
-    decisions.forEach((d) => {
-      if (d.status in c) c[d.status] += 1;
-    });
+    // A status outside the lifecycle (a hand-edited row) isn't counted, never NaN.
+    for (const d of records) if (d.status in c) c[d.status] += 1;
     return c;
-  }, [decisions]);
+  }, [records]);
+  const verdict = decisionVerdict(records, today);
+  const real = useMemo(() => records.filter((d) => !isExampleId(d.id)), [records]);
+  const speed = timeToDecide(real);
+  const decidedWithDays = real.filter((d) => isDecided(d.status) && d.decidedAt && d.date).length;
 
-  const promptConfig = useMemo(
-    () => ({
-      toolName: "Decision Log",
-      prompts: generateDecisionLogPrompts({ decisions }),
-    }),
-    [decisions]
+  const markdown = decisionsToMarkdown(ordered, {
+    all: records,
+    verdict,
+    title: filter === "all" ? "Decision Log" : `Decision Log: ${TEMPLATES[filter].label} records`,
+  });
+
+  const promptConfig = useMemo(() => {
+    // The records themselves (numbers, lifecycle, the template's roles), as the cards show them:
+    // DACI and RAPID list their own records with their roles, the log lists every record, and
+    // all three state the verdict and time to decide over the whole log, as the page does.
+    const own = records.filter((d) => templateOf(d) === template);
+    return {
+      toolName: page.title,
+      prompts:
+        template === "daci"
+          ? generateDaciPrompts({ decisions: own, all: records, today })
+          : template === "rapid"
+            ? generateRapidPrompts({ decisions: own, all: records, today })
+            : generateDecisionLogPrompts({ decisions: records, today }),
+    };
+  }, [records, template, page.title, today]);
+
+  /* ── Changes ──────────────────────────────────────────────────────── */
+
+  // Example records aren't the team's history.
+  const record = (d: { id: string }, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(d.id)) log(action, payload);
+  };
+
+  const toggle = (id: string) =>
+    setOpen((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const jump = (id: string) => {
+    setFilter("all");
+    setOpen((s) => new Set(s).add(id));
+    setJumpTo(id);
+  };
+
+  const create = (id: string, values: NewDecision) => {
+    let created: Decision | null = null;
+    undoable({
+      label: `Added “${values.title}”`,
+      apply: () => {
+        created = createDecision({ ...values, id });
+        record(created, history.added, {
+          decisionId: id,
+          title: values.title,
+          template: values.template,
+        });
+      },
+      revert: () => {
+        removeDecisionRecord(id);
+      },
+    });
+    setFormOpen(false);
+    setFilter("all");
+    setOpen((s) => new Set(s).add(id));
+    setJumpTo(id);
+    const saved = created as Decision | null;
+    announce(`Added ${saved ? decisionLabel(saved) : "the record"}: ${values.title}`);
+  };
+
+  const change = (prev: Decision, next: Decision, how: ChangeHow) => {
+    if (how.undo) {
+      undoable({
+        label: how.label,
+        apply: () => saveDecision(next),
+        revert: () => saveDecision(prev),
+      });
+    } else {
+      saveDecision(next);
+    }
+    record(prev, how.decided ? history.decided : history.updated, {
+      decisionId: prev.id,
+      title: next.title,
+      ...(prev.status !== next.status ? { from: prev.status, to: next.status } : {}),
+    });
+    announce(how.label);
+  };
+
+  const remove = (d: Decision) => {
+    const label = decisionLabel(d);
+    let snapshot: DecisionRecordSnapshot | null = null;
+    // Focus moves to the next record on screen (or the one before) as this one goes.
+    const at = ordered.findIndex((x) => x.id === d.id);
+    const neighbour = ordered[at + 1] ?? ordered[at - 1];
+    undoable({
+      label: `Deleted ${label}`,
+      description: `“${d.title || "Untitled"}”`,
+      apply: () => {
+        snapshot = removeDecisionRecord(d.id);
+        record(d, history.removed, { decisionId: d.id, title: d.title });
+      },
+      revert: () => {
+        if (snapshot) restoreDecisionRecord(snapshot);
+        setJumpTo(d.id);
+      },
+    });
+    if (neighbour) setJumpTo(neighbour.id);
+    announce(`Deleted ${label}`);
+  };
+
+  const takeOldText = (c: DecisionLogConflict) => {
+    const d = records.find((x) => x.id === c.id);
+    settleConflict(c);
+    if (!d) return;
+    const next = withOldText(d, c);
+    undoable({
+      label: `Used the old page's text on ${decisionLabel(d)}`,
+      apply: () => saveDecision(next),
+      revert: () => saveDecision(d),
+    });
+    announce(`Used the old page's text on ${decisionLabel(d)}`);
+  };
+
+  const loadExample = () => {
+    saveDecisions(buildExample(today));
+    setFilter("all");
+  };
+  const clearExample = () => {
+    useWorkspaceStore.setState((s) => ({
+      decisions: (s.decisions ?? []).filter((d) => !isExampleId(d.id)),
+    }));
+    setOpen(NOTHING_OPEN);
+  };
+
+  const newButton = (ref?: Ref<HTMLButtonElement>) => (
+    <Button
+      ref={ref}
+      type="button"
+      size="sm"
+      className="gap-1"
+      aria-expanded={formOpen}
+      onClick={() => setFormOpen((o) => !o)}
+    >
+      <Plus className="h-4 w-4" aria-hidden="true" />
+      New {spec.label}
+    </Button>
   );
 
-  const handleImport = () => {
-    const next = workspaceDecisions.filter((w) => !decisions.find((d) => d.id === w.id));
-    if (next.length === 0) return 0;
-    setDecisions((d) => [...next, ...d]);
-    return next.length;
-  };
-
-  const handlePush = () => {
-    let n = 0;
-    for (const d of decisions) {
-      if (d.title.trim()) {
-        upsertWorkspaceDecision(d);
-        n++;
-      }
-    }
-    return n;
-  };
-
   return (
-    <ToolPageWrapper
-      toolId="decision-log"
-      title="Decision Log (ADR)"
-      description="Record architecture and product decisions so your team's reasoning outlives any single person."
-      category="Risk & Governance"
-    >
-      <ActionRow>
-        <WorkspaceSyncButton toolName="Decision Log" onImport={handleImport} onPush={handlePush} />
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="decision-log"
-          csvData={{
-            headers: [
-              "ID",
-              "Title",
-              "Status",
-              "Date",
-              "Context",
-              "Decision",
-              "Consequences",
-              "Alternatives",
-            ],
-            rows: decisions.map((d) => [
-              d.id,
-              d.title,
-              d.status,
-              d.date,
-              d.context ?? "",
-              d.decision,
-              d.consequences ?? "",
-              // Join with "; " (semicolons + space) — newlines inside a CSV
-              // cell would either need quoting (which the export helper may
-              // do) or break consumer tooling that expects single-line cells.
-              (d.alternatives ?? []).join("; "),
-            ]),
-          }}
-          jsonData={decisions}
-        />
-        <Button
-          onClick={addDecision}
-          size="sm"
-          className="gap-2 bg-accent text-bg hover:bg-accent/90"
+    <ToolPageWrapper toolId={page.toolId} title={page.title} description={page.description}>
+      <OnSearchParams onChange={openFromUrl} />
+      {!hydrated ? (
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
         >
-          <Plus className="w-4 h-4" />
-          New ADR
-        </Button>
-      </ActionRow>
+          Loading decisions…
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <TemplateSwitch template={template} />
+            <div className="flex flex-wrap items-center gap-2">
+              {records.length > 0 && (
+                <>
+                  <AiPromptGenerator config={promptConfig} />
+                  <ExportButton
+                    filename="decision-log"
+                    markdown={markdown}
+                    clipboardText={markdown}
+                    csvData={decisionsCsv(ordered, records)}
+                    jsonData={ordered}
+                  />
+                </>
+              )}
+              {newButton(newRef)}
+            </div>
+          </div>
 
-      <KpiGrid cols={4}>
-        {STATUSES.map((s) => (
-          <StatCard key={s} variant="compact" label={s} value={counts[s]} />
-        ))}
-      </KpiGrid>
+          {hasExampleItems(records) && (
+            <div>
+              <ExampleNotice onClear={clearExample} />
+              <p className="-mt-2 text-xs text-sub">
+                Example: a platform team&apos;s log, one record per form. Its numbers aren&apos;t
+                part of your log&apos;s sequence.
+              </p>
+            </div>
+          )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div ref={tableRef} className="lg:col-span-2 space-y-2">
-          {decisions.length === 0 ? (
-            <EmptyState icon={FileText}>
-              No ADRs yet. Click &ldquo;New ADR&rdquo; to record your first decision.
-            </EmptyState>
-          ) : (
-            decisions.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => setEditing(d)}
-                aria-pressed={editing?.id === d.id}
-                className={`w-full text-left rounded-lg border p-3 transition hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  editing?.id === d.id ? "border-accent/60 bg-accent/5" : "border-border bg-surface"
-                }`}
+          <ConflictNotice
+            conflicts={conflicts}
+            records={records}
+            onKeep={settleConflict}
+            onUseOld={takeOldText}
+          />
+
+          {pending && (
+            <p role="status" className="text-xs text-sub">
+              Some records from the old Decision Log are still moving in; they&apos;re listed as
+              they&apos;ll read once moved.
+            </p>
+          )}
+
+          {formOpen && (
+            <SectionCard title={`New ${spec.label} record`} icon={Plus}>
+              <DecisionForm
+                template={template}
+                today={today}
+                roster={roster}
+                newId={newDecisionId}
+                onSave={create}
+                onCancel={() => {
+                  setFormOpen(false);
+                  newRef.current?.focus();
+                }}
+              />
+            </SectionCard>
+          )}
+
+          {records.length === 0 ? (
+            !formOpen && (
+              <EmptyState
+                icon={FileText}
+                action={
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    {newButton()}
+                    <LoadExampleButton onLoad={loadExample} />
+                  </div>
+                }
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-text truncate">
-                      {d.title || "(untitled)"}
-                    </div>
-                    <div className="text-xs text-sub mt-0.5">{d.date}</div>
-                  </div>
-                  <Badge className="shrink-0 capitalize" variant="outline">
-                    {d.status}
-                  </Badge>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-
-        <div className="lg:col-span-3">
-          {editing ? (
-            <Card className="bg-surface border-border">
-              <CardContent className="p-4 space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_140px] gap-3">
-                  <div>
-                    <Label htmlFor={`${uid}-title`} className="text-xs text-sub">
-                      Title
-                    </Label>
-                    <BlurInput
-                      id={`${uid}-title`}
-                      value={editing.title}
-                      onCommit={(v) => updateDecision(editing.id, { title: v })}
-                      placeholder="ADR-0001: Use Postgres for event log"
-                      className="bg-bg border-border"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`${uid}-status`} className="text-xs text-sub">
-                      Status
-                    </Label>
-                    <Select
-                      value={editing.status}
-                      onValueChange={(v) =>
-                        updateDecision(editing.id, { status: v as Decision["status"] })
-                      }
-                    >
-                      <SelectTrigger
-                        id={`${uid}-status`}
-                        className="bg-bg border-border capitalize"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUSES.map((s) => (
-                          <SelectItem key={s} value={s} className="capitalize">
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor={`${uid}-date`} className="text-xs text-sub">
-                      Date
-                    </Label>
-                    <Input
-                      id={`${uid}-date`}
-                      type="date"
-                      // Defensive nullish — hand-edited localStorage
-                      // (or an older schema migration) could leave
-                      // `date` as null/undefined and `.slice` on null
-                      // would crash the editor open.
-                      value={(editing.date ?? "").slice(0, 10)}
-                      onChange={(e) => updateDecision(editing.id, { date: e.target.value })}
-                      className="bg-bg border-border"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor={`${uid}-context`} className="text-xs text-sub">
-                    Context
-                  </Label>
-                  <BlurTextarea
-                    id={`${uid}-context`}
-                    rows={3}
-                    placeholder="What problem are we solving? What constraints apply?"
-                    value={editing.context ?? ""}
-                    onCommit={(v) => updateDecision(editing.id, { context: v })}
-                    className="bg-bg border-border"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor={`${uid}-decision`} className="text-xs text-sub">
-                    Decision
-                  </Label>
-                  <BlurTextarea
-                    id={`${uid}-decision`}
-                    rows={3}
-                    placeholder="We will do X."
-                    value={editing.decision}
-                    onCommit={(v) => updateDecision(editing.id, { decision: v })}
-                    className="bg-bg border-border"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor={`${uid}-consequences`} className="text-xs text-sub">
-                    Consequences
-                  </Label>
-                  <BlurTextarea
-                    id={`${uid}-consequences`}
-                    rows={3}
-                    placeholder="Trade-offs, follow-ups, what becomes easier/harder."
-                    value={editing.consequences ?? ""}
-                    onCommit={(v) => updateDecision(editing.id, { consequences: v })}
-                    className="bg-bg border-border"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor={`${uid}-alternatives`} className="text-xs text-sub">
-                    Alternatives considered (one per line)
-                  </Label>
-                  <BlurTextarea
-                    id={`${uid}-alternatives`}
-                    rows={3}
-                    placeholder={"Option A — rejected because...\nOption B — rejected because..."}
-                    value={(editing.alternatives ?? []).join("\n")}
-                    onCommit={(v) =>
-                      // Keep the raw split — including empty trailing lines —
-                      // so the user can press Enter at the end of the field
-                      // without their cursor jumping back. The previous
-                      // `.filter(Boolean)` collapsed every empty line, which
-                      // made it impossible to add a blank line between bullets
-                      // mid-typing.
-                      updateDecision(editing.id, {
-                        alternatives: v.split("\n"),
-                      })
-                    }
-                    className="bg-bg border-border"
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => removeDecision(editing.id)}
-                    className="gap-2 border-danger/40 text-danger hover:bg-danger/10"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete ADR
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                No decisions recorded yet. Raise one in the {spec.label} form, or load an example to
+                see a log with all three forms. Decisions sent from Six Hats, RFC Tracker and the
+                Weighted Decision Matrix land here too.
+              </EmptyState>
+            )
           ) : (
-            <EmptyState>Select an ADR on the left to edit its details.</EmptyState>
+            <>
+              <p className="text-sm font-medium text-text">{verdict}</p>
+              <KpiGrid cols={4}>
+                {STATUSES.map((s) => (
+                  <StatCard
+                    key={s}
+                    variant="compact"
+                    label={DECISION_STATUS_LABEL[s]}
+                    value={byStatus[s]}
+                  />
+                ))}
+              </KpiGrid>
+
+              <div>
+                <p id={filterId} className="mb-1 text-xs font-medium text-sub">
+                  Show
+                </p>
+                <div role="group" aria-labelledby={filterId} className="flex flex-wrap gap-1">
+                  {FILTERS.map((f) => (
+                    <Button
+                      key={f}
+                      type="button"
+                      size="sm"
+                      variant={filter === f ? "default" : "outline"}
+                      aria-pressed={filter === f}
+                      onClick={() => setFilter(f)}
+                    >
+                      {f === "all" ? "All" : TEMPLATES[f].label}
+                      <span className="ml-1 font-mono text-xs opacity-80">{counts[f]}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <ResortChip isStale={isStale} onResort={resort} what="Numbers" />
+              {ordered.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border bg-card px-4 py-8 text-center text-sm text-sub">
+                  No {filter === "all" ? "" : `${TEMPLATES[filter].label} `}records yet.
+                </p>
+              ) : (
+                <ul className="space-y-2" aria-label="Decision records">
+                  {ordered.map((d) => (
+                    <DecisionCard
+                      key={d.id}
+                      decision={d}
+                      all={records}
+                      today={today}
+                      roster={roster}
+                      expanded={open.has(d.id)}
+                      onToggle={() => toggle(d.id)}
+                      onJump={jump}
+                      onChange={change}
+                      onDelete={remove}
+                    />
+                  ))}
+                </ul>
+              )}
+
+              <AdvancedAnalysis summary="How long decisions take">
+                {speed ? (
+                  <p className="flex items-start gap-2 text-sm text-text">
+                    <Timer className="mt-0.5 h-4 w-4 shrink-0 text-sub" aria-hidden="true" />
+                    <span>
+                      Median time from raised to decided:{" "}
+                      <span className="font-mono font-semibold">
+                        {speed.medianDays === 1 ? "1 day" : `${speed.medianDays} days`}
+                      </span>
+                      , over {speed.n} decided records.
+                    </span>
+                  </p>
+                ) : (
+                  <NotEnoughData
+                    have={decidedWithDays}
+                    need="average"
+                    unit={["decided record", "decided records"]}
+                    action="Decide"
+                    what="how long decisions take"
+                  />
+                )}
+                <p className="text-xs text-sub">
+                  Counted from the day a record was raised to the day it was decided.
+                </p>
+              </AdvancedAnalysis>
+            </>
           )}
         </div>
-      </div>
+      )}
     </ToolPageWrapper>
   );
 }

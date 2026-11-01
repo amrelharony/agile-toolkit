@@ -217,20 +217,53 @@ describe("joining with the flag on", () => {
     expect(h.client.channel).not.toHaveBeenCalled();
   });
 
-  it.each(["health-check", "psych-safety", "mood-tracker"])(
-    "mounts the vote room (not Retro) for /join/%s with the host key",
-    async (tool) => {
-      window.history.replaceState(null, "", `#k=${"abcdefghijklmnopqrstuv"}`);
-      renderPage(tool, CODE);
-      const dialog = await screen.findByRole("dialog");
-      expect(dialog).toHaveTextContent(/Answers are encrypted in each person's browser/);
-      expect(dialog).not.toHaveTextContent(/What you type passes through/);
-      expect(h.client.channel).not.toHaveBeenCalled();
-      consent("Sam");
-      expect(await screen.findByTestId("vote-join-room", {}, LAZY)).toHaveTextContent(
-        `${tool} ${CODE} Sam`
-      );
-      expect(screen.queryByTestId("visitor-retro-room")).toBeNull();
+  it.each([
+    "health-check",
+    "psych-safety",
+    "mood-tracker",
+    "kano-model",
+    "buy-a-feature",
+    "hundred-dollar-test",
+  ])("mounts the vote room (not Retro) for /join/%s with the host key", async (tool) => {
+    window.history.replaceState(null, "", `#k=${"abcdefghijklmnopqrstuv"}`);
+    renderPage(tool, CODE);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(/Answers are encrypted in each person's browser/);
+    expect(dialog).not.toHaveTextContent(/What you type passes through/);
+    expect(h.client.channel).not.toHaveBeenCalled();
+    consent("Sam");
+    expect(await screen.findByTestId("vote-join-room", {}, LAZY)).toHaveTextContent(
+      `${tool} ${CODE} Sam`
+    );
+    expect(screen.queryByTestId("visitor-retro-room")).toBeNull();
+  });
+
+  it.each([
+    ["kano-model", "Kano survey"],
+    ["buy-a-feature", "Buy-a-Feature"],
+    ["hundred-dollar-test", "$100 Test"],
+  ])("names %s's room in the consent and on the way in", async (tool, name) => {
+    window.history.replaceState(null, "", `#k=${"abcdefghijklmnopqrstuv"}`);
+    renderPage(tool, CODE);
+    expect(
+      await screen.findByRole("dialog", { name: `Join the live ${name} room` })
+    ).toBeInTheDocument();
+    expect(screen.getByText(`Joining a live ${name} room`)).toBeInTheDocument();
+    expect(h.client.channel).not.toHaveBeenCalled();
+  });
+
+  it("says a Prioritize tool's vote link without #k= is incomplete too", async () => {
+    window.history.replaceState(null, "", window.location.pathname);
+    renderPage("hundred-dollar-test", CODE);
+    expect(await screen.findByRole("heading", { name: "This link is incomplete" })).toHaveFocus();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(h.client.channel).not.toHaveBeenCalled();
+  });
+
+  it.each(["moscow", "rice-scoring", "kano"])(
+    "is a 404 for %s, a Prioritize tool without live rounds (or no tool at all)",
+    (tool) => {
+      expect(() => JoinRoomPage({ params: { tool, code: CODE } })).toThrow("NEXT_NOT_FOUND");
     }
   );
 

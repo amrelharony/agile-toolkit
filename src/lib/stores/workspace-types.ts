@@ -144,6 +144,13 @@ export interface Story {
   epicId?: string;
   /** Definition-of-Done checks ticked on the Sprint board card (absent: none ticked). */
   dodChecks?: StoryDodChecks;
+  /**
+   * The decided backlog order it was pulled in with: its `BacklogItem.rank`
+   * when Sprint Planning imported it (1-based; absent: not ordered). The
+   * shared backlog comparator sorts by it ascending, then `priorityScore`
+   * descending.
+   */
+  backlogRank?: number;
 }
 
 /**
@@ -282,17 +289,107 @@ export interface Okr {
   owner?: string;
 }
 
+/* ── Decision records ──
+ * One entity for the Decision Log, DACI and RAPID (Phase 7): `template` says
+ * which form a record was raised with, and the ADR lifecycle is the status
+ * for all three. DACIDecision and RAPIDDecision rows from before the merge
+ * stay as legacy types; lib/decisions reads them through as Decisions. */
+
+/** Which form a decision record uses; absent on a record means "adr". */
+export type DecisionTemplate = "adr" | "daci" | "rapid";
+
+export const DECISION_TEMPLATES = [
+  "adr",
+  "daci",
+  "rapid",
+] as const satisfies readonly DecisionTemplate[];
+
+/** The ADR lifecycle every template shares. DACI/RAPID's "implemented" and
+ *  "revisit" are dates on the record (`implementedAt`, `reopenedAt`). */
+export type DecisionStatus = "proposed" | "accepted" | "deprecated" | "superseded";
+
+export const DECISION_STATUSES = [
+  "proposed",
+  "accepted",
+  "deprecated",
+  "superseded",
+] as const satisfies readonly DecisionStatus[];
+
+/** Named roles besides the one decider (DACI Approver / RAPID Decide / an ADR's decider). */
+export type DecisionRole =
+  /** DACI, one person. */
+  | "driver"
+  /** DACI. */
+  | "contributor"
+  /** DACI. */
+  | "informed"
+  /** RAPID, one person. */
+  | "recommend"
+  /** RAPID (a veto). */
+  | "agree"
+  /** RAPID. */
+  | "perform"
+  /** RAPID. */
+  | "input";
+
+export const DECISION_ROLES = [
+  "driver",
+  "contributor",
+  "informed",
+  "recommend",
+  "agree",
+  "perform",
+  "input",
+] as const satisfies readonly DecisionRole[];
+
+/** One option a decision weighed. */
+export interface DecisionOption {
+  id: string;
+  text: string;
+  /** Why it was rejected, or its trade-offs. */
+  note?: string;
+}
+
 export interface Decision {
   id: string;
   title: string;
   context?: string;
+  /** The outcome ("We will …"); "" until decided. Labelled "Outcome" in the UI. */
   decision: string;
   consequences?: string;
+  /** Pre-template ADRs: one option per line. Read as `options` (lib/decisions);
+   *  new writes use `options`. */
   alternatives?: string[];
-  status: "proposed" | "accepted" | "deprecated" | "superseded";
+  status: DecisionStatus;
+  /** "YYYY-MM-DD" the record was raised (can be backdated). */
   date: ISODateString;
   /** The item this was sent from (a six-hats summary, a weighted decision). */
   sourceRef?: HandoffRef;
+  /** The form it was raised with; absent: "adr" (every record from before templates). */
+  template?: DecisionTemplate;
+  /** One numbering sequence for the whole log, across templates (ADR-0003,
+   *  DACI-0004): assigned once, never changed, and never held by two records
+   *  (only a deleted top record's number is given again). Absent: not
+   *  numbered yet. */
+  number?: number;
+  /** The options weighed. Absent on a pre-template ADR, whose `alternatives` are read instead. */
+  options?: DecisionOption[];
+  /** The option the outcome picked (a `DecisionOption.id`). */
+  chosenOptionId?: string;
+  /** The DACI Driver's or RAPID Recommender's proposal. */
+  recommendation?: string;
+  /** Roster spelling: the one person with the final say (DACI Approver, RAPID Decide). */
+  decider?: string;
+  /** Roster spellings per role; "driver" and "recommend" hold at most one. */
+  roles?: Partial<Record<DecisionRole, string[]>>;
+  /** "YYYY-MM-DD" it was accepted on (can be backdated). */
+  decidedAt?: ISODateString;
+  /** "YYYY-MM-DD" it was carried out (DACI/RAPID "implemented"). */
+  implementedAt?: ISODateString;
+  /** "YYYY-MM-DD" an accepted decision went back to proposed (DACI "revisit"). */
+  reopenedAt?: ISODateString;
+  /** Id of the decision that replaced this one (status "superseded"). */
+  supersededBy?: string;
 }
 
 export interface TechDebtItem {
@@ -1250,7 +1347,8 @@ export interface PrioritizationItem {
     | "walking-skeleton";
   title: string;
   description?: string;
-  /** Generic numeric score derived by the framework */
+  /** Generic numeric score derived by the framework, unrounded. Absent: Not
+   *  scored (a title-only row, status "open"); readers never treat it as 0. */
   score?: number;
   /** Free-form data bag (per-framework fields) */
   fields?: Record<string, number | string>;
@@ -1258,6 +1356,102 @@ export interface PrioritizationItem {
   updatedAt: ISODateString;
   /** The shared backlog item (workspace backlogItems) this row scores. */
   backlogItemId?: string;
+  /** Where this row was sent (Buy-a-Feature: a funded feature pushed to the
+   *  backlog as a story). */
+  sentTo?: HandoffLink[];
+}
+
+/* ── Group allocation rounds (Phase 7) ──
+ * Buy-a-Feature and the $100 Test run "allocation" rounds: each person splits
+ * a budget across the items, anonymously (the vote-room kit's allocation
+ * kind, or splits typed in by the facilitator). Only aggregates are kept,
+ * never anyone's split: per item the total, how many backed it and how many
+ * fell in each of five bands of the budget. */
+
+/** The tools whose rounds are AllocationRounds. */
+export const ALLOCATION_ROUND_TOOLS = [
+  "buy-a-feature",
+  "hundred-dollar-test",
+] as const satisfies readonly string[];
+
+export type AllocationRoundTool = (typeof ALLOCATION_ROUND_TOOLS)[number];
+
+/** One item's line in a saved allocation round. */
+export interface AllocationRoundItem {
+  /** The PrioritizationItem this line was. */
+  itemId: string;
+  /** Its title when the round ran. */
+  text: string;
+  /** The most it could take, in all and from one person (Buy-a-Feature: what
+   *  was left of its price). A total above it is over-funding. */
+  cap?: number;
+  /** Everyone's amounts on the item, added up. */
+  total: number;
+  /** People who gave it more than 0; null when the spread was withheld. */
+  backers: number | null;
+  /** People per band (`AllocationRound.bandEdges`); null when withheld (fewer
+   *  than 5 answers, or totals typed by hand). */
+  bands: number[] | null;
+}
+
+/** One anonymous allocation round: totals only, never anyone's split. */
+export interface AllocationRound {
+  /** "allocationRound_<nanoid(8)>". */
+  id: string;
+  tool: AllocationRoundTool;
+  /** The live round's id, or "tally-<base36>" for a count entry. */
+  roundId: string;
+  title: string;
+  /** Whole units each person split, 10..9999. */
+  budget: number;
+  /** Shown before amounts, ≤ 4 chars, e.g. "$". */
+  unit: string;
+  /** true: each split used the whole budget ($100 Test); false: up to it (Buy-a-Feature). */
+  spendAll: boolean;
+  /** YYYY-MM-DD the round is for (a hand-entered round can be backdated). */
+  date: ISODateString;
+  /** When the round closed (ISO). */
+  closedAt: ISODateString;
+  /** The fewest answers the totals showed from. */
+  minN: number;
+  /** How many people answered. */
+  ballots: number;
+  source: "room" | "facilitator";
+  /**
+   * false when the totals were typed by hand: how the amounts were spread
+   * isn't known at any count, so no backers or bands. Written only then;
+   * absent, it's read from the bands (lib/hundred-dollar spreadKnownOf).
+   */
+  spreadKnown?: boolean;
+  /** Lower edge of each band, ascending from 0 (the kit's allocationBandEdges(budget)). */
+  bandEdges: number[];
+  items: AllocationRoundItem[];
+}
+
+/** The kind allocation rounds sync under (user_entities), for server-side code. */
+export const ALLOCATION_ROUND_KIND = "workspace:allocationRound";
+
+/** Buy-a-Feature's one game document id. */
+export const BUY_A_FEATURE_ID = "buyAFeature:current";
+
+/** The kind the game syncs under (user_entities), for server-side code. */
+export const BUY_A_FEATURE_KIND = "workspace:buyAFeatureGame";
+
+/**
+ * The Buy-a-Feature game's settings (a singleton, id BUY_A_FEATURE_ID). The
+ * features are PrioritizationItem rows (framework "buy-feature") with their
+ * price and what was raised; the pool is budgetPerPlayer × players.
+ */
+export interface BuyAFeatureGame {
+  /** BUY_A_FEATURE_ID. */
+  id: string;
+  /** Play money each player gets, whole units 10..9999. Unset until the facilitator sets it. */
+  budgetPerPlayer?: number;
+  /** Players in the game, 1..999. Unset until set (the roster size is offered, never assumed). */
+  players?: number;
+  /** Shown before amounts, ≤ 4 chars, e.g. "$". */
+  unit?: string;
+  updatedAt: ISODateString;
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -1291,16 +1485,106 @@ export interface RAPIDDecision {
   date: ISODateString;
 }
 
+/**
+ * The matrix every option and criterion without a `matrixId` belongs to: the
+ * one unnamed matrix from before named matrices (read-time, no migration).
+ */
+export const DEFAULT_WEIGHTED_MATRIX_ID = "weightedMatrix:default";
+
+/** The kind weighted matrices sync under (user_entities), for server-side code. */
+export const WEIGHTED_MATRIX_KIND = "workspace:weightedMatrix";
+
+/**
+ * A named weighted-decision matrix: one question, scored on its own options
+ * and criteria (the rows whose `matrixId` is this id). The default matrix
+ * (`DEFAULT_WEIGHTED_MATRIX_ID`) needs no stored row: legacy rows belong to
+ * it even when none is saved.
+ */
+export interface WeightedMatrix {
+  /** "weightedMatrix_<nanoid(8)>", or DEFAULT_WEIGHTED_MATRIX_ID once the default one is named. */
+  id: string;
+  name: string;
+  /** What is being decided; becomes the decision record's title. */
+  question?: string;
+  createdAt: ISODateString;
+  updatedAt?: ISODateString;
+  /** Where the result went (a decision record). */
+  sentTo?: HandoffLink[];
+}
+
 export interface WeightedOption {
   id: string;
   name: string;
   scores: Record<string, number>; // criterionId -> score
+  /** The matrix this option is in; absent: the default matrix (DEFAULT_WEIGHTED_MATRIX_ID). */
+  matrixId?: string;
+  /** Why it scored as it did, or a caveat. */
+  note?: string;
 }
 
 export interface WeightedCriterion {
   id: string;
   name: string;
   weight: number;
+  /** The matrix this criterion is in; absent: the default matrix (DEFAULT_WEIGHTED_MATRIX_ID). */
+  matrixId?: string;
+  /** What a score of 1 means on this criterion. */
+  low?: string;
+  /** What a score of 10 means on this criterion. */
+  high?: string;
+}
+
+/** The kinds weighted options and criteria sync under (user_entities), for server-side code. */
+export const WEIGHTED_OPTION_KIND = "workspace:weightedOption";
+export const WEIGHTED_CRITERION_KIND = "workspace:weightedCriterion";
+
+/**
+ * The matrix a weighted option or criterion is in: its `matrixId`, or the
+ * default matrix when it has none. An empty id (the CRUD refuses one) reads
+ * as none too, so no row sits in a matrix nothing can open.
+ */
+export function weightedMatrixIdOf(row: { matrixId?: string }): string {
+  return row.matrixId || DEFAULT_WEIGHTED_MATRIX_ID;
+}
+
+/** The options that held a score for one of `criterionIds`, without those scores. */
+export function withoutWeightedScores(
+  options: readonly WeightedOption[],
+  criterionIds: ReadonlySet<string>
+): WeightedOption[] {
+  const out: WeightedOption[] = [];
+  for (const o of options) {
+    const stale = Object.keys(o.scores ?? {}).filter((k) => criterionIds.has(k));
+    if (stale.length === 0) continue;
+    const scores = { ...o.scores };
+    for (const k of stale) delete scores[k];
+    out.push({ ...o, scores });
+  }
+  return out;
+}
+
+/**
+ * What deleting matrix `id` removes: the options and criteria in it (for
+ * DEFAULT_WEIGHTED_MATRIX_ID, the rows without a matrixId), plus `rescored`,
+ * the options left that held a score for a removed criterion, without it.
+ * The store's removeWeightedMatrix and the MCP side of
+ * workspace.weighted_matrix.delete both apply it, so the two leave the same rows.
+ */
+export function weightedMatrixRemoval(
+  id: string,
+  options: readonly WeightedOption[],
+  criteria: readonly WeightedCriterion[]
+): { optionIds: string[]; criterionIds: string[]; rescored: WeightedOption[] } {
+  const inMatrix = (row: { matrixId?: string }) => weightedMatrixIdOf(row) === id;
+  const criterionIds = criteria.filter(inMatrix).map((c) => c.id);
+  return {
+    optionIds: options.filter(inMatrix).map((o) => o.id),
+    criterionIds,
+    rescored: withoutWeightedScores(
+      options.filter((o) => !inMatrix(o)),
+      new Set(criterionIds)
+    ),
+  };
 }
 
 export interface SixHatsThought {
@@ -1349,11 +1633,34 @@ export interface OODACycle {
 export interface CynefinItem {
   id: string;
   title: string;
+  /** The domain the user confirmed (the guided questions only suggest one). */
   domain: "clear" | "complicated" | "complex" | "chaotic" | "confused";
   rationale?: string;
   recommendedAction?: string;
   loggedAt: ISODateString;
+  /** The guided sense-making answers the suggestion came from; absent on
+   *  items placed by hand or from before the questions. */
+  answers?: Partial<Record<CynefinQuestionId, CynefinAnswer>>;
+  /** Where it was sent (a complex item: a hypothesis to test). */
+  sentTo?: HandoffLink[];
 }
+
+export type CynefinDomain = CynefinItem["domain"];
+
+/** The guided sense-making questions (lib/cynefin has their wording). */
+export type CynefinQuestionId = "crisis" | "known" | "analysable" | "emergent" | "disagree";
+
+export const CYNEFIN_QUESTION_IDS = [
+  "crisis",
+  "known",
+  "analysable",
+  "emergent",
+  "disagree",
+] as const satisfies readonly CynefinQuestionId[];
+
+export type CynefinAnswer = "yes" | "no" | "unsure";
+
+export const CYNEFIN_ANSWERS = ["yes", "no", "unsure"] as const satisfies readonly CynefinAnswer[];
 
 export interface StaceyItem {
   id: string;
@@ -2033,27 +2340,78 @@ export interface StoryMap {
   slices: StoryMapSlice[];
 }
 
-/** A backlog item scored across the prioritizer's four frameworks (MoSCoW,
- *  WSJF, RICE, Value vs Effort). */
+/** How often a RICE reach count happens: the people reached per week, month,
+ *  quarter or year. The score normalises reach to per quarter, so items with
+ *  different periods compare. */
+export type ReachPeriod = "week" | "month" | "quarter" | "year";
+
+export const REACH_PERIODS = [
+  "week",
+  "month",
+  "quarter",
+  "year",
+] as const satisfies readonly ReachPeriod[];
+
+/**
+ * A backlog item scored across the prioritizer's four embedded methods
+ * (MoSCoW, WSJF, RICE, Value vs Effort).
+ *
+ * Every method input is optional: a missing one is Not scored, never a
+ * mid-range default (Phase 7). Items saved before then carry the old "Add
+ * item" defaults (moscow "should"; WSJF parts all 5; RICE reach 100, impact
+ * 1, confidence 80, effort 1; value 5 and matrixEffort 5); a method whose
+ * every field still equals its old default reads as Not scored (the
+ * fingerprint rule in lib/prioritization), and the next save through the
+ * new code unsets them, never a bulk write on load.
+ */
 export interface BacklogItem {
   id: string;
   name: string;
   description?: string;
-  /** MoSCoW bucket. */
-  moscow: "must" | "should" | "could" | "wont";
-  /** WSJF inputs. */
-  businessValue: number;
-  timeCriticality: number;
-  riskReduction: number;
-  jobSize: number;
-  /** RICE inputs. */
-  reach: number;
-  impact: 0.25 | 0.5 | 1 | 2 | 3;
-  confidence: number;
-  effort: number;
-  /** Value vs Effort matrix inputs. */
-  value: number;
-  matrixEffort: number;
+  /** MoSCoW bucket; absent: Not sorted yet (no default bucket). */
+  moscow?: "must" | "should" | "could" | "wont";
+  /**
+   * THE value of the item, on WSJF's modified Fibonacci scale (1, 2, 3, 5,
+   * 8, 13, 20): WSJF's user-business value and the Value/Effort matrix's
+   * value axis (high value = 8 or more). Absent: Not scored, unless a
+   * legacy `value` is there to read.
+   */
+  businessValue?: number;
+  /** WSJF time criticality, Fibonacci 1–20. */
+  timeCriticality?: number;
+  /** WSJF risk reduction / opportunity enablement (a row's `rrOe`), Fibonacci 1–20. */
+  riskReduction?: number;
+  /** WSJF job size, Fibonacci 1–20 (floor 1: a legacy 0 < size < 1 scores as 1). */
+  jobSize?: number;
+  /** RICE reach: people (or events) per `reachPeriod`. */
+  reach?: number;
+  /** The period `reach` counts over; absent: per quarter (what the hub's
+   *  Reach always meant). */
+  reachPeriod?: ReachPeriod;
+  /** RICE impact. The steps are 3 massive, 2 high, 1 medium, 0.5 low and
+   *  0.25 minimal; an exact custom value is kept (no snapping). */
+  impact?: number;
+  /** RICE confidence, percent (100 high, 80 medium, 50 low). */
+  confidence?: number;
+  /** RICE effort, person-months; minimum 0.5 (a legacy smaller value scores as 0.5). */
+  effort?: number;
+  /**
+   * @deprecated Read-only legacy: the Value/Effort matrix's 1–10 value from
+   * before the one value field. Read only when `businessValue` is missing,
+   * mapped to the nearest Fibonacci step at or above it (1→1, 2→2, 3→3,
+   * 4–5→5, 6–8→8, 9–10→13); never written again.
+   */
+  value?: number;
+  /** Value/Effort matrix effort, 1–10 (high effort = 6 or more). */
+  matrixEffort?: number;
+  /**
+   * The decided order: 1-based, unique among ranked items, set only by the
+   * Prioritizer's Decide order. Absent: Not ordered yet (new items stay
+   * unranked until the next Decide order).
+   */
+  rank?: number;
+  /** When the item was last saved (stamped by the code that writes it). */
+  updatedAt?: ISODateString;
 }
 
 // ── Outcomes & Pulse (squad S6) ──────────────────────────────────────
@@ -2778,8 +3136,17 @@ export interface Workspace {
   moodPulses?: MoodPulse[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
+  // Phase 7 — Prioritize & decide
+  /** Saved Buy-a-Feature and $100 Test rounds (aggregates only). */
+  allocationRounds?: AllocationRound[];
+  /** One `BuyAFeatureGame`, id `BUY_A_FEATURE_ID`. */
+  buyAFeatureGames?: BuyAFeatureGame[];
+  /** Named weighted-decision matrices (the default one needs no row). */
+  weightedMatrices?: WeightedMatrix[];
   // Phase 21 — Decision Frameworks
+  /** Legacy since Phase 7: read through as `decisions` (template "daci"). */
   daciDecisions?: DACIDecision[];
+  /** Legacy since Phase 7: read through as `decisions` (template "rapid"). */
   rapidDecisions?: RAPIDDecision[];
   weightedOptions?: WeightedOption[];
   weightedCriteria?: WeightedCriterion[];
@@ -3028,6 +3395,10 @@ export const emptyWorkspace = {
   moodPulses: [],
   // Phase 20 — Prioritization
   prioritizations: [],
+  // Phase 7 — Prioritize & decide
+  allocationRounds: [],
+  buyAFeatureGames: [],
+  weightedMatrices: [],
   // Phase 21 — Decision Frameworks
   daciDecisions: [],
   rapidDecisions: [],

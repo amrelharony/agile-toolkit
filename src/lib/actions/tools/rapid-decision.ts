@@ -1,178 +1,197 @@
 /**
- * RAPID Decision Matrix — tool-local actions.
+ * RAPID Decision Matrix — tool-local actions, kept as aliases onto the
+ * decision records the Decision Log, DACI and RAPID share
+ * (workspace.decisions).
  *
- * Category: Decision Frameworks (squad S13, Wave 2 / CRUD-backed)
- * Tool:     Bain's Recommend / Agree / Perform / Input / Decide model
+ * Category: Decision Frameworks
+ * Tool:     Bain's Recommend / Agree / Perform / Input / Decide. Since
+ *           Phase 7 a RAPID decision is a decision record raised in the
+ *           RAPID form (template "rapid"): Decide (D) is its decider,
+ *           Recommend, Agree, Perform and Input are its roles, and RAPID's
+ *           old statuses map onto the record's lifecycle:
+ *             open        = proposed (a decided one set to open is
+ *                           reopened: reopenedAt, as the page's Reopen)
+ *             decided     = accepted (or deprecated / superseded)
+ *             implemented = decided and carried out (implementedAt)
  *
  * Agent surface: tool.rapid_decision.*
- * Backing CRUD : workspace.rapid_decision.{create,list,update,delete}
- *                (auto-registered via defineCrudActions in workspace/index.ts)
+ *   1. list_state    — the RAPID records in the old shape, plus their
+ *                      number, label, outcome and issues.
+ *   2. set_status    — move a record in RAPID's words; "implemented" asks
+ *                      for confirmation on both paths when the caller can
+ *                      confirm (it is the end state).
+ *   3. assign_role   — idempotent append to Agree / Perform / Input.
+ *   4. set_decider   — the single Decide (D).
+ *   5. set_recommend — the single Recommend (R).
  *
- * ─── DECISION-CRUD variant of the calc-tool pattern ──────────────────
- * Unlike prioritization tools (WSJF, RICE, ICE…) which share one
- * collection and filter by `framework`, RAPID has its own dedicated
- * collection (`rapidDecisions`). The CRUD verbs are auto-generated; this
- * file adds the tool-specific verbs an agent reaches for in conversation:
- *
- *   1. list_state            — snapshot of all decisions + status stats
- *   2. set_status            — lifecycle transitions (open → decided → implemented)
- *   3. assign_role           — idempotent append to one of A/P/I role arrays
- *   4. set_decider           — set the single Decide role (string, not array)
- *   5. set_recommend         — set the Recommend field (string, single owner)
- *
- * ─── Why "assign_role" not "set_role" ─────────────────────────────────
- * The A/P/I roles are arrays (multiple people can be in the "must agree"
- * group). The agent intent is overwhelmingly *append* ("also add Sarah
- * to the agree list"), not *replace*. assign_role is idempotent — if
- * the person is already in the role, it returns {added: false} without
- * mutating, so an agent can call it speculatively without producing
- * spurious history events.
- *
- * The D role (decide) and R role (recommend) are single strings — one
- * decider, one recommender — so they use the singular set_decider and
- * set_recommend verbs.
- *
- * ─── requiresConfirmation rationale ──────────────────────────────────
- * Additive operations (assign_role, set_recommend, set_decider) are
- * cheap to undo — re-call the same verb with the corrected value. No
- * confirmation gate.
- *
- * set_status → "implemented" IS gated. "implemented" is the lifecycle
- * end state — agents reading the workspace treat implemented decisions
- * as historical record, not in-flight work. Reversing requires manual
- * intervention. Treat as the point of no return.
- *
- * set_status → "open" or "decided" is NOT gated; teams routinely flip
- * back and forth between these as new information arrives.
- * ─────────────────────────────────────────────────────────────────────
+ * Old RAPID rows (workspace.rapidDecisions) are read through as records
+ * under their own ids; the first write saves a Decision under that id and
+ * leaves the old row behind as the backup. workspace.rapid_decision.*
+ * CRUD stays for old callers. tool.decision_log.* is the full surface.
  */
 
 import { z } from "zod";
 import { registry } from "../registry";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverListEntities, serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { RAPIDDecision } from "@/lib/stores/workspace-types";
-
-/** Entity kind in user_entities — derived from the workspace CRUD
- *  toolId ("workspace.rapid_decision") via kindFromToolId, which maps it
- *  to the camelCase "workspace:rapidDecision" the browser sync engine also
- *  uses, so MCP writes round-trip into the browser store. */
-const KIND_RAPID_DECISION = "workspace:rapidDecision";
+import type { ActionContext } from "../context";
+import type { Decision } from "@/lib/stores/workspace-types";
+import {
+  decisionIssues,
+  decisionLabel,
+  legacyStatusOf,
+  roleHolders,
+  templateOf,
+  withLegacyStatus,
+} from "@/lib/decisions/model";
+import { nameKey } from "@/lib/team/names";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import {
+  browserDecisionStore,
+  changeRecord,
+  deciderRefusal,
+  latestDay,
+  rosterName,
+  serverDecisionStore,
+  stampDay,
+  type DecisionStore,
+} from "./decision-log";
 
 const STATUS_VALUES = ["open", "decided", "implemented"] as const;
+type RapidStatus = (typeof STATUS_VALUES)[number];
 const StatusSchema = z.enum(STATUS_VALUES);
 
-/** Array-valued RAPID roles. The D (decide) and R (recommend) slots
- *  are single strings and use their own set_* verbs. */
+/** Array-valued RAPID roles; Decide and Recommend have their own set_* verbs. */
 const ARRAY_ROLE_VALUES = ["agree", "perform", "input"] as const;
-type ArrayRole = (typeof ARRAY_ROLE_VALUES)[number];
 const ArrayRoleSchema = z.enum(ARRAY_ROLE_VALUES);
 
-const ws = () => useWorkspaceStore.getState();
+const isRapid = (d: Decision) => templateOf(d) === "rapid";
+
+/** A record's status in RAPID's words (RAPID has no "revisit": a reopened one is open). */
+function rapidStatus(d: Decision): RapidStatus {
+  const s = legacyStatusOf(d, "rapid");
+  return s === "revisit" ? "open" : s;
+}
+
+/** A RAPID record in the RAPID tool's old shape, with what the merged record adds. */
+export function rapidView(d: Decision, today: string) {
+  return {
+    id: d.id,
+    title: d.title,
+    ...(d.context ? { context: d.context } : {}),
+    ...(roleHolders(d, "recommend")[0] ? { recommend: roleHolders(d, "recommend")[0] } : {}),
+    agree: roleHolders(d, "agree"),
+    perform: roleHolders(d, "perform"),
+    input: roleHolders(d, "input"),
+    ...(d.decider ? { decide: d.decider } : {}),
+    status: rapidStatus(d),
+    date: d.date,
+    // Added by the merge: the record's place in the log and what it says.
+    number: d.number,
+    label: decisionLabel(d),
+    lifecycle: d.status,
+    decision: d.decision,
+    ...(d.decidedAt ? { decidedAt: d.decidedAt } : {}),
+    ...(d.implementedAt ? { implementedAt: d.implementedAt } : {}),
+    issues: decisionIssues(d, today),
+  };
+}
 
 // ──────── tool.rapid_decision.list_state ────────
-// Read-only snapshot with status histogram for at-a-glance dashboards.
+async function listState(store: DecisionStore) {
+  const today = todayLocalISO();
+  const items = (await store.list()).records.filter(isRapid);
+  const byStatus: Record<RapidStatus, number> = { open: 0, decided: 0, implemented: 0 };
+  for (const d of items) byStatus[rapidStatus(d)] += 1;
+  return { items: items.map((d) => rapidView(d, today)), byStatus, count: items.length };
+}
+
 registry.register({
   id: "tool.rapid_decision.list_state",
   toolId: "tool.rapid_decision",
   name: "list_state",
   category: "read",
   description:
-    "List all RAPID decisions in the workspace with a status histogram (open/decided/implemented counts) and the full item array.",
+    "List the RAPID decision records (the Decision Log's records raised in the RAPID form) with a status histogram in RAPID's words. Returns {items: {id, title, context?, recommend?, agree, perform, input, decide?, status (open|decided|implemented), date, number, label ('RAPID-0005'), lifecycle, decision (the outcome), decidedAt?, implementedAt?, issues}[], byStatus: {open, decided, implemented}, count}.",
   paramsSchema: z.object({}),
-  handler: async () => {
-    const items = ws().rapidDecisions ?? [];
-    const byStatus: Record<(typeof STATUS_VALUES)[number], number> = {
-      open: 0,
-      decided: 0,
-      implemented: 0,
-    };
-    for (const d of items) {
-      // Defensive: a stray legacy status would silently inflate "open" if
-      // we used a default — count only known buckets so the totals
-      // remain trustworthy.
-      if (d.status === "open" || d.status === "decided" || d.status === "implemented") {
-        byStatus[d.status]++;
-      }
-    }
-    return { items, byStatus, count: items.length };
-  },
-  mcpHandler: async (_params, ctx) => {
-    const items = await serverListEntities<RAPIDDecision>(ctx.userId, KIND_RAPID_DECISION);
-    const byStatus: Record<(typeof STATUS_VALUES)[number], number> = {
-      open: 0,
-      decided: 0,
-      implemented: 0,
-    };
-    for (const d of items) {
-      if (d.status === "open" || d.status === "decided" || d.status === "implemented") {
-        byStatus[d.status]++;
-      }
-    }
-    return { items, byStatus, count: items.length };
-  },
+  handler: async () => listState(browserDecisionStore),
+  mcpHandler: async (_params, ctx) => listState(serverDecisionStore(ctx.userId)),
 });
 
 // ──────── tool.rapid_decision.set_status ────────
-// Lifecycle transition. Confirms only on the "implemented" terminal
-// state (see file-header rationale). Returns updated=false when the
-// id is unknown — idempotent so the agent doesn't need a precheck.
+const SetStatusSchema = z.object({ id: z.string(), status: StatusSchema });
+
+async function setStatus(
+  store: DecisionStore,
+  p: z.infer<typeof SetStatusSchema>,
+  ctx: ActionContext,
+  onServer: boolean
+) {
+  const today = todayLocalISO();
+  const latest = latestDay(today, onServer);
+  return changeRecord(store, p.id, { updated: false }, async (d) => {
+    if (!isRapid(d)) return { refuse: { updated: false, reason: "not-rapid" as const } };
+    if (rapidStatus(d) === p.status) {
+      return { refuse: { updated: false, reason: "already-in-status" as const } };
+    }
+    // Deciding an open record needs its Decide (D), as the page's decide form asks.
+    if (p.status !== "open") {
+      const why = deciderRefusal(d);
+      if (why) return { refuse: { updated: false, ...why } };
+    }
+    // The end state confirms on both paths (MCP supplies no confirm, so it proceeds there).
+    if (p.status === "implemented" && ctx.confirm) {
+      const ok = await ctx.confirm(
+        `Mark RAPID decision "${d.title}" as implemented? This is the lifecycle end state.`
+      );
+      if (!ok) return { refuse: { updated: false, reason: "declined" as const } };
+    }
+    // Never a day before the record's own (the server's day can be behind the user's).
+    const day = stampDay(d, today, latest);
+    return { next: withLegacyStatus(d, p.status, day, "rapid"), result: { updated: true } };
+  });
+}
+
 registry.register({
   id: "tool.rapid_decision.set_status",
   toolId: "tool.rapid_decision",
   name: "set_status",
   category: "write",
-  // requiresConfirmation is set dynamically in the handler via a
-  // ctx.confirm call when transitioning to "implemented". The static
-  // flag stays false so the agent UI doesn't gate every transition.
   requiresConfirmation: false,
   description:
-    "Update a RAPID decision's lifecycle status (open / decided / implemented). Transitions to 'implemented' are treated as terminal — agents should be sure before calling.",
-  paramsSchema: z.object({
-    id: z.string(),
-    status: StatusSchema,
-  }),
-  handler: async (params, ctx) => {
-    const current = (ws().rapidDecisions ?? []).find((d) => d.id === params.id);
-    if (!current) return { updated: false };
-    if (current.status === params.status) {
-      // No-op: same status. Avoid bumping the entity needlessly so the
-      // history feed doesn't show a fake transition.
-      return { updated: false, reason: "already-in-status" as const };
-    }
-    if (params.status === "implemented" && ctx.confirm) {
-      const ok = await ctx.confirm(
-        `Mark RAPID decision "${current.title}" as implemented? This is the lifecycle end state.`
-      );
-      if (!ok) return { updated: false, reason: "declined" as const };
-    }
-    const next: RAPIDDecision = { ...current, status: params.status };
-    ws().upsertRAPIDDecision(next);
-    return { updated: true };
-  },
-  mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<RAPIDDecision>(
-      ctx.userId,
-      KIND_RAPID_DECISION,
-      params.id
-    );
-    if (!current) return { updated: false };
-    if (current.status === params.status) {
-      return { updated: false, reason: "already-in-status" as const };
-    }
-    // MCP path has no interactive confirm (ctx.confirm is undefined);
-    // implemented-transition is at the caller's discretion. See header.
-    const next: RAPIDDecision = { ...current, status: params.status };
-    await serverUpsertEntity<RAPIDDecision>(ctx.userId, KIND_RAPID_DECISION, next);
-    return { updated: true };
-  },
+    "Set a RAPID record's status in RAPID's words: open (proposed; a decided record is reopened today, reopenedAt, as the page's Reopen does), decided (accepted; dated today when it was open), implemented (decided and carried out today; asks for confirmation when the caller can confirm). Today is never before a day the record carries: over MCP the server's day may be behind the user's, so the record's own later day is used then. Deciding an open record needs its Decide (D) named first, as on the page (set_decider). Use tool.decision_log.decide to write the outcome. Params: id, status. Returns {updated: true} or {updated: false, reason?: 'already-in-status' | 'declined' | 'not-rapid' | 'no_decider', message?}.",
+  paramsSchema: SetStatusSchema,
+  handler: async (params, ctx) => setStatus(browserDecisionStore, params, ctx, false),
+  mcpHandler: async (params, ctx) => setStatus(serverDecisionStore(ctx.userId), params, ctx, true),
 });
 
 // ──────── tool.rapid_decision.assign_role ────────
-// Idempotent append to an array-valued RAPID role (agree/perform/input).
-// Does NOT cover the singular roles (decide → set_decider, recommend →
-// set_recommend) — those have their own verbs because "assign" implies
-// multi-assignee semantics.
+const AssignSchema = z.object({
+  id: z.string(),
+  role: ArrayRoleSchema,
+  person: z.string().min(1).max(120),
+});
+
+async function assignRole(store: DecisionStore, p: z.infer<typeof AssignSchema>) {
+  return changeRecord(
+    store,
+    p.id,
+    { added: false, reason: "not-found" as const },
+    (d, _all, roster) => {
+      if (!isRapid(d)) return { refuse: { added: false, reason: "not-rapid" as const } };
+      const trimmed = p.person.trim();
+      if (!trimmed) return { refuse: { added: false, reason: "empty-person" as const } };
+      const person = rosterName(trimmed, roster);
+      const holders = roleHolders(d, p.role);
+      if (holders.some((h) => nameKey(h) === nameKey(person))) {
+        return { same: { added: false, reason: "already-assigned" as const } };
+      }
+      return {
+        next: { ...d, roles: { ...(d.roles ?? {}), [p.role]: [...holders, person] } },
+        result: { added: true },
+      };
+    }
+  );
+}
+
 registry.register({
   id: "tool.rapid_decision.assign_role",
   toolId: "tool.rapid_decision",
@@ -180,51 +199,24 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Idempotently add a person to one of a RAPID decision's array-valued roles (agree / perform / input). For the singular Decide role use set_decider; for Recommend use set_recommend. Returns {added: false} when the person is already in the role.",
-  paramsSchema: z.object({
-    id: z.string(),
-    role: ArrayRoleSchema,
-    person: z.string().min(1).max(120),
-  }),
-  handler: async (params) => {
-    const current = (ws().rapidDecisions ?? []).find((d) => d.id === params.id);
-    if (!current) return { added: false, reason: "not-found" as const };
-    const role = params.role as ArrayRole;
-    const personTrim = params.person.trim();
-    if (!personTrim) return { added: false, reason: "empty-person" as const };
-    const existing = current[role] ?? [];
-    if (existing.includes(personTrim)) {
-      return { added: false, reason: "already-assigned" as const };
-    }
-    const next: RAPIDDecision = { ...current, [role]: [...existing, personTrim] };
-    ws().upsertRAPIDDecision(next);
-    return { added: true };
-  },
-  mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<RAPIDDecision>(
-      ctx.userId,
-      KIND_RAPID_DECISION,
-      params.id
-    );
-    if (!current) return { added: false, reason: "not-found" as const };
-    const role = params.role as ArrayRole;
-    const personTrim = params.person.trim();
-    if (!personTrim) return { added: false, reason: "empty-person" as const };
-    const existing = current[role] ?? [];
-    if (existing.includes(personTrim)) {
-      return { added: false, reason: "already-assigned" as const };
-    }
-    const next: RAPIDDecision = { ...current, [role]: [...existing, personTrim] };
-    await serverUpsertEntity<RAPIDDecision>(ctx.userId, KIND_RAPID_DECISION, next);
-    return { added: true };
-  },
+    "Idempotently add a person (the roster's spelling when they're on the team) to a RAPID record's Agree, Perform or Input. For Decide use set_decider; for Recommend use set_recommend. More than 3 in Agree shows an issue (each one is a veto). Params: id, role (agree|perform|input), person. Returns {added: true} or {added: false, reason: 'not-found' | 'already-assigned' | 'empty-person' | 'not-rapid'}.",
+  paramsSchema: AssignSchema,
+  handler: async (params) => assignRole(browserDecisionStore, params),
+  mcpHandler: async (params, ctx) => assignRole(serverDecisionStore(ctx.userId), params),
 });
 
 // ──────── tool.rapid_decision.set_decider ────────
-// Set the single D (decide) field. The decider is the one person with
-// final say; if the team needs multiple, that's not a RAPID decision —
-// it's a consensus / DACI hybrid. The verb name "set" makes the
-// overwrite semantics explicit (vs. assign_role's append semantics).
+const DeciderSchema = z.object({ id: z.string(), person: z.string().min(1).max(120) });
+
+async function setDecider(store: DecisionStore, p: z.infer<typeof DeciderSchema>) {
+  return changeRecord(store, p.id, { updated: false }, (d, _all, roster) => {
+    if (!isRapid(d)) return { refuse: { updated: false } };
+    const person = p.person.trim();
+    if (!person) return { refuse: { updated: false } };
+    return { next: { ...d, decider: rosterName(person, roster) }, result: { updated: true } };
+  });
+}
+
 registry.register({
   id: "tool.rapid_decision.set_decider",
   toolId: "tool.rapid_decision",
@@ -232,39 +224,27 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set the single Decide (D) role on a RAPID decision. The decider is one person with final say — for multi-person agreement use the Agree (A) role via assign_role.",
-  paramsSchema: z.object({
-    id: z.string(),
-    person: z.string().min(1).max(120),
-  }),
-  handler: async (params) => {
-    const current = (ws().rapidDecisions ?? []).find((d) => d.id === params.id);
-    if (!current) return { updated: false };
-    const personTrim = params.person.trim();
-    if (!personTrim) return { updated: false };
-    const next: RAPIDDecision = { ...current, decide: personTrim };
-    ws().upsertRAPIDDecision(next);
-    return { updated: true };
-  },
-  mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<RAPIDDecision>(
-      ctx.userId,
-      KIND_RAPID_DECISION,
-      params.id
-    );
-    if (!current) return { updated: false };
-    const personTrim = params.person.trim();
-    if (!personTrim) return { updated: false };
-    const next: RAPIDDecision = { ...current, decide: personTrim };
-    await serverUpsertEntity<RAPIDDecision>(ctx.userId, KIND_RAPID_DECISION, next);
-    return { updated: true };
-  },
+    "Set the single Decide (D) on a RAPID record: the one person with the final say (the roster's spelling when they're on the team). For several people who must agree, use assign_role with Agree. Params: id, person. Returns {updated: boolean}.",
+  paramsSchema: DeciderSchema,
+  handler: async (params) => setDecider(browserDecisionStore, params),
+  mcpHandler: async (params, ctx) => setDecider(serverDecisionStore(ctx.userId), params),
 });
 
 // ──────── tool.rapid_decision.set_recommend ────────
-// Set the Recommend field. The recommender owns the proposal — single
-// authorship by design (otherwise the proposal lacks a clear champion
-// to drive it through the matrix).
+const RecommendSchema = z.object({ id: z.string(), recommendation: z.string().min(1).max(500) });
+
+async function setRecommend(store: DecisionStore, p: z.infer<typeof RecommendSchema>) {
+  return changeRecord(store, p.id, { updated: false }, (d, _all, roster) => {
+    if (!isRapid(d)) return { refuse: { updated: false } };
+    const who = p.recommendation.trim();
+    if (!who) return { refuse: { updated: false } };
+    return {
+      next: { ...d, roles: { ...(d.roles ?? {}), recommend: [rosterName(who, roster)] } },
+      result: { updated: true },
+    };
+  });
+}
+
 registry.register({
   id: "tool.rapid_decision.set_recommend",
   toolId: "tool.rapid_decision",
@@ -272,31 +252,8 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set the Recommend (R) field on a RAPID decision — the owner of the proposal. Free-form text (typically a person's name, sometimes a team).",
-  paramsSchema: z.object({
-    id: z.string(),
-    recommendation: z.string().min(1).max(500),
-  }),
-  handler: async (params) => {
-    const current = (ws().rapidDecisions ?? []).find((d) => d.id === params.id);
-    if (!current) return { updated: false };
-    const recTrim = params.recommendation.trim();
-    if (!recTrim) return { updated: false };
-    const next: RAPIDDecision = { ...current, recommend: recTrim };
-    ws().upsertRAPIDDecision(next);
-    return { updated: true };
-  },
-  mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<RAPIDDecision>(
-      ctx.userId,
-      KIND_RAPID_DECISION,
-      params.id
-    );
-    if (!current) return { updated: false };
-    const recTrim = params.recommendation.trim();
-    if (!recTrim) return { updated: false };
-    const next: RAPIDDecision = { ...current, recommend: recTrim };
-    await serverUpsertEntity<RAPIDDecision>(ctx.userId, KIND_RAPID_DECISION, next);
-    return { updated: true };
-  },
+    "Set Recommend (R) on a RAPID record: the one person (or team) who owns the proposal, replacing whoever held it. The proposal's text itself is the record's recommendation (tool.decision_log). Params: id, recommendation (the person's name). Returns {updated: boolean}.",
+  paramsSchema: RecommendSchema,
+  handler: async (params) => setRecommend(browserDecisionStore, params),
+  mcpHandler: async (params, ctx) => setRecommend(serverDecisionStore(ctx.userId), params),
 });

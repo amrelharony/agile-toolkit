@@ -17,7 +17,6 @@ import { toolsWithNextSteps } from "@/lib/tools/next-steps";
 
 /** Tools that meet the contract. Grows phase by phase. */
 const UPGRADED_TOOLS = [
-  "ice-score",
   // Phase 2: Plan the sprint. Planning Poker joins once its local session
   // stops reading localStorage directly.
   "sprint-goal",
@@ -77,6 +76,25 @@ const UPGRADED_TOOLS = [
   "skills-matrix",
   "maturity",
   "adkar",
+  // Phase 7: Prioritize & decide. ICE was the Phase 1A pilot; the method
+  // tools now run on the shared shell (its source counts as theirs, below),
+  // and DACI and RAPID are the Decision Log's record (MERGED_INTO).
+  "prioritizer",
+  "rice-scoring",
+  "wsjf",
+  "moscow",
+  "ice-score",
+  "value-effort-matrix",
+  "kano-model",
+  "cost-of-delay",
+  "buy-a-feature",
+  "hundred-dollar-test",
+  "eisenhower",
+  "decision-log",
+  "daci",
+  "rapid-decision",
+  "weighted-decision",
+  "cynefin",
 ];
 
 /**
@@ -94,6 +112,8 @@ const SCOPED_UPGRADES: Record<string, string> = {
  */
 const MERGED_INTO: Record<string, string> = {
   "async-standup": "standup",
+  daci: "decision-log",
+  "rapid-decision": "decision-log",
 };
 
 /**
@@ -133,12 +153,21 @@ function code(file: string): string {
 
 const codeCache = new Map<string, string>();
 
+/**
+ * The shared prioritization shell (Phase 7). A method tool that renders it
+ * gets its empty state, example notice, Undo and export from there, so the
+ * shell's source counts as part of the tool's.
+ */
+const METHOD_SHELL = path.resolve(__dirname, "../../src/components/prioritization/method-tool.tsx");
+const usesMethodShell = (src: string) => /@\/components\/prioritization\/method-tool["']/.test(src);
+
 /** Every source file of a tool, comments stripped; read once per run. */
 function toolCode(id: string): string {
   let src = codeCache.get(id);
   if (src === undefined) {
     const dir = path.join(TOOLS_DIR, id);
     src = existsSync(dir) ? filesIn(dir).map(code).join("\n") : "";
+    if (usesMethodShell(src)) src += "\n" + code(METHOD_SHELL);
     codeCache.set(id, src);
   }
   return src;

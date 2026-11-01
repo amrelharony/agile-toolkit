@@ -74,15 +74,23 @@ describe("tool.wsjf.compute_score — pure formula", () => {
     expect(result.score).toBe(4);
   });
 
-  it("floors jobSize at 0.5 (defuses user-entered 0)", async () => {
+  // Phase 7 decision: the job size floor is 1 (the bottom of the Fibonacci
+  // scale), the same in the tool, the hub and here; a job size of 0 is Not
+  // scored instead of floored.
+  it("scores a job size of 0 as Not scored, and under 1 as 1", async () => {
     const action = registry.get("tool.wsjf.compute_score");
-    const result = (await action!.handler(
+    const zero = (await action!.handler(
       { businessValue: 5, timeCriticality: 5, rrOe: 0, jobSize: 0 },
       ctx()
+    )) as { score: number | null; missing: string[] };
+    expect(zero.score).toBeNull();
+    expect(zero.missing).toEqual(["jobSize"]);
+    const half = (await action!.handler(
+      { businessValue: 5, timeCriticality: 5, rrOe: 0, jobSize: 0.5 },
+      ctx()
     )) as { score: number };
-    // (5 + 5 + 0) / 0.5 = 20 (NOT Infinity)
-    expect(result.score).toBe(20);
-    expect(Number.isFinite(result.score)).toBe(true);
+    // (5 + 5 + 0) / 1 = 10 (NOT 20)
+    expect(half.score).toBe(10);
   });
 });
 
@@ -177,17 +185,18 @@ describe("tool.wsjf.score_and_persist — compute + write roundtrip", () => {
     const result = (await action!.handler(
       {
         title: "Pay down auth tech debt",
-        fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 4 },
+        // Every part on the Fibonacci scale: a persist refuses a new 4.
+        fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 2 },
       },
       ctx()
     )) as { id: string; score: number };
 
-    expect(result.score).toBe(4);
+    expect(result.score).toBe(8);
     const stored = useWorkspaceStore.getState().prioritizations;
     expect(stored).toHaveLength(1);
     expect(stored![0].framework).toBe("wsjf");
     expect(stored![0].title).toBe("Pay down auth tech debt");
-    expect(stored![0].score).toBe(4);
+    expect(stored![0].score).toBe(8);
   });
 
   it("uses the supplied id when provided", async () => {
@@ -218,12 +227,12 @@ describe("tool.wsjf.persist_to_prioritization — bulk write", () => {
             id: "i1",
             title: "Feature 1",
             score: 4,
-            fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 4 },
+            fields: { businessValue: 8, timeCriticality: 5, rrOe: 3, jobSize: 5 },
           },
           {
             title: "Feature 2 (auto-id)",
             score: 2,
-            fields: { businessValue: 4, timeCriticality: 2, rrOe: 2, jobSize: 4 },
+            fields: { businessValue: 5, timeCriticality: 2, rrOe: 2, jobSize: 5 },
           },
         ],
       },

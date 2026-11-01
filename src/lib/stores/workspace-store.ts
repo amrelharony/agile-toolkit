@@ -83,6 +83,10 @@ import type {
   MoodPulse,
   // Phase 20
   PrioritizationItem,
+  // Phase 7 — Prioritize & decide
+  AllocationRound,
+  BuyAFeatureGame,
+  WeightedMatrix,
   // Phase 21
   DACIDecision,
   RAPIDDecision,
@@ -122,8 +126,9 @@ import type {
   DependencyMap,
   ValueStreamStage,
 } from "./workspace-types";
-import { emptyWorkspace } from "./workspace-types";
+import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
+import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -261,6 +266,19 @@ interface WorkspaceActions {
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
+  // Phase 7 — Prioritize & decide
+  upsertAllocationRound: (x: AllocationRound) => void;
+  removeAllocationRound: (id: string) => void;
+  upsertBuyAFeatureGame: (x: BuyAFeatureGame) => void;
+  removeBuyAFeatureGame: (id: string) => void;
+  upsertWeightedMatrix: (x: WeightedMatrix) => void;
+  /**
+   * The matrix and the options and criteria in it (for the default matrix,
+   * also the rows without a `matrixId`), with their canvas links cleared:
+   * the rows weightedMatrixRemoval names, as the MCP delete removes them.
+   * The page offers Undo by restoring what it removed.
+   */
+  removeWeightedMatrix: (id: string) => void;
   // Phase 21 — Decision Frameworks
   upsertDACIDecision: (x: DACIDecision) => void;
   removeDACIDecision: (id: string) => void;
@@ -1099,6 +1117,49 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             ),
           };
         }),
+      // Phase 7 — Prioritize & decide
+      upsertAllocationRound: (x) =>
+        set((_st) => ({ allocationRounds: replaceById(_st.allocationRounds ?? [], x) })),
+      removeAllocationRound: (id) =>
+        set((s) => ({ allocationRounds: (s.allocationRounds ?? []).filter((y) => y.id !== id) })),
+      upsertBuyAFeatureGame: (x) =>
+        set((_st) => ({ buyAFeatureGames: replaceById(_st.buyAFeatureGames ?? [], x) })),
+      removeBuyAFeatureGame: (id) =>
+        set((s) => ({ buyAFeatureGames: (s.buyAFeatureGames ?? []).filter((y) => y.id !== id) })),
+      upsertWeightedMatrix: (x) =>
+        set((_st) => ({ weightedMatrices: replaceById(_st.weightedMatrices ?? [], x) })),
+      removeWeightedMatrix: (id) =>
+        set((s) => {
+          const options = s.weightedOptions ?? [];
+          const criteria = s.weightedCriteria ?? [];
+          // The same plan the MCP delete applies server-side (a row without a
+          // matrixId is in the default matrix, as the page reads it).
+          const plan = weightedMatrixRemoval(id, options, criteria);
+          if (plan.optionIds.length === 0 && plan.criterionIds.length === 0) {
+            return { weightedMatrices: (s.weightedMatrices ?? []).filter((y) => y.id !== id) };
+          }
+          const goneOptions = new Set(plan.optionIds);
+          const goneCriteria = new Set(plan.criterionIds);
+          // Only the canvas links of the removed options; criteria have none.
+          let whiteboardObjects = s.whiteboardObjects;
+          for (const optionId of plan.optionIds) {
+            whiteboardObjects = cascadeSourceRefRemoval(
+              whiteboardObjects,
+              "weightedOption",
+              optionId
+            );
+          }
+          // Like removeWeightedCriterion: no option keeps a score for a removed criterion.
+          const rescored = new Map(plan.rescored.map((o) => [o.id, o]));
+          return {
+            weightedMatrices: (s.weightedMatrices ?? []).filter((y) => y.id !== id),
+            weightedOptions: options
+              .filter((o) => !goneOptions.has(o.id))
+              .map((o) => rescored.get(o.id) ?? o),
+            weightedCriteria: criteria.filter((c) => !goneCriteria.has(c.id)),
+            whiteboardObjects,
+          };
+        }),
       // Phase 21 — Decision Frameworks
       upsertDACIDecision: (x) =>
         set((_st) => ({ daciDecisions: replaceById(_st.daciDecisions ?? [], x) })),
@@ -1426,15 +1487,18 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ backlogItems: replaceById(_st.backlogItems ?? [], x) })),
       removeBacklogItem: (id) =>
         set((s) => {
-          // Framework rows that scored this item stay, unlinked.
-          const linked = (s.prioritizations ?? []).some((p) => p.backlogItemId === id);
+          // Framework rows that scored this item stay, unlinked, each with
+          // a frozen copy of the values it read through to the item (so a
+          // WSJF row keeps its scores), whoever deletes it: the hub, Undo
+          // of an add, the agent's workspace.backlog_item.delete.
+          const item = (s.backlogItems ?? []).find((y) => y.id === id);
+          const unlinked = rowsUnlinkedFrom(s.prioritizations ?? [], id, item);
+          const byId = new Map(unlinked.map((p) => [p.id, p]));
           return {
             backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id),
-            ...(linked
+            ...(unlinked.length > 0
               ? {
-                  prioritizations: (s.prioritizations ?? []).map((p) =>
-                    p.backlogItemId === id ? { ...p, backlogItemId: undefined } : p
-                  ),
+                  prioritizations: (s.prioritizations ?? []).map((p) => byId.get(p.id) ?? p),
                 }
               : {}),
           };
@@ -1536,6 +1600,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
+          // Phase 7 — Prioritize & decide
+          allocationRounds: s.allocationRounds,
+          buyAFeatureGames: s.buyAFeatureGames,
+          weightedMatrices: s.weightedMatrices,
           // Phase 21
           daciDecisions: s.daciDecisions,
           rapidDecisions: s.rapidDecisions,
@@ -1674,6 +1742,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
+          // Phase 7 — Prioritize & decide
+          allocationRounds: arr("allocationRounds"),
+          buyAFeatureGames: arr("buyAFeatureGames"),
+          weightedMatrices: arr("weightedMatrices"),
           // Phase 21
           daciDecisions: arr("daciDecisions"),
           rapidDecisions: arr("rapidDecisions"),
@@ -2021,6 +2093,14 @@ if (typeof window !== "undefined") {
     registerCollection("moodPulse", "moodPulses");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
+    // Phase 7 — Prioritize & decide. As in Phase 6, each kind is what
+    // kindFromToolId derives from its workspace.* CRUD (allocation_round,
+    // buy_a_feature_game, weighted_matrix), and server-side code names them
+    // by ALLOCATION_ROUND_KIND, BUY_A_FEATURE_KIND and WEIGHTED_MATRIX_KIND;
+    // a test keeps the three in step.
+    registerCollection("allocationRound", "allocationRounds");
+    registerCollection("buyAFeatureGame", "buyAFeatureGames");
+    registerCollection("weightedMatrix", "weightedMatrices");
     // Phase 21 — Decision frameworks
     registerCollection("daciDecision", "daciDecisions");
     registerCollection("rapidDecision", "rapidDecisions");
@@ -2182,6 +2262,9 @@ export function getWorkspaceSnapshot(): Workspace {
     moodPulses: state.moodPulses,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
+    allocationRounds: state.allocationRounds,
+    buyAFeatureGames: state.buyAFeatureGames,
+    weightedMatrices: state.weightedMatrices,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,
     weightedOptions: state.weightedOptions,

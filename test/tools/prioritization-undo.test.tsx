@@ -74,15 +74,15 @@ describe("WSJF item delete", () => {
       prioritizations: [w1, item("w2", "wsjf", "Dark mode", 2, wsjfFields)],
     });
     render(<WsjfClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Single sign-on" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Single sign-on" }));
 
     expect(stored("w1")).toBeUndefined();
-    expect(screen.queryByRole("button", { name: "Remove Single sign-on" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete Single sign-on" })).toBeNull();
     expect(undo.last!.label).toBe("Deleted “Single sign-on”");
 
     act(() => undo.last!.revert());
     expect(stored("w1")).toEqual(w1);
-    expect(screen.getByRole("button", { name: "Remove Single sign-on" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Single sign-on" })).toBeInTheDocument();
   });
 });
 
@@ -94,13 +94,13 @@ describe("RICE item delete", () => {
       prioritizations: [r1, item("r2", "rice", "CSV import", 40, riceFields)],
     });
     render(<RiceScoringClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Saved searches" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Saved searches" }));
 
     expect(stored("r1")).toBeUndefined();
     expect(undo.last!.label).toBe("Deleted “Saved searches”");
 
     act(() => undo.last!.revert());
     expect(stored("r1")).toEqual(r1);
-    expect(screen.getByRole("button", { name: "Remove Saved searches" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Saved searches" })).toBeInTheDocument();
   });
 });

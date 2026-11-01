@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,16 +11,16 @@ import {
 } from "@/lib/realtime/visitor-rooms";
 
 /**
- * Migration 0027 narrows the Realtime policy's visitor branch to the app's
- * own topic shape. The regex in the SQL must admit exactly what
- * `visitorChannelName()` produces for every visitor tool, so adding a tool
- * without a migration fails here, and every other branch must stay as 0026
- * wrote it.
+ * Migrations 0027 and 0028 narrow the Realtime policy's visitor branch to
+ * the app's own topic shape. The regex in the NEWEST migration that sets it
+ * must admit exactly what `visitorChannelName()` produces for every visitor
+ * tool, so adding a tool without a migration fails here, and every other
+ * branch must stay as 0026 wrote it. 0028 added Kano, Buy-a-Feature and the
+ * $100 Test; 0027 stays as it shipped.
  */
 
 const dir = path.resolve(__dirname, "../../supabase/migrations");
-const sql0026 = readFileSync(path.join(dir, "0026_realtime_room_authorization.sql"), "utf8");
-const sql0027 = readFileSync(path.join(dir, "0027_realtime_visitor_topic_shape.sql"), "utf8");
+const read = (name: string) => readFileSync(path.join(dir, name), "utf8");
 
 /** The SQL without comment lines (comments repeat the regex for readers). */
 function statements(sql: string): string {
@@ -30,9 +30,20 @@ function statements(sql: string): string {
     .join("\n");
 }
 
-function visitorRegexSource(): string {
-  const m = /topic ~ '([^']+)'/.exec(statements(sql0027));
-  if (!m) throw new Error("0027 has no `topic ~ '…'` visitor branch");
+/** Migrations that set the policy function's visitor regex, oldest first. */
+const visitorMigrations = readdirSync(dir)
+  .filter((f) => /^\d{4}_.+\.sql$/.test(f))
+  .sort()
+  .filter((f) => /topic ~ '\^visitor:/.test(statements(read(f))));
+const newest = visitorMigrations.at(-1)!;
+
+const sql0026 = read("0026_realtime_room_authorization.sql");
+const sql0027 = read("0027_realtime_visitor_topic_shape.sql");
+const sqlNewest = read(newest);
+
+function visitorRegexSource(sql: string): string {
+  const m = /topic ~ '([^']+)'/.exec(statements(sql));
+  if (!m) throw new Error("no `topic ~ '…'` visitor branch");
   return m[1];
 }
 
@@ -56,14 +67,25 @@ function tail(sql: string): string {
     .join("|");
 }
 
-describe("migration 0027 (visitor topic shape)", () => {
-  const source = visitorRegexSource();
+const shape = (tools: readonly string[]) =>
+  `^visitor:(${tools.join("|")}):[${VISITOR_CODE_ALPHABET}]{${VISITOR_CODE_LENGTH}}$`;
+
+const NEW_IN_0028 = ["kano-model", "buy-a-feature", "hundred-dollar-test"] as const;
+
+describe("the newest visitor-topic migration", () => {
+  const source = visitorRegexSource(sqlNewest);
   const re = new RegExp(source);
 
+  it("is 0028, after 0027", () => {
+    expect(visitorMigrations).toEqual([
+      "0027_realtime_visitor_topic_shape.sql",
+      "0028_realtime_visitor_prioritize_tools.sql",
+    ]);
+    expect(newest).toBe("0028_realtime_visitor_prioritize_tools.sql");
+  });
+
   it("is derived from VISITOR_TOOLS and VISITOR_CODE_ALPHABET", () => {
-    expect(source).toBe(
-      `^visitor:(${VISITOR_TOOLS.join("|")}):[${VISITOR_CODE_ALPHABET}]{${VISITOR_CODE_LENGTH}}$`
-    );
+    expect(source).toBe(shape(VISITOR_TOOLS));
   });
 
   it("admits every channel the app opens, for every visitor tool", () => {
@@ -86,6 +108,9 @@ describe("migration 0027 (visitor topic shape)", () => {
   it.each([
     ["another tool", "visitor:canvas:ABCDEFGHJKMN"],
     ["a tool prefix", "visitor:retro2:ABCDEFGHJKMN"],
+    ["a new tool's prefix", "visitor:kano-model2:ABCDEFGHJKMN"],
+    ["a new tool's stem", "visitor:kano:ABCDEFGHJKMN"],
+    ["a prioritize tool without rounds", "visitor:moscow:ABCDEFGHJKMN"],
     ["a lowercase code", "visitor:retro:abcdefghjkmn"],
     ["an 11-character code", "visitor:retro:ABCDEFGHJKM"],
     ["a 13-character code", "visitor:retro:ABCDEFGHJKMNP"],
@@ -94,8 +119,8 @@ describe("migration 0027 (visitor topic shape)", () => {
     ["an ambiguous 1", "visitor:retro:ABCDEFGHJKM1"],
     ["an ambiguous I", "visitor:retro:ABCDEFGHJKMI"],
     ["an ambiguous L", "visitor:retro:ABCDEFGHJKML"],
-    ["a suffix", "visitor:retro:ABCDEFGHJKMN:extra"],
-    ["a trailing newline", "visitor:retro:ABCDEFGHJKMN\n"],
+    ["a suffix", "visitor:hundred-dollar-test:ABCDEFGHJKMN:extra"],
+    ["a trailing newline", "visitor:buy-a-feature:ABCDEFGHJKMN\n"],
     ["a prefix", "xvisitor:retro:ABCDEFGHJKMN"],
     ["no code", "visitor:retro:"],
     ["the bare prefix", "visitor:"],
@@ -105,22 +130,52 @@ describe("migration 0027 (visitor topic shape)", () => {
     expect(re.test(topic)).toBe(false);
   });
 
-  it("keeps every other branch of 0026 byte for byte", () => {
-    expect(functionWithoutVisitorBranch(sql0027)).toBe(functionWithoutVisitorBranch(sql0026));
+  it("keeps every other branch of 0026 and 0027 byte for byte", () => {
+    expect(functionWithoutVisitorBranch(sqlNewest)).toBe(functionWithoutVisitorBranch(sql0027));
+    expect(functionWithoutVisitorBranch(sqlNewest)).toBe(functionWithoutVisitorBranch(sql0026));
     expect(statements(sql0026)).toContain("topic like 'visitor:%'");
-    expect(statements(sql0027)).not.toContain("topic like 'visitor:%'");
+    expect(statements(sqlNewest)).not.toContain("topic like 'visitor:%'");
+  });
+
+  it("changes nothing from 0027 but the visitor line", () => {
+    const fn = (sql: string) =>
+      statements(sql.slice(sql.indexOf("create or replace function public.realtime_room_allowed")))
+        .split("\n")
+        .filter((l) => !/topic ~ '/.test(l));
+    expect(fn(sqlNewest)).toEqual(fn(sql0027));
   });
 
   it("keeps the signature, the comment and the explicit grant", () => {
-    const s = statements(sql0027).replace(/\s+/g, " ");
+    const s = statements(sqlNewest).replace(/\s+/g, " ");
     expect(s).toContain(
       "create or replace function public.realtime_room_allowed(topic text) returns boolean language sql stable set search_path = '' as $$"
     );
-    expect(tail(sql0027)).toBe(tail(sql0026));
+    expect(tail(sqlNewest)).toBe(tail(sql0026));
     expect(s).toContain(
       "grant execute on function public.realtime_room_allowed(text) to anon, authenticated, service_role;"
     );
     // Nothing else: the policies stay as 0026 made them.
     expect(s).not.toMatch(/create policy|drop policy/);
+  });
+});
+
+describe("migration 0027, as it shipped", () => {
+  const re0027 = new RegExp(visitorRegexSource(sql0027));
+
+  it("still lists only the tools it shipped with (a new tool gets a new migration)", () => {
+    expect(visitorRegexSource(sql0027)).toBe(
+      shape(VISITOR_TOOLS.filter((t) => !(NEW_IN_0028 as readonly string[]).includes(t)))
+    );
+  });
+
+  it.each(NEW_IN_0028)("refuses %s's rooms, which 0028 admits", (tool) => {
+    const name = visitorChannelName(tool, "ABCDEFGHJKMN")!;
+    expect(re0027.test(name)).toBe(false);
+    expect(new RegExp(visitorRegexSource(sqlNewest)).test(name)).toBe(true);
+  });
+
+  it("keeps every other branch of 0026 byte for byte", () => {
+    expect(functionWithoutVisitorBranch(sql0027)).toBe(functionWithoutVisitorBranch(sql0026));
+    expect(tail(sql0027)).toBe(tail(sql0026));
   });
 });

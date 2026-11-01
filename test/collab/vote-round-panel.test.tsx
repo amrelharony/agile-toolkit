@@ -28,7 +28,10 @@ vi.mock("@/lib/realtime/supabase-client", async () => {
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {} }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastMock }));
 
-import { VoteRoundPanel } from "@/components/collab/vote-room/vote-round-panel";
+import {
+  VoteRoundPanel,
+  type ScaleVoteRoundPanelProps,
+} from "@/components/collab/vote-room/vote-round-panel";
 
 // Names with a space can't turn up by chance in a random round id.
 const A: FakeMember = { id: "alice_0000000000", name: "Alex Ng", joinedAt: "2026-10-26T09:01:00Z" };
@@ -38,7 +41,7 @@ const D: FakeMember = { id: "dave0_0000000000", name: "Dee Fox", joinedAt: "2026
 const E: FakeMember = { id: "erin0_0000000000", name: "Eve Kim", joinedAt: "2026-10-26T09:05:00Z" };
 
 function renderPanel(
-  props: Partial<Parameters<typeof VoteRoundPanel>[0]> = {},
+  props: Partial<ScaleVoteRoundPanelProps> = {},
   wrap: (n: ReactNode) => ReactNode = (n) => n
 ) {
   const onSave = vi.fn<SaveVoteRound>(props.onSave ?? (() => undefined));
@@ -146,7 +149,7 @@ describe("VoteRoundPanel: when live rounds are off", () => {
 
 describe("VoteRoundPanel: a live round", () => {
   async function startRound(
-    props: Partial<Parameters<typeof VoteRoundPanel>[0]> = {},
+    props: Partial<ScaleVoteRoundPanelProps> = {},
     present: FakeMember[] = [A, B, C]
   ) {
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});

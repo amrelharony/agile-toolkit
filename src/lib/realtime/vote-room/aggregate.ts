@@ -88,12 +88,13 @@ export function emptyLedger(): BallotLedger {
 /**
  * The cheap checks, run on a ballot's envelope before anything is
  * decrypted, so the rate limits bound the work a flood can cause. Null
- * when the ballot may be opened.
+ * when the ballot may be opened. Only the tally's round and ballot count
+ * matter, so every kind of round's tally passes here (`AllocationTally` too).
  */
 export function precheckBallot(
   env: Pick<BallotEnvelope, "by" | "roundId">,
   ledger: BallotLedger,
-  tally: Tally,
+  tally: Pick<Tally, "roundId" | "ballots">,
   ctx: FoldContext
 ): BallotRejection | null {
   if (!ctx.open) return "closed";

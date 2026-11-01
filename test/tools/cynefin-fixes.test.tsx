@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /** Cynefin: the Rationale was saved but never shown. */
@@ -19,6 +20,14 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 }));
 
 import { CynefinClient } from "@/app/(tools)/cynefin/cynefin-client";
+
+// The item cards' icon buttons carry tooltips.
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <CynefinClient />
+    </TooltipProvider>
+  );
 
 beforeEach(() => {
   useWorkspaceStore.setState({
@@ -42,13 +51,13 @@ beforeEach(() => {
 
 describe("Cynefin: item view", () => {
   it("shows a saved rationale under its item", () => {
-    render(<CynefinClient />);
+    renderPage();
     const rationale = screen.getByText("We can't predict how customers will react.");
     expect(rationale.closest("li")).toHaveTextContent("New pricing page");
   });
 
   it("shows nothing extra for an item without a rationale", () => {
-    render(<CynefinClient />);
+    renderPage();
     const item = screen.getByText("Rotate TLS certs").closest("li")!;
     expect(item).not.toHaveTextContent("Rationale");
   });

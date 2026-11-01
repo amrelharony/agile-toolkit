@@ -14,6 +14,9 @@
  * left, nobody hosting, unavailable). Each notice takes focus on its
  * heading and is announced politely, and so does "Your answers were sent"
  * when it replaces the form.
+ *
+ * The form, the results and the Markdown follow the tool's kind of round
+ * (scale, pair or allocation: `round-views.tsx`); the rest is one flow.
  */
 
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
@@ -27,7 +30,6 @@ import {
   type VisitorIdentity,
 } from "@/lib/realtime/visitor-rooms";
 import type { VoteRoomTool } from "@/lib/realtime/vote-room/protocol";
-import { voteRoundMarkdown } from "@/lib/realtime/vote-room/aggregate";
 import { readVoteLinkFragment, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import {
   useVoteRoom,
@@ -37,9 +39,15 @@ import {
 import { exportToMarkdown } from "@/lib/utils/export";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { toast } from "@/lib/utils/toast";
-import { VoteAnswerForm } from "./vote-answer-form";
+import {
+  LiveRoundResults,
+  RoundAnswerForm,
+  roomHasRound,
+  roomResult,
+  roomTitle,
+  roundMarkdown,
+} from "./round-views";
 import { VoteLiveCount } from "./vote-live-count";
-import { VoteResults } from "./vote-results";
 
 export interface VoteJoinRoomProps {
   tool: VoteRoomTool;
@@ -166,7 +174,10 @@ function ParticipantVoteRoom({
     crypto,
   });
   const announce = useAnnounce();
-  const { status, phase, hostName, result, questionnaire } = room;
+  const { status, phase, hostName } = room;
+  const result = roomResult(room);
+  const title = roomTitle(room);
+  const hasRound = roomHasRound(room);
   const active = status === "connecting" || status === "waiting" || status === "live";
 
   const lastStatus = useRef<VoteRoomStatus>(status);
@@ -195,7 +206,7 @@ function ParticipantVoteRoom({
 
   const download = () => {
     if (!result) return;
-    exportToMarkdown(voteRoundMarkdown(result), `${tool}-round-${todayLocalISO()}`);
+    exportToMarkdown(roundMarkdown(result), `${tool}-round-${todayLocalISO()}`);
     toast.success("Downloaded the results as Markdown.");
   };
 
@@ -205,9 +216,7 @@ function ParticipantVoteRoom({
     <main className="mx-auto min-h-screen w-full max-w-3xl space-y-5 px-4 py-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-xl font-bold text-text">
-            {questionnaire ? questionnaire.title : "Live round"}
-          </h1>
+          <h1 className="text-xl font-bold text-text">{title ?? "Live round"}</h1>
           <p className="text-sm text-sub">
             {hostName
               ? `Hosted by ${hostName}. You are ${identity.name}.`
@@ -261,7 +270,7 @@ function ParticipantVoteRoom({
         </p>
       )}
 
-      {status === "live" && phase === "open" && questionnaire && (
+      {status === "live" && phase === "open" && hasRound && (
         <>
           {room.answered || room.awaitingAck ? (
             <SentPanel counted={room.answered}>
@@ -286,24 +295,15 @@ function ParticipantVoteRoom({
                   been counted. Pick them again and send them.
                 </p>
               )}
-              <VoteAnswerForm
-                key={room.roundId ?? "none"}
-                questionnaire={questionnaire}
-                onSubmit={room.submit}
-              />
+              <RoundAnswerForm key={room.roundId ?? "none"} room={room} onSubmit={room.submit} />
             </section>
           )}
         </>
       )}
 
-      {phase === "revealed" && room.revealed && questionnaire && (
+      {phase === "revealed" && hasRound && (
         <div className="space-y-3">
-          <VoteResults
-            questionnaire={questionnaire}
-            revealed={room.revealed}
-            minN={room.minN}
-            ballots={room.ballots}
-          />
+          <LiveRoundResults room={room} />
           {active && <DownloadButton onDownload={result ? download : undefined} />}
         </div>
       )}

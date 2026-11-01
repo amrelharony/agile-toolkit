@@ -1,56 +1,33 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Pencil, Plus, Trash2 } from "lucide-react";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { Columns3, PiSquare } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import {
+  MethodTool,
+  shortName,
+  useMethodActions,
+  validateMethodDraft,
+  validatePartialDraft,
+  type MethodToolConfig,
+} from "@/components/prioritization/method-tool";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SectionCard } from "@/components/shared/section-card";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ExportButton } from "@/components/shared/export-button";
-import { EditableName } from "@/components/shared/editable-name";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
-import { IconButton } from "@/components/ui/icon-button";
-import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
-import { wsjfScore, rank } from "@/lib/analytics/scoring-rubric";
 import { generateWsjfPrompts } from "@/lib/ai-prompts/wsjf";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import type { ChartText } from "@/lib/charts/chart-text";
 import { WSJF_ACTIONS } from "@/lib/history/event-actions";
-import { emitSignal } from "@/lib/signals/signal-bus";
-import { undoable } from "@/lib/utils/undoable";
-import {
-  ExampleNotice,
-  LoadExampleButton,
-  hasExampleItems,
-  isExampleId,
-} from "@/components/tool-frame/example-data";
-import {
-  BacklogRowLink,
-  ImportFromBacklog,
-  useBacklogImport,
-} from "@/components/prioritization/backlog-link";
-import { ScaleValue, focusFirstInvalid } from "@/components/shared/scale-picker";
-import { linkNewRow } from "@/lib/prioritization/backlog-links";
+import { WSJF, type Values } from "@/lib/prioritization/methods";
+import { WSJF_KEYS, WSJF_LABEL, type WsjfKey } from "@/lib/prioritization/methods/wsjf";
+import type { RankedRow } from "@/lib/prioritization/rank";
+import { ColumnScoring, type SaveCell } from "./column-mode";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
-import {
-  EMPTY_WSJF_DRAFT,
-  FIBONACCI_STEPS,
-  WsjfInputs,
-  WsjfRowEditor,
-  clearErrors,
-  sameWsjfValues,
-  validateWsjf,
-  wsjfCustomFrom,
-  wsjfDraftFrom,
-  type WsjfDraft,
-  type WsjfErrors,
-  type WsjfValues,
-} from "./wsjf-inputs";
+import { columnsMissingOne, relativeHint, wsjfVerdict } from "./verdict";
+import { WsjfInputs, WsjfRowValues } from "./wsjf-inputs";
 
 // Recharts loads with the chart, not the page; the placeholder fills the
 // chart's fixed-height box while it does.
@@ -61,415 +38,269 @@ const WsjfScoreChart = dynamic(() => import("./charts").then((m) => m.WsjfScoreC
   ),
 });
 
-/** A name short enough for a one-line toast. */
-function shortName(name: string, max = 40): string {
-  const t = name.trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+/** The chart shows this many features, highest first. */
+const CHART_TOP = 10;
+
+const scoredRows = (rows: readonly RankedRow[]) => rows.filter((r) => r.result.score !== null);
+
+/** The chart's summary sentence and its rows as a table. */
+function chartText(top: readonly RankedRow[]): ChartText {
+  const [first, second] = top;
+  const name = (r: RankedRow) => `“${shortName(r.row.title)}”`;
+  const at = (r: RankedRow) => WSJF.format(r.result.score as number);
+  return {
+    summary: second
+      ? `${name(first)} leads at WSJF ${at(first)}; ${name(second)} follows at ${at(second)}.`
+      : `${name(first)} scores WSJF ${at(first)}.`,
+    table: {
+      columns: ["Rank", "Feature", "WSJF"],
+      rows: top.map((r) => [r.rank ?? "—", r.row.title, at(r)]),
+      caption: "Top features by WSJF",
+    },
+  };
 }
 
-type AddErrors = WsjfErrors & { title?: string };
+/** The first part some feature hasn't got yet (where column scoring should start). */
+function firstBlankColumn(rows: readonly RankedRow[]): WsjfKey | null {
+  return WSJF_KEYS.find((k) => rows.some((r) => r.values[k] === undefined)) ?? null;
+}
 
-const COLUMNS = 8;
+/** Whether a feature still misses a part (what column scoring is for). */
+const hasBlank = (r: RankedRow) => WSJF_KEYS.some((k) => r.values[k] === undefined);
 
-export function WsjfClient() {
-  const all = useWorkspaceStore((s) => s.prioritizations ?? []);
-  const items = useMemo(() => all.filter((x) => x.framework === "wsjf"), [all]);
-  const upsert = useWorkspaceStore((s) => s.upsertPrioritization);
-  const removeOne = useWorkspaceStore((s) => s.removePrioritization);
-  const { log } = useHistoryLogger("wsjf");
-  const exportRef = useRef<HTMLDivElement>(null);
+/**
+ * Whether the backlog item an add was imported from holds some of WSJF's
+ * parts but not all (a value the Value/Effort matrix gave it, say): the
+ * feature lands partial and waits in column scoring for the rest, so the
+ * prefilled parts never have to be blanked (which would clear them on the
+ * item) to add it.
+ */
+const partlyHeld = (keep: Values | undefined) =>
+  keep !== undefined &&
+  WSJF_KEYS.some((k) => keep[k] !== undefined) &&
+  WSJF_KEYS.some((k) => keep[k] === undefined);
 
-  const addFormRef = useRef<HTMLFormElement>(null);
+/**
+ * Above the list: the relative-scoring hint and column-by-column scoring.
+ * Column scoring opens on its own while some feature is missing a part (a
+ * title-only add waits there, also one added after the stepper was
+ * closed), and the hint's buttons open it on the column that has no 1.
+ */
+function WsjfColumnScoring({ rows }: { rows: readonly RankedRow[] }) {
+  const actions = useMethodActions(WSJF_TOOL);
+  const announce = useAnnounce();
+  const [column, setColumn] = useState<WsjfKey | null>(() => firstBlankColumn(rows));
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const startRef = useRef<HTMLButtonElement>(null);
+  // Where focus goes once the column change renders: the column's heading
+  // (a hint button, Previous / Next) or, after Done, the button that
+  // reopens the stepper. Null: it stays where it is.
+  const moved = useRef<"heading" | "start" | null>(null);
+  const missingOne = columnsMissingOne(rows);
 
-  const [title, setTitle] = useState("");
-  const [draft, setDraft] = useState<WsjfDraft>(EMPTY_WSJF_DRAFT);
-  // Off-scale values a backlog prefill brought in, kept on offer as "Custom".
-  const [custom, setCustom] = useState<WsjfDraft>(EMPTY_WSJF_DRAFT);
-  const [errors, setErrors] = useState<AddErrors>({});
-  const [attempt, setAttempt] = useState(0);
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const editButtons = useRef(new Map<string, HTMLButtonElement>());
-  const refocusEdit = useRef<string | null>(null);
-
-  // "Import from backlog" (or a "Score with WSJF" link) fills the form; the
-  // next feature added links to that backlog item.
-  const backlog = useBacklogImport("wsjf", (picked, prefill) => {
-    const next = wsjfDraftFrom(prefill);
-    setTitle(picked.name);
-    setDraft(next);
-    setCustom(wsjfCustomFrom(next));
-    setErrors({});
-  });
-
-  // After a failed add, focus the first field that needs attention.
-  useEffect(() => {
-    if (attempt > 0) focusFirstInvalid(addFormRef.current);
-  }, [attempt]);
-
-  // A saved or cancelled row edit hands focus back to that row's Edit
-  // button, wherever the new score ranked it.
-  useEffect(() => {
-    const id = refocusEdit.current;
-    if (!id) return;
-    refocusEdit.current = null;
-    editButtons.current.get(id)?.focus();
-  });
-
-  function add(e: FormEvent) {
-    e.preventDefault();
-    const name = title.trim();
-    const result = validateWsjf(draft);
-    const found: AddErrors = result.ok ? {} : { ...result.errors };
-    if (!name) found.title = "Enter a title.";
-    if (!result.ok || !name) {
-      setErrors(found);
-      setAttempt((n) => n + 1);
-      return;
-    }
-    const { businessValue, timeCriticality, rrOe, jobSize } = result.values;
-    const score = wsjfScore(businessValue, timeCriticality, rrOe, jobSize);
-    const item: PrioritizationItem = linkNewRow(
-      {
-        id: crypto.randomUUID(),
-        framework: "wsjf",
-        title: name.slice(0, 200),
-        score,
-        fields: { businessValue, timeCriticality, rrOe, jobSize },
-        status: "scored",
-        updatedAt: new Date().toISOString(),
-      },
-      backlog.pending?.id
-    );
-    upsert(item);
-    backlog.clear();
-    log(WSJF_ACTIONS.ITEM_ADDED, { title: item.title, score });
-    emitSignal({
-      kind: "prioritization.scored",
-      at: item.updatedAt,
-      toolId: "wsjf",
-      payload: { framework: "wsjf", id: item.id, score },
-    });
-    setTitle("");
-    setDraft(EMPTY_WSJF_DRAFT);
-    setCustom(EMPTY_WSJF_DRAFT);
-    setErrors({});
-  }
-
-  /** The freshest copy of a row, so an edit never overwrites a newer write. */
-  const freshRow = (id: string) =>
-    (useWorkspaceStore.getState().prioritizations ?? []).find((x) => x.id === id);
-
-  function rename(id: string, next: string) {
-    const cur = freshRow(id);
-    const name = next.trim().slice(0, 200);
-    if (!cur || !name || name === cur.title) return;
-    upsert({ ...cur, title: name, updatedAt: new Date().toISOString() });
-    log(WSJF_ACTIONS.ITEM_UPDATED, { id, title: name });
-  }
-
-  function closeEditor(id: string) {
-    refocusEdit.current = id;
-    setEditingId(null);
-  }
-
-  function saveScores(id: string, values: WsjfValues) {
-    const cur = freshRow(id);
-    closeEditor(id);
-    // Saving without a change leaves the row (and any custom value) as it was.
-    if (!cur || sameWsjfValues(cur.fields, values)) return;
-    const score = wsjfScore(
-      values.businessValue,
-      values.timeCriticality,
-      values.rrOe,
-      values.jobSize
-    );
-    const next: PrioritizationItem = {
-      ...cur,
-      fields: { ...cur.fields, ...values },
-      score,
-      updatedAt: new Date().toISOString(),
-    };
-    upsert(next);
-    log(WSJF_ACTIONS.ITEM_UPDATED, { id, score });
-    emitSignal({
-      kind: "prioritization.scored",
-      at: next.updatedAt,
-      toolId: "wsjf",
-      payload: { framework: "wsjf", id, score },
-    });
-  }
-
-  // The table is ranked by score, so the restored item finds its own place.
-  function remove(id: string) {
-    const item = items.find((x) => x.id === id);
-    if (!item) return;
-    if (editingId === id) setEditingId(null);
-    undoable({
-      label: `Deleted “${shortName(item.title)}”`,
-      apply: () => {
-        removeOne(id);
-        log(WSJF_ACTIONS.ITEM_REMOVED, { id });
-      },
-      revert: () => {
-        const back = (useWorkspaceStore.getState().prioritizations ?? []).some((x) => x.id === id);
-        if (!back) upsert(item);
-      },
-    });
-  }
-
-  // Example rows are written like any other item but never logged or
-  // signalled: loading an example isn't the user's own scoring work.
-  function loadExample() {
-    for (const item of buildExample()) upsert(item);
-  }
-
-  function clearExample() {
-    for (const x of items) if (isExampleId(x.id)) removeOne(x.id);
-  }
-
-  const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
-
-  const ranked = useMemo(
-    () =>
-      rank(
-        items.map((x) => ({
-          id: x.id,
-          title: x.title,
-          fields: x.fields ?? {},
-          score: x.score ?? 0,
-        }))
-      ),
-    [items]
-  );
-
-  // R10: prefix with rank so two features with the same (or same-truncated)
-  // title don't collapse into one bar — Recharts uses dataKey="title" as
-  // YAxis category and duplicate categories silently merge, hiding scores.
-  //
-  // Truncate the title BEFORE prefixing so the rank stays inside the 80px
-  // YAxis margin even at rank ≥ 10 (where the prefix is "#10 " = 4 chars).
-  // Total label width stays ≤ 18 chars.
-  const chartData = ranked.slice(0, 10).map((r) => {
-    const t = r.title.length > 14 ? r.title.slice(0, 14) + "…" : r.title;
-    return { title: `#${r.rank} ${t}`, score: Number(r.score.toFixed(2)) };
-  });
-
-  const workspace = useWorkspaceStore(
-    useShallow(
-      (s): Workspace => ({
-        teamMembers: s.teamMembers,
-        sprints: s.sprints,
-        stories: s.stories,
-        impediments: s.impediments,
-        risks: s.risks,
-        okrs: s.okrs,
-        decisions: s.decisions,
-        techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel,
-        teamName: s.teamName,
-        prioritizations: s.prioritizations,
-      })
-    )
-  );
-
-  const promptConfig = useMemo(
-    () => ({
-      toolName: "WSJF Calculator",
-      prompts: generateWsjfPrompts({ items: ranked }, workspace),
-    }),
-    [ranked, workspace]
-  );
-
-  const markdown = useMemo(() => toMarkdown(items), [items]);
-
-  const csvData = {
-    headers: ["Rank", "Title", "BV", "TC", "RR/OE", "Size", "WSJF"],
-    rows: ranked.map((r) => [
-      r.rank,
-      r.title,
-      r.fields.businessValue ?? "",
-      r.fields.timeCriticality ?? "",
-      r.fields.rrOe ?? "",
-      r.fields.jobSize ?? "",
-      r.score.toFixed(2),
-    ]),
+  const open = (key: WsjfKey) => {
+    moved.current = "heading";
+    setColumn(key);
   };
+  const done = () => {
+    moved.current = "start";
+    setColumn(null);
+  };
+  // A column picked from a button or the stepper takes focus to its
+  // heading, so the keyboard user lands on the column they asked for; Done
+  // hands it to "Score by column", never to the page.
+  useEffect(() => {
+    const to = moved.current;
+    moved.current = null;
+    if (to === "heading" && column !== null) {
+      headingRef.current?.scrollIntoView?.({ block: "nearest" });
+      headingRef.current?.focus();
+    } else if (to === "start" && column === null) {
+      startRef.current?.focus();
+    }
+  }, [column]);
+
+  // A feature added with a part missing waits in column scoring: open it
+  // (focus stays on the add form) and say where it is. The rows on screen
+  // when the panel mounts are not news.
+  const seen = useRef(new Set(rows.map((r) => r.row.id)));
+  useEffect(() => {
+    const fresh = rows.filter((r) => !seen.current.has(r.row.id));
+    for (const r of fresh) seen.current.add(r.row.id);
+    const waiting = fresh.filter(hasBlank);
+    if (waiting.length === 0) return;
+    setColumn((c) => c ?? firstBlankColumn(rows));
+    announce(
+      waiting.length === 1
+        ? `“${shortName(waiting[0].row.title)}” waits in Score by column, above the list.`
+        : `${waiting.length} features wait in Score by column, above the list.`
+    );
+  }, [rows, announce]);
+
+  const save: SaveCell = (row, key, value) =>
+    actions.save(row.id, { title: row.title, [key]: value });
 
   return (
-    <ToolPageWrapper
-      toolId="wsjf"
-      title="WSJF Calculator"
-      description="Weighted Shortest Job First: (Business Value + Time Criticality + Risk Reduction/Opportunity Enablement) ÷ Job Size."
-    >
-      {hasExampleItems(items) && <ExampleNotice onClear={clearExample} />}
-      <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Add feature" icon={Plus} actions={<ImportFromBacklog link={backlog} />}>
-          <form
-            ref={addFormRef}
-            aria-label="Add feature"
-            onSubmit={add}
-            noValidate
-            className="space-y-3"
-          >
-            <Field label="Feature title" error={errors.title}>
-              {(props) => (
-                <Input
-                  {...props}
-                  value={title}
-                  maxLength={200}
-                  onChange={(e) => {
-                    setTitle(e.target.value);
-                    if (errors.title) setErrors((prev) => ({ ...prev, title: undefined }));
-                  }}
-                />
-              )}
-            </Field>
-            <WsjfInputs
-              draft={draft}
-              custom={custom}
-              errors={errors}
-              onChange={(patch) => {
-                setDraft((d) => ({ ...d, ...patch }));
-                setErrors((prev) => clearErrors(prev, patch));
-              }}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" className="gap-1">
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                Add & score
+    <>
+      {missingOne.length > 0 && (
+        <div
+          role="note"
+          className="space-y-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-text"
+        >
+          <p>{relativeHint(missingOne)}</p>
+          <div className="flex flex-wrap gap-2">
+            {missingOne.map((k) => (
+              <Button
+                key={k}
+                type="button"
+                variant="outline"
+                size="sm"
+                // A part's full name (55 characters for RR/OE) is wider than a
+                // phone: the label wraps inside the button instead.
+                className="h-auto max-w-full whitespace-normal py-1.5 text-left md:h-auto"
+                onClick={() => open(k)}
+              >
+                Score {WSJF_LABEL[k]} by column
               </Button>
-              {items.length === 0 && <LoadExampleButton onLoad={loadExample} />}
-            </div>
-          </form>
-        </SectionCard>
+            ))}
+          </div>
+        </div>
+      )}
 
-        {chartData.length > 0 && (
-          <SectionCard
-            title="Top 10 by WSJF"
-            actions={
-              <>
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="wsjf-scores"
-                  csvData={csvData}
-                  jsonData={ranked}
-                  markdown={markdown}
-                  shareState={items}
-                  targetRef={exportRef}
-                />
-              </>
-            }
-          >
-            <div className="-mx-2 h-72">
-              <WsjfScoreChart data={chartData} />
-            </div>
-          </SectionCard>
-        )}
-
-        {ranked.length > 0 && (
-          <SectionCard title="Features (sorted by WSJF)">
-            <p className="mb-2 text-xs text-sub">
-              Click a title to rename it. Use Edit to change its scores.
+      <SectionCard title="Score by column" icon={Columns3}>
+        {column === null ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 flex-1 text-sm text-sub">
+              Score one part across every feature at a time: find the smallest, give it a 1, and
+              size the others against it.
             </p>
-            <TooltipProvider delayDuration={300}>
-              <div className="table-wrap-responsive">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs text-sub uppercase">
-                      <th className="p-2">#</th>
-                      <th className="p-2">Title</th>
-                      <th className="p-2 text-right">BV</th>
-                      <th className="p-2 text-right">TC</th>
-                      <th className="p-2 text-right">RR/OE</th>
-                      <th className="p-2 text-right">Size</th>
-                      <th className="p-2 text-right">WSJF</th>
-                      <th className="p-2 w-20">
-                        <span className="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ranked.map((r) => {
-                      const row = byId.get(r.id);
-                      const editing = editingId === r.id && row !== undefined;
-                      const editorId = `wsjf-edit-${r.id}`;
-                      return (
-                        <Fragment key={r.id}>
-                          <tr className="border-t border-border">
-                            <td className="p-2 font-mono text-xs">{r.rank}</td>
-                            <td className="p-2">
-                              <span className="flex flex-wrap items-center gap-2">
-                                <EditableName
-                                  value={r.title}
-                                  onChange={(next) => rename(r.id, next)}
-                                  ariaLabel={`Rename ${r.title}`}
-                                  className="max-w-full"
-                                />
-                                <BacklogRowLink row={row} />
-                              </span>
-                            </td>
-                            <td className="p-2 text-right font-mono text-xs">
-                              <ScaleValue steps={FIBONACCI_STEPS} value={r.fields.businessValue} />
-                            </td>
-                            <td className="p-2 text-right font-mono text-xs">
-                              <ScaleValue
-                                steps={FIBONACCI_STEPS}
-                                value={r.fields.timeCriticality}
-                              />
-                            </td>
-                            <td className="p-2 text-right font-mono text-xs">
-                              <ScaleValue steps={FIBONACCI_STEPS} value={r.fields.rrOe} />
-                            </td>
-                            <td className="p-2 text-right font-mono text-xs">
-                              <ScaleValue steps={FIBONACCI_STEPS} value={r.fields.jobSize} />
-                            </td>
-                            <td className="p-2 text-right font-mono">{r.score.toFixed(2)}</td>
-                            <td className="p-2">
-                              <span className="flex items-center justify-end gap-1">
-                                <IconButton
-                                  ref={(el) => {
-                                    if (el) editButtons.current.set(r.id, el);
-                                    else editButtons.current.delete(r.id);
-                                  }}
-                                  label={`Edit scores for ${r.title}`}
-                                  icon={<Pencil aria-hidden="true" />}
-                                  aria-expanded={editing}
-                                  aria-controls={editing ? editorId : undefined}
-                                  onClick={() => (editing ? closeEditor(r.id) : setEditingId(r.id))}
-                                  className="h-7 w-7 md:h-7 md:w-7 text-sub hover:text-accent min-touch-coarse"
-                                />
-                                <IconButton
-                                  label={`Remove ${r.title}`}
-                                  icon={<Trash2 aria-hidden="true" />}
-                                  variant="danger-ghost"
-                                  onClick={() => remove(r.id)}
-                                  className="h-7 w-7 md:h-7 md:w-7 min-touch-coarse"
-                                />
-                              </span>
-                            </td>
-                          </tr>
-                          {editing && (
-                            <tr id={editorId}>
-                              <td colSpan={COLUMNS} className="p-2 pt-0">
-                                <WsjfRowEditor
-                                  row={row}
-                                  onSave={(values) => saveScores(r.id, values)}
-                                  onCancel={() => closeEditor(r.id)}
-                                />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </TooltipProvider>
-          </SectionCard>
+            <Button
+              ref={startRef}
+              type="button"
+              variant="toolkit"
+              size="sm"
+              onClick={() => open(WSJF_KEYS[0])}
+            >
+              Score by column
+            </Button>
+          </div>
+        ) : (
+          <ColumnScoring
+            ref={headingRef}
+            rows={rows}
+            column={column}
+            onColumn={open}
+            onSwitch={setColumn}
+            onDone={done}
+            save={save}
+            missingOne={missingOne}
+          />
         )}
-      </div>
-    </ToolPageWrapper>
+      </SectionCard>
+    </>
+  );
+}
+
+/** Under the list: the top-10 chart. */
+function WsjfPanels({ rows }: { rows: readonly RankedRow[] }) {
+  const scored = scoredRows(rows);
+  const top = scored.slice(0, CHART_TOP);
+  const text = top.length >= 2 ? chartText(top) : null;
+  return (
+    <SectionCard title={`Top ${CHART_TOP} by WSJF`} icon={PiSquare}>
+      {text ? (
+        <ChartFigure
+          label={`Top ${CHART_TOP} by WSJF`}
+          summary={text.summary}
+          table={text.table}
+          caption="Top features by WSJF"
+          plotClassName="h-72"
+        >
+          <WsjfScoreChart
+            data={top.map((r) => {
+              // Rank-prefixed, so two features with the same (or the same
+              // truncated) title stay two bars.
+              const t = r.row.title.length > 16 ? `${r.row.title.slice(0, 16)}…` : r.row.title;
+              return {
+                title: `#${r.rank} ${t}`,
+                score: Number((r.result.score as number).toFixed(2)),
+              };
+            })}
+          />
+        </ChartFigure>
+      ) : (
+        <NotEnoughData
+          have={scored.length}
+          need={2}
+          unit={["scored feature", "scored features"]}
+          action="Score"
+          what="them side by side"
+        />
+      )}
+    </SectionCard>
+  );
+}
+
+/**
+ * WSJF on the shared method-tool shell: add (a title alone is allowed,
+ * for column scoring), edit in place, Undo, the example, the export and
+ * the live backlog binding come from MethodTool; every score, floor and
+ * rank from the method registry. A feature column scoring left partial
+ * can be renamed or re-scored in its editor without the other parts.
+ */
+export const WSJF_TOOL: MethodToolConfig = {
+  methodId: "wsjf",
+  toolId: "wsjf",
+  title: "WSJF Calculator",
+  description:
+    "Weighted Shortest Job First: (Business Value + Time Criticality + Risk Reduction/Opportunity Enablement) ÷ Job Size, each part sized against the others on 1, 2, 3, 5, 8, 13, 20.",
+  icon: PiSquare,
+  noun: { one: "feature", many: "features" },
+  titleLabel: "Feature title",
+  titlePlaceholder: "e.g. Single sign-on",
+  listLabel: "Features, highest WSJF first",
+  emptyText:
+    "No features yet. Add one above (a title is enough to score it column by column), or load an example.",
+  history: WSJF_ACTIONS,
+  allowTitleOnly: true,
+  // A new feature is a title alone or all four parts, unless the backlog
+  // item it is imported from holds only some (it lands partial, as that
+  // item reads); one already partial keeps its blanks through an edit (its
+  // parts are still to come by column).
+  validate: (d, { editing, keep }) =>
+    (editing ? hasBlank(editing) : partlyHeld(keep))
+      ? validatePartialDraft(WSJF, d, keep)
+      : validateMethodDraft(WSJF, d, true, keep),
+  buildExample: () => buildExample(),
+  verdict: wsjfVerdict,
+  toMarkdown: (rows) => toMarkdown(rows),
+  csv: (rows) => ({
+    headers: ["Rank", "Title", "BV", "TC", "RR/OE", "Size", "WSJF"],
+    rows: rows.map((r) => [
+      r.rank ?? "",
+      r.row.title,
+      r.values.businessValue ?? "",
+      r.values.timeCriticality ?? "",
+      r.values.rrOe ?? "",
+      r.values.jobSize ?? "",
+      r.result.score === null ? "" : WSJF.format(r.result.score),
+    ]),
+  }),
+  // The rows as they read: Fibonacci parts (custom marked), the job size floor's warning.
+  prompts: (rows, workspace) =>
+    generateWsjfPrompts({ rows, verdict: wsjfVerdict(rows) }, workspace),
+  Inputs: WsjfInputs,
+  RowValues: WsjfRowValues,
+  BeforeList: WsjfColumnScoring,
+  Panels: WsjfPanels,
+};
+
+export function WsjfClient() {
+  return (
+    // The app root has a provider; this one keeps the rows' icon-button
+    // tooltips working wherever the page renders on its own.
+    <TooltipProvider delayDuration={300}>
+      <MethodTool config={WSJF_TOOL} />
+    </TooltipProvider>
   );
 }

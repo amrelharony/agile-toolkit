@@ -6,8 +6,11 @@
  *
  * Before Reveal the host sees how many people have answered and nothing
  * else: no distribution, no per-question counts. Reveal waits for minN
- * answers. After it come the totals, "Save round" (the tool's `onSave`,
- * once per round, aggregates only; it stays available when the tool
+ * answers; in an allocation round a hint by Reveal also says, until
+ * `VOTE_LIMITS.minNSpread` have answered, that who backed what and the
+ * spread show only from that many (Reveal closes the round, so revealing
+ * sooner loses them). After it come the totals, "Save round" (the tool's
+ * `onSave`, once per round, aggregates only; it stays available when the tool
  * refuses the round) and "New round". Ending the room keeps
  * revealed results on screen until they are saved or dismissed (Close asks
  * first when they aren't saved); nothing is stored unless the host saves.
@@ -15,6 +18,11 @@
  * Whenever an action removes the control that had focus (Reveal, the
  * host's own answers, New round), focus moves to what replaced it and the
  * change is announced.
+ *
+ * Every kind of round runs here: `round` is the tool's questionnaire or
+ * sheet (`VOTE_ROUND_KIND` says which), and the form, the results and the
+ * saved result follow its kind (`round-views.tsx`). `VoteRoundPanel` hands
+ * each tool its own typed `onSave`.
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -25,8 +33,19 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { IdlePromptDialog, RoomMemberList } from "@/components/collab/room-controls";
 import type { VisitorIdentity } from "@/lib/realtime/visitor-rooms";
-import type { Questionnaire, VoteRoomTool } from "@/lib/realtime/vote-room/protocol";
-import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
+import {
+  VOTE_LIMITS,
+  type Questionnaire,
+  type VoteRoomTool,
+} from "@/lib/realtime/vote-room/protocol";
+import type { AllocationSheet } from "@/lib/realtime/vote-room/allocation";
+import type { PairSheet } from "@/lib/realtime/vote-room/pair";
+import {
+  resultKind,
+  roundKindOf,
+  type RoundInput,
+  type RoundResult,
+} from "@/lib/realtime/vote-room/kinds";
 import { readVoteLinkFragment, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import {
   useVoteRoom,
@@ -34,10 +53,16 @@ import {
   type VoteRoomStatus,
 } from "@/lib/realtime/vote-room/use-vote-room";
 import { toast } from "@/lib/utils/toast";
-import { useSaveRound, type SaveVoteRound } from "./save-round";
-import { VoteAnswerForm } from "./vote-answer-form";
+import {
+  LiveRoundResults,
+  RoundAnswerForm,
+  SavedRoundResults,
+  resultKeepable,
+  roomResult,
+  spreadNote,
+} from "./round-views";
+import { useSaveRound, type SaveRound } from "./save-round";
 import { VoteLiveCount } from "./vote-live-count";
-import { VoteResults } from "./vote-results";
 
 export interface HostVoteSession {
   code: string;
@@ -49,14 +74,20 @@ export interface HostVoteRoomProps {
   tool: VoteRoomTool;
   toolName: string;
   session: HostVoteSession;
-  /** The questions now: the first round's, and what New round uses. */
-  questionnaire: Questionnaire;
+  /**
+   * What the round asks now, of the tool's kind: a `Questionnaire` (scale),
+   * a `PairSheet` or an `AllocationSheet`. The first round's, and what New
+   * round uses.
+   */
+  round: RoundInput;
   minN?: number;
   /**
    * Save round: totals only, once per round. Return an undo to get Undo in
    * the kit's toast, or false when nothing was stored (Save round stays).
    */
-  onSave: SaveVoteRound;
+  onSave: SaveRound<RoundResult>;
+  /** Shown under revealed results, before Save round (e.g. what the tool will make of them). */
+  renderResults?: (result: RoundResult) => ReactNode;
   /** The host dismissed the closed room. */
   onClosed: () => void;
   /** Tests inject a fake. */
@@ -93,18 +124,23 @@ export function HostVoteRoom({
   tool,
   toolName,
   session,
-  questionnaire,
+  round,
   minN,
   onSave,
+  renderResults,
   onClosed,
   crypto,
 }: HostVoteRoomProps) {
+  // The tool's kind picks which option carries the round; the hook checks it.
+  const kind = roundKindOf(tool);
   const room = useVoteRoom({
     role: "host",
     tool,
     code: session.code,
     identity: session.identity,
-    questionnaire,
+    questionnaire: kind === "scale" ? (round as Questionnaire) : undefined,
+    pairSheet: kind === "pair" ? (round as PairSheet) : undefined,
+    sheet: kind === "allocation" ? (round as AllocationSheet) : undefined,
     minN,
     startedAt: session.startedAt,
     crypto,
@@ -116,9 +152,11 @@ export function HostVoteRoom({
   const [focusCounted, setFocusCounted] = useState(false);
   const { save, isSaved } = useSaveRound(onSave);
   const revealHintId = useId();
+  const spreadHintId = useId();
   const openRef = useRef<HTMLDivElement>(null);
   const countedRef = useRef<HTMLParagraphElement>(null);
-  const { status, endReason, result, roundId, phase } = room;
+  const { status, endReason, roundId, phase } = room;
+  const result = roomResult(room);
   const live = LIVE.has(status);
   const saved = isSaved(result?.roundId);
 
@@ -168,7 +206,7 @@ export function HostVoteRoom({
     announce("Your own answers are counted.");
   }, [focusCounted, room.answered, announce]);
 
-  const startNewRound = () => room.newRound(questionnaire);
+  const startNewRound = () => room.newRound(round);
 
   if (!live) {
     return (
@@ -178,6 +216,7 @@ export function HostVoteRoom({
         saved={saved}
         onSave={() => save(result)}
         onClosed={onClosed}
+        renderResults={renderResults}
       />
     );
   }
@@ -185,6 +224,13 @@ export function HostVoteRoom({
   const hash = room.joinPath ? room.joinPath.slice(room.joinPath.indexOf("#")) : "";
   const fingerprint = readVoteLinkFragment(hash);
   const others = room.members.filter((m) => m.id !== room.selfId);
+  // Allocation rounds have a second threshold; say it by Reveal until it is met.
+  const spreadNeed = Math.max(room.minN, VOTE_LIMITS.minNSpread);
+  const spreadHint = kind === "allocation" && room.ballots < spreadNeed;
+  const revealDescribedBy =
+    [room.revealBlockedReason ? revealHintId : null, spreadHint ? spreadHintId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   return (
     <section
@@ -245,7 +291,7 @@ export function HostVoteRoom({
               className="gap-1.5"
               onClick={room.reveal}
               disabled={!room.canReveal}
-              aria-describedby={room.revealBlockedReason ? revealHintId : undefined}
+              aria-describedby={revealDescribedBy}
             >
               <Eye className="h-4 w-4" aria-hidden="true" />
               Reveal results
@@ -268,16 +314,21 @@ export function HostVoteRoom({
               {room.revealBlockedReason}
             </p>
           )}
+          {spreadHint && (
+            <p id={spreadHintId} className="text-xs text-sub">
+              {spreadNote(spreadNeed)}
+            </p>
+          )}
           {room.answered && (
             <p ref={countedRef} tabIndex={-1} className="text-xs text-sub outline-none">
               Your own answers are counted.
             </p>
           )}
-          {answering && !room.answered && room.questionnaire && (
-            <VoteAnswerForm
+          {answering && !room.answered && (
+            <RoundAnswerForm
               key={roundId ?? "none"}
-              questionnaire={room.questionnaire}
-              submitLabel="Count my answers"
+              room={room}
+              submitLabel={kind === "allocation" ? "Count my split" : "Count my answers"}
               onSubmit={async (draft) => {
                 const res = await room.submit(draft);
                 if (res === "sent") {
@@ -291,15 +342,10 @@ export function HostVoteRoom({
         </div>
       )}
 
-      {phase === "revealed" && room.revealed && room.questionnaire && (
+      {phase === "revealed" && result && (
         <div className="space-y-3">
-          <VoteResults
-            questionnaire={room.questionnaire}
-            revealed={room.revealed}
-            minN={room.minN}
-            ballots={room.ballots}
-            focusHeading
-          />
+          <LiveRoundResults room={room} focusHeading />
+          {renderResults?.(result)}
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
@@ -402,21 +448,25 @@ function ClosedHostRoom({
   saved,
   onSave,
   onClosed,
+  renderResults,
 }: {
   title: string;
-  result: VoteRoundResult | null;
+  result: RoundResult | null;
   saved: boolean;
   onSave: () => void;
   onClosed: () => void;
+  renderResults?: (result: RoundResult) => ReactNode;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   useEffect(() => {
     headingRef.current?.focus();
   }, [title]);
-  // With every question withheld there are no totals a tool could keep (each
-  // one refuses such a round), so don't offer Save or warn about losing them.
-  const keepable = !!result && result.questions.some((q) => q.distribution !== null);
+  // With every question (or item) withheld there are no totals a tool could
+  // keep (each one refuses such a round), so don't offer Save or warn about
+  // losing them. An allocation round always shows its totals.
+  const keepable = resultKeepable(result);
+  const nothing = result && resultKind(result) === "pair" ? "No item" : "No question";
   return (
     <section className="space-y-3 rounded-lg border border-border bg-card p-3 sm:p-4">
       <h2 ref={headingRef} tabIndex={-1} className="text-base font-semibold text-text outline-none">
@@ -428,25 +478,11 @@ function ClosedHostRoom({
             ? "This round's totals are saved."
             : keepable
               ? "Save the totals below if you want to keep them. Nothing else from the round was kept."
-              : "No question had enough answers to show, so there is nothing to save. Nothing from the round was kept."
+              : `${nothing} had enough answers to show, so there is nothing to save. Nothing from the round was kept.`
           : "Nothing from the round was kept."}
       </p>
-      {result && (
-        <VoteResults
-          questionnaire={{
-            id: result.questionnaireId,
-            title: result.title,
-            scale: result.scale,
-            questions: result.questions.map((q) => ({ id: q.id, text: q.text })),
-          }}
-          revealed={result.questions.map((q) => ({
-            responses: q.responses,
-            distribution: q.distribution,
-          }))}
-          minN={result.minN}
-          ballots={result.ballots}
-        />
-      )}
+      {result && <SavedRoundResults result={result} />}
+      {result && keepable && renderResults?.(result)}
       <div className="flex flex-wrap gap-2">
         {(keepable || saved) && (
           <Button

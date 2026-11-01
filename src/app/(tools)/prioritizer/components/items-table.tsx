@@ -1,287 +1,261 @@
 "use client";
 
 /**
- * The editable backlog table — one row per item with name/description, MoSCoW
- * select, the shared Value/Effort inputs, and all WSJF + RICE numeric inputs.
- * Commits flow up through the store's update/remove/add callbacks. Renaming
- * an item renames the method rows linked to it.
+ * The backlog, edited in place: a DataTable (sortable headers, one card
+ * per item on a phone, so nothing scrolls sideways at 375 px) in the
+ * decided order, ranked items first.
+ *
+ * Each embedded method (MoSCoW, WSJF, RICE, Value/Effort) has a cell that
+ * shows the engine's result and opens the method's own inputs in place
+ * (./score-editor). The item owns those inputs: a save writes the item, and
+ * every method tool's row linked to it reads the change through. A method
+ * nobody scored reads "Not scored" (or "Not sorted yet", "Not placed yet"),
+ * never 0. A link made before Phase 7 reads as the tools read it: the
+ * workspace's method `rows` fill what the item's old defaults hide
+ * (methods withLegacyLinks), in the cell and in its editor, so the editor
+ * opens on what a save would keep. Sorted by a column, the rows hold still
+ * while they are edited (useFrozenSort + ResortChip, shown only while a
+ * column is sorted and that column's values changed). Delete has Undo, and
+ * focus moves to the next row's Delete, so the keyboard stays in the table.
  */
 
-import { SectionCard } from "@/components/shared/section-card";
-import { Button } from "@/components/ui/button";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { Trash2 } from "lucide-react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ArrowUpDown, Plus, Trash2 } from "lucide-react";
+  DataTable,
+  type DataTableColumn,
+  type DataTableSort,
+} from "@/components/shared/data-table";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { IconButton } from "@/components/ui/icon-button";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import {
-  type BacklogItem,
-  type ImpactValue,
-  type MoSCoWCategory,
-  type PrioritizerStore,
-  IMPACT_VALUES,
-} from "../types";
-import { MOSCOW_CONFIG } from "../constants";
-import { NumCell } from "./cells";
+  evaluateItemIn,
+  method,
+  type MethodScore,
+  type Values,
+} from "@/lib/prioritization/methods";
+import { decidedOrder } from "@/lib/prioritization/rank";
+import { rememberedPeriod, type HubMethodId } from "../hub-form";
+import { HUB_EDITED, itemName } from "../method-text";
+import { rankOf } from "../order";
+import { useFrozenSort, type SortValues } from "../use-frozen-sort";
+import { MethodCell } from "./score-editor";
+import { NameCell } from "./name-cell";
 
-const inputCls =
-  "bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20 h-8 text-sm";
+type View = "table" | "card";
+
+/** What the ResortChip says changed, by the sorted column. */
+const changedText = (column: string | undefined) =>
+  column === "rank" ? "Ranks" : column === "name" ? "Names" : "Scores";
+
+interface Row {
+  item: BacklogItem;
+  results: Record<HubMethodId, MethodScore>;
+}
+
+const sortValuesOf = (r: Row): SortValues => {
+  const rank = rankOf(r.item);
+  const out: SortValues = {
+    // Negated, so "high to low" (the first click) puts rank 1 first.
+    rank: rank === undefined ? null : -rank,
+    name: r.item.name.trim().toLowerCase(),
+  };
+  for (const id of HUB_EDITED) out[id] = r.results[id].sortKey;
+  return out;
+};
 
 export function ItemsTable({
   items,
-  updateItem,
-  removeItem,
-  addItem,
+  rows: methodRows,
+  onRename,
+  onDescribe,
+  onSaveScores,
+  onRemove,
+  focusId,
+  onFocused,
   emptyState,
 }: {
-  items: BacklogItem[];
-  updateItem: PrioritizerStore["updateItem"];
-  removeItem: PrioritizerStore["removeItem"];
-  addItem: PrioritizerStore["addItem"];
+  items: readonly BacklogItem[];
+  /** The workspace's method rows: links made before Phase 7 read through them. */
+  rows: readonly PrioritizationItem[];
+  onRename: (id: string, name: string) => void;
+  onDescribe: (id: string, description: string | undefined) => void;
+  onSaveScores: (id: string, methodId: HubMethodId, values: Values) => void;
+  onRemove: (id: string) => void;
+  /** An item just added: its first score button takes focus once it's on screen. */
+  focusId?: string | null;
+  onFocused?: () => void;
   /** Shown instead of the table while the backlog is empty. */
-  emptyState?: React.ReactNode;
+  emptyState: ReactNode;
 }) {
+  const rows = useMemo<Row[]>(
+    () =>
+      decidedOrder(items).map((item) => ({
+        item,
+        results: Object.fromEntries(
+          HUB_EDITED.map((id) => [id, evaluateItemIn(item, methodRows, id)])
+        ) as Record<HubMethodId, MethodScore>,
+      })),
+    [items, methodRows]
+  );
+  const period = useMemo(() => rememberedPeriod(items), [items]);
+  // The table's sort, held here (a header or "Sort by" on a phone), so the
+  // values hold still only while it's sorted.
+  const [sort, setSort] = useState<DataTableSort | null>(null);
+  const frozen = useFrozenSort(rows, (r) => r.item.id, sortValuesOf, sort);
+
+  // After a delete: the next row's Delete (or the one above), as the rows
+  // read on screen; with none left, the table's own box.
+  const box = useRef<HTMLDivElement>(null);
+  const focusAfterDelete = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = focusAfterDelete.current;
+    if (!el) return;
+    focusAfterDelete.current = null;
+    (el.isConnected ? el : box.current)?.focus();
+  });
+  const remove = (e: MouseEvent<HTMLButtonElement>, id: string) => {
+    const row = e.currentTarget.closest("tr, li");
+    const next = row?.nextElementSibling ?? row?.previousElementSibling;
+    focusAfterDelete.current =
+      next?.querySelector<HTMLElement>("[data-delete-item]") ?? box.current;
+    onRemove(id);
+  };
+
+  // The score buttons by view and item: the desktop table and the phone
+  // cards are both in the DOM, and focus goes to the one on screen.
+  const triggers = useRef(new Map<string, HTMLButtonElement>());
+  const triggerRef = (view: View, id: string) => (el: HTMLButtonElement | null) => {
+    const key = `${view}:${id}`;
+    if (el) triggers.current.set(key, el);
+    else triggers.current.delete(key);
+  };
+  useEffect(() => {
+    if (!focusId) return;
+    const candidates = (["table", "card"] as View[])
+      .map((v) => triggers.current.get(`${v}:${focusId}`))
+      .filter((el): el is HTMLButtonElement => !!el);
+    if (candidates.length === 0) return;
+    const shown = candidates.find((el) => el.getClientRects().length > 0) ?? candidates[0];
+    shown.focus();
+    onFocused?.();
+  }, [focusId, rows, onFocused]);
+
+  const cellFor = (r: Row, id: HubMethodId, view: View) => (
+    <MethodCell
+      item={r.item}
+      rows={methodRows}
+      methodId={id}
+      result={r.results[id]}
+      period={period}
+      onSave={(values) => onSaveScores(r.item.id, id, values)}
+      triggerRef={id === HUB_EDITED[0] ? triggerRef(view, r.item.id) : undefined}
+    />
+  );
+
+  const removeButton = (r: Row) => (
+    <IconButton
+      label={`Delete ${itemName(r.item.name)}`}
+      icon={<Trash2 className="h-4 w-4" />}
+      className="text-sub hover:text-danger"
+      data-delete-item=""
+      onClick={(e) => remove(e, r.item.id)}
+    />
+  );
+
+  const nameCell = (r: Row) => (
+    <NameCell
+      name={r.item.name}
+      description={r.item.description}
+      onRename={(name) => onRename(r.item.id, name)}
+      onDescribe={(d) => onDescribe(r.item.id, d)}
+    />
+  );
+
+  const orderText = (r: Row) => {
+    const rank = rankOf(r.item);
+    return rank === undefined ? (
+      <span className="text-xs text-sub">Not ordered yet</span>
+    ) : (
+      <span className="font-data text-sm text-text">
+        <span className="sr-only">Rank </span>
+        {rank}
+      </span>
+    );
+  };
+
+  const columns: DataTableColumn<Row>[] = [
+    {
+      key: "rank",
+      header: "Order",
+      width: "6rem",
+      cell: orderText,
+      sortValue: (r) => frozen.valueOf(r.item.id, "rank"),
+    },
+    {
+      key: "name",
+      header: "Item",
+      primary: true,
+      cell: nameCell,
+      sortValue: (r) => frozen.valueOf(r.item.id, "name"),
+    },
+    ...HUB_EDITED.map(
+      (id): DataTableColumn<Row> => ({
+        key: id,
+        header: method(id).label,
+        cell: (r) => cellFor(r, id, "table"),
+        sortValue: (r) => frozen.valueOf(r.item.id, id),
+      })
+    ),
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      sortLabel: "Actions",
+      width: "3rem",
+      cell: removeButton,
+    },
+  ];
+
   return (
-    <SectionCard
-      title="Backlog Items"
-      icon={ArrowUpDown}
-      actions={
-        <Button size="sm" variant="toolkit" onClick={addItem} className="gap-1.5 h-8 text-xs">
-          <Plus className="w-3.5 h-3.5" />
-          Add Item
-        </Button>
-      }
-    >
-      {items.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <p className="text-sm text-sub">
-            Your backlog is empty. Add an item, or load an example to see how the methods compare.
-          </p>
-          {emptyState && <div className="mt-3 flex justify-center">{emptyState}</div>}
-        </div>
+    // Focusable only from code: where a delete leaves focus when no row is left.
+    <div ref={box} tabIndex={-1} className="rounded focus:outline-none">
+      {rows.length === 0 ? (
+        emptyState
       ) : (
-        // Positioned (table-wrap-responsive), so the Selects' hidden native
-        // inputs scroll with the table instead of widening the page.
-        <div className="table-wrap-responsive">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-3 min-w-[160px]">
-                  Item Name
-                </th>
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2 min-w-[110px]">
-                  MoSCoW
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                  Value
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                  Effort
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                  Time Crit
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                  Risk Red
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2">
-                  Job Size
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2 min-w-[70px]">
-                  Reach
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2 min-w-[80px]">
-                  Impact
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2 min-w-[70px]">
-                  Conf %
-                </th>
-                <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2 min-w-[70px]">
-                  RICE Eff
-                </th>
-                <th className="w-9">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} className="border-b border-border group">
-                  <td className="py-2 pr-3 align-top">
-                    <div className="flex flex-col gap-1.5 min-w-[140px]">
-                      <BlurInput
-                        value={item.name}
-                        onCommit={(v) => updateItem(item.id, { name: v })}
-                        className={inputCls}
-                        aria-label="Item name"
-                      />
-                      <BlurTextarea
-                        value={item.description ?? ""}
-                        onCommit={(v) =>
-                          updateItem(item.id, { description: v.trim() ? v : undefined })
-                        }
-                        placeholder="Description (optional)..."
-                        rows={2}
-                        className="bg-surface-deep border-border resize-none text-xs"
-                        aria-label={`Description for ${item.name || "unnamed item"}`}
-                      />
+        <>
+          <ResortChip
+            isStale={frozen.isStale}
+            onResort={frozen.resort}
+            what={changedText(sort?.key)}
+          />
+          <DataTable
+            columns={columns}
+            rows={rows}
+            rowKey={(r) => r.item.id}
+            sort={sort}
+            onSortChange={setSort}
+            caption="Backlog items"
+            renderCard={(r) => (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  {orderText(r)}
+                  {removeButton(r)}
+                </div>
+                {nameCell(r)}
+                <dl className="grid grid-cols-1 gap-1">
+                  {HUB_EDITED.map((id) => (
+                    <div key={id} className="flex items-center justify-between gap-2">
+                      <dt className="text-xs text-sub">{method(id).label}</dt>
+                      <dd className="min-w-0 text-right">{cellFor(r, id, "card")}</dd>
                     </div>
-                  </td>
-                  <td className="py-2 px-2">
-                    <Select
-                      value={item.moscow}
-                      onValueChange={(v) => updateItem(item.id, { moscow: v as MoSCoWCategory })}
-                    >
-                      <SelectTrigger
-                        className={inputCls + " min-w-[110px]"}
-                        aria-label={`MoSCoW for ${item.name || "unnamed item"}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-surface border-border">
-                        {(Object.keys(MOSCOW_CONFIG) as MoSCoWCategory[]).map((k) => (
-                          <SelectItem key={k} value={k} className="text-text">
-                            {MOSCOW_CONFIG[k].label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  {/* Value (shared for WSJF business value + matrix value) */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.businessValue}
-                      min={1}
-                      max={10}
-                      aria-label={`Value (1–10) for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { businessValue: n, value: n })}
-                      className={inputCls + " w-16 text-center"}
-                    />
-                  </td>
-                  {/* Matrix Effort */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.matrixEffort}
-                      min={1}
-                      max={10}
-                      aria-label={`Effort (1–10) for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { matrixEffort: n })}
-                      className={inputCls + " w-16 text-center"}
-                    />
-                  </td>
-                  {/* Time Criticality */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.timeCriticality}
-                      min={1}
-                      max={10}
-                      aria-label={`Time criticality for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { timeCriticality: n })}
-                      className={inputCls + " w-16 text-center"}
-                    />
-                  </td>
-                  {/* Risk Reduction */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.riskReduction}
-                      min={1}
-                      max={10}
-                      aria-label={`Risk reduction for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { riskReduction: n })}
-                      className={inputCls + " w-16 text-center"}
-                    />
-                  </td>
-                  {/* Job Size */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.jobSize}
-                      min={1}
-                      max={10}
-                      aria-label={`Job size for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { jobSize: n })}
-                      className={inputCls + " w-16 text-center"}
-                    />
-                  </td>
-                  {/* Reach */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.reach}
-                      min={1}
-                      aria-label={`Reach for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { reach: n })}
-                      className={inputCls + " w-20 text-center"}
-                    />
-                  </td>
-                  {/* Impact */}
-                  <td className="py-2 px-2">
-                    <Select
-                      value={String(item.impact)}
-                      onValueChange={(v) =>
-                        updateItem(item.id, { impact: Number(v) as ImpactValue })
-                      }
-                    >
-                      <SelectTrigger
-                        className={inputCls + " w-20"}
-                        aria-label={`Impact for ${item.name || "unnamed item"}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-surface border-border">
-                        {IMPACT_VALUES.map((v) => (
-                          <SelectItem key={v} value={String(v)} className="text-text">
-                            {v}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  {/* Confidence */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.confidence}
-                      min={1}
-                      max={100}
-                      aria-label={`Confidence % for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { confidence: n })}
-                      className={inputCls + " w-16 text-center"}
-                    />
-                  </td>
-                  {/* RICE Effort */}
-                  <td className="py-2 px-2">
-                    <NumCell
-                      value={item.effort}
-                      min={0.1}
-                      step={0.1}
-                      aria-label={`RICE effort (person-months) for ${item.name || "unnamed item"}`}
-                      onCommit={(n) => updateItem(item.id, { effort: n })}
-                      className={inputCls + " w-16 text-center"}
-                    />
-                  </td>
-                  <td className="py-2">
-                    <Button
-                      variant="danger-ghost"
-                      size="icon"
-                      onClick={() => removeItem(item.id)}
-                      className="min-touch-coarse h-8 w-8"
-                      aria-label={`Remove ${item.name || "unnamed item"}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+          />
+        </>
       )}
-      <p className="mt-3 text-xs text-sub">
-        Value (1-10) is used for WSJF Business Value and the matrix Y-axis. Effort (1-10) is the
-        matrix X-axis. RICE Effort is in person-months.
-      </p>
-    </SectionCard>
+    </div>
   );
 }
