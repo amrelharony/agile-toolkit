@@ -54,6 +54,7 @@ function story(over: Partial<OwnerStory> = {}): OwnerStory {
     sharePath: null,
     bookPage: null,
     releaseAt: null,
+    firstReleasedAt: null,
     updatedAt: "2026-11-01T00:00:00.000Z",
     ...over,
   };
@@ -365,7 +366,7 @@ describe("publishing from the form", () => {
       <StoryEditor
         ep={null}
         story={null}
-        canSave
+        verified
         onSaved={() => undefined}
         onDeleted={() => undefined}
         onClose={() => undefined}

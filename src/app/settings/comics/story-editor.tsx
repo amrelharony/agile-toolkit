@@ -24,6 +24,7 @@ import {
   panelHasArt,
   publishProblems,
   storyState,
+  unreviewedPanels,
   type OwnerStory,
   type StoredPanel,
 } from "@/lib/comics/story-input";
@@ -34,6 +35,9 @@ import { createArtUploader, errorMessage, panelForSave, portalApi } from "./port
 import { useArtQueue } from "./use-art-queue";
 
 const AUTOSAVE_MS = 400;
+
+export const LEAVE_WHILE_UPLOADING =
+  "Pictures are still uploading or waiting for a retry. If you leave now, those ones will need choosing again. What you typed is kept. Leave anyway?";
 
 type EditorPanel = StoredPanel & { key: string };
 type Form = Omit<StoryDraft, "panels" | "baseUpdatedAt"> & { panels: EditorPanel[] };
@@ -89,6 +93,20 @@ function formFromDraft(draft: StoryDraft): Form {
   return { ...draft, panels: draft.panels.map(withKey) };
 }
 
+/** What was typed wins, and whatever wasn't touched comes from the server's copy. */
+function fillBlanks(typed: Form, server: Form): Form {
+  return {
+    title: typed.title || server.title,
+    lesson: typed.lesson || server.lesson,
+    squadQuestion: typed.squadQuestion || server.squadQuestion,
+    cast: typed.cast || server.cast,
+    themes: typed.themes.length > 0 ? typed.themes : server.themes,
+    release: typed.release || server.release,
+    panels: typed.panels.length > 0 ? typed.panels : server.panels,
+    sharePath: typed.sharePath ?? server.sharePath,
+  };
+}
+
 function castList(cast: string): string[] {
   return cast
     .split(",")
@@ -115,7 +133,12 @@ interface StoryEditorProps {
   /** The server's copy, when it has loaded. */
   story: OwnerStory | null;
   /** False until the owner is verified: typing is fine, saving isn't. */
-  canSave: boolean;
+  verified: boolean;
+  /** Why the server's copy hasn't arrived, if it failed to load. */
+  loadError?: string | null;
+  onRetryLoad?: () => void;
+  /** Whether this form is holding pictures that stop if it closes. */
+  onUploading?: (active: boolean) => void;
   onSaved: (story: OwnerStory) => void;
   onDeleted: (ep: number) => void;
   onClose: () => void;
@@ -128,7 +151,10 @@ interface StoryEditorProps {
 export function StoryEditor({
   ep: initialEp,
   story,
-  canSave,
+  verified,
+  loadError = null,
+  onRetryLoad,
+  onUploading,
   onSaved,
   onDeleted,
   onClose,
@@ -161,6 +187,9 @@ export function StoryEditor({
   const [previewing, setPreviewing] = useState(false);
   const [storageFailed, setStorageFailed] = useState(false);
   const files = useRef(new Map<string, File>());
+  const dirty = useRef(false);
+  /** Set once the form is gone or thrown away: nothing it started may save after that. */
+  const closed = useRef(false);
 
   // The server's copy can arrive after the form opened on a slow connection.
   useEffect(() => {
@@ -168,6 +197,12 @@ export function StoryEditor({
     setServer((current) => current ?? story);
     if (!seeded.current) {
       seeded.current = true;
+      if (dirty.current) {
+        // Typed into the empty form while this was on its way: keep every word.
+        replaceForm(fillBlanks(formRef.current, formFromStory(story)));
+        setConflict(story);
+        return;
+      }
       baseUpdatedAt.current = story.updatedAt;
       replaceForm(formFromStory(story));
       return;
@@ -180,7 +215,6 @@ export function StoryEditor({
     initialDraft.current = null;
   }, [story, replaceForm]);
 
-  const dirty = useRef(false);
   const update = useCallback(
     (change: Partial<Form> | ((f: Form) => Form)) => {
       dirty.current = true;
@@ -192,6 +226,8 @@ export function StoryEditor({
 
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
+  // A number with no server copy yet: saving now would overwrite it with a blank form.
+  const canSave = verified && (ep === null || server !== null);
   const canSaveRef = useRef(canSave);
   canSaveRef.current = canSave;
   const serverRef = useRef(server);
@@ -225,11 +261,19 @@ export function StoryEditor({
     };
   }, [keepDraft]);
 
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+    };
+  }, []);
+
   /** One save at a time, in order, each sending the newest text. */
   const saving = useRef<Promise<unknown>>(Promise.resolve());
   const epRef = useRef(ep);
   const persist = useCallback((): Promise<OwnerStory> => {
     const run = async () => {
+      if (closed.current) throw new Error("This form has closed.");
       const snapshot = formRef.current;
       const body = toBody(snapshot);
       const saved =
@@ -242,6 +286,7 @@ export function StoryEditor({
       draftKeyRef.current = saved.ep;
       setServer(saved);
       baseUpdatedAt.current = saved.updatedAt;
+      setConflict(null);
       onSaved(saved);
       clearDraft(previousKey);
       if (formRef.current === snapshot) {
@@ -270,7 +315,8 @@ export function StoryEditor({
     onDone: (key: string, done: UploadedArt) => {
       update((f) => ({
         ...f,
-        sharePath: done.sharePath ?? f.sharePath,
+        // Only the panel in first place by now: the crop has to match what readers see first.
+        sharePath: (f.panels[0]?.key === key ? done.sharePath : null) ?? f.sharePath,
         panels: f.panels.map((p) =>
           p.key === key
             ? {
@@ -287,6 +333,7 @@ export function StoryEditor({
       // Not on a live story: that waits for an explicit save.
       if (canSaveRef.current && !serverRef.current?.releaseAt) {
         setTimeout(() => {
+          if (closed.current) return;
           persist().catch(() => setStatus("Art uploaded. The story is kept on this device."));
         }, 0);
       }
@@ -294,6 +341,11 @@ export function StoryEditor({
   });
 
   const jobFor = (key: string) => art.jobs.find((job) => job.key === key);
+
+  const holdingPictures = art.jobs.length > 0;
+  useEffect(() => {
+    onUploading?.(holdingPictures);
+  }, [holdingPictures, onUploading]);
 
   const addPictures = (picked: File[]) => {
     const panels = [...formRef.current.panels];
@@ -321,6 +373,19 @@ export function StoryEditor({
     art.enqueue(key, file);
   };
 
+  /** The share image is cropped from panel 1, so a new panel 1 needs a new one. */
+  const refreshShareImage = (wasFirst: string | undefined) => {
+    const first = formRef.current.panels[0];
+    if (!first || first.key === wasFirst) return;
+    const file = files.current.get(first.key);
+    if (file) art.enqueue(first.key, file);
+    else if (panelHasArt(first)) {
+      setStatus(
+        "The share image still shows the old first panel. Choose this panel's art again to update it."
+      );
+    }
+  };
+
   const movePanel = (index: number, step: -1 | 1) => {
     const panels = [...formRef.current.panels];
     const to = index + step;
@@ -328,17 +393,7 @@ export function StoryEditor({
     const wasFirst = panels[0]?.key;
     [panels[index], panels[to]] = [panels[to], panels[index]];
     update({ panels });
-    const first = panels[0];
-    // The share image is cropped from panel 1, so a new panel 1 needs a new one.
-    if (first && first.key !== wasFirst) {
-      const file = files.current.get(first.key);
-      if (file) art.enqueue(first.key, file);
-      else if (panelHasArt(first)) {
-        setStatus(
-          "The share image still shows the old first panel. Choose this panel's art again to update it."
-        );
-      }
-    }
+    refreshShareImage(wasFirst);
   };
 
   const changePanel = (key: string, change: Partial<StoredPanel>) =>
@@ -349,7 +404,10 @@ export function StoryEditor({
 
   const removePanel = (key: string) => {
     art.dismiss(key);
+    files.current.delete(key);
+    const wasFirst = formRef.current.panels[0]?.key;
     update((f) => ({ ...f, panels: f.panels.filter((p) => p.key !== key) }));
+    refreshShareImage(wasFirst);
   };
 
   const toggleTheme = (code: string) =>
@@ -377,16 +435,38 @@ export function StoryEditor({
       setStatus("Saved.");
     });
 
+  /**
+   * The server has a new date. It isn't the owner's edit, so it mustn't look like
+   * unsaved work: the draft goes unless something was typed meanwhile, and the
+   * base moves on, or the next open would warn of a change that came from here.
+   */
+  const settleRelease = (settled: OwnerStory, releaseAt: string | null) => {
+    baseUpdatedAt.current = settled.updatedAt;
+    setServer(settled);
+    onSaved(settled);
+    replaceForm({ ...formRef.current, release: toLocalInput(releaseAt) });
+    if (dirty.current) keepDraft();
+    else clearDraft(settled.ep);
+  };
+
   const release = (releaseAt: string, message: string) => {
-    const blockers = publishProblems(toBody(formRef.current));
+    const body = toBody(formRef.current);
+    const blockers = publishProblems(body);
     setProblems(blockers);
     if (blockers.length > 0) return;
+    const unreviewed = unreviewedPanels(body);
+    if (
+      unreviewed > 0 &&
+      !window.confirm(
+        `${unreviewed} ${unreviewed === 1 ? "panel still needs" : "panels still need"} review. Descriptions go into the public page as they are. Go ahead?`
+      )
+    ) {
+      return;
+    }
     void act(async () => {
       const saved = await persist();
-      const { story: released } = await portalApi.setRelease(saved.ep, releaseAt);
-      setServer(released);
-      onSaved(released);
-      update({ release: toLocalInput(releaseAt) });
+      const { story: released } = await portalApi.setRelease(saved.ep, releaseAt, unreviewed > 0);
+      settleRelease(released, releaseAt);
       setStatus(message);
     });
   };
@@ -402,6 +482,10 @@ export function StoryEditor({
       setError("Choose a release date first.");
       return;
     }
+    if (Date.parse(at) <= Date.now()) {
+      setError("That date has passed. Choose a later one, or use Publish now.");
+      return;
+    }
     release(at, "Scheduled.");
   };
 
@@ -414,9 +498,7 @@ export function StoryEditor({
     }
     void act(async () => {
       const { story: back } = await portalApi.setRelease(ep, null);
-      setServer(back);
-      onSaved(back);
-      update({ release: "" });
+      settleRelease(back, null);
       setStatus("Unpublished.");
     });
   };
@@ -424,14 +506,19 @@ export function StoryEditor({
   const removeStory = () => {
     if (ep === null) {
       if (!window.confirm("Throw away this new story?")) return;
+      // Pictures still on their way would otherwise create the story being thrown away.
+      closed.current = true;
+      art.cancelAll();
       dirty.current = false;
       clearDraft(NEW_STORY_KEY);
       onClose();
       return;
     }
     if (!window.confirm("Delete this draft? This can't be undone.")) return;
+    art.cancelAll();
     void act(async () => {
       await portalApi.deleteStory(ep);
+      closed.current = true;
       dirty.current = false;
       clearDraft(ep);
       onDeleted(ep);
@@ -458,6 +545,11 @@ export function StoryEditor({
     setConflict(null);
   };
 
+  const backToStories = () => {
+    if (art.jobs.length > 0 && !window.confirm(LEAVE_WHILE_UPLOADING)) return;
+    onClose();
+  };
+
   const suggestDate = () =>
     update({ release: toLocalInput(nextMondaySlot(new Date()).toISOString()) });
 
@@ -479,15 +571,31 @@ export function StoryEditor({
           {ep === null ? "New story" : `Episode ${ep}`}
           {server ? <span className="ml-2 text-sm font-normal text-sub">({state})</span> : null}
         </h2>
-        <Button type="button" variant="outline" onClick={onClose}>
+        <Button type="button" variant="outline" onClick={backToStories}>
           Back to stories
         </Button>
       </div>
 
-      {!canSave ? (
+      {!verified ? (
         <p role="status" className="rounded-md border border-border p-3 text-sm text-sub">
           Checking it&apos;s you. Keep typing: everything stays on this device, and saving comes
           back once the check finishes.
+        </p>
+      ) : !canSave && loadError ? (
+        <div role="alert" className="space-y-2 rounded-md border border-border p-3 text-sm">
+          <p className="text-danger">
+            Couldn&apos;t load this story from the server, so saving is off for now. {loadError}
+          </p>
+          {onRetryLoad ? (
+            <Button type="button" variant="outline" onClick={onRetryLoad}>
+              Try again
+            </Button>
+          ) : null}
+        </div>
+      ) : !canSave ? (
+        <p role="status" className="rounded-md border border-border p-3 text-sm text-sub">
+          Loading this story from the server. Keep typing: everything stays on this device, and
+          saving comes back once it arrives.
         </p>
       ) : null}
       {storageFailed ? (
@@ -677,7 +785,7 @@ export function StoryEditor({
             Unpublish
           </Button>
         ) : null}
-        {!server?.releaseAt ? (
+        {!server?.releaseAt && !server?.firstReleasedAt ? (
           <Button type="button" variant="danger-ghost" disabled={busy} onClick={removeStory}>
             {ep === null ? "Discard" : "Delete draft"}
           </Button>

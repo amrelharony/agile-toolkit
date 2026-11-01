@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -19,7 +19,7 @@ import { LicenceView } from "./licence-view";
 import { errorMessage, portalApi, type LicenceRequest } from "./portal-api";
 import { ReviewView, reviewQueue } from "./review-view";
 import { StoriesView } from "./stories-view";
-import { StoryEditor } from "./story-editor";
+import { LEAVE_WHILE_UPLOADING, StoryEditor } from "./story-editor";
 
 type View = "stories" | "editor" | "review" | "entries" | "licence";
 
@@ -86,6 +86,13 @@ export function ComicsPortal() {
   const [requests, setRequests] = useState<LicenceRequest[] | null>(null);
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [unsaved, setUnsaved] = useState<DraftKey[]>([]);
+  /** The open form has pictures in hand, which stop if it closes. */
+  const uploading = useRef(false);
+  const setUploading = useCallback((active: boolean) => {
+    uploading.current = active;
+  }, []);
+  /** Saved by the open form, so a list fetched just before that can't say it's gone. */
+  const savedHere = useRef(new Set<number>());
 
   const refreshStories = useCallback(async () => {
     setLoadError(null);
@@ -111,6 +118,20 @@ export function ComicsPortal() {
     void refreshRequests();
   }, [isOwner, refreshRequests, refreshStories]);
 
+  // On a weak signal the first try can easily fail, and a form may be waiting on it.
+  useEffect(() => {
+    if (!isOwner || !loadError) return;
+    const retry = () => {
+      if (document.visibilityState === "visible") void refreshStories();
+    };
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", retry);
+    return () => {
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", retry);
+    };
+  }, [isOwner, loadError, refreshStories]);
+
   // After a reload, back to the form that was open. Effects only: localStorage
   // isn't there for the server's render.
   useEffect(() => {
@@ -122,12 +143,15 @@ export function ComicsPortal() {
   }, []);
 
   const openEditor = useCallback((ep: number | null) => {
+    if (uploading.current && !window.confirm(LEAVE_WHILE_UPLOADING)) return;
+    uploading.current = false;
     setEditing((current) => ({ ep, instance: (current?.instance ?? 0) + 1 }));
     setView("editor");
     rememberOpenStory(ep ?? NEW_STORY_KEY);
   }, []);
 
   const closeEditor = useCallback(() => {
+    uploading.current = false;
     setEditing(null);
     setView("stories");
     rememberOpenStory(null);
@@ -137,10 +161,13 @@ export function ComicsPortal() {
   // Reopened after a reload, but it's gone: deleted elsewhere, say. Any draft stays kept.
   useEffect(() => {
     if (!stories || editing?.ep == null) return;
-    if (!stories.some((s) => s.ep === editing.ep)) closeEditor();
+    if (!stories.some((s) => s.ep === editing.ep) && !savedHere.current.has(editing.ep)) {
+      closeEditor();
+    }
   }, [closeEditor, editing, stories]);
 
   const onSaved = useCallback((story: OwnerStory) => {
+    savedHere.current.add(story.ep);
     setStories((current) => upsertStory(current, story));
     setEditing((current) => {
       if (current?.ep !== null || !current) return current;
@@ -151,6 +178,7 @@ export function ComicsPortal() {
 
   const onDeleted = useCallback(
     (ep: number) => {
+      savedHere.current.delete(ep);
       setStories((current) => current?.filter((s) => s.ep !== ep) ?? null);
       closeEditor();
     },
@@ -217,7 +245,10 @@ export function ComicsPortal() {
             key={editing.instance}
             ep={editing.ep}
             story={editingStory}
-            canSave={isOwner && (editing.ep === null || editingStory !== null)}
+            verified={isOwner}
+            loadError={loadError}
+            onRetryLoad={refreshStories}
+            onUploading={setUploading}
             onSaved={onSaved}
             onDeleted={onDeleted}
             onClose={closeEditor}

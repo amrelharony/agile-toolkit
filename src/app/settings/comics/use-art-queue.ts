@@ -8,6 +8,8 @@ import { errorMessage } from "./portal-api";
 export type ArtJobStatus = "waiting" | "converting" | "uploading" | "failed";
 
 export interface ArtJob {
+  /** This job, as opposed to the panel it's for: a panel's picture can be replaced mid-job. */
+  id: number;
   key: string;
   file: File;
   status: ArtJobStatus;
@@ -21,10 +23,16 @@ interface ArtQueueOptions {
   onDone: (key: string, art: UploadedArt) => void;
 }
 
+let jobSerial = 0;
+
 /**
  * Pictures, converted and uploaded strictly one at a time: a phone can't hold
  * several decoded at once. A failure stays in the list with its file, so one
  * picture can be retried and the rest carry on.
+ *
+ * A job that was replaced or dismissed while it ran is out of the list, and what
+ * it produces is ignored: its file is left for the Unused art list. When the form
+ * goes away everything stops, so nothing it started can save afterwards.
  */
 export function useArtQueue({ uploader, optionsFor, onDone }: ArtQueueOptions) {
   const [jobs, setJobs] = useState<ArtJob[]>([]);
@@ -38,6 +46,7 @@ export function useArtQueue({ uploader, optionsFor, onDone }: ArtQueueOptions) {
     alive.current = true;
     return () => {
       alive.current = false;
+      jobsRef.current = [];
     };
   }, []);
 
@@ -47,8 +56,13 @@ export function useArtQueue({ uploader, optionsFor, onDone }: ArtQueueOptions) {
   }, []);
 
   const patch = useCallback(
-    (key: string, change: Partial<ArtJob>) =>
-      write(jobsRef.current.map((job) => (job.key === key ? { ...job, ...change } : job))),
+    (id: number, change: Partial<ArtJob>) =>
+      write(jobsRef.current.map((job) => (job.id === id ? { ...job, ...change } : job))),
+    [write]
+  );
+
+  const drop = useCallback(
+    (id: number) => write(jobsRef.current.filter((job) => job.id !== id)),
     [write]
   );
 
@@ -56,34 +70,38 @@ export function useArtQueue({ uploader, optionsFor, onDone }: ArtQueueOptions) {
     if (running.current) return;
     running.current = true;
     try {
-      for (;;) {
+      while (alive.current) {
         const job = jobsRef.current.find((j) => j.status === "waiting");
         if (!job) return;
         const options = latest.current.optionsFor(job.key);
         if (!options) {
-          write(jobsRef.current.filter((j) => j.key !== job.key));
+          drop(job.id);
           continue;
         }
         try {
           const art = await processPanelImage(job.file, {
             ...options,
             uploader: latest.current.uploader,
-            onStep: (step) => patch(job.key, { status: step, error: undefined }),
+            onStep: (step) => patch(job.id, { status: step, error: undefined }),
           });
-          write(jobsRef.current.filter((j) => j.key !== job.key));
+          if (!alive.current) return;
+          if (!jobsRef.current.some((j) => j.id === job.id)) continue;
+          drop(job.id);
           latest.current.onDone(job.key, art);
         } catch (err) {
-          patch(job.key, { status: "failed", error: errorMessage(err) });
+          patch(job.id, { status: "failed", error: errorMessage(err) });
         }
       }
     } finally {
       running.current = false;
     }
-  }, [patch, write]);
+  }, [drop, patch]);
 
   const enqueue = useCallback(
     (key: string, file: File) => {
-      write([...jobsRef.current.filter((j) => j.key !== key), { key, file, status: "waiting" }]);
+      jobSerial += 1;
+      const job: ArtJob = { id: jobSerial, key, file, status: "waiting" };
+      write([...jobsRef.current.filter((j) => j.key !== key), job]);
       void pump();
     },
     [pump, write]
@@ -91,7 +109,9 @@ export function useArtQueue({ uploader, optionsFor, onDone }: ArtQueueOptions) {
 
   const retry = useCallback(
     (key: string) => {
-      patch(key, { status: "waiting", error: undefined });
+      const job = jobsRef.current.find((j) => j.key === key);
+      if (!job) return;
+      patch(job.id, { status: "waiting", error: undefined });
       void pump();
     },
     [patch, pump]
@@ -102,5 +122,8 @@ export function useArtQueue({ uploader, optionsFor, onDone }: ArtQueueOptions) {
     [write]
   );
 
-  return { jobs, enqueue, retry, dismiss };
+  /** Every job gone, and whatever is running comes to nothing. */
+  const cancelAll = useCallback(() => write([]), [write]);
+
+  return { jobs, enqueue, retry, dismiss, cancelAll };
 }
