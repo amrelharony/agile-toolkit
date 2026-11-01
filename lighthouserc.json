@@ -18,7 +18,7 @@
       }
     },
     "assert": {
-      "//": "Accessibility is a hard gate (every tool passed a jsx-a11y sweep and the rules are lint errors). Performance and size budgets warn until the mobile baseline in docs/LIGHTHOUSE.md is known-good. Script budget: 350 KB transferred per page. Total budget: 4.6 MB, i.e. 1.5 MB of page weight plus the 3D mascot (~2.7 MB, immutable-cached after the first visit). Owner-only pages (/settings/*) still need an authenticated run (puppeteerScript), which is out of scope.",
+      "//": "Accessibility is a hard gate (every tool passed a jsx-a11y sweep and the rules are lint errors). Performance and size budgets warn until the mobile baseline in docs/LIGHTHOUSE.md is known-good. Script budget: 350 KB transferred per page. Total budget: 2 MB, i.e. 1.5 MB of page weight plus Amr's sprite sheet (~0.5 MB, immutable-cached after the first visit). Owner-only pages (/settings/*) still need an authenticated run (puppeteerScript), which is out of scope.",
       "assertions": {
         "categories:performance": ["warn", { "minScore": 0.7 }],
         "categories:accessibility": ["error", { "minScore": 0.95 }],
@@ -29,7 +29,7 @@
         "cumulative-layout-shift": ["warn", { "maxNumericValue": 0.1 }],
         "total-blocking-time": ["warn", { "maxNumericValue": 400 }],
         "resource-summary:script:size": ["warn", { "maxNumericValue": 358400 }],
-        "resource-summary:total:size": ["warn", { "maxNumericValue": 4823449 }]
+        "resource-summary:total:size": ["warn", { "maxNumericValue": 2097152 }]
       }
     },
     "upload": {
