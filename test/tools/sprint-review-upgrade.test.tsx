@@ -198,7 +198,13 @@ beforeEach(() => {
   seed(EMPTY);
 });
 
-afterEach(() => seed(EMPTY));
+afterEach(async () => {
+  // The page moves focus on the next frame (focusSoon). Let that run while this
+  // test's page is still here, or it lands in the next test's and takes focus
+  // from whatever that test just focused.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  seed(EMPTY);
+});
 
 // ─── Documents ──────────────────────────────────────────────────────────────
 
