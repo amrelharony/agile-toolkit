@@ -32,6 +32,7 @@ import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { isComicRoute } from "@/lib/comic/agile-at-work";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
+import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
@@ -374,6 +375,8 @@ export function MascotAssistant() {
   // Drive the mascot from the conversation: talk while streaming, think on send,
   // react to tool results, shift mood to the reply's sentiment.
   useMascotChatReactions();
+  // React to finished tool actions, for visitors and the owner alike.
+  useMascotToolReactions();
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.
