@@ -480,58 +480,34 @@ After bumping `pdfjs-dist`, run `npm run pdf:worker` (copies the matching worker
 
 ---
 
-## Deploy hardening (the ElharonyClaw mascot + agent gateway)
+## Deploy hardening (Amr + the agent gateway)
 
 Three things must be handled **before the mascot/agent ships publicly**. #1 is
 done in the repo; #2 and #3 run against infrastructure you control and need
 your SSH / dashboard login, so they're documented here rather than automated.
 
-### 1. The mascot GLB is committed (no CDN needed)
+### 1. Amr's sprite sheet is committed (no CDN needed)
 
-The optimised model ([~2.7 MB](#optimising-the-mascot-glb), 16.3 MB straight out
-of Blender) is committed as `public/mascot/mascot.<sha256-prefix>.glb` and loaded
-from `MASCOT_GLB_URL` in `src/components/agent/mascot/mascot-asset.ts`.
+The sheet (~490 KB) is committed as `public/mascot/amr.<sha256-prefix>.webp` and
+loaded from `MASCOT_SPRITE_URL` in `src/components/agent/mascot/mascot-asset.ts`.
 `next.config.mjs` serves `/mascot/*` with
 `Cache-Control: public, max-age=31536000, immutable`, which is safe because a
-changed model gets a new file name. The raw Blender export stays gitignored.
+changed sheet gets a new file name. The middleware matcher skips `.webp` files
+directly under `/mascot`, so loading it costs the owner no session check.
 
 - **Remove `NEXT_PUBLIC_MASCOT_GLB_URL` from Vercel** (Settings → Environment
-  Variables). The loader no longer reads it; the old Supabase-hosted copy was
-  the 16 MB export served with `no-cache`.
-- To replace the model: run `npm run optimize:mascot` on the new export, rename
-  the output to `mascot.<first 8 hex chars of its sha256>.glb`, update
-  `MASCOT_GLB_URL`, delete the old file. `test/agent/mascot-asset.test.ts`
-  fails if the name doesn't match the bytes or the file is over 3.5 MB.
-- The mascot loads after the page is idle (a small launcher shows until then),
-  is skipped for visitors with Save-Data on, and falls back to the launcher if
-  the GPU drops the WebGL context more than twice.
-
-### Optimising the mascot GLB
-
-Blender exports the baseColor map as a 4096×4096 PNG: 13.9 MB of the 16.3 MB
-file, 89 MB of GPU memory, and 16.7 M pixels for the synchronous `retintSkin`
-pass in `engine/retint-skin.ts` to walk on the main thread. The mascot renders at
-~160×280 CSS px, so that resolution is unreachable on screen.
-
-```bash
-npm run optimize:mascot
-```
-
-Downscales every embedded texture to 1024 px and transcodes the colour maps to
-JPEG q90 with **4:4:4** chroma (no subsampling — `retintSkin` thresholds on
-per-pixel R/G/B differences, and 4:2:0 would smear exactly the signal its skin
-detection keys off). Geometry, skin, morph targets and all 16 animations are
-relocated byte-for-byte; only the image bufferViews change.
-
-- Result: **16.33 MB → 2.66 MB**, GPU texture memory 89.5 MB → 5.6 MB, GLTFLoader
-  parse ~1000 ms → ~150 ms, the retint pass ~590 ms → ~74 ms.
-- `--size 2048` keeps more detail (~2.8 MB); `--dry-run` reports without writing;
-  `--in`/`--out` work on a copy. Normal/occlusion/metallicRoughness maps and any
-  texture on a non-opaque material are resized but deliberately kept as PNG.
-- Needs one raster encoder — `sharp` (`npm i -D sharp`) or Python + Pillow
-  (`pip install Pillow`), whichever is present.
-- Then commit it under its new content-hash name (see #1). Never overwrite the
-  existing hashed file: browsers that already cached it will keep it for a year.
+  Variables). Nothing loads a model any more.
+- To replace the sheet: take `final/spritesheet-extended.png` from the pet pack
+  (only that file: the pack also holds photo boards and rejected art), convert it
+  to WebP at q88 with alpha, rename the output to
+  `amr.<first 8 hex chars of its sha256>.webp`, update `MASCOT_SPRITE_URL`, delete
+  the old file. `test/agent/mascot-asset.test.ts` fails if the name doesn't match
+  the bytes, the file is over 700 KB, or anything else is in `public/mascot`. Never
+  overwrite the existing hashed file: browsers that already cached it will keep it
+  for a year.
+- Amr loads after the page is idle (a small launcher shows until then), is
+  skipped for visitors with Save-Data on, and falls back to the launcher if the
+  sheet can't load.
 
 ### 2. Raise the OpenClaw gateway upload limit (nginx → 413 fix)
 
@@ -596,7 +572,7 @@ rewrite is needed; just regenerate them and update env.
 
 Hardening checklist:
 
-- [ ] `NEXT_PUBLIC_MASCOT_GLB_URL` removed from Vercel; mascot loads textured in prod from `/mascot/mascot.<hash>.glb`
+- [ ] `NEXT_PUBLIC_MASCOT_GLB_URL` removed from Vercel; Amr loads in prod from `/mascot/amr.<hash>.webp`
 - [ ] Gateway `client_max_body_size 10M`; `nginx -t` clean + reloaded; agent no longer 413s
 - [ ] Supabase `service_role` (and `anon` if JWT rotated) regenerated + env updated everywhere
 - [ ] OpenClaw `OPENCLAW_API_KEY` regenerated, old key invalidated, env updated

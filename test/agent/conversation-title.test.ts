@@ -58,7 +58,7 @@ describe("conversationToMarkdown", () => {
     expect(md).toContain("# My Thread");
     expect(md).toContain("**You:**");
     expect(md).toContain("hi there");
-    expect(md).toContain("**ElharonyClaw:**");
+    expect(md).toContain("**Amr:**");
     expect(md).toContain("**Hello!**");
   });
 });

@@ -32,9 +32,9 @@ the mobile baseline below is known-good.
 | Cumulative Layout Shift  | ≤ 0.1 (warn)                                     |
 | Total Blocking Time      | ≤ 400 ms (warn)                                  |
 | JavaScript transferred   | ≤ 350 KB (warn)                                  |
-| Total transferred        | ≤ 4.6 MB (warn): 1.5 MB page + ~2.7 MB 3D mascot |
+| Total transferred        | ≤ 2 MB (warn): 1.5 MB page + ~0.5 MB Amr's sheet |
 
-The mascot model is content-hashed and served `immutable`, so the 2.7 MB is
+Amr's sprite sheet is content-hashed and served `immutable`, so the 0.5 MB is
 paid once per browser; budgets count it because Lighthouse runs cold.
 
 ## Baseline (mobile, 19 Oct 2026, local production build, 1 run each)
@@ -76,13 +76,12 @@ as FCP, and 3.2 s on `/`.
 Real throttling shows the cost that matters, which is main-thread work. TBT is
 about 2 s and TTI about 20 s, mostly from the 3D mascot starting up about 5 s
 after load. Its chunk accounts for most of the script bootup, with three.js
-and the shader compile on top. The mascot stays (a product decision). Since
-19 Oct 2026 it draws idle frames at 30 fps and caps the pixel ratio at 1.5,
-which took real-throttled TBT on `/retro` from 2.65 s to 2.18 s.
+and the shader compile on top. On 1 Nov 2026 Amr's 2D sprite replaced the 3D
+mascot: one image and CSS frame steps, no three.js, no model parse, no shader
+compile. These numbers predate that and need a fresh run.
 
-Next steps: lazy-loading Supabase for visitors (~61 KB gzipped of the
-initial JS; it needs an owner sign-in check before merging) and splitting the
-mascot's start-up work.
+Next step: lazy-loading Supabase for visitors (~61 KB gzipped of the initial
+JS; it needs an owner sign-in check before merging).
 
 ## What's NOT covered (and why)
 

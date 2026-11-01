@@ -238,7 +238,7 @@ export function conversationToMarkdown(title: string, messages: ChatMessage[]): 
       out.push("**You:**", "");
       for (const c of m.content) if (c.type === "text") out.push(c.text, "");
     } else if (m.role === "assistant") {
-      out.push("**ElharonyClaw:**", "");
+      out.push("**Amr:**", "");
       for (const c of m.content) {
         if (c.type === "text") out.push(c.text, "");
         else if (c.type === "tool_use")

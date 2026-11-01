@@ -1,0 +1,294 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render } from "@testing-library/react";
+import MascotSprite from "@/components/agent/mascot/mascot-sprite";
+import {
+  chooseShot,
+  lookCell,
+  lookIndex,
+  reactionSeconds,
+  POSES,
+  SHEET,
+  type ShotInput,
+} from "@/components/agent/mascot/engine/sprite-poses";
+import { MOOD_SPEED, moodFor } from "@/components/agent/mascot/engine/mood";
+import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
+
+const CALM: ShotInput = {
+  drag: null,
+  reaction: null,
+  micro: null,
+  talking: false,
+  look: null,
+  reducedMotion: false,
+  speed: 1,
+};
+
+describe("the sheet's layout", () => {
+  it("matches the pack's rows and frame counts", () => {
+    const rows = Object.values(POSES).map((p) => [p.row, p.frames]);
+    expect(rows).toEqual([
+      [0, 6],
+      [1, 8],
+      [2, 8],
+      [3, 4],
+      [4, 5],
+      [5, 8],
+      [6, 6],
+      [7, 6],
+      [8, 6],
+    ]);
+    expect(SHEET).toEqual({ columns: 8, rows: 11, cellW: 192, cellH: 208 });
+  });
+});
+
+describe("pose mapping", () => {
+  const POSE_FOR: [MascotReaction, keyof typeof POSES][] = [
+    ["wave", "waving"],
+    ["excited", "jumping"],
+    ["dance", "jumping"],
+    ["confused", "failed"],
+    ["headShake", "failed"],
+    ["listening", "waiting"],
+    ["thinking", "running"],
+    ["talking", "review"],
+    ["nod", "review"],
+  ];
+
+  it.each(POSE_FOR)("%s plays %s", (reaction, pose) => {
+    const shot = chooseShot({ ...CALM, reaction });
+    expect(shot.row).toBe(POSES[pose].row);
+    expect(shot.frames).toBe(POSES[pose].frames);
+    expect(shot.anim).toBe("frames");
+  });
+
+  it("is idle when nothing is going on", () => {
+    expect(chooseShot(CALM)).toMatchObject({ row: 0, anim: "idle", frames: 6 });
+  });
+
+  it("holds the review pose while talking", () => {
+    expect(chooseShot({ ...CALM, talking: true }).row).toBe(POSES.review.row);
+  });
+
+  it("runs the way he's dragged, over any reaction", () => {
+    expect(chooseShot({ ...CALM, drag: "left", reaction: "wave" }).row).toBe(
+      POSES["running-left"].row
+    );
+    expect(chooseShot({ ...CALM, drag: "right" }).row).toBe(POSES["running-right"].row);
+  });
+
+  it("gives a reaction time for whole loops", () => {
+    expect(reactionSeconds("wave")).toBeCloseTo(2);
+    expect(reactionSeconds("confused")).toBeCloseTo(8 / 6);
+    // A livelier mood plays faster.
+    expect(reactionSeconds("wave", 2)).toBeCloseTo(1);
+  });
+
+  it("turns spin and wiggle into their own animations", () => {
+    expect(chooseShot({ ...CALM, reaction: "spin" }).anim).toBe("spin");
+    expect(chooseShot({ ...CALM, reaction: "wiggle" }).anim).toBe("wiggle");
+  });
+
+  it("restarts the loop when the mood's speed changes the timing", () => {
+    expect(chooseShot({ ...CALM, speed: 1.3 }).seconds).toBeLessThan(chooseShot(CALM).seconds);
+  });
+});
+
+describe("cursor tracking", () => {
+  it("numbers the 16 directions clockwise from up", () => {
+    expect(lookIndex(0, -200)).toBe(0);
+    expect(lookIndex(200, -200)).toBe(2);
+    expect(lookIndex(200, 0)).toBe(4);
+    expect(lookIndex(0, 200)).toBe(8);
+    expect(lookIndex(-200, 0)).toBe(12);
+    expect(lookIndex(-200, -200)).toBe(14);
+    // Just left of straight up rounds back to 0, not 16.
+    expect(lookIndex(-1, -200)).toBe(0);
+  });
+
+  it("faces the viewer when the cursor is on top of him", () => {
+    expect(lookIndex(5, 5)).toBeNull();
+  });
+
+  it("maps a direction onto the two look rows", () => {
+    expect(lookCell(0)).toEqual({ row: 9, col: 0 });
+    expect(lookCell(7)).toEqual({ row: 9, col: 7 });
+    expect(lookCell(8)).toEqual({ row: 10, col: 0 });
+    expect(lookCell(15)).toEqual({ row: 10, col: 7 });
+  });
+
+  it("looks only when he has nothing else to do", () => {
+    expect(chooseShot({ ...CALM, look: 4 })).toMatchObject({ row: 9, col: 4, anim: "none" });
+    expect(chooseShot({ ...CALM, look: 4, talking: true }).row).toBe(POSES.review.row);
+    expect(chooseShot({ ...CALM, look: 4, reaction: "wave" }).row).toBe(POSES.waving.row);
+  });
+});
+
+describe("reduced motion", () => {
+  const STILL: ShotInput = { ...CALM, reducedMotion: true };
+
+  it("shows a still frame for every state", () => {
+    expect(chooseShot(STILL).anim).toBe("none");
+    expect(chooseShot({ ...STILL, reaction: "wave" })).toMatchObject({
+      anim: "none",
+      row: POSES.waving.row,
+      col: POSES.waving.still,
+    });
+    expect(chooseShot({ ...STILL, reaction: "spin" })).toMatchObject({ anim: "none", row: 0 });
+    expect(chooseShot({ ...STILL, reaction: "wiggle" })).toMatchObject({ anim: "none", row: 0 });
+    expect(chooseShot({ ...STILL, drag: "left" }).anim).toBe("none");
+    expect(chooseShot({ ...STILL, talking: true }).anim).toBe("none");
+  });
+
+  it("doesn't track the cursor", () => {
+    expect(chooseShot({ ...STILL, look: 4 }).row).toBe(0);
+  });
+});
+
+describe("mood", () => {
+  it("speeds him up when the mood is lively and slows him when it's calm", () => {
+    expect(MOOD_SPEED[moodFor(0.8, 0.8)]).toBeGreaterThan(1);
+    expect(MOOD_SPEED[moodFor(0.5, 0.2)]).toBeLessThan(1);
+    expect(moodFor(0.5, 0.5)).toBe("neutral");
+  });
+});
+
+/** An Image that loads (or fails) when told to. */
+function stubImage() {
+  const made: { onload: (() => void) | null; onerror: (() => void) | null; src: string }[] = [];
+  vi.stubGlobal(
+    "Image",
+    class {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      src = "";
+      constructor() {
+        made.push(this);
+      }
+    }
+  );
+  return made;
+}
+
+function stubReducedMotion(matches: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+
+describe("<MascotSprite />", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useMascotStore.getState().reset();
+    stubReducedMotion(false);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    useMascotStore.getState().reset();
+  });
+
+  const shotOf = (c: HTMLElement) =>
+    c.querySelector<HTMLElement>("[data-amr-shot]")!.dataset.amrShot;
+
+  it("calls setReady once the sheet loads, and clears it on unmount", () => {
+    const images = stubImage();
+    const { unmount } = render(<MascotSprite />);
+    expect(images[0].src).toMatch(/\/mascot\/amr\.[0-9a-f]{8}\.webp$/);
+    expect(useMascotStore.getState().ready).toBe(false);
+    act(() => images[0].onload?.());
+    expect(useMascotStore.getState().ready).toBe(true);
+    unmount();
+    expect(useMascotStore.getState().ready).toBe(false);
+  });
+
+  it("reports a sheet that can't load and stays not ready", () => {
+    const images = stubImage();
+    const onLoadError = vi.fn();
+    render(<MascotSprite onLoadError={onLoadError} />);
+    act(() => images[0].onerror?.());
+    expect(onLoadError).toHaveBeenCalledTimes(1);
+    expect(useMascotStore.getState().ready).toBe(false);
+  });
+
+  it("plays queued reactions one at a time, then settles back to idle", () => {
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    expect(shotOf(container)).toMatch(/^idle/);
+
+    act(() => {
+      useMascotStore.getState().queueReaction("wave");
+      useMascotStore.getState().queueReaction("nod");
+    });
+    expect(shotOf(container)).toMatch(/^waving/);
+    expect(useMascotStore.getState().reactionQueue).toEqual(["nod"]);
+
+    act(() => {
+      vi.advanceTimersByTime(reactionSeconds("wave") * 1000 + 1);
+    });
+    expect(shotOf(container)).toMatch(/^review/);
+
+    act(() => {
+      vi.advanceTimersByTime(reactionSeconds("nod") * 1000 + 1);
+    });
+    expect(shotOf(container)).toMatch(/^idle/);
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+  });
+
+  it("follows the talking flag and the drag direction", () => {
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+
+    act(() => useMascotStore.getState().setTalking(true));
+    expect(shotOf(container)).toMatch(/^review/);
+    act(() => useMascotStore.getState().setDragDirection("left"));
+    expect(shotOf(container)).toMatch(/^running-left/);
+    act(() => useMascotStore.getState().setDragDirection(null));
+    act(() => useMascotStore.getState().setTalking(false));
+    expect(shotOf(container)).toMatch(/^idle/);
+  });
+
+  it("looks at the cursor", () => {
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 500, clientY: 0 }));
+    });
+    // jsdom's box sits at the origin, so this cursor is to his right.
+    expect(shotOf(container)).toBe("look-4");
+  });
+
+  it("is a still frame under reduced motion, draining the queue without tracking", () => {
+    stubReducedMotion(true);
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    expect(shotOf(container)).toBe("idle");
+    expect(container.querySelector("[style*='--frames: 1']")).not.toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 500, clientY: 0 }));
+    });
+    expect(shotOf(container)).toBe("idle");
+
+    act(() => useMascotStore.getState().queueReaction("wave"));
+    expect(shotOf(container)).toBe("waving");
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+  });
+
+  it("shows the aura only when one is set", () => {
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    const body = container.querySelector<HTMLElement>("[data-amr-shot] > div")!;
+    expect(body.style.filter).toBe("");
+    act(() => useMascotStore.getState().setAuraColor("#ff8800"));
+    expect(body.style.filter).toContain("#ff8800");
+  });
+});

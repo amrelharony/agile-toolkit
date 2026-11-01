@@ -3,19 +3,19 @@
 import { create } from "zustand";
 
 /**
- * Imperative control surface for the 3D mascot.
+ * Imperative control surface for Amr, the site's mascot.
  *
- * The mascot component (src/components/agent/mascot/mascot-3d.tsx) subscribes to
- * this store and drives Three.js from it; the chat layer pushes intent here
- * (talking while streaming, a mood from sentiment, a one-off reaction on a tool
- * result) without prop-drilling into the WebGL component. Ported from the
+ * The sprite (src/components/agent/mascot/mascot-sprite.tsx) subscribes to this
+ * store and picks its pose from it; the chat layer and the tool bridge push
+ * intent here (talking while streaming, a mood from sentiment, a one-off reaction
+ * on a finished action) without prop-drilling into the component. Ported from the
  * vanilla mascot's global state (mascot-assistant.js) into a typed store.
  */
 
 /**
- * One-shot reactions (source runReaction). Most map to a skeletal clip;
- * `spin` + `wiggle` are procedural Y-rotations. `dance`/`confused`/`surprised`
- * are toolkit extras kept for the chat bridge.
+ * One-shot reactions (source runReaction). Each maps to a pose
+ * (engine/sprite-poses.ts). `dance`/`confused`/`surprised` are toolkit extras kept
+ * for the chat bridge.
  */
 export type MascotReaction =
   | "thinking"
@@ -31,10 +31,7 @@ export type MascotReaction =
   | "confused"
   | "surprised";
 
-/** Wearable hats (source setHat 3707-3749). */
-export type HatId = "topHat" | "partyHat" | "crown";
-
-/** Sentiment vector that drives expression + lighting (0..1 each). */
+/** Sentiment vector that drives playback speed + the drone (0..1 each). */
 export interface MascotMood {
   /** negative ↔ positive */
   valence: number;
@@ -45,21 +42,19 @@ export interface MascotMood {
 export const NEUTRAL_MOOD: MascotMood = { valence: 0.5, energy: 0.5 };
 
 interface MascotState {
-  /** True once the GLB has loaded and the scene is rendering. */
+  /** True once the sprite sheet has loaded and Amr is on screen. */
   ready: boolean;
-  /** True while the assistant is "speaking" (streaming) — drives the jaw. */
+  /** True while the assistant is "speaking" (streaming). */
   talking: boolean;
   /** Current sentiment-derived mood. */
   mood: MascotMood;
-  /** Ambient particle speed multiplier (1 idle … ~2.5 while streaming). */
-  particleSpeed: number;
-  /** FIFO of one-shot reactions the render loop consumes. */
+  /** Which way the figure is being dragged, or null when it isn't. */
+  dragDirection: "left" | "right" | null;
+  /** FIFO of one-shot reactions the sprite consumes. */
   reactionQueue: MascotReaction[];
-  /** FIFO of micro-expression names (smirk/wideEyes/…) the render loop consumes. */
+  /** FIFO of micro-expression names (smirk/wideEyes/…) the sprite consumes. */
   microQueue: string[];
-  /** Worn hat, or null. */
-  hat: HatId | null;
-  /** Aura colour override (hex), or null to follow the mood colour. */
+  /** Aura colour (hex), or null for none. */
   auraColor: string | null;
 }
 
@@ -67,20 +62,18 @@ interface MascotActions {
   setReady(v: boolean): void;
   setTalking(v: boolean): void;
   setMood(m: MascotMood): void;
-  setParticleSpeed(n: number): void;
-  /** Enqueue a one-shot reaction (the render loop plays + dequeues it). */
+  setDragDirection(d: "left" | "right" | null): void;
+  /** Enqueue a one-shot reaction (the sprite plays + dequeues it). */
   queueReaction(r: MascotReaction): void;
-  /** Pop the next queued reaction, or undefined. Called by the render loop. */
+  /** Pop the next queued reaction, or undefined. Called by the sprite. */
   dequeueReaction(): MascotReaction | undefined;
   /** Enqueue a micro-expression (smirk/wideEyes/…). */
   queueMicroExpression(name: string): void;
   /** Pop the next queued micro-expression, or undefined. */
   dequeueMicroExpression(): string | undefined;
-  /** Wear a hat (null to remove); persisted to localStorage. */
-  setHat(id: HatId | null): void;
-  /** Override the aura colour (hex, or null to follow mood); persisted. */
+  /** Set the aura colour (hex, or null for none); persisted. */
   setAuraColor(hex: string | null): void;
-  /** Load persisted appearance (hat + aura) from localStorage. */
+  /** Load the persisted aura from localStorage. */
   hydrateAppearance(): void;
   reset(): void;
 }
@@ -89,18 +82,17 @@ const INITIAL: MascotState = {
   ready: false,
   talking: false,
   mood: NEUTRAL_MOOD,
-  particleSpeed: 1,
+  dragDirection: null,
   reactionQueue: [],
   microQueue: [],
-  hat: null,
   auraColor: null,
 };
 
 const APPEARANCE_KEY = "mascot_appearance";
 
-function saveAppearance(hat: HatId | null, auraColor: string | null): void {
+function saveAppearance(auraColor: string | null): void {
   try {
-    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ hat, auraColor }));
+    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ auraColor }));
   } catch {
     /* storage unavailable — ignore */
   }
@@ -118,7 +110,7 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
         energy: clamp01(mood.energy),
       },
     }),
-  setParticleSpeed: (n) => set({ particleSpeed: Math.max(0.25, Math.min(4, n)) }),
+  setDragDirection: (d) => set({ dragDirection: d }),
   queueReaction: (r) => set((s) => ({ reactionQueue: [...s.reactionQueue, r] })),
   dequeueReaction: () => {
     const [next, ...rest] = get().reactionQueue;
@@ -133,20 +125,16 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
     set({ microQueue: rest });
     return next;
   },
-  setHat: (id) => {
-    set({ hat: id });
-    saveAppearance(id, get().auraColor);
-  },
   setAuraColor: (hex) => {
     set({ auraColor: hex });
-    saveAppearance(get().hat, hex);
+    saveAppearance(hex);
   },
   hydrateAppearance: () => {
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);
       if (!raw) return;
-      const data = JSON.parse(raw) as { hat?: HatId | null; auraColor?: string | null };
-      set({ hat: data.hat ?? null, auraColor: data.auraColor ?? null });
+      const data = JSON.parse(raw) as { auraColor?: string | null };
+      set({ auraColor: data.auraColor ?? null });
     } catch {
       /* ignore */
     }

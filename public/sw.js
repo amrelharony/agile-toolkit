@@ -8,7 +8,7 @@
  *  - Page navigations: network first; on failure, the last copy of that
  *    same page; failing that, a small offline page.
  *  - Everything else (API, auth, Supabase, AI providers, RSC fetches, the
- *    mascot model) is left to the network and the browser's HTTP cache.
+ *    mascot sheet) is left to the network and the browser's HTTP cache.
  *
  * Bump VERSION to drop every cache on the next activation. The app can
  * switch this worker off with NEXT_PUBLIC_DISABLE_SW=1 (see

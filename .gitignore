@@ -59,11 +59,11 @@ next-env.d.ts
 # one-off deep-test audit workflow scratch (kept locally, not part of the app)
 /audit-pass2.workflow.mjs
 
-# Mascot 3D model. The raw Blender export (~16 MB) stays local; the optimised
-# build (`npm run optimize:mascot`, ~2.7 MB) is committed under a content-hash
-# name (mascot.<sha256-prefix>.glb) so it can be cached immutably.
-/public/mascot/*.glb
-!/public/mascot/mascot.*.glb
+# Amr's sprite sheet is committed under a content-hash name
+# (amr.<sha256-prefix>.webp) so it can be cached immutably. Nothing else from the
+# pet pack belongs here: it also holds photo boards and rejected art.
+/public/mascot/*
+!/public/mascot/amr.*.webp
 
 # Lighthouse CI local runs (npm run lighthouse)
 /.lighthouseci/
