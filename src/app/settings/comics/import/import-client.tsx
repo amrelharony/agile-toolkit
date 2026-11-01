@@ -48,7 +48,7 @@ type Stage =
   | { name: "idle" }
   | { name: "planning" }
   | { name: "refused"; problems: string[] }
-  | { name: "ready"; stories: ImportStory<PickedFile>[] }
+  | { name: "ready"; stories: ImportStory<PickedFile>[]; error?: string }
   | { name: "running"; stories: ImportStory<PickedFile>[]; progress: ImportProgress | null }
   | { name: "finished"; stories: ImportStory<PickedFile>[]; progress: ImportProgress };
 
@@ -67,10 +67,10 @@ function ImportCard({
   const stopping = useRef(false);
   const [stopRequested, setStopRequested] = useState(false);
 
-  const pickFolder = async (list: FileList | null) => {
+  const pickFolder = async (picked: PickedFile[]) => {
     setStage({ name: "planning" });
     try {
-      const result = await plan(toPicked(list));
+      const result = await plan(picked);
       setStage(
         result.ok
           ? { name: "ready", stories: result.stories }
@@ -131,7 +131,8 @@ function ImportCard({
       });
       setStage({ name: "finished", stories, progress });
     } catch (err) {
-      setStage({ name: "refused", problems: [errorMessage(err)] });
+      // The folder is still good, so a dropped connection only needs another go.
+      setStage({ name: "ready", stories, error: errorMessage(err) });
     }
   };
 
@@ -153,7 +154,12 @@ function ImportCard({
               disabled={stage.name === "running"}
               // Not in React's types, and it has to reach the DOM as an attribute.
               {...({ webkitdirectory: "" } as Record<string, string>)}
-              onChange={(e) => void pickFolder(e.target.files)}
+              onChange={(e) => {
+                const picked = toPicked(e.target.files);
+                // Cleared, or choosing the same folder again wouldn't fire this.
+                e.target.value = "";
+                void pickFolder(picked);
+              }}
             />
           </label>
         </Button>
@@ -179,6 +185,11 @@ function ImportCard({
               Found {stage.stories.length} stories and{" "}
               {stage.stories.reduce((sum, s) => sum + s.panels.length, 0)} panels.
             </p>
+            {stage.error ? (
+              <p role="alert" className="text-sm text-danger">
+                {stage.error}
+              </p>
+            ) : null}
             <Button
               type="button"
               variant="toolkit"

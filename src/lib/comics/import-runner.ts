@@ -7,7 +7,14 @@
 
 import { isBookEp } from "./entry";
 import type { ImportStory } from "./import-weekly";
-import { panelHasArt, publishProblems, type OwnerStory, type StoredPanel } from "./story-input";
+import {
+  everReleased,
+  panelHasArt,
+  publishProblems,
+  unreviewedPanels,
+  type OwnerStory,
+  type StoredPanel,
+} from "./story-input";
 
 export interface PanelArt {
   pathFull: string;
@@ -41,11 +48,22 @@ export function isStoryFinished(story: OwnerStory): boolean {
 
 /**
  * Book episodes go live at import, so printed links show art at once, but only
- * with every description written. Until then they stay as text. A weekly story
- * is always a draft here: its date comes from "Schedule the queue".
+ * with every description written and checked. Until then they stay as text. A
+ * weekly story is always a draft here: its date comes from "Schedule the queue".
+ *
+ * Only a story this run uploaded art for is a candidate. One that was already
+ * complete may be held back or taken down on purpose, and a re-run started to
+ * finish something else mustn't put it out: that's the review queue's "Publish
+ * them", which asks first.
  */
 function shouldRelease(story: OwnerStory): boolean {
-  return isBookEp(story.ep) && !story.releaseAt && publishProblems(story).length === 0;
+  return (
+    isBookEp(story.ep) &&
+    !story.releaseAt &&
+    !everReleased(story) &&
+    unreviewedPanels(story) === 0 &&
+    publishProblems(story).length === 0
+  );
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : "Something went wrong.");
@@ -72,6 +90,7 @@ export async function runImport<F>(options: {
   for (const planned of plan) {
     if (shouldStop?.()) break;
     let story = bySource.get(planned.sourceId) ?? null;
+    let uploaded = false;
     try {
       if (story && isStoryFinished(story)) {
         progress.skipped += 1;
@@ -104,12 +123,13 @@ export async function runImport<F>(options: {
             panels,
             i === 0 ? art.sharePath : story.sharePath
           );
+          uploaded = true;
           progress.panelsDone += 1;
           report();
         }
         if (stopped) break;
       }
-      if (story && shouldRelease(story)) await deps.release(story.ep);
+      if (story && uploaded && shouldRelease(story)) await deps.release(story.ep);
       progress.storiesDone += 1;
     } catch (err) {
       progress.failures.push({ ep: planned.ep, title: planned.title, message: message(err) });

@@ -376,6 +376,7 @@ function serverStory(ep: number, sourceId: string, over: Partial<OwnerStory> = {
     sharePath: null,
     bookPage: null,
     releaseAt: null,
+    firstReleasedAt: null,
     updatedAt: "x",
     ...over,
   };
@@ -542,10 +543,16 @@ describe("running an import", () => {
     expect(deps.release).not.toHaveBeenCalled();
   });
 
-  it("releases a book episode only if every panel has a description", async () => {
+  it("releases a book episode only if every panel has a checked description", async () => {
     const { deps } = convert;
+    const checked = planned(2, "AAW-E02", "Shown.");
+    for (const p of checked.panels) p.text.needsReview = false;
     await runImport({
-      plan: [planned(1, "AAW-E01", ""), planned(2, "AAW-E02", "Shown.")],
+      plan: [
+        planned(1, "AAW-E01", ""),
+        checked,
+        planned(3, "AAW-E03", "Shown, but nobody has read it."),
+      ],
       existing: [],
       deps,
     });
@@ -553,15 +560,64 @@ describe("running an import", () => {
     expect(deps.release).toHaveBeenCalledWith(2);
   });
 
-  it("releases a finished book episode on a later run, once it has descriptions", async () => {
+  it("leaves an already complete book episode to the confirmed publish", async () => {
     const reviewed = serverStory(1, "AAW-E01", {
       panels: [withArt(), withArt()],
       sharePath: "share.jpg",
     });
     const { deps } = fakeDeps([reviewed]);
-    await runImport({ plan: [planned(1, "AAW-E01", "")], existing: [reviewed], deps });
+    const result = await runImport({
+      plan: [planned(1, "AAW-E01", "")],
+      existing: [reviewed],
+      deps,
+    });
+    expect(result.skipped).toBe(1);
     expect(deps.convertAndUpload).not.toHaveBeenCalled();
+    expect(deps.release).not.toHaveBeenCalled();
+  });
+
+  it("never brings back an episode the owner unpublished", async () => {
+    const takenDown = serverStory(5, "AAW-E05", {
+      panels: [withArt(), withArt()],
+      sharePath: "share.jpg",
+      firstReleasedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const { deps } = fakeDeps([takenDown]);
+    await runImport({ plan: [planned(5, "AAW-E05")], existing: [takenDown], deps });
+    expect(deps.release).not.toHaveBeenCalled();
+  });
+
+  it("doesn't bring it back while finishing its art either", async () => {
+    const takenDown = serverStory(5, "AAW-E05", {
+      panels: [withArt(), panel()],
+      sharePath: "share.jpg",
+      firstReleasedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const { deps } = fakeDeps([takenDown]);
+    await runImport({ plan: [planned(5, "AAW-E05")], existing: [takenDown], deps });
+    expect(deps.convertAndUpload).toHaveBeenCalledTimes(1);
+    expect(deps.release).not.toHaveBeenCalled();
+  });
+
+  it("releases a book episode whose art this run finished, with its text already written", async () => {
+    const partial = serverStory(1, "AAW-E01", {
+      panels: [withArt({ needsReview: false }), panel({ needsReview: false })],
+      sharePath: "share.jpg",
+    });
+    const { deps } = fakeDeps([partial]);
+    await runImport({ plan: [planned(1, "AAW-E01", "")], existing: [partial], deps });
     expect(deps.release).toHaveBeenCalledWith(1);
+  });
+
+  it("holds back a book episode with panels still marked for review", async () => {
+    const partial = serverStory(1, "AAW-E01", {
+      panels: [withArt({ needsReview: true }), panel({ needsReview: false })],
+      sharePath: "share.jpg",
+    });
+    const { deps } = fakeDeps([partial]);
+    await runImport({ plan: [planned(1, "AAW-E01", "")], existing: [partial], deps });
+    expect(deps.convertAndUpload).toHaveBeenCalledTimes(1);
+    expect(deps.release).not.toHaveBeenCalled();
   });
 
   it("spots a number already held by another story, but not its own", () => {
