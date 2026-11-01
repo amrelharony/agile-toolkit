@@ -111,6 +111,20 @@ describe("the direct count", () => {
     expect(isDirectArrival()).toBe(false);
   });
 
+  it("doesn't count arriving at a story, then opening the gallery", () => {
+    vi.spyOn(performance, "getEntriesByType").mockReturnValue([
+      { name: `${window.location.origin}/comics?ep=12` } as PerformanceEntry,
+    ]);
+    expect(isDirectArrival()).toBe(false);
+  });
+
+  it("counts a document that began at the plain address", () => {
+    vi.spyOn(performance, "getEntriesByType").mockReturnValue([
+      { name: `${window.location.origin}/comics` } as PerformanceEntry,
+    ]);
+    expect(isDirectArrival()).toBe(true);
+  });
+
   it("doesn't count an address with a query", () => {
     window.history.replaceState(null, "", "/comics?ep=abc");
     expect(isDirectArrival()).toBe(false);

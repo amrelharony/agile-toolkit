@@ -52,8 +52,13 @@ export function sendEntryBeacon(hit: EntryHit): boolean {
  */
 export function isDirectArrival(): boolean {
   if (window.location.search !== "") return false;
+  // The query counts: landing on a story and then opening "All comics" stays on
+  // the path /comics, but this document began at /comics?ep=N.
   const [navigation] = performance.getEntriesByType?.("navigation") ?? [];
-  if (navigation && new URL(navigation.name).pathname !== window.location.pathname) return false;
+  if (navigation) {
+    const started = new URL(navigation.name);
+    if (started.pathname !== window.location.pathname || started.search !== "") return false;
+  }
   if (!document.referrer) return true;
   try {
     return new URL(document.referrer).hostname !== window.location.hostname;

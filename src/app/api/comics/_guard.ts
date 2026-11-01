@@ -12,7 +12,7 @@ import "server-only";
 import type { NextRequest } from "next/server";
 
 const MAX_ENTRIES = 2_000;
-const buckets = new Map<string, { count: number; windowStart: number }>();
+const buckets = new Map<string, { count: number; expiresAt: number }>();
 
 /** x-real-ip is set by the fronting proxy; x-forwarded-for is only the fallback. */
 function clientIp(req: NextRequest): string {
@@ -31,13 +31,13 @@ export function withinRateLimit(
   const now = Date.now();
   if (buckets.size > MAX_ENTRIES) {
     buckets.forEach((entry, key) => {
-      if (now - entry.windowStart >= windowMs) buckets.delete(key);
+      if (now >= entry.expiresAt) buckets.delete(key);
     });
   }
   const key = `${route}:${clientIp(req)}`;
   const entry = buckets.get(key);
-  if (!entry || now - entry.windowStart >= windowMs) {
-    buckets.set(key, { count: 1, windowStart: now });
+  if (!entry || now >= entry.expiresAt) {
+    buckets.set(key, { count: 1, expiresAt: now + windowMs });
     return true;
   }
   if (entry.count >= limit) return false;
