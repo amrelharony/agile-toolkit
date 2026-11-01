@@ -20,11 +20,27 @@ export function LiveAnnouncerProvider({ children }: { children: React.ReactNode 
   const [polite, setPolite] = React.useState("");
   const [assertive, setAssertive] = React.useState("");
 
+  const timers = React.useRef(new Set<number>());
+
   const announce = React.useCallback<Announce>((message, politeness = "polite") => {
     const set = politeness === "assertive" ? setAssertive : setPolite;
     // Clear first so repeating the same message is announced again.
     set("");
-    window.setTimeout(() => set(message), 50);
+    const timer = window.setTimeout(() => {
+      timers.current.delete(timer);
+      set(message);
+    }, 50);
+    timers.current.add(timer);
+  }, []);
+
+  // A timer left running past unmount fires with nothing to announce to, and
+  // in a test run it can fire after the DOM is gone and fail the whole job.
+  React.useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      pending.forEach((timer) => window.clearTimeout(timer));
+      pending.clear();
+    };
   }, []);
 
   return (
