@@ -2,7 +2,7 @@
  * Find a tool by what the user is trying to do.
  *
  * Indexes every tool's name, id, category and description (the "More tools"
- * shelf included — callers group hits by `tool.shelf`), plus a
+ * shelf included — callers group hits by `tool.shelf`; VIP tools never), plus a
  * small vocabulary of the words people actually type ("daily scrum",
  * "definition of ready", "prioritise my backlog") that rarely appear in the
  * tool's own copy. Scored by the shared keyword/IDF matcher, which also
@@ -10,7 +10,7 @@
  */
 
 import type { ToolDefinition } from "@/lib/constants/tools";
-import { getVisibleTools } from "@/lib/tools/catalog";
+import { getVisibleTools, isVipOnly } from "@/lib/tools/catalog";
 import { buildKbIndex, matchKb, type KbIndex } from "./kb-core";
 
 /** Extra search vocabulary per tool id. Plain words; phrases are tokenised. */
@@ -93,7 +93,9 @@ let cached: { index: KbIndex; byId: Map<string, ToolDefinition> } | null = null;
 function getIndex() {
   if (cached) return cached;
   // Everything but an unshipped comic: shelved tools must stay findable by name.
-  const visible = getVisibleTools(true);
+  // VIP tools stay out for everyone, the hint included: the index is built once
+  // and shared, and a search result is no way to find a printed-book extra.
+  const visible = getVisibleTools(true).filter((t) => !isVipOnly(t));
   const index = buildKbIndex(
     visible.map((t) => ({
       id: t.id,

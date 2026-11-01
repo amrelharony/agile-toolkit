@@ -180,8 +180,8 @@ export default function HistoryPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All tools</SelectItem>
-            {/* Reading entries (the comic) never record history. */}
-            {ALL_TOOLS.filter((t) => t.kind !== "reading").map((t) => (
+            {/* Reading entries (the comic) and VIP tools never record history. */}
+            {ALL_TOOLS.filter((t) => t.kind !== "reading" && t.access !== "vip").map((t) => (
               <SelectItem key={t.id} value={t.id}>
                 {t.name}
               </SelectItem>

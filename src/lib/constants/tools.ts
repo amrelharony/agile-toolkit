@@ -228,6 +228,17 @@ export interface ToolDefinition {
    * entry, but stays out of the home grid, sidebar and default search until a
    * visitor turns "Show all tools" on (lib/tools/catalog). */
   shelf?: "more";
+  /** "vip" is a tool for readers of the printed book. VIP only ever adds tools:
+   * no other tool is locked. Its page checks the access cookie on the server
+   * (lib/vip/access) and it stays out of the sitemap, search and suggestions,
+   * and out of menus and counts unless this browser holds the display hint
+   * (lib/tools/catalog). */
+  access?: "vip";
+  /** Built and tested but not released: listed nowhere, for any visitor. For
+   * Which Colleague Are You? this mirrors WHICH_COLLEAGUE_APPROVED, which can't
+   * be read here because it sits with the questions in a server-only file. A
+   * test fails if the two disagree. */
+  pendingApproval?: true;
 }
 
 export const categories: ToolCategory[] = [
@@ -293,6 +304,60 @@ export const tools: ToolDefinition[] = [
     audience: "both",
     analyticsTier: 3,
     kind: "reading",
+  },
+
+  // For readers of the printed book. These descriptions reach every browser with
+  // the rest of this list, so they stay general and hold nothing from the bible.
+  {
+    id: "squad-session",
+    code: "VP1",
+    name: "Squad Session Kit",
+    description:
+      "A timed 15-minute team session on one episode of the book: read the story, discuss its question and agree actions",
+    category: "Workshops & Facilitation",
+    path: "/squad-session",
+    icon: Users,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 40,
+    usesWorkspace: true,
+    audience: "coach",
+    analyticsTier: 3,
+    access: "vip",
+  },
+  {
+    id: "meet-the-cast",
+    code: "VP2",
+    name: "Meet the Cast",
+    description: "The colleagues of Agile at Work, and how they get along",
+    category: "Library",
+    path: "/meet-the-cast",
+    icon: IdCard,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 40,
+    usesWorkspace: false,
+    audience: "both",
+    analyticsTier: 3,
+    kind: "reading",
+    access: "vip",
+  },
+  {
+    id: "which-colleague",
+    code: "VP3",
+    name: "Which Colleague Are You?",
+    description: "A short team game that starts a conversation about everyday work habits",
+    category: "Team Health & Maturity",
+    path: "/which-colleague",
+    icon: Smile,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 40,
+    usesWorkspace: false,
+    audience: "both",
+    analyticsTier: 3,
+    access: "vip",
+    pendingApproval: true,
   },
 
   // Category A: Sprint Planning & Estimation

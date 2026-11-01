@@ -11,7 +11,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { getToolById, type ToolDefinition } from "@/lib/constants/tools";
-import { isShelved } from "@/lib/tools/catalog";
+import { isShelved, isVipHidden } from "@/lib/tools/catalog";
+import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { searchTools } from "@/lib/search/tool-search";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
@@ -38,6 +39,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const { favorites, recent } = useToolPrefs();
   const { showAll, categories, toolsIn } = useToolVisibility();
+  const vip = useVipHint();
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -73,10 +75,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       if (seen.has(id)) continue;
       seen.add(id);
       const tool = getToolById(id);
-      if (tool) out.push(tool);
+      if (tool && !isVipHidden(tool, vip)) out.push(tool);
     }
     return out.slice(0, 6);
-  }, [favorites, recent]);
+  }, [favorites, recent, vip]);
 
   const go = (tool: ToolDefinition) => {
     router.push(tool.path);

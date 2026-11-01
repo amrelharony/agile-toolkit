@@ -70,8 +70,8 @@ describe("the More tools shelf", () => {
     expect(getVisibleToolsByCategory("Security & Compliance")).toEqual([]);
   });
 
-  it("removes nothing from the registry (routes, sitemap and MCP keep every tool)", () => {
-    expect(getVisibleTools(true)).toHaveLength(tools.length);
+  it("removes nothing but VIP tools from the registry (routes, sitemap and MCP keep the rest)", () => {
+    expect(getVisibleTools(true)).toEqual(tools.filter((t) => t.access !== "vip"));
   });
 
   it("groups the shelf by registry category without empty groups", () => {

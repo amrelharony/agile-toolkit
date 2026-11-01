@@ -123,7 +123,8 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
               <div>
                 <div className="text-xs text-sub uppercase tracking-wider">Tools</div>
                 <div className="font-data text-xl text-text">
-                  {dna.toolsVisited.length} / {toolRegistry.length}
+                  {dna.toolsVisited.length} /{" "}
+                  {toolRegistry.filter((t) => t.access !== "vip").length}
                 </div>
               </div>
               <div>

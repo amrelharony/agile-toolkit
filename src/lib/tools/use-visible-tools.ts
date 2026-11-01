@@ -8,6 +8,7 @@ import {
   getVisibleTools,
   getVisibleToolsByCategory,
 } from "./catalog";
+import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { useToolPrefs } from "./tool-prefs";
 
 export interface ToolVisibility {
@@ -27,24 +28,26 @@ export interface ToolVisibility {
 /**
  * The catalog (lib/tools/catalog) made reactive: the same lists, following
  * the visitor's "Show all tools" preference (kept with favourites in
- * `useToolPrefs`). Before the preference hydrates the shelf is hidden, which
- * is also what the server renders.
+ * `useToolPrefs`) and, for VIP tools, the display hint cookie. Before those
+ * hydrate the shelf and the VIP tools are hidden, which is also what the server
+ * renders.
  */
 export function useToolVisibility(): ToolVisibility {
   const { showAllTools, setShowAllTools } = useToolPrefs();
   const showAll = Boolean(showAllTools);
+  const vip = useVipHint();
   return useMemo(() => {
-    const tools = getVisibleTools(showAll);
+    const tools = getVisibleTools(showAll, vip);
     const byId = new Map(tools.map((t) => [t.id, t]));
     return {
       showAll,
       setShowAll: setShowAllTools,
       tools,
       byId,
-      categories: getVisibleCategories(showAll),
-      toolsIn: (category) => getVisibleToolsByCategory(category, showAll),
+      categories: getVisibleCategories(showAll, vip),
+      toolsIn: (category) => getVisibleToolsByCategory(category, showAll, vip),
       isVisible: (toolId) => byId.has(toolId),
       shelfCount: getShelfTools().length,
     };
-  }, [showAll, setShowAllTools]);
+  }, [showAll, vip, setShowAllTools]);
 }

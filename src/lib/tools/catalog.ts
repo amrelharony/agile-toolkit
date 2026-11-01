@@ -12,6 +12,13 @@
  *   turns "Show all tools" on (`useToolPrefs().showAllTools`; the reactive
  *   hook is `use-visible-tools.ts`). They keep their routes, guides, actions
  *   and sitemap entries.
+ * - VIP tools (`tool.access === "vip"`): extras for readers of the printed
+ *   book. Menus and counts list them only when `vip` is true, which callers
+ *   take from the display hint cookie (lib/vip/use-vip-hint). That only changes
+ *   what a menu shows: each VIP page checks the real cookie on the server.
+ *   "Show all tools" doesn't reveal them, so the home page keeps promising the
+ *   same number of tools to everyone else.
+ * - anything `pendingApproval`: built but not released, listed for nobody.
  *
  * Categories left empty by that filtering are dropped too.
  */
@@ -23,26 +30,41 @@ export function isShelved(tool: Pick<ToolDefinition, "shelf">): boolean {
   return tool.shelf === "more";
 }
 
-function isVisible(tool: ToolDefinition, showAll: boolean): boolean {
+/** Whether a tool is for readers of the printed book. */
+export function isVipOnly(tool: Pick<ToolDefinition, "access">): boolean {
+  return tool.access === "vip";
+}
+
+/** Whether a menu should leave this tool out, whatever the visitor's favourites or recents say. */
+export function isVipHidden(
+  tool: Pick<ToolDefinition, "access" | "pendingApproval">,
+  vip: boolean
+): boolean {
+  return Boolean(tool.pendingApproval) || (isVipOnly(tool) && !vip);
+}
+
+function isVisible(tool: ToolDefinition, showAll: boolean, vip: boolean): boolean {
+  if (isVipHidden(tool, vip)) return false;
   return showAll || !isShelved(tool);
 }
 
-/** Every tool a visitor can open right now (`showAll` adds the shelf). */
-export function getVisibleTools(showAll = false): ToolDefinition[] {
-  return tools.filter((t) => isVisible(t, showAll));
+/** Every tool a visitor can open right now (`showAll` adds the shelf, `vip` the VIP tools). */
+export function getVisibleTools(showAll = false, vip = false): ToolDefinition[] {
+  return tools.filter((t) => isVisible(t, showAll, vip));
 }
 
 /** Visible tools in one category. */
 export function getVisibleToolsByCategory(
   category: ToolCategory,
-  showAll = false
+  showAll = false,
+  vip = false
 ): ToolDefinition[] {
-  return tools.filter((t) => t.category === category && isVisible(t, showAll));
+  return tools.filter((t) => t.category === category && isVisible(t, showAll, vip));
 }
 
 /** Categories that have at least one visible tool, in registry order. */
-export function getVisibleCategories(showAll = false): ToolCategory[] {
-  return categories.filter((c) => getVisibleToolsByCategory(c, showAll).length > 0);
+export function getVisibleCategories(showAll = false, vip = false): ToolCategory[] {
+  return categories.filter((c) => getVisibleToolsByCategory(c, showAll, vip).length > 0);
 }
 
 /** The shelved tools, in registry order. */
@@ -56,4 +78,9 @@ export function getShelfToolsByCategory(): { category: ToolCategory; tools: Tool
   return categories
     .map((category) => ({ category, tools: shelf.filter((t) => t.category === category) }))
     .filter((g) => g.tools.length > 0);
+}
+
+/** What the /vip hub lists: every released VIP tool, in registry order. */
+export function getVipTools(): ToolDefinition[] {
+  return tools.filter((t) => isVipOnly(t) && !t.pendingApproval);
 }

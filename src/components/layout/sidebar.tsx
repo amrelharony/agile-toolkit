@@ -8,7 +8,9 @@ import { cn } from "@/lib/utils";
 import { navPathname } from "@/lib/comics/entry";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { getToolById, getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
+import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
+import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { SECTIONS, getSectionForTool } from "@/lib/constants/sections";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
@@ -157,12 +159,13 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   // '__recent__' reuse the openCategories persistence map so they remember
   // their open/closed state alongside category sections.
   const { favorites, recent } = useToolPrefs();
+  const vip = useVipHint();
   const favoriteTools = favorites
     .map((id) => getToolById(id))
-    .filter((t): t is ToolDefinition => Boolean(t));
+    .filter((t): t is ToolDefinition => !!t && !isVipHidden(t, vip));
   const recentTools = recent
     .map((r) => getToolById(r.id))
-    .filter((t): t is ToolDefinition => Boolean(t));
+    .filter((t): t is ToolDefinition => !!t && !isVipHidden(t, vip));
 
   const handleClose = useCallback(() => onClose?.(), [onClose]);
 

@@ -4,6 +4,7 @@ import {
   Bot,
   CalendarRange,
   CirclePlay,
+  Crown,
   HeartPulse,
   ListOrdered,
   RefreshCw,
@@ -216,6 +217,14 @@ export const SECTIONS: ToolSection[] = [
     label: "Library",
     icon: BookOpen,
     toolIds: ["comics"],
+  },
+  // Listed only when this browser holds the VIP hint (lib/tools/catalog). No
+  // guides: they load for whoever is on the page, and a lock panel has no steps.
+  {
+    id: "vip",
+    label: "For book readers",
+    icon: Crown,
+    toolIds: ["squad-session", "meet-the-cast", "which-colleague"],
   },
 ];
 
