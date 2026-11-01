@@ -40,6 +40,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { emit } from "@/lib/sonification/emit";
 import type { Kudos } from "@/lib/stores/workspace-types";
+import { isExampleId } from "@/lib/utils/example-id";
 import { KUDOS_TOOL_ID, isValidKudos } from "./types";
 
 const HEARTBEAT_MS = 10_000;
@@ -218,7 +219,9 @@ export function useKudosRoom(opts: UseKudosRoomOptions): KudosRoomHook {
   useEffect(() => {
     if (!opts.isHost || room.isLocalOnly || !room.isConnected) return;
     const id = setInterval(() => {
-      const list = kudosRef.current;
+      // Example kudos (Load an example) are the host's page data only:
+      // peers never receive them.
+      const list = kudosRef.current.filter((k) => !isExampleId(k.id));
       if (list.length === 0) return;
       const memberCount = membersRef.current.length;
       // Always need to broadcast at LEAST once when a new peer joins.
@@ -258,7 +261,9 @@ export function useKudosRoom(opts: UseKudosRoomOptions): KudosRoomHook {
       } else {
         setEphemeralKudos((prev) => dedupAndAppend(prev, kudos));
       }
-      if (!roomRef.current.isLocalOnly) {
+      // The page loads its example through upsertKudos, never here; an
+      // example row that arrives anyway is kept local all the same.
+      if (!roomRef.current.isLocalOnly && !isExampleId(kudos.id)) {
         roomRef.current.broadcast("kudos:created", {
           kudos,
           by: roomRef.current.userId,

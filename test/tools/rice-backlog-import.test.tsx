@@ -122,17 +122,17 @@ describe("RICE: Import from backlog", () => {
     openImportMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Saved searches" }));
 
-    expect(screen.getByLabelText("Initiative title")).toHaveValue("Saved searches");
-    expect(screen.getByLabelText("Reach (people per quarter)")).toHaveValue(500);
+    expect(screen.getByLabelText(/Initiative title/)).toHaveValue("Saved searches");
+    expect(screen.getByLabelText(/Reach \(people\)/)).toHaveValue(500);
     const scale = (group: string, option: string) =>
       within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name: option });
-    expect(scale("Impact", "2 High")).toBeChecked();
+    expect(scale("Impact", "2x High")).toBeChecked();
     // 90% isn't on the confidence scale: it's kept, as a custom value.
     expect(scale("Confidence", "Custom: 90%")).toBeChecked();
-    expect(screen.getByLabelText("Effort (person-months)")).toHaveValue(3);
+    expect(screen.getByLabelText(/Effort \(person-months\)/)).toHaveValue(3);
     expect(screen.getByText("Linked to Saved searches")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Reach (people per quarter)"), {
+    fireEvent.change(screen.getByLabelText(/Reach \(people\)/), {
       target: { value: "800" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
@@ -176,7 +176,9 @@ describe("RICE: Import from backlog", () => {
     });
     render(<RiceScoringClient />);
     openImportMenu();
-    expect(await screen.findByRole("menuitem", { name: /Saved searches\s*scored/ })).toBeVisible();
+    expect(
+      await screen.findByRole("menuitem", { name: /Saved searches\s*Already scored · Edit/ })
+    ).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "CSV import" })).toBeInTheDocument();
   });
 
@@ -191,8 +193,8 @@ describe("RICE: Import from backlog", () => {
     useWorkspaceStore.setState({ backlogItems: [searches] });
     window.history.replaceState({}, "", "/rice-scoring?backlogItem=b1");
     render(<RiceScoringClient />);
-    expect(screen.getByLabelText("Initiative title")).toHaveValue("Saved searches");
-    expect(screen.getByLabelText("Reach (people per quarter)")).toHaveValue(500);
+    expect(screen.getByLabelText(/Initiative title/)).toHaveValue("Saved searches");
+    expect(screen.getByLabelText(/Reach \(people\)/)).toHaveValue(500);
     expect(screen.getByText("Linked to Saved searches")).toBeInTheDocument();
   });
 });
@@ -211,11 +213,12 @@ describe("RICE: Add to backlog", () => {
     expect(created).toMatchObject({
       name: "Order tracking",
       reach: 800,
-      impact: 1, // 1.5 snaps to the allowed step below
+      impact: 1.5, // the exact impact is kept (no snapping)
       confidence: 70,
       effort: 2,
-      moscow: "should",
     });
+    // A new item has no other method filled in (no default bucket).
+    expect(created.moscow).toBeUndefined();
     expect(rows()[0].backlogItemId).toBe(created.id);
     expect(undo.last?.label).toBe("Added “Order tracking” to the backlog");
     expect(screen.getByRole("link", { name: /Backlog: linked to Order tracking/ })).toBeVisible();
@@ -233,7 +236,7 @@ describe("RICE: Add to backlog", () => {
       prioritizations: [riceRow("example-rice-1", "Example idea", { reach: 1 })],
     });
     render(<RiceScoringClient />);
-    expect(screen.getByRole("button", { name: "Remove Example idea" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Example idea" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add Example idea to the backlog" })).toBeNull();
   });
 });
@@ -261,7 +264,7 @@ describe("every method tool", () => {
       name: "RICE",
       Client: RiceScoringClient,
       path: "/rice-scoring",
-      titleLabel: "Initiative title",
+      titleLabel: /Initiative title/,
       add: /Add & score/,
       framework: "rice",
     },
@@ -269,7 +272,7 @@ describe("every method tool", () => {
       name: "WSJF",
       Client: WsjfClient,
       path: "/wsjf",
-      titleLabel: "Feature title",
+      titleLabel: /Feature title/,
       add: /Add & score/,
       framework: "wsjf",
     },
@@ -277,7 +280,7 @@ describe("every method tool", () => {
       name: "MoSCoW",
       Client: MoscowClient,
       path: "/moscow",
-      titleLabel: "Scope item",
+      titleLabel: /Scope item/,
       add: "Add",
       framework: "moscow",
     },
@@ -301,31 +304,58 @@ describe("every method tool", () => {
       name: "Value/Effort",
       Client: ValueEffortMatrixClient,
       path: "/value-effort-matrix",
-      titleLabel: "Item title",
-      add: "Plot",
+      titleLabel: /Item title/,
+      add: "Add",
       framework: "value-effort",
     },
     {
       name: "Kano",
       Client: KanoModelClient,
       path: "/kano-model",
-      titleLabel: "Feature title",
+      titleLabel: /Feature title/,
       add: "Add",
       framework: "kano",
+      // The backlog holds no Kano answers, and a feature needs a pair (or counts).
+      fill: () => {
+        for (const [group, answer] of [
+          ["If it has this, how do you feel?", "I like it"],
+          ["If it doesn't have this, how do you feel?", "I dislike it"],
+        ]) {
+          fireEvent.click(
+            within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", {
+              name: answer,
+            })
+          );
+        }
+      },
     },
     {
       name: "Cost of Delay",
       Client: CostOfDelayClient,
       path: "/cost-of-delay",
-      titleLabel: "Initiative title",
+      titleLabel: /Initiative title/,
       add: "Add",
       framework: "cost-of-delay",
+      // The backlog holds no Cost of Delay inputs, and CD3 needs a cost,
+      // a duration and an urgency profile.
+      fill: () => {
+        fireEvent.change(screen.getByLabelText(/Cost of delay/), { target: { value: "5000" } });
+        fireEvent.change(screen.getByLabelText(/Duration/), { target: { value: "2" } });
+        fireEvent.click(screen.getByRole("radio", { name: "Standard" }));
+      },
     },
   ];
 
   it.each(cases)("$name: a Score-with link preselects, and the new row links", (c) => {
+    // Real (non-default) inputs in every method the backlog holds: an item
+    // left at the old "Add item" defaults reads as Not scored and prefills nothing.
     const item = backlogItem("b1", "Passkey sign-in", {
       moscow: "must",
+      businessValue: 8,
+      timeCriticality: 3,
+      jobSize: 2,
+      reach: 500,
+      confidence: 50,
       value: 8,
       matrixEffort: 3,
     });

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   VISITOR_CODE_ALPHABET,
   VISITOR_LIMITS,
+  VISITOR_ROOM_KIND,
   VISITOR_TOOLS,
   clearVisitorIdentity,
   isVisitorIdentity,
@@ -38,10 +39,36 @@ describe("visitorRoomsEnabled", () => {
 });
 
 describe("tools and codes", () => {
-  it("allows only Planning Poker and Retro", () => {
-    expect(VISITOR_TOOLS).toEqual(["planning-poker", "retro"]);
+  it("allows Planning Poker, Retro and the six vote-round tools", () => {
+    expect(VISITOR_TOOLS).toEqual([
+      "planning-poker",
+      "retro",
+      "health-check",
+      "psych-safety",
+      "mood-tracker",
+      "kano-model",
+      "buy-a-feature",
+      "hundred-dollar-test",
+    ]);
     expect(isVisitorTool("retro")).toBe(true);
+    expect(isVisitorTool("mood-tracker")).toBe(true);
+    expect(isVisitorTool("kano-model")).toBe(true);
+    expect(isVisitorTool("hundred-dollar-test")).toBe(true);
     for (const t of ["canvas", "kudos", "Retro", "", null, 1]) expect(isVisitorTool(t)).toBe(false);
+  });
+
+  it("gives every visitor tool its own kind of room", () => {
+    expect(VISITOR_ROOM_KIND).toEqual({
+      "planning-poker": "poker",
+      retro: "retro",
+      "health-check": "vote",
+      "psych-safety": "vote",
+      "mood-tracker": "vote",
+      "kano-model": "vote",
+      "buy-a-feature": "vote",
+      "hundred-dollar-test": "vote",
+    });
+    expect(Object.keys(VISITOR_ROOM_KIND).sort()).toEqual([...VISITOR_TOOLS].sort());
   });
 
   it("generates 12-character codes from the unambiguous alphabet", () => {

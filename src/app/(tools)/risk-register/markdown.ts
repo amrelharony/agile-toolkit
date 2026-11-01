@@ -1,4 +1,19 @@
 import type { Risk } from "@/lib/stores/workspace-types";
+import {
+  RISK_STATUSES,
+  RISK_STATUS_LABEL,
+  compareRisks,
+  residualScore,
+  riskDaysOverdue,
+  riskLevel,
+  riskScore,
+  riskSummary,
+  riskVerdict,
+  toScale,
+  type RiskSummary,
+} from "@/lib/risks/model";
+import { todayIso } from "@/lib/sprints/series";
+import { countedRisks, exportedRisks } from "./analysis";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -13,46 +28,94 @@ function cell(v: unknown): string {
     .trim();
 }
 
-/** 1–5, like the matrix: a corrupt value never breaks the score. */
-function scale(v: unknown): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.max(1, Math.min(5, Math.round(n))) : 1;
+/**
+ * "30 after mitigation; the 3 not assessed count at their current score":
+ * riskSummary counts a risk not assessed yet at its current score, so the
+ * page's KPI and the Markdown say so rather than read as the assessed
+ * risks' sum alone.
+ */
+export function residualText(
+  s: Pick<RiskSummary, "active" | "residualAssessed" | "residualExposure">
+): string {
+  const after = `${s.residualExposure} after mitigation`;
+  const unassessed = s.active - s.residualAssessed;
+  if (unassessed <= 0) return after;
+  return unassessed === 1
+    ? `${after}; the 1 not assessed counts at its current score`
+    : `${after}; the ${unassessed} not assessed count at their current score`;
 }
 
-const STATUSES: Risk["status"][] = ["open", "mitigating", "accepted", "closed"];
+/** What became of the impediment a risk was raised as, for its cell. */
+export type ImpedimentState = "raised" | "resolved" | null;
+
+export interface RiskMarkdownOptions {
+  /** The page's sentence; computed from the risks when absent. */
+  verdict?: string;
+  /** Whether the risk was raised as an impediment that still exists, and if it is resolved. */
+  impediment?: (r: Risk) => ImpedimentState;
+}
 
 /**
  * The register as Markdown, for a steering-group page or a release thread:
- * how many risks are in each status, then every risk ranked by probability ×
- * impact (tied scores share a rank), with its mitigation and due date.
+ * the verdict, the counts and the exposure before and after mitigation,
+ * then every risk in the register's order (active first, then score, then
+ * days overdue) with its owner, rating, the rating after mitigation, its
+ * status, the plan and its due date (overdue days named), and whether it
+ * was raised as an impediment. Scores and levels are lib/risks/model's.
+ * While the team has risks of its own the example's are left out, as
+ * every number leaves them out, and the counts line says how many.
  */
-export function toMarkdown(risks: readonly Risk[], now: Date = new Date()): string {
+export function toMarkdown(
+  risks: readonly Risk[],
+  now: Date = new Date(),
+  opts: RiskMarkdownOptions = {}
+): string {
   const title = `# Risk Register — ${mdDate(now)}`;
   if (risks.length === 0) return `${title}\n\nNo risks logged yet.\n`;
-
-  const scored = risks
-    .map((r) => ({ r, p: scale(r.probability), i: scale(r.impact) }))
-    .map((x) => ({ ...x, score: x.p * x.i }))
-    .sort((a, b) => b.score - a.score);
-  const counts = STATUSES.map((s) => [s, risks.filter((r) => r.status === s).length] as const)
-    .filter(([, n]) => n > 0)
-    .map(([s, n]) => `${n} ${s}`);
+  const today = todayIso(now);
+  const counted = countedRisks(risks);
+  const listed = exportedRisks(risks);
+  const left = risks.length - listed.length;
+  const verdict = opts.verdict ?? riskVerdict(counted, today, { includeExamples: true });
+  const s = riskSummary(counted, today, { includeExamples: true });
+  const ordered = listed.sort((a, b) => compareRisks(a, b, today));
+  // The counts are the summary's, over the same rows as the verdict and the exposure.
+  const counts = RISK_STATUSES.filter((st) => s.byStatus[st] > 0).map(
+    (st) => `${s.byStatus[st]} ${st}`
+  );
+  const exposure =
+    s.active > 0 ? ` Exposure of the active risks: ${s.exposure} now, ${residualText(s)}.` : "";
+  const leftOut =
+    left > 0 ? ` The example's ${left} ${left === 1 ? "risk is" : "risks are"} left out.` : "";
 
   const lines = [
     title,
     "",
-    `${risks.length} risk${risks.length === 1 ? "" : "s"}: ${counts.join(", ")}.`,
+    verdict,
     "",
-    "## Risks by score",
+    `${s.total} risk${s.total === 1 ? "" : "s"}: ${counts.join(", ")}.${exposure}${leftOut}`,
     "",
-    "| # | Risk | P × I | Score | Status | Mitigation | Due |",
-    "|---:|---|---|---:|---|---|---|",
-    ...scored.map(({ r, p, i, score }) => {
-      const rank = scored.findIndex((x) => x.score === score) + 1;
-      const status = r.status.charAt(0).toUpperCase() + r.status.slice(1);
-      return `| ${rank} | ${cell(r.title) || "(untitled)"} | ${p} × ${i} | ${score} | ${status} | ${cell(
-        r.mitigation
-      )} | ${r.mitigationDueAt ?? ""} |`;
+    "## Risks in order",
+    "",
+    "| # | Risk | Owner | P × I | Score | After mitigation | Status | Mitigation | Due | Impediment |",
+    "|---:|---|---|---|---:|---|---|---|---|---|",
+    ...ordered.map((r, i) => {
+      const score = riskScore(r);
+      const after = residualScore(r);
+      const overdue = riskDaysOverdue(r, today);
+      const due = r.mitigationDueAt
+        ? `${r.mitigationDueAt}${overdue > 0 ? ` (${overdue} ${overdue === 1 ? "day" : "days"} overdue)` : ""}`
+        : "";
+      const imp = opts.impediment?.(r) ?? null;
+      return `| ${i + 1} | ${cell(r.title) || "(untitled)"} | ${cell(r.owner)} | ${
+        toScale(r.probability) ?? 1
+      } × ${toScale(r.impact) ?? 1} | ${score} (${riskLevel(score)}) | ${
+        after === null
+          ? "Not assessed"
+          : `${toScale(r.residualProbability)} × ${toScale(r.residualImpact)} = ${after}`
+      } | ${RISK_STATUS_LABEL[r.status] ?? cell(r.status)} | ${cell(r.mitigation)} | ${due} | ${
+        imp === "resolved" ? "Resolved" : imp === "raised" ? "Raised" : ""
+      } |`;
     }),
   ];
   return `${lines.join("\n")}\n`;

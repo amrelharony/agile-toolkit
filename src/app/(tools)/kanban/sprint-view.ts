@@ -8,6 +8,7 @@
 import type { KanbanColumnId, Sprint, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { completionPct } from "@/lib/sprints/metrics";
 import type { StoryProgress } from "@/lib/sprints/progress";
+import { meetsDod, type DodCriteria } from "@/lib/dod/model";
 import { fmt } from "@/lib/charts/chart-text";
 import { DAY_MS } from "./flow-view";
 
@@ -60,7 +61,7 @@ export function sprintColumnOf(status: StoryStatus | string): SprintColumnId {
  * read-only: moving a done story out would clear its done time, as Sprint
  * Planning refuses to plan into a closed sprint for the same reason.
  */
-export function isClosedSprint(sprint: Pick<Sprint, "status">): boolean {
+export function isClosedSprint(sprint: Partial<Pick<Sprint, "status">>): boolean {
   return sprint.status === "completed" || sprint.status === "cancelled";
 }
 
@@ -153,10 +154,43 @@ export function wipNudge(b: SprintBreach): string {
   return `${b.label} has ${stories(b.count)}, limit ${b.limit}: finish something before starting more.`;
 }
 
-/** "Moved “Pay by card” to Review." plus the nudge when the move went over the limit. */
-export function moveMessage(title: string, to: SprintColumnId, breach?: SprintBreach): string {
+/**
+ * "DoD not met: Code reviewed and Tests pass in CI are still open." A
+ * nudge, never a block: a story moved to Done with required criteria
+ * unticked is done, and the DoD page counts it as missing them.
+ */
+export function dodNudge(open: readonly string[]): string {
+  const names =
+    open.length <= 1
+      ? open.join("")
+      : `${open.slice(0, -1).join(", ")} and ${open[open.length - 1]}`;
+  return `DoD not met: ${names} ${open.length === 1 ? "is" : "are"} still open.`;
+}
+
+/**
+ * "Moved “Pay by card” to Review." plus the nudge when the move went over
+ * the limit, and for a move to Done, the DoD criteria still open.
+ */
+export function moveMessage(
+  title: string,
+  to: SprintColumnId,
+  breach?: SprintBreach,
+  dodOpen?: readonly string[]
+): string {
   const moved = `Moved “${title.trim() || "story"}” to ${SPRINT_COLUMN_LABEL[to]}.`;
-  return breach ? `${moved} ${wipNudge(breach)}` : moved;
+  const parts = [moved];
+  if (breach) parts.push(wipNudge(breach));
+  if (to === "done" && dodOpen && dodOpen.length > 0) parts.push(dodNudge(dodOpen));
+  return parts.join(" ");
+}
+
+/**
+ * The done stories that miss a required criterion of the Definition of
+ * Done, ticked on their cards (`meetsDod` from lib/dod/model, against the
+ * criteria as they are today). None when nothing is required.
+ */
+export function doneMissingDod(done: readonly Story[], dod: DodCriteria): Story[] {
+  return done.filter((s) => s.status === "done" && meetsDod(s, dod) === false);
 }
 
 const pointsText = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "points"}`;
@@ -164,17 +198,35 @@ const pointsText = (n: number) => `${fmt(n)} ${n === 1 ? "point" : "points"}`;
 /**
  * The header's one sentence: how far the sprint has come, then the one
  * thing that most needs the team's attention (blocked stories, a column
- * over its limit, unestimated stories, nothing started).
+ * over its limit, done stories that miss the Definition of Done,
+ * unestimated stories, nothing started). `dodMissing` is how many done
+ * stories miss a required DoD criterion (`doneMissingDod`); a sprint with
+ * every story done still says so. A closed sprint's board is read-only, its
+ * DoD checklists included, so there the caveat says how the sprint ended,
+ * in the past tense: no "first" or "yet" for something nobody can do on it
+ * any more.
  */
 export function sprintBoardVerdict(
-  sprint: Pick<Sprint, "name">,
+  sprint: Pick<Sprint, "name"> & Partial<Pick<Sprint, "status">>,
   progress: StoryProgress,
-  breaches: readonly SprintBreach[]
+  breaches: readonly SprintBreach[],
+  dodMissing = 0
 ): string {
   const { count, doneCount, scope, done } = progress;
-  if (count === 0) return `No stories are planned into ${sprint.name} yet.`;
+  const closed = isClosedSprint(sprint);
+  if (count === 0) {
+    return closed
+      ? `${sprint.name} ended with no stories.`
+      : `No stories are planned into ${sprint.name} yet.`;
+  }
   if (doneCount === count) {
-    return `Every story in ${sprint.name} is done${scope > 0 ? `: ${pointsText(scope)}` : ""}.`;
+    const short =
+      dodMissing === 0
+        ? ""
+        : closed
+          ? `, but ${dodMissing} didn't meet the DoD`
+          : `, but ${dodMissing} ${dodMissing === 1 ? "doesn't" : "don't"} meet the DoD yet`;
+    return `Every story in ${sprint.name} is done${scope > 0 ? `: ${pointsText(scope)}` : ""}${short}.`;
   }
   const pct = completionPct(done, scope);
   const base =
@@ -186,14 +238,25 @@ export function sprintBoardVerdict(
   let caveat = "";
   if (progress.blocked > 0) {
     const n = progress.blocked;
-    caveat = `; ${stories(n)} ${n === 1 ? "is" : "are"} blocked, so unblock ${n === 1 ? "it" : "them"} first`;
+    caveat = closed
+      ? `; ${stories(n)} ${n === 1 ? "was" : "were"} still blocked`
+      : `; ${stories(n)} ${n === 1 ? "is" : "are"} blocked, so unblock ${n === 1 ? "it" : "them"} first`;
   } else if (flowing) {
-    caveat = `; ${flowing.label} is over its WIP limit, so finish something before starting more`;
+    caveat = closed
+      ? `; ${flowing.label} ended over its WIP limit`
+      : `; ${flowing.label} is over its WIP limit, so finish something before starting more`;
+  } else if (dodMissing > 0) {
+    const n = dodMissing;
+    caveat = closed
+      ? `; ${n} done ${n === 1 ? "story" : "stories"} didn't meet the DoD`
+      : `; ${n} done ${n === 1 ? "story doesn't" : "stories don't"} meet the DoD yet`;
   } else if (progress.unestimated > 0) {
     const n = progress.unestimated;
-    caveat = `; ${stories(n)} ${n === 1 ? "has" : "have"} no estimate yet`;
+    caveat = closed
+      ? `; ${stories(n)} had no estimate`
+      : `; ${stories(n)} ${n === 1 ? "has" : "have"} no estimate yet`;
   } else if (started === 0 && doneCount === 0) {
-    caveat = "; nothing has been started yet";
+    caveat = closed ? "; nothing was started" : "; nothing has been started yet";
   }
   return `${base}${caveat}.`;
 }

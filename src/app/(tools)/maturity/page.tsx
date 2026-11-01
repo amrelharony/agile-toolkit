@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { MaturityClient } from "./maturity-client";
 
-export const metadata: Metadata = {
-  title: "Agile Maturity Assessment",
-  description:
-    "Assess your team's Agile maturity across 8 dimensions with a radar chart visualization and a targeted improvement roadmap.",
-};
+export const metadata: Metadata = toolMetadata("maturity");
 
 export default function MaturityPage() {
   return <MaturityClient />;

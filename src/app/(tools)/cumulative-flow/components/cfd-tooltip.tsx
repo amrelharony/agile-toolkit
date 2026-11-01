@@ -2,23 +2,27 @@
 
 /**
  * Custom Recharts tooltip for the cumulative-flow area chart — lists each
- * column's count (reversed to match the visual stacking order) plus a total.
+ * stage's count (reversed to match the visual stacking order) plus a total.
  */
 
 export function CFDTooltip({
   active,
   payload,
   label,
+  formatLabel,
 }: {
   active?: boolean;
   payload?: Array<{ name: string; value: number; color: string }>;
-  label?: string;
+  label?: string | number;
+  /** Turns the axis value (a day number) into a date. */
+  formatLabel?: (value: number) => string;
 }) {
   if (!active || !payload?.length) return null;
   const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
+  const title = typeof label === "number" && formatLabel ? formatLabel(label) : label;
   return (
     <div className="bg-surface border border-border rounded-lg p-3 shadow-xl text-sm">
-      <p className="text-sub font-medium mb-2">{label}</p>
+      <p className="text-sub font-medium mb-2">{title}</p>
       {[...payload].reverse().map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-6 mb-1">
           <div className="flex items-center gap-2">

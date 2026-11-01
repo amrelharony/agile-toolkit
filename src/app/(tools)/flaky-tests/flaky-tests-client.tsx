@@ -1,686 +1,553 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ActionRow } from "@/components/shared/action-row";
-import { KpiGrid } from "@/components/shared/kpi-grid";
-import { StatCard } from "@/components/shared/stat-card";
-import { SectionCard } from "@/components/shared/section-card";
-import { ChartCard } from "@/components/shared/chart-card";
-import { EmptyState } from "@/components/shared/empty-state";
-import { SmartInput } from "@/components/shared/smart-input";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Trash2, AlertOctagon, ArrowUpDown, TrendingUp } from "lucide-react";
-import { generateFlakyPrompts } from "@/lib/ai-prompts/flaky-tests";
+import { useMemo, useRef, useState } from "react";
+import { nanoid } from "nanoid";
 import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { FlakyTest, FlakyStatus as Status } from "@/lib/stores/workspace-types";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { FLAKY_TEST_ACTIONS } from "@/lib/history/event-actions";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { AlertOctagon, ListChecks, Trash2, TrendingUp } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { CalloutAlert } from "@/components/shared/callout-alert";
+import { ChartCard, ChartFigure } from "@/components/shared/chart-card";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import { generateFlakyPrompts } from "@/lib/ai-prompts/flaky-tests";
 import { xmrLimits } from "@/lib/analytics/control-chart";
+import { enoughData } from "@/lib/analytics/min-sample";
 import { mannKendall } from "@/lib/analytics/trend-test";
-import type { PredictedValue } from "@/lib/predictions/registry";
+import { plural } from "@/lib/charts/chart-text";
+import { FLAKY_TEST_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import {
+  FLAKY_BOARD_ID,
+  FLAKY_HIGH_RATE,
+  FLAKY_STATUS_LABEL,
+  QUARANTINE_ALERT_DAYS,
+  applyFlakyStatus,
+  flakyRate,
+  flakySummary,
+  flakyVerdict,
+  hasRunCounts,
+  ratePercent,
+  weeklyNewFlakies,
+  withRunCounts,
+  worstOffenders,
+} from "@/lib/quality/flaky";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { FlakyStatus, FlakyTest, FlakyTestBoard } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { buildExample } from "./example";
+import { flakyMarkdown } from "./markdown";
+import { TestCard } from "./test-card";
+import { TestForm, type TestValues } from "./test-form";
+import {
+  SORT_LABEL,
+  compareTests,
+  offendersChartText,
+  weeklyChartText,
+  type SortKey,
+} from "./view";
 
 // Recharts loads with each chart, not the page. ChartCard reserves the
 // chart's height while the chunk loads.
 const FlakiestTestsChart = dynamic(() => import("./charts").then((m) => m.FlakiestTestsChart), {
   ssr: false,
 });
-const WeeklyFlakiesChart = dynamic(() => import("./charts").then((m) => m.WeeklyFlakiesChart), {
+const WeeklyNewChart = dynamic(() => import("./charts").then((m) => m.WeeklyNewChart), {
+  ssr: false,
+});
+const WeeklyControlChart = dynamic(() => import("./charts").then((m) => m.WeeklyControlChart), {
   ssr: false,
 });
 
-/* ── Types ──────────────────────────────────────────────────────────────── */
+// A stable empty list: zustand re-renders forever on a selector that
+// returns a fresh array each call.
+const NONE: FlakyTest[] = [];
 
-interface FlakyState {
-  tests: FlakyTest[];
-}
+/** Weeks spanned before the weekly chart is drawn: one or two bars say less than the verdict. */
+const CHART_MIN_WEEKS = 3;
+/** Bars in the worst-offender chart. */
+const OFFENDER_BARS = 10;
 
-const DEFAULT_STATE: FlakyState = { tests: [] };
+type Write = (fn: (tests: FlakyTest[]) => FlakyTest[]) => void;
 
-const FB_ID = "flakyTestBoard:current"; // MUST match FB_ID in flaky-tests.ts.
+const storedBoard = () =>
+  (useWorkspaceStore.getState().flakyTestBoards ?? []).find((d) => d.id === FLAKY_BOARD_ID) ?? null;
 
-// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
-// test writes round-trip into the UI. Drop-in [state, setState].
-function useFlakyTests(): [FlakyState, (u: FlakyState | ((p: FlakyState) => FlakyState)) => void] {
+const testsOf = (board: FlakyTestBoard | null | undefined) =>
+  Array.isArray(board?.tests) ? board.tests : NONE;
+
+/**
+ * The synced singleton (FLAKY_BOARD_ID) that agents write too. A write
+ * changes the tests of the stored board and spreads the rest of it.
+ */
+function useFlakyBoard(): [FlakyTestBoard | null, Write] {
   const doc = useWorkspaceStore(
-    useShallow((s) => (s.flakyTestBoards ?? []).find((d) => d.id === FB_ID))
+    useShallow((s) => (s.flakyTestBoards ?? []).find((d) => d.id === FLAKY_BOARD_ID))
   );
   const upsert = useWorkspaceStore((s) => s.upsertFlakyTestBoard);
-  const state: FlakyState = doc ? { tests: doc.tests } : DEFAULT_STATE;
-  const setState = (u: FlakyState | ((p: FlakyState) => FlakyState)) => {
-    const cur = (useWorkspaceStore.getState().flakyTestBoards ?? []).find((d) => d.id === FB_ID);
-    const curState: FlakyState = cur ? { tests: cur.tests } : DEFAULT_STATE;
-    const next = typeof u === "function" ? u(curState) : u;
-    upsert({ id: FB_ID, tests: next.tests });
+  const write: Write = (fn) => {
+    const cur = storedBoard();
+    const tests = testsOf(cur);
+    const next = fn(tests);
+    if (next !== tests) upsert({ ...(cur ?? {}), id: FLAKY_BOARD_ID, tests: next });
   };
-  return [state, setState];
+  return [doc ?? null, write];
 }
 
-const STATUS_OPTIONS: { value: Status; label: string }[] = [
-  { value: "active", label: "Active" },
-  { value: "quarantined", label: "Quarantined" },
-  { value: "fixed", label: "Fixed" },
-];
+/** Focus what `find` returns once React has re-rendered (the focused control may have gone). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
 
-type SortField = "failureRate" | "name" | "status" | "firstSeenAt";
+const editButtonOf = (id: string) =>
+  Array.from(document.querySelectorAll<HTMLElement>("[data-edit-test]")).find(
+    (el) => el.getAttribute("data-edit-test") === id
+  );
 
-/* ── Main client ────────────────────────────────────────────────────────── */
+const STATUS_DONE: Record<FlakyStatus, string> = {
+  active: "Reopened",
+  quarantined: "Quarantined",
+  fixed: "Fixed",
+};
 
 export function FlakyTestsClient() {
-  const [state, setState] = useFlakyTests();
-  const { log } = useHistoryLogger("flaky-tests");
-  const chartRef = useRef<HTMLDivElement>(null);
+  const [board, writeStored] = useFlakyBoard();
+  const today = todayLocalISO();
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<FlakyTestBoard | null>(null);
+  const preview = example !== null;
+  const tests = testsOf(example ?? board);
+  // Bound to the mode the change was made in, so an Undo lands where it
+  // was made even if the example is loaded or cleared in between.
+  const write: Write = preview
+    ? (fn) => setExample((ex) => (ex ? { ...ex, tests: fn(ex.tests) } : ex))
+    : writeStored;
 
-  // Add-form draft state.
-  const [name, setName] = useState("");
-  const [suite, setSuite] = useState("");
-  const [owner, setOwner] = useState("");
-  const [failureRateDraft, setFailureRateDraft] = useState("");
-  const [description, setDescription] = useState("");
+  const { log: logHistory } = useHistoryLogger("flaky-tests");
+  // The example's edits aren't the team's history, so they aren't logged.
+  const log: typeof logHistory = (...args) => {
+    if (!preview) logHistory(...args);
+  };
+  const announce = useAnnounce();
+  const exportRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("rate");
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
-  // Sorting.
-  const [sortField, setSortField] = useState<SortField>("failureRate");
-  const [sortDesc, setSortDesc] = useState(true);
+  const summary = useMemo(() => flakySummary(tests, today), [tests, today]);
+  const verdict = flakyVerdict(summary);
+  const offenders = useMemo(() => worstOffenders(tests, OFFENDER_BARS), [tests]);
+  const weeks = useMemo(() => weeklyNewFlakies(tests), [tests]);
+  // The sort is part of each key, so picking another sort re-sorts at once,
+  // while a status change or an edit only marks the order stale.
+  const { ordered, isStale, resort } = useStableOrder(
+    tests,
+    (t) => `${sortKey}\u0000${t.id}`,
+    compareTests(sortKey)
+  );
 
-  const addTest = () => {
-    if (!name.trim() || !failureRateDraft.trim()) return;
-    const pct = Number(failureRateDraft);
-    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
-    // Bound free-text fields. Test names can be long stack-pathway selectors
-    // ("ProductCatalog > pricing > VAT rules > round to 2dp"), but a paste-
-    // bomb would otherwise inflate the persisted store and break the
-    // top-10 chart's truncate-at-30-chars layout assumption.
-    const t: FlakyTest = {
-      id: crypto.randomUUID(),
-      name: name.trim().slice(0, 240),
-      suite: suite.trim().slice(0, 200) || undefined,
-      owner: owner.trim().slice(0, 120) || undefined,
-      failureRate: pct / 100,
+  /* ── Changes ── */
+
+  const firstField = () => formRef.current?.querySelector<HTMLElement>("input");
+
+  function add(v: TestValues) {
+    const id = preview ? exampleId(`ft-${nanoid(6)}`) : crypto.randomUUID();
+    const base: FlakyTest = {
+      id,
+      name: v.name,
+      failureRate: 0,
       status: "active",
-      firstSeenAt: todayLocalISO(),
-      description: description.trim().slice(0, 4000) || undefined,
+      firstSeenAt: v.firstSeenAt,
+      ...(v.suite ? { suite: v.suite } : {}),
+      ...(v.owner ? { owner: v.owner } : {}),
+      ...(v.description ? { description: v.description } : {}),
     };
-    setState((s) => ({ tests: [t, ...s.tests] }));
+    // A new test always has run counts (the form needs them).
+    const test = withRunCounts(base, v.failures as number, v.runs as number);
+    write((list) => [...list, test]);
     log(FLAKY_TEST_ACTIONS.TEST_ADDED, {
-      testId: t.id,
-      name: t.name,
-      suite: t.suite,
-      owner: t.owner,
-      failureRate: t.failureRate,
-      description: t.description,
+      testId: id,
+      name: test.name,
+      suite: test.suite,
+      owner: test.owner,
+      failures: test.failures,
+      runs: test.runs,
+      failureRate: test.failureRate,
     });
-    setName("");
-    setSuite("");
-    setOwner("");
-    setFailureRateDraft("");
-    setDescription("");
-  };
+    announce(`Logged “${test.name}”: ${ratePercent(test.failureRate)} of ${test.runs} runs`);
+  }
 
-  const setStatus = (id: string, status: Status) => {
-    const prev = state.tests.find((t) => t.id === id);
-    setState((s) => ({
-      tests: s.tests.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status,
-              // fixedAt is the date the test was LAST fixed; preserved across
-              // reopens for audit. We stamp it on the first transition into
-              // "fixed" and never clear it when transitioning out.
-              fixedAt: status === "fixed" ? (t.fixedAt ?? todayLocalISO()) : t.fixedAt,
-            }
-          : t
-      ),
-    }));
+  function save(t: FlakyTest, v: TestValues) {
+    let next: FlakyTest = { ...t, name: v.name, firstSeenAt: v.firstSeenAt };
+    for (const key of ["suite", "owner", "description"] as const) {
+      if (v[key]) next[key] = v[key];
+      else delete next[key];
+    }
+    if (v.failures !== undefined && v.runs !== undefined) {
+      next = withRunCounts(next, v.failures, v.runs);
+    }
+    // A backdated quarantine or fix (the form offers the day of the test's own status).
+    if (v.quarantinedAt && t.status === "quarantined") next.quarantinedAt = v.quarantinedAt;
+    if (v.fixedAt && t.status === "fixed") next.fixedAt = v.fixedAt;
+    const keys = [...Object.keys(t), ...Object.keys(next)] as (keyof FlakyTest)[];
+    const fields = keys.filter((k, i) => keys.indexOf(k) === i && next[k] !== t[k]);
+    closeEditor(t.id);
+    if (fields.length === 0) return;
+    write((list) => list.map((x) => (x.id === t.id ? next : x)));
+    log(FLAKY_TEST_ACTIONS.TEST_UPDATED, { testId: t.id, fields });
+    announce(`Saved “${next.name}”`);
+  }
+
+  function closeEditor(id: string) {
+    setEditingId(null);
+    focusSoon(() => editButtonOf(id));
+  }
+
+  function setStatus(t: FlakyTest, status: FlakyStatus) {
+    const next = applyFlakyStatus(t, status, today);
+    if (next === t) return;
+    write((list) => list.map((x) => (x.id === t.id ? next : x)));
     if (status === "quarantined") {
-      log(FLAKY_TEST_ACTIONS.TEST_QUARANTINED, {
-        testId: id,
-        name: prev?.name,
-      });
+      log(FLAKY_TEST_ACTIONS.TEST_QUARANTINED, { testId: t.id, name: t.name });
     } else if (status === "fixed") {
-      log(FLAKY_TEST_ACTIONS.TEST_FIXED, { testId: id, name: prev?.name });
+      log(FLAKY_TEST_ACTIONS.TEST_FIXED, { testId: t.id, name: t.name });
     } else {
-      log(FLAKY_TEST_ACTIONS.TEST_UPDATED, { testId: id, fields: ["status"] });
+      log(FLAKY_TEST_ACTIONS.TEST_UPDATED, { testId: t.id, fields: ["status"] });
     }
-  };
+    announce(`${STATUS_DONE[status]}: “${t.name}”`);
+  }
 
-  const remove = (id: string) => {
-    const t = state.tests.find((x) => x.id === id);
-    setState((s) => ({ tests: s.tests.filter((x) => x.id !== id) }));
-    log(FLAKY_TEST_ACTIONS.TEST_REMOVED, { testId: id, name: t?.name });
-  };
-
-  /* ── Aggregations ───────────────────────────────────────────────────── */
-
-  const active = state.tests.filter((t) => t.status === "active").length;
-  const quarantined = state.tests.filter((t) => t.status === "quarantined").length;
-
-  const fixedThisQuarter = useMemo(() => {
-    const now = new Date();
-    const quarter = Math.floor(now.getMonth() / 3);
-    const start = new Date(now.getFullYear(), quarter * 3, 1).getTime();
-    return state.tests.filter((t) => {
-      if (t.status !== "fixed" || !t.fixedAt) return false;
-      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t.fixedAt);
-      if (!m) return false;
-      const fixedAt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
-      return fixedAt >= start;
-    }).length;
-  }, [state.tests]);
-
-  const avgFailureRate = useMemo(() => {
-    const considered = state.tests.filter((t) => t.status !== "fixed");
-    if (considered.length === 0) return 0;
-    return considered.reduce((acc, t) => acc + t.failureRate, 0) / considered.length;
-  }, [state.tests]);
-
-  const sortedTests = useMemo(() => {
-    const copy = [...state.tests];
-    copy.sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case "failureRate":
-          cmp = a.failureRate - b.failureRate;
-          break;
-        case "name":
-          cmp = a.name.localeCompare(b.name);
-          break;
-        case "status":
-          cmp = a.status.localeCompare(b.status);
-          break;
-        case "firstSeenAt":
-          cmp = a.firstSeenAt.localeCompare(b.firstSeenAt);
-          break;
-      }
-      return sortDesc ? -cmp : cmp;
+  function remove(t: FlakyTest) {
+    const at = ordered.findIndex((x) => x.id === t.id);
+    const near = ordered[at + 1] ?? ordered[at - 1];
+    removeWithUndo<FlakyTest>({
+      label: `Deleted “${t.name}”`,
+      update: (fn) => write((list) => fn(list)),
+      match: (x) => x.id === t.id,
     });
-    return copy;
-  }, [state.tests, sortField, sortDesc]);
+    log(FLAKY_TEST_ACTIONS.TEST_REMOVED, { testId: t.id, name: t.name });
+    announce(`Deleted “${t.name}”`);
+    focusSoon(() => (near && editButtonOf(near.id)) || firstField());
+  }
 
-  const topTen = useMemo(() => {
-    return [...state.tests]
-      .filter((t) => t.status !== "fixed")
-      .sort((a, b) => b.failureRate - a.failureRate)
-      .slice(0, 10)
-      .map((t) => ({
-        name: t.name.length > 30 ? `${t.name.slice(0, 27)}…` : t.name,
-        failureRatePct: Number((t.failureRate * 100).toFixed(0)),
-        flagged: t.failureRate > 0.2,
-      }));
-  }, [state.tests]);
+  /** Each "Delete all" keeps what it took for its own Undo. */
+  function deleteAll() {
+    const removed = testsOf(preview ? example : storedBoard());
+    setEditingId(null);
+    undoable({
+      label: `Deleted ${plural(removed.length, "flaky test")}`,
+      apply: () => {
+        write(() => []);
+        log(FLAKY_TEST_ACTIONS.FLAKY_RESET, { tests: removed.length });
+      },
+      revert: () =>
+        write((list) => [...removed.filter((r) => !list.some((x) => x.id === r.id)), ...list]),
+    });
+    focusSoon(firstField);
+  }
 
-  // Inline median predictor for the "failure rate (%)" field. We deliberately
-  // keep this inline (no global predictor registered for flaky-tests) — the
-  // signal is just "what's a typical failure rate in this team's log?".
-  const failureRatePrediction = useMemo<
-    PredictedValue<number> | { value: number; confidence: "none" }
-  >(() => {
-    const ratesPct = state.tests
-      .filter((t) => t.status !== "fixed")
-      .map((t) => t.failureRate * 100)
-      .sort((a, b) => a - b);
-    if (ratesPct.length < 3) {
-      return { value: 20, confidence: "none" };
-    }
-    // BUG-T3-flaky-tests-2: true median on even-length series — average
-    // the two middle values rather than picking the upper-middle.
-    const n = ratesPct.length;
-    const median =
-      n % 2 === 1 ? ratesPct[(n - 1) / 2] : (ratesPct[n / 2 - 1] + ratesPct[n / 2]) / 2;
-    return {
-      value: Number(median.toFixed(1)),
-      confidence: "medium" as const,
-      source: `Median across ${ratesPct.length} flakies`,
-    };
-  }, [state.tests]);
-
-  // Per-week count series derived from `firstSeenAt`. Each point is the number
-  // of flaky tests first observed that ISO-week. Used as the source for the
-  // XmR overlay and the Mann-Kendall trend chip. Returns an empty array when
-  // there's not enough breadth for meaningful weekly bucketing.
-  const weeklyCounts = useMemo(() => {
-    if (state.tests.length === 0) return [] as Array<{ week: string; count: number }>;
-    const buckets = new Map<string, number>();
-    for (const t of state.tests) {
-      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t.firstSeenAt);
-      if (!m) continue;
-      // ISO week-start: Monday of the week containing firstSeenAt. Cheap
-      // proxy good enough for trend visibility — we don't need calendar-week
-      // accuracy across DST.
-      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-      // JS getDay: 0 (Sun) … 6 (Sat). Shift so Mon = 0.
-      const weekday = (d.getDay() + 6) % 7;
-      d.setDate(d.getDate() - weekday);
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      buckets.set(iso, (buckets.get(iso) ?? 0) + 1);
-    }
-    if (buckets.size === 0) return [];
-    // BUG-T3-flaky-tests-1: dense-fill missing weeks with zeros. XmR
-    // control limits and Mann-Kendall trend assume evenly-spaced samples;
-    // sparse buckets (no entry for weeks with no flakies) bias both
-    // tests, producing misleading "out of control" / "trending up"
-    // signals.
-    const sortedKeys = Array.from(buckets.keys()).sort();
-    const firstKey = sortedKeys[0];
-    const lastKey = sortedKeys[sortedKeys.length - 1];
-    // BUG-RD3-flaky-tests-1: bucket KEYS are built from local date
-    // components above (line 263-267). Iterating the dense fill with
-    // UTC components (getUTCFullYear/getUTCMonth/getUTCDate) produced
-    // keys that, for any user west of UTC, didn't match the put-keys
-    // — every bucket lookup returned undefined and the chart showed
-    // all zeros. Mirror the local-date scheme on both sides so the
-    // counts actually surface.
-    const startDate = new Date(
-      Number(firstKey.slice(0, 4)),
-      Number(firstKey.slice(5, 7)) - 1,
-      Number(firstKey.slice(8, 10))
-    );
-    const endDate = new Date(
-      Number(lastKey.slice(0, 4)),
-      Number(lastKey.slice(5, 7)) - 1,
-      Number(lastKey.slice(8, 10))
-    );
-    const filled: Array<{ week: string; count: number }> = [];
-    const cur = new Date(startDate);
-    while (cur.getTime() <= endDate.getTime()) {
-      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
-      filled.push({ week: iso, count: buckets.get(iso) ?? 0 });
-      // Step by 7 calendar days via `setDate` so DST transitions in
-      // the bucketed range don't shift the boundary by an hour and
-      // miss a week.
-      cur.setDate(cur.getDate() + 7);
-    }
-    return filled;
-  }, [state.tests]);
-
-  // XmR control limits on the weekly flaky-count series. Returns null when
-  // fewer than 4 weeks of data — XmR is unstable on tiny series.
-  const weeklyControl = useMemo(() => {
-    if (weeklyCounts.length < 4) return null;
-    // Flaky-test counts cannot be negative; clamp LCL at 0.
-    return xmrLimits(
-      weeklyCounts.map((w) => w.count),
-      true
-    );
-  }, [weeklyCounts]);
-
-  // Mann-Kendall trend test on the weekly flaky count.
-  const weeklyTrend = useMemo(() => {
-    if (weeklyCounts.length < 5) return null;
-    return mannKendall(weeklyCounts.map((w) => w.count));
-  }, [weeklyCounts]);
+  /* ── Exports ── */
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Flaky Test Scoreboard",
-      prompts: generateFlakyPrompts({
-        tests: state.tests.map((t) => ({
-          name: t.name,
-          suite: t.suite,
-          owner: t.owner,
-          failureRate: t.failureRate,
-          status: t.status,
-          description: t.description,
-        })),
-        active,
-        quarantined,
-        fixedThisQuarter,
-        avgFailureRate,
-      }),
+      // Failures of runs, the weighted rate and quarantine ages, as the page reads them.
+      prompts: generateFlakyPrompts({ tests, today }),
     }),
-    [state.tests, active, quarantined, fixedThisQuarter, avgFailureRate]
+    [tests, today]
   );
 
-  // The Select fires only on change, so the "click same field to flip" branch
-  // never ran for users picking the same option. Direction is handled by the
-  // dedicated Asc/Desc button beside the sort dropdown.
-  const toggleSort = (field: SortField) => {
-    setSortField(field);
+  const csvData = {
+    headers: [
+      "Name",
+      "Suite",
+      "Owner",
+      "Failures",
+      "Runs",
+      "Failure %",
+      "Status",
+      "First seen",
+      "Quarantined since",
+      "Fixed",
+      "Description",
+    ],
+    rows: tests.map((t) => {
+      const rate = flakyRate(t);
+      return [
+        t.name,
+        t.suite ?? "",
+        t.owner ?? "",
+        hasRunCounts(t) ? t.failures : "",
+        hasRunCounts(t) ? t.runs : "",
+        rate === null ? "" : Math.round(rate * 1000) / 10,
+        FLAKY_STATUS_LABEL[t.status],
+        t.firstSeenAt,
+        t.quarantinedAt ?? "",
+        t.fixedAt ?? "",
+        t.description ?? "",
+      ];
+    }),
   };
+
+  const { weighted } = summary;
+  const offenderChart = offendersChartText(offenders);
+  const weeklyChart = weeklyChartText(weeks);
+  const counts = weeks.map((w) => w.count);
+  const control = enoughData(weeks.length, "changePoint") ? xmrLimits(counts, true) : null;
+  const trend = enoughData(weeks.length, "trend") ? mannKendall(counts) : null;
+  const weekData = weeks.map((w) => ({ week: w.week.slice(5), count: w.count }));
 
   return (
     <ToolPageWrapper
       toolId="flaky-tests"
       title="Flaky Test Scoreboard"
-      description="Log and triage flaky tests by failure rate, suite, owner, and quarantine status."
+      description="Log flaky tests with their failed runs out of all runs, triage them through quarantine to fixed, and see the failure rate weighted by runs."
       category="Quality Engineering"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="flaky-tests"
-          csvData={{
-            headers: [
-              "Name",
-              "Suite",
-              "Owner",
-              "Failure %",
-              "Status",
-              "First Seen",
-              "Fixed",
-              "Description",
-            ],
-            rows: state.tests.map((t) => [
-              t.name,
-              t.suite ?? "",
-              t.owner ?? "",
-              (t.failureRate * 100).toFixed(1),
-              t.status,
-              t.firstSeenAt,
-              t.fixedAt ?? "",
-              t.description ?? "",
-            ]),
-          }}
-          jsonData={state}
-          targetRef={chartRef}
-        />
-      </ActionRow>
+      <div ref={exportRef} className="space-y-6">
+        {preview && (
+          <ExampleNotice
+            onClear={() => {
+              setExample(null);
+              setEditingId(null);
+            }}
+          />
+        )}
 
-      <KpiGrid cols={4}>
-        <StatCard
-          variant="compact"
-          icon={AlertOctagon}
-          label="Active"
-          value={active}
-          tone={active > 0 ? "warning" : "default"}
-          valueClassName="text-accent"
-        />
-        <StatCard variant="compact" label="Quarantined" value={quarantined} />
-        <StatCard
-          variant="compact"
-          label="Fixed this quarter"
-          value={fixedThisQuarter}
-          tone={fixedThisQuarter > 0 ? "success" : "default"}
-        />
-        <StatCard
-          variant="compact"
-          label="Avg failure rate"
-          value={`${(avgFailureRate * 100).toFixed(0)}%`}
-          tone={avgFailureRate > 0.2 ? "danger" : "default"}
-        />
-      </KpiGrid>
+        <SectionCard title="Log a flaky test" icon={AlertOctagon}>
+          <div ref={formRef}>
+            <TestForm key={preview ? "example" : "saved"} today={today} onSave={add} />
+          </div>
+        </SectionCard>
 
-      <SectionCard
-        title="Log a flaky test"
-        icon={AlertOctagon}
-        className="mb-6 bg-surface border-border"
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="space-y-1 sm:col-span-2">
-            <Label htmlFor="ft-name" className="text-xs text-sub">
-              Test name
-            </Label>
-            <Input
-              id="ft-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="UserService > should sign in user"
-              className="bg-bg border-border"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="ft-suite" className="text-xs text-sub">
-              Suite (optional)
-            </Label>
-            <Input
-              id="ft-suite"
-              value={suite}
-              onChange={(e) => setSuite(e.target.value)}
-              placeholder="auth.spec.ts"
-              className="bg-bg border-border"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="ft-owner" className="text-xs text-sub">
-              Owner (optional)
-            </Label>
-            <Input
-              id="ft-owner"
-              value={owner}
-              onChange={(e) => setOwner(e.target.value)}
-              placeholder="@platform"
-              className="bg-bg border-border"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="ft-failure-rate" className="text-xs text-sub">
-              Failure rate (%)
-              <span className="ml-0.5 text-danger" aria-hidden="true">
-                *
-              </span>
-            </Label>
-            <SmartInput<number>
-              predicted={failureRatePrediction}
-              onAccept={(v) => setFailureRateDraft(String(v))}
-              render={({ ghost, chip, accept }) => (
-                <>
-                  <Input
-                    id="ft-failure-rate"
-                    type="text"
-                    inputMode="decimal"
-                    aria-required="true"
-                    aria-describedby="ft-failure-rate-hint"
-                    value={failureRateDraft}
-                    placeholder={ghost ?? "e.g. 12.5"}
-                    onKeyDown={(e) => {
-                      // Only swallow Tab when there's a prediction to accept;
-                      // otherwise Tab must still move focus on.
-                      if (e.key === "Tab" && failureRateDraft === "" && ghost !== undefined) {
-                        e.preventDefault();
-                        accept();
-                      }
-                    }}
-                    onChange={(e) => setFailureRateDraft(e.target.value)}
-                    onBlur={() => {
-                      const n = Number(failureRateDraft);
-                      // A blank field stays blank: `Number("") === 0` used to
-                      // turn it into "0", which then saved as a 0 % failure rate.
-                      if (!failureRateDraft.trim() || !Number.isFinite(n)) {
-                        setFailureRateDraft("");
-                      } else {
-                        const clamped = Math.min(100, Math.max(0, n));
-                        setFailureRateDraft(String(clamped));
-                      }
-                    }}
-                    className="bg-bg border-border font-data"
-                  />
-                  <p id="ft-failure-rate-hint" className="text-xs text-sub">
-                    Required: the share of recent runs that failed.
-                  </p>
-                  {chip}
-                </>
-              )}
-            />
-          </div>
-          <div className="space-y-1 sm:col-span-2 lg:col-span-2">
-            <Label htmlFor="ft-description" className="text-xs text-sub">
-              Description (optional)
-            </Label>
-            <Textarea
-              id="ft-description"
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What seems to trigger it, links to runs..."
-              className="bg-bg border-border text-sm"
-            />
-          </div>
-          <div className="flex items-end">
-            <Button
-              onClick={addTest}
-              disabled={!name.trim() || !failureRateDraft.trim()}
-              className="gap-2 w-full bg-accent text-bg hover:bg-accent/90 disabled:opacity-40"
-            >
-              <Plus className="w-4 h-4" />
-              Add test
-            </Button>
-          </div>
-        </div>
-      </SectionCard>
-
-      {topTen.length > 0 && (
-        <ChartCard
-          title="Top 10 flakiest tests"
-          icon={AlertOctagon}
-          height={300}
-          chartContainerRef={chartRef}
-          className="mb-6"
-        >
-          <FlakiestTestsChart data={topTen} />
-        </ChartCard>
-      )}
-
-      {/* XmR control chart on per-week newly-observed flakies. UCL/X̄/LCL
-          surface when an unusual week breaks the natural variation band. */}
-      {weeklyControl && (
-        <ChartCard
-          title="New flakies per week"
-          icon={TrendingUp}
-          height={220}
-          className="mb-6"
-          headerExtras={
-            weeklyTrend?.significant ? (
-              <Badge
-                variant="outline"
-                className={`font-mono text-xs tracking-wider uppercase ${
-                  // Down = fewer new flakies = good. Up = more = bad.
-                  weeklyTrend.trend === "down"
-                    ? "border-success/40 text-success bg-success/10"
-                    : "border-warning/40 text-warning bg-warning/10"
-                }`}
-                title={`Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)}`}
-              >
-                {weeklyTrend.trend === "up" ? "↗" : "↘"} flaky-count trend
-              </Badge>
-            ) : undefined
-          }
-        >
-          <WeeklyFlakiesChart data={weeklyCounts} control={weeklyControl} />
-        </ChartCard>
-      )}
-
-      <SectionCard
-        title="All flaky tests"
-        icon={AlertOctagon}
-        className="mb-2 bg-surface border-border"
-        actions={
-          <div className="flex items-center gap-1.5 text-xs text-sub">
-            <ArrowUpDown className="w-3 h-3" />
-            <span>Sort:</span>
-            <Select value={sortField} onValueChange={(v) => toggleSort(v as SortField)}>
-              <SelectTrigger className="h-7 w-32 bg-bg border-border text-xs" aria-label="Sort by">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="failureRate">Failure rate</SelectItem>
-                <SelectItem value="name">Name</SelectItem>
-                <SelectItem value="status">Status</SelectItem>
-                <SelectItem value="firstSeenAt">First seen</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSortDesc((d) => !d)}
-              className="h-7 px-2 text-xs"
-              aria-label={sortDesc ? "Descending order" : "Ascending order"}
-            >
-              {sortDesc ? "Desc" : "Asc"}
-            </Button>
-          </div>
-        }
-      >
-        {sortedTests.length === 0 ? (
-          <EmptyState icon={AlertOctagon}>
-            No flaky tests logged yet. Add one above to start the triage queue.
+        {tests.length === 0 ? (
+          <EmptyState
+            icon={AlertOctagon}
+            action={<LoadExampleButton onLoad={() => setExample(buildExample(today))} />}
+          >
+            No flaky tests logged yet. Log one above with its failed runs out of all its runs, or
+            load an example to see a triage queue with a long quarantine.
           </EmptyState>
         ) : (
-          <div className="space-y-2">
-            {sortedTests.map((t) => {
-              const pct = Math.round(t.failureRate * 100);
-              const high = t.failureRate > 0.2;
-              return (
-                <Card key={t.id} className="bg-bg border-border">
-                  <CardContent className="p-3 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-text font-medium text-sm flex-1 min-w-0 truncate">
-                        {t.name}
-                      </span>
-                      {t.suite && (
-                        <Badge variant="outline" className="text-xs font-data">
-                          {t.suite}
-                        </Badge>
-                      )}
-                      {t.owner && <span className="text-xs text-sub">{t.owner}</span>}
-                      <Select value={t.status} onValueChange={(v) => setStatus(t.id, v as Status)}>
-                        <SelectTrigger
-                          className="h-8 w-32 bg-surface border-border text-xs capitalize"
-                          aria-label={`Status for ${t.name}`}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_OPTIONS.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => remove(t.id)}
-                        className="text-sub hover:text-danger min-touch-coarse"
-                        aria-label={`Remove ${t.name}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2 bg-surface rounded relative overflow-hidden">
-                        <div
-                          className="h-full rounded"
-                          style={{
-                            width: `${pct}%`,
-                            background: high ? "#ef4444" : "#00f0ff",
-                          }}
-                          aria-label={`Failure rate ${pct}%`}
-                        />
-                      </div>
-                      <span className={"text-xs font-data " + (high ? "text-danger" : "text-sub")}>
-                        {pct}%
-                      </span>
-                    </div>
-                    {t.description && (
-                      <div className="text-xs text-sub whitespace-pre-wrap break-words">
-                        {t.description}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          <>
+            <p className="text-sm font-medium text-text">{verdict}</p>
+
+            {summary.longQuarantined.length > 0 && (
+              <CalloutAlert tone="warning">
+                <strong>Quarantined {QUARANTINE_ALERT_DAYS} days or more:</strong>{" "}
+                {summary.longQuarantined
+                  .map((q) => `${q.name} (${plural(q.days, "day")})`)
+                  .join(", ")}
+                . A quarantined test still hides a bug: plan the fix, or delete the test.
+              </CalloutAlert>
+            )}
+
+            <KpiGrid cols={4}>
+              <StatCard
+                variant="compact"
+                icon={AlertOctagon}
+                label="Active"
+                value={summary.byStatus.active}
+                tone={summary.byStatus.active > 0 ? "warning" : "default"}
+              />
+              <StatCard
+                variant="compact"
+                label="Quarantined"
+                value={summary.byStatus.quarantined}
+                hint={
+                  summary.quarantineDateUnknown > 0
+                    ? `${summary.quarantineDateUnknown} with no quarantine date`
+                    : summary.longQuarantined.length > 0
+                      ? `${summary.longQuarantined.length} for ${QUARANTINE_ALERT_DAYS}+ days`
+                      : undefined
+                }
+                tone={summary.longQuarantined.length > 0 ? "warning" : "default"}
+              />
+              <StatCard
+                variant="compact"
+                label="Fixed this quarter"
+                value={summary.fixedThisQuarter}
+                tone={summary.fixedThisQuarter > 0 ? "success" : "default"}
+              />
+              <StatCard
+                variant="compact"
+                label="Failure rate (by runs)"
+                value={weighted.rate === null ? "—" : ratePercent(weighted.rate)}
+                hint={
+                  weighted.runs > 0
+                    ? `Over ${weighted.runs.toLocaleString("en-US")} runs${
+                        weighted.rateOnly > 0
+                          ? `; ${plural(weighted.rateOnly, "test")} without run counts not included`
+                          : ""
+                      }`
+                    : weighted.rateOnly > 0
+                      ? `${plural(weighted.rateOnly, "test")} without run counts`
+                      : "No open tests"
+                }
+                tone={
+                  weighted.rate !== null && weighted.rate > FLAKY_HIGH_RATE ? "danger" : "default"
+                }
+              />
+            </KpiGrid>
+
+            <SectionCard
+              title={`All flaky tests (${tests.length})`}
+              icon={ListChecks}
+              contentClassName="space-y-3"
+              actions={
+                <>
+                  <AiPromptGenerator config={promptConfig} />
+                  <ExportButton
+                    filename="flaky-tests"
+                    csvData={csvData}
+                    jsonData={{ tests }}
+                    markdown={flakyMarkdown(tests, today)}
+                    targetRef={exportRef}
+                  />
+                  <Button
+                    type="button"
+                    variant="danger-ghost"
+                    size="sm"
+                    onClick={() => setConfirmDeleteAll(true)}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    Delete all
+                  </Button>
+                  <ConfirmDialog
+                    open={confirmDeleteAll}
+                    onOpenChange={setConfirmDeleteAll}
+                    title={
+                      tests.length === 1
+                        ? "Delete the 1 flaky test?"
+                        : `Delete all ${tests.length} flaky tests?`
+                    }
+                    description="The scoreboard starts again from nothing, for agents too."
+                    confirmLabel="Delete all"
+                    onConfirm={deleteAll}
+                  />
+                </>
+              }
+            >
+              <Field label="Sort by" className="sm:w-56">
+                {(props) => (
+                  <select
+                    {...props}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm"
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as SortKey)}
+                  >
+                    {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
+                      <option key={k} value={k}>
+                        {SORT_LABEL[k]}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+              <ResortChip isStale={isStale} onResort={resort} what="Rates or statuses" />
+              <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2" aria-label="Flaky tests">
+                {ordered.map((t) => (
+                  <li key={t.id} className="min-w-0">
+                    <TestCard
+                      test={t}
+                      today={today}
+                      editing={editingId === t.id}
+                      onEdit={() => setEditingId(t.id)}
+                      onCancel={() => closeEditor(t.id)}
+                      onSave={(v) => save(t, v)}
+                      onStatus={(s) => setStatus(t, s)}
+                      onRemove={() => remove(t)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </SectionCard>
+
+            {offenders.length > 0 && (
+              <ChartCard
+                title="Worst offenders"
+                icon={AlertOctagon}
+                height={Math.max(160, offenders.length * 32 + 24)}
+                summary={offenderChart.summary}
+                table={offenderChart.table}
+              >
+                <FlakiestTestsChart
+                  data={offenders.map((o) => ({
+                    name: o.name,
+                    failureRatePct: Math.round(o.failureRate * 100),
+                    flagged: o.failureRate > FLAKY_HIGH_RATE,
+                  }))}
+                />
+              </ChartCard>
+            )}
+
+            {weeks.length >= CHART_MIN_WEEKS && (
+              <ChartCard
+                title="New flaky tests per week"
+                icon={TrendingUp}
+                height={220}
+                summary={weeklyChart.summary}
+                table={weeklyChart.table}
+              >
+                <WeeklyNewChart data={weekData} />
+              </ChartCard>
+            )}
+
+            <AdvancedAnalysis>
+              {control ? (
+                <ChartFigure
+                  label="New flaky tests per week, with control limits"
+                  summary={`Weeks above ${Math.round(control.ucl * 10) / 10} new flaky tests are out of the usual run; the average is ${Math.round(control.centerLine * 10) / 10} a week.`}
+                  table={weeklyChart.table}
+                  plotClassName="h-[220px]"
+                >
+                  <WeeklyControlChart data={weekData} control={control} />
+                </ChartFigure>
+              ) : (
+                <NotEnoughData
+                  have={weeks.length}
+                  need="changePoint"
+                  unit={["week", "weeks"]}
+                  action="Log flaky tests across"
+                  what="control limits on the weekly count"
+                />
+              )}
+              {trend ? (
+                <p className="text-sm text-text">
+                  Mann-Kendall over {weeks.length} weeks:{" "}
+                  {trend.trend === "none" || !trend.significant
+                    ? "no clear trend in new flaky tests"
+                    : `new flaky tests are trending ${trend.trend}`}{" "}
+                  (p = {trend.pValue.toFixed(3)}).
+                </p>
+              ) : (
+                <NotEnoughData
+                  have={weeks.length}
+                  need="trend"
+                  unit={["week", "weeks"]}
+                  action="Log flaky tests across"
+                  what="a trend test"
+                />
+              )}
+            </AdvancedAnalysis>
+          </>
         )}
-      </SectionCard>
+      </div>
     </ToolPageWrapper>
   );
 }

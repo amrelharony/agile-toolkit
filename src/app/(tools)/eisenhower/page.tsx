@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { EisenhowerClient } from "./eisenhower-client";
 
-export const metadata: Metadata = {
-  title: "Eisenhower Matrix",
-  description: "Plot tasks on Urgent vs Important axes; decide Do / Schedule / Delegate / Delete.",
-};
+export const metadata: Metadata = toolMetadata("eisenhower");
 
 export default function Page() {
   return <EisenhowerClient />;

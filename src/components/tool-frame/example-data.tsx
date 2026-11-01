@@ -13,21 +13,8 @@ import { Button } from "@/components/ui/button";
  * remove exactly those rows (never the user's own) on "Clear example".
  */
 
-export const EXAMPLE_ID_PREFIX = "example-";
-
-/** An id for an example row: `exampleId("r1")` → "example-r1". */
-export function exampleId(key: string | number): string {
-  return `${EXAMPLE_ID_PREFIX}${key}`;
-}
-
-export function isExampleId(id: string | null | undefined): boolean {
-  return typeof id === "string" && id.startsWith(EXAMPLE_ID_PREFIX);
-}
-
-/** Whether any of `items` came from the example. */
-export function hasExampleItems(items: readonly { id: string }[] | null | undefined): boolean {
-  return Boolean(items?.some((i) => isExampleId(i.id)));
-}
+// The id helpers live in a plain module so server code (agent actions) can call them.
+export { EXAMPLE_ID_PREFIX, exampleId, hasExampleItems, isExampleId } from "@/lib/utils/example-id";
 
 /** "Load an example" for a tool's empty state. */
 export function LoadExampleButton({

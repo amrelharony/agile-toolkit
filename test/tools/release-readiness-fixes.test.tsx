@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import type { GateId, Release } from "@/lib/stores/workspace-types";
+import type { Release } from "@/lib/stores/workspace-types";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Release Readiness: a release that shipped and was then rolled back used to
  * drop out of "% on time" silently. It still shipped, so it counts, and the
- * card says how many of the shipped releases were rolled back.
+ * card says how many of the shipped releases were rolled back. The rate now
+ * comes from lib/releases (every ship), which the page and its agent share.
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -34,10 +36,11 @@ beforeAll(() => {
 });
 
 import { ReleaseReadinessClient } from "@/app/(tools)/release-readiness/release-readiness-client";
-import { onTimeRate } from "@/app/(tools)/release-readiness/metrics";
+import { onTimeRate, shipEvents } from "@/lib/releases/model";
+import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
-const gates = {} as Record<GateId, boolean>;
+const gates: Record<string, boolean> = {};
 const release = (r: Partial<Release> & Pick<Release, "id" | "status">): Release => ({
   name: r.id,
   plannedDate: "2026-10-10",
@@ -60,21 +63,27 @@ const RELEASES: Release[] = [
   release({ id: "f", status: "planning" }),
 ];
 
+const rate = (releases: Release[]) => onTimeRate(shipEvents({ id: RELEASE_DOC_ID, releases }));
+
 describe("Release Readiness % on time", () => {
   it("counts releases that shipped and were later rolled back", () => {
-    expect(onTimeRate(RELEASES)).toEqual({ pct: 50, shipped: 4, onTime: 2, rolledBack: 2 });
+    expect(rate(RELEASES)).toEqual({ pct: 50, shipped: 4, onTime: 2, rolledBack: 2 });
     // Before: only status "shipped" counted, so this read 1 of 2.
   });
 
   it("is null when nothing has gone out", () => {
-    expect(onTimeRate([release({ id: "x", status: "planning" })]).pct).toBeNull();
+    expect(rate([release({ id: "x", status: "planning" })]).pct).toBeNull();
   });
 
   it("shows the rolled-back count on the card", () => {
     useWorkspaceStore.setState({
-      releaseReadinesses: [{ id: "releaseReadiness:current", releases: RELEASES }],
+      releaseReadinesses: [{ id: RELEASE_DOC_ID, releases: RELEASES }],
     });
-    render(<ReleaseReadinessClient />);
+    render(
+      <TooltipProvider>
+        <ReleaseReadinessClient />
+      </TooltipProvider>
+    );
     expect(screen.getByText("50%")).toBeInTheDocument();
     expect(screen.getByText("of 4 shipped, incl. 2 rolled back")).toBeInTheDocument();
   });

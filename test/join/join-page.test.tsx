@@ -3,10 +3,11 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 /**
- * `/join/<tool>/<code>`: the server page 404s anything but Planning Poker
- * or Retro with a 12-character code, says "Live rooms are off" with the
- * flag off, and otherwise asks for a name and consent before any channel
- * opens.
+ * `/join/<tool>/<code>`: the server page 404s anything but a visitor tool
+ * with a 12-character code, says "Live rooms are off" with the flag off,
+ * and otherwise asks for a name and consent before any channel opens. Each
+ * tool lands in its own kind of room; a vote round's link must carry the
+ * host key (`#k=`) before consent is even offered.
  */
 
 const h = vi.hoisted(() => {
@@ -61,6 +62,14 @@ vi.mock("@/app/(tools)/retro/room/visitor-retro-room", () => ({
     </div>
   ),
 }));
+// The vote-room kit owns the vote room; this page only routes to it.
+vi.mock("@/components/collab/vote-room/vote-join-room", () => ({
+  VoteJoinRoom: (props: { tool: string; code: string; identity: { name: string } }) => (
+    <div data-testid="vote-join-room">
+      {props.tool} {props.code} {props.identity.name}
+    </div>
+  ),
+}));
 vi.mock("framer-motion", async () => {
   const React = await import("react");
   const cache = new Map<string, unknown>();
@@ -108,6 +117,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  window.history.replaceState(null, "", window.location.pathname);
 });
 
 describe("/join/[tool]/[code] page", () => {
@@ -204,6 +214,68 @@ describe("joining with the flag on", () => {
     renderPage("planning-poker", CODE);
     act(() => {});
     expect(within(screen.getByRole("dialog")).getByLabelText(/your name/i)).toHaveValue("Pat");
+    expect(h.client.channel).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "health-check",
+    "psych-safety",
+    "mood-tracker",
+    "kano-model",
+    "buy-a-feature",
+    "hundred-dollar-test",
+  ])("mounts the vote room (not Retro) for /join/%s with the host key", async (tool) => {
+    window.history.replaceState(null, "", `#k=${"abcdefghijklmnopqrstuv"}`);
+    renderPage(tool, CODE);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(/Answers are encrypted in each person's browser/);
+    expect(dialog).not.toHaveTextContent(/What you type passes through/);
+    expect(h.client.channel).not.toHaveBeenCalled();
+    consent("Sam");
+    expect(await screen.findByTestId("vote-join-room", {}, LAZY)).toHaveTextContent(
+      `${tool} ${CODE} Sam`
+    );
+    expect(screen.queryByTestId("visitor-retro-room")).toBeNull();
+  });
+
+  it.each([
+    ["kano-model", "Kano survey"],
+    ["buy-a-feature", "Buy-a-Feature"],
+    ["hundred-dollar-test", "$100 Test"],
+  ])("names %s's room in the consent and on the way in", async (tool, name) => {
+    window.history.replaceState(null, "", `#k=${"abcdefghijklmnopqrstuv"}`);
+    renderPage(tool, CODE);
+    expect(
+      await screen.findByRole("dialog", { name: `Join the live ${name} room` })
+    ).toBeInTheDocument();
+    expect(screen.getByText(`Joining a live ${name} room`)).toBeInTheDocument();
+    expect(h.client.channel).not.toHaveBeenCalled();
+  });
+
+  it("says a Prioritize tool's vote link without #k= is incomplete too", async () => {
+    window.history.replaceState(null, "", window.location.pathname);
+    renderPage("hundred-dollar-test", CODE);
+    expect(await screen.findByRole("heading", { name: "This link is incomplete" })).toHaveFocus();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(h.client.channel).not.toHaveBeenCalled();
+  });
+
+  it.each(["moscow", "rice-scoring", "kano"])(
+    "is a 404 for %s, a Prioritize tool without live rounds (or no tool at all)",
+    (tool) => {
+      expect(() => JoinRoomPage({ params: { tool, code: CODE } })).toThrow("NEXT_NOT_FOUND");
+    }
+  );
+
+  it("says a vote link without #k= is incomplete, offers no consent and opens nothing", async () => {
+    for (const hash of ["", "#k=short", "#x=abcdefghijklmnopqrstuv"]) {
+      window.history.replaceState(null, "", hash || window.location.pathname);
+      const { unmount } = renderPage("health-check", CODE);
+      expect(await screen.findByRole("heading", { name: "This link is incomplete" })).toHaveFocus();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Join the room" })).toBeNull();
+      unmount();
+    }
     expect(h.client.channel).not.toHaveBeenCalled();
   });
 

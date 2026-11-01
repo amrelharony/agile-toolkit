@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { stampStoryMembership, withStorySprint } from "@/lib/sprints/story-status";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
 import type {
@@ -44,6 +45,8 @@ import type {
   CodeReviewLog,
   // S7 — Engineering Excellence
   DoraScorecard,
+  FeatureFlag,
+  HealthDashboardConfig,
   SloBuilder,
   SpacePulse,
   DevexSurvey,
@@ -72,8 +75,18 @@ import type {
   SkillsMatrix,
   PokerEstimationLog,
   PokerRound,
+  // Phase 6 — Team & people
+  DefinitionOfDone,
+  RaciMatrix,
+  AdkarDoc,
+  MoodTrackerDoc,
+  MoodPulse,
   // Phase 20
   PrioritizationItem,
+  // Phase 7 — Prioritize & decide
+  AllocationRound,
+  BuyAFeatureGame,
+  WeightedMatrix,
   // Phase 21
   DACIDecision,
   RAPIDDecision,
@@ -113,8 +126,9 @@ import type {
   DependencyMap,
   ValueStreamStage,
 } from "./workspace-types";
-import { emptyWorkspace } from "./workspace-types";
+import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
+import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -186,6 +200,10 @@ interface WorkspaceActions {
   removeCodeReviewLog: (id: string) => void;
   upsertDoraScorecard: (x: DoraScorecard) => void;
   removeDoraScorecard: (id: string) => void;
+  upsertHealthDashboard: (x: HealthDashboardConfig) => void;
+  removeHealthDashboard: (id: string) => void;
+  upsertFeatureFlag: (x: FeatureFlag) => void;
+  removeFeatureFlag: (id: string) => void;
   upsertSloBuilder: (x: SloBuilder) => void;
   removeSloBuilder: (id: string) => void;
   upsertSpacePulse: (x: SpacePulse) => void;
@@ -234,9 +252,33 @@ interface WorkspaceActions {
   removePokerEstimationLog: (id: string) => void;
   upsertPokerRound: (x: PokerRound) => void;
   removePokerRound: (id: string) => void;
+  // Phase 6 — Team & people
+  upsertDefinitionOfDone: (x: DefinitionOfDone) => void;
+  removeDefinitionOfDone: (id: string) => void;
+  upsertRaciMatrix: (x: RaciMatrix) => void;
+  removeRaciMatrix: (id: string) => void;
+  upsertAdkarDoc: (x: AdkarDoc) => void;
+  removeAdkarDoc: (id: string) => void;
+  upsertMoodTrackerDoc: (x: MoodTrackerDoc) => void;
+  removeMoodTrackerDoc: (id: string) => void;
+  upsertMoodPulse: (x: MoodPulse) => void;
+  removeMoodPulse: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
+  // Phase 7 — Prioritize & decide
+  upsertAllocationRound: (x: AllocationRound) => void;
+  removeAllocationRound: (id: string) => void;
+  upsertBuyAFeatureGame: (x: BuyAFeatureGame) => void;
+  removeBuyAFeatureGame: (id: string) => void;
+  upsertWeightedMatrix: (x: WeightedMatrix) => void;
+  /**
+   * The matrix and the options and criteria in it (for the default matrix,
+   * also the rows without a `matrixId`), with their canvas links cleared:
+   * the rows weightedMatrixRemoval names, as the MCP delete removes them.
+   * The page offers Undo by restoring what it removed.
+   */
+  removeWeightedMatrix: (id: string) => void;
   // Phase 21 — Decision Frameworks
   upsertDACIDecision: (x: DACIDecision) => void;
   removeDACIDecision: (id: string) => void;
@@ -378,6 +420,12 @@ function sanitizeArray<T extends { id: string }>(raw: unknown): T[] | undefined 
   return raw.filter(isRecordWithId) as T[];
 }
 
+/** An integer 1-5. `typeof x === "number"` lets floats and NaN through;
+ *  `Number.isInteger(NaN)` is false. */
+function isMaturityLevel(v: unknown): v is MaturityLevel {
+  return Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
+}
+
 // R11-fix: shared cascade for canvas sourceRef cleanup on entity removal.
 // Maps `whiteboardObjects` that point at the deleted entity via
 // `sourceRef: { tool, entityId }` to a copy with sourceRef cleared (and
@@ -484,8 +532,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             next.sprintSeries = (s.sprintSeries ?? []).filter((x) => x.id !== id);
           }
           if (storyAffected) {
+            const at = new Date().toISOString();
             next.stories = s.stories.map((st) =>
-              st.sprintId === id ? { ...st, sprintId: undefined } : st
+              st.sprintId === id ? withStorySprint(st, undefined, at) : st
             );
           }
           if (wbAffected) {
@@ -502,7 +551,19 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           }
           return next;
         }),
-      upsertStory: (s) => set((_st) => ({ stories: replaceById(_st.stories, s) })),
+      // Every local write of a story records when it was created and any
+      // change of its sprint (lib/sprints/story-status.ts); synced rows from
+      // other devices arrive through setEntities and keep their own stamps.
+      upsertStory: (s) =>
+        set((_st) => ({
+          stories: replaceById(
+            _st.stories,
+            stampStoryMembership(
+              s,
+              _st.stories.find((x) => x.id === s.id)
+            )
+          ),
+        })),
       removeStory: (id) =>
         set((s) => {
           // Phase 26 cascade: any canvas object pinned to this Story via
@@ -896,6 +957,14 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ doraScorecards: replaceById(_st.doraScorecards ?? [], x) })),
       removeDoraScorecard: (id) =>
         set((s) => ({ doraScorecards: (s.doraScorecards ?? []).filter((y) => y.id !== id) })),
+      upsertHealthDashboard: (x) =>
+        set((_st) => ({ healthDashboards: replaceById(_st.healthDashboards ?? [], x) })),
+      removeHealthDashboard: (id) =>
+        set((s) => ({ healthDashboards: (s.healthDashboards ?? []).filter((y) => y.id !== id) })),
+      upsertFeatureFlag: (x) =>
+        set((_st) => ({ featureFlags: replaceById(_st.featureFlags ?? [], x) })),
+      removeFeatureFlag: (id) =>
+        set((s) => ({ featureFlags: (s.featureFlags ?? []).filter((y) => y.id !== id) })),
       upsertSloBuilder: (x) =>
         set((_st) => ({ sloBuilders: replaceById(_st.sloBuilders ?? [], x) })),
       removeSloBuilder: (id) =>
@@ -1008,6 +1077,27 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ pokerRounds: replaceById(_st.pokerRounds ?? [], x) })),
       removePokerRound: (id) =>
         set((s) => ({ pokerRounds: (s.pokerRounds ?? []).filter((y) => y.id !== id) })),
+      // Phase 6 — Team & people
+      upsertDefinitionOfDone: (x) =>
+        set((_st) => ({ definitionsOfDone: replaceById(_st.definitionsOfDone ?? [], x) })),
+      removeDefinitionOfDone: (id) =>
+        set((s) => ({
+          definitionsOfDone: (s.definitionsOfDone ?? []).filter((y) => y.id !== id),
+        })),
+      upsertRaciMatrix: (x) =>
+        set((_st) => ({ raciMatrices: replaceById(_st.raciMatrices ?? [], x) })),
+      removeRaciMatrix: (id) =>
+        set((s) => ({ raciMatrices: (s.raciMatrices ?? []).filter((y) => y.id !== id) })),
+      upsertAdkarDoc: (x) => set((_st) => ({ adkarDocs: replaceById(_st.adkarDocs ?? [], x) })),
+      removeAdkarDoc: (id) =>
+        set((s) => ({ adkarDocs: (s.adkarDocs ?? []).filter((y) => y.id !== id) })),
+      upsertMoodTrackerDoc: (x) =>
+        set((_st) => ({ moodTrackerDocs: replaceById(_st.moodTrackerDocs ?? [], x) })),
+      removeMoodTrackerDoc: (id) =>
+        set((s) => ({ moodTrackerDocs: (s.moodTrackerDocs ?? []).filter((y) => y.id !== id) })),
+      upsertMoodPulse: (x) => set((_st) => ({ moodPulses: replaceById(_st.moodPulses ?? [], x) })),
+      removeMoodPulse: (id) =>
+        set((s) => ({ moodPulses: (s.moodPulses ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1025,6 +1115,49 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
               isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
             ),
+          };
+        }),
+      // Phase 7 — Prioritize & decide
+      upsertAllocationRound: (x) =>
+        set((_st) => ({ allocationRounds: replaceById(_st.allocationRounds ?? [], x) })),
+      removeAllocationRound: (id) =>
+        set((s) => ({ allocationRounds: (s.allocationRounds ?? []).filter((y) => y.id !== id) })),
+      upsertBuyAFeatureGame: (x) =>
+        set((_st) => ({ buyAFeatureGames: replaceById(_st.buyAFeatureGames ?? [], x) })),
+      removeBuyAFeatureGame: (id) =>
+        set((s) => ({ buyAFeatureGames: (s.buyAFeatureGames ?? []).filter((y) => y.id !== id) })),
+      upsertWeightedMatrix: (x) =>
+        set((_st) => ({ weightedMatrices: replaceById(_st.weightedMatrices ?? [], x) })),
+      removeWeightedMatrix: (id) =>
+        set((s) => {
+          const options = s.weightedOptions ?? [];
+          const criteria = s.weightedCriteria ?? [];
+          // The same plan the MCP delete applies server-side (a row without a
+          // matrixId is in the default matrix, as the page reads it).
+          const plan = weightedMatrixRemoval(id, options, criteria);
+          if (plan.optionIds.length === 0 && plan.criterionIds.length === 0) {
+            return { weightedMatrices: (s.weightedMatrices ?? []).filter((y) => y.id !== id) };
+          }
+          const goneOptions = new Set(plan.optionIds);
+          const goneCriteria = new Set(plan.criterionIds);
+          // Only the canvas links of the removed options; criteria have none.
+          let whiteboardObjects = s.whiteboardObjects;
+          for (const optionId of plan.optionIds) {
+            whiteboardObjects = cascadeSourceRefRemoval(
+              whiteboardObjects,
+              "weightedOption",
+              optionId
+            );
+          }
+          // Like removeWeightedCriterion: no option keeps a score for a removed criterion.
+          const rescored = new Map(plan.rescored.map((o) => [o.id, o]));
+          return {
+            weightedMatrices: (s.weightedMatrices ?? []).filter((y) => y.id !== id),
+            weightedOptions: options
+              .filter((o) => !goneOptions.has(o.id))
+              .map((o) => rescored.get(o.id) ?? o),
+            weightedCriteria: criteria.filter((c) => !goneCriteria.has(c.id)),
+            whiteboardObjects,
           };
         }),
       // Phase 21 — Decision Frameworks
@@ -1354,15 +1487,18 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ backlogItems: replaceById(_st.backlogItems ?? [], x) })),
       removeBacklogItem: (id) =>
         set((s) => {
-          // Framework rows that scored this item stay, unlinked.
-          const linked = (s.prioritizations ?? []).some((p) => p.backlogItemId === id);
+          // Framework rows that scored this item stay, unlinked, each with
+          // a frozen copy of the values it read through to the item (so a
+          // WSJF row keeps its scores), whoever deletes it: the hub, Undo
+          // of an add, the agent's workspace.backlog_item.delete.
+          const item = (s.backlogItems ?? []).find((y) => y.id === id);
+          const unlinked = rowsUnlinkedFrom(s.prioritizations ?? [], id, item);
+          const byId = new Map(unlinked.map((p) => [p.id, p]));
           return {
             backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id),
-            ...(linked
+            ...(unlinked.length > 0
               ? {
-                  prioritizations: (s.prioritizations ?? []).map((p) =>
-                    p.backlogItemId === id ? { ...p, backlogItemId: undefined } : p
-                  ),
+                  prioritizations: (s.prioritizations ?? []).map((p) => byId.get(p.id) ?? p),
                 }
               : {}),
           };
@@ -1430,6 +1566,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           flakyTestBoards: s.flakyTestBoards,
           codeReviewLogs: s.codeReviewLogs,
           doraScorecards: s.doraScorecards,
+          healthDashboards: s.healthDashboards,
+          featureFlags: s.featureFlags,
           sloBuilders: s.sloBuilders,
           spacePulses: s.spacePulses,
           devexSurveys: s.devexSurveys,
@@ -1453,9 +1591,19 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           skillsMatrices: s.skillsMatrices,
           pokerEstimationLogs: s.pokerEstimationLogs,
           pokerRounds: s.pokerRounds,
+          // Phase 6 — Team & people
+          definitionsOfDone: s.definitionsOfDone,
+          raciMatrices: s.raciMatrices,
+          adkarDocs: s.adkarDocs,
+          moodTrackerDocs: s.moodTrackerDocs,
+          moodPulses: s.moodPulses,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
+          // Phase 7 — Prioritize & decide
+          allocationRounds: s.allocationRounds,
+          buyAFeatureGames: s.buyAFeatureGames,
+          weightedMatrices: s.weightedMatrices,
           // Phase 21
           daciDecisions: s.daciDecisions,
           rapidDecisions: s.rapidDecisions,
@@ -1533,14 +1681,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           okrs: sanitizeArray<Okr>(p.okrs),
           decisions: sanitizeArray<Decision>(p.decisions),
           techDebt: sanitizeArray<TechDebtItem>(p.techDebt),
-          // Require integer in [1,5]; `typeof x === "number"` lets through
-          // floats and NaN, so check both. `Number.isInteger(NaN)` is false.
-          maturityLevel:
-            Number.isInteger(p.maturityLevel) &&
-            (p.maturityLevel as number) >= 1 &&
-            (p.maturityLevel as number) <= 5
-              ? (p.maturityLevel as Workspace["maturityLevel"])
-              : undefined,
+          // Require an integer in [1,5] (isMaturityLevel).
+          maturityLevel: isMaturityLevel(p.maturityLevel) ? p.maturityLevel : undefined,
           teamName: typeof p.teamName === "string" ? p.teamName : undefined,
           // Phase 19 — accept arrays only; unknown shapes get dropped
           llmEvals: arr("llmEvals"),
@@ -1566,6 +1708,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           flakyTestBoards: arr("flakyTestBoards"),
           codeReviewLogs: arr("codeReviewLogs"),
           doraScorecards: arr("doraScorecards"),
+          healthDashboards: arr("healthDashboards"),
+          featureFlags: arr("featureFlags"),
           sloBuilders: arr("sloBuilders"),
           spacePulses: arr("spacePulses"),
           devexSurveys: arr("devexSurveys"),
@@ -1589,9 +1733,19 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           skillsMatrices: arr("skillsMatrices"),
           pokerEstimationLogs: arr("pokerEstimationLogs"),
           pokerRounds: arr("pokerRounds"),
+          // Phase 6 — Team & people
+          definitionsOfDone: arr("definitionsOfDone"),
+          raciMatrices: arr("raciMatrices"),
+          adkarDocs: arr("adkarDocs"),
+          moodTrackerDocs: arr("moodTrackerDocs"),
+          moodPulses: arr("moodPulses"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
+          // Phase 7 — Prioritize & decide
+          allocationRounds: arr("allocationRounds"),
+          buyAFeatureGames: arr("buyAFeatureGames"),
+          weightedMatrices: arr("weightedMatrices"),
           // Phase 21
           daciDecisions: arr("daciDecisions"),
           rapidDecisions: arr("rapidDecisions"),
@@ -1898,6 +2052,8 @@ if (typeof window !== "undefined") {
     registerCollection("flakyTestBoard", "flakyTestBoards");
     registerCollection("codeReviewLog", "codeReviewLogs");
     registerCollection("doraScorecard", "doraScorecards");
+    registerCollection("healthDashboard", "healthDashboards");
+    registerCollection("featureFlag", "featureFlags");
     registerCollection("sloBuilder", "sloBuilders");
     registerCollection("spacePulse", "spacePulses");
     registerCollection("devexSurvey", "devexSurveys");
@@ -1924,8 +2080,27 @@ if (typeof window !== "undefined") {
     registerCollection("skillsMatrix", "skillsMatrices");
     registerCollection("pokerEstimationLog", "pokerEstimationLogs");
     registerCollection("pokerRound", "pokerRounds");
+    // Phase 6 — Team & people. Each kind is what kindFromToolId derives from
+    // its workspace.* CRUD (workspace.definition_of_done → definitionOfDone,
+    // workspace.mood_tracker_doc → moodTrackerDoc, …), so the agents' CRUD
+    // needs no serverKind override. Server-side code names them by the
+    // workspace-types constants DOD_KIND, RACI_KIND, ADKAR_KIND,
+    // MOOD_TRACKER_KIND and MOOD_PULSE_KIND; a test keeps the three in step.
+    registerCollection("definitionOfDone", "definitionsOfDone");
+    registerCollection("raciMatrix", "raciMatrices");
+    registerCollection("adkarDoc", "adkarDocs");
+    registerCollection("moodTrackerDoc", "moodTrackerDocs");
+    registerCollection("moodPulse", "moodPulses");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
+    // Phase 7 — Prioritize & decide. As in Phase 6, each kind is what
+    // kindFromToolId derives from its workspace.* CRUD (allocation_round,
+    // buy_a_feature_game, weighted_matrix), and server-side code names them
+    // by ALLOCATION_ROUND_KIND, BUY_A_FEATURE_KIND and WEIGHTED_MATRIX_KIND;
+    // a test keeps the three in step.
+    registerCollection("allocationRound", "allocationRounds");
+    registerCollection("buyAFeatureGame", "buyAFeatureGames");
+    registerCollection("weightedMatrix", "weightedMatrices");
     // Phase 21 — Decision frameworks
     registerCollection("daciDecision", "daciDecisions");
     registerCollection("rapidDecision", "rapidDecisions");
@@ -1975,13 +2150,17 @@ if (typeof window !== "undefined") {
     // ── Scalars (teamName, maturityLevel) as one blob ─────────────
     interface WorkspaceScalars {
       teamName?: string;
-      maturityLevel?: number;
+      /** null = unassessed. */
+      maturityLevel?: number | null;
     }
     registerBlobStore({
       storeKey: "agile-toolkit:workspace:scalars",
       getSnapshot: (): WorkspaceScalars => {
         const s = registry.getState();
-        return { teamName: s.teamName, maturityLevel: s.maturityLevel };
+        // An unassessed team is sent as null, not left out: JSON drops an
+        // undefined key, so clearing the level (the Maturity tool removing
+        // its last assessment) never reached other devices or the agents.
+        return { teamName: s.teamName, maturityLevel: s.maturityLevel ?? null };
       },
       setSnapshot: (next) => {
         // R12-fix: apply only keys PRESENT in the blob. The server-side
@@ -1995,7 +2174,9 @@ if (typeof window !== "undefined") {
         const patch: Partial<Workspace> = {};
         if ("teamName" in v) patch.teamName = v.teamName;
         if ("maturityLevel" in v) {
-          patch.maturityLevel = v.maturityLevel as Workspace["maturityLevel"];
+          // null (unassessed) or anything outside the integer 1-5 band
+          // clears the level, as importJSON reads it.
+          patch.maturityLevel = isMaturityLevel(v.maturityLevel) ? v.maturityLevel : undefined;
         }
         if (Object.keys(patch).length > 0) registry.setState(patch);
       },
@@ -2049,6 +2230,8 @@ export function getWorkspaceSnapshot(): Workspace {
     flakyTestBoards: state.flakyTestBoards,
     codeReviewLogs: state.codeReviewLogs,
     doraScorecards: state.doraScorecards,
+    healthDashboards: state.healthDashboards,
+    featureFlags: state.featureFlags,
     sloBuilders: state.sloBuilders,
     spacePulses: state.spacePulses,
     devexSurveys: state.devexSurveys,
@@ -2072,8 +2255,16 @@ export function getWorkspaceSnapshot(): Workspace {
     skillsMatrices: state.skillsMatrices,
     pokerEstimationLogs: state.pokerEstimationLogs,
     pokerRounds: state.pokerRounds,
+    definitionsOfDone: state.definitionsOfDone,
+    raciMatrices: state.raciMatrices,
+    adkarDocs: state.adkarDocs,
+    moodTrackerDocs: state.moodTrackerDocs,
+    moodPulses: state.moodPulses,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
+    allocationRounds: state.allocationRounds,
+    buyAFeatureGames: state.buyAFeatureGames,
+    weightedMatrices: state.weightedMatrices,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,
     weightedOptions: state.weightedOptions,

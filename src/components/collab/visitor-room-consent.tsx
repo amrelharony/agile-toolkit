@@ -22,6 +22,26 @@ export const VISITOR_ROOM_CONSENT_TEXT =
   "We don't store it; the room disappears when everyone leaves. " +
   "Share the link only with your team.";
 
+/**
+ * The vote-round variant: answers are numbers, encrypted to the host's
+ * browser, and only totals are kept and shown. It promises no more than
+ * that: the totals of a unanimous question show everyone's answer.
+ * Exported for tests.
+ */
+export const VOTE_ROOM_CONSENT_TEXT =
+  "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
+  "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
+  "Others in the room see your name and whether you've answered, not what. " +
+  "After the host reveals the results, everyone in the room sees the totals, for questions " +
+  "with enough answers; if everyone gives the same answer, the totals show it. " +
+  "Share the link only with your team.";
+
+/** The box people tick, per variant. */
+const CONSENT_CHECKBOX = {
+  board: "I understand that anyone with the link can see what I type.",
+  vote: "I understand that everyone in the room sees my name and whether I've answered.",
+} as const;
+
 export interface VisitorRoomConsentProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -31,6 +51,11 @@ export interface VisitorRoomConsentProps {
   toolName: string;
   /** Prefills the name field each time the dialog opens. */
   defaultName?: string;
+  /**
+   * "board" (default): Poker and Retro, where what people type is shared.
+   * "vote": an anonymous vote round, where only encrypted numbers are.
+   */
+  variant?: "board" | "vote";
   /**
    * Called once, with the cleaned name, after the person gave a name and
    * ticked the consent box. Open the channel only from here (typically
@@ -49,6 +74,7 @@ export function VisitorRoomConsent({
   mode,
   toolName,
   defaultName = "",
+  variant = "board",
   onConfirm,
 }: VisitorRoomConsentProps) {
   const [name, setName] = useState(defaultName);
@@ -86,6 +112,7 @@ export function VisitorRoomConsent({
   };
 
   const action = mode === "start" ? "Start room" : "Join room";
+  const consentText = variant === "vote" ? VOTE_ROOM_CONSENT_TEXT : VISITOR_ROOM_CONSENT_TEXT;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -98,7 +125,7 @@ export function VisitorRoomConsent({
                 ? `Start a live ${toolName} room`
                 : `Join the live ${toolName} room`}
             </DialogTitle>
-            <DialogDescription>{VISITOR_ROOM_CONSENT_TEXT}</DialogDescription>
+            <DialogDescription>{consentText}</DialogDescription>
           </DialogHeader>
 
           <p className="text-xs text-sub">
@@ -134,7 +161,7 @@ export function VisitorRoomConsent({
                   if (e.target.checked) setConsentError(null);
                 }}
               />
-              <span>I understand that anyone with the link can see what I type.</span>
+              <span>{CONSENT_CHECKBOX[variant]}</span>
             </label>
             {consentError && (
               <p id={consentErrorId} className="text-xs text-danger" role="alert">

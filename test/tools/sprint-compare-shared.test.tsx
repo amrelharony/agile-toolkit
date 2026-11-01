@@ -3,9 +3,10 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 /**
- * Sprint Comparison rates the shared sprints: ratings live on each sprint's
- * series, the compared sprints are a plain array of ids in this browser, and
- * the example is an in-memory preview that saves nothing.
+ * Sprint Comparison scores the shared sprints: the team's ratings (Team
+ * Happiness, Quality) live on each sprint's series, the other scores are
+ * computed, the compared sprints are a plain array of ids in this browser,
+ * and the example is an in-memory preview that saves nothing.
  */
 
 const logged = vi.hoisted(() => ({ events: [] as { action: string; payload: unknown }[] }));
@@ -48,7 +49,7 @@ beforeAll(() => {
 
 import { SprintCompareClient } from "@/app/(tools)/sprint-compare/sprint-compare-client";
 import { PINS_KEY, defaultPins, parsePins, resolvePins } from "@/app/(tools)/sprint-compare/pins";
-import { buildRows } from "@/app/(tools)/sprint-compare/view";
+import { buildRows, scoredValues, scoresBySprint } from "@/app/(tools)/sprint-compare/view";
 import { toMarkdown } from "@/app/(tools)/sprint-compare/markdown";
 import { generateSprintComparePrompts } from "@/lib/ai-prompts/sprint-compare";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -115,12 +116,14 @@ describe("default pins", () => {
   });
 
   it("apply on screen when nothing is stored, without writing the key", () => {
+    // Every finished sprint has computed scores; the running one has none.
     seed(ALL, [rated("s2", { Velocity: 6 }), rated("s4", { Velocity: 8 })]);
     render(<SprintCompareClient />);
     expect(screen.getAllByRole("button", { name: "Unpin Sprint 2" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Unpin Sprint 4" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Unpin Sprint 6" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Pin Sprint 1" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Pin Sprint 7" }).length).toBeGreaterThan(0);
-    expect(screen.getByText("2 of 5 compared")).toBeInTheDocument();
+    expect(screen.getByText("5 of 5 compared")).toBeInTheDocument();
     expect(storedPins()).toBeNull();
   });
 });
@@ -132,9 +135,9 @@ describe("pinning", () => {
   });
 
   it("pins and unpins, saved as a plain JSON array of sprint ids", () => {
-    seed(ALL);
+    // No sprint closed yet: none has a score, so the default is the three newest.
+    seed(ALL.map((s) => ({ ...s, status: "planned" as const, pointsCompleted: undefined })));
     render(<SprintCompareClient />);
-    // Defaults: the three newest (nothing rated).
     fireEvent.click(screen.getAllByRole("button", { name: "Pin Sprint 2" })[0]);
     expect(storedPins()).toEqual(["s7", "s6", "s5", "s2"]);
     expect(logged.events).toContainEqual({
@@ -189,7 +192,8 @@ describe("pinning", () => {
     render(<SprintCompareClient />);
     fireEvent.click(screen.getByRole("button", { name: "Reset comparison" }));
     expect(storedPins()).toBeNull();
-    expect(screen.getByText("3 of 5 compared")).toBeInTheDocument();
+    // The five newest scored sprints.
+    expect(screen.getByText("5 of 5 compared")).toBeInTheDocument();
     expect(logged.events.map((e) => e.action)).toContain("compare_reset");
     act(() => undo.last!.revert());
     expect(storedPins()).toEqual(["s1"]);
@@ -198,27 +202,29 @@ describe("pinning", () => {
 });
 
 describe("ratings", () => {
-  it("are saved to the sprint's series, and an unrated dimension stays absent", () => {
+  it("are saved to the sprint's series, and an unscored dimension stays absent", () => {
     window.localStorage.setItem(PINS_KEY, JSON.stringify(["s3"]));
     seed(ALL, [{ id: "s3", days: [{ day: 1, remaining: 20 }] }]);
     render(<SprintCompareClient />);
 
-    const velocity = screen.getByRole("spinbutton", { name: "Velocity for Sprint 3" });
-    expect(velocity).toHaveValue(null); // empty: not rated
-    fireEvent.change(velocity, { target: { value: "8" } });
-    fireEvent.blur(velocity);
+    // Velocity is computed now: there's no box to type it into.
+    expect(screen.queryByRole("spinbutton", { name: "Velocity for Sprint 3" })).toBeNull();
+    const happiness = screen.getByRole("spinbutton", { name: "Team Happiness for Sprint 3" });
+    expect(happiness).toHaveValue(null); // empty: not rated
+    fireEvent.change(happiness, { target: { value: "8" } });
+    fireEvent.blur(happiness);
 
-    expect(seriesOf("s3")?.ratings).toEqual({ Velocity: 8 });
+    expect(seriesOf("s3")?.ratings).toEqual({ "Team Happiness": 8 });
     // The rest of the series is kept.
     expect(seriesOf("s3")?.days).toEqual([{ day: 1, remaining: 20 }]);
-    // The other dimensions show as not rated, not as a default score.
+    // The dimensions with nothing to go on show as not scored, not as a default.
     expect(screen.getByRole("spinbutton", { name: "Quality for Sprint 3" })).toHaveValue(null);
     const table = screen.getByRole("table");
-    expect(within(table).getAllByText("Not rated")).toHaveLength(5);
-    expect(within(table).getByText("8.0")).toBeInTheDocument(); // the average of what's rated
+    // Quality, Scope Stability and Goal Achievement.
+    expect(within(table).getAllByText("Not scored")).toHaveLength(3);
   });
 
-  it("clamps to 1-10 and clearing a box removes the rating", () => {
+  it("checks 1-10 instead of clamping, and clearing a box removes the rating", () => {
     window.localStorage.setItem(PINS_KEY, JSON.stringify(["s3"]));
     seed(ALL, [rated("s3", { Quality: 6, Velocity: 7 })]);
     render(<SprintCompareClient />);
@@ -226,10 +232,12 @@ describe("ratings", () => {
     const quality = screen.getByRole("spinbutton", { name: "Quality for Sprint 3" });
     fireEvent.change(quality, { target: { value: "14" } });
     fireEvent.blur(quality);
-    expect(seriesOf("s3")?.ratings).toEqual({ Quality: 10, Velocity: 7 });
+    expect(screen.getByRole("alert")).toHaveTextContent("Rate 1 to 10.");
+    expect(seriesOf("s3")?.ratings).toEqual({ Quality: 6, Velocity: 7 });
 
     fireEvent.change(quality, { target: { value: "" } });
     fireEvent.blur(quality);
+    // A rating typed for a computed dimension before is kept, never deleted.
     expect(seriesOf("s3")?.ratings).toEqual({ Velocity: 7 });
   });
 
@@ -240,11 +248,12 @@ describe("ratings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Rate Sprint 1" }));
     expect(window.localStorage.getItem(SELECTED_SPRINT_KEY)).toBe("s1");
     expect(screen.getByText("Not in the comparison")).toBeInTheDocument();
-    const box = screen.getByRole("spinbutton", { name: "Velocity for Sprint 1" });
+    // The first box the team rates.
+    const box = screen.getByRole("spinbutton", { name: "Quality for Sprint 1" });
     expect(box).toHaveFocus();
     fireEvent.change(box, { target: { value: "5" } });
     fireEvent.blur(box);
-    expect(seriesOf("s1")?.ratings).toEqual({ Velocity: 5 });
+    expect(seriesOf("s1")?.ratings).toEqual({ Quality: 5 });
     // Rating a sprint doesn't pin it.
     expect(storedPins()).toEqual(["s3"]);
   });
@@ -261,9 +270,9 @@ describe("example", () => {
   it("is a read-only preview that writes nothing", () => {
     seed([], []);
     render(<SprintCompareClient />);
-    fireEvent.click(screen.getByRole("button", { name: "See an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
-    expect(screen.getByText("Example sprints.")).toBeInTheDocument();
+    expect(screen.getByText("Example data.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start your own" })).toBeInTheDocument();
     const boxes = screen.getAllByRole("spinbutton");
     expect(boxes.length).toBeGreaterThan(0);
@@ -278,14 +287,14 @@ describe("example", () => {
     expect(window.localStorage.getItem(SELECTED_SPRINT_KEY)).toBeNull();
     expect(logged.events).toEqual([]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(screen.getByText(/No sprints yet/)).toBeInTheDocument();
   });
 
   it("'Start your own' creates a real sprint and pins it", () => {
     seed([], []);
     render(<SprintCompareClient />);
-    fireEvent.click(screen.getByRole("button", { name: "See an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     fireEvent.click(screen.getByRole("button", { name: "Start your own" }));
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: "Sprint 1" } });
@@ -294,7 +303,7 @@ describe("example", () => {
     const [created] = useWorkspaceStore.getState().sprints;
     expect(created?.name).toBe("Sprint 1");
     expect(storedPins()).toEqual([created.id]);
-    expect(screen.queryByText("Example sprints.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Example data.")).not.toBeInTheDocument();
   });
 });
 
@@ -318,29 +327,37 @@ describe("while old data is being moved", () => {
 });
 
 describe("exports", () => {
-  const rows = buildRows(["s2", "s1"], ALL, [rated("s1", { Velocity: 6, Quality: 8 })]);
+  // Sprint 1 rated its Quality; Sprint 2 is still running.
+  const sprints = [S1, { ...S2, status: "active" as const, pointsCompleted: undefined }, S3, S4];
+  const scores = scoresBySprint(sprints, {
+    stories: [],
+    series: [rated("s1", { Velocity: 6, Quality: 8 })],
+  });
+  const rows = buildRows(["s2", "s1"], sprints, scores);
 
   it("orders the comparison oldest first", () => {
     expect(rows.map((r) => r.id)).toEqual(["s1", "s2"]);
   });
 
-  it("Markdown shows a dash for unrated dimensions", () => {
+  it("Markdown shows the scores, a dash for unscored ones, and where each came from", () => {
     const md = toMarkdown(rows, new Date(2026, 9, 19));
     expect(md).toContain("| Dimension | Sprint 1 | Sprint 2 |");
-    expect(md).toContain("| Velocity | 6 | – |");
+    // 21 of the team's best 24 points: computed, so the old typed 6 isn't used.
+    expect(md).toContain("| Velocity | 8.9 | – |");
+    expect(md).toContain("| Quality | 8 | – |");
     expect(md).toContain("| Scope Stability | – | – |");
-    expect(md).toContain("| **Average** | **7.0** | – |");
-    expect(md).toContain("| Points done | 21 of 30 points | 22 of 30 points |");
+    expect(md).toContain("| Points done | 21 of 30 points | – |");
+    expect(md).toContain("- **Quality:** Rated by the team");
+    expect(md).toContain("- **Velocity:** From Velocity · 21 points against the team's best");
   });
 
-  it("AI prompts don't count unrated dimensions as zero", () => {
+  it("AI prompts don't count unscored dimensions as zero", () => {
     const prompts = generateSprintComparePrompts({
-      sprints: rows.map((r) => ({ name: r.name, scores: r.ratings })),
+      sprints: rows.map((r) => ({ name: r.name, scores: scoredValues(r.scores) })),
     });
     expect(prompts).toHaveLength(2);
     expect(prompts[0].prompt).toContain("not rated");
-    expect(prompts[0].prompt).toContain("Weakest average dimension: Velocity (6)");
-    expect(prompts[0].prompt).toContain("Strongest average dimension: Quality (8)");
+    expect(prompts[0].prompt).toContain("Strongest average dimension: Velocity (8.9)");
     expect(generateSprintComparePrompts({ sprints: [{ name: "A", scores: {} }] })).toEqual([]);
   });
 });

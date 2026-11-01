@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { HundredDollarTestClient } from "./hundred-dollar-test-client";
 
-export const metadata: Metadata = {
-  title: "$100 Test",
-  description:
-    "Cumulative voting — each participant allocates $100 across competing items, forcing critical tradeoffs.",
-};
+export const metadata: Metadata = toolMetadata("hundred-dollar-test");
 
 export default function Page() {
   return <HundredDollarTestClient />;

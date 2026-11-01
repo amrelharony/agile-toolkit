@@ -49,6 +49,20 @@ export function todayIso(now: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/**
+ * The local calendar day of a timestamp (or a plain "YYYY-MM-DD" as it is),
+ * or null. Stamps are UTC ISO strings, so slicing them would put an evening's
+ * move on the next day east of UTC (or the previous one west of it).
+ */
+export function localDay(value: string | undefined | null): string | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const t = Date.parse(value);
+  if (Number.isFinite(t)) return todayIso(new Date(t));
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return m ? m[1] : null;
+}
+
 /** Days from start to end (the last day's index), or the default when dates are missing. */
 export function sprintLengthDays(sprint: Pick<Sprint, "startDate" | "endDate">): number {
   const start = utcDay(sprint.startDate);
@@ -380,9 +394,16 @@ export function loggedDayCount(series: SprintSeries | undefined): number {
   return (series?.days ?? NO_DAYS).filter((d) => d.remaining != null || d.completed != null).length;
 }
 
-/** Mean of the ratings, rounded to one decimal, or null when there are none. */
+/**
+ * Mean of the Sprint Comparison ratings, rounded to one decimal, or null
+ * when there are none. Only its six dimensions count: a stray key (a hand
+ * edit, an older client) must not move the average.
+ */
 export function averageRating(series: SprintSeries | undefined): number | null {
-  const values = Object.values(series?.ratings ?? {}).filter((v) => Number.isFinite(v));
+  const ratings = series?.ratings ?? {};
+  const values = SPRINT_RATING_DIMENSIONS.map((d) => ratings[d]).filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v)
+  );
   if (values.length === 0) return null;
   return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
 }
@@ -399,4 +420,21 @@ export function sprintsNewestFirst(sprints: readonly Sprint[]): Sprint[] {
     }
     return a.name.localeCompare(b.name);
   });
+}
+
+/** The chosen sprint if it exists, else the active one, else the newest (not cancelled). */
+export function pickDefaultSprint(
+  sprints: readonly Sprint[],
+  chosenId: string | null | undefined
+): Sprint | undefined {
+  if (chosenId) {
+    const chosen = sprints.find((s) => s.id === chosenId);
+    if (chosen) return chosen;
+  }
+  const newest = sprintsNewestFirst(sprints);
+  return (
+    newest.find((s) => s.status === "active") ??
+    newest.find((s) => s.status !== "cancelled") ??
+    newest[0]
+  );
 }

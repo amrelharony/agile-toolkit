@@ -107,7 +107,8 @@ describe("kanban toMarkdown", () => {
     expect(lines).toContain("- Fix double charge (Expedite) — Charged twice on retry");
     expect(lines).toContain("- Sale banner (Fixed date)");
     expect(lines).toContain("- Wallet payments");
-    expect(lines).toContain("- Delivery estimate (cycle time 3.0 days)");
+    // 10 to 13 October, both days counted.
+    expect(lines).toContain("- Delivery estimate (cycle time 4.0 days)");
     expect(lines).toContain("No cards.");
     expect(md.endsWith("\n")).toBe(true);
     expect(md.endsWith("\n\n")).toBe(false);

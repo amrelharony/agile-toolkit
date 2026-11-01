@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CADENCE } from "@/lib/sprints/cadence";
+import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import { agreementVerdict, normalizeAgreement } from "@/lib/working-agreement/model";
 import {
   charterCards,
   charterMarkdown,
@@ -93,12 +95,13 @@ describe("charterCards", () => {
     const [agreement, dod, dor, estimation] = charterCards(FULL);
     expect(agreement).toMatchObject({
       empty: false,
-      status: "2 rules · 1 agreed by name",
+      status: "2 rules · 1 with everyone's consent",
       detail: "Version 3, published 2026-10-01",
     });
+    // No sprint has closed with per-story ticks: the old snapshot, named as such.
     expect(dod).toMatchObject({
       status: "2 criteria · 1 required",
-      detail: "Last check: Sprint 1, 1 of 1 required met",
+      detail: "Old team-level tally: Sprint 1, 1 of 1 required met",
     });
     expect(dor).toMatchObject({
       status: "2 checks",
@@ -108,6 +111,177 @@ describe("charterCards", () => {
     // The guide's free-text example column; pinned stories are counted apart.
     expect(estimation.detail).toBe("1 team example");
     expect(estimation.references).toBeUndefined();
+  });
+});
+
+describe("the working agreement card", () => {
+  const ROSTER: CharterDocs["members"] = [
+    { id: "m1", name: "Ann" },
+    { id: "m2", name: "Bob" },
+    { id: "m3", name: "Cy" },
+  ];
+  const vote = (name: string, v: "consent" | "concern" | "object") => ({
+    name,
+    vote: v,
+    at: "2026-10-01T09:00:00.000Z",
+  });
+  const rule = (id: string, consent: ReturnType<typeof vote>[]) => ({
+    id,
+    category: "work" as const,
+    text: `Rule ${id}`,
+    agreedBy: consent.filter((c) => c.vote === "consent").map((c) => c.name),
+    consent,
+  });
+  const agreement = (extra: Partial<NonNullable<CharterDocs["agreement"]>> = {}) =>
+    charterCards({
+      ...EMPTY,
+      members: ROSTER,
+      agreement: {
+        id: "workingAgreement:current",
+        rules: [
+          // Everyone answered; a concern still consents.
+          rule("r1", [vote("Ann", "consent"), vote("Bob", "concern"), vote("Cy", "consent")]),
+          // Cy hasn't answered.
+          rule("r2", [vote("Ann", "consent"), vote("Bob", "consent")]),
+          // Bob objects.
+          rule("r3", [vote("Ann", "consent"), vote("Bob", "object"), vote("Cy", "consent")]),
+        ],
+        meta: { version: 2, publishedAt: "2026-10-05T10:00:00.000Z" },
+        ...extra,
+      },
+    })[0];
+
+  it("counts the rules with everyone on the roster's consent, and the objections", () => {
+    expect(agreement().status).toBe("3 rules · 1 with everyone's consent · 1 with an objection");
+  });
+
+  it("says when nobody has answered yet, rather than none consenting", () => {
+    const card = charterCards({
+      ...EMPTY,
+      members: ROSTER,
+      agreement: {
+        id: "workingAgreement:current",
+        rules: [rule("r1", [])],
+        meta: { version: 0 },
+      },
+    })[0];
+    expect(card.status).toBe("1 rule · nobody has given consent yet");
+    // Version 0 is a draft, not a version.
+    expect(card.detail).toBe("Not published yet");
+  });
+
+  it("adds what the last saved check-in found to the version", () => {
+    const card = agreement({
+      checkIns: [
+        {
+          id: "c2",
+          date: "2026-10-20",
+          version: 2,
+          results: { r1: "working", r2: "not_working", r3: "working" },
+        },
+        { id: "c1", date: "2026-10-06", version: 2, results: { r1: "not_working" } },
+      ],
+    });
+    expect(card.detail).toBe(
+      "Version 2, published 2026-10-05 · Last check-in 2026-10-20: 2 of 3 rules working"
+    );
+  });
+
+  it("counts as published only as the Working Agreement page does: a version with its day", () => {
+    // A version above 0 with no publish day survives normalising when a
+    // snapshot was kept; the page reads it as not published.
+    const doc = normalizeAgreement({
+      id: "workingAgreement:current",
+      rules: [rule("r1", [])],
+      meta: { version: 2 },
+      versions: [{ version: 1, publishedAt: "2026-09-01T09:00:00.000Z", rules: [] }],
+    });
+    expect(doc.meta.version).toBe(2);
+    expect(agreementVerdict(doc, ROSTER)).toMatch(/not published yet/);
+    expect(agreement({ meta: doc.meta, versions: doc.versions }).detail).toBe("Not published yet");
+    // With its day, both say it is published.
+    const dated = { ...doc.meta, publishedAt: "2026-10-05T10:00:00.000Z" };
+    expect(agreementVerdict({ ...doc, meta: dated }, ROSTER)).toMatch(/in v2 \(published/);
+    expect(agreement({ meta: dated }).detail).toBe("Version 2, published 2026-10-05");
+  });
+});
+
+describe("the Definition of Done card", () => {
+  const DOD: CharterDocs["dod"] = {
+    items: [
+      { id: "d1", label: "Code reviewed", category: "code", required: true },
+      { id: "d2", label: "Tests pass", category: "testing", required: true },
+      { id: "d3", label: "Docs updated", category: "docs", required: false },
+    ],
+    history: [{ sprintName: "Sprint 1", totalRequired: 2, completed: 1, ts: "2026-08-01" }],
+  };
+  const sprint = (
+    id: string,
+    endDate: string,
+    status: Sprint["status"] = "completed",
+    name = `Sprint ${id}`
+  ): Sprint => ({ id, name, startDate: "2026-09-01", endDate, pointsPlanned: 10, status });
+  const done = (id: string, sprintId: string, checked: string[]): Story => ({
+    id,
+    title: `Story ${id}`,
+    status: "done",
+    sprintId,
+    ...(checked.length > 0 ? { dodChecks: { checked, updatedAt: "2026-10-01" } } : {}),
+  });
+  const detail = (extra: Partial<CharterDocs>) =>
+    charterCards({ ...EMPTY, dod: DOD, ...extra })[1].detail;
+
+  it("reports the latest completed sprint's done stories, ticked on their cards", () => {
+    const sprints = [
+      sprint("7", "2026-10-14"),
+      sprint("6", "2026-09-30"),
+      // Neither an open, a cancelled nor an example sprint is the latest completed one.
+      sprint("8", "2026-10-28", "active"),
+      sprint("9", "2026-10-21", "cancelled"),
+      sprint("example-preview-sprint-1", "2026-10-25", "completed", "Example sprint"),
+    ];
+    const stories: Story[] = [
+      done("a", "7", ["d1", "d2"]),
+      done("b", "7", ["d1", "d2", "d3"]),
+      done("c", "7", ["d1", "d2"]),
+      done("d", "7", ["d2"]),
+      // An example story never counts.
+      done("example-e", "7", []),
+      // Another sprint's, and one not done yet.
+      done("f", "6", []),
+      { id: "g", title: "Story g", status: "in_progress", sprintId: "7" },
+    ];
+    expect(detail({ sprints, stories })).toBe("Sprint 7: 3 of 4 done stories meet it (75%)");
+  });
+
+  it("quotes no percentage below the minimum sample", () => {
+    const sprints = [sprint("7", "2026-10-14")];
+    expect(
+      detail({ sprints, stories: [done("a", "7", ["d1"]), done("b", "7", ["d1", "d2"])] })
+    ).toBe("Sprint 7: 1 of 2 done stories meet it");
+    expect(detail({ sprints, stories: [done("a", "7", ["d1", "d2"])] })).toBe(
+      "Sprint 7: 1 of 1 done story meets it"
+    );
+  });
+
+  it("says when the latest completed sprint had no story done", () => {
+    expect(detail({ sprints: [sprint("7", "2026-10-14")], stories: [] })).toBe(
+      "Sprint 7: no story was done"
+    );
+  });
+
+  it("falls back to the old team-level tally, named as such, without a completed sprint", () => {
+    expect(detail({ sprints: [sprint("8", "2026-10-28", "active")] })).toBe(
+      "Old team-level tally: Sprint 1, 1 of 2 required met"
+    );
+    expect(detail({ dod: { items: DOD.items, history: [] } })).toBeUndefined();
+  });
+
+  it("has nothing to report per story when no criterion is required", () => {
+    const optional = { items: [{ ...DOD.items[2] }], history: [] };
+    expect(
+      detail({ dod: optional, sprints: [sprint("7", "2026-10-14")], stories: [done("a", "7", [])] })
+    ).toBeUndefined();
   });
 });
 

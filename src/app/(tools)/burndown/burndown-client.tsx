@@ -2,29 +2,32 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { BarChart3, Flag, Minus, Trash2, TrendingDown, TrendingUp } from "lucide-react";
+import { BarChart3, ChevronDown, Flag, ListChecks, Trash2, TrendingDown } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ChartCard } from "@/components/shared/chart-card";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { SectionCard } from "@/components/shared/section-card";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { useChartHeight } from "@/hooks/use-chart-height";
 import { generateBurndownPrompts } from "@/lib/ai-prompts/burndown";
-import { cusum } from "@/lib/analytics/changepoint";
-import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { BURNDOWN_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger, type HistoryLogger } from "@/lib/history/use-history-logger";
 import { useToolSonification } from "@/lib/sonification/use-sonification";
-import { denseSeries } from "@/lib/sprints/metrics";
-import { dayDate, dayForDate, todayIso } from "@/lib/sprints/series";
-import type { SprintDay } from "@/lib/stores/workspace-types";
+import { burnSeries, burnStatus, offDayRanges, type BurnSeries } from "@/lib/sprints/burn";
+import { fmt } from "@/lib/sprints/hub-view";
+import { dayDate } from "@/lib/sprints/series";
+import type { Sprint, SprintDay } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
-import { burndownChartText } from "./chart-text";
-import { toMarkdown } from "./markdown";
+import { BurnAdvanced } from "./advanced";
+import { BurnTiles, SourceBadge, SourceBar, offLabel } from "./burn-ui";
+import { burnChartText, type BurndownTextRow } from "./chart-text";
+import { exampleBurndown } from "./example";
+import { burndownMarkdown, sourceLine } from "./markdown";
 import {
   clearDay,
   clearLog,
@@ -43,6 +46,8 @@ import {
   type SprintSettingsChange,
   type SprintToolContext,
 } from "./sprint-shell";
+import { burndownTiles } from "./tiles";
+import { validateRemaining } from "./validate";
 import { burndownView } from "./view";
 
 // Recharts loads with the chart, not the page. ChartCard reserves the
@@ -52,77 +57,42 @@ const BurndownChart = dynamic(() => import("./charts").then((m) => m.BurndownCha
 });
 
 type Log = HistoryLogger["log"];
-type ForecastPoint = ReturnType<typeof forecastBayesianHolt>[number];
 
 /* -------------------------------------------------------------------------- */
-/*  Helpers                                                                    */
+/*  The typed daily log                                                        */
 /* -------------------------------------------------------------------------- */
 
-function getIdealValue(day: number, totalPoints: number, sprintDays: number): number {
-  // A zero or negative length would make the slope Infinity/NaN and crash
-  // the chart's domain; draw a flat line at the plan instead.
-  if (!Number.isFinite(sprintDays) || sprintDays <= 0) return totalPoints;
-  return Math.max(0, totalPoints - (totalPoints / sprintDays) * day);
-}
-
-function StatCard({
-  label,
-  value,
-  unit,
-  icon: Icon,
-  color = "#00f0ff",
-}: {
-  label: string;
-  value: string | number;
-  unit?: string;
-  icon: React.ElementType;
-  color?: string;
+function DailyLog({
+  sprint,
+  series,
+  burn,
+  readOnly,
+  log,
+  announce,
+}: Pick<SprintToolContext, "sprint" | "series" | "readOnly"> & {
+  burn: BurnSeries;
+  log: Log;
+  announce: (message: string) => void;
 }) {
-  return (
-    <Card className="bg-surface border-border">
-      <CardContent className="p-5">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="p-2 rounded-lg" style={{ background: `${color}18` }}>
-            <Icon className="w-5 h-5" style={{ color }} aria-hidden="true" />
-          </div>
-          <span className="text-sm text-sub">{label}</span>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-2xl sm:text-3xl font-data font-bold text-text">{value}</span>
-          {unit && <span className="text-sm text-sub">{unit}</span>}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  One sprint                                                                 */
-/* -------------------------------------------------------------------------- */
-
-function BurndownSprint({ sprint, series, readOnly, log }: SprintToolContext & { log: Log }) {
   const sonify = useToolSonification("burndown");
   const rowsId = useId();
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartHeight = useChartHeight({ min: 260, max: 420 });
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
-
   const view = useMemo(() => burndownView(sprint, series), [sprint, series]);
-  const { config, entries } = view;
-  const loggedDays = entries.filter((e) => e.stored).length;
-
-  /* -- Writes -------------------------------------------------------------- */
+  const loggedDays = view.entries.filter((e) => e.stored).length;
+  const ignored = burn.source === "stories";
 
   const setRemaining = (day: number, raw: string) => {
-    if (readOnly) return;
-    const text = raw.trim();
-    const n = text === "" ? null : Number(text);
-    if (n !== null && (!Number.isFinite(n) || n < 0)) return;
+    if (readOnly) return null;
+    const parsed = validateRemaining(raw);
+    if (!parsed.ok) return parsed.error;
+    const n = parsed.value;
     const write = writeBurndownDay(sprint.id, day, { remaining: n });
     if (write && n !== null && write.before?.remaining == null) {
       log(BURNDOWN_ACTIONS.DAY_LOGGED, { sprintId: sprint.id, day, remaining: n });
       sonify("day-logged");
     }
+    announce(n === null ? `Day ${day} cleared.` : `Day ${day}: ${formatPoints(n)} points left.`);
+    return null;
   };
 
   const setNote = (day: number, note: string) => {
@@ -140,11 +110,18 @@ function BurndownSprint({ sprint, series, readOnly, log }: SprintToolContext & {
       scopeChange: on,
       scope: write.after?.scope ?? null,
     });
+    announce(
+      on ? `Day ${day} marked as a scope change.` : `Day ${day} is no longer a scope change.`
+    );
     if (on) sonify("scope-change");
   };
 
+  const inputId = (day: number) => `${rowsId}-input-${day}`;
+
   const clearOneDay = (day: number) => {
     if (readOnly) return;
+    // The button disables once its day is empty: focus goes to the day's input, not the page top.
+    document.getElementById(inputId(day))?.focus();
     let removed: SprintDay | undefined;
     undoable({
       label: `Cleared day ${day}`,
@@ -171,169 +148,377 @@ function BurndownSprint({ sprint, series, readOnly, log }: SprintToolContext & {
     });
   };
 
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="max-w-prose text-xs text-sub">
+          {ignored
+            ? "Used only while the sprint has no pointed stories: numbers typed here are not used while the board has them."
+            : "At the end of each day, log the points still to do. Day 0 is the first day of the sprint."}
+        </p>
+        <Button
+          variant="danger-ghost"
+          size="sm"
+          disabled={readOnly || loggedDays === 0}
+          onClick={() => setConfirmClearOpen(true)}
+        >
+          Clear log
+        </Button>
+      </div>
+
+      {/* One compact row per day; the note is a single-line input to keep
+          the rhythm of the tracker. */}
+      <div className="mb-2 hidden grid-cols-[96px_1fr_1.2fr_140px_auto] gap-3 border-b border-border px-1 pb-2 sm:grid">
+        <span className="text-xs font-medium uppercase tracking-wider text-sub">Day</span>
+        <span className="text-xs font-medium uppercase tracking-wider text-sub">
+          Points remaining
+        </span>
+        <span className="text-xs font-medium uppercase tracking-wider text-sub">Note</span>
+        <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-sub">
+          <Flag className="h-3 w-3" aria-hidden="true" /> Scope change
+        </span>
+        <span className="w-9" />
+      </div>
+
+      <div className="space-y-2">
+        {view.entries.map((e) => {
+          const captionId = `${rowsId}-day-${e.day}`;
+          const ignoredId = `${rowsId}-ignored-${e.day}`;
+          const from = e.source === "derived" ? "Burnup" : e.source === "plan" ? "the plan" : null;
+          const date = shortDate(dayDate(sprint, e.day));
+          const off = burn.days[e.day] ? offLabel(burn.days[e.day]) : null;
+          const describedBy =
+            [
+              from && e.remaining !== null ? captionId : null,
+              ignored && e.typed !== null ? ignoredId : null,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined;
+          return (
+            <div
+              key={e.id}
+              className="grid grid-cols-[1fr_auto] gap-2 rounded-md border border-border p-2 sm:grid-cols-[96px_1fr_1.2fr_140px_auto] sm:items-start sm:gap-3 sm:border-0 sm:p-0"
+            >
+              <div className="flex flex-col sm:pt-1.5">
+                <span className="font-data text-sm font-semibold text-accent">Day {e.day}</span>
+                <span className="text-xs text-sub">
+                  {e.afterEnd ? `${date}, after the end` : date}
+                  {off ? ` · ${off}` : ""}
+                </span>
+              </div>
+
+              <IconButton
+                label={`Clear day ${e.day}`}
+                icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                variant="danger-ghost"
+                disabled={readOnly || !e.stored}
+                onClick={() => clearOneDay(e.day)}
+                className="min-touch-coarse h-9 w-9 justify-self-end disabled:opacity-30 sm:order-last"
+              />
+
+              <div className="col-span-2 sm:col-span-1">
+                <DraftInput
+                  id={inputId(e.day)}
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  badInputMessage="Enter the points left as a number."
+                  aria-label={`Remaining points on day ${e.day}`}
+                  aria-describedby={describedBy}
+                  placeholder={from && e.remaining !== null ? formatPoints(e.remaining) : "— pts"}
+                  value={e.typed === null ? "" : String(e.typed)}
+                  readOnly={readOnly}
+                  onCommit={(v) => setRemaining(e.day, v)}
+                  className="font-data"
+                />
+                {from && e.remaining !== null && (
+                  <DerivedCaption id={captionId} value={e.remaining} from={from} />
+                )}
+                {ignored && e.typed !== null && (
+                  <p id={ignoredId} className="mt-1 text-xs text-sub">
+                    Not used while the board has pointed stories
+                  </p>
+                )}
+              </div>
+
+              {ignored ? (
+                // The note is the day's, shared: while the board is the
+                // source it is edited in the board's rows above.
+                <p className="col-span-2 text-xs text-sub sm:col-span-1 sm:pt-2.5">
+                  {e.description ?? ""}
+                </p>
+              ) : (
+                <DraftInput
+                  type="text"
+                  placeholder="Optional note"
+                  aria-label={`Note for day ${e.day}`}
+                  value={e.description ?? ""}
+                  readOnly={readOnly}
+                  maxLength={280}
+                  onCommit={(v) => setNote(e.day, v)}
+                  wrapperClassName="col-span-2 sm:col-span-1"
+                  className="text-xs"
+                />
+              )}
+
+              <button
+                type="button"
+                disabled={readOnly}
+                aria-pressed={e.scopeChange}
+                onClick={() => flipScopeChange(e.day)}
+                className={`col-span-2 h-9 rounded-md border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed sm:col-span-1 ${
+                  e.scopeChange
+                    ? "border-accent-amber/40 bg-accent-amber/15 text-accent-amber"
+                    : "border-border bg-card text-sub hover:border-accent-amber/30 hover:text-accent-amber"
+                }`}
+              >
+                {e.scopeChange ? "Scope changed" : "Mark change"}{" "}
+                <span className="sr-only">on day {e.day}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-4 text-xs text-sub">
+        Leave a day blank until you reach it. A dimmed number was logged in Burnup; type over it to
+        use your own. Mark a scope change on a day the points went up because work was added, and
+        Burnup&apos;s scope line rises with it.
+      </p>
+
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={setConfirmClearOpen}
+        title="Clear the log?"
+        description={`The ${loggedDays} logged day${loggedDays === 1 ? "" : "s"} of ${sprint.name} ${
+          loggedDays === 1 ? "is" : "are"
+        } cleared, here and in Burnup. The sprint and its settings stay.`}
+        confirmLabel="Clear log"
+        onConfirm={clearWholeLog}
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The board's days                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The days as the board tells them, read-only: points left, done that day,
+ * and scope that joined or left. The note is the shared log's, so it stays
+ * editable.
+ */
+function BoardDays({
+  sprint,
+  burn,
+  readOnly,
+}: {
+  sprint: Sprint;
+  burn: BurnSeries;
+  readOnly: boolean;
+}) {
+  const shown = burn.days.filter((d) => d.remaining !== null);
+  if (shown.length === 0) {
+    return (
+      <p className="text-sm text-sub">
+        {burn.phase === "before"
+          ? "The sprint hasn't started: its days fill in from the board once it does."
+          : "Nothing on the board to read by day yet."}
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-2" aria-label="Points left by day, from the board">
+      {shown.map((d, i) => {
+        const prevDone = i > 0 ? (shown[i - 1].done ?? 0) : 0;
+        const doneToday = d.day > 0 ? Math.max(0, (d.done ?? 0) - prevDone) : 0;
+        const off = offLabel(d);
+        const moves = [
+          d.added > 0 ? `+${fmt(d.added)} added` : "",
+          d.removed > 0 ? `−${fmt(d.removed)} removed` : "",
+        ].filter(Boolean);
+        return (
+          <li
+            key={d.day}
+            className="grid grid-cols-1 gap-2 rounded-md border border-border p-2 sm:grid-cols-[120px_1fr_1.2fr] sm:items-center sm:gap-3"
+          >
+            <div className="flex flex-col">
+              <span className="font-data text-sm font-semibold text-accent">Day {d.day}</span>
+              <span className="text-xs text-sub">
+                {shortDate(d.date)}
+                {off ? ` · ${off}` : ""}
+              </span>
+            </div>
+            <p className="text-sm text-text">
+              <span className="font-data font-semibold">{fmt(d.remaining ?? 0)}</span> left
+              {doneToday > 0 && <span className="text-sub"> · {fmt(doneToday)} done that day</span>}
+              {moves.length > 0 && <span className="text-sub"> · {moves.join(", ")}</span>}
+            </p>
+            <DraftInput
+              type="text"
+              placeholder="Optional note"
+              aria-label={`Note for day ${d.day}`}
+              value={d.note ?? ""}
+              readOnly={readOnly}
+              maxLength={280}
+              onCommit={(v) => {
+                if (!readOnly) writeBurndownDay(sprint.id, d.day, { note: v });
+              }}
+              className="text-xs"
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  One sprint                                                                 */
+/* -------------------------------------------------------------------------- */
+
+function BurndownSprint({
+  sprint,
+  series,
+  stories,
+  calendar,
+  today,
+  readOnly,
+  log,
+}: SprintToolContext & { log: Log }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const chartHeight = useChartHeight({ min: 260, max: 420 });
+  const [prefer, setPrefer] = useState<"stories" | "log" | undefined>(undefined);
+  const [announcement, setAnnouncement] = useState("");
+
+  const burn = useMemo(
+    () => burnSeries({ sprint, series, stories, calendar, today, prefer }),
+    [sprint, series, stories, calendar, today, prefer]
+  );
+  const status = useMemo(() => burnStatus(burn, sprint), [burn, sprint]);
+
+  const chooseSource = (source: "stories" | "log") => {
+    if (source === burn.source) return;
+    setPrefer(source);
+    if (!readOnly) log(BURNDOWN_ACTIONS.SOURCE_SWITCHED, { sprintId: sprint.id, source });
+    setAnnouncement(source === "stories" ? "Showing the sprint board." : "Showing the typed log.");
+  };
+
   const onSettingsChanged = (change: SprintSettingsChange) =>
     log(BURNDOWN_ACTIONS.CONFIG_UPDATED, { sprintId: sprint.id, ...change });
 
-  /* -- Forecast and change points ------------------------------------------ */
+  /* -- Chart --------------------------------------------------------------- */
 
-  // Remaining for days 0..last logged day, a missed day carrying the previous
-  // reading forward. Holt needs evenly spaced samples and extrapolates from
-  // the last one, so it fits this dense run and the forecast is plotted from
-  // the day after it.
-  const dense = useMemo(() => denseSeries(sprint, series).remaining, [sprint, series]);
-  const lastDenseDay = dense.length - 1;
-
-  const forecastByDay = useMemo(() => {
-    const m = new Map<number, ForecastPoint>();
-    if (dense.length < 2) return m;
-    const horizon = Math.max(1, config.sprintDays - lastDenseDay);
-    forecastBayesianHolt(dense, horizon).forEach((fp, i) => m.set(lastDenseDay + i + 1, fp));
-    return m;
-  }, [dense, lastDenseDay, config.sprintDays]);
-
-  // CUSUM burn-rate shifts. The dense run starts at day 0, so an index is a
-  // day. Kept inside the chart's days so a marker can't stretch the axis.
-  const changepointDays = useMemo(() => {
-    if (dense.length < 4) return [] as Array<{ day: number; direction: "up" | "down" }>;
-    return cusum(dense)
-      .map((cp) => ({ day: cp.index, direction: cp.direction }))
-      .filter((x) => x.day >= 0 && x.day <= config.sprintDays);
-  }, [dense, config.sprintDays]);
-
-  /* -- Chart data ---------------------------------------------------------- */
-
-  const chartData = useMemo(
+  const rows = useMemo<BurndownTextRow[]>(
     () =>
-      entries
-        .filter((e) => e.day <= config.sprintDays)
-        .map((e) => {
-          const fc = forecastByDay.get(e.day);
-          return {
-            day: e.day,
-            ideal: parseFloat(
-              getIdealValue(e.day, config.totalPoints, config.sprintDays).toFixed(1)
-            ),
-            actual: e.remaining,
-            forecast: fc ? parseFloat(fc.yHat.toFixed(1)) : undefined,
-            // Remaining can't go below 0: clamp the band so it doesn't stretch the axis.
-            band80Lower: fc ? parseFloat(Math.max(0, fc.lower80).toFixed(1)) : undefined,
-            band80Upper: fc ? parseFloat(Math.max(0, fc.upper80).toFixed(1)) : undefined,
-            scopeChange: e.scopeChange,
-            description: e.description ?? "",
-          };
-        }),
-    [entries, config, forecastByDay]
+      burn.days.map((d) => ({
+        day: d.day,
+        ideal: d.ideal,
+        actual: d.remaining,
+        gap: d.gap,
+        off: d.off,
+        added: d.added,
+        removed: d.removed,
+      })),
+    [burn]
   );
-
-  // The chart in words: a summary sentence and the plotted series as a table.
-  const chartText = useMemo(() => burndownChartText(chartData), [chartData]);
-
-  const todayDay = useMemo(() => {
-    const d = dayForDate(sprint, todayIso());
-    return d !== null && d >= 0 && d <= config.sprintDays ? d : null;
-  }, [sprint, config.sprintDays]);
-
-  /* -- Summary stats ------------------------------------------------------- */
-
-  const stats = useMemo(() => {
-    const filled = entries.filter((e) => e.remaining !== null);
-    // Day 0 always has the starting scope, so one point is only the starting
-    // line. Until a second day has a number there's no trend to report.
-    if (filled.length < 2) {
-      return { hasData: false, variance: 0, trend: "neutral" as const, completionRate: 0 };
-    }
-    const last = filled[filled.length - 1];
-    const remaining = last.remaining ?? config.totalPoints;
-    const idealAtLastDay = getIdealValue(last.day, config.totalPoints, config.sprintDays);
-    const variance = parseFloat((idealAtLastDay - remaining).toFixed(1));
-    const trend = variance > 0.5 ? "ahead" : variance < -0.5 ? "behind" : "neutral";
-    // Zero-guarded, and clamped: remaining can pass the plan after scope is added.
-    const completionRate =
-      config.totalPoints > 0
-        ? Math.max(
-            0,
-            Math.min(100, Math.round(((config.totalPoints - remaining) / config.totalPoints) * 100))
-          )
-        : 0;
-    return { hasData: true, variance, trend, completionRate };
-  }, [entries, config]);
+  const chartText = useMemo(
+    () =>
+      burnChartText(rows, {
+        source: burn.source,
+        dated: burn.dated,
+        unpointedOpen: burn.unpointedOpen,
+        done: burn.done ?? 0,
+        scope: burn.scopeNow,
+      }),
+    [rows, burn]
+  );
+  const offDays = useMemo(() => offDayRanges(burn), [burn]);
+  const scopeMoves = useMemo(
+    () =>
+      burn.days
+        .filter((d) => d.added > 0 || d.removed > 0)
+        .map((d) => ({ day: d.day, added: d.added, removed: d.removed })),
+    [burn]
+  );
+  const flagged = useMemo(
+    () => burn.days.filter((d) => d.scopeChangeFlag).map((d) => d.day),
+    [burn]
+  );
 
   /* -- Export -------------------------------------------------------------- */
 
   const csvData = useMemo(
     () => ({
-      headers: ["Day", "Ideal (pts)", "Actual (pts)", "Scope Change", "Note"],
-      rows: chartData.map((d) => [
+      headers: [
+        "Day",
+        "Date",
+        "Day off",
+        "Source",
+        "Ideal (pts)",
+        "Remaining (pts)",
+        "Done (pts)",
+        "Scope (pts)",
+        "Added",
+        "Removed",
+        "Note",
+      ],
+      rows: burn.days.map((d) => [
         d.day,
+        d.date ?? "",
+        offLabel(d) ?? "",
+        d.from ?? "",
         d.ideal,
-        d.actual ?? "",
-        d.scopeChange ? "Yes" : "No",
-        d.description ?? "",
+        d.remaining ?? "",
+        d.done ?? "",
+        d.scope ?? "",
+        d.added || "",
+        d.removed || "",
+        d.note ?? "",
       ]),
     }),
-    [chartData]
+    [burn]
   );
-
-  const markdown = useMemo(() => toMarkdown({ config, entries }), [config, entries]);
-
-  const promptConfig = useMemo(
-    () => ({ toolName: "Burndown Chart", prompts: generateBurndownPrompts({ config, entries }) }),
-    [config, entries]
+  const markdown = useMemo(
+    () => burndownMarkdown({ sprint, burn, status }),
+    [sprint, burn, status]
   );
-
-  /* -- Trend --------------------------------------------------------------- */
-
-  const TrendIcon =
-    stats.trend === "ahead" ? TrendingDown : stats.trend === "behind" ? TrendingUp : Minus;
-  const trendColor =
-    stats.trend === "ahead" ? "#00ff88" : stats.trend === "behind" ? "#ef4444" : "#94a3b8";
-  const trendLabel = !stats.hasData
-    ? "No data yet"
-    : stats.trend === "ahead"
-      ? "Ahead of ideal"
-      : stats.trend === "behind"
-        ? "Behind ideal"
-        : "On track";
+  const promptConfig = useMemo(() => {
+    const config = burndownView(sprint, series).config;
+    const entries = burn.days.map((d) => ({
+      day: d.day,
+      remaining: d.remaining,
+      scopeChange: Boolean(d.scopeChangeFlag || d.added || d.removed),
+      ideal: d.ideal,
+      gap: d.gap,
+      ...(d.note ? { description: d.note } : {}),
+    }));
+    return {
+      toolName: "Burndown Chart",
+      prompts: generateBurndownPrompts({ config, entries, source: sourceLine(burn.source) }),
+    };
+  }, [sprint, series, burn]);
 
   /* -- Render -------------------------------------------------------------- */
 
   return (
     <div className="space-y-6">
-      {loggedDays === 0 && (
-        <p className="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-sub">
-          No days logged yet. At the end of each day, log the points still to do.
-        </p>
-      )}
+      <p data-burn-verdict aria-live="polite" className="text-sm font-medium text-text">
+        {status.verdict}
+      </p>
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Planned points" value={config.totalPoints} unit="pts" icon={BarChart3} />
-        <StatCard
-          label="Variance from ideal"
-          value={!stats.hasData ? "—" : stats.variance > 0 ? `+${stats.variance}` : stats.variance}
-          unit={stats.hasData ? "pts" : undefined}
-          icon={TrendIcon}
-          color={trendColor}
-        />
-        <StatCard
-          label="Completion rate"
-          value={stats.hasData ? stats.completionRate : "—"}
-          unit={stats.hasData ? "%" : undefined}
-          icon={TrendingDown}
-          color="#00f0ff"
-        />
-        <StatCard label="Trend" value={trendLabel} icon={TrendIcon} color={trendColor} />
-      </div>
+      <SourceBar burn={burn} sprint={sprint} onChoose={chooseSource} />
 
-      <SprintSettings
-        tool="burndown"
-        sprint={sprint}
-        readOnly={readOnly}
-        onChanged={onSettingsChanged}
-      />
+      <BurnTiles tiles={burndownTiles(sprint, burn, status)} />
 
       <ChartCard
         title="Burndown chart"
         icon={BarChart3}
+        badge={<SourceBadge source={burn.source} />}
         height={chartHeight}
         chartContainerRef={chartRef}
         summary={chartText.summary}
@@ -349,135 +534,74 @@ function BurndownSprint({ sprint, series, readOnly, log }: SprintToolContext & {
             />
           </>
         }
+        footer={
+          burn.onWorkingDays && offDays.length > 0 ? (
+            <p className="text-xs text-sub">
+              The ideal line counts the team&apos;s {burn.workingDays} working days; it stays flat
+              on the shaded weekends and holidays.
+            </p>
+          ) : null
+        }
       >
         <BurndownChart
-          data={chartData}
-          scopeChangeDays={view.scopeChangeDays}
-          todayDay={todayDay}
-          changepointDays={changepointDays}
+          data={rows}
+          scopeChangeDays={flagged}
+          scopeMoves={burn.source === "stories" ? scopeMoves : undefined}
+          todayDay={burn.todayDay}
+          offDays={offDays}
         />
       </ChartCard>
 
-      <SectionCard
-        title="Daily progress"
-        icon={TrendingDown}
-        titleSize="lg"
-        headerClassName="pb-4"
-        actions={
-          <Button
-            variant="danger-ghost"
-            size="sm"
-            disabled={readOnly || loggedDays === 0}
-            onClick={() => setConfirmClearOpen(true)}
-          >
-            Clear log
-          </Button>
-        }
-      >
-        {/* One compact row per day; the note is a single-line input to keep
-            the rhythm of the tracker. */}
-        <div className="hidden sm:grid grid-cols-[96px_1fr_1.2fr_140px_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
-          <span className="text-xs text-sub font-medium uppercase tracking-wider">Day</span>
-          <span className="text-xs text-sub font-medium uppercase tracking-wider">
-            Points remaining
-          </span>
-          <span className="text-xs text-sub font-medium uppercase tracking-wider">Note</span>
-          <span className="text-xs text-sub font-medium uppercase tracking-wider flex items-center gap-1">
-            <Flag className="w-3 h-3" aria-hidden="true" /> Scope change
-          </span>
-          <span className="w-9" />
-        </div>
+      <BurnAdvanced burn={burn} pick="remaining" />
 
-        <div className="space-y-2">
-          {entries.map((e) => {
-            const captionId = `${rowsId}-day-${e.day}`;
-            const from =
-              e.source === "derived" ? "Burnup" : e.source === "plan" ? "the plan" : null;
-            const date = shortDate(dayDate(sprint, e.day));
-            return (
-              <div
-                key={e.id}
-                className="grid grid-cols-[1fr_auto] sm:grid-cols-[96px_1fr_1.2fr_140px_auto] gap-2 sm:gap-3 sm:items-start rounded-md border border-border sm:border-0 p-2 sm:p-0"
-              >
-                <div className="flex flex-col sm:pt-1.5">
-                  <span className="font-data text-sm font-semibold text-accent">Day {e.day}</span>
-                  <span className="text-xs text-sub">
-                    {e.afterEnd ? `${date}, after the end` : date}
-                  </span>
-                </div>
+      {burn.source === "stories" ? (
+        <SectionCard
+          title="Daily progress"
+          icon={TrendingDown}
+          titleSize="lg"
+          headerClassName="pb-4"
+        >
+          <BoardDays sprint={sprint} burn={burn} readOnly={readOnly} />
+          <details className="group mt-4 rounded-lg border border-border">
+            <summary className="flex min-h-11 cursor-pointer select-none list-none items-center gap-2 px-3 py-2 text-sm font-medium text-text [&::-webkit-details-marker]:hidden">
+              <ListChecks className="h-4 w-4 text-sub" aria-hidden="true" />
+              Daily log (fallback)
+              <ChevronDown
+                className="ml-auto h-4 w-4 shrink-0 text-sub transition-transform group-open:rotate-180"
+                aria-hidden="true"
+              />
+            </summary>
+            <div className="border-t border-border p-3">
+              <DailyLog
+                sprint={sprint}
+                series={series}
+                burn={burn}
+                readOnly={readOnly}
+                log={log}
+                announce={setAnnouncement}
+              />
+            </div>
+          </details>
+        </SectionCard>
+      ) : (
+        <SectionCard title="Daily log" icon={TrendingDown} titleSize="lg" headerClassName="pb-4">
+          <DailyLog
+            sprint={sprint}
+            series={series}
+            burn={burn}
+            readOnly={readOnly}
+            log={log}
+            announce={setAnnouncement}
+          />
+        </SectionCard>
+      )}
 
-                <IconButton
-                  label={`Clear day ${e.day}`}
-                  icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}
-                  variant="danger-ghost"
-                  disabled={readOnly || !e.stored}
-                  onClick={() => clearOneDay(e.day)}
-                  className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
-                />
-
-                <div className="col-span-2 sm:col-span-1">
-                  <DraftInput
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    aria-label={`Remaining points on day ${e.day}`}
-                    aria-describedby={from ? captionId : undefined}
-                    placeholder={from && e.remaining !== null ? formatPoints(e.remaining) : "— pts"}
-                    value={e.typed === null ? "" : String(e.typed)}
-                    readOnly={readOnly}
-                    onCommit={(v) => setRemaining(e.day, v)}
-                    className="font-data"
-                  />
-                  {from && e.remaining !== null && (
-                    <DerivedCaption id={captionId} value={e.remaining} from={from} />
-                  )}
-                </div>
-
-                <DraftInput
-                  type="text"
-                  placeholder="Optional note"
-                  aria-label={`Note for day ${e.day}`}
-                  value={e.description ?? ""}
-                  readOnly={readOnly}
-                  maxLength={280}
-                  onCommit={(v) => setNote(e.day, v)}
-                  className="col-span-2 sm:col-span-1 text-xs"
-                />
-
-                <button
-                  type="button"
-                  disabled={readOnly}
-                  onClick={() => flipScopeChange(e.day)}
-                  className={`col-span-2 sm:col-span-1 h-9 px-3 rounded-md text-xs font-medium border transition-colors disabled:cursor-not-allowed ${
-                    e.scopeChange
-                      ? "bg-accent-amber/15 border-accent-amber/40 text-accent-amber"
-                      : "bg-card border-border text-sub hover:border-accent-amber/30 hover:text-accent-amber"
-                  }`}
-                >
-                  {e.scopeChange ? "Scope changed" : "Mark change"}{" "}
-                  <span className="sr-only">on day {e.day}</span>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <p className="mt-4 text-xs text-sub">
-          Leave a day blank until you reach it. Day 0 is the first day of the sprint. A dimmed
-          number was logged in Burnup; type over it to use your own. Mark a scope change on a day
-          the points went up because work was added, and Burnup&apos;s scope line rises with it.
-        </p>
-      </SectionCard>
-
-      <ConfirmDialog
-        open={confirmClearOpen}
-        onOpenChange={setConfirmClearOpen}
-        title="Clear the log?"
-        description={`The ${loggedDays} logged day${loggedDays === 1 ? "" : "s"} of ${sprint.name} ${
-          loggedDays === 1 ? "is" : "are"
-        } cleared, here and in Burnup. The sprint and its settings stay.`}
-        confirmLabel="Clear log"
-        onConfirm={clearWholeLog}
+      <SprintSettings
+        tool="burndown"
+        sprint={sprint}
+        calendar={calendar}
+        readOnly={readOnly}
+        onChanged={onSettingsChanged}
       />
     </div>
   );
@@ -499,6 +623,42 @@ export function BurndownClient() {
     >
       <SprintToolShell
         tool="burndown"
+        example={exampleBurndown}
+        renderEmpty={({ onCreate, onLoadExample }) => (
+          <EmptyState
+            icon={TrendingDown}
+            padding="xl"
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button type="button" variant="toolkit" onClick={onCreate}>
+                  Create your first sprint
+                </Button>
+                <LoadExampleButton onLoad={onLoadExample} />
+              </div>
+            }
+          >
+            <h2 className="font-display text-lg text-text">No sprints yet</h2>
+            <p className="mx-auto mt-2 max-w-prose text-sm">
+              Burndown charts a shared sprint, read off its stories on the sprint board (or a typed
+              daily log). Create one and Burnup, Velocity, Sprint Metrics and the Sprint cockpit see
+              it too.
+            </p>
+          </EmptyState>
+        )}
+        renderNotice={({ onStart, onClear }) => (
+          <div>
+            <ExampleNotice onClear={onClear} />
+            <div className="-mt-2 flex flex-wrap items-center gap-3">
+              <p className="min-w-0 flex-1 text-xs text-sub">
+                Example sprint: a read-only preview. Nothing in it can be changed or saved, and your
+                own sprints stay as they are.
+              </p>
+              <Button type="button" size="sm" variant="toolkit" onClick={onStart}>
+                Start your own
+              </Button>
+            </div>
+          </div>
+        )}
         onSettingsChanged={(sprintId, change) =>
           log(BURNDOWN_ACTIONS.CONFIG_UPDATED, { sprintId, ...change })
         }

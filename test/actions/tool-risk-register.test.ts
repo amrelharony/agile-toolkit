@@ -31,6 +31,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Risk } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 // Side-effect import — registers the actions on the singleton.
 import "@/lib/actions/tools/risk-register";
@@ -413,14 +414,16 @@ describe("tool.risk_register.set_status — lifecycle + terminal-state confirm",
     expect(stored.resolvedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("preserves an existing resolvedAt on the 'closed' transition (no overwrite)", async () => {
+  // Phase 8: a reopen keeps resolvedAt (it counts only while closed), so a
+  // re-close stamps the day it closed again rather than the first close's.
+  it("re-closing a reopened risk stamps the new close day over the old one", async () => {
     useWorkspaceStore.setState({
       risks: [seed({ id: "r1", status: "open", resolvedAt: "2025-12-01" })],
     });
     const action = registry.get("tool.risk_register.set_status");
     await action!.handler({ id: "r1", status: "closed" }, { ...ctx(), confirm: async () => true });
     const stored = (useWorkspaceStore.getState().risks ?? [])[0];
-    expect(stored.resolvedAt).toBe("2025-12-01");
+    expect(stored.resolvedAt).toBe(todayLocalISO());
   });
 
   it("does NOT stamp resolvedAt on a non-'closed' terminal transition (accepted)", async () => {

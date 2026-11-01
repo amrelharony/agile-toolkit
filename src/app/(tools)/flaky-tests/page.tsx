@@ -1,10 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { FlakyTestsClient } from "./flaky-tests-client";
 
-export const metadata = {
-  title: "Flaky Test Scoreboard",
-  description:
-    "Manual log of flaky tests with quarantine status, failure rate, owner, and a top-10-flakiest bar chart.",
-};
+export const metadata: Metadata = toolMetadata("flaky-tests");
 
 export default function Page() {
   return <FlakyTestsClient />;

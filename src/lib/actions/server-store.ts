@@ -274,6 +274,25 @@ export async function serverGetWorkspaceBlob(userId: string): Promise<Record<str
 }
 
 /**
+ * A tool's cloud-synced `usePersisted` blob (a `user_state` row by its
+ * store key, e.g. "agile-toolkit:dod-builder"), or null when the user has
+ * none. Read-only: agents read a tool that hasn't moved into the workspace.
+ */
+export async function serverGetUserStateBlob(
+  userId: string,
+  storeKey: string
+): Promise<unknown | null> {
+  const { data, error } = await admin()
+    .from("user_state")
+    .select("payload")
+    .eq("user_id", userId)
+    .eq("store_key", storeKey)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as { payload?: unknown } | null)?.payload ?? null;
+}
+
+/**
  * Patch fields into the workspace scalar blob. Reads → merges → writes a
  * flat `{ teamName, maturityLevel }` blob, matching the shape the browser
  * scalars blob adapter reads (its setSnapshot pulls those keys directly).

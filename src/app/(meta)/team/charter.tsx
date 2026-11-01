@@ -9,21 +9,20 @@ import { ExportButton } from "@/components/shared/export-button";
 import { CadenceForm } from "@/components/sprints/cadence-form";
 import { getToolById } from "@/lib/constants/tools";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Story } from "@/lib/stores/workspace-types";
+import type { Sprint, Story } from "@/lib/stores/workspace-types";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { todayIso } from "@/lib/sprints/series";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { cn } from "@/lib/utils";
-import { DOD_STORAGE_KEY, EMPTY_DOD, normalizeDod } from "@/app/(tools)/dod-builder/summary";
+import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
+import { WA_ID, normalizeAgreement } from "@/lib/working-agreement/model";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
 
-/** MUST match WA_ID in working-agreement-client.tsx and actions/tools/working-agreement.ts. */
-const WA_ID = "workingAgreement:current";
-/** One empty list, so a workspace without stories doesn't make the docs anew each render. */
+/** Empty lists, so a workspace without stories or sprints doesn't make the docs anew each render. */
 const NO_STORIES: Story[] = [];
+const NO_SPRINTS: Sprint[] = [];
 
 /**
  * The team charter: the agreements the team works by, each a card with
@@ -32,11 +31,18 @@ const NO_STORIES: Story[] = [];
  */
 export function TeamCharter() {
   const members = useTeamRoster();
-  const agreement = useWorkspaceStore((s) =>
+  const storedAgreement = useWorkspaceStore((s) =>
     (s.workingAgreements ?? []).find((d) => d.id === WA_ID)
   );
-  const [dodRaw] = usePersisted(DOD_STORAGE_KEY, EMPTY_DOD);
-  const dod = useMemo(() => normalizeDod(dodRaw), [dodRaw]);
+  // Read as the Working Agreement page reads it (consent as agreedBy, an
+  // old agent's never-published "version 1" as version 0).
+  const agreement = useMemo(
+    () => (storedAgreement ? normalizeAgreement(storedAgreement) : undefined),
+    [storedAgreement]
+  );
+  // The workspace DoD, or the DoD builder's old blob until it has moved in
+  // (a team that opens the charter first moves it from here).
+  const { doc: dod } = useDefinitionOfDone();
   const dor = useRefinementStore(useShallow((s) => ({ criteria: s.criteria, history: s.history })));
   const estimation = useEstimationGuideStore(
     useShallow((s) => ({
@@ -46,9 +52,11 @@ export function TeamCharter() {
       referenceStoryIds: s.referenceStoryIds,
     }))
   );
-  // Refinement checks now live on the stories, and the guide pins stories
-  // by id: both cards read the workspace's stories.
+  // Refinement checks and DoD ticks live on the stories, and the guide pins
+  // stories by id: those cards read the workspace's stories. The DoD card
+  // reports on the latest completed sprint.
   const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
+  const sprints = useWorkspaceStore((s) => s.sprints ?? NO_SPRINTS);
   // The guide's store waits to be asked (its page merges a shared link first).
   useEffect(() => {
     void useEstimationGuideStore.persist.rehydrate();
@@ -57,8 +65,8 @@ export function TeamCharter() {
   const [today] = useState(() => todayIso());
 
   const docs = useMemo<CharterDocs>(
-    () => ({ members, cadence, agreement, dod, dor, estimation, stories }),
-    [members, cadence, agreement, dod, dor, estimation, stories]
+    () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints }),
+    [members, cadence, agreement, dod, dor, estimation, stories, sprints]
   );
   const cards = useMemo(() => charterCards(docs), [docs]);
   const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);

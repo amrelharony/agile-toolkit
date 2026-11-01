@@ -2,7 +2,7 @@
  * tool.riskiest_assumption.* coverage (singleton doc, S11).
  *
  *   1. registration — list_state read; add_assumption/set_status write.
- *   2. add_assumption + list_state — picks the riskiest (high risk − evidence).
+ *   2. add_assumption + list_state — picks the riskiest (risk × (6 − evidence)).
  *   3. set_status — updates; unknown id → {updated:false}.
  */
 
@@ -30,7 +30,7 @@ describe("tool.riskiest_assumption — registration", () => {
 describe("tool.riskiest_assumption.add_assumption + list_state", () => {
   beforeEach(() => useWorkspaceStore.setState({ riskiestAssumptions: [] }));
 
-  it("surfaces the riskiest (highest risk minus evidence)", async () => {
+  it("surfaces the riskiest (highest risk × (6 − evidence))", async () => {
     await registry
       .get("tool.riskiest_assumption.add_assumption")!
       .handler({ statement: "Users want X", riskLevel: 5, evidenceLevel: 1 }, ctx());
@@ -43,7 +43,7 @@ describe("tool.riskiest_assumption.add_assumption + list_state", () => {
       riskiest: { statement: string } | null;
     };
     expect(r.total).toBe(2);
-    expect(r.riskiest?.statement).toBe("Users want X"); // 5-1=4 beats 2-2=0
+    expect(r.riskiest?.statement).toBe("Users want X"); // 5 × 5 = 25 beats 2 × 4 = 8
   });
 });
 

@@ -12,19 +12,21 @@ import type {
   Impediment,
   Kudos,
   MoodEntry,
+  MoodPulse,
   RetroBoard,
   Sprint,
   SprintGoal,
   SprintGoalOutcome,
   Story,
 } from "@/lib/stores/workspace-types";
-import { isExampleId } from "@/components/tool-frame/example-data";
-import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { isExampleId } from "@/lib/utils/example-id";
+import { doneOn } from "@/lib/flow";
 import { dayOf, impedimentStatus } from "@/lib/impediments/model";
 import { storyPoints } from "@/lib/sprints/plan";
 import { reviewFacts } from "@/lib/sprints/review-doc";
 import { hasSyntheticDates } from "@/lib/sprints/series";
 import type { SayDo } from "@/lib/sprints/metrics";
+import { moodDuring } from "@/lib/team/mood";
 import { followThroughByRetro, type RetroFollowThrough } from "./actions";
 import { isArchivedRetroOf, localDay, retroWindow } from "./board";
 
@@ -57,12 +59,16 @@ export interface RetroFacts {
   mood: {
     /** Mean score (1–5), quoted from MIN_SAMPLE.average check-ins; else null. */
     average: number | null;
+    /** Named check-ins plus anonymous pulse answers. */
     checkIns: number;
+    /** People who checked in by name. */
     people: number;
+    /** Of `checkIns`, the anonymous pulse answers; present only when there are some. */
+    anonymous?: number;
   };
   /** How the previous retro's actions turned out; null when there is none. */
   followThrough: RetroFollowThrough | null;
-  /** Kudos given during the sprint, oldest first (example kudos left out). */
+  /** Kudos given during the sprint, oldest first (replies and example kudos left out). */
   kudos: Pick<Kudos, "id" | "toName" | "fromName" | "message" | "sentAt">[];
 }
 
@@ -73,6 +79,8 @@ export interface RetroFactsInput {
   goals?: readonly SprintGoal[];
   impediments?: readonly Impediment[];
   moodEntries?: readonly MoodEntry[];
+  /** Anonymous mood pulses: their answers count as check-ins. */
+  moodPulses?: readonly MoodPulse[];
   retroBoards?: readonly RetroBoard[];
   kudos?: readonly Kudos[];
   /** "YYYY-MM-DD", local. */
@@ -82,16 +90,6 @@ export interface RetroFactsInput {
 
 /** A done share at or above this, in the sprint's last third, reads as a late finish. */
 export const LATE_SHARE = 0.6;
-
-/** When a done story was done: `doneAt`, else its last move into done. */
-function doneDay(story: Story): string | null {
-  if (story.doneAt) return localDay(story.doneAt);
-  const history = story.statusHistory ?? [];
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].status === "done") return localDay(history[i].at);
-  }
-  return null;
-}
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
@@ -120,7 +118,8 @@ export function burndownShape(
   const lastThird = startMs + ((endMs - startMs) * 2) / 3;
   let late = 0;
   for (const s of done) {
-    const day = doneDay(s);
+    // The one day-a-story-was-done rule: `doneAt`, else its last move into done.
+    const day = doneOn(s);
     const t = day ? Date.parse(`${day}T00:00:00Z`) : NaN;
     if (!Number.isFinite(t) || t >= lastThird) late += storyPoints(s);
   }
@@ -140,6 +139,13 @@ export function burndownShape(
 
 const inWindow = (day: string | null, start: string, end: string) =>
   Boolean(day && day >= start && day <= end);
+
+/**
+ * A kudos that recognises someone: not a reply in a kudos thread (a reply
+ * copies its parent's recipient, so it would read as a second kudos for
+ * them and seed a second appreciation card) and not example data.
+ */
+const isRecognition = (k: Pick<Kudos, "id" | "replyTo">) => !k.replyTo && !isExampleId(k.id);
 
 export function retroFacts(input: RetroFactsInput): RetroFacts {
   const { sprint, today } = input;
@@ -162,17 +168,9 @@ export function retroFacts(input: RetroFactsInput): RetroFacts {
       if (status !== "resolved") impediments.stillOpen++;
       if (i.escalatedAt) impediments.escalated++;
     }
-    const checkIns = (input.moodEntries ?? []).filter(
-      (m) => !m.isPlaceholder && !isExampleId(m.id) && inWindow(dayOf(m.date), start, end)
-    );
-    mood.checkIns = checkIns.length;
-    mood.people = new Set(checkIns.map((m) => m.memberId)).size;
-    if (checkIns.length >= MIN_SAMPLE.average) {
-      const mean = checkIns.reduce((sum, m) => sum + m.score, 0) / checkIns.length;
-      mood.average = Math.round(mean * 10) / 10;
-    }
+    Object.assign(mood, moodDuring(input.moodEntries, start, end, input.moodPulses));
     kudos = (input.kudos ?? [])
-      .filter((k) => !isExampleId(k.id) && inWindow(localDay(k.sentAt), start, end))
+      .filter((k) => isRecognition(k) && inWindow(localDay(k.sentAt), start, end))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt))
       .map(({ id, toName, fromName, message, sentAt }) => ({
         id,

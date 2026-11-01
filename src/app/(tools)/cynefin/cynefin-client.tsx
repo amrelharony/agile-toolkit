@@ -1,273 +1,334 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { Compass, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { nanoid } from "nanoid";
+import { Compass, Plus } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { SectionCard } from "@/components/shared/section-card";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { CynefinItem, Workspace } from "@/lib/stores/workspace-types";
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { generateCynefinPrompts } from "@/lib/ai-prompts/cynefin";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CYNEFIN_ACTIONS } from "@/lib/history/event-actions";
-import { emitSignal } from "@/lib/signals/signal-bus";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { sendHandoff } from "@/lib/handoffs/send";
+import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  CynefinDomain,
+  CynefinItem,
+  HypothesisTracker,
+  WhiteboardObject,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { undoable } from "@/lib/utils/undoable";
+import {
+  DOMAINS,
+  DOMAIN_IDS,
+  cynefinVerdict,
+  groupByDomain,
+  hypothesisSourceOf,
+  hypothesisStateOf,
+  planOf,
+} from "@/lib/cynefin/model";
+import { buildExample } from "./example";
+import { ItemCard, itemControlId } from "./item-card";
+import { cynefinToMarkdown } from "./markdown";
+import { DOMAIN_TONE, SenseForm, type NewCynefinItem } from "./sense-form";
 
-const DOMAINS: { id: CynefinItem["domain"]; label: string; color: string; recipe: string }[] = [
-  {
-    id: "clear",
-    label: "Clear",
-    color: "#00ff88",
-    recipe: "Sense → Categorise → Respond. Apply best practice.",
-  },
-  {
-    id: "complicated",
-    label: "Complicated",
-    color: "#00f0ff",
-    recipe: "Sense → Analyse → Respond. Bring in experts.",
-  },
-  {
-    id: "complex",
-    label: "Complex",
-    color: "#9d4edd",
-    recipe: "Probe → Sense → Respond. Run safe-to-fail experiments.",
-  },
-  {
-    id: "chaotic",
-    label: "Chaotic",
-    color: "#ff6b6b",
-    recipe: "Act → Sense → Respond. Stabilise first, then learn.",
-  },
-  {
-    id: "confused",
-    label: "Confused",
-    color: "#888",
-    recipe: "Break the problem into smaller domain-tagged pieces.",
-  },
-];
+const NO_ITEMS: CynefinItem[] = [];
+const NO_TRACKERS: HypothesisTracker[] = [];
 
+/** A canvas card's link to an item, as the delete found it. */
+type CardLink = { id: string; sourceRef: NonNullable<WhiteboardObject["sourceRef"]> };
+
+/** The canvas cards pinned to item `id` (the store's delete unpins them). */
+function cardLinksTo(id: string): CardLink[] {
+  return (useWorkspaceStore.getState().whiteboardObjects ?? []).flatMap((o) =>
+    o.sourceRef && o.sourceRef.tool === "cynefin" && o.sourceRef.entityId === id
+      ? [{ id: o.id, sourceRef: o.sourceRef }]
+      : []
+  );
+}
+
+/**
+ * Re-pin cards a delete unpinned (its Undo), each only while it is still
+ * there and unpinned, as lib/decisions/store's restoreDecisionRecord does.
+ */
+function repinCards(cards: readonly CardLink[]): void {
+  if (cards.length === 0) return;
+  const objects = new Map(
+    (useWorkspaceStore.getState().whiteboardObjects ?? []).map((o) => [o.id, o])
+  );
+  const at = new Date().toISOString();
+  const back = cards.flatMap(({ id, sourceRef }) => {
+    const o = objects.get(id);
+    // version + updatedAt bump so peers accept the change (last write wins).
+    return o && !o.sourceRef ? [{ ...o, sourceRef, version: o.version + 1, updatedAt: at }] : [];
+  });
+  if (back.length > 0) useWorkspaceStore.getState().upsertWhiteboardObjects(back);
+}
+
+/**
+ * Cynefin: place each problem in a domain to choose how to act on it.
+ * Guided questions suggest the domain and the team confirms it (nothing is
+ * filed by default); items are edited in place, deleted with Undo, and a
+ * complex one can be turned into a hypothesis to test in the Hypothesis
+ * Tracker. The recipes, the suggestion and the verdict come from
+ * lib/cynefin, which the agent actions share.
+ */
 export function CynefinClient() {
-  const list = useWorkspaceStore((s) => s.cynefinItems ?? []);
-  const upsert = useWorkspaceStore((s) => s.upsertCynefinItem);
-  const removeOne = useWorkspaceStore((s) => s.removeCynefinItem);
+  const hydrated = useWorkspaceHydrated();
+  const items = useWorkspaceStore((s) => s.cynefinItems) ?? NO_ITEMS;
+  const trackers = useWorkspaceStore((s) => s.hypothesisTrackers) ?? NO_TRACKERS;
   const { log } = useHistoryLogger("cynefin");
-  const exportRef = useRef<HTMLDivElement>(null);
+  const announce = useAnnounce();
+  const [formOpen, setFormOpen] = useState(true);
+  const hypotheses = useMemo(
+    () => trackers.find((t) => t.id === HYPOTHESIS_TRACKER_ID)?.hypotheses ?? [],
+    [trackers]
+  );
+  const grouped = useMemo(() => groupByDomain(items), [items]);
+  const verdict = cynefinVerdict(items, hypotheses);
+  const stateOf = (it: CynefinItem) => hypothesisStateOf(it, hypotheses);
 
-  const [title, setTitle] = useState("");
-  const [domain, setDomain] = useState<CynefinItem["domain"]>("complex");
-  const [rationale, setRationale] = useState("");
+  // A delete, a change of domain (the card moves to another section) and
+  // "Turn into a hypothesis" unmount the control that made them, so focus
+  // moves to a control on screen once the board has re-rendered (an element
+  // id), never to the page.
+  const focusNext = useRef<string | null>(null);
+  useEffect(() => {
+    const id = focusNext.current;
+    if (!id) return;
+    focusNext.current = null;
+    document.getElementById(id)?.focus();
+  });
+  const placeRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
-  function add() {
-    if (!title.trim()) return;
-    const recommendedAction = DOMAINS.find((d) => d.id === domain)?.recipe;
+  const ws = () => useWorkspaceStore.getState();
+  const current = (id: string) => (ws().cynefinItems ?? []).find((x) => x.id === id);
+  const patch = (id: string, change: (it: CynefinItem) => CynefinItem) => {
+    const it = current(id);
+    if (it) ws().upsertCynefinItem(change(it));
+  };
+  // Example items aren't the team's history.
+  const record = (id: string, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(id)) log(action, payload);
+  };
+
+  const add = (values: NewCynefinItem) => {
     const item: CynefinItem = {
-      id: crypto.randomUUID(),
-      title: title.trim(),
-      domain,
-      rationale: rationale.trim() || undefined,
-      recommendedAction,
+      id: `cynefin_${nanoid(8)}`,
+      ...values,
       loggedAt: new Date().toISOString(),
     };
-    upsert(item);
-    log(CYNEFIN_ACTIONS.ITEM_ADDED, { title: item.title, domain });
-    emitSignal({
-      kind: "decision.cynefinClassified",
-      at: item.loggedAt,
-      toolId: "cynefin",
-      payload: item,
+    ws().upsertCynefinItem(item);
+    record(item.id, CYNEFIN_ACTIONS.ITEM_ADDED, { title: item.title, domain: item.domain });
+    announce(`Placed “${item.title}” in ${DOMAINS[item.domain].label}`);
+  };
+
+  const reclassify = (it: CynefinItem, domain: CynefinDomain) => {
+    if (domain === it.domain) return;
+    focusNext.current = itemControlId("domain", it.id);
+    // A plan written for the item survives; a copy of the old domain's
+    // recipe follows the new domain instead.
+    patch(it.id, (x) => {
+      const next: CynefinItem = { ...x, domain };
+      if (!planOf(x).custom) delete next.recommendedAction;
+      return next;
     });
-    setTitle("");
-    setRationale("");
-  }
+    record(it.id, CYNEFIN_ACTIONS.ITEM_RECLASSIFIED, { id: it.id, domain });
+    announce(`Moved “${it.title}” to ${DOMAINS[domain].label}`);
+  };
 
-  function reclassify(id: string, d: CynefinItem["domain"]) {
-    const it = list.find((x) => x.id === id);
-    if (!it) return;
-    upsert({ ...it, domain: d, recommendedAction: DOMAINS.find((x) => x.id === d)?.recipe });
-    log(CYNEFIN_ACTIONS.ITEM_RECLASSIFIED, { id, domain: d });
-  }
-
-  const grouped = useMemo(() => {
-    const m: Record<CynefinItem["domain"], CynefinItem[]> = {
-      clear: [],
-      complicated: [],
-      complex: [],
-      chaotic: [],
-      confused: [],
-    };
-    for (const it of list) {
-      // Defensive lookup — pre-2014 Cynefin called the bottom-right
-      // domain "simple" (now "clear"). A persisted item with that
-      // legacy value, OR any hand-edited domain string outside the
-      // five-region enum, used to crash this loop with
-      // `Cannot read property 'push' of undefined`. Fall back to
-      // "confused" so the item still surfaces rather than disappearing.
-      const bucket = m[it.domain] ?? m.confused;
-      bucket.push(it);
+  const remove = (it: CynefinItem) => {
+    // Focus goes to the next item's delete button on the board (or the one
+    // before); with none left, to the form for the next problem.
+    const board = DOMAIN_IDS.flatMap((d) => grouped[d]);
+    const at = board.findIndex((x) => x.id === it.id);
+    const neighbour = board[at + 1] ?? board[at - 1];
+    // The store unpins the item's canvas cards; Undo pins them back.
+    const cards = cardLinksTo(it.id);
+    if (neighbour) focusNext.current = itemControlId("delete", neighbour.id);
+    undoable({
+      label: `Deleted “${it.title}”`,
+      apply: () => {
+        ws().removeCynefinItem(it.id);
+        record(it.id, CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id });
+      },
+      revert: () => {
+        ws().upsertCynefinItem(it);
+        repinCards(cards);
+      },
+    });
+    if (!neighbour) {
+      (placeRef.current?.querySelector<HTMLInputElement>("input") ?? toggleRef.current)?.focus();
     }
-    return m;
-  }, [list]);
+    announce(`Deleted “${it.title}”`);
+  };
 
-  const workspace = useWorkspaceStore(
-    useShallow(
-      (s): Workspace => ({
-        teamMembers: s.teamMembers,
-        sprints: s.sprints,
-        stories: s.stories,
-        impediments: s.impediments,
-        risks: s.risks,
-        okrs: s.okrs,
-        decisions: s.decisions,
-        techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel,
-        teamName: s.teamName,
-        cynefinItems: s.cynefinItems,
-      })
-    )
-  );
+  const toHypothesis = (it: CynefinItem) => {
+    // The button gives way to the link to the hypothesis: focus goes there.
+    focusNext.current = itemControlId("hypothesis", it.id);
+    const link = sendHandoff("hypothesis", hypothesisSourceOf(it), {
+      getLinks: () => current(it.id)?.sentTo,
+      setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) =>
+        patch(it.id, (x) => ({ ...x, sentTo: update(x.sentTo) })),
+    });
+    if (link) announce(`“${it.title}” is now a hypothesis to test`);
+  };
 
+  const loadExample = () => {
+    const now = new Date().toISOString();
+    buildExample(now).forEach((x) => ws().upsertCynefinItem(x));
+  };
+  const clearExample = () => {
+    for (const it of items) if (isExampleId(it.id)) ws().removeCynefinItem(it.id);
+  };
+
+  const markdown = cynefinToMarkdown(items, { verdict, hypothesisOf: stateOf });
+  const csvData = {
+    headers: ["Title", "Domain", "Rationale", "Plan", "Hypothesis"],
+    rows: items.map((it) => [
+      it.title,
+      it.domain,
+      it.rationale ?? "",
+      planOf(it).text,
+      { none: "", testing: "being tested", tested: "tested" }[stateOf(it)],
+    ]),
+  };
   const promptConfig = useMemo(
     () => ({
       toolName: "Cynefin Decision Picker",
-      prompts: generateCynefinPrompts({ grouped }, workspace),
+      // Suggested vs confirmed domains and the hypotheses' state, as the board shows them.
+      prompts: generateCynefinPrompts({ items, hypotheses }),
     }),
-    [grouped, workspace]
+    [items, hypotheses]
   );
-
-  const csvData = {
-    headers: ["Title", "Domain", "Rationale", "Recommended action"],
-    rows: list.map((it) => [it.title, it.domain, it.rationale ?? "", it.recommendedAction ?? ""]),
-  };
 
   return (
     <ToolPageWrapper
       toolId="cynefin"
       title="Cynefin Decision Picker"
-      description="Snowden's framework that places problems into Clear / Complicated / Complex / Chaotic / Confused domains — each with a different decision recipe."
+      description="Snowden's framework: answer a few questions to see which domain a problem is in (Clear, Complicated, Complex, Chaotic or Confused), confirm it, and act the way that domain needs."
     >
-      <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Classify a problem" icon={Plus}>
-          <Input
-            placeholder="Problem / decision"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            aria-label="Problem or decision title"
-          />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-            <Select value={domain} onValueChange={(v) => setDomain(v as CynefinItem["domain"])}>
-              <SelectTrigger aria-label="Cynefin domain">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DOMAINS.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-sub italic flex items-center">
-              {DOMAINS.find((d) => d.id === domain)?.recipe}
-            </p>
-          </div>
-          <Textarea
-            placeholder="Why this domain? (rationale)"
-            aria-label="Rationale"
-            value={rationale}
-            onChange={(e) => setRationale(e.target.value)}
-            rows={2}
-            className="mt-2"
-          />
-          <Button onClick={add} className="mt-3 gap-1">
-            <Plus className="w-4 h-4" />
-            Classify
-          </Button>
-        </SectionCard>
-
-        <SectionCard
-          title={`Items (${list.length})`}
-          icon={Compass}
-          actions={
-            <>
-              <AiPromptGenerator config={promptConfig} />
-              <ExportButton
-                filename="cynefin"
-                csvData={csvData}
-                jsonData={list}
-                targetRef={exportRef}
-              />
-            </>
-          }
+      {!hydrated ? (
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {DOMAINS.map((d) => (
-              <div key={d.id} className="border border-border rounded p-3 bg-surface-deep min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-bold uppercase" style={{ color: d.color }}>
-                    {d.label}
-                  </span>
-                  <span className="text-xs text-sub">{grouped[d.id].length}</span>
-                </div>
-                <p className="text-xs text-sub italic mb-2">{d.recipe}</p>
-                <ul className="space-y-1.5 text-sm">
-                  {grouped[d.id].map((it) => (
-                    <li key={it.id}>
-                      <div className="flex items-center gap-2">
-                        <Select
-                          value={it.domain}
-                          onValueChange={(v) => reclassify(it.id, v as CynefinItem["domain"])}
-                        >
-                          <SelectTrigger
-                            className="h-7 w-32 text-xs"
-                            aria-label={`Cynefin domain for ${it.title}`}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DOMAINS.map((opt) => (
-                              <SelectItem key={opt.id} value={opt.id}>
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <span className="flex-1 truncate text-text min-w-0">{it.title}</span>
-                        <button
-                          onClick={() => {
-                            removeOne(it.id);
-                            log(CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id });
-                          }}
-                          aria-label={`Remove ${it.title}`}
-                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      {it.rationale && (
-                        <p className="mt-0.5 text-xs text-sub whitespace-pre-wrap break-words">
-                          <span className="sr-only">Rationale: </span>
-                          {it.rationale}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+          Loading the board…
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {hasExampleItems(items) && (
+            <div>
+              <ExampleNotice onClear={clearExample} />
+              <p className="-mt-2 text-xs text-sub">
+                Example: a product team&apos;s board, one problem per domain. Example items stay out
+                of the Hypothesis Tracker.
+              </p>
+            </div>
+          )}
+
+          <SectionCard
+            title="Place a problem"
+            icon={Plus}
+            actions={
+              <button
+                ref={toggleRef}
+                type="button"
+                aria-expanded={formOpen}
+                onClick={() => setFormOpen((o) => !o)}
+                className="min-touch-coarse rounded text-xs text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {formOpen ? "Hide" : "Show"}
+              </button>
+            }
+          >
+            <div ref={placeRef}>{formOpen && <SenseForm onSave={add} />}</div>
+          </SectionCard>
+
+          {items.length === 0 ? (
+            <EmptyState
+              icon={Compass}
+              action={<LoadExampleButton onLoad={loadExample} className="mt-4" />}
+            >
+              No problems placed yet. Describe one above and answer the questions for a suggested
+              domain, or load an example board.
+            </EmptyState>
+          ) : (
+            <SectionCard
+              title={`Board (${items.length})`}
+              icon={Compass}
+              actions={
+                <>
+                  <AiPromptGenerator config={promptConfig} />
+                  <ExportButton
+                    filename="cynefin"
+                    markdown={markdown}
+                    clipboardText={markdown}
+                    csvData={csvData}
+                    jsonData={items}
+                  />
+                </>
+              }
+            >
+              <p className="mb-3 text-sm font-medium text-text">{verdict}</p>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {DOMAIN_IDS.map((d) => (
+                  <section
+                    key={d}
+                    aria-label={`${DOMAINS[d].label}: ${grouped[d].length}`}
+                    className="min-w-0 rounded border border-border bg-card p-3"
+                  >
+                    <div className="mb-1 flex items-center justify-between">
+                      <h2 className={`font-bold uppercase ${DOMAIN_TONE[d]}`}>
+                        {DOMAINS[d].label}
+                      </h2>
+                      <span className="text-xs text-sub">{grouped[d].length}</span>
+                    </div>
+                    <p className="mb-2 text-xs italic text-sub">{DOMAINS[d].recipe}</p>
+                    {grouped[d].length === 0 ? (
+                      <p className="text-xs text-sub">Nothing here.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {grouped[d].map((it) => (
+                          <ItemCard
+                            key={it.id}
+                            item={it}
+                            hypothesis={stateOf(it)}
+                            onTitle={(title) => patch(it.id, (x) => ({ ...x, title }))}
+                            onRationale={(rationale) =>
+                              patch(it.id, (x) => {
+                                const next: CynefinItem = { ...x, rationale };
+                                if (!rationale) delete next.rationale;
+                                return next;
+                              })
+                            }
+                            onDomain={(domain) => reclassify(it, domain)}
+                            onHypothesis={() => toHypothesis(it)}
+                            onDelete={() => remove(it)}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                ))}
               </div>
-            ))}
-          </div>
-        </SectionCard>
-      </div>
+            </SectionCard>
+          )}
+        </div>
+      )}
     </ToolPageWrapper>
   );
 }

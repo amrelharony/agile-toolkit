@@ -6,11 +6,14 @@ import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { KanbanCard, Sprint, Story } from "@/lib/stores/workspace-types";
+import type { DodCriterion, KanbanCard, Sprint, Story } from "@/lib/stores/workspace-types";
+import { DOD_DOC_ID } from "@/lib/dod/model";
 import { SELECTED_SPRINT_KEY, resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { storyProgress } from "@/lib/sprints/progress";
 import { percentile } from "@/lib/sprints/metrics";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { ageingWip, cardItems } from "@/lib/flow";
+import { todayIso } from "@/lib/sprints/series";
 import { exampleId } from "@/components/tool-frame/example-data";
 import { registry } from "@/lib/actions/registry";
 import "@/lib/actions/tools/kanban";
@@ -91,6 +94,7 @@ import {
   closedBoardNote,
   columnEnteredAt,
   daysInColumn,
+  doneMissingDod,
   isClosedSprint,
   moveMessage,
   revertMove,
@@ -195,6 +199,7 @@ beforeEach(() => {
 
 afterEach(() => {
   window.history.replaceState(null, "", "/");
+  vi.useRealTimers();
 });
 
 /* ── Which board opens ──────────────────────────────────────────────── */
@@ -447,6 +452,56 @@ describe("sprint board verdict", () => {
     ).toBe("1 of 2 stories done; 2 stories have no estimate yet.");
   });
 
+  it("on a closed sprint, says how it ended, with nothing left to do", () => {
+    // Its board is read-only: no "first" or "yet" for a story nobody can move.
+    const closedVerdict = (
+      stories: Story[],
+      status: Sprint["status"] = "completed",
+      limits = LIMITS
+    ) => {
+      const cols = storiesByColumn(stories, "s7");
+      return sprintBoardVerdict(
+        sprint({ status }),
+        storyProgress(stories, "s7"),
+        sprintBreaches(cols, limits)
+      );
+    };
+    const base = [
+      story("a", "A", { status: "done", points: 2 }),
+      story("b", "B", { status: "in_progress", points: 5 }),
+      story("c", "C", { status: "todo", points: 3 }),
+    ];
+    const blocked = [
+      ...base.slice(0, 2),
+      story("c", "C", { status: "todo", blocked: true, points: 3 }),
+    ];
+    expect(closedVerdict(blocked)).toBe("2 of 10 points done (20%); 1 story was still blocked.");
+    expect(
+      closedVerdict(
+        [...blocked, story("d", "D", { status: "review", blocked: true, points: 1 })],
+        "cancelled"
+      )
+    ).toBe("2 of 11 points done (18%); 2 stories were still blocked.");
+    expect(
+      closedVerdict([...base, story("d", "D", { status: "in_progress", points: 1 })], "completed", {
+        ...LIMITS,
+        in_progress: 1,
+      })
+    ).toBe("2 of 11 points done (18%); In progress ended over its WIP limit.");
+    expect(closedVerdict([...base, story("d", "D", { status: "todo" })])).toBe(
+      "2 of 10 points done (20%); 1 story had no estimate."
+    );
+    expect(closedVerdict([story("a", "A", { status: "todo", points: 3 })], "cancelled")).toBe(
+      "0 of 3 points done (0%); nothing was started."
+    );
+    expect(closedVerdict([])).toBe("Sprint 7 ended with no stories.");
+    expect(closedVerdict(base)).toBe("2 of 10 points done (20%).");
+    // An open sprint still says what to do.
+    expect(closedVerdict(blocked, "planned")).toBe(
+      "2 of 10 points done (20%); 1 story is blocked, so unblock it first."
+    );
+  });
+
   it("handles huge numbers", () => {
     expect(
       verdict([
@@ -454,6 +509,178 @@ describe("sprint board verdict", () => {
         story("b", "B", { status: "in_progress", points: 3_000_000 }),
       ])
     ).toBe("1000000 of 4000000 points done (25%).");
+  });
+});
+
+describe("the Definition of Done in the sprint board verdict", () => {
+  const DOD: DodCriterion[] = [
+    { id: "rev", label: "Code reviewed", category: "code", required: true },
+    { id: "ci", label: "Tests pass in CI", category: "testing", required: true },
+    { id: "doc", label: "Docs updated", category: "docs", required: false },
+  ];
+  const ticked = (...checked: string[]): Partial<Story> => ({
+    dodChecks: { checked, updatedAt: ago(1) },
+  });
+  const verdict = (stories: Story[], dod = DOD, limits = LIMITS) => {
+    const cols = storiesByColumn(stories, "s7");
+    return sprintBoardVerdict(
+      sprint(),
+      storyProgress(stories, "s7"),
+      sprintBreaches(cols, limits),
+      doneMissingDod(cols.done, { items: dod }).length
+    );
+  };
+  const base = () => [
+    story("a", "A", { status: "done", points: 2 }),
+    story("b", "B", { status: "in_progress", points: 5 }),
+    story("c", "C", { status: "todo", points: 3 }),
+  ];
+
+  afterEach(() => {
+    useWorkspaceStore.setState({ definitionsOfDone: [] });
+  });
+
+  it("finds the done stories with a required criterion still open", () => {
+    const stories = [
+      // Optional criteria don't count, and a ticked id no longer in the DoD is ignored.
+      story("a", "A", { status: "done", ...ticked("rev", "ci") }),
+      story("b", "B", { status: "done", ...ticked("rev") }),
+      story("c", "C", { status: "done" }),
+      story("d", "D", { status: "review" }),
+      story("e", "E", { status: "done", ...ticked("rev", "ci", "gone") }),
+    ];
+    expect(doneMissingDod(stories, { items: DOD }).map((s) => s.id)).toEqual(["b", "c"]);
+    // Nothing required: nothing to miss.
+    expect(doneMissingDod(stories, { items: [DOD[2]] })).toEqual([]);
+    expect(doneMissingDod(stories, { items: [] })).toEqual([]);
+  });
+
+  it("names done stories that miss it, after blocked stories and WIP, before estimates", () => {
+    expect(verdict(base())).toBe(
+      "2 of 10 points done (20%); 1 done story doesn't meet the DoD yet."
+    );
+    expect(verdict([...base(), story("d", "D", { status: "done", points: 1 })])).toBe(
+      "3 of 11 points done (27%); 2 done stories don't meet the DoD yet."
+    );
+    // No DoD, or every done story meets it: no caveat.
+    expect(verdict(base(), [])).toBe("2 of 10 points done (20%).");
+    expect(
+      verdict([
+        story("a", "A", { status: "done", points: 2, ...ticked("rev", "ci") }),
+        ...base().slice(1),
+      ])
+    ).toBe("2 of 10 points done (20%).");
+    // A blocked story or a column over its limit needs the team first.
+    expect(
+      verdict([
+        ...base().slice(0, 2),
+        story("c", "C", { status: "todo", blocked: true, points: 3 }),
+      ])
+    ).toBe("2 of 10 points done (20%); 1 story is blocked, so unblock it first.");
+    expect(
+      verdict([...base(), story("d", "D", { status: "in_progress", points: 1 })], DOD, {
+        ...LIMITS,
+        in_progress: 1,
+      })
+    ).toBe(
+      "2 of 11 points done (18%); In progress is over its WIP limit, so finish something before starting more."
+    );
+    // Before an unestimated story.
+    expect(verdict([...base(), story("d", "D", { status: "todo" })])).toBe(
+      "2 of 10 points done (20%); 1 done story doesn't meet the DoD yet."
+    );
+  });
+
+  it("still says so when every story is done", () => {
+    expect(
+      verdict([
+        story("a", "A", { status: "done", points: 3, ...ticked("rev", "ci") }),
+        story("b", "B", { status: "done", points: 5 }),
+      ])
+    ).toBe("Every story in Sprint 7 is done: 8 points, but 1 doesn't meet the DoD yet.");
+    expect(
+      verdict([story("a", "A", { status: "done" }), story("b", "B", { status: "done" })])
+    ).toBe("Every story in Sprint 7 is done, but 2 don't meet the DoD yet.");
+    expect(verdict([story("a", "A", { status: "done", points: 3, ...ticked("rev", "ci") })])).toBe(
+      "Every story in Sprint 7 is done: 3 points."
+    );
+  });
+
+  it("on a closed sprint, says its done stories didn't meet it, with no 'yet'", () => {
+    // Its board is read-only, DoD checklists included: nothing is left to tick.
+    const closedVerdict = (stories: Story[], status: Sprint["status"]) => {
+      const cols = storiesByColumn(stories, "s7");
+      return sprintBoardVerdict(
+        sprint({ status }),
+        storyProgress(stories, "s7"),
+        sprintBreaches(cols, LIMITS),
+        doneMissingDod(cols.done, { items: DOD }).length
+      );
+    };
+    expect(closedVerdict(base(), "completed")).toBe(
+      "2 of 10 points done (20%); 1 done story didn't meet the DoD."
+    );
+    expect(
+      closedVerdict([...base(), story("d", "D", { status: "done", points: 1 })], "cancelled")
+    ).toBe("3 of 11 points done (27%); 2 done stories didn't meet the DoD.");
+    expect(
+      closedVerdict(
+        [
+          story("a", "A", { status: "done", points: 3, ...ticked("rev", "ci") }),
+          story("b", "B", { status: "done", points: 5 }),
+        ],
+        "completed"
+      )
+    ).toBe("Every story in Sprint 7 is done: 8 points, but 1 didn't meet the DoD.");
+    expect(
+      closedVerdict(
+        [story("a", "A", { status: "done" }), story("b", "B", { status: "done" })],
+        "cancelled"
+      )
+    ).toBe("Every story in Sprint 7 is done, but 2 didn't meet the DoD.");
+    // A planned sprint can still be fixed.
+    expect(closedVerdict(base(), "planned")).toBe(
+      "2 of 10 points done (20%); 1 done story doesn't meet the DoD yet."
+    );
+    // The board's header and its export read the same.
+    const line = "2 of 10 points done (20%); 1 done story didn't meet the DoD.";
+    expect(
+      sprintBoardMarkdown(
+        { sprint: sprint({ status: "completed" }), stories: base(), wipLimits: LIMITS, dod: DOD },
+        NOW
+      )
+    ).toContain(line);
+    seed({ sprints: [sprint({ status: "completed" })], stories: base() });
+    useWorkspaceStore.setState({
+      definitionsOfDone: [{ id: DOD_DOC_ID, items: DOD, history: [] }],
+    });
+    window.history.replaceState(null, "", "/kanban?sprint=s7");
+    renderBoard();
+    expect(screen.getByText(line)).toBeInTheDocument();
+    expect(exported()).toContain(line);
+  });
+
+  it("reads the same in the board's header and its Markdown export", () => {
+    const stories = [
+      story("a", "Pay by card", { status: "done", points: 2 }),
+      story("b", "Receipts", { status: "todo", points: 3 }),
+    ];
+    const line = "2 of 5 points done (40%); 1 done story doesn't meet the DoD yet.";
+    expect(
+      sprintBoardMarkdown({ sprint: sprint(), stories, wipLimits: LIMITS, dod: DOD }, NOW)
+    ).toContain(line);
+    // Without the DoD passed in, the export has nothing to check against.
+    expect(sprintBoardMarkdown({ sprint: sprint(), stories, wipLimits: LIMITS }, NOW)).toContain(
+      "2 of 5 points done (40%)."
+    );
+
+    seed({ stories });
+    useWorkspaceStore.setState({
+      definitionsOfDone: [{ id: DOD_DOC_ID, items: DOD, history: [] }],
+    });
+    renderBoard();
+    expect(screen.getByText(line)).toBeInTheDocument();
+    expect(exported()).toContain(line);
   });
 });
 
@@ -762,11 +989,20 @@ describe("sprint board", () => {
   it("opens a completed sprint read-only: no moves, flags, owner edits or limits", () => {
     seed({
       sprints: [sprint({ status: "completed" })],
-      stories: [...stories(), story("o", "Saved cards", { status: "review", owner: "Ben" })],
+      stories: [
+        ...stories(),
+        story("o", "Saved cards", { status: "review", owner: "Ben", blocked: true }),
+      ],
     });
     window.history.replaceState(null, "", "/kanban?sprint=s7");
     renderBoard();
     expect(screen.getByText(closedBoardNote(sprint({ status: "completed" })))).toBeInTheDocument();
+    // Its header says how it ended, not what to do next.
+    expect(
+      screen.getByText(/; 1 story was still blocked\.$/, { selector: "p" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/unblock/)).toBeNull();
+    expect(exported()).toContain("; 1 story was still blocked.");
     expect(screen.getByText("Pay by card")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Move to…/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Flag blocked/ })).toBeNull();
@@ -790,6 +1026,8 @@ describe("sprint board", () => {
     window.history.replaceState(null, "", "/kanban?sprint=s7");
     renderBoard();
     expect(screen.getByText("No stories were planned into Sprint 7.")).toBeInTheDocument();
+    expect(screen.getByText("Sprint 7 ended with no stories.")).toBeInTheDocument();
+    expect(screen.queryByText(/planned into Sprint 7 yet/)).toBeNull();
     expect(screen.queryByRole("link", { name: /Plan stories into/ })).toBeNull();
   });
 
@@ -919,7 +1157,8 @@ describe("flow board cards", () => {
     const reviewed = movedCard(card("b", "B", { column: "ready" }), "review", at);
     expect(reviewed.startedAt).toBe(at);
     const finished = movedCard(reviewed, "done", ago(-2));
-    expect(cycleTimeDays(finished)).toBeCloseTo(2);
+    // Whole local days with the start and finish day both counted: 3, not 2.
+    expect(cycleTimeDays(finished)).toBe(3);
     expect(cycleStats([finished]).count).toBe(1);
     // Dropped straight into Done: nobody saw it worked on, so no made-up 0 days.
     const skipped = movedCard(card("c", "C", { column: "ready" }), "done", at);
@@ -977,13 +1216,35 @@ describe("flow board cards", () => {
   });
 
   it("counts time in work from the start, which a move from In progress to Review keeps", () => {
+    // Counted like a cycle time (lib/flow cycleDays): the start day is day 1.
     expect(
       daysInWork(card("a", "A", { column: "review", columnSince: ago(1), startedAt: ago(9) }), NOW)
-    ).toBe(9);
+    ).toBe(10);
     // No start: from when it entered its column, else when it was created.
-    expect(daysInWork(card("a", "A", { column: "review", columnSince: ago(3) }), NOW)).toBe(3);
-    expect(daysInWork(card("a", "A", { column: "review", createdAt: ago(4) }), NOW)).toBe(4);
+    expect(daysInWork(card("a", "A", { column: "review", columnSince: ago(3) }), NOW)).toBe(4);
+    expect(daysInWork(card("a", "A", { column: "review", createdAt: ago(4) }), NOW)).toBe(5);
     expect(daysInWork(card("a", "A", { createdAt: "never" }), NOW)).toBeNull();
+    // Started today; started "tomorrow" by another device's clock: just started.
+    expect(daysInWork(card("a", "A", { column: "in_progress", startedAt: ago(0) }), NOW)).toBe(1);
+    expect(daysInWork(card("a", "A", { column: "in_progress", startedAt: ago(-2) }), NOW)).toBe(1);
+  });
+
+  it("ages a card in work as lib/flow ageingWip does, so the tint flags it a day past P85", () => {
+    // P85 6 days: 6 days in work is within it, 7 is past it.
+    const within = card("a", "A", { column: "in_progress", startedAt: ago(5) });
+    const past = card("b", "B", { column: "review", startedAt: ago(6), columnSince: ago(1) });
+    expect(daysInWork(within, NOW)).toBe(6);
+    expect(daysInWork(past, NOW)).toBe(7);
+    expect(
+      ageingWip(cardItems([within, past]), todayIso(NOW), 6).map((a) => [
+        a.id,
+        a.ageDays,
+        a.overP85,
+      ])
+    ).toEqual([
+      ["b", 7, true],
+      ["a", 6, false],
+    ]);
   });
 
   it("dates the column stay of an old card from its best stamp", () => {
@@ -1013,13 +1274,19 @@ describe("flow board cards", () => {
     cards.push(card("r", "R", { column: "review", startedAt: ago(40), completedAt: ago(1) }));
     const stats = cycleStats(cards);
     expect(stats.count).toBe(5);
-    expect(stats.average).toBeCloseTo(4);
+    // 1, 2, 3, 4 and 10 days apart: 2, 3, 4, 5 and 11 days with both ends counted.
+    expect(stats.average).toBe(5);
     expect(stats.spread).toBeCloseTo(Math.sqrt(10));
-    expect(stats.p85).toBeCloseTo(percentile([1, 2, 3, 4, 10], 85)!);
-    expect(stats.p85).toBeCloseTo(10);
-    const huge = cycleStats([finished(1e6, 0)]);
+    expect(stats.p85).toBe(percentile([2, 3, 4, 5, 11], 85)!);
+    expect(stats.p85).toBe(11);
+    const huge = cycleStats([finished(10_000, 0)]);
     expect(huge).toMatchObject({ count: 1, spread: 0 });
-    expect(huge.p85).toBeCloseTo(1e6);
+    expect(huge.p85).toBe(10_001);
+    // Same day: 1 day, not a made-up 0.
+    const local = (h: number) => new Date(2026, 9, 20, h).toISOString();
+    expect(cycleTimeDays({ startedAt: local(9), completedAt: local(17) })).toBe(1);
+    // Finished "before" it started (bad data): no cycle time.
+    expect(cycleTimeDays({ startedAt: ago(1), completedAt: ago(3) })).toBeNull();
   });
 
   it("counts throughput for the last 7 days and per week, gaps included", () => {
@@ -1085,13 +1352,14 @@ describe("flow board cards", () => {
 
     const done = (d: number, i: number) =>
       card(`d${i}`, "D", { column: "done", startedAt: ago(d), completedAt: ago(0) });
+    // Started 2, 4 and 6 days ago and done today: 3, 5 and 7 days with both ends counted.
     const three = [2, 4, 6].map(done);
     expect(flowVerdict(three, LIMITS, stats(three))).toBe(
-      "Cards take 4 days on average from start to done."
+      "Cards take 5 days on average from start to done."
     );
     const five = [1, 2, 3, 4, 10].map(done);
     expect(flowVerdict(five, LIMITS, stats(five))).toBe(
-      "Cards take 4 days on average from start to done, and 85% finished within 10 days."
+      "Cards take 5 days on average from start to done, and 85% finished within 11 days."
     );
     const two = [card("x", "X", { column: "in_progress" }), done(3, 1)];
     expect(flowVerdict(two, LIMITS, stats(two))).toBe(
@@ -1131,7 +1399,8 @@ describe("flow board markdown and example", () => {
       },
       NOW
     );
-    expect(md.split("\n")).toContain("- Wallet (cycle time 2.0 days)");
+    // Started 3 days ago, done yesterday: 3 days with both ends counted.
+    expect(md.split("\n")).toContain("- Wallet (cycle time 3.0 days)");
   });
 
   it("the example shows assignees, a blocked card and an age in column", () => {
@@ -1145,8 +1414,9 @@ describe("flow board markdown and example", () => {
     const cards = buildExample(NOW);
     const stats = cycleStats(cards);
     expect(stats.count).toBeGreaterThanOrEqual(MIN_SAMPLE.distribution);
-    expect(stats.average).toBeCloseTo(4);
-    expect(stats.p85).toBeCloseTo(6);
+    // 2 to 6 days apart, so 3 to 7 days with both ends counted.
+    expect(stats.average).toBe(5);
+    expect(stats.p85).toBe(7);
     const review = cards.find((c) => c.column === "review")!;
     expect(daysInWork(review, NOW)).toBeGreaterThan(stats.p85!);
     // New rows went at the end: the earlier cards keep their example ids.
@@ -1276,39 +1546,48 @@ describe("flow board", () => {
     seed({ sprints: [], cards: [1, 2, 3, 4, 10].map(done) });
     renderBoard();
     const tile = (label: string) => within(screen.getByText(label).closest(".rounded-xl")!);
-    expect(tile("Cycle avg").getByText("4d")).toBeInTheDocument();
+    // 2, 3, 4, 5 and 11 days with both ends counted.
+    expect(tile("Cycle avg").getByText("5d")).toBeInTheDocument();
     expect(tile("Cycle avg").getByText("±3.2 days")).toBeInTheDocument();
-    expect(tile("85% within").getByText("10d")).toBeInTheDocument();
+    expect(tile("85% within").getByText("11d")).toBeInTheDocument();
   });
 
   it("tints a card in work for longer than P85, counting from its start, not its column", () => {
-    const now = new Date();
+    // The board reads its clock at mount: hold it, so the days are exact.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     const done = (d: number, i: number) =>
       card(`d${i}`, `Done ${i}`, {
         column: "done",
-        startedAt: ago(d + 1, now),
-        completedAt: ago(1, now),
+        startedAt: ago(d + 1),
+        completedAt: ago(1),
       });
     seed({
       sprints: [],
       cards: [
+        // 2 to 6 days with both ends counted: P85 is 6 days.
         ...[1, 2, 3, 4, 5].map(done),
-        // Just moved on to Review, after 9 days in work: P85 is 5 days.
-        card("r", "Audit", { column: "review", startedAt: ago(9, now), columnSince: ago(1, now) }),
-        card("p", "Search", {
-          column: "in_progress",
-          startedAt: ago(2, now),
-          columnSince: ago(2, now),
-        }),
+        // Just moved on to Review, started 9 days ago: 10 days in work.
+        card("r", "Audit", { column: "review", startedAt: ago(9), columnSince: ago(1) }),
+        card("p", "Search", { column: "in_progress", startedAt: ago(2), columnSince: ago(2) }),
+        // Exactly P85 days in work isn't flagged; a day more is.
+        card("e", "Exports", { column: "in_progress", startedAt: ago(5), columnSince: ago(5) }),
+        card("b", "Billing", { column: "review", startedAt: ago(6), columnSince: ago(6) }),
       ],
     });
     renderBoard();
     expect(
       screen.getByText(
-        "1 day in Review, in work for 9 days, longer than 85% of finished cards took"
+        "1 day in Review, in work for 10 days, longer than 85% of finished cards took"
       )
     ).toBeInTheDocument();
     expect(screen.getByText("2 days in In progress")).toBeInTheDocument();
+    expect(screen.getByText("5 days in In progress")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "6 days in Review, in work for 7 days, longer than 85% of finished cards took"
+      )
+    ).toBeInTheDocument();
   });
 
   it("doesn't show a done card as blocked", () => {
@@ -1343,16 +1622,19 @@ describe("flow board", () => {
   });
 
   it("the example shows cycle time and P85, and never offers its names for the team", () => {
+    // The board's clock is read at mount and the example's dates when it
+    // loads: hold the clock, so the card in Review is exactly 9 days in work
+    // (started 8 days ago, the start day counted like a cycle time's).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     seed({ sprints: [], cards: [] });
     renderBoard();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     const tile = (label: string) => within(screen.getByText(label).closest(".rounded-xl")!);
-    expect(tile("Cycle avg").getByText("4d")).toBeInTheDocument();
-    expect(tile("85% within").getByText("6d")).toBeInTheDocument();
-    // The board's clock was read at mount, a moment before the example's
-    // dates: 8 days ago reads as 7 whole days, still past P85.
+    expect(tile("Cycle avg").getByText("5d")).toBeInTheDocument();
+    expect(tile("85% within").getByText("7d")).toBeInTheDocument();
     expect(
-      screen.getByText(/in Review, in work for [78] days, longer than 85% of finished cards took/)
+      screen.getByText(/in Review, in work for 9 days, longer than 85% of finished cards took/)
     ).toBeInTheDocument();
 
     fireEvent.click(

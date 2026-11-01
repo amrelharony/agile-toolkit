@@ -5,17 +5,18 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "nps-csat",
     summary:
-      "This tracker records Net Promoter Score (NPS) and Customer Satisfaction (CSAT) responses over time. NPS asks how likely someone is to recommend you; CSAT asks how satisfied they were with a specific experience.",
+      "Collect Net Promoter Score (NPS) and Customer Satisfaction (CSAT) answers, import survey exports, and read the scores per week or month with the number of answers behind each.",
     whenToUse: [
       "Following customer sentiment across releases or service changes.",
       "Connecting survey comments to what the team builds next.",
     ],
     steps: [
-      "Under Add response, choose NPS (0-10) or CSAT (1-5), set the date and score, and add the Respondent and Verbatim comment if you have them.",
-      "Add every response, not just the notable ones, so the numbers stay honest.",
-      "Read the cards. NPS is % promoters minus % detractors, from −100 to +100. CSAT is the average score out of 5.",
-      "After each survey round, check the Score Trend chart. It plots NPS for each date on the left axis (−100 to +100) and the average CSAT for each date on the right axis (1 to 5).",
-      "Read the verbatim comments for the reasons behind the scores, and review the trend monthly or after each release.",
+      "Under Add a response, pick the Survey (NPS 0–10 or CSAT 1–5) and the Score the customer gave, check the Day, and add the Respondent, Tags and Verbatim if you have them. Press Add response.",
+      "Or press Import CSV: choose a file or paste rows, header row first (date and score; kind, respondent, verbatim and tags are optional). With no kind column, pick NPS or CSAT for the whole file, check the preview, then press Import.",
+      "Read the cards: NPS and CSAT satisfied for the latest month (or week) with at least 10 answers, all-time in the small print.",
+      "In Score trend, switch Group by between Month and Week. A hollow dot or a warning means fewer than 10 answers, where one answer moves the score a lot.",
+      "Press a tag under Themes to filter everything to it; the table shows which themes collect the unhappy answers.",
+      "Edit or delete a response in the list (Undo in the toast); Clear all asks first and can be undone.",
     ],
     scales: [
       {
@@ -36,88 +37,88 @@ export const GUIDES: ToolGuide[] = [
       },
     ],
     tips: [
-      "With few responses, one score can swing NPS a lot. Check the response count before reacting.",
+      "Re-importing the same file adds nothing: answers already saved are skipped and listed.",
       "Compare with your own past results; NPS benchmarks vary a lot between industries.",
-      "Turn repeated complaints into testable bets in the Hypothesis Tracker.",
+      "Turn the most complained-about theme into a testable bet in the Hypothesis Tracker.",
     ],
   },
   {
     toolId: "hypothesis-tracker",
     summary:
-      "The Hypothesis Tracker turns product ideas into testable bets: what you believe, what you'll do and what you want to learn. Following each one to a result shows how often your bets hold up and how fast you learn.",
+      "The Hypothesis Tracker frames product bets as testable hypotheses (we believe, we will, to learn, success looks like) with an optional numeric target. A measured result suggests a verdict you apply, and the validation rate counts only decisive results.",
     whenToUse: [
       "Before building a feature whose value isn't proven yet.",
       "Discovery work where the team runs several experiments at once.",
     ],
     steps: [
-      "Click New Hypothesis and fill in We believe, We will do and To learn.",
-      "Add a Success metric with a clear threshold and time frame, and describe the Experiment design.",
-      "Set the status to Running when the experiment starts.",
-      "When results are in, set Validated, Invalidated or Inconclusive, then write the Outcome: what you learned and what you'll do next.",
-      "Review open hypotheses weekly, and check Validation Rate and Median Time to Learn every month or quarter.",
+      "Click New hypothesis and fill We believe, We will, To learn and Success looks like; Add hypothesis saves it (Enter works too). Move Raised on back if the test started earlier.",
+      "Optionally set a Numeric target: The number should Rise to at least or Fall to at most a Target, with a Unit and the Baseline where it stands now.",
+      "Set the Status on the card as the test runs. A hypothesis sent from another tool (Riskiest Assumption, the Opportunity Tree, Cynefin or a Design Sprint) arrives Drafted, often with Needs detail: use Edit or Add the detail to fill what you'll do and the success metric before it can run.",
+      "When the result is in, type it in Measured result. The card says whether the target was met and offers Mark validated or Mark invalidated; nothing changes until you click it. Set Result on to the day the test ended and note What we learned.",
+      "Use Show to filter by Open, a result or Needs detail. Validation rate is validated ÷ (validated + invalidated); Advanced analysis shows how long tests take once five have a result.",
     ],
     tips: [
       "Set the success metric before the experiment starts so nobody moves the goalposts.",
-      "An invalidated hypothesis is a good result if it stopped you building the wrong thing.",
-      "Not sure what to test first? Rank your assumptions in the Riskiest Assumption Canvas.",
+      "Inconclusive results don't count either way in the validation rate; it reads “—” until a test is validated or invalidated.",
+      "Deleting a hypothesis offers Undo, and the item that sent it links to it again. Its From … link goes back to that item.",
     ],
   },
   {
     toolId: "user-interviews",
     summary:
-      "The User Interview Log stores quotes from user interviews and tags them by theme. As interviews add up, Theme Frequency shows which topics come up most often.",
+      "The User Interview Log stores quotes from user interviews, tagged by theme. Themes count the participants who raised them, not the quotes, so one talkative person doesn't outweigh four quiet ones.",
     whenToUse: [
       "During a round of discovery or usability interviews.",
       "Pulling findings from several interviews together before a product decision.",
     ],
     steps: [
-      "Click New Interview and enter the participant (a pseudonym is fine), the date and the Context: their role, how they use the product and what you were exploring.",
-      "Click Add Quote for each notable thing they said, in their own words.",
-      "Tag each quote with short, comma-separated themes, such as onboarding or pricing. Reuse the same tags across interviews.",
-      "After each interview, or weekly during a research round, check Theme Frequency for themes that keep coming up.",
-      "Leave Anonymize on export switched on when you share the data.",
+      "Click New interview and enter the Participant (a pseudonym is fine), the day it took place (Interviewed on) and the Context; Add interview saves it and opens it.",
+      "In the interview, type a quote under New quote and its Tags (comma-separated, such as onboarding, pricing), then press Enter or Add quote. Edit or delete a quote from its card.",
+      "Check Themes: each reads “pricing · 3 of 5 people”. Click a theme to see the quotes behind it across interviews, and Open the interview from there.",
+      "On a quote that matters, click Raise as an opportunity, pick where it goes in Put it under (an outcome or an opportunity on the tree) and press Add to the tree.",
+      "Leave Anonymise on when you export or use the AI prompt: participants become Participant 1, 2… and emails, phone numbers and their names are taken out of the context and quotes.",
     ],
     tips: [
-      "Write down what people actually said and did, not your interpretation of it.",
-      "Remove names, employers and other personal details before saving; the data is stored unencrypted.",
-      "Turn strong themes into opportunities in the Opportunity Solution Tree.",
+      "Write down what people actually said, not your interpretation of it.",
+      "Reuse the same tags across interviews so themes add up.",
+      "With fewer than three participants, the summary calls the top theme a hunch.",
     ],
   },
   {
     toolId: "opportunity-tree",
     summary:
-      "An Opportunity Solution Tree (from Teresa Torres) links an outcome to the customer opportunities behind it, the solutions that could address them and the experiments that test those solutions. It keeps discovery tied to a goal.",
+      "An Opportunity Solution Tree (from Teresa Torres) links an outcome to the customer opportunities behind it, the solutions that could address them and the experiments that test those solutions. Pick one target opportunity per outcome and test experiments as hypotheses.",
     whenToUse: [
       "Ongoing product discovery, alongside regular customer interviews.",
       "When the team jumps to solutions before agreeing on the problem.",
     ],
     steps: [
-      "Click Add Outcome and write a measurable result you want to drive, such as “increase weekly active users by 10%”.",
-      "Under the outcome, add opportunities: needs, pain points or desires you heard from customers. Note the Evidence for each.",
-      "Under each opportunity, add several possible solutions so you can compare them.",
-      "Under a solution, add experiments that test whether it will work, and record the Evidence they produce.",
-      "Update the tree weekly as interviews and results come in, and remove branches that turn out to be dead ends.",
+      "Click Add outcome and write a measurable result you want to move, such as “increase weekly active users by 10%”.",
+      "On the outcome, click Add opportunity for each need or pain you heard; on an opportunity, Add sub-opportunity splits it and Add solution adds an idea to address it. Note the Evidence.",
+      "Mark the opportunity you'll pursue with Target: one per outcome, so a second Target replaces the first.",
+      "Under a solution, Add experiment, then click Test as a hypothesis to send it to the Hypothesis Tracker; the experiment then shows whether it is being tested or what the test found.",
+      "Use Edit to rename a node. Deleting a node with anything under it asks first, and Undo brings the whole branch back.",
     ],
     tips: [
       "Phrase opportunities from the customer's view (“I can't tell if my order shipped”), not as features.",
       "Compare at least three solutions for an opportunity before picking one.",
-      "Feed opportunities from the User Interview Log and track experiments in the Hypothesis Tracker.",
+      "Quotes raised from the User Interview Log arrive as opportunities with a From user interviews link.",
     ],
   },
   {
     toolId: "riskiest-assumption",
     summary:
-      "The Riskiest Assumption Canvas lists the assumptions behind a plan and ranks them by how risky and how unproven they are, so you test the most dangerous ones before you invest in building.",
+      "The Riskiest Assumption Canvas lists the beliefs behind a plan, ranks them by risk × (6 − evidence) and tests the riskiest, least-proven one first as a hypothesis.",
     whenToUse: [
       "Before starting a new product, feature or initiative.",
       "When a plan rests on beliefs about users, pricing or technology that nobody has checked.",
     ],
     steps: [
-      "Write each assumption as a statement that could be proven wrong, such as “Users will pay $20/mo for the premium tier”. Add a Test idea if you have one.",
-      "Rate Risk and Evidence from 1 to 5 using the scales below.",
-      "Check the ranked list. Score = risk × (6 − evidence), so risky, unproven assumptions rise to the top and land in Test first.",
-      "Click Generate test card on the top item. Use it to agree the cheapest test and the metric and threshold that would prove it wrong.",
-      "Set the status to Testing, then Validated or Invalidated, and raise Evidence as you learn.",
+      "Under Add an assumption, write a statement that could be proven wrong, such as “Users will pay $20/mo for the premium tier”, and a Test idea if you have one. Pick Risk and Evidence from 1 to 5, or leave them blank and it waits under Not rated. Click Add assumption.",
+      "Rate or re-rate on each card. The Ranked list holds still while you do, and Re-sort puts it back in order. The matrix places rated assumptions only.",
+      "On the top assumption click Test: it becomes a hypothesis in the Hypothesis Tracker, where you add the success metric and run it.",
+      "When its hypothesis is validated or invalidated, the assumption moves to Tested and offers Mark validated or Mark invalidated; an inconclusive test keeps it ranked to test again.",
+      "Change the Status on a card yourself at any time. Edit changes the words, and delete offers Undo.",
     ],
     scales: [
       {
@@ -136,8 +137,7 @@ export const GUIDES: ToolGuide[] = [
       },
     ],
     tips: [
-      "In the matrix, Risk 3 or more counts as high and Evidence 3 or less as low, so a pair of 3s lands in Test first.",
-      "Track each test in the Hypothesis Tracker.",
+      "An unrated assumption is never ranked, so nothing lands in Test first by a default.",
       "An invalidated assumption is useful: change the plan, then re-rate the others.",
     ],
     timebox: "45–60 minutes for a first pass",

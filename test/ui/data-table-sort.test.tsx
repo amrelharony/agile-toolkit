@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { DataTable, sortRows, type DataTableColumn } from "@/components/shared/data-table";
+import {
+  DataTable,
+  sortRows,
+  type DataTableColumn,
+  type DataTableSort,
+} from "@/components/shared/data-table";
 
 /** Sortable columns: header buttons on desktop, a select on mobile, blanks last. */
 
@@ -81,5 +87,68 @@ describe("DataTable sorting", () => {
     );
     expect(screen.queryByLabelText("Sort by")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Score/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("DataTable controlled sort and caption", () => {
+  function Controlled({ onSort }: { onSort: (s: DataTableSort | null) => void }) {
+    const [sort, setSort] = useState<DataTableSort | null>(null);
+    return (
+      <>
+        <p data-testid="sort">{sort ? `${sort.key}:${sort.dir}` : "none"}</p>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.id}
+          sort={sort}
+          onSortChange={(s) => {
+            onSort(s);
+            setSort(s);
+          }}
+          caption="Scores"
+        />
+      </>
+    );
+  }
+
+  it("reports a header click or a Sort by pick, and shows the sort it is given", () => {
+    const onSort = vi.fn();
+    render(<Controlled onSort={onSort} />);
+    const table = screen.getByRole("table", { name: "Scores" });
+    expect(bodyNames(table)).toEqual(["Beta", "alpha", "Gamma"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Score/ }));
+    expect(onSort).toHaveBeenLastCalledWith({ key: "score", dir: "desc" });
+    expect(screen.getByTestId("sort")).toHaveTextContent("score:desc");
+    expect(bodyNames(table)).toEqual(["Gamma", "Beta", "alpha"]);
+    fireEvent.click(screen.getByRole("button", { name: /Score/ }));
+    expect(onSort).toHaveBeenLastCalledWith({ key: "score", dir: "asc" });
+
+    // "As listed" on a phone goes back to the given order: null.
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "" } });
+    expect(onSort).toHaveBeenLastCalledWith(null);
+    expect(bodyNames(table)).toEqual(["Beta", "alpha", "Gamma"]);
+  });
+
+  it("never sorts on its own while controlled", () => {
+    const onSort = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        sort={null}
+        onSortChange={onSort}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Score/ }));
+    expect(onSort).toHaveBeenCalledWith({ key: "score", dir: "desc" });
+    expect(bodyNames(screen.getByRole("table"))).toEqual(["Beta", "alpha", "Gamma"]);
+  });
+
+  it("names the table and the phone cards by its caption", () => {
+    render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} caption="Scores" />);
+    expect(screen.getByRole("table", { name: "Scores" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Scores" })).toBeInTheDocument();
   });
 });

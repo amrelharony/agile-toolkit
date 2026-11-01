@@ -282,6 +282,22 @@ export function parseKudos(raw: unknown): KudosParseResult {
     sawV2Field = true;
   }
 
+  // Phase 6: the roster member the kudos is for (TeamMember.id), when the
+  // sender picked them from the roster. Bounded like toProfileId; without
+  // this copy every write through upsertKudos or import would drop it.
+  let toMemberId: string | undefined;
+  if (raw.toMemberId !== undefined) {
+    if (
+      typeof raw.toMemberId !== "string" ||
+      raw.toMemberId.length === 0 ||
+      raw.toMemberId.length > ID_MAX
+    ) {
+      return { ok: false, error: "invalid_to_member_id" };
+    }
+    toMemberId = raw.toMemberId;
+    sawV2Field = true;
+  }
+
   const inputVersion = raw.version;
   let version: 1 | 2;
   if (inputVersion === 2 || sawV2Field) {
@@ -302,6 +318,7 @@ export function parseKudos(raw: unknown): KudosParseResult {
     sentAt,
   };
   if (raw.toProfileId !== undefined) kudos.toProfileId = raw.toProfileId as string;
+  if (toMemberId !== undefined) kudos.toMemberId = toMemberId;
   if (raw.fromProfileId !== undefined) kudos.fromProfileId = raw.fromProfileId as string;
   if (raw.teamName !== undefined) kudos.teamName = raw.teamName as string;
   if (senderIdentityId !== undefined) kudos.senderIdentityId = senderIdentityId;

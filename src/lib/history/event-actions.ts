@@ -29,6 +29,8 @@ export const VELOCITY_ACTIONS = {
   SPRINT_REMOVED: "sprint_removed",
   SPRINT_UPDATED: "sprint_updated",
   VELOCITY_RESET: "velocity_reset", // milestone
+  SPRINT_CLOSED: "sprint_closed",
+  NEXT_SPRINT_PLANNED: "next_sprint_planned",
 } as const;
 
 export const IMPEDIMENT_ACTIONS = {
@@ -67,6 +69,7 @@ export const BURNDOWN_ACTIONS = {
   CONFIG_UPDATED: "config_updated",
   SCOPE_CHANGED: "scope_changed",
   BURNDOWN_RESET: "burndown_reset", // milestone
+  SOURCE_SWITCHED: "source_switched",
 } as const;
 
 export const BURNUP_ACTIONS = {
@@ -75,6 +78,7 @@ export const BURNUP_ACTIONS = {
   CONFIG_UPDATED: "config_updated",
   SCOPE_CHANGED: "scope_changed",
   BURNUP_RESET: "burnup_reset", // milestone
+  SOURCE_SWITCHED: "source_switched",
 } as const;
 
 export const CFD_ACTIONS = {
@@ -82,6 +86,8 @@ export const CFD_ACTIONS = {
   COLUMN_ADDED: "column_added",
   COLUMN_REMOVED: "column_removed",
   CFD_RESET: "cfd_reset", // milestone
+  SNAPSHOT_REMOVED: "snapshot_removed",
+  SOURCE_SWITCHED: "source_switched",
 } as const;
 
 export const MOOD_ACTIONS = {
@@ -91,9 +97,14 @@ export const MOOD_ACTIONS = {
 } as const;
 
 export const NPS_CSAT_ACTIONS = {
+  /** One response was added or deleted (the strings from before Phase 8). */
   SURVEY_ADDED: "survey_added",
   SURVEY_REMOVED: "survey_removed",
   SURVEY_RESET: "survey_reset", // milestone
+  /** A response's tags or verbatim were edited. Payload: responseId, fields. */
+  RESPONSE_UPDATED: "response_updated",
+  /** A CSV or paste import saved its rows. Payload: added, skipped (duplicates). */
+  RESPONSES_IMPORTED: "responses_imported",
 } as const;
 
 // ── Configuration registers ──────────────────────────────────────────
@@ -136,6 +147,8 @@ export const DECISION_ACTIONS = {
 export const HEALTH_CHECK_ACTIONS = {
   CHECK_SAVED: "check_saved", // milestone
   CHECK_REMOVED: "check_removed",
+  /** A vote round filled the draft. Payload: ballots, dimensions, source; never who voted what. */
+  ROUND_SAVED: "round_saved",
   HEALTH_CHECK_RESET: "health_check_reset",
 } as const;
 
@@ -168,6 +181,7 @@ export const CYCLE_TIME_ACTIONS = {
   ITEM_REMOVED: "item_removed",
   ITEM_UPDATED: "item_updated",
   CYCLE_TIME_RESET: "cycle_time_reset", // milestone
+  ITEMS_IMPORTED: "items_imported",
 } as const;
 
 export const VALUE_STREAM_ACTIONS = {
@@ -175,6 +189,8 @@ export const VALUE_STREAM_ACTIONS = {
   STAGE_REMOVED: "stage_removed",
   STAGE_UPDATED: "stage_updated",
   VALUE_STREAM_RESET: "value_stream_reset", // milestone
+  STAGE_MOVED: "stage_moved",
+  FUTURE_STATE_STARTED: "future_state_started",
 } as const;
 
 export const PI_PLANNING_ACTIONS = {
@@ -201,6 +217,8 @@ export const RISK_ACTIONS = {
   RISK_UPDATED: "risk_updated",
   RISK_REMOVED: "risk_removed",
   RISK_RESET: "risk_reset", // milestone
+  /** The risk happened and was raised as an impediment. Payload: riskId, impedimentId. */
+  RISK_ESCALATED: "risk_escalated",
 } as const;
 
 export const PREMORTEM_ACTIONS = {
@@ -220,6 +238,8 @@ export const TECH_DEBT_ACTIONS = {
   ITEM_UPDATED: "item_updated",
   ITEM_RESOLVED: "item_resolved", // milestone
   TECH_DEBT_RESET: "tech_debt_reset",
+  /** The item went to the backlog as a story. Payload: itemId, storyId. */
+  ITEM_SENT_TO_BACKLOG: "item_sent_to_backlog",
 } as const;
 
 // ── Outcomes + product discovery ─────────────────────────────────────
@@ -230,6 +250,13 @@ export const OKR_ACTIONS = {
   KEY_RESULT_REMOVED: "key_result_removed",
   PROGRESS_UPDATED: "progress_updated",
   OKR_RESET: "okr_reset", // milestone
+  /** The objective's text, owner or quarter was edited. Payload: okrId, fields. */
+  OBJECTIVE_UPDATED: "objective_updated",
+  /** A key result's title, baseline, target, direction or unit was edited. Payload: okrId, krId, fields. */
+  KEY_RESULT_UPDATED: "key_result_updated",
+  /** A dated check-in on a key result. Payload: okrId, krId, checkInId, date, value, confidence. */
+  CHECK_IN_RECORDED: "check_in_recorded",
+  CHECK_IN_REMOVED: "check_in_removed",
 } as const;
 
 export const OPPORTUNITY_TREE_ACTIONS = {
@@ -237,6 +264,10 @@ export const OPPORTUNITY_TREE_ACTIONS = {
   NODE_REMOVED: "node_removed",
   NODE_UPDATED: "node_updated",
   TREE_RESET: "tree_reset", // milestone
+  /** An opportunity was flagged, or unflagged, as its outcome's target. Payload: nodeId, on. */
+  TARGET_CHANGED: "target_changed",
+  /** An experiment went to the Hypothesis Tracker. Payload: nodeId, hypothesisId. */
+  EXPERIMENT_SENT: "experiment_sent",
 } as const;
 
 export const HYPOTHESIS_ACTIONS = {
@@ -245,6 +276,8 @@ export const HYPOTHESIS_ACTIONS = {
   HYPOTHESIS_REMOVED: "hypothesis_removed",
   STATUS_CHANGED: "status_changed", // milestone
   HYPOTHESIS_RESET: "hypothesis_reset",
+  /** The measured result was recorded against the target. Payload: hypothesisId, actual. */
+  RESULT_RECORDED: "result_recorded",
 } as const;
 
 export const INTERVIEW_ACTIONS = {
@@ -252,12 +285,20 @@ export const INTERVIEW_ACTIONS = {
   INTERVIEW_REMOVED: "interview_removed",
   INSIGHT_ADDED: "insight_added",
   INTERVIEWS_RESET: "interviews_reset", // milestone
+  /** The interview's date, participant or context was edited. Payload: interviewId, fields. */
+  INTERVIEW_UPDATED: "interview_updated",
+  /** A quote was deleted. Payload: interviewId, quoteId. */
+  QUOTE_REMOVED: "quote_removed",
+  /** A quote was raised as an opportunity on the tree. Payload: interviewId, quoteId, nodeId. */
+  QUOTE_SENT: "quote_sent",
 } as const;
 
 export const PRIORITIZER_ACTIONS = {
   ITEM_ADDED: "item_added",
   ITEM_REMOVED: "item_removed",
   SCORE_UPDATED: "score_updated",
+  /** Decide order saved the backlog's ranks. Payload: ranked (how many items got one). */
+  ORDER_SAVED: "order_saved",
   PRIORITIZER_RESET: "prioritizer_reset", // milestone
 } as const;
 
@@ -280,6 +321,7 @@ export const SPRINT_COMPARE_ACTIONS = {
   SPRINT_PINNED: "sprint_pinned",
   SPRINT_UNPINNED: "sprint_unpinned",
   COMPARE_RESET: "compare_reset", // milestone
+  RATING_SET: "rating_set",
 } as const;
 
 export const RELEASE_PLANNER_ACTIONS = {
@@ -377,6 +419,7 @@ export const HEALTH_DASHBOARD_ACTIONS = {
   DASHBOARD_REFRESHED: "dashboard_refreshed",
   SUMMARY_GENERATED: "summary_generated", // milestone
   SUMMARY_COPIED: "summary_copied",
+  THRESHOLDS_UPDATED: "thresholds_updated",
 } as const;
 
 export const DEPENDENCY_MAP_ACTIONS = {
@@ -393,6 +436,8 @@ export const DORA_ACTIONS = {
   SAMPLE_REMOVED: "sample_removed",
   TARGET_UPDATED: "target_updated",
   DORA_RESET: "dora_reset", // milestone
+  SAMPLE_UPDATED: "sample_updated",
+  SAMPLE_DERIVED: "sample_derived",
 } as const;
 
 export const SPACE_ACTIONS = {
@@ -457,6 +502,9 @@ export const RELEASE_READINESS_ACTIONS = {
   RELEASE_ROLLED_BACK: "release_rolled_back",
   RELEASE_REMOVED: "release_removed",
   READINESS_RESET: "readiness_reset",
+  RELEASE_REOPENED: "release_reopened",
+  RELEASE_UPDATED: "release_updated",
+  GATES_CHANGED: "gates_changed",
 } as const;
 
 export const RUNBOOK_SCORER_ACTIONS = {
@@ -503,6 +551,14 @@ export const A11Y_ACTIONS = {
 export const TEST_PYRAMID_ACTIONS = {
   COUNT_UPDATED: "count_updated",
   PYRAMID_RESET: "pyramid_reset", // milestone
+  /** The counts were kept as a dated snapshot. Payload: snapshotId, takenOn. */
+  SNAPSHOT_TAKEN: "snapshot_taken",
+  SNAPSHOT_REMOVED: "snapshot_removed",
+  /**
+   * The minutes per layer, or the count / runtime weighting, changed.
+   * Payload: runtime ({unit?, integration?, e2e?}), weighting.
+   */
+  RUNTIME_UPDATED: "runtime_updated",
 } as const;
 
 export const FLAKY_TEST_ACTIONS = {
@@ -518,11 +574,20 @@ export const CODE_REVIEW_ACTIONS = {
   PR_LOGGED: "pr_logged",
   PR_REMOVED: "pr_removed",
   CODE_REVIEW_RESET: "code_review_reset", // milestone
+  /** A logged pull request was edited in place. Payload: sampleId, fields. */
+  PR_UPDATED: "pr_updated",
+  /** A CSV import saved its rows. Payload: added, skipped. */
+  PRS_IMPORTED: "prs_imported",
+  /** The working-hours window was set or cleared. Payload: start, end (absent: cleared). */
+  WORKING_WINDOW_CHANGED: "working_window_changed",
 } as const;
 
 export const QUALITY_COST_ACTIONS = {
   COST_UPDATED: "cost_updated",
   QUALITY_COST_RESET: "quality_cost_reset", // milestone
+  /** A quarter's figures were saved to the history. Payload: periodId, period. */
+  PERIOD_SAVED: "period_saved",
+  PERIOD_REMOVED: "period_removed",
 } as const;
 
 // ── Phase 12-14: Workshops & Facilitation ────────────────────────────
@@ -532,6 +597,8 @@ export const WORKING_AGREEMENT_ACTIONS = {
   RULE_UPDATED: "rule_updated",
   CHARTER_PUBLISHED: "charter_published", // milestone
   CHARTER_RESET: "charter_reset",
+  CHECK_IN_SAVED: "check_in_saved",
+  CHECK_IN_REMOVED: "check_in_removed",
 } as const;
 
 export const LIBERATING_STRUCTURES_ACTIONS = {
@@ -560,6 +627,8 @@ export const RISKIEST_ASSUMPTION_ACTIONS = {
   ASSUMPTION_UPDATED: "assumption_updated",
   TEST_GENERATED: "test_generated", // milestone
   CANVAS_RESET: "canvas_reset",
+  /** "Test" made a linked hypothesis for the assumption. Payload: assumptionId, hypothesisId. */
+  TEST_CREATED: "test_created",
 } as const;
 
 export const WARDLEY_ACTIONS = {
@@ -595,8 +664,22 @@ export const ONE_ON_ONE_ACTIONS = {
 } as const;
 
 export const PSYCH_SAFETY_ACTIONS = {
+  /**
+   * A round was saved. Payload: roundId, responses; never who answered, or
+   * what. Rows from before rounds hold one answer sheet's responseId and
+   * scores instead.
+   */
   ASSESSMENT_SAVED: "assessment_saved", // milestone
+  /**
+   * An answer sheet from before rounds was added (payload: responseId,
+   * respondent, description) or removed (responseId, removed: true). The
+   * added row shares its responseId with that sheet's ASSESSMENT_SAVED row,
+   * so the two read together name whose scores they were. No longer written
+   * (a round keeps counts only); kept so older history rows still read.
+   */
   RESPONSE_LOGGED: "response_logged",
+  /** A round was deleted. Payload: roundId. */
+  ROUND_REMOVED: "round_removed",
   PSYCH_SAFETY_RESET: "psych_safety_reset",
 } as const;
 
@@ -638,6 +721,7 @@ export const ADKAR_ACTIONS = {
   INITIATIVE_ADDED: "initiative_added",
   INITIATIVE_REMOVED: "initiative_removed",
   STAGE_ADVANCED: "stage_advanced", // milestone
+  STAGE_STEPPED_BACK: "stage_stepped_back",
   ADKAR_RESET: "adkar_reset",
 } as const;
 
@@ -647,6 +731,7 @@ export const FEATURE_FLAG_ACTIONS = {
   FLAG_UPDATED: "flag_updated",
   FLAG_RETIRED: "flag_retired", // milestone
   FEATURE_FLAG_RESET: "feature_flag_reset",
+  FLAG_STATUS_CHANGED: "flag_status_changed",
 } as const;
 
 // ════════════════════════════════════════════════════════════════════
@@ -805,6 +890,12 @@ export const BUY_FEATURE_ACTIONS = {
   FEATURE_ADDED: "feature_added",
   FEATURE_REMOVED: "feature_removed",
   PURCHASE_RECORDED: "purchase_recorded",
+  /**
+   * A round of splits was saved and spent. Payload: ballots, spent,
+   * refunded, funded (counts only); never who gave what. Rounds saved
+   * before it logged PURCHASE_RECORDED with `round: true`.
+   */
+  ROUND_SAVED: "round_saved",
   GAME_RESET: "game_reset", // milestone
 } as const;
 
@@ -812,13 +903,22 @@ export const HUNDRED_DOLLAR_ACTIONS = {
   ITEM_ADDED: "item_added",
   ITEM_REMOVED: "item_removed",
   ALLOCATION_CHANGED: "allocation_changed",
+  /**
+   * A team round was saved. Payload: ballots, items, source (counts only);
+   * never anyone's split. Rounds saved before it logged ALLOCATION_CHANGED
+   * with `round: true`.
+   */
+  ROUND_SAVED: "round_saved",
   TEST_RESET: "test_reset", // milestone
 } as const;
 
 export const EISENHOWER_ACTIONS = {
   TASK_ADDED: "task_added",
   TASK_REMOVED: "task_removed",
+  /** An edit that put the task in another pane (or sorted it). */
   TASK_MOVED: "task_moved",
+  /** An edit that left the task in its pane. Before it, every edit logged TASK_MOVED. */
+  TASK_UPDATED: "task_updated",
   EISENHOWER_RESET: "eisenhower_reset",
 } as const;
 
@@ -856,6 +956,9 @@ export const WEIGHTED_DECISION_ACTIONS = {
   OPTION_ADDED: "option_added",
   OPTION_REMOVED: "option_removed",
   SCORE_CHANGED: "score_changed",
+  /** A matrix was added or deleted. Payload: matrixId, name. */
+  MATRIX_ADDED: "matrix_added",
+  MATRIX_REMOVED: "matrix_removed",
   WEIGHTED_RESET: "weighted_reset",
 } as const;
 

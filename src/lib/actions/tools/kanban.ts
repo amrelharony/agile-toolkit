@@ -8,10 +8,11 @@
  *
  *   1. list_state — per-column counts and blocked cards, WIP-limit
  *      breaches, and the cycle time of cards in Done (startedAt →
- *      completedAt): average, P85 and how many cards they rest on.
+ *      completedAt in whole local days, both counted, as lib/flow counts
+ *      it): average, P85 and how many cards they rest on.
  *   2. add_card   — add a card (defaults: backlog column, standard class).
- *   3. move_card  — move a card to a column, stamped as the page stamps it
- *      (movedCard in lib/kanban/flow).
+ *   3. move_card  — move a card to a column, stamped and recorded in the
+ *      card's history as the page does it (movedCard in lib/kanban/flow).
  *
  * Entity kind "workspace:kanbanBoard" (camelCase via kindFromToolId) matches
  * the browser sync engine so MCP writes round-trip into the UI.
@@ -21,12 +22,15 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { KanbanBoard, KanbanCard, KanbanColumnId } from "@/lib/stores/workspace-types";
-import { cycleStats, movedCard, WORKING } from "@/lib/kanban/flow";
+import {
+  KANBAN_BOARD_ID,
+  type KanbanBoard,
+  type KanbanCard,
+  type KanbanColumnId,
+} from "@/lib/stores/workspace-types";
+import { cycleStats, KANBAN_HISTORY_CAP, movedCard, WORKING } from "@/lib/kanban/flow";
 
 const KIND_KANBAN = "workspace:kanbanBoard";
-// MUST match KB_ID in kanban-client.tsx.
-const KB_ID = "kanban:current";
 
 const COLUMNS: KanbanColumnId[] = ["backlog", "ready", "in_progress", "review", "done"];
 
@@ -34,14 +38,14 @@ const ws = () => useWorkspaceStore.getState();
 
 function emptyBoard(): KanbanBoard {
   return {
-    id: KB_ID,
+    id: KANBAN_BOARD_ID,
     cards: [],
     wipLimits: { backlog: 0, ready: 5, in_progress: 3, review: 2, done: 0 },
   };
 }
 
 function browserBoard(): KanbanBoard | null {
-  return (ws().kanbanBoards ?? []).find((b) => b.id === KB_ID) ?? null;
+  return (ws().kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID) ?? null;
 }
 
 function today(): string {
@@ -98,11 +102,11 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the kanban Flow board. Returns {exists, totalCards, byColumn: {column: count}, blockedByColumn: {column: count}, wipBreaches: {column, count, limit}[], avgCycleTimeDays | null, p85CycleTimeDays | null, cycleTimeSample} — cycle time is startedAt→completedAt of the cards in done; the page quotes the average from 3 cards and the P85 from 5. The sprint board is the stories: read them with workspace.story.list.",
+    "Summarise the kanban Flow board. Returns {exists, totalCards, byColumn: {column: count}, blockedByColumn: {column: count}, wipBreaches: {column, count, limit}[], avgCycleTimeDays | null, p85CycleTimeDays | null, cycleTimeSample} — cycle time is startedAt→completedAt of the cards in done, in whole local days with both counted (a card started and finished the same day took 1 day); the page quotes the average from 3 cards and the P85 from 5. The sprint board is the stories: read them with workspace.story.list.",
   paramsSchema: z.object({}),
   handler: async () => summarize(browserBoard()),
   mcpHandler: async (_params, ctx) => {
-    const board = await serverGetEntity<KanbanBoard>(ctx.userId, KIND_KANBAN, KB_ID);
+    const board = await serverGetEntity<KanbanBoard>(ctx.userId, KIND_KANBAN, KANBAN_BOARD_ID);
     return summarize(board ?? null);
   },
 });
@@ -135,7 +139,8 @@ registry.register({
   },
   mcpHandler: async (params, ctx) => {
     const board =
-      (await serverGetEntity<KanbanBoard>(ctx.userId, KIND_KANBAN, KB_ID)) ?? emptyBoard();
+      (await serverGetEntity<KanbanBoard>(ctx.userId, KIND_KANBAN, KANBAN_BOARD_ID)) ??
+      emptyBoard();
     const card = newCard(params);
     await serverUpsertEntity<KanbanBoard>(ctx.userId, KIND_KANBAN, {
       ...board,
@@ -152,8 +157,7 @@ registry.register({
   name: "move_card",
   category: "write",
   requiresConfirmation: false,
-  description:
-    "Move a card to a column, stamped as the page does: columnSince always; startedAt on entering in_progress or review (dropped on going back to backlog or ready); completedAt on entering done (dropped on leaving it); entering done clears blocked. Returns {updated: true} or {updated: false} when the board/card is unknown.",
+  description: `Move a card to a column, stamped as the page does: columnSince always; startedAt on entering in_progress or review (dropped on going back to backlog or ready); completedAt on entering done (dropped on leaving it); entering done clears blocked; the move is appended to the card's history ({column, from, at}, oldest first, the latest ${KANBAN_HISTORY_CAP} kept), which the flow charts read. Returns {updated: true} or {updated: false} when the board/card is unknown.`,
   paramsSchema: z.object({ cardId: z.string(), column: ColumnEnum }),
   handler: async (params) => {
     const board = browserBoard();
@@ -164,7 +168,7 @@ registry.register({
     return { updated: true };
   },
   mcpHandler: async (params, ctx) => {
-    const board = await serverGetEntity<KanbanBoard>(ctx.userId, KIND_KANBAN, KB_ID);
+    const board = await serverGetEntity<KanbanBoard>(ctx.userId, KIND_KANBAN, KANBAN_BOARD_ID);
     if (!board) return { updated: false };
     const next = moveCard(board, params.cardId, params.column);
     if (!next) return { updated: false };

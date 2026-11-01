@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TeamMember } from "@/lib/stores/workspace-types";
+import { findRosterMember } from "./names";
 
 /**
  * The workspace team roster (`teamMembers`): one list of people that the
@@ -39,19 +40,8 @@ export function useWorkspaceHydrated(): boolean {
   return hydrated;
 }
 
-/** Name key for matching people across tools: trimmed, case-insensitive. */
-export function nameKey(name: string | null | undefined): string {
-  return (name ?? "").trim().toLowerCase();
-}
-
-/** The roster member with this name (trimmed, case-insensitive), if any. */
-export function findRosterMember(
-  roster: readonly TeamMember[],
-  name: string | null | undefined
-): TeamMember | undefined {
-  const key = nameKey(name);
-  return key ? roster.find((m) => nameKey(m.name) === key) : undefined;
-}
+// Pure, so they live in names.ts (server code imports them from there).
+export { nameKey, findRosterMember } from "./names";
 
 /**
  * Add a person to the workspace roster, or return the member who already

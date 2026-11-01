@@ -21,12 +21,7 @@
 
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { readRetro } from "@/lib/share/snapshot-import";
-import {
-  CONTROL_OR_BIDI_RE,
-  cleanName,
-  cleanText,
-  isWithinJsonSize,
-} from "@/lib/realtime/sanitize";
+import { cleanName, cleanText, isWithinJsonSize, shareableText } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, isVisitorMemberId } from "@/lib/realtime/visitor-rooms";
 import { MAX_VOTES, PHASES, type BoardPhase, type BoardState, type RetroCard } from "../types";
 import {
@@ -52,14 +47,6 @@ const FALLBACK_COLORS = ["#00f0ff", "#00ff88", "#f59e0b", "#a855f7", "#ef4444"];
 
 // ── Host side ────────────────────────────────────────────────────────
 
-const CONTROL_OR_BIDI_GLOBAL = new RegExp(CONTROL_OR_BIDI_RE.source, "g");
-
-/** The host's own text made safe to share: one line, no hidden characters, cut to `max`. */
-function shareable(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, " ").replace(CONTROL_OR_BIDI_GLOBAL, "");
-  return cleanText(flat, max) ?? "";
-}
-
 export interface SnapshotMeta {
   /** The host's member id. */
   by: string;
@@ -77,7 +64,7 @@ export interface SnapshotMeta {
 
 function toRoomCard(c: RetroCard): RoomCard | null {
   if (c.id.length > MAX_KEY_CHARS || c.columnKey.length > MAX_KEY_CHARS) return null;
-  const text = shareable(c.text, VISITOR_LIMITS.maxTextChars);
+  const text = shareableText(c.text, VISITOR_LIMITS.maxTextChars);
   if (!text) return null;
   return {
     id: c.id,
@@ -89,7 +76,7 @@ function toRoomCard(c: RetroCard): RoomCard | null {
         ? c.groupedWith
         : null,
     isActionItem: c.isActionItem === true,
-    assignee: shareable(c.assignee ?? "", MAX_ASSIGNEE_CHARS),
+    assignee: shareableText(c.assignee ?? "", MAX_ASSIGNEE_CHARS),
     discussing: c.discussing === true,
   };
 }

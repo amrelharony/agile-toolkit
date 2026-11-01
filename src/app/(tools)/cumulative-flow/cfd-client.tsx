@@ -1,517 +1,711 @@
 "use client";
 
-import { useId, useRef, useMemo, useState, useEffect } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { AlertTriangle, ArrowRight, Keyboard, Layers } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { EmptyState } from "@/components/shared/empty-state";
+import { SectionCard } from "@/components/shared/section-card";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SprintPicker } from "@/components/sprints/sprint-picker";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { generateCFDPrompts } from "@/lib/ai-prompts/cumulative-flow";
-import { xmrLimits, westernElectricRules } from "@/lib/analytics/control-chart";
-import { cusum } from "@/lib/analytics/changepoint";
-import { mannKendall } from "@/lib/analytics/trend-test";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { enoughData } from "@/lib/analytics/min-sample";
+import { fmt } from "@/lib/charts/chart-text";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CFD_ACTIONS } from "@/lib/history/event-actions";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Layers, Settings2, AlertTriangle } from "lucide-react";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { KANBAN_BOARD_ID, type Story } from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { todayIso } from "@/lib/sprints/series";
+import { parseNumber } from "@/lib/utils/form";
+import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
-import { MIN_XMR_SAMPLES } from "./constants";
+import { cn } from "@/lib/utils";
+import { DEFAULT_FLOW_RANGE, FLOW_RANGES, type FlowRangeDays } from "./constants";
 import { useCFDStore } from "./use-cfd-store";
+import type { CfdSource, DataEntry, StatusColumn, TypedSnapshotState } from "./types";
+import { autoSource, boardWipLimit, cfdMetrics, flowView, sprintView, typedView } from "./view";
+import { cfdVerdict, itemNoun } from "./verdict";
+import { analyseWip, trendSentence } from "./analysis";
+import { cfdToMarkdown } from "./markdown";
+import { buildExample, type CfdExample } from "./example";
 import { StatCard } from "./components/stat-card";
 import { FlowChart } from "./components/flow-chart";
 import { WipControlChart } from "./components/wip-control-chart";
 import { DataEntryTable } from "./components/data-entry-table";
+import { SnapshotForm } from "./components/snapshot-form";
+import { ColumnsCard } from "./components/columns-card";
 
+export const TOOL_ID = "cumulative-flow";
+
+const NO_STORIES: Story[] = [];
+
+const SOURCES: { id: CfdSource; label: string }[] = [
+  { id: "sprint", label: "Sprint board" },
+  { id: "flow", label: "Flow board" },
+  { id: "typed", label: "Typed snapshots" },
+];
+
+const DAYS = ["day", "days"] as const;
+const SNAPSHOTS = ["snapshot", "snapshots"] as const;
+
+/** The values of every `data-<name>` on the page, in page order, each once. */
+function dataValues(name: string): string[] {
+  const values = Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).map(
+    (el) => el.getAttribute(`data-${name}`) ?? ""
+  );
+  return Array.from(new Set(values));
+}
+
+/** The `data-<name>` value after `value` on the page, else the one before it. */
+function neighbourOf(name: string, value: string): string | undefined {
+  const all = dataValues(name);
+  const at = all.indexOf(value);
+  return at >= 0 ? (all[at + 1] ?? all[at - 1]) : undefined;
+}
+
+/**
+ * The element whose `data-<name>` is `value`, the one on screen: a table
+ * draws each row twice (a table from md up, cards below it), one hidden.
+ * Ids go in no selector, so need no escaping.
+ */
+function onScreen(name: string, value: string): HTMLElement | undefined {
+  const all = Array.from(document.querySelectorAll<HTMLElement>(`[data-${name}]`)).filter(
+    (el) => el.getAttribute(`data-${name}`) === value
+  );
+  return all.find((el) => el.getClientRects().length > 0) ?? all[0];
+}
+
+/**
+ * Focus what `find` returns once React has re-rendered: deleting a
+ * snapshot or a column unmounts the button that had focus, and focus
+ * would otherwise drop to <body>.
+ */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
+/**
+ * Cumulative Flow Diagram: how many items sat in each stage, day by day.
+ * Generated from the Sprint board's status history (the selected sprint's
+ * stories) or the Flow board's card history, read live through lib/flow so
+ * it never goes stale; snapshots typed by hand stay as the fallback for a
+ * board kept elsewhere. Reads off WIP, throughput per elapsed day and a
+ * Little's Law lead time, with the control chart and trend test behind
+ * Advanced analysis once there are enough points.
+ */
 export function CFDClient() {
+  const hydrated = useWorkspaceHydrated();
+  const { sprints, selected, select } = useSelectedSprint();
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
+  const board = (kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID);
   const {
     columns,
     entries,
     wipLimit,
-    addColumn: addColumnRaw,
-    removeColumn: removeColumnRaw,
+    source: chosen,
+    setSource,
+    addColumn,
+    removeColumn,
+    restoreColumn,
     renameColumn,
     setColumnDescription,
-    addEntry: addEntryRaw,
-    removeEntry,
+    addEntry,
     updateEntry,
+    restoreEntry,
     updateEntryCount,
     setWipLimit,
-    reset: resetRaw,
+    reset,
+    restore,
   } = useCFDStore();
-  const { log } = useHistoryLogger("cumulative-flow");
-
-  const addColumn: typeof addColumnRaw = (name, description) => {
-    addColumnRaw(name, description);
-    log(CFD_ACTIONS.COLUMN_ADDED, { name, description });
-  };
-  const removeColumn: typeof removeColumnRaw = (id) => {
-    const col = columns.find((c) => c.id === id);
-    removeColumnRaw(id);
-    log(CFD_ACTIONS.COLUMN_REMOVED, { name: col?.name });
-  };
-  const addEntry: typeof addEntryRaw = () => {
-    // Reject a duplicate snapshot for today — the chart's date axis collapses
-    // same-date entries onto one tick, so a second blank entry just shadows
-    // the first and is impossible to tell apart visually. Warn the user via
-    // a toast instead of silently appending an invisible row.
-    const todayIso = todayLocalISO();
-    const existing = useCFDStore.getState().entries.find((e) => e.date === todayIso);
-    if (existing) {
-      toast.warning("A snapshot for today already exists — edit it instead of duplicating.");
-      return;
-    }
-    addEntryRaw();
-    const fresh = useCFDStore.getState().entries;
-    log(CFD_ACTIONS.SNAPSHOT_LOGGED, { entryCount: fresh.length });
-  };
-  const reset = () => {
-    resetRaw();
-    log(CFD_ACTIONS.CFD_RESET, {});
-  };
-
-  const exportRef = useRef<HTMLDivElement>(null);
-  const [newColName, setNewColName] = useState("");
-  const [newColDescription, setNewColDescription] = useState("");
-  const [wipInput, setWipInput] = useState(wipLimit?.toString() ?? "");
-  const wipInputId = useId();
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  const [flowDays, setFlowDays] = useState<FlowRangeDays>(DEFAULT_FLOW_RANGE);
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<CfdExample | null>(null);
+  const preview = example !== null;
+  const resetSnapshot = useRef<TypedSnapshotState | null>(null);
+  const snapshotFormRef = useRef<HTMLDivElement>(null);
   const flowTitleId = useId();
 
-  // Sync wipInput whenever wipLimit changes from a source other than this
-  // input (initial hydration, Clear button, undo/redo). The previous version
-  // only synced on the first hydration (null → number) and missed every
-  // subsequent external change, so the displayed text drifted from state.
-  // Compare via string form to (a) treat null/"" as equivalent and (b) avoid
-  // a feedback loop where the user-typed "10" gets re-set to "10".
-  const prevWipString = useRef<string>(wipLimit?.toString() ?? "");
-  useEffect(() => {
-    const next = wipLimit?.toString() ?? "";
-    if (next !== prevWipString.current) {
-      prevWipString.current = next;
-      // Only mirror into the input if the input doesn't already match — this
-      // avoids clobbering an in-progress edit (e.g. user typing "12" while a
-      // store-side update arrives).
-      setWipInput((cur) => (cur === next ? cur : next));
-    }
-  }, [wipLimit]);
-
-  /* -- Sorted entries by date --------------------------------------------- */
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => a.date.localeCompare(b.date)),
-    [entries]
-  );
-
-  /* -- Chart data ---------------------------------------------------------- */
-  const chartData = useMemo<Record<string, string | number>[]>(
+  const sprintV = useMemo(
     () =>
-      sortedEntries.map((e) => ({
-        date: e.date,
-        ...Object.fromEntries(columns.map((c) => [c.name, e.counts[c.id] ?? 0])),
-      })),
-    [sortedEntries, columns]
+      example
+        ? sprintView(example.stories, example.sprint, today, { includeExamples: true })
+        : sprintView(stories, selected, today),
+    [example, stories, selected, today]
   );
+  const flowV = useMemo(() => flowView(board, today, flowDays), [board, today, flowDays]);
+  const typedV = useMemo(() => typedView(columns, entries), [columns, entries]);
 
-  /* -- Stats --------------------------------------------------------------- */
-  const stats = useMemo(() => {
-    if (sortedEntries.length === 0) {
-      return { totalItems: 0, wipItems: 0, wipPct: 0, doneItems: 0, doneShare: 0 };
-    }
-    const latest = sortedEntries[sortedEntries.length - 1];
-    const totalItems = columns.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
+  const auto = autoSource({
+    sprint: sprintV.itemCount > 0,
+    flow: flowV.itemCount > 0,
+    typed: entries.length > 0,
+  });
+  const source: CfdSource | null = preview ? "sprint" : (chosen ?? auto);
+  const view = source === "sprint" ? sprintV : source === "flow" ? flowV : source ? typedV : null;
+  const metrics = useMemo(() => (view ? cfdMetrics(view) : null), [view]);
+  const analysis = useMemo(() => analyseWip(metrics?.wipSeries ?? []), [metrics]);
+  // The example is no one's board: the user's Flow board limits don't apply to it.
+  const limit = source === "typed" ? wipLimit : source && !preview ? boardWipLimit(board) : null;
+  const hasActiveStage = view?.workflow.stages.some((s) => s.kind === "active") ?? false;
+  const sprintName = preview ? example?.sprint.name : selected?.name;
+  const verdict = view && metrics ? cfdVerdict(view, metrics) : "";
+  const markdown =
+    view && metrics ? cfdToMarkdown(view, metrics, { today, sprintName, wipLimit: limit }) : "";
+  const unit = source === "typed" ? SNAPSHOTS : DAYS;
+  const nothing =
+    !preview &&
+    sprintV.itemCount === 0 &&
+    flowV.itemCount === 0 &&
+    entries.length === 0 &&
+    chosen !== "typed";
 
-    // WIP = everything except first (backlog/todo) and last (done) columns.
-    // R5: when `columns.length < 3`, `slice(1, len-1)` is empty and the
-    // WIP stats collapse to 0 — but doneItems still counts. The result
-    // was a misleading "0% WIP, 100% efficient" display. Treat <3 cols
-    // as N/A (return null sentinel so the UI can render "—").
-    const wipCols = columns.length >= 3 ? columns.slice(1, columns.length - 1) : [];
-    const wipItems = wipCols.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
-    const wipPct =
-      columns.length < 3 ? null : totalItems > 0 ? Math.round((wipItems / totalItems) * 100) : 0;
+  /* ── Changes ──────────────────────────────────────────────────────── */
 
-    const lastCol = columns[columns.length - 1];
-    const doneItems = lastCol ? (latest.counts[lastCol.id] ?? 0) : 0;
-
-    // Done share = Done / Total items on the board. It isn't flow (cycle)
-    // efficiency, which is active time / elapsed time and needs per-item
-    // timestamps this tool doesn't have.
-    const doneShare = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0;
-
-    return { totalItems, wipItems, wipPct, doneItems, doneShare };
-  }, [sortedEntries, columns]);
-
-  /* -- Phase-15: WIP series across snapshots ------------------------------ */
-  // The WIP definition mirrors the `stats` memo — everything except the
-  // first (backlog/todo) and last (done) columns. Returns one (date, count)
-  // per snapshot in chronological order so analytics primitives can chew on
-  // it directly.
-  const wipSeries = useMemo(() => {
-    if (sortedEntries.length === 0 || columns.length < 3) return [];
-    const wipColIds = columns.slice(1, columns.length - 1).map((c) => c.id);
-    return sortedEntries.map((e) => ({
-      date: e.date,
-      value: wipColIds.reduce((s, id) => s + (e.counts[id] ?? 0), 0),
-    }));
-  }, [sortedEntries, columns]);
-
-  const wipValues = useMemo(() => wipSeries.map((p) => p.value), [wipSeries]);
-
-  const wipLimits = useMemo(
-    // WIP is a non-negative count; clamp LCL at 0.
-    () => (wipValues.length >= MIN_XMR_SAMPLES ? xmrLimits(wipValues, true) : null),
-    [wipValues]
-  );
-
-  // Western Electric out-of-control signals on the WIP series. We only run
-  // the rules when xmrLimits returned valid (non-degenerate) limits — rule-1
-  // ("point beyond ±3σ") is meaningless when ucl == centerLine, and the
-  // ≥8 samples gate on wipLimits already covers the statistical-validity
-  // requirement for the rules themselves.
-  const wipSignals = useMemo(() => {
-    if (!wipLimits) return [] as ReturnType<typeof westernElectricRules>;
-    if (wipLimits.ucl <= wipLimits.centerLine) return [] as ReturnType<typeof westernElectricRules>;
-    return westernElectricRules(wipValues, wipLimits);
-  }, [wipValues, wipLimits]);
-
-  // CUSUM regime shifts on WIP — primitive guards length<4 internally.
-  const wipCusumAnnotations = useMemo<CausalAnnotationData[]>(() => {
-    if (wipValues.length < 4) return [];
-    return cusum(wipValues).map((cp) => {
-      const point = wipSeries[cp.index];
-      return {
-        x: point?.date ?? cp.index,
-        label: cp.direction === "up" ? "WIP regime up" : "WIP regime down",
-        detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} in WIP at ${point?.date ?? `index ${cp.index}`}.`,
-        // CUSUM cumulativeStat is signed: positive for upward regime
-        // shifts, negative for downward. The prior `>= 6` test missed
-        // downward shifts entirely (they'd always read "moderate"
-        // regardless of magnitude). Use absolute value to match the
-        // intent of "strong vs borderline signal".
-        confidence: Math.abs(cp.cumulativeStat) >= 6 ? "strong" : "moderate",
-      };
-    });
-  }, [wipValues, wipSeries]);
-
-  // Mann-Kendall trend chip — needs n>=5 for a meaningful p-value.
-  const wipTrend = useMemo(
-    () => (wipValues.length >= 5 ? mannKendall(wipValues) : null),
-    [wipValues]
-  );
-
-  /* -- WIP limit apply ---------------------------------------------------- */
-  const applyWipLimit = () => {
-    const v = parseInt(wipInput, 10);
-    setWipLimit(isNaN(v) || v <= 0 ? null : v);
+  const pickSource = (next: CfdSource) => {
+    if (next === source) return;
+    setSource(next);
+    log(CFD_ACTIONS.SOURCE_SWITCHED, { source: next });
+    announce(`Showing ${SOURCES.find((s) => s.id === next)?.label}`);
   };
 
-  /* -- Export data --------------------------------------------------------- */
-  const csvData = useMemo(() => {
-    const headers = ["Date", ...columns.map((c) => c.name), "Note"];
-    const rows = sortedEntries.map((e) => [
-      e.date,
-      ...columns.map((c) => e.counts[c.id] ?? 0),
-      e.description ?? "",
-    ]);
-    return { headers, rows };
-  }, [sortedEntries, columns]);
+  const addSnapshot = (entry: Omit<DataEntry, "id">) => {
+    if (!addEntry(entry)) {
+      announce(`A snapshot for ${entry.date} already exists`);
+      return;
+    }
+    log(CFD_ACTIONS.SNAPSHOT_LOGGED, { date: entry.date, entryCount: entries.length + 1 });
+    announce(`Added the snapshot for ${entry.date}`);
+  };
 
-  const jsonData = useMemo(
-    () => ({
-      columns: columns.map((c) => ({ name: c.name, description: c.description })),
-      entries: sortedEntries.map((e) => ({
-        date: e.date,
-        description: e.description,
-        counts: Object.fromEntries(columns.map((c) => [c.name, e.counts[c.id] ?? 0])),
-      })),
-    }),
-    [columns, sortedEntries]
-  );
+  const removeEntry = (entry: DataEntry) => {
+    // Focus moves on to the next snapshot's Delete as the table shows them
+    // (else the previous one's), or to the Add a snapshot form.
+    const neighbour = neighbourOf("snapshot-delete", entry.id);
+    const index = useCFDStore.getState().entries.findIndex((e) => e.id === entry.id);
+    undoable({
+      label: `Deleted the snapshot from ${entry.date}`,
+      apply: () =>
+        useCFDStore.setState((s) => ({ entries: s.entries.filter((e) => e.id !== entry.id) })),
+      // Through the store's one-per-date rule: a snapshot typed for this
+      // date during the Undo window stays, and this one doesn't come back.
+      revert: () => {
+        if (!restoreEntry(entry, index)) {
+          toast(`Kept the snapshot typed for ${entry.date} since: one date has one snapshot.`);
+          announce(`Not restored: ${entry.date} already has a snapshot`);
+        }
+      },
+    });
+    log(CFD_ACTIONS.SNAPSHOT_REMOVED, { date: entry.date });
+    announce(`Deleted the snapshot from ${entry.date}`);
+    focusSoon(() =>
+      neighbour
+        ? onScreen("snapshot-delete", neighbour)
+        : snapshotFormRef.current?.querySelector<HTMLElement>("input")
+    );
+  };
+
+  const removeCol = (column: StatusColumn) => {
+    // Undo puts the column back in its place with every snapshot's count.
+    const index = columns.findIndex((c) => c.id === column.id);
+    const counts = Object.fromEntries(
+      entries
+        .filter((e) => e.counts[column.id] !== undefined)
+        .map((e) => [e.id, e.counts[column.id]])
+    );
+    // Focus goes to the next column (else the previous one): its Remove,
+    // or its name once two columns are left and Remove is gone.
+    const next = columns[index + 1] ?? columns[index - 1];
+    undoable({
+      label: `Removed the ${column.name} column`,
+      apply: () => removeColumn(column.id),
+      revert: () => restoreColumn(column, index, counts),
+    });
+    log(CFD_ACTIONS.COLUMN_REMOVED, { name: column.name });
+    announce(`Removed the ${column.name} column`);
+    if (next) {
+      focusSoon(
+        () =>
+          onScreen("column-remove", next.id) ??
+          document.getElementById(`cfd-column-name-${next.id}`)
+      );
+    }
+  };
+
+  const addCol = (name: string, description?: string) => {
+    addColumn(name, description);
+    log(CFD_ACTIONS.COLUMN_ADDED, { name, description });
+    announce(`Added the ${name} column`);
+  };
+
+  const loadExample = () => setExample(buildExample(today));
+
+  /* ── WIP limit (typed snapshots: the boards keep their own) ────────── */
+
+  const [wipDraft, setWipDraft] = useState("");
+  const [wipError, setWipError] = useState<string | null>(null);
+  const applyWip = () => {
+    const n = parseNumber(wipDraft);
+    if (n === undefined || !Number.isInteger(n) || n < 1) {
+      setWipError("Enter the most items you allow in progress: a whole number from 1.");
+      return;
+    }
+    setWipError(null);
+    setWipLimit(n);
+    setWipDraft("");
+    announce(`WIP limit set to ${n}`);
+  };
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Cumulative Flow Diagram",
-      prompts: generateCFDPrompts({ columns, entries, wipLimit }),
+      prompts: view
+        ? generateCFDPrompts({
+            columns: view.workflow.stages.map((s) => ({ id: s.id, name: s.label })),
+            entries: view.days.map((d) => ({ date: d.date, counts: { ...d.counts } })),
+            wipLimit: limit,
+          })
+        : [],
     }),
-    [columns, entries, wipLimit]
+    [view, limit]
   );
 
-  /* -- Add column handler -------------------------------------------------- */
-  const handleAddColumn = () => {
-    const name = newColName.trim();
-    if (!name) return;
-    // Reject case-insensitive duplicate column names. The chart's `dataKey`
-    // and the chartData accumulator key by `column.name`, so a second column
-    // with the same name silently merges into the first (and Recharts only
-    // renders one Area). Surface this to the user via a toast instead.
-    if (columns.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-      toast.warning(`A column named "${name}" already exists.`);
-      return;
-    }
-    const description = newColDescription.trim() || undefined;
-    addColumn(name, description);
-    setNewColName("");
-    setNewColDescription("");
-  };
+  const csvData = useMemo(() => {
+    const stages = view?.workflow.stages ?? [];
+    return {
+      headers: ["Date", ...stages.map((s) => s.label)],
+      rows: (view?.days ?? []).map((d) => [d.date, ...stages.map((s) => d.counts[s.id] ?? 0)]),
+    };
+  }, [view]);
 
-  /* -- Render -------------------------------------------------------------- */
+  if (!hydrated) {
+    return (
+      <ToolPageWrapper
+        toolId={TOOL_ID}
+        title="Cumulative Flow Diagram"
+        description="See how work flows through your stages, from your Sprint or Flow board: widening bands are bottlenecks."
+        category="Metrics & Dashboards"
+      >
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+        >
+          Loading the boards…
+        </p>
+      </ToolPageWrapper>
+    );
+  }
+
+  const latest = metrics?.latest ?? null;
+  const measured = metrics?.measured ?? null;
+  const overLimit = limit !== null && latest?.wip != null && latest.wip > limit;
+
   return (
     <ToolPageWrapper
-      toolId="cumulative-flow"
+      toolId={TOOL_ID}
       title="Cumulative Flow Diagram"
-      description="Visualize work item flow through your process stages. Widening bands indicate bottlenecks; narrowing bands show increased throughput."
+      description="See how work flows through your stages, from your Sprint or Flow board: widening bands are bottlenecks."
       category="Metrics & Dashboards"
     >
-      <div ref={exportRef} className="space-y-6">
-        {/* ---- Stats ---- */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <StatCard label="Total Items (latest)" value={stats.totalItems} accent />
-          <StatCard
-            label="WIP Items"
-            value={stats.wipItems}
-            unit={stats.wipPct === null ? "(n/a — add a middle column)" : `(${stats.wipPct}%)`}
-            warning={wipLimit !== null && stats.wipItems > wipLimit}
-            trailing={
-              wipTrend?.significant ? (
-                <span
-                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
-                    // For WIP, "down" is good (less queue), "up" is concerning.
-                    wipTrend.trend === "down"
-                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
-                      : "border-warning/40 text-warning bg-warning/10"
-                  }`}
-                  title={`Mann-Kendall p=${wipTrend.pValue.toFixed(3)}`}
-                >
-                  <span aria-hidden="true">{wipTrend.trend === "up" ? "↗ trend" : "↘ trend"}</span>
-                  <span className="sr-only">{`WIP trend ${wipTrend.trend} (Mann-Kendall p=${wipTrend.pValue.toFixed(3)})`}</span>
-                </span>
-              ) : undefined
-            }
-          />
-          <StatCard label="Done Items" value={stats.doneItems} accent />
-          <StatCard
-            label="Done share"
-            value={`${stats.doneShare}%`}
-            unit="of all items"
-            accent={stats.doneShare >= 50}
-          />
-        </div>
-
-        {/* ---- Chart ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle
-                id={flowTitleId}
-                className="flex items-center gap-2 text-lg font-display text-text"
-              >
-                <Layers className="w-5 h-5 text-accent" />
-                Flow Diagram
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="cumulative-flow"
-                  csvData={csvData}
-                  jsonData={jsonData}
-                  targetRef={exportRef}
-                />
-                <Button variant="danger-ghost" size="sm" onClick={reset}>
-                  Reset
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <FlowChart chartData={chartData} columns={columns} labelledBy={flowTitleId} />
-          </CardContent>
-        </Card>
-
-        {/* ---- WIP control chart (XmR + CUSUM) ---- */}
-        {/* Standalone view of in-progress (WIP) over time. Hidden when the
-            source series is too short to be meaningful. */}
-        {wipSeries.length >= 2 && (
-          <WipControlChart
-            wipSeries={wipSeries}
-            wipLimits={wipLimits}
-            wipLimit={wipLimit}
-            cusumAnnotations={wipCusumAnnotations}
-            signals={wipSignals}
-          />
+      <div className="space-y-6">
+        {preview && (
+          <div>
+            <ExampleNotice onClear={() => setExample(null)} />
+            <p className="-mt-2 text-xs text-sub">
+              Example: a checkout team&apos;s Sprint board, ten days in. Nothing in it is saved, and
+              your own boards stay as they are.
+            </p>
+          </div>
         )}
 
-        {/* ---- WIP Limit ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-              <AlertTriangle className="w-4 h-4 text-warning" />
-              WIP Limit (optional)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-3 max-w-xs">
-              <div className="flex-1 space-y-1.5">
-                <Label htmlFor={wipInputId} className="text-sub text-xs">
-                  Max WIP Items
-                </Label>
-                <Input
-                  id={wipInputId}
-                  type="number"
-                  min={1}
-                  placeholder="e.g. 10"
-                  value={wipInput}
-                  onChange={(e) => setWipInput(e.target.value)}
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-                />
-              </div>
-              <Button
-                size="sm"
-                onClick={applyWipLimit}
-                className="bg-warning/10 text-warning border border-warning/20 hover:bg-warning/20"
-              >
-                Apply
-              </Button>
-              {wipLimit !== null && (
-                <Button
-                  size="sm"
-                  variant="danger-ghost"
-                  onClick={() => {
-                    setWipLimit(null);
-                    setWipInput("");
-                  }}
-                >
-                  Clear
+        {nothing ? (
+          <EmptyState
+            icon={Layers}
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <LoadExampleButton onLoad={loadExample} />
+                <Button type="button" variant="ghost" size="sm" onClick={() => pickSource("typed")}>
+                  <Keyboard aria-hidden="true" />
+                  Type snapshots instead
                 </Button>
+              </div>
+            }
+          >
+            Nothing to chart yet. Move stories on the{" "}
+            <Link href="/kanban" className="font-medium text-accent hover:underline">
+              Sprint or Flow board
+            </Link>{" "}
+            and the chart builds itself, day by day, from their moves.
+          </EmptyState>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <p id={`${flowTitleId}-source`} className="mb-1 text-xs font-medium text-sub">
+                  Chart from
+                </p>
+                <div
+                  role="group"
+                  aria-labelledby={`${flowTitleId}-source`}
+                  className="flex flex-wrap gap-1"
+                >
+                  {SOURCES.map((s) => (
+                    <Button
+                      key={s.id}
+                      type="button"
+                      size="sm"
+                      variant={source === s.id ? "default" : "outline"}
+                      aria-pressed={source === s.id}
+                      disabled={preview && s.id !== "sprint"}
+                      onClick={() => pickSource(s.id)}
+                    >
+                      {s.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              {source === "sprint" && !preview && sprints.length > 0 && (
+                <SprintPicker
+                  sprints={sprints}
+                  selectedId={selected?.id}
+                  onSelect={select}
+                  allowCreate={false}
+                />
+              )}
+              {source === "flow" && (
+                <div>
+                  <p id={`${flowTitleId}-range`} className="mb-1 text-xs font-medium text-sub">
+                    Last
+                  </p>
+                  <div role="group" aria-labelledby={`${flowTitleId}-range`} className="flex gap-1">
+                    {FLOW_RANGES.map((d) => (
+                      <Button
+                        key={d}
+                        type="button"
+                        size="sm"
+                        variant={flowDays === d ? "default" : "outline"}
+                        aria-pressed={flowDays === d}
+                        onClick={() => setFlowDays(d)}
+                      >
+                        {d} days
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
-            {wipLimit !== null && (
-              <p className="mt-2 text-xs text-warning">
-                {wipSeries.length >= 2
-                  ? `WIP limit set at ${wipLimit} items — shown as a dashed line on the WIP control chart.`
-                  : `WIP limit set at ${wipLimit} items — it appears on the WIP control chart once you have two snapshots${columns.length < 3 ? " and a middle column" : ""}.`}
+
+            {source === "sprint" && !preview && sprints.length === 0 && (
+              <p className="text-sm text-sub">
+                No sprints yet.{" "}
+                <Link href="/sprint-planning" className="font-medium text-accent hover:underline">
+                  Plan one in Sprint Planning
+                </Link>{" "}
+                and its stories chart here as they move.
               </p>
             )}
-          </CardContent>
-        </Card>
 
-        {/* ---- Column Configuration ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-              <Settings2 className="w-4 h-4 text-accent" />
-              Status Columns
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-col gap-2">
-              {columns.map((col, idx) => (
-                <div
-                  key={col.id}
-                  className="flex flex-col gap-2 bg-surface-deep border border-border rounded-lg px-3 py-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ background: col.color }}
-                      aria-hidden="true"
-                    />
-                    {/* Commit on blur, like the description field below.
-                        `renameColumn` trims and rejects empty/duplicate names,
-                        so the committed name often equals the current one —
-                        React then bails out of the re-render and restores the
-                        old text into the DOM node, making a trailing space (or
-                        any in-progress edit) impossible to type. */}
-                    <BlurInput
-                      value={col.name}
-                      onCommit={(v) => renameColumn(col.id, v)}
-                      aria-label={`Name for column ${idx + 1}`}
-                      className="h-7 w-32 bg-transparent border-none p-0 text-sm text-text focus:ring-0 focus:outline-none"
-                    />
-                    {columns.length > 2 && (
-                      <button
-                        type="button"
-                        onClick={() => removeColumn(col.id)}
-                        className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger transition-colors ml-1"
-                        title="Remove column"
-                        aria-label={`Remove column ${col.name}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
-                    )}
-                    {idx === 0 && (
-                      <Badge variant="outline" className="text-xs border-border text-sub ml-1">
-                        start
-                      </Badge>
-                    )}
-                    {idx === columns.length - 1 && (
-                      <Badge variant="outline" className="text-xs border-border text-sub ml-1">
-                        done
-                      </Badge>
-                    )}
-                  </div>
-                  <BlurTextarea
-                    value={col.description ?? ""}
-                    onCommit={(v) => setColumnDescription(col.id, v.trim() ? v : undefined)}
-                    placeholder="Column purpose / definition (optional)..."
-                    rows={2}
-                    className="bg-surface border-border resize-none text-xs text-text"
-                    aria-label={`Description for ${col.name}`}
+            {view && metrics && (
+              <>
+                <p className="text-sm font-medium text-text" aria-live="polite">
+                  {verdict}
+                </p>
+
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <StatCard
+                    label={
+                      view.source === "typed" ? "Items (latest snapshot)" : "Items on the board"
+                    }
+                    value={latest ? latest.total : "—"}
+                    accent
+                  />
+                  <StatCard
+                    label="Work in progress"
+                    value={latest?.wip ?? "—"}
+                    unit={
+                      latest?.wip == null
+                        ? // Only when there's no column to count it in; with no snapshot
+                          // yet, the line under the tiles says what's missing.
+                          view.source === "typed" && !hasActiveStage
+                          ? "add a middle column"
+                          : undefined
+                        : limit !== null
+                          ? `of ${limit} allowed`
+                          : undefined
+                    }
+                    warning={overLimit}
+                  />
+                  <StatCard
+                    label="Throughput"
+                    value={
+                      metrics.throughputPerDay === null ? "—" : fmt(metrics.throughputPerDay, 2)
+                    }
+                    unit={metrics.throughputPerDay === null ? undefined : `${itemNoun(view)} a day`}
+                  />
+                  <StatCard
+                    label="Lead time (Little's Law)"
+                    value={metrics.littles ? `≈ ${fmt(metrics.littles.leadTimeDays)}` : "—"}
+                    unit={metrics.littles ? "days" : undefined}
+                    footer={
+                      measured && measured.average !== null && enoughData(measured.count, "average")
+                        ? `Measured: ${fmt(measured.average)} days over ${measured.count} finished`
+                        : view.source === "typed"
+                          ? "Average WIP ÷ throughput, a same-day item as 1 day"
+                          : undefined
+                    }
                   />
                 </div>
-              ))}
-            </div>
-            {/* New column form — name input + Add on row 1, optional description Textarea below.
-                Cmd/Ctrl+Enter on the Textarea submits to match the kanban pattern. */}
-            <div className="flex flex-col gap-2 max-w-md">
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="New status name…"
-                  aria-label="New status name"
-                  value={newColName}
-                  onChange={(e) => setNewColName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddColumn()}
-                  className="input-toolkit"
-                />
-                <Button
-                  size="sm"
-                  variant="toolkit"
-                  onClick={handleAddColumn}
-                  disabled={!newColName.trim()}
-                  className="gap-1"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add
-                </Button>
-              </div>
-              <Textarea
-                value={newColDescription}
-                onChange={(e) => setNewColDescription(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleAddColumn();
-                }}
-                placeholder="Description (optional)..."
-                rows={2}
-                className="bg-surface-deep border-border resize-none text-xs text-text"
-                aria-label="New column description"
-              />
-            </div>
-          </CardContent>
-        </Card>
+                {!metrics.enough && view.days.length > 0 && (
+                  <NotEnoughData
+                    have={metrics.points}
+                    need="average"
+                    unit={unit}
+                    action={view.source === "typed" ? "Log" : "Wait"}
+                    what="throughput and a Little's Law lead time"
+                  />
+                )}
+                {overLimit && (
+                  <p className="flex items-start gap-2 text-sm text-warning">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    {latest?.wip} in progress, over the limit of {limit}: finish something before
+                    pulling more in.
+                  </p>
+                )}
 
-        {/* ---- Data Entry Table ---- */}
-        <DataEntryTable
-          sortedEntries={sortedEntries}
-          columns={columns}
-          hasEntries={entries.length > 0}
-          onUpdateEntry={updateEntry}
-          onUpdateCount={updateEntryCount}
-          onRemoveEntry={removeEntry}
-          onAddEntry={addEntry}
-        />
+                <SectionCard
+                  title={<span id={flowTitleId}>Flow Diagram</span>}
+                  icon={Layers}
+                  actions={
+                    <div className="flex flex-wrap items-center gap-2">
+                      <AiPromptGenerator config={promptConfig} />
+                      <ExportButton
+                        filename="cumulative-flow"
+                        markdown={markdown}
+                        clipboardText={markdown}
+                        csvData={csvData}
+                        jsonData={{
+                          source: view.source,
+                          stages: view.workflow.stages,
+                          days: view.days,
+                        }}
+                      />
+                      {view.source === "typed" && !preview && entries.length > 0 && (
+                        <ResetButton
+                          label="Clear snapshots"
+                          title="Clear every typed snapshot?"
+                          description={`All ${entries.length} snapshots and the WIP limit go; the columns stay. You can undo this for a few seconds.`}
+                          confirmLabel="Clear snapshots"
+                          doneLabel="Cleared the typed snapshots"
+                          onReset={() => {
+                            const s = useCFDStore.getState();
+                            resetSnapshot.current = {
+                              columns: s.columns,
+                              entries: s.entries,
+                              wipLimit: s.wipLimit,
+                            };
+                            reset();
+                            log(CFD_ACTIONS.CFD_RESET, { entries: s.entries.length });
+                          }}
+                          onUndo={() => {
+                            if (resetSnapshot.current) restore(resetSnapshot.current);
+                          }}
+                        />
+                      )}
+                    </div>
+                  }
+                >
+                  {view.days.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-sub">
+                      {view.source === "typed"
+                        ? "Add a snapshot below to start the chart."
+                        : view.source === "sprint" && selected && view.itemCount > 0
+                          ? `The chart starts on the sprint's first day, ${selected.startDate}.`
+                          : view.source === "sprint"
+                            ? "This sprint has no stories yet: plan some in, and they chart here as they move."
+                            : "No cards on the Flow board yet."}
+                    </p>
+                  ) : (
+                    <FlowChart
+                      days={view.days}
+                      stages={view.workflow.stages}
+                      labelledBy={flowTitleId}
+                    />
+                  )}
+                  {view.approximate > 0 && (
+                    <p className="mt-3 text-xs text-sub">
+                      {view.approximate === 1 ? "1 item" : `${view.approximate} items`} placed from
+                      their start and done times; their move history wasn&apos;t kept.
+                    </p>
+                  )}
+                  {metrics.doneDrops.map((d) => (
+                    <p key={d.date} className="mt-2 flex items-start gap-2 text-xs text-warning">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      Done fell from {d.from} to {d.to} on {d.date}: Done is a running total, so
+                      check that snapshot&apos;s counts.
+                    </p>
+                  ))}
+                  {view.source !== "typed" && !preview && (
+                    <p className="mt-3 text-xs text-sub">
+                      {limit !== null
+                        ? `WIP limit ${limit} (In progress and Review together), from the board. `
+                        : "No WIP limit on In progress and Review yet. "}
+                      <Link
+                        href="/kanban"
+                        className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
+                      >
+                        Change it on the Kanban board
+                        <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                      </Link>
+                    </p>
+                  )}
+                </SectionCard>
+
+                <AdvancedAnalysis summary="Advanced analysis: WIP control chart and trend">
+                  {metrics.wipSeries.length === 0 ? (
+                    <p className="text-sm text-sub">
+                      Add a column between the first and the last to count work in progress.
+                    </p>
+                  ) : (
+                    <>
+                      {analysis.limits ? (
+                        <WipControlChart
+                          wipSeries={metrics.wipSeries}
+                          wipLimits={analysis.limits}
+                          wipLimit={limit}
+                          cusumAnnotations={analysis.shifts}
+                          signals={analysis.signals}
+                          unit={unit}
+                        />
+                      ) : (
+                        <NotEnoughData
+                          have={metrics.wipSeries.length}
+                          need="changePoint"
+                          unit={unit}
+                          action={view.source === "typed" ? "Log" : "Wait"}
+                          what="WIP control limits and change points"
+                        />
+                      )}
+                      {analysis.trend ? (
+                        <p className="text-sm text-text">{trendSentence(analysis.trend)}</p>
+                      ) : (
+                        <NotEnoughData
+                          have={metrics.wipSeries.length}
+                          need="trend"
+                          unit={unit}
+                          action={view.source === "typed" ? "Log" : "Wait"}
+                          what="whether WIP is trending"
+                        />
+                      )}
+                    </>
+                  )}
+                </AdvancedAnalysis>
+              </>
+            )}
+
+            {source === "typed" && !preview && (
+              <>
+                <SectionCard title="Add a snapshot" icon={Keyboard}>
+                  <p className="mb-3 text-xs text-sub">
+                    For a board the toolkit can&apos;t read: count the items in each column on a
+                    day. Done is a running total.
+                  </p>
+                  <div ref={snapshotFormRef}>
+                    <SnapshotForm
+                      columns={columns}
+                      entries={entries}
+                      today={today}
+                      onAdd={addSnapshot}
+                    />
+                  </div>
+                </SectionCard>
+
+                {entries.length > 0 && (
+                  <SectionCard title="Snapshots" icon={Layers}>
+                    <DataEntryTable
+                      entries={entries}
+                      columns={columns}
+                      today={today}
+                      onUpdateDate={(e, date) => updateEntry(e.id, { date })}
+                      onUpdateNote={(e, description) => updateEntry(e.id, { description })}
+                      onUpdateCount={(e, columnId, n) => updateEntryCount(e.id, columnId, n)}
+                      onRemoveEntry={removeEntry}
+                    />
+                  </SectionCard>
+                )}
+
+                <SectionCard
+                  title="WIP limit (optional)"
+                  icon={AlertTriangle}
+                  iconClassName="text-warning"
+                >
+                  <div className="flex flex-wrap items-end gap-3">
+                    <Field label="Most items in progress" error={wipError} className="w-48">
+                      {(p) => (
+                        <Input
+                          {...p}
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          placeholder={wipLimit !== null ? String(wipLimit) : "e.g. 10"}
+                          value={wipDraft}
+                          onChange={(e) => setWipDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") applyWip();
+                          }}
+                        />
+                      )}
+                    </Field>
+                    <Button type="button" size="sm" variant="outline" onClick={applyWip}>
+                      {wipLimit !== null ? "Change" : "Set"}
+                    </Button>
+                    {wipLimit !== null && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="danger-ghost"
+                        onClick={() => {
+                          setWipLimit(null);
+                          announce("WIP limit cleared");
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <p
+                    className={cn("mt-2 text-xs", wipLimit !== null ? "text-warning" : "text-sub")}
+                  >
+                    {wipLimit !== null
+                      ? `WIP limit set at ${wipLimit} items — shown as a dashed line on the WIP control chart (Advanced analysis).`
+                      : "Shown as a dashed line on the WIP control chart, under Advanced analysis."}
+                  </p>
+                </SectionCard>
+
+                <ColumnsCard
+                  columns={columns}
+                  onAdd={addCol}
+                  onRename={(c, name) => renameColumn(c.id, name)}
+                  onDescribe={(c, description) => setColumnDescription(c.id, description)}
+                  onRemove={removeCol}
+                />
+              </>
+            )}
+          </>
+        )}
       </div>
     </ToolPageWrapper>
   );

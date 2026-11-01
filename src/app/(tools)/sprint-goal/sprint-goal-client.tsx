@@ -53,7 +53,13 @@ import {
   viewGoal,
 } from "./doc";
 import { focusSoon } from "./focus";
-import { krProgressText, okrPercent, resolveLinkedOkrs, toggleOkrLink } from "./okr-links";
+import {
+  krProgressText,
+  okrMeasuredPercent,
+  okrProgressLabel,
+  resolveLinkedOkrs,
+  toggleOkrLink,
+} from "./okr-links";
 import { goalVerdict } from "./verdict";
 import {
   GOAL_OUTCOME_LABEL,
@@ -543,7 +549,8 @@ export function SprintGoalClient() {
         id: o.id,
         objective: o.objective,
         quarter: o.quarter,
-        progressPct: okrPercent(o),
+        // null while it has no key result: not measured yet, never 0%.
+        progressPct: okrMeasuredPercent(o),
       })),
       keyResultNotes: notes,
       goalOutcome: outcome ?? null,
@@ -927,7 +934,7 @@ export function SprintGoalClient() {
                       {linkedOkrs.map((o) => (
                         <li key={o.id} className="text-text">
                           {o.objective}{" "}
-                          <span className="text-xs text-sub">({okrPercent(o)}% of the way)</span>
+                          <span className="text-xs text-sub">({okrProgressLabel(o)})</span>
                         </li>
                       ))}
                     </ul>

@@ -20,6 +20,7 @@ import type {
 import { STICKY_PALETTE } from "./templates";
 import { treeLayout, gridLayout } from "./layout";
 import { wbId } from "./clipboard";
+import { krPercent } from "@/lib/okrs/progress";
 
 const now = () => new Date().toISOString();
 const id = () => wbId();
@@ -54,26 +55,35 @@ function makeZ(): () => number {
  */
 export function importFromRetro(
   boardId: string,
-  cards: { category: "mad" | "sad" | "glad" | "action" | string; title: string; id?: string }[],
+  cards: { category: "mad" | "sad" | "glad" | "action" | string; title: string; id?: string }[]
 ): WhiteboardObject[] {
   const z = makeZ();
   const out: WhiteboardObject[] = [];
   const frames: Record<string, { x: number; y: number; color: string }> = {
-    mad:    { x: 80,  y: 80,  color: "#fca5a5" },
-    sad:    { x: 760, y: 80,  color: "#fbcfe8" },
-    glad:   { x: 80,  y: 540, color: "#bef264" },
+    mad: { x: 80, y: 80, color: "#fca5a5" },
+    sad: { x: 760, y: 80, color: "#fbcfe8" },
+    glad: { x: 80, y: 540, color: "#bef264" },
     action: { x: 760, y: 540, color: "#a5f3fc" },
   };
-  const frameW = 640, frameH = 440;
+  const frameW = 640,
+    frameH = 440;
 
   for (const cat of Object.keys(frames) as (keyof typeof frames)[]) {
     const f = frames[cat];
     const fr: WhiteboardFrame = {
-      id: id(), boardId, type: "frame",
-      x: f.x, y: f.y, w: frameW, h: frameH, z: z(),
+      id: id(),
+      boardId,
+      type: "frame",
+      x: f.x,
+      y: f.y,
+      w: frameW,
+      h: frameH,
+      z: z(),
       label: cat.charAt(0).toUpperCase() + cat.slice(1),
       fill: f.color + "33",
-      version: 1, updatedAt: now(), createdAt: now(),
+      version: 1,
+      updatedAt: now(),
+      createdAt: now(),
     };
     out.push(fr);
   }
@@ -96,7 +106,7 @@ export function importFromRetro(
     // eslint-disable-next-line no-console
     console.warn(
       "[canvas] importFromRetro: unknown card categories spilled into 'action':",
-      Array.from(unknownCategories).join(", "),
+      Array.from(unknownCategories).join(", ")
     );
   }
   for (const k of Object.keys(grouped)) {
@@ -105,10 +115,14 @@ export function importFromRetro(
       const col = i % 3;
       const row = Math.floor(i / 3);
       const sticky: WhiteboardSticky = {
-        id: id(), boardId, type: "sticky",
+        id: id(),
+        boardId,
+        type: "sticky",
         x: f.x + 24 + col * 200,
         y: f.y + 60 + row * 160,
-        w: 180, h: 140, z: z(),
+        w: 180,
+        h: 140,
+        z: z(),
         // Cap title to IMPORT_TEXT_CAP. The peer-validator's 50k
         // ceiling rejects oversized text at replication; truncating
         // here keeps local and remote behaviour consistent. A retro
@@ -116,7 +130,9 @@ export function importFromRetro(
         // every other user's board.
         content: (c.title ?? "").slice(0, IMPORT_TEXT_CAP),
         color: f.color,
-        version: 1, updatedAt: now(), createdAt: now(),
+        version: 1,
+        updatedAt: now(),
+        createdAt: now(),
         sourceRef: c.id ? { tool: "retro", entityId: c.id } : undefined,
       };
       out.push(sticky);
@@ -142,7 +158,7 @@ export function importFromRetro(
  */
 function buildReuseMap(
   existing: readonly WhiteboardObject[] | undefined,
-  tool: string,
+  tool: string
 ): Map<string, { id: string; version: number }> {
   // R11-fix: carry the existing object's version so re-imports can
   // emit `version: existing.version + 1`. The previous shape returned
@@ -162,7 +178,7 @@ function buildReuseMap(
 export function importFromStories(
   boardId: string,
   stories: readonly Story[],
-  existing?: readonly WhiteboardObject[],
+  existing?: readonly WhiteboardObject[]
 ): WhiteboardObject[] {
   const z = makeZ();
   const out: WhiteboardObject[] = [];
@@ -174,14 +190,23 @@ export function importFromStories(
   const reuse = buildReuseMap(existing, "story");
   const stages: Story["status"][] = ["backlog", "todo", "in_progress", "review", "done"];
   const knownStages = new Set<string>(stages);
-  const stageW = 240, stageH = 700;
+  const stageW = 240,
+    stageH = 700;
   stages.forEach((stage, i) => {
     out.push({
-      id: id(), boardId, type: "frame",
-      x: 80 + i * stageW, y: 80, w: stageW - 16, h: stageH, z: z(),
+      id: id(),
+      boardId,
+      type: "frame",
+      x: 80 + i * stageW,
+      y: 80,
+      w: stageW - 16,
+      h: stageH,
+      z: z(),
       label: stage.replace("_", " "),
       fill: "#1e293b22",
-      version: 1, updatedAt: now(), createdAt: now(),
+      version: 1,
+      updatedAt: now(),
+      createdAt: now(),
     });
   });
   const buckets: Record<string, Story[]> = {};
@@ -195,7 +220,7 @@ export function importFromStories(
     // eslint-disable-next-line no-console
     console.warn(
       "[canvas] importFromStories: stories with unknown status routed to 'backlog':",
-      Array.from(unknownStatuses).join(", "),
+      Array.from(unknownStatuses).join(", ")
     );
   }
   stages.forEach((stage, i) => {
@@ -214,13 +239,18 @@ export function importFromStories(
       const reuseEntry = reuse.get(s.id);
       out.push({
         id: reuseEntry?.id ?? id(),
-        boardId, type: "sticky",
-        x: 80 + i * stageW + 16, y: 140 + j * 130,
-        w: stageW - 48, h: 110, z: z(),
+        boardId,
+        type: "sticky",
+        x: 80 + i * stageW + 16,
+        y: 140 + j * 130,
+        w: stageW - 48,
+        h: 110,
+        z: z(),
         content,
         color: STICKY_PALETTE[i % STICKY_PALETTE.length],
         version: reuseEntry ? reuseEntry.version + 1 : 1,
-        updatedAt: now(), createdAt: now(),
+        updatedAt: now(),
+        createdAt: now(),
         sourceRef: { tool: "story", entityId: s.id },
       });
     });
@@ -236,7 +266,7 @@ export function importFromStories(
 export function importFromRisks(
   boardId: string,
   risks: readonly Risk[],
-  existing?: readonly WhiteboardObject[],
+  existing?: readonly WhiteboardObject[]
 ): WhiteboardObject[] {
   const z = makeZ();
   const out: WhiteboardObject[] = [];
@@ -250,16 +280,22 @@ export function importFromRisks(
   for (let p = 0; p < 5; p++) {
     for (let i = 0; i < 5; i++) {
       const score = (p + 1) * (5 - i);
-      const fill =
-        score >= 15 ? "#ef444433" :
-        score >= 8 ? "#f59e0b33" :
-        "#10b98133";
+      const fill = score >= 15 ? "#ef444433" : score >= 8 ? "#f59e0b33" : "#10b98133";
       out.push({
-        id: id(), boardId, type: "rect",
-        x: 200 + p * cell, y: 60 + i * cell,
-        w: cell - 4, h: cell - 4, z: z(),
-        fill, stroke: "#475569", strokeWidth: 1,
-        version: 1, updatedAt: now(), createdAt: now(),
+        id: id(),
+        boardId,
+        type: "rect",
+        x: 200 + p * cell,
+        y: 60 + i * cell,
+        w: cell - 4,
+        h: cell - 4,
+        z: z(),
+        fill,
+        stroke: "#475569",
+        strokeWidth: 1,
+        version: 1,
+        updatedAt: now(),
+        createdAt: now(),
       });
     }
   }
@@ -270,22 +306,27 @@ export function importFromRisks(
     // null/undefined/string would land at coordinate `NaN`, which the
     // canvas renderer silently drops. Default to centre (3) so unsized
     // risks still show up on the matrix where the user can fix them.
-    const pRaw = Number.isFinite(r.probability) ? r.probability as number : 3;
-    const iRaw = Number.isFinite(r.impact) ? r.impact as number : 3;
+    const pRaw = Number.isFinite(r.probability) ? (r.probability as number) : 3;
+    const iRaw = Number.isFinite(r.impact) ? (r.impact as number) : 3;
     const p = Math.max(1, Math.min(5, pRaw)) - 1;
     const i = 5 - Math.max(1, Math.min(5, iRaw));
     const reuseEntry = reuse.get(r.id);
     out.push({
       id: reuseEntry?.id ?? id(),
-      boardId, type: "sticky",
-      x: 200 + p * cell + 8, y: 60 + i * cell + 8,
-      w: cell - 20, h: cell - 20, z: z(),
+      boardId,
+      type: "sticky",
+      x: 200 + p * cell + 8,
+      y: 60 + i * cell + 8,
+      w: cell - 20,
+      h: cell - 20,
+      z: z(),
       // Cap title — matches the importFromRetro/Stories truncation.
       content: (r.title ?? "").slice(0, IMPORT_TEXT_CAP),
       color: r.status === "closed" ? "#9ca3af" : "#fde68a",
       // R11-fix: bump off existing version so peer LWW accepts the update.
       version: reuseEntry ? reuseEntry.version + 1 : 1,
-      updatedAt: now(), createdAt: now(),
+      updatedAt: now(),
+      createdAt: now(),
       sourceRef: { tool: "risk", entityId: r.id },
     });
   }
@@ -296,7 +337,7 @@ export function importFromRisks(
 export function importFromOkrs(
   boardId: string,
   okrs: readonly Okr[],
-  existing?: readonly WhiteboardObject[],
+  existing?: readonly WhiteboardObject[]
 ): WhiteboardObject[] {
   const z = makeZ();
   const out: WhiteboardObject[] = [];
@@ -329,11 +370,9 @@ export function importFromOkrs(
       nodes.push({ id: krId, w: 220, h: 90 });
       parents[krId] = o.id;
       compositeToParts.set(krId, { okrId: o.id, krId: kr.id });
-      // Guard division-by-zero — a freshly-created KR with target=0
-      // would print "Infinity%" or "NaN%" without this.
-      const pct = (kr.target && kr.target > 0)
-        ? Math.round((kr.current / kr.target) * 100)
-        : 0;
+      // The OKR page's progress (baseline → target, either way, clamped),
+      // so a card never reads differently from the tool it came from.
+      const pct = krPercent(kr);
       labels[krId] = `${(kr.title ?? "").slice(0, IMPORT_TITLE_CAP)}\n${pct}%`;
     }
   }
@@ -357,14 +396,21 @@ export function importFromOkrs(
     const stickyId = reuseEntry?.id ?? id();
     compositeToStickyId.set(n.id, stickyId);
     out.push({
-      id: stickyId, boardId, type: "sticky",
-      x: pos.x, y: pos.y, w: n.w, h: n.h, z: z(),
+      id: stickyId,
+      boardId,
+      type: "sticky",
+      x: pos.x,
+      y: pos.y,
+      w: n.w,
+      h: n.h,
+      z: z(),
       content: labels[n.id],
       color: isObjective ? "#a5f3fc" : "#bef264",
       fontSize: isObjective ? 16 : 14,
       // R11-fix: bump off existing version so peer LWW accepts the update.
       version: reuseEntry ? reuseEntry.version + 1 : 1,
-      updatedAt: now(), createdAt: now(),
+      updatedAt: now(),
+      createdAt: now(),
       sourceRef: {
         tool: "okr",
         entityId,
@@ -381,15 +427,25 @@ export function importFromOkrs(
       const fromNode = { id: fromStickyId };
       const toNode = { id: toStickyId };
       out.push({
-        id: id(), boardId, type: "connector",
-        x: 0, y: 0, w: 0, h: 0, z: z(),
-        fromId: fromNode.id, toId: toNode.id,
-        fromAnchor: "bottom", toAnchor: "top",
+        id: id(),
+        boardId,
+        type: "connector",
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+        z: z(),
+        fromId: fromNode.id,
+        toId: toNode.id,
+        fromAnchor: "bottom",
+        toAnchor: "top",
         routing: "orthogonal",
         arrowEnd: true,
         stroke: "#94a3b8",
         strokeWidth: 2,
-        version: 1, updatedAt: now(), createdAt: now(),
+        version: 1,
+        updatedAt: now(),
+        createdAt: now(),
       });
     }
   }

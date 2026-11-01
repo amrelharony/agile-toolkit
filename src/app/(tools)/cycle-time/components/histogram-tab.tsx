@@ -9,8 +9,8 @@
 import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { ChartFigure } from "@/components/shared/chart-card";
-import { histogramText } from "../chart-text";
-import type { CycleStats, HistogramDatum } from "../types";
+import { histogramText, type QuotedPercentiles } from "../chart-text";
+import type { HistogramDatum } from "../types";
 
 // Recharts loads with the chart, not the page. The placeholder keeps the
 // chart's 380px height while the chunk loads.
@@ -27,26 +27,17 @@ const CycleTimeHistogramChart = dynamic(
 export function HistogramTab({
   histogramData,
   stats,
-  percentileMap,
 }: {
   histogramData: HistogramDatum[];
-  stats: CycleStats;
-  percentileMap: Record<number, number>;
+  stats: QuotedPercentiles;
 }) {
-  const text = useMemo(
-    () => histogramText(histogramData, stats, percentileMap[95]),
-    [histogramData, stats, percentileMap]
-  );
+  const text = useMemo(() => histogramText(histogramData, stats), [histogramData, stats]);
   return (
     <>
       <ChartFigure label="Cycle time histogram" summary={text.summary} table={text.table}>
-        <CycleTimeHistogramChart
-          histogramData={histogramData}
-          stats={stats}
-          percentileMap={percentileMap}
-        />
+        <CycleTimeHistogramChart histogramData={histogramData} stats={stats} />
       </ChartFigure>
-      <div className="flex items-center gap-4 mt-3 text-xs text-sub">
+      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-sub">
         <span className="flex items-center gap-1.5">
           <span className="w-5 border-t border-dashed border-accent" />
           P50 ({stats.median}d)
@@ -57,7 +48,7 @@ export function HistogramTab({
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-5 border-t border-dashed border-danger" />
-          P95 ({percentileMap[95]}d)
+          P95 ({stats.p95}d)
         </span>
       </div>
     </>

@@ -8,7 +8,9 @@ import { flowChartText, wipChartText } from "@/app/(tools)/cumulative-flow/chart
 import { simulationHistogramText } from "@/app/(tools)/release-planner/chart-text";
 import { healthTrendText } from "@/app/(tools)/health-check/chart-text";
 import { histogramText } from "@/app/(tools)/cycle-time/chart-text";
-import { scoreTrendText } from "@/app/(tools)/nps-csat/chart-text";
+import { periodTrendText } from "@/app/(tools)/nps-csat/chart-text";
+import { periodSeries } from "@/lib/nps/score";
+import type { NpsResponse } from "@/lib/stores/workspace-types";
 import { dailyMoodText } from "@/app/(tools)/mood-tracker/chart-text";
 import { fmt, move, plural } from "@/lib/charts/chart-text";
 
@@ -45,8 +47,12 @@ describe("burndown", () => {
     expect(burndownChartText(rows([40, 30, 25, 22, 20, 18])).summary).toBe(
       "Remaining points fell from 40 to 18 over 5 days; 2 points ahead of the ideal line."
     );
+    // The shared gap: on the line only at 0, never within a local half-point.
     expect(burndownChartText(rows([40, 36, 32, 28.4])).summary).toBe(
-      "Remaining points fell from 40 to 28.4 over 3 days; on the ideal line."
+      "Remaining points fell from 40 to 28.4 over 3 days; 0.4 points behind the ideal line."
+    );
+    expect(burndownChartText(rows([40, 36, 32, 28])).summary).toBe(
+      "Remaining points fell from 40 to 28 over 3 days; on the ideal line."
     );
     expect(burndownChartText(rows([40])).summary).toBe(
       "No days logged yet; the ideal line falls from 40 points to 0 by day 10."
@@ -145,15 +151,15 @@ describe("sprint compare", () => {
   it("names the highest and lowest average", () => {
     const text = sprintRadarText(rows, [a, b]);
     expect(text.summary).toBe(
-      "2 sprints compared; Sprint 8 has the highest average rating (8.5 out of 10) and Sprint 7 the lowest (7)."
+      "2 sprints compared; Sprint 8 has the highest average score (8.5 out of 10) and Sprint 7 the lowest (7). Each shape leaves out the dimensions its sprint has no score for."
     );
     expect(text.table.columns).toEqual(["Dimension", "Sprint 7", "Sprint 8"]);
-    expect(text.table.rows[2]).toEqual(["Morale", 8, "Not rated"]);
+    expect(text.table.rows[2]).toEqual(["Morale", 8, "Not scored"]);
   });
 
   it("describes a single sprint by its average and best dimension", () => {
     expect(sprintRadarText(rows, [a]).summary).toBe(
-      "Sprint 7 averages 7 out of 10 across 3 rated dimensions; its highest is Morale (8)."
+      "Sprint 7 averages 7 out of 10 across 3 scored dimensions; its highest is Morale (8)."
     );
   });
 });
@@ -193,19 +199,20 @@ describe("DORA scorecard", () => {
 });
 
 describe("cumulative flow", () => {
-  const columns = [
-    { id: "1", name: "To Do", color: "#64748b" },
-    { id: "2", name: "In Progress", color: "#00f0ff" },
-    { id: "3", name: "In Review", color: "#ff00aa" },
-    { id: "4", name: "Done", color: "#00ff88" },
+  // Stages keyed by id, as the page passes them (typed columns or a board's workflow).
+  const stages = [
+    { id: "1", label: "To Do", kind: "queue" as const },
+    { id: "2", label: "In Progress", kind: "active" as const },
+    { id: "3", label: "In Review", kind: "active" as const },
+    { id: "4", label: "Done", kind: "done" as const },
   ];
 
-  it("follows the last column and the work in progress", () => {
+  it("follows the done stage and the work in progress", () => {
     const rows = [
-      { date: "2026-10-01", "To Do": 10, "In Progress": 3, "In Review": 1, Done: 2 },
-      { date: "2026-10-12", "To Do": 4, "In Progress": 5, "In Review": 4, Done: 14 },
+      { date: "2026-10-01", counts: { "1": 10, "2": 3, "3": 1, "4": 2 } },
+      { date: "2026-10-12", counts: { "1": 4, "2": 5, "3": 4, "4": 14 } },
     ];
-    const text = flowChartText(rows, columns);
+    const text = flowChartText(rows, stages);
     expect(text.summary).toBe(
       "Done rose from 2 to 14 items between 2026-10-01 and 2026-10-12; 9 items in progress on the last day."
     );
@@ -307,21 +314,35 @@ describe("cycle time, NPS / CSAT and mood", () => {
       { bucket: "8-14 days", count: 1 },
       { bucket: "15+ days", count: 0 },
     ];
-    expect(histogramText(bars, { median: 3, p85: 7 }, 14).summary).toBe(
+    expect(histogramText(bars, { median: 3, p85: 7, p95: 14 }).summary).toBe(
       "13 items: half finished within 3 days, 85% within 7 and 95% within 14; the most common range is 3-4 days (5 items)."
     );
   });
 
-  it("summarises the score trend", () => {
-    const text = scoreTrendText([
-      { date: "2026-10-01", nps: -20, csat: 3.8 },
-      { date: "2026-10-02", nps: 10 },
-      { date: "2026-10-03", nps: 35, csat: 4.25 },
-    ]);
-    expect(text.summary).toBe(
-      "NPS rose from -20 to 35 and CSAT rose from 3.8 to 4.3 across 3 dates, 2026-10-01 to 2026-10-03."
+  it("summarises the score trend per month, with the n behind each", () => {
+    // Phase 8: periods, not answer days; CSAT as % satisfied.
+    const r = (id: string, kind: "nps" | "csat", date: string, score: number): NpsResponse => ({
+      id,
+      kind,
+      date,
+      score,
+    });
+    const { points } = periodSeries(
+      [
+        r("a", "nps", "2026-08-03", 3),
+        r("b", "nps", "2026-08-04", 9),
+        r("c", "csat", "2026-08-05", 4),
+        r("d", "nps", "2026-10-02", 10),
+        r("e", "csat", "2026-10-02", 2),
+      ],
+      "month"
     );
-    expect(text.table.rows[1]).toEqual(["2026-10-02", 10, "—"]);
+    const text = periodTrendText(points, "month");
+    expect(text.summary).toBe(
+      "NPS rose from 0 to +100 and CSAT fell from 100% satisfied to 0% satisfied across 3 months, Aug 2026 to Oct 2026; 2 months have fewer than 10 responses of a kind, so read them with care."
+    );
+    expect(text.table.rows[1]).toEqual(["Sep 2026", "—", 0, "—", 0]);
+    expect(text.table.rows[2]).toEqual(["Oct 2026", "+100", "1 (below 10)", "0%", "1 (below 10)"]);
   });
 
   it("summarises the daily-average mood", () => {

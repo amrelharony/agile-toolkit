@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
-import { RapidDecisionClient } from "./rapid-decision-client";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
+import { DecisionLogClient } from "@/app/(tools)/decision-log/decision-log-client";
 
-export const metadata: Metadata = {
-  title: "RAPID Decision Matrix",
-  description:
-    "Bain's Recommend / Agree / Perform / Input / Decide model for governance-heavy decisions.",
-};
+/**
+ * RAPID is the Decision Log raised in the RAPID form: the same records,
+ * opened with RAPID as the default for New. The page keeps its own title so
+ * old links and bookmarks land where they did.
+ */
+export const metadata: Metadata = toolMetadata("rapid-decision");
 
 export default function Page() {
-  return <RapidDecisionClient />;
+  return <DecisionLogClient template="rapid" />;
 }

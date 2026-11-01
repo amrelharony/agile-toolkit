@@ -226,7 +226,7 @@ describe("six-hats", () => {
       })),
     });
     expect(out.map((s) => [s.id, s.href])).toEqual([
-      ["six-hats-decide", "/decision-log"],
+      ["six-hats-decide", "/decision-log?id=d1"],
       ["six-hats-premortem", "/premortem"],
     ]);
     expect(out[0].label).toBe("Record the decision on “Monorepo”");

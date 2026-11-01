@@ -97,14 +97,13 @@ export interface RoomSnapshot {
   votesUsed: Record<string, number>;
 }
 
-export interface KickMessage {
-  by: string;
-  id: string;
-}
-
-export interface EndMessage {
-  by: string;
-}
+// The kick and end messages (and their readers) are shared by every visitor room.
+export {
+  readEndMessage,
+  readKickMessage,
+  type EndMessage,
+  type KickMessage,
+} from "@/lib/realtime/room-control";
 
 // ── Readers (shape only) ─────────────────────────────────────────────
 
@@ -136,16 +135,4 @@ export function readIntentEnv(raw: unknown): IntentEnv | null {
     return { v: 1, by: env.by, intent: { t: "vote", iid: i.iid, cardId: i.cardId } };
   }
   return null;
-}
-
-export function readKickMessage(raw: unknown): KickMessage | null {
-  const m = obj(raw);
-  if (!m || !isVisitorMemberId(m.by) || !isVisitorMemberId(m.id)) return null;
-  return { by: m.by, id: m.id };
-}
-
-export function readEndMessage(raw: unknown): EndMessage | null {
-  const m = obj(raw);
-  if (!m || !isVisitorMemberId(m.by)) return null;
-  return { by: m.by };
 }

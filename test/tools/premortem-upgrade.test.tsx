@@ -31,6 +31,7 @@ vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }
 
 import { PremortemClient } from "@/app/(tools)/premortem/premortem-client";
 import type { Premortem, PremortemCause, PremortemState } from "@/app/(tools)/premortem/model";
+import { currentRisks } from "@/lib/risks/store";
 
 const KEY = "agile-toolkit:premortem";
 const RISK_KEY = "agile-toolkit:risk-register";
@@ -54,6 +55,8 @@ const seed = (...premortems: Premortem[]) =>
 const stored = (): PremortemState => JSON.parse(localStorage.getItem(KEY) ?? "{}");
 const storedCauses = (id = "p1") => stored().premortems.find((p) => p.id === id)!.causes;
 const riskBlob = (): Risk[] => JSON.parse(localStorage.getItem(RISK_KEY) ?? "[]");
+/** What the register lists: workspace.risks, plus old blob rows still waiting for its move. */
+const registerTitles = () => currentRisks().map((r) => r.title);
 
 const renderPremortem = () =>
   render(
@@ -572,7 +575,8 @@ describe("Premortem: act", () => {
     expect(send).toBeEnabled();
     fireEvent.click(send);
 
-    const risks = riskBlob();
+    // The register's one store since Phase 8; its old blob isn't written.
+    const risks = useWorkspaceStore.getState().risks;
     expect(risks.map((r) => r.title).sort()).toEqual(["Alpha", "Bravo", "Charlie"]);
     expect(risks.find((r) => r.title === "Alpha")).toMatchObject({
       probability: 4,
@@ -580,7 +584,8 @@ describe("Premortem: act", () => {
       mitigation: "Spike",
       sourceRef: { tool: "premortem", id: "a", doc: "p1" },
     });
-    expect(useWorkspaceStore.getState().risks).toHaveLength(3);
+    expect(risks.find((r) => r.title === "Bravo")?.owner).toBe("Bo");
+    expect(riskBlob()).toEqual([]);
     expect(storedCauses().map((c) => c.sentTo?.length ?? 0)).toEqual([1, 1, 1, 0]);
     expect(toastSpy).toHaveBeenCalledTimes(1);
     expect(toastSpy.mock.calls[0][0]).toBe("Added 3 risks to the Risk Register");
@@ -622,7 +627,9 @@ describe("Premortem: act", () => {
       "Adds 1 risk with its likelihood, impact and preventive action; 1 is there already."
     );
     fireEvent.click(send);
-    expect(riskBlob().map((r) => r.title)).toEqual(["Bravo", "Alpha"]);
+    // Alpha, still waiting in the old blob for the register's move, counts as there.
+    expect(registerTitles()).toEqual(["Bravo", "Alpha"]);
+    expect(riskBlob()).toEqual([existing]);
     expect(toastSpy.mock.calls[0][0]).toBe("Added 1 risk to the Risk Register");
   });
 
@@ -657,7 +664,7 @@ describe("Premortem: act", () => {
       "Adds 1 risk with its likelihood, impact and preventive action; 1 is there already."
     );
     fireEvent.click(send);
-    expect(riskBlob().map((r) => r.title)).toEqual(["Charlie", "Alpha"]);
+    expect(registerTitles()).toEqual(["Charlie", "Alpha"]);
     expect(logged("risks_sent")).toEqual([
       ["risks_sent", { premortemId: "p1", count: 1, causeIds: ["c"] }],
     ]);

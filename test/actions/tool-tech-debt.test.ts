@@ -7,8 +7,8 @@
  *
  *   1. all 5 actions registered with the right category split
  *   2. write actions all expose an mcpHandler (server-side path)
- *   3. compute_priority is pure and returns the right tier across the
- *      ratio buckets (must_fix / should_fix / defer)
+ *   3. compute_priority is pure and returns the page's score and its tier
+ *      (must_fix / should_fix / defer)
  *   4. list_state returns initialised summary fields even when empty
  *      AND aggregates correctly across mixed seeds, sorted by priority
  *   5. mark_resolved sets resolvedAt (default = now-ish) AND returns
@@ -35,6 +35,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TechDebtItem } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 // Side-effect import — registers the actions on the singleton.
 import "@/lib/actions/tools/tech-debt";
@@ -108,37 +109,45 @@ describe("tool.tech_debt — registration", () => {
   });
 });
 
-describe("tool.tech_debt.compute_priority — pure formula", () => {
-  it("computes (impact / max(0.5, effort)) * (1 + interestRate) without interest", async () => {
+// Phase 8: compute_priority scores with the page's own formula
+// (lib/tech-debt/model debtScore: impact × 4 − effort + capped interest ×
+// age in sprints), so the ratio formula and its tiers are gone.
+describe("tool.tech_debt.compute_priority — the page's score", () => {
+  it("scores impact × 4 − effort with no interest or age", async () => {
     const action = registry.get("tool.tech_debt.compute_priority");
     const result = (await action!.handler({ impact: 4, effort: 2 }, ctx())) as {
       priority: number;
       rank_tier: string;
     };
-    // 4 / 2 * (1 + 0) = 2
-    expect(result.priority).toBe(2);
+    // 4 × 4 − 2 = 14
+    expect(result.priority).toBe(14);
     expect(result.rank_tier).toBe("should_fix");
   });
 
-  it("multiplies by (1 + interestRate) when interest is supplied", async () => {
+  it("adds interest × age in sprints, capped at 10", async () => {
     const action = registry.get("tool.tech_debt.compute_priority");
-    const result = (await action!.handler({ impact: 4, effort: 2, interestRate: 1 }, ctx())) as {
-      priority: number;
-      rank_tier: string;
-    };
-    // 4 / 2 * (1 + 1) = 4
-    expect(result.priority).toBe(4);
+    const result = (await action!.handler(
+      { impact: 4, effort: 2, interestRate: 1, ageSprints: 3 },
+      ctx()
+    )) as { priority: number; rank_tier: string; score: Record<string, unknown> };
+    // 14 + 1 × 3 = 17
+    expect(result.priority).toBe(17);
     expect(result.rank_tier).toBe("must_fix");
+    expect(result.score).toEqual({ base: 14, interest: 3, capped: false, total: 17 });
+    const capped = (await action!.handler(
+      { impact: 1, effort: 5, interestRate: 2, ageSprints: 30 },
+      ctx()
+    )) as { priority: number; score: Record<string, unknown> };
+    // −1 + min(10, 60): an old trivial item stays below a fresh critical one (19).
+    expect(capped.score).toEqual({ base: -1, interest: 10, capped: true, total: 9 });
   });
 
-  it("floors effort at 0.5 (defuses user-entered 0)", async () => {
-    const action = registry.get("tool.tech_debt.compute_priority");
-    const result = (await action!.handler({ impact: 3, effort: 0 }, ctx())) as {
-      priority: number;
-    };
-    // 3 / max(0.5, 0) = 6  (NOT NaN/Infinity)
-    expect(result.priority).toBe(6);
-    expect(Number.isFinite(result.priority)).toBe(true);
+  it("refuses ratings off the 1–5 scale and a negative rate or age", () => {
+    const schema = registry.get("tool.tech_debt.compute_priority")!.paramsSchema;
+    expect(() => schema.parse({ impact: 3, effort: 0 })).toThrow();
+    expect(() => schema.parse({ impact: 2.5, effort: 3 })).toThrow();
+    expect(() => schema.parse({ impact: 3, effort: 3, interestRate: -1 })).toThrow();
+    expect(() => schema.parse({ impact: 3, effort: 3, ageSprints: -1 })).toThrow();
   });
 
   it("classifies low impact / high effort as defer", async () => {
@@ -147,8 +156,8 @@ describe("tool.tech_debt.compute_priority — pure formula", () => {
       priority: number;
       rank_tier: string;
     };
-    // 1 / 5 * 1 = 0.2 → defer
-    expect(result.priority).toBeCloseTo(0.2, 5);
+    // 1 × 4 − 5 = −1 → defer
+    expect(result.priority).toBe(-1);
     expect(result.rank_tier).toBe("defer");
   });
 
@@ -250,33 +259,33 @@ describe("tool.tech_debt.mark_resolved — lifecycle transition", () => {
     useWorkspaceStore.setState({ techDebt: [] });
   });
 
-  it("sets resolvedAt to the current time when no timestamp is supplied", async () => {
+  // Phase 8: resolvedAt is the local day, as the page stores it (it was a
+  // full timestamp); a timestamp given is read as its date.
+  it("sets resolvedAt to today (YYYY-MM-DD) when no day is supplied", async () => {
     useWorkspaceStore.getState().upsertTechDebt(seed({ id: "d1", title: "Open debt" }));
 
-    const before = Date.now();
     const action = registry.get("tool.tech_debt.mark_resolved");
-    const result = (await action!.handler({ id: "d1" }, ctx())) as { updated: boolean };
-    const after = Date.now();
+    const result = (await action!.handler({ id: "d1" }, ctx())) as {
+      updated: boolean;
+      resolvedAt: string;
+    };
 
-    expect(result.updated).toBe(true);
-
+    expect(result).toEqual({ updated: true, resolvedAt: todayLocalISO() });
     const stored = (useWorkspaceStore.getState().techDebt ?? []).find((d) => d.id === "d1");
-    expect(stored?.resolvedAt).toBeDefined();
-    const resolvedTs = new Date(stored!.resolvedAt!).getTime();
-    // Within a sane window of the call site.
-    expect(resolvedTs).toBeGreaterThanOrEqual(before);
-    expect(resolvedTs).toBeLessThanOrEqual(after);
+    expect(stored?.resolvedAt).toBe(todayLocalISO());
+    expect(stored?.updatedAt).toEqual(expect.any(String));
   });
 
-  it("uses the supplied resolvedAt when provided (back-date support)", async () => {
-    useWorkspaceStore.getState().upsertTechDebt(seed({ id: "d1", title: "Open debt" }));
+  it("uses the supplied day when provided (back-date support); a timestamp reads as its date", async () => {
+    useWorkspaceStore
+      .getState()
+      .upsertTechDebt(seed({ id: "d1", title: "Open debt", raisedAt: "2023-11-01" }));
 
-    const backdated = "2024-01-15T10:30:00.000Z";
     const action = registry.get("tool.tech_debt.mark_resolved");
-    await action!.handler({ id: "d1", resolvedAt: backdated }, ctx());
+    await action!.handler({ id: "d1", resolvedAt: "2024-01-15T10:30:00.000Z" }, ctx());
 
     const stored = (useWorkspaceStore.getState().techDebt ?? []).find((d) => d.id === "d1");
-    expect(stored?.resolvedAt).toBe(backdated);
+    expect(stored?.resolvedAt).toBe("2024-01-15");
   });
 
   it("returns {updated: false} for an unknown id (no throw)", async () => {

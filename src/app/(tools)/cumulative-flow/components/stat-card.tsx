@@ -2,7 +2,7 @@
 
 /**
  * Summary stat tile for the CFD header row: label, big value + unit (with
- * warning/accent coloring), and an optional inline trailing element (trend chip).
+ * warning/accent colouring), and an optional sub-line footer.
  */
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,15 +13,15 @@ export function StatCard({
   unit,
   accent = false,
   warning = false,
-  trailing,
+  footer,
 }: {
   label: string;
   value: string | number;
   unit?: string;
   accent?: boolean;
   warning?: boolean;
-  /** Inline trailing element next to the value (e.g. trend chip). */
-  trailing?: React.ReactNode;
+  /** Sub-line under the value (e.g. the measured cycle time). */
+  footer?: React.ReactNode;
 }) {
   return (
     <Card className="bg-surface border-border">
@@ -36,8 +36,8 @@ export function StatCard({
             {value}
           </span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
-          {trailing}
         </div>
+        {footer && <p className="mt-1 text-xs text-sub">{footer}</p>}
       </CardContent>
     </Card>
   );

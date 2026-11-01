@@ -45,6 +45,39 @@ describe("VisitorRoomChip", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
   });
 
+  it("appends a link fragment such as a vote round's #k= host key", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const fp = "abcdefghijklmnopqrstuv";
+    render(
+      <VisitorRoomChip
+        tool="health-check"
+        code={CODE}
+        memberCount={1}
+        isHost
+        linkFragment={`#k=${fp}`}
+      />
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    });
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/join/health-check/${CODE}#k=${fp}`
+    );
+  });
+
+  it("ignores a fragment that isn't a short, URL-safe #fragment", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(
+      <VisitorRoomChip tool="retro" code={CODE} memberCount={1} isHost linkFragment={"k=no-hash"} />
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    });
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/join/retro/${CODE}`);
+  });
+
   it("shows the link in a toast when the clipboard is unavailable", async () => {
     Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
     render(<VisitorRoomChip tool="retro" code={CODE} memberCount={1} isHost />);

@@ -25,6 +25,19 @@ export const MIN_SAMPLE = {
   cluster: 10,
   /** Anonymous survey results (psych safety uses its own, higher bar). */
   anonymous: 3,
+  /**
+   * Psych Safety's anonymous rounds. Its questions are sensitive enough
+   * that three answers in a small team can point at a person, so its
+   * results wait for five.
+   */
+  psychSafety: 5,
+  /**
+   * Survey responses in one week or month before its NPS or CSAT reads
+   * without a warning. Below it the value still shows, with the swing one
+   * answer makes (100 / n points) quoted, since a period's answers are all
+   * a team has.
+   */
+  surveyPeriod: 10,
 } as const;
 
 export type SampleKind = keyof typeof MIN_SAMPLE;

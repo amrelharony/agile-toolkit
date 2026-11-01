@@ -3,54 +3,133 @@
  *
  * Category: Product Discovery (squad S5)
  * Tool:     Lean-startup hypotheses (believe / will do / to learn / success
- *           metric) with a validation lifecycle.
+ *           metric) with a validation lifecycle, a numeric target and the
+ *           measured result.
  *
  * Agent surface: tool.hypothesis_tracker.*
  * Backing CRUD : workspace.hypothesis_tracker.* (auto-generated). Singleton:
  *                one HypothesisTracker document (hypotheses[]) under a fixed id.
  *
- *   1. list_state       — byStatus + validation rate.
- *   2. add_hypothesis   — log a hypothesis (status → drafted, raisedAt → today).
- *   3. set_status       — move through the lifecycle; stamps resolvedAt when
- *                         validated/invalidated/inconclusive.
+ *   1. list_state       — byStatus, the validation rate over decisive results
+ *                         (null with none), the verdict, and per hypothesis
+ *                         what it still needs and the verdict its result
+ *                         suggests.
+ *   2. add_hypothesis   — log a hypothesis, first in the list, checked as the
+ *                         page's form checks it (backdating, a target).
+ *   3. update_hypothesis — edit its lines, raised day and target, as the
+ *                         page's edit form does: how a hand-off draft gets
+ *                         what we'll do, the success metric and a target.
+ *   4. set_status       — move through the lifecycle; stamps resolvedAt (a
+ *                         day that can be backdated) on a result. A hand-off
+ *                         draft needs its missing lines before it moves on.
+ *   5. record_result    — the measured number; returns the suggested
+ *                         verdict and never applies it.
  *
- * Entity kind "workspace:hypothesisTracker" + the fixed HT_ID match
+ * Every rule comes from lib/hypotheses (the page uses it too). Entity kind
+ * "workspace:hypothesisTracker" + the fixed HYPOTHESIS_TRACKER_ID match
  * hypothesis-tracker-client.tsx, so MCP writes round-trip into the UI.
  */
 
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { HypothesisTracker, Hypothesis, HypothesisStatus } from "@/lib/stores/workspace-types";
+import type { Hypothesis, HypothesisStatus, HypothesisTracker } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { isExampleId } from "@/lib/utils/example-id";
+import type { FormErrors } from "@/lib/utils/form";
+import { addDays } from "@/lib/impediments/model";
+import {
+  HYPOTHESIS_STATUSES,
+  HYPOTHESIS_TEXT_MAX,
+  HYPOTHESIS_TRACKER_ID,
+  HYPOTHESIS_UNIT_MAX,
+  applyHypothesisValues,
+  hypothesisDraftFrom,
+  hypothesisVerdict,
+  isDay,
+  isResolved,
+  missingFields,
+  suggestVerdict,
+  suggestionText,
+  validateHypothesis,
+  validationRate,
+  withHypothesis,
+  type HypothesisDraft,
+  type HypothesisField,
+} from "@/lib/hypotheses/model";
 
+/** MUST match registerCollection("hypothesisTracker", …) in workspace-store.ts. */
 const KIND_HT = "workspace:hypothesisTracker";
-// MUST match HT_ID in hypothesis-tracker-client.tsx.
-const HT_ID = "hypothesisTracker:current";
 
-const STATUSES = ["drafted", "running", "validated", "invalidated", "inconclusive"] as const;
-const StatusSchema = z.enum(STATUSES);
-const RESOLVED: ReadonlySet<HypothesisStatus> = new Set<HypothesisStatus>([
-  "validated",
-  "invalidated",
-  "inconclusive",
-]);
+const StatusSchema = z.enum(HYPOTHESIS_STATUSES);
+const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+const Text = z.string().min(1).max(HYPOTHESIS_TEXT_MAX);
+const TargetSchema = z.object({
+  direction: z
+    .enum(["increase", "decrease"])
+    .describe("increase: success is at least value; decrease: at most value."),
+  value: z.number().finite(),
+  unit: z
+    .string()
+    .max(HYPOTHESIS_UNIT_MAX)
+    .optional()
+    .describe('Shown after numbers: "%", "sign-ups".'),
+  baseline: z
+    .number()
+    .finite()
+    .optional()
+    .describe(
+      "Where the metric stood before the test: below value for increase, above it for decrease."
+    ),
+});
 
 const ws = () => useWorkspaceStore.getState();
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const today = () => new Date().toISOString().slice(0, 10);
 
-function emptyDoc(): HypothesisTracker {
-  return { id: HT_ID, hypotheses: [] };
+/* ── The store adapter ───────────────────────────────────────────────── */
+
+interface TrackerStore {
+  get(): Promise<HypothesisTracker | null>;
+  put(doc: HypothesisTracker): Promise<void>;
+  /** Over MCP the server's day may be behind the user's (see latestDay). */
+  onServer: boolean;
 }
 
-function browserDoc(): HypothesisTracker | null {
-  return (ws().hypothesisTrackers ?? []).find((d) => d.id === HT_ID) ?? null;
+const browserStore: TrackerStore = {
+  get: async () =>
+    (ws().hypothesisTrackers ?? []).find((d) => d.id === HYPOTHESIS_TRACKER_ID) ?? null,
+  put: async (doc) => ws().upsertHypothesisTracker(doc),
+  onServer: false,
+};
+
+function serverStore(userId: string): TrackerStore {
+  return {
+    get: async () =>
+      (await serverGetEntity<HypothesisTracker>(userId, KIND_HT, HYPOTHESIS_TRACKER_ID)) ?? null,
+    put: async (doc) => {
+      await serverUpsertEntity<HypothesisTracker>(userId, KIND_HT, doc);
+    },
+    onServer: true,
+  };
 }
+
+/**
+ * The latest day a verb takes: today in the browser; on the server, whose
+ * day (UTC on a typical deploy) can be behind the user's, the day after,
+ * as the Decision Log's verbs allow.
+ */
+const latestDay = (today: string, onServer: boolean) => (onServer ? addDays(today, 1) : today);
+
+/* ── list_state ──────────────────────────────────────────────────────── */
 
 function summarize(doc: HypothesisTracker | null) {
   const hypotheses = doc?.hypotheses ?? [];
+  // Example rows are the page's demo: every count leaves them out, as the
+  // rate does, so one reply never gives two totals. They stay listed.
+  const real = hypotheses.filter((h) => !isExampleId(h.id));
   const byStatus: Record<HypothesisStatus, number> = {
     drafted: 0,
     running: 0,
@@ -58,36 +137,125 @@ function summarize(doc: HypothesisTracker | null) {
     invalidated: 0,
     inconclusive: 0,
   };
-  for (const h of hypotheses) if (h.status in byStatus) byStatus[h.status] += 1;
-  // Validation rate = validated over decisive (validated + invalidated);
-  // inconclusive/drafted/running excluded. 0 when none decisive.
-  const decisive = byStatus.validated + byStatus.invalidated;
+  for (const h of real) if (h.status in byStatus) byStatus[h.status] += 1;
+  const rate = validationRate(real);
   return {
     exists: doc !== null,
-    total: hypotheses.length,
+    total: real.length,
+    examples: hypotheses.length - real.length,
     byStatus,
-    validationRate: decisive ? round2(byStatus.validated / decisive) : 0,
-    hypotheses,
+    decisive: rate.decisive,
+    inconclusive: rate.inconclusive,
+    validationRate: rate.rate === null ? null : round2(rate.rate),
+    verdict: hypothesisVerdict(rate),
+    needsDetail: real.filter((h) => missingFields(h).length > 0).length,
+    hypotheses: hypotheses.map((h) => ({
+      ...h,
+      missing: missingFields(h),
+      suggestedVerdict: suggestVerdict(h),
+      suggestion: suggestionText(h),
+    })),
   };
 }
 
-// ──────── tool.hypothesis_tracker.list_state ────────
 registry.register({
   id: "tool.hypothesis_tracker.list_state",
   toolId: "tool.hypothesis_tracker",
   name: "list_state",
   category: "read",
   description:
-    "Summarise hypotheses. Returns {exists, total, byStatus: {drafted, running, validated, invalidated, inconclusive}, validationRate (0..1, validated over decisive), hypotheses}.",
+    "Summarise hypotheses, as the page does. Example rows (ids starting 'example-') are the page's demo: every count and the verdict leave them out, and they are still listed in hypotheses. Returns {exists, total (hypotheses without the examples), examples (how many example rows), byStatus: {drafted, running, validated, invalidated, inconclusive}, decisive (validated + invalidated), inconclusive, validationRate (0..1, validated over decisive; null while no result is decisive; inconclusive results aren't counted), verdict (one sentence), needsDetail (hypotheses missing what we'll do or the success metric, e.g. hand-off drafts: fill them with update_hypothesis), hypotheses: each stored row plus missing ('willDo' | 'successMetric')[], suggestedVerdict ({verdict: 'validated' | 'invalidated', met, margin (actual − target, positive = better), moved? (actual − baseline)} or null without a target and a measured actual) and suggestion (that in words, or null)}. A suggestion is never applied: set_status does that.",
   paramsSchema: z.object({}),
-  handler: async () => summarize(browserDoc()),
-  mcpHandler: async (_params, ctx) => {
-    const doc = await serverGetEntity<HypothesisTracker>(ctx.userId, KIND_HT, HT_ID);
-    return summarize(doc ?? null);
-  },
+  handler: async () => summarize(await browserStore.get()),
+  mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).get()),
 });
 
-// ──────── tool.hypothesis_tracker.add_hypothesis ────────
+/* ── add_hypothesis ──────────────────────────────────────────────────── */
+
+const AddSchema = z.object({
+  believe: Text.describe("We believe … (without the words 'We believe')."),
+  willDo: Text.describe("What we'll do to test it."),
+  toLearn: Text,
+  successMetric: Text.describe("What counts as success, in words."),
+  experiment: z.string().max(HYPOTHESIS_TEXT_MAX).optional(),
+  description: z.string().max(HYPOTHESIS_TEXT_MAX).optional(),
+  outcome: z.string().max(HYPOTHESIS_TEXT_MAX).optional().describe("What the test showed."),
+  status: StatusSchema.optional(),
+  raisedAt: IsoDay.optional().describe(
+    "The user's local day it was raised (backdated; default today; not in the future)."
+  ),
+  resolvedAt: IsoDay.optional().describe(
+    "With a status that has a result: the day of the result (default today; not before raisedAt, not in the future)."
+  ),
+  target: TargetSchema.optional(),
+  actual: z
+    .number()
+    .finite()
+    .optional()
+    .describe("The measured result, in target.unit; needs a target."),
+});
+type AddParams = z.infer<typeof AddSchema>;
+
+/** The agent's param names for the form's target fields. */
+const PARAM_OF: Partial<Record<HypothesisField, string>> = {
+  direction: "target.direction",
+  targetValue: "target.value",
+  baseline: "target.baseline",
+  unit: "target.unit",
+};
+
+/** The form's errors under the agent's param names. */
+function paramErrors(errors: FormErrors<HypothesisField>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(errors).map(([k, v]) => [PARAM_OF[k as HypothesisField] ?? k, v ?? ""])
+  );
+}
+
+/** The params as the page's form would hold them, so validateHypothesis judges both alike. */
+function draftOf(p: AddParams, today: string): HypothesisDraft {
+  const status = p.status ?? "drafted";
+  const raisedAt = p.raisedAt ?? today;
+  return {
+    believe: p.believe,
+    willDo: p.willDo,
+    toLearn: p.toLearn,
+    successMetric: p.successMetric,
+    experiment: p.experiment ?? "",
+    description: p.description ?? "",
+    outcome: p.outcome ?? "",
+    status,
+    raisedAt,
+    // A result's day defaults to today, or the day it was raised when that
+    // is later (over MCP the user's today can be the server's tomorrow).
+    resolvedAt: isResolved(status) ? (p.resolvedAt ?? (raisedAt > today ? raisedAt : today)) : "",
+    direction: p.target?.direction ?? "",
+    targetValue: p.target ? String(p.target.value) : "",
+    unit: p.target?.unit ?? "",
+    baseline: p.target?.baseline !== undefined ? String(p.target.baseline) : "",
+    actual: p.actual !== undefined ? String(p.actual) : "",
+  };
+}
+
+async function addHypothesis(store: TrackerStore, p: AddParams) {
+  const today = todayLocalISO();
+  const status = p.status ?? "drafted";
+  if (p.resolvedAt !== undefined && !isResolved(status)) {
+    return {
+      added: false,
+      reason: "invalid",
+      errors: {
+        resolvedAt:
+          "Only a status with a result (validated, invalidated, inconclusive) has a result's day.",
+      },
+    };
+  }
+  const checked = validateHypothesis(draftOf(p, today), latestDay(today, store.onServer));
+  if (!checked.ok) return { added: false, reason: "invalid", errors: paramErrors(checked.errors) };
+  const h = applyHypothesisValues({ id: nanoid(8) }, checked.values);
+  await store.put(withHypothesis(await store.get(), h));
+  return { added: true, id: h.id, suggestedVerdict: suggestVerdict(h) };
+}
+
 registry.register({
   id: "tool.hypothesis_tracker.add_hypothesis",
   toolId: "tool.hypothesis_tracker",
@@ -95,36 +263,177 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add a hypothesis (We believe ___ / will do ___ / to learn ___ / success = ___). status defaults to 'drafted'; raisedAt to today. Creates the tracker if absent. Returns {added: true, id}.",
-  paramsSchema: z.object({
-    believe: z.string().min(1).max(2000),
-    willDo: z.string().min(1).max(2000),
-    toLearn: z.string().min(1).max(2000),
-    successMetric: z.string().min(1).max(2000),
-    experiment: z.string().max(2000).optional(),
-    description: z.string().max(2000).optional(),
-    status: StatusSchema.optional(),
-  }),
-  handler: async (params) => {
-    const base = browserDoc() ?? emptyDoc();
-    const h = newHypothesis(params);
-    ws().upsertHypothesisTracker({ ...base, id: HT_ID, hypotheses: [...base.hypotheses, h] });
-    return { added: true, id: h.id };
-  },
-  mcpHandler: async (params, ctx) => {
-    const base =
-      (await serverGetEntity<HypothesisTracker>(ctx.userId, KIND_HT, HT_ID)) ?? emptyDoc();
-    const h = newHypothesis(params);
-    await serverUpsertEntity<HypothesisTracker>(ctx.userId, KIND_HT, {
-      ...base,
-      id: HT_ID,
-      hypotheses: [...base.hypotheses, h],
-    });
-    return { added: true, id: h.id };
-  },
+    "Add a hypothesis (We believe ___ / will do ___ / to learn ___ / success = ___), first in the list as on the page. status defaults to 'drafted'; raisedAt to today (YYYY-MM-DD, the user's local day; backdating is fine, the future isn't: over MCP the day after the server's is taken, as the server's day may be behind the user's). A status with a result stamps resolvedAt (default today; not before raisedAt). Optional target {direction: increase | decrease, value, unit?, baseline? (below value for increase, above it for decrease)} and actual (needs a target). Text up to 2000 characters. Creates the tracker if absent. Returns {added: true, id, suggestedVerdict} or {added: false, reason: 'invalid', errors: {field: message}}.",
+  paramsSchema: AddSchema,
+  handler: async (params) => addHypothesis(browserStore, params),
+  mcpHandler: async (params, ctx) => addHypothesis(serverStore(ctx.userId), params),
 });
 
-// ──────── tool.hypothesis_tracker.set_status ────────
+/* ── update_hypothesis ───────────────────────────────────────────────── */
+
+/** An optional line: a string sets it, null or "" clears it. */
+const OptionalText = z.string().max(HYPOTHESIS_TEXT_MAX).nullable().optional();
+
+const UpdateSchema = z.object({
+  hypothesisId: z.string(),
+  believe: z
+    .string()
+    .max(HYPOTHESIS_TEXT_MAX)
+    .optional()
+    .describe("We believe … (without the words 'We believe')."),
+  willDo: z.string().max(HYPOTHESIS_TEXT_MAX).optional().describe("What we'll do to test it."),
+  toLearn: z.string().max(HYPOTHESIS_TEXT_MAX).optional(),
+  successMetric: z
+    .string()
+    .max(HYPOTHESIS_TEXT_MAX)
+    .optional()
+    .describe("What counts as success, in words."),
+  experiment: OptionalText,
+  description: OptionalText,
+  outcome: OptionalText.describe("What the test showed; null clears it."),
+  raisedAt: IsoDay.optional().describe(
+    "The user's local day it was raised (backdated; not in the future; not after its result's day)."
+  ),
+  target: TargetSchema.nullable()
+    .optional()
+    .describe("The number the test aims for; null clears it (and needs no measured result)."),
+});
+type UpdateParams = z.infer<typeof UpdateSchema>;
+
+/** The fields update_hypothesis edits: one of them must be given. */
+const UPDATE_FIELDS = [
+  "believe",
+  "willDo",
+  "toLearn",
+  "successMetric",
+  "experiment",
+  "description",
+  "outcome",
+  "raisedAt",
+  "target",
+] as const;
+
+/**
+ * The saved row as the page's edit form opens it, with the params typed
+ * over it: validateHypothesis then judges what changed as the page does
+ * (a day or a long text left alone is kept; a hand-off draft's blank line
+ * may stay blank while it is drafted).
+ */
+function editedDraft(h: Hypothesis, p: UpdateParams): HypothesisDraft {
+  const d = hypothesisDraftFrom(h);
+  for (const key of ["believe", "willDo", "toLearn", "successMetric"] as const) {
+    if (p[key] !== undefined) d[key] = p[key];
+  }
+  for (const key of ["experiment", "description", "outcome"] as const) {
+    if (p[key] !== undefined) d[key] = p[key] ?? "";
+  }
+  if (p.raisedAt !== undefined) d.raisedAt = p.raisedAt;
+  if (p.target !== undefined) {
+    d.direction = p.target?.direction ?? "";
+    d.targetValue = p.target ? String(p.target.value) : "";
+    d.unit = p.target?.unit ?? "";
+    d.baseline = p.target?.baseline !== undefined ? String(p.target.baseline) : "";
+  }
+  return d;
+}
+
+async function updateHypothesis(store: TrackerStore, p: UpdateParams) {
+  if (!UPDATE_FIELDS.some((key) => p[key] !== undefined)) {
+    return { updated: false, reason: "nothing_to_update" };
+  }
+  const doc = await store.get();
+  const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
+  if (!doc || !h) return { updated: false, reason: "not_found" };
+  const draft = editedDraft(h, p);
+  const checked = validateHypothesis(draft, latestDay(todayLocalISO(), store.onServer), {
+    stored: h,
+  });
+  if (!checked.ok) {
+    const errors = paramErrors(checked.errors);
+    // The measured number isn't a param here: say which verb clears it.
+    if (errors.actual && !draft.direction) {
+      errors.actual =
+        "It has a measured result, which needs a target to compare with: give it a target, or clear the result first with record_result (actual: null).";
+    }
+    return { updated: false, reason: "invalid", errors };
+  }
+  const next = applyHypothesisValues(h, checked.values);
+  await store.put(withHypothesis(doc, next));
+  return {
+    updated: true,
+    id: next.id,
+    missing: missingFields(next),
+    suggestedVerdict: suggestVerdict(next),
+  };
+}
+
+registry.register({
+  id: "tool.hypothesis_tracker.update_hypothesis",
+  toolId: "tool.hypothesis_tracker",
+  name: "update_hypothesis",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Edit a hypothesis in place, as the page's edit form does; how a hand-off draft (from Riskiest Assumption, the Opportunity Tree, Cynefin or a Design Sprint) gets what we'll do, its success metric and a target before set_status moves it on. Params: hypothesisId, and any of believe, willDo, toLearn, successMetric (each up to 2000 characters; a line the saved row has can't be cleared), experiment, description, outcome (null or '' clears), raisedAt (YYYY-MM-DD, backdated; not in the future, not after its result's day), target ({direction: increase | decrease, value, unit?, baseline? (below value for increase, above it for decrease)}, or null to clear it). Only what changes is judged: a day or a longer text the row already has is kept. The status and its result's day go through set_status, the measured number through record_result. Returns {updated: true, id, missing ('willDo' | 'successMetric')[] (empty once it can run), suggestedVerdict} or {updated: false, reason: 'nothing_to_update' | 'not_found' | 'invalid' (with errors: {param: message})}.",
+  paramsSchema: UpdateSchema,
+  handler: async (params) => updateHypothesis(browserStore, params),
+  mcpHandler: async (params, ctx) => updateHypothesis(serverStore(ctx.userId), params),
+});
+
+/* ── set_status ──────────────────────────────────────────────────────── */
+
+const SetStatusSchema = z.object({
+  hypothesisId: z.string(),
+  status: StatusSchema,
+  resolvedAt: IsoDay.optional().describe(
+    "With a status that has a result: its day (backdated; default the day already stamped, else today; not before raisedAt, not in the future)."
+  ),
+});
+
+async function setStatus(store: TrackerStore, p: z.infer<typeof SetStatusSchema>) {
+  const doc = await store.get();
+  const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
+  if (!doc || !h) return { updated: false, reason: "not_found" };
+  // A hand-off draft can't run (or be judged) without what we'll do and
+  // the success metric; it can stay drafted, and a status it already had is kept.
+  if (p.status !== h.status && p.status !== "drafted") {
+    const missing = missingFields(h);
+    if (missing.length > 0) {
+      return {
+        updated: false,
+        reason: "needs_detail",
+        missing,
+        message: `Fill ${missing.join(" and ")} with update_hypothesis first.`,
+      };
+    }
+  }
+  let next: Hypothesis;
+  if (isResolved(p.status)) {
+    const today = todayLocalISO();
+    const latest = latestDay(today, store.onServer);
+    const raised = (h.raisedAt ?? "").slice(0, 10);
+    if (p.resolvedAt !== undefined) {
+      if (!isDay(p.resolvedAt)) return { updated: false, reason: "not_a_day" };
+      if (p.resolvedAt > latest) return { updated: false, reason: "future_day" };
+      if (isDay(raised) && p.resolvedAt < raised)
+        return { updated: false, reason: "before_raised" };
+    }
+    // Today, or the day it was raised when that is later and still allowed.
+    const fallback = isDay(raised) && raised > today && raised <= latest ? raised : today;
+    next = { ...h, status: p.status, resolvedAt: p.resolvedAt ?? h.resolvedAt ?? fallback };
+  } else {
+    if (p.resolvedAt !== undefined) return { updated: false, reason: "no_result" };
+    next = { ...h, status: p.status };
+    delete next.resolvedAt;
+  }
+  await store.put(withHypothesis(doc, next));
+  return {
+    updated: true,
+    status: next.status,
+    ...(next.resolvedAt ? { resolvedAt: next.resolvedAt } : {}),
+  };
+}
+
 registry.register({
   id: "tool.hypothesis_tracker.set_status",
   toolId: "tool.hypothesis_tracker",
@@ -132,63 +441,56 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set a hypothesis's status (drafted | running | validated | invalidated | inconclusive). Stamps resolvedAt on a terminal status. Returns {updated: false} when the tracker or hypothesis id is unknown.",
-  paramsSchema: z.object({
-    hypothesisId: z.string(),
-    status: StatusSchema,
-  }),
-  handler: async (params) => {
-    const next = applyStatus(browserDoc(), params.hypothesisId, params.status);
-    if (!next) return { updated: false };
-    ws().upsertHypothesisTracker(next);
-    return { updated: true };
-  },
-  mcpHandler: async (params, ctx) => {
-    const base = await serverGetEntity<HypothesisTracker>(ctx.userId, KIND_HT, HT_ID);
-    const next = applyStatus(base ?? null, params.hypothesisId, params.status);
-    if (!next) return { updated: false };
-    await serverUpsertEntity<HypothesisTracker>(ctx.userId, KIND_HT, next);
-    return { updated: true };
-  },
+    "Set a hypothesis's status (drafted | running | validated | invalidated | inconclusive). A status with a result stamps resolvedAt: the resolvedAt param (YYYY-MM-DD, backdated; not before raisedAt; not in the future), else the day already stamped, else today; moving back to drafted or running clears it. A hypothesis missing what we'll do or its success metric (a hand-off draft) stays drafted until they're filled with update_hypothesis. Returns {updated: true, status, resolvedAt?} or {updated: false, reason: 'not_found' | 'needs_detail' (with missing and a message) | 'not_a_day' | 'future_day' | 'before_raised' | 'no_result' (resolvedAt with a status that has no result)}.",
+  paramsSchema: SetStatusSchema,
+  handler: async (params) => setStatus(browserStore, params),
+  mcpHandler: async (params, ctx) => setStatus(serverStore(ctx.userId), params),
 });
 
-function newHypothesis(params: {
-  believe: string;
-  willDo: string;
-  toLearn: string;
-  successMetric: string;
-  experiment?: string;
-  description?: string;
-  status?: HypothesisStatus;
-}): Hypothesis {
+/* ── record_result ───────────────────────────────────────────────────── */
+
+const RecordSchema = z.object({
+  hypothesisId: z.string(),
+  actual: z
+    .number()
+    .finite()
+    .nullable()
+    .describe("The measured result, in the target's unit; null clears it."),
+});
+
+async function recordResult(store: TrackerStore, p: z.infer<typeof RecordSchema>) {
+  const doc = await store.get();
+  const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
+  if (!doc || !h) return { updated: false, reason: "not_found" };
+  if (p.actual !== null && !h.target) {
+    return {
+      updated: false,
+      reason: "no_target",
+      message:
+        "Give it a target with update_hypothesis first, so the result has something to compare with.",
+    };
+  }
+  const next: Hypothesis = { ...h };
+  if (p.actual === null) delete next.actual;
+  else next.actual = p.actual;
+  await store.put(withHypothesis(doc, next));
   return {
-    id: crypto.randomUUID(),
-    believe: params.believe,
-    willDo: params.willDo,
-    toLearn: params.toLearn,
-    successMetric: params.successMetric,
-    experiment: params.experiment,
-    description: params.description,
-    status: params.status ?? "drafted",
-    raisedAt: today(),
+    updated: true,
+    actual: p.actual,
+    suggestedVerdict: suggestVerdict(next),
+    suggestion: suggestionText(next),
   };
 }
 
-function applyStatus(
-  doc: HypothesisTracker | null,
-  hypothesisId: string,
-  status: HypothesisStatus
-): HypothesisTracker | null {
-  if (!doc || !doc.hypotheses.some((h) => h.id === hypothesisId)) return null;
-  return {
-    ...doc,
-    hypotheses: doc.hypotheses.map((h) => {
-      if (h.id !== hypothesisId) return h;
-      return {
-        ...h,
-        status,
-        resolvedAt: RESOLVED.has(status) ? (h.resolvedAt ?? today()) : undefined,
-      };
-    }),
-  };
-}
+registry.register({
+  id: "tool.hypothesis_tracker.record_result",
+  toolId: "tool.hypothesis_tracker",
+  name: "record_result",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Record the measured result of a hypothesis with a target (null clears it). Returns the verdict it suggests (target met → validated, missed → invalidated) without applying it: the status changes only through set_status, once the user agrees. Returns {updated: true, actual, suggestedVerdict: {verdict, met, margin, moved?} | null, suggestion} or {updated: false, reason: 'not_found' | 'no_target' (give it one with update_hypothesis; with a message)}.",
+  paramsSchema: RecordSchema,
+  handler: async (params) => recordResult(browserStore, params),
+  mcpHandler: async (params, ctx) => recordResult(serverStore(ctx.userId), params),
+});

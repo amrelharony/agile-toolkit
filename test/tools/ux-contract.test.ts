@@ -17,7 +17,6 @@ import { toolsWithNextSteps } from "@/lib/tools/next-steps";
 
 /** Tools that meet the contract. Grows phase by phase. */
 const UPGRADED_TOOLS = [
-  "ice-score",
   // Phase 2: Plan the sprint. Planning Poker joins once its local session
   // stops reading localStorage directly.
   "sprint-goal",
@@ -49,6 +48,68 @@ const UPGRADED_TOOLS = [
   "liberating-structures",
   "six-hats",
   "design-sprint",
+  // Phase 5: Track delivery.
+  "burndown",
+  "burnup",
+  "velocity",
+  "sprint-compare",
+  "sprint-metrics",
+  "cumulative-flow",
+  "cycle-time",
+  "value-stream",
+  "health-dashboard",
+  "dora-scorecard",
+  "release-readiness",
+  "feature-flag-tracker",
+  // Phase 6: Team & people. Health Check, Psych Safety and Mood Tracker run
+  // their anonymous rounds through the shared vote room.
+  "health-check",
+  "psych-safety",
+  "mood-tracker",
+  "kudos",
+  "one-on-one",
+  "onboarding-tracker",
+  "stakeholder-map",
+  "working-agreement",
+  "dod-builder",
+  "raci",
+  "skills-matrix",
+  "maturity",
+  "adkar",
+  // Phase 7: Prioritize & decide. ICE was the Phase 1A pilot; the method
+  // tools now run on the shared shell (its source counts as theirs, below),
+  // and DACI and RAPID are the Decision Log's record (MERGED_INTO).
+  "prioritizer",
+  "rice-scoring",
+  "wsjf",
+  "moscow",
+  "ice-score",
+  "value-effort-matrix",
+  "kano-model",
+  "cost-of-delay",
+  "buy-a-feature",
+  "hundred-dollar-test",
+  "eisenhower",
+  "decision-log",
+  "daci",
+  "rapid-decision",
+  "weighted-decision",
+  "cynefin",
+  // Phase 8: Outcomes, quality & library. Risk Register and Tech Debt moved
+  // into the workspace (one store each); Agile at Work is a scoped upgrade
+  // (below).
+  "okrs",
+  "nps-csat",
+  "hypothesis-tracker",
+  "user-interviews",
+  "opportunity-tree",
+  "riskiest-assumption",
+  "risk-register",
+  "tech-debt",
+  "quality-cost",
+  "test-pyramid",
+  "flaky-tests",
+  "code-review-metrics",
 ];
 
 /**
@@ -57,6 +118,8 @@ const UPGRADED_TOOLS = [
  */
 const SCOPED_UPGRADES: Record<string, string> = {
   canvas: "Phase 4: Sprint board and Story map templates bound to live data only",
+  "agile-at-work":
+    "Phase 8: a transcript per page, a table of contents and per-chapter tool links only",
 };
 
 /**
@@ -66,6 +129,8 @@ const SCOPED_UPGRADES: Record<string, string> = {
  */
 const MERGED_INTO: Record<string, string> = {
   "async-standup": "standup",
+  daci: "decision-log",
+  "rapid-decision": "decision-log",
 };
 
 /**
@@ -74,20 +139,15 @@ const MERGED_INTO: Record<string, string> = {
  */
 const CREATES_NOTHING: Record<string, string> = {
   "estimation-guide": "edits the notes of a fixed set of cards in place; nothing is created",
+  "sprint-metrics":
+    "a read-only trend view of the shared sprints; a new sprint goes through the shared NewSprintDialog, which validates",
 };
 
-/** Main tools still calling the browser's confirm(); Phase 5 replaces the last one. */
-const CONFIRM_OFFENDERS = ["release-readiness"];
+/** Main tools still calling the browser's confirm(): none since Phase 5; keep it that way. */
+const CONFIRM_OFFENDERS: string[] = [];
 
 /** Main tools reading localStorage directly instead of a persisted store. */
-const LOCAL_STORAGE_OFFENDERS = [
-  "agile-at-work",
-  "canvas",
-  "health-dashboard",
-  "planning-poker",
-  "sprint-compare",
-  "sprint-metrics",
-];
+const LOCAL_STORAGE_OFFENDERS = ["canvas", "planning-poker"];
 
 const TOOLS_DIR = path.resolve(__dirname, "../../src/app/(tools)");
 const TESTS_DIR = path.resolve(__dirname);
@@ -110,12 +170,21 @@ function code(file: string): string {
 
 const codeCache = new Map<string, string>();
 
+/**
+ * The shared prioritization shell (Phase 7). A method tool that renders it
+ * gets its empty state, example notice, Undo and export from there, so the
+ * shell's source counts as part of the tool's.
+ */
+const METHOD_SHELL = path.resolve(__dirname, "../../src/components/prioritization/method-tool.tsx");
+const usesMethodShell = (src: string) => /@\/components\/prioritization\/method-tool["']/.test(src);
+
 /** Every source file of a tool, comments stripped; read once per run. */
 function toolCode(id: string): string {
   let src = codeCache.get(id);
   if (src === undefined) {
     const dir = path.join(TOOLS_DIR, id);
     src = existsSync(dir) ? filesIn(dir).map(code).join("\n") : "";
+    if (usesMethodShell(src)) src += "\n" + code(METHOD_SHELL);
     codeCache.set(id, src);
   }
   return src;

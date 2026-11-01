@@ -50,6 +50,20 @@ interface DataTableProps<Row> {
   onRowClick?: (row: Row, index: number) => void;
   /** The sort before the user picks one; rows keep their given order without it. */
   defaultSort?: DataTableSort;
+  /**
+   * The sort, controlled (null: rows in their given order). A header click
+   * or a "Sort by" pick calls onSortChange instead of changing it here, so
+   * the page knows the sort (e.g. to offer "Re-sort" only while sorted).
+   * Left undefined, the table keeps its own sort (from defaultSort).
+   */
+  sort?: DataTableSort | null;
+  onSortChange?: (sort: DataTableSort | null) => void;
+  /**
+   * The table's accessible name: a visually hidden <caption>, and the
+   * phone cards' list label. Without one a screen reader's list of tables
+   * reads "table, table".
+   */
+  caption?: string;
 }
 
 type SortValue = number | string | null | undefined;
@@ -104,16 +118,25 @@ export function DataTable<Row>({
   className,
   onRowClick,
   defaultSort,
+  sort: controlledSort,
+  onSortChange,
+  caption,
 }: DataTableProps<Row>) {
-  const [sort, setSort] = useState<DataTableSort | undefined>(defaultSort);
+  const [ownSort, setOwnSort] = useState<DataTableSort | undefined>(defaultSort);
+  const controlled = controlledSort !== undefined;
+  const sort = controlled ? (controlledSort ?? undefined) : ownSort;
+  const changeSort = (next: DataTableSort | undefined) => {
+    if (!controlled) setOwnSort(next);
+    onSortChange?.(next ?? null);
+  };
   const sortSelectId = useId();
   const sortable = columns.filter((c) => c.sortValue);
   const sortColumn = sort && columns.find((c) => c.key === sort.key && c.sortValue);
   const shown =
     sort && sortColumn?.sortValue ? sortRows(rows, sortColumn.sortValue, sort.dir) : rows;
   const toggleSort = (key: string) =>
-    setSort((cur) =>
-      cur?.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }
+    changeSort(
+      sort?.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }
     );
   const nameOf = (col: DataTableColumn<Row>) =>
     col.sortLabel ?? (typeof col.header === "string" ? col.header : col.key);
@@ -126,8 +149,10 @@ export function DataTable<Row>({
     <div className={className}>
       {/* Desktop / tablet: proper table */}
       <div className="hidden md:block">
-        <div className="overflow-x-auto">
+        {/* relative: a containing block, so sr-only text in cells can't widen the page. */}
+        <div className="relative overflow-x-auto">
           <table className="w-full text-sm">
+            {caption && <caption className="sr-only">{caption}</caption>}
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-sub">
                 {columns.map((col) => {
@@ -223,7 +248,7 @@ export function DataTable<Row>({
             value={sort ? `${sort.key}:${sort.dir}` : ""}
             onChange={(e) => {
               const [key, dir] = e.target.value.split(":");
-              setSort(key ? { key, dir: dir as SortDirection } : undefined);
+              changeSort(key ? { key, dir: dir as SortDirection } : undefined);
             }}
             className="h-11 rounded border border-border bg-surface-deep px-2 text-base text-text focus:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
@@ -239,7 +264,7 @@ export function DataTable<Row>({
           </select>
         </div>
       )}
-      <ul className="md:hidden space-y-2">
+      <ul className="md:hidden space-y-2" aria-label={caption}>
         {shown.map((row, i) => {
           const cardClass = "rounded-lg border border-border bg-card p-3";
           const body = renderCard ? (

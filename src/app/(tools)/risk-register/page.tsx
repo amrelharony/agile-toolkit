@@ -1,9 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { RiskRegisterClient } from "./risk-register-client";
 
-export const metadata = {
-  title: "Risk Register",
-  description: "Probability × Impact risk register with mitigation tracking and risk burn-down.",
-};
+export const metadata: Metadata = toolMetadata("risk-register");
 
 export default function Page() {
   return <RiskRegisterClient />;

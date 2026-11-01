@@ -95,6 +95,42 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
   },
 ];
 
+const DARK_INK = "#111111";
+const LIGHT_INK = "#ffffff";
+
+/** WCAG relative luminance of a `#rgb` / `#rrggbb` colour, or null when it isn't one. */
+function luminance(hex: string): number | null {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const h =
+    m[1].length === 3
+      ? m[1]
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : m[1];
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const v = parseInt(h.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * The header strip's text colour: near-black or white, whichever has the
+ * higher contrast on the theme's colour. White on Awesome's cyan or
+ * Congratulations' amber read at under 2.2:1, and a custom theme can be any
+ * colour. Like the card's other print colours this is a literal, so the
+ * downloaded PNG looks the same whatever the app's theme.
+ */
+export function headerInk(hex: string): string {
+  const l = luminance(hex);
+  if (l === null) return LIGHT_INK;
+  const onWhite = 1.05 / (l + 0.05);
+  const onDark = (l + 0.05) / ((luminance(DARK_INK) ?? 0) + 0.05);
+  return onDark > onWhite ? DARK_INK : LIGHT_INK;
+}
+
 /** Hash lookup for the theme catalog. Returns `undefined` for unknown ids. */
 const THEMES_BY_ID: Record<string, KudosThemeDef> = Object.fromEntries(
   KUDOS_THEMES.map((t) => [t.id, t])

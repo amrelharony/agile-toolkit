@@ -23,10 +23,11 @@ import { ExportButton } from "@/components/shared/export-button";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
 import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
-import { storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
+import { backlogOrderText, storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
 import { currentPokerLog, pokerQueueRoute } from "@/lib/handoffs/targets/poker-queue";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
@@ -135,7 +136,8 @@ export function PlanningBoard({
   );
   const suggestion = suggestedPoints(capacity, velocity.average);
   const inSprint = useMemo(() => sprintStories(stories, sprint.id), [stories, sprint.id]);
-  const backlog = useMemo(() => backlogStories(stories), [stories]);
+  // In the backlog's decided order as it is now (a story reads its item's live rank).
+  const backlog = useMemo(() => backlogStories(stories, backlogItems), [stories, backlogItems]);
   const leftovers = useMemo(
     () => leftoverGroups(sprints, stories, sprint.id),
     [sprints, stories, sprint.id]
@@ -317,7 +319,7 @@ export function PlanningBoard({
     const before = fill.selected.map(fresh);
     undoable({
       label: `${storiesCount(before.length)} added to ${sprint.name}`,
-      description: [`${fmt(fill.totalPoints)} points, highest priority first.`, skipped]
+      description: [`${fmt(fill.totalPoints)} points, ${backlogOrderText(fill.selected)}.`, skipped]
         .filter(Boolean)
         .join(" "),
       apply: () => {
@@ -335,10 +337,16 @@ export function PlanningBoard({
 
   const importFromBacklog = () => {
     if (candidates.length === 0) return;
-    const created = candidates.map((item) => storyFromBacklogItem(item, `story_${nanoid(8)}`));
+    // With the method rows, so an item whose WSJF only a row linked before
+    // Phase 7 holds imports with that score, as the hub shows it.
+    const rows = useWorkspaceStore.getState().prioritizations ?? [];
+    const created = candidates.map((item) =>
+      storyFromBacklogItem(item, `story_${nanoid(8)}`, rows)
+    );
     undoable({
       label: `${storiesCount(created.length)} imported from the backlog`,
-      description: "Ordered by their WSJF score",
+      // The backlog lists them in the shared order (compareBacklogOrder): say which.
+      description: `Ordered ${backlogOrderText(created)}.`,
       apply: () => {
         for (const s of created) writer.upsertStory(s);
       },
@@ -659,7 +667,7 @@ export function PlanningBoard({
             >
               Backlog{" "}
               <span className="font-normal text-sub">
-                · {storiesCount(backlog.length)}, highest priority first
+                · {storiesCount(backlog.length)}, {backlogOrderText(backlog)}
               </span>
             </h3>
             {backlog.length === 0 ? (

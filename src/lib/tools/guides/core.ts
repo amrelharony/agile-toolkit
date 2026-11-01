@@ -145,21 +145,34 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "okrs",
     summary:
-      "OKRs pair an inspiring Objective with 3–5 measurable Key Results that show whether you got there.",
+      "Set quarterly objectives and measure each key result from where it starts to its target, up or down, through dated check-ins with a confidence score.",
     whenToUse: [
       "Quarterly goal setting for a team or product.",
       "Aligning several teams on outcomes.",
     ],
     steps: [
-      "Write the Objective as a qualitative, ambitious outcome.",
-      "Add 3–5 Key Results that are measurable outcomes, not tasks.",
-      "Set a baseline and a target for each Key Result.",
-      "Check in weekly: update progress and confidence.",
-      "Score honestly at the end of the quarter and carry the lessons forward.",
+      "Press New objective, write the Objective, pick its Quarter and an Owner from your team, then press Add objective.",
+      "Under the objective press Add key result: name it, choose whether The number should Go up or Go down, enter the Baseline (where it starts) and the Target, and a Unit such as % if it has one.",
+      "Each week press Check in on a key result: the Day starts on today (backdate a missed week), enter the Value and, if the owner has one, a Confidence from 0 to 10; leave it clear when not scored. Press Save check-in.",
+      "Read the sentence under each objective: progress against the days gone in its quarter, and confidence with the way it moved since the reading before.",
+      "When objectives span quarters, use the quarter chips above the list to see another one, or All; the list opens on this quarter when it has objectives, otherwise on All.",
+      "Open a key result's check-ins to see its history, and delete a wrong one (Undo brings it back).",
+      "Moves these sprint goals lists the sprint goals linked to each objective; link a goal to an OKR in Sprint Goal's Key Results step.",
+    ],
+    scales: [
+      {
+        name: "Confidence (0–10)",
+        values: [
+          { value: "0–3", meaning: "off track" },
+          { value: "4–6", meaning: "at risk" },
+          { value: "7–10", meaning: "on track" },
+        ],
+      },
     ],
     tips: [
       "Key Results measure outcomes (“churn below 3%”), not output (“ship feature X”).",
-      "Reaching about 70% of an ambitious OKR is a good result.",
+      "Progress over time draws from three days with a check-in, Confidence over time from three with a score; the trend test waits for six, under Advanced analysis.",
+      "A key result with no check-in for 14 days is flagged. Key results saved before baselines show No baseline: edit them to set where they started.",
     ],
   },
   {
@@ -171,10 +184,11 @@ export const CORE_GUIDES: ToolGuide[] = [
       "When several stakeholders disagree on what comes first.",
     ],
     steps: [
-      "Score each item's business value, time criticality and risk reduction relative to the others.",
-      "Cost of delay = business value + time criticality + risk reduction.",
-      "Score job size relative to the others.",
-      "WSJF = cost of delay ÷ job size. Highest first.",
+      "Add each feature by its Feature title. A title alone is enough: it waits in Score by column.",
+      "Press Score by column and pick a column (BV, TC, RR/OE or Size). Find the smallest feature and give it a 1, then size the others against it on 1, 2, 3, 5, 8, 13, 20.",
+      "Use Next column until all four are done. Each pick saves at once, and a feature's WSJF shows once its four parts are set.",
+      "Or score all four in the add form, and change them later with Edit on the row.",
+      "The list ranks by WSJF = cost of delay ÷ job size, where cost of delay = business value + time criticality + RR/OE. Re-sort catches the order up after edits.",
     ],
     scales: [
       {
@@ -187,21 +201,21 @@ export const CORE_GUIDES: ToolGuide[] = [
       },
     ],
     tips: [
-      "Score one column at a time across all items — relative comparison is the point.",
-      "Give the smallest item a 1 in each column and size the others against it.",
+      "If a column has no 1, the tool says so: relative scores only work against the smallest item.",
+      "Linked rows read and write the backlog item, so the Backlog Prioritizer shows the same WSJF.",
     ],
   },
   {
     toolId: "rice-scoring",
     summary:
-      "RICE scores ideas by Reach × Impact × Confidence ÷ Effort, to compare very different ideas on one scale.",
+      "RICE scores initiatives by Reach × Impact × Confidence ÷ Effort, with reach compared per quarter, so very different ideas land on one scale.",
     whenToUse: ["Comparing product ideas or features with a data-informed estimate of value."],
     steps: [
-      "Reach: how many people it affects in a period (e.g. users per quarter).",
-      "Impact: how much it moves the goal for each of them (use the scale below).",
-      "Confidence: how sure you are of the other numbers.",
-      "Effort: person-months of work.",
-      "RICE = Reach × Impact × Confidence ÷ Effort. Highest first.",
+      "Type the Initiative title, or use Import from backlog: an item RICE already scored opens its row to edit instead.",
+      "Enter Reach and pick its Reach period (per week, month, quarter or year). The form starts on the period you used last; for any other period than a quarter, a line under Reach shows it per quarter.",
+      "Pick Impact (3x massive to 0.25x minimal) and Confidence (100%, 80% or 50%). How sure? See examples helps you pick.",
+      "Enter Effort in person-months, 0.5 or more, then click Add & score.",
+      "The list ranks by RICE, unscored initiatives last. Use Edit or Delete (with Undo) on a row; a row linked to the backlog saves to the backlog item too.",
     ],
     scales: [
       {
@@ -222,6 +236,10 @@ export const CORE_GUIDES: ToolGuide[] = [
           { value: "50%", meaning: "mostly a guess" },
         ],
       },
+    ],
+    tips: [
+      "Under 50% confidence is a moonshot: write it up in the Hypothesis Tracker and test it first.",
+      "Outlier checks appear under Advanced analysis once five initiatives are scored.",
     ],
   },
   {
@@ -249,51 +267,75 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "burndown",
     summary:
-      "A burndown chart shows the work remaining in the sprint each day against an ideal line, so you can see early if the sprint is at risk.",
-    whenToUse: ["Tracking a sprint's progress day by day."],
+      "A burndown shows the points left in the sprint each day against an ideal line that only burns on the team's working days. The numbers come from the sprint board, or from a typed daily log when the stories have no points.",
+    whenToUse: [
+      "Checking each day, before the Daily Scrum, whether the sprint is on track.",
+      "Spotting early that work has stalled or scope has joined, while there's time to act.",
+      "Looking back at a closed sprint in the Sprint Review or the retro.",
+    ],
     steps: [
-      "Pick or create a sprint. Its planned points, length and first day are shared with Burnup, Velocity and Sprint Metrics.",
-      "Each day, record the points remaining.",
-      "Compare the actual line to the ideal line; note scope changes when they happen.",
+      "Pick the sprint under Sprint, or click New sprint. Burnup, Velocity, Sprint Metrics and the Sprint cockpit follow the same choice. No sprints yet? Click Create your first sprint, or Load an example for a read-only preview.",
+      "Read the sentence at the top: the day of the sprint, points done of the current scope, how far ahead or behind the ideal line, and when it finishes at this pace.",
+      "Read the tiles: Remaining, Pace vs ideal, Done (as a % of the current scope) and Projected finish.",
+      "With pointed stories the badge reads From the sprint board: use Move stories on the sprint board to update it. A story moved to Done counts that day; one added or taken out mid-sprint moves the scope, not the burn. Daily progress lists each day, with a note you can add.",
+      "With no pointed stories, type the Points remaining each day in the Daily log, and press Mark change on a day work was added. While the board has points the log waits under Daily log (fallback); when both hold numbers, switch with From the board and From the typed log.",
+      "The bin clears a day, and Clear log (it asks first) clears them all. Undo brings either back. Sprint settings changes the Planned points, Length (days) and First day for every sprint tool.",
+      "Export gives Markdown, CSV or PNG. Next step under the tool may suggest closing an ended sprint, estimating unsized stories or talking through a gap at the Daily Scrum.",
     ],
     tips: [
+      "The ideal line counts working days only, so it stays flat on the shaded weekends and holidays.",
+      "Can't tell yet means every pointed story is done but open stories have no points. Estimate them in Planning Poker.",
+      "A closed sprint shows its typed log, as it was recorded; with no log it is rebuilt from the stories' sprint moves.",
+      "Advanced analysis needs 4 working days for a forecast and 8 for pace shifts. Day 0 counts.",
       "A flat line for several days usually means work is too big or blocked.",
-      "Scope added mid-sprint makes the line go up; mark the scope change and say why, and Burnup's scope line rises with it.",
     ],
   },
   {
     toolId: "velocity",
     summary:
-      "Velocity is the amount of work a team completes per sprint. Tracking it over time helps forecast what fits in future sprints.",
-    whenToUse: ["Forecasting releases.", "Spotting trends in the team's delivery."],
+      "Velocity is the average completed points of your last three finished sprints, by end date. Each finished sprint is graded on say/do, and its points per person-day come from its capacity plan.",
+    whenToUse: [
+      "Sprint Planning: deciding how much to commit to next.",
+      "Closing a sprint with the points the team finished.",
+      "Spotting a trend, or repeated missed commitments, to take to the retro.",
+    ],
     steps: [
-      "Add each sprint with its committed points; enter the completed points when it ends.",
-      "Look at the average and range of the last 3–6 sprints.",
-      "Use the range, not one number, to forecast.",
+      "No sprints yet? Click Create your first sprint, or Load an example: four finished sprints and one running, never saved.",
+      "Under Sprint data, each row is a shared sprint, oldest first by end date. Edit its name, goal and Committed points in place, or click Add sprint. The bin removes a sprint from every sprint tool, with Undo.",
+      "Type the Completed points when the work is counted. That only saves the points: a sprint counts once it is done, and when it has ended the row asks to close it.",
+      "Click Close sprint (or Mark done) and check the Completed points, suggested from the sprint board or the daily log. Choose where the unfinished stories go: into the next sprint, Back to the backlog or Decide later in Sprint Planning. Undo puts the sprint and its stories back.",
+      "Read the sentence and the tiles: Velocity, Met the commitment (90–110%), Per person-day and Spread. On the Velocity chart each Completed bar is coloured by its grade; View as table shows the numbers.",
+      "Under Plan next sprint, type the Points to commit or leave it blank to use the velocity, and click Commit. Check the name and dates in New sprint, then click Create sprint.",
+      "Export gives the summary and every sprint as Markdown, or a CSV or PNG.",
     ],
     tips: [
-      "The rows are your shared sprints: edits show in Burndown, Burnup, Sprint Comparison and Sprint Metrics. Removing a sprint removes it everywhere (Undo puts it back).",
-      "Velocity is a planning tool for the team, not a performance target.",
-      "Don't compare velocity between teams — their points mean different things.",
+      "Grades: met is 90–110% of the commitment, close 70–90%, missed under 70%. Over 110% is Did more than committed: the team said less than it could do.",
+      "A sprint without a capacity plan has no points per person-day: use Plan its capacity for points per person-day on its row. The Per person-day tile needs a plan for each of the last 3 finished sprints.",
+      "The forecast needs 4 finished sprints, Spread 5, the trend line and trend test 6, and change points 8. Until then the page says how many more to close.",
+      "Next step under the tool may suggest closing an ended sprint or taking missed commitments to the retro.",
+      "Velocity is a planning tool for the team, not a performance target. Don't compare it between teams.",
     ],
   },
   {
     toolId: "risk-register",
     summary:
-      "A risk register lists what could go wrong, how likely and how bad each risk is, and what you're doing about it.",
+      "A risk register lists what could knock the sprint or the release off course: how likely and how bad each risk is, who owns it, the plan and when it's due, and how it rates once the plan works. A risk that happens is raised as an impediment.",
     whenToUse: [
       "Projects with deadlines, dependencies or compliance needs.",
       "Reviewing risks each sprint.",
     ],
     steps: [
-      "Describe each risk as “because of X, Y may happen, leading to Z”.",
-      "Rate likelihood and impact from 1 to 5.",
-      "Agree a response (avoid, reduce, transfer or accept) and an owner.",
-      "Review the top risks regularly and close the ones that pass.",
+      "Press New risk, name it and pick its Likelihood and Impact (1–5); nothing is saved until both are rated. Add an Owner from the team, the Raised on day (backdate it if spotted earlier), a Mitigation plan, a Mitigation due day and, if you know it, the rating After mitigation. Press Add risk (or Enter).",
+      "Edit any risk in place: click its title to rename it or add More about it, and change its Likelihood, Impact, Status (Closed asks for the Closed on day), Owner, Raised on or Mitigation due. The list keeps its order until you press Re-sort.",
+      "Watch the badges (“Mitigation 3 days overdue”, “Now 16 → after 6”) and the verdict over the cards: Active, High or critical, Overdue, No owner, Exposure and Median time to mitigate.",
+      "Switch the Likelihood × impact matrix between Now and After mitigation to see where the plans take the risks.",
+      "When a risk happens, press Raise as impediment: it goes to the Impediments log with its level as the severity. Once that impediment is resolved, the row offers Close the risk.",
+      "Delete a risk with the bin button; Undo in the toast brings it back.",
     ],
     tips: [
-      "Focus on the few risks with high likelihood × impact.",
-      "A risk without an owner is a wish.",
+      "Describe each risk as “because of X, Y may happen, leading to Z”. A risk without an owner is a wish.",
+      "Advanced analysis shows a trend test, a forecast and change points once there are enough weeks of risks.",
+      "Risks from the old Risk Register page move in once. If a value was edited in both places, you're asked once: Keep or Use this instead.",
     ],
   },
   {
@@ -319,16 +361,19 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "health-check",
     summary:
-      "A squad health check asks the team to rate areas like delivering value, speed and fun as green, yellow or red, to start a conversation about what to improve.",
+      "A squad health check asks the team to rate areas like delivering value, speed and fun as green, yellow or red, to start a conversation about what to improve. Health counts green as 1, yellow as ½ and red as 0, over the areas rated.",
     whenToUse: [
-      "Every month or quarter.",
+      "Once a sprint or once a month, at the same point each time.",
       "When something feels off and you want the team's view.",
     ],
     steps: [
-      "For each area, discuss briefly and agree a color together.",
-      "Note the trend: better, the same or worse than last time.",
-      "Pick one or two red or yellow areas to improve.",
-      "Save the check and compare with the next one.",
+      "Under Current check, pick the Sprint this check is for, or type a Check name. Change Taken on to enter an earlier check.",
+      "Talk each dimension through and press Green, Yellow or Red. Type what the team said in its note.",
+      "To vote anonymously, press Run a live round under Vote anonymously, give your name, tick the consent, then share the link with Copy link. People answer on their phones; you see only how many have. Press Reveal results once 3 have answered, then Save round: the votes set each light, which you can still change.",
+      "Counting hands or paper instead? Press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many picked each light, then Show totals and Save round.",
+      "Each row's trend, Up, Same or Down, comes from the previous saved check. Health over time charts the saved checks from 2.",
+      "Press Save check. It saves once every dimension is rated, and names any still missing.",
+      "Under Saved checks, Send reds to retro puts each red dimension on the retro board as a topic. Under Your own dimensions, Add dimension adds one; archive it to leave it out of new checks.",
     ],
     scales: [
       {
@@ -340,7 +385,12 @@ export const CORE_GUIDES: ToolGuide[] = [
         ],
       },
     ],
-    tips: ["It's for the team's own learning — don't use it to compare teams."],
+    tips: [
+      "Only the vote totals are kept, never who voted what, and a dimension's votes count only from 3 answers.",
+      "A Split view, green and red votes on one dimension, is worth a conversation whatever the light says.",
+      "It's for the team's own learning: don't use it to compare teams.",
+      "Delete a saved check with Undo. Clear all asks first and can be undone too.",
+    ],
   },
   {
     toolId: "premortem",

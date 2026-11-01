@@ -1,5 +1,9 @@
-import type { PrioritizationItem } from "@/lib/stores/workspace-types";
-import { detectOutliers, rank } from "@/lib/analytics/scoring-rubric";
+import { RICE } from "@/lib/prioritization/methods";
+import { toChoice } from "@/lib/prioritization/methods/fields";
+import { REACH_PERIODS, REACH_PERIOD_LABEL } from "@/lib/prioritization/methods/rice";
+import type { RankedRow } from "@/lib/prioritization/rank";
+import { outliersOf } from "./analysis";
+import { riceVerdict } from "./verdict";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -17,41 +21,40 @@ function cell(v: unknown): string {
 const field = (v: number | string | undefined, suffix = "") =>
   v === undefined || v === "" ? "—" : `${cell(v)}${suffix}`;
 
-/** The RICE backlog as a ranked Markdown table, for a roadmap page or a planning thread. */
-export function toMarkdown(items: readonly PrioritizationItem[], now: Date = new Date()): string {
+/**
+ * The RICE backlog as a ranked Markdown table, for a roadmap page or a
+ * planning thread: each row's inputs as the page shows them (a linked
+ * row's from its backlog item), the reach period, the registry's score
+ * and rank, unscored rows last. Outliers are named once there are enough
+ * scores for a spread.
+ */
+export function toMarkdown(rows: readonly RankedRow[], now: Date = new Date()): string {
   const title = `# RICE Scoring — ${mdDate(now)}`;
-  if (items.length === 0) return `${title}\n\nNo initiatives scored yet.\n`;
+  if (rows.length === 0) return `${title}\n\nNo initiatives scored yet.\n`;
 
-  const scored = items.map((x) => ({
-    id: x.id,
-    title: x.title,
-    fields: x.fields ?? {},
-    score: x.score ?? 0,
-  }));
-  const ranked = rank(scored);
-  const outliers = detectOutliers(scored);
-  const top = ranked.filter((r) => r.rank === 1);
-
+  const outliers = outliersOf(rows) ?? new Set<string>();
   const lines = [
     title,
     "",
-    "RICE = Reach × Impact × Confidence ÷ Effort. Highest goes first.",
+    "RICE = Reach per quarter × Impact × Confidence ÷ Effort (person-months). Highest goes first.",
     "",
     "## Ranked initiatives",
     "",
-    "| # | Initiative | Reach | Impact | Confidence | Effort | RICE |",
-    "|---:|---|---:|---:|---:|---:|---:|",
-    ...ranked.map((r) => {
-      // Rows saved through the MCP actions keep confidence as `confidencePct`.
-      const confidence = r.fields.confidence ?? r.fields.confidencePct;
-      return `| ${r.rank} | ${cell(r.title)}${outliers.has(r.id) ? " (outlier)" : ""} | ${field(
-        r.fields.reach
-      )} | ${field(r.fields.impact)} | ${field(confidence, "%")} | ${field(
-        r.fields.effort
-      )} | ${r.score.toFixed(2)} |`;
+    "| # | Initiative | Reach | Period | Impact | Confidence | Effort | RICE |",
+    "|---:|---|---:|---|---:|---:|---:|---:|",
+    ...rows.map((r) => {
+      const period = toChoice(REACH_PERIODS, r.values.reachPeriod) ?? "quarter";
+      return `| ${r.rank ?? "—"} | ${cell(r.row.title)}${outliers.has(r.row.id) ? " (outlier)" : ""} | ${field(
+        r.values.reach
+      )} | ${REACH_PERIOD_LABEL[period]} | ${field(r.values.impact)} | ${field(
+        r.values.confidence,
+        "%"
+      )} | ${field(r.values.effort)} | ${
+        r.result.score === null ? "Not scored" : RICE.format(r.result.score)
+      } |`;
     }),
     "",
-    `**Do first:** ${top.map((r) => cell(r.title)).join(", ")} (RICE ${top[0].score.toFixed(2)})`,
+    `**${riceVerdict(rows)}**`,
   ];
   if (outliers.size > 0) {
     lines.push(

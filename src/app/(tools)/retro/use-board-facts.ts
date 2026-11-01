@@ -97,6 +97,7 @@ export function useBoardFacts(
   const goals = useWorkspaceStore((s) => s.sprintGoals) ?? NONE;
   const impediments = useWorkspaceStore((s) => s.impediments) ?? NONE;
   const moodEntries = useWorkspaceStore((s) => s.moodEntries) ?? NONE;
+  const moodPulses = useWorkspaceStore((s) => s.moodPulses) ?? NONE;
   const kudos = useWorkspaceStore((s) => s.kudos) ?? NONE;
   const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards) ?? NONE;
   // Only the archives: the current board is upserted on every timer tick,
@@ -147,6 +148,7 @@ export function useBoardFacts(
         goals,
         impediments,
         moodEntries,
+        moodPulses,
         retroBoards: boards,
         kudos,
         today,
@@ -173,6 +175,7 @@ export function useBoardFacts(
     goals,
     impediments,
     moodEntries,
+    moodPulses,
     archives,
     board.cards,
     board.format,

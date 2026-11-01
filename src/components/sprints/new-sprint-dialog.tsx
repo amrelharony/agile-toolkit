@@ -13,8 +13,9 @@ import {
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Sprint } from "@/lib/stores/workspace-types";
-import { DEFAULT_SPRINT_DAYS, endDateFor, statusFromDates, todayIso } from "@/lib/sprints/series";
+import { endDateFor, statusFromDates, todayIso } from "@/lib/sprints/series";
 import { createSprint } from "@/lib/sprints/store";
+import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 
 export interface NewSprintDialogProps {
   open: boolean;
@@ -25,8 +26,10 @@ export interface NewSprintDialogProps {
   defaultName?: string;
   /** Suggested start date (YYYY-MM-DD); defaults to today. */
   defaultStart?: string;
-  /** Suggested length in days; defaults to 10. */
+  /** Suggested length in days; defaults to the team's cadence (Sprint Cockpit settings). */
   defaultLengthDays?: number;
+  /** Suggested planned points, e.g. the recent velocity; empty when absent. */
+  defaultPoints?: number;
 }
 
 interface Errors {
@@ -47,8 +50,11 @@ export function NewSprintDialog({
   onCreated,
   defaultName = "",
   defaultStart,
-  defaultLengthDays = DEFAULT_SPRINT_DAYS,
+  defaultLengthDays,
+  defaultPoints,
 }: NewSprintDialogProps) {
+  const [cadence] = useCeremonyCadence();
+  const lengthDays = defaultLengthDays ?? cadence.sprintLengthDays;
   const [name, setName] = useState(defaultName);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -61,10 +67,14 @@ export function NewSprintDialog({
     const s = defaultStart ?? todayIso();
     setName(defaultName);
     setStart(s);
-    setEnd(endDateFor(s, defaultLengthDays));
-    setPoints("");
+    setEnd(endDateFor(s, lengthDays));
+    setPoints(
+      typeof defaultPoints === "number" && Number.isFinite(defaultPoints) && defaultPoints >= 0
+        ? String(defaultPoints)
+        : ""
+    );
     setErrors({});
-  }, [open, defaultName, defaultStart, defaultLengthDays]);
+  }, [open, defaultName, defaultStart, lengthDays, defaultPoints]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

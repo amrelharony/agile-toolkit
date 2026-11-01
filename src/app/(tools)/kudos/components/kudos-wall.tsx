@@ -31,10 +31,11 @@
  * to its pre-redesign form.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Sparkles, ChevronDown, ChevronRight } from "lucide-react";
 import type { Kudos } from "@/lib/stores/workspace-types";
+import { isExampleId } from "@/lib/utils/example-id";
 import { KudosCard } from "./kudos-card";
 import { KudosThreadReply } from "./kudos-thread-reply";
 import { getKudosTheme } from "../types";
@@ -61,6 +62,11 @@ interface Props {
   replyFromName?: string;
   /** Sender squad profile id for the reply composer (guest mode). */
   replyFromProfileId?: string;
+  /**
+   * Controls under a top-level card (the owner's "Add to retro"). Not
+   * rendered for replies: a reply thanks the sender, it isn't recognition.
+   */
+  cardActions?: (kudos: Kudos) => ReactNode;
 }
 
 interface FeedEntry {
@@ -139,6 +145,7 @@ export function KudosWall({
   onSendReply,
   replyFromName,
   replyFromProfileId,
+  cardActions,
 }: Props) {
   const reducedMotion = useReducedMotion();
   const thread = useKudosThread();
@@ -189,6 +196,7 @@ export function KudosWall({
             replyFromProfileId={replyFromProfileId}
             isReplyOpen={thread.isExpanded(entry.parent.id)}
             onToggleReply={thread.toggleExpand}
+            cardActions={cardActions}
           />
         ))}
       </div>
@@ -217,6 +225,7 @@ export function KudosWall({
               replyFromProfileId={replyFromProfileId}
               isReplyOpen={thread.isExpanded(entry.parent.id)}
               onToggleReply={thread.toggleExpand}
+              cardActions={cardActions}
             />
           </motion.div>
         ))}
@@ -235,21 +244,28 @@ interface WallEntryProps {
   replyFromProfileId?: string;
   isReplyOpen: boolean;
   onToggleReply: (id: string) => void;
+  cardActions?: (kudos: Kudos) => ReactNode;
 }
 
 function WallEntry({
   entry,
   highlightToProfileId,
   viewerProfileId,
-  onAddReaction,
-  onSendReply,
+  onAddReaction: onReact,
+  onSendReply: onReply,
   replyFromName,
   replyFromProfileId,
   isReplyOpen,
   onToggleReply,
+  cardActions,
 }: WallEntryProps) {
   const [stackOpen, setStackOpen] = useState(false);
   const { parent, clusterSiblings, replies } = entry;
+  // An example card (Kudos' "Load an example") takes no reactions or
+  // replies: those go to the server and the room, and the example doesn't.
+  const example = isExampleId(parent.id);
+  const onAddReaction = example ? undefined : onReact;
+  const onSendReply = example ? undefined : onReply;
   const highlighted =
     highlightToProfileId !== undefined && parent.toProfileId === highlightToProfileId;
 
@@ -269,6 +285,7 @@ function WallEntry({
         onToggleReply={onSendReply ? onToggleReply : undefined}
         isReplyOpen={isReplyOpen}
       />
+      {cardActions && <div className="mt-1.5">{cardActions(parent)}</div>}
       {clusterSiblings.length > 0 && (
         <button
           type="button"

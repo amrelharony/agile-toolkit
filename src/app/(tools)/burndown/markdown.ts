@@ -1,4 +1,10 @@
-/** The burndown's shapes, as the client stores them. */
+import type { Sprint } from "@/lib/stores/workspace-types";
+import type { BurnSeries, BurnStatus } from "@/lib/sprints/burn";
+import { churnLine } from "@/lib/sprints/burn";
+import { fmt } from "@/lib/sprints/hub-view";
+import { dayDate, hasSyntheticDates } from "@/lib/sprints/series";
+
+/** The burndown's shapes from before the burn model, kept for the AI prompts and the daily log. */
 export interface DayEntry {
   id: string;
   day: number;
@@ -14,89 +20,112 @@ export interface BurndownConfig {
 }
 
 /** "18 Oct 2026" */
-function mdDate(d: Date): string {
+export function mdDate(d: Date): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** A table cell: one line, pipes escaped. */
-function cell(v: unknown): string {
+export function mdCell(v: unknown): string {
   return String(v ?? "")
     .replace(/\s*[\r\n]+\s*/g, " ")
     .replace(/\|/g, "\\|")
     .trim();
 }
 
-/** "2026-10-12" as a local calendar date, or the raw string if it isn't one. */
-function startDate(iso: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
-  return m ? mdDate(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : iso;
+/** "2026-10-12" as a local calendar date ("12 Oct 2026"), or the raw string if it isn't one. */
+export function mdIsoDate(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((iso ?? "").trim());
+  return m ? mdDate(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : (iso ?? "");
 }
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
+const SOURCE_LINE: Record<BurnSeries["source"], string> = {
+  stories: "From the sprint board",
+  log: "Typed in the daily log",
+  none: "Nothing recorded yet",
+};
 
-/** Same ideal line as the chart. */
-function ideal(day: number, { totalPoints, sprintDays }: BurndownConfig): number {
-  if (!Number.isFinite(sprintDays) || sprintDays <= 0) return totalPoints;
-  return Math.max(0, totalPoints - (totalPoints / sprintDays) * day);
+export function sourceLine(source: BurnSeries["source"]): string {
+  return SOURCE_LINE[source];
 }
 
-/** A day with anything logged past the day-0 scope. */
-const isLogged = (e: DayEntry) =>
-  (e.day > 0 && e.remaining !== null) || !!e.description || e.scopeChange;
+const OFF = { weekend: "Weekend", holiday: "Holiday" } as const;
+
+/** "Day 16 (3 Nov 2026)", for a projected calendar day (it may be past the end). */
+export function dayAndDate(sprint: Pick<Sprint, "startDate" | "endDate">, day: number): string {
+  const d = Math.ceil(day);
+  const date = hasSyntheticDates(sprint) ? null : dayDate(sprint, d);
+  return date ? `Day ${d} (${mdIsoDate(date)})` : `Day ${d}`;
+}
 
 /**
- * The burndown as Markdown, for a sprint review page or a stand-up thread:
- * where the sprint stands against the ideal line, the scope changes, then
- * every day of the sprint.
+ * The burndown as Markdown, for a sprint review page or a Daily Scrum
+ * thread: the verdict, where the sprint stands against the ideal line (on
+ * working days), the scope that joined or left, then every day.
  */
-export function toMarkdown(
-  { config, entries }: { config: BurndownConfig; entries: DayEntry[] },
+export function burndownMarkdown(
+  { sprint, burn, status }: { sprint: Sprint; burn: BurnSeries; status: BurnStatus },
   now: Date = new Date()
 ): string {
   const title = `# Burndown — ${mdDate(now)}`;
-  if (!entries.some(isLogged)) return `${title}\n\nNo days logged yet.\n`;
+  const anything = burn.source !== "none" || burn.days.some((d) => d.note || d.scopeChangeFlag);
+  if (!anything) {
+    return `${title}\n\nNothing recorded yet: point the sprint's stories and move them on the board, or log the points left each day.\n`;
+  }
 
-  const sorted = [...entries].sort((a, b) => a.day - b.day);
-  const filled = sorted.filter((e) => e.remaining !== null && Number.isFinite(e.remaining));
   const lines = [
     title,
     "",
-    `**Sprint:** ${config.totalPoints} points over ${config.sprintDays} days, starting ${startDate(
-      config.sprintStartDate
-    )}`,
+    `**Sprint:** ${mdCell(sprint.name)}: ${fmt(burn.committed)} points committed over ${
+      burn.lengthDays
+    } days (${burn.workingDays} working days), starting ${mdIsoDate(sprint.startDate)}`,
+    `**Source:** ${sourceLine(burn.source)}`,
+    "",
+    status.verdict,
   ];
 
-  // Same reading as the KPI tiles: a trend needs a second logged day.
-  if (filled.length >= 2) {
-    const last = filled[filled.length - 1];
-    const remaining = last.remaining as number;
-    const target = round1(ideal(last.day, config));
-    const variance = round1(target - remaining);
-    const trend =
-      variance > 0.5
-        ? `${variance} points ahead of ideal`
-        : variance < -0.5
-          ? `${-variance} points behind ideal`
-          : "on track";
-    const done =
-      config.totalPoints > 0
-        ? Math.max(
-            0,
-            Math.min(100, Math.round(((config.totalPoints - remaining) / config.totalPoints) * 100))
-          )
-        : 0;
+  if (burn.lastDay !== null && burn.remaining !== null && status.idealRemaining !== null) {
+    const pct =
+      status.completionPct === null ? "" : ` (${status.completionPct}% of the scope done)`;
     lines.push(
-      `**Day ${last.day}:** ${remaining} points left, ideal ${target}: ${trend} (${done}% done)`
+      "",
+      `**Day ${burn.lastDay}:** ${fmt(burn.remaining)} points left, ideal ${fmt(
+        status.idealRemaining
+      )}: ${(status.gapLabel ?? "").toLowerCase()}${pct}`
+    );
+    lines.push(
+      `**Projected finish:** ${
+        status.cantTell
+          ? "Can't tell yet (open stories have no points)"
+          : status.projectedFinishDay === null
+            ? "No trend yet"
+            : `${dayAndDate(sprint, status.projectedFinishDay)}${
+                status.willFinishOnTime === false ? ", after the last day" : ""
+              }`
+      }`
     );
   }
+  const churn = churnLine(burn);
+  lines.push(
+    `**Scope:** ${churn.charAt(0).toUpperCase()}${churn.slice(1)} (${fmt(burn.initialScope)} → ${fmt(
+      burn.scopeNow
+    )})`
+  );
 
-  const scopeChanges = sorted.filter((e) => e.scopeChange);
-  if (scopeChanges.length > 0) {
+  const moves = burn.days.filter((d) => d.added > 0 || d.removed > 0 || d.scopeChangeFlag);
+  if (moves.length > 0) {
     lines.push(
       "",
       "## Scope changes",
       "",
-      ...scopeChanges.map((e) => `- Day ${e.day}${e.description ? `: ${cell(e.description)}` : ""}`)
+      ...moves.map((d) => {
+        const what = [
+          d.added > 0 ? `+${fmt(d.added)}` : "",
+          d.removed > 0 ? `−${fmt(d.removed)}` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return `- Day ${d.day}${what ? `: ${what} points` : ""}${d.note ? ` (${mdCell(d.note)})` : ""}`;
+      })
     );
   }
 
@@ -104,13 +133,15 @@ export function toMarkdown(
     "",
     "## Daily progress",
     "",
-    "| Day | Ideal | Remaining | Scope change | Note |",
-    "|---:|---:|---:|---|---|",
-    ...sorted.map(
-      (e) =>
-        `| ${e.day} | ${round1(ideal(e.day, config))} | ${e.remaining ?? "—"} | ${
-          e.scopeChange ? "Yes" : ""
-        } | ${cell(e.description)} |`
+    "| Day | Date | Day off | Ideal | Remaining | Added | Removed | Note |",
+    "|---:|---|---|---:|---:|---:|---:|---|",
+    ...burn.days.map(
+      (d) =>
+        `| ${d.day} | ${d.date ? mdIsoDate(d.date) : ""} | ${d.off ? OFF[d.off] : ""} | ${fmt(
+          d.ideal
+        )} | ${d.remaining === null ? "—" : fmt(d.remaining)} | ${d.added ? fmt(d.added) : ""} | ${
+          d.removed ? fmt(d.removed) : ""
+        } | ${mdCell(d.note)} |`
     )
   );
   return `${lines.join("\n")}\n`;

@@ -131,7 +131,19 @@ export type ToolCategory =
   // Phase 22 — Canvas
   | "Visual Collaboration";
 
-export type AnalyticsFeature = "forecast" | "anomaly" | "survival" | "anti-pattern" | "monte-carlo";
+/**
+ * The statistics a tool runs on its data (documentation only, like
+ * ToolSubscription). "trend" is a direction-of-travel test (Mann-Kendall);
+ * "anomaly" flags unusual points or shifts (z-scores, CUSUM, control
+ * limits); "survival" is Kaplan-Meier time to an event.
+ */
+export type AnalyticsFeature =
+  | "forecast"
+  | "trend"
+  | "anomaly"
+  | "survival"
+  | "anti-pattern"
+  | "monte-carlo";
 
 export type ToolAudience = "coach" | "engineering-leader" | "both";
 
@@ -358,7 +370,8 @@ export const tools: ToolDefinition[] = [
     id: "prioritizer",
     code: "A4",
     name: "Backlog Prioritizer",
-    description: "Multi-framework prioritization: MoSCoW, WSJF, RICE, Value vs. Effort matrix",
+    description:
+      "Shared backlog: score items with MoSCoW, WSJF, RICE, Value vs Effort, ICE, Kano and Cost of Delay, compare the methods, and decide one order for Sprint Planning",
     category: "Sprint Planning & Estimation",
     path: "/prioritizer",
     icon: ArrowUpDown,
@@ -430,7 +443,7 @@ export const tools: ToolDefinition[] = [
     code: "B1",
     name: "Burndown Generator",
     description:
-      "Interactive burndown chart with ideal line, actual line, and scope change markers",
+      "Chart the points left each day against an ideal line on working days, read off the sprint board or a typed daily log",
     category: "Metrics & Dashboards",
     path: "/burndown",
     icon: BarChart3,
@@ -455,7 +468,7 @@ export const tools: ToolDefinition[] = [
     code: "B2",
     name: "Burnup Generator",
     description:
-      "Burnup chart showing total scope vs. completed work with scope creep visualization",
+      "Watch the points done climb towards the scope, read off the sprint board or a typed log, with every scope addition and removal marked",
     category: "Metrics & Dashboards",
     path: "/burnup",
     icon: BarChart2,
@@ -476,7 +489,8 @@ export const tools: ToolDefinition[] = [
     id: "velocity",
     code: "B3",
     name: "Velocity Tracker",
-    description: "Velocity chart with rolling average, trend line, and predictability score",
+    description:
+      "Track velocity over the last three finished sprints, grade each on say/do, see points per person-day and plan the next sprint",
     category: "Metrics & Dashboards",
     path: "/velocity",
     icon: Activity,
@@ -500,7 +514,8 @@ export const tools: ToolDefinition[] = [
     id: "cumulative-flow",
     code: "B4",
     name: "Cumulative Flow Diagram",
-    description: "Stacked area chart for flow efficiency, bottleneck detection, and WIP analysis",
+    description:
+      "Stacked chart of items in each stage by day, from your Sprint or Flow board's moves, with WIP, throughput and a Little's Law lead time",
     category: "Metrics & Dashboards",
     path: "/cumulative-flow",
     icon: Layers,
@@ -518,7 +533,8 @@ export const tools: ToolDefinition[] = [
     id: "cycle-time",
     code: "B5",
     name: "Cycle Time Analyzer",
-    description: "Histogram, scatter plot, and percentile analysis with SLE calculator",
+    description:
+      "Cycle times read from the Sprint and Flow boards or typed in: histogram, SLE by percentile, and ageing work in progress",
     category: "Metrics & Dashboards",
     path: "/cycle-time",
     icon: Clock,
@@ -537,7 +553,8 @@ export const tools: ToolDefinition[] = [
     id: "sprint-compare",
     code: "B6",
     name: "Sprint Comparison",
-    description: "Side-by-side radar chart comparing sprints across 6 dimensions",
+    description:
+      "Up to five sprints side by side on six scores: four from each sprint's data, two suggested by Mood Tracker and the Squad Health Check",
     category: "Metrics & Dashboards",
     path: "/sprint-compare",
     icon: GitCompare,
@@ -555,7 +572,8 @@ export const tools: ToolDefinition[] = [
     id: "health-dashboard",
     code: "B7",
     name: "Team Dashboard",
-    description: "Aggregate insights hub with anti-pattern detection, forecasts, and team KPIs",
+    description:
+      "Six team KPIs from sprints, health checks, impediments, standups and the boards, lit green, amber or red against your own thresholds",
     category: "Metrics & Dashboards",
     path: "/health-dashboard",
     icon: LayoutDashboard,
@@ -715,7 +733,8 @@ export const tools: ToolDefinition[] = [
     id: "health-check",
     code: "D1",
     name: "Squad Health Check",
-    description: "Spotify-model health check with traffic lights and historical trends",
+    description:
+      "Traffic-light squad health check: rate each dimension green, yellow or red, by hand or by anonymous vote, with the trend since the last check and reds sent to the retro",
     category: "Team Health & Maturity",
     path: "/health-check",
     icon: HeartPulse,
@@ -730,7 +749,8 @@ export const tools: ToolDefinition[] = [
     id: "maturity",
     code: "D2",
     name: "Agile Maturity Assessment",
-    description: "5-level maturity assessment across 8 dimensions with improvement roadmap",
+    description:
+      "Score 8 dimensions on 5 levels as dated assessments, with a 0–100% trend and roadmap steps sent to retro actions",
     category: "Team Health & Maturity",
     path: "/maturity",
     icon: Award,
@@ -744,7 +764,8 @@ export const tools: ToolDefinition[] = [
     id: "raci",
     code: "D3",
     name: "RACI Matrix Builder",
-    description: "Interactive RACI matrix that flags tasks without exactly one Accountable",
+    description:
+      "Who is Responsible, Accountable, Consulted and Informed for each activity, with teammates as columns and checks for one Accountable and overloaded roles",
     category: "Team Health & Maturity",
     path: "/raci",
     icon: Grid3X3,
@@ -758,7 +779,8 @@ export const tools: ToolDefinition[] = [
     id: "skills-matrix",
     code: "D4",
     name: "Team Skills Matrix",
-    description: "Visual skills grid with proficiency levels and bus factor analysis",
+    description:
+      "Rate the team's skills by level, spot gaps and single points of failure (bus factor), check each skill against its target, and plan cross-training",
     category: "Team Health & Maturity",
     path: "/skills-matrix",
     icon: Users,
@@ -859,7 +881,8 @@ export const tools: ToolDefinition[] = [
     id: "hypothesis-tracker",
     code: "A10",
     name: "Hypothesis Tracker",
-    description: "Lean-startup hypotheses with experiments, metrics, and validation rate",
+    description:
+      "Lean-startup hypotheses with an optional numeric target: the measured result against it suggests a verdict you apply, and the validation rate counts only decisive results",
     category: "Product Discovery",
     path: "/hypothesis-tracker",
     icon: Lightbulb,
@@ -877,7 +900,8 @@ export const tools: ToolDefinition[] = [
     id: "user-interviews",
     code: "A11",
     name: "User Interview Log",
-    description: "Research synthesis — quotes, themes, and tag-frequency heatmap",
+    description:
+      "Research synthesis — interview quotes tagged by theme, each theme counted by the participants who raised it, anonymised exports, and a quote raised as an opportunity on the Opportunity Solution Tree",
     category: "Product Discovery",
     path: "/user-interviews",
     icon: Quote,
@@ -891,7 +915,8 @@ export const tools: ToolDefinition[] = [
     id: "opportunity-tree",
     code: "A12",
     name: "Opportunity Solution Tree",
-    description: "Outcome → opportunities → solutions → experiments (Teresa Torres framework)",
+    description:
+      "Outcome → opportunities, nested as deep as needed → solutions → experiments (Teresa Torres framework), with one target opportunity per outcome and experiments tested as hypotheses",
     category: "Product Discovery",
     path: "/opportunity-tree",
     icon: Workflow,
@@ -907,7 +932,8 @@ export const tools: ToolDefinition[] = [
     id: "risk-register",
     code: "D6",
     name: "Risk Register",
-    description: "Probability × Impact matrix with mitigation tracking and risk burn-down",
+    description:
+      "Likelihood × impact matrix where each risk has an owner, a mitigation plan with overdue alerts and its residual risk after mitigation, and is raised as an impediment once it happens",
     category: "Risk & Governance",
     path: "/risk-register",
     icon: ShieldAlert,
@@ -915,14 +941,8 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 8,
     usesWorkspace: true,
-    analyticsFeatures: ["survival", "anomaly", "anti-pattern"],
+    analyticsFeatures: ["survival", "trend", "forecast", "anomaly", "anti-pattern"],
     analyticsTier: 1,
-    predictedDefaults: [
-      {
-        field: "mitigationDays",
-        description: "Median historical mitigation lead time",
-      },
-    ],
     crossToolSubscriptions: [
       {
         kinds: ["incident.opened", "techDebt.added"],
@@ -949,7 +969,8 @@ export const tools: ToolDefinition[] = [
     id: "tech-debt",
     code: "D7",
     name: "Technical Debt Tracker",
-    description: "Debt items with impact × effort, interest rate, hotspot heatmap",
+    description:
+      "Debt items scored by impact × effort plus capped interest per sprint, with each one's age in sprints, a hotspot heatmap, and Add to backlog to schedule the paydown",
     category: "Risk & Governance",
     path: "/tech-debt",
     icon: Wrench,
@@ -970,7 +991,8 @@ export const tools: ToolDefinition[] = [
     id: "decision-log",
     code: "D12",
     name: "Decision Log (ADR)",
-    description: "Architecture Decision Records — context, decision, consequences, status",
+    description:
+      "Architecture Decision Records, and decisions raised in the DACI or RAPID form, in one numbered log — context, options, outcome, consequences, status",
     category: "Risk & Governance",
     path: "/decision-log",
     icon: FileText,
@@ -984,7 +1006,8 @@ export const tools: ToolDefinition[] = [
     id: "dod-builder",
     code: "C9",
     name: "Definition of Done Builder",
-    description: "Interactive DoD assembler with per-sprint adherence tracking",
+    description:
+      "Write the team's Definition of Done, tick it on each Sprint board card, and track how many done stories meet it, sprint by sprint",
     category: "Risk & Governance",
     path: "/dod-builder",
     icon: ClipboardCheck,
@@ -1045,7 +1068,8 @@ export const tools: ToolDefinition[] = [
     id: "value-stream",
     code: "B9",
     name: "Value Stream Map",
-    description: "Process stages with lead time, %C/A, flow efficiency end-to-end",
+    description:
+      "Map each stage's process time, lead time and %C/A to see flow efficiency, the bottleneck, and current vs future state",
     category: "Flow & Delivery",
     path: "/value-stream",
     icon: Waves,
@@ -1083,7 +1107,7 @@ export const tools: ToolDefinition[] = [
     code: "B10",
     name: "Sprint Metrics",
     description:
-      "Every sprint in one place: progress against the plan and the ideal line, data checks, and links into each sprint tool",
+      "How your sprints went over time: say/do, carry-over and scope churn across the last finished sprints, with data checks and links into each sprint tool",
     category: "Metrics & Dashboards",
     path: "/sprint-metrics",
     icon: Gauge,
@@ -1105,7 +1129,8 @@ export const tools: ToolDefinition[] = [
     id: "okrs",
     code: "D9",
     name: "OKR Tracker",
-    description: "Quarterly Objectives with 3–5 Key Results, weekly check-ins, trajectory forecast",
+    description:
+      "Quarterly Objectives and Key Results, each measured from its baseline to a target up or down through dated check-ins, with a confidence trend and the sprint goals that move them",
     category: "Outcomes & Pulse",
     path: "/okrs",
     icon: Flag,
@@ -1113,11 +1138,8 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 10,
     usesWorkspace: true,
-    analyticsFeatures: ["forecast"],
+    analyticsFeatures: ["trend"],
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "krTargetExtrapolation", description: "Mean target across prior KRs" },
-    ],
     crossToolSubscriptions: [
       {
         kinds: ["okr.kr.updated", "risk.opened"],
@@ -1129,14 +1151,15 @@ export const tools: ToolDefinition[] = [
     id: "nps-csat",
     code: "D10",
     name: "NPS / CSAT Tracker",
-    description: "Log NPS and CSAT responses with comments and see the trend",
+    description:
+      "Import or log Net Promoter Score (NPS) and CSAT survey answers and read them per week or month with the number of responses behind each, CSAT as % satisfied, and theme tags on the comments",
     category: "Outcomes & Pulse",
     path: "/nps-csat",
     icon: BarChart,
     requiresAuth: false,
     isRealtime: false,
     phase: 10,
-    analyticsFeatures: ["anomaly"],
+    analyticsFeatures: ["trend", "anomaly"],
     analyticsTier: 2,
     crossToolSubscriptions: [
       {
@@ -1149,7 +1172,8 @@ export const tools: ToolDefinition[] = [
     id: "mood-tracker",
     code: "D11",
     name: "Team Mood Tracker",
-    description: "Daily mood check-in with a team heatmap and trend",
+    description:
+      "Daily mood check-ins, by name with a team heatmap or as anonymous pulses, with the trend and low-mood runs raised at the retro",
     category: "Outcomes & Pulse",
     path: "/mood-tracker",
     icon: Smile,
@@ -1171,7 +1195,7 @@ export const tools: ToolDefinition[] = [
     code: "D17",
     name: "Kudos Wall",
     description:
-      "Recognition wall — send themed kudos cards, download them as PNG, attribute by squad profile",
+      "Recognition wall: send themed kudos cards, see who the kudos reach with fairness hints, and bring them to the retro as appreciations",
     category: "Outcomes & Pulse",
     path: "/kudos",
     icon: Award,
@@ -1189,7 +1213,7 @@ export const tools: ToolDefinition[] = [
     code: "J1",
     name: "DORA Scorecard",
     description:
-      "Manual-input dashboard for the 4 DORA keys with quarterly trend and Elite/High/Medium/Low banding",
+      "The 4 DORA keys per quarter, typed or filled from releases, boards and incidents, banded Elite to Low by the 2023 State of DevOps Report",
     category: "Engineering Excellence",
     path: "/dora-scorecard",
     icon: Activity,
@@ -1200,9 +1224,6 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["forecast", "anomaly"],
     audience: "engineering-leader",
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "deploysPerWeekTarget", description: "DORA High/Elite threshold" },
-    ],
     crossToolSubscriptions: [
       {
         kinds: ["deploy.recorded", "incident.opened"],
@@ -1354,7 +1375,7 @@ export const tools: ToolDefinition[] = [
     code: "K4",
     name: "Release Readiness Checklist",
     description:
-      "Pre-release gates across a11y, perf, observability, and rollback with per-release pass rate",
+      "Your team's pre-release gates, with a feature flag check and an optional Definition of Done gate, dated ships and rollbacks, on-time rate and most-skipped gates",
     category: "Incidents & Reliability",
     path: "/release-readiness",
     icon: Rocket,
@@ -1475,7 +1496,7 @@ export const tools: ToolDefinition[] = [
     code: "M1",
     name: "Test Pyramid Analyzer",
     description:
-      "Visualize unit/integration/e2e test split, flag inverted shapes, and surface cost-of-quality ratio",
+      "Visualize the unit/integration/e2e split, name its shape (pyramid, ice-cream cone, hourglass, diamond), weigh it by test count or run time, and track it across dated snapshots",
     category: "Quality Engineering",
     path: "/test-pyramid",
     icon: Triangle,
@@ -1483,7 +1504,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 13,
     usesWorkspace: true,
-    analyticsFeatures: ["anti-pattern"],
+    analyticsFeatures: ["trend", "anti-pattern"],
     audience: "engineering-leader",
   },
   {
@@ -1491,7 +1512,7 @@ export const tools: ToolDefinition[] = [
     code: "M2",
     name: "Flaky Test Scoreboard",
     description:
-      "Manual log of flaky tests with quarantine status, failure rate, and owner — drives triage rituals",
+      "Log flaky tests with failed runs out of runs, owner and quarantine status — a failure rate weighted by runs, an alert for long quarantines, and the worst offenders to drive triage",
     category: "Quality Engineering",
     path: "/flaky-tests",
     icon: AlertOctagon,
@@ -1499,7 +1520,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 13,
     usesWorkspace: true,
-    analyticsFeatures: ["survival", "anti-pattern"],
+    analyticsFeatures: ["trend", "anomaly", "anti-pattern"],
     audience: "engineering-leader",
     analyticsTier: 2,
     crossToolSubscriptions: [
@@ -1510,7 +1531,8 @@ export const tools: ToolDefinition[] = [
     id: "code-review-metrics",
     code: "M3",
     name: "Code Review Metrics",
-    description: "PR cycle time and review depth from manual or pasted CSV inputs",
+    description:
+      "Time to first review and PR cycle time in the team's working hours, from manual logs or pasted CSV, with a team view by PR size (no author ranking) and a weekly median",
     category: "Quality Engineering",
     path: "/code-review-metrics",
     icon: GitPullRequest,
@@ -1518,7 +1540,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 14,
     usesWorkspace: true,
-    analyticsFeatures: ["anomaly", "anti-pattern"],
+    analyticsFeatures: ["trend", "anomaly", "anti-pattern"],
     audience: "engineering-leader",
     analyticsTier: 2,
     crossToolSubscriptions: [
@@ -1530,13 +1552,14 @@ export const tools: ToolDefinition[] = [
     code: "M4",
     name: "Cost of Quality Calculator",
     description:
-      "Trade-off calculator across prevention, detection, and failure costs — a teaching tool",
+      "Prevention, detection and failure costs logged quarter by quarter, with the failure share of quality spend, its trend, and an hours × rate helper",
     category: "Quality Engineering",
     path: "/quality-cost",
     icon: BarChart,
     requiresAuth: false,
     isRealtime: false,
     phase: 14,
+    analyticsFeatures: ["trend"],
     audience: "both",
     analyticsTier: 3,
   },
@@ -1547,7 +1570,7 @@ export const tools: ToolDefinition[] = [
     code: "N1",
     name: "Working Agreement Builder",
     description:
-      "Team charter wizard for norms, communication, and decision rules with adoption check-ins",
+      "Team charter rules with each person's consent, dated check-in rounds with an adherence trend, and published versions to compare",
     category: "Workshops & Facilitation",
     path: "/working-agreement",
     icon: Handshake,
@@ -1594,7 +1617,8 @@ export const tools: ToolDefinition[] = [
     id: "riskiest-assumption",
     code: "N4",
     name: "Riskiest Assumption Canvas",
-    description: "Lean canvas variant — list assumptions, rank by risk, and generate test cards",
+    description:
+      "Lean canvas variant — list the assumptions behind a plan, rate risk and evidence (unrated until you do), rank by risk × (6 − evidence), and Test the riskiest as a linked hypothesis",
     category: "Workshops & Facilitation",
     path: "/riskiest-assumption",
     icon: AlertCircle,
@@ -1664,7 +1688,8 @@ export const tools: ToolDefinition[] = [
     id: "one-on-one",
     code: "C11",
     name: "1:1 Meeting Tracker",
-    description: "Manager-IC 1:1 log with rolling agenda, action items, and growth themes",
+    description:
+      "Manager-IC 1:1 log with a rolling agenda, action items through to done, and a cadence alert per report",
     category: "Ceremonies",
     path: "/one-on-one",
     icon: Coffee,
@@ -1678,7 +1703,8 @@ export const tools: ToolDefinition[] = [
     id: "psych-safety",
     code: "D13",
     name: "Psychological Safety Assessment",
-    description: "Edmondson 7-question survey with team-vs-org benchmark",
+    description:
+      "Edmondson's seven-statement survey in anonymous rounds: a team score from five responses, compared round by round",
     category: "Team Health & Maturity",
     path: "/psych-safety",
     icon: Heart,
@@ -1711,7 +1737,8 @@ export const tools: ToolDefinition[] = [
     id: "onboarding-tracker",
     code: "D15",
     name: "Onboarding Speed Tracker",
-    description: "Time-to-first-PR and time-to-productivity with ramp curve",
+    description:
+      "Each new joiner's milestones from an editable template, with time-to-first-PR, time-to-productivity and a ramp curve",
     category: "Team Health & Maturity",
     path: "/onboarding-tracker",
     icon: UserPlus,
@@ -1744,7 +1771,8 @@ export const tools: ToolDefinition[] = [
     id: "stakeholder-map",
     code: "I4",
     name: "Stakeholder Map",
-    description: "Interest × Authority matrix with engagement strategy per quadrant",
+    description:
+      "Place stakeholders on an Interest × Authority map, compare how they feel with how you need them to, and plan the next touch",
     category: "Outcomes & Pulse",
     path: "/stakeholder-map",
     icon: PieChart,
@@ -1760,7 +1788,7 @@ export const tools: ToolDefinition[] = [
     code: "I5",
     name: "ADKAR Change Tracker",
     description:
-      "Awareness/Desire/Knowledge/Ability/Reinforcement progression per change initiative",
+      "Move each change through Awareness, Desire, Knowledge, Ability and Reinforcement on dated moves, with each affected group's barrier point",
     category: "Outcomes & Pulse",
     path: "/adkar",
     icon: ArrowRight,
@@ -1775,7 +1803,8 @@ export const tools: ToolDefinition[] = [
     id: "feature-flag-tracker",
     code: "H4",
     name: "Feature Flag Tracker",
-    description: "Active flags catalog with age, owner, and stale-flag anti-pattern alerts",
+    description:
+      "Flags catalog with owner and removal date, stale alerts by purpose (kill switches never), dated retirement and the release each flag ships behind",
     category: "Flow & Delivery",
     path: "/feature-flag-tracker",
     icon: ToggleLeft,
@@ -2093,7 +2122,7 @@ export const tools: ToolDefinition[] = [
     code: "PR3",
     name: "MoSCoW Matrix",
     description:
-      "Bucket scope into Must / Should / Could / Won't to align cross-functional teams on what's in vs out",
+      "Bucket scope into Must / Should / Could / Won't to align cross-functional teams on what's in vs out, with Musts kept to about 60% of the planned effort",
     category: "Prioritization Frameworks",
     path: "/moscow",
     icon: ListChecks,
@@ -2109,12 +2138,12 @@ export const tools: ToolDefinition[] = [
     code: "PR4",
     name: "Kano Model Builder",
     description:
-      "Classify features as Must-Be / Performance / Attractive / Indifferent / Reverse from customer research",
+      "Classify features as Must-be / Performance / Attractive / Indifferent / Reverse from a two-question customer survey, live or on paper, with Better and Worse scores",
     category: "Prioritization Frameworks",
     path: "/kano-model",
     icon: Heart,
     requiresAuth: false,
-    isRealtime: false,
+    isRealtime: true,
     phase: 20,
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
@@ -2143,7 +2172,7 @@ export const tools: ToolDefinition[] = [
     code: "PR6",
     name: "Cost-of-Delay Tracker",
     description:
-      "Quantify per-week revenue/value loss of delaying each initiative; pairs with WSJF",
+      "Order initiatives by CD3, cost of delay per week ÷ duration, in urgency lanes: expedite, fixed date by latest start, standard and intangible; pairs with WSJF",
     category: "Prioritization Frameworks",
     path: "/cost-of-delay",
     icon: Clock,
@@ -2159,7 +2188,8 @@ export const tools: ToolDefinition[] = [
     id: "value-effort-matrix",
     code: "PR7",
     name: "Value vs Effort Matrix",
-    description: "2x2 matrix plotting items into Quick Wins / Big Bets / Fill-Ins / Time Wasters",
+    description:
+      "Draggable 2x2 matrix placing items by value and effort into Quick Wins / Big Bets / Fill-Ins / Time Wasters",
     category: "Prioritization Frameworks",
     path: "/value-effort-matrix",
     icon: Grid3X3,
@@ -2175,12 +2205,12 @@ export const tools: ToolDefinition[] = [
     code: "PR8",
     name: "Buy-a-Feature Game",
     description:
-      "Innovation game where stakeholders spend fake currency to 'buy' features — surfaces tradeoffs",
+      "Innovation game where stakeholders spend a limited budget of play money to 'buy' priced features, at the table or in anonymous rounds — surfaces tradeoffs",
     category: "Prioritization Frameworks",
     path: "/buy-a-feature",
     icon: CircleDollarSign,
     requiresAuth: false,
-    isRealtime: false,
+    isRealtime: true,
     phase: 20,
     usesWorkspace: true,
     audience: "both",
@@ -2190,12 +2220,13 @@ export const tools: ToolDefinition[] = [
     id: "hundred-dollar-test",
     code: "PR9",
     name: "$100 Test",
-    description: "Cumulative voting: split $100 across competing items to see relative value",
+    description:
+      "Cumulative voting: split $100 across competing items, as one agreed split or in anonymous team rounds, to see relative value",
     category: "Prioritization Frameworks",
     path: "/hundred-dollar-test",
     icon: Vote,
     requiresAuth: false,
-    isRealtime: false,
+    isRealtime: true,
     phase: 20,
     usesWorkspace: true,
     audience: "both",
@@ -2205,7 +2236,8 @@ export const tools: ToolDefinition[] = [
     id: "eisenhower",
     code: "PR10",
     name: "Eisenhower Matrix",
-    description: "Plot tasks on Urgent vs Important axes; decide Do / Schedule / Delegate / Delete",
+    description:
+      "Answer urgent and important (plus a due date) for each task to sort it into Do / Schedule / Delegate / Delete",
     category: "Prioritization Frameworks",
     path: "/eisenhower",
     icon: Square,
@@ -2241,7 +2273,7 @@ export const tools: ToolDefinition[] = [
     code: "DC1",
     name: "DACI Decision Doc",
     description:
-      "Assigns Driver / Approver / Contributors / Informed roles to each decision (Atlassian/Intuit)",
+      "The same records as the Decision Log, raised in the DACI form: Driver / Approver / Contributors / Informed roles for each decision (Atlassian/Intuit)",
     category: "Decision Frameworks",
     path: "/daci",
     icon: Crown,
@@ -2257,7 +2289,7 @@ export const tools: ToolDefinition[] = [
     code: "DC2",
     name: "RAPID Decision Matrix",
     description:
-      "Bain's Recommend / Agree / Perform / Input / Decide model for governance-heavy decisions",
+      "The same records as the Decision Log, raised in the RAPID form: Bain's Recommend / Agree / Perform / Input / Decide for governance-heavy decisions",
     category: "Decision Frameworks",
     path: "/rapid-decision",
     icon: Users,
@@ -2273,7 +2305,7 @@ export const tools: ToolDefinition[] = [
     code: "DC3",
     name: "Weighted Decision Matrix",
     description:
-      "Score options against weighted criteria (Pugh/MCDA) — converts gut-feel into traceable numbers",
+      "Score options against weighted criteria (Pugh/MCDA) in named matrices — ties and weight sensitivity flagged, and the result can go to the Decision Log as a proposed record",
     category: "Decision Frameworks",
     path: "/weighted-decision",
     icon: PercentCircle,
@@ -2323,7 +2355,7 @@ export const tools: ToolDefinition[] = [
     code: "DC6",
     name: "Cynefin Decision Picker",
     description:
-      "Snowden's framework that places problems into Clear / Complicated / Complex / Chaotic / Confused",
+      "Snowden's framework: guided questions suggest whether a problem is Clear / Complicated / Complex / Chaotic / Confused, the team confirms, and complex ones become hypotheses",
     category: "Decision Frameworks",
     path: "/cynefin",
     icon: Compass,

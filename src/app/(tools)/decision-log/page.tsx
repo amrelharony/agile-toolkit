@@ -1,11 +1,9 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { DecisionLogClient } from "./decision-log-client";
 
-export const metadata = {
-  title: "Decision Log (ADR)",
-  description:
-    "Architecture Decision Records with context, decision, consequences, and status timeline.",
-};
+export const metadata: Metadata = toolMetadata("decision-log");
 
 export default function Page() {
-  return <DecisionLogClient />;
+  return <DecisionLogClient template="adr" />;
 }

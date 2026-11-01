@@ -210,8 +210,10 @@ describe("with a sprint", () => {
       }),
     });
     render(<SprintCockpit />);
+    // The ideal line counts the team's working days (Mon–Fri): by Saturday,
+    // day 2, it has burned 2 of the sprint's 7 working days (30 → 21.4).
     expect(screen.getByRole("figure", { name: "Burndown" })).toHaveTextContent(
-      "Remaining points fell from 30 to 27 over 2 days; 3 points behind the ideal line."
+      "Remaining points fell from 30 to 27 over 2 days; 5.6 points behind the ideal line."
     );
     const input = screen.getByLabelText("Points left today (day 7)");
     fireEvent.change(input, { target: { value: "20" } });

@@ -5,6 +5,7 @@ import type { Workspace } from "../stores/workspace-types";
 import { emitSignal, ALL_SIGNAL_KINDS, type SignalKind } from "./signal-bus";
 import { bindCacheInvalidation } from "./derived-cache";
 import { INVALIDATION_MATRIX } from "./invalidation";
+import { isExampleId } from "../utils/example-id";
 
 /**
  * Squad-profile id of the local viewer. Set by guest pages via
@@ -233,6 +234,8 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     // here, which JSON-stringified as null and silently broke any
     // subscriber that expected a number.
     onAdded: (r) => {
+      // Example rows (the Risk Register's Load an example) aren't the team's risks.
+      if (isExampleId(r.id)) return;
       // R10: importing a CLOSED risk previously emitted a spurious
       // `risk.opened` — dashboards counted it as fresh. Gate on
       // open-state so closed/accepted imports stay quiet.
@@ -284,7 +287,11 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
 
   // Tech debt
   diffById(prev.techDebt, next.techDebt, (t) => t.id, {
-    onAdded: (t) => emit("techDebt.added", "workspace", { itemId: t.id, impact: t.impact }),
+    onAdded: (t) => {
+      // Example rows (the Tech Debt example) aren't the team's debt.
+      if (isExampleId(t.id)) return;
+      emit("techDebt.added", "workspace", { itemId: t.id, impact: t.impact });
+    },
     onChanged: (before, after) => {
       if (!before.resolvedAt && after.resolvedAt) {
         emit("techDebt.resolved", "workspace", { itemId: after.id });
@@ -560,8 +567,12 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
   // so when `localViewerProfileId` is null we treat any add as a
   // received-event too — that's the owner-self-receive case for
   // gamification XP. Guests only count receives when the row names them.
+  //
+  // Example kudos (Kudos' "Load an example") stay quiet: no signal means
+  // no cloud POST, no XP, no sound and no beacon for data nobody sent.
   diffById(prev.kudos, next.kudos, (k) => k.id, {
     onAdded: (k) => {
+      if (isExampleId(k.id)) return;
       emit("kudos.sent", "kudos", {
         id: k.id,
         toProfileId: k.toProfileId,
@@ -589,6 +600,7 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
       }
     },
     onChanged: (before, after) => {
+      if (isExampleId(after.id)) return;
       const beforeReactions = before.reactions?.length ?? 0;
       const afterReactions = after.reactions?.length ?? 0;
       if (afterReactions > beforeReactions) {

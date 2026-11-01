@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint } from "@/lib/stores/workspace-types";
-import { sprintsNewestFirst } from "./series";
+import { pickDefaultSprint, sprintsNewestFirst } from "./series";
 
 export const SELECTED_SPRINT_KEY = "agile-toolkit:sprint-metrics:selected";
 export const SPRINT_PARAM = "sprint";
@@ -59,22 +59,8 @@ export function sprintHref(path: string, sprintId: string | undefined): string {
   return sprintId ? `${path}?${SPRINT_PARAM}=${encodeURIComponent(sprintId)}` : path;
 }
 
-/** The chosen sprint if it exists, else the active one, else the newest (not cancelled). */
-export function pickDefaultSprint(
-  sprints: readonly Sprint[],
-  chosenId: string | null
-): Sprint | undefined {
-  if (chosenId) {
-    const chosen = sprints.find((s) => s.id === chosenId);
-    if (chosen) return chosen;
-  }
-  const newest = sprintsNewestFirst(sprints);
-  return (
-    newest.find((s) => s.status === "active") ??
-    newest.find((s) => s.status !== "cancelled") ??
-    newest[0]
-  );
-}
+// The default pick is pure (lib/sprints/series), so agent actions share it.
+export { pickDefaultSprint };
 
 export interface SelectedSprint {
   /** Every sprint, newest first. */

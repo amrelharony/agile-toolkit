@@ -55,7 +55,7 @@ import { VelocitySummaryTab } from "./components/velocity-summary-tab";
 const NO_REVIEWS: SprintReview[] = [];
 
 const TAB_CLASS =
-  "data-[state=active]:bg-accent/10 data-[state=active]:text-accent text-sub gap-1.5";
+  "data-[state=active]:bg-card data-[state=active]:text-text data-[state=active]:ring-1 data-[state=active]:ring-accent/60 text-sub gap-1.5";
 
 /** "sprint-12" for a file name. */
 const slug = (s: string) =>

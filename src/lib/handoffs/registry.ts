@@ -5,10 +5,12 @@
  * action offers impediment and kanban; a premortem cause offers risk), so a
  * route knows only how to create, remove and find its target.
  *
- * Routes whose target entity doesn't exist yet write to today's closest
- * slice: `decision` to the Decision Log (until DACI, RAPID and the log merge
- * into one decision record) and `dependency` to the Dependency Map's graph
- * (until the one dependency model lands).
+ * `decision` writes the one decision record the Decision Log, DACI and
+ * RAPID share (workspace.decisions, lib/decisions). A route whose target
+ * entity doesn't exist yet writes to today's closest slice: `dependency` to
+ * the Dependency Map's graph (until the one dependency model lands).
+ * `opportunity` adds a node to the Opportunity Tree (an interview quote
+ * raised as an opportunity).
  */
 
 import type { HandoffLink, HandoffRef, HandoffRoute, HandoffRouteId } from "./types";
@@ -22,7 +24,9 @@ import { retroActionRoute } from "./targets/retro-action";
 import { hypothesisRoute } from "./targets/hypothesis";
 import { decisionRoute } from "./targets/decision";
 import { dependencyRoute } from "./targets/dependency";
+import { opportunityRoute } from "./targets/opportunity";
 
+/** One route per id in HANDOFF_ROUTE_IDS: a stored link on any of them reads through its route. */
 export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   impediment: impedimentRoute,
   kanban: kanbanRoute,
@@ -34,6 +38,7 @@ export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   hypothesis: hypothesisRoute,
   decision: decisionRoute,
   dependency: dependencyRoute,
+  opportunity: opportunityRoute,
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {
@@ -71,16 +76,33 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "mood-tracker": { name: "mood tracker", href: "/mood-tracker" },
   kudos: { name: "kudos", href: "/kudos" },
   maturity: { name: "maturity assessment", href: "/maturity" },
+  "working-agreement": { name: "working agreement", href: "/working-agreement" },
   // Prioritize & decide
+  // Sprint Planning pulls its backlog items in as stories (sprint-planning/view.ts).
+  prioritizer: { name: "Backlog Prioritizer", href: "/prioritizer" },
   "weighted-decision": { name: "weighted decision", href: "/weighted-decision" },
   cynefin: { name: "Cynefin", href: "/cynefin" },
   "buy-a-feature": { name: "Buy a Feature", href: "/buy-a-feature" },
+  // Shelved, but its "Push to Decision Log" still sends decided RFCs.
+  "rfc-tracker": { name: "RFC", href: "/rfc-tracker" },
   // Outcomes & quality
   "opportunity-tree": { name: "opportunity tree", href: "/opportunity-tree" },
   "riskiest-assumption": { name: "riskiest assumption", href: "/riskiest-assumption" },
   "user-interviews": { name: "user interviews", href: "/user-interviews" },
   "risk-register": { name: "Risk Register", href: "/risk-register" },
   "tech-debt": { name: "tech debt", href: "/tech-debt" },
+  // Track delivery
+  burndown: { name: "burndown", href: "/burndown" },
+  burnup: { name: "burnup", href: "/burnup" },
+  velocity: { name: "velocity", href: "/velocity" },
+  "sprint-metrics": { name: "Sprint Metrics", href: "/sprint-metrics" },
+  "cumulative-flow": { name: "cumulative flow", href: "/cumulative-flow" },
+  "cycle-time": { name: "cycle time", href: "/cycle-time" },
+  "value-stream": { name: "value stream map", href: "/value-stream" },
+  "health-dashboard": { name: "health dashboard", href: "/health-dashboard" },
+  "dora-scorecard": { name: "DORA scorecard", href: "/dora-scorecard" },
+  "release-readiness": { name: "Release Readiness", href: "/release-readiness" },
+  "feature-flag-tracker": { name: "feature flag tracker", href: "/feature-flag-tracker" },
 };
 
 /** The sending tool, or undefined for one not listed (never an inherited key like "constructor"). */
@@ -102,6 +124,9 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
   // A tool that keeps several documents opens the one the item came from.
   if (ref?.tool === "premortem" && ref.doc) {
     return `${tool.href}?premortem=${encodeURIComponent(ref.doc)}`;
+  }
+  if (ref?.tool === "weighted-decision" && ref.doc) {
+    return `${tool.href}?matrix=${encodeURIComponent(ref.doc)}`;
   }
   return tool.href;
 }

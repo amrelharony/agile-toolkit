@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
  * Value vs Effort: an empty Value or Effort used to become 5 without a
- * word, which is the quadrant boundary. Both are now required.
+ * word, which was the quadrant boundary. Now one without the other is
+ * refused with a message, and a title alone waits under "Not placed yet"
+ * instead of landing in a quadrant.
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -20,15 +23,6 @@ vi.mock("@/components/shared/export-button", () => ({
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
-// Recharts' ResponsiveContainer needs it; jsdom doesn't ship one.
-vi.stubGlobal(
-  "ResizeObserver",
-  class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-);
 
 import { ValueEffortMatrixClient } from "@/app/(tools)/value-effort-matrix/value-effort-matrix-client";
 
@@ -36,9 +30,14 @@ const rows = () =>
   (useWorkspaceStore.getState().prioritizations ?? []).filter(
     (r) => r.framework === "value-effort"
   );
-const type = (label: string, value: string) =>
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
-const plot = () => fireEvent.click(screen.getByRole("button", { name: "Plot" }));
+const form = () => screen.getByRole("button", { name: "Add" }).closest("form") as HTMLElement;
+const pick = (group: string, value: string) =>
+  fireEvent.click(
+    within(within(form()).getByRole("radiogroup", { name: group })).getByRole("radio", {
+      name: value,
+    })
+  );
+const add = () => fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
 beforeEach(() => {
   useWorkspaceStore.setState({ backlogItems: [], prioritizations: [] });
@@ -47,30 +46,40 @@ afterEach(() => {
   window.history.replaceState({}, "", "/");
 });
 
-describe("Value vs Effort: both scores are required", () => {
-  it("doesn't plot an item with an empty Effort, and says so", () => {
-    render(<ValueEffortMatrixClient />);
-    type("Item title", "Dark mode");
-    type("Value (1-10)", "7");
-    plot();
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <ValueEffortMatrixClient />
+    </TooltipProvider>
+  );
+
+describe("Value vs Effort: both scores or neither", () => {
+  it("doesn't place an item with an empty Effort, and says so", () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/Item title/), { target: { value: "Dark mode" } });
+    pick("Value", "8");
+    add();
 
     expect(rows()).toHaveLength(0);
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Enter Effort to plot this item. Value and Effort each run from 1 to 10."
-    );
-    expect(screen.getByLabelText("Effort (1-10)")).toHaveAttribute("aria-invalid", "true");
+    expect(
+      screen.getByText("Pick an effort too, or leave both empty and place it on the matrix later.")
+    ).toBeInTheDocument();
   });
 
-  it("plots the item in the right quadrant once both are filled", () => {
-    render(<ValueEffortMatrixClient />);
-    type("Item title", "Dark mode");
-    type("Value (1-10)", "7");
-    plot();
-    type("Effort (1-10)", "2");
-    plot();
+  it("places the item in the right quadrant once both are filled, storing no quadrant", () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/Item title/), { target: { value: "Dark mode" } });
+    pick("Value", "8");
+    add();
+    pick("Effort", "2");
+    add();
 
     expect(rows()).toHaveLength(1);
-    expect(rows()[0].fields).toEqual({ value: 7, effort: 2, quadrant: "Quick Wins" });
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(rows()[0].fields).toEqual({ businessValue: 8, effort: 2 });
+    expect(
+      screen.queryByText(
+        "Pick an effort too, or leave both empty and place it on the matrix later."
+      )
+    ).not.toBeInTheDocument();
   });
 });

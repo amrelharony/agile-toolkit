@@ -1,130 +1,118 @@
 "use client";
 
 /**
- * Tab "All methods" — every backlog item scored by every method, side by side.
+ * Tab "All methods": every backlog item scored by every method, side by
+ * side, with a one-sentence verdict. A DataTable: sortable by any method,
+ * one card per item on a phone.
  *
- * MoSCoW, WSJF, RICE and Value/Effort come from the item's own inputs (the
- * table above). ICE, Kano and Cost of Delay come from the latest row in
- * those tools linked to the item; when there is none the cell links to the
- * tool with the item preselected.
+ * MoSCoW, WSJF, RICE and Value/Effort come from each item's own inputs
+ * (the table above). ICE, Kano and Cost of Delay come from the latest row
+ * in those tools linked to the item; when an item has no score in a method
+ * the cell links to the method's tool with the item preselected.
  */
 
+import { useRef } from "react";
 import Link from "next/link";
 import { LayoutGrid } from "lucide-react";
+import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { SectionCard } from "@/components/shared/section-card";
-import type { PrioritizationItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import {
   FRAMEWORKS,
   scoreWithHref,
   type PrioritizationFramework,
 } from "@/lib/prioritization/frameworks";
-import { KANO_LABELS, frameworkScores, type FrameworkScores } from "@/lib/prioritization/scores";
-import type { BacklogItem } from "../types";
-import { MOSCOW_CONFIG } from "../constants";
+import {
+  evaluateItem,
+  method,
+  type MethodId,
+  type MethodScore,
+} from "@/lib/prioritization/methods";
+import { rankByMethod, decidedOrder } from "@/lib/prioritization/rank";
+import { itemName, methodText } from "../method-text";
+import { useTableName } from "../use-table-name";
+import { methodsVerdict } from "../verdict";
 
-/** Columns whose scores are numbers, set in the data font. */
+/** Methods whose result is a number, set in the data font. */
 const NUMERIC = new Set<string>(["wsjf", "rice", "ice", "cost-of-delay"]);
 
-const finite = (n: number | null | undefined): n is number =>
-  typeof n === "number" && Number.isFinite(n);
-
-/** The cell's content for one method, or null when the item has no score there yet. */
-function scoreFor(f: PrioritizationFramework, s: FrameworkScores): React.ReactNode | null {
-  switch (f.framework) {
-    case "moscow":
-      return MOSCOW_CONFIG[s.moscow]?.label ?? null;
-    case "wsjf":
-      return finite(s.wsjf) ? s.wsjf.toFixed(2) : null;
-    case "rice":
-      return finite(s.rice) ? s.rice.toLocaleString("en-US") : null;
-    case "value-effort": {
-      const { value, effort, quadrant } = s.valueEffort;
-      if (!finite(value) || !finite(effort)) return null;
-      return (
-        <>
-          {quadrant}
-          <span className="block text-xs text-sub">
-            Value {value} · Effort {effort}
-          </span>
-        </>
-      );
-    }
-    case "ice":
-      return finite(s.ice) ? s.ice.toLocaleString("en-US") : null;
-    case "kano":
-      return s.kano ? (KANO_LABELS[s.kano] ?? s.kano) : null;
-    case "cost-of-delay":
-      return finite(s.costOfDelay) ? `$${Math.round(s.costOfDelay).toLocaleString("en-US")}` : null;
-    default:
-      return null;
-  }
+interface Row {
+  item: BacklogItem;
+  results: Record<MethodId, MethodScore>;
 }
 
 export function ScoresTab({
   items,
   rows,
 }: {
-  items: BacklogItem[];
+  items: readonly BacklogItem[];
   rows: readonly PrioritizationItem[];
 }) {
+  const box = useRef<HTMLDivElement>(null);
+  useTableName(box, "Each backlog item's score in every method");
+  const tableRows: Row[] = decidedOrder(items).map((item) => ({
+    item,
+    results: evaluateItem(item, rows),
+  }));
+  // Each method's normalised place sorts its column: Cost of Delay's lanes
+  // and the quadrants order by more than one number.
+  const rankings = new Map(
+    FRAMEWORKS.map((f) => [f.framework, rankByMethod(items, rows, f.framework as MethodId)])
+  );
+
+  const cell = (f: PrioritizationFramework, r: Row) => {
+    const id = f.framework as MethodId;
+    const s = r.results[id];
+    const name = itemName(r.item.name);
+    if (s.sortKey === null) {
+      return (
+        <Link
+          href={scoreWithHref(f, r.item.id)}
+          className="text-xs text-accent underline-offset-2 hover:underline"
+        >
+          Score with {f.label}
+          <span className="sr-only">: {name}</span>
+        </Link>
+      );
+    }
+    return <span className={NUMERIC.has(id) ? "font-data" : undefined}>{methodText(id, s)}</span>;
+  };
+
+  const columns: DataTableColumn<Row>[] = [
+    {
+      key: "item",
+      header: "Item",
+      primary: true,
+      cell: (r) => itemName(r.item.name, 80),
+      sortValue: (r) => r.item.name.trim().toLowerCase(),
+    },
+    ...FRAMEWORKS.map(
+      (f): DataTableColumn<Row> => ({
+        key: f.framework,
+        header: f.label,
+        cell: (r) => cell(f, r),
+        sortValue: (r) => {
+          const ranking = rankings.get(f.framework);
+          if (ranking) return ranking.normalized.get(r.item.id) ?? null;
+          return r.results[f.framework as MethodId].sortKey;
+        },
+      })
+    ),
+  ];
+
   return (
     <SectionCard title="All methods" icon={LayoutGrid}>
+      <p className="mb-2 text-sm font-medium text-text">{methodsVerdict(items, rows)}</p>
       <p className="mb-3 text-xs text-sub">
         MoSCoW, WSJF, RICE and Value/Effort use each item&apos;s inputs above. ICE, Kano and Cost of
-        Delay show the latest score linked from those tools.
+        Delay show the latest score linked from {method("ice").label}, {method("kano").label} and{" "}
+        {method("cost-of-delay").label} tools.
       </p>
       {items.length === 0 ? (
         <p className="text-sm text-sub">Add backlog items to compare every method side by side.</p>
       ) : (
-        <div className="table-wrap-responsive">
-          <table className="w-full text-sm">
-            <caption className="sr-only">Each backlog item&apos;s score in every method</caption>
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-sub">
-                <th scope="col" className="p-2 font-medium min-w-[160px]">
-                  Item
-                </th>
-                {FRAMEWORKS.map((f) => (
-                  <th key={f.id} scope="col" className="p-2 font-medium">
-                    {f.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => {
-                const scores = frameworkScores(item, rows);
-                const name = item.name?.trim() || "Untitled item";
-                return (
-                  <tr key={item.id} className="border-b border-border align-top">
-                    <th scope="row" className="p-2 text-left font-normal text-text">
-                      {name}
-                    </th>
-                    {FRAMEWORKS.map((f) => {
-                      const score = scoreFor(f, scores);
-                      return (
-                        <td key={f.id} className="whitespace-nowrap p-2">
-                          {score !== null ? (
-                            <span className={NUMERIC.has(f.framework) ? "font-data" : undefined}>
-                              {score}
-                            </span>
-                          ) : (
-                            <Link
-                              href={scoreWithHref(f, item.id)}
-                              className="text-xs text-accent underline-offset-2 hover:underline"
-                            >
-                              Score with {f.label}
-                              <span className="sr-only">: {name}</span>
-                            </Link>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div ref={box}>
+          <DataTable columns={columns} rows={tableRows} rowKey={(r) => r.item.id} />
         </div>
       )}
     </SectionCard>

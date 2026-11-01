@@ -15,35 +15,35 @@ import {
   ReferenceLine,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
+import type { PassControl, PassPoint, SkippedRow } from "./analysis";
 
-export interface GatePassPoint {
-  release: string;
-  passRatePct: number;
-}
+const { colors } = chartTheme;
 
-interface GatePassControlChartProps {
-  data: GatePassPoint[];
-  control: { centerLinePct: number; uclPct: number; lclPct: number };
-}
-
-export function GatePassControlChart({ data, control }: GatePassControlChartProps) {
+/**
+ * Each ship's gate-pass rate against its p-chart limits. The centre line
+ * and limits are labelled, so colour isn't the only cue.
+ */
+export function GatePassControlChart({
+  data,
+  control,
+}: {
+  data: readonly PassPoint[];
+  control: PassControl;
+}) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+      <LineChart data={[...data]} margin={{ top: 8, right: 28, left: -12, bottom: 0 }}>
         <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
         <XAxis
-          dataKey="release"
-          tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-          axisLine={false}
+          dataKey="label"
+          tick={false}
+          axisLine={{ stroke: chartTheme.gridColor }}
           tickLine={false}
-          interval="preserveStartEnd"
-          height={50}
-          angle={-45}
-          textAnchor="end"
+          height={8}
         />
         <YAxis
           domain={[0, 100]}
-          tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           tickFormatter={(v) => `${v}%`}
@@ -54,73 +54,72 @@ export function GatePassControlChart({ data, control }: GatePassControlChartProp
         />
         <ReferenceLine
           y={control.centerLinePct}
-          stroke={chartTheme.colors.cyan}
+          stroke={colors.cyan}
           strokeDasharray="2 4"
-          strokeOpacity={0.55}
-          label={{
-            value: "X̄",
-            fill: chartTheme.colors.cyan,
-            fontSize: 10,
-            position: "right",
-          }}
+          label={{ value: "Mean", fill: chartTheme.axisColor, fontSize: 12, position: "right" }}
           ifOverflow="extendDomain"
         />
         <ReferenceLine
           y={control.uclPct}
-          stroke={chartTheme.colors.green}
+          stroke={colors.green}
           strokeDasharray="2 4"
-          strokeOpacity={0.55}
-          label={{
-            value: "UCL",
-            fill: chartTheme.colors.green,
-            fontSize: 10,
-            position: "right",
-          }}
+          label={{ value: "UCL", fill: chartTheme.axisColor, fontSize: 12, position: "right" }}
           ifOverflow="extendDomain"
         />
         <ReferenceLine
           y={control.lclPct}
-          stroke={chartTheme.colors.red}
+          stroke={colors.red}
           strokeDasharray="2 4"
-          strokeOpacity={0.55}
-          label={{
-            value: "LCL",
-            fill: chartTheme.colors.red,
-            fontSize: 10,
-            position: "right",
-          }}
+          label={{ value: "LCL", fill: chartTheme.axisColor, fontSize: 12, position: "right" }}
           ifOverflow="extendDomain"
         />
         <Line
           type="monotone"
           dataKey="passRatePct"
           name="Pass rate"
-          stroke={chartTheme.colors.cyan}
+          stroke={colors.cyan}
           strokeWidth={2}
-          dot={{ fill: chartTheme.colors.cyan, r: 3 }}
-          activeDot={{ r: 5 }}
+          dot={{ fill: colors.cyan, r: 3 }}
+          isAnimationActive={false}
         />
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
-export function SkippedGatesChart({ data }: { data: { gate: string; skipped: number }[] }) {
+/**
+ * How often each gate was open at ship, as horizontal bars: the gate names
+ * read across, so nine of them fit a phone without angled labels.
+ */
+export function SkippedGatesChart({ data }: { data: readonly SkippedRow[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 8, right: 12, left: -16, bottom: 60 }}>
-        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+      <BarChart
+        data={[...data]}
+        layout="vertical"
+        margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
+      >
+        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" horizontal={false} />
         <XAxis
-          dataKey="gate"
-          tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-          angle={-30}
-          textAnchor="end"
-          interval={0}
-          height={70}
+          type="number"
+          allowDecimals={false}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
         />
-        <YAxis tick={{ fill: chartTheme.axisColor, fontSize: 11 }} allowDecimals={false} />
-        <Tooltip contentStyle={chartTheme.tooltipStyle} />
-        <Bar dataKey="skipped" fill={chartTheme.colors.amber} radius={[4, 4, 0, 0]} />
+        <YAxis
+          type="category"
+          dataKey="label"
+          width={120}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
+          axisLine={{ stroke: chartTheme.gridColor }}
+          tickLine={false}
+          interval={0}
+        />
+        <Tooltip
+          contentStyle={chartTheme.tooltipStyle}
+          formatter={(v) => [String(v), "Open at ship"]}
+        />
+        <Bar dataKey="skipped" name="Open at ship" fill={colors.amber} radius={[0, 4, 4, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

@@ -3,31 +3,31 @@
 // Recharts lives here so the burnup page loads it only when the chart
 // mounts. Import this module through next/dynamic, never statically.
 import {
-  ComposedChart,
   Area,
-  Line,
   CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ReferenceArea,
+  ReferenceLine,
+  Tooltip,
   XAxis,
   YAxis,
-  Tooltip,
-  Legend,
-  ReferenceLine,
 } from "recharts";
-import { CausalLine } from "@/components/charts/causal-annotation";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { scopeMarkers, type OffDaySpan, type ScopeMove } from "../burndown/charts";
+
+const { colors } = chartTheme;
 
 export interface BurnupChartRow {
   day: number;
   scope: number | null;
   completed: number | null;
-  forecast: number | undefined;
-  band80Lower: number | undefined;
-  band80Upper: number | undefined;
+  /** Holt's forecast (the advanced section's chart; the main chart doesn't draw it). */
+  forecast?: number;
+  band80Lower?: number;
+  band80Upper?: number;
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Custom Tooltip                                                             */
-/* -------------------------------------------------------------------------- */
 
 function CustomTooltip({
   active,
@@ -40,14 +40,12 @@ function CustomTooltip({
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={chartTheme.tooltipStyle} className="px-3 py-2 min-w-[150px]">
-      <p className="font-semibold mb-1.5" style={{ color: "#e2e8f0" }}>
-        Day {label}
-      </p>
+    <div style={chartTheme.tooltipStyle} className="min-w-[150px] px-3 py-2">
+      <p className="mb-1.5 font-semibold text-text">Day {label}</p>
       {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-3 text-xs">
           <span style={{ color: p.color || p.fill }}>{p.name}</span>
-          <span style={{ color: "#e2e8f0" }} className="font-data font-semibold">
+          <span className="font-data font-semibold text-text">
             {p.value != null ? `${p.value} pts` : "—"}
           </span>
         </div>
@@ -59,40 +57,68 @@ function CustomTooltip({
 interface BurnupChartProps {
   data: BurnupChartRow[];
   todayDay: number | null;
-  changepointDays: Array<{ day: number; direction: "up" | "down" }>;
+  /** Kept for callers from before the change points moved to the advanced section; ignored. */
+  changepointDays?: Array<{ day: number; direction: "up" | "down" }>;
+  /** Days off, shaded. */
+  offDays?: OffDaySpan[];
+  /** Scope that joined (+) or left (−) by day, marked with how much. */
+  scopeMoves?: ScopeMove[];
   /** Injected by ChartCard's ResponsiveContainer. */
   width?: number;
   height?: number;
 }
 
-export function BurnupChart({ data, todayDay, changepointDays, width, height }: BurnupChartProps) {
+/**
+ * Points done climbing towards the scope line. The scope steps up where
+ * work joined the sprint and down where it left, each marked with how much;
+ * the today marker wears a colour of its own so it never reads as scope.
+ */
+export function BurnupChart({
+  data,
+  todayDay,
+  offDays,
+  scopeMoves,
+  width,
+  height,
+}: BurnupChartProps) {
   return (
     <ComposedChart
       width={width}
       height={height}
       data={data}
-      margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+      margin={{ top: 16, right: 20, left: 0, bottom: 0 }}
       // ChartCard hides the plot from assistive tech behind its summary and
       // table, so the SVG mustn't be a tab stop.
       accessibilityLayer={false}
     >
       <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
+      {(offDays ?? []).map((s) => (
+        <ReferenceArea
+          key={`off-${s.from}`}
+          x1={s.from}
+          x2={s.to}
+          fill={chartTheme.axisColor}
+          fillOpacity={0.12}
+          stroke="none"
+          ifOverflow="hidden"
+        />
+      ))}
       <XAxis
         dataKey="day"
         tickFormatter={(v: number) => `D${v}`}
-        tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+        tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
         axisLine={{ stroke: chartTheme.gridColor }}
         tickLine={false}
         label={{
-          value: "Sprint Day",
+          value: "Sprint day",
           position: "insideBottomRight",
           offset: -10,
           fill: chartTheme.axisColor,
-          fontSize: 11,
+          fontSize: 12,
         }}
       />
       <YAxis
-        tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+        tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
         axisLine={false}
         tickLine={false}
         label={{
@@ -100,7 +126,7 @@ export function BurnupChart({ data, todayDay, changepointDays, width, height }: 
           angle: -90,
           position: "insideLeft",
           fill: chartTheme.axisColor,
-          fontSize: 11,
+          fontSize: 12,
           offset: 10,
         }}
         domain={[0, "auto"]}
@@ -108,98 +134,49 @@ export function BurnupChart({ data, todayDay, changepointDays, width, height }: 
       <Tooltip content={<CustomTooltip />} />
       <Legend wrapperStyle={chartTheme.legendStyle} iconType="line" />
 
-      {/* Today marker */}
+      {scopeMarkers(scopeMoves, [])}
+
       {todayDay !== null && (
         <ReferenceLine
           x={todayDay}
-          stroke="#ff00aa"
+          stroke={colors.blue}
           strokeWidth={2}
           strokeDasharray="5 3"
           label={{
             value: "Today",
             position: "top",
-            fill: "#ff00aa",
-            fontSize: 11,
+            fill: colors.blue,
+            fontSize: 12,
             fontWeight: 600,
           }}
         />
       )}
 
-      {/* Bayesian 80% forecast band — drawn before the actual
-                      completed area so the lines render on top. The
-                      lower-mask Area uses var(--bg) at fillOpacity 1 to clip
-                      the upper Area down to a true band rather than a solid
-                      wedge from 0. */}
       <Area
-        dataKey="band80Upper"
-        name="80% forecast"
-        stroke="none"
-        fill="#00f0ff"
-        fillOpacity={0.18}
-        connectNulls
-        isAnimationActive={false}
-      />
-      <Area
-        dataKey="band80Lower"
-        stroke="none"
-        fill="var(--bg, #06080f)"
-        fillOpacity={1}
-        legendType="none"
-        connectNulls
-        isAnimationActive={false}
-      />
-
-      {/* Completed area */}
-      <Area
-        type="monotone"
+        type="linear"
         dataKey="completed"
-        name="Completed"
-        fill="rgba(0,240,255,0.15)"
-        stroke="#00f0ff"
+        name="Done"
+        fill={colors.cyan}
+        fillOpacity={0.15}
+        stroke={colors.cyan}
         strokeWidth={2.5}
-        dot={{ fill: "#00f0ff", r: 4, strokeWidth: 0 }}
-        activeDot={{ r: 6, fill: "#00f0ff", strokeWidth: 0 }}
+        dot={{ fill: colors.cyan, r: 3, strokeWidth: 0 }}
+        activeDot={{ r: 5, fill: colors.cyan, strokeWidth: 0 }}
         connectNulls={false}
+        isAnimationActive={false}
       />
-
-      {/* Scope line */}
       <Line
         type="stepAfter"
         dataKey="scope"
         name="Scope"
-        stroke="#ff00aa"
+        stroke={colors.magenta}
         strokeWidth={2}
         strokeDasharray="4 4"
         dot={false}
-        activeDot={{ r: 5, fill: "#ff00aa", strokeWidth: 0 }}
+        activeDot={{ r: 5, fill: colors.magenta, strokeWidth: 0 }}
         connectNulls
+        isAnimationActive={false}
       />
-
-      {/* Forecast centre-line (dashed) — paired with the band
-                      Area; only renders when the forecast has data. */}
-      <Line
-        type="monotone"
-        dataKey="forecast"
-        name="Forecast"
-        stroke="#00f0ff"
-        strokeWidth={2}
-        strokeDasharray="5 5"
-        dot={false}
-        connectNulls
-      />
-
-      {/* CUSUM regime-shift markers on completed-points series. */}
-      {changepointDays.map((cp, i) => (
-        <CausalLine
-          key={`cusum-${cp.day}-${cp.direction}-${i}`}
-          annotation={{
-            x: cp.day,
-            label: `Delivery shift ${cp.direction}`,
-            detail: `CUSUM detected a ${cp.direction === "up" ? "sustained acceleration" : "sustained slow-down"} in completed points around day ${cp.day}.`,
-            confidence: "moderate",
-          }}
-        />
-      ))}
     </ComposedChart>
   );
 }

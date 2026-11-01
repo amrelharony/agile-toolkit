@@ -16,7 +16,8 @@ registry.register({
   toolId: "workspace.scalars",
   name: "get",
   category: "read",
-  description: "Read the workspace-level scalar fields (team name, maturity level).",
+  description:
+    "Read the workspace-level scalar fields: team name and maturity level (null when not set; a null level means the team is unassessed).",
   paramsSchema: z.object({}),
   handler: async () => {
     const s = useWorkspaceStore.getState();
@@ -53,7 +54,8 @@ registry.register({
   toolId: "workspace.scalars",
   name: "set_maturity_level",
   category: "write",
-  description: "Set the team's agile maturity level (1-5).",
+  description:
+    "Set the team's agile maturity level (1-5). The Maturity tool's latest saved assessment owns this level: saving, removing or resetting an assessment there (or through tool.maturity.*) sets it again, and a team with no saved assessment is unassessed (null). Prefer tool.maturity.*; use this only for a team that doesn't use the Maturity tool.",
   paramsSchema: z.object({
     level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   }),

@@ -28,10 +28,12 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_COCKPIT_ACTIONS } from "@/lib/history/event-actions";
 import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
-import { dayForDate, seriesFor, sprintLengthDays, todayIso, withDay } from "@/lib/sprints/series";
+import { dayForDate, seriesFor, sprintLengthDays, todayIso } from "@/lib/sprints/series";
+import { withBurndownDay } from "@/lib/sprints/day-writes";
+import { averageScore, sprintScores } from "@/lib/sprints/compare";
 import { points, type TileId } from "@/lib/sprints/hub-view";
 import { updateSeries, updateSprint } from "@/lib/sprints/store";
-import { nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
+import { cadenceCalendar, nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
@@ -98,6 +100,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const [now] = useState(() => new Date());
   const [creating, setCreating] = useState(false);
   const [example, setExample] = useState<CockpitExample | null>(null);
+  const calendar = useMemo(() => cadenceCalendar(cadence), [cadence]);
 
   const selectedId = selected?.id;
   const data = useMemo(
@@ -117,6 +120,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             today,
             // Done when the impediment or Kanban card an action was sent to is finished.
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
+            // The burndown's ideal line and projection count the team's working days.
+            calendar,
           })
         : null,
     [
@@ -131,6 +136,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       reviews,
       sprints,
       today,
+      calendar,
     ]
   );
 
@@ -185,7 +191,11 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
         write({ status });
       },
       logDay: (day, remaining) => {
-        updateSeries(selectedId, (s) => withDay(s, day, { remaining }));
+        // Burndown's own day writer, so a day that rose keeps Burnup's scope in step.
+        updateSeries(selectedId, (s) => {
+          const sprint = useWorkspaceStore.getState().sprints.find((x) => x.id === selectedId);
+          return sprint ? withBurndownDay(sprint, s, day, { remaining }) : s;
+        });
         log(SPRINT_COCKPIT_ACTIONS.DAY_LOGGED, { sprintId: selectedId, day, remaining });
         toast.success(`Day ${day} logged: ${points(remaining)} left`);
       },
@@ -304,19 +314,45 @@ function CockpitBody({
   const [closing, setClosing] = useState(false);
 
   const cards = useMemo(() => flowCards(data), [data]);
+  // The rating is Sprint Comparison's computed average, so the two agree.
+  const allSeries = useWorkspaceStore((s) => s.sprintSeries);
+  const allStories = useWorkspaceStore((s) => s.stories);
+  const goals = useWorkspaceStore((s) => s.sprintGoals);
+  const moodEntries = useWorkspaceStore((s) => s.moodEntries);
+  const moodPulses = useWorkspaceStore((s) => s.moodPulses);
+  const healthChecks = useWorkspaceStore((s) => s.healthChecks);
+  const rating = useMemo(
+    () =>
+      readOnly
+        ? undefined
+        : averageScore(
+            sprintScores({
+              sprint,
+              sprints,
+              stories: allStories ?? [],
+              series: allSeries,
+              goals,
+              moodEntries,
+              moodPulses,
+              healthChecks,
+            })
+          ),
+    [readOnly, sprint, sprints, allStories, allSeries, goals, moodEntries, moodPulses, healthChecks]
+  );
   const tiles = useMemo(() => {
-    const all = cockpitTiles(data, sprints, today);
+    const all = cockpitTiles(data, sprints, today, { rating });
     return compact ? all.filter((t) => COMPACT_TILES.includes(t.id)) : all;
-  }, [data, sprints, today, compact]);
+  }, [data, sprints, today, compact, rating]);
   const verdict = useMemo(() => cockpitVerdict(data, today), [data, today]);
   const upcoming = useMemo(() => nextCeremonies(sprint, cadence, now), [sprint, cadence, now]);
   const day = dayForDate(sprint, today);
   const ended = day !== null && day > sprintLengthDays(sprint);
   const boardHref = readOnly ? "/kanban" : sprintHref("/kanban", sprint.id);
 
+  // The report's rating row is the tile's.
   const report = useMemo(
-    () => cockpitMarkdown({ data, series, sprints, today }),
-    [data, series, sprints, today]
+    () => cockpitMarkdown({ data, series, sprints, today, rating }),
+    [data, series, sprints, today, rating]
   );
 
   return (
@@ -469,8 +505,9 @@ function ExampleCockpit({
         reviews: example.reviews,
         sprints: example.sprints,
         today,
+        calendar: cadenceCalendar(cadence),
       }),
-    [example, sprint, series, today]
+    [example, sprint, series, today, cadence]
   );
   return (
     <div className="space-y-4 sm:space-y-6">

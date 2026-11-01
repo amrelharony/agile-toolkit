@@ -1,105 +1,216 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { nanoid } from "nanoid";
 import { useShallow } from "zustand/react/shallow";
-import { Vote, Plus, Trash2 } from "lucide-react";
+import { BarChart3, Plus, Radio, Vote } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
+import { ActionRow } from "@/components/shared/action-row";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ResetButton } from "@/components/shared/reset-button";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { VoteRoundPanel } from "@/components/collab/vote-room";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
+import { useStableOrder } from "@/hooks/use-stable-order";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
+import type { AllocationRound, PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
+import type { AllocationRoundResult } from "@/lib/realtime/vote-room/allocation";
 import { generateHundredDollarPrompts } from "@/lib/ai-prompts/hundred-dollar-test";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HUNDRED_DOLLAR_ACTIONS } from "@/lib/history/event-actions";
+import { todayIso } from "@/lib/sprints/series";
+import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
+import {
+  HUNDRED_FRAMEWORK,
+  allocationOf,
+  allocationRoundFrom,
+  capAllocation,
+  dollars,
+  hundredDollarSheet,
+  hundredDollarVerdict,
+  hundredRows,
+  roundDayProblem,
+  roundsFor,
+  splitSummary,
+  teamAverages,
+  withAllocation,
+  withoutAllocation,
+} from "@/lib/hundred-dollar/allocation";
+import { DayField } from "../health-check/day-field";
+import { useDayPick, useToday } from "../health-check/use-today";
+import { AddItemForm } from "./add-item-form";
+import { buildExample, type HundredDollarExample } from "./example";
+import { ItemRow } from "./item-row";
+import { toMarkdown } from "./markdown";
+import { RoundHistory, RoundPicker, TeamResults, roundLabel, roundWhen } from "./team-results";
 
-const usd = (n: number) => `$${n.toFixed(2)}`;
+const keyOf = (x: PrioritizationItem) => x.id;
+/** Biggest amount first; items with no amount yet after a deliberate $0. */
+const byAmount = (a: PrioritizationItem, b: PrioritizationItem) =>
+  (allocationOf(b) ?? -1) - (allocationOf(a) ?? -1);
+
+const ws = () => useWorkspaceStore.getState();
+const freshRows = () => hundredRows(ws().prioritizations);
 
 /**
- * Why an amount typed for `title` was changed before saving, or null when
- * it went in as typed. `typed` is the parsed input, `saved` what was stored
- * and `headroom` the money not given to other items.
+ * The $100 Test: split $100 across competing items. Two ways at once:
+ *  - the agreed split, one $100 the group settles together (or one
+ *    person's), typed per item and saved when the box is left;
+ *  - team rounds, where everyone splits their own $100 anonymously in the
+ *    vote room (or on paper), and only the per-item totals, how many gave
+ *    each something and the spread bands are kept.
+ * The results show the team's averages beside the agreed split. The
+ * example is a read-only preview that never reaches the workspace.
  */
-function capNote(title: string, typed: number, saved: number, headroom: number): string | null {
-  if (!Number.isFinite(typed) || typed === saved) return null;
-  if (typed < 0) return `Amounts can't be negative, so ${title} is set to $0.00.`;
-  if (headroom >= 100) {
-    return `The whole budget is $100, so ${title} got ${usd(saved)}, not ${usd(typed)}.`;
-  }
-  return `Only ${usd(headroom)} was left, so ${title} got ${usd(saved)}, not ${usd(typed)}. Lower another item first to move money here.`;
-}
-
 export function HundredDollarTestClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
-  const items = useMemo(() => all.filter((x) => x.framework === "hundred-dollar"), [all]);
-  const upsert = useWorkspaceStore((s) => s.upsertPrioritization);
-  const removeOne = useWorkspaceStore((s) => s.removePrioritization);
+  const storedRounds = useWorkspaceStore((s) => s.allocationRounds);
+  const [example, setExample] = useState<HundredDollarExample | null>(null);
+  const preview = example !== null;
+  const liveRows = useMemo(() => hundredRows(all), [all]);
+  const rows = example?.rows ?? liveRows;
+  const rounds = useMemo(
+    () => roundsFor(example?.rounds ?? storedRounds, "hundred-dollar-test"),
+    [example, storedRounds]
+  );
   const { log } = useHistoryLogger("hundred-dollar-test");
+  const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
-
-  const [title, setTitle] = useState("");
   // Why the last amount typed was changed, shown under that item.
   const [allocNote, setAllocNote] = useState<{ id: string; text: string } | null>(null);
-  const noteId = useId();
+  const [pickedRound, setPickedRound] = useState<string | null>(null);
+  // For Clear all amounts' Undo: the rows as they were.
+  const beforeReset = useRef<PrioritizationItem[]>([]);
+  const today = useToday();
+  // The day a team round is saved under: today unless picked (paper splits collected earlier).
+  const [roundDay, setRoundDay] = useDayPick(today);
 
-  function add() {
-    if (!title.trim()) return;
+  const round = rounds.find((r) => r.id === pickedRound) ?? rounds[0] ?? null;
+  const latest = rounds[0] ?? null;
+  const split = splitSummary(rows);
+  const verdict = hundredDollarVerdict(rows, latest);
+  const { ordered, isStale, resort } = useStableOrder(rows, keyOf, byAmount);
+
+  /* ── Writes (never in the preview) ──────────────────────────────────── */
+
+  const add = (title: string) => {
+    if (preview) return;
     const item: PrioritizationItem = {
       id: crypto.randomUUID(),
-      framework: "hundred-dollar",
-      title: title.trim(),
-      score: 0,
-      fields: { allocation: 0 },
+      framework: HUNDRED_FRAMEWORK,
+      title,
+      fields: {},
       status: "open",
       updatedAt: new Date().toISOString(),
     };
-    upsert(item);
+    ws().upsertPrioritization(item);
     log(HUNDRED_DOLLAR_ACTIONS.ITEM_ADDED, { title });
-    setTitle("");
-  }
+    announce(`Added ${title}`);
+  };
 
-  function setAlloc(it: PrioritizationItem, n: number) {
-    // Clamp per-item to [0, 100]: negative values invert the bar fill,
-    // values >100 on a single line item make no sense — both capped, with
-    // a note under the item. NaN from `parseFloat("abc")` also coerces to 0.
-    // R11-fix: ALSO enforce the aggregate $100 budget. The tool's core
-    // premise is "you have $100, allocate it" — without this guard,
-    // users could set every item to 100 and "spend" $1000 across N
-    // items, completely breaking the forced-tradeoff mechanic. We
-    // compute the headroom from OTHER items' allocations and cap the
-    // new value at that headroom.
-    const requested = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
-    const otherTotal = items.reduce((s, x) => {
-      if (x.id === it.id) return s;
-      return s + (Number(x.fields?.allocation) || 0);
-    }, 0);
-    const headroom = Math.max(0, 100 - otherTotal);
-    const safe = Math.min(requested, headroom);
-    // The cap used to be silent: typing $60 with $50 left just showed $50.
-    // Say what happened, next to the amount.
-    const note = capNote(it.title, n, safe, headroom);
-    setAllocNote(note ? { id: it.id, text: note } : null);
-    upsert({
-      ...it,
-      score: safe,
-      fields: { ...(it.fields ?? {}), allocation: safe },
-      updatedAt: new Date().toISOString(),
+  const rename = (row: PrioritizationItem, title: string) => {
+    if (preview) return;
+    const fresh = freshRows().find((x) => x.id === row.id);
+    if (!fresh || fresh.title === title) return;
+    ws().upsertPrioritization({ ...fresh, title, updatedAt: new Date().toISOString() });
+  };
+
+  /** Save a typed amount, capped (and said so); returns what was saved. */
+  const setAmount = (row: PrioritizationItem, typed: number): number | null => {
+    if (preview) return null;
+    const current = freshRows();
+    const fresh = current.find((x) => x.id === row.id);
+    if (!fresh) return null;
+    const { saved, note } = capAllocation(current, row.id, typed);
+    setAllocNote(note ? { id: row.id, text: note } : null);
+    if (allocationOf(fresh) === saved) return saved;
+    ws().upsertPrioritization(withAllocation(fresh, saved, new Date().toISOString()));
+    log(HUNDRED_DOLLAR_ACTIONS.ALLOCATION_CHANGED, { id: row.id, n: saved });
+    return saved;
+  };
+
+  const remove = (row: PrioritizationItem) => {
+    if (preview) return;
+    if (allocNote?.id === row.id) setAllocNote(null);
+    undoable({
+      label: `Deleted “${row.title}”`,
+      apply: () => {
+        ws().removePrioritization(row.id);
+        log(HUNDRED_DOLLAR_ACTIONS.ITEM_REMOVED, { id: row.id });
+      },
+      revert: () => ws().upsertPrioritization(row),
     });
-    log(HUNDRED_DOLLAR_ACTIONS.ALLOCATION_CHANGED, { id: it.id, n: safe });
-  }
+    announce(`Deleted ${row.title}`);
+  };
 
-  // BUG-T3-hundred-dollar-test-2: round to cents to avoid float drift like
-  // `0.0000001` showing up in the "Remaining" KPI after many small writes.
-  const totalAllocatedRaw = items.reduce((s, x) => s + (Number(x.fields?.allocation) || 0), 0);
-  const totalAllocated = Math.round(totalAllocatedRaw * 100) / 100;
-  const remaining = Math.round((100 - totalAllocated) * 100) / 100;
-  // Treat sub-cent drift as fully allocated for tone decisions.
-  const fullyAllocated = Math.abs(remaining) < 0.005;
-  const sorted = [...items].sort(
-    (a, b) => (Number(b.fields?.allocation) || 0) - (Number(a.fields?.allocation) || 0)
-  );
+  const saveRound = (result: AllocationRoundResult) => {
+    if (preview) return false;
+    const ids = new Set(freshRows().map((x) => x.id));
+    if (!result.items.some((x) => ids.has(x.id))) {
+      // Refused: the kit keeps Save round available.
+      toast.error("Every item in the round has since been deleted, so nothing was saved.");
+      return false;
+    }
+    const dayProblem = roundDayProblem(roundDay, todayIso());
+    if (dayProblem) {
+      toast.error(`${dayProblem} Nothing was saved.`);
+      return false;
+    }
+    const saved = allocationRoundFrom(result, {
+      id: `allocationRound_${nanoid(8)}`,
+      date: roundDay,
+    });
+    ws().upsertAllocationRound(saved);
+    setPickedRound(saved.id);
+    // Counts only, as everywhere a round goes: never who gave what.
+    log(HUNDRED_DOLLAR_ACTIONS.ROUND_SAVED, {
+      ballots: saved.ballots,
+      items: saved.items.length,
+      source: saved.source,
+    });
+    announce(hundredDollarVerdict(freshRows(), saved));
+    return () => {
+      ws().removeAllocationRound(saved.id);
+    };
+  };
+
+  const deleteRound = (r: AllocationRound) => {
+    if (preview) return;
+    if (pickedRound === r.id) setPickedRound(null);
+    undoable({
+      label: `Deleted the round of ${roundLabel(r)}`,
+      apply: () => ws().removeAllocationRound(r.id),
+      revert: () => ws().upsertAllocationRound(r),
+    });
+    announce(`Deleted the round of ${roundLabel(r)}`);
+  };
+
+  /* ── Exports and prompts ────────────────────────────────────────────── */
+
+  const markdown = useMemo(() => toMarkdown(rows, rounds), [rows, rounds]);
+
+  const csvData = useMemo(() => {
+    const team = new Map((latest ? teamAverages(latest) : []).map((a) => [a.itemId, a.mean]));
+    return {
+      headers: ["Item", "Agreed split", ...(latest ? ["Team average (latest round)"] : [])],
+      rows: rows.map((it) => {
+        const a = allocationOf(it);
+        const mean = team.get(it.id);
+        return [
+          it.title,
+          a === null ? "" : a,
+          ...(latest
+            ? [mean === undefined || mean === null ? "" : Math.round(mean * 10) / 10]
+            : []),
+        ];
+      }),
+    };
+  }, [rows, latest]);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -118,125 +229,182 @@ export function HundredDollarTestClient() {
       })
     )
   );
-
   const promptConfig = useMemo(
     () => ({
       toolName: "$100 Test",
-      prompts: generateHundredDollarPrompts({ items: sorted }, workspace),
+      // The agreed split and the latest team round, as the page shows them.
+      prompts: generateHundredDollarPrompts({ items: rows, rounds }, workspace),
     }),
-    [sorted, workspace]
+    [rows, rounds, workspace]
   );
 
-  const csvData = {
-    headers: ["Title", "Allocation"],
-    rows: items.map((it) => [it.title, Number(it.fields?.allocation) || 0]),
-  };
+  // A sheet signature, so a running round only changes when the items do.
+  const sheetKey = rows.map((x) => `${x.id}|${x.title}`).join("\n");
+  const sheet = useMemo(
+    () => hundredDollarSheet(rows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- by the items only
+    [sheetKey]
+  );
 
   return (
     <ToolPageWrapper
       toolId="hundred-dollar-test"
       title="$100 Test"
-      description="Each participant allocates $100 across competing items. Forces hard tradeoffs and surfaces real preferences."
+      description="Split $100 across competing items: agree one split together, or let everyone split their own anonymously and compare the averages."
     >
+      {preview && (
+        <div>
+          <ExampleNotice onClear={() => setExample(null)} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: five themes for next quarter, the group&apos;s agreed split and one anonymous
+            round of six people. It&apos;s a read-only preview: nothing is saved.
+          </p>
+        </div>
+      )}
+
+      <ActionRow>
+        <AiPromptGenerator config={promptConfig} />
+        <ExportButton
+          filename="100-dollar-test"
+          csvData={csvData}
+          jsonData={{ items: rows, rounds }}
+          markdown={markdown}
+          targetRef={exportRef}
+        />
+      </ActionRow>
+
+      <p className="mb-4 text-sm font-medium text-text" data-testid="hundred-dollar-verdict">
+        {verdict}
+      </p>
+
       <div ref={exportRef} className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <KPI label="Items" value={String(items.length)} />
-          <KPI label="Allocated" value={`$${totalAllocated.toFixed(2)}`} />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <KPI label="Items" value={String(rows.length)} />
+          <KPI label="Given out" value={dollars(split.total)} />
           <KPI
-            label="Remaining"
-            value={`$${remaining.toFixed(2)}`}
-            tone={remaining < -0.005 ? "danger" : fullyAllocated ? "ok" : "default"}
+            label="Left to give"
+            value={dollars(split.remaining)}
+            tone={split.remaining < -0.005 ? "danger" : split.full ? "ok" : "default"}
           />
         </div>
-        {/* BUG-T3-hundred-dollar-test-1: surface a "distribute fully"
-            cue. The tool's invariant is sum=100 (modulo cents); without
-            this banner the user can export with $20 still unallocated
-            and not realise. */}
-        {items.length > 0 && !fullyAllocated && (
-          <div className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
-            {remaining > 0
-              ? `Allocate the remaining $${remaining.toFixed(2)} to finalise — the $100 test only works when the budget is fully distributed.`
-              : `You’re over budget by $${Math.abs(remaining).toFixed(2)}. Reduce allocations to bring the total to $100.`}
+        {rows.length > 0 && split.given > 0 && !split.full && (
+          <div
+            role="status"
+            className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning"
+          >
+            {split.remaining > 0
+              ? `Give out the remaining ${dollars(split.remaining)}: the $100 Test only works when the whole budget is split.`
+              : `The split is over budget by ${dollars(-split.remaining)}. Lower an item to bring it to $100.`}
           </div>
         )}
 
         <SectionCard title="Add item" icon={Plus}>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Item to vote on"
-              aria-label="Item to vote on"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <Button onClick={add} className="gap-1">
-              <Plus className="w-4 h-4" />
-              Add
-            </Button>
-          </div>
+          <AddItemForm disabled={preview} onAdd={add} />
         </SectionCard>
 
-        {items.length > 0 && (
+        {rows.length === 0 ? (
+          <EmptyState
+            icon={Vote}
+            action={<LoadExampleButton onLoad={() => setExample(buildExample())} />}
+          >
+            No items yet. Add two or more above, then split $100 between them, or load an example to
+            see a team round beside an agreed split.
+          </EmptyState>
+        ) : (
           <SectionCard
-            title="Allocations"
+            title="The agreed split"
             icon={Vote}
             actions={
-              <>
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="100-dollar-test"
-                  csvData={csvData}
-                  jsonData={items}
-                  targetRef={exportRef}
-                />
-              </>
+              <ResetButton
+                label="Clear all amounts"
+                title="Clear every amount in the agreed split?"
+                description="The items stay; each one's amount is cleared. Saved team rounds aren't touched."
+                confirmLabel="Clear amounts"
+                doneLabel="Cleared the agreed split"
+                disabled={preview || split.given === 0}
+                onReset={() => {
+                  const before = freshRows();
+                  beforeReset.current = before;
+                  const now = new Date().toISOString();
+                  for (const row of before) {
+                    if (allocationOf(row) !== null) {
+                      ws().upsertPrioritization(withoutAllocation(row, now));
+                    }
+                  }
+                  setAllocNote(null);
+                  log(HUNDRED_DOLLAR_ACTIONS.TEST_RESET, { items: before.length });
+                }}
+                onUndo={() => {
+                  for (const row of beforeReset.current) ws().upsertPrioritization(row);
+                }}
+              />
             }
           >
-            <ul className="space-y-2">
-              {sorted.map((it) => {
-                const a = Number(it.fields?.allocation) || 0;
-                const note = allocNote?.id === it.id ? allocNote.text : null;
-                return (
-                  <li
-                    key={it.id}
-                    className="flex items-center gap-3 border border-border bg-surface-deep rounded p-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="text-text truncate">{it.title}</div>
-                      <div className="w-full bg-surface h-1.5 rounded mt-1 overflow-hidden">
-                        <div
-                          className="h-1.5 bg-cyan-400"
-                          style={{ width: `${Math.min(100, a)}%` }}
-                        />
-                      </div>
-                      {note && (
-                        <p id={noteId} role="alert" className="mt-1 text-xs text-warning">
-                          {note}
-                        </p>
-                      )}
-                    </div>
-                    <Input
-                      type="number"
-                      value={a}
-                      onChange={(e) => setAlloc(it, parseFloat(e.target.value) || 0)}
-                      aria-label={`Dollars allocated to ${it.title}`}
-                      aria-describedby={note ? noteId : undefined}
-                      className="h-8 w-20 text-xs"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        removeOne(it.id);
-                        log(HUNDRED_DOLLAR_ACTIONS.ITEM_REMOVED, { id: it.id });
-                      }}
-                      aria-label={`Remove ${it.title}`}
-                      className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
-                    >
-                      <Trash2 className="w-4 h-4" aria-hidden="true" />
-                    </button>
-                  </li>
-                );
-              })}
+            <p className="mb-3 text-sm text-sub">
+              One $100 split the group agrees on together, or your own. Each amount is saved when
+              you leave its box or press Enter, in whole dollars.
+            </p>
+            <ResortChip isStale={isStale} onResort={resort} what="Amounts" />
+            <ul className="space-y-2" aria-label="Items, biggest amount first">
+              {ordered.map((row) => (
+                <ItemRow
+                  key={row.id}
+                  row={row}
+                  note={allocNote?.id === row.id ? allocNote.text : null}
+                  readOnly={preview}
+                  onRename={(title) => rename(row, title)}
+                  onAmount={(typed) => setAmount(row, typed)}
+                  onDelete={() => remove(row)}
+                />
+              ))}
             </ul>
+          </SectionCard>
+        )}
+
+        <SectionCard title="Ask the team" icon={Radio} contentClassName="space-y-3">
+          <p className="text-sm text-sub">
+            Everyone splits their own $100 across the items, anonymously. The round keeps only each
+            item&apos;s total, how many people gave it something and how many gave it an amount in
+            each band of the $100, never anyone&apos;s split or who answered. Averages show from 3
+            answers; who backed what and the spread from 5.
+          </p>
+          <DayField
+            label="Round held on"
+            value={roundDay}
+            max={today}
+            problem={(d) => roundDayProblem(d, today)}
+            onChange={setRoundDay}
+            hint={roundDay !== today ? "Backdated" : "Paper rounds can be backdated."}
+            disabled={preview}
+          />
+          <VoteRoundPanel
+            tool="hundred-dollar-test"
+            toolName="$100 Test"
+            sheet={sheet}
+            onSave={saveRound}
+            blockedReason={
+              preview
+                ? "Clear the example to run a round with your team."
+                : rows.length < 2
+                  ? "Add at least two items to split between first, then run a round."
+                  : null
+            }
+          />
+        </SectionCard>
+
+        {round && (
+          <SectionCard title="Team results" icon={BarChart3} contentClassName="space-y-4">
+            <RoundPicker
+              rounds={rounds}
+              selectedId={round.id}
+              onSelect={(id) => setPickedRound(id)}
+            />
+            <p className="text-sm text-sub">
+              {hundredDollarVerdict(rows, round)}
+              {rounds.length === 1 && ` (${roundWhen(round)})`}
+            </p>
+            <TeamResults round={round} rows={rows} />
+            <RoundHistory rounds={rounds} readOnly={preview} onDelete={deleteRound} />
           </SectionCard>
         )}
       </div>
@@ -257,8 +425,8 @@ function KPI({
     tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
-      <div className="text-xs text-sub uppercase tracking-wider">{label}</div>
-      <div className={`text-xl font-semibold mt-1 font-data ${colorClass}`}>{value}</div>
+      <div className="text-xs uppercase tracking-wider text-sub">{label}</div>
+      <div className={`mt-1 font-data text-xl font-semibold ${colorClass}`}>{value}</div>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { SourceLink } from "@/components/handoff/source-link";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import type { Story } from "@/lib/stores/workspace-types";
-import { storyPoints } from "@/lib/sprints/plan";
+import { isRankedStory, storyPoints } from "@/lib/sprints/plan";
 import { checkStoryPoints, isReady } from "./view";
 
 const STATUS_LABEL: Record<Story["status"], string> = {
@@ -143,6 +143,9 @@ function StoryRow({
   if (showStatus) meta.push(STATUS_LABEL[story.status] ?? story.status);
   if (story.owner?.trim()) meta.push(story.owner.trim());
   if (showPriority) {
+    // The backlog's decided order (the Prioritizer's Decide order) comes
+    // first, so a row's place reads right even when its score is lower.
+    if (isRankedStory(story)) meta.push(`Rank ${story.backlogRank}`);
     meta.push(
       typeof story.priorityScore === "number" ? `Priority ${story.priorityScore}` : "Not scored"
     );

@@ -63,6 +63,9 @@ export const CEREMONY_CADENCE_ID = "ceremony-cadence:current";
 /** The story map's one document id (Story Mapper, its agent actions, Canvas's live story map). */
 export const STORY_MAP_ID = "story-mapper:current";
 
+/** The Kanban Flow board's one document id (the page, its agent actions, hand-offs, next steps). */
+export const KANBAN_BOARD_ID = "kanban:current";
+
 /**
  * The team's ceremony cadence as a workspace document: when the Daily Scrum,
  * Planning, Refinement, Review and Retro happen relative to a sprint's dates
@@ -84,6 +87,24 @@ export interface StoryStatusChange {
   /** The status it left (absent for a story created in `status`). */
   from?: StoryStatus;
   at: ISODateString;
+}
+
+/**
+ * One move of a story into or out of a sprint, as the workspace store
+ * records it whenever a story's sprint changes (lib/sprints/story-status.ts
+ * stampStoryMembership), so burnup, scope churn and carry-over can tell when
+ * a story joined or left a sprint.
+ */
+export interface StorySprintChange {
+  /** The sprint it joined; absent when it went back to the backlog. */
+  sprintId?: string;
+  /** The sprint it left; absent when it came from the backlog (or was created in `sprintId`). */
+  from?: string;
+  at: ISODateString;
+  /** Its points at the move, so added or removed scope weighs what it had then. */
+  points?: number;
+  /** Moved because `from` was closed (the close dialog's carry-over). */
+  carriedOver?: boolean;
 }
 
 export interface Story {
@@ -110,12 +131,26 @@ export interface Story {
   /** Status changes, oldest first; only the latest
    *  `STORY_STATUS_HISTORY_CAP` (lib/sprints/story-status.ts) are kept. */
   statusHistory?: StoryStatusChange[];
+  /** When the story was first saved (stamped by the store; absent on older stories). */
+  createdAt?: ISODateString;
+  /** Sprint moves, oldest first; only the latest
+   *  `STORY_SPRINT_HISTORY_CAP` (lib/sprints/story-status.ts) are kept. */
+  sprintHistory?: StorySprintChange[];
   /** The item this was sent from (review feedback, a tech-debt item). */
   sourceRef?: HandoffRef;
   /** Definition-of-Ready checks from a refinement session. */
   readiness?: StoryReadiness;
   /** The roadmap epic this story belongs to (Epic Roadmap rolls progress up from it). */
   epicId?: string;
+  /** Definition-of-Done checks ticked on the Sprint board card (absent: none ticked). */
+  dodChecks?: StoryDodChecks;
+  /**
+   * The decided backlog order it was pulled in with: its `BacklogItem.rank`
+   * when Sprint Planning imported it (1-based; absent: not ordered). The
+   * shared backlog comparator sorts by it ascending, then `priorityScore`
+   * descending.
+   */
+  backlogRank?: number;
 }
 
 /**
@@ -126,6 +161,18 @@ export interface Story {
 export interface StoryReadiness {
   checked: string[];
   ready: boolean;
+  updatedAt: ISODateString;
+}
+
+/**
+ * Which Definition-of-Done criteria a story meets, ticked on its Sprint
+ * board card. Whether it meets the DoD is derived, never stored: against
+ * the team's required criteria as they are today (`DefinitionOfDone`), so
+ * an id no longer in the DoD is ignored and a new criterion starts unticked.
+ */
+export interface StoryDodChecks {
+  /** Ids of the DoD criteria met. */
+  checked: string[];
   updatedAt: ISODateString;
 }
 
@@ -197,6 +244,8 @@ export const HANDOFF_ROUTE_IDS = [
   "hypothesis",
   "decision",
   "dependency",
+  // Phase 8: an interview quote raised as an opportunity on the tree.
+  "opportunity",
 ] as const;
 
 export type HandoffRouteId = (typeof HANDOFF_ROUTE_IDS)[number];
@@ -208,11 +257,19 @@ export interface HandoffLink {
   at: ISODateString;
 }
 
+/** A 1–5 rating (a risk's probability or impact, before or after mitigation). */
+export type RiskScale = 1 | 2 | 3 | 4 | 5;
+
 export interface Risk {
   id: string;
   title: string;
-  probability: 1 | 2 | 3 | 4 | 5;
-  impact: 1 | 2 | 3 | 4 | 5;
+  /**
+   * 1–5 each. Every write since Phase 8 is checked, but a row saved before
+   * (or the old page blob) may hold another number, kept until a write sets
+   * it: readers clamp it to the scale.
+   */
+  probability: RiskScale;
+  impact: RiskScale;
   mitigation?: string;
   /** Target date by which mitigation should complete (ISO yyyy-mm-dd). */
   mitigationDueAt?: ISODateString;
@@ -221,6 +278,50 @@ export interface Risk {
   resolvedAt?: ISODateString;
   /** The item this was sent from (e.g. a premortem cause). */
   sourceRef?: HandoffRef;
+  /** Who owns it: the roster's spelling when they're on the team. Absent: nobody yet. */
+  owner?: string;
+  /** More about it (a premortem cause's description). */
+  description?: string;
+  /**
+   * The rating once the mitigation has worked, 1–5 each. Both or neither
+   * (the CRUD schema refuses one alone); absent: not assessed.
+   */
+  residualProbability?: RiskScale;
+  residualImpact?: RiskScale;
+  /** Where it was sent: an impediment, once the risk happened. */
+  sentTo?: HandoffLink[];
+  /**
+   * ISO timestamp of the last save, stamped by every writer from Phase 8 on
+   * (the page, the hand-off, the tool verbs, the workspace.risk CRUD).
+   * Absent: saved before the Risk Register moved into the workspace, so the
+   * old page blob's copy of the row may be newer (lib/risks' move reads it).
+   */
+  updatedAt?: string;
+}
+
+/**
+ * Which way a number should move to count as progress: up ("increase", a
+ * sign-up count) or down ("decrease", churn, defects). One union for a key
+ * result's direction and a hypothesis target's.
+ */
+export type MetricDirection = "increase" | "decrease";
+
+/** Which way a key result's number should move; absent on a row means "increase". */
+export type KeyResultDirection = MetricDirection;
+
+/** Check-ins kept per key result (a year of weekly ones); the oldest go first. */
+export const KR_CHECK_IN_CAP = 52;
+
+/** One dated check-in on a key result (OKR Tracker). Can be backdated, never after the day it is entered. */
+export interface KeyResultCheckIn {
+  id: string;
+  /** YYYY-MM-DD, the local day the value was read. */
+  date: ISODateString;
+  /** The key result's value that day. */
+  value: number;
+  /** 0–10: how sure the owner is of reaching the target. Absent = not scored. */
+  confidence?: number;
+  note?: string;
 }
 
 export interface KeyResult {
@@ -228,9 +329,25 @@ export interface KeyResult {
   title: string;
   description?: string;
   target: number;
+  /** The latest value: the newest-dated check-in's, else as typed or set by an agent. */
   current: number;
   unit?: string;
+  /**
+   * The latest scored confidence, 0–10 (≤ 3 off track, 4–6 at risk, ≥ 7 on
+   * track). Absent = not scored. Checked on every write since Phase 8; one
+   * an agent saved before may be off the scale, kept until a write sets it.
+   */
   confidence?: number;
+  /**
+   * The value at the start of the quarter; progress runs baseline → target.
+   * Absent on rows from before Phase 8, which read it as 0 so their
+   * progress doesn't change. New key results are saved with one.
+   */
+  baseline?: number;
+  /** "decrease" for a key result that should fall (target below baseline). Absent: "increase". */
+  direction?: KeyResultDirection;
+  /** Dated check-ins, oldest first, at most KR_CHECK_IN_CAP. Absent: none yet. */
+  checkIns?: KeyResultCheckIn[];
 }
 
 export interface Okr {
@@ -242,17 +359,107 @@ export interface Okr {
   owner?: string;
 }
 
+/* ── Decision records ──
+ * One entity for the Decision Log, DACI and RAPID (Phase 7): `template` says
+ * which form a record was raised with, and the ADR lifecycle is the status
+ * for all three. DACIDecision and RAPIDDecision rows from before the merge
+ * stay as legacy types; lib/decisions reads them through as Decisions. */
+
+/** Which form a decision record uses; absent on a record means "adr". */
+export type DecisionTemplate = "adr" | "daci" | "rapid";
+
+export const DECISION_TEMPLATES = [
+  "adr",
+  "daci",
+  "rapid",
+] as const satisfies readonly DecisionTemplate[];
+
+/** The ADR lifecycle every template shares. DACI/RAPID's "implemented" and
+ *  "revisit" are dates on the record (`implementedAt`, `reopenedAt`). */
+export type DecisionStatus = "proposed" | "accepted" | "deprecated" | "superseded";
+
+export const DECISION_STATUSES = [
+  "proposed",
+  "accepted",
+  "deprecated",
+  "superseded",
+] as const satisfies readonly DecisionStatus[];
+
+/** Named roles besides the one decider (DACI Approver / RAPID Decide / an ADR's decider). */
+export type DecisionRole =
+  /** DACI, one person. */
+  | "driver"
+  /** DACI. */
+  | "contributor"
+  /** DACI. */
+  | "informed"
+  /** RAPID, one person. */
+  | "recommend"
+  /** RAPID (a veto). */
+  | "agree"
+  /** RAPID. */
+  | "perform"
+  /** RAPID. */
+  | "input";
+
+export const DECISION_ROLES = [
+  "driver",
+  "contributor",
+  "informed",
+  "recommend",
+  "agree",
+  "perform",
+  "input",
+] as const satisfies readonly DecisionRole[];
+
+/** One option a decision weighed. */
+export interface DecisionOption {
+  id: string;
+  text: string;
+  /** Why it was rejected, or its trade-offs. */
+  note?: string;
+}
+
 export interface Decision {
   id: string;
   title: string;
   context?: string;
+  /** The outcome ("We will …"); "" until decided. Labelled "Outcome" in the UI. */
   decision: string;
   consequences?: string;
+  /** Pre-template ADRs: one option per line. Read as `options` (lib/decisions);
+   *  new writes use `options`. */
   alternatives?: string[];
-  status: "proposed" | "accepted" | "deprecated" | "superseded";
+  status: DecisionStatus;
+  /** "YYYY-MM-DD" the record was raised (can be backdated). */
   date: ISODateString;
   /** The item this was sent from (a six-hats summary, a weighted decision). */
   sourceRef?: HandoffRef;
+  /** The form it was raised with; absent: "adr" (every record from before templates). */
+  template?: DecisionTemplate;
+  /** One numbering sequence for the whole log, across templates (ADR-0003,
+   *  DACI-0004): assigned once, never changed, and never held by two records
+   *  (only a deleted top record's number is given again). Absent: not
+   *  numbered yet. */
+  number?: number;
+  /** The options weighed. Absent on a pre-template ADR, whose `alternatives` are read instead. */
+  options?: DecisionOption[];
+  /** The option the outcome picked (a `DecisionOption.id`). */
+  chosenOptionId?: string;
+  /** The DACI Driver's or RAPID Recommender's proposal. */
+  recommendation?: string;
+  /** Roster spelling: the one person with the final say (DACI Approver, RAPID Decide). */
+  decider?: string;
+  /** Roster spellings per role; "driver" and "recommend" hold at most one. */
+  roles?: Partial<Record<DecisionRole, string[]>>;
+  /** "YYYY-MM-DD" it was accepted on (can be backdated). */
+  decidedAt?: ISODateString;
+  /** "YYYY-MM-DD" it was carried out (DACI/RAPID "implemented"). */
+  implementedAt?: ISODateString;
+  /** "YYYY-MM-DD" an accepted decision went back to proposed (DACI "revisit"). */
+  reopenedAt?: ISODateString;
+  /** Id of the decision that replaced this one (status "superseded"). */
+  supersededBy?: string;
 }
 
 export interface TechDebtItem {
@@ -260,12 +467,22 @@ export interface TechDebtItem {
   title: string;
   description?: string;
   area?: string;
+  /**
+   * 1–5 each. Every write since Phase 8 is checked, but a row saved before
+   * may hold another number (a 2.5 the page's import copied), kept until a
+   * write sets it: readers clamp it to the scale.
+   */
   impact: 1 | 2 | 3 | 4 | 5;
   effort: 1 | 2 | 3 | 4 | 5;
+  /** Score points gained per sprint left unpaid: 0–100 on every write since Phase 8. */
   interestRate?: number;
   raisedAt: ISODateString;
   resolvedAt?: ISODateString;
   tags?: string[];
+  /** Where it was sent: a backlog story to pay it down. */
+  sentTo?: HandoffLink[];
+  /** ISO timestamp of the last save; as `Risk.updatedAt` (absent: saved before the move into the workspace). */
+  updatedAt?: string;
 }
 
 export type MaturityLevel = 1 | 2 | 3 | 4 | 5;
@@ -556,12 +773,47 @@ export interface A11yTracker {
  * S10 — Quality Engineering entities (singleton-doc per tool, like kanban).
  * ────────────────────────────────────────────────────────────────── */
 
+/**
+ * Minutes of CI wall-clock each layer's suite takes (Test Pyramid's "by
+ * runtime" option). A layer left out hasn't been timed.
+ */
+export interface TestLayerRuntime {
+  unit?: number;
+  integration?: number;
+  e2e?: number;
+}
+
+/** What the pyramid's shares are worked out from; absent on a document means "count". */
+export type TestPyramidWeighting = "count" | "runtime";
+
+/** The layer counts on one day, kept so the pyramid's shape can be followed over time. */
+export interface TestPyramidSnapshot {
+  /** `tps_<nanoid8>`, or `example-…` in the example. */
+  id: string;
+  /** Local YYYY-MM-DD the counts are for (backdatable, never after today). */
+  takenOn: ISODateString;
+  unit: number;
+  integration: number;
+  e2e: number;
+  /** The runtimes that day, when they were entered. */
+  runtime?: TestLayerRuntime;
+  note?: string;
+}
+
 export interface TestPyramid {
   id: string;
   unit: number;
   integration: number;
   e2e: number;
   description?: string;
+  /** Minutes per layer, for weighting by runtime. Absent: not timed. */
+  runtime?: TestLayerRuntime;
+  /** "runtime" needs all three runtimes (the CRUD schema refuses it otherwise). Absent: "count". */
+  weighting?: TestPyramidWeighting;
+  /** Dated copies of the counts, oldest first. Absent: none taken. */
+  snapshots?: TestPyramidSnapshot[];
+  /** Local YYYY-MM-DD the counts were last saved. Absent: before Phase 8. */
+  updatedOn?: ISODateString;
 }
 
 export type FlakyStatus = "active" | "quarantined" | "fixed";
@@ -571,12 +823,24 @@ export interface FlakyTest {
   name: string;
   suite?: string;
   owner?: string;
-  /** 0..1 observed failure rate. */
+  /**
+   * 0..1 observed failure rate. Kept equal to failures / runs when both are
+   * set, so readers from before Phase 8 still work; a row with only this
+   * (no run counts) is a legacy rate-only row.
+   */
   failureRate: number;
   status: FlakyStatus;
   firstSeenAt: ISODateString;
   fixedAt?: string;
   description?: string;
+  /** Failed runs in the window counted. Set together with `runs`. */
+  failures?: number;
+  /** Runs in that window: at least 1 and at least `failures`. */
+  runs?: number;
+  /** Local YYYY-MM-DD the test went into quarantine. Absent: not quarantined, or before Phase 8. */
+  quarantinedAt?: ISODateString;
+  /** Where it was sent (a backlog story to fix it). */
+  sentTo?: HandoffLink[];
 }
 
 export interface FlakyTestBoard {
@@ -594,16 +858,45 @@ export interface PrSample {
   commentCount: number;
   linesChanged: number;
   description?: string;
+  /**
+   * When the first review landed: local wall-clock "YYYY-MM-DDTHH:MM",
+   * between openedAt and mergedAt. Absent: not recorded (rows from before
+   * Phase 8, or still waiting).
+   */
+  firstReviewAt?: string;
+}
+
+/**
+ * The hours of a working day the review maths counts, local "HH:MM"
+ * (24-hour), start before end. Absent on the log: whole working days count.
+ */
+export interface CodeReviewWorkingWindow {
+  start: string;
+  end: string;
 }
 
 export interface CodeReviewLog {
   id: string;
   samples: PrSample[];
+  /** The team's working hours for "working hours" medians; absent: whole working days. */
+  workingWindow?: CodeReviewWorkingWindow;
 }
 
 /* ────────────────────────────────────────────────────────────────────
  * S7 — Engineering Excellence entities (singleton-doc per tool, like kanban).
  * ────────────────────────────────────────────────────────────────── */
+
+/** What a derived DORA sample was worked out from. */
+export interface DoraDerivedFrom {
+  /** Releases that went out in the quarter. */
+  releases: number;
+  /** Of them, rolled back. */
+  rolledBack: number;
+  /** Finished stories and cards the lead time is measured over. */
+  items: number;
+  /** Incidents the time to restore is measured over. */
+  incidents: number;
+}
 
 export interface DoraSample {
   id: string;
@@ -614,6 +907,10 @@ export interface DoraSample {
   changeFailRate: number;
   mttrHours: number;
   description?: string;
+  /** Typed by hand (absent reads as manual), or derived from the toolkit's data. */
+  source?: "manual" | "derived";
+  derivedFrom?: DoraDerivedFrom;
+  updatedAt?: ISODateString;
 }
 
 export interface DoraScorecard {
@@ -699,14 +996,35 @@ export type CharterRuleCategory =
   | "conflict"
   | "other";
 
+/** The working agreement's one document id. */
+export const WORKING_AGREEMENT_ID = "workingAgreement:current";
+
+/** How one person answered a rule: consent, a concern they can live with, or an objection. */
+export type CharterConsentVote = "consent" | "concern" | "object";
+
+/** One person's answer to a rule (one per person, matched by name). */
+export interface CharterConsent {
+  /** The roster spelling when the person is on the team, else as typed. */
+  name: string;
+  vote: CharterConsentVote;
+  note?: string;
+  at: ISODateString;
+}
+
 export interface CharterRule {
   id: string;
   category: CharterRuleCategory;
   text: string;
+  /** Who agreed. Once `consent` is present it is derived from it (the names
+   *  with vote "consent"), so the charter and older readers keep working. */
   agreedBy: string[];
   description?: string;
-  /** Adoption check-in: is the rule still working in practice? */
-  stillWorking?: boolean;
+  /** The draft of the check-in in progress: is the rule still working in
+   *  practice? true, false, or "partly" (kept some of the time, or by some
+   *  of the team). Saved rounds are kept in `WorkingAgreement.checkIns`. */
+  stillWorking?: boolean | "partly";
+  /** Each person's answer; the source of truth for `agreedBy` once present. */
+  consent?: CharterConsent[];
 }
 
 export interface CharterMeta {
@@ -716,10 +1034,49 @@ export interface CharterMeta {
   description?: string;
 }
 
+/** How a rule went in a check-in; "partly" counts as half in adherence. */
+export type CharterCheckInResult = "working" | "partly" | "not_working";
+
+/** One saved adoption check-in: how each rule is working, as of `date`. */
+export interface CharterCheckIn {
+  id: string;
+  /** YYYY-MM-DD (can be backdated). */
+  date: ISODateString;
+  sprintId?: string;
+  /** The `meta.version` the team checked. */
+  version: number;
+  /** Rule id → result; a rule left out was skipped. */
+  results: Record<string, CharterCheckInResult>;
+  /** Each checked rule's text at the time, so a later rewording doesn't rewrite history. */
+  ruleTexts?: Record<string, string>;
+  note?: string;
+}
+
+/** A rule as it read in a published version. */
+export interface CharterVersionRule {
+  id: string;
+  category: CharterRuleCategory;
+  text: string;
+  description?: string;
+}
+
+/** A published version of the agreement, kept so versions can be compared. */
+export interface CharterVersion {
+  version: number;
+  publishedAt: ISODateString;
+  teamName?: string;
+  description?: string;
+  rules: CharterVersionRule[];
+}
+
 export interface WorkingAgreement {
   id: string;
   rules: CharterRule[];
   meta: CharterMeta;
+  /** Saved check-ins, oldest first (the latest 52 are kept). */
+  checkIns?: CharterCheckIn[];
+  /** Published versions, oldest first (the latest 20 are kept). */
+  versions?: CharterVersion[];
 }
 
 export interface LsFavorite {
@@ -805,11 +1162,20 @@ export type AssumptionStatus = "untested" | "testing" | "validated" | "invalidat
 export interface Assumption {
   id: string;
   statement: string;
-  riskLevel: AssumptionLevel;
-  evidenceLevel: AssumptionLevel;
+  /**
+   * 1–5, how badly it hurts if the assumption is wrong. Absent = not rated:
+   * never ranked or placed in the matrix. Rows from before Phase 8 always
+   * have both ratings and stay rated (one an agent stored off the scale is
+   * kept until a write sets it; readers clamp it).
+   */
+  riskLevel?: AssumptionLevel;
+  /** 1–5, how much evidence backs it. Absent = not rated, as riskLevel. */
+  evidenceLevel?: AssumptionLevel;
   testIdea?: string;
   status: AssumptionStatus;
   description?: string;
+  /** Where it was sent: the hypothesis that tests it. */
+  sentTo?: HandoffLink[];
 }
 
 export interface RiskiestAssumption {
@@ -910,22 +1276,56 @@ export const RELEASE_GATE_IDS: GateId[] = [
   "feature_flag_ready",
 ];
 
+/** A gate the toolkit can check by itself: the release's feature flags, or the Definition of Done. */
+export type ReleaseGateAuto = "flags" | "dod";
+
+/** A readiness gate in the team's list: one of the built-ins (`GateId`) or the team's own. */
+export interface ReleaseGateDef {
+  id: string;
+  label: string;
+  description?: string;
+  auto?: ReleaseGateAuto;
+  /** Taken off the list; kept so shipped releases still name it. */
+  archived?: boolean;
+}
+
+/** An earlier ship of a release that was reopened, kept so the stats still count it. */
+export interface ReleaseShip {
+  shippedDate: string;
+  rolledBackAt?: string;
+  /** The gates that applied, frozen at ship. */
+  gateIds?: string[];
+  gates?: Record<string, boolean>;
+  gatesOpenAtShip?: number;
+}
+
 export interface Release {
   id: string;
   name: string;
   plannedDate: string;
   status: ReleaseStatus;
   shippedDate?: string;
-  gates: Record<GateId, boolean>;
+  /** Gate id → passed. A built-in gate is a `GateId`; a missing key is open. */
+  gates: Record<string, boolean>;
   /** Open-gate count snapshotted at ship time (kept for historical p-charts). */
   gatesOpenAtShip?: number;
   description?: string;
+  /** The gates that applied, frozen at ship (absent: the built-in `RELEASE_GATE_IDS`). */
+  gateIds?: string[];
+  /** When it was rolled back (YYYY-MM-DD). */
+  rolledBackAt?: string;
+  /** Earlier ships, oldest first, kept when a shipped release is reopened. */
+  previousShips?: ReleaseShip[];
+  /** Stories it ships, for an exact DORA lead time. */
+  storyIds?: string[];
 }
 
 /** release-readiness singleton: launch gates + ship/rollback tracking. */
 export interface ReleaseReadiness {
   id: string;
   releases: Release[];
+  /** The team's gate list, in order; absent: the built-in gates. */
+  gates?: ReleaseGateDef[];
 }
 
 export type OncallSeverity = "sev1" | "sev2" | "sev3" | "sev4";
@@ -1023,6 +1423,16 @@ export interface PostMortemLog {
 
 export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
+/** What counts as success: at least (increase) or at most (decrease) `value`. */
+export interface HypothesisTarget {
+  direction: MetricDirection;
+  value: number;
+  /** Shown after numbers: "%", "sign-ups", "s". */
+  unit?: string;
+  /** Where the metric stood before the test. */
+  baseline?: number;
+}
+
 export interface Hypothesis {
   id: string;
   description?: string;
@@ -1035,8 +1445,15 @@ export interface Hypothesis {
   status: HypothesisStatus;
   raisedAt: ISODateString;
   resolvedAt?: string;
-  /** The item this was sent from (a riskiest assumption, a Cynefin item). */
+  /**
+   * The item this was sent from: a riskiest assumption, an Opportunity Tree
+   * experiment, a Cynefin item or a Design Sprint finding.
+   */
   sourceRef?: HandoffRef;
+  /** The number the test aims for. Absent on rows from before Phase 8; successMetric keeps the words. */
+  target?: HypothesisTarget;
+  /** The measured result, in target.unit. Absent until measured. */
+  actual?: number;
 }
 
 export interface HypothesisTracker {
@@ -1048,6 +1465,8 @@ export interface InterviewQuote {
   id: string;
   text: string;
   tags: string[];
+  /** Where it was sent: an opportunity on the Opportunity Tree. */
+  sentTo?: HandoffLink[];
 }
 
 export interface Interview {
@@ -1072,7 +1491,19 @@ export interface TreeNode {
   parentId: string | null;
   evidence?: string;
   description?: string;
+  /**
+   * The opportunity the team pursues under its outcome. Opportunities only
+   * (the CRUD schema refuses it on another kind), at most one per outcome.
+   */
+  target?: boolean;
+  /** Where it was sent: an experiment's hypothesis. */
+  sentTo?: HandoffLink[];
+  /** Where it came from: an opportunity raised from an interview quote. */
+  sourceRef?: HandoffRef;
 }
+
+/** The Opportunity Tree's one document id (the page, its agent actions, JTBD's links, the opportunity hand-off). */
+export const OPPORTUNITY_TREE_ID = "opportunityTree:current";
 
 export interface OpportunityTree {
   id: string;
@@ -1100,7 +1531,8 @@ export interface PrioritizationItem {
     | "walking-skeleton";
   title: string;
   description?: string;
-  /** Generic numeric score derived by the framework */
+  /** Generic numeric score derived by the framework, unrounded. Absent: Not
+   *  scored (a title-only row, status "open"); readers never treat it as 0. */
   score?: number;
   /** Free-form data bag (per-framework fields) */
   fields?: Record<string, number | string>;
@@ -1108,6 +1540,102 @@ export interface PrioritizationItem {
   updatedAt: ISODateString;
   /** The shared backlog item (workspace backlogItems) this row scores. */
   backlogItemId?: string;
+  /** Where this row was sent (Buy-a-Feature: a funded feature pushed to the
+   *  backlog as a story). */
+  sentTo?: HandoffLink[];
+}
+
+/* ── Group allocation rounds (Phase 7) ──
+ * Buy-a-Feature and the $100 Test run "allocation" rounds: each person splits
+ * a budget across the items, anonymously (the vote-room kit's allocation
+ * kind, or splits typed in by the facilitator). Only aggregates are kept,
+ * never anyone's split: per item the total, how many backed it and how many
+ * fell in each of five bands of the budget. */
+
+/** The tools whose rounds are AllocationRounds. */
+export const ALLOCATION_ROUND_TOOLS = [
+  "buy-a-feature",
+  "hundred-dollar-test",
+] as const satisfies readonly string[];
+
+export type AllocationRoundTool = (typeof ALLOCATION_ROUND_TOOLS)[number];
+
+/** One item's line in a saved allocation round. */
+export interface AllocationRoundItem {
+  /** The PrioritizationItem this line was. */
+  itemId: string;
+  /** Its title when the round ran. */
+  text: string;
+  /** The most it could take, in all and from one person (Buy-a-Feature: what
+   *  was left of its price). A total above it is over-funding. */
+  cap?: number;
+  /** Everyone's amounts on the item, added up. */
+  total: number;
+  /** People who gave it more than 0; null when the spread was withheld. */
+  backers: number | null;
+  /** People per band (`AllocationRound.bandEdges`); null when withheld (fewer
+   *  than 5 answers, or totals typed by hand). */
+  bands: number[] | null;
+}
+
+/** One anonymous allocation round: totals only, never anyone's split. */
+export interface AllocationRound {
+  /** "allocationRound_<nanoid(8)>". */
+  id: string;
+  tool: AllocationRoundTool;
+  /** The live round's id, or "tally-<base36>" for a count entry. */
+  roundId: string;
+  title: string;
+  /** Whole units each person split, 10..9999. */
+  budget: number;
+  /** Shown before amounts, ≤ 4 chars, e.g. "$". */
+  unit: string;
+  /** true: each split used the whole budget ($100 Test); false: up to it (Buy-a-Feature). */
+  spendAll: boolean;
+  /** YYYY-MM-DD the round is for (a hand-entered round can be backdated). */
+  date: ISODateString;
+  /** When the round closed (ISO). */
+  closedAt: ISODateString;
+  /** The fewest answers the totals showed from. */
+  minN: number;
+  /** How many people answered. */
+  ballots: number;
+  source: "room" | "facilitator";
+  /**
+   * false when the totals were typed by hand: how the amounts were spread
+   * isn't known at any count, so no backers or bands. Written only then;
+   * absent, it's read from the bands (lib/hundred-dollar spreadKnownOf).
+   */
+  spreadKnown?: boolean;
+  /** Lower edge of each band, ascending from 0 (the kit's allocationBandEdges(budget)). */
+  bandEdges: number[];
+  items: AllocationRoundItem[];
+}
+
+/** The kind allocation rounds sync under (user_entities), for server-side code. */
+export const ALLOCATION_ROUND_KIND = "workspace:allocationRound";
+
+/** Buy-a-Feature's one game document id. */
+export const BUY_A_FEATURE_ID = "buyAFeature:current";
+
+/** The kind the game syncs under (user_entities), for server-side code. */
+export const BUY_A_FEATURE_KIND = "workspace:buyAFeatureGame";
+
+/**
+ * The Buy-a-Feature game's settings (a singleton, id BUY_A_FEATURE_ID). The
+ * features are PrioritizationItem rows (framework "buy-feature") with their
+ * price and what was raised; the pool is budgetPerPlayer × players.
+ */
+export interface BuyAFeatureGame {
+  /** BUY_A_FEATURE_ID. */
+  id: string;
+  /** Play money each player gets, whole units 10..9999. Unset until the facilitator sets it. */
+  budgetPerPlayer?: number;
+  /** Players in the game, 1..999. Unset until set (the roster size is offered, never assumed). */
+  players?: number;
+  /** Shown before amounts, ≤ 4 chars, e.g. "$". */
+  unit?: string;
+  updatedAt: ISODateString;
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -1141,16 +1669,106 @@ export interface RAPIDDecision {
   date: ISODateString;
 }
 
+/**
+ * The matrix every option and criterion without a `matrixId` belongs to: the
+ * one unnamed matrix from before named matrices (read-time, no migration).
+ */
+export const DEFAULT_WEIGHTED_MATRIX_ID = "weightedMatrix:default";
+
+/** The kind weighted matrices sync under (user_entities), for server-side code. */
+export const WEIGHTED_MATRIX_KIND = "workspace:weightedMatrix";
+
+/**
+ * A named weighted-decision matrix: one question, scored on its own options
+ * and criteria (the rows whose `matrixId` is this id). The default matrix
+ * (`DEFAULT_WEIGHTED_MATRIX_ID`) needs no stored row: legacy rows belong to
+ * it even when none is saved.
+ */
+export interface WeightedMatrix {
+  /** "weightedMatrix_<nanoid(8)>", or DEFAULT_WEIGHTED_MATRIX_ID once the default one is named. */
+  id: string;
+  name: string;
+  /** What is being decided; becomes the decision record's title. */
+  question?: string;
+  createdAt: ISODateString;
+  updatedAt?: ISODateString;
+  /** Where the result went (a decision record). */
+  sentTo?: HandoffLink[];
+}
+
 export interface WeightedOption {
   id: string;
   name: string;
   scores: Record<string, number>; // criterionId -> score
+  /** The matrix this option is in; absent: the default matrix (DEFAULT_WEIGHTED_MATRIX_ID). */
+  matrixId?: string;
+  /** Why it scored as it did, or a caveat. */
+  note?: string;
 }
 
 export interface WeightedCriterion {
   id: string;
   name: string;
   weight: number;
+  /** The matrix this criterion is in; absent: the default matrix (DEFAULT_WEIGHTED_MATRIX_ID). */
+  matrixId?: string;
+  /** What a score of 1 means on this criterion. */
+  low?: string;
+  /** What a score of 10 means on this criterion. */
+  high?: string;
+}
+
+/** The kinds weighted options and criteria sync under (user_entities), for server-side code. */
+export const WEIGHTED_OPTION_KIND = "workspace:weightedOption";
+export const WEIGHTED_CRITERION_KIND = "workspace:weightedCriterion";
+
+/**
+ * The matrix a weighted option or criterion is in: its `matrixId`, or the
+ * default matrix when it has none. An empty id (the CRUD refuses one) reads
+ * as none too, so no row sits in a matrix nothing can open.
+ */
+export function weightedMatrixIdOf(row: { matrixId?: string }): string {
+  return row.matrixId || DEFAULT_WEIGHTED_MATRIX_ID;
+}
+
+/** The options that held a score for one of `criterionIds`, without those scores. */
+export function withoutWeightedScores(
+  options: readonly WeightedOption[],
+  criterionIds: ReadonlySet<string>
+): WeightedOption[] {
+  const out: WeightedOption[] = [];
+  for (const o of options) {
+    const stale = Object.keys(o.scores ?? {}).filter((k) => criterionIds.has(k));
+    if (stale.length === 0) continue;
+    const scores = { ...o.scores };
+    for (const k of stale) delete scores[k];
+    out.push({ ...o, scores });
+  }
+  return out;
+}
+
+/**
+ * What deleting matrix `id` removes: the options and criteria in it (for
+ * DEFAULT_WEIGHTED_MATRIX_ID, the rows without a matrixId), plus `rescored`,
+ * the options left that held a score for a removed criterion, without it.
+ * The store's removeWeightedMatrix and the MCP side of
+ * workspace.weighted_matrix.delete both apply it, so the two leave the same rows.
+ */
+export function weightedMatrixRemoval(
+  id: string,
+  options: readonly WeightedOption[],
+  criteria: readonly WeightedCriterion[]
+): { optionIds: string[]; criterionIds: string[]; rescored: WeightedOption[] } {
+  const inMatrix = (row: { matrixId?: string }) => weightedMatrixIdOf(row) === id;
+  const criterionIds = criteria.filter(inMatrix).map((c) => c.id);
+  return {
+    optionIds: options.filter(inMatrix).map((o) => o.id),
+    criterionIds,
+    rescored: withoutWeightedScores(
+      options.filter((o) => !inMatrix(o)),
+      new Set(criterionIds)
+    ),
+  };
 }
 
 export interface SixHatsThought {
@@ -1199,11 +1817,34 @@ export interface OODACycle {
 export interface CynefinItem {
   id: string;
   title: string;
+  /** The domain the user confirmed (the guided questions only suggest one). */
   domain: "clear" | "complicated" | "complex" | "chaotic" | "confused";
   rationale?: string;
   recommendedAction?: string;
   loggedAt: ISODateString;
+  /** The guided sense-making answers the suggestion came from; absent on
+   *  items placed by hand or from before the questions. */
+  answers?: Partial<Record<CynefinQuestionId, CynefinAnswer>>;
+  /** Where it was sent (a complex item: a hypothesis to test). */
+  sentTo?: HandoffLink[];
 }
+
+export type CynefinDomain = CynefinItem["domain"];
+
+/** The guided sense-making questions (lib/cynefin has their wording). */
+export type CynefinQuestionId = "crisis" | "known" | "analysable" | "emergent" | "disagree";
+
+export const CYNEFIN_QUESTION_IDS = [
+  "crisis",
+  "known",
+  "analysable",
+  "emergent",
+  "disagree",
+] as const satisfies readonly CynefinQuestionId[];
+
+export type CynefinAnswer = "yes" | "no" | "unsure";
+
+export const CYNEFIN_ANSWERS = ["yes", "no", "unsure"] as const satisfies readonly CynefinAnswer[];
 
 export interface StaceyItem {
   id: string;
@@ -1883,38 +2524,111 @@ export interface StoryMap {
   slices: StoryMapSlice[];
 }
 
-/** A backlog item scored across the prioritizer's four frameworks (MoSCoW,
- *  WSJF, RICE, Value vs Effort). */
+/** How often a RICE reach count happens: the people reached per week, month,
+ *  quarter or year. The score normalises reach to per quarter, so items with
+ *  different periods compare. */
+export type ReachPeriod = "week" | "month" | "quarter" | "year";
+
+export const REACH_PERIODS = [
+  "week",
+  "month",
+  "quarter",
+  "year",
+] as const satisfies readonly ReachPeriod[];
+
+/**
+ * A backlog item scored across the prioritizer's four embedded methods
+ * (MoSCoW, WSJF, RICE, Value vs Effort).
+ *
+ * Every method input is optional: a missing one is Not scored, never a
+ * mid-range default (Phase 7). Items saved before then carry the old "Add
+ * item" defaults (moscow "should"; WSJF parts all 5; RICE reach 100, impact
+ * 1, confidence 80, effort 1; value 5 and matrixEffort 5); a method whose
+ * every field still equals its old default reads as Not scored (the
+ * fingerprint rule in lib/prioritization), and the next save through the
+ * new code unsets them, never a bulk write on load.
+ */
 export interface BacklogItem {
   id: string;
   name: string;
   description?: string;
-  /** MoSCoW bucket. */
-  moscow: "must" | "should" | "could" | "wont";
-  /** WSJF inputs. */
-  businessValue: number;
-  timeCriticality: number;
-  riskReduction: number;
-  jobSize: number;
-  /** RICE inputs. */
-  reach: number;
-  impact: 0.25 | 0.5 | 1 | 2 | 3;
-  confidence: number;
-  effort: number;
-  /** Value vs Effort matrix inputs. */
-  value: number;
-  matrixEffort: number;
+  /** MoSCoW bucket; absent: Not sorted yet (no default bucket). */
+  moscow?: "must" | "should" | "could" | "wont";
+  /**
+   * THE value of the item, on WSJF's modified Fibonacci scale (1, 2, 3, 5,
+   * 8, 13, 20): WSJF's user-business value and the Value/Effort matrix's
+   * value axis (high value = 8 or more). Absent: Not scored, unless a
+   * legacy `value` is there to read.
+   */
+  businessValue?: number;
+  /** WSJF time criticality, Fibonacci 1–20. */
+  timeCriticality?: number;
+  /** WSJF risk reduction / opportunity enablement (a row's `rrOe`), Fibonacci 1–20. */
+  riskReduction?: number;
+  /** WSJF job size, Fibonacci 1–20 (floor 1: a legacy 0 < size < 1 scores as 1). */
+  jobSize?: number;
+  /** RICE reach: people (or events) per `reachPeriod`. */
+  reach?: number;
+  /** The period `reach` counts over; absent: per quarter (what the hub's
+   *  Reach always meant). */
+  reachPeriod?: ReachPeriod;
+  /** RICE impact. The steps are 3 massive, 2 high, 1 medium, 0.5 low and
+   *  0.25 minimal; an exact custom value is kept (no snapping). */
+  impact?: number;
+  /** RICE confidence, percent (100 high, 80 medium, 50 low). */
+  confidence?: number;
+  /** RICE effort, person-months; minimum 0.5 (a legacy smaller value scores as 0.5). */
+  effort?: number;
+  /**
+   * @deprecated Read-only legacy: the Value/Effort matrix's 1–10 value from
+   * before the one value field. Read only when `businessValue` is missing,
+   * mapped to the nearest Fibonacci step at or above it (1→1, 2→2, 3→3,
+   * 4–5→5, 6–8→8, 9–10→13); never written again.
+   */
+  value?: number;
+  /** Value/Effort matrix effort, 1–10 (high effort = 6 or more). */
+  matrixEffort?: number;
+  /**
+   * The decided order: 1-based, unique among ranked items, set only by the
+   * Prioritizer's Decide order. Absent: Not ordered yet (new items stay
+   * unranked until the next Decide order).
+   */
+  rank?: number;
+  /** When the item was last saved (stamped by the code that writes it). */
+  updatedAt?: ISODateString;
 }
 
 // ── Outcomes & Pulse (squad S6) ──────────────────────────────────────
-/** One NPS or CSAT survey response. NPS scores are 0–10; CSAT 1–5. */
+/** At most this many theme tags on one survey response. */
+export const NPS_TAG_LIMIT = 10;
+/** The longest theme tag on a survey response. */
+export const NPS_TAG_MAX_LENGTH = 40;
+
+/** One NPS or CSAT survey response. */
 export interface NpsResponse {
   id: string;
   kind: "nps" | "csat";
+  /**
+   * YYYY-MM-DD, the day the answer was given, on every write since Phase 8.
+   * A row saved before may hold a blank or free-text date (the page saved
+   * what its field held), kept until a write sets it: read it as undated.
+   */
   date: ISODateString;
+  /**
+   * A whole number: NPS 0–10, CSAT 1–5 (≥ 4 counts as satisfied), on every
+   * write since Phase 8. A row saved before may hold a fraction or a value
+   * off the scale (the page clamped, never rounded), kept until a write
+   * sets it.
+   */
   score: number;
   respondent?: string;
   verbatim?: string;
+  /**
+   * Theme tags on the verbatim ("pricing", "onboarding"): lower-case and
+   * unique, at most NPS_TAG_LIMIT of up to NPS_TAG_MAX_LENGTH characters.
+   * Absent: not tagged.
+   */
+  tags?: string[];
 }
 
 /** One daily team-mood data point for a member (1 rough … 5 great). */
@@ -1927,6 +2641,55 @@ export interface MoodEntry {
   /** True when created note-first before a face was picked; excluded from
    *  averages/trend until a real score lands. */
   isPlaceholder?: boolean;
+  /** When it was entered (ISO), for a day filled in afterwards; `date` is the
+   *  day it is for. Absent on entries logged on the day. */
+  loggedAt?: ISODateString;
+}
+
+/**
+ * One anonymous team mood pulse: how many people picked each face on a day,
+ * from a vote room or typed in by the facilitator. Only the counts are kept,
+ * never who answered; a person's own named check-in is a `MoodEntry`.
+ */
+export interface MoodPulse {
+  /** "moodPulse_<nanoid(8)>". */
+  id: string;
+  /** YYYY-MM-DD the pulse is for (can be backdated). */
+  date: ISODateString;
+  /** How many picked each face, 1 rough … 5 great. */
+  counts: Record<1 | 2 | 3 | 4 | 5, number>;
+  source: "room" | "facilitator";
+  createdAt: ISODateString;
+}
+
+/** The mood tracker's one document id. */
+export const MOOD_TRACKER_ID = "moodTracker:current";
+
+/**
+ * The `user_entities` kinds the mood settings and the anonymous pulses sync
+ * under, for server-side code (tool.mood_tracker.*, the retro and sprint
+ * comparison loaders). They are what kindFromToolId derives from
+ * workspace.mood_tracker_doc and workspace.mood_pulse and what the store
+ * registers; a kind that differs is one the browser never syncs.
+ */
+export const MOOD_TRACKER_KIND = "workspace:moodTrackerDoc";
+export const MOOD_PULSE_KIND = "workspace:moodPulse";
+
+/** A run of low team-mood days, and where it was sent. */
+export interface MoodStreak {
+  /** YYYY-MM-DD, first and last day of the run. */
+  start: ISODateString;
+  end: ISODateString;
+  sentTo?: HandoffLink[];
+}
+
+/** The mood tracker's settings: how the team checks in, and low-mood runs sent on. */
+export interface MoodTrackerDoc {
+  id: string;
+  /** "named": each person logs their own check-in; "anonymous": team pulses only. */
+  mode: "named" | "anonymous";
+  /** Low-mood streaks that went to the retro (keyed by their start day). */
+  streaks?: MoodStreak[];
 }
 
 export type KanbanColumnId = "backlog" | "ready" | "in_progress" | "review" | "done";
@@ -1950,6 +2713,16 @@ export interface KanbanCard {
   blocked?: boolean;
   /** When it entered its current column, for its age there. */
   columnSince?: ISODateString;
+  /** Column moves, oldest first; only the latest `KANBAN_HISTORY_CAP`
+   *  (lib/kanban/flow.ts) are kept. Absent on cards from before it. */
+  history?: KanbanColumnChange[];
+}
+
+/** One move of a Flow-board card, as `movedCard` (lib/kanban/flow.ts) records it. */
+export interface KanbanColumnChange {
+  column: KanbanColumnId;
+  from?: KanbanColumnId;
+  at: ISODateString;
 }
 
 /** The kanban board — a singleton document (cards + per-column WIP limits). */
@@ -2009,6 +2782,66 @@ export interface ValueStreamStage {
   processTime: number;
   leadTime: number;
   completeAccurate: number;
+  /** Position in its map, 0 first; absent on stages saved before reordering
+   *  (they keep their stored order, after the numbered ones). */
+  order?: number;
+  /** Which map it belongs to; absent reads as "current". */
+  state?: ValueStreamState;
+}
+
+export type ValueStreamState = "current" | "future";
+
+/* ── Health dashboard settings (singleton) ── */
+
+/** The health dashboard's one settings document id. */
+export const HEALTH_DASHBOARD_ID = "healthDashboard:current";
+
+/** Where a KPI turns amber and red. Whether higher is better is the KPI's own. */
+export interface KpiThreshold {
+  /** Green up to (or, for a higher-is-better KPI, from) here. */
+  green: number;
+  /** Amber up to (or from) here; beyond is red. */
+  amber: number;
+}
+
+/** The team's health dashboard settings: thresholds and the windows the KPIs read. */
+export interface HealthDashboardConfig {
+  id: string;
+  /** Per KPI id (lib/health-dashboard); a KPI left out uses the default. */
+  thresholds?: Record<string, KpiThreshold>;
+  /** Pointed sprints predictability looks at. */
+  sprintWindow?: number;
+  /** Days a standup blocker stays recent. */
+  blockerWindowDays?: number;
+  /** Days of finished work cycle time looks at. */
+  cycleWindowDays?: number;
+  updatedAt?: ISODateString;
+}
+
+/* ── Feature flags ── */
+
+export type FeatureFlagStatus = "on" | "off" | "retired";
+export type FeatureFlagPurpose = "rollout" | "experiment" | "kill_switch" | "permission";
+export type FeatureFlagEnv = "dev" | "staging" | "prod" | "all";
+
+/** A feature flag the team tracks until it is removed from the code. */
+export interface FeatureFlag {
+  id: string;
+  name: string;
+  owner?: string;
+  status: FeatureFlagStatus;
+  purpose: FeatureFlagPurpose;
+  environment?: FeatureFlagEnv;
+  /** YYYY-MM-DD; editable, so an older flag can be backdated. */
+  createdAt: string;
+  /** The day the team plans to remove it (YYYY-MM-DD). */
+  removeBy?: string;
+  /** Set when retired (YYYY-MM-DD); absent on a legacy retirement with no date. */
+  retiredAt?: string;
+  /** The Release Readiness release it ships behind. */
+  releaseId?: string;
+  description?: string;
+  sentTo?: HandoffLink[];
 }
 
 // ──────── S4 — Team Health & Maturity (singleton docs) ────────
@@ -2024,16 +2857,70 @@ export interface PsychSafetyResponse {
   description?: string;
 }
 
-export interface PsychSafetyLog {
+/** The psych-safety tool's one document id. */
+export const PSYCH_SAFETY_ID = "psychSafety:current";
+
+/** How many answered 1, 2, 3, 4 and 5 to one question, raw (not reversed). */
+export type PsychSafetyCounts = [number, number, number, number, number];
+
+/**
+ * One survey round, as counts per question: from a vote room, typed in by
+ * the facilitator, or folded from the per-response list the tool kept
+ * before rounds ("legacy"). A round holds counts only, nothing per person.
+ */
+export interface PsychSafetyRound {
+  /** "psRound_<nanoid(8)>". */
   id: string;
-  responses: PsychSafetyResponse[];
+  name: string;
+  /** YYYY-MM-DD the round was taken (can be backdated, never in the future). */
+  date: ISODateString;
+  sprintId?: string;
+  source: "room" | "facilitator" | "legacy";
+  /** How many people answered. */
+  responses: number;
+  counts: Record<PsychSafetyQuestionId, PsychSafetyCounts>;
+  createdAt: ISODateString;
+  /** Where the round's lowest question was sent (a retro topic). */
+  sentTo?: HandoffLink[];
 }
 
-/** Agile Maturity Assessment — 8 dimensions scored 1-5 + an improvement target. */
+export interface PsychSafetyLog {
+  id: string;
+  /** The per-response list from before rounds. Nothing moves it into
+   *  `rounds`: `roundsOf` reads it, counts only, as one read-only "legacy"
+   *  round, and it is emptied only when the team deletes that round (the
+   *  deprecated tool.psych_safety.remove_response still drops one sheet).
+   *  New answers are kept only as `rounds`. */
+  responses: PsychSafetyResponse[];
+  /** Saved rounds, oldest first. */
+  rounds?: PsychSafetyRound[];
+}
+
+/** One saved, dated maturity assessment. */
+export interface MaturityAssessmentEntry {
+  id: string;
+  /** YYYY-MM-DD it was taken (can be backdated, never in the future). */
+  assessedAt: ISODateString;
+  /** All 8 dimensions, 1-5. */
+  scores: Record<string, number>;
+  targetLevel?: number;
+  note?: string;
+}
+
+/**
+ * Agile Maturity Assessment — 8 dimensions scored 1-5 + an improvement target.
+ * The team's maturity level (`Workspace.maturityLevel`) comes from the latest
+ * saved entry in `history`; with none, the team is unassessed.
+ */
 export interface MaturityAssessment {
   id: string;
-  scores: Record<string, number>; // dimensionId -> level 1-5
+  /** The draft being scored (dimensionId -> level 1-5); a missing dimension
+   *  is not scored. A legacy doc with scores and no history is an undated
+   *  draft, never counted as an assessment. */
+  scores: Record<string, number>;
   targetLevel: number;
+  /** Saved assessments, oldest first. */
+  history?: MaturityAssessmentEntry[];
 }
 
 /** Spotify-model squad health check dimensions (single source for client + actions). */
@@ -2051,14 +2938,54 @@ export type HealthDimension = (typeof HEALTH_CHECK_DIMENSIONS)[number];
 export type HealthTrafficLight = "green" | "yellow" | "red";
 export type HealthTrend = "up" | "same" | "down";
 
+/** The health check's one document id. */
+export const HEALTH_CHECK_ID = "healthCheck:current";
+
+/** How many people voted each light for a dimension (anonymous counts only). */
+export interface HealthVotes {
+  green: number;
+  yellow: number;
+  red: number;
+}
+
+/** A dimension the team added to the eight built-in ones. */
+export interface HealthCustomDimension {
+  /** "custom-<nanoid(8)>": the key its lights use in `customScores`. */
+  id: string;
+  name: string;
+  description?: string;
+  /** Hidden from new checks; saved checks keep its lights. */
+  archived?: boolean;
+}
+
 export interface HealthDimensionScore {
   light: HealthTrafficLight;
+  /** Stamped at save from the previous saved check, not picked by hand. */
   trend: HealthTrend;
+  /** The vote counts the light came from, when the team voted. */
+  votes?: HealthVotes;
+  /** What the team said about it (up to 500 characters). */
+  note?: string;
+  /** Where this dimension went (a red sent to the retro as a topic). */
+  sentTo?: HandoffLink[];
 }
 
 export interface HealthCheckSnapshot {
   sprintName: string;
   scores: Record<HealthDimension, HealthDimensionScore>;
+  /** The sprint this check is for. */
+  sprintId?: string;
+  /** YYYY-MM-DD to save it under (backdated; never in the future); absent: the day it is saved. */
+  date?: ISODateString;
+  /** Dimension keys rated in this draft (built-in names and custom ids).
+   *  Absent on older drafts, which read yellow and red as rated, green not. */
+  rated?: string[];
+  /** Lights for custom dimensions, by `HealthCustomDimension.id`. */
+  customScores?: Record<string, HealthDimensionScore>;
+  /** How the lights were set: a vote room, or by the facilitator. */
+  source?: "room" | "facilitator";
+  /** How many people voted, for a room round. */
+  responses?: number;
 }
 
 export interface HealthCheckEntry {
@@ -2066,6 +2993,12 @@ export interface HealthCheckEntry {
   sprintName: string;
   date: string;
   scores: Record<HealthDimension, HealthDimensionScore>;
+  /** The sprint it was for (matched before the sprint name). */
+  sprintId?: string;
+  /** Lights for custom dimensions, by `HealthCustomDimension.id`. */
+  customScores?: Record<string, HealthDimensionScore>;
+  source?: "room" | "facilitator";
+  responses?: number;
 }
 
 /** One synced squad-health-check document: the in-progress check + saved history. */
@@ -2073,6 +3006,8 @@ export interface HealthCheck {
   id: string;
   current: HealthCheckSnapshot;
   history: HealthCheckEntry[];
+  /** Dimensions the team added, archived ones included. */
+  customDimensions?: HealthCustomDimension[];
 }
 
 export type SkillProficiency = 0 | 1 | 2 | 3 | 4;
@@ -2086,35 +3021,183 @@ export interface SkillsMatrixSkill {
   id: string;
   name: string;
   description?: string;
+  /** People needed at `targetLevel` or above; unset = no target. */
+  targetPeople?: number;
+  /** The level the target counts from. Default 2 (handles routine work alone). */
+  targetLevel?: 2 | 3 | 4;
 }
-export type SkillsMatrixGrid = Record<string, Record<string, SkillProficiency>>; // skillId -> memberId -> level
+/** skillId -> column id (a TeamMember.id, or a legacy member id) -> level.
+ *  A missing key is Not rated; 0 is rated None (on a version 2 doc). */
+export type SkillsMatrixGrid = Record<string, Record<string, SkillProficiency>>;
+
+/** One cross-training pair: who learns a skill, from whom, up to which level. */
+export interface SkillsTrainingPair {
+  id: string;
+  skillId: string;
+  /** Column id of the learner. */
+  learnerId: string;
+  /** Column id of the mentor; unset = outside help. */
+  mentorId?: string;
+  toLevel: 2 | 3 | 4;
+  createdAt: ISODateString;
+  /** YYYY-MM-DD it should be done by. */
+  due?: ISODateString;
+  /** YYYY-MM-DD it was done. */
+  doneAt?: ISODateString;
+}
 
 export interface SkillsMatrix {
   id: string;
+  /** Legacy tool-local people; columns now come from the roster. */
   members: SkillsMatrixMember[];
   skills: SkillsMatrixSkill[];
   grid: SkillsMatrixGrid;
+  /** 2 once the grid tells Not rated (missing) from None (0). Absent on
+   *  older docs, whose 0s read as Not rated. */
+  version?: 2;
+  /** Cross-training pairs, oldest first. */
+  training?: SkillsTrainingPair[];
 }
 
-/** Demo seed shown until the first edit (3 members × 4 skills, all unrated). */
-export function defaultSkillsMatrix(id: string): SkillsMatrix {
-  const members: SkillsMatrixMember[] = [
-    { id: "m1", name: "Alice" },
-    { id: "m2", name: "Bob" },
-    { id: "m3", name: "Carol" },
-  ];
-  const skills: SkillsMatrixSkill[] = [
-    { id: "s1", name: "TypeScript" },
-    { id: "s2", name: "React" },
-    { id: "s3", name: "Node.js" },
-    { id: "s4", name: "CI/CD" },
-  ];
-  const grid: SkillsMatrixGrid = {};
-  for (const s of skills) {
-    grid[s.id] = {};
-    for (const m of members) grid[s.id][m.id] = 0;
-  }
-  return { id, members, skills, grid };
+/** A matrix with nothing in it yet (version 2: a 0 means rated None). */
+export function emptySkillsMatrix(id: string): SkillsMatrix {
+  return { id, members: [], skills: [], grid: {}, version: 2 };
+}
+
+/* ── Definition of Done (singleton) ──
+ * A workspace document, so stories, Release Readiness, the charter, next
+ * steps and agents read the same one. The DoD builder's own cloud blob
+ * ("agile-toolkit:dod-builder") moves in once and stays as the backup. */
+
+/** The Definition of Done's one document id. */
+export const DOD_DOC_ID = "definitionOfDone:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const DOD_KIND = "workspace:definitionOfDone";
+
+export type DodCategory = "code" | "testing" | "docs" | "performance" | "security" | "other";
+
+export interface DodCriterion {
+  id: string;
+  label: string;
+  description?: string;
+  category: DodCategory;
+  /** A story meets the DoD when every required criterion is ticked. */
+  required: boolean;
+  /** @deprecated The team-level tick from before Phase 6. Release Readiness
+   *  falls back to it only for a release with no linked stories. */
+  done?: boolean;
+}
+
+/** A sprint's DoD tally from before Phase 6 (read-only history). */
+export interface DodSnapshot {
+  sprintName: string;
+  totalRequired: number;
+  completed: number;
+  ts: string;
+}
+
+export interface DefinitionOfDone {
+  id: string;
+  items: DodCriterion[];
+  /** Pre-Phase-6 snapshots, read-only. */
+  history: DodSnapshot[];
+}
+
+/* ── RACI matrix (singleton) ──
+ * A workspace document, so it syncs and agents and next steps can read and
+ * write it. The tool's local-only store ("agile-toolkit:raci") moves in once. */
+
+/** The RACI matrix's one document id. */
+export const RACI_ID = "raciMatrix:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const RACI_KIND = "workspace:raciMatrix";
+
+export type RaciLetter = "R" | "A" | "C" | "I";
+
+/** A column of the matrix: one person, or a group role. */
+export interface RaciRole {
+  id: string;
+  name: string;
+  description?: string;
+  /** TeamMember.id when the column is one roster person; absent for a group
+   *  role such as "Dev Team". */
+  memberId?: string;
+}
+
+export interface RaciActivity {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface RaciMatrix {
+  id: string;
+  roles: RaciRole[];
+  activities: RaciActivity[];
+  /** Activity id → role id → letters, normalised to [], [R], [A], [A, R],
+   *  [C] or [I]. A missing cell is empty. */
+  cells: Record<string, Record<string, RaciLetter[]>>;
+}
+
+/* ── ADKAR change initiatives (singleton) ──
+ * A workspace document, so next steps and agents can read it. The tool's own
+ * blob ("agile-toolkit:adkar", a bare list of initiatives) moves in once. */
+
+/** Prosci ADKAR elements, in the order a change moves through them. */
+export const ADKAR_ELEMENTS = [
+  "awareness",
+  "desire",
+  "knowledge",
+  "ability",
+  "reinforcement",
+] as const;
+export type AdkarElement = (typeof ADKAR_ELEMENTS)[number];
+export type AdkarScore = 1 | 2 | 3 | 4 | 5;
+
+/** A group affected by the change, scored per element by the facilitator. */
+export interface AdkarGroup {
+  id: string;
+  name: string;
+  /** A missing element is not scored. */
+  scores: Partial<Record<AdkarElement, AdkarScore>>;
+  /** YYYY-MM-DD the scores were taken. */
+  assessedAt?: ISODateString;
+  note?: string;
+}
+
+/** The day an initiative entered a stage. */
+export interface AdkarStageEntry {
+  stage: AdkarElement;
+  /** YYYY-MM-DD. */
+  enteredAt: ISODateString;
+}
+
+export interface AdkarInitiative {
+  id: string;
+  name: string;
+  owner?: string;
+  /** YYYY-MM-DD. */
+  startDate: ISODateString;
+  description?: string;
+  currentStage: AdkarElement;
+  /** Legacy; derived from `currentStage` from now on. */
+  stagesCompleted?: AdkarElement[];
+  /** Oldest first; entry 0 is { awareness, startDate }. */
+  stageHistory: AdkarStageEntry[];
+  groups?: AdkarGroup[];
+}
+
+/** The ADKAR tool's one document id. */
+export const ADKAR_DOC_ID = "adkar:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const ADKAR_KIND = "workspace:adkarDoc";
+
+export interface AdkarDoc {
+  id: string;
+  initiatives: AdkarInitiative[];
 }
 
 /**
@@ -2216,6 +3299,8 @@ export interface Workspace {
   codeReviewLogs?: CodeReviewLog[];
   // S7 — Engineering Excellence (singleton docs)
   doraScorecards?: DoraScorecard[];
+  healthDashboards?: HealthDashboardConfig[];
+  featureFlags?: FeatureFlag[];
   sloBuilders?: SloBuilder[];
   spacePulses?: SpacePulse[];
   devexSurveys?: DevexSurvey[];
@@ -2244,10 +3329,30 @@ export interface Workspace {
   skillsMatrices?: SkillsMatrix[];
   pokerEstimationLogs?: PokerEstimationLog[];
   pokerRounds?: PokerRound[];
+  // Phase 6 — Team & people (singleton docs, except mood pulses)
+  /** One `DefinitionOfDone`, id `DOD_DOC_ID`. */
+  definitionsOfDone?: DefinitionOfDone[];
+  /** One `RaciMatrix`, id `RACI_ID`. */
+  raciMatrices?: RaciMatrix[];
+  /** One `AdkarDoc`, id `ADKAR_DOC_ID`. */
+  adkarDocs?: AdkarDoc[];
+  /** One `MoodTrackerDoc`, id `MOOD_TRACKER_ID`. */
+  moodTrackerDocs?: MoodTrackerDoc[];
+  /** Anonymous team mood pulses (counts only). */
+  moodPulses?: MoodPulse[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
+  // Phase 7 — Prioritize & decide
+  /** Saved Buy-a-Feature and $100 Test rounds (aggregates only). */
+  allocationRounds?: AllocationRound[];
+  /** One `BuyAFeatureGame`, id `BUY_A_FEATURE_ID`. */
+  buyAFeatureGames?: BuyAFeatureGame[];
+  /** Named weighted-decision matrices (the default one needs no row). */
+  weightedMatrices?: WeightedMatrix[];
   // Phase 21 — Decision Frameworks
+  /** Legacy since Phase 7: read through as `decisions` (template "daci"). */
   daciDecisions?: DACIDecision[];
+  /** Legacy since Phase 7: read through as `decisions` (template "rapid"). */
   rapidDecisions?: RAPIDDecision[];
   weightedOptions?: WeightedOption[];
   weightedCriteria?: WeightedCriterion[];
@@ -2355,6 +3460,9 @@ export interface Kudos {
   /** Squad profile id when sent to a named guest; lets the recipient's
    *  tab highlight kudos addressed to them. */
   toProfileId?: string;
+  /** TeamMember.id when the recipient was picked from the roster, so a
+   *  later rename still counts the kudos for the same person. */
+  toMemberId?: string;
   /** Sender display name — owner email/display_name or guest profile name. */
   fromName: string;
   /** Squad profile id when guest-authored; null for owner-authored. */
@@ -2455,6 +3563,8 @@ export const emptyWorkspace = {
   codeReviewLogs: [],
   // S7 — Engineering Excellence
   doraScorecards: [],
+  healthDashboards: [],
+  featureFlags: [],
   sloBuilders: [],
   spacePulses: [],
   devexSurveys: [],
@@ -2483,8 +3593,18 @@ export const emptyWorkspace = {
   skillsMatrices: [],
   pokerEstimationLogs: [],
   pokerRounds: [],
+  // Phase 6 — Team & people
+  definitionsOfDone: [],
+  raciMatrices: [],
+  adkarDocs: [],
+  moodTrackerDocs: [],
+  moodPulses: [],
   // Phase 20 — Prioritization
   prioritizations: [],
+  // Phase 7 — Prioritize & decide
+  allocationRounds: [],
+  buyAFeatureGames: [],
+  weightedMatrices: [],
   // Phase 21 — Decision Frameworks
   daciDecisions: [],
   rapidDecisions: [],

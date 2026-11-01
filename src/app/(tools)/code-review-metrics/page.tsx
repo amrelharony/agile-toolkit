@@ -1,10 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { CodeReviewMetricsClient } from "./code-review-metrics-client";
 
-export const metadata = {
-  title: "Code Review Metrics",
-  description:
-    "PR cycle time, review depth, and PR size from manual logs or pasted CSV — with a size-vs-cycle scatter and the PR authors whose PRs draw the most comments.",
-};
+export const metadata: Metadata = toolMetadata("code-review-metrics");
 
 export default function Page() {
   return <CodeReviewMetricsClient />;

@@ -67,6 +67,9 @@ export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsE
         techDebt: s.techDebt,
         maturityLevel: s.maturityLevel,
         teamName: s.teamName,
+        // The bus-factor rule reads the Skills Matrix's single points of
+        // failure; without it, it falls back to the Team page's skill tags.
+        skillsMatrices: s.skillsMatrices,
         // Phase 19+ entities — included so anti-pattern rules that read
         // workspace.llmEvals / .hallucinations / .prioritizations / .daciDecisions
         // / etc. see the actual data instead of an undefined slot (which threw

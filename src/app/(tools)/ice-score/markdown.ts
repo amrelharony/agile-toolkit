@@ -1,6 +1,5 @@
-import type { PrioritizationItem } from "@/lib/stores/workspace-types";
-import { rank } from "@/lib/analytics/scoring-rubric";
-import { cell } from "@/lib/charts/chart-text";
+import { ICE } from "@/lib/prioritization/methods";
+import type { RankedRow } from "@/lib/prioritization/rank";
 import { iceVerdict } from "./verdict";
 
 /** "18 Oct 2026" */
@@ -18,14 +17,15 @@ function md(v: unknown): string {
 
 const score = (v: unknown) => (v === undefined || v === null || v === "" ? "—" : md(v));
 
-/** The ICE list as a ranked Markdown table, for a growth review or a planning thread. */
-export function toMarkdown(items: readonly PrioritizationItem[], now: Date = new Date()): string {
+/**
+ * The ICE list as a ranked Markdown table, for a growth review or a
+ * planning thread: the ranks and scores as the page shows them (the
+ * registry's), unscored ideas last as "Not scored".
+ */
+export function toMarkdown(rows: readonly RankedRow[], now: Date = new Date()): string {
   const title = `# ICE Scores — ${mdDate(now)}`;
-  if (items.length === 0) return `${title}\n\nNo ideas scored yet.\n`;
+  if (rows.length === 0) return `${title}\n\nNo ideas scored yet.\n`;
 
-  const ranked = rank(
-    items.map((x) => ({ id: x.id, title: x.title, fields: x.fields ?? {}, score: x.score ?? 0 }))
-  );
   const lines = [
     title,
     "",
@@ -33,14 +33,16 @@ export function toMarkdown(items: readonly PrioritizationItem[], now: Date = new
     "",
     "| # | Idea | Impact | Confidence | Ease | ICE |",
     "|---:|---|---:|---:|---:|---:|",
-    ...ranked.map(
+    ...rows.map(
       (r) =>
-        `| ${r.rank} | ${md(r.title)} | ${score(r.fields.impact)} | ${score(
-          r.fields.confidence
-        )} | ${score(r.fields.ease)} | ${cell(r.score)} |`
+        `| ${r.rank ?? "—"} | ${md(r.row.title)} | ${score(r.values.impact)} | ${score(
+          r.values.confidence
+        )} | ${score(r.values.ease)} | ${
+          r.result.score === null ? "Not scored" : ICE.format(r.result.score)
+        } |`
     ),
     "",
-    `**${iceVerdict(items)}**`,
+    `**${iceVerdict(rows)}**`,
   ];
   return `${lines.join("\n")}\n`;
 }

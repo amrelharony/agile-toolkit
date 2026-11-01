@@ -14,6 +14,7 @@
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { isExampleId } from "@/lib/utils/example-id";
 
 const BACKFILL_SESSION_KEY = "agile-toolkit:kudos:backfilled";
 const POST_TIMEOUT_MS = 8_000;
@@ -54,9 +55,12 @@ export async function runKudosBackfillIfNeeded(): Promise<void> {
     // from the guest cookie; re-POSTing them to /api/kudos would full-row
     // upsert squad_id back to null (and clobber reactions with our local
     // snapshot). Mirrors the same gate in cloud-sync.ts.
+    // Example kudos (Kudos' "Load an example") never go to the kudos
+    // table: they are a first look, not recognition, and Clear example
+    // removes them from the workspace only (as cloud-sync.ts skips them).
     // Reverse so newest goes first — fastest convergence for the
     // owner's wall on the secondary device the backfill is targeting.
-    const batch = kudos.filter((k) => !k.fromProfileId).reverse();
+    const batch = kudos.filter((k) => !k.fromProfileId && !isExampleId(k.id)).reverse();
     // Cap batched concurrency at 4 — the typical workspace has at most
     // a few hundred kudos, so we accept ~50 sequential rounds rather
     // than overwhelming the function.

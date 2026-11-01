@@ -98,14 +98,20 @@ describe("Velocity Markdown", () => {
       NOW
     );
     expect(md).toMatch(/^# Velocity — 18 Oct 2026\n/);
-    expect(md).toContain("**Average velocity:** 31.7 points over 3 finished sprints");
-    expect(md).toContain("**Predictability:** 1 of 3 met their commitment (33%)");
-    expect(md).toContain("**Spread:** ±2.9 points (standard deviation)");
-    expect(md).toContain("| Sprint | Committed | Completed | Met commitment | Goal |");
-    expect(md).toContain("| Sprint 1 | 34 | 28 | No (82%) |  |");
-    expect(md).toContain("| Sprint 2 | 30 | 32 | Yes (107%) |  |");
-    expect(md).toContain("| Sprint 4 | 33 | — | Planned | Wallet launch |");
-    expect(md).toContain("| Sprint 5 | 0 | — | Cancelled |  |");
+    // The shared velocity (the last 3 finished sprints) and the graded say/do.
+    expect(md).toContain(
+      "**Velocity:** 31.7 points, the average of the last 3 finished sprints by end date"
+    );
+    expect(md).toContain(
+      "**Say/do:** 2 of the last 3 sprints with a commitment met it (90–110%); 1 close, 0 missed, 0 over. Mean 95%."
+    );
+    expect(md).toContain(
+      "| Sprint | Committed | Completed | Say/do | Points per person-day | Goal |"
+    );
+    expect(md).toContain("| Sprint 1 | 34 | 28 | Close to the commitment (82%) | — |  |");
+    expect(md).toContain("| Sprint 2 | 30 | 32 | Met the commitment (107%) | — |  |");
+    expect(md).toContain("| Sprint 4 | 33 | — | Planned | — | Wallet launch |");
+    expect(md).toContain("| Sprint 5 | 0 | — | Cancelled | — |  |");
   });
 
   it("doesn't count a sprint that's still running, even with points entered", () => {
@@ -122,7 +128,7 @@ describe("Velocity Markdown", () => {
       NOW
     );
     expect(md).toContain("No finished sprints yet.");
-    expect(md).toContain("| Sprint 9 | 20 | 12 | In progress |  |");
+    expect(md).toContain("| Sprint 9 | 20 | 12 | In progress | — |  |");
   });
 
   it("escapes pipes and collapses newlines in cells", () => {
@@ -138,7 +144,9 @@ describe("Velocity Markdown", () => {
       ]),
       NOW
     );
-    expect(md).toContain("| Sprint 5 \\| hotfix | 10 | 12 | Yes (120%) | a b |");
+    expect(md).toContain(
+      "| Sprint 5 \\| hotfix | 10 | 12 | Did more than committed (120%) | — | a b |"
+    );
   });
 
   it("says there are no sprints yet", () => {
@@ -166,10 +174,10 @@ describe("Velocity example", () => {
 
   it("shows the example sprints read-only, on the in-progress one", () => {
     renderVelocity();
-    fireEvent.click(screen.getByRole("button", { name: "See an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
-    const notice = screen.getByRole("status");
-    expect(notice).toHaveTextContent("Example sprints. A preview only: nothing here is saved.");
+    expect(screen.getByText("Example data.")).toBeInTheDocument();
+    expect(screen.getByText(/A preview only: nothing in it is saved/)).toBeInTheDocument();
     const example = exampleSprints();
     for (const s of example.sprints) expect(screen.getByText(s.name)).toBeInTheDocument();
     // Nothing to edit, add or remove.
@@ -179,8 +187,9 @@ describe("Velocity example", () => {
     // The running example sprint is the selected one.
     const current = document.querySelector('[aria-current="true"]') as HTMLElement;
     expect(within(current).getByText(example.current.name)).toBeInTheDocument();
-    // Four finished example sprints: 29, 31, 30, 33.
-    expect(screen.getByText(/Sprints meeting commitment/).textContent).toMatch(/1\s*\/\s*4/);
+    // Four finished example sprints: 29 of 34 (close), 31 of 32, 30 of 36
+    // (close) and 33 of 33: two met the commitment.
+    expect(screen.getByText("2 of 4")).toBeInTheDocument();
 
     expect(useWorkspaceStore.getState().sprints).toEqual([]);
     expect(useWorkspaceStore.getState().sprintSeries).toEqual([]);
@@ -188,7 +197,7 @@ describe("Velocity example", () => {
 
   it("Start your own creates a real sprint and leaves the preview", () => {
     renderVelocity();
-    fireEvent.click(screen.getByRole("button", { name: "See an example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     fireEvent.click(screen.getByRole("button", { name: "Start your own" }));
 
     const dialog = screen.getByRole("dialog");
@@ -200,7 +209,7 @@ describe("Velocity example", () => {
     expect(saved).toHaveLength(1);
     expect(saved[0].id.startsWith("example-")).toBe(false);
     expect(saved[0].pointsCompleted).toBeUndefined();
-    expect(screen.queryByText("Example sprints.")).toBeNull();
+    expect(screen.queryByText("Example data.")).toBeNull();
     expect(
       screen
         .getAllByRole("textbox", { name: "Sprint name" })

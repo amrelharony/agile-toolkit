@@ -224,13 +224,13 @@ The fix for those is private rooms, below.
 
 ### Private rooms (Realtime Authorization)
 
-With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, and Supabase checks each join against the policy in migration 0026.
+With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, and Supabase checks each join against the policy in migration 0026 (its visitor branch narrowed by 0027, and given the Prioritize tools' vote rounds by 0028).
 
 **Who gets in:**
 
 - **Owner:** your browser fetches a short-lived room token from `/api/realtime/token` (owner only) that opens every tool room.
 - **Invited guest:** a guest's browser fetches one from `/api/guest/realtime-token` that lists exactly the rooms their invites cover.
-- **Visitor rooms** still open with the plain anon key. The code in the link is their only key, by design.
+- **Visitor rooms** still open with the plain anon key. The code in the link is their only key, by design. Since migration 0027 the policy admits only the app's own shape, `visitor:<visitor tool>:<12-character code>`; 0026 admitted any topic starting with `visitor:`. Migration 0028 added Kano, Buy-a-Feature and the $100 Test to the visitor tools.
 - **Your sync, history and agent-conversation feeds** use private channels on your own signed-in session.
 
 **Tokens:**
@@ -242,14 +242,18 @@ With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, a
 A public channel and a private channel with the same name are separate on Supabase. Tested live on 19 Oct 2026: someone on the public channel neither heard the private room nor reached it. So **the flag alone protects what's said in a room.** Turning off "Allow public access" then does two more things:
 
 - old tabs (still running the build from before the flag) can't keep using public channels;
-- nobody can use the public key to run channels of their own on the project's quota.
+- nobody can use the public key to run **public** channels of their own on the project's quota.
+
+It does **not** shut the anon key out of private channels the policy admits for it: visitor rooms. With the flag on, visitor rooms are private channels that the policy's visitor branch lets the plain anon key join, so they keep working with public access off, and so does anyone who uses the anon key to open a private channel of that shape. Migrations 0027 and 0028 narrow that branch from any `visitor:%` topic to the app's own tools and 12-character codes; to stop visitor rooms entirely, use the SQL step under "Emergency brake".
 
 **Turning it on (in this order):**
 
 1. **Secret:** put the legacy JWT secret in `SUPABASE_JWT_SECRET` in Vercel (Production) and `.env.local`. It's under Project Settings → JWT Keys → Legacy JWT Secret.
-2. **Migration:** run `supabase db push`, which applies 0026. This is safe at any time, because public channels ignore the policy. After pushing, check:
+2. **Migration:** run `supabase db push`, which applies 0026, 0027 and 0028. This is safe at any time, because public channels ignore the policy. After pushing, check:
    - `select has_function_privilege('anon','public.realtime_room_allowed(text)','EXECUTE');` returns true;
-   - two policies, `realtime_rooms_select` and `realtime_rooms_insert`, are on `realtime.messages`.
+   - two policies, `realtime_rooms_select` and `realtime_rooms_insert`, are on `realtime.messages`;
+   - `select public.realtime_room_allowed('visitor:retro:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:anything');` returns `true, false` (0027 applied);
+   - `select public.realtime_room_allowed('visitor:kano-model:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:hundred-dollar-test:ABCDEFGHJKMN');` returns `true, true` (0028 applied).
 3. **Flag:** set `NEXT_PUBLIC_PRIVATE_ROOMS=1` in Vercel and **redeploy**. It's inlined at build time.
 4. **Check production:**
    - an owner Poker session and the kudos wall stay live (open them signed in);
@@ -259,7 +263,7 @@ A public channel and a private channel with the same name are separate on Supaba
 
    Ask anyone with the site open to reload: tabs still running the old build use public channels.
 
-5. **Lock it:** Supabase → Realtime → Settings → turn **off** "Allow public access". From then on public channels are refused entirely: an old tab can't keep using a public one, and nobody can run their own channels on the anon key.
+5. **Lock it:** Supabase → Realtime → Settings → turn **off** "Allow public access". From then on public channels are refused entirely: an old tab can't keep using a public one, and nobody can run their own public channels on the anon key. The anon key still opens private visitor-room channels (`visitor:<visitor tool>:<code>`, per 0028): that is how visitor rooms and vote rounds work.
 
 **Rolling back:** turn "Allow public access" back **on** first, then unset the flag and redeploy.
 
@@ -274,7 +278,7 @@ A public channel and a private channel with the same name are separate on Supaba
 
 ## Visitor live rooms
 
-Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team. A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ Owners don't get visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites.
+Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team, and anyone can run an anonymous **vote round** (Health Check, Psych Safety, Mood Tracker, Kano, Buy-a-Feature and the $100 Test, see "Live vote rounds" below). A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ (vote rounds have their own text, below). Owners don't get Poker or Retro visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites. **Vote rounds are the one exception:** the owner hosts them on a visitor channel too, because participants can send only encrypted numbers (scale answers, answer pairs or amounts) and nothing reaches the workspace except the totals, when the host presses Save round.
 
 The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`.
 
@@ -297,7 +301,7 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
   - Names and card text with control or bidi characters are rejected, and nothing a peer sends is rendered as HTML.
 - **Traffic:** the host sends its state when it changes (Retro: at most every 0.5 s), when someone joins, and every 30 s otherwise. There is no 5-second heartbeat. That is roughly 2.4k message deliveries per hour for an idle 20-person room.
 
-### How the two rooms behave
+### How the rooms behave
 
 - **Planning Poker:**
   - The host starts a room with **Start a live room** on the "Running it with your team" card.
@@ -311,6 +315,50 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
   - **End room** ends it for everyone. The host keeps the board or session.
   - **Remove** takes a participant out and ignores what they send. It is soft: they can rejoin under a new name. To keep someone out, end the room and share a new link.
   - If the host closes the tab without ending the room, the others elect a new host after about 10 seconds and carry on from the last state they received.
+- **Vote rounds** work differently (no host election, nothing shown before Reveal): see the next section.
+
+### Live vote rounds (Health Check, Psych Safety, Mood; Kano; Buy-a-Feature and the $100 Test)
+
+**What it is:** the facilitator presses **Run a live round**, gives a name, and shares the link with **Copy link** (it ends in `#k=…`). People open it on their phones, give a name and answer: with taps on a scale (scale rounds), two taps per feature (Kano), or by typing an amount per item (Buy-a-Feature, the $100 Test). The facilitator sees only how many people have answered. **Reveal results** needs 3 answers (5 for Psych Safety) and closes the round. It shows the totals per question (a question with fewer answers than that stays hidden, "withheld"), the answer-pair grid per feature (likewise per feature), or each item's total and average; in an allocation round who gave each item something, and the bands, show only if 5 had answered, so the host is told to wait for 5 before revealing if they want them. **Save round** stores the totals in the tool; **New round** starts again with a fresh key.
+
+**Three kinds of round** run on the same room, the same keys and the same messages. A tool's kind is fixed (`VOTE_ROUND_KIND` in `src/lib/realtime/vote-room/protocol.ts`):
+
+- **Scale** (Health Check, Psych Safety, Mood Tracker): one answer per question on one scale, kept as the count per answer. These rounds' messages are exactly as before (v1).
+- **Pair** (Kano): for each feature, two questions on Kano's five answers ("If it has this, how do you feel?" and "If it doesn't have this?": I like it / I expect it / I'm neutral / I can live with it / I dislike it). Each person's two answers about a feature travel as one number, so the host keeps only the 5 × 5 count of answer pairs per feature: never the answers alone, never one person's answers across features. A feature's grid shows from 3 answers.
+- **Allocation** (Buy-a-Feature, the $100 Test): each person splits a budget across 2 to 20 items, in whole amounts. The split travels as fixed-width digits (every ballot in a round is the same size), and the host keeps, per item, the total and how many people gave an amount in each of five bands of the budget (0, up to 10%, up to 25%, up to 50%, more than 50%), and nothing else: no sum of squares, no lowest or highest amount. Reveal shows each item's total and average from 3 answers; who gave an item anything, and the bands, only from 5. The $100 Test splits $100 and must give it all out; Buy-a-Feature splits each player's budget, caps each feature at what's left of its price, and refunds anything over it.
+
+Pair and allocation rounds send their state as a new version (v2, with its kind). A tab still running an older build can't join them: its tool list doesn't have these tools, so it opens nothing.
+
+**Who can host:** the owner or a visitor. Squad guests can't host (they get count entry instead). Participants need no account.
+
+**What travels:**
+
+- The host's questions, signed with a key made in the host's browser for this room. The link's `#k=` part is that key's fingerprint, and participants trust only messages signed by it, so nobody else in the room can pose as the host to collect answers.
+- Each person's answers: numbers only (one per question, one per feature for the answer pair, or one amount per item), encrypted in their browser so only the host's browser can read them. That browser adds them to the counts (per-question counts, per-feature pair counts, or per-item totals and bands) and drops them. Before Reveal nobody, the host included, sees a distribution, per-question or per-feature counts, or an item's total.
+- A participant's browser re-sends the same encrypted answers until the host's browser confirms them (for about two minutes; then it says they weren't confirmed and lets the person answer again). The host never counts one person twice, so a resend is harmless.
+- The `#k=` part never reaches the server or the Vercel logs (browsers don't send the fragment), but it is in browser history like the rest of the link.
+- Consent text for vote rounds: _"Answers are encrypted in each person's browser, so only the host's browser can read them, and it keeps the totals only. They pass through our realtime provider (Supabase). Others in the room see your name and whether you've answered, not what. After the host reveals the results, everyone in the room sees the totals, for questions with enough answers; if everyone gives the same answer, the totals show it. Share the link only with your team."_
+
+**Flags:** `NEXT_PUBLIC_VISITOR_ROOMS=1` is required. It works with `NEXT_PUBLIC_PRIVATE_ROOMS` on or off. It needs HTTPS (or localhost) for the browser's encryption.
+
+**Limits:** the visitor-room limits above, plus at most 60 answers (ballots) per round, 20,000 characters per message, 32 questions, 11 scale points, and numbers only from participants. Kano: at most 32 features and 5 answers per question. Allocation rounds: 2 to 20 items, a budget of 10 to 9,999 whole units, caps up to 1,000,000, a unit of at most 4 characters, and items × digits of the budget at most 80 (so every ballot fits the same 128-character envelope).
+
+**Before deploying these tools:** push migrations 0027 and 0028 together (one `supabase db push`, see "Private rooms"). Production runs 0026 until then, whose visitor branch admits these rooms along with any other `visitor:` topic. Never leave 0027 applied without 0028: with `NEXT_PUBLIC_PRIVATE_ROOMS=1` the private channels of Kano, Buy-a-Feature and the $100 Test are then refused, so their live rounds can't connect (their count entry keeps working).
+
+**Traffic:** each answer reaches every member, so about members × members deliveries per round (400 for a full room), plus the host's state at most every 0.5 s while answers arrive, after joins, and every 30 s.
+
+**If the host closes or reloads the tab:** the round is lost (the counts exist only in that tab). Participants who were already in the room see "The host left" after about 10 seconds; anyone who opens the link afterwards sees "Nobody is hosting this round" after about 90 seconds. The host starts a new room and shares the new link. Revealed results survive **End room**: they stay on the host's screen until saved or closed (Close asks first when they aren't saved).
+
+**Troubleshooting:**
+
+- _"This link is incomplete"_: the link was copied without its `#k=` part (for example from the address bar of a page that dropped it). Use **Copy link**.
+- _"This browser can't take part"_: no HTTPS, an old browser, or the realtime service is unreachable.
+- _"Nobody is hosting this round"_: no host has sent anything for 90 seconds, so the link is probably from a room that ended (or the host's tab was closed or reloaded). Ask the host for a new link.
+- _"The host's browser didn't confirm your answers"_: the participant's answers went unconfirmed through every resend (the host's tab was asleep or offline, or the person was removed). They can answer again; nothing is counted twice.
+- More answers than names in the room: the host sees a warning. Someone may have answered again from another tab; start a new round if the totals look wrong.
+- _"Someone else sent answers under your name"_ (participant) or "An answer came under a name that had already answered" (host): someone is answering under another member's id (residual risk 4 below). End the room and share a new link.
+
+**Turning it off:** unset the flag and redeploy, as above. **Enter counts instead** (count hands or collect paper answers, then type the totals) keeps working, with the same 3-or-5 rule. For Kano it is a 5 × 5 grid per feature (one tick per paper answer pair). For Buy-a-Feature and the $100 Test it is either **Paper splits** (type each paper split; it is added to the totals and cleared, so the spread shows from 5 as live) or **Totals only** (each item's total and the number of people; the spread is then unknown).
 
 ### Watching the quota (Supabase free tier)
 
@@ -322,9 +370,24 @@ Visitor rooms share the project's Realtime quota with owner rooms, squad-guest r
 
 ### Emergency brake
 
-**Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses joins on public channels: no new visitor room can connect, nobody can rejoin one, and scripts using the anon key are shut out too. A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+The anon key is public, and there are two ways a script can use it on the Realtime quota, **whatever `NEXT_PUBLIC_PRIVATE_ROOMS` says** (that flag only decides which channels the app's own build opens):
 
-It also stops **everything else that uses Realtime**, because all of the app's channels are public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn it back on. Turn it back on once the flag is off and redeployed.
+- **Private `visitor:` channels.** The policy from 0026/0027/0028 is a database setting: once it is pushed, its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels. Only 0026 is in production so far, so production's visitor branch is still 0026's `topic like 'visitor:%'` (any topic starting with `visitor:`). 0027 and 0028 are pushed together before the deploy that ships the Team and Prioritize tools' live rounds; from then on the branch admits only `visitor:<visitor tool>:<12-character code>`.
+- **Public channels of any name**, `visitor:` ones included, for as long as "Allow public access" is on.
+
+A full brake against anon-key abuse therefore takes **both** steps:
+
+1. **No private visitor channels (SQL).** In the Supabase SQL editor, re-create `public.realtime_room_allowed` exactly as in migration 0028 but **without the visitor line** (the `topic ~ '^visitor:…'` line and the `or` that follows it; keep `set search_path = ''`, every other branch and the `grant execute … to anon, authenticated, service_role`). From then on nobody can join a private `visitor:` channel. Owner rooms, guest rooms and your sync feeds (private channels with tokens or your session) keep working.
+2. **No public channels.** **Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses every join on a public channel.
+
+A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+
+**What each step also stops:**
+
+- **With `NEXT_PUBLIC_PRIVATE_ROOMS=1` (production today):** the app's visitor rooms and vote rounds are private channels, so step 1 stops them; step 2 stops nothing the app still uses (all its channels are private), only old tabs on a build from before the flag.
+- **With the flag unset:** the app's visitor rooms are public channels, so step 1 alone doesn't stop them; step 2 does, and it also stops **everything else that uses Realtime**, because all of the app's channels are then public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn public access back on.
+
+**To undo it:** re-run the function block of `supabase/migrations/0028_realtime_visitor_prioritize_tools.sql` (it is idempotent), and turn "Allow public access" back on if the build still uses public channels. Turn `NEXT_PUBLIC_VISITOR_ROOMS` off and redeploy as well if visitor rooms shouldn't come back.
 
 ### Residual risks (accepted for v1)
 
@@ -334,6 +397,19 @@ It also stops **everything else that uses Realtime**, because all of the app's c
 - **Room codes are visible** in browser history, Vercel request logs (`/join/<tool>/<code>`), and wherever the link is pasted. A code is useless once its room has ended.
 - Turning the flag off needs a redeploy and doesn't close open tabs; they end by themselves within 3 hours.
 - **An owner who opens a `/join` link joins as a visitor** (that page has no sign-in). Nothing from the room is written to their workspace unless they choose Save a copy.
+
+**Vote rounds:**
+
+1. Answers are hidden from the other participants and from what is stored, but **not from a host who opens their browser's developer tools**: the host's tab decrypts each ballot, with its sender's presence id, for an instant before adding it to the counts, and the running counts sit in the tab's memory.
+2. **Who answered, and when, is visible** to everyone in the room (ballots are broadcast, encrypted, under the sender's id). What they answered is not.
+3. **Anyone holding the full link can join and answer.** Only the host's questions and results are authenticated, by the key in `#k=`.
+4. **A member can spend someone else's ballot** by claiming their id, and can use that to **single out one person's answers**: answer under every other member's id before they do, and after Reveal the totals minus the attacker's own answers are the target's. The victim's own answers are then refused as a second answer. Both sides are warned: the victim's screen says someone sent answers under their name, and the host sees that answers came under names that had already answered. If either warning shows, end the room and share a new link.
+5. **Someone can answer again from a new tab** (a new tab is a new member). This is bounded by the 20 seats and 60 ballots per round, and the host sees a warning when answers outnumber the names in the room.
+6. **minN is a floor, not a guarantee:** if everyone gives the same answer, the totals reveal everyone's answer. In an allocation round the same goes for amounts: an item total of 0 says everyone gave it nothing, and in the $100 Test a total of people × $100 says everyone gave it everything. With exactly 3 answers, the host (who knows their own split) and one other member can work out the third person's split from the totals: the same small-round risk as risk 4.
+7. **The anon key can still open visitor-shaped channels** (0028 admits the app's tools and 12-character codes only), and public channels while public access is on. Watch the quota, and use both steps of the emergency brake above if it is abused.
+8. **Two allocation rounds can be compared:** re-running the same sheet with nearly the same people, one person missing, lets the two sets of totals be subtracted to show that person's split. Reveal closes each round, and Buy-a-Feature's later rounds change the sheet (budgets, what's left of each price), but a facilitator re-running the $100 Test should expect this.
+9. **The spread waits for 5 answers, and no exact spread is kept, on purpose.** A person's bands are linked across items (in the $100 Test someone can be in the top band of at most one item), so at 3 answers the bands would narrow each split more than a scale answer does. An exact spread (a sum of squares) is never kept: with 3 answers and the host's own split known, the totals and the sums of squares would give both other splits.
+10. **A Kano grid shows how one feature's two answers went together** (that is what the Kano table needs), never one person's answers across features. At 3 answers a person who gave an unusual pair may still recognise it; it is the same floor as every vote round.
 
 If abuse shows up, the planned next step is short-lived room tokens minted by a server route with Realtime Authorization on private channels (that needs "Allow public access" off and the owner rooms moved to private channels first).
 
@@ -372,6 +448,33 @@ The reader at `/agile-at-work` shows "Coming soon" until the PDF exists, and the
 3. Restart `npm run dev` locally (the build-time check runs once per start). On Vercel the push that adds the file rebuilds.
 4. Verify: `curl -I https://<domain>/comics/agile-at-work.pdf` → `200`, `content-type: application/pdf`, `accept-ranges: bytes`, `cache-control: public, max-age=86400, stale-while-revalidate=604800`. Then open `/agile-at-work`.
 5. Replacing the file later needs no other change: the reader requests `?v=<content hash>`, so browsers never mix byte ranges of the old and new file.
+
+### Transcripts and contents
+
+The reader can show a transcript for each page (real alt text for screen readers, plus a **Transcript** panel under the page), a **Contents** list of chapters, and "Try <tool>" links for each chapter. All three come from one hand-written file, `src/lib/comic/agile-at-work-content.ts`, which ships **empty**. While it is empty the reader shows none of them, and every page keeps its generic alt text ("Agile at Work — page 3 of 24"). Nothing generates the file or extracts it from the PDF: the owner writes it.
+
+The file exports `AGILE_AT_WORK_CONTENT` with two lists (`…` marks where your text goes):
+
+```ts
+export const AGILE_AT_WORK_CONTENT: ComicContent = {
+  chapters: [
+    // title, the chapter's first page, and 1–3 tool ids (most relevant first)
+    { title: "…", firstPage: 3, tools: ["…"] },
+  ],
+  pages: [
+    // the page, 1–2 sentences on what it shows (its alt text), and the
+    // lettering in reading order; leave out `speaker` for captions
+    { page: 3, alt: "…", lines: [{ speaker: "…", text: "…" }, { text: "…" }] },
+  ],
+};
+```
+
+- **Page numbers** are PDF page indexes: the cover is page 1, whatever the printed page number says. They must match the published PDF, so re-check them after any re-export that adds or removes pages. A chapter runs from its `firstPage` to the page before the next chapter starts; the last chapter runs to the last page.
+- **Tool ids** are the `id` values in `src/lib/constants/tools.ts`, which are also each tool's URL path (`retro-actions` is `/retro-actions`). The links take their names and paths from the catalog.
+- A wordless page gets `lines: []`. A page you leave out keeps the generic alt text and shows no transcript.
+- **One file serves both editions.** The colour edition reads the same file, on the assumption that its pages match the printed edition's page for page.
+- **Check an edit** with `npx vitest run test/tools/agile-at-work-upgrade.test.tsx`. Its first test fails with a list of every problem it finds, such as an unknown tool id, a page listed twice, a chapter out of page order, or a blank title or line. The reader itself skips bad entries, and pages past the PDF's last page, so a typo hides some text rather than breaking the page.
+- The file loads on demand while the PDF opens, so a long script doesn't slow down the page's first load.
 
 After bumping `pdfjs-dist`, run `npm run pdf:worker` (copies the matching worker to `public/pdf.worker.legacy.min.mjs`) and commit the result.
 

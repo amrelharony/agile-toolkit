@@ -89,6 +89,8 @@ export function RefinementClient() {
   const stories = useWorkspaceStore((s) => s.stories);
   const sprints = useWorkspaceStore((s) => s.sprints);
   const pokerLogs = useWorkspaceStore((s) => s.pokerEstimationLogs);
+  // The decided rank each pulled story's backlog item holds now.
+  const backlogItems = useWorkspaceStore((s) => s.backlogItems);
   const { criteria, history, exampleStories } = useRefinementStore(
     useShallow((s) => ({
       criteria: s.criteria,
@@ -100,7 +102,7 @@ export function RefinementClient() {
   const exportRef = useRef<HTMLDivElement>(null);
 
   const all = useMemo(() => [...stories, ...exampleStories], [stories, exampleStories]);
-  const session = useMemo(() => refinementSession(all), [all]);
+  const session = useMemo(() => refinementSession(all, backlogItems), [all, backlogItems]);
   const queued = useMemo(
     () => queuedStoryIds((pokerLogs ?? []).find((d) => d.id === POKER_LOG_ID)),
     [pokerLogs]

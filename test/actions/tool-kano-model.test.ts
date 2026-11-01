@@ -74,10 +74,13 @@ describe("tool.kano_model.classify — direct category path", () => {
   // The mapping mirrors the brief once basic↔must-be and
   // excitement↔attractive synonyms are applied (the client uses the
   // modern PM vocabulary; the brief uses Kano's textbook names).
+  // Phase 7 decision: the score follows Decide order's ranking, must-be
+  // first (cover what customers expect before delighters). A direct
+  // category is the deprecated "picked by hand" path.
   const cases: Array<[string, number]> = [
-    ["attractive", 5], // textbook: "excitement"
+    ["attractive", 3], // textbook: "excitement"
     ["performance", 4],
-    ["must-be", 3], // textbook: "basic"
+    ["must-be", 5], // textbook: "basic"
     ["indifferent", 2],
     ["reverse", 1],
   ];
@@ -119,10 +122,10 @@ describe("tool.kano_model.classify — functional × dysfunctional survey path",
     ["dislike", "neutral", "reverse"],
     ["dislike", "like", "reverse"],
     ["must", "like", "reverse"],
-    // No-signal cells → indifferent (we collapse the Kano "Q" code into
-    // indifferent for the 5-bucket surface).
-    ["like", "like", "indifferent"], // Q
-    ["dislike", "dislike", "indifferent"], // Q
+    // Contradictory answers → questionable (the table's Q, no longer
+    // collapsed into indifferent: Phase 7 uses the full evaluation table).
+    ["like", "like", "questionable"], // Q
+    ["dislike", "dislike", "questionable"], // Q
     ["neutral", "neutral", "indifferent"],
     ["must", "neutral", "indifferent"],
   ];
@@ -252,10 +255,9 @@ describe("tool.kano_model.list_items — framework filter + bucketing", () => {
     expect(result.reverse.map((x) => x.id)).toEqual(["p5"]);
   });
 
-  it("falls back unknown / missing categories to 'performance' (matches client behaviour)", async () => {
-    // Stale persisted category value — the client coerces it to
-    // "performance" at kano-model-client.tsx:107 to avoid
-    // `m[unknown].push` crashes, and so should the agent surface.
+  // Phase 7 decision: no default category. A row with no answers (or an
+  // unknown picked category) is "unanswered", never Performance.
+  it("lists unknown / missing categories under unanswered, never Performance", async () => {
     useWorkspaceStore.getState().upsertPrioritization({
       id: "stale",
       framework: "kano",
@@ -269,10 +271,12 @@ describe("tool.kano_model.list_items — framework filter + bucketing", () => {
     const action = registry.get("tool.kano_model.list_items");
     const result = (await action!.handler({}, ctx())) as {
       performance: PrioritizationItem[];
+      unanswered: PrioritizationItem[];
       total: number;
     };
     expect(result.total).toBe(1);
-    expect(result.performance.map((x) => x.id)).toEqual(["stale"]);
+    expect(result.performance).toEqual([]);
+    expect(result.unanswered.map((x) => x.id)).toEqual(["stale"]);
   });
 });
 
@@ -292,14 +296,15 @@ describe("tool.kano_model.classify_and_persist — classify + write roundtrip", 
     )) as { id: string; category: string; score: number; explanation: string };
 
     expect(result.category).toBe("attractive");
-    expect(result.score).toBe(5);
+    expect(result.score).toBe(3);
 
     const stored = useWorkspaceStore.getState().prioritizations;
     expect(stored).toHaveLength(1);
     const row = stored![0];
     expect(row.framework).toBe("kano");
     expect(row.title).toBe("Surprise birthday animation");
-    expect(row.score).toBe(5);
+    expect(row.score).toBe(3);
+    // The deprecated path keeps a hand-picked category ("Picked by hand").
     expect(row.fields?.category).toBe("attractive");
     expect(row.status).toBe("scored");
   });
@@ -320,9 +325,8 @@ describe("tool.kano_model.classify_and_persist — classify + write roundtrip", 
     const stored = useWorkspaceStore.getState().prioritizations;
     expect(stored).toHaveLength(1);
     const row = stored![0];
-    expect(row.fields?.category).toBe("performance");
-    // Survey answers persisted alongside the derived category for audit
-    // / re-derivation later.
+    // The answers are stored; the category is derived from them on read.
+    expect(row.fields?.category).toBeUndefined();
     expect(row.fields?.functional).toBe("like");
     expect(row.fields?.dysfunctional).toBe("dislike");
   });
@@ -376,15 +380,15 @@ describe("tool.kano_model.persist_to_prioritization — bulk write (mixed paths)
     };
 
     expect(result.count).toBe(3);
-    expect(result.written[0]).toMatchObject({ id: "i1", category: "must-be", score: 3 });
+    expect(result.written[0]).toMatchObject({ id: "i1", category: "must-be", score: 5 });
     expect(result.written[1].category).toBe("performance");
     expect(result.written[1].score).toBe(4);
     expect(result.written[1].id).toMatch(/^prio_/);
-    expect(result.written[2]).toMatchObject({ category: "attractive", score: 5 });
+    expect(result.written[2]).toMatchObject({ category: "attractive", score: 3 });
     expect(useWorkspaceStore.getState().prioritizations).toHaveLength(3);
   });
 
-  it("survey-derived rows persist BOTH the survey answers and the derived category", async () => {
+  it("survey-derived rows persist the survey answers; the category is derived, never stored", async () => {
     const action = registry.get("tool.kano_model.persist_to_prioritization");
     await action!.handler(
       {
@@ -400,9 +404,9 @@ describe("tool.kano_model.persist_to_prioritization — bulk write (mixed paths)
     );
     const stored = useWorkspaceStore.getState().prioritizations;
     expect(stored).toHaveLength(1);
-    expect(stored![0].fields?.category).toBe("must-be");
+    expect(stored![0].fields?.category).toBeUndefined();
     expect(stored![0].fields?.functional).toBe("must");
     expect(stored![0].fields?.dysfunctional).toBe("dislike");
-    expect(stored![0].score).toBe(3);
+    expect(stored![0].score).toBe(5);
   });
 });

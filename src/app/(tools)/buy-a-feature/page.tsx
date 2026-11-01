@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { BuyAFeatureClient } from "./buy-a-feature-client";
 
-export const metadata: Metadata = {
-  title: "Buy-a-Feature Game",
-  description:
-    "Innovation game where stakeholders spend fake currency to 'buy' features — surfaces tradeoff conversations.",
-};
+export const metadata: Metadata = toolMetadata("buy-a-feature");
 
 export default function Page() {
   return <BuyAFeatureClient />;

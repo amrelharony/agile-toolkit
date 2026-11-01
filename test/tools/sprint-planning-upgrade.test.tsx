@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { OLD_BACKLOG_DEFAULTS } from "@/lib/prioritization/defaults";
 
 /**
  * Sprint Planning's upgrade to the tool UX contract: stories a closed
@@ -786,6 +787,109 @@ describe("Sprint Planning page", () => {
     // Done stories carry no readiness badge.
     const done = within(inSprint).getByText("Receipts").closest("li")!;
     expect(within(done).queryByText(/Ready|Not refined/)).toBeNull();
+  });
+
+  it("names the backlog's decided order and each story's rank, so a lower score above reads right", () => {
+    // Apple Pay (priority 8) was ranked above Remove a saved card (priority 9) in Decide order.
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) =>
+        s.id === "b2"
+          ? { ...s, backlogRank: 1 }
+          : s.id === "b1"
+            ? { ...s, backlogRank: 2 }
+            : { ...s }
+      ),
+    });
+    renderPlanning();
+    expect(
+      screen.getByText(/in the backlog's decided order, then by priority/)
+    ).toBeInTheDocument();
+    const backlog = screen.getByRole("list", { name: "Backlog" });
+    const rows = within(backlog).getAllByRole("listitem");
+    expect(within(rows[0]).getByText("Apple Pay")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Rank 1")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Priority 8")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Rank 2")).toBeInTheDocument();
+    // Unranked stories follow by priority, with no rank shown.
+    expect(within(rows[2]).getByText("Fraud checks")).toBeInTheDocument();
+    expect(within(rows[2]).queryByText(/^Rank/)).toBeNull();
+  });
+
+  it("orders stories pulled under an earlier Decide order by their item's rank now", () => {
+    // Remove a saved card was pulled at rank 1, Apple Pay at rank 2. A later
+    // order put Apple Pay first: the backlog follows the order saved last.
+    const from = (itemId: string) => ({ tool: "prioritizer", id: itemId });
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) =>
+        s.id === "b1"
+          ? { ...s, backlogRank: 1, sourceRef: from("i-remove") }
+          : s.id === "b2"
+            ? { ...s, backlogRank: 2, sourceRef: from("i-apple") }
+            : { ...s }
+      ),
+      backlogItems: [
+        { id: "i-apple", name: "Apple Pay", rank: 1 },
+        { id: "i-remove", name: "Remove a saved card", rank: 3 },
+      ],
+    });
+    renderPlanning();
+    const rows = within(screen.getByRole("list", { name: "Backlog" })).getAllByRole("listitem");
+    expect(within(rows[0]).getByText("Apple Pay")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Rank 1")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Remove a saved card")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Rank 3")).toBeInTheDocument();
+    // The stored stories keep the rank they were pulled in with.
+    expect(story("b1")?.backlogRank).toBe(1);
+  });
+
+  it("says the imported stories follow the backlog's order, not WSJF alone", () => {
+    useWorkspaceStore.setState({
+      backlogItems: [
+        { id: "i-sso", name: "Single sign-on", rank: 1 },
+        { id: "i-export", name: "Exports" },
+      ],
+    });
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Import from the backlog (2)" }));
+    const [label, opts] = toastSpy.mock.calls.at(-1)!;
+    expect(label).toBe("2 stories imported from the backlog");
+    expect(opts.description).toBe("Ordered in the backlog's decided order, then by priority.");
+  });
+
+  it("imports an item whose WSJF only a row linked before Phase 7 holds with that score", () => {
+    // The item still holds the old Add item defaults (WSJF 5/5/5/5, never
+    // saved by the new code); its WSJF row was re-scored in the old tool.
+    useWorkspaceStore.setState({
+      backlogItems: [
+        {
+          ...OLD_BACKLOG_DEFAULTS,
+          id: "i-legacy",
+          name: "Saved filters",
+        } as never,
+      ],
+      prioritizations: [
+        {
+          id: "w-legacy",
+          framework: "wsjf",
+          title: "Saved filters",
+          fields: { businessValue: 8, timeCriticality: 3, rrOe: 2, jobSize: 1 },
+          status: "scored",
+          updatedAt: "2026-09-01T09:00:00.000Z",
+          backlogItemId: "i-legacy",
+        },
+      ],
+    });
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Import from the backlog (1)" }));
+    const pulled = state().stories.find((s) => s.title === "Saved filters");
+    expect(pulled?.priorityScore).toBe(13);
+  });
+
+  it("says an import of items not ordered yet is by priority", () => {
+    useWorkspaceStore.setState({ backlogItems: [{ id: "i-export", name: "Exports" }] });
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Import from the backlog (1)" }));
+    expect(toastSpy.mock.calls.at(-1)![1].description).toBe("Ordered highest priority first.");
   });
 
   it("validates the new story inline and saves nothing until it is valid", () => {

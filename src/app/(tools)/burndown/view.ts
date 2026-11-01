@@ -1,7 +1,9 @@
 /**
- * The burndown's view of a shared sprint: the sprint and its daily log in the
- * `{config, entries}` shape the chart, the Markdown export and the AI prompts
- * have always taken.
+ * The typed daily log as Burndown edits it: the sprint and its log in the
+ * `{config, entries}` shape the log's rows (and the AI prompts' config) have
+ * always taken. The chart, the tiles and the export read the burn instead
+ * (lib/sprints/burn), which falls back to this same log when the sprint has
+ * no pointed stories.
  *
  * - `config.totalPoints` is the sprint's planned points, `sprintDays` its
  *   length (day 0 is the start date, the ideal line reaches 0 on the end

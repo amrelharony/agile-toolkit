@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { HEALTH_CHECK_DIMENSIONS } from "@/lib/stores/workspace-types";
 
 /**
- * Health check: Clear All confirms with the count (see
+ * Health check: Clear all confirms with the count (see
  * health-check-unrated.test.tsx) and is undoable: Undo brings back the saved
  * checks and the check in progress.
  */
@@ -18,6 +19,7 @@ vi.mock("@/lib/utils/undoable", () => ({
     undo.last = a;
     a.apply();
   },
+  removeWithUndo: () => undefined,
 }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -31,6 +33,7 @@ vi.mock("@/components/shared/export-button", () => ({
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
+vi.mock("@/app/(tools)/health-check/charts", () => ({ HealthTrendChart: () => null }));
 // Recharts' ResponsiveContainer needs it; jsdom doesn't ship one.
 vi.stubGlobal(
   "ResizeObserver",
@@ -50,6 +53,7 @@ const scores = Object.fromEntries(
 beforeEach(() => {
   undo.last = null;
   useWorkspaceStore.setState({
+    sprints: [],
     healthChecks: [
       {
         id: "healthCheck:current",
@@ -65,10 +69,14 @@ beforeEach(() => {
 
 const doc = () => useWorkspaceStore.getState().healthChecks?.[0];
 
-describe("Health check Clear All undo", () => {
+describe("Health check Clear all undo", () => {
   it("brings back the saved checks and the check in progress", () => {
-    render(<HealthCheckClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Clear All" }));
+    render(
+      <TooltipProvider>
+        <HealthCheckClient />
+      </TooltipProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("button", { name: "Clear history" })
     );
@@ -79,6 +87,6 @@ describe("Health check Clear All undo", () => {
     act(() => undo.last!.revert());
     expect(doc()?.history.map((h) => h.sprintName)).toEqual(["S1", "S2"]);
     expect(doc()?.current.sprintName).toBe("Sprint 9");
-    expect(screen.getByRole("button", { name: "Clear All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear all" })).toBeInTheDocument();
   });
 });

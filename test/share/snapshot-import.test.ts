@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SNAPSHOT_IMPORTERS, snapshotValidators } from "@/lib/share/snapshot-import";
-import type { StoryMap } from "@/lib/stores/workspace-types";
+import { KR_CHECK_IN_CAP, type StoryMap } from "@/lib/stores/workspace-types";
 
 beforeEach(() => {
   useWorkspaceStore.setState({ retroBoards: [], prioritizations: [], okrs: [], storyMaps: [] });
@@ -96,6 +96,138 @@ describe("snapshot import", () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     undo!();
     expect(useWorkspaceStore.getState().prioritizations).toHaveLength(0);
+  });
+
+  it("keeps a key result's baseline, direction and dated check-ins, validated, with new ids", () => {
+    const undo = SNAPSHOT_IMPORTERS.okrs.importState([
+      {
+        id: "okr_shared",
+        objective: "Customers stay with us",
+        quarter: "2026 Q4",
+        keyResults: [
+          {
+            id: "kr_churn",
+            title: "Monthly churn",
+            target: 15,
+            current: 18,
+            unit: "%",
+            confidence: 6,
+            baseline: 22,
+            direction: "decrease",
+            checkIns: [
+              { id: "c2", date: "2026-10-08", value: 19, confidence: 6, note: "Price fix shipped" },
+              { id: "c1", date: "2026-10-01", value: 22 },
+              { id: "bad-date", date: "1 Oct", value: 20 },
+              { id: "bad-value", date: "2026-10-02", value: "20" },
+              { id: "c3", date: "2026-10-15", value: 18, confidence: 42, note: 7 },
+            ],
+          },
+          // A legacy key result: none of the three, and a confidence off the scale.
+          { title: "Win-backs", target: 10, current: 2, confidence: 70, direction: "up" },
+        ],
+      },
+    ]);
+    const [okr] = useWorkspaceStore.getState().okrs;
+    const [churn, winBacks] = okr.keyResults;
+    expect(churn).toMatchObject({ baseline: 22, direction: "decrease", confidence: 6 });
+    expect(churn.id).not.toBe("kr_churn");
+    expect(churn.checkIns?.map((c) => [c.date, c.value, c.confidence, c.note])).toEqual([
+      ["2026-10-01", 22, undefined, undefined],
+      ["2026-10-08", 19, 6, "Price fix shipped"],
+      ["2026-10-15", 18, undefined, undefined],
+    ]);
+    expect(churn.checkIns?.map((c) => c.id)).not.toContain("c1");
+    expect(winBacks).not.toHaveProperty("baseline");
+    expect(winBacks).not.toHaveProperty("direction");
+    expect(winBacks).not.toHaveProperty("checkIns");
+    expect(winBacks).not.toHaveProperty("confidence");
+    undo!();
+    expect(useWorkspaceStore.getState().okrs).toHaveLength(0);
+  });
+
+  it("records check-ins as the OKR page does: nothing after tomorrow, current and confidence mirrored", () => {
+    // 20 Oct 2026, noon local: only Date is faked.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 20, 12));
+    try {
+      SNAPSHOT_IMPORTERS.okrs.importState([
+        {
+          objective: "Customers stay with us",
+          quarter: "2026 Q4",
+          keyResults: [
+            {
+              title: "Monthly churn",
+              // Stale against its own history: the newest check-in says 17, scored 4.
+              target: 15,
+              current: 21,
+              confidence: 8,
+              baseline: 22,
+              direction: "decrease",
+              checkIns: [
+                { date: "2026-10-13", value: 17, confidence: 4 },
+                { date: "2026-10-06", value: 19, confidence: 7 },
+                { date: "2026-10-22", value: 16, confidence: 9 }, // the day after tomorrow
+                { date: "2026-02-30", value: 18 }, // no such day
+              ],
+            },
+            // Checked in on the sharer's today, a zone ahead of the visitor's:
+            // tomorrow here, kept, and the key result reads it.
+            {
+              title: "Win-backs",
+              target: 10,
+              current: 2,
+              confidence: 5,
+              checkIns: [
+                { date: "2026-10-14", value: 3 },
+                { date: "2026-10-21", value: 4, confidence: 6 },
+              ],
+            },
+            // Every check-in in the future: none kept, the key result as sent.
+            {
+              title: "Referrals",
+              target: 8,
+              current: 1,
+              confidence: 5,
+              checkIns: [{ date: "2026-11-01", value: 9 }],
+            },
+          ],
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+    const [churn, winBacks, referrals] = useWorkspaceStore.getState().okrs[0].keyResults;
+    expect(churn.checkIns?.map((c) => [c.date, c.value])).toEqual([
+      ["2026-10-06", 19],
+      ["2026-10-13", 17],
+    ]);
+    expect(churn).toMatchObject({ current: 17, confidence: 4 });
+    expect(winBacks.checkIns?.map((c) => [c.date, c.value])).toEqual([
+      ["2026-10-14", 3],
+      ["2026-10-21", 4],
+    ]);
+    expect(winBacks).toMatchObject({ current: 4, confidence: 6 });
+    expect(referrals).not.toHaveProperty("checkIns");
+    expect(referrals).toMatchObject({ current: 1, confidence: 5 });
+  });
+
+  it("keeps at most KR_CHECK_IN_CAP check-ins on a key result, the newest", () => {
+    const checkIns = Array.from({ length: KR_CHECK_IN_CAP + 3 }, (_, i) => ({
+      id: `c${i}`,
+      date: `2026-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`,
+      value: i,
+    }));
+    SNAPSHOT_IMPORTERS.okrs.importState([
+      {
+        objective: "Grow",
+        quarter: "2026 Q1",
+        keyResults: [{ title: "Sign-ups", target: 100, current: 54, checkIns }],
+      },
+    ]);
+    const kept = useWorkspaceStore.getState().okrs[0].keyResults[0].checkIns ?? [];
+    expect(kept).toHaveLength(KR_CHECK_IN_CAP);
+    expect(kept[0].value).toBe(3);
+    expect(kept[kept.length - 1].value).toBe(KR_CHECK_IN_CAP + 2);
   });
 
   it("rejects state that doesn't match the tool", () => {

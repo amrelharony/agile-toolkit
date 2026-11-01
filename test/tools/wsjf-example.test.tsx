@@ -40,8 +40,12 @@ vi.stubGlobal(
 import { WsjfClient } from "@/app/(tools)/wsjf/wsjf-client";
 import { toMarkdown } from "@/app/(tools)/wsjf/markdown";
 import { buildExample } from "@/app/(tools)/wsjf/example";
+import { rankMethodRows } from "@/lib/prioritization/rank";
 
 const NOW = new Date(2026, 9, 18);
+
+/** The Markdown of rows as the page ranks them (the registry's order). */
+const markdownOf = (items: PrioritizationItem[]) => toMarkdown(rankMethodRows("wsjf", items), NOW);
 
 const item = (
   id: string,
@@ -68,10 +72,10 @@ beforeEach(() => {
 
 describe("WSJF toMarkdown", () => {
   it("ranks features in a table with the score columns", () => {
-    const md = toMarkdown(
-      [item("a", "Saved cards", [13, 3, 8, 8]), item("b", "Fix declined copy", [8, 13, 3, 2])],
-      NOW
-    );
+    const md = markdownOf([
+      item("a", "Saved cards", [13, 3, 8, 8]),
+      item("b", "Fix declined copy", [8, 13, 3, 2]),
+    ]);
     const lines = md.split("\n");
     expect(lines[0]).toBe("# WSJF — 18 Oct 2026");
     expect(lines).toContain("## Ranked features");
@@ -80,25 +84,27 @@ describe("WSJF toMarkdown", () => {
     const rowB = lines.indexOf("| 2 | Saved cards | 13 | 3 | 8 | 8 | 3.00 |");
     expect(rowA).toBeGreaterThan(0);
     expect(rowB).toBeGreaterThan(rowA);
-    expect(lines).toContain("**Do first:** Fix declined copy (WSJF 12.00)");
+    expect(md).toContain(
+      "**Do first: “Fix declined copy” (WSJF 12.00: cost of delay 24 ÷ job size 2). No feature has a 1 for"
+    );
   });
 
   it("gives tied features the same rank", () => {
-    const md = toMarkdown(
-      [item("a", "Saved cards", [13, 3, 8, 8]), item("b", "Autocomplete", [8, 5, 2, 5])],
-      NOW
-    );
+    const md = markdownOf([
+      item("a", "Saved cards", [13, 3, 8, 8]),
+      item("b", "Autocomplete", [8, 5, 2, 5]),
+    ]);
     expect(md).toContain("| 1 | Saved cards |");
     expect(md).toContain("| 1 | Autocomplete |");
   });
 
   it("escapes pipes and collapses newlines in titles", () => {
-    const md = toMarkdown([item("a", "Search | filters\nand sort", [5, 5, 5, 5])], NOW);
+    const md = markdownOf([item("a", "Search | filters\nand sort", [5, 5, 5, 5])]);
     expect(md).toContain("| 1 | Search \\| filters and sort | 5 |");
   });
 
   it("says there's nothing yet when empty", () => {
-    expect(toMarkdown([], NOW)).toBe("# WSJF — 18 Oct 2026\n\nNo features scored yet.\n");
+    expect(markdownOf([])).toBe("# WSJF — 18 Oct 2026\n\nNo features scored yet.\n");
   });
 });
 
@@ -124,9 +130,9 @@ describe("WSJF example", () => {
     render(<WsjfClient />);
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Example data.");
+    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Remove Rebuild checkout on the new payments platform" })
+      screen.getByRole("button", { name: "Delete Rebuild checkout on the new payments platform" })
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(history.log).not.toHaveBeenCalled();
@@ -135,7 +141,7 @@ describe("WSJF example", () => {
     );
 
     // The user adds their own feature alongside the example.
-    fireEvent.change(screen.getByLabelText("Feature title"), { target: { value: "Gift cards" } });
+    fireEvent.change(screen.getByLabelText(/Feature title/), { target: { value: "Gift cards" } });
     const pick = (group: string, option: string) =>
       fireEvent.click(
         within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name: option })
@@ -150,8 +156,8 @@ describe("WSJF example", () => {
     const left = useWorkspaceStore.getState().prioritizations ?? [];
     expect(left.map((x) => x.title)).toEqual(["Gift cards"]);
     expect(left.some((x) => x.id.startsWith("example-"))).toBe(false);
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByRole("button", { name: "Remove Gift cards" })).toBeInTheDocument();
+    expect(screen.queryByText(/Example data\./)).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete Gift cards" })).toBeInTheDocument();
   });
 
   it("leaves other frameworks' rows alone", () => {
@@ -167,6 +173,6 @@ describe("WSJF example", () => {
     useWorkspaceStore.setState({ prioritizations: [item("w1", "Single sign-on", [8, 5, 3, 2])] });
     render(<WsjfClient />);
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/Example data\./)).toBeNull();
   });
 });

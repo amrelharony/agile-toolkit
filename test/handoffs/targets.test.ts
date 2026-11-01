@@ -27,12 +27,13 @@ vi.mock("@/lib/utils/undoable", () => ({
 }));
 
 import { SOURCE_TOOLS, getHandoffRoute, sourceHref, sourceLabel } from "@/lib/handoffs/registry";
-import { sendHandoff } from "@/lib/handoffs/send";
+import { sendHandoff, sendHandoffBatch } from "@/lib/handoffs/send";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import { STORY_TITLE_MAX, buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
 import { RETRO_BOARD_ID, retroColumnFor } from "@/lib/handoffs/targets/retro-board";
-import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
-import { DECISION_LOG_KEY } from "@/lib/handoffs/targets/decision";
+import { HYPOTHESIS_TEXT_MAX, HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
+import { DECISION_LOG_KEY, DECISION_LOG_MOVED_KEY } from "@/lib/decisions/legacy-log";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import {
   DEPENDENCY_MAP_ID,
   withDependency,
@@ -89,6 +90,8 @@ beforeEach(() => {
     retroBoards: [],
     hypothesisTrackers: [],
     decisions: [],
+    daciDecisions: [],
+    rapidDecisions: [],
     dependencyMaps: [],
   });
 });
@@ -103,6 +106,8 @@ describe("backlog-story", () => {
         status: "backlog",
         owner: "Priya",
         sourceRef: { tool: "sprint-review", id: "fb-1", doc: "sprint-review:s2" },
+        // The store stamps when a story is first saved.
+        createdAt: expect.any(String),
       },
     ]);
     expect(link.targetId).toMatch(/^story_/);
@@ -251,6 +256,48 @@ describe("hypothesis", () => {
       sourceRef: { tool: "riskiest-assumption", id: "a1" },
     });
     expect(hypotheses()[0].raisedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // A source that hands over no more than a title leaves the rest blank.
+    expect(hypotheses()[0]).not.toHaveProperty("experiment");
+  });
+
+  it("copies what we'll do, the experiment and the success metric when the source has them", () => {
+    const link = sendHandoff(
+      "hypothesis",
+      src({
+        hypothesis: {
+          willDo: "  Run a fake-door test on the pricing page  ",
+          experiment: "Two weeks, 500 visitors",
+          successMetric: "8% click through",
+        },
+        sourceRef: { tool: "opportunity-tree", id: "e1", doc: "opportunityTree:current" },
+      }),
+      linkStore()
+    )!;
+    expect(hypotheses().find((h) => h.id === link.targetId)).toMatchObject({
+      believe: "Checkout is slow on mobile",
+      willDo: "Run a fake-door test on the pricing page",
+      experiment: "Two weeks, 500 visitors",
+      successMetric: "8% click through",
+      status: "drafted",
+    });
+  });
+
+  it("caps every field at HYPOTHESIS_TEXT_MAX (2000), the page's and the agent's cap", () => {
+    const long = "y".repeat(2600);
+    const link = sendHandoff(
+      "hypothesis",
+      src({
+        title: long,
+        description: long,
+        hypothesis: { willDo: long, experiment: long, successMetric: long },
+      }),
+      linkStore()
+    )!;
+    const h = hypotheses().find((x) => x.id === link.targetId)!;
+    expect(HYPOTHESIS_TEXT_MAX).toBe(2000);
+    for (const key of ["believe", "toLearn", "willDo", "experiment", "successMetric"] as const) {
+      expect(h[key]).toHaveLength(HYPOTHESIS_TEXT_MAX);
+    }
   });
 
   it("is done once tested either way", () => {
@@ -269,38 +316,186 @@ describe("hypothesis", () => {
 });
 
 describe("decision", () => {
-  it("writes one proposed decision to the Decision Log and workspace.decisions", () => {
-    localStorage.setItem(DECISION_LOG_KEY, JSON.stringify([{ id: "old", title: "Old" }]));
+  const route = () => getHandoffRoute("decision");
+  const seedBlob = (rows: unknown[], moved?: string[]) => {
+    localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(rows));
+    if (moved) localStorage.setItem(DECISION_LOG_MOVED_KEY, JSON.stringify(moved));
+  };
+
+  it("adds one numbered, proposed ADR to workspace.decisions only, and Undo takes it back", () => {
+    seedBlob([{ id: "old", title: "Old" }]);
+    ws().upsertDecision({
+      id: "d0",
+      title: "Earlier",
+      decision: "We will",
+      status: "accepted",
+      date: "2026-10-01",
+      number: 4,
+    });
     const link = sendHandoff(
       "decision",
       src({ sourceRef: { tool: "six-hats", id: "blue" } }),
       linkStore()
     )!;
-    const blob = decisionBlob();
-    expect(blob.map((d) => d.id)).toEqual([link.targetId, "old"]);
-    expect(blob[0]).toMatchObject({
+    expect(ws().decisions.map((d) => d.id)).toEqual(["d0", link.targetId]);
+    expect(ws().decisions[1]).toEqual({
+      id: link.targetId,
       title: "Checkout is slow on mobile",
       context: "Two reviewers said so.",
       decision: "",
       status: "proposed",
+      date: todayLocalISO(),
       sourceRef: { tool: "six-hats", id: "blue" },
+      template: "adr",
+      number: 5,
     });
-    expect(ws().decisions).toEqual([blob[0]]);
+    // The Decision Log's old blob is the backup now: never written.
+    expect(decisionBlob().map((d) => d.id)).toEqual(["old"]);
+    expect(route().targetHref(link.targetId)).toBe(`/decision-log?id=${link.targetId}`);
+    expect(route().targetHref("a b")).toBe("/decision-log?id=a%20b");
 
     undo.last!.revert();
+    expect(ws().decisions.map((d) => d.id)).toEqual(["d0"]);
     expect(decisionBlob().map((d) => d.id)).toEqual(["old"]);
-    expect(ws().decisions).toEqual([]);
   });
 
-  it("is done once accepted, read from the log first", () => {
+  it("raises the record with the sender's form, options and recommendation", () => {
+    const link = sendHandoff(
+      "decision",
+      src({
+        sourceRef: { tool: "weighted-decision", id: "m1", doc: "m1" },
+        decision: {
+          template: "daci",
+          options: ["Postgres", " ", "Mongo"],
+          recommendation: "Postgres",
+        },
+      }),
+      linkStore()
+    )!;
+    expect(ws().decisions[0]).toMatchObject({
+      template: "daci",
+      number: 1,
+      options: [
+        { id: `${link.targetId}-o0`, text: "Postgres" },
+        { id: `${link.targetId}-o1`, text: "Mongo" },
+      ],
+      recommendation: "Postgres",
+      sourceRef: { tool: "weighted-decision", id: "m1", doc: "m1" },
+    });
+  });
+
+  it("numbers after every record, whatever its template, and a batch one after another", () => {
+    ws().upsertDecision({
+      id: "r",
+      title: "RAPID one",
+      decision: "",
+      status: "proposed",
+      date: "2026-10-01",
+      template: "rapid",
+      number: 7,
+    });
+    const links = sendHandoffBatch("decision", [
+      { src: src({ title: "First" }), links: linkStore() },
+      { src: src({ title: "Second" }), links: linkStore() },
+    ]);
+    expect(links).toHaveLength(2);
+    expect(ws().decisions.map((d) => [d.title, d.number])).toEqual([
+      ["RAPID one", 7],
+      ["First", 8],
+      ["Second", 9],
+    ]);
+    undo.last!.revert();
+    expect(ws().decisions.map((d) => d.id)).toEqual(["r"]);
+  });
+
+  it("sends once while the record exists, and again once it is gone", () => {
+    const store = linkStore();
+    const first = sendHandoff("decision", src(), store)!;
+    expect(sendHandoff("decision", src(), store)).toBeNull();
+    expect(ws().decisions).toHaveLength(1);
+    ws().removeDecision(first.targetId);
+    expect(route().exists(first.targetId)).toBe(false);
+    const again = sendHandoff("decision", src(), store)!;
+    expect(again.targetId).not.toBe(first.targetId);
+    expect(ws().decisions).toHaveLength(1);
+  });
+
+  it("is done once decided: accepted, deprecated or superseded", () => {
     const link = sendHandoff("decision", src(), linkStore())!;
-    const route = getHandoffRoute("decision");
-    expect(route.isDone?.(link.targetId)).toBe(false);
-    localStorage.setItem(
-      DECISION_LOG_KEY,
-      JSON.stringify(decisionBlob().map((d) => ({ ...d, status: "accepted" })))
-    );
-    expect(route.isDone?.(link.targetId)).toBe(true);
+    expect(route().isDone?.(link.targetId)).toBe(false);
+    const saved = ws().decisions[0];
+    for (const [status, done] of [
+      ["accepted", true],
+      ["deprecated", true],
+      ["superseded", true],
+      ["proposed", false],
+    ] as const) {
+      ws().upsertDecision({ ...saved, status });
+      expect(route().isDone?.(link.targetId), status).toBe(done);
+    }
+    expect(route().isDone?.("missing")).toBe(false);
+  });
+
+  it("reads old DACI and RAPID rows, and the old Decision Log's rows still waiting to move", () => {
+    useWorkspaceStore.setState({
+      daciDecisions: [
+        { id: "daci-1", title: "Vendor", status: "decided", date: "2026-10-02T09:00:00.000Z" },
+      ],
+      rapidDecisions: [{ id: "rapid-1", title: "Reorg", status: "open", date: "2026-10-03" }],
+    });
+    // A send from before Phase 7 wrote both copies; the team accepted it on the old page.
+    ws().upsertDecision({
+      id: "both",
+      title: "Both",
+      decision: "",
+      status: "proposed",
+      date: "2026-09-01",
+    });
+    const rows = [
+      { id: "both", title: "Both", decision: "Go", status: "accepted", date: "2026-09-01" },
+      { id: "blob-only", title: "Only in the blob", status: "proposed", date: "2026-09-02" },
+    ];
+    seedBlob(rows);
+
+    expect(route().exists("daci-1")).toBe(true);
+    expect(route().isDone?.("daci-1")).toBe(true);
+    expect(route().exists("rapid-1")).toBe(true);
+    expect(route().isDone?.("rapid-1")).toBe(false);
+    expect(route().exists("blob-only")).toBe(true);
+    expect(route().isDone?.("both")).toBe(true);
+
+    // Once moved, the workspace row is the record and the blob only the backup.
+    seedBlob(rows, ["both", "blob-only"]);
+    expect(route().isDone?.("both")).toBe(false);
+    expect(route().exists("blob-only")).toBe(false);
+  });
+
+  it("removing a record an old send wrote to both copies sticks: the blob's copy is marked moved", () => {
+    ws().upsertDecision({
+      id: "both",
+      title: "Both",
+      decision: "",
+      status: "proposed",
+      date: "2026-09-01",
+    });
+    seedBlob([{ id: "both", title: "Both", status: "accepted", date: "2026-09-01" }]);
+    expect(route().exists("both")).toBe(true);
+    route().remove("both");
+    expect(route().exists("both")).toBe(false);
+    expect(route().isDone?.("both")).toBe(false);
+    expect(JSON.parse(localStorage.getItem(DECISION_LOG_MOVED_KEY) ?? "[]")).toEqual(["both"]);
+    // The blob, the backup, is untouched.
+    expect(decisionBlob().map((d) => d.id)).toEqual(["both"]);
+  });
+
+  it("Undo of a send removes only what the send added", () => {
+    useWorkspaceStore.setState({
+      daciDecisions: [{ id: "daci-1", title: "Vendor", status: "open", date: "2026-10-02" }],
+    });
+    sendHandoff("decision", src(), linkStore());
+    undo.last!.revert();
+    expect(ws().decisions).toEqual([]);
+    expect(ws().daciDecisions?.map((d) => d.id)).toEqual(["daci-1"]);
   });
 });
 

@@ -24,8 +24,16 @@ export interface VisitorRoomChipProps {
   onEnd?: () => void;
   /** Participant only: leave the room. */
   onLeave?: () => void;
+  /**
+   * Appended to the copied link, e.g. `#k=<host key>` for a vote round. A
+   * fragment stays in the browser: it never reaches the server or its logs.
+   * Ignored unless it is `#` plus up to 64 URL-safe characters.
+   */
+  linkFragment?: string;
   className?: string;
 }
+
+const LINK_FRAGMENT_RE = /^#[A-Za-z0-9=_-]{1,64}$/;
 
 /**
  * The header chip for a visitor live room: its code, "Copy link", how full
@@ -40,6 +48,7 @@ export function VisitorRoomChip({
   isHost,
   onEnd,
   onLeave,
+  linkFragment,
   className,
 }: VisitorRoomChipProps) {
   const announce = useAnnounce();
@@ -65,7 +74,8 @@ export function VisitorRoomChip({
   if (!visitorRoomsEnabled() || !path) return null;
 
   const copyLink = async () => {
-    const url = `${window.location.origin}${path}`;
+    const fragment = linkFragment && LINK_FRAGMENT_RE.test(linkFragment) ? linkFragment : "";
+    const url = `${window.location.origin}${path}${fragment}`;
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(url);

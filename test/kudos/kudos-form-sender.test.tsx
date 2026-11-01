@@ -58,6 +58,8 @@ describe("KudosForm sender field", () => {
     fireEvent.change(from, { target: { value: "Ada" } });
     expect(from).toHaveValue("Ada");
 
+    // Nobody is picked on the sender's behalf: the visitor picks Sam.
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "team:1" } });
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Thanks!" } });
     await waitFor(() => expect(screen.getByRole("button", { name: /send kudos/i })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
