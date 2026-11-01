@@ -11,10 +11,12 @@ import {
   unreleasedWeekly,
 } from "@/lib/comics/queue";
 import {
+  everReleased,
   nextWeeklyEp,
   parseStoryFields,
   publishProblems,
   storyState,
+  unreviewedPanels,
   type OwnerStory,
 } from "@/lib/comics/story-input";
 
@@ -46,6 +48,7 @@ function story(ep: number, releaseAt: string | null = null, alt = "Shown."): Own
     sharePath: ART,
     bookPage: null,
     releaseAt,
+    firstReleasedAt: null,
     updatedAt: "2026-11-01T00:00:00Z",
   };
 }
@@ -119,6 +122,18 @@ describe("how long the queue lasts", () => {
     );
     expect(list.map((s) => s.ep)).toEqual([30, 31]);
   });
+
+  it("doesn't count a story that has been out, whatever its date says now", () => {
+    const list = unreleasedWeekly(
+      [
+        { ...story(27), firstReleasedAt: "2026-01-01T00:00:00Z" },
+        { ...story(28, inWeeks(1)), firstReleasedAt: "2026-01-01T00:00:00Z" },
+        story(29),
+      ],
+      NOW
+    );
+    expect(list.map((s) => s.ep)).toEqual([29]);
+  });
 });
 
 describe("reorder rules", () => {
@@ -130,6 +145,37 @@ describe("reorder rules", () => {
   it("never lets a released number move", () => {
     const check = checkReorder([story(30, "2026-01-01T00:00:00Z"), story(31)], [31, 30], NOW);
     expect(check).toEqual({ ok: false, error: "not_in_queue", ep: 30 });
+  });
+
+  it("never lets a number move once it has been out, even unpublished or rescheduled", () => {
+    const out = "2026-01-01T00:00:00Z";
+    const unpublished = { ...story(30), firstReleasedAt: out };
+    const rescheduled = { ...story(30, "2099-01-01T00:00:00Z"), firstReleasedAt: out };
+    for (const moved of [unpublished, rescheduled]) {
+      expect(checkReorder([moved, story(31)], [31, 30], NOW)).toEqual({
+        ok: false,
+        error: "not_in_queue",
+        ep: 30,
+      });
+    }
+  });
+
+  it("won't move an unreviewed draft into a dated slot", () => {
+    const panel = story(31).panels[0];
+    const unchecked = { ...story(31), panels: [{ ...panel, needsReview: true }] };
+    expect(checkReorder([story(30, "2099-01-05T07:00:00Z"), unchecked], [31, 30], NOW)).toEqual({
+      ok: false,
+      error: "needs_review",
+      ep: 31,
+    });
+  });
+
+  it("lets an unreviewed story move when it already had a date, or the slot has none", () => {
+    const panel = story(31).panels[0];
+    const panels = [{ ...panel, needsReview: true }];
+    const dated = { ...story(31, "2099-01-12T07:00:00Z"), panels };
+    expect(checkReorder([story(30, "2099-01-05T07:00:00Z"), dated], [31, 30], NOW).ok).toBe(true);
+    expect(checkReorder([story(30), { ...story(31), panels }], [31, 30], NOW).ok).toBe(true);
   });
 
   it("refuses an unknown number", () => {
@@ -196,6 +242,30 @@ describe("story fields", () => {
     expect(storyState(null, NOW)).toBe("draft");
     expect(storyState("2099-01-01T00:00:00Z", NOW)).toBe("scheduled");
     expect(storyState("2026-01-01T00:00:00Z", NOW)).toBe("released");
+  });
+
+  it("remembers a story has been out, even with no date now", () => {
+    const out = "2026-01-01T00:00:00Z";
+    expect(everReleased({ releaseAt: null, firstReleasedAt: null }, NOW)).toBe(false);
+    expect(everReleased({ releaseAt: "2099-01-01T00:00:00Z", firstReleasedAt: null }, NOW)).toBe(
+      false
+    );
+    // No scheduler writes the column when the time passes, so the date counts too.
+    expect(everReleased({ releaseAt: out, firstReleasedAt: null }, NOW)).toBe(true);
+    expect(everReleased({ releaseAt: null, firstReleasedAt: out }, NOW)).toBe(true);
+    expect(everReleased({ releaseAt: "2099-01-01T00:00:00Z", firstReleasedAt: out }, NOW)).toBe(
+      true
+    );
+  });
+
+  it("counts the panels still marked for review", () => {
+    const panel = story(27).panels[0];
+    expect(unreviewedPanels(story(27))).toBe(0);
+    expect(
+      unreviewedPanels({
+        panels: [panel, { ...panel, needsReview: true }, { ...panel, needsReview: true }],
+      })
+    ).toBe(2);
   });
 
   it("numbers a new weekly story after everything, starting at 27", () => {

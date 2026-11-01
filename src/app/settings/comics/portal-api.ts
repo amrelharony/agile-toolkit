@@ -35,6 +35,9 @@ const MESSAGES: Readonly<Record<string, string>> = {
   incomplete_story: "This story isn't ready: every panel needs art and a description.",
   not_in_queue: "That number has been released, so it can't move.",
   not_a_draft: "Unpublish this story before deleting it.",
+  was_released: "This story has been out, so it keeps its number and can't be deleted.",
+  needs_review: "Some panels still need review. Check them first, or confirm they can go as is.",
+  art_missing: "A picture in this story is no longer in storage. Choose its art again, then save.",
   taken: "That number or source is already used by another story.",
   not_found: "That's gone. Reload the page to see the latest.",
 };
@@ -87,20 +90,20 @@ export const portalApi = {
     }),
   deleteStory: (ep: number) =>
     call<{ removedPaths: string[] }>(`${stories}/${ep}`, { method: "DELETE" }),
-  setRelease: (ep: number, releaseAt: string | null) =>
+  setRelease: (ep: number, releaseAt: string | null, allowUnreviewed = false) =>
     call<{ story: OwnerStory }>(`${stories}/${ep}/release`, {
       method: "PUT",
-      json: { releaseAt },
+      json: { releaseAt, allowUnreviewed },
     }),
   reorder: (order: number[]) =>
     call<{ stories: OwnerStory[] }>("/api/comics/queue/reorder", {
       method: "POST",
       json: { order },
     }),
-  schedule: (items: ScheduledRelease[]) =>
+  schedule: (items: ScheduledRelease[], allowUnreviewed = false) =>
     call<{ stories: OwnerStory[] }>("/api/comics/queue/schedule", {
       method: "POST",
-      json: { items },
+      json: { items, allowUnreviewed },
     }),
   entries: (days: number) =>
     call<{ days: number; summary: EntriesSummary }>(`/api/comics/entries?days=${days}`),

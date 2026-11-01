@@ -4,10 +4,12 @@
  * looks at this list and says so.
  *
  * GET:  { files: [{ path, size, createdAt }] }
- * POST: { paths: [...] } deletes those, skipping any a story uses by now.
+ * POST: { paths: [...] } deletes those, skipping any a story uses by now and any
+ * too young to be listed.
  *
- * A file younger than a day isn't listed: it may be an upload whose story is
- * still being saved, or sitting in a draft on the owner's phone.
+ * A file younger than a day is left alone: it may be an upload whose story is
+ * still being saved. An older one can still sit in a draft on another device, and
+ * this can't see those, so a save checks its new paths exist (see _owner.ts).
  *
  * Errors: 400 invalid_paths, 401/403 not the owner, 503.
  */
@@ -44,15 +46,16 @@ async function listBucket(admin: SupabaseClient): Promise<BucketFile[] | null> {
   return files;
 }
 
+const oldEnough = (file: BucketFile) =>
+  !file.created_at || Date.parse(file.created_at) < Date.now() - MIN_AGE_MS;
+
 export const GET = ownerRoute(async ({ admin }) => {
   const [files, stories] = await Promise.all([listBucket(admin), loadStories(admin)]);
   if (!files || !stories) return refuse(503, "service_unavailable");
   const used = new Set(stories.flatMap(artPaths));
-  const cutoff = Date.now() - MIN_AGE_MS;
   return answer({
     files: files
-      .filter((f) => isArtPath(f.name) && !used.has(f.name))
-      .filter((f) => !f.created_at || Date.parse(f.created_at) < cutoff)
+      .filter((f) => isArtPath(f.name) && !used.has(f.name) && oldEnough(f))
       .map((f) => ({
         path: f.name,
         size: f.metadata?.size ?? 0,
@@ -70,10 +73,11 @@ export const POST = ownerRoute(async ({ req, admin }) => {
   }
   if (!raw.every(isArtPath)) return refuse(400, "invalid_paths");
 
-  const stories = await loadStories(admin);
-  if (!stories) return refuse(503, "service_unavailable");
+  const [files, stories] = await Promise.all([listBucket(admin), loadStories(admin)]);
+  if (!files || !stories) return refuse(503, "service_unavailable");
   const used = new Set(stories.flatMap(artPaths));
-  const paths = (raw as string[]).filter((path) => !used.has(path));
+  const removable = new Set(files.filter(oldEnough).map((f) => f.name));
+  const paths = (raw as string[]).filter((path) => !used.has(path) && removable.has(path));
   if (paths.length === 0) return answer({ removed: 0 });
 
   const { error } = await admin.storage.from(BUCKET).remove(paths);

@@ -3,7 +3,8 @@
  * POST /api/comics/stories: a new story, always a draft. Without a number it
  * takes the next weekly one.
  *
- * Errors: 400 invalid_input (with `field`), 409 taken, 401/403 not the owner, 503.
+ * Errors: 400 invalid_input (with `field`), 409 taken | art_missing (with `paths`),
+ * 401/403 not the owner, 503.
  */
 
 import { revalidateComics } from "@/lib/comics/revalidate";
@@ -17,7 +18,7 @@ import {
   toOwnerStory,
   type StoryRow,
 } from "@/lib/comics/story-input";
-import { answer, loadStories, ownerRoute, readJson, refuse } from "../_owner";
+import { answer, artPaths, loadStories, missingArt, ownerRoute, readJson, refuse } from "../_owner";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,16 @@ export const POST = ownerRoute(async ({ req, admin }) => {
   }
   if (!isValidStoryEp(ep)) return refuse(400, "invalid_input", { field: "ep" });
   const collection = collectionForEp(ep);
+
+  const paths = artPaths({
+    panels: parsed.fields.panels ?? [],
+    sharePath: parsed.fields.sharePath ?? null,
+  });
+  if (paths.length > 0) {
+    const missing = await missingArt(admin, paths);
+    if (!missing) return refuse(503, "service_unavailable");
+    if (missing.length > 0) return refuse(409, "art_missing", { paths: missing });
+  }
 
   const { data, error } = await admin
     .from("comic_stories")

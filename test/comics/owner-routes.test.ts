@@ -20,6 +20,9 @@ const h = vi.hoisted(() => ({
   bucket: [] as Record<string, unknown>[],
   removed: [] as string[][],
   entryRows: [] as Record<string, unknown>[],
+  missing: new Set<string>(),
+  existsThrows: false,
+  existsCalls: [] as string[],
 }));
 
 vi.mock("server-only", () => ({}));
@@ -111,6 +114,11 @@ vi.mock("@/lib/squads/server", () => ({
         from: () => ({
           createSignedUploadUrl: h.signed,
           list: async () => ({ data: h.bucket, error: null }),
+          exists: async (path: string) => {
+            h.existsCalls.push(path);
+            if (h.existsThrows) throw new Error("storage is down");
+            return { data: !h.missing.has(path), error: null };
+          },
           remove: async (paths: string[]) => {
             h.removed.push(paths);
             return { error: null };
@@ -174,6 +182,7 @@ function row(ep: number, over: Record<string, unknown> = {}) {
     share_path: ART(3),
     book_page: null,
     release_at: null,
+    first_released_at: null,
     updated_at: "2026-11-01T00:00:00.000Z",
     ...over,
   };
@@ -191,6 +200,9 @@ beforeEach(() => {
   h.bucket = [];
   h.removed = [];
   h.entryRows = [];
+  h.missing = new Set();
+  h.existsThrows = false;
+  h.existsCalls = [];
   h.rpc.mockClear();
   h.rpc.mockResolvedValue({ error: null });
   h.signed.mockClear();
@@ -305,6 +317,21 @@ describe("creating a story", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("refuses art that isn't in storage", async () => {
+    h.missing = new Set([ART(1)]);
+    const res = await call(stories.POST, req("POST", "/", { title: "T", panels: [panel()] }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("art_missing");
+    expect(body.paths).toEqual([ART(1)]);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("checks nothing when there's no art yet", async () => {
+    await call(stories.POST, req("POST", "/", { title: "T" }));
+    expect(h.existsCalls).toEqual([]);
+  });
 });
 
 describe("publishing", () => {
@@ -353,6 +380,57 @@ describe("publishing", () => {
     expect(h.rows[0].release_at).toBeNull();
   });
 
+  it("stops for panels still marked for review, unless told to go ahead", async () => {
+    h.rows = [row(27, { panels: [panel({ needsReview: true }), panel()] })];
+    const refused = await call(release.PUT, req("PUT", "/", { releaseAt: FUTURE }), { ep: "27" });
+    expect(refused.status).toBe(409);
+    const body = await refused.json();
+    expect(body.error).toBe("needs_review");
+    expect(body.panels).toBe(1);
+    expect(h.writes).toEqual([]);
+
+    // Only a real yes counts.
+    const truthy = await call(
+      release.PUT,
+      req("PUT", "/", { releaseAt: FUTURE, allowUnreviewed: "true" }),
+      { ep: "27" }
+    );
+    expect(truthy.status).toBe(409);
+
+    const allowed = await call(
+      release.PUT,
+      req("PUT", "/", { releaseAt: FUTURE, allowUnreviewed: true }),
+      { ep: "27" }
+    );
+    expect(allowed.status).toBe(200);
+    expect(h.rows[0].release_at).toBe(FUTURE);
+  });
+
+  it("unpublishes a story with unreviewed panels without asking", async () => {
+    h.rows = [row(27, { release_at: PAST, panels: [panel({ needsReview: true })] })];
+    const res = await call(release.PUT, req("PUT", "/", { releaseAt: null }), { ep: "27" });
+    expect(res.status).toBe(200);
+  });
+
+  it("is refused when a picture has gone from storage", async () => {
+    h.rows = [row(27)];
+    h.missing = new Set([ART(3)]);
+    const res = await call(release.PUT, req("PUT", "/", { releaseAt: FUTURE }), { ep: "27" });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("art_missing");
+    expect(body.paths).toEqual([ART(3)]);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("answers 503 rather than publish when storage can't be asked", async () => {
+    h.rows = [row(27)];
+    h.existsThrows = true;
+    const res = await call(release.PUT, req("PUT", "/", { releaseAt: FUTURE }), { ep: "27" });
+    expect(res.status).toBe(503);
+    expect(h.writes).toEqual([]);
+  });
+
   it("refuses a date it can't read", async () => {
     h.rows = [row(27)];
     const res = await call(release.PUT, req("PUT", "/", { releaseAt: "soon" }), { ep: "27" });
@@ -382,6 +460,35 @@ describe("editing", () => {
     expect(h.removed).toEqual([]);
   });
 
+  it("refuses new art whose files have gone, as a draft held for days can have", async () => {
+    h.rows = [row(27)];
+    h.missing = new Set([ART(8)]);
+    const res = await call(
+      story.PATCH,
+      req("PATCH", "/", { panels: [panel({ pathFull: ART(8), pathSmall: ART(9) })] }),
+      { ep: "27" }
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("art_missing");
+    expect(body.paths).toEqual([ART(8)]);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("checks only the art an edit brings in", async () => {
+    h.rows = [row(27)];
+    await call(story.PATCH, req("PATCH", "/", { title: "New title", panels: [panel()] }), {
+      ep: "27",
+    });
+    expect(h.existsCalls).toEqual([]);
+    await call(
+      story.PATCH,
+      req("PATCH", "/", { panels: [panel({ pathFull: ART(8) })], sharePath: ART(7) }),
+      { ep: "27" }
+    );
+    expect(h.existsCalls.sort()).toEqual([ART(7), ART(8)].sort());
+  });
+
   it("can't change a story's source id or a weekly story's book page", async () => {
     h.rows = [row(27, { source_id: "AAW-N001" })];
     await call(story.PATCH, req("PATCH", "/", { sourceId: "other", bookPage: 9 }), { ep: "27" });
@@ -402,6 +509,14 @@ describe("deleting", () => {
     h.rows = [row(27, { release_at: releaseAt })];
     const res = await call(story.DELETE, req("DELETE", "/"), { ep: "27" });
     expect(res.status).toBe(409);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("refuses a story that has been out, even unpublished", async () => {
+    h.rows = [row(27, { first_released_at: PAST })];
+    const res = await call(story.DELETE, req("DELETE", "/"), { ep: "27" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("was_released");
     expect(h.writes).toEqual([]);
   });
 });
@@ -425,6 +540,24 @@ describe("reordering the queue", () => {
     const body = await res.json();
     expect(body.error).toBe("not_in_queue");
     expect(body.ep).toBe(30);
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([null, FUTURE])("can't touch a story that has been out (date now %s)", async (date) => {
+    h.rows = [row(30, { release_at: date, first_released_at: PAST }), row(31)];
+    const res = await call(reorder.POST, req("POST", "/", { order: [31, 30] }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("not_in_queue");
+    expect(body.ep).toBe(30);
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it("can't put an unreviewed draft into a dated slot", async () => {
+    h.rows = [row(30, { release_at: FUTURE }), row(31, { panels: [panel({ needsReview: true })] })];
+    const res = await call(reorder.POST, req("POST", "/", { order: [31, 30] }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("needs_review");
     expect(h.rpc).not.toHaveBeenCalled();
   });
 
@@ -481,6 +614,35 @@ describe("POST /api/comics/queue/schedule", () => {
     expect(h.writes).toEqual([]);
   });
 
+  it("writes nothing while a story has unreviewed panels, unless told to go ahead", async () => {
+    h.rows = [row(27), row(28, { panels: [panel({ needsReview: true })] })];
+    const items = [
+      { ep: 27, releaseAt: FUTURE },
+      { ep: 28, releaseAt: FUTURE },
+    ];
+    const refused = await call(schedule.POST, req("POST", "/", { items }));
+    expect(refused.status).toBe(409);
+    const body = await refused.json();
+    expect(body.error).toBe("needs_review");
+    expect(body.ep).toBe(28);
+    expect(h.writes).toEqual([]);
+
+    const allowed = await call(schedule.POST, req("POST", "/", { items, allowUnreviewed: true }));
+    expect(allowed.status).toBe(200);
+    expect(h.rows.map((r) => r.release_at)).toEqual([FUTURE, FUTURE]);
+  });
+
+  it("won't redate a story that has been out and was unpublished", async () => {
+    h.rows = [row(27, { first_released_at: PAST })];
+    const res = await call(
+      schedule.POST,
+      req("POST", "/", { items: [{ ep: 27, releaseAt: FUTURE }] })
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("not_in_queue");
+    expect(h.writes).toEqual([]);
+  });
+
   it("won't redate a released story", async () => {
     h.rows = [row(27, { release_at: PAST })];
     const res = await call(
@@ -511,9 +673,23 @@ describe("unused art", () => {
 
   it("deletes what was asked for, except a file a story uses by now", async () => {
     h.rows = [row(27)];
+    h.bucket = [
+      { name: ART(1), created_at: OLD },
+      { name: ART(7), created_at: OLD },
+    ];
     const res = await call(unused.POST, req("POST", "/", { paths: [ART(1), ART(7)] }));
     expect((await res.json()).removed).toBe(1);
     expect(h.removed).toEqual([[ART(7)]]);
+  });
+
+  it("won't delete a file too young to be listed, however it's asked", async () => {
+    h.bucket = [
+      { name: ART(7), created_at: new Date().toISOString() },
+      { name: ART(8), created_at: OLD },
+    ];
+    const res = await call(unused.POST, req("POST", "/", { paths: [ART(7), ART(8)] }));
+    expect((await res.json()).removed).toBe(1);
+    expect(h.removed).toEqual([[ART(8)]]);
   });
 
   it("refuses a path outside the art names", async () => {

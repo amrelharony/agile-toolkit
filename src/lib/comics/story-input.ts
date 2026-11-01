@@ -37,6 +37,8 @@ export interface OwnerStory {
   bookPage: number | null;
   /** Null is a draft; a future time is scheduled; a past one is released. */
   releaseAt: string | null;
+  /** Set for good the first time it goes out, and survives unpublishing. See everReleased. */
+  firstReleasedAt: string | null;
   updatedAt: string;
 }
 
@@ -242,11 +244,32 @@ export function publishProblems(story: Releasable): string[] {
   return problems;
 }
 
+/**
+ * Panels whose text nobody has checked. Not a bar to publishing, but imported
+ * text can carry private production wording and descriptions are always in the
+ * page, so going out with any takes an explicit yes.
+ */
+export function unreviewedPanels(story: Pick<OwnerStory, "panels">): number {
+  return story.panels.filter((panel) => panel.needsReview).length;
+}
+
 export type StoryState = "draft" | "scheduled" | "released";
 
 export function storyState(releaseAt: string | null, now: number = Date.now()): StoryState {
   if (!releaseAt) return "draft";
   return Date.parse(releaseAt) > now ? "scheduled" : "released";
+}
+
+/**
+ * Whether this story has ever been out. Its number has been linked and shared by
+ * then, so it stays put even after unpublishing. Both fields count, because
+ * nothing writes first_released_at at the moment a scheduled time passes.
+ */
+export function everReleased(
+  story: Pick<OwnerStory, "releaseAt" | "firstReleasedAt">,
+  now: number = Date.now()
+): boolean {
+  return Boolean(story.firstReleasedAt) || storyState(story.releaseAt, now) === "released";
 }
 
 /** The number a new weekly story takes: after everything, so none is reused. */
@@ -297,11 +320,12 @@ export interface StoryRow {
   share_path: string | null;
   book_page: number | null;
   release_at: string | null;
+  first_released_at: string | null;
   updated_at: string;
 }
 
 export const OWNER_STORY_COLUMNS =
-  "ep,collection,source_id,title,lesson,squad_question,cast_names,themes,panels,share_path,book_page,release_at,updated_at";
+  "ep,collection,source_id,title,lesson,squad_question,cast_names,themes,panels,share_path,book_page,release_at,first_released_at,updated_at";
 
 export function toOwnerStory(row: StoryRow): OwnerStory {
   return {
@@ -317,6 +341,7 @@ export function toOwnerStory(row: StoryRow): OwnerStory {
     sharePath: row.share_path,
     bookPage: row.book_page,
     releaseAt: row.release_at,
+    firstReleasedAt: row.first_released_at ?? null,
     updatedAt: row.updated_at,
   };
 }

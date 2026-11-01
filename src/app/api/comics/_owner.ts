@@ -88,6 +88,29 @@ export async function loadStory(
   return data ? toOwnerStory(data) : null;
 }
 
+/**
+ * Which of these files aren't in the bucket, or null if that can't be told. A
+ * form can hold paths for days, and their files may have been cleared as unused
+ * since, so a save mustn't take its paths on trust.
+ */
+export async function missingArt(
+  admin: SupabaseClient,
+  paths: readonly string[]
+): Promise<string[] | null> {
+  const bucket = admin.storage.from(BUCKET);
+  try {
+    const found = await Promise.all(
+      Array.from(new Set(paths)).map(async (path) => ({
+        path,
+        there: (await bucket.exists(path)).data,
+      }))
+    );
+    return found.filter((file) => !file.there).map((file) => file.path);
+  } catch {
+    return null;
+  }
+}
+
 /** Every storage file a story points at. */
 export function artPaths(story: Pick<OwnerStory, "panels" | "sharePath">): string[] {
   const paths = story.panels.flatMap((p) => [p.pathFull, p.pathSmall]);

@@ -1,14 +1,22 @@
 /**
- * POST /api/comics/queue/schedule: { items: [{ ep, releaseAt }] }, the dates the
- * portal previewed. All or nothing up front: every story must be an unreleased
- * weekly one that's fit to publish before any date is written.
+ * POST /api/comics/queue/schedule: { items: [{ ep, releaseAt }], allowUnreviewed? },
+ * the dates the portal previewed. All or nothing up front: every story must be a
+ * weekly one that has never been out and is fit to publish before any date is
+ * written. Panels still marked for review also stop it, unless the owner has said
+ * yes to that with `allowUnreviewed: true`.
  *
- * Errors: 400 invalid_items, 409 not_in_queue | incomplete_story (with `ep`),
- * 401/403 not the owner, 503 (with `saved`, how many dates were written).
+ * Errors: 400 invalid_items, 409 not_in_queue | incomplete_story | needs_review
+ * (with `ep`), 401/403 not the owner, 503 (with `saved`, how many dates were
+ * written).
  */
 
 import { revalidateComics } from "@/lib/comics/revalidate";
-import { parseReleaseAt, publishProblems, storyState } from "@/lib/comics/story-input";
+import {
+  everReleased,
+  parseReleaseAt,
+  publishProblems,
+  unreviewedPanels,
+} from "@/lib/comics/story-input";
 import { answer, loadStories, ownerRoute, readJson, refuse } from "../../_owner";
 
 const MAX_ITEMS = 200;
@@ -19,7 +27,8 @@ export const POST = ownerRoute(async ({ req, admin }) => {
   const read = await readJson(req);
   if (read instanceof Response) return read;
 
-  const raw = (read.body as { items?: unknown } | null)?.items;
+  const body = read.body as { items?: unknown; allowUnreviewed?: unknown } | null;
+  const raw = body?.items;
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ITEMS) {
     return refuse(400, "invalid_items");
   }
@@ -37,14 +46,13 @@ export const POST = ownerRoute(async ({ req, admin }) => {
   const now = Date.now();
   for (const { ep } of items) {
     const story = byEp.get(ep);
-    if (
-      !story ||
-      story.collection !== "weekly" ||
-      storyState(story.releaseAt, now) === "released"
-    ) {
+    if (!story || story.collection !== "weekly" || everReleased(story, now)) {
       return refuse(409, "not_in_queue", { ep });
     }
     if (publishProblems(story).length > 0) return refuse(409, "incomplete_story", { ep });
+    if (body?.allowUnreviewed !== true && unreviewedPanels(story) > 0) {
+      return refuse(409, "needs_review", { ep });
+    }
   }
 
   let saved = 0;

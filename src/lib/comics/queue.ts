@@ -3,7 +3,7 @@
  * numbers a reorder may touch. Pure, so the route and the portal agree.
  */
 
-import { publishProblems, storyState, type OwnerStory } from "./story-input";
+import { everReleased, publishProblems, unreviewedPanels, type OwnerStory } from "./story-input";
 
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
@@ -67,12 +67,16 @@ export function scheduleQueue(
   return plan;
 }
 
-type QueueStory = Pick<OwnerStory, "ep" | "collection" | "releaseAt">;
+type QueueStory = Pick<OwnerStory, "ep" | "collection" | "releaseAt" | "firstReleasedAt">;
 
-/** Weekly stories not out yet, drafts included, in number order. */
+/**
+ * Weekly stories that have never been out, drafts included, in number order. A
+ * story that was out and got unpublished isn't one: its number is fixed, and
+ * sending it out again is a decision for its own page.
+ */
 export function unreleasedWeekly<T extends QueueStory>(stories: readonly T[], now: number): T[] {
   return stories
-    .filter((s) => s.collection === "weekly" && storyState(s.releaseAt, now) !== "released")
+    .filter((s) => s.collection === "weekly" && !everReleased(s, now))
     .sort((a, b) => a.ep - b.ep);
 }
 
@@ -87,14 +91,20 @@ export function queueWeeksLeft(stories: readonly QueueStory[], now: number): num
 
 export type ReorderCheck =
   | { ok: true; slots: number[]; order: number[] }
-  | { ok: false; error: "invalid_order" | "not_in_queue" | "incomplete_story"; ep?: number };
+  | {
+      ok: false;
+      error: "invalid_order" | "not_in_queue" | "incomplete_story" | "needs_review";
+      ep?: number;
+    };
 
 /**
  * Whether `order` is a legal new order for the numbers it names. Those numbers
  * are the slots: each keeps its release date and takes the next story in the
- * order, so moving a story up really does bring it out sooner. A released story
- * can't be one of them, its number is fixed, and a story moving into a dated
- * slot has to be fit to publish, or a reorder would get round the release check.
+ * order, so moving a story up really does bring it out sooner. A story that has
+ * ever been out can't be one of them, its number is fixed, and a story moving
+ * into a dated slot has to be fit to publish, or a reorder would get round the
+ * release check. That includes a draft with unreviewed panels; one that already
+ * has a date was given a yes when it got it.
  */
 export function checkReorder(
   stories: readonly OwnerStory[],
@@ -111,11 +121,7 @@ export function checkReorder(
   const byEp = new Map(stories.map((s) => [s.ep, s]));
   for (const ep of eps) {
     const story = byEp.get(ep);
-    if (
-      !story ||
-      story.collection !== "weekly" ||
-      storyState(story.releaseAt, now) === "released"
-    ) {
+    if (!story || story.collection !== "weekly" || everReleased(story, now)) {
       return { ok: false, error: "not_in_queue", ep };
     }
   }
@@ -125,6 +131,9 @@ export function checkReorder(
     const incoming = byEp.get(eps[i])!;
     if (slot.releaseAt && publishProblems(incoming).length > 0) {
       return { ok: false, error: "incomplete_story", ep: incoming.ep };
+    }
+    if (slot.releaseAt && !incoming.releaseAt && unreviewedPanels(incoming) > 0) {
+      return { ok: false, error: "needs_review", ep: incoming.ep };
     }
   }
   return { ok: true, slots, order: eps };

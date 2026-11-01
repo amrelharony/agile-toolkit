@@ -1,12 +1,14 @@
 /**
- * PUT /api/comics/stories/N/release: { releaseAt: ISO time | null }.
+ * PUT /api/comics/stories/N/release: { releaseAt: ISO time | null, allowUnreviewed? }.
  *
  * A time schedules or publishes, and is refused until every panel has art and a
- * description. Null unpublishes: the story goes back to being a draft and keeps
- * its number.
+ * description. Panels still marked for review also stop it, unless the owner has
+ * said yes to that with `allowUnreviewed: true`. Null unpublishes: the story goes
+ * back to being a draft and keeps its number.
  *
  * Errors: 400 invalid_ep | invalid_release, 404, 409 incomplete_story (with
- * `problems`), 401/403 not the owner, 503.
+ * `problems`) | needs_review (with `panels`) | art_missing (with `paths`), 401/403
+ * not the owner, 503.
  */
 
 import { parseEp } from "@/lib/comics/entry";
@@ -16,9 +18,18 @@ import {
   parseReleaseAt,
   publishProblems,
   toOwnerStory,
+  unreviewedPanels,
   type StoryRow,
 } from "@/lib/comics/story-input";
-import { answer, loadStory, ownerRoute, readJson, refuse } from "../../../_owner";
+import {
+  answer,
+  artPaths,
+  loadStory,
+  missingArt,
+  ownerRoute,
+  readJson,
+  refuse,
+} from "../../../_owner";
 
 type Params = { ep: string };
 
@@ -28,7 +39,8 @@ export const PUT = ownerRoute<Params>(async ({ req, admin, params }) => {
   const read = await readJson(req);
   if (read instanceof Response) return read;
 
-  const raw = (read.body as { releaseAt?: unknown } | null)?.releaseAt;
+  const body = read.body as { releaseAt?: unknown; allowUnreviewed?: unknown } | null;
+  const raw = body?.releaseAt;
   const releaseAt = raw === null ? null : parseReleaseAt(raw);
   if (releaseAt === null && raw !== null) return refuse(400, "invalid_release");
 
@@ -38,6 +50,13 @@ export const PUT = ownerRoute<Params>(async ({ req, admin, params }) => {
   if (releaseAt !== null) {
     const problems = publishProblems(story);
     if (problems.length > 0) return refuse(409, "incomplete_story", { problems });
+    const panels = unreviewedPanels(story);
+    if (panels > 0 && body?.allowUnreviewed !== true) {
+      return refuse(409, "needs_review", { panels });
+    }
+    const missing = await missingArt(admin, artPaths(story));
+    if (!missing) return refuse(503, "service_unavailable");
+    if (missing.length > 0) return refuse(409, "art_missing", { paths: missing });
   }
 
   const { data, error } = await admin

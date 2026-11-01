@@ -1,13 +1,13 @@
 /**
  * POST /api/comics/queue/reorder: { order: [ep, ep, ...] }, a new order for the
  * unreleased weekly stories it names. Each number keeps its date and takes the
- * next story in the order. A released story can't be one of them.
+ * next story in the order. A story that has ever been out can't be one of them.
  *
- * The swap itself is one transaction in comic_reorder_queue (migration 0030),
+ * The swap itself is one transaction in comic_reorder_queue (migration 0031),
  * which repeats the released check under a row lock.
  *
- * Errors: 400 invalid_order, 409 not_in_queue | incomplete_story (with `ep`),
- * 401/403 not the owner, 503.
+ * Errors: 400 invalid_order, 409 not_in_queue | incomplete_story | needs_review
+ * (with `ep`), 401/403 not the owner, 503.
  */
 
 import { checkReorder } from "@/lib/comics/queue";
