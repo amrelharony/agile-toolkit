@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import type { Okr } from "@/lib/stores/workspace-types";
-import { krProgressText, okrPercent, resolveLinkedOkrs } from "./okr-links";
+import { normalizeQuarter } from "@/lib/roadmap/quarters";
+import { krProgressText, okrProgressLabel, resolveLinkedOkrs } from "./okr-links";
 import { focusAfterRemoval } from "./focus";
 
 /** Whether the goal has key-result notes to show: anything but the old single blank row. */
@@ -106,7 +107,10 @@ export function OkrStep({
                       )}
                     </span>
                     <span className="block text-xs text-sub">
-                      {[okr.quarter, `${okrPercent(okr)}% of the way`].filter(Boolean).join(" · ")}
+                      {/* "Q4 2026" (the old intent's form) reads as the OKR page's "2026 Q4". */}
+                      {[normalizeQuarter(okr.quarter) || okr.quarter, okrProgressLabel(okr)]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </span>
                   </span>
                 </label>

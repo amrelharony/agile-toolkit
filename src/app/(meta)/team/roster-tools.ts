@@ -36,4 +36,8 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   },
   { toolId: "eisenhower", use: "Offers teammates as who takes a Delegate task." },
   { toolId: "buy-a-feature", use: "Offers the team's size as the number of players." },
+  { toolId: "okrs", use: "Offers teammates as each objective's owner." },
+  { toolId: "risk-register", use: "Offers teammates as each risk's owner." },
+  { toolId: "flaky-tests", use: "Offers teammates as who owns fixing a flaky test." },
+  { toolId: "code-review-metrics", use: "Offers teammates as each pull request's author." },
 ];

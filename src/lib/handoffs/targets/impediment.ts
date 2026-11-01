@@ -9,7 +9,7 @@
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Impediment } from "@/lib/stores/workspace-types";
-import { isResolved } from "@/lib/impediments/model";
+import { IMPEDIMENT_SEVERITIES, isResolved } from "@/lib/impediments/model";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import type { HandoffRoute, HandoffSource } from "../types";
 
@@ -17,10 +17,16 @@ function sourceKind(tool: string): Impediment["source"] {
   return tool === "retro" || tool === "standup" ? tool : "manual";
 }
 
+/** The source's severity when it is one the entity knows (a risk keeps its level), else medium. */
+function severityOf(src: HandoffSource): Impediment["severity"] {
+  return src.severity && IMPEDIMENT_SEVERITIES.includes(src.severity) ? src.severity : "medium";
+}
+
 /**
- * The impediment a send adds. Severity is required on the entity, so it
- * starts at medium (the tool shows it, to change); there is no category
- * until someone picks one.
+ * The impediment a send adds. Severity is required on the entity: a risk
+ * raised as an impediment keeps its level (HandoffSource.severity), and
+ * any other send starts at medium (the tool shows it, to change); there is
+ * no category until someone picks one.
  */
 export function buildImpediment(
   src: HandoffSource,
@@ -33,7 +39,7 @@ export function buildImpediment(
   return {
     id,
     title: src.title.trim().slice(0, 240),
-    severity: "medium",
+    severity: severityOf(src),
     raisedAt: today,
     source: sourceKind(src.sourceRef.tool),
     sourceRef: src.sourceRef,

@@ -11,6 +11,7 @@ vi.mock("@/lib/utils/undoable", () => ({
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HandoffLink } from "@/lib/stores/workspace-types";
 import { sendHandoffBatch, type HandoffLinkStore } from "@/lib/handoffs/send";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { findRetroCard } from "@/lib/handoffs/targets/retro-board";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
@@ -39,11 +40,19 @@ describe("sendHandoffBatch", () => {
     const a = linkStore();
     const b = linkStore();
     const blank = linkStore();
+    // Rated: the risk route refuses an unrated risk rather than score it 3 × 3.
+    const rated = { likelihood: 3, impact: 4 };
     const sent = sendHandoffBatch(
       "risk",
       [
-        { src: { title: "Payments outage", sourceRef: { tool: "premortem", id: "c1" } }, links: a },
-        { src: { title: "Vendor late", sourceRef: { tool: "premortem", id: "c2" } }, links: b },
+        {
+          src: { title: "Payments outage", ...rated, sourceRef: { tool: "premortem", id: "c1" } },
+          links: a,
+        },
+        {
+          src: { title: "Vendor late", ...rated, sourceRef: { tool: "premortem", id: "c2" } },
+          links: b,
+        },
         { src: { title: "  ", sourceRef: { tool: "premortem", id: "c3" } }, links: blank },
       ],
       "Sent 2 risks to the Risk Register"
@@ -59,11 +68,89 @@ describe("sendHandoffBatch", () => {
     // A second batch skips the ones already sent.
     expect(
       sendHandoffBatch("risk", [
-        { src: { title: "Payments outage", sourceRef: { tool: "premortem", id: "c1" } }, links: a },
+        {
+          src: { title: "Payments outage", ...rated, sourceRef: { tool: "premortem", id: "c1" } },
+          links: a,
+        },
       ])
     ).toEqual([]);
 
     undo.last!.revert();
+    expect(useWorkspaceStore.getState().risks).toEqual([]);
+    expect(a.links).toEqual([]);
+    expect(b.links).toEqual([]);
+  });
+
+  it("skips an item the route can't take (an unrated risk after a rated one); the rest send with Undo", () => {
+    const rated = linkStore();
+    const unrated = linkStore();
+    const sent = sendHandoffBatch("risk", [
+      {
+        src: {
+          title: "Payments outage",
+          likelihood: 3,
+          impact: 4,
+          sourceRef: { tool: "premortem", id: "c1" },
+        },
+        links: rated,
+      },
+      {
+        src: { title: "Vendor late", likelihood: 2, sourceRef: { tool: "premortem", id: "c2" } },
+        links: unrated,
+      },
+    ]);
+    expect(sent).toHaveLength(1);
+    expect(useWorkspaceStore.getState().risks.map((r) => r.title)).toEqual(["Payments outage"]);
+    expect(rated.links).toHaveLength(1);
+    expect(unrated.links).toEqual([]);
+    // The one Undo covers what was sent.
+    expect(undo.last).not.toBeNull();
+    undo.last!.revert();
+    expect(useWorkspaceStore.getState().risks).toEqual([]);
+    expect(rated.links).toEqual([]);
+    // Only unrated items: nothing to send, no toast.
+    undo.last = null;
+    expect(
+      sendHandoffBatch("risk", [
+        { src: { title: "Unrated", sourceRef: { tool: "premortem", id: "c3" } }, links: unrated },
+      ])
+    ).toEqual([]);
+    expect(undo.last).toBeNull();
+  });
+
+  it("a send that still throws mid-batch takes back the ones sent before it", () => {
+    const route = getHandoffRoute("risk");
+    const a = linkStore();
+    const b = linkStore();
+    const items = [
+      {
+        src: {
+          title: "First",
+          likelihood: 3,
+          impact: 3,
+          sourceRef: { tool: "premortem", id: "c1" },
+        },
+        links: a,
+      },
+      {
+        src: {
+          title: "Second",
+          likelihood: 3,
+          impact: 3,
+          sourceRef: { tool: "premortem", id: "c2" },
+        },
+        links: b,
+      },
+    ];
+    const real = route.send;
+    const spy = vi
+      .spyOn(route, "send")
+      .mockImplementationOnce((src) => real(src))
+      .mockImplementationOnce(() => {
+        throw new Error("store unavailable");
+      });
+    expect(() => sendHandoffBatch("risk", items)).toThrow("store unavailable");
+    spy.mockRestore();
     expect(useWorkspaceStore.getState().risks).toEqual([]);
     expect(a.links).toEqual([]);
     expect(b.links).toEqual([]);

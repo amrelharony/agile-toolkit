@@ -2,7 +2,7 @@
  * tool.flaky_tests.* coverage (singleton doc, S10).
  *
  *   1. registration — list_state read; add_test/set_status write + mcpHandler.
- *   2. add_test + list_state — byStatus, avgFailureRate (active), worstOffenders.
+ *   2. add_test + list_state — byStatus, avgFailureRate (open), worstOffenders (open).
  *   3. set_status — stamps fixedAt on "fixed"; unknown → {updated:false}.
  */
 
@@ -65,8 +65,9 @@ describe("tool.flaky_tests.add_test + list_state", () => {
     expect(r.total).toBe(3);
     expect(r.byStatus.active).toBe(2);
     expect(r.byStatus.fixed).toBe(1);
-    expect(r.avgFailureRate).toBe(0.5); // (0.4+0.6)/2 active only
-    expect(r.worstOffenders[0].name).toBe("c"); // 0.9 highest overall
+    expect(r.avgFailureRate).toBe(0.5); // (0.4+0.6)/2: open tests only
+    // Fixed tests no longer flake, so they are out of the ranking (as on the page).
+    expect(r.worstOffenders.map((o) => o.name)).toEqual(["b", "a"]);
   });
 });
 

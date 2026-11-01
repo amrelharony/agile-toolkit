@@ -29,7 +29,10 @@ import {
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
+  KR_CHECK_IN_CAP,
   MOOD_TRACKER_ID,
+  NPS_TAG_LIMIT,
+  NPS_TAG_MAX_LENGTH,
   RACI_ID,
   REACH_PERIODS,
   WEIGHTED_CRITERION_KIND,
@@ -53,10 +56,29 @@ import {
   withLegacyLinks,
   type Values,
 } from "@/lib/prioritization/methods";
-import { CeremonyCadenceSchema } from "@/lib/sprints/cadence-schema";
+import { CeremonyCadenceSchema, TimeSchema } from "@/lib/sprints/cadence-schema";
+import { isoDayNumber, parseClockTime, parseWallClock } from "@/lib/sprints/calendar";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { MATURITY_ID } from "@/lib/maturity/assessment";
 import { SKILLS_MATRIX_ID } from "@/lib/skills/coverage";
+import {
+  RISK_REGISTER_KEY,
+  RISK_REGISTER_MOVED_KEY,
+  isPendingRiskRow,
+  listedRisk,
+  withPendingRisks,
+} from "@/lib/risks/legacy-register";
+import {
+  TECH_DEBT_KEY,
+  TECH_DEBT_MOVED_KEY,
+  isPendingTechDebtRow,
+  listedTechDebt,
+  withPendingTechDebt,
+} from "@/lib/tech-debt/legacy";
+import { readLegacyBlob } from "../user-state-blob";
+import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
+import { withMirroredCheckIns } from "@/lib/okrs/progress";
+import { targetClashes } from "@/lib/opportunity-tree/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -223,7 +245,83 @@ const HandoffLinkSchema = z.object({
   at: z.string(),
 });
 
-const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const IsoDay = z.string().regex(ISO_DAY, "YYYY-MM-DD");
+
+// A 1–5 rating no row stored before Phase 8 holds (a risk's residual
+// rating), so the schema itself refuses anything else. The older 1–5
+// fields are judged on write instead (see "Bounds a write must meet").
+const Scale5 = z.number().int().min(1).max(5);
+
+/* ── Bounds a write must meet ─────────────────────────────────────────
+ * Phase 8 tightened fields that rows stored before it can break: an NPS
+ * score the page saved as 7.5 or a blank date, a tech-debt impact of 2.5
+ * that "Import from Workspace" copied, a risk rating outside 1–5 in the
+ * old page blob the Risk Register moves in. An update validates the whole
+ * merged record (define-crud), so a strict schema would refuse every later
+ * edit of such a row, a tag or a rename included. Those fields keep their
+ * old loose schema, as Phase 7's backlog items do, and the CRUD's prepare
+ * judges the new bound on a create and on each value an update changes;
+ * a stored value the write leaves alone stays as it is. A refusal throws
+ * before anything is written. */
+
+/** Whether `v` is a whole number from `min` to `max`. */
+const isWholeIn = (v: unknown, min: number, max: number): boolean =>
+  typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
+
+/**
+ * Whether a write sets `key` of `next` to a value other than the stored
+ * record's: always on a create (no `stored`); on an update only a key the
+ * patch sends (when the patch is given), and only a changed value, so an
+ * agent echoing a row from `list` re-sends its legacy values unjudged.
+ * Values come from JSON, so JSON equality compares them.
+ */
+function writes<T extends object>(
+  next: T,
+  stored: T | undefined,
+  key: keyof T & string,
+  patch?: Readonly<Record<string, unknown>>
+): boolean {
+  if (stored === undefined) return true;
+  if (patch !== undefined && !Object.prototype.hasOwnProperty.call(patch, key)) return false;
+  const a = next[key];
+  const b = stored[key];
+  return a !== b && JSON.stringify(a) !== JSON.stringify(b);
+}
+
+/** `next`, or a throw naming each problem (nothing is saved) when there are any. */
+function unlessRefused<T>(next: T, problems: readonly string[]): T {
+  if (problems.length > 0) throw new Error(`${problems.join(" ")} Nothing was saved.`);
+  return next;
+}
+
+/** The 1–5 ratings among `keys` that a write sets on `next` to anything but a whole number from 1 to 5. */
+function offScale5<T extends object>(
+  next: T,
+  stored: T | undefined,
+  keys: readonly (keyof T & string)[],
+  patch?: Readonly<Record<string, unknown>>
+): (keyof T & string)[] {
+  return keys.filter(
+    (key) =>
+      next[key] !== undefined && writes(next, stored, key, patch) && !isWholeIn(next[key], 1, 5)
+  );
+}
+
+// Stamped by the CRUD's prepare on every create and update; a value sent is
+// replaced. Its presence says the row was saved since its tool moved into
+// the workspace (Phase 8), so the old page blob's copy can't be newer.
+const SavedAt = z
+  .string()
+  .optional()
+  .describe(
+    "ISO timestamp of the last save; stamped by every create and update (a value given is ignored)."
+  );
+
+/** The record with `updatedAt` stamped now: what a risk's or tech-debt item's CRUD saves. */
+function stampUpdatedAt<T extends { updatedAt?: string }>(next: T): T {
+  return { ...next, updatedAt: new Date().toISOString() };
+}
 
 // The id of a singleton document: the one id its tool reads. Its CRUD has no
 // `generateId`, so `create` needs this id and defineCrudActions' duplicate
@@ -324,28 +422,186 @@ const ImpedimentSchema = z.object({
   expectedResolutionDays: z.number().int().min(0).optional(),
 }) as unknown as z.ZodType<Impediment>;
 
-const RiskSchema = z.object({
+// Mirrors `Risk` field for field (z.object drops keys it doesn't know).
+// probability and impact stay any number here: a write that sets one is
+// judged by riskWriteProblems (a stored legacy value stays editable around).
+const RiskSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    probability: z
+      .number()
+      .describe("1–5 in whole numbers, how likely it is (a write off the scale is refused)."),
+    impact: z
+      .number()
+      .describe("1–5 in whole numbers, how bad it would be (a write off the scale is refused)."),
+    mitigation: z.string().optional(),
+    mitigationDueAt: z.string().optional(),
+    status: z.enum(["open", "mitigating", "closed", "accepted"]),
+    raisedAt: z.string(),
+    resolvedAt: z.string().optional(),
+    sourceRef: HandoffRefSchema.optional(),
+    owner: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .describe("Who owns it: the roster's spelling when they're on the team."),
+    description: z.string().max(4000).optional(),
+    residualProbability: Scale5.optional().describe(
+      "1–5 once the mitigation has worked; set with residualImpact (both or neither)."
+    ),
+    residualImpact: Scale5.optional().describe(
+      "1–5 once the mitigation has worked; set with residualProbability (both or neither)."
+    ),
+    sentTo: z.array(HandoffLinkSchema).optional(),
+    updatedAt: SavedAt,
+  })
+  .superRefine((r, ctx) => {
+    if ((r.residualProbability === undefined) !== (r.residualImpact === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [r.residualProbability === undefined ? "residualProbability" : "residualImpact"],
+        message: "Set the residual probability and impact together, or neither.",
+      });
+    }
+  }) as unknown as z.ZodType<Risk>;
+
+/** A risk's write, judged on the ratings it sets (see "Bounds a write must meet"). */
+function riskWriteProblems(
+  next: Risk,
+  current: Risk | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): string[] {
+  return offScale5(next, current, ["probability", "impact"], patch).map(
+    (key) => `${key}: a whole number from 1 to 5.`
+  );
+}
+
+const KeyResultCheckInSchema = z.object({
   id: z.string(),
-  title: z.string(),
-  probability: z.number(),
-  impact: z.number(),
-  mitigation: z.string().optional(),
-  mitigationDueAt: z.string().optional(),
-  status: z.enum(["open", "mitigating", "closed", "accepted"]),
-  raisedAt: z.string(),
-  resolvedAt: z.string().optional(),
-  sourceRef: HandoffRefSchema.optional(),
-}) as unknown as z.ZodType<Risk>;
+  date: IsoDay.describe("The local day the value was read (backdated; never after today)."),
+  value: z.number().finite(),
+  confidence: z.number().min(0).max(10).optional().describe("0–10; absent = not scored."),
+  note: z.string().max(500).optional(),
+});
 
 const KeyResultSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().optional(),
   target: z.number(),
-  current: z.number(),
+  current: z
+    .number()
+    .describe(
+      "The latest value. With check-ins it is the newest one's value: a write setting anything else is refused (record a value with tool.okrs.check_in)."
+    ),
   unit: z.string().optional(),
-  confidence: z.number().optional(),
+  // Any number here: before Phase 8 this took any, so a write that sets it
+  // is judged by okrWriteProblems instead (a stored one stays editable around).
+  confidence: z
+    .number()
+    .optional()
+    .describe(
+      "The latest scored confidence, 0–10; absent = not scored. A write outside 0–10 is refused, and with a scored check-in so is anything but the newest scored one's."
+    ),
+  baseline: z
+    .number()
+    .finite()
+    .optional()
+    .describe("The value at the start; progress runs baseline → target. Absent: read as 0."),
+  direction: z
+    .enum(["increase", "decrease"])
+    .optional()
+    .describe(
+      '"decrease" for a number that should fall (target below baseline). Absent: "increase".'
+    ),
+  checkIns: z
+    .array(KeyResultCheckInSchema)
+    .max(KR_CHECK_IN_CAP)
+    .optional()
+    .describe(
+      `Dated check-ins, at most ${KR_CHECK_IN_CAP}; stored oldest first, with current and confidence taken from the newest. An update whose keyResults leave a key result's checkIns out keeps the stored ones.`
+    ),
 });
+
+/**
+ * An OKR about to be saved, with each key result's stored check-ins kept
+ * where the write left them out: `update` replaces the whole keyResults
+ * list, so a patch that edits one key result's title would otherwise erase
+ * every key result's check-ins. A key result sent with checkIns (even [])
+ * keeps what was sent; a new key result id has none to keep.
+ */
+function keepCheckIns(next: Okr, current: Okr | undefined): Okr {
+  if (!current) return next;
+  const stored = new Map(current.keyResults.map((kr) => [kr.id, kr.checkIns]));
+  let changed = false;
+  const keyResults = next.keyResults.map((kr) => {
+    const checkIns = stored.get(kr.id);
+    if (kr.checkIns !== undefined || checkIns === undefined) return kr;
+    changed = true;
+    return { ...kr, checkIns };
+  });
+  return changed ? { ...next, keyResults } : next;
+}
+
+/**
+ * An OKR about to be saved (its check-ins kept), with each key result's
+ * `current` and `confidence` held to its check-ins as tool.okrs.check_in
+ * holds them (lib/okrs withMirroredCheckIns): the next check-in re-mirrors
+ * both from the newest one, so a value set apart from it would read on the
+ * page until then and be dropped without a word. On a key result with a
+ * readable check-in, a write that sets `current` to anything but the newest
+ * check-in's value, or `confidence` to anything but the newest scored one's,
+ * is a problem pointing to check_in. A key result whose write sets its
+ * current, confidence or check-ins is stored mirrored (check-ins sent out
+ * of order sorted oldest first; a confidence left out comes back from a
+ * scored check-in). One the write leaves alone stays as stored.
+ */
+function withCheckInsMirrored(next: Okr, current: Okr | undefined): [Okr, string[]] {
+  const stored = new Map((current?.keyResults ?? []).map((kr) => [kr.id, kr]));
+  const problems: string[] = [];
+  let changed = false;
+  const keyResults = next.keyResults.map((kr) => {
+    const mirrored = withMirroredCheckIns(kr);
+    if (mirrored === kr) return kr;
+    const sets = (key: "current" | "confidence" | "checkIns") => writes(kr, stored.get(kr.id), key);
+    if (sets("current") && kr.current !== mirrored.current) {
+      problems.push(
+        `keyResults ${kr.id}: current is its newest check-in's value (${mirrored.current}); record a new value with tool.okrs.check_in.`
+      );
+    }
+    if (
+      kr.confidence !== undefined &&
+      sets("confidence") &&
+      kr.confidence !== mirrored.confidence
+    ) {
+      problems.push(
+        `keyResults ${kr.id}: confidence is its newest scored check-in's (${mirrored.confidence}); score it with tool.okrs.check_in.`
+      );
+    }
+    if (!sets("current") && !sets("confidence") && !sets("checkIns")) return kr;
+    changed = true;
+    return mirrored;
+  });
+  return [changed ? { ...next, keyResults } : next, problems];
+}
+
+/**
+ * An OKR's write, judged on the key-result confidences it sets: one that
+ * is new, or differs from its key result's stored value, is 0–10 (see
+ * "Bounds a write must meet").
+ */
+function okrWriteProblems(next: Okr, current: Okr | undefined): string[] {
+  const stored = new Map((current?.keyResults ?? []).map((kr) => [kr.id, kr]));
+  return next.keyResults
+    .filter((kr) => {
+      const c = kr.confidence;
+      if (c === undefined || !writes(kr, stored.get(kr.id), "confidence")) return false;
+      return !(Number.isFinite(c) && c >= 0 && c <= 10);
+    })
+    .map((kr) => `keyResults ${kr.id}: confidence is from 0 to 10, or left out (not scored).`);
+}
 
 const OkrSchema = z.object({
   id: z.string(),
@@ -430,18 +686,58 @@ const DecisionSchema = z.object({
     .describe('Id of the decision that replaced this one (status "superseded").'),
 }) as unknown as z.ZodType<Decision>;
 
+// Mirrors `TechDebtItem` field for field (z.object drops keys it doesn't know).
+// impact, effort and interestRate stay any number here: a write that sets
+// one is judged by techDebtWriteProblems (a stored legacy value, a 2.5 the
+// page's import copied, stays editable around).
 const TechDebtSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().optional(),
   area: z.string().optional(),
-  impact: z.number(),
-  effort: z.number(),
-  interestRate: z.number().optional(),
+  impact: z
+    .number()
+    .describe(
+      "1–5 in whole numbers, how much it slows the team (a write off the scale is refused)."
+    ),
+  effort: z
+    .number()
+    .describe(
+      "1–5 in whole numbers, how much work paying it down is (a write off the scale is refused)."
+    ),
+  interestRate: z
+    .number()
+    .optional()
+    .describe("Score points it gains per sprint left unpaid, 0–100 (a write outside is refused)."),
   raisedAt: z.string(),
   resolvedAt: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
+  updatedAt: SavedAt,
 }) as unknown as z.ZodType<TechDebtItem>;
+
+/** The highest interest rate a write sets (score points per sprint). */
+const INTEREST_RATE_MAX = 100;
+
+/** A tech-debt item's write, judged on the ratings and the rate it sets (see "Bounds a write must meet"). */
+function techDebtWriteProblems(
+  next: TechDebtItem,
+  current: TechDebtItem | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): string[] {
+  const problems = offScale5(next, current, ["impact", "effort"], patch).map(
+    (key) => `${key}: a whole number from 1 to 5.`
+  );
+  const rate = next.interestRate;
+  if (
+    rate !== undefined &&
+    writes(next, current, "interestRate", patch) &&
+    !(Number.isFinite(rate) && rate >= 0 && rate <= INTEREST_RATE_MAX)
+  ) {
+    problems.push(`interestRate: from 0 to ${INTEREST_RATE_MAX} score points per sprint.`);
+  }
+  return problems;
+}
 
 const TeamMemberSchema = z.object({
   id: z.string(),
@@ -512,6 +808,33 @@ defineCrudActions<Impediment>({
   generateId: () => `imp_${nanoid(8)}`,
 });
 
+/* ── Rows still moving in from an old page blob ────────────────────────
+ * The Risk Register's and the Tech Debt page's old blobs move into
+ * workspace.risks / workspace.techDebt through each page's one-time move;
+ * until it runs, the pages and the tool verbs list a row both stores hold
+ * with the blob's copy folded in (lib/risks/legacy-register,
+ * lib/tech-debt/legacy). The CRUD's update starts from that listed row
+ * (readAs), so its updatedAt stamp, which tells the move the workspace's
+ * copy is the newer one, never lands on a bare row lacking the blob's later
+ * status or values. A row only the blob holds, which the reads list as
+ * pending, is updated from the blob's copy as listed (readMissing) and saved
+ * into the workspace, stamped, as the tool verbs save it; the move then
+ * leaves it alone. A delete of a row still waiting in the blob is refused
+ * ('pending_move'), as tool.*.delete refuses it: only the page can mark it
+ * moved, or the move would bring it straight back. */
+
+const RISK_PENDING_DELETE =
+  "pending_move: this risk is still moving in from the old Risk Register page: open the Risk Register once, then delete it (or delete it there). Nothing was deleted.";
+const TECH_DEBT_PENDING_DELETE =
+  "pending_move: this item is still moving in from the old Tech Debt page: open Tech Debt once, then delete it (or delete it there). Nothing was deleted.";
+
+/** The Risk Register's old blob and moved ids, on the CRUD's transport. */
+const riskBlob = (env: CrudEnv<Risk>) =>
+  readLegacyBlob(RISK_REGISTER_KEY, RISK_REGISTER_MOVED_KEY, env.userId);
+/** The Tech Debt page's old blob and moved ids, on the CRUD's transport. */
+const techDebtBlob = (env: CrudEnv<TechDebtItem>) =>
+  readLegacyBlob(TECH_DEBT_KEY, TECH_DEBT_MOVED_KEY, env.userId);
+
 defineCrudActions<Risk>({
   toolId: "workspace.risk",
   entityName: "risk",
@@ -520,6 +843,25 @@ defineCrudActions<Risk>({
   upsert: (r) => ws().upsertRisk(r),
   remove: (id) => ws().removeRisk(id),
   generateId: () => `risk_${nanoid(8)}`,
+  // An update merges into the risk as the register lists it, one only the
+  // old blob holds included; a delete of one still in the blob is refused
+  // (see above).
+  readAs: async (stored, env) => {
+    const { raw, moved } = await riskBlob(env);
+    return listedRisk(stored, raw, moved);
+  },
+  readMissing: async (id, env) => {
+    const { raw, moved } = await riskBlob(env);
+    return withPendingRisks([], raw, moved).find((r) => r.id === id);
+  },
+  beforeDelete: async (id, env) => {
+    const { raw, moved } = await riskBlob(env);
+    if (isPendingRiskRow(id, raw, moved)) throw new Error(RISK_PENDING_DELETE);
+  },
+  // The ratings a write sets are judged; an agent's write is newer than the
+  // old Risk Register blob (lib/risks' move).
+  prepare: (next, current, patch) =>
+    stampUpdatedAt(unlessRefused(next, riskWriteProblems(next, current, patch))),
 });
 
 defineCrudActions<Okr>({
@@ -530,6 +872,10 @@ defineCrudActions<Okr>({
   upsert: (o) => ws().upsertOkr(o),
   remove: (id) => ws().removeOkr(id),
   generateId: () => `okr_${nanoid(8)}`,
+  prepare: (next, current) => {
+    const [okr, problems] = withCheckInsMirrored(keepCheckIns(next, current), current);
+    return unlessRefused(okr, [...okrWriteProblems(next, current), ...problems]);
+  },
 });
 
 defineCrudActions<Decision>({
@@ -550,6 +896,25 @@ defineCrudActions<TechDebtItem>({
   upsert: (t) => ws().upsertTechDebt(t),
   remove: (id) => ws().removeTechDebt(id),
   generateId: () => `td_${nanoid(8)}`,
+  // An update merges into the item as the page lists it, one only the old
+  // blob holds included; a delete of one still in the blob is refused (see
+  // "Rows still moving in").
+  readAs: async (stored, env) => {
+    const { raw, moved } = await techDebtBlob(env);
+    return listedTechDebt(stored, raw, moved);
+  },
+  readMissing: async (id, env) => {
+    const { raw, moved } = await techDebtBlob(env);
+    return withPendingTechDebt([], raw, moved).find((t) => t.id === id);
+  },
+  beforeDelete: async (id, env) => {
+    const { raw, moved } = await techDebtBlob(env);
+    if (isPendingTechDebtRow(id, raw, moved)) throw new Error(TECH_DEBT_PENDING_DELETE);
+  },
+  // The ratings and rate a write sets are judged; an agent's write is newer
+  // than the old Tech Debt blob (lib/tech-debt's move).
+  prepare: (next, current, patch) =>
+    stampUpdatedAt(unlessRefused(next, techDebtWriteProblems(next, current, patch))),
 });
 
 defineCrudActions<TeamMember>({
@@ -1029,46 +1394,175 @@ defineCrudActions<A11yTracker>({
 /* ── S10 — Quality Engineering (singleton-doc tools). quality-cost is a pure
  * calculator (no entity) — its compute action lives in ../tools/. */
 
-const TestPyramidSchema = z.object({
-  id: z.string(),
-  unit: z.number(),
-  integration: z.number(),
-  e2e: z.number(),
-  description: z.string().optional(),
-}) as unknown as z.ZodType<TestPyramid>;
-
-const FlakyTestSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  suite: z.string().optional(),
-  owner: z.string().optional(),
-  failureRate: z.number(),
-  status: z.enum(["active", "quarantined", "fixed"]),
-  firstSeenAt: z.string(),
-  fixedAt: z.string().optional(),
-  description: z.string().optional(),
+// Each mirrors its workspace type field for field (z.object drops keys it
+// doesn't know, so a field missing here is erased by every agent update).
+const LayerMinutes = z.number().finite().min(0);
+const TestLayerRuntimeSchema = z.object({
+  unit: LayerMinutes.optional(),
+  integration: LayerMinutes.optional(),
+  e2e: LayerMinutes.optional(),
 });
+const LayerCount = z.number().int().min(0);
+
+const TestPyramidSnapshotSchema = z.object({
+  id: z.string(),
+  takenOn: IsoDay.describe("The local day the counts are for (backdated; never after today)."),
+  unit: LayerCount,
+  integration: LayerCount,
+  e2e: LayerCount,
+  runtime: TestLayerRuntimeSchema.optional(),
+  note: z.string().max(500).optional(),
+});
+
+const TestPyramidSchema = z
+  .object({
+    id: z.string(),
+    unit: z.number(),
+    integration: z.number(),
+    e2e: z.number(),
+    description: z.string().optional(),
+    runtime: TestLayerRuntimeSchema.optional().describe(
+      "Minutes of CI wall-clock per layer; a layer left out isn't timed."
+    ),
+    weighting: z
+      .enum(["count", "runtime"])
+      .optional()
+      .describe(
+        'What the shares are worked out from; "runtime" needs all three runtimes. Absent: "count".'
+      ),
+    snapshots: z
+      .array(TestPyramidSnapshotSchema)
+      .optional()
+      .describe("Dated copies of the counts, oldest first."),
+    updatedOn: IsoDay.optional().describe("The local day the counts were last saved."),
+  })
+  .superRefine((p, ctx) => {
+    const r = p.runtime;
+    if (
+      p.weighting === "runtime" &&
+      !(r && r.unit !== undefined && r.integration !== undefined && r.e2e !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["weighting"],
+        message: "Weighting by runtime needs the minutes of all three layers.",
+      });
+    }
+  }) as unknown as z.ZodType<TestPyramid>;
+
+const FlakyTestSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    suite: z.string().optional(),
+    owner: z.string().optional(),
+    failureRate: z.number().describe("0..1; kept equal to failures / runs when both are set."),
+    status: z.enum(["active", "quarantined", "fixed"]),
+    firstSeenAt: z.string(),
+    fixedAt: z.string().optional(),
+    description: z.string().optional(),
+    failures: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Failed runs in the window counted; set with runs."),
+    runs: z.number().int().min(1).optional().describe("Runs in that window, at least failures."),
+    quarantinedAt: IsoDay.optional().describe("The local day it went into quarantine."),
+    sentTo: z.array(HandoffLinkSchema).optional(),
+  })
+  .superRefine((t, ctx) => {
+    if ((t.failures === undefined) !== (t.runs === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [t.failures === undefined ? "failures" : "runs"],
+        message: "Set failures and runs together, or neither.",
+      });
+    } else if (t.failures !== undefined && t.runs !== undefined && t.failures > t.runs) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["failures"],
+        message: "A test can't fail more often than it ran.",
+      });
+    }
+  });
 
 const FlakyTestBoardSchema = z.object({
   id: z.string(),
   tests: z.array(FlakyTestSchema),
 }) as unknown as z.ZodType<FlakyTestBoard>;
 
-const PrSampleSchema = z.object({
-  id: z.string(),
-  prNumber: z.string().optional(),
-  author: z.string(),
-  openedAt: z.string(),
-  mergedAt: z.string().optional(),
-  reviewerCount: z.number(),
-  commentCount: z.number(),
-  linesChanged: z.number(),
-  description: z.string().optional(),
-});
+/** A wall-clock value ("YYYY-MM-DDTHH:MM") as minutes from day 0, for ordering; null when it isn't one. */
+function wallClockOrder(value: string | undefined): number | null {
+  const w = parseWallClock(value);
+  return w === null ? null : (isoDayNumber(w.day) as number) * 1440 + w.minute;
+}
+
+const PrSampleSchema = z
+  .object({
+    id: z.string(),
+    prNumber: z.string().optional(),
+    author: z.string(),
+    openedAt: z.string(),
+    mergedAt: z.string().optional(),
+    reviewerCount: z.number(),
+    commentCount: z.number(),
+    linesChanged: z.number(),
+    description: z.string().optional(),
+    firstReviewAt: z
+      .string()
+      .refine((v) => parseWallClock(v) !== null, 'a local time as "YYYY-MM-DDTHH:MM"')
+      .optional()
+      .describe(
+        'When the first review landed, local wall-clock "YYYY-MM-DDTHH:MM", between openedAt and mergedAt.'
+      ),
+  })
+  .superRefine((s, ctx) => {
+    // Only a first review is checked against the other two: rows from
+    // before Phase 8 may hold a merge before the open, which the page flags.
+    const review = wallClockOrder(s.firstReviewAt);
+    if (review === null) return;
+    const opened = wallClockOrder(s.openedAt);
+    const merged = wallClockOrder(s.mergedAt);
+    if (opened !== null && review < opened) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["firstReviewAt"],
+        message: "The first review can't come before the pull request was opened.",
+      });
+    }
+    if (merged !== null && review > merged) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["firstReviewAt"],
+        message: "The first review can't come after the pull request was merged.",
+      });
+    }
+  });
+
+const CodeReviewWorkingWindowSchema = z
+  .object({
+    start: TimeSchema,
+    end: TimeSchema,
+  })
+  .superRefine((w, ctx) => {
+    const start = parseClockTime(w.start);
+    const end = parseClockTime(w.end);
+    if (start !== null && end !== null && end <= start) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["end"],
+        message: "The window must end after it starts.",
+      });
+    }
+  });
 
 const CodeReviewLogSchema = z.object({
   id: z.string(),
   samples: z.array(PrSampleSchema),
+  workingWindow: CodeReviewWorkingWindowSchema.optional().describe(
+    'The working hours the review medians count, local "HH:MM"; absent: whole working days.'
+  ),
 }) as unknown as z.ZodType<CodeReviewLog>;
 
 defineCrudActions<TestPyramid>({
@@ -1385,20 +1879,47 @@ const DesignSprintSchema = z.object({
   sprint: DesignSprintPlanSchema.nullable(),
 }) as unknown as z.ZodType<DesignSprint>;
 
+// The ratings stay any number here: one a write sets is judged by
+// assumptionWriteProblems, so one stored legacy value can't block every
+// update of the whole canvas.
 const AssumptionSchema = z.object({
   id: z.string(),
   statement: z.string(),
-  riskLevel: z.number(),
-  evidenceLevel: z.number(),
+  riskLevel: z
+    .number()
+    .optional()
+    .describe("1–5 in whole numbers, how badly it hurts if wrong; absent = not rated."),
+  evidenceLevel: z
+    .number()
+    .optional()
+    .describe("1–5 in whole numbers, how much evidence backs it; absent = not rated."),
   testIdea: z.string().optional(),
   status: z.enum(["untested", "testing", "validated", "invalidated"]),
   description: z.string().optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
 });
 
 const RiskiestAssumptionSchema = z.object({
   id: z.string(),
   assumptions: z.array(AssumptionSchema),
 }) as unknown as z.ZodType<RiskiestAssumption>;
+
+/**
+ * The canvas's write, judged on the ratings it sets: on each assumption
+ * that is new, a rating given; on a stored one, a rating that differs from
+ * its stored value (see "Bounds a write must meet"). Absent is not rated.
+ */
+function assumptionWriteProblems(
+  next: RiskiestAssumption,
+  current: RiskiestAssumption | undefined
+): string[] {
+  const stored = new Map((current?.assumptions ?? []).map((a) => [a.id, a]));
+  return next.assumptions.flatMap((a) =>
+    offScale5(a, stored.get(a.id), ["riskLevel", "evidenceLevel"]).map(
+      (key) => `assumptions ${a.id}: ${key} is a whole number from 1 to 5, or left out (not rated).`
+    )
+  );
+}
 
 const WardleyComponentSchema = z.object({
   id: z.string(),
@@ -1460,6 +1981,7 @@ defineCrudActions<RiskiestAssumption>({
   upsert: (x) => ws().upsertRiskiestAssumption(x),
   remove: (id) => ws().removeRiskiestAssumption(id),
   generateId: () => `riskiestAssumption_${nanoid(8)}`,
+  prepare: (next, current) => unlessRefused(next, assumptionWriteProblems(next, current)),
 });
 
 defineCrudActions<WardleyMap>({
@@ -1503,6 +2025,16 @@ const HypothesisSchema = z.object({
   raisedAt: z.string(),
   resolvedAt: z.string().optional(),
   sourceRef: HandoffRefSchema.optional(),
+  target: z
+    .object({
+      direction: z.enum(["increase", "decrease"]),
+      value: z.number().finite(),
+      unit: z.string().max(40).optional(),
+      baseline: z.number().finite().optional(),
+    })
+    .optional()
+    .describe("Success is at least (increase) or at most (decrease) value."),
+  actual: z.number().finite().optional().describe("The measured result, in target.unit."),
 });
 
 const HypothesisTrackerSchema = z.object({
@@ -1514,6 +2046,7 @@ const InterviewQuoteSchema = z.object({
   id: z.string(),
   text: z.string(),
   tags: z.array(z.string()),
+  sentTo: z.array(HandoffLinkSchema).optional(),
 });
 
 const InterviewSchema = z.object({
@@ -1827,19 +2360,51 @@ const PokerEstimationLogSchema = z.object({
     .optional(),
 }) as unknown as z.ZodType<PokerEstimationLog>;
 
-const TreeNodeSchema = z.object({
-  id: z.string(),
-  kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
-  text: z.string(),
-  parentId: z.string().nullable(),
-  evidence: z.string().optional(),
-  description: z.string().optional(),
-});
+const TreeNodeSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
+    text: z.string(),
+    parentId: z.string().nullable(),
+    evidence: z.string().optional(),
+    description: z.string().optional(),
+    target: z
+      .boolean()
+      .optional()
+      .describe(
+        "The opportunity pursued under its outcome: opportunities only, one per outcome (a write leaving two under one is refused; tool.opportunity_tree.set_target clears the others)."
+      ),
+    sentTo: z.array(HandoffLinkSchema).optional(),
+    sourceRef: HandoffRefSchema.optional(),
+  })
+  .superRefine((n, ctx) => {
+    if (n.target === true && n.kind !== "opportunity") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["target"],
+        message: "Only an opportunity can be its outcome's target.",
+      });
+    }
+  });
 
 const OpportunityTreeSchema = z.object({
   id: z.string(),
   nodes: z.array(TreeNodeSchema),
 }) as unknown as z.ZodType<OpportunityTree>;
+
+/**
+ * A tree's write, judged on its targets: at most one target opportunity per
+ * outcome (lib/opportunity-tree targetClashes), as the page's toggle and
+ * tool.opportunity_tree.set_target keep it. No verb moves a node, so a
+ * re-parent goes through this update with the whole nodes list, and could
+ * otherwise put a target under an outcome that has one.
+ */
+function treeTargetProblems(next: OpportunityTree): string[] {
+  return targetClashes(next.nodes ?? []).map(
+    (c) =>
+      `nodes: one target opportunity per outcome, and ${c.outcomeId === null ? "the opportunities under no outcome hold" : `outcome ${c.outcomeId} holds`} ${c.ids.length} (${c.ids.join(", ")}); clear all but one, or set it with tool.opportunity_tree.set_target.`
+  );
+}
 
 // S8 — Incidents & Reliability
 const RunbookSchema = z.object({
@@ -2101,6 +2666,7 @@ defineCrudActions<OpportunityTree>({
   upsert: (x) => ws().upsertOpportunityTree(x),
   remove: (id) => ws().removeOpportunityTree(id),
   generateId: () => `opportunityTree_${nanoid(8)}`,
+  prepare: (next) => unlessRefused(next, treeTargetProblems(next)),
 });
 
 defineCrudActions<RunbookScorer>({
@@ -2690,14 +3256,91 @@ const BacklogItemSchema = z.object({
     ),
 }) as unknown as z.ZodType<BacklogItem>;
 
+// score and date stay as loose as before Phase 8 (any number, any string):
+// the page saved fractions (it clamps, never rounds) and blank dates, and a
+// strict schema would refuse every later update of such a row, tagging
+// included. npsWriteProblems judges the score and day a write sets.
 const NpsResponseSchema = z.object({
   id: z.string(),
   kind: z.enum(["nps", "csat"]),
-  date: z.string(),
-  score: z.number(),
+  // A timestamp an earlier agent stored ("YYYY-MM-DDT…") reads as its day,
+  // so any update to such a row stores the day.
+  date: z
+    .preprocess(
+      (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? v.slice(0, 10) : v),
+      z.string()
+    )
+    .describe("The day the answer was given, YYYY-MM-DD (a timestamp is read as its day)."),
+  score: z
+    .number()
+    .describe("A whole number: NPS 0–10, CSAT 1–5 (a write off the kind's scale is refused)."),
   respondent: z.string().optional(),
   verbatim: z.string().optional(),
+  tags: z
+    .array(z.string().min(1).max(NPS_TAG_MAX_LENGTH))
+    .max(NPS_TAG_LIMIT)
+    .optional()
+    .describe(
+      `Theme tags on the verbatim; stored lower-case and once each (as tool.nps_csat.record stores them), at most ${NPS_TAG_LIMIT} of up to ${NPS_TAG_MAX_LENGTH} characters.`
+    ),
 }) as unknown as z.ZodType<NpsResponse>;
+
+/**
+ * A survey response's write, judged on what it sets (see "Bounds a write
+ * must meet"): a score, or a kind that re-reads the score, is a whole
+ * number on the kind's scale (NPS 0–10, CSAT 1–5); a date is a
+ * "YYYY-MM-DD" day; tags fit lib/nps's limits.
+ */
+function npsWriteProblems(
+  next: NpsResponse,
+  current: NpsResponse | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): string[] {
+  const problems: string[] = [];
+  const tags = next.tags !== undefined && writes(next, current, "tags", patch);
+  const tagProblem = tags ? tagsProblem(next.tags ?? []) : null;
+  if (tagProblem) problems.push(`tags: ${tagProblem}`);
+  const scored = writes(next, current, "score", patch) || writes(next, current, "kind", patch);
+  const [min, max] = next.kind === "nps" ? [0, 10] : [1, 5];
+  if (scored && !isWholeIn(next.score, min, max)) {
+    problems.push(
+      `score: ${next.kind === "nps" ? "an NPS" : "a CSAT"} score is a whole number from ${min} to ${max}.`
+    );
+  }
+  if (writes(next, current, "date", patch) && !ISO_DAY.test(next.date)) {
+    problems.push('date: the day the answer was given, as "YYYY-MM-DD".');
+  }
+  // The page's form and import caps: a longer one would be stored, then
+  // refused by the form's next edit. Only what the write sets is judged.
+  const tooLong = (key: "respondent" | "verbatim", max: number) =>
+    writes(next, current, key, patch) && (next[key]?.trim().length ?? 0) > max;
+  if (tooLong("respondent", RESPONDENT_MAX)) {
+    problems.push(`respondent: at most ${RESPONDENT_MAX} characters.`);
+  }
+  if (tooLong("verbatim", VERBATIM_MAX)) {
+    problems.push(`verbatim: at most ${VERBATIM_MAX} characters.`);
+  }
+  return problems;
+}
+
+/**
+ * The response with the tags a write sets stored as lib/nps stores them:
+ * lower-case, once each, the key dropped when none is left. The page's tag
+ * chip and filter, and tool.nps_csat.record, read and write that form, so a
+ * "Pricing" saved as typed would filter nothing. Stored tags the write
+ * leaves alone stay as they are.
+ */
+function withStoredTags(
+  next: NpsResponse,
+  current: NpsResponse | undefined,
+  patch?: Readonly<Record<string, unknown>>
+): NpsResponse {
+  if (next.tags === undefined || !writes(next, current, "tags", patch)) return next;
+  const tags = normalizeTags(next.tags);
+  const out: NpsResponse = { ...next, tags };
+  if (tags.length === 0) delete out.tags;
+  return out;
+}
 
 // A check-in's day. Before Phase 6 this CRUD and tool.mood_tracker.record took
 // any string, so an agent may have stored a timestamp. One is read as its
@@ -3278,6 +3921,8 @@ defineCrudActions<NpsResponse>({
   upsert: (x) => ws().upsertNpsResponse(x),
   remove: (id) => ws().removeNpsResponse(id),
   generateId: () => `nps_${nanoid(8)}`,
+  prepare: (next, current, patch) =>
+    withStoredTags(unlessRefused(next, npsWriteProblems(next, current, patch)), current, patch),
 });
 
 defineCrudActions<MoodEntry>({

@@ -7,10 +7,11 @@ import type { Risk } from "@/lib/stores/workspace-types";
 
 /**
  * Premortem: a cause can be added to the Risk Register. Its likelihood,
- * impact and preventive action become the risk's probability, impact and
- * mitigation; the register's blob and workspace.risks get the same row; the
+ * impact, preventive action and owner become the risk's probability,
+ * impact, mitigation and owner; the risk lands in workspace.risks only (the
+ * register's one store since Phase 8: the old blob is never written); the
  * cause records the link, and Undo removes both. A cause that isn't rated
- * can't be sent: the register would fill the gap with a silent 3.
+ * can't be sent: the route refuses an unrated risk rather than score it.
  */
 
 const undo = vi.hoisted(() => ({
@@ -44,6 +45,7 @@ const RISK_KEY = "agile-toolkit:risk-register";
 const causes = (): PremortemCause[] =>
   (JSON.parse(localStorage.getItem(PREMORTEM_KEY) ?? "{}") as PremortemState).premortems[0].causes;
 const riskBlob = (): Risk[] => JSON.parse(localStorage.getItem(RISK_KEY) ?? "[]");
+const risks = () => useWorkspaceStore.getState().risks;
 
 function openSendTo(name: RegExp) {
   fireEvent.keyDown(screen.getByRole("button", { name }), { key: "Enter" });
@@ -107,17 +109,19 @@ describe("Premortem Send to", () => {
     openSendTo(/^Send to… Payment provider/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Risk" }));
 
-    const [risk] = riskBlob();
+    const [risk] = risks();
     expect(risk).toMatchObject({
       title: "Payment provider certification took too long",
       probability: 4,
       impact: 5,
       mitigation: "Start certification in sprint 1",
+      owner: "Priya",
       status: "open",
       sourceRef: { tool: "premortem", id: "c1", doc: "legacy-premortem" },
+      updatedAt: expect.any(String),
     });
-    // The same row, under the same id, for dashboards and agents.
-    expect(useWorkspaceStore.getState().risks).toEqual([risk]);
+    // One store: the register's old blob isn't written.
+    expect(localStorage.getItem(RISK_KEY)).toBeNull();
     expect(causes()[0].sentTo).toEqual([
       { route: "risk", targetId: risk.id, at: expect.any(String) },
     ]);
@@ -130,16 +134,17 @@ describe("Premortem Send to", () => {
     );
   });
 
-  it("Undo removes the risk from both places and the link", () => {
+  it("Undo removes the risk and the link, and leaves the old blob as it was", () => {
     localStorage.setItem(RISK_KEY, JSON.stringify([{ id: "r0", title: "Existing" }]));
     renderPremortem();
     openSendTo(/^Send to… Payment provider/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Risk" }));
-    expect(riskBlob()).toHaveLength(2);
+    expect(risks()).toHaveLength(1);
+    expect(riskBlob()).toEqual([{ id: "r0", title: "Existing" }]);
 
     act(() => undo.last!.revert());
     expect(riskBlob()).toEqual([{ id: "r0", title: "Existing" }]);
-    expect(useWorkspaceStore.getState().risks).toEqual([]);
+    expect(risks()).toEqual([]);
     expect(causes()[0].sentTo).toEqual([]);
   });
 });

@@ -97,9 +97,14 @@ export const MOOD_ACTIONS = {
 } as const;
 
 export const NPS_CSAT_ACTIONS = {
+  /** One response was added or deleted (the strings from before Phase 8). */
   SURVEY_ADDED: "survey_added",
   SURVEY_REMOVED: "survey_removed",
   SURVEY_RESET: "survey_reset", // milestone
+  /** A response's tags or verbatim were edited. Payload: responseId, fields. */
+  RESPONSE_UPDATED: "response_updated",
+  /** A CSV or paste import saved its rows. Payload: added, skipped (duplicates). */
+  RESPONSES_IMPORTED: "responses_imported",
 } as const;
 
 // ── Configuration registers ──────────────────────────────────────────
@@ -212,6 +217,8 @@ export const RISK_ACTIONS = {
   RISK_UPDATED: "risk_updated",
   RISK_REMOVED: "risk_removed",
   RISK_RESET: "risk_reset", // milestone
+  /** The risk happened and was raised as an impediment. Payload: riskId, impedimentId. */
+  RISK_ESCALATED: "risk_escalated",
 } as const;
 
 export const PREMORTEM_ACTIONS = {
@@ -231,6 +238,8 @@ export const TECH_DEBT_ACTIONS = {
   ITEM_UPDATED: "item_updated",
   ITEM_RESOLVED: "item_resolved", // milestone
   TECH_DEBT_RESET: "tech_debt_reset",
+  /** The item went to the backlog as a story. Payload: itemId, storyId. */
+  ITEM_SENT_TO_BACKLOG: "item_sent_to_backlog",
 } as const;
 
 // ── Outcomes + product discovery ─────────────────────────────────────
@@ -241,6 +250,13 @@ export const OKR_ACTIONS = {
   KEY_RESULT_REMOVED: "key_result_removed",
   PROGRESS_UPDATED: "progress_updated",
   OKR_RESET: "okr_reset", // milestone
+  /** The objective's text, owner or quarter was edited. Payload: okrId, fields. */
+  OBJECTIVE_UPDATED: "objective_updated",
+  /** A key result's title, baseline, target, direction or unit was edited. Payload: okrId, krId, fields. */
+  KEY_RESULT_UPDATED: "key_result_updated",
+  /** A dated check-in on a key result. Payload: okrId, krId, checkInId, date, value, confidence. */
+  CHECK_IN_RECORDED: "check_in_recorded",
+  CHECK_IN_REMOVED: "check_in_removed",
 } as const;
 
 export const OPPORTUNITY_TREE_ACTIONS = {
@@ -248,6 +264,10 @@ export const OPPORTUNITY_TREE_ACTIONS = {
   NODE_REMOVED: "node_removed",
   NODE_UPDATED: "node_updated",
   TREE_RESET: "tree_reset", // milestone
+  /** An opportunity was flagged, or unflagged, as its outcome's target. Payload: nodeId, on. */
+  TARGET_CHANGED: "target_changed",
+  /** An experiment went to the Hypothesis Tracker. Payload: nodeId, hypothesisId. */
+  EXPERIMENT_SENT: "experiment_sent",
 } as const;
 
 export const HYPOTHESIS_ACTIONS = {
@@ -256,6 +276,8 @@ export const HYPOTHESIS_ACTIONS = {
   HYPOTHESIS_REMOVED: "hypothesis_removed",
   STATUS_CHANGED: "status_changed", // milestone
   HYPOTHESIS_RESET: "hypothesis_reset",
+  /** The measured result was recorded against the target. Payload: hypothesisId, actual. */
+  RESULT_RECORDED: "result_recorded",
 } as const;
 
 export const INTERVIEW_ACTIONS = {
@@ -263,6 +285,12 @@ export const INTERVIEW_ACTIONS = {
   INTERVIEW_REMOVED: "interview_removed",
   INSIGHT_ADDED: "insight_added",
   INTERVIEWS_RESET: "interviews_reset", // milestone
+  /** The interview's date, participant or context was edited. Payload: interviewId, fields. */
+  INTERVIEW_UPDATED: "interview_updated",
+  /** A quote was deleted. Payload: interviewId, quoteId. */
+  QUOTE_REMOVED: "quote_removed",
+  /** A quote was raised as an opportunity on the tree. Payload: interviewId, quoteId, nodeId. */
+  QUOTE_SENT: "quote_sent",
 } as const;
 
 export const PRIORITIZER_ACTIONS = {
@@ -523,6 +551,14 @@ export const A11Y_ACTIONS = {
 export const TEST_PYRAMID_ACTIONS = {
   COUNT_UPDATED: "count_updated",
   PYRAMID_RESET: "pyramid_reset", // milestone
+  /** The counts were kept as a dated snapshot. Payload: snapshotId, takenOn. */
+  SNAPSHOT_TAKEN: "snapshot_taken",
+  SNAPSHOT_REMOVED: "snapshot_removed",
+  /**
+   * The minutes per layer, or the count / runtime weighting, changed.
+   * Payload: runtime ({unit?, integration?, e2e?}), weighting.
+   */
+  RUNTIME_UPDATED: "runtime_updated",
 } as const;
 
 export const FLAKY_TEST_ACTIONS = {
@@ -538,11 +574,20 @@ export const CODE_REVIEW_ACTIONS = {
   PR_LOGGED: "pr_logged",
   PR_REMOVED: "pr_removed",
   CODE_REVIEW_RESET: "code_review_reset", // milestone
+  /** A logged pull request was edited in place. Payload: sampleId, fields. */
+  PR_UPDATED: "pr_updated",
+  /** A CSV import saved its rows. Payload: added, skipped. */
+  PRS_IMPORTED: "prs_imported",
+  /** The working-hours window was set or cleared. Payload: start, end (absent: cleared). */
+  WORKING_WINDOW_CHANGED: "working_window_changed",
 } as const;
 
 export const QUALITY_COST_ACTIONS = {
   COST_UPDATED: "cost_updated",
   QUALITY_COST_RESET: "quality_cost_reset", // milestone
+  /** A quarter's figures were saved to the history. Payload: periodId, period. */
+  PERIOD_SAVED: "period_saved",
+  PERIOD_REMOVED: "period_removed",
 } as const;
 
 // ── Phase 12-14: Workshops & Facilitation ────────────────────────────
@@ -582,6 +627,8 @@ export const RISKIEST_ASSUMPTION_ACTIONS = {
   ASSUMPTION_UPDATED: "assumption_updated",
   TEST_GENERATED: "test_generated", // milestone
   CANVAS_RESET: "canvas_reset",
+  /** "Test" made a linked hypothesis for the assumption. Payload: assumptionId, hypothesisId. */
+  TEST_CREATED: "test_created",
 } as const;
 
 export const WARDLEY_ACTIONS = {

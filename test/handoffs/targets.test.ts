@@ -31,7 +31,7 @@ import { sendHandoff, sendHandoffBatch } from "@/lib/handoffs/send";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import { STORY_TITLE_MAX, buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
 import { RETRO_BOARD_ID, retroColumnFor } from "@/lib/handoffs/targets/retro-board";
-import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
+import { HYPOTHESIS_TEXT_MAX, HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
 import { DECISION_LOG_KEY, DECISION_LOG_MOVED_KEY } from "@/lib/decisions/legacy-log";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import {
@@ -256,6 +256,48 @@ describe("hypothesis", () => {
       sourceRef: { tool: "riskiest-assumption", id: "a1" },
     });
     expect(hypotheses()[0].raisedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // A source that hands over no more than a title leaves the rest blank.
+    expect(hypotheses()[0]).not.toHaveProperty("experiment");
+  });
+
+  it("copies what we'll do, the experiment and the success metric when the source has them", () => {
+    const link = sendHandoff(
+      "hypothesis",
+      src({
+        hypothesis: {
+          willDo: "  Run a fake-door test on the pricing page  ",
+          experiment: "Two weeks, 500 visitors",
+          successMetric: "8% click through",
+        },
+        sourceRef: { tool: "opportunity-tree", id: "e1", doc: "opportunityTree:current" },
+      }),
+      linkStore()
+    )!;
+    expect(hypotheses().find((h) => h.id === link.targetId)).toMatchObject({
+      believe: "Checkout is slow on mobile",
+      willDo: "Run a fake-door test on the pricing page",
+      experiment: "Two weeks, 500 visitors",
+      successMetric: "8% click through",
+      status: "drafted",
+    });
+  });
+
+  it("caps every field at HYPOTHESIS_TEXT_MAX (2000), the page's and the agent's cap", () => {
+    const long = "y".repeat(2600);
+    const link = sendHandoff(
+      "hypothesis",
+      src({
+        title: long,
+        description: long,
+        hypothesis: { willDo: long, experiment: long, successMetric: long },
+      }),
+      linkStore()
+    )!;
+    const h = hypotheses().find((x) => x.id === link.targetId)!;
+    expect(HYPOTHESIS_TEXT_MAX).toBe(2000);
+    for (const key of ["believe", "toLearn", "willDo", "experiment", "successMetric"] as const) {
+      expect(h[key]).toHaveLength(HYPOTHESIS_TEXT_MAX);
+    }
   });
 
   it("is done once tested either way", () => {

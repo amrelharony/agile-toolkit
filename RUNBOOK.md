@@ -449,6 +449,33 @@ The reader at `/agile-at-work` shows "Coming soon" until the PDF exists, and the
 4. Verify: `curl -I https://<domain>/comics/agile-at-work.pdf` → `200`, `content-type: application/pdf`, `accept-ranges: bytes`, `cache-control: public, max-age=86400, stale-while-revalidate=604800`. Then open `/agile-at-work`.
 5. Replacing the file later needs no other change: the reader requests `?v=<content hash>`, so browsers never mix byte ranges of the old and new file.
 
+### Transcripts and contents
+
+The reader can show a transcript for each page (real alt text for screen readers, plus a **Transcript** panel under the page), a **Contents** list of chapters, and "Try <tool>" links for each chapter. All three come from one hand-written file, `src/lib/comic/agile-at-work-content.ts`, which ships **empty**. While it is empty the reader shows none of them, and every page keeps its generic alt text ("Agile at Work — page 3 of 24"). Nothing generates the file or extracts it from the PDF: the owner writes it.
+
+The file exports `AGILE_AT_WORK_CONTENT` with two lists (`…` marks where your text goes):
+
+```ts
+export const AGILE_AT_WORK_CONTENT: ComicContent = {
+  chapters: [
+    // title, the chapter's first page, and 1–3 tool ids (most relevant first)
+    { title: "…", firstPage: 3, tools: ["…"] },
+  ],
+  pages: [
+    // the page, 1–2 sentences on what it shows (its alt text), and the
+    // lettering in reading order; leave out `speaker` for captions
+    { page: 3, alt: "…", lines: [{ speaker: "…", text: "…" }, { text: "…" }] },
+  ],
+};
+```
+
+- **Page numbers** are PDF page indexes: the cover is page 1, whatever the printed page number says. They must match the published PDF, so re-check them after any re-export that adds or removes pages. A chapter runs from its `firstPage` to the page before the next chapter starts; the last chapter runs to the last page.
+- **Tool ids** are the `id` values in `src/lib/constants/tools.ts`, which are also each tool's URL path (`retro-actions` is `/retro-actions`). The links take their names and paths from the catalog.
+- A wordless page gets `lines: []`. A page you leave out keeps the generic alt text and shows no transcript.
+- **One file serves both editions.** The colour edition reads the same file, on the assumption that its pages match the printed edition's page for page.
+- **Check an edit** with `npx vitest run test/tools/agile-at-work-upgrade.test.tsx`. Its first test fails with a list of every problem it finds, such as an unknown tool id, a page listed twice, a chapter out of page order, or a blank title or line. The reader itself skips bad entries, and pages past the PDF's last page, so a typo hides some text rather than breaking the page.
+- The file loads on demand while the PDF opens, so a long script doesn't slow down the page's first load.
+
 After bumping `pdfjs-dist`, run `npm run pdf:worker` (copies the matching worker to `public/pdf.worker.legacy.min.mjs`) and commit the result.
 
 ---

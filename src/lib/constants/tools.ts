@@ -131,7 +131,19 @@ export type ToolCategory =
   // Phase 22 — Canvas
   | "Visual Collaboration";
 
-export type AnalyticsFeature = "forecast" | "anomaly" | "survival" | "anti-pattern" | "monte-carlo";
+/**
+ * The statistics a tool runs on its data (documentation only, like
+ * ToolSubscription). "trend" is a direction-of-travel test (Mann-Kendall);
+ * "anomaly" flags unusual points or shifts (z-scores, CUSUM, control
+ * limits); "survival" is Kaplan-Meier time to an event.
+ */
+export type AnalyticsFeature =
+  | "forecast"
+  | "trend"
+  | "anomaly"
+  | "survival"
+  | "anti-pattern"
+  | "monte-carlo";
 
 export type ToolAudience = "coach" | "engineering-leader" | "both";
 
@@ -869,7 +881,8 @@ export const tools: ToolDefinition[] = [
     id: "hypothesis-tracker",
     code: "A10",
     name: "Hypothesis Tracker",
-    description: "Lean-startup hypotheses with experiments, metrics, and validation rate",
+    description:
+      "Lean-startup hypotheses with an optional numeric target: the measured result against it suggests a verdict you apply, and the validation rate counts only decisive results",
     category: "Product Discovery",
     path: "/hypothesis-tracker",
     icon: Lightbulb,
@@ -887,7 +900,8 @@ export const tools: ToolDefinition[] = [
     id: "user-interviews",
     code: "A11",
     name: "User Interview Log",
-    description: "Research synthesis — quotes, themes, and tag-frequency heatmap",
+    description:
+      "Research synthesis — interview quotes tagged by theme, each theme counted by the participants who raised it, anonymised exports, and a quote raised as an opportunity on the Opportunity Solution Tree",
     category: "Product Discovery",
     path: "/user-interviews",
     icon: Quote,
@@ -901,7 +915,8 @@ export const tools: ToolDefinition[] = [
     id: "opportunity-tree",
     code: "A12",
     name: "Opportunity Solution Tree",
-    description: "Outcome → opportunities → solutions → experiments (Teresa Torres framework)",
+    description:
+      "Outcome → opportunities, nested as deep as needed → solutions → experiments (Teresa Torres framework), with one target opportunity per outcome and experiments tested as hypotheses",
     category: "Product Discovery",
     path: "/opportunity-tree",
     icon: Workflow,
@@ -917,7 +932,8 @@ export const tools: ToolDefinition[] = [
     id: "risk-register",
     code: "D6",
     name: "Risk Register",
-    description: "Probability × Impact matrix with mitigation tracking and risk burn-down",
+    description:
+      "Likelihood × impact matrix where each risk has an owner, a mitigation plan with overdue alerts and its residual risk after mitigation, and is raised as an impediment once it happens",
     category: "Risk & Governance",
     path: "/risk-register",
     icon: ShieldAlert,
@@ -925,14 +941,8 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 8,
     usesWorkspace: true,
-    analyticsFeatures: ["survival", "anomaly", "anti-pattern"],
+    analyticsFeatures: ["survival", "trend", "forecast", "anomaly", "anti-pattern"],
     analyticsTier: 1,
-    predictedDefaults: [
-      {
-        field: "mitigationDays",
-        description: "Median historical mitigation lead time",
-      },
-    ],
     crossToolSubscriptions: [
       {
         kinds: ["incident.opened", "techDebt.added"],
@@ -959,7 +969,8 @@ export const tools: ToolDefinition[] = [
     id: "tech-debt",
     code: "D7",
     name: "Technical Debt Tracker",
-    description: "Debt items with impact × effort, interest rate, hotspot heatmap",
+    description:
+      "Debt items scored by impact × effort plus capped interest per sprint, with each one's age in sprints, a hotspot heatmap, and Add to backlog to schedule the paydown",
     category: "Risk & Governance",
     path: "/tech-debt",
     icon: Wrench,
@@ -1118,7 +1129,8 @@ export const tools: ToolDefinition[] = [
     id: "okrs",
     code: "D9",
     name: "OKR Tracker",
-    description: "Quarterly Objectives with 3–5 Key Results, weekly check-ins, trajectory forecast",
+    description:
+      "Quarterly Objectives and Key Results, each measured from its baseline to a target up or down through dated check-ins, with a confidence trend and the sprint goals that move them",
     category: "Outcomes & Pulse",
     path: "/okrs",
     icon: Flag,
@@ -1126,11 +1138,8 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 10,
     usesWorkspace: true,
-    analyticsFeatures: ["forecast"],
+    analyticsFeatures: ["trend"],
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "krTargetExtrapolation", description: "Mean target across prior KRs" },
-    ],
     crossToolSubscriptions: [
       {
         kinds: ["okr.kr.updated", "risk.opened"],
@@ -1142,14 +1151,15 @@ export const tools: ToolDefinition[] = [
     id: "nps-csat",
     code: "D10",
     name: "NPS / CSAT Tracker",
-    description: "Log NPS and CSAT responses with comments and see the trend",
+    description:
+      "Import or log Net Promoter Score (NPS) and CSAT survey answers and read them per week or month with the number of responses behind each, CSAT as % satisfied, and theme tags on the comments",
     category: "Outcomes & Pulse",
     path: "/nps-csat",
     icon: BarChart,
     requiresAuth: false,
     isRealtime: false,
     phase: 10,
-    analyticsFeatures: ["anomaly"],
+    analyticsFeatures: ["trend", "anomaly"],
     analyticsTier: 2,
     crossToolSubscriptions: [
       {
@@ -1486,7 +1496,7 @@ export const tools: ToolDefinition[] = [
     code: "M1",
     name: "Test Pyramid Analyzer",
     description:
-      "Visualize unit/integration/e2e test split, flag inverted shapes, and surface cost-of-quality ratio",
+      "Visualize the unit/integration/e2e split, name its shape (pyramid, ice-cream cone, hourglass, diamond), weigh it by test count or run time, and track it across dated snapshots",
     category: "Quality Engineering",
     path: "/test-pyramid",
     icon: Triangle,
@@ -1494,7 +1504,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 13,
     usesWorkspace: true,
-    analyticsFeatures: ["anti-pattern"],
+    analyticsFeatures: ["trend", "anti-pattern"],
     audience: "engineering-leader",
   },
   {
@@ -1502,7 +1512,7 @@ export const tools: ToolDefinition[] = [
     code: "M2",
     name: "Flaky Test Scoreboard",
     description:
-      "Manual log of flaky tests with quarantine status, failure rate, and owner — drives triage rituals",
+      "Log flaky tests with failed runs out of runs, owner and quarantine status — a failure rate weighted by runs, an alert for long quarantines, and the worst offenders to drive triage",
     category: "Quality Engineering",
     path: "/flaky-tests",
     icon: AlertOctagon,
@@ -1510,7 +1520,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 13,
     usesWorkspace: true,
-    analyticsFeatures: ["survival", "anti-pattern"],
+    analyticsFeatures: ["trend", "anomaly", "anti-pattern"],
     audience: "engineering-leader",
     analyticsTier: 2,
     crossToolSubscriptions: [
@@ -1521,7 +1531,8 @@ export const tools: ToolDefinition[] = [
     id: "code-review-metrics",
     code: "M3",
     name: "Code Review Metrics",
-    description: "PR cycle time and review depth from manual or pasted CSV inputs",
+    description:
+      "Time to first review and PR cycle time in the team's working hours, from manual logs or pasted CSV, with a team view by PR size (no author ranking) and a weekly median",
     category: "Quality Engineering",
     path: "/code-review-metrics",
     icon: GitPullRequest,
@@ -1529,7 +1540,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 14,
     usesWorkspace: true,
-    analyticsFeatures: ["anomaly", "anti-pattern"],
+    analyticsFeatures: ["trend", "anomaly", "anti-pattern"],
     audience: "engineering-leader",
     analyticsTier: 2,
     crossToolSubscriptions: [
@@ -1541,13 +1552,14 @@ export const tools: ToolDefinition[] = [
     code: "M4",
     name: "Cost of Quality Calculator",
     description:
-      "Trade-off calculator across prevention, detection, and failure costs — a teaching tool",
+      "Prevention, detection and failure costs logged quarter by quarter, with the failure share of quality spend, its trend, and an hours × rate helper",
     category: "Quality Engineering",
     path: "/quality-cost",
     icon: BarChart,
     requiresAuth: false,
     isRealtime: false,
     phase: 14,
+    analyticsFeatures: ["trend"],
     audience: "both",
     analyticsTier: 3,
   },
@@ -1605,7 +1617,8 @@ export const tools: ToolDefinition[] = [
     id: "riskiest-assumption",
     code: "N4",
     name: "Riskiest Assumption Canvas",
-    description: "Lean canvas variant — list assumptions, rank by risk, and generate test cards",
+    description:
+      "Lean canvas variant — list the assumptions behind a plan, rate risk and evidence (unrated until you do), rank by risk × (6 − evidence), and Test the riskiest as a linked hypothesis",
     category: "Workshops & Facilitation",
     path: "/riskiest-assumption",
     icon: AlertCircle,

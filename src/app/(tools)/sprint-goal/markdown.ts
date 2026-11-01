@@ -1,6 +1,7 @@
 import type { Okr, Sprint, SprintGoal, SprintGoalOutcome } from "@/lib/stores/workspace-types";
 import { goalSmart, smartMissing, validateSmart, type SmartResult } from "./smart";
-import { krProgressText, okrPercent, resolveLinkedOkrs } from "./okr-links";
+import { normalizeQuarter } from "@/lib/roadmap/quarters";
+import { krProgressText, okrProgressLabel, resolveLinkedOkrs } from "./okr-links";
 import { GOAL_OUTCOME_LABEL, outcomeDate } from "./outcome";
 import { goalVerdict } from "./verdict";
 
@@ -104,9 +105,10 @@ export function toMarkdown(
   if (linked.length > 0) {
     lines.push("", "## Linked OKRs", "");
     for (const okr of linked) {
-      const quarter = oneLine(okr.quarter);
+      // "Q4 2026" (the old intent's form) reads as the OKR page's "2026 Q4".
+      const quarter = oneLine(normalizeQuarter(okr.quarter) || okr.quarter);
       lines.push(
-        `- **${oneLine(okr.objective)}** (${quarter ? `${quarter}, ` : ""}${okrPercent(okr)}% of the way)`,
+        `- **${oneLine(okr.objective)}** (${quarter ? `${quarter}, ` : ""}${okrProgressLabel(okr)})`,
         ...okr.keyResults.map((kr) => `  - ${oneLine(kr.title)}: ${krProgressText(kr)}`)
       );
     }

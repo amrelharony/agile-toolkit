@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
- * Flaky tests: leaving "Failure rate (%)" blank used to turn into "0" on
- * blur (`Number("") === 0`), which then saved the test at 0 %. The rate is
- * required: blank stays blank and Add stays locked.
+ * Flaky tests: leaving the failure rate blank used to turn into "0" on blur
+ * (`Number("") === 0`), which then saved the test at 0 %. Phase 8 replaced
+ * the typed rate with failed runs out of runs; the same guarantee holds for
+ * them: a blank count stays blank, is an inline error, and is never saved
+ * as 0, and Tab moves on (no prediction traps it).
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -32,48 +35,48 @@ vi.stubGlobal(
 
 import { FlakyTestsClient } from "@/app/(tools)/flaky-tests/flaky-tests-client";
 
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <FlakyTestsClient />
+    </TooltipProvider>
+  );
 const tests = () => (useWorkspaceStore.getState().flakyTestBoards ?? [])[0]?.tests ?? [];
-const addButton = () => screen.getByRole("button", { name: /Add test/ });
 
 beforeEach(() => {
   useWorkspaceStore.setState({ flakyTestBoards: [] });
 });
 
-describe("Flaky tests failure rate", () => {
-  it("keeps a blank rate blank on blur and never saves it as 0 %", () => {
-    render(<FlakyTestsClient />);
-    fireEvent.change(screen.getByLabelText("Test name"), {
-      target: { value: "auth > signs in" },
-    });
-    const rate = screen.getByLabelText(/Failure rate/);
-    expect(rate).toHaveAttribute("aria-required", "true");
-    expect(rate).toHaveAccessibleDescription(/Required/);
-
-    fireEvent.focus(rate);
-    fireEvent.blur(rate);
-    expect(rate).toHaveValue("");
-    expect(addButton()).toBeDisabled();
-    fireEvent.click(addButton());
-    expect(tests()).toHaveLength(0);
+describe("Flaky tests run counts", () => {
+  it("keeps blank counts blank on blur and never saves them as 0", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/^Test name/), { target: { value: "auth > signs in" } });
+    const failures = screen.getByLabelText(/^Failed runs/);
+    expect(failures).toHaveAttribute("aria-required", "true");
+    fireEvent.blur(failures);
+    expect(failures).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Add test" }));
+    expect(await screen.findByText("Enter how many runs failed.")).toBeInTheDocument();
+    expect(screen.getByText("Enter how many times it ran.")).toBeInTheDocument();
+    expect(tests()).toEqual([]);
   });
 
-  it("saves the rate the user typed", () => {
-    render(<FlakyTestsClient />);
-    fireEvent.change(screen.getByLabelText("Test name"), {
-      target: { value: "auth > signs in" },
-    });
-    const rate = screen.getByLabelText(/Failure rate/);
-    fireEvent.change(rate, { target: { value: "12.5" } });
-    fireEvent.blur(rate);
-    fireEvent.click(addButton());
+  it("saves the typed counts", () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/^Test name/), { target: { value: "auth > signs in" } });
+    fireEvent.change(screen.getByLabelText(/^Failed runs/), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText(/^Runs/), { target: { value: "25" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add test" }));
     expect(tests()).toHaveLength(1);
-    expect(tests()[0].failureRate).toBeCloseTo(0.125);
+    expect(tests()[0]).toMatchObject({ failures: 0, runs: 25, failureRate: 0 });
   });
 
-  it("does not trap Tab in the empty rate field when there is no prediction", () => {
-    render(<FlakyTestsClient />);
-    const rate = screen.getByLabelText(/Failure rate/);
-    // fireEvent returns false when the handler called preventDefault().
-    expect(fireEvent.keyDown(rate, { key: "Tab" })).toBe(true);
+  it("doesn't trap Tab in the count fields", () => {
+    renderPage();
+    const runs = screen.getByLabelText(/^Runs/);
+    runs.focus();
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    runs.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
   });
 });

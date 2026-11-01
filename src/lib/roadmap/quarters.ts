@@ -1,8 +1,8 @@
 /**
  * Quarters as the roadmap stores them: "2026 Q3". The agents' `add_epic`
  * takes the same free text, so parsing stays lenient ("2026q3", "2026 q3",
- * and the DORA Scorecard's "2026-Q3") while everything the tool writes is
- * the canonical label. The DORA Scorecard stores the dash form
+ * "Q3 2026", and the DORA Scorecard's "2026-Q3") while everything the tool
+ * writes is the canonical label. The DORA Scorecard stores the dash form
  * (`dashQuarter`) and reads a quarter's days with `quarterBounds`.
  *
  * A quarter's index is `year * 4 + q` with q in 1..4, so 0 can mean
@@ -19,14 +19,23 @@ const YEARS_AHEAD = 5;
 /** The furthest back a picker may be asked to reach (`yearsBack`). */
 const MAX_YEARS_BACK = 20;
 
-/** The quarter's index, or 0 when it isn't a "YYYY Qn" (or "YYYY-Qn") between 1900 and 2200. */
+/**
+ * The quarter's index, or 0 when it isn't a "YYYY Qn" (or "YYYY-Qn") between
+ * 1900 and 2200. The year may also follow the quarter, "Qn YYYY": the OKR
+ * intent wrote that form before Phase 8, and people type it. The year-first
+ * reading wins when a string holds both.
+ */
 export function quarterIndex(q: string | null | undefined): number {
-  const m = typeof q === "string" ? q.match(/(\d{4})[\s-]*Q([1-4])/i) : null;
-  if (!m) return 0;
-  const year = parseInt(m[1], 10);
+  if (typeof q !== "string") return 0;
+  const yearFirst = q.match(/(\d{4})[\s-]*Q([1-4])/i);
+  const quarterFirst = yearFirst ? null : q.match(/Q([1-4])[\s-]*(\d{4})(?!\d)/i);
+  const year = yearFirst ? yearFirst[1] : quarterFirst?.[2];
+  const quarter = yearFirst ? yearFirst[2] : quarterFirst?.[1];
+  if (year === undefined || quarter === undefined) return 0;
+  const y = parseInt(year, 10);
   // A hand-edited "0 Q1" (or "9999 Q1") must not pass as a real quarter.
-  if (year < 1900 || year > 2200) return 0;
-  return year * 4 + parseInt(m[2], 10);
+  if (y < 1900 || y > 2200) return 0;
+  return y * 4 + parseInt(quarter, 10);
 }
 
 /** "2026 Q3" for an index from `quarterIndex`. */

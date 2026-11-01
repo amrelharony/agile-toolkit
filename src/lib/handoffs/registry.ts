@@ -9,6 +9,8 @@
  * RAPID share (workspace.decisions, lib/decisions). A route whose target
  * entity doesn't exist yet writes to today's closest slice: `dependency` to
  * the Dependency Map's graph (until the one dependency model lands).
+ * `opportunity` adds a node to the Opportunity Tree (an interview quote
+ * raised as an opportunity).
  */
 
 import type { HandoffLink, HandoffRef, HandoffRoute, HandoffRouteId } from "./types";
@@ -22,7 +24,9 @@ import { retroActionRoute } from "./targets/retro-action";
 import { hypothesisRoute } from "./targets/hypothesis";
 import { decisionRoute } from "./targets/decision";
 import { dependencyRoute } from "./targets/dependency";
+import { opportunityRoute } from "./targets/opportunity";
 
+/** One route per id in HANDOFF_ROUTE_IDS: a stored link on any of them reads through its route. */
 export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   impediment: impedimentRoute,
   kanban: kanbanRoute,
@@ -34,6 +38,7 @@ export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   hypothesis: hypothesisRoute,
   decision: decisionRoute,
   dependency: dependencyRoute,
+  opportunity: opportunityRoute,
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {

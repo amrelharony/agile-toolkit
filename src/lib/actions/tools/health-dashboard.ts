@@ -15,7 +15,9 @@
  *   2. set_thresholds  — change the thresholds and windows, checked as the
  *                        page's form checks them.
  *
- * Example rows (`example-` ids) never count.
+ * Example rows (`example-` ids) never count. Risks are read as the Risk
+ * Register lists them (./risk-register's store), so the old register
+ * page's rows still waiting for its one-time move count too.
  */
 
 import { z } from "zod";
@@ -39,6 +41,8 @@ import {
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { completionPct, predictability } from "@/lib/sprints/metrics";
 import { impedimentSummary } from "@/lib/impediments/model";
+import { overallProgress } from "@/lib/okrs/progress";
+import { isActiveRisk, isHighRisk } from "@/lib/risks/model";
 import {
   HEALTH_KPI_IDS,
   KPI_DEFINITIONS,
@@ -51,6 +55,7 @@ import {
 } from "@/lib/health-dashboard/settings";
 import { dashboardKpis, overallHealth, type HealthKpi } from "@/lib/health-dashboard/kpis";
 import { healthVerdict } from "@/lib/health-dashboard/verdict";
+import { browserRiskStore, serverRiskStore } from "./risk-register";
 
 const KIND_CONFIG = "workspace:healthDashboard";
 
@@ -148,25 +153,21 @@ function buildSummary(d: DashboardInput) {
   };
 
   const riskList = real(d.risks);
-  const openRisks = riskList.filter((r) => r.status === "open" || r.status === "mitigating");
+  const openRisks = riskList.filter(isActiveRisk);
   const risks = {
     total: riskList.length,
     open: openRisks.length,
-    high: openRisks.filter((r) => r.probability * r.impact >= 15).length,
+    // The register's one meaning of high: rated high or critical (lib/risks).
+    high: openRisks.filter(isHighRisk).length,
   };
 
-  let krCount = 0;
-  let krSum = 0;
-  const okrList = real(d.okrs);
-  for (const o of okrList) {
-    for (const kr of Array.isArray(o.keyResults) ? o.keyResults : []) {
-      krCount += 1;
-      krSum += kr.target > 0 ? Math.max(0, Math.min(1, kr.current / kr.target)) : 0;
-    }
-  }
+  // The OKR page's overall progress (lib/okrs: baseline → target, per
+  // objective), so the dashboard and the page agree.
+  const okrList = real(d.okrs).filter((o) => Array.isArray(o.keyResults));
+  const withKrs = okrList.filter((o) => o.keyResults.length > 0);
   const okrs = {
     total: okrList.length,
-    avgProgress: krCount > 0 ? Math.round((krSum / krCount) * 100) : null,
+    avgProgress: withKrs.length > 0 ? Math.round(overallProgress(withKrs) * 100) : null,
   };
 
   const team = byId.get("team-health");
@@ -205,7 +206,7 @@ registry.register({
   name: "get_summary",
   category: "read",
   description:
-    "The team dashboard as the page shows it, from the synced workspace (example- rows left out). Returns {kpis: [{id (predictability | team-health | open-impediments | critical-impediments | open-blockers | cycle-time-p85), name, unit (percent|count|days), higherIsBetter, value (null without data or below the minimum sample), status (green|amber|red, null without a value), n, hasData, enough, basis (where it comes from), detail, trend (up|down|same, null with nothing to compare: team health against the check before; predictability by a Mann-Kendall test over every pointed sprint, from 6 of them, \"same\" until it confirms a direction), threshold {green, amber}, source (the tool's path), olderOpen (blockers only)}], overall {score (% of the lit KPIs' lights, green 100 / amber 50 / red 0), status, counted, total}, verdict (one sentence), thresholds {kpiId: {green, amber}}, windows {sprintWindow, blockerWindowDays, cycleWindowDays}, sprints {total, active, completed, predictability (% of the latest pointed sprints that met their commitment, 90–110%)}, stories {total, done, inProgress, completionPct}, impediments {total, open (incl. escalated), critical, overdue}, risks {total, open, high (exposure >= 15)}, okrs {total, avgProgress}, healthCheck {exists, healthPct (latest saved check: green 1, yellow ½, red 0)}, flags: one per KPI that isn't green (low_predictability, low_team_health, open_impediments_high, critical_impediments_open, open_blockers_high, cycle_time_high), plus high_risks_open and low_story_completion}.",
+    "The team dashboard as the page shows it, from the synced workspace (example- rows left out). Returns {kpis: [{id (predictability | team-health | open-impediments | critical-impediments | open-blockers | cycle-time-p85), name, unit (percent|count|days), higherIsBetter, value (null without data or below the minimum sample), status (green|amber|red, null without a value), n, hasData, enough, basis (where it comes from), detail, trend (up|down|same, null with nothing to compare: team health against the check before; predictability by a Mann-Kendall test over every pointed sprint, from 6 of them, \"same\" until it confirms a direction), threshold {green, amber}, source (the tool's path), olderOpen (blockers only)}], overall {score (% of the lit KPIs' lights, green 100 / amber 50 / red 0), status, counted, total}, verdict (one sentence), thresholds {kpiId: {green, amber}}, windows {sprintWindow, blockerWindowDays, cycleWindowDays}, sprints {total, active, completed, predictability (% of the latest pointed sprints that met their commitment, 90–110%)}, stories {total, done, inProgress, completionPct}, impediments {total, open (incl. escalated), critical, overdue}, risks {total, open, high (active and rated high or critical: probability × impact >= 10, the Risk Register's bands)} (the risks the Risk Register lists, rows of the old register page not moved in yet included), okrs {total, avgProgress}, healthCheck {exists, healthPct (latest saved check: green 1, yellow ½, red 0)}, flags: one per KPI that isn't green (low_predictability, low_team_health, open_impediments_high, critical_impediments_open, open_blockers_high, cycle_time_high), plus high_risks_open and low_story_completion}.",
   paramsSchema: z.object({}),
   handler: async () => {
     const s = useWorkspaceStore.getState();
@@ -213,7 +214,7 @@ registry.register({
       sprints: s.sprints ?? [],
       stories: s.stories ?? [],
       impediments: s.impediments ?? [],
-      risks: s.risks ?? [],
+      risks: (await browserRiskStore.list()).records,
       okrs: s.okrs ?? [],
       healthChecks: s.healthChecks ?? [],
       kanbanBoards: s.kanbanBoards ?? [],
@@ -239,7 +240,9 @@ registry.register({
       serverListEntities<Sprint>(u, "workspace:sprint"),
       serverListEntities<Story>(u, "workspace:story"),
       serverListEntities<Impediment>(u, "workspace:impediment"),
-      serverListEntities<Risk>(u, "workspace:risk"),
+      serverRiskStore(u)
+        .list()
+        .then((r) => r.records),
       serverListEntities<Okr>(u, "workspace:okr"),
       serverListEntities<HealthCheck>(u, "workspace:healthCheck"),
       serverGetEntity<KanbanBoard>(u, "workspace:kanbanBoard", KANBAN_BOARD_ID),

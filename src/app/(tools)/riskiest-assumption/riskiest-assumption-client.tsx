@@ -1,293 +1,347 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
-import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { ActionRow } from "@/components/shared/action-row";
-import { StatCard } from "@/components/shared/stat-card";
-import { KpiGrid } from "@/components/shared/kpi-grid";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Plus,
-  Trash2,
-  AlertCircle,
-  FlaskConical,
-  CheckCircle2,
-  XCircle,
-  X,
-  ShieldAlert,
-} from "lucide-react";
-import { generateRiskiestAssumptionPrompts } from "@/lib/ai-prompts/riskiest-assumption";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { RISKIEST_ASSUMPTION_ACTIONS } from "@/lib/history/event-actions";
+import { useMemo, useRef } from "react";
+import { CheckCircle2, CircleDashed, FlaskConical, Grid2x2, ListOrdered } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ActionRow } from "@/components/shared/action-row";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import { generateRiskiestAssumptionPrompts } from "@/lib/ai-prompts/riskiest-assumption";
+import {
+  RA_ID,
+  assumptionHypothesisSource,
+  assumptionScore,
+  quadrantOf,
+  rankAssumptions,
+  ratingOf,
+} from "@/lib/assumptions/model";
+import { sendHandoff } from "@/lib/handoffs/send";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { RISKIEST_ASSUMPTION_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { HYPOTHESIS_TRACKER_ID, linkedTest } from "@/lib/hypotheses/model";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type {
+  Assumption,
+  AssumptionLevel,
+  AssumptionStatus,
+  Hypothesis,
+  HypothesisTracker,
+  RiskiestAssumption,
+  Workspace,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
+import { removeWithUndo } from "@/lib/utils/undoable";
+import { AssumptionCard, type AssumptionCardProps } from "./assumption-card";
+import { AddAssumptionForm } from "./assumption-form";
+import { buildExample } from "./example";
+import { applyAssumptionValues, type AssumptionValues } from "./form";
+import { assumptionsToMarkdown } from "./markdown";
+import {
+  QUADRANTS,
+  assumptionsVerdict,
+  canvasView,
+  countedAssumptions,
+  offeredStatus,
+  resultText,
+  statusLabel,
+} from "./view";
 
-type Level = 1 | 2 | 3 | 4 | 5;
-type Status = "untested" | "testing" | "validated" | "invalidated";
+// Stable empty lists: zustand re-renders forever on a selector that
+// returns a fresh array each call.
+const NO_DOCS: RiskiestAssumption[] = [];
+const NO_TRACKERS: HypothesisTracker[] = [];
+const NONE: Assumption[] = [];
+const NO_HYPOTHESES: Hypothesis[] = [];
 
-interface Assumption {
-  id: string;
-  statement: string;
-  riskLevel: Level;
-  evidenceLevel: Level;
-  testIdea?: string;
-  status: Status;
-  description?: string;
-}
+const keyOf = (a: Assumption) => a.id;
+const titleOf = (a: Pick<Assumption, "statement">) => a.statement?.trim() || "Untitled assumption";
 
-interface State {
-  assumptions: Assumption[];
-}
+/** The control on a card that takes focus back after a change. */
+type FocusTarget = "riskLevel" | "evidenceLevel" | "status" | "test";
 
-const DEFAULT_STATE: State = { assumptions: [] };
-
-const RA_ID = "riskiestAssumption:current"; // MUST match RA_ID in riskiest-assumption.ts.
-
-// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
-// writes round-trip into the UI. Drop-in [state, setState] (structural types).
-function useRiskiestAssumption(): [State, (u: State | ((p: State) => State)) => void] {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.riskiestAssumptions ?? []).find((d) => d.id === RA_ID))
+/** The card for `id`, wherever it is drawn now; ids go in no selector, so need no escaping. */
+function cardOf(id: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-assumption-card]")).find(
+    (el) => el.getAttribute("data-assumption-card") === id
   );
-  const upsert = useWorkspaceStore((s) => s.upsertRiskiestAssumption);
-  const state: State = doc ? { assumptions: doc.assumptions } : DEFAULT_STATE;
-  const setState = (u: State | ((p: State) => State)) => {
-    const cur = (useWorkspaceStore.getState().riskiestAssumptions ?? []).find(
-      (d) => d.id === RA_ID
-    );
-    const curState: State = cur ? { assumptions: cur.assumptions } : DEFAULT_STATE;
-    const next = typeof u === "function" ? u(curState) : u;
-    upsert({ id: RA_ID, assumptions: next.assumptions });
-  };
-  return [state, setState];
-}
-
-const STATUS_OPTS: { id: Status; label: string; tone: string }[] = [
-  { id: "untested", label: "Untested", tone: "border-border bg-surface text-sub" },
-  { id: "testing", label: "Testing", tone: "border-warning/40 bg-warning/10 text-warning" },
-  {
-    id: "validated",
-    label: "Validated",
-    tone: "border-success/40 bg-success/10 text-success",
-  },
-  { id: "invalidated", label: "Invalidated", tone: "border-danger/40 bg-danger/10 text-danger" },
-];
-const STATUS_TONE: Record<Status, string> = STATUS_OPTS.reduce(
-  (a, x) => {
-    a[x.id] = x.tone;
-    return a;
-  },
-  {} as Record<Status, string>
-);
-
-function newId(): string {
-  return crypto.randomUUID();
-}
-
-function clampLevel(n: number): Level {
-  const v = Math.min(5, Math.max(1, Math.round(n)));
-  return v as Level;
-}
-
-function score(a: Assumption): number {
-  return a.riskLevel * (6 - a.evidenceLevel);
-}
-
-interface NumDraftInputProps {
-  value: number;
-  onCommit: (n: number) => void;
-  ariaLabel: string;
 }
 
 /**
- * Numeric input that keeps a string draft so partial typing ("", "1") doesn't
- * hammer state with NaN/clamped values. Commits clamped 1-5 on blur.
+ * Put focus back on `target` in the card for `id` once the page has drawn
+ * the change, when focus was lost: a rating or a status moves the card to
+ * another list (Ranked, Not rated, Tested), which draws it anew, and Test
+ * and "Mark …" swap the control that had focus for another. A control
+ * that kept focus is left alone.
  */
-function NumDraftInput({ value, onCommit, ariaLabel }: NumDraftInputProps) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
-  return (
-    <Input
-      type="number"
-      min={1}
-      max={5}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        const parsed = Number(draft);
-        const next = Number.isFinite(parsed) ? clampLevel(parsed) : value;
-        onCommit(next);
-        setDraft(String(next));
-      }}
-      className="h-8 w-14 bg-bg border-border text-xs font-data"
-      aria-label={ariaLabel}
-    />
-  );
-}
-
-interface TestCard {
-  assumption: Assumption;
-}
-
-export function RiskiestAssumptionClient() {
-  const [state, setState] = useRiskiestAssumption();
-  const [draft, setDraft] = useState({
-    statement: "",
-    riskLevel: "3",
-    evidenceLevel: "3",
-    testIdea: "",
-    description: "",
+function refocus(id: string, target: FocusTarget) {
+  requestAnimationFrame(() => {
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const card = cardOf(id);
+    if (!card) return;
+    const el =
+      target === "status"
+        ? card.querySelector<HTMLElement>("select")
+        : target === "test"
+          ? card.querySelector<HTMLElement>("[data-assumption-test]")
+          : card.querySelector<HTMLElement>(
+              `[data-rating="${target}"] [role="radio"][tabindex="0"]`
+            );
+    (el ?? card.querySelector<HTMLElement>("[data-assumption-edit]"))?.focus();
   });
-  const [testCard, setTestCard] = useState<TestCard | null>(null);
-  const testCardRef = useRef<HTMLDivElement>(null);
+}
+
+/**
+ * Riskiest Assumption Canvas: the assumptions behind a bet, rated on risk
+ * and evidence and ranked by risk × (6 − evidence) through lib/assumptions
+ * (tool.riskiest_assumption ranks with the same function). Ratings start
+ * unset: an unrated assumption waits under "Not rated" and is neither
+ * ranked nor placed in the matrix. "Test" makes a linked hypothesis in the
+ * Hypothesis Tracker; once that hypothesis (or the assumption's own
+ * status) says validated or invalidated, the assumption leaves the
+ * ranking, while an inconclusive test keeps it there to test again. The
+ * ranking holds still while ratings change, until "Re-sort".
+ */
+export function RiskiestAssumptionClient() {
+  const hydrated = useWorkspaceHydrated();
+  const docs = useWorkspaceStore((s) => s.riskiestAssumptions) ?? NO_DOCS;
+  const trackers = useWorkspaceStore((s) => s.hypothesisTrackers) ?? NO_TRACKERS;
+  const list = docs.find((d) => d.id === RA_ID)?.assumptions ?? NONE;
+  const hypotheses =
+    trackers.find((d) => d.id === HYPOTHESIS_TRACKER_ID)?.hypotheses ?? NO_HYPOTHESES;
   const { log } = useHistoryLogger("riskiest-assumption");
+  const announce = useAnnounce();
+  const exportRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
-  // Scroll the test card into view when the active assumption changes.
-  // Lives below the ranked list, so it's easy to miss off-screen.
-  useEffect(() => {
-    if (!testCard) return;
-    testCardRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-    });
-  }, [testCard?.assumption.id, testCard]);
-
-  const addAssumption = () => {
-    const statement = draft.statement.trim();
-    if (!statement) return;
-    const riskLevel = clampLevel(Number(draft.riskLevel) || 3);
-    const evidenceLevel = clampLevel(Number(draft.evidenceLevel) || 3);
-    const testIdea = draft.testIdea.trim() || undefined;
-    const description = draft.description.trim() || undefined;
-    const a: Assumption = {
-      id: newId(),
-      statement,
-      riskLevel,
-      evidenceLevel,
-      testIdea,
-      status: "untested",
-      description,
-    };
-    setState((s) => ({ assumptions: [...s.assumptions, a] }));
-    log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_ADDED, {
-      assumptionId: a.id,
-      statement: a.statement,
-      riskLevel: a.riskLevel,
-      evidenceLevel: a.evidenceLevel,
-      description,
-      testIdea,
-    });
-    setDraft({
-      statement: "",
-      riskLevel: "3",
-      evidenceLevel: "3",
-      testIdea: "",
-      description: "",
-    });
-  };
-
-  const removeAssumption = (id: string) => {
-    const a = state.assumptions.find((x) => x.id === id);
-    setState((s) => ({
-      assumptions: s.assumptions.filter((x) => x.id !== id),
-    }));
-    log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_REMOVED, {
-      assumptionId: id,
-      statement: a?.statement,
-    });
-  };
-
-  const updateRisk = (id: string, riskLevel: Level) => {
-    setState((s) => ({
-      assumptions: s.assumptions.map((x) => (x.id === id ? { ...x, riskLevel } : x)),
-    }));
-    log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
-      assumptionId: id,
-      riskLevel,
-    });
-  };
-
-  const updateEvidence = (id: string, evidenceLevel: Level) => {
-    setState((s) => ({
-      assumptions: s.assumptions.map((x) => (x.id === id ? { ...x, evidenceLevel } : x)),
-    }));
-    log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
-      assumptionId: id,
-      evidenceLevel,
-    });
-  };
-
-  const updateStatus = (id: string, status: Status) => {
-    setState((s) => ({
-      assumptions: s.assumptions.map((x) => (x.id === id ? { ...x, status } : x)),
-    }));
-    log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
-      assumptionId: id,
-      status,
-    });
-  };
-
-  const generateTestCard = (a: Assumption) => {
-    setTestCard({ assumption: a });
-    log(RISKIEST_ASSUMPTION_ACTIONS.TEST_GENERATED, {
-      assumptionId: a.id,
-      statement: a.statement,
-      riskLevel: a.riskLevel,
-      evidenceLevel: a.evidenceLevel,
-    });
-  };
-
-  const ranked = useMemo(
-    () => [...state.assumptions].sort((a, b) => score(b) - score(a)),
-    [state.assumptions]
+  // The team's rows once any exist, as the agent ranks them; example rows
+  // next to them are shown apart and ranked on their own.
+  const counted = useMemo(() => countedAssumptions(list), [list]);
+  const view = useMemo(() => canvasView(counted.rows, hypotheses), [counted, hypotheses]);
+  const aside = useMemo(
+    () => (counted.aside.length > 0 ? canvasView(counted.aside, hypotheses) : null),
+    [counted, hypotheses]
   );
+  const rankOf = useMemo(
+    () => new Map(view.ranked.map((r) => [r.assumption.id, r])),
+    [view.ranked]
+  );
+  const asideRankOf = useMemo(
+    () => new Map((aside?.ranked ?? []).map((r) => [r.assumption.id, r])),
+    [aside]
+  );
+  // The ranking as it was last sorted: a rating change marks it stale
+  // ("Re-sort") instead of moving the card being rated.
+  const { ordered, isStale, resort } = useStableOrder(
+    view.ranked.map((r) => r.assumption),
+    keyOf,
+    (x, y) => (rankOf.get(x.id)?.rank ?? 0) - (rankOf.get(y.id)?.rank ?? 0)
+  );
+  const verdict = assumptionsVerdict(view);
 
-  // Quadrant matrix: x = evidenceLevel (1-5), y = riskLevel (1-5).
-  // Quadrant "Test First" = high risk + low evidence (top-left).
-  const quadrants = useMemo(() => {
-    const tl: Assumption[] = [];
-    const tr: Assumption[] = [];
-    const bl: Assumption[] = [];
-    const br: Assumption[] = [];
-    for (const a of state.assumptions) {
-      if (a.riskLevel >= 3 && a.evidenceLevel <= 3) tl.push(a);
-      else if (a.riskLevel >= 3 && a.evidenceLevel > 3) tr.push(a);
-      else if (a.riskLevel < 3 && a.evidenceLevel <= 3) bl.push(a);
-      else br.push(a);
-    }
-    return { tl, tr, bl, br };
-  }, [state.assumptions]);
+  /* ── Writes ── */
 
-  const stats = useMemo(() => {
-    const untestedHigh = state.assumptions.filter(
-      (a) => a.status === "untested" && a.riskLevel >= 4
-    ).length;
-    const validated = state.assumptions.filter((a) => a.status === "validated").length;
-    const invalidated = state.assumptions.filter((a) => a.status === "invalidated").length;
-    return {
-      total: state.assumptions.length,
-      untestedHigh,
-      validated,
-      invalidated,
-    };
-  }, [state.assumptions]);
+  const ws = () => useWorkspaceStore.getState();
+  const currentDoc = () => (ws().riskiestAssumptions ?? []).find((d) => d.id === RA_ID);
+  const updateList = (fn: (list: readonly Assumption[]) => Assumption[]) => {
+    const doc = currentDoc();
+    ws().upsertRiskiestAssumption({
+      ...(doc ?? {}),
+      id: RA_ID,
+      assumptions: fn(doc?.assumptions ?? []),
+    });
+  };
+  const fresh = (id: string) => currentDoc()?.assumptions.find((a) => a.id === id);
+  const patch = (id: string, fn: (a: Assumption) => Assumption) =>
+    updateList((l) => l.map((a) => (a.id === id ? fn(a) : a)));
+  // Example rows aren't the team's history.
+  const record = (id: string, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(id)) log(action, payload);
+  };
+  /** Where an assumption stands after a change (its list too), for the announcement. */
+  const standing = (id: string) => {
+    const c = countedAssumptions(currentDoc()?.assumptions ?? []);
+    const group = c.rows.some((a) => a.id === id) ? c.rows : c.aside;
+    const { ranked, tested } = rankAssumptions(group, hypotheses);
+    const r = ranked.find((x) => x.assumption.id === id);
+    if (r) return `ranked #${r.rank}, score ${r.score}`;
+    return tested.some((a) => a.id === id)
+      ? "tested, so out of the ranking"
+      : "not rated, so not ranked";
+  };
 
+  /** Focus the card drawn after `id` (or before it), else the add form, once it is gone. */
+  function focusPast(id: string) {
+    const shown = [
+      ...ordered,
+      ...view.unrated,
+      ...view.tested,
+      ...(aside
+        ? [...aside.ranked.map((r) => r.assumption), ...aside.unrated, ...aside.tested]
+        : []),
+    ];
+    const at = shown.findIndex((a) => a.id === id);
+    const near = at >= 0 ? (shown[at + 1] ?? shown[at - 1]) : undefined;
+    requestAnimationFrame(() =>
+      (
+        (near && cardOf(near.id)?.querySelector<HTMLElement>("[data-assumption-edit]")) ||
+        formRef.current?.querySelector<HTMLElement>("input, textarea")
+      )?.focus()
+    );
+  }
+
+  function add(values: AssumptionValues) {
+    const a = applyAssumptionValues(
+      { id: crypto.randomUUID(), statement: "", status: "untested" },
+      values
+    );
+    // Last in the list, as an agent's add_assumption puts it.
+    updateList((l) => [...l, a]);
+    record(a.id, RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_ADDED, {
+      assumptionId: a.id,
+      statement: a.statement,
+      riskLevel: a.riskLevel ?? null,
+      evidenceLevel: a.evidenceLevel ?? null,
+    });
+    announce(`Added “${titleOf(a)}”: ${standing(a.id)}`);
+  }
+
+  function saveWords(a: Assumption, values: AssumptionValues) {
+    // The ratings are edited on the card: the word editor leaves them as stored.
+    const next = applyAssumptionValues(a, {
+      ...values,
+      riskLevel: a.riskLevel,
+      evidenceLevel: a.evidenceLevel,
+    });
+    if (JSON.stringify(next) === JSON.stringify(a)) return;
+    patch(a.id, (x) =>
+      applyAssumptionValues(x, {
+        ...values,
+        riskLevel: x.riskLevel,
+        evidenceLevel: x.evidenceLevel,
+      })
+    );
+    record(a.id, RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
+      assumptionId: a.id,
+      statement: next.statement,
+    });
+    announce(`Saved “${titleOf(next)}”`);
+  }
+
+  function rate(a: Assumption, key: "riskLevel" | "evidenceLevel", value: AssumptionLevel | null) {
+    if ((a[key] ?? null) === value) return;
+    patch(a.id, (x) => {
+      const next = { ...x };
+      if (value === null) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+    record(a.id, RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
+      assumptionId: a.id,
+      [key]: value,
+    });
+    announce(
+      `${key === "riskLevel" ? "Risk" : "Evidence"} ${value ?? "cleared"}: “${titleOf(a)}” is ${standing(a.id)}`
+    );
+    refocus(a.id, key);
+  }
+
+  function setStatus(a: Assumption, status: AssumptionStatus) {
+    if (status === a.status) return;
+    patch(a.id, (x) => ({ ...x, status }));
+    record(a.id, RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, { assumptionId: a.id, status });
+    announce(`“${titleOf(a)}” is now ${statusLabel(status).toLowerCase()}: ${standing(a.id)}`);
+    refocus(a.id, "status");
+  }
+
+  function test(a: Assumption) {
+    const current = fresh(a.id) ?? a;
+    const link = sendHandoff("hypothesis", assumptionHypothesisSource(current), {
+      getLinks: () => fresh(a.id)?.sentTo,
+      setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) =>
+        patch(a.id, (x) => ({ ...x, sentTo: update(x.sentTo) })),
+    });
+    if (!link) return;
+    record(a.id, RISKIEST_ASSUMPTION_ACTIONS.TEST_GENERATED, {
+      assumptionId: a.id,
+      statement: a.statement,
+      riskLevel: a.riskLevel ?? null,
+      evidenceLevel: a.evidenceLevel ?? null,
+    });
+    record(a.id, RISKIEST_ASSUMPTION_ACTIONS.TEST_CREATED, {
+      assumptionId: a.id,
+      hypothesisId: link.targetId,
+    });
+    announce(`“${titleOf(a)}” is now a hypothesis to test in the Hypothesis Tracker`);
+    refocus(a.id, "test");
+  }
+
+  function remove(a: Assumption) {
+    focusPast(a.id);
+    // Its hypothesis, if it has one, stays in the tracker.
+    removeWithUndo<Assumption>({
+      label: `Deleted “${titleOf(a)}”`,
+      update: updateList,
+      match: (x) => x.id === a.id,
+    });
+    record(a.id, RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_REMOVED, {
+      assumptionId: a.id,
+      statement: a.statement,
+    });
+    announce(`Deleted “${titleOf(a)}”`);
+  }
+
+  const loadExample = () => updateList((l) => [...buildExample(), ...l]);
+  const clearExample = () => updateList((l) => l.filter((a) => !isExampleId(a.id)));
+
+  /* ── Exports ── */
+
+  const markdown = assumptionsToMarkdown(list, hypotheses);
+  const csvData = {
+    headers: [
+      "Rank",
+      "Assumption",
+      "Risk",
+      "Evidence",
+      "Score",
+      "Quadrant",
+      "Status",
+      "Test",
+      "Test idea",
+      "Description",
+    ],
+    rows: list.map((a) => {
+      const t = linkedTest(a.sentTo, hypotheses);
+      return [
+        rankOf.get(a.id)?.rank ?? "",
+        a.statement,
+        ratingOf(a.riskLevel) ?? "",
+        ratingOf(a.evidenceLevel) ?? "",
+        assumptionScore(a) ?? "",
+        rankOf.has(a.id) ? (QUADRANTS.find((q) => q.id === quadrantOf(a))?.label ?? "") : "",
+        statusLabel(a.status),
+        t.state === "none" ? "" : t.state === "testing" ? `testing (${t.status})` : t.result,
+        a.testIdea ?? "",
+        a.description ?? "",
+      ];
+    }),
+  };
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -304,367 +358,210 @@ export function RiskiestAssumptionClient() {
       })
     )
   );
-
   const promptConfig = useMemo(
     () => ({
       toolName: "Riskiest Assumption Canvas",
+      // The rows the page ranks: example rows next to the team's own stay out.
       prompts: generateRiskiestAssumptionPrompts(
-        {
-          assumptions: state.assumptions,
-        },
+        { assumptions: counted.rows, hypotheses },
         workspace
       ),
     }),
-    [state.assumptions, workspace]
+    [counted, hypotheses, workspace]
   );
+
+  const cardProps = (a: Assumption): AssumptionCardProps => {
+    // An example row aside is ranked among the example only.
+    const r = rankOf.get(a.id) ?? asideRankOf.get(a.id);
+    return {
+      assumption: a,
+      rank: r ? { rank: r.rank, score: r.score } : null,
+      result: resultText(a, hypotheses),
+      test: linkedTest(a.sentTo, hypotheses),
+      offered: offeredStatus(a, hypotheses),
+      example: isExampleId(a.id),
+      first: view.ranked[0]?.assumption.id === a.id && view.ranked.length > 1,
+      onWords: saveWords,
+      onRate: rate,
+      onStatus: setStatus,
+      onTest: test,
+      onRemove: remove,
+    };
+  };
 
   return (
     <ToolPageWrapper
       toolId="riskiest-assumption"
       title="Riskiest Assumption Canvas"
-      description="List the assumptions behind your bet, rate each on risk (1-5) and evidence (1-5), and surface the riskiest + least-evidenced first."
+      description="List the assumptions behind your bet, rate each on risk and evidence, and test the riskiest, least-proven one first."
       category="Workshops & Facilitation"
     >
-      <ActionRow>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="riskiest-assumption"
-          csvData={{
-            headers: [
-              "Statement",
-              "Risk",
-              "Evidence",
-              "Score",
-              "Status",
-              "Test Idea",
-              "Description",
-            ],
-            rows: ranked.map((a) => [
-              a.statement,
-              a.riskLevel,
-              a.evidenceLevel,
-              score(a),
-              a.status,
-              a.testIdea ?? "",
-              a.description ?? "",
-            ]),
-          }}
-          jsonData={state}
-        />
-      </ActionRow>
+      <div ref={exportRef} className="space-y-6">
+        {hasExampleItems(list) && <ExampleNotice onClear={clearExample} />}
 
-      <KpiGrid cols={4} gap="lg">
-        <StatCard
-          variant="compact"
-          icon={AlertCircle}
-          label="Total"
-          value={stats.total}
-          valueClassName="text-accent"
-        />
-        <StatCard
-          variant="compact"
-          icon={ShieldAlert}
-          label="Untested + risky"
-          value={stats.untestedHigh}
-          hint="risk ≥ 4"
-          tone={stats.untestedHigh > 0 ? "danger" : "default"}
-        />
-        <StatCard
-          variant="compact"
-          icon={CheckCircle2}
-          label="Validated"
-          value={stats.validated}
-          tone={stats.validated > 0 ? "success" : "default"}
-        />
-        <StatCard variant="compact" icon={XCircle} label="Invalidated" value={stats.invalidated} />
-      </KpiGrid>
-
-      {/* Add form */}
-      <Card className="bg-surface border-border mb-6">
-        <CardContent className="p-4 space-y-3">
-          <div className="text-sm font-semibold text-text">Add assumption</div>
-          <Textarea
-            value={draft.statement}
-            onChange={(e) => setDraft((d) => ({ ...d, statement: e.target.value }))}
-            placeholder='Statement (e.g. "Users will pay $20/mo for the premium tier")'
-            rows={2}
-            className="bg-bg border-border resize-none text-sm"
-            aria-label="Assumption statement"
-          />
-          <div className="grid grid-cols-1 md:grid-cols-[140px_140px_1fr] gap-2 items-start">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-sub">Risk</span>
-              <Input
-                type="number"
-                min={1}
-                max={5}
-                value={draft.riskLevel}
-                onChange={(e) => setDraft((d) => ({ ...d, riskLevel: e.target.value }))}
-                onBlur={(e) => {
-                  const v = clampLevel(Number(e.target.value) || 3);
-                  setDraft((d) => ({ ...d, riskLevel: String(v) }));
-                }}
-                className="h-9 bg-bg border-border font-data"
-                aria-label="Risk level (1-5)"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-sub">Evidence</span>
-              <Input
-                type="number"
-                min={1}
-                max={5}
-                value={draft.evidenceLevel}
-                onChange={(e) => setDraft((d) => ({ ...d, evidenceLevel: e.target.value }))}
-                onBlur={(e) => {
-                  const v = clampLevel(Number(e.target.value) || 3);
-                  setDraft((d) => ({ ...d, evidenceLevel: String(v) }));
-                }}
-                className="h-9 bg-bg border-border font-data"
-                aria-label="Evidence level (1-5)"
-              />
-            </div>
-            <Textarea
-              value={draft.testIdea}
-              onChange={(e) => setDraft((d) => ({ ...d, testIdea: e.target.value }))}
-              placeholder="Test idea (optional)..."
-              rows={2}
-              className="bg-bg border-border resize-none text-xs"
-              aria-label="Test idea"
+        {list.length > 0 && (
+          <ActionRow>
+            <AiPromptGenerator config={promptConfig} />
+            <ExportButton
+              filename="riskiest-assumption"
+              csvData={csvData}
+              jsonData={list}
+              markdown={markdown}
+              targetRef={exportRef}
             />
-          </div>
-          <Textarea
-            value={draft.description}
-            onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-            placeholder="Description (optional)..."
-            rows={2}
-            className="bg-bg border-border resize-none text-xs"
-            aria-label="Description"
-          />
-          <Button
-            onClick={addAssumption}
-            disabled={!draft.statement.trim()}
-            className="gap-2 bg-accent text-bg hover:bg-accent/90 disabled:opacity-50"
-          >
-            <Plus className="w-4 h-4" />
-            Add assumption
-          </Button>
-        </CardContent>
-      </Card>
+          </ActionRow>
+        )}
 
-      {/* Matrix view */}
-      {state.assumptions.length > 0 && (
-        <Card className="bg-surface border-border mb-6">
-          <CardContent className="p-4">
-            <div className="text-xs uppercase tracking-wider text-sub font-semibold mb-3">
-              Risk × Evidence matrix
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-xs uppercase tracking-wider text-danger font-bold mb-2">
-                  Test first · high risk · low evidence
-                </div>
-                <ul className="space-y-1 text-xs text-text">
-                  {quadrants.tl.length === 0 ? (
-                    <li className="text-sub italic">empty</li>
-                  ) : (
-                    quadrants.tl.map((a) => (
-                      <li key={a.id} className="break-words">
-                        · {a.statement.slice(0, 80)}
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </div>
-              <div className="rounded-lg border border-warning/40 bg-warning/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-xs uppercase tracking-wider text-warning font-bold mb-2">
-                  Monitor · high risk · high evidence
-                </div>
-                <ul className="space-y-1 text-xs text-text">
-                  {quadrants.tr.length === 0 ? (
-                    <li className="text-sub italic">empty</li>
-                  ) : (
-                    quadrants.tr.map((a) => (
-                      <li key={a.id} className="break-words">
-                        · {a.statement.slice(0, 80)}
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </div>
-              <div className="rounded-lg border border-border bg-bg p-3 min-h-[100px] min-w-0">
-                <div className="text-xs uppercase tracking-wider text-sub font-bold mb-2">
-                  Defer · low risk · low evidence
-                </div>
-                <ul className="space-y-1 text-xs text-text">
-                  {quadrants.bl.length === 0 ? (
-                    <li className="text-sub italic">empty</li>
-                  ) : (
-                    quadrants.bl.map((a) => (
-                      <li key={a.id} className="break-words">
-                        · {a.statement.slice(0, 80)}
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </div>
-              <div className="rounded-lg border border-success/40 bg-success/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-xs uppercase tracking-wider text-success font-bold mb-2">
-                  Solid · low risk · high evidence
-                </div>
-                <ul className="space-y-1 text-xs text-text">
-                  {quadrants.br.length === 0 ? (
-                    <li className="text-sub italic">empty</li>
-                  ) : (
-                    quadrants.br.map((a) => (
-                      <li key={a.id} className="break-words">
-                        · {a.statement.slice(0, 80)}
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        <div ref={formRef}>
+          <AddAssumptionForm onAdd={add} />
+        </div>
 
-      {/* Ranked list */}
-      <div className="space-y-2">
-        {ranked.map((a, idx) => (
-          <Card
-            key={a.id}
-            className={`bg-surface border-border ${
-              idx === 0 && state.assumptions.length > 1 ? "border-l-2 border-l-accent" : ""
-            }`}
-          >
-            <CardContent className="p-3 space-y-2">
-              <div className="flex items-start gap-2">
-                <Badge
-                  variant="outline"
-                  className="text-xs bg-bg border-border text-sub font-data shrink-0"
-                >
-                  #{idx + 1} · score {score(a)}
-                </Badge>
-                <div className="flex-1 text-sm text-text break-words">{a.statement}</div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeAssumption(a.id)}
-                  className="text-sub hover:text-danger h-6 w-6 p-0 shrink-0 min-touch-coarse"
-                  aria-label={`Remove assumption #${idx + 1}`}
-                >
-                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                </Button>
-              </div>
-              {a.description && (
-                <div className="text-xs text-sub whitespace-pre-wrap">{a.description}</div>
+        {list.length === 0 ? (
+          hydrated && (
+            <EmptyState icon={ListOrdered} action={<LoadExampleButton onLoad={loadExample} />}>
+              No assumptions yet. Add the beliefs your plan rests on and rate how risky and how
+              proven each is, or load an example to see the ranking and the matrix.
+            </EmptyState>
+          )
+        ) : (
+          <>
+            <p className="text-sm font-medium text-text">
+              {verdict}
+              {counted.example && <span className="text-sub"> (the example)</span>}
+            </p>
+            <KpiGrid cols={4}>
+              <StatCard
+                variant="compact"
+                label="To test"
+                value={view.ranked.length}
+                hint="rated, not tested"
+              />
+              <StatCard
+                variant="compact"
+                label="Untested + risky"
+                value={view.untestedRisky}
+                hint="risk 4 or 5, no test yet"
+                tone={view.untestedRisky > 0 ? "danger" : "default"}
+              />
+              <StatCard
+                variant="compact"
+                label="Not rated"
+                value={view.unrated.length}
+                tone={view.unrated.length > 0 ? "warning" : "default"}
+              />
+              <StatCard
+                variant="compact"
+                label="Tested"
+                value={view.tested.length}
+                tone={view.tested.length > 0 ? "success" : "default"}
+              />
+            </KpiGrid>
+
+            {view.ranked.length > 0 && (
+              <SectionCard title="Risk × Evidence matrix" icon={Grid2x2}>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {QUADRANTS.map((q) => (
+                    <section
+                      key={q.id}
+                      aria-label={`${q.label}: ${q.hint}`}
+                      className={cn("min-w-0 rounded-lg border p-3", q.tone)}
+                    >
+                      <h3 className="mb-2 text-xs font-bold uppercase tracking-wider">
+                        {q.label} · {q.hint}
+                      </h3>
+                      {view.quadrants[q.id].length === 0 ? (
+                        <p className="text-xs italic text-sub">None</p>
+                      ) : (
+                        <ul className="space-y-1 text-xs text-text">
+                          {view.quadrants[q.id].map((a) => (
+                            <li key={a.id} className="break-words">
+                              {titleOf(a)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  ))}
+                </div>
+              </SectionCard>
+            )}
+
+            <SectionCard
+              title={`Ranked (${view.ranked.length})`}
+              icon={ListOrdered}
+              titleSuffix={<span className="text-xs text-sub">score = risk × (6 − evidence)</span>}
+              contentClassName="space-y-3"
+            >
+              <ResortChip isStale={isStale} onResort={resort} what="Ratings" />
+              {ordered.length === 0 ? (
+                <p className="text-sm text-sub">
+                  Nothing to rank: rate an assumption on both risk and evidence.
+                </p>
+              ) : (
+                <ul className="space-y-3" aria-label="Ranked assumptions, test the first one first">
+                  {ordered.map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <AssumptionCard {...cardProps(a)} />
+                    </li>
+                  ))}
+                </ul>
               )}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1">
-                  <span className="text-xs uppercase tracking-wider text-sub">risk</span>
-                  <NumDraftInput
-                    value={a.riskLevel}
-                    onCommit={(n) => updateRisk(a.id, n as Level)}
-                    ariaLabel={`Risk for assumption #${idx + 1}`}
-                  />
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs uppercase tracking-wider text-sub">evidence</span>
-                  <NumDraftInput
-                    value={a.evidenceLevel}
-                    onCommit={(n) => updateEvidence(a.id, n as Level)}
-                    ariaLabel={`Evidence for assumption #${idx + 1}`}
-                  />
-                </div>
-                <Select value={a.status} onValueChange={(v) => updateStatus(a.id, v as Status)}>
-                  <SelectTrigger
-                    className={`h-8 text-xs w-32 border ${STATUS_TONE[a.status]}`}
-                    aria-label={`Status for assumption #${idx + 1}`}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTS.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => generateTestCard(a)}
-                  className="gap-1.5 text-xs border-border hover:border-accent/40 hover:bg-accent/5"
-                >
-                  <FlaskConical className="w-3.5 h-3.5" />
-                  Generate test card
-                </Button>
-              </div>
-              {a.testIdea && (
-                <div className="text-xs text-sub border-t border-border pt-2">
-                  <span className="font-semibold text-text">Test idea:</span> {a.testIdea}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            </SectionCard>
 
-      {/* Test card panel */}
-      {testCard && (
-        <Card ref={testCardRef} className="bg-surface border-accent/40 mt-6">
-          <CardContent className="p-4 space-y-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2 text-sm font-semibold text-text">
-                <FlaskConical className="w-4 h-4 text-accent" />
-                Test Card
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setTestCard(null)}
-                className="h-6 w-6 p-0 text-sub hover:text-text min-touch-coarse"
-                aria-label="Close test card"
+            {view.unrated.length > 0 && (
+              <SectionCard
+                title={`Not rated (${view.unrated.length})`}
+                icon={CircleDashed}
+                titleSuffix={<span className="text-xs text-sub">rate both to rank</span>}
               >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-              <div>
-                <div className="text-sub uppercase tracking-wider text-xs mb-1">Assumption</div>
-                <div className="text-text">{testCard.assumption.statement}</div>
-              </div>
-              <div>
-                <div className="text-sub uppercase tracking-wider text-xs mb-1">Score</div>
-                <div className="text-text font-data">
-                  risk {testCard.assumption.riskLevel} · evidence{" "}
-                  {testCard.assumption.evidenceLevel} · score {score(testCard.assumption)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sub uppercase tracking-wider text-xs mb-1">Test</div>
-                <div className="text-text">
-                  {testCard.assumption.testIdea ??
-                    "(no test idea — write the cheapest experiment that produces a binary outcome)"}
-                </div>
-              </div>
-              <div>
-                <div className="text-sub uppercase tracking-wider text-xs mb-1">
-                  Metric & threshold
-                </div>
-                <div className="text-text italic">
-                  Define a single metric and the threshold that would invalidate this assumption.
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                <ul className="space-y-3" aria-label="Assumptions not rated yet">
+                  {view.unrated.map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <AssumptionCard {...cardProps(a)} />
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
+
+            {view.tested.length > 0 && (
+              <SectionCard title={`Tested (${view.tested.length})`} icon={CheckCircle2}>
+                <ul className="space-y-3" aria-label="Tested assumptions">
+                  {view.tested.map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <AssumptionCard {...cardProps(a)} />
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
+
+            {aside && (
+              <SectionCard
+                title={`Example (${counted.aside.length})`}
+                icon={FlaskConical}
+                titleSuffix={
+                  <span className="text-xs text-sub">
+                    ranked on its own, not counted with yours
+                  </span>
+                }
+              >
+                <ul className="space-y-3" aria-label="Example assumptions, not counted">
+                  {[
+                    ...aside.ranked.map((r) => r.assumption),
+                    ...aside.unrated,
+                    ...aside.tested,
+                  ].map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <AssumptionCard {...cardProps(a)} />
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
+          </>
+        )}
+      </div>
     </ToolPageWrapper>
   );
 }

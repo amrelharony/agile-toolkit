@@ -8,6 +8,7 @@ import {
 import { bootstrapQuantile } from "../analytics/bootstrap";
 import { registerPredictor } from "./registry";
 import { registerRecipientPredictor } from "@/lib/kudos/llm/suggest-recipient";
+import { isExampleId } from "@/lib/utils/example-id";
 
 let bootstrapped = false;
 
@@ -97,11 +98,15 @@ export function bootstrapPredictions(): void {
   });
 
   // ── tech-debt ────────────────────────────────────────────────────────
+  // The mean of the team's own interest estimates. With none above 0
+  // there is nothing to suggest (never a made-up default), and an
+  // example's made-up rates are left out.
   registerPredictor<number>("tech-debt", "interestRate", (ctx) => {
-    const items = ctx.workspace.techDebt;
-    if (items.length === 0) return { value: 0, confidence: "none" };
-    const rates = items.map((i) => i.interestRate ?? 0).filter((r) => Number.isFinite(r) && r > 0);
-    if (rates.length === 0) return { value: 0.1, confidence: "low", source: "default" };
+    const rates = ctx.workspace.techDebt
+      .filter((i) => !isExampleId(i.id))
+      .map((i) => i.interestRate ?? 0)
+      .filter((r) => Number.isFinite(r) && r > 0);
+    if (rates.length === 0) return { value: 0, confidence: "none" };
     return {
       value: Math.round(mean(rates) * 100) / 100,
       confidence: rates.length >= 5 ? "medium" : "low",
@@ -125,9 +130,10 @@ export function bootstrapPredictions(): void {
   });
 
   // ── risk-register ────────────────────────────────────────────────────
+  // The team's own closed risks only: an example's made-up ones are left out.
   registerPredictor<number>("risk-register", "mitigationDays", (ctx) => {
     const closed = ctx.workspace.risks
-      .filter((r) => r.status === "closed" && r.resolvedAt)
+      .filter((r) => !isExampleId(r.id) && r.status === "closed" && r.resolvedAt)
       .map((r) => daysBetween(r.raisedAt, r.resolvedAt!))
       .filter((d) => Number.isFinite(d) && d >= 0);
     if (closed.length < 3) return { value: 14, confidence: "none" };

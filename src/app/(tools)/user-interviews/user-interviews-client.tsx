@@ -1,201 +1,289 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import { Quote } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Quote, Plus, Trash2, Hash } from "lucide-react";
-import { generateUserInterviewsPrompts } from "@/lib/ai-prompts/user-interviews";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { INTERVIEW_ACTIONS } from "@/lib/history/event-actions";
-import { todayLocalISO } from "@/lib/utils/formatters";
 import { EmptyState } from "@/components/shared/empty-state";
-import { redactPii } from "@/lib/utils/redact-pii";
+import { ExportButton } from "@/components/shared/export-button";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { ResortChip } from "@/components/shared/resort-chip";
+import { StatCard } from "@/components/shared/stat-card";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { useStableOrder } from "@/hooks/use-stable-order";
+import { generateUserInterviewsPrompts } from "@/lib/ai-prompts/user-interviews";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
+import { liveLink } from "@/lib/handoffs/registry";
+import { sendHandoff } from "@/lib/handoffs/send";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { INTERVIEW_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import {
+  UI_ID,
+  participantCount,
+  quoteOpportunitySource,
+  quotesTagged,
+  themeCounts,
+} from "@/lib/interviews/model";
+import { treeNodes } from "@/lib/opportunity-tree/model";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  Interview,
+  InterviewQuote,
+  OpportunityTree,
+  UserInterviewLog,
+  Workspace,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { useShallow } from "zustand/react/shallow";
+import { buildExample } from "./example";
+import { applyInterviewValues, type InterviewValues, type QuoteValues } from "./form";
+import { InterviewPane } from "./interview-pane";
+import { interviewsToMarkdown } from "./markdown";
+import { NewInterviewForm } from "./new-interview-form";
+import { TaggedQuotes, ThemePanel } from "./themes";
+import { anonymisedById, compareInterviews, forExport, interviewsVerdict } from "./view";
 
-interface Interview {
-  id: string;
-  date: string;
-  participant: string;
-  context?: string;
-  quotes: { id: string; text: string; tags: string[] }[];
-}
+// Stable empty lists: zustand re-renders forever on a selector that
+// returns a fresh array each call.
+const NO_LOGS: UserInterviewLog[] = [];
+const NO_TREES: OpportunityTree[] = [];
+const NONE: Interview[] = [];
 
-function emptyInterview(): Interview {
-  return { id: nanoid(8), date: todayLocalISO(), participant: "", quotes: [] };
-}
+const keyOf = (i: Interview) => i.id;
+const nameOf = (i: Pick<Interview, "participant">) =>
+  i.participant?.trim() || "an unnamed participant";
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** Parse a "tag1, tag2" string into a normalized array — trimmed,
- *  lowercased, and de-empty'd. Lowercasing canonicalizes tags so "UX" and
- *  "ux" become a single entry in frequency counts. */
-function parseTags(input: string): string[] {
-  return input
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/** Tag input that holds a local string draft so a trailing comma or space
- *  isn't dropped while the user is mid-type. Commits parsed tags to the
- *  parent on blur or Enter. Re-syncs from props when the underlying tag
- *  array changes (e.g. another quote update overrides). */
-function TagInput({
-  tags,
-  onCommit,
-  ariaLabel,
-}: {
-  tags: string[];
-  onCommit: (next: string[]) => void;
-  ariaLabel?: string;
-}) {
-  const [draft, setDraft] = useState(tags.join(", "));
-  // Re-sync from props only when the joined external value differs from our
-  // current draft — otherwise we'd clobber the user's in-progress typing.
-  useEffect(() => {
-    const external = tags.join(", ");
-    setDraft((cur) => (cur.trim() === external.trim() ? cur : external));
-    // We intentionally re-run on the joined external value rather than the
-    // tags array identity to avoid loops with new array references that
-    // describe the same content.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tags.join(",")]);
-  const commit = () => {
-    onCommit(parseTags(draft));
-  };
-  return (
-    <Input
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          e.currentTarget.blur();
-        }
-      }}
-      placeholder="tags, comma-separated"
-      aria-label={ariaLabel ?? "Tags, comma-separated"}
-      className="bg-surface border-border text-xs flex-1"
-    />
-  );
-}
-
-// BUG-T9-user-interviews-2: BlurInput/BlurTextarea moved to
-// `@/components/shared/blur-fields` so other tools can reuse them.
-
-const UI_ID = "userInterviewLog:current"; // MUST match UI_ID in user-interviews.ts.
-const EMPTY_INTERVIEWS: Interview[] = [];
-
-// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
-// the interviews[] array. Drop-in [state, setState] (structural types).
-function useInterviews(): [
-  Interview[],
-  (u: Interview[] | ((p: Interview[]) => Interview[])) => void,
-] {
-  const doc = useWorkspaceStore(
-    useShallow((s) => (s.userInterviewLogs ?? []).find((d) => d.id === UI_ID))
-  );
-  const upsert = useWorkspaceStore((s) => s.upsertUserInterviewLog);
-  const interviews = doc?.interviews ?? EMPTY_INTERVIEWS;
-  const setInterviews = (u: Interview[] | ((p: Interview[]) => Interview[])) => {
-    const cur =
-      (useWorkspaceStore.getState().userInterviewLogs ?? []).find((d) => d.id === UI_ID)
-        ?.interviews ?? [];
-    const next = typeof u === "function" ? u(cur) : u;
-    upsert({ id: UI_ID, interviews: next });
-  };
-  return [interviews, setInterviews];
-}
-
+/**
+ * User Interview Log: interviews and the tagged quotes from them. A theme
+ * counts the participants who raised it, not the quotes (lib/interviews,
+ * as tool.user_interviews counts it); a theme opens the quotes behind it
+ * across interviews. Anonymising (on by default) numbers the participants
+ * and redacts context and quotes in that view, every export and the AI
+ * prompt. A quote can be raised as an opportunity on the Opportunity Tree,
+ * with its redacted words and never the participant's name.
+ */
 export function UserInterviewsClient() {
-  const [interviews, setInterviews] = useInterviews();
-  const [editing, setEditing] = useState<string | null>(null);
-  // BUG-T9-user-interviews-1: opt-in "anonymize on export" — strips
-  // emails / phone numbers / API keys from the exported quotes (does
-  // not touch participant names; user redacts those manually). The
-  // banner above the table reminds the user that stored data is
-  // unencrypted on this device.
-  const [anonymizeOnExport, setAnonymizeOnExport] = useState(true);
+  const hydrated = useWorkspaceHydrated();
+  const logs = useWorkspaceStore((s) => s.userInterviewLogs) ?? NO_LOGS;
+  const trees = useWorkspaceStore((s) => s.opportunityTrees) ?? NO_TREES;
+  const interviews = logs.find((d) => d.id === UI_ID)?.interviews ?? NONE;
+  const nodes = treeNodes(trees);
+  const today = todayLocalISO();
   const { log } = useHistoryLogger("user-interviews");
+  const announce = useAnnounce();
   // Only the owner's data leaves the browser (cloud sync is owner-only).
   const isOwner = useIsOwner();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [anonymise, setAnonymise] = useState(true);
+  const paneRef = useRef<HTMLHeadingElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
-  const add = () => {
-    const i = emptyInterview();
-    setInterviews((s) => [i, ...s]);
-    setEditing(i.id);
-    log(INTERVIEW_ACTIONS.INTERVIEW_ADDED, { interviewId: i.id });
-  };
-  const update = (id: string, patch: Partial<Interview>) =>
-    setInterviews((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  const remove = (id: string) => {
-    const interview = interviews.find((x) => x.id === id);
-    setInterviews((s) => s.filter((x) => x.id !== id));
-    if (editing === id) setEditing(null);
-    log(INTERVIEW_ACTIONS.INTERVIEW_REMOVED, {
-      interviewId: id,
-      participant: interview?.participant,
+  const themes = useMemo(() => themeCounts(interviews), [interviews]);
+  const people = useMemo(() => participantCount(interviews), [interviews]);
+  const anon = useMemo(() => anonymisedById(interviews), [interviews]);
+  const shownAs = (i: Interview) => (anonymise ? (anon.get(i.id) ?? i) : i);
+  const tag = activeTag && themes.some((t) => t.tag === activeTag) ? activeTag : null;
+  const listed = useMemo(
+    () => (tag ? interviews.filter((i) => quotesTagged([i], tag).length > 0) : interviews),
+    [interviews, tag]
+  );
+  // Newest first; editing a day doesn't move the row until "Re-sort".
+  const { ordered, isStale, resort } = useStableOrder(listed, keyOf, compareInterviews);
+  const active = interviews.find((i) => i.id === selected) ?? null;
+  const quoteCount = interviews.reduce((n, i) => n + (i.quotes ?? []).length, 0);
+
+  /* ── Writes ── */
+
+  const ws = () => useWorkspaceStore.getState();
+  const currentList = () => (ws().userInterviewLogs ?? []).find((d) => d.id === UI_ID);
+  const updateList = (fn: (list: readonly Interview[]) => Interview[]) => {
+    const doc = currentList();
+    ws().upsertUserInterviewLog({
+      ...(doc ?? {}),
+      id: UI_ID,
+      interviews: fn(doc?.interviews ?? []),
     });
   };
-  const addQuote = (iid: string) => {
-    setInterviews((s) =>
-      s.map((i) =>
-        i.id === iid ? { ...i, quotes: [...i.quotes, { id: nanoid(6), text: "", tags: [] }] } : i
-      )
-    );
-    log(INTERVIEW_ACTIONS.INSIGHT_ADDED, { interviewId: iid });
+  const patchInterview = (id: string, fn: (i: Interview) => Interview) =>
+    updateList((list) => list.map((i) => (i.id === id ? fn(i) : i)));
+  const freshInterview = (id: string) => currentList()?.interviews.find((i) => i.id === id);
+  const patchQuote = (iid: string, qid: string, fn: (q: InterviewQuote) => InterviewQuote) =>
+    patchInterview(iid, (i) => ({
+      ...i,
+      quotes: (i.quotes ?? []).map((q) => (q.id === qid ? fn(q) : q)),
+    }));
+  // Example rows aren't the team's history.
+  const record = (id: string, action: string, payload: Record<string, unknown>) => {
+    if (!isExampleId(id)) log(action, payload);
   };
-  const updateQuote = (
-    iid: string,
-    qid: string,
-    patch: Partial<{ text: string; tags: string[] }>
-  ) =>
-    setInterviews((s) =>
-      s.map((i) =>
-        i.id === iid
-          ? { ...i, quotes: i.quotes.map((q) => (q.id === qid ? { ...q, ...patch } : q)) }
-          : i
-      )
+
+  const open = (id: string) => {
+    setSelected(id);
+    // On a phone the pane sits under the list: focusing its heading brings it into view.
+    requestAnimationFrame(() => paneRef.current?.focus());
+  };
+
+  function add(values: InterviewValues) {
+    const i = applyInterviewValues(
+      { id: nanoid(8), participant: "", date: today, quotes: [] },
+      values
     );
-  const removeQuote = (iid: string, qid: string) =>
-    setInterviews((s) =>
-      s.map((i) => (i.id === iid ? { ...i, quotes: i.quotes.filter((q) => q.id !== qid) } : i))
+    updateList((list) => [i, ...list]);
+    record(i.id, INTERVIEW_ACTIONS.INTERVIEW_ADDED, { interviewId: i.id });
+    setActiveTag(null);
+    announce(`Added the interview with ${nameOf(i)}`);
+    open(i.id);
+  }
+
+  function saveInterview(i: Interview, values: InterviewValues, fields: string[]) {
+    const next = applyInterviewValues(i, values);
+    if (JSON.stringify(next) === JSON.stringify(i)) return;
+    patchInterview(i.id, () => next);
+    record(i.id, INTERVIEW_ACTIONS.INTERVIEW_UPDATED, { interviewId: i.id, fields });
+    announce(`Saved the interview with ${nameOf(next)}`);
+  }
+
+  function removeInterview(i: Interview) {
+    const quotes = (i.quotes ?? []).length;
+    let index = -1;
+    let removed: Interview | undefined;
+    undoable({
+      label: `Deleted the interview with ${nameOf(i)} (${plural(quotes, "quote")})`,
+      apply: () =>
+        updateList((list) => {
+          index = list.findIndex((x) => x.id === i.id);
+          removed = list[index];
+          return list.filter((x) => x.id !== i.id);
+        }),
+      revert: () => {
+        const back = removed;
+        if (!back) return;
+        // Back in its place, and open again.
+        updateList((list) => {
+          const next = [...list];
+          next.splice(Math.min(Math.max(index, 0), next.length), 0, back);
+          return next;
+        });
+        setSelected(back.id);
+      },
+    });
+    setSelected(null);
+    record(i.id, INTERVIEW_ACTIONS.INTERVIEW_REMOVED, { interviewId: i.id, quotes });
+    announce(`Deleted the interview with ${nameOf(i)}`);
+    requestAnimationFrame(() =>
+      formRef.current?.querySelector<HTMLElement>("[data-new-interview], input")?.focus()
     );
+  }
 
-  const tagFrequency = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const i of interviews) {
-      for (const q of i.quotes) {
-        for (const t of q.tags) {
-          // Normalize at counting time too, so legacy persisted entries with
-          // mixed-case tags collapse into a single frequency bucket.
-          const key = t.trim().toLowerCase();
-          if (!key) continue;
-          m.set(key, (m.get(key) ?? 0) + 1);
-        }
-      }
-    }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
-  }, [interviews]);
+  function addQuote(i: Interview, values: QuoteValues) {
+    const q: InterviewQuote = { id: nanoid(8), text: values.text, tags: values.tags };
+    patchInterview(i.id, (x) => ({ ...x, quotes: [...(x.quotes ?? []), q] }));
+    record(i.id, INTERVIEW_ACTIONS.INSIGHT_ADDED, { interviewId: i.id, quoteId: q.id });
+    announce(`Added a quote from ${nameOf(i)}`);
+  }
 
-  const active = interviews.find((i) => i.id === editing) ?? null;
+  function saveQuote(i: Interview, q: InterviewQuote, values: QuoteValues) {
+    const next: InterviewQuote = { ...q, text: values.text, tags: values.tags };
+    if (JSON.stringify(next) === JSON.stringify(q)) return;
+    patchQuote(i.id, q.id, () => next);
+    record(i.id, INTERVIEW_ACTIONS.INTERVIEW_UPDATED, {
+      interviewId: i.id,
+      quoteId: q.id,
+      fields: ["quote"],
+    });
+    announce("Saved the quote");
+  }
 
-  // After hydration / removal, an `editing` id pointing at a non-existent
-  // interview leaves the right pane silently blank. Reset it once we notice.
-  useEffect(() => {
-    if (editing && !interviews.find((i) => i.id === editing)) {
-      setEditing(null);
-    }
-  }, [editing, interviews]);
+  /**
+   * Focus the quote after `q` (or the one before it) once `q` is gone, else
+   * the Add quote field, else the interview's heading: the Delete button
+   * that had focus goes with the quote. Ids go in no selector.
+   */
+  function focusPastQuote(i: Interview, q: InterviewQuote) {
+    const quotes = i.quotes ?? [];
+    const at = quotes.findIndex((x) => x.id === q.id);
+    const near = at >= 0 ? (quotes[at + 1] ?? quotes[at - 1]) : undefined;
+    requestAnimationFrame(() => {
+      const next = near
+        ? Array.from(document.querySelectorAll<HTMLElement>("[data-quote-delete]")).find(
+            (b) => b.getAttribute("data-quote-delete") === near.id
+          )
+        : undefined;
+      (
+        next ??
+        document.querySelector<HTMLElement>("[data-add-quote] textarea") ??
+        paneRef.current
+      )?.focus();
+    });
+  }
+
+  function removeQuote(i: Interview, q: InterviewQuote) {
+    focusPastQuote(i, q);
+    removeWithUndo<InterviewQuote>({
+      label: "Deleted the quote",
+      description: `From the interview with ${nameOf(i)}`,
+      update: (fn) => patchInterview(i.id, (x) => ({ ...x, quotes: fn(x.quotes ?? []) })),
+      match: (x) => x.id === q.id,
+    });
+    record(i.id, INTERVIEW_ACTIONS.QUOTE_REMOVED, { interviewId: i.id, quoteId: q.id });
+    announce("Deleted the quote");
+  }
+
+  function sendQuote(i: Interview, q: InterviewQuote, parentId: string | undefined) {
+    const interview = freshInterview(i.id) ?? i;
+    const quote = interview.quotes.find((x) => x.id === q.id) ?? q;
+    const link = sendHandoff("opportunity", quoteOpportunitySource(quote, interview, parentId), {
+      getLinks: () => freshInterview(i.id)?.quotes.find((x) => x.id === q.id)?.sentTo,
+      setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) =>
+        patchQuote(i.id, q.id, (x) => ({ ...x, sentTo: update(x.sentTo) })),
+    });
+    if (!link) return;
+    record(i.id, INTERVIEW_ACTIONS.QUOTE_SENT, {
+      interviewId: i.id,
+      quoteId: q.id,
+      nodeId: link.targetId,
+    });
+    announce("The quote is now an opportunity on the Opportunity Tree");
+  }
+
+  const loadExample = () => updateList((list) => [...buildExample(today), ...list]);
+  const clearExample = () => {
+    if (selected && isExampleId(selected)) setSelected(null);
+    updateList((list) => list.filter((i) => !isExampleId(i.id)));
+  };
+
+  /* ── Exports ── */
+
+  // Newest first, as the list reads; the pseudonyms number by first interview either way.
+  const exported = forExport([...interviews].sort(compareInterviews), anonymise);
+  const csvData = {
+    headers: ["Date", "Participant", "Context", "Quote", "Tags", "On the Opportunity Tree"],
+    rows: exported.flatMap((i) => {
+      const quotes = i.quotes ?? [];
+      const base = [(i.date ?? "").slice(0, 10), i.participant ?? "", i.context ?? ""];
+      if (quotes.length === 0) return [[...base, "", "", ""]];
+      return quotes.map((q) => [
+        ...base,
+        q.text ?? "",
+        (q.tags ?? []).join(", "),
+        liveLink(q.sentTo, "opportunity") ? "yes" : "",
+      ]);
+    }),
+  };
+  const markdown = interviewsToMarkdown(interviews, { anonymise });
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -213,209 +301,160 @@ export function UserInterviewsClient() {
       })
     )
   );
-
   const promptConfig = useMemo(
     () => ({
       toolName: "User Interview Log",
-      prompts: generateUserInterviewsPrompts({ interviews, tagFrequency }, workspace),
+      // The prompt follows the toggle: anonymised interviews when it is on.
+      prompts: generateUserInterviewsPrompts(
+        { interviews: forExport(interviews, anonymise), anonymised: anonymise },
+        workspace
+      ),
     }),
-    [interviews, tagFrequency, workspace]
+    [interviews, anonymise, workspace]
   );
 
   return (
     <ToolPageWrapper
       toolId="user-interviews"
       title="User Interview Log"
-      description="Capture quotes, tag themes, and synthesize research across multiple user interviews."
+      description="Capture quotes, tag themes, and see which themes most participants raise across interviews."
       category="Product Discovery"
     >
-      {/* BUG-T9-user-interviews-1: privacy banner. */}
-      <div className="mb-3 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning flex items-start gap-2">
-        <Quote className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-        <div>
-          Stored unencrypted in this browser{isOwner ? " and synced to your cloud workspace" : ""}.
-          Don&rsquo;t paste customer-identifiable quotes verbatim — redact names, employers, and
-          other PII before saving. The toggle below also strips emails / phone numbers / API keys
-          from exports.
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center justify-end gap-3 mb-4">
-        <label className="text-xs text-sub flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={anonymizeOnExport}
-            onChange={(e) => setAnonymizeOnExport(e.target.checked)}
-            aria-label="Anonymize on export"
-          />
-          Anonymize on export
-        </label>
-        <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="user-interviews"
-          csvData={{
-            headers: ["Date", "Participant", "Quote", "Tags"],
-            rows: interviews.flatMap((i) =>
-              i.quotes.map((q) => [
-                i.date,
-                anonymizeOnExport ? "[redacted]" : i.participant,
-                anonymizeOnExport ? redactPii(q.text) : q.text,
-                q.tags.join(", "),
-              ])
-            ),
-          }}
-          jsonData={
-            anonymizeOnExport
-              ? interviews.map((i) => ({
-                  ...i,
-                  participant: "[redacted]",
-                  quotes: i.quotes.map((q) => ({ ...q, text: redactPii(q.text) })),
-                }))
-              : interviews
-          }
-        />
-        <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-          <Plus className="w-4 h-4" />
-          New Interview
-        </Button>
-      </div>
+      <div className="space-y-6">
+        {hasExampleItems(interviews) && <ExampleNotice onClear={clearExample} />}
 
-      {tagFrequency.length > 0 && (
-        <Card className="bg-surface border-border mb-6">
-          <CardContent className="p-4">
-            <div className="text-sm font-semibold text-text mb-3 flex items-center gap-2">
-              <Hash className="w-4 h-4 text-accent" />
-              Theme Frequency
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {tagFrequency.slice(0, 24).map(([tag, n]) => (
-                <Badge
-                  key={tag}
-                  variant="outline"
-                  className="font-data"
-                  style={{
-                    // Theme-aware accent — cyan in dark, blue in light. The
-                    // hardcoded rgb(0,240,255) was invisible in light mode.
-                    borderColor: "var(--accent)",
-                    borderWidth: 1,
-                    opacity: 0.4 + Math.min(0.6, n / 8),
-                    color: "var(--accent)",
-                    background: "var(--accent-bg)",
-                  }}
-                >
-                  {tag} · {n}
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[320px_1fr] gap-4">
-        <div className="space-y-2">
-          {interviews.map((i) => (
-            <button
-              key={i.id}
-              type="button"
-              onClick={() => setEditing(i.id)}
-              aria-pressed={editing === i.id}
-              className={`w-full text-left rounded-lg border p-3 transition hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${editing === i.id ? "border-accent/60 bg-accent/5" : "border-border bg-surface"}`}
-            >
-              <div className="text-sm font-semibold text-text truncate">
-                {i.participant || "(unnamed)"}
-              </div>
-              <div className="text-xs text-sub">
-                {i.date} · {i.quotes.length} quote{i.quotes.length === 1 ? "" : "s"}
-              </div>
-            </button>
-          ))}
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-text">
+          <Quote className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          <p>
+            Stored unencrypted in this browser{isOwner ? " and synced to your cloud workspace" : ""}
+            . Redact names, employers and other details before saving. While “Anonymise” is on, the
+            theme view, every export and the AI prompt number the participants and take emails,
+            phone numbers and their names out of the context and the quotes.
+          </p>
         </div>
 
-        <div>
-          {active ? (
-            <Card className="bg-surface border-border">
-              <CardContent className="p-4 space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-2">
-                  <BlurInput
-                    value={active.participant}
-                    onCommit={(v) => update(active.id, { participant: v })}
-                    placeholder="Participant name or pseudonym"
-                    aria-label="Participant name or pseudonym"
-                    className="bg-bg border-border"
-                  />
-                  <BlurInput
-                    type="date"
-                    value={active.date}
-                    onCommit={(v) => update(active.id, { date: v })}
-                    aria-label="Interview date"
-                    className="bg-bg border-border"
-                  />
-                </div>
-                <BlurTextarea
-                  rows={2}
-                  value={active.context ?? ""}
-                  onCommit={(v) => update(active.id, { context: v })}
-                  placeholder="Context (role, product use, what we were exploring)"
-                  aria-label="Context"
-                  className="bg-bg border-border"
+        <div className="flex flex-wrap items-center justify-between gap-3" ref={formRef}>
+          <NewInterviewForm today={today} onAdd={add} />
+          {interviews.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex min-h-11 items-center gap-2 text-sm text-text">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[var(--accent)]"
+                  checked={anonymise}
+                  onChange={(e) => setAnonymise(e.target.checked)}
                 />
-                <div className="space-y-2">
-                  <div className="text-xs uppercase text-sub flex items-center gap-1">
-                    <Quote className="w-3.5 h-3.5" aria-hidden="true" /> Quotes
-                  </div>
-                  {active.quotes.map((q, qIdx) => (
-                    <div key={q.id} className="rounded-md border border-border bg-bg p-2 space-y-2">
-                      <BlurTextarea
-                        rows={2}
-                        value={q.text}
-                        onCommit={(v) => updateQuote(active.id, q.id, { text: v })}
-                        placeholder='"..."'
-                        aria-label={`Quote ${qIdx + 1}`}
-                        className="bg-surface border-border text-sm"
-                      />
-                      <div className="flex items-center gap-2">
-                        <TagInput
-                          tags={q.tags}
-                          onCommit={(next) => updateQuote(active.id, q.id, { tags: next })}
-                          ariaLabel={`Tags for quote ${qIdx + 1}, comma-separated`}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeQuote(active.id, q.id)}
-                          aria-label={`Remove quote ${qIdx + 1}`}
-                          className="text-sub hover:text-danger"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addQuote(active.id)}
-                    className="gap-2 border-border text-sub hover:text-accent"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Quote
-                  </Button>
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => remove(active.id)}
-                    className="gap-2 border-danger/40 text-danger hover:bg-danger/10"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete Interview
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <EmptyState>Select or create an interview to begin capturing quotes.</EmptyState>
+                Anonymise
+              </label>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="user-interviews"
+                csvData={csvData}
+                jsonData={exported}
+                markdown={markdown}
+              />
+            </div>
           )}
         </div>
+
+        {interviews.length === 0 ? (
+          hydrated && (
+            <EmptyState icon={Quote} action={<LoadExampleButton onLoad={loadExample} />}>
+              No interviews yet. Use “New interview” after each conversation, add the quotes that
+              stood out and tag their themes, or load an example to see the themes counted.
+            </EmptyState>
+          )
+        ) : (
+          <>
+            <p className="text-sm font-medium text-text">{interviewsVerdict(interviews)}</p>
+            <KpiGrid cols={3}>
+              <StatCard variant="compact" label="Interviews" value={interviews.length} />
+              <StatCard
+                variant="compact"
+                label="Participants"
+                value={people}
+                hint="matched by name"
+              />
+              <StatCard variant="compact" label="Quotes" value={quoteCount} />
+            </KpiGrid>
+
+            {themes.length > 0 && (
+              <ThemePanel
+                themes={themes}
+                people={people}
+                active={tag}
+                onToggle={(t) => setActiveTag((cur) => (cur === t ? null : t))}
+              />
+            )}
+            {tag && (
+              <TaggedQuotes
+                tag={tag}
+                interviews={interviews}
+                shownAs={shownAs}
+                onOpen={open}
+                onClear={() => setActiveTag(null)}
+              />
+            )}
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr] lg:grid-cols-[320px_1fr]">
+              <div className="min-w-0 space-y-2">
+                {tag && (
+                  <p className="text-xs text-sub" role="status">
+                    {plural(ordered.length, "interview")} with “{tag}”
+                  </p>
+                )}
+                <ResortChip isStale={isStale} onResort={resort} what="Dates" />
+                <ul className="space-y-2" aria-label="Interviews, newest first">
+                  {ordered.map((i) => (
+                    <li key={i.id}>
+                      <button
+                        type="button"
+                        onClick={() => open(i.id)}
+                        aria-pressed={selected === i.id}
+                        className={cn(
+                          "w-full rounded-lg border p-3 text-left transition hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                          selected === i.id
+                            ? "border-accent/60 bg-accent/5"
+                            : "border-border bg-surface"
+                        )}
+                      >
+                        <span className="block truncate text-sm font-semibold text-text">
+                          {i.participant?.trim() || "(unnamed)"}
+                        </span>
+                        <span className="block text-xs text-sub">
+                          {(i.date ?? "").slice(0, 10) || "undated"} ·{" "}
+                          {plural((i.quotes ?? []).length, "quote")}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="min-w-0">
+                {active ? (
+                  <InterviewPane
+                    key={active.id}
+                    ref={paneRef}
+                    interview={active}
+                    today={today}
+                    nodes={nodes}
+                    onSave={saveInterview}
+                    onRemove={removeInterview}
+                    onAddQuote={addQuote}
+                    onSaveQuote={saveQuote}
+                    onRemoveQuote={removeQuote}
+                    onSendQuote={sendQuote}
+                  />
+                ) : (
+                  <p className="rounded-lg border border-dashed border-border p-4 text-sm text-sub">
+                    Pick an interview to see and add its quotes.
+                  </p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </ToolPageWrapper>
   );

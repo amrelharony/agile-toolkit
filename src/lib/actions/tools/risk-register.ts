@@ -1,112 +1,286 @@
 /**
  * Risk Register — tool-local actions.
  *
- * Category: Portfolio, Discovery & Risk (squad S5, Wave 2 — risk CRUD)
+ * Category: Portfolio, Discovery & Risk
  * Tool:     5×5 probability × impact register with mitigation tracking
  *
  * Agent surface: tool.risk_register.*
- * Backing CRUD : workspace.risk.{create,list,update,delete}
- *                (auto-registered via defineCrudActions in workspace/index.ts)
+ *   1. compute_risk_score — pure: probability × impact → {score, level}.
+ *   2. list_state         — the risks as the register lists them: score,
+ *                           level, residual, overdue, age in sprints, the
+ *                           impediment each was raised as, the verdict.
+ *   3. set_status         — lifecycle move (open → mitigating → accepted /
+ *                           closed); closing takes a day (backdated, never
+ *                           future). Confirms on closed / accepted.
+ *   4. set_mitigation     — the plan, its due date and the residual rating
+ *                           (both or neither); open → mitigating when a
+ *                           plan is written.
+ *   5. set_owner          — who owns it, with the roster's spelling.
+ *   6. delete             — remove a risk (final for an agent).
+ *   7. raise_impediment   — the risk happened: raise it as an impediment
+ *                           (its level becomes the severity) and link it.
+ * Backing CRUD: workspace.risk.{create,list,update,delete} (defineCrudActions
+ * in workspace/index.ts; every write there stamps updatedAt too, an update
+ * merges into the risk as listed here, and a delete of a row still in the
+ * old blob is refused with 'pending_move' as below).
  *
- * ─── CRUD-BACKED tool with a pure compute helper ──────────────────────
- * The Risk Register is fundamentally a record-keeping entity (CRUD via
- * workspace.risk.*) — but agents reaching for it almost always want one
- * of two side-quests that the generic CRUD surface can't express
- * concisely:
+ * One store: workspace.risks since Phase 8. Every number comes from
+ * lib/risks/model, the same reading the page, the hand-off and the next
+ * steps use. Reads include the old register blob's rows still waiting for
+ * the page's one-time move (lib/risks/legacy-register: the blob and its
+ * moved-ids record, from this browser's storage or the user's user_state
+ * rows on the server), so an agent sees what the page lists; a write on
+ * such a row saves the merged row into the workspace. A delete of one is
+ * refused ('pending_move'): only the page can mark it moved.
  *
- *   1. compute_risk_score  — pure: probability × impact → {score, level}.
- *                            No mcpHandler (referentially transparent).
- *                            Mirrors the in-app riskScore() / riskColor()
- *                            functions in risk-register-client.tsx:72-81
- *                            so the agent's risk classification matches
- *                            what the user sees on the heatmap.
- *   2. list_state          — read all risks + summary stats (byStatus,
- *                            byLevel, topRisks). Saves the agent from
- *                            paging through the full list to answer
- *                            "what's the riskiest thing in flight?".
- *   3. set_status          — lifecycle transition (open → mitigating →
- *                            closed | accepted). Confirms on "closed" /
- *                            "accepted" terminal states — both wipe a
- *                            risk from the actionable heatmap (see
- *                            risk-register-client.tsx:215 — the matrix
- *                            filter excludes both).
- *   4. set_mitigation      — write a mitigation plan (+ optional due
- *                            date). Auto-transitions open → mitigating
- *                            as a cleanup convenience so the agent
- *                            doesn't need to chain set_status afterward.
+ * Every write stamps `updatedAt` (the move then knows the workspace's copy
+ * is the newer one). Days are the user's local "YYYY-MM-DD"; over MCP the
+ * server's day may be behind the user's, so the day after it is accepted
+ * too. Age in sprints divides by the cadence's sprintLengthDays (14 when
+ * unset).
  *
- * ─── Probability / Impact scale — 1..5 each ───────────────────────────
- * The Risk type in workspace-types.ts:49-50 pins probability and impact
- * to the literal union 1 | 2 | 3 | 4 | 5. The in-app form (risk-register
- * client.tsx:67-70, clampToScale) silently rounds and clamps anything
- * else into [1,5]. We mirror that here: z.number().int().min(1).max(5)
- * at the boundary so the agent's inputs are validated before they reach
- * the store (where a bad value would either trip the workspace.risk
- * schema or, worse, persist a corrupt entity).
- *
- * ─── Threshold buckets (matches riskColor in the client) ──────────────
- * The in-app heatmap colours risks in four bands (risk-register-client
- * .tsx:76-81):
- *
- *   score ≥ 16 → critical (red    #ef4444)
- *   score ≥ 10 → high     (amber  #f59e0b)
- *   score ≥ 5  → medium   (yellow #facc15)
- *   score < 5  → low      (green  #34d399)
- *
- * The Zod-emitted level values are kept verbatim ("low" | "medium" |
- * "high" | "critical") so an agent's "show me the criticals" query
- * resolves through the same vocabulary the UI uses.
- *
- * ─── ID NAMING ────────────────────────────────────────────────────────
- * Namespace is `tool.risk_register` (snake_case; the user-facing route
- * is /risk-register). Entity kind is `workspace:risk` — single-word, no
- * asymmetry — matching the workspace.risk CRUD's kindFromToolId output
- * and the existing summarize-workspace consumer at intents/summarize-
- * workspace.ts:149.
- * ─────────────────────────────────────────────────────────────────────
+ * Entity kind: "workspace:risk", matching the browser sync and the CRUD.
  */
 
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import { registry } from "../registry";
+import type { ActionContext } from "../context";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverListEntities, serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { Risk } from "@/lib/stores/workspace-types";
+import {
+  serverDeleteEntity,
+  serverGetEntity,
+  serverGetUserStateBlob,
+  serverListEntities,
+  serverUpsertEntity,
+} from "../server-store";
+import {
+  CEREMONY_CADENCE_ID,
+  type CeremonyCadenceDoc,
+  type HandoffLink,
+  type Impediment,
+  type Risk,
+  type TeamMember,
+} from "@/lib/stores/workspace-types";
+import { normalizeCadence } from "@/lib/sprints/cadence";
+import { isIsoDate } from "@/lib/sprints/calendar";
+import {
+  RISK_OWNER_MAX,
+  RISK_STATUSES,
+  RISK_TEXT_MAX,
+  closedOn,
+  compareRisks,
+  impedimentLinkOf,
+  isActiveRisk,
+  isHighLevel,
+  isRiskOverdue,
+  residualAboveCurrent,
+  residualScore,
+  riskAgeDays,
+  riskAgeSprints,
+  riskDaysOverdue,
+  riskImpedimentSource,
+  riskLevel,
+  riskScore,
+  riskSummary,
+  riskTimeToClose,
+  riskVerdict,
+} from "@/lib/risks/model";
+import {
+  RISK_REGISTER_KEY,
+  RISK_REGISTER_MOVED_KEY,
+  isPendingRiskRow,
+  withPendingRisks,
+} from "@/lib/risks/legacy-register";
+import { buildImpediment } from "@/lib/handoffs/targets/impediment";
+import { addDays, isResolved } from "@/lib/impediments/model";
+import { findRosterMember } from "@/lib/team/names";
+import { isExampleId } from "@/lib/utils/example-id";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
-/** Entity kind in user_entities — matches kindFromToolId("workspace.risk")
- *  used by the generic workspace CRUD, so reads/writes here line up
- *  byte-for-byte with workspace.risk.* and the summarize-workspace
- *  intent's existing risk fetch. */
-const KIND_RISK = "workspace:risk";
-
-/** Closed enum of valid Risk lifecycle statuses. Matches the literal
- *  union in workspace-types.ts:54 verbatim — Zod will reject anything
- *  else at the boundary. */
-const STATUSES = ["open", "mitigating", "closed", "accepted"] as const;
-const StatusSchema = z.enum(STATUSES);
-
-/** Risk levels keyed by score band. Same vocabulary the in-app heatmap
- *  uses (see riskColor in risk-register-client.tsx:76-81) so an agent
- *  asking about "high" risks gets the same set the user sees. */
-type Level = "low" | "medium" | "high" | "critical";
-
-/** Pure threshold helper. Mirrors the >=16 / >=10 / >=5 / <5 bands the
- *  client uses to colour heatmap cells. Keep this in sync with the UI
- *  if those thresholds ever change — drift here means an agent's
- *  classification disagrees with what the user is looking at. */
-function levelForScore(score: number): Level {
-  if (score >= 16) return "critical";
-  if (score >= 10) return "high";
-  if (score >= 5) return "medium";
-  return "low";
-}
+/** MUST match registerCollection("risk", "risks") in workspace-store.ts and the workspace.risk CRUD. */
+export const KIND_RISK = "workspace:risk";
+const KIND_IMPEDIMENT = "workspace:impediment";
+const KIND_MEMBER = "workspace:teamMember";
+const KIND_CADENCE = "workspace:ceremonyCadence";
 
 const ws = () => useWorkspaceStore.getState();
 
-/** Probability / impact validator. 1..5 integers — the Risk type is a
- *  closed literal union over those values and the in-app form clamps
- *  anything else (risk-register-client.tsx:67-70). We enforce at the
- *  boundary rather than silently rounding so the agent gets a clear
- *  error when it passes something nonsensical. */
+/* ── The store adapter ───────────────────────────────────────────────── */
+
+export interface RiskRecords {
+  /** Every risk as the register lists it. */
+  records: Risk[];
+  /** Ids of rows of the old register blob still waiting for the page's move. */
+  pendingIds: string[];
+}
+
+/** Where the risks live: the browser's workspace, or the user's rows on the server. */
+export interface RiskStore {
+  onServer: boolean;
+  list(): Promise<RiskRecords>;
+  /** Save a risk under its id (already stamped). */
+  put(r: Risk): Promise<void>;
+  remove(id: string): Promise<void>;
+  roster(): Promise<TeamMember[]>;
+  impediments(): Promise<Impediment[]>;
+  putImpediment(i: Impediment): Promise<void>;
+  /** The team's sprint length in days (the cadence's; 14 when unset). */
+  sprintLengthDays(): Promise<number>;
+}
+
+const idsOf = (raw: unknown): string[] =>
+  Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
+
+/** The risks as the page reads them: the workspace's and the old blob's pending rows. */
+function recordsFrom(risks: readonly Risk[] | undefined, blob: unknown, movedRaw: unknown) {
+  const moved = idsOf(movedRaw);
+  const records = withPendingRisks(risks ?? [], blob, moved);
+  return {
+    records,
+    pendingIds: records.filter((r) => isPendingRiskRow(r.id, blob, moved)).map((r) => r.id),
+  };
+}
+
+/** A usePersisted blob as this browser holds it (it mirrors the cloud row), or null. */
+function browserBlob(key: string): unknown {
+  try {
+    const raw = typeof window === "undefined" ? null : window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export const browserRiskStore: RiskStore = {
+  onServer: false,
+  list: async () =>
+    recordsFrom(ws().risks, browserBlob(RISK_REGISTER_KEY), browserBlob(RISK_REGISTER_MOVED_KEY)),
+  put: async (r) => ws().upsertRisk(r),
+  // The store's remove unpins canvas cards, as the page's delete does
+  // (without its browser-only blob write: a pending row is refused first).
+  remove: async (id) => {
+    if ((ws().risks ?? []).some((r) => r.id === id)) ws().removeRisk(id);
+  },
+  roster: async () => ws().teamMembers ?? [],
+  impediments: async () => ws().impediments ?? [],
+  putImpediment: async (i) => ws().upsertImpediment(i),
+  sprintLengthDays: async () =>
+    normalizeCadence((ws().ceremonyCadences ?? []).find((d) => d.id === CEREMONY_CADENCE_ID))
+      .sprintLengthDays,
+};
+
+export function serverRiskStore(userId: string): RiskStore {
+  return {
+    onServer: true,
+    list: async () => {
+      const [risks, blob, moved] = await Promise.all([
+        serverListEntities<Risk>(userId, KIND_RISK),
+        serverGetUserStateBlob(userId, RISK_REGISTER_KEY),
+        serverGetUserStateBlob(userId, RISK_REGISTER_MOVED_KEY),
+      ]);
+      return recordsFrom(risks, blob, moved);
+    },
+    put: async (r) => {
+      await serverUpsertEntity<Risk>(userId, KIND_RISK, r);
+    },
+    remove: async (id) => {
+      await serverDeleteEntity(userId, KIND_RISK, id);
+    },
+    roster: async () => serverListEntities<TeamMember>(userId, KIND_MEMBER),
+    impediments: async () => serverListEntities<Impediment>(userId, KIND_IMPEDIMENT),
+    putImpediment: async (i) => {
+      await serverUpsertEntity<Impediment>(userId, KIND_IMPEDIMENT, i);
+    },
+    sprintLengthDays: async () =>
+      normalizeCadence(
+        await serverGetEntity<CeremonyCadenceDoc>(userId, KIND_CADENCE, CEREMONY_CADENCE_ID)
+      ).sprintLengthDays,
+  };
+}
+
+/** The risk as saved by a verb: stamped, so the move reads the workspace's copy as the newer one. */
+const stamped = (r: Risk): Risk => ({ ...r, updatedAt: new Date().toISOString() });
+
+type Out = Record<string, unknown>;
+
+/* ── Days ────────────────────────────────────────────────────────────── */
+
+/**
+ * The latest day a verb takes: today in the browser; on the server, whose
+ * day (UTC on a typical deploy) isn't the user's, the day after it, so a
+ * user ahead of UTC can date a move on their own today.
+ */
+const latestDay = (today: string, onServer: boolean): string =>
+  onServer ? addDays(today, 1) : today;
+
+/**
+ * The day a close is stamped with when none is given: today, or the day it
+ * was raised when that is later and still allowed (on the server today can
+ * be the user's yesterday, and a risk raised on their today must not read
+ * as closed before it was raised).
+ */
+function stampDay(r: Risk, today: string, latest: string): string {
+  const raised = (r.raisedAt ?? "").slice(0, 10);
+  return isIsoDate(raised) && raised > today && raised <= latest ? raised : today;
+}
+
+/** Why `day` can't date a move on `r` (after `latest`, before it was raised), or null. */
+function dayProblem(
+  day: string,
+  r: Risk,
+  latest: string
+): "not_a_day" | "future_day" | "before_raised" | null {
+  if (!isIsoDate(day)) return "not_a_day";
+  if (day > latest) return "future_day";
+  const raised = (r.raisedAt ?? "").slice(0, 10);
+  if (isIsoDate(raised) && day < raised) return "before_raised";
+  return null;
+}
+
+/* ── Views ───────────────────────────────────────────────────────────── */
+
+/** The impediment a risk was raised as, while it still exists, and whether it is resolved. */
+function raisedImpediment(r: Risk, impediments: readonly Impediment[]) {
+  const link = impedimentLinkOf(r);
+  const imp = link ? impediments.find((i) => i.id === link.targetId) : undefined;
+  return imp ? { id: imp.id, resolved: isResolved(imp) } : null;
+}
+
+/** One risk as list_state returns it: the stored fields plus what the register shows. */
+export function riskView(
+  r: Risk,
+  today: string,
+  sprintLengthDays: number,
+  impediments: readonly Impediment[],
+  pendingIds: readonly string[] = []
+) {
+  const score = riskScore(r);
+  const after = residualScore(r);
+  return {
+    ...r,
+    score,
+    level: riskLevel(score),
+    residualScore: after,
+    residualLevel: after === null ? null : riskLevel(after),
+    residualAboveCurrent: residualAboveCurrent(r),
+    active: isActiveRisk(r),
+    overdue: isRiskOverdue(r, today),
+    daysOverdue: riskDaysOverdue(r, today),
+    ageDays: riskAgeDays(r, today),
+    ageSprints: riskAgeSprints(r, sprintLengthDays, today),
+    closedOn: closedOn(r) ?? null,
+    impediment: raisedImpediment(r, impediments),
+    example: isExampleId(r.id),
+    pending: pendingIds.includes(r.id),
+  };
+}
+
+/* ── Schemas ─────────────────────────────────────────────────────────── */
+
+const StatusSchema = z.enum(RISK_STATUSES);
+
+/** 1–5 in whole numbers: the 5×5 matrix's scale. Refused (never clamped) at the boundary. */
 const ScaleSchema = z
   .number()
   .int()
@@ -114,190 +288,272 @@ const ScaleSchema = z
   .max(5)
   .describe("1..5 scale (Probability or Impact rating on the 5×5 matrix)");
 
-// ──────── tool.risk_register.compute_risk_score ────────
-// Pure: probability × impact → {score, level}. No persistence. Agents
-// can call this during planning ("what level would a 4×4 risk be?")
-// without touching the workspace. No mcpHandler — referentially
-// transparent, runs identically on server and client.
+const DaySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected ISO date format yyyy-mm-dd")
+  .describe(
+    "YYYY-MM-DD, the user's local day. Pass the user's date: over MCP the server's day may be a day behind theirs, so the day after the server's is taken too."
+  );
+
+/* ── tool.risk_register.compute_risk_score ───────────────────────────── */
+
 registry.register({
   id: "tool.risk_register.compute_risk_score",
   toolId: "tool.risk_register",
   name: "compute_risk_score",
   category: "read",
   description:
-    "Compute a 5×5 risk score (probability × impact) and classify it as low / medium / high / critical. Pure — no persistence. Bands: <5 low, 5-9 medium, 10-15 high, ≥16 critical (matches the in-app heatmap colouring).",
+    "Compute a 5×5 risk score (probability × impact) and classify it as low / medium / high / critical. Pure — no persistence. Bands: <5 low, 5-9 medium, 10-15 high, ≥16 critical (the register's matrix). 'high' (true for high and critical) is the one meaning of a high risk across the toolkit.",
   paramsSchema: z.object({
     probability: ScaleSchema,
     impact: ScaleSchema,
   }),
   handler: async (params) => {
-    const score = params.probability * params.impact;
+    const score = riskScore(params);
+    const level = riskLevel(score);
     return {
       score,
-      level: levelForScore(score),
+      level,
+      high: isHighLevel(level),
       formula: "probability × impact (1..5 each → 1..25)",
     };
   },
   // No mcpHandler — pure compute is identical server and client.
 });
 
-// ──────── tool.risk_register.list_state ────────
-// Snapshot + summary stats. The agent's most common opening question
-// for a risk tool is "what's the riskiest thing right now?" — returning
-// items, byStatus, byLevel, AND topRisks (top-10 by score) in one
-// round-trip avoids a follow-up sort on the agent's end.
-registry.register({
-  id: "tool.risk_register.list_state",
-  toolId: "tool.risk_register",
-  name: "list_state",
-  category: "read",
-  description:
-    "List all risks in the workspace with summary breakdowns. Returns {total, byStatus: {open, mitigating, closed, accepted}, byLevel: {low, medium, high, critical}, topRisks: Risk[] (≤10 by score, descending), items: Risk[]}.",
-  paramsSchema: z.object({}),
-  handler: async () => {
-    const items = ws().risks ?? [];
-    return summarize(items);
-  },
-  mcpHandler: async (_params, ctx) => {
-    const items = await serverListEntities<Risk>(ctx.userId, KIND_RISK);
-    return summarize(items);
-  },
-});
+/* ── tool.risk_register.list_state ───────────────────────────────────── */
 
-/** Build the {total, byStatus, byLevel, topRisks, items} response. Kept
- *  as a single helper so the browser-path and MCP-path responses are
- *  guaranteed identical — drift here would mean an agent gets different
- *  shapes depending on whether it's invoked from chat or over MCP. */
-function summarize(items: Risk[]) {
-  // Pre-initialise every bucket so the agent can index byStatus.open /
-  // byLevel.critical without an existence check, even on an empty
-  // workspace.
+async function listState(store: RiskStore, params: { today?: string }) {
+  const today = params.today ?? todayLocalISO();
+  const [{ records, pendingIds }, impediments, sprintLengthDays] = await Promise.all([
+    store.list(),
+    store.impediments(),
+    store.sprintLengthDays(),
+  ]);
+  const ordered = [...records].sort((a, b) => compareRisks(a, b, today));
+  const views = ordered.map((r) => riskView(r, today, sprintLengthDays, impediments, pendingIds));
+  // The keys from before Phase 8 keep their meaning: every listed risk.
   const byStatus: Record<Risk["status"], number> = {
     open: 0,
     mitigating: 0,
     closed: 0,
     accepted: 0,
   };
-  const byLevel: Record<Level, number> = {
-    low: 0,
-    medium: 0,
-    high: 0,
-    critical: 0,
-  };
-  const scored = items.map((r) => {
-    // Defensive: a hand-crafted entity with a string probability would
-    // NaN the bucket; coerce via Number() and floor any out-of-range
-    // value into [1,5] so the breakdown stays trustworthy.
-    const p = clampScale(r.probability);
-    const i = clampScale(r.impact);
-    const score = p * i;
-    if (r.status in byStatus) byStatus[r.status] += 1;
-    const level = levelForScore(score);
-    byLevel[level] += 1;
-    return { risk: r, score, level };
-  });
-  // topRisks: descending by score, max 10. Ties resolved by the source
-  // order (stable sort) — good enough for an at-a-glance list; the
-  // agent can re-sort if it cares.
-  const topRisks = scored
+  const byLevel = { low: 0, medium: 0, high: 0, critical: 0 };
+  for (const v of views) {
+    if (v.status in byStatus) byStatus[v.status] += 1;
+    byLevel[v.level] += 1;
+  }
+  const topRisks = views
     .slice()
     .sort((a, b) => b.score - a.score)
-    .slice(0, 10)
-    .map((s) => ({ ...s.risk, score: s.score, level: s.level }));
-  return { total: items.length, byStatus, byLevel, topRisks, items };
+    .slice(0, 10);
+  // The new keys read the register as the page does: examples left out.
+  const s = riskSummary(records, today);
+  return {
+    today,
+    sprintLengthDays,
+    total: records.length,
+    byStatus,
+    byLevel,
+    topRisks,
+    items: views,
+    active: s.active,
+    high: s.high,
+    overdue: s.overdue,
+    unowned: s.unowned,
+    exposure: s.exposure,
+    residualExposure: s.residualExposure,
+    residualAssessed: s.residualAssessed,
+    verdict: riskVerdict(records, today),
+    timeToClose: riskTimeToClose(
+      records.filter((r) => !isExampleId(r.id)),
+      today
+    ),
+    pending: pendingIds.length,
+    examples: records.filter((r) => isExampleId(r.id)).length,
+  };
 }
 
-/** Clamp a potentially-loose probability/impact value into [1,5]. The
- *  Risk type is a closed literal union but Zustand state can hold
- *  anything that survived a hydration; mirror clampToScale from
- *  risk-register-client.tsx:67-70 so the breakdown matches the UI. */
-function clampScale(v: unknown): number {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return 1;
-  return Math.max(1, Math.min(5, Math.round(n)));
+registry.register({
+  id: "tool.risk_register.list_state",
+  toolId: "tool.risk_register",
+  name: "list_state",
+  category: "read",
+  description:
+    "List the risks as the Risk Register shows them, in its order (active first, then score, then days overdue, then title), including rows of the old register page not moved in yet. Params: today? (YYYY-MM-DD, the user's day; default today). Returns {today, sprintLengthDays (the cadence's; 14 when unset), total, byStatus: {open, mitigating, closed, accepted}, byLevel: {low, medium, high, critical} (these three count every listed risk, examples included), topRisks (≤10 by score), items: Risk & {score, level, residualScore | null, residualLevel | null, residualAboveCurrent, active, overdue, daysOverdue, ageDays | null, ageSprints | null (whole sprints of the cadence), closedOn | null (resolvedAt only while closed: a reopened risk counts as open), impediment: {id, resolved} | null (what it was raised as), example, pending}, active, high (active and high or critical), overdue, unowned (active with no owner), exposure (Σ score of active risks), residualExposure (Σ residual-or-current score of active risks), residualAssessed, verdict (one sentence), timeToClose: {closed, medianDays | null} (the page's 'Median time to mitigate': the Kaplan-Meier median of days raised → closed, open risks counted as still waiting, accepted ones and closed ones with no close day left out; null below 3 closed risks or while fewer than half have closed), pending (old rows not moved yet), examples} — the summary keys after items leave example rows out.",
+  paramsSchema: z.object({ today: DaySchema.optional() }),
+  handler: async (params) => listState(browserRiskStore, params),
+  mcpHandler: async (params, ctx) => listState(serverRiskStore(ctx.userId), params),
+});
+
+/* ── tool.risk_register.set_status ───────────────────────────────────── */
+
+const SetStatusSchema = z.object({
+  id: z.string(),
+  status: StatusSchema,
+  resolvedAt: DaySchema.optional().describe(
+    "With status 'closed' only: the day it was closed (default today; never in the future, never before it was raised)."
+  ),
+});
+
+async function setStatus(
+  store: RiskStore,
+  p: z.infer<typeof SetStatusSchema>,
+  ctx: ActionContext
+): Promise<Out> {
+  const { records } = await store.list();
+  const current = records.find((r) => r.id === p.id);
+  if (!current) return { updated: false, reason: "not-found" };
+  if (p.resolvedAt !== undefined && p.status !== "closed") {
+    return { updated: false, reason: "resolved_at_needs_closed" };
+  }
+  const today = todayLocalISO();
+  const latest = latestDay(today, store.onServer);
+  if (p.resolvedAt !== undefined) {
+    const why = dayProblem(p.resolvedAt, current, latest);
+    if (why) return { updated: false, reason: why };
+  }
+  const sameStatus = current.status === p.status;
+  // Re-dating a close is the one same-status change.
+  if (
+    sameStatus &&
+    !(p.status === "closed" && p.resolvedAt && p.resolvedAt !== current.resolvedAt)
+  ) {
+    return { updated: false, reason: "already-in-status" };
+  }
+  if (!sameStatus && (p.status === "closed" || p.status === "accepted") && ctx.confirm) {
+    const ok = await ctx.confirm(
+      `Mark risk "${current.title}" as ${p.status}? This removes it from the actionable heatmap — closed/accepted risks are treated as resolved or out-of-scope.`
+    );
+    if (!ok) return { updated: false, reason: "declined" };
+  }
+  // Closing stamps the day it closed (a reopened risk's earlier date is
+  // replaced); any other move keeps resolvedAt, which reads as closed only
+  // while the status is closed (lib/risks/model closedOn).
+  const next: Risk = {
+    ...current,
+    status: p.status,
+    ...(p.status === "closed"
+      ? { resolvedAt: p.resolvedAt ?? stampDay(current, today, latest) }
+      : {}),
+  };
+  await store.put(stamped(next));
+  return {
+    updated: true,
+    status: next.status,
+    ...(next.status === "closed" ? { resolvedAt: next.resolvedAt } : {}),
+  };
 }
 
-// ──────── tool.risk_register.set_status ────────
-// Lifecycle transition. Confirms on "closed" / "accepted" terminal
-// states — both remove the risk from the actionable heatmap (see
-// risk-register-client.tsx:215, which excludes both from the matrix
-// grid). "accepted" means the team has decided not to mitigate; "closed"
-// means the risk has been resolved. Both are points of no return in
-// the sense that flipping back loses the survival-analysis closure
-// timestamp unless the agent restores `resolvedAt` manually.
-//
-// On `status === "closed"` we set `resolvedAt = now()` if missing —
-// mirrors the in-app onValueChange handler in risk-register-client.tsx
-// :629-634 so the Kaplan-Meier survival chart picks the transition up.
 registry.register({
   id: "tool.risk_register.set_status",
   toolId: "tool.risk_register",
   name: "set_status",
   category: "write",
-  // requiresConfirmation is set dynamically in the handler via a
-  // ctx.confirm call when transitioning to "closed" or "accepted".
-  // The static flag stays false so other transitions (open ↔
-  // mitigating) don't gate.
+  // Confirms in the handler (ctx.confirm) on a move to closed or accepted
+  // only, so the routine open ↔ mitigating moves don't gate.
   requiresConfirmation: false,
   description:
-    "Update a risk's lifecycle status (open / mitigating / closed / accepted). Transitions to 'closed' or 'accepted' are treated as terminal — agents are prompted via ctx.confirm where available. 'closed' also stamps resolvedAt if missing so survival analysis is preserved.",
-  paramsSchema: z.object({
-    id: z.string(),
-    status: StatusSchema,
-  }),
-  handler: async (params, ctx) => {
-    const current = (ws().risks ?? []).find((r) => r.id === params.id);
-    if (!current) return { updated: false, reason: "not-found" as const };
-    if (current.status === params.status) {
-      // No-op: same status. Avoid bumping the entity needlessly so the
-      // history feed doesn't show a fake transition.
-      return { updated: false, reason: "already-in-status" as const };
-    }
-    if ((params.status === "closed" || params.status === "accepted") && ctx.confirm) {
-      const ok = await ctx.confirm(
-        `Mark risk "${current.title}" as ${params.status}? This removes it from the actionable heatmap — closed/accepted risks are treated as resolved or out-of-scope.`
-      );
-      if (!ok) return { updated: false, reason: "declined" as const };
-    }
-    const next: Risk = { ...current, status: params.status };
-    if (params.status === "closed" && !next.resolvedAt) {
-      // Stamp closure date so K-M survival analysis picks it up.
-      // Use yyyy-mm-dd to match the in-app todayLocalISO format
-      // (risk-register-client.tsx:631).
-      next.resolvedAt = new Date().toISOString().slice(0, 10);
-    }
-    ws().upsertRisk(next);
-    return { updated: true };
-  },
-  mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<Risk>(ctx.userId, KIND_RISK, params.id);
-    if (!current) return { updated: false, reason: "not-found" as const };
-    if (current.status === params.status) {
-      return { updated: false, reason: "already-in-status" as const };
-    }
-    // MCP path has no interactive confirm (ctx.confirm is undefined);
-    // terminal-state transitions are at the caller's discretion. See
-    // the file header for the rationale.
-    const next: Risk = { ...current, status: params.status };
-    if (params.status === "closed" && !next.resolvedAt) {
-      next.resolvedAt = new Date().toISOString().slice(0, 10);
-    }
-    await serverUpsertEntity<Risk>(ctx.userId, KIND_RISK, next);
-    return { updated: true };
-  },
+    "Update a risk's lifecycle status (open / mitigating / accepted / closed). Moves to 'closed' or 'accepted' take a risk off the matrix and are confirmed where the caller can confirm. Closing stamps resolvedAt with the day given (resolvedAt, YYYY-MM-DD: backdate it; never in the future, never before it was raised) or today; closing an already-closed risk with another resolvedAt re-dates it. Reopening keeps resolvedAt, which counts only while closed. Params: id, status, resolvedAt?. Returns {updated: true, status, resolvedAt?} or {updated: false, reason: 'not-found' | 'already-in-status' | 'declined' | 'resolved_at_needs_closed' | 'not_a_day' | 'future_day' | 'before_raised'}.",
+  paramsSchema: SetStatusSchema,
+  handler: async (params, ctx) => setStatus(browserRiskStore, params, ctx),
+  mcpHandler: async (params, ctx) => setStatus(serverRiskStore(ctx.userId), params, ctx),
 });
 
-// ──────── tool.risk_register.set_mitigation ────────
-// Set the mitigation plan (and optionally a due date). Cleanup
-// convenience: if the risk is currently "open" we auto-transition it
-// to "mitigating" — having a mitigation plan and a status of "open"
-// is contradictory in the data model, and forcing the agent to chain
-// set_status afterward is friction without benefit.
-//
-// We do NOT auto-transition from any other status (closed/accepted
-// shouldn't quietly reopen just because someone added a note;
-// mitigating obviously stays put). Returns {updated, transitioned}
-// so the agent can tell whether the status flipped.
+/* ── tool.risk_register.set_mitigation ───────────────────────────────── */
+
+const SetMitigationSchema = z
+  .object({
+    id: z.string(),
+    mitigation: z
+      .string()
+      .trim()
+      .min(1)
+      .max(RISK_TEXT_MAX)
+      .optional()
+      .describe("The mitigation plan"),
+    mitigationDueAt: DaySchema.optional().describe(
+      "Optional target date (ISO yyyy-mm-dd) by which mitigation should complete; not before it was raised"
+    ),
+    residualProbability: ScaleSchema.nullable()
+      .optional()
+      .describe(
+        "1–5 once the plan has worked; with residualImpact (both or neither); null clears both"
+      ),
+    residualImpact: ScaleSchema.nullable()
+      .optional()
+      .describe(
+        "1–5 once the plan has worked; with residualProbability (both or neither); null clears both"
+      ),
+  })
+  .superRefine((p, ctx) => {
+    const rp = p.residualProbability;
+    const ri = p.residualImpact;
+    const pair =
+      (rp === undefined && ri === undefined) ||
+      (rp === null && ri === null) ||
+      (typeof rp === "number" && typeof ri === "number");
+    if (!pair) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["residualImpact"],
+        message:
+          "Set the residual probability and impact together (or both null to clear), or neither.",
+      });
+    }
+    if (p.mitigation === undefined && p.mitigationDueAt === undefined && rp === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["mitigation"],
+        message: "Give a mitigation, a due date or the residual rating.",
+      });
+    }
+  });
+
+async function setMitigation(
+  store: RiskStore,
+  p: z.infer<typeof SetMitigationSchema>
+): Promise<Out> {
+  const { records } = await store.list();
+  const current = records.find((r) => r.id === p.id);
+  if (!current) return { updated: false, transitioned: false };
+  if (p.mitigationDueAt !== undefined) {
+    if (!isIsoDate(p.mitigationDueAt)) {
+      return { updated: false, transitioned: false, reason: "not_a_day" };
+    }
+    const raised = (current.raisedAt ?? "").slice(0, 10);
+    if (isIsoDate(raised) && p.mitigationDueAt < raised) {
+      return { updated: false, transitioned: false, reason: "due_before_raised" };
+    }
+  }
+  // A plan written for an open risk moves it to mitigating; no other status moves.
+  const transitioned = p.mitigation !== undefined && current.status === "open";
+  const next: Risk = {
+    ...current,
+    ...(p.mitigation !== undefined ? { mitigation: p.mitigation } : {}),
+    ...(p.mitigationDueAt !== undefined ? { mitigationDueAt: p.mitigationDueAt } : {}),
+    ...(transitioned ? { status: "mitigating" as const } : {}),
+  };
+  if (typeof p.residualProbability === "number" && typeof p.residualImpact === "number") {
+    next.residualProbability = p.residualProbability as Risk["probability"];
+    next.residualImpact = p.residualImpact as Risk["impact"];
+  } else if (p.residualProbability === null) {
+    delete next.residualProbability;
+    delete next.residualImpact;
+  }
+  await store.put(stamped(next));
+  const after = residualScore(next);
+  return {
+    updated: true,
+    transitioned,
+    score: riskScore(next),
+    residualScore: after,
+    // Warned, never refused: a plan can make a risk likelier for a while.
+    ...(residualAboveCurrent(next) ? { warning: "residual_above_current" } : {}),
+  };
+}
+
 registry.register({
   id: "tool.risk_register.set_mitigation",
   toolId: "tool.risk_register",
@@ -305,40 +561,134 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set the mitigation plan (and optional ISO yyyy-mm-dd due date) on a risk. Auto-transitions status from 'open' to 'mitigating' as a cleanup convenience — other statuses are left untouched. Returns {updated, transitioned} so the agent knows if the status changed.",
-  paramsSchema: z.object({
-    id: z.string(),
-    mitigation: z.string().min(1).max(2000),
-    mitigationDueAt: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected ISO date format yyyy-mm-dd")
-      .optional()
-      .describe("Optional target date (ISO yyyy-mm-dd) by which mitigation should complete"),
-  }),
-  handler: async (params) => {
-    const current = (ws().risks ?? []).find((r) => r.id === params.id);
-    if (!current) return { updated: false, transitioned: false };
-    const transitioned = current.status === "open";
-    const next: Risk = {
-      ...current,
-      mitigation: params.mitigation,
-      ...(params.mitigationDueAt ? { mitigationDueAt: params.mitigationDueAt } : {}),
-      ...(transitioned ? { status: "mitigating" as const } : {}),
+    "Set a risk's mitigation plan, its due date (YYYY-MM-DD, not before the risk was raised) and/or its residual rating, the probability and impact once the plan has worked (1–5 each, both or neither; both null clears it). Writing a plan moves an 'open' risk to 'mitigating'; other statuses are left alone. Params: id, mitigation?, mitigationDueAt?, residualProbability?, residualImpact? (at least one). Returns {updated: true, transitioned, score, residualScore | null, warning?: 'residual_above_current' (the residual score is higher than the current one: saved, but check it)} or {updated: false, transitioned: false, reason?: 'not_a_day' | 'due_before_raised'} (no reason: unknown id).",
+  paramsSchema: SetMitigationSchema,
+  handler: async (params) => setMitigation(browserRiskStore, params),
+  mcpHandler: async (params, ctx) => setMitigation(serverRiskStore(ctx.userId), params),
+});
+
+/* ── tool.risk_register.set_owner ────────────────────────────────────── */
+
+const SetOwnerSchema = z.object({
+  id: z.string(),
+  owner: z
+    .string()
+    .trim()
+    .max(RISK_OWNER_MAX)
+    .describe("Who owns the risk (the roster's spelling is used); an empty string clears it"),
+});
+
+async function setOwner(store: RiskStore, p: z.infer<typeof SetOwnerSchema>): Promise<Out> {
+  const [{ records }, roster] = await Promise.all([store.list(), store.roster()]);
+  const current = records.find((r) => r.id === p.id);
+  if (!current) return { updated: false, reason: "not_found" };
+  const member = findRosterMember(roster, p.owner);
+  const owner = member?.name ?? p.owner;
+  const result = { updated: true, owner: owner || null, onTeam: Boolean(member) };
+  if ((current.owner ?? "") === owner) return result;
+  const next: Risk = { ...current, ...(owner ? { owner } : {}) };
+  if (!owner) delete next.owner;
+  await store.put(stamped(next));
+  return result;
+}
+
+registry.register({
+  id: "tool.risk_register.set_owner",
+  toolId: "tool.risk_register",
+  name: "set_owner",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Set who owns a risk; a name on the team roster is stored with the roster's spelling, and an empty owner clears it. Params: id, owner. Returns {updated: true, owner | null, onTeam} or {updated: false, reason: 'not_found'}.",
+  paramsSchema: SetOwnerSchema,
+  handler: async (params) => setOwner(browserRiskStore, params),
+  mcpHandler: async (params, ctx) => setOwner(serverRiskStore(ctx.userId), params),
+});
+
+/* ── tool.risk_register.delete ───────────────────────────────────────── */
+
+/**
+ * Delete a risk as the page does (canvas cards pinned to it are unpinned).
+ * A row of the old register page still waiting for the page's move is
+ * refused: deleting it has to mark it moved in the user's storage, which
+ * only the page can do, or the move would bring it back.
+ */
+async function deleteRisk(store: RiskStore, id: string, ctx: ActionContext): Promise<Out> {
+  const { records, pendingIds } = await store.list();
+  const r = records.find((x) => x.id === id);
+  if (!r) return { deleted: false, reason: "not_found" };
+  if (pendingIds.includes(id)) {
+    return {
+      deleted: false,
+      reason: "pending_move",
+      message:
+        "This risk is still moving in from the old Risk Register page: open the Risk Register once, then delete it (or delete it there).",
     };
-    ws().upsertRisk(next);
-    return { updated: true, transitioned };
-  },
-  mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<Risk>(ctx.userId, KIND_RISK, params.id);
-    if (!current) return { updated: false, transitioned: false };
-    const transitioned = current.status === "open";
-    const next: Risk = {
-      ...current,
-      mitigation: params.mitigation,
-      ...(params.mitigationDueAt ? { mitigationDueAt: params.mitigationDueAt } : {}),
-      ...(transitioned ? { status: "mitigating" as const } : {}),
-    };
-    await serverUpsertEntity<Risk>(ctx.userId, KIND_RISK, next);
-    return { updated: true, transitioned };
-  },
+  }
+  if (ctx.confirm) {
+    const ok = await ctx.confirm(
+      `Delete risk "${r.title || r.id}"? An agent's delete can't be undone.`
+    );
+    if (!ok) return { deleted: false, confirmed: false };
+  }
+  await store.remove(id);
+  return { deleted: true, id, title: r.title };
+}
+
+registry.register({
+  id: "tool.risk_register.delete",
+  toolId: "tool.risk_register",
+  name: "delete",
+  category: "write",
+  requiresConfirmation: true,
+  description:
+    "Delete a risk, as the page's delete does (canvas cards pinned to it are unpinned). Final for an agent (the page offers Undo): confirm with the user first. Params: id. Returns {deleted: true, id, title} or {deleted: false, reason: 'not_found' | 'pending_move', message?} or {deleted: false, confirmed: false}. 'pending_move': a row of the old Risk Register page not moved in yet; open the Risk Register once, then delete it.",
+  paramsSchema: z.object({ id: z.string().min(1) }),
+  handler: async (params, ctx) => deleteRisk(browserRiskStore, params.id, ctx),
+  mcpHandler: async (params, ctx) => deleteRisk(serverRiskStore(ctx.userId), params.id, ctx),
+});
+
+/* ── tool.risk_register.raise_impediment ─────────────────────────────── */
+
+/**
+ * The risk happened: raise it as an impediment, as the page's "Raise as
+ * impediment" does (lib/risks/model riskImpedimentSource: the level is the
+ * severity, the mitigation plan goes in the description, the owner and a
+ * link back), and record the link on the risk (sentTo). The risk's status
+ * is left as it is; once the impediment is resolved, list_state shows it
+ * (impediment.resolved) for the risk to be closed.
+ */
+async function raiseImpediment(store: RiskStore, id: string): Promise<Out> {
+  const [{ records }, impediments] = await Promise.all([store.list(), store.impediments()]);
+  const r = records.find((x) => x.id === id);
+  if (!r) return { raised: false, reason: "not_found" };
+  if (isExampleId(r.id)) return { raised: false, reason: "example" };
+  if (!isActiveRisk(r)) return { raised: false, reason: "not_active" };
+  if (!r.title.trim()) return { raised: false, reason: "untitled" };
+  const live = raisedImpediment(r, impediments);
+  if (live) return { raised: false, reason: "already_raised", impedimentId: live.id };
+  const impediment = buildImpediment(riskImpedimentSource(r), `imp_${nanoid(8)}`, todayLocalISO());
+  await store.putImpediment(impediment);
+  const link: HandoffLink = {
+    route: "impediment",
+    targetId: impediment.id,
+    at: new Date().toISOString(),
+  };
+  // A dead link on the route (its impediment deleted) is replaced.
+  const sentTo = [...(r.sentTo ?? []).filter((l) => l.route !== "impediment"), link];
+  await store.put(stamped({ ...r, sentTo }));
+  return { raised: true, impedimentId: impediment.id, severity: impediment.severity };
+}
+
+registry.register({
+  id: "tool.risk_register.raise_impediment",
+  toolId: "tool.risk_register",
+  name: "raise_impediment",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "The risk happened: raise an active risk as an impediment, as the page's 'Raise as impediment' does. The impediment gets the title, the description with the mitigation plan, the owner, the risk's level as its severity (low | medium | high | critical) and a link back (sourceRef risk-register); the risk records the link (sentTo) and keeps its status. Once the impediment is resolved, list_state shows impediment.resolved: then close the risk with set_status. Params: id. Returns {raised: true, impedimentId, severity} or {raised: false, reason: 'not_found' | 'example' | 'not_active' | 'untitled' | 'already_raised', impedimentId?}.",
+  paramsSchema: z.object({ id: z.string().min(1) }),
+  handler: async (params) => raiseImpediment(browserRiskStore, params.id),
+  mcpHandler: async (params, ctx) => raiseImpediment(serverRiskStore(ctx.userId), params.id),
 });

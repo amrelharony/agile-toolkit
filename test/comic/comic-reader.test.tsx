@@ -17,6 +17,13 @@ vi.mock("@/lib/pdf/load-pdfjs", async (importOriginal) => ({
   loadPdfjs,
 }));
 vi.mock("@/lib/sonification/emit", () => ({ emit }));
+// The reader itself, whatever the owner later writes in the shipped
+// transcripts file: a transcript or chapter on one of these fake pages would
+// change the alt and live text asserted below. The upgrade test covers the
+// content.
+vi.mock("@/lib/comic/agile-at-work-content", () => ({
+  AGILE_AT_WORK_CONTENT: { chapters: [], pages: [] },
+}));
 
 import { ComicReader } from "@/app/(tools)/agile-at-work/components/comic-reader";
 import { AgileAtWorkClient } from "@/app/(tools)/agile-at-work/agile-at-work-client";

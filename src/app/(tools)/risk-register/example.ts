@@ -1,9 +1,9 @@
-import { exampleId } from "@/components/tool-frame/example-data";
 import type { Risk } from "@/lib/stores/workspace-types";
+import { exampleId } from "@/lib/utils/example-id";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 type Row = Omit<Risk, "id" | "raisedAt" | "resolvedAt" | "mitigationDueAt"> & {
-  /** Days before today it was raised, resolved, or is due (negative: ahead). */
+  /** Days before today it was raised, closed, or is due (negative: ahead). */
   raised: number;
   resolved?: number;
   due?: number;
@@ -11,10 +11,14 @@ type Row = Omit<Risk, "id" | "raisedAt" | "resolvedAt" | "mitigationDueAt"> & {
 
 /**
  * A mobile checkout team's register, five weeks before a holiday release.
- * The payment sandbox outage is the clear top risk; the surprise is the
- * single developer who knows the checkout service, a close second. Two
- * risks tie at 8, and two are already resolved, so the time-to-mitigate
- * and open-risk charts have history to show.
+ * The payment sandbox outage is the clear top risk, and its mitigation is
+ * three days overdue; the surprise is the single developer who knows the
+ * checkout service, a close second. The security review risk is high and
+ * has no owner, so the verdict calls it out. Two risks have a rating after
+ * mitigation, three are closed and one is accepted, so the matrix's
+ * "after" view and the chart have something to show, and the median time
+ * to mitigate (it needs MIN_SAMPLE.average closed risks: 21 days here)
+ * shows, with the due day the New risk form suggests from it.
  */
 const ROWS: Row[] = [
   {
@@ -22,17 +26,24 @@ const ROWS: Row[] = [
     probability: 4,
     impact: 4,
     status: "open",
+    owner: "Priya",
     mitigation:
       "Record provider responses and test against a local stub; raise it at the provider's weekly call.",
+    residualProbability: 2,
+    residualImpact: 3,
     raised: 20,
-    due: -5,
+    due: 3,
   },
   {
     title: "Only one developer knows the checkout service",
     probability: 3,
     impact: 5,
     status: "mitigating",
+    owner: "Sam",
+    description: "Every checkout change waits for Alex's review.",
     mitigation: "Pair on every checkout change for two sprints and write a runbook.",
+    residualProbability: 2,
+    residualImpact: 4,
     raised: 34,
     due: -10,
   },
@@ -50,6 +61,7 @@ const ROWS: Row[] = [
     probability: 4,
     impact: 2,
     status: "closed",
+    owner: "Lee",
     mitigation: "Quarantined the test and fixed the race in the session mock.",
     raised: 30,
     resolved: 9,
@@ -59,6 +71,7 @@ const ROWS: Row[] = [
     probability: 2,
     impact: 4,
     status: "mitigating",
+    owner: "Sam",
     mitigation: "Load test at three times last year's peak before the code freeze.",
     raised: 16,
     due: -14,
@@ -68,6 +81,7 @@ const ROWS: Row[] = [
     probability: 3,
     impact: 2,
     status: "accepted",
+    owner: "Priya",
     mitigation: "Accepted: submit early and ship whenever it's approved.",
     raised: 25,
   },
@@ -76,9 +90,20 @@ const ROWS: Row[] = [
     probability: 1,
     impact: 3,
     status: "closed",
+    owner: "Lee",
     mitigation: "Pinned the analytics library and added an event smoke test.",
     raised: 27,
     resolved: 20,
+  },
+  {
+    title: "Design tokens drift between the web and app checkouts",
+    probability: 2,
+    impact: 1,
+    status: "closed",
+    owner: "Sam",
+    mitigation: "Both checkouts read their tokens from one shared package.",
+    raised: 44,
+    resolved: 31,
   },
 ];
 

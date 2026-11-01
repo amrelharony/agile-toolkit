@@ -59,7 +59,14 @@ import { dashboardKpis } from "@/lib/health-dashboard/kpis";
 import { kpiReading } from "@/lib/health-dashboard/verdict";
 import { HEALTH_DASHBOARD_ID } from "@/lib/stores/workspace-types";
 import { DORA_DOC_ID } from "@/lib/dora/samples";
-import { currentQuarterIndex, dashQuarter, quarterBounds } from "@/lib/roadmap/quarters";
+import {
+  currentQuarter,
+  currentQuarterIndex,
+  dashQuarter,
+  normalizeQuarter,
+  quarterBounds,
+  quarterLabel,
+} from "@/lib/roadmap/quarters";
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { shipEvents, shippedBetween } from "@/lib/releases/model";
 import { gateResults, releaseChecks } from "@/lib/releases/auto-gates";
@@ -179,14 +186,76 @@ import {
 } from "@/lib/weighted/model";
 import { complexNotTested, hypothesisStateOf, normalizeDomain } from "@/lib/cynefin/model";
 import { BUY_A_FEATURE_ID } from "@/lib/stores/workspace-types";
+import { CHECK_IN_STALE_DAYS, daysSinceCheckIn, quarterPace } from "@/lib/okrs/progress";
+import { realResponses } from "@/lib/nps/score";
+import { RECENT_DAYS, hypothesisTag, recentResponses } from "@/app/(tools)/nps-csat/tags";
+import { formatMetric, linkedTest, missingFields, suggestVerdict } from "@/lib/hypotheses/model";
+import { missingText } from "@/app/(tools)/hypothesis-tracker/view";
+import { RA_ID, rankAssumptions, ratingOf } from "@/lib/assumptions/model";
+import {
+  experimentHypothesisSource,
+  nodeTitle,
+  outcomeOf,
+  treeNodes,
+} from "@/lib/opportunity-tree/model";
+import {
+  UI_ID,
+  participantCount,
+  quotesTagged,
+  sentOpportunity,
+  themeCounts,
+} from "@/lib/interviews/model";
+import {
+  impedimentLinkOf,
+  isActiveRisk,
+  isHighRisk,
+  riskDaysOverdue,
+  riskLevelOf,
+  riskScore,
+} from "@/lib/risks/model";
+import { debtStoryOf, isOpenDebt, rankedDebt } from "@/lib/tech-debt/model";
+import {
+  FLAKY_BOARD_ID,
+  QUARANTINE_ALERT_DAYS,
+  longQuarantined,
+  ratePercent,
+  weightedFailureRate,
+} from "@/lib/quality/flaky";
+import {
+  PYRAMID_SHAPE_LABEL,
+  TEST_PYRAMID_ID,
+  classifyShape,
+  layerShares,
+  shapeVerdict,
+  weightingOf,
+  type PyramidShape,
+} from "@/lib/quality/pyramid";
+import {
+  CODE_REVIEW_LOG_ID,
+  SIZE_BANDS,
+  formatReviewHours,
+  reviewSummary,
+  windowMinutes,
+  workingBasisLabel,
+} from "@/lib/quality/review";
+import { isIsoDate } from "@/lib/sprints/calendar";
 import type {
   AdkarElement,
+  Assumption,
   BacklogItem,
   Decision,
   DefinitionOfDone,
+  FlakyTest,
+  FlakyTestBoard,
   HandoffLink,
+  Hypothesis,
+  HypothesisTracker,
   PrioritizationItem,
   RetroBoard,
+  RiskiestAssumption,
+  TestPyramid,
+  TestPyramidWeighting,
+  TreeNode,
 } from "@/lib/stores/workspace-types";
 
 export interface NextStep {
@@ -689,6 +758,136 @@ const decisionRule = rule({
     return steps;
   },
 });
+
+/** The most of a statement, quote or test a step quotes before cutting it at a word. */
+const QUOTE_MAX = 60;
+
+/**
+ * `text` on one line, cut at a word to QUOTE_MAX characters with "…": a
+ * hypothesis or an assumption can run to 2,000 characters, too long for a
+ * step's label.
+ */
+function clip(text: string | undefined): string {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (t.length <= QUOTE_MAX) return t;
+  const cut = t.slice(0, QUOTE_MAX);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > QUOTE_MAX / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, "")}…`;
+}
+
+/** ", and 2 others" after the first of `n` items named. */
+const andOthers = (n: number, other: string, others = `${other}s`) =>
+  n > 1 ? `, and ${plural(n - 1, other, others)}` : "";
+
+/** The quarter ("2026 Q4") a sprint falls in by its first day; today's for one with made-up dates. */
+function sprintQuarter(sprint: Sprint): string {
+  if (hasSyntheticDates(sprint)) return currentQuarter();
+  const [y, m] = sprint.startDate.slice(0, 10).split("-").map(Number);
+  return quarterLabel(y * 4 + Math.floor((m - 1) / 3) + 1);
+}
+
+/** A month without a survey answer: the page's default period has nothing new to read. */
+const SURVEY_QUIET_DAYS = 30;
+
+/** The Hypothesis Tracker's own hypotheses (example rows left out). */
+const hypothesesOf = (trackers: readonly HypothesisTracker[] | undefined) =>
+  real((trackers ?? []).find((t) => t.id === HYPOTHESIS_TRACKER_ID)?.hypotheses);
+
+/** The Riskiest Assumption canvas's own assumptions (example rows left out). */
+const assumptionsOf = (canvases: readonly RiskiestAssumption[] | undefined) =>
+  real((canvases ?? []).find((c) => c.id === RA_ID)?.assumptions);
+
+interface SettledAssumption {
+  assumption: Assumption;
+  hypothesis: Hypothesis;
+  result: "validated" | "invalidated";
+}
+
+/**
+ * Assumptions whose hypothesis came back validated or invalidated while
+ * their own status doesn't say so yet. The canvas offers "Mark validated"
+ * (or invalidated) as one click and never writes it on its own
+ * (riskiest-assumption/view offeredStatus reads it the same way).
+ */
+function settledAssumptions(
+  assumptions: readonly Assumption[],
+  hypotheses: readonly Hypothesis[]
+): SettledAssumption[] {
+  return assumptions.flatMap((a) => {
+    if (a.status === "validated" || a.status === "invalidated") return [];
+    const test = linkedTest(a.sentTo, hypotheses);
+    if (test.state !== "tested" || test.result === "inconclusive") return [];
+    const hypothesis = hypotheses.find((h) => h.id === test.hypothesisId);
+    return hypothesis ? [{ assumption: a, hypothesis, result: test.result }] : [];
+  });
+}
+
+/** How recent an experiment's result has to be for reading it to be the next step. */
+const RESULT_RECENT_DAYS = 30;
+
+/** The target opportunity a node sits under: its nearest flagged ancestor. Cycle-safe. */
+function targetAbove(node: TreeNode, byId: ReadonlyMap<string, TreeNode>): TreeNode | undefined {
+  const seen = new Set<string>([node.id]);
+  let cur = node.parentId ? byId.get(node.parentId) : undefined;
+  while (cur && !seen.has(cur.id)) {
+    if (cur.kind === "opportunity" && cur.target) return cur;
+    seen.add(cur.id);
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+  }
+  return undefined;
+}
+
+/** “Node title”, cut to QUOTE_MAX (an untitled node is named by its kind). */
+const nodeQuote = (n: Pick<TreeNode, "kind" | "text">) => `“${clip(nodeTitle(n))}”`;
+
+/** MUST match TOOL_ID in app/(tools)/tech-debt/tech-debt-client.tsx: the tool a debt story's sourceRef names. */
+const TECH_DEBT_TOOL = "tech-debt";
+
+/** The flaky-test board's own tests (example rows left out). */
+const flakyTestsOf = (boards: readonly FlakyTestBoard[] | undefined) =>
+  real((boards ?? []).find((b) => b.id === FLAKY_BOARD_ID)?.tests);
+
+/** Flaky tests still open: active or quarantined (lib/quality/flaky counts the same). */
+const openFlaky = (tests: readonly FlakyTest[]) => tests.filter((t) => t.status !== "fixed");
+
+/** Open flaky tests from which the suite's shape is worth checking. */
+const FLAKY_SHAPE_MIN = 3;
+
+/**
+ * The test pyramid's shape as its page reads it (by count, or by run time
+ * when the team chose that), "empty" while nothing is counted. The
+ * example is held in memory by the page, so a stored pyramid is the team's.
+ */
+function pyramidShape(docs: readonly TestPyramid[] | undefined) {
+  const doc = (docs ?? []).find((d) => d.id === TEST_PYRAMID_ID);
+  const weighting = weightingOf(doc);
+  const shares = doc ? layerShares(doc, weighting, doc.runtime) : null;
+  return { shape: classifyShape(shares), shares, weighting };
+}
+
+/** Wider at the top than a pyramid should be: mostly end to end, or thin in the middle. */
+const TOP_HEAVY: ReadonlySet<PyramidShape> = new Set<PyramidShape>(["ice-cream-cone", "hourglass"]);
+
+/**
+ * "an ice-cream cone", "an hourglass by run time": a top-heavy shape in a
+ * sentence, with the basis shapeVerdict names (a suite shaped like a
+ * pyramid by count can be a cone by run time).
+ */
+const topHeavyName = (shape: PyramidShape, weighting: TestPyramidWeighting) =>
+  `an ${PYRAMID_SHAPE_LABEL[shape].toLowerCase()}${weighting === "runtime" ? " by run time" : ""}`;
+
+/** The largest PRs' share of the logged ones from which PR size is worth a retro. */
+const LARGE_PR_SHARE = 0.25;
+
+/** Large PRs this many times slower to merge than small ones are worth naming (as reviewVerdict does). */
+const LARGE_PR_SLOWER = 1.5;
+
+/** What to do on the tree once an experiment's hypothesis has its result. */
+const RESULT_NEXT: Record<"validated" | "invalidated" | "inconclusive", string> = {
+  validated: "build on the solution it tested",
+  invalidated: "prune the solution it tested, or try another for the same opportunity",
+  inconclusive: "test it again more sharply, or try another experiment",
+};
 
 const RULES: Record<string, NextStepRule<object>> = {
   // ── Track delivery ──
@@ -3060,6 +3259,622 @@ const RULES: Record<string, NextStepRule<object>> = {
           id: "adkar-stuck",
           label: `Talk about “${stuck.name}” at the retro`,
           detail: `It has been at ${ELEMENT_LABEL[stuck.currentStage]} for ${daysInStage(stuck, today)} days. Ask what's holding it.`,
+          href: "/retro",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // Outcomes, quality & library. Risk Register and Tech Debt read
+  // workspace.risks and workspace.techDebt, their one store since Phase 8.
+  // Rows still waiting in a page's old blob (lib/risks/legacy-register,
+  // lib/tech-debt/legacy) aren't a slice, so a rule can't read them: they
+  // count once the page has opened and moved them in. Quality Cost keeps
+  // its figures in a blob of its own too, so its steps read the quality
+  // tools beside it.
+  okrs: rule({
+    select: (ws) => ({ okrs: ws.okrs, sprints: ws.sprints, goals: ws.sprintGoals }),
+    steps: ({ okrs, sprints, goals }) => {
+      const objectives = real(okrs);
+      if (objectives.length === 0) return [];
+      const steps: NextStep[] = [];
+      // Sprint Goal is the only writer of the link, so the step opens it.
+      const sprint = focusSprint(sprints);
+      if (sprint) {
+        const quarter = sprintQuarter(sprint);
+        const options = objectives.filter((o) => normalizeQuarter(o.quarter) === quarter);
+        const linked = new Set(
+          (goals ?? []).find((g) => g.id === goalDocId(sprint.id))?.okrIds ?? []
+        );
+        if (options.length > 0 && !options.some((o) => linked.has(o.id))) {
+          steps.push({
+            id: "okrs-link-goal",
+            label: `Link ${sprint.name}'s goal to an OKR`,
+            detail: `${plural(options.length, "objective")} ${be(options.length)} set for ${quarter}, and ${sprint.name}'s goal ${options.length === 1 ? "doesn't link it" : "links none of them"}. Linking one shows which objective the sprint moves.`,
+            href: sprintHref("/sprint-goal", sprint.id),
+          });
+        }
+      }
+      // This quarter's key results due a check-in: none for CHECK_IN_STALE_DAYS
+      // (the page's flag), or none at all once the quarter is that old.
+      const today = todayIso();
+      const quarter = currentQuarter();
+      const gone = quarterPace(quarter, today)?.elapsedDays ?? 0;
+      let stale = 0;
+      let never = 0;
+      for (const o of objectives) {
+        if (normalizeQuarter(o.quarter) !== quarter) continue;
+        for (const kr of o.keyResults ?? []) {
+          const days = daysSinceCheckIn(kr, today);
+          if (days === null) {
+            if (gone >= CHECK_IN_STALE_DAYS) never += 1;
+          } else if (days >= CHECK_IN_STALE_DAYS) stale += 1;
+        }
+      }
+      if (stale + never > 0) {
+        const parts = [
+          stale > 0
+            ? `${plural(stale, "key result")} last checked in ${CHECK_IN_STALE_DAYS} or more days ago`
+            : "",
+          never > 0
+            ? `${plural(never, "key result")} with no check-in ${gone} days into ${quarter}`
+            : "",
+        ].filter(Boolean);
+        steps.push({
+          id: "okrs-check-in",
+          label: `Check in on ${plural(stale + never, "key result")}`,
+          detail: `${listAnd(parts)}. A dated check-in with a confidence score keeps the trend going.`,
+          href: "/okrs",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "nps-csat": rule({
+    select: (ws) => ({ responses: ws.npsResponses }),
+    steps: ({ responses }) => {
+      const own = realResponses(responses ?? []);
+      if (own.length === 0) return [];
+      const today = todayIso();
+      const steps: NextStep[] = [];
+      // The theme the page points at too: the last RECENT_DAYS days only.
+      const theme = hypothesisTag(own, today);
+      if (theme) {
+        steps.push({
+          id: "nps-csat-test-fix",
+          label: `Test a fix for “${theme.tag}”`,
+          detail: `${plural(theme.unhappy, "unhappy answer")} in the last ${RECENT_DAYS} days ${theme.unhappy === 1 ? "mentions" : "mention"} it. Write the change as a hypothesis, with the score you expect it to move.`,
+          href: "/hypothesis-tracker",
+        });
+      }
+      if (recentResponses(own, today, SURVEY_QUIET_DAYS).length === 0) {
+        // An undated answer from before Phase 8 can't say when the survey went quiet.
+        const latest = own
+          .map((r) => (typeof r.date === "string" ? r.date.slice(0, 10) : ""))
+          .filter((day) => isIsoDate(day) && day <= today)
+          .sort()
+          .pop();
+        if (latest) {
+          steps.push({
+            id: "nps-csat-add-answers",
+            label: "Add the latest survey answers",
+            detail: `The newest answer is from ${dayLabel(latest, true)}. Import the survey export, or add the answers, to keep the trend going.`,
+            href: "/nps-csat",
+          });
+        }
+      }
+      return steps;
+    },
+  }),
+
+  "hypothesis-tracker": rule({
+    select: (ws) => ({ trackers: ws.hypothesisTrackers, canvases: ws.riskiestAssumptions }),
+    steps: ({ trackers, canvases }) => {
+      const hypotheses = hypothesesOf(trackers);
+      if (hypotheses.length === 0) return [];
+      const steps: NextStep[] = [];
+      const [settled] = settledAssumptions(assumptionsOf(canvases), hypotheses);
+      if (settled) {
+        steps.push({
+          id: "hypothesis-tracker-assumption",
+          label: "Mark the assumption your test settled",
+          detail: `${quote(clip(settled.hypothesis.believe), "An untitled hypothesis")} was ${settled.result}: mark ${quote(clip(settled.assumption.statement), "its assumption")} ${settled.result} on the Riskiest Assumption canvas too.`,
+          href: "/riskiest-assumption",
+        });
+      }
+      // Hand-off drafts arrive with the title only, and can't run without the rest.
+      const drafts = hypotheses.filter(
+        (h) => h.status === "drafted" && missingFields(h).length > 0
+      );
+      const [draft] = drafts;
+      if (draft) {
+        const n = drafts.length;
+        const more =
+          n > 1
+            ? `, and ${plural(n - 1, "other draft")} ${n - 1 === 1 ? "needs" : "need"} detail too`
+            : "";
+        steps.push({
+          id: "hypothesis-tracker-needs-detail",
+          label: n === 1 ? "Finish the drafted hypothesis" : `Finish the ${n} drafted hypotheses`,
+          detail: `${quote(clip(draft.believe), "An untitled hypothesis")} still needs ${missingText(missingFields(draft))} before it can run${more}. The “Needs detail” filter lists ${n === 1 ? "it" : "them all"}.`,
+          href: "/hypothesis-tracker",
+        });
+      }
+      // Running with a number to hit and nothing measured yet, the oldest first.
+      const waiting = hypotheses
+        .filter(
+          (h) =>
+            h.status === "running" &&
+            typeof h.target?.value === "number" &&
+            Number.isFinite(h.target.value) &&
+            suggestVerdict(h) === null
+        )
+        .sort((a, b) => (a.raisedAt ?? "").localeCompare(b.raisedAt ?? ""));
+      const [running] = waiting;
+      if (running?.target) {
+        const n = waiting.length;
+        const bound = running.target.direction === "decrease" ? "at most" : "at least";
+        steps.push({
+          id: "hypothesis-tracker-result",
+          label: `Record the result of ${quote(clip(running.believe), "a running test")}`,
+          detail: `Its target is ${bound} ${formatMetric(running.target.value, running.target.unit)}${
+            n > 1 ? `, and ${plural(n - 1, "other running test")} ${be(n - 1)} waiting too` : ""
+          }. Enter the measured number to get a suggested verdict.`,
+          href: "/hypothesis-tracker",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "riskiest-assumption": rule({
+    select: (ws) => ({ canvases: ws.riskiestAssumptions, trackers: ws.hypothesisTrackers }),
+    steps: ({ canvases, trackers }) => {
+      const assumptions = assumptionsOf(canvases);
+      if (assumptions.length === 0) return [];
+      const hypotheses = hypothesesOf(trackers);
+      const { ranked, unrated } = rankAssumptions(assumptions, hypotheses);
+      const steps: NextStep[] = [];
+      // The riskiest one with no hypothesis on it (a riskier one may be under test).
+      const next = ranked.find((r) => linkedTest(r.assumption.sentTo, hypotheses).state === "none");
+      if (next) {
+        const a = next.assumption;
+        steps.push({
+          id: "riskiest-assumption-test",
+          label: `Test ${quote(clip(a.statement), "the untitled assumption")} ${next.rank === 1 ? "first" : "next"}`,
+          detail: `It scores ${next.score} (risk ${ratingOf(a.riskLevel)}, evidence ${ratingOf(a.evidenceLevel)}), ${
+            next.rank === 1
+              ? "the riskiest on the canvas"
+              : "the riskiest with no hypothesis on it yet"
+          }. “Test” on its card makes one in the Hypothesis Tracker.`,
+          href: "/riskiest-assumption",
+        });
+      }
+      const settled = settledAssumptions(assumptions, hypotheses);
+      const [first] = settled;
+      if (first) {
+        const more = settled.length - 1;
+        steps.push({
+          id: "riskiest-assumption-mark",
+          label: `Mark ${quote(clip(first.assumption.statement), "the untitled assumption")} ${first.result}`,
+          detail: `Its hypothesis came back ${first.result}${
+            more > 0 ? `, and ${plural(more, "other assumption")} ${be(more)} settled too` : ""
+          }. The canvas waits for you to confirm: “Mark ${first.result}” on its card.`,
+          href: "/riskiest-assumption",
+        });
+      }
+      const [unratedFirst] = unrated;
+      if (unratedFirst) {
+        const n = unrated.length;
+        steps.push({
+          id: "riskiest-assumption-rate",
+          label: `Rate ${plural(n, "assumption")} to rank ${n === 1 ? "it" : "them"}`,
+          detail: `${quote(clip(unratedFirst.statement), "An untitled assumption")}${andOthers(n, "other")} ${n === 1 ? "needs" : "need"} a risk and an evidence rating before ${n === 1 ? "it is" : "they are"} ranked or placed on the matrix.`,
+          href: "/riskiest-assumption",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "opportunity-tree": rule({
+    select: (ws) => ({ trees: ws.opportunityTrees, trackers: ws.hypothesisTrackers }),
+    steps: ({ trees, trackers }) => {
+      const nodes = treeNodes(trees);
+      const own = real(nodes);
+      if (own.length === 0) return [];
+      const hypotheses = hypothesesOf(trackers);
+      const byId = new Map(nodes.map((n) => [n.id, n]));
+      const experiments = own.filter((n) => n.kind === "experiment");
+      const steps: NextStep[] = [];
+      // Under the opportunity the team pursues, and not tested yet. One with
+      // nothing to believe (no text, under no named solution) is left out:
+      // its card disables "Test as a hypothesis" until it is named.
+      const untested = experiments.flatMap((n) => {
+        const target = targetAbove(n, byId);
+        return target &&
+          linkedTest(n.sentTo, hypotheses).state === "none" &&
+          experimentHypothesisSource(n, nodes).title.trim().length > 0
+          ? [{ n, target }]
+          : [];
+      });
+      const [test] = untested;
+      if (test) {
+        const more = untested.length - 1;
+        steps.push({
+          id: "opportunity-tree-test",
+          label: `Test ${nodeQuote(test.n)} as a hypothesis`,
+          detail: `It sits under your target opportunity ${nodeQuote(test.target)} and hasn't been tested yet${
+            more > 0
+              ? ` (${plural(more, "other experiment")} there ${more === 1 ? "hasn't" : "haven't"} either)`
+              : ""
+          }. “Test as a hypothesis” on it sends it to the Hypothesis Tracker.`,
+          href: "/opportunity-tree",
+        });
+      }
+      // A result from the last month. Tested experiments stay on the tree as
+      // its history, so an older one isn't news any more.
+      const today = todayIso();
+      const [result] = experiments
+        .flatMap((n) => {
+          const t = linkedTest(n.sentTo, hypotheses);
+          if (t.state !== "tested") return [];
+          const age = daysFrom(hypotheses.find((h) => h.id === t.hypothesisId)?.resolvedAt, today);
+          return age !== null && age >= 0 && age <= RESULT_RECENT_DAYS
+            ? [{ n, result: t.result, age }]
+            : [];
+        })
+        .sort((a, b) => a.age - b.age);
+      if (result) {
+        steps.push({
+          id: "opportunity-tree-result",
+          label: `See what the test of ${nodeQuote(result.n)} found`,
+          detail: `Its hypothesis came back ${result.result}: ${RESULT_NEXT[result.result]}.`,
+          href: "/hypothesis-tracker",
+        });
+      }
+      // An outcome with a choice of opportunities and no target picked.
+      const under = new Map<string, TreeNode[]>();
+      for (const n of own) {
+        if (n.kind !== "opportunity") continue;
+        const outcome = outcomeOf(n, byId);
+        if (outcome) under.set(outcome.id, [...(under.get(outcome.id) ?? []), n]);
+      }
+      const unpicked = own.find((o) => {
+        const options = under.get(o.id) ?? [];
+        return o.kind === "outcome" && options.length >= 2 && !options.some((n) => n.target);
+      });
+      if (unpicked) {
+        steps.push({
+          id: "opportunity-tree-target",
+          label: `Pick the opportunity to pursue for ${nodeQuote(unpicked)}`,
+          detail: `${plural(under.get(unpicked.id)?.length ?? 0, "opportunity", "opportunities")} sit under it and none is the target yet. Mark the one to work on as the target: its solutions and experiments come next.`,
+          href: "/opportunity-tree",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "user-interviews": rule({
+    select: (ws) => ({ logs: ws.userInterviewLogs, trees: ws.opportunityTrees }),
+    steps: ({ logs, trees }) => {
+      const interviews = real((logs ?? []).find((l) => l.id === UI_ID)?.interviews);
+      if (interviews.length === 0) return [];
+      const nodes = treeNodes(trees);
+      // A theme enough people raised (counted per participant), with no
+      // quote of it on the tree yet (one whose opportunity was deleted can go again).
+      const theme = themeCounts(interviews).find(
+        (t) =>
+          t.participants >= MIN_SAMPLE.average &&
+          !quotesTagged(interviews, t.tag).some(({ quote: q }) => sentOpportunity(q, nodes))
+      );
+      if (!theme) return [];
+      return [
+        {
+          id: "user-interviews-opportunity",
+          label: `Turn the “${theme.tag}” theme into an opportunity`,
+          detail: `${theme.participants} of ${plural(participantCount(interviews), "participant")} raised it. “Raise as an opportunity” on one of its quotes puts it on the Opportunity Tree.`,
+          href: "/user-interviews",
+        },
+      ];
+    },
+  }),
+
+  // workspace.risks only: see the note on this section.
+  "risk-register": rule({
+    select: (ws) => ({ risks: ws.risks, impediments: ws.impediments }),
+    steps: ({ risks, impediments }) => {
+      const active = real(risks).filter(isActiveRisk);
+      if (active.length === 0) return [];
+      const today = todayIso();
+      const steps: NextStep[] = [];
+      // Raising a risk as an impediment leaves its status alone; once the
+      // impediment is resolved the row offers "Close the risk".
+      const resolved = new Set((impediments ?? []).filter(isResolved).map((i) => i.id));
+      const closable = active.filter((r) => {
+        const link = impedimentLinkOf(r);
+        return link !== undefined && resolved.has(link.targetId);
+      });
+      const [done] = closable;
+      if (done) {
+        const n = closable.length;
+        steps.push({
+          id: "risk-register-close",
+          label:
+            n === 1
+              ? "Close the risk whose impediment is resolved"
+              : `Close the ${n} risks whose impediments are resolved`,
+          detail: `${quote(done.title, "An untitled risk")}${andOthers(n, "other")} ${n === 1 ? "was raised as an impediment that is" : "were raised as impediments that are"} resolved now, but the register still lists ${n === 1 ? "it" : "them"} as active. “Close the risk” on ${n === 1 ? "its row" : "each row"} closes ${n === 1 ? "it" : "them"} here too.`,
+          href: "/risk-register",
+        });
+      }
+      // Most days past due first.
+      const overdue = active
+        .map((r) => ({ r, days: riskDaysOverdue(r, today) }))
+        .filter((x) => x.days > 0)
+        .sort((a, b) => b.days - a.days);
+      const [late] = overdue;
+      if (late) {
+        const more = overdue.length - 1;
+        steps.push({
+          id: "risk-register-overdue",
+          label:
+            more === 0
+              ? "Raise the overdue mitigation at the retro"
+              : `Raise the ${overdue.length} overdue mitigations at the retro`,
+          detail: `The mitigation for ${quote(late.r.title, "an untitled risk")} is ${plural(late.days, "day")} past due${
+            more > 0 ? `, and ${plural(more, "other")} ${be(more)} overdue too` : ""
+          }. Ask what got in the way, then re-plan it or give it a new date.`,
+          href: "/retro",
+        });
+      }
+      // High or critical (lib/risks' one meaning of "high"), highest first.
+      const unowned = active
+        .filter((r) => isHighRisk(r) && !r.owner?.trim())
+        .sort((a, b) => riskScore(b) - riskScore(a));
+      const [top] = unowned;
+      if (top) {
+        const n = unowned.length;
+        const rating = `${riskScore(top)} (${riskLevelOf(top)})`;
+        steps.push({
+          id: "risk-register-owner",
+          label: n === 1 ? "Give the high risk an owner" : `Give the ${n} high risks an owner`,
+          detail:
+            n === 1
+              ? `${quote(top.title, "An untitled risk")} scores ${rating} and has no owner: nobody is named to watch it and act on the plan.`
+              : `${n} high or critical risks have no owner, starting with ${quote(top.title, "an untitled risk")} at ${rating}. Name who watches each one and acts on its plan.`,
+          href: "/risk-register",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // workspace.techDebt only: see the note on this section.
+  "tech-debt": rule({
+    select: (ws) => ({
+      items: ws.techDebt,
+      stories: ws.stories,
+      sprints: ws.sprints,
+      cadences: ws.ceremonyCadences,
+    }),
+    steps: ({ items, stories, sprints, cadences }) => {
+      const open = real(items).filter(isOpenDebt);
+      if (open.length === 0) return [];
+      const all = stories ?? [];
+      const steps: NextStep[] = [];
+      // Paid down on the backlog, still open here.
+      const paid = open.filter((t) => debtStoryOf(t, all)?.done);
+      const [first] = paid;
+      if (first) {
+        const n = paid.length;
+        steps.push({
+          id: "tech-debt-resolve",
+          label:
+            n === 1
+              ? "Mark the paid-down debt resolved"
+              : `Mark the ${n} paid-down debt items resolved`,
+          detail: `${quote(first.title, "An untitled item")}${andOthers(n, "other item")} ${n === 1 ? "has a done backlog story but is" : "have done backlog stories but are"} still open here. “Mark resolved” on ${n === 1 ? "its row" : "each row"} records the day ${n === 1 ? "it was" : "each was"} paid down.`,
+          href: "/tech-debt",
+        });
+      }
+      // On the backlog with no sprint, for an item still open.
+      const openIds = new Set(open.map((t) => t.id));
+      const waiting = real(stories).filter(
+        (s) => fromTool(s, TECH_DEBT_TOOL) && inBacklog(s) && openIds.has(s.sourceRef?.id ?? "")
+      );
+      const [story] = waiting;
+      if (story) {
+        const n = waiting.length;
+        steps.push({
+          id: "tech-debt-plan",
+          label:
+            n === 1
+              ? "Plan the debt story into a sprint"
+              : `Plan the ${n} debt stories into a sprint`,
+          detail: `${quote(story.title, "An untitled story")}${andOthers(n, "other")} ${n === 1 ? "waits" : "wait"} on the backlog with no sprint. Debt gets paid down once it has a slot in a sprint, like any other work.`,
+          href: sprintHref("/sprint-planning", nextPlannedSprint(sprints)?.id),
+        });
+      }
+      // The page's top item (age in the team's sprints), when it isn't on the backlog yet.
+      const len = normalizeCadence(
+        selectCadenceDoc({ ceremonyCadences: cadences })
+      ).sprintLengthDays;
+      const [top] = rankedDebt(open, len, todayIso());
+      if (top && debtStoryOf(top.item, all) === null) {
+        const age =
+          top.ageSprints === null
+            ? ""
+            : top.ageSprints === 0
+              ? ` and is under a sprint old (${len}-day sprints)`
+              : ` and is ≈ ${plural(top.ageSprints, "sprint")} old (${len}-day sprints)`;
+        // The row disables "Add to backlog" while the title is blank: name it first.
+        const titled = (top.item.title ?? "").trim().length > 0;
+        steps.push({
+          id: "tech-debt-backlog",
+          label: "Put the top debt item on the backlog",
+          detail: `${titled ? quote(top.item.title, "") : "The untitled item"} scores ${fmt(top.score.total)}${top.score.capped ? " (interest capped)" : ""}${age}: the highest of the open items. ${
+            titled
+              ? "“Add to backlog” on its row makes a story to pay it down."
+              : "Give it a title on its row, then “Add to backlog” makes a story to pay it down."
+          }`,
+          href: "/tech-debt",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // Quality Cost's own figures are in its blob: its steps read the flaky
+  // tests and the test pyramid, where quality costs show up first.
+  "quality-cost": rule({
+    select: (ws) => ({ boards: ws.flakyTestBoards, pyramids: ws.testPyramids }),
+    steps: ({ boards, pyramids }) => {
+      const steps: NextStep[] = [];
+      const open = openFlaky(flakyTestsOf(boards));
+      if (open.length > 0) {
+        // The rate is the counted tests' only (as flakyVerdict words it):
+        // legacy rows with a rate and no run counts are left out of it.
+        const n = open.length;
+        const { rate, counted, rateOnly } = weightedFailureRate(open);
+        const failing =
+          rate === null
+            ? ""
+            : rateOnly === 0
+              ? `, failing ${ratePercent(rate)} of ${n === 1 ? "its" : "their"} runs`
+              : `; the ${counted} with run counts ${counted === 1 ? "fails" : "fail"} ${ratePercent(rate)} of ${counted === 1 ? "its" : "their"} runs`;
+        steps.push({
+          id: "quality-cost-flaky",
+          label: "Count flaky reruns as internal failure cost",
+          detail: `${plural(n, "flaky test")} ${be(n)} open${failing}. ${n === 1 ? "Its" : "Their"} reruns and triage time are internal failure cost: estimate the hours from the runs on the flaky board, then log them here under Internal failure with “Hours × rate”.`,
+          href: "/flaky-tests",
+        });
+      }
+      const { shape, weighting } = pyramidShape(pyramids);
+      if (TOP_HEAVY.has(shape)) {
+        steps.push({
+          id: "quality-cost-pyramid",
+          label: "Check the test pyramid's shape",
+          detail: `The suite is ${topHeavyName(shape, weighting)}: slow end-to-end checks are detection cost that unit tests cover for less.`,
+          href: "/test-pyramid",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "test-pyramid": rule({
+    select: (ws) => ({ pyramids: ws.testPyramids, boards: ws.flakyTestBoards }),
+    steps: ({ pyramids, boards }) => {
+      const { shape, shares, weighting } = pyramidShape(pyramids);
+      if (!TOP_HEAVY.has(shape)) return [];
+      const open = openFlaky(flakyTestsOf(boards)).length;
+      if (open > 0) {
+        return [
+          {
+            id: "test-pyramid-flaky",
+            label: "Triage the flaky tests in a top-heavy suite",
+            detail: `The suite is ${topHeavyName(shape, weighting)} and ${plural(open, "flaky test")} ${be(open)} open. End-to-end tests are the slowest and flakiest layer: look there first.`,
+            href: "/flaky-tests",
+          },
+        ];
+      }
+      return [
+        {
+          id: "test-pyramid-retro",
+          label: "Raise the suite's shape at the retro",
+          detail: `${shapeVerdict(shape, shares, weighting)} Agree which end-to-end checks could move down to unit or integration tests.`,
+          href: "/retro",
+        },
+      ];
+    },
+  }),
+
+  "flaky-tests": rule({
+    select: (ws) => ({
+      boards: ws.flakyTestBoards,
+      pyramids: ws.testPyramids,
+      sprints: ws.sprints,
+    }),
+    steps: ({ boards, pyramids, sprints }) => {
+      const open = openFlaky(flakyTestsOf(boards));
+      if (open.length === 0) return [];
+      const steps: NextStep[] = [];
+      const long = longQuarantined(open, todayIso());
+      const [longest] = long;
+      if (longest) {
+        const n = long.length;
+        steps.push({
+          id: "flaky-tests-quarantine",
+          label: `Plan fixes for the ${n === 1 ? "test" : `${n} tests`} quarantined ${QUARANTINE_ALERT_DAYS}+ days`,
+          detail: `“${clip(longest.name)}” has been in quarantine ${plural(longest.days, "day")}${
+            n > 1 ? `, the longest of the ${n}` : ""
+          }. A quarantined test still hides a bug: give its fix a slot in the next sprint.`,
+          href: sprintHref("/sprint-planning", nextPlannedSprint(sprints)?.id),
+        });
+      }
+      if (open.length >= FLAKY_SHAPE_MIN && pyramidShape(pyramids).shape === "empty") {
+        steps.push({
+          id: "flaky-tests-pyramid",
+          label: "Check the test pyramid behind the flaky tests",
+          detail: `${plural(open.length, "flaky test")} ${be(open.length)} open. A suite heavy on end-to-end tests flakes more: count each layer's tests to see its shape.`,
+          href: "/test-pyramid",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "code-review-metrics": rule({
+    select: (ws) => ({ logs: ws.codeReviewLogs, cadences: ws.ceremonyCadences }),
+    steps: ({ logs, cadences }) => {
+      const log = (logs ?? []).find((l) => l.id === CODE_REVIEW_LOG_ID);
+      const samples = real(log?.samples);
+      if (samples.length === 0) return [];
+      // The page's reading: the team's working days, and its working window if set.
+      const calendar = cadenceCalendar(
+        normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }))
+      );
+      const win = windowMinutes(log?.workingWindow);
+      const summary = reviewSummary(samples, calendar, win);
+      const steps: NextStep[] = [];
+      // Over a working day to a first review: the window's hours, or 24 when whole days count.
+      const wait = summary.headline.medianFirstReviewWorkingH;
+      const day = win ? (win.endMinute - win.startMinute) / 60 : 24;
+      if (wait !== null && wait > day) {
+        steps.push({
+          id: "code-review-turnaround",
+          label: "Agree a review turnaround",
+          detail: `Half of pull requests wait ${formatReviewHours(wait)} working hours or more for a first review (${workingBasisLabel(calendar, log?.workingWindow)}), over a working day. Agree in the working agreement how soon a review starts.`,
+          href: "/working-agreement",
+        });
+      }
+      const large = summary.bySize.find((b) => b.band === "large");
+      const counted = summary.total - summary.invalid;
+      const share = large && counted > 0 ? large.n / counted : 0;
+      if (
+        summary.largeNoComments > 0 ||
+        (counted >= MIN_SAMPLE.distribution && share >= LARGE_PR_SHARE)
+      ) {
+        const over = `over ${SIZE_BANDS.find((b) => b.id === "medium")?.maxLines} lines`;
+        const small = summary.bySize.find((b) => b.band === "small")?.medianCycleWorkingH ?? null;
+        const slow = large?.medianCycleWorkingH ?? null;
+        const ratio = small !== null && slow !== null && small > 0 ? slow / small : null;
+        const fact =
+          summary.largeNoComments > 0
+            ? `${plural(summary.largeNoComments, "large pull request")} (${over}) merged with no review comment`
+            : `${Math.round(share * 100)}% of pull requests are ${over}`;
+        steps.push({
+          id: "code-review-pr-size",
+          label: "Talk about PR size at the retro",
+          detail: `${fact}${
+            ratio !== null && ratio >= LARGE_PR_SLOWER
+              ? `, and large ones take ${formatReviewHours(ratio)}× longer to merge than small ones`
+              : ""
+          }. Agree how to keep changes small enough to review well.`,
           href: "/retro",
         });
       }

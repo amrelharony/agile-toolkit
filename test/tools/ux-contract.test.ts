@@ -95,6 +95,21 @@ const UPGRADED_TOOLS = [
   "rapid-decision",
   "weighted-decision",
   "cynefin",
+  // Phase 8: Outcomes, quality & library. Risk Register and Tech Debt moved
+  // into the workspace (one store each); Agile at Work is a scoped upgrade
+  // (below).
+  "okrs",
+  "nps-csat",
+  "hypothesis-tracker",
+  "user-interviews",
+  "opportunity-tree",
+  "riskiest-assumption",
+  "risk-register",
+  "tech-debt",
+  "quality-cost",
+  "test-pyramid",
+  "flaky-tests",
+  "code-review-metrics",
 ];
 
 /**
@@ -103,6 +118,8 @@ const UPGRADED_TOOLS = [
  */
 const SCOPED_UPGRADES: Record<string, string> = {
   canvas: "Phase 4: Sprint board and Story map templates bound to live data only",
+  "agile-at-work":
+    "Phase 8: a transcript per page, a table of contents and per-chapter tool links only",
 };
 
 /**
@@ -130,7 +147,7 @@ const CREATES_NOTHING: Record<string, string> = {
 const CONFIRM_OFFENDERS: string[] = [];
 
 /** Main tools reading localStorage directly instead of a persisted store. */
-const LOCAL_STORAGE_OFFENDERS = ["agile-at-work", "canvas", "planning-poker"];
+const LOCAL_STORAGE_OFFENDERS = ["canvas", "planning-poker"];
 
 const TOOLS_DIR = path.resolve(__dirname, "../../src/app/(tools)");
 const TESTS_DIR = path.resolve(__dirname);

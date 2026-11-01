@@ -8,7 +8,8 @@
  *
  * and, for the tools later phases upgrade, a backlog story, a retro topic
  * or action on the current retro board, a hypothesis, a proposed decision,
- * or a node (and edge) on the dependency map.
+ * a node (and edge) on the dependency map, or an opportunity on the
+ * Opportunity Tree.
  *
  * The target records where the item came from (`sourceRef`), and the source
  * records where it went (`sentTo`, a list of HandoffLink). Both sides can then
@@ -22,6 +23,7 @@ import type {
   HandoffLink,
   HandoffRef,
   HandoffRouteId,
+  ImpedimentSeverity,
 } from "@/lib/stores/workspace-types";
 
 export type { HandoffLink, HandoffRef, HandoffRouteId };
@@ -58,6 +60,20 @@ export interface HandoffSource {
     options?: string[];
     recommendation?: string;
   };
+  /**
+   * What a hypothesis starts from beyond the title (the "hypothesis" route):
+   * a riskiest assumption's test idea, an experiment's text and notes.
+   * Absent fields stay blank for the tracker to ask, as for Cynefin and
+   * Design Sprint sends before Phase 8.
+   */
+  hypothesis?: { willDo?: string; experiment?: string; successMetric?: string };
+  /**
+   * The tree node an opportunity goes under (the "opportunity" route): an
+   * outcome or an opportunity. Absent, gone or unable to hold one: the root.
+   */
+  parentId?: string;
+  /** A risk raised as an impediment keeps its level. Absent or unknown: "medium". */
+  severity?: ImpedimentSeverity;
   /** Where the item lives, so the target can link back to it. */
   sourceRef: HandoffRef;
 }
@@ -82,4 +98,12 @@ export interface HandoffRoute {
   /** Whether the target item is finished (an impediment resolved, a Kanban
    *  card in Done). Absent when the route can't tell. */
   isDone?: (targetId: string) => boolean;
+  /**
+   * Why `src` can't take this route yet (a risk needs its likelihood and
+   * impact rated), or null. sendHandoff and sendHandoffBatch skip such an
+   * item, as a blank title is skipped, so `send` only gets sources it can
+   * create: a send that threw inside a batch would leave the items sent
+   * before it with no toast and no Undo. Absent: every titled source goes.
+   */
+  problem?: (src: HandoffSource) => string | null;
 }

@@ -84,16 +84,25 @@ describe("OKRs toMarkdown", () => {
     expect(lines[0]).toBe("# OKRs — 18 Oct 2026");
     expect(lines).toContain("**38% average progress** across 2 objectives and 3 key results.");
     expect(lines).toContain("## Delight new users (2026 Q4) — 75%");
-    expect(lines).toContain("| Key result | Current | Target | Progress | Confidence |");
-    expect(lines).toContain("| Activation to 60% | 30 | 60 | 50% | 7/10 |");
-    expect(lines).toContain("| NPS above 40 | 40 | 40 | 100% | 7/10 |");
+    // Phase 8: each key result reads from its start (no baseline: counted from 0).
+    expect(lines).toContain(
+      "| Key result | Start → target | Now | Progress | Confidence | Last check-in |"
+    );
+    expect(lines).toContain(
+      "| Activation to 60% | ↑ to 60 (no baseline) | 30 of 60 | 50% | 7/10 (On track) | None yet |"
+    );
+    expect(lines).toContain(
+      "| NPS above 40 | ↑ to 40 (no baseline) | 40 of 40 | 100% | 7/10 (On track) | None yet |"
+    );
     expect(lines).toContain("## Cut support load (2026 Q4) — 0%");
     expect(lines).toContain("Owner: Sam (QA)");
   });
 
   it("escapes pipes and collapses newlines in key results", () => {
     const md = toMarkdown([okr("o1", "Ship it", [kr("k1", "API | web\nparity", 1, 2)])], NOW);
-    expect(md).toContain("| API \\| web parity | 1 | 2 | 50% | 7/10 |");
+    expect(md).toContain(
+      "| API \\| web parity | ↑ to 2 (no baseline) | 1 of 2 | 50% | 7/10 (On track) |"
+    );
   });
 
   it("says there's nothing yet when empty", () => {
@@ -117,7 +126,9 @@ describe("OKRs example", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
 
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Make checkout effortless on mobile")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Make checkout effortless on mobile" })
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load an example" })).toBeNull();
     expect(history.log).not.toHaveBeenCalled();
     expect(exported.markdown).toContain("## Make checkout effortless on mobile");
@@ -127,7 +138,7 @@ describe("OKRs example", () => {
 
     expect(objectives()).toEqual(["Grow repeat orders"]);
     expect(screen.queryByText(/Example data\./)).toBeNull();
-    expect(screen.getByDisplayValue("Grow repeat orders")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Grow repeat orders" })).toBeInTheDocument();
   });
 
   it("isn't offered once the tracker has the user's own objectives", () => {

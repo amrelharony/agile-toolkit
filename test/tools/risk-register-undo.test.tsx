@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Risk } from "@/lib/stores/workspace-types";
 
 /**
- * Risk Register: removing a risk offers Undo that puts it back, once.
+ * Risk Register: deleting a risk offers Undo that puts it back, once. The
+ * register lives in workspace.risks since Phase 8.
  */
 
 const undo = vi.hoisted(() => ({
@@ -24,17 +28,14 @@ vi.mock("@/components/shared/ai-prompt-generator", () => ({
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: () => null,
 }));
-vi.mock("@/components/shared/workspace-sync-button", () => ({
-  WorkspaceSyncButton: () => null,
-}));
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
+vi.mock("@/app/(tools)/risk-register/charts", () => ({ OpenRisksChart: () => null }));
 
 import { RiskRegisterClient } from "@/app/(tools)/risk-register/risk-register-client";
 
-const KEY = "agile-toolkit:risk-register";
-const risk = (id: string, title: string, probability: number) => ({
+const risk = (id: string, title: string, probability: Risk["probability"]): Risk => ({
   id,
   title,
   probability,
@@ -46,33 +47,41 @@ const risk = (id: string, title: string, probability: number) => ({
 
 beforeEach(() => {
   undo.last = null;
-  localStorage.setItem(
-    KEY,
-    JSON.stringify([risk("r1", "Vendor lock-in", 4), risk("r2", "Key person leaves", 2)])
-  );
+  localStorage.clear();
+  useWorkspaceStore.setState({
+    risks: [risk("r1", "Vendor lock-in", 4), risk("r2", "Key person leaves", 2)],
+    whiteboardObjects: [],
+    impediments: [],
+  });
 });
 
-const stored = () =>
-  (JSON.parse(localStorage.getItem(KEY) ?? "[]") as { id: string }[]).map((r) => r.id);
+const stored = () => useWorkspaceStore.getState().risks.map((r) => r.id);
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <RiskRegisterClient />
+    </TooltipProvider>
+  );
 
 describe("Risk Register undo", () => {
-  it("puts a removed risk back where it was", () => {
-    render(<RiskRegisterClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Vendor lock-in" }));
+  it("puts a deleted risk back", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Vendor lock-in" }));
 
-    expect(screen.queryByRole("button", { name: "Remove Vendor lock-in" })).toBeNull();
-    expect(undo.last?.label).toBe("Removed “Vendor lock-in”");
+    expect(screen.queryByRole("button", { name: "Delete Vendor lock-in" })).toBeNull();
+    expect(undo.last?.label).toBe("Deleted “Vendor lock-in”");
     expect(stored()).toEqual(["r2"]);
 
     act(() => undo.last!.revert());
-    expect(screen.getByRole("button", { name: "Remove Vendor lock-in" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Vendor lock-in" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Mitigation plan for Vendor lock-in" })).toHaveValue(
       "Plan for Vendor lock-in"
     );
-    expect(stored()).toEqual(["r1", "r2"]);
+    expect(stored().sort()).toEqual(["r1", "r2"]);
 
     // A second revert can't duplicate it.
     act(() => undo.last!.revert());
-    expect(screen.getAllByRole("button", { name: "Remove Vendor lock-in" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delete Vendor lock-in" })).toHaveLength(1);
+    expect(stored()).toHaveLength(2);
   });
 });

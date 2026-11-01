@@ -244,6 +244,8 @@ export const HANDOFF_ROUTE_IDS = [
   "hypothesis",
   "decision",
   "dependency",
+  // Phase 8: an interview quote raised as an opportunity on the tree.
+  "opportunity",
 ] as const;
 
 export type HandoffRouteId = (typeof HANDOFF_ROUTE_IDS)[number];
@@ -255,11 +257,19 @@ export interface HandoffLink {
   at: ISODateString;
 }
 
+/** A 1–5 rating (a risk's probability or impact, before or after mitigation). */
+export type RiskScale = 1 | 2 | 3 | 4 | 5;
+
 export interface Risk {
   id: string;
   title: string;
-  probability: 1 | 2 | 3 | 4 | 5;
-  impact: 1 | 2 | 3 | 4 | 5;
+  /**
+   * 1–5 each. Every write since Phase 8 is checked, but a row saved before
+   * (or the old page blob) may hold another number, kept until a write sets
+   * it: readers clamp it to the scale.
+   */
+  probability: RiskScale;
+  impact: RiskScale;
   mitigation?: string;
   /** Target date by which mitigation should complete (ISO yyyy-mm-dd). */
   mitigationDueAt?: ISODateString;
@@ -268,6 +278,50 @@ export interface Risk {
   resolvedAt?: ISODateString;
   /** The item this was sent from (e.g. a premortem cause). */
   sourceRef?: HandoffRef;
+  /** Who owns it: the roster's spelling when they're on the team. Absent: nobody yet. */
+  owner?: string;
+  /** More about it (a premortem cause's description). */
+  description?: string;
+  /**
+   * The rating once the mitigation has worked, 1–5 each. Both or neither
+   * (the CRUD schema refuses one alone); absent: not assessed.
+   */
+  residualProbability?: RiskScale;
+  residualImpact?: RiskScale;
+  /** Where it was sent: an impediment, once the risk happened. */
+  sentTo?: HandoffLink[];
+  /**
+   * ISO timestamp of the last save, stamped by every writer from Phase 8 on
+   * (the page, the hand-off, the tool verbs, the workspace.risk CRUD).
+   * Absent: saved before the Risk Register moved into the workspace, so the
+   * old page blob's copy of the row may be newer (lib/risks' move reads it).
+   */
+  updatedAt?: string;
+}
+
+/**
+ * Which way a number should move to count as progress: up ("increase", a
+ * sign-up count) or down ("decrease", churn, defects). One union for a key
+ * result's direction and a hypothesis target's.
+ */
+export type MetricDirection = "increase" | "decrease";
+
+/** Which way a key result's number should move; absent on a row means "increase". */
+export type KeyResultDirection = MetricDirection;
+
+/** Check-ins kept per key result (a year of weekly ones); the oldest go first. */
+export const KR_CHECK_IN_CAP = 52;
+
+/** One dated check-in on a key result (OKR Tracker). Can be backdated, never after the day it is entered. */
+export interface KeyResultCheckIn {
+  id: string;
+  /** YYYY-MM-DD, the local day the value was read. */
+  date: ISODateString;
+  /** The key result's value that day. */
+  value: number;
+  /** 0–10: how sure the owner is of reaching the target. Absent = not scored. */
+  confidence?: number;
+  note?: string;
 }
 
 export interface KeyResult {
@@ -275,9 +329,25 @@ export interface KeyResult {
   title: string;
   description?: string;
   target: number;
+  /** The latest value: the newest-dated check-in's, else as typed or set by an agent. */
   current: number;
   unit?: string;
+  /**
+   * The latest scored confidence, 0–10 (≤ 3 off track, 4–6 at risk, ≥ 7 on
+   * track). Absent = not scored. Checked on every write since Phase 8; one
+   * an agent saved before may be off the scale, kept until a write sets it.
+   */
   confidence?: number;
+  /**
+   * The value at the start of the quarter; progress runs baseline → target.
+   * Absent on rows from before Phase 8, which read it as 0 so their
+   * progress doesn't change. New key results are saved with one.
+   */
+  baseline?: number;
+  /** "decrease" for a key result that should fall (target below baseline). Absent: "increase". */
+  direction?: KeyResultDirection;
+  /** Dated check-ins, oldest first, at most KR_CHECK_IN_CAP. Absent: none yet. */
+  checkIns?: KeyResultCheckIn[];
 }
 
 export interface Okr {
@@ -397,12 +467,22 @@ export interface TechDebtItem {
   title: string;
   description?: string;
   area?: string;
+  /**
+   * 1–5 each. Every write since Phase 8 is checked, but a row saved before
+   * may hold another number (a 2.5 the page's import copied), kept until a
+   * write sets it: readers clamp it to the scale.
+   */
   impact: 1 | 2 | 3 | 4 | 5;
   effort: 1 | 2 | 3 | 4 | 5;
+  /** Score points gained per sprint left unpaid: 0–100 on every write since Phase 8. */
   interestRate?: number;
   raisedAt: ISODateString;
   resolvedAt?: ISODateString;
   tags?: string[];
+  /** Where it was sent: a backlog story to pay it down. */
+  sentTo?: HandoffLink[];
+  /** ISO timestamp of the last save; as `Risk.updatedAt` (absent: saved before the move into the workspace). */
+  updatedAt?: string;
 }
 
 export type MaturityLevel = 1 | 2 | 3 | 4 | 5;
@@ -693,12 +773,47 @@ export interface A11yTracker {
  * S10 — Quality Engineering entities (singleton-doc per tool, like kanban).
  * ────────────────────────────────────────────────────────────────── */
 
+/**
+ * Minutes of CI wall-clock each layer's suite takes (Test Pyramid's "by
+ * runtime" option). A layer left out hasn't been timed.
+ */
+export interface TestLayerRuntime {
+  unit?: number;
+  integration?: number;
+  e2e?: number;
+}
+
+/** What the pyramid's shares are worked out from; absent on a document means "count". */
+export type TestPyramidWeighting = "count" | "runtime";
+
+/** The layer counts on one day, kept so the pyramid's shape can be followed over time. */
+export interface TestPyramidSnapshot {
+  /** `tps_<nanoid8>`, or `example-…` in the example. */
+  id: string;
+  /** Local YYYY-MM-DD the counts are for (backdatable, never after today). */
+  takenOn: ISODateString;
+  unit: number;
+  integration: number;
+  e2e: number;
+  /** The runtimes that day, when they were entered. */
+  runtime?: TestLayerRuntime;
+  note?: string;
+}
+
 export interface TestPyramid {
   id: string;
   unit: number;
   integration: number;
   e2e: number;
   description?: string;
+  /** Minutes per layer, for weighting by runtime. Absent: not timed. */
+  runtime?: TestLayerRuntime;
+  /** "runtime" needs all three runtimes (the CRUD schema refuses it otherwise). Absent: "count". */
+  weighting?: TestPyramidWeighting;
+  /** Dated copies of the counts, oldest first. Absent: none taken. */
+  snapshots?: TestPyramidSnapshot[];
+  /** Local YYYY-MM-DD the counts were last saved. Absent: before Phase 8. */
+  updatedOn?: ISODateString;
 }
 
 export type FlakyStatus = "active" | "quarantined" | "fixed";
@@ -708,12 +823,24 @@ export interface FlakyTest {
   name: string;
   suite?: string;
   owner?: string;
-  /** 0..1 observed failure rate. */
+  /**
+   * 0..1 observed failure rate. Kept equal to failures / runs when both are
+   * set, so readers from before Phase 8 still work; a row with only this
+   * (no run counts) is a legacy rate-only row.
+   */
   failureRate: number;
   status: FlakyStatus;
   firstSeenAt: ISODateString;
   fixedAt?: string;
   description?: string;
+  /** Failed runs in the window counted. Set together with `runs`. */
+  failures?: number;
+  /** Runs in that window: at least 1 and at least `failures`. */
+  runs?: number;
+  /** Local YYYY-MM-DD the test went into quarantine. Absent: not quarantined, or before Phase 8. */
+  quarantinedAt?: ISODateString;
+  /** Where it was sent (a backlog story to fix it). */
+  sentTo?: HandoffLink[];
 }
 
 export interface FlakyTestBoard {
@@ -731,11 +858,28 @@ export interface PrSample {
   commentCount: number;
   linesChanged: number;
   description?: string;
+  /**
+   * When the first review landed: local wall-clock "YYYY-MM-DDTHH:MM",
+   * between openedAt and mergedAt. Absent: not recorded (rows from before
+   * Phase 8, or still waiting).
+   */
+  firstReviewAt?: string;
+}
+
+/**
+ * The hours of a working day the review maths counts, local "HH:MM"
+ * (24-hour), start before end. Absent on the log: whole working days count.
+ */
+export interface CodeReviewWorkingWindow {
+  start: string;
+  end: string;
 }
 
 export interface CodeReviewLog {
   id: string;
   samples: PrSample[];
+  /** The team's working hours for "working hours" medians; absent: whole working days. */
+  workingWindow?: CodeReviewWorkingWindow;
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -1018,11 +1162,20 @@ export type AssumptionStatus = "untested" | "testing" | "validated" | "invalidat
 export interface Assumption {
   id: string;
   statement: string;
-  riskLevel: AssumptionLevel;
-  evidenceLevel: AssumptionLevel;
+  /**
+   * 1–5, how badly it hurts if the assumption is wrong. Absent = not rated:
+   * never ranked or placed in the matrix. Rows from before Phase 8 always
+   * have both ratings and stay rated (one an agent stored off the scale is
+   * kept until a write sets it; readers clamp it).
+   */
+  riskLevel?: AssumptionLevel;
+  /** 1–5, how much evidence backs it. Absent = not rated, as riskLevel. */
+  evidenceLevel?: AssumptionLevel;
   testIdea?: string;
   status: AssumptionStatus;
   description?: string;
+  /** Where it was sent: the hypothesis that tests it. */
+  sentTo?: HandoffLink[];
 }
 
 export interface RiskiestAssumption {
@@ -1270,6 +1423,16 @@ export interface PostMortemLog {
 
 export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
+/** What counts as success: at least (increase) or at most (decrease) `value`. */
+export interface HypothesisTarget {
+  direction: MetricDirection;
+  value: number;
+  /** Shown after numbers: "%", "sign-ups", "s". */
+  unit?: string;
+  /** Where the metric stood before the test. */
+  baseline?: number;
+}
+
 export interface Hypothesis {
   id: string;
   description?: string;
@@ -1282,8 +1445,15 @@ export interface Hypothesis {
   status: HypothesisStatus;
   raisedAt: ISODateString;
   resolvedAt?: string;
-  /** The item this was sent from (a riskiest assumption, a Cynefin item). */
+  /**
+   * The item this was sent from: a riskiest assumption, an Opportunity Tree
+   * experiment, a Cynefin item or a Design Sprint finding.
+   */
   sourceRef?: HandoffRef;
+  /** The number the test aims for. Absent on rows from before Phase 8; successMetric keeps the words. */
+  target?: HypothesisTarget;
+  /** The measured result, in target.unit. Absent until measured. */
+  actual?: number;
 }
 
 export interface HypothesisTracker {
@@ -1295,6 +1465,8 @@ export interface InterviewQuote {
   id: string;
   text: string;
   tags: string[];
+  /** Where it was sent: an opportunity on the Opportunity Tree. */
+  sentTo?: HandoffLink[];
 }
 
 export interface Interview {
@@ -1319,7 +1491,19 @@ export interface TreeNode {
   parentId: string | null;
   evidence?: string;
   description?: string;
+  /**
+   * The opportunity the team pursues under its outcome. Opportunities only
+   * (the CRUD schema refuses it on another kind), at most one per outcome.
+   */
+  target?: boolean;
+  /** Where it was sent: an experiment's hypothesis. */
+  sentTo?: HandoffLink[];
+  /** Where it came from: an opportunity raised from an interview quote. */
+  sourceRef?: HandoffRef;
 }
+
+/** The Opportunity Tree's one document id (the page, its agent actions, JTBD's links, the opportunity hand-off). */
+export const OPPORTUNITY_TREE_ID = "opportunityTree:current";
 
 export interface OpportunityTree {
   id: string;
@@ -2415,14 +2599,36 @@ export interface BacklogItem {
 }
 
 // ── Outcomes & Pulse (squad S6) ──────────────────────────────────────
-/** One NPS or CSAT survey response. NPS scores are 0–10; CSAT 1–5. */
+/** At most this many theme tags on one survey response. */
+export const NPS_TAG_LIMIT = 10;
+/** The longest theme tag on a survey response. */
+export const NPS_TAG_MAX_LENGTH = 40;
+
+/** One NPS or CSAT survey response. */
 export interface NpsResponse {
   id: string;
   kind: "nps" | "csat";
+  /**
+   * YYYY-MM-DD, the day the answer was given, on every write since Phase 8.
+   * A row saved before may hold a blank or free-text date (the page saved
+   * what its field held), kept until a write sets it: read it as undated.
+   */
   date: ISODateString;
+  /**
+   * A whole number: NPS 0–10, CSAT 1–5 (≥ 4 counts as satisfied), on every
+   * write since Phase 8. A row saved before may hold a fraction or a value
+   * off the scale (the page clamped, never rounded), kept until a write
+   * sets it.
+   */
   score: number;
   respondent?: string;
   verbatim?: string;
+  /**
+   * Theme tags on the verbatim ("pricing", "onboarding"): lower-case and
+   * unique, at most NPS_TAG_LIMIT of up to NPS_TAG_MAX_LENGTH characters.
+   * Absent: not tagged.
+   */
+  tags?: string[];
 }
 
 /** One daily team-mood data point for a member (1 rough … 5 great). */
