@@ -15,7 +15,12 @@ import {
   unreleasedWeekly,
   type ScheduledRelease,
 } from "@/lib/comics/queue";
-import { publishProblems, storyState, type OwnerStory } from "@/lib/comics/story-input";
+import {
+  publishProblems,
+  storyState,
+  unreviewedPanels,
+  type OwnerStory,
+} from "@/lib/comics/story-input";
 import { errorMessage, portalApi, type UnusedFile } from "./portal-api";
 
 const DATE_FORMAT: Intl.DateTimeFormatOptions = {
@@ -72,17 +77,22 @@ function ScheduleQueue({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [includeUnreviewed, setIncludeUnreviewed] = useState(false);
 
   const queue = useMemo(() => unreleasedWeekly(stories, now), [stories, now]);
   const ready = queue.filter((s) => publishProblems(s).length === 0);
   const notReady = queue.length - ready.length;
+  const reviewed = ready.filter((s) => unreviewedPanels(s) === 0);
+  const unreviewedStories = ready.length - reviewed.length;
+  const panelsToReview = ready.reduce((sum, s) => sum + unreviewedPanels(s), 0);
+  const chosen = includeUnreviewed ? ready : reviewed;
   const byEp = new Map(stories.map((s) => [s.ep, s]));
 
   const preview = () => {
     setDone(false);
     setError(null);
     const next = scheduleQueue(
-      ready.map((s) => s.ep),
+      chosen.map((s) => s.ep),
       date
     );
     if (!next || Date.parse(next[0]?.releaseAt ?? "") <= now) {
@@ -98,7 +108,7 @@ function ScheduleQueue({
     setSaving(true);
     setError(null);
     try {
-      const { stories: fresh } = await portalApi.schedule(plan);
+      const { stories: fresh } = await portalApi.schedule(plan, includeUnreviewed);
       onStories(fresh);
       setPlan(null);
       setDone(true);
@@ -125,6 +135,28 @@ function ScheduleQueue({
             out.
           </p>
         ) : null}
+        {unreviewedStories > 0 ? (
+          <div className="space-y-1 rounded-md border border-border p-3 text-sm">
+            <p className="text-warning">
+              {unreviewedStories} {unreviewedStories === 1 ? "story has" : "stories have"}{" "}
+              {panelsToReview} {panelsToReview === 1 ? "panel" : "panels"} nobody has reviewed.
+              Descriptions go into the public page as they are, so these are left out unless you
+              include them.
+            </p>
+            <label className="flex min-h-11 items-center gap-2 text-text">
+              <input
+                type="checkbox"
+                checked={includeUnreviewed}
+                className="size-5"
+                onChange={(e) => {
+                  setIncludeUnreviewed(e.target.checked);
+                  setPlan(null);
+                }}
+              />
+              Include them anyway
+            </label>
+          </div>
+        ) : null}
         <Field label="Launch date">
           {(props) => (
             <Input
@@ -141,7 +173,7 @@ function ScheduleQueue({
         <Button
           type="button"
           variant="outline"
-          disabled={!date || ready.length === 0}
+          disabled={!date || chosen.length === 0}
           onClick={preview}
         >
           Preview the dates
@@ -165,6 +197,9 @@ function ScheduleQueue({
                     {item.ep}. {byEp.get(item.ep)?.title}
                   </span>
                   <span className="block text-sub">{formatRelease(item.releaseAt)}</span>
+                  {unreviewedPanels(byEp.get(item.ep) ?? { panels: [] }) > 0 ? (
+                    <span className="block text-warning">Not reviewed yet</span>
+                  ) : null}
                 </li>
               ))}
             </ol>
@@ -217,7 +252,8 @@ function UnusedArt() {
       <div className="mt-2 space-y-3">
         <p className="text-sm text-sub">
           Replacing art or deleting a draft leaves the old files in storage. Nothing removes them
-          until you do. Files from the last day aren&apos;t listed.
+          until you do. Files from the last day aren&apos;t listed. A draft on another device may
+          still point at one of these: if it does, saving that draft asks for the picture again.
         </p>
         <Button type="button" variant="outline" disabled={busy} onClick={check}>
           Check for unused art
@@ -284,6 +320,9 @@ function StoryCard({
           ) : null}
           {reviewing > 0 ? (
             <p className="text-sm text-sub">{reviewing} panels need review.</p>
+          ) : null}
+          {story.firstReleasedAt && state === "draft" ? (
+            <p className="text-sm text-sub">Unpublished. It has been out, so its number stays.</p>
           ) : null}
           {unsaved ? <p className="text-sm text-sub">Has unsaved changes on this device.</p> : null}
         </div>

@@ -1,24 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { clearReviewDraft, loadReviewDraft, saveReviewDraft } from "@/lib/comics/draft-store";
 import { panelImageUrl } from "@/lib/comics/images";
 import { processPanelImage } from "@/lib/comics/image-pipeline";
 import {
   CREDIT_CORNERS,
   STORY_LIMITS,
+  everReleased,
   panelHasArt,
   publishProblems,
+  unreviewedPanels,
   type CreditCorner,
   type OwnerStory,
   type StoredPanel,
 } from "@/lib/comics/story-input";
 import { CORNER_LABELS, PickImages } from "./panel-editor";
 import { createArtUploader, errorMessage, panelForSave, portalApi } from "./portal-api";
+
+const AUTOSAVE_MS = 400;
 
 interface ReviewItem {
   ep: number;
@@ -49,14 +54,40 @@ function ReviewPanel({
   canSave: boolean;
 }) {
   const panel = story.panels[index];
-  const [alt, setAlt] = useState(panel.alt);
-  const [dialogue, setDialogue] = useState(panel.dialogue);
+  // This is where 104 descriptions get written, so what's typed goes to this
+  // device first: Skip, another view or a killed tab can't cost any of it.
+  const [restored] = useState(() => loadReviewDraft(story.ep, index, panel.alt));
+  const [alt, setAlt] = useState(restored?.alt ?? panel.alt);
+  const [dialogue, setDialogue] = useState(restored?.dialogue ?? panel.dialogue);
+  const [storageFailed, setStorageFailed] = useState(false);
+  const touched = useRef(false);
+  const typed = useRef({ alt, dialogue, baseAlt: panel.alt });
+  typed.current = { alt, dialogue, baseAlt: panel.alt };
   const [corner, setCorner] = useState<CreditCorner>(panel.creditCorner);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [retryFile, setRetryFile] = useState<File | null>(null);
   const uploader = useRef(createArtUploader());
+
+  const keepDraft = useCallback(() => {
+    if (touched.current) setStorageFailed(!saveReviewDraft(story.ep, index, typed.current));
+  }, [index, story.ep]);
+
+  useEffect(() => {
+    const timer = setTimeout(keepDraft, AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [alt, dialogue, keepDraft]);
+
+  useEffect(() => {
+    window.addEventListener("pagehide", keepDraft);
+    document.addEventListener("visibilitychange", keepDraft);
+    return () => {
+      window.removeEventListener("pagehide", keepDraft);
+      document.removeEventListener("visibilitychange", keepDraft);
+      keepDraft();
+    };
+  }, [keepDraft]);
 
   const save = async (change: Partial<StoredPanel>, sharePath?: string | null) => {
     const panels = story.panels.map((p, i) =>
@@ -66,6 +97,8 @@ function ReviewPanel({
       panels,
       ...(sharePath ? { sharePath } : {}),
     });
+    touched.current = false;
+    clearReviewDraft(story.ep, index);
     onSaved(saved);
   };
 
@@ -188,7 +221,10 @@ function ReviewPanel({
                 value={alt}
                 rows={6}
                 maxLength={STORY_LIMITS.alt}
-                onChange={(e) => setAlt(e.target.value)}
+                onChange={(e) => {
+                  touched.current = true;
+                  setAlt(e.target.value);
+                }}
               />
             )}
           </Field>
@@ -202,16 +238,27 @@ function ReviewPanel({
                     placeholder="Who says it"
                     value={d.speaker}
                     maxLength={STORY_LIMITS.speaker}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      touched.current = true;
                       setDialogue((lines) =>
                         lines.map((l, i) => (i === at ? { ...l, speaker: e.target.value } : l))
-                      )
-                    }
+                      );
+                    }}
                   />
                   <p className="text-sm text-sub">{d.line}</p>
                 </div>
               ))}
             </fieldset>
+          ) : null}
+          {restored ? (
+            <p role="status" className="text-sm text-sub">
+              Restored what you typed on this device.
+            </p>
+          ) : null}
+          {storageFailed ? (
+            <p role="alert" className="text-sm text-danger">
+              This browser isn&apos;t keeping drafts, so save before leaving this panel.
+            </p>
           ) : null}
           {error ? (
             <p role="alert" className="text-sm text-danger">
@@ -250,7 +297,11 @@ function ReviewPanel({
   );
 }
 
-/** Book episodes are held back only by their descriptions, so they go out together. */
+/**
+ * Book episodes held back only by their descriptions go out together. One that
+ * was out and got unpublished isn't among them: that was a decision about that
+ * episode, so it goes back from its own page.
+ */
 function PublishReadyBook({
   stories,
   onSaved,
@@ -259,7 +310,12 @@ function PublishReadyBook({
   onSaved: (story: OwnerStory) => void;
 }) {
   const ready = stories.filter(
-    (s) => s.collection === "book" && !s.releaseAt && publishProblems(s).length === 0
+    (s) =>
+      s.collection === "book" &&
+      !s.releaseAt &&
+      !everReleased(s) &&
+      unreviewedPanels(s) === 0 &&
+      publishProblems(s).length === 0
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

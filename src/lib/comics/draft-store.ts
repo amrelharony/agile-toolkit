@@ -12,6 +12,7 @@
  */
 
 import { toStoredPanels, type StoredPanel } from "./story-input";
+import type { DialogueLine } from "./types";
 
 const PREFIX = "agile-toolkit:comics:draft:";
 export const NEW_STORY_KEY = "new";
@@ -96,6 +97,52 @@ export function listDraftKeys(): DraftKey[] {
     return keys;
   } catch {
     return [];
+  }
+}
+
+/** What's typed for one panel in the review queue, not saved yet. */
+export interface ReviewDraft {
+  alt: string;
+  dialogue: DialogueLine[];
+  /** The description on the server when this was typed, to notice it moved on. */
+  baseAlt: string;
+}
+
+export function reviewDraftKey(ep: number, index: number): string {
+  return `agile-toolkit:comics:draft-review:${ep}:${index}`;
+}
+
+/**
+ * Null if there's none, or if it was typed over another description: reordering
+ * the queue moves stories between numbers, so it may belong to another panel now.
+ */
+export function loadReviewDraft(ep: number, index: number, alt: string): ReviewDraft | null {
+  try {
+    const raw = localStorage.getItem(reviewDraftKey(ep, index));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!value || !isString(value.alt) || value.baseAlt !== alt) return null;
+    const [panel] = toStoredPanels([{ dialogue: value.dialogue }]);
+    return { alt: value.alt, dialogue: panel.dialogue, baseAlt: alt };
+  } catch {
+    return null;
+  }
+}
+
+export function saveReviewDraft(ep: number, index: number, draft: ReviewDraft): boolean {
+  try {
+    localStorage.setItem(reviewDraftKey(ep, index), JSON.stringify(draft));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearReviewDraft(ep: number, index: number): void {
+  try {
+    localStorage.removeItem(reviewDraftKey(ep, index));
+  } catch {
+    // Nothing kept, nothing to clear.
   }
 }
 
