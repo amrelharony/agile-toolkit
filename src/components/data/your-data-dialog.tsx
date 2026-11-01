@@ -125,7 +125,7 @@ export function YourDataDialog({
             <DialogDescription>
               {isOwner
                 ? "Your work syncs to your account and is also kept in this browser."
-                : "Everything you make in the toolkit is saved in this browser only — nothing is sent to our servers."}
+                : "Everything you make in the toolkit is saved in this browser only, and none of it is sent to our servers. The comics pages do send an anonymous visit count, with nothing that identifies you."}
             </DialogDescription>
           </DialogHeader>
 
