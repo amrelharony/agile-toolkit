@@ -720,7 +720,8 @@ export const tools: ToolDefinition[] = [
     id: "health-check",
     code: "D1",
     name: "Squad Health Check",
-    description: "Spotify-model health check with traffic lights and historical trends",
+    description:
+      "Traffic-light squad health check: rate each dimension green, yellow or red, by hand or by anonymous vote, with the trend since the last check and reds sent to the retro",
     category: "Team Health & Maturity",
     path: "/health-check",
     icon: HeartPulse,
@@ -735,7 +736,8 @@ export const tools: ToolDefinition[] = [
     id: "maturity",
     code: "D2",
     name: "Agile Maturity Assessment",
-    description: "5-level maturity assessment across 8 dimensions with improvement roadmap",
+    description:
+      "Score 8 dimensions on 5 levels as dated assessments, with a 0–100% trend and roadmap steps sent to retro actions",
     category: "Team Health & Maturity",
     path: "/maturity",
     icon: Award,
@@ -749,7 +751,8 @@ export const tools: ToolDefinition[] = [
     id: "raci",
     code: "D3",
     name: "RACI Matrix Builder",
-    description: "Interactive RACI matrix that flags tasks without exactly one Accountable",
+    description:
+      "Who is Responsible, Accountable, Consulted and Informed for each activity, with teammates as columns and checks for one Accountable and overloaded roles",
     category: "Team Health & Maturity",
     path: "/raci",
     icon: Grid3X3,
@@ -763,7 +766,8 @@ export const tools: ToolDefinition[] = [
     id: "skills-matrix",
     code: "D4",
     name: "Team Skills Matrix",
-    description: "Visual skills grid with proficiency levels and bus factor analysis",
+    description:
+      "Rate the team's skills by level, spot gaps and single points of failure (bus factor), check each skill against its target, and plan cross-training",
     category: "Team Health & Maturity",
     path: "/skills-matrix",
     icon: Users,
@@ -989,7 +993,8 @@ export const tools: ToolDefinition[] = [
     id: "dod-builder",
     code: "C9",
     name: "Definition of Done Builder",
-    description: "Interactive DoD assembler with per-sprint adherence tracking",
+    description:
+      "Write the team's Definition of Done, tick it on each Sprint board card, and track how many done stories meet it, sprint by sprint",
     category: "Risk & Governance",
     path: "/dod-builder",
     icon: ClipboardCheck,
@@ -1155,7 +1160,8 @@ export const tools: ToolDefinition[] = [
     id: "mood-tracker",
     code: "D11",
     name: "Team Mood Tracker",
-    description: "Daily mood check-in with a team heatmap and trend",
+    description:
+      "Daily mood check-ins, by name with a team heatmap or as anonymous pulses, with the trend and low-mood runs raised at the retro",
     category: "Outcomes & Pulse",
     path: "/mood-tracker",
     icon: Smile,
@@ -1177,7 +1183,7 @@ export const tools: ToolDefinition[] = [
     code: "D17",
     name: "Kudos Wall",
     description:
-      "Recognition wall — send themed kudos cards, download them as PNG, attribute by squad profile",
+      "Recognition wall: send themed kudos cards, see who the kudos reach with fairness hints, and bring them to the retro as appreciations",
     category: "Outcomes & Pulse",
     path: "/kudos",
     icon: Award,
@@ -1550,7 +1556,7 @@ export const tools: ToolDefinition[] = [
     code: "N1",
     name: "Working Agreement Builder",
     description:
-      "Team charter wizard for norms, communication, and decision rules with adoption check-ins",
+      "Team charter rules with each person's consent, dated check-in rounds with an adherence trend, and published versions to compare",
     category: "Workshops & Facilitation",
     path: "/working-agreement",
     icon: Handshake,
@@ -1667,7 +1673,8 @@ export const tools: ToolDefinition[] = [
     id: "one-on-one",
     code: "C11",
     name: "1:1 Meeting Tracker",
-    description: "Manager-IC 1:1 log with rolling agenda, action items, and growth themes",
+    description:
+      "Manager-IC 1:1 log with a rolling agenda, action items through to done, and a cadence alert per report",
     category: "Ceremonies",
     path: "/one-on-one",
     icon: Coffee,
@@ -1681,7 +1688,8 @@ export const tools: ToolDefinition[] = [
     id: "psych-safety",
     code: "D13",
     name: "Psychological Safety Assessment",
-    description: "Edmondson 7-question survey with team-vs-org benchmark",
+    description:
+      "Edmondson's seven-statement survey in anonymous rounds: a team score from five responses, compared round by round",
     category: "Team Health & Maturity",
     path: "/psych-safety",
     icon: Heart,
@@ -1714,7 +1722,8 @@ export const tools: ToolDefinition[] = [
     id: "onboarding-tracker",
     code: "D15",
     name: "Onboarding Speed Tracker",
-    description: "Time-to-first-PR and time-to-productivity with ramp curve",
+    description:
+      "Each new joiner's milestones from an editable template, with time-to-first-PR, time-to-productivity and a ramp curve",
     category: "Team Health & Maturity",
     path: "/onboarding-tracker",
     icon: UserPlus,
@@ -1747,7 +1756,8 @@ export const tools: ToolDefinition[] = [
     id: "stakeholder-map",
     code: "I4",
     name: "Stakeholder Map",
-    description: "Interest × Authority matrix with engagement strategy per quadrant",
+    description:
+      "Place stakeholders on an Interest × Authority map, compare how they feel with how you need them to, and plan the next touch",
     category: "Outcomes & Pulse",
     path: "/stakeholder-map",
     icon: PieChart,
@@ -1763,7 +1773,7 @@ export const tools: ToolDefinition[] = [
     code: "I5",
     name: "ADKAR Change Tracker",
     description:
-      "Awareness/Desire/Knowledge/Ability/Reinforcement progression per change initiative",
+      "Move each change through Awareness, Desire, Knowledge, Ability and Reinforcement on dated moves, with each affected group's barrier point",
     category: "Outcomes & Pulse",
     path: "/adkar",
     icon: ArrowRight,

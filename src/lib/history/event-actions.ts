@@ -142,6 +142,8 @@ export const DECISION_ACTIONS = {
 export const HEALTH_CHECK_ACTIONS = {
   CHECK_SAVED: "check_saved", // milestone
   CHECK_REMOVED: "check_removed",
+  /** A vote round filled the draft. Payload: ballots, dimensions, source; never who voted what. */
+  ROUND_SAVED: "round_saved",
   HEALTH_CHECK_RESET: "health_check_reset",
 } as const;
 
@@ -548,6 +550,8 @@ export const WORKING_AGREEMENT_ACTIONS = {
   RULE_UPDATED: "rule_updated",
   CHARTER_PUBLISHED: "charter_published", // milestone
   CHARTER_RESET: "charter_reset",
+  CHECK_IN_SAVED: "check_in_saved",
+  CHECK_IN_REMOVED: "check_in_removed",
 } as const;
 
 export const LIBERATING_STRUCTURES_ACTIONS = {
@@ -611,8 +615,22 @@ export const ONE_ON_ONE_ACTIONS = {
 } as const;
 
 export const PSYCH_SAFETY_ACTIONS = {
+  /**
+   * A round was saved. Payload: roundId, responses; never who answered, or
+   * what. Rows from before rounds hold one answer sheet's responseId and
+   * scores instead.
+   */
   ASSESSMENT_SAVED: "assessment_saved", // milestone
+  /**
+   * An answer sheet from before rounds was added (payload: responseId,
+   * respondent, description) or removed (responseId, removed: true). The
+   * added row shares its responseId with that sheet's ASSESSMENT_SAVED row,
+   * so the two read together name whose scores they were. No longer written
+   * (a round keeps counts only); kept so older history rows still read.
+   */
   RESPONSE_LOGGED: "response_logged",
+  /** A round was deleted. Payload: roundId. */
+  ROUND_REMOVED: "round_removed",
   PSYCH_SAFETY_RESET: "psych_safety_reset",
 } as const;
 
@@ -654,6 +672,7 @@ export const ADKAR_ACTIONS = {
   INITIATIVE_ADDED: "initiative_added",
   INITIATIVE_REMOVED: "initiative_removed",
   STAGE_ADVANCED: "stage_advanced", // milestone
+  STAGE_STEPPED_BACK: "stage_stepped_back",
   ADKAR_RESET: "adkar_reset",
 } as const;
 

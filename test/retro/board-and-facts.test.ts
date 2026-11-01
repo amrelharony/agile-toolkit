@@ -287,6 +287,33 @@ describe("retro facts", () => {
     expect(facts.burndown?.shape).toBe("late");
   });
 
+  it("leaves kudos replies and example kudos out of the sprint's kudos", () => {
+    const kudos = (id: string, over: Record<string, unknown> = {}) =>
+      ({
+        id,
+        theme: "thank-you",
+        toName: "Bo",
+        fromName: "Al",
+        message: id,
+        sentAt: "2026-10-16T09:00:00Z",
+        ...over,
+      }) as never;
+    const facts = retroFacts({
+      sprint: S2,
+      sprints: SPRINTS,
+      stories: [],
+      kudos: [
+        kudos("k1"),
+        // A reply copies its parent's recipient: it isn't a second kudos for Bo.
+        kudos("k1-reply", { replyTo: "k1", fromName: "Cy", sentAt: "2026-10-17T09:00:00Z" }),
+        kudos("example-k2"),
+        kudos("k3", { toName: "Cy", sentAt: "2026-10-18T09:00:00Z" }),
+      ],
+      today: "2026-10-24",
+    });
+    expect(facts.kudos.map((k) => k.id)).toEqual(["k1", "k3"]);
+  });
+
   it("quotes no average mood below the minimum sample", () => {
     const facts = retroFacts({
       sprint: S2,

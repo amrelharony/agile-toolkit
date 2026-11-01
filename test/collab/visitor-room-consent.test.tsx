@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import {
   VISITOR_ROOM_CONSENT_TEXT,
+  VOTE_ROOM_CONSENT_TEXT,
   VisitorRoomConsent,
   type VisitorRoomConsentProps,
 } from "@/components/collab/visitor-room-consent";
@@ -55,6 +56,38 @@ describe("VisitorRoomConsent", () => {
     renderConsent({ mode: "start", toolName: "Retro" });
     expect(screen.getByRole("heading", { name: "Start a live Retro room" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Start room" })).toBeVisible();
+  });
+
+  it("tells vote-round participants their answers are encrypted and only totals are kept", () => {
+    renderConsent({ variant: "vote", mode: "join", toolName: "Health Check" });
+    const dialog = screen.getByRole("dialog");
+    expect(VOTE_ROOM_CONSENT_TEXT).toBe(
+      "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
+        "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
+        "Others in the room see your name and whether you've answered, not what. " +
+        "After the host reveals the results, everyone in the room sees the totals, for questions " +
+        "with enough answers; if everyone gives the same answer, the totals show it. " +
+        "Share the link only with your team."
+    );
+    // It promises no more than the round can keep.
+    expect(VOTE_ROOM_CONSENT_TEXT).not.toMatch(/never|anonymous/i);
+    expect(dialog).toHaveAccessibleDescription(VOTE_ROOM_CONSENT_TEXT);
+    expect(dialog).not.toHaveTextContent(VISITOR_ROOM_CONSENT_TEXT);
+    expect(
+      screen.getByRole("checkbox", {
+        name: "I understand that everyone in the room sees my name and whether I've answered.",
+      })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Join the live Health Check room" })).toBeVisible();
+  });
+
+  it("keeps the board text by default", () => {
+    renderConsent();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "I understand that anyone with the link can see what I type.",
+      })
+    ).toBeInTheDocument();
   });
 
   it("does not call back without a name, even with consent ticked", () => {

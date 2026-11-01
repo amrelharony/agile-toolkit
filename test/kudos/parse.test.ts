@@ -142,6 +142,23 @@ describe("parseKudos — v2 inputs", () => {
     expect(r.kudos.version).toBe(2);
   });
 
+  it("keeps toMemberId, the roster member the kudos is for, as a v2 field", () => {
+    const r = parseKudos({ ...baseLegacy, toMemberId: "member_alice" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.kudos.toMemberId).toBe("member_alice");
+    expect(r.kudos.version).toBe(2);
+  });
+
+  it("rejects an empty, oversize or non-string toMemberId", () => {
+    for (const toMemberId of ["", "m".repeat(65), 7]) {
+      expect(parseKudos({ ...baseLegacy, toMemberId })).toEqual({
+        ok: false,
+        error: "invalid_to_member_id",
+      });
+    }
+  });
+
   it("rejects fairnessScoreAtSend outside [0,1]", () => {
     expect(parseKudos({ ...baseLegacy, fairnessScoreAtSend: 1.5 }).ok).toBe(false);
     expect(parseKudos({ ...baseLegacy, fairnessScoreAtSend: NaN }).ok).toBe(false);

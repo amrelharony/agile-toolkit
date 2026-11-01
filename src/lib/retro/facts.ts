@@ -12,6 +12,7 @@ import type {
   Impediment,
   Kudos,
   MoodEntry,
+  MoodPulse,
   RetroBoard,
   Sprint,
   SprintGoal,
@@ -58,12 +59,16 @@ export interface RetroFacts {
   mood: {
     /** Mean score (1–5), quoted from MIN_SAMPLE.average check-ins; else null. */
     average: number | null;
+    /** Named check-ins plus anonymous pulse answers. */
     checkIns: number;
+    /** People who checked in by name. */
     people: number;
+    /** Of `checkIns`, the anonymous pulse answers; present only when there are some. */
+    anonymous?: number;
   };
   /** How the previous retro's actions turned out; null when there is none. */
   followThrough: RetroFollowThrough | null;
-  /** Kudos given during the sprint, oldest first (example kudos left out). */
+  /** Kudos given during the sprint, oldest first (replies and example kudos left out). */
   kudos: Pick<Kudos, "id" | "toName" | "fromName" | "message" | "sentAt">[];
 }
 
@@ -74,6 +79,8 @@ export interface RetroFactsInput {
   goals?: readonly SprintGoal[];
   impediments?: readonly Impediment[];
   moodEntries?: readonly MoodEntry[];
+  /** Anonymous mood pulses: their answers count as check-ins. */
+  moodPulses?: readonly MoodPulse[];
   retroBoards?: readonly RetroBoard[];
   kudos?: readonly Kudos[];
   /** "YYYY-MM-DD", local. */
@@ -133,6 +140,13 @@ export function burndownShape(
 const inWindow = (day: string | null, start: string, end: string) =>
   Boolean(day && day >= start && day <= end);
 
+/**
+ * A kudos that recognises someone: not a reply in a kudos thread (a reply
+ * copies its parent's recipient, so it would read as a second kudos for
+ * them and seed a second appreciation card) and not example data.
+ */
+const isRecognition = (k: Pick<Kudos, "id" | "replyTo">) => !k.replyTo && !isExampleId(k.id);
+
 export function retroFacts(input: RetroFactsInput): RetroFacts {
   const { sprint, today } = input;
   const review = reviewFacts(sprint, input.stories, input.goals);
@@ -154,9 +168,9 @@ export function retroFacts(input: RetroFactsInput): RetroFacts {
       if (status !== "resolved") impediments.stillOpen++;
       if (i.escalatedAt) impediments.escalated++;
     }
-    Object.assign(mood, moodDuring(input.moodEntries, start, end));
+    Object.assign(mood, moodDuring(input.moodEntries, start, end, input.moodPulses));
     kudos = (input.kudos ?? [])
-      .filter((k) => !isExampleId(k.id) && inWindow(localDay(k.sentAt), start, end))
+      .filter((k) => isRecognition(k) && inWindow(localDay(k.sentAt), start, end))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt))
       .map(({ id, toName, fromName, message, sentAt }) => ({
         id,

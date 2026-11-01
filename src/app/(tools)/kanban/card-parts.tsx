@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Clock, OctagonAlert, User } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ChevronDown, Clock, ListChecks, OctagonAlert, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useInlineEdit } from "@/components/shared/inline-item-editor";
 import { PersonPicker } from "@/components/team/person-picker";
+import type { DodCriterion } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -198,5 +199,86 @@ export function AgeBadge({
       <span aria-hidden="true">{days === null ? "—" : `${days}d`}</span>
       <span className="sr-only">{full}</span>
     </span>
+  );
+}
+
+/**
+ * The card's Definition of Done: "DoD 3 of 5" as a disclosure, collapsed by
+ * default so a board of cards stays scannable, and inside it a checkbox per
+ * criterion, required ones first. The summary says whether the required
+ * ones are met, in words. A closed sprint's card shows its ticks read-only.
+ * Nothing renders when the DoD has no criteria.
+ */
+export function DodChecklist({
+  criteria,
+  checked,
+  itemTitle,
+  readOnly = false,
+  onCheck,
+}: {
+  criteria: readonly DodCriterion[];
+  /** Ids of the criteria ticked on this card. */
+  checked: ReadonlySet<string>;
+  /** The card's title, so each card's controls have their own names. */
+  itemTitle: string;
+  readOnly?: boolean;
+  onCheck: (criterionId: string, checked: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  if (criteria.length === 0) return null;
+  const required = criteria.filter((c) => c.required);
+  const ordered = [...required, ...criteria.filter((c) => !c.required)];
+  const done = ordered.filter((c) => checked.has(c.id)).length;
+  const requiredOpen = required.filter((c) => !checked.has(c.id)).length;
+  const status =
+    required.length === 0 ? "" : requiredOpen === 0 ? "met" : `${requiredOpen} required open`;
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "min-touch-coarse inline-flex max-w-full items-center gap-1 rounded-sm text-left text-xs transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          status === "met" ? "text-success" : "text-sub"
+        )}
+      >
+        <ListChecks className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">
+          DoD {done} of {ordered.length}
+          {status && ` · ${status}`}
+        </span>
+        <span className="sr-only">: {itemTitle}</span>
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")}
+          aria-hidden="true"
+        />
+      </button>
+      {open && (
+        <ul id={listId} className="mt-1 space-y-1" aria-label={`Definition of Done: ${itemTitle}`}>
+          {ordered.map((c) => (
+            <li key={c.id}>
+              <label className="flex min-h-7 cursor-pointer items-start gap-2 text-xs text-text">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+                  checked={checked.has(c.id)}
+                  disabled={readOnly}
+                  // Every card lists the same criteria: the name says which card.
+                  aria-label={`${c.label}${c.required ? "" : " (optional)"} for ${itemTitle}`}
+                  onChange={(e) => onCheck(c.id, e.target.checked)}
+                />
+                <span className="min-w-0 break-words">
+                  {c.label}
+                  {!c.required && <span className="text-sub"> (optional)</span>}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -339,6 +339,8 @@ export function SprintCompareClient() {
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const goals = useWorkspaceStore((s) => s.sprintGoals);
   const moodEntries = useWorkspaceStore((s) => s.moodEntries);
+  // Anonymous pulse answers count as check-ins, as tool.sprint_compare counts them.
+  const moodPulses = useWorkspaceStore((s) => s.moodPulses);
   const healthChecks = useWorkspaceStore((s) => s.healthChecks);
   const { log } = useHistoryLogger("sprint-compare");
   const announce = useAnnounce();
@@ -363,8 +365,8 @@ export function SprintCompareClient() {
             moodEntries: example.moodEntries,
             healthChecks: example.healthChecks,
           }
-        : { stories, series, goals, moodEntries, healthChecks },
-    [example, stories, series, goals, moodEntries, healthChecks]
+        : { stories, series, goals, moodEntries, moodPulses, healthChecks },
+    [example, stories, series, goals, moodEntries, moodPulses, healthChecks]
   );
   const scores = useMemo(() => scoresBySprint(viewSprints, sources), [viewSprints, sources]);
 

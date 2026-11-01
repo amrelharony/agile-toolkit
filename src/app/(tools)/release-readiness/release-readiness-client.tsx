@@ -18,7 +18,7 @@ import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
-import { DOD_STORAGE_KEY, EMPTY_DOD, normalizeDod } from "@/app/(tools)/dod-builder/summary";
+import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
 import { generateReleaseReadinessPrompts } from "@/lib/ai-prompts/release-readiness";
 import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import { fmt, plural } from "@/lib/charts/chart-text";
@@ -49,10 +49,10 @@ import type {
   ReleaseGateDef,
   ReleaseReadiness,
   RetroBoard,
+  Story,
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { undoable, removeWithUndo } from "@/lib/utils/undoable";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import {
   passChartText,
   passControl,
@@ -95,6 +95,7 @@ const SkippedGatesChart = dynamic(() => import("./charts").then((m) => m.Skipped
 
 const NO_FLAGS: FeatureFlag[] = [];
 const NO_BOARDS: RetroBoard[] = [];
+const NO_STORIES: Story[] = [];
 const EMPTY_DOC: ReleaseReadiness = { id: RELEASE_DOC_ID, releases: [] };
 const noLog = () => undefined;
 
@@ -168,9 +169,11 @@ export function ReleaseReadinessClient() {
   // gate the same way and freeze the same result at ship.
   const storedFlags = useMemo(() => normalizeFlags(rawFlags), [rawFlags]);
   const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
-  // The DoD Builder's checklist, read as the Team charter reads it.
-  const [dodRaw] = usePersisted(DOD_STORAGE_KEY, EMPTY_DOD);
-  const storedDod = useMemo(() => normalizeDod(dodRaw), [dodRaw]);
+  // The DoD Builder's document (or its old blob until it moves in), read
+  // as the Team charter reads it; the gate checks the stories a release
+  // links against it.
+  const { doc: storedDod } = useDefinitionOfDone();
+  const storedStories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const { log } = useHistoryLogger("release-readiness");
   const announce = useAnnounce();
   const today = useToday();
@@ -182,6 +185,8 @@ export function ReleaseReadinessClient() {
   const doc: ReleaseReadiness = example?.doc ?? stored ?? EMPTY_DOC;
   const flags = example?.flags ?? storedFlags;
   const dod = example?.dod ?? storedDod;
+  // The example's releases link no stories: its gate reads its DoD's ticks.
+  const stories = preview ? undefined : storedStories;
 
   // Fixed for the render an edit starts in, so its Undo goes back to the
   // same place even if the example is loaded or cleared in between. The
@@ -195,9 +200,9 @@ export function ReleaseReadinessClient() {
     () =>
       doc.releases.map((release) => ({
         release,
-        results: gateResults(release, doc, releaseChecks(release, flags, dod, today)),
+        results: gateResults(release, doc, releaseChecks(release, flags, dod, today, stories)),
       })),
-    [doc, flags, dod, today]
+    [doc, flags, dod, today, stories]
   );
   // Every ship judged against the plan it went out against (withShipPlans).
   const judged = useMemo(() => withShipPlans(doc), [doc]);
@@ -282,7 +287,7 @@ export function ReleaseReadinessClient() {
 
   const ship = (r: Release, day: string) => {
     if (r.status !== "planning") return;
-    const shipped = shipRelease(r, doc, releaseChecks(r, flags, dod, today), day);
+    const shipped = shipRelease(r, doc, releaseChecks(r, flags, dod, today, stories), day);
     const open = shipped.gatesOpenAtShip ?? 0;
     change(
       r,

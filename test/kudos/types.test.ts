@@ -4,8 +4,44 @@ import {
   KUDOS_WORD_LIMITS,
   countWords,
   getKudosTheme,
+  headerInk,
   isValidKudos,
 } from "@/app/(tools)/kudos/types";
+
+describe("headerInk", () => {
+  const lum = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+      const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it("gives every built-in header text of at least 4.2:1", () => {
+    for (const t of KUDOS_THEMES) {
+      expect(contrast(headerInk(t.hex), t.hex), t.id).toBeGreaterThanOrEqual(4.2);
+    }
+  });
+
+  it("puts dark text on the light headers that white text failed on", () => {
+    const ink = Object.fromEntries(KUDOS_THEMES.map((t) => [t.id, headerInk(t.hex)]));
+    expect(ink.awesome).toBe("#111111");
+    expect(ink["thank-you"]).toBe("#111111");
+    expect(ink.congratulations).toBe("#111111");
+    expect(ink["very-happy"]).toBe("#111111");
+    expect(ink["well-done"]).toBe("#ffffff");
+  });
+
+  it("reads 3-digit hex and falls back to white on anything else", () => {
+    expect(headerInk("#ff0")).toBe("#111111");
+    expect(headerInk("#003")).toBe("#ffffff");
+    expect(headerInk("not a colour")).toBe("#ffffff");
+  });
+});
 import type { Kudos } from "@/lib/stores/workspace-types";
 
 function baseKudos(overrides: Partial<Kudos> = {}): Kudos {

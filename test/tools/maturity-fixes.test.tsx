@@ -3,13 +3,14 @@ import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { MATURITY_DIMENSIONS } from "@/lib/constants/maturity-model";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Maturity: the overall badge uses the same level labels as the dimension
- * sliders (Initial / Developing / Defined / Managed / Optimizing). It used
+ * pickers (Initial / Developing / Defined / Managed / Optimizing). It used
  * a second set (Ad-hoc / Emerging / Developing / Proficient / Optimizing),
- * so an all-3 team read "Developing" overall while every slider said
- * "3 — Defined".
+ * so an all-3 team read "Developing" overall while every dimension said
+ * "3 — Defined". The overall percentage runs 0-100% from all 1s to all 5s.
  */
 
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
@@ -36,9 +37,24 @@ vi.stubGlobal(
 
 import { MaturityClient } from "@/app/(tools)/maturity/maturity-client";
 
+const renderPage = () =>
+  render(
+    <TooltipProvider>
+      <MaturityClient />
+    </TooltipProvider>
+  );
+
+// A saved assessment: only a saved one gives the team a level.
 const seed = (scores: Record<string, number>) =>
   useWorkspaceStore.setState({
-    maturityAssessments: [{ id: "maturity:current", scores, targetLevel: 4 }],
+    maturityAssessments: [
+      {
+        id: "maturity:current",
+        scores: {},
+        targetLevel: 4,
+        history: [{ id: "a1", assessedAt: "2026-10-01", scores }],
+      },
+    ],
   });
 
 beforeEach(() => {
@@ -46,22 +62,25 @@ beforeEach(() => {
 });
 
 describe("Maturity overall label", () => {
-  it("names an all-3 team Defined, like its sliders", () => {
+  it("names an all-3 team Defined, like its dimensions, at 50%", () => {
     seed(Object.fromEntries(MATURITY_DIMENSIONS.map((d) => [d.id, 3])));
-    render(<MaturityClient />);
-    expect(screen.getByText("60%")).toBeInTheDocument();
-    expect(screen.getByText("Level 3 · Defined")).toBeInTheDocument();
-    expect(screen.getAllByText("3 — Defined")).toHaveLength(MATURITY_DIMENSIONS.length);
-    // "Developing" only appears in the radar key, as level 2.
+    renderPage();
+    expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Level 3 · Defined").length).toBeGreaterThan(0);
+    // Every dimension's picker names level 3 the same way.
+    expect(screen.getAllByRole("radio", { name: "3 Defined" })).toHaveLength(
+      MATURITY_DIMENSIONS.length
+    );
     expect(screen.queryByText(/· Developing/)).toBeNull();
   });
 
   it("never shows the old band names", () => {
     const [first, ...rest] = MATURITY_DIMENSIONS;
-    // one dimension at 5, the rest at 1: average 1.5, 30%
+    // one dimension at 5, the rest at 1: average 1.5, 13%
     seed({ [first.id]: 5, ...Object.fromEntries(rest.map((d) => [d.id, 1])) });
-    render(<MaturityClient />);
-    expect(screen.getByText("Level 2 · Developing")).toBeInTheDocument();
+    renderPage();
+    expect(screen.getAllByText("Level 2 · Developing").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("13%").length).toBeGreaterThan(0);
     for (const old of ["Ad-hoc", "Emerging", "Proficient"]) {
       expect(screen.queryByText(old)).toBeNull();
     }

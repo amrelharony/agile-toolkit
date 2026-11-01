@@ -24,6 +24,7 @@
 import { subscribeSignals, type Signal } from "@/lib/signals/signal-bus";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Kudos } from "@/lib/stores/workspace-types";
+import { isExampleId } from "@/lib/utils/example-id";
 
 interface PendingPost {
   kudos: Kudos;
@@ -245,6 +246,10 @@ export function installKudosCloudSync(): void {
     // squad_id=null on a row the guest endpoint already pinned to a
     // squad). Skip them.
     if (kudos.fromProfileId) return;
+    // Example kudos (Kudos' "Load an example") never reach the kudos
+    // table: Clear example removes them here, and nothing would remove
+    // them there. The bridge doesn't signal them; this guards a direct emit.
+    if (isExampleId(kudos.id)) return;
     enqueue(kudos);
     // Trigger a tick immediately so the typical case (one send → POST
     // ~250ms later) doesn't wait for the interval.

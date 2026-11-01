@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * 1:1 tracker: starting the next 1:1 with the same person carries over
@@ -53,13 +54,18 @@ const card = (label: string) => screen.getByText(label).parentElement!.parentEle
 
 describe("1:1 carry-over", () => {
   it("carries Open items and unfinished Actions into the next 1:1", () => {
-    render(<OneOnOneClient />);
+    render(
+      <TooltipProvider>
+        <OneOnOneClient />
+      </TooltipProvider>
+    );
     expect(card("Action items overdue")).toBe("Action items overdue1");
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Manager" }), {
+    // Manager and Report are roster pickers (an input with suggestions).
+    fireEvent.change(screen.getByRole("combobox", { name: "Manager" }), {
       target: { value: "mia" },
     });
-    fireEvent.change(screen.getByRole("textbox", { name: "Report" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Report" }), {
       target: { value: "Raj" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Start meeting" }));
@@ -68,10 +74,18 @@ describe("1:1 carry-over", () => {
     expect(screen.getByText("Flaky CI")).toBeInTheDocument();
     expect(screen.queryByText("Holiday plans")).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Action: change status of Flaky CI" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Action" })).toHaveValue("Pair on the flaky tests");
-    expect(screen.getByRole("textbox", { name: "Owner" })).toHaveValue("Raj");
-    expect(screen.getByLabelText("Due date")).toHaveValue("2000-01-10");
+    // The carried item keeps its status: Action, picked in its status group.
+    const status = screen.getByRole("radiogroup", { name: "Status of Flaky CI" });
+    expect(within(status).getByRole("radio", { name: "Action" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    // Each field names its item.
+    expect(screen.getByRole("textbox", { name: "Action for Flaky CI" })).toHaveValue(
+      "Pair on the flaky tests"
+    );
+    expect(screen.getByRole("combobox", { name: "Owner of Flaky CI" })).toHaveValue("Raj");
+    expect(screen.getByLabelText("Due date of Flaky CI")).toHaveValue("2000-01-10");
 
     // Still one overdue action: the old copy is superseded by the new one.
     expect(card("Action items overdue")).toBe("Action items overdue1");

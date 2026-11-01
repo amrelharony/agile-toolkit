@@ -12,14 +12,14 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
-import { chartTheme } from "@/components/charts/chart-theme";
+import { CHART_COLORS, chartTheme } from "@/components/charts/chart-theme";
 
 export interface AdkarFunnelRow {
   stage: string;
   count: number;
-  color: string;
 }
 
+/** Initiatives per current stage, one theme colour per stage (never a stored hex). */
 export function AdkarStageFunnelChart({ data }: { data: AdkarFunnelRow[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -27,16 +27,16 @@ export function AdkarStageFunnelChart({ data }: { data: AdkarFunnelRow[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
         <XAxis
           type="number"
-          tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
           axisLine={{ stroke: chartTheme.gridColor }}
           allowDecimals={false}
         />
         <YAxis
           type="category"
           dataKey="stage"
-          tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+          tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
           axisLine={{ stroke: chartTheme.gridColor }}
-          width={100}
+          width={104}
         />
         <Tooltip
           contentStyle={chartTheme.tooltipStyle}
@@ -44,7 +44,7 @@ export function AdkarStageFunnelChart({ data }: { data: AdkarFunnelRow[] }) {
         />
         <Bar dataKey="count" radius={[0, 4, 4, 0]}>
           {data.map((d, idx) => (
-            <Cell key={idx} fill={d.color} />
+            <Cell key={d.stage} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
           ))}
         </Bar>
       </BarChart>

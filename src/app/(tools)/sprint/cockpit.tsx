@@ -319,6 +319,7 @@ function CockpitBody({
   const allStories = useWorkspaceStore((s) => s.stories);
   const goals = useWorkspaceStore((s) => s.sprintGoals);
   const moodEntries = useWorkspaceStore((s) => s.moodEntries);
+  const moodPulses = useWorkspaceStore((s) => s.moodPulses);
   const healthChecks = useWorkspaceStore((s) => s.healthChecks);
   const rating = useMemo(
     () =>
@@ -332,10 +333,11 @@ function CockpitBody({
               series: allSeries,
               goals,
               moodEntries,
+              moodPulses,
               healthChecks,
             })
           ),
-    [readOnly, sprint, sprints, allStories, allSeries, goals, moodEntries, healthChecks]
+    [readOnly, sprint, sprints, allStories, allSeries, goals, moodEntries, moodPulses, healthChecks]
   );
   const tiles = useMemo(() => {
     const all = cockpitTiles(data, sprints, today, { rating });
@@ -347,9 +349,10 @@ function CockpitBody({
   const ended = day !== null && day > sprintLengthDays(sprint);
   const boardHref = readOnly ? "/kanban" : sprintHref("/kanban", sprint.id);
 
+  // The report's rating row is the tile's.
   const report = useMemo(
-    () => cockpitMarkdown({ data, series, sprints, today }),
-    [data, series, sprints, today]
+    () => cockpitMarkdown({ data, series, sprints, today, rating }),
+    [data, series, sprints, today, rating]
   );
 
   return (

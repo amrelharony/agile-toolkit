@@ -1025,6 +1025,24 @@ describe("the Markdown export", () => {
       "| A \\| B C | 2 | To do |  |"
     );
   });
+
+  it("rates the sprint as the tile does: the computed rating when given, else the typed ones", () => {
+    const series: SprintSeries = { id: "s2", ratings: { Quality: 6, "Team Happiness": 8 } };
+    const data = gatherCockpitData(sources({ series }));
+    const rated = (rating?: number | null) =>
+      cockpitMarkdown({ data, series, sprints: [S1, S2], today: TODAY, rating })
+        .split("\n")
+        .find((l) => l.startsWith("| Average rating |"));
+    expect(rated()).toBe("| Average rating | 7 / 10 | From Sprint Comparison |");
+    expect(rated(5.4)).toBe("| Average rating | 5.4 / 10 | From Sprint Comparison |");
+    // Not scored at all: no row, though ratings were typed, as the tile leaves it out.
+    expect(rated(null)).toBeUndefined();
+    // The export's row is the tile's, whichever rating it is given.
+    for (const rating of [undefined, 5.4, null]) {
+      const tile = cockpitTiles(data, [S1, S2], TODAY, { rating }).find((t) => t.id === "rating");
+      expect(rated(rating)).toBe(tile && `| Average rating | ${tile.value} / 10 | ${tile.hint} |`);
+    }
+  });
 });
 
 /* ── The example ───────────────────────────────────────────────────────── */

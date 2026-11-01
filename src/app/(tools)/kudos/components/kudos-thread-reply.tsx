@@ -115,7 +115,7 @@ export function KudosThreadReply({ parent, fromName, fromProfileId, onSend, onSe
         type="submit"
         size="sm"
         disabled={!canSubmit}
-        className="bg-accent text-[#0a0e1a] hover:bg-accent/80 gap-1.5 self-stretch sm:self-start"
+        className="bg-accent text-bg hover:bg-accent/80 gap-1.5 self-stretch sm:self-start"
       >
         {submitting ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />

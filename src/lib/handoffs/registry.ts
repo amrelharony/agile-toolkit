@@ -71,6 +71,7 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "mood-tracker": { name: "mood tracker", href: "/mood-tracker" },
   kudos: { name: "kudos", href: "/kudos" },
   maturity: { name: "maturity assessment", href: "/maturity" },
+  "working-agreement": { name: "working agreement", href: "/working-agreement" },
   // Prioritize & decide
   "weighted-decision": { name: "weighted decision", href: "/weighted-decision" },
   cynefin: { name: "Cynefin", href: "/cynefin" },

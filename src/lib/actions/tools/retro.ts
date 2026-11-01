@@ -34,12 +34,14 @@ import type {
   Impediment,
   Kudos,
   MoodEntry,
+  MoodPulse,
   RetroBoard,
   RetroCard,
   Sprint,
   SprintGoal,
   Story,
 } from "@/lib/stores/workspace-types";
+import { MOOD_PULSE_KIND } from "@/lib/stores/workspace-types";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { todayIso } from "@/lib/sprints/series";
 import {
@@ -68,6 +70,7 @@ interface RetroStore {
     goals: SprintGoal[];
     impediments: Impediment[];
     moodEntries: MoodEntry[];
+    moodPulses: MoodPulse[];
     kudos: Kudos[];
   }>;
 }
@@ -84,6 +87,7 @@ const browserStore: RetroStore = {
       goals: s.sprintGoals ?? [],
       impediments: s.impediments ?? [],
       moodEntries: s.moodEntries ?? [],
+      moodPulses: s.moodPulses ?? [],
       kudos: s.kudos ?? [],
     };
   },
@@ -97,14 +101,15 @@ const serverStore = (userId: string): RetroStore => ({
   },
   listSprints: () => serverListEntities<Sprint>(userId, "workspace:sprint"),
   factsInput: async () => {
-    const [stories, goals, impediments, moodEntries, kudos] = await Promise.all([
+    const [stories, goals, impediments, moodEntries, moodPulses, kudos] = await Promise.all([
       serverListEntities<Story>(userId, "workspace:story"),
       serverListEntities<SprintGoal>(userId, "workspace:sprintGoal"),
       serverListEntities<Impediment>(userId, "workspace:impediment"),
       serverListEntities<MoodEntry>(userId, "workspace:moodEntry"),
+      serverListEntities<MoodPulse>(userId, MOOD_PULSE_KIND),
       serverListEntities<Kudos>(userId, "workspace:kudos"),
     ]);
-    return { stories, goals, impediments, moodEntries, kudos };
+    return { stories, goals, impediments, moodEntries, moodPulses, kudos };
   },
 });
 
@@ -270,7 +275,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the current retro board. Returns {exists, formatName, phase, sprintId (the sprint it looks back on) | null, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, done, sentTo: {route, targetId, at}[]}[] (the previous retro's action items), facts: null | {sprintName, goal, goalOutcome, committed, completed, sayDo, burndown: {shape: none|steady|late, lateShare, sentence} | null, impediments: {raised, resolvedInSprint, stillOpen, escalated}, mood: {average | null, checkIns, people}, followThrough (the previous retro's actions: agreed, done, carried, open, rate) | null, kudos: {toName, fromName, message, sentAt}[]}} — facts for the board's sprint, or for sprintId when given.",
+    "Summarise the current retro board. Returns {exists, formatName, phase, sprintId (the sprint it looks back on) | null, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, done, sentTo: {route, targetId, at}[]}[] (the previous retro's action items), facts: null | {sprintName, goal, goalOutcome, committed, completed, sayDo, burndown: {shape: none|steady|late, lateShare, sentence} | null, impediments: {raised, resolvedInSprint, stillOpen, escalated}, mood: {average | null, checkIns (named check-ins plus anonymous pulse answers), people, anonymous? (pulse answers, when there are some)}, followThrough (the previous retro's actions: agreed, done, carried, open, rate) | null, kudos: {toName, fromName, message, sentAt}[]}} — facts for the board's sprint, or for sprintId when given.",
   paramsSchema: z.object({ sprintId: SprintIdParam.optional() }),
   handler: async (params) => listState(browserStore, params),
   mcpHandler: async (params, ctx) => listState(serverStore(ctx.userId), params),

@@ -26,11 +26,13 @@ import { serverListEntities } from "../server-store";
 import type {
   HealthCheck,
   MoodEntry,
+  MoodPulse,
   Sprint,
   SprintGoal,
   SprintSeries,
   Story,
 } from "@/lib/stores/workspace-types";
+import { MOOD_PULSE_KIND } from "@/lib/stores/workspace-types";
 import {
   averageScore,
   defaultComparedIds,
@@ -60,6 +62,7 @@ interface CompareRows {
   stories: Story[];
   goals: SprintGoal[];
   moodEntries: MoodEntry[];
+  moodPulses: MoodPulse[];
   healthChecks: HealthCheck[];
 }
 
@@ -71,20 +74,23 @@ const browserRows = async (): Promise<CompareRows> => {
     stories: ws.stories ?? [],
     goals: ws.sprintGoals ?? [],
     moodEntries: ws.moodEntries ?? [],
+    moodPulses: ws.moodPulses ?? [],
     healthChecks: ws.healthChecks ?? [],
   };
 };
 
 const serverRows = async (userId: string): Promise<CompareRows> => {
-  const [sprints, series, stories, goals, moodEntries, healthChecks] = await Promise.all([
-    serverListEntities<Sprint>(userId, KIND.sprint),
-    serverListEntities<SprintSeries>(userId, KIND.series),
-    serverListEntities<Story>(userId, KIND.story),
-    serverListEntities<SprintGoal>(userId, KIND.goal),
-    serverListEntities<MoodEntry>(userId, KIND.mood),
-    serverListEntities<HealthCheck>(userId, KIND.health),
-  ]);
-  return { sprints, series, stories, goals, moodEntries, healthChecks };
+  const [sprints, series, stories, goals, moodEntries, moodPulses, healthChecks] =
+    await Promise.all([
+      serverListEntities<Sprint>(userId, KIND.sprint),
+      serverListEntities<SprintSeries>(userId, KIND.series),
+      serverListEntities<Story>(userId, KIND.story),
+      serverListEntities<SprintGoal>(userId, KIND.goal),
+      serverListEntities<MoodEntry>(userId, KIND.mood),
+      serverListEntities<MoodPulse>(userId, MOOD_PULSE_KIND),
+      serverListEntities<HealthCheck>(userId, KIND.health),
+    ]);
+  return { sprints, series, stories, goals, moodEntries, moodPulses, healthChecks };
 };
 
 function serializeScores(scores: SprintScores) {
@@ -127,6 +133,7 @@ function listState(rows: CompareRows, sprintIds: string[] | undefined) {
       series: rows.series,
       goals: rows.goals,
       moodEntries: rows.moodEntries,
+      moodPulses: rows.moodPulses,
       healthChecks: rows.healthChecks,
     });
     return [
@@ -151,7 +158,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Sprint Comparison's six scores (1–10, one decimal) for the given sprints, as the page shows them. Params: {sprintIds?: string[]} (default: what the page compares when nothing is pinned — the five newest finished sprints, else the three newest sprints — oldest first by end date). Returns {sprints: {id, name, startDate, endDate, status, scores: {[dimension]: {value (null = not scored), source: computed | prefilled | typed | none, from? (the tool it was read from), basis (how it was worked out, in words), editable (true for Team Happiness and Quality, which a typed rating overrides), typed? (the stored rating, kept even when unused), missing? (points | commitment | history | goal | scope | mood | health | dates: what the score needs)}}, average (mean of the scored dimensions; null when none)}[], notFound?: string[]}. Dimensions: Velocity (completed ÷ the team's best, from 3 finished sprints), Quality (Squad Health Check code and release lights, yellow = half), Scope Stability (1 − churn after day 0), Team Happiness (Mood Tracker check-ins during the sprint, from 3), Goal Achievement (met 10, partly 5.5, not met 1), Predictability (graded say/do). To rate Team Happiness or Quality, write SprintSeries.ratings[dimension] via workspace.sprint_series.update. Read only.",
+    "Sprint Comparison's six scores (1–10, one decimal) for the given sprints, as the page shows them. Params: {sprintIds?: string[]} (default: what the page compares when nothing is pinned — the five newest finished sprints, else the three newest sprints — oldest first by end date). Returns {sprints: {id, name, startDate, endDate, status, scores: {[dimension]: {value (null = not scored), source: computed | prefilled | typed | none, from? (the tool it was read from), basis (how it was worked out, in words), editable (true for Team Happiness and Quality, which a typed rating overrides), typed? (the stored rating, kept even when unused), missing? (points | commitment | history | goal | scope | mood | health | dates: what the score needs)}}, average (mean of the scored dimensions; null when none)}[], notFound?: string[]}. Dimensions: Velocity (completed ÷ the team's best, from 3 finished sprints), Quality (Squad Health Check code and release lights, yellow = half), Scope Stability (1 − churn after day 0), Team Happiness (Mood Tracker check-ins during the sprint, named and anonymous pulse answers alike, from 3), Goal Achievement (met 10, partly 5.5, not met 1), Predictability (graded say/do). To rate Team Happiness or Quality, write SprintSeries.ratings[dimension] via workspace.sprint_series.update. Read only.",
   paramsSchema: z.object({
     sprintIds: z
       .array(z.string().min(1).max(128))

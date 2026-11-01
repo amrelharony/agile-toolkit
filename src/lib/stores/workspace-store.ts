@@ -75,6 +75,12 @@ import type {
   SkillsMatrix,
   PokerEstimationLog,
   PokerRound,
+  // Phase 6 — Team & people
+  DefinitionOfDone,
+  RaciMatrix,
+  AdkarDoc,
+  MoodTrackerDoc,
+  MoodPulse,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -241,6 +247,17 @@ interface WorkspaceActions {
   removePokerEstimationLog: (id: string) => void;
   upsertPokerRound: (x: PokerRound) => void;
   removePokerRound: (id: string) => void;
+  // Phase 6 — Team & people
+  upsertDefinitionOfDone: (x: DefinitionOfDone) => void;
+  removeDefinitionOfDone: (id: string) => void;
+  upsertRaciMatrix: (x: RaciMatrix) => void;
+  removeRaciMatrix: (id: string) => void;
+  upsertAdkarDoc: (x: AdkarDoc) => void;
+  removeAdkarDoc: (id: string) => void;
+  upsertMoodTrackerDoc: (x: MoodTrackerDoc) => void;
+  removeMoodTrackerDoc: (id: string) => void;
+  upsertMoodPulse: (x: MoodPulse) => void;
+  removeMoodPulse: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -383,6 +400,12 @@ function isRecordWithId(v: unknown): v is { id: string } {
 function sanitizeArray<T extends { id: string }>(raw: unknown): T[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   return raw.filter(isRecordWithId) as T[];
+}
+
+/** An integer 1-5. `typeof x === "number"` lets floats and NaN through;
+ *  `Number.isInteger(NaN)` is false. */
+function isMaturityLevel(v: unknown): v is MaturityLevel {
+  return Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 }
 
 // R11-fix: shared cascade for canvas sourceRef cleanup on entity removal.
@@ -1036,6 +1059,27 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ pokerRounds: replaceById(_st.pokerRounds ?? [], x) })),
       removePokerRound: (id) =>
         set((s) => ({ pokerRounds: (s.pokerRounds ?? []).filter((y) => y.id !== id) })),
+      // Phase 6 — Team & people
+      upsertDefinitionOfDone: (x) =>
+        set((_st) => ({ definitionsOfDone: replaceById(_st.definitionsOfDone ?? [], x) })),
+      removeDefinitionOfDone: (id) =>
+        set((s) => ({
+          definitionsOfDone: (s.definitionsOfDone ?? []).filter((y) => y.id !== id),
+        })),
+      upsertRaciMatrix: (x) =>
+        set((_st) => ({ raciMatrices: replaceById(_st.raciMatrices ?? [], x) })),
+      removeRaciMatrix: (id) =>
+        set((s) => ({ raciMatrices: (s.raciMatrices ?? []).filter((y) => y.id !== id) })),
+      upsertAdkarDoc: (x) => set((_st) => ({ adkarDocs: replaceById(_st.adkarDocs ?? [], x) })),
+      removeAdkarDoc: (id) =>
+        set((s) => ({ adkarDocs: (s.adkarDocs ?? []).filter((y) => y.id !== id) })),
+      upsertMoodTrackerDoc: (x) =>
+        set((_st) => ({ moodTrackerDocs: replaceById(_st.moodTrackerDocs ?? [], x) })),
+      removeMoodTrackerDoc: (id) =>
+        set((s) => ({ moodTrackerDocs: (s.moodTrackerDocs ?? []).filter((y) => y.id !== id) })),
+      upsertMoodPulse: (x) => set((_st) => ({ moodPulses: replaceById(_st.moodPulses ?? [], x) })),
+      removeMoodPulse: (id) =>
+        set((s) => ({ moodPulses: (s.moodPulses ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1483,6 +1527,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           skillsMatrices: s.skillsMatrices,
           pokerEstimationLogs: s.pokerEstimationLogs,
           pokerRounds: s.pokerRounds,
+          // Phase 6 — Team & people
+          definitionsOfDone: s.definitionsOfDone,
+          raciMatrices: s.raciMatrices,
+          adkarDocs: s.adkarDocs,
+          moodTrackerDocs: s.moodTrackerDocs,
+          moodPulses: s.moodPulses,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1563,14 +1613,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           okrs: sanitizeArray<Okr>(p.okrs),
           decisions: sanitizeArray<Decision>(p.decisions),
           techDebt: sanitizeArray<TechDebtItem>(p.techDebt),
-          // Require integer in [1,5]; `typeof x === "number"` lets through
-          // floats and NaN, so check both. `Number.isInteger(NaN)` is false.
-          maturityLevel:
-            Number.isInteger(p.maturityLevel) &&
-            (p.maturityLevel as number) >= 1 &&
-            (p.maturityLevel as number) <= 5
-              ? (p.maturityLevel as Workspace["maturityLevel"])
-              : undefined,
+          // Require an integer in [1,5] (isMaturityLevel).
+          maturityLevel: isMaturityLevel(p.maturityLevel) ? p.maturityLevel : undefined,
           teamName: typeof p.teamName === "string" ? p.teamName : undefined,
           // Phase 19 — accept arrays only; unknown shapes get dropped
           llmEvals: arr("llmEvals"),
@@ -1621,6 +1665,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           skillsMatrices: arr("skillsMatrices"),
           pokerEstimationLogs: arr("pokerEstimationLogs"),
           pokerRounds: arr("pokerRounds"),
+          // Phase 6 — Team & people
+          definitionsOfDone: arr("definitionsOfDone"),
+          raciMatrices: arr("raciMatrices"),
+          adkarDocs: arr("adkarDocs"),
+          moodTrackerDocs: arr("moodTrackerDocs"),
+          moodPulses: arr("moodPulses"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1958,6 +2008,17 @@ if (typeof window !== "undefined") {
     registerCollection("skillsMatrix", "skillsMatrices");
     registerCollection("pokerEstimationLog", "pokerEstimationLogs");
     registerCollection("pokerRound", "pokerRounds");
+    // Phase 6 — Team & people. Each kind is what kindFromToolId derives from
+    // its workspace.* CRUD (workspace.definition_of_done → definitionOfDone,
+    // workspace.mood_tracker_doc → moodTrackerDoc, …), so the agents' CRUD
+    // needs no serverKind override. Server-side code names them by the
+    // workspace-types constants DOD_KIND, RACI_KIND, ADKAR_KIND,
+    // MOOD_TRACKER_KIND and MOOD_PULSE_KIND; a test keeps the three in step.
+    registerCollection("definitionOfDone", "definitionsOfDone");
+    registerCollection("raciMatrix", "raciMatrices");
+    registerCollection("adkarDoc", "adkarDocs");
+    registerCollection("moodTrackerDoc", "moodTrackerDocs");
+    registerCollection("moodPulse", "moodPulses");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -2009,13 +2070,17 @@ if (typeof window !== "undefined") {
     // ── Scalars (teamName, maturityLevel) as one blob ─────────────
     interface WorkspaceScalars {
       teamName?: string;
-      maturityLevel?: number;
+      /** null = unassessed. */
+      maturityLevel?: number | null;
     }
     registerBlobStore({
       storeKey: "agile-toolkit:workspace:scalars",
       getSnapshot: (): WorkspaceScalars => {
         const s = registry.getState();
-        return { teamName: s.teamName, maturityLevel: s.maturityLevel };
+        // An unassessed team is sent as null, not left out: JSON drops an
+        // undefined key, so clearing the level (the Maturity tool removing
+        // its last assessment) never reached other devices or the agents.
+        return { teamName: s.teamName, maturityLevel: s.maturityLevel ?? null };
       },
       setSnapshot: (next) => {
         // R12-fix: apply only keys PRESENT in the blob. The server-side
@@ -2029,7 +2094,9 @@ if (typeof window !== "undefined") {
         const patch: Partial<Workspace> = {};
         if ("teamName" in v) patch.teamName = v.teamName;
         if ("maturityLevel" in v) {
-          patch.maturityLevel = v.maturityLevel as Workspace["maturityLevel"];
+          // null (unassessed) or anything outside the integer 1-5 band
+          // clears the level, as importJSON reads it.
+          patch.maturityLevel = isMaturityLevel(v.maturityLevel) ? v.maturityLevel : undefined;
         }
         if (Object.keys(patch).length > 0) registry.setState(patch);
       },
@@ -2108,6 +2175,11 @@ export function getWorkspaceSnapshot(): Workspace {
     skillsMatrices: state.skillsMatrices,
     pokerEstimationLogs: state.pokerEstimationLogs,
     pokerRounds: state.pokerRounds,
+    definitionsOfDone: state.definitionsOfDone,
+    raciMatrices: state.raciMatrices,
+    adkarDocs: state.adkarDocs,
+    moodTrackerDocs: state.moodTrackerDocs,
+    moodPulses: state.moodPulses,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,

@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Clock, TrendingUp, UserPlus } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -10,22 +11,46 @@ import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { BlurInput } from "@/components/shared/blur-fields";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Plus, Trash2, UserPlus, Check, Clock, TrendingUp, AlertTriangle } from "lucide-react";
+import { SectionCard } from "@/components/shared/section-card";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { ResetButton } from "@/components/shared/reset-button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { usePersisted } from "@/lib/utils/use-persisted";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { removeWithUndo } from "@/lib/utils/undoable";
+import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ONBOARDING_TRACKER_ACTIONS } from "@/lib/history/event-actions";
 import { generateOnboardingTrackerPrompts } from "@/lib/ai-prompts/onboarding-tracker";
+import { todayIso } from "@/lib/sprints/series";
+import { addToRoster, findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
-import { cn } from "@/lib/utils";
+import { buildExample } from "./example";
+import { markStatText, onboardingToMarkdown, rampText } from "./markdown";
+import {
+  STORAGE_KEY,
+  TEMPLATES_KEY,
+  daysToComplete,
+  memberFor,
+  milestonesFrom,
+  normalizeOnboardees,
+  normalizeTemplates,
+  onboardingStats,
+  onboardingVerdict,
+  rampCurve,
+  templatesOf,
+  withRosterNames,
+  type MarkStat,
+  type Milestone,
+  type MilestoneTemplate,
+  type Onboardee,
+} from "./model";
+import { PersonCard } from "./person-card";
+import { PersonForm, type PersonValues } from "./person-form";
+import { TemplateSection } from "./template-section";
 
 // Recharts loads with the ramp curve, not the page.
 const RampCurveChart = dynamic(() => import("./charts").then((m) => m.RampCurveChart), {
@@ -35,105 +60,35 @@ const RampCurveChart = dynamic(() => import("./charts").then((m) => m.RampCurveC
   ),
 });
 
-interface Milestone {
-  id: string;
-  name: string;
-  targetDays: number;
-  completedAt?: string;
-  notes?: string;
-}
+type ListUpdate<T> = (list: readonly T[]) => T[];
 
-interface Onboardee {
-  id: string;
-  name: string;
-  role?: string;
-  startDate: string;
-  milestones: Milestone[];
-  description?: string;
-}
-
-const DEFAULT_MILESTONE_TEMPLATES: { name: string; targetDays: number }[] = [
-  { name: "First commit", targetDays: 3 },
-  { name: "First PR", targetDays: 7 },
-  { name: "First merge", targetDays: 14 },
-  { name: "First production deploy", targetDays: 30 },
-  { name: "Independent feature", targetDays: 60 },
-  { name: "Mentor a peer", targetDays: 90 },
-];
-
-const FIRST_PR_NAME = "First PR";
-const PRODUCTIVITY_NAME = "Independent feature";
-
-function buildDefaultMilestones(): Milestone[] {
-  return DEFAULT_MILESTONE_TEMPLATES.map((m) => ({
-    id: crypto.randomUUID(),
-    name: m.name,
-    targetDays: m.targetDays,
-  }));
-}
-
-function parseLocalDate(iso: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-}
-
-function daysBetween(a: string, b: string): number {
-  const aDate = parseLocalDate(a);
-  const bDate = parseLocalDate(b);
-  if (!aDate || !bDate) return 0;
-  return Math.round((bDate.getTime() - aDate.getTime()) / 86400000);
-}
-
-/** Whole calendar days from the start date to `nowMs`'s local day ("Day N"). */
-function daysSince(iso: string, nowMs: number): number {
-  const start = parseLocalDate(iso);
-  if (!start) return 0;
-  const now = new Date(nowMs);
-  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.round((todayLocal.getTime() - start.getTime()) / 86400000);
-}
-
-type MilestoneStatus = "done" | "overdue" | "at-risk" | "on-track";
-
-/**
- * Where a milestone stands, used by both the KPIs and the milestone cards so
- * they always agree. An incomplete milestone is:
- *   - "overdue" once the days since start pass its target, and
- *   - "at risk" once more than half of its target time has passed, until it
- *     becomes overdue. At-risk and overdue never overlap.
- * The AI prompt (`src/lib/ai-prompts/onboarding-tracker.ts`) lists both
- * together as at-risk; the client passes it the combined count.
- */
-function milestoneStatus(
-  elapsedDays: number,
-  milestone: { targetDays: number; completedAt?: string }
-): MilestoneStatus {
-  if (milestone.completedAt) return "done";
-  // Guard against targetDays <= 0 (legacy / imported data, or an accidental
-  // 0-day milestone). Without this, it reads as late the instant the person
-  // starts.
-  if (!Number.isFinite(milestone.targetDays) || milestone.targetDays <= 0) return "on-track";
-  if (elapsedDays > milestone.targetDays) return "overdue";
-  if (elapsedDays > milestone.targetDays * 0.5) return "at-risk";
-  return "on-track";
-}
-
-/** Finished = every milestone done. Someone with no milestones is still active. */
-function isFinished(person: Onboardee): boolean {
-  return person.milestones.length > 0 && person.milestones.every((m) => Boolean(m.completedAt));
-}
+const noLog = () => undefined;
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
 
+/** An average KPI's value: the mean once MIN_SAMPLE.average people reached it. */
+const avgValue = (s: MarkStat) => (s.avg !== null ? `${s.avg.toFixed(1)}d` : "—");
+const avgHint = (s: MarkStat) =>
+  s.avg !== null
+    ? `${s.n} people`
+    : s.n === 0
+      ? "no one yet"
+      : `${s.n} of ${MIN_SAMPLE.average} needed`;
+
+/**
+ * Onboarding Speed Tracker: each new joiner's milestones from an editable
+ * template, ticked as they're reached (and backdated to when), with the
+ * time to a first PR and to productivity, and a ramp curve that counts each
+ * day only for the people who have reached it.
+ */
 export function OnboardingTrackerClient() {
-  const [onboardees, setOnboardees] = usePersisted<Onboardee[]>(
-    "agile-toolkit:onboarding-tracker",
-    []
-  );
+  const [stored, setStored] = usePersisted<unknown>(STORAGE_KEY, []);
+  const [storedTemplates, setStoredTemplates] = usePersisted<unknown>(TEMPLATES_KEY, null);
   const { log } = useHistoryLogger("onboarding-tracker");
+  const roster = useTeamRoster();
+  const announce = useAnnounce();
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -151,199 +106,175 @@ export function OnboardingTrackerClient() {
     )
   );
 
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [startDate, setStartDate] = useState(todayLocalISO());
-  const [description, setDescription] = useState("");
+  // Today, re-read every minute so a page left open over midnight moves on.
+  const [today, setToday] = useState(() => todayIso());
+  useEffect(() => {
+    const i = setInterval(() => setToday(todayIso()), 60_000);
+    return () => clearInterval(i);
+  }, []);
 
-  const addOnboardee = () => {
-    const trimmedName = name.trim();
-    if (!trimmedName) return;
-    const trimmedRole = role.trim() || undefined;
-    const trimmedDescription = description.trim() || undefined;
+  // The example lives here only: nothing in it reaches the saved people,
+  // nor the saved template (it gets a copy to try edits on).
+  const [example, setExample] = useState<Onboardee[] | null>(null);
+  const [exampleTemplates, setExampleTemplates] = useState<MilestoneTemplate[] | null>(null);
+  const preview = example !== null;
+  // Names as the roster has them now (a rename on the Team page shows).
+  const onboardees = useMemo(
+    () => (example ?? normalizeOnboardees(stored)).map((p) => withRosterNames(p, roster)),
+    [example, stored, roster]
+  );
+  const templates = useMemo(
+    () => (preview && exampleTemplates ? exampleTemplates : templatesOf(storedTemplates)),
+    [preview, exampleTemplates, storedTemplates]
+  );
+  const customTemplates = !preview && normalizeTemplates(storedTemplates) !== null;
+  // Fixed for the render an edit starts in, so its Undo goes back to the same place.
+  const writePeople = preview
+    ? (fn: ListUpdate<Onboardee>) => setExample((ex) => ex && fn(ex))
+    : (fn: ListUpdate<Onboardee>) => setStored((prev: unknown) => fn(normalizeOnboardees(prev)));
+  const record: typeof log = preview ? noLog : log;
+  const writeTemplates = preview
+    ? (fn: ListUpdate<MilestoneTemplate>) => setExampleTemplates((t) => t && fn(t))
+    : (fn: ListUpdate<MilestoneTemplate>) =>
+        setStoredTemplates((prev: unknown) => fn(templatesOf(prev)));
+
+  /* ── Changes ──────────────────────────────────────────────────────── */
+
+  const addOnboardee = (values: PersonValues) => {
+    const member = findRosterMember(roster, values.name);
+    const buddy = values.buddy ? findRosterMember(roster, values.buddy) : undefined;
     const person: Onboardee = {
       id: crypto.randomUUID(),
-      name: trimmedName,
-      role: trimmedRole,
-      startDate: startDate || todayLocalISO(),
-      milestones: buildDefaultMilestones(),
-      description: trimmedDescription,
+      name: member?.name ?? values.name,
+      ...(member ? { memberId: member.id } : {}),
+      ...(values.role ? { role: values.role } : {}),
+      ...(values.buddy ? { buddy: buddy?.name ?? values.buddy } : {}),
+      ...(buddy ? { buddyMemberId: buddy.id } : {}),
+      startDate: values.startDate,
+      milestones: milestonesFrom(templates, () => crypto.randomUUID()),
+      ...(values.description ? { description: values.description } : {}),
     };
-    setOnboardees((prev) => [person, ...prev]);
-    log(ONBOARDING_TRACKER_ACTIONS.PERSON_ADDED, {
+    writePeople((prev) => [person, ...prev]);
+    record(ONBOARDING_TRACKER_ACTIONS.PERSON_ADDED, {
       personId: person.id,
       name: person.name,
       role: person.role,
     });
-    setName("");
-    setRole("");
-    setStartDate(todayLocalISO());
-    setDescription("");
+    announce(`Added ${person.name}`);
   };
 
-  const removePerson = (id: string) => {
-    const person = onboardees.find((p) => p.id === id);
-    setOnboardees((prev) => prev.filter((p) => p.id !== id));
-    log(ONBOARDING_TRACKER_ACTIONS.PERSON_REMOVED, {
-      personId: id,
-      name: person?.name,
+  const patchPerson = (personId: string, fn: (p: Onboardee) => Onboardee) =>
+    writePeople((prev) => prev.map((p) => (p.id === personId ? fn(p) : p)));
+
+  const saveDetails = (person: Onboardee, values: PersonValues) => {
+    const member = findRosterMember(roster, values.name);
+    const buddy = values.buddy ? findRosterMember(roster, values.buddy) : undefined;
+    patchPerson(person.id, (p) => ({
+      ...p,
+      name: member?.name ?? values.name,
+      memberId: member?.id,
+      role: values.role,
+      buddy: values.buddy ? (buddy?.name ?? values.buddy) : undefined,
+      buddyMemberId: buddy?.id,
+      startDate: values.startDate,
+      description: values.description,
+    }));
+    announce(`Saved ${values.name}`);
+  };
+
+  const removePerson = (person: Onboardee) => {
+    removeWithUndo<Onboardee>({
+      label: `Removed ${person.name}`,
+      update: writePeople,
+      match: (p) => p.id === person.id,
     });
+    record(ONBOARDING_TRACKER_ACTIONS.PERSON_REMOVED, { personId: person.id, name: person.name });
+    announce(`Removed ${person.name}`);
   };
 
-  const toggleMilestone = (personId: string, milestoneId: string) => {
-    // Pre-compute target/log info from the current snapshot so we don't
-    // mutate inside setState. If the person/milestone vanished mid-render,
-    // the functional update below will still no-op.
-    const person = onboardees.find((p) => p.id === personId);
-    const milestone = person?.milestones.find((m) => m.id === milestoneId);
-    if (!milestone) return;
+  const patchMilestone = (person: Onboardee, milestoneId: string, patch: Partial<Milestone>) =>
+    patchPerson(person.id, (p) => ({
+      ...p,
+      milestones: p.milestones.map((m) => (m.id === milestoneId ? { ...m, ...patch } : m)),
+    }));
+
+  const toggleMilestone = (person: Onboardee, milestone: Milestone) => {
     const wasCompleted = Boolean(milestone.completedAt);
-    const completedAt = wasCompleted ? undefined : todayLocalISO();
-    setOnboardees((prev) =>
-      prev.map((p) =>
-        p.id !== personId
-          ? p
-          : {
-              ...p,
-              milestones: p.milestones.map((m) =>
-                m.id === milestoneId ? { ...m, completedAt } : m
-              ),
-            }
-      )
-    );
+    // Ticking says "reached today"; the date beside it backdates it.
+    const completedAt = wasCompleted ? undefined : today;
+    patchMilestone(person, milestone.id, { completedAt });
     if (!wasCompleted) {
-      log(ONBOARDING_TRACKER_ACTIONS.MILESTONE_LOGGED, {
-        personId,
-        milestoneId,
+      record(ONBOARDING_TRACKER_ACTIONS.MILESTONE_LOGGED, {
+        personId: person.id,
+        milestoneId: milestone.id,
         milestoneName: milestone.name,
         completedAt,
       });
+      announce(`${milestone.name} reached for ${person.name}`);
     } else {
-      // BUG-T5-onboarding-tracker-2: log un-complete too so the audit
-      // trail captures rollback events.
-      log(ONBOARDING_TRACKER_ACTIONS.MILESTONE_UNCOMPLETED, {
-        personId,
-        milestoneId,
+      // Un-ticking is logged too, so the history shows the rollback.
+      record(ONBOARDING_TRACKER_ACTIONS.MILESTONE_UNCOMPLETED, {
+        personId: person.id,
+        milestoneId: milestone.id,
         milestoneName: milestone.name,
       });
+      announce(`${milestone.name} not reached for ${person.name}`);
     }
   };
 
-  const updateNote = (personId: string, milestoneId: string, notes: string) => {
-    const trimmed = notes.trim() || undefined;
-    setOnboardees((prev) =>
-      prev.map((p) =>
-        p.id !== personId
-          ? p
-          : {
-              ...p,
-              milestones: p.milestones.map((m) =>
-                m.id === milestoneId ? { ...m, notes: trimmed } : m
-              ),
-            }
-      )
-    );
+  const linkToRoster = (person: Onboardee) => {
+    // Someone already linked (by id, or a name the roster has) is never
+    // added a second time under an old name.
+    const member = memberFor(roster, person.memberId, person.name) ?? addToRoster(person.name);
+    patchPerson(person.id, (p) => ({ ...p, name: member.name, memberId: member.id }));
+    announce(`Added ${member.name} to the team`);
   };
 
-  // BUG-T5-onboarding-tracker-4: tick a `now` clock every minute so the
-  // at-risk KPI invalidates as real time passes. Without this, the
-  // stats memo only re-runs when onboardees mutate; a fresh-loaded
-  // dashboard left open across midnight shows the at-risk count from
-  // when the page loaded.
-  const [nowTick, setNowTick] = useState(() => Date.now());
-  useEffect(() => {
-    const i = setInterval(() => setNowTick(Date.now()), 60_000);
-    return () => clearInterval(i);
-  }, []);
+  const loadExample = () => {
+    setExample(buildExample(today));
+    setExampleTemplates([...templates]);
+    announce("Loaded an example");
+  };
+  const clearExample = () => {
+    setExample(null);
+    setExampleTemplates(null);
+  };
 
-  const stats = useMemo(() => {
-    let firstPRTotal = 0;
-    let firstPRCount = 0;
-    let productivityTotal = 0;
-    let productivityCount = 0;
-    let atRisk = 0;
-    let overdue = 0;
-    let finished = 0;
-    for (const p of onboardees) {
-      if (isFinished(p)) finished += 1;
-      const elapsed = daysSince(p.startDate, nowTick);
-      for (const m of p.milestones) {
-        if (!m.completedAt) {
-          const status = milestoneStatus(elapsed, m);
-          if (status === "overdue") overdue += 1;
-          else if (status === "at-risk") atRisk += 1;
-          continue;
-        }
-        const days = daysBetween(p.startDate, m.completedAt);
-        if (m.name === FIRST_PR_NAME) {
-          firstPRTotal += days;
-          firstPRCount += 1;
-        }
-        if (m.name === PRODUCTIVITY_NAME) {
-          productivityTotal += days;
-          productivityCount += 1;
-        }
-      }
-    }
-    return {
-      avgFirstPR: firstPRCount > 0 ? firstPRTotal / firstPRCount : null,
-      avgProductivity: productivityCount > 0 ? productivityTotal / productivityCount : null,
-      atRiskCount: atRisk,
-      overdueCount: overdue,
-      finishedCount: finished,
-      activeCount: onboardees.length - finished,
-    };
-  }, [onboardees, nowTick]);
+  // Clear all: the people go (the template stays); Undo puts them back.
+  const resetSnapshot = useRef<unknown>(null);
+  const reset = () => {
+    resetSnapshot.current = stored;
+    setStored([]);
+    log(ONBOARDING_TRACKER_ACTIONS.ONBOARDING_RESET, { people: onboardees.length });
+  };
+  const undoReset = () => setStored(resetSnapshot.current ?? []);
 
-  const rampCurveData = useMemo(() => {
-    // Build an avg "% milestones complete by day X" curve across people.
-    if (onboardees.length === 0) return [];
-    const maxDay = 90;
-    const out: { day: number; avgPct: number }[] = [];
-    for (let d = 0; d <= maxDay; d += 5) {
-      let pctSum = 0;
-      let counted = 0;
-      for (const p of onboardees) {
-        if (p.milestones.length === 0) continue;
-        const completedByDay = p.milestones.filter((m) => {
-          if (!m.completedAt) return false;
-          return daysBetween(p.startDate, m.completedAt) <= d;
-        }).length;
-        pctSum += (completedByDay / p.milestones.length) * 100;
-        counted += 1;
-      }
-      out.push({ day: d, avgPct: counted > 0 ? pctSum / counted : 0 });
-    }
-    return out;
-  }, [onboardees]);
+  const templateSnapshot = useRef<unknown>(null);
+  const restoreBuiltIns = () => {
+    templateSnapshot.current = storedTemplates;
+    setStoredTemplates(null);
+  };
+  const undoRestoreBuiltIns = () => setStoredTemplates(templateSnapshot.current);
 
+  /* ── Numbers ──────────────────────────────────────────────────────── */
+
+  const stats = useMemo(() => onboardingStats(onboardees, today), [onboardees, today]);
+  const verdict = onboardingVerdict(onboardees, today);
+  const ramp = useMemo(() => rampCurve(onboardees, today), [onboardees, today]);
+  const rampChart = rampText(ramp);
+  const rampHasPoint = ramp.some((p) => p.avgPct !== null);
+  const mostReached = ramp.reduce((max, p) => Math.max(max, p.reached), 0);
+  const markdown = onboardingToMarkdown(onboardees, today);
+
+  // The people as listed, and today: the prompt counts statuses and KPIs
+  // with the page's own definitions (overdue and at risk apart; no average
+  // below MIN_SAMPLE.average people).
   const promptConfig = useMemo(
     () => ({
       toolName: "Onboarding Speed Tracker",
-      prompts: generateOnboardingTrackerPrompts(
-        {
-          onboardees: onboardees.map((p) => ({
-            name: p.name,
-            role: p.role,
-            startDate: p.startDate,
-            description: p.description,
-            milestones: p.milestones.map((m) => ({
-              name: m.name,
-              targetDays: m.targetDays,
-              completedAt: m.completedAt,
-              notes: m.notes,
-            })),
-          })),
-          avgTimeToFirstPR: stats.avgFirstPR,
-          avgTimeToProductivity: stats.avgProductivity,
-          // The prompt's own at-risk table includes overdue milestones, so
-          // its headline count does too.
-          atRiskCount: stats.atRiskCount + stats.overdueCount,
-        },
-        workspace
-      ),
+      prompts: generateOnboardingTrackerPrompts({ onboardees, today }, workspace),
     }),
-    [onboardees, stats, workspace]
+    [onboardees, today, workspace]
   );
 
   return (
@@ -357,10 +288,12 @@ export function OnboardingTrackerClient() {
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="onboarding-tracker"
+          markdown={markdown}
           csvData={{
             headers: [
               "Name",
               "Role",
+              "Buddy",
               "Start date",
               "Description",
               "Milestone",
@@ -373,273 +306,174 @@ export function OnboardingTrackerClient() {
               p.milestones.map((m) => [
                 p.name,
                 p.role ?? "",
+                p.buddy ?? "",
                 p.startDate,
                 p.description ?? "",
                 m.name,
                 m.targetDays,
                 m.completedAt ?? "",
-                m.completedAt ? daysBetween(p.startDate, m.completedAt) : "",
+                daysToComplete(p, m) ?? "",
                 m.notes ?? "",
               ])
             ),
           }}
           jsonData={onboardees}
         />
+        <ResetButton
+          label="Clear all"
+          title="Remove every new joiner?"
+          description={`${onboardees.length === 1 ? "1 person" : `${onboardees.length} people`} and their milestones. The milestone template stays.`}
+          confirmLabel="Remove everyone"
+          doneLabel="Removed every new joiner"
+          onReset={reset}
+          onUndo={undoReset}
+          disabled={preview || onboardees.length === 0}
+        />
       </ActionRow>
+
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: four new joiners at day 5, 20, 45 and 95. Nothing in it is saved, and your own
+            people and milestone template stay as they are.
+          </p>
+        </div>
+      )}
 
       <KpiGrid cols={4} gap="lg">
         <StatCard
           variant="compact"
           icon={UserPlus}
           label="Active onboardees"
-          value={stats.activeCount}
-          hint={stats.finishedCount > 0 ? `${stats.finishedCount} finished` : undefined}
+          value={stats.active}
+          hint={stats.finished > 0 ? `${stats.finished} finished` : undefined}
           valueClassName="text-accent"
         />
         <StatCard
           variant="compact"
           icon={Clock}
           label="Avg time-to-first-PR"
-          value={stats.avgFirstPR !== null ? `${stats.avgFirstPR.toFixed(1)}d` : "—"}
+          value={avgValue(stats.firstPr)}
+          hint={avgHint(stats.firstPr)}
         />
         <StatCard
           variant="compact"
           icon={TrendingUp}
           label="Avg time-to-productivity"
-          value={stats.avgProductivity !== null ? `${stats.avgProductivity.toFixed(1)}d` : "—"}
-          hint="Independent feature"
+          value={avgValue(stats.productive)}
+          hint={avgHint(stats.productive)}
         />
         <StatCard
           variant="compact"
           icon={AlertTriangle}
           label="Overdue / at-risk milestones"
-          value={`${stats.overdueCount} / ${stats.atRiskCount}`}
+          value={`${stats.overdue} / ${stats.atRisk}`}
           hint="past target / over half its time used"
-          tone={stats.overdueCount > 0 ? "danger" : stats.atRiskCount > 0 ? "warning" : "default"}
+          tone={stats.overdue > 0 ? "danger" : stats.atRisk > 0 ? "warning" : "default"}
         />
       </KpiGrid>
 
-      {(stats.overdueCount > 0 || stats.atRiskCount > 0) && (
-        <CalloutAlert tone={stats.overdueCount > 0 ? "danger" : "warning"} className="mb-4">
-          {stats.overdueCount > 0 && (
+      {onboardees.length > 0 && <p className="mb-4 text-sm font-medium text-text">{verdict}</p>}
+
+      {(stats.overdue > 0 || stats.atRisk > 0) && (
+        <CalloutAlert tone={stats.overdue > 0 ? "danger" : "warning"} className="mb-4">
+          {stats.overdue > 0 && (
             <>
-              <strong>{stats.overdueCount}</strong>{" "}
-              {plural(stats.overdueCount, "milestone is", "milestones are")} overdue: past the
-              target day without completion.{" "}
+              <strong>{stats.overdue}</strong>{" "}
+              {plural(stats.overdue, "milestone is", "milestones are")} overdue: past the target day
+              without completion.{" "}
             </>
           )}
-          {stats.atRiskCount > 0 && (
+          {stats.atRisk > 0 && (
             <>
-              <strong>{stats.atRiskCount}</strong>{" "}
-              {plural(stats.atRiskCount, "milestone is", "milestones are")} at risk: more than half
-              the target time has passed without completion.{" "}
+              <strong>{stats.atRisk}</strong>{" "}
+              {plural(stats.atRisk, "milestone is", "milestones are")} at risk: more than half the
+              target time has passed without completion.{" "}
             </>
           )}
           Consider a check-in.
         </CalloutAlert>
       )}
 
-      {/* Add-onboardee form */}
-      <Card className="bg-surface border-border mb-4">
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_180px_auto] gap-2">
-            <div>
-              <Label htmlFor="onboarding-name" className="text-xs text-sub">
-                Name
-              </Label>
-              <Input
-                id="onboarding-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Jane Doe"
-                className="bg-bg border-border"
-                aria-label="Onboardee name"
-              />
-            </div>
-            <div>
-              <Label htmlFor="onboarding-role" className="text-xs text-sub">
-                Role
-              </Label>
-              <Input
-                id="onboarding-role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                placeholder="Software Engineer"
-                className="bg-bg border-border"
-                aria-label="Onboardee role"
-              />
-            </div>
-            <div>
-              <Label htmlFor="onboarding-start-date" className="text-xs text-sub">
-                Start date
-              </Label>
-              <Input
-                id="onboarding-start-date"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="bg-bg border-border"
-                aria-label="Start date"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                onClick={addOnboardee}
-                aria-label="Add onboardee"
-                className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
-              >
-                <Plus className="w-4 h-4" />
-                Add
-              </Button>
-            </div>
-          </div>
-          <div className="mt-2">
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Description (optional)..."
-              rows={2}
-              className="bg-bg border-border resize-none text-xs"
-              aria-label="Description"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <SectionCard title="Add a new joiner" icon={UserPlus} className="mb-4">
+        <PersonForm
+          initial={{ name: "", role: "", buddy: "", startDate: today, description: "" }}
+          submitLabel="Add onboardee"
+          onSave={addOnboardee}
+          offerAddToRoster={!preview}
+        />
+        <p className="mt-2 text-xs text-sub">
+          They start with the {templates.length} milestones of the template below.
+        </p>
+      </SectionCard>
 
       {onboardees.length === 0 ? (
-        <EmptyState icon={UserPlus}>
+        <EmptyState icon={UserPlus} action={<LoadExampleButton onLoad={loadExample} />}>
           No onboardees yet. Add your first new joiner above to start tracking their ramp.
         </EmptyState>
       ) : (
         <div className="space-y-3 mb-6">
-          {onboardees.map((p) => {
-            const ageDays = daysSince(p.startDate, nowTick);
-            const completedCount = p.milestones.filter((m) => m.completedAt).length;
-            return (
-              <Card key={p.id} className="bg-surface border-border">
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex flex-col xs:flex-row xs:items-start xs:justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-text">
-                        {p.name}
-                        {p.role && <span className="text-sub font-normal ml-2">· {p.role}</span>}
-                      </div>
-                      <div className="text-xs text-sub mt-0.5">
-                        Started {p.startDate} · Day {ageDays} · {completedCount}/
-                        {p.milestones.length} milestones
-                      </div>
-                      {p.description && (
-                        <div className="text-xs text-sub mt-1 whitespace-pre-wrap">
-                          {p.description}
-                        </div>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removePerson(p.id)}
-                      className="text-sub hover:text-danger min-touch-coarse"
-                      aria-label={`Remove ${p.name}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2">
-                    {p.milestones.map((m) => {
-                      const completed = Boolean(m.completedAt);
-                      const status = milestoneStatus(ageDays, m);
-                      const overdue = status === "overdue";
-                      const atRisk = status === "at-risk";
-                      const completedDays = completed
-                        ? daysBetween(p.startDate, m.completedAt!)
-                        : null;
-                      return (
-                        <div
-                          key={m.id}
-                          className={cn(
-                            "rounded-md border p-2",
-                            completed
-                              ? "border-success/40 bg-success/5"
-                              : overdue
-                                ? "border-danger/40 bg-danger/5"
-                                : atRisk
-                                  ? "border-warning/40 bg-warning/5"
-                                  : "border-border bg-bg"
-                          )}
-                        >
-                          <div className="flex items-start gap-2">
-                            <button
-                              type="button"
-                              onClick={() => toggleMilestone(p.id, m.id)}
-                              className={cn(
-                                "mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse",
-                                completed
-                                  ? "bg-success/30 border-success/60 text-success"
-                                  : "border-border bg-surface text-transparent hover:text-sub"
-                              )}
-                              role="checkbox"
-                              aria-checked={completed}
-                              aria-label={`${m.name} (${p.name})`}
-                            >
-                              <Check className="w-3 h-3" />
-                            </button>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                <span className="text-sm font-medium text-text">{m.name}</span>
-                                <span className="text-xs text-sub font-data">
-                                  target {m.targetDays}d
-                                </span>
-                                {completed && completedDays !== null && (
-                                  <span className="text-xs text-success font-data">
-                                    done in {completedDays}d
-                                  </span>
-                                )}
-                                {!completed && overdue && (
-                                  <span className="text-xs text-danger font-data">overdue</span>
-                                )}
-                                {!completed && atRisk && !overdue && (
-                                  <span className="text-xs text-warning font-data">at risk</span>
-                                )}
-                              </div>
-                              {/* BUG-T5-onboarding-tracker-3:
-                                  commit on blur instead of every
-                                  keystroke. The prior pattern wrote
-                                  to localStorage per character. */}
-                              <BlurInput
-                                value={m.notes ?? ""}
-                                onCommit={(v) => updateNote(p.id, m.id, v)}
-                                placeholder="Note (optional)"
-                                className="mt-1 bg-surface border-border h-7 text-xs"
-                                aria-label={`Note for ${m.name} (${p.name})`}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+          {onboardees.map((p) => (
+            <PersonCard
+              key={p.id}
+              person={p}
+              today={today}
+              onRoster={Boolean(memberFor(roster, p.memberId, p.name))}
+              offerAddToRoster={!preview}
+              onToggle={(m) => toggleMilestone(p, m)}
+              onPatchMilestone={(m, patch) => patchMilestone(p, m.id, patch)}
+              onSaveDetails={(values) => saveDetails(p, values)}
+              onAddToRoster={() => linkToRoster(p)}
+              onRemove={() => removePerson(p)}
+            />
+          ))}
         </div>
       )}
 
-      {/* Ramp curve */}
-      {onboardees.length > 0 && rampCurveData.length > 0 && (
-        <Card className="bg-surface border-border">
-          <CardContent className="p-4">
-            <div className="text-sm font-semibold text-text mb-3 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-accent" />
-              Avg ramp curve (milestones completed over time)
-            </div>
-            <div className="h-64 -mx-2">
-              <RampCurveChart data={rampCurveData} />
-            </div>
-          </CardContent>
-        </Card>
+      {onboardees.length > 0 && (
+        <SectionCard
+          title="Ramp curve (milestones reached over time)"
+          icon={TrendingUp}
+          className="mb-4"
+        >
+          {rampHasPoint ? (
+            <ChartFigure
+              label="Ramp curve"
+              summary={rampChart.summary}
+              table={rampChart.table}
+              caption="Average milestones reached by day"
+              plotClassName="h-64 -mx-2"
+            >
+              <RampCurveChart data={ramp} />
+            </ChartFigure>
+          ) : (
+            <NotEnoughData
+              have={mostReached}
+              need="average"
+              unit={["new joiner", "new joiners"]}
+              what="the ramp curve (each day counts the people who have reached it)"
+            />
+          )}
+          <p className="mt-3 text-xs text-sub">
+            Time to first PR: {markStatText(stats.firstPr)}. Time to productivity:{" "}
+            {markStatText(stats.productive)}.
+          </p>
+        </SectionCard>
       )}
+
+      <TemplateSection
+        templates={templates}
+        custom={customTemplates}
+        note={
+          preview
+            ? "While the example is shown, edits here change the example's copy of the template, not yours."
+            : undefined
+        }
+        onChange={writeTemplates}
+        onRestoreBuiltIns={restoreBuiltIns}
+        onRestoreUndo={undoRestoreBuiltIns}
+      />
     </ToolPageWrapper>
   );
 }

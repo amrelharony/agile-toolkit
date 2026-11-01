@@ -142,6 +142,8 @@ export interface Story {
   readiness?: StoryReadiness;
   /** The roadmap epic this story belongs to (Epic Roadmap rolls progress up from it). */
   epicId?: string;
+  /** Definition-of-Done checks ticked on the Sprint board card (absent: none ticked). */
+  dodChecks?: StoryDodChecks;
 }
 
 /**
@@ -152,6 +154,18 @@ export interface Story {
 export interface StoryReadiness {
   checked: string[];
   ready: boolean;
+  updatedAt: ISODateString;
+}
+
+/**
+ * Which Definition-of-Done criteria a story meets, ticked on its Sprint
+ * board card. Whether it meets the DoD is derived, never stored: against
+ * the team's required criteria as they are today (`DefinitionOfDone`), so
+ * an id no longer in the DoD is ignored and a new criterion starts unticked.
+ */
+export interface StoryDodChecks {
+  /** Ids of the DoD criteria met. */
+  checked: string[];
   updatedAt: ISODateString;
 }
 
@@ -741,14 +755,35 @@ export type CharterRuleCategory =
   | "conflict"
   | "other";
 
+/** The working agreement's one document id. */
+export const WORKING_AGREEMENT_ID = "workingAgreement:current";
+
+/** How one person answered a rule: consent, a concern they can live with, or an objection. */
+export type CharterConsentVote = "consent" | "concern" | "object";
+
+/** One person's answer to a rule (one per person, matched by name). */
+export interface CharterConsent {
+  /** The roster spelling when the person is on the team, else as typed. */
+  name: string;
+  vote: CharterConsentVote;
+  note?: string;
+  at: ISODateString;
+}
+
 export interface CharterRule {
   id: string;
   category: CharterRuleCategory;
   text: string;
+  /** Who agreed. Once `consent` is present it is derived from it (the names
+   *  with vote "consent"), so the charter and older readers keep working. */
   agreedBy: string[];
   description?: string;
-  /** Adoption check-in: is the rule still working in practice? */
-  stillWorking?: boolean;
+  /** The draft of the check-in in progress: is the rule still working in
+   *  practice? true, false, or "partly" (kept some of the time, or by some
+   *  of the team). Saved rounds are kept in `WorkingAgreement.checkIns`. */
+  stillWorking?: boolean | "partly";
+  /** Each person's answer; the source of truth for `agreedBy` once present. */
+  consent?: CharterConsent[];
 }
 
 export interface CharterMeta {
@@ -758,10 +793,49 @@ export interface CharterMeta {
   description?: string;
 }
 
+/** How a rule went in a check-in; "partly" counts as half in adherence. */
+export type CharterCheckInResult = "working" | "partly" | "not_working";
+
+/** One saved adoption check-in: how each rule is working, as of `date`. */
+export interface CharterCheckIn {
+  id: string;
+  /** YYYY-MM-DD (can be backdated). */
+  date: ISODateString;
+  sprintId?: string;
+  /** The `meta.version` the team checked. */
+  version: number;
+  /** Rule id → result; a rule left out was skipped. */
+  results: Record<string, CharterCheckInResult>;
+  /** Each checked rule's text at the time, so a later rewording doesn't rewrite history. */
+  ruleTexts?: Record<string, string>;
+  note?: string;
+}
+
+/** A rule as it read in a published version. */
+export interface CharterVersionRule {
+  id: string;
+  category: CharterRuleCategory;
+  text: string;
+  description?: string;
+}
+
+/** A published version of the agreement, kept so versions can be compared. */
+export interface CharterVersion {
+  version: number;
+  publishedAt: ISODateString;
+  teamName?: string;
+  description?: string;
+  rules: CharterVersionRule[];
+}
+
 export interface WorkingAgreement {
   id: string;
   rules: CharterRule[];
   meta: CharterMeta;
+  /** Saved check-ins, oldest first (the latest 52 are kept). */
+  checkIns?: CharterCheckIn[];
+  /** Published versions, oldest first (the latest 20 are kept). */
+  versions?: CharterVersion[];
 }
 
 export interface LsFavorite {
@@ -2003,6 +2077,55 @@ export interface MoodEntry {
   /** True when created note-first before a face was picked; excluded from
    *  averages/trend until a real score lands. */
   isPlaceholder?: boolean;
+  /** When it was entered (ISO), for a day filled in afterwards; `date` is the
+   *  day it is for. Absent on entries logged on the day. */
+  loggedAt?: ISODateString;
+}
+
+/**
+ * One anonymous team mood pulse: how many people picked each face on a day,
+ * from a vote room or typed in by the facilitator. Only the counts are kept,
+ * never who answered; a person's own named check-in is a `MoodEntry`.
+ */
+export interface MoodPulse {
+  /** "moodPulse_<nanoid(8)>". */
+  id: string;
+  /** YYYY-MM-DD the pulse is for (can be backdated). */
+  date: ISODateString;
+  /** How many picked each face, 1 rough … 5 great. */
+  counts: Record<1 | 2 | 3 | 4 | 5, number>;
+  source: "room" | "facilitator";
+  createdAt: ISODateString;
+}
+
+/** The mood tracker's one document id. */
+export const MOOD_TRACKER_ID = "moodTracker:current";
+
+/**
+ * The `user_entities` kinds the mood settings and the anonymous pulses sync
+ * under, for server-side code (tool.mood_tracker.*, the retro and sprint
+ * comparison loaders). They are what kindFromToolId derives from
+ * workspace.mood_tracker_doc and workspace.mood_pulse and what the store
+ * registers; a kind that differs is one the browser never syncs.
+ */
+export const MOOD_TRACKER_KIND = "workspace:moodTrackerDoc";
+export const MOOD_PULSE_KIND = "workspace:moodPulse";
+
+/** A run of low team-mood days, and where it was sent. */
+export interface MoodStreak {
+  /** YYYY-MM-DD, first and last day of the run. */
+  start: ISODateString;
+  end: ISODateString;
+  sentTo?: HandoffLink[];
+}
+
+/** The mood tracker's settings: how the team checks in, and low-mood runs sent on. */
+export interface MoodTrackerDoc {
+  id: string;
+  /** "named": each person logs their own check-in; "anonymous": team pulses only. */
+  mode: "named" | "anonymous";
+  /** Low-mood streaks that went to the retro (keyed by their start day). */
+  streaks?: MoodStreak[];
 }
 
 export type KanbanColumnId = "backlog" | "ready" | "in_progress" | "review" | "done";
@@ -2170,16 +2293,70 @@ export interface PsychSafetyResponse {
   description?: string;
 }
 
-export interface PsychSafetyLog {
+/** The psych-safety tool's one document id. */
+export const PSYCH_SAFETY_ID = "psychSafety:current";
+
+/** How many answered 1, 2, 3, 4 and 5 to one question, raw (not reversed). */
+export type PsychSafetyCounts = [number, number, number, number, number];
+
+/**
+ * One survey round, as counts per question: from a vote room, typed in by
+ * the facilitator, or folded from the per-response list the tool kept
+ * before rounds ("legacy"). A round holds counts only, nothing per person.
+ */
+export interface PsychSafetyRound {
+  /** "psRound_<nanoid(8)>". */
   id: string;
-  responses: PsychSafetyResponse[];
+  name: string;
+  /** YYYY-MM-DD the round was taken (can be backdated, never in the future). */
+  date: ISODateString;
+  sprintId?: string;
+  source: "room" | "facilitator" | "legacy";
+  /** How many people answered. */
+  responses: number;
+  counts: Record<PsychSafetyQuestionId, PsychSafetyCounts>;
+  createdAt: ISODateString;
+  /** Where the round's lowest question was sent (a retro topic). */
+  sentTo?: HandoffLink[];
 }
 
-/** Agile Maturity Assessment — 8 dimensions scored 1-5 + an improvement target. */
+export interface PsychSafetyLog {
+  id: string;
+  /** The per-response list from before rounds. Nothing moves it into
+   *  `rounds`: `roundsOf` reads it, counts only, as one read-only "legacy"
+   *  round, and it is emptied only when the team deletes that round (the
+   *  deprecated tool.psych_safety.remove_response still drops one sheet).
+   *  New answers are kept only as `rounds`. */
+  responses: PsychSafetyResponse[];
+  /** Saved rounds, oldest first. */
+  rounds?: PsychSafetyRound[];
+}
+
+/** One saved, dated maturity assessment. */
+export interface MaturityAssessmentEntry {
+  id: string;
+  /** YYYY-MM-DD it was taken (can be backdated, never in the future). */
+  assessedAt: ISODateString;
+  /** All 8 dimensions, 1-5. */
+  scores: Record<string, number>;
+  targetLevel?: number;
+  note?: string;
+}
+
+/**
+ * Agile Maturity Assessment — 8 dimensions scored 1-5 + an improvement target.
+ * The team's maturity level (`Workspace.maturityLevel`) comes from the latest
+ * saved entry in `history`; with none, the team is unassessed.
+ */
 export interface MaturityAssessment {
   id: string;
-  scores: Record<string, number>; // dimensionId -> level 1-5
+  /** The draft being scored (dimensionId -> level 1-5); a missing dimension
+   *  is not scored. A legacy doc with scores and no history is an undated
+   *  draft, never counted as an assessment. */
+  scores: Record<string, number>;
   targetLevel: number;
+  /** Saved assessments, oldest first. */
+  history?: MaturityAssessmentEntry[];
 }
 
 /** Spotify-model squad health check dimensions (single source for client + actions). */
@@ -2197,14 +2374,54 @@ export type HealthDimension = (typeof HEALTH_CHECK_DIMENSIONS)[number];
 export type HealthTrafficLight = "green" | "yellow" | "red";
 export type HealthTrend = "up" | "same" | "down";
 
+/** The health check's one document id. */
+export const HEALTH_CHECK_ID = "healthCheck:current";
+
+/** How many people voted each light for a dimension (anonymous counts only). */
+export interface HealthVotes {
+  green: number;
+  yellow: number;
+  red: number;
+}
+
+/** A dimension the team added to the eight built-in ones. */
+export interface HealthCustomDimension {
+  /** "custom-<nanoid(8)>": the key its lights use in `customScores`. */
+  id: string;
+  name: string;
+  description?: string;
+  /** Hidden from new checks; saved checks keep its lights. */
+  archived?: boolean;
+}
+
 export interface HealthDimensionScore {
   light: HealthTrafficLight;
+  /** Stamped at save from the previous saved check, not picked by hand. */
   trend: HealthTrend;
+  /** The vote counts the light came from, when the team voted. */
+  votes?: HealthVotes;
+  /** What the team said about it (up to 500 characters). */
+  note?: string;
+  /** Where this dimension went (a red sent to the retro as a topic). */
+  sentTo?: HandoffLink[];
 }
 
 export interface HealthCheckSnapshot {
   sprintName: string;
   scores: Record<HealthDimension, HealthDimensionScore>;
+  /** The sprint this check is for. */
+  sprintId?: string;
+  /** YYYY-MM-DD to save it under (backdated; never in the future); absent: the day it is saved. */
+  date?: ISODateString;
+  /** Dimension keys rated in this draft (built-in names and custom ids).
+   *  Absent on older drafts, which read yellow and red as rated, green not. */
+  rated?: string[];
+  /** Lights for custom dimensions, by `HealthCustomDimension.id`. */
+  customScores?: Record<string, HealthDimensionScore>;
+  /** How the lights were set: a vote room, or by the facilitator. */
+  source?: "room" | "facilitator";
+  /** How many people voted, for a room round. */
+  responses?: number;
 }
 
 export interface HealthCheckEntry {
@@ -2212,6 +2429,12 @@ export interface HealthCheckEntry {
   sprintName: string;
   date: string;
   scores: Record<HealthDimension, HealthDimensionScore>;
+  /** The sprint it was for (matched before the sprint name). */
+  sprintId?: string;
+  /** Lights for custom dimensions, by `HealthCustomDimension.id`. */
+  customScores?: Record<string, HealthDimensionScore>;
+  source?: "room" | "facilitator";
+  responses?: number;
 }
 
 /** One synced squad-health-check document: the in-progress check + saved history. */
@@ -2219,6 +2442,8 @@ export interface HealthCheck {
   id: string;
   current: HealthCheckSnapshot;
   history: HealthCheckEntry[];
+  /** Dimensions the team added, archived ones included. */
+  customDimensions?: HealthCustomDimension[];
 }
 
 export type SkillProficiency = 0 | 1 | 2 | 3 | 4;
@@ -2232,35 +2457,183 @@ export interface SkillsMatrixSkill {
   id: string;
   name: string;
   description?: string;
+  /** People needed at `targetLevel` or above; unset = no target. */
+  targetPeople?: number;
+  /** The level the target counts from. Default 2 (handles routine work alone). */
+  targetLevel?: 2 | 3 | 4;
 }
-export type SkillsMatrixGrid = Record<string, Record<string, SkillProficiency>>; // skillId -> memberId -> level
+/** skillId -> column id (a TeamMember.id, or a legacy member id) -> level.
+ *  A missing key is Not rated; 0 is rated None (on a version 2 doc). */
+export type SkillsMatrixGrid = Record<string, Record<string, SkillProficiency>>;
+
+/** One cross-training pair: who learns a skill, from whom, up to which level. */
+export interface SkillsTrainingPair {
+  id: string;
+  skillId: string;
+  /** Column id of the learner. */
+  learnerId: string;
+  /** Column id of the mentor; unset = outside help. */
+  mentorId?: string;
+  toLevel: 2 | 3 | 4;
+  createdAt: ISODateString;
+  /** YYYY-MM-DD it should be done by. */
+  due?: ISODateString;
+  /** YYYY-MM-DD it was done. */
+  doneAt?: ISODateString;
+}
 
 export interface SkillsMatrix {
   id: string;
+  /** Legacy tool-local people; columns now come from the roster. */
   members: SkillsMatrixMember[];
   skills: SkillsMatrixSkill[];
   grid: SkillsMatrixGrid;
+  /** 2 once the grid tells Not rated (missing) from None (0). Absent on
+   *  older docs, whose 0s read as Not rated. */
+  version?: 2;
+  /** Cross-training pairs, oldest first. */
+  training?: SkillsTrainingPair[];
 }
 
-/** Demo seed shown until the first edit (3 members × 4 skills, all unrated). */
-export function defaultSkillsMatrix(id: string): SkillsMatrix {
-  const members: SkillsMatrixMember[] = [
-    { id: "m1", name: "Alice" },
-    { id: "m2", name: "Bob" },
-    { id: "m3", name: "Carol" },
-  ];
-  const skills: SkillsMatrixSkill[] = [
-    { id: "s1", name: "TypeScript" },
-    { id: "s2", name: "React" },
-    { id: "s3", name: "Node.js" },
-    { id: "s4", name: "CI/CD" },
-  ];
-  const grid: SkillsMatrixGrid = {};
-  for (const s of skills) {
-    grid[s.id] = {};
-    for (const m of members) grid[s.id][m.id] = 0;
-  }
-  return { id, members, skills, grid };
+/** A matrix with nothing in it yet (version 2: a 0 means rated None). */
+export function emptySkillsMatrix(id: string): SkillsMatrix {
+  return { id, members: [], skills: [], grid: {}, version: 2 };
+}
+
+/* ── Definition of Done (singleton) ──
+ * A workspace document, so stories, Release Readiness, the charter, next
+ * steps and agents read the same one. The DoD builder's own cloud blob
+ * ("agile-toolkit:dod-builder") moves in once and stays as the backup. */
+
+/** The Definition of Done's one document id. */
+export const DOD_DOC_ID = "definitionOfDone:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const DOD_KIND = "workspace:definitionOfDone";
+
+export type DodCategory = "code" | "testing" | "docs" | "performance" | "security" | "other";
+
+export interface DodCriterion {
+  id: string;
+  label: string;
+  description?: string;
+  category: DodCategory;
+  /** A story meets the DoD when every required criterion is ticked. */
+  required: boolean;
+  /** @deprecated The team-level tick from before Phase 6. Release Readiness
+   *  falls back to it only for a release with no linked stories. */
+  done?: boolean;
+}
+
+/** A sprint's DoD tally from before Phase 6 (read-only history). */
+export interface DodSnapshot {
+  sprintName: string;
+  totalRequired: number;
+  completed: number;
+  ts: string;
+}
+
+export interface DefinitionOfDone {
+  id: string;
+  items: DodCriterion[];
+  /** Pre-Phase-6 snapshots, read-only. */
+  history: DodSnapshot[];
+}
+
+/* ── RACI matrix (singleton) ──
+ * A workspace document, so it syncs and agents and next steps can read and
+ * write it. The tool's local-only store ("agile-toolkit:raci") moves in once. */
+
+/** The RACI matrix's one document id. */
+export const RACI_ID = "raciMatrix:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const RACI_KIND = "workspace:raciMatrix";
+
+export type RaciLetter = "R" | "A" | "C" | "I";
+
+/** A column of the matrix: one person, or a group role. */
+export interface RaciRole {
+  id: string;
+  name: string;
+  description?: string;
+  /** TeamMember.id when the column is one roster person; absent for a group
+   *  role such as "Dev Team". */
+  memberId?: string;
+}
+
+export interface RaciActivity {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface RaciMatrix {
+  id: string;
+  roles: RaciRole[];
+  activities: RaciActivity[];
+  /** Activity id → role id → letters, normalised to [], [R], [A], [A, R],
+   *  [C] or [I]. A missing cell is empty. */
+  cells: Record<string, Record<string, RaciLetter[]>>;
+}
+
+/* ── ADKAR change initiatives (singleton) ──
+ * A workspace document, so next steps and agents can read it. The tool's own
+ * blob ("agile-toolkit:adkar", a bare list of initiatives) moves in once. */
+
+/** Prosci ADKAR elements, in the order a change moves through them. */
+export const ADKAR_ELEMENTS = [
+  "awareness",
+  "desire",
+  "knowledge",
+  "ability",
+  "reinforcement",
+] as const;
+export type AdkarElement = (typeof ADKAR_ELEMENTS)[number];
+export type AdkarScore = 1 | 2 | 3 | 4 | 5;
+
+/** A group affected by the change, scored per element by the facilitator. */
+export interface AdkarGroup {
+  id: string;
+  name: string;
+  /** A missing element is not scored. */
+  scores: Partial<Record<AdkarElement, AdkarScore>>;
+  /** YYYY-MM-DD the scores were taken. */
+  assessedAt?: ISODateString;
+  note?: string;
+}
+
+/** The day an initiative entered a stage. */
+export interface AdkarStageEntry {
+  stage: AdkarElement;
+  /** YYYY-MM-DD. */
+  enteredAt: ISODateString;
+}
+
+export interface AdkarInitiative {
+  id: string;
+  name: string;
+  owner?: string;
+  /** YYYY-MM-DD. */
+  startDate: ISODateString;
+  description?: string;
+  currentStage: AdkarElement;
+  /** Legacy; derived from `currentStage` from now on. */
+  stagesCompleted?: AdkarElement[];
+  /** Oldest first; entry 0 is { awareness, startDate }. */
+  stageHistory: AdkarStageEntry[];
+  groups?: AdkarGroup[];
+}
+
+/** The ADKAR tool's one document id. */
+export const ADKAR_DOC_ID = "adkar:current";
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const ADKAR_KIND = "workspace:adkarDoc";
+
+export interface AdkarDoc {
+  id: string;
+  initiatives: AdkarInitiative[];
 }
 
 /**
@@ -2392,6 +2765,17 @@ export interface Workspace {
   skillsMatrices?: SkillsMatrix[];
   pokerEstimationLogs?: PokerEstimationLog[];
   pokerRounds?: PokerRound[];
+  // Phase 6 — Team & people (singleton docs, except mood pulses)
+  /** One `DefinitionOfDone`, id `DOD_DOC_ID`. */
+  definitionsOfDone?: DefinitionOfDone[];
+  /** One `RaciMatrix`, id `RACI_ID`. */
+  raciMatrices?: RaciMatrix[];
+  /** One `AdkarDoc`, id `ADKAR_DOC_ID`. */
+  adkarDocs?: AdkarDoc[];
+  /** One `MoodTrackerDoc`, id `MOOD_TRACKER_ID`. */
+  moodTrackerDocs?: MoodTrackerDoc[];
+  /** Anonymous team mood pulses (counts only). */
+  moodPulses?: MoodPulse[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -2503,6 +2887,9 @@ export interface Kudos {
   /** Squad profile id when sent to a named guest; lets the recipient's
    *  tab highlight kudos addressed to them. */
   toProfileId?: string;
+  /** TeamMember.id when the recipient was picked from the roster, so a
+   *  later rename still counts the kudos for the same person. */
+  toMemberId?: string;
   /** Sender display name — owner email/display_name or guest profile name. */
   fromName: string;
   /** Squad profile id when guest-authored; null for owner-authored. */
@@ -2633,6 +3020,12 @@ export const emptyWorkspace = {
   skillsMatrices: [],
   pokerEstimationLogs: [],
   pokerRounds: [],
+  // Phase 6 — Team & people
+  definitionsOfDone: [],
+  raciMatrices: [],
+  adkarDocs: [],
+  moodTrackerDocs: [],
+  moodPulses: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

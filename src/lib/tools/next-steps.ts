@@ -64,6 +64,76 @@ import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { shipEvents, shippedBetween } from "@/lib/releases/model";
 import { gateResults, releaseChecks } from "@/lib/releases/auto-gates";
 import { flagSummary } from "@/lib/flags/model";
+import { ceremonyDates } from "@/lib/sprints/cadence";
+import { sprintsNewestFirst } from "@/lib/sprints/series";
+import { dayNumber } from "@/lib/flow/days";
+import { isRecognition, listNames, sentIn, sprintWindow } from "@/lib/kudos/recognition";
+import {
+  WA_ID,
+  agreementConsent,
+  dayLabel,
+  lastCheckIn,
+  normalizeAgreement,
+  slippingRun,
+} from "@/lib/working-agreement/model";
+import {
+  DOD_DOC_ID,
+  dodAdherence,
+  normalizeDefinitionOfDone,
+  requiredCriteria,
+} from "@/lib/dod/model";
+import { RACI_ID, activityIssues, loadWarnings, normalizeRaci } from "@/lib/raci/model";
+import {
+  SKILLS_MATRIX_ID,
+  matrixColumns,
+  normalizeSkillsMatrix,
+  openTraining,
+  realRoster,
+  skillCoverage,
+} from "@/lib/skills/coverage";
+import {
+  MATURITY_ID,
+  latestAssessment,
+  roadmapCards,
+  roadmapFor,
+  roadmapTitle,
+  targetOf,
+} from "@/lib/maturity/assessment";
+import {
+  ADKAR_DOC_ID,
+  ELEMENT_LABEL,
+  daysInStage,
+  initiativeBarrier,
+  normalizeAdkarDoc,
+  stageIndex,
+  stuckInitiatives,
+} from "@/lib/adkar/model";
+import {
+  HEALTH_CHECK_ID,
+  QUALITY_DIMENSIONS,
+  checksByDate,
+  entryShare,
+  healthCheckFor,
+  redDimensions,
+  scoreOf,
+  sharePct,
+} from "@/lib/health-check/score";
+import {
+  ANOMALY_DROP,
+  PSYCH_SAFETY_ID,
+  compareRounds,
+  questionMeta,
+  roundResult,
+  roundsOf,
+} from "@/lib/psych-safety/instrument";
+import { MOOD_TRACKER_ID, lowMoodStreak, moodDuring, streakLinks } from "@/lib/team/mood";
+import { fmt } from "@/lib/charts/chart-text";
+import type {
+  AdkarElement,
+  DefinitionOfDone,
+  HandoffLink,
+  RetroBoard,
+} from "@/lib/stores/workspace-types";
 
 export interface NextStep {
   /** Stable id, for keys and tests. */
@@ -145,6 +215,158 @@ const ROLLBACK_LEAD_DAYS = 14;
 
 /** How soon a planned release has to be for a premortem to be the next step. */
 const RELEASE_LEAD_DAYS = 7;
+
+/** MUST match KUDOS_TOOL in app/(tools)/retro/kudos.ts: the tool a kudos card's sourceRef names. */
+const KUDOS_TOOL = "kudos";
+
+/** How soon the Sprint Review has to be for inviting stakeholders to be the next step. */
+const REVIEW_INVITE_LEAD_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** A week of mood check-ins averaging this or lower is worth raising in 1:1s (scores are 1–5). */
+const LOW_MOOD = 2.5;
+
+/** Days after the last check-in (or the first publish) when the working agreement is due one. */
+const AGREEMENT_CHECK_IN_DAYS = 30;
+
+/**
+ * The workspace's Definition of Done, read the way the DoD page reads it.
+ * Until the DoD builder's old blob has moved in (lib/dod/use-definition-of-done:
+ * the owner's first cloud pull, or held by an open merge/discard question),
+ * a page shows the blob while this reads no DoD: a rule can't read the blob.
+ * The gap closes once the move runs.
+ */
+const dodOf = (docs: readonly DefinitionOfDone[] | undefined) =>
+  normalizeDefinitionOfDone((docs ?? []).find((d) => d.id === DOD_DOC_ID));
+
+/** Whole days from `from` to `to` (local days or timestamps); null when either isn't one. */
+function daysFrom(from: string | undefined, to: string): number | null {
+  const a = dayNumber(from);
+  const b = dayNumber(to);
+  return a === null || b === null ? null : b - a;
+}
+
+/**
+ * The sprint whose kudos a retro would open with: the one the current retro
+ * board looks back on, else the newest sprint that has begun. Only sprints
+ * with real dates, so the kudos can be read against their days.
+ */
+function kudosSprint(
+  sprints: readonly Sprint[] | undefined,
+  boardSprintId: string | undefined,
+  today: string
+): Sprint | undefined {
+  const begun = sprintsNewestFirst(real(sprints)).filter((s) => {
+    const window = sprintWindow(s);
+    return s.status !== "cancelled" && window !== null && window.from <= today;
+  });
+  return begun.find((s) => s.id === boardSprintId) ?? begun[0];
+}
+
+/**
+ * Where an item sent to the retro as a topic is now, read from the boards
+ * the way the retro-topic route finds its card (on any board: an archived
+ * retro keeps its cards' ids): on the current retro, on an archived one
+ * (that retro has been held), or nowhere (never sent, or the card was
+ * removed, so it can be sent again).
+ */
+function retroTopicAt(
+  links: readonly HandoffLink[] | undefined,
+  boards: readonly RetroBoard[] | undefined
+): "current" | "held" | null {
+  const link = (links ?? []).find((l) => l.route === "retro-topic");
+  if (!link) return null;
+  let at: "held" | null = null;
+  for (const b of boards ?? []) {
+    if (!(b.cards ?? []).some((c) => c.id === link.targetId)) continue;
+    if (b.id === RETRO_CURRENT_ID && !b.archivedAt) return "current";
+    at = "held";
+  }
+  return at;
+}
+
+/** "24–26 Oct", or "30 Sept–2 Oct" across months: a run of days, as the Mood Tracker writes it. */
+function daySpan(start: string, end: string): string {
+  if (start === end) return dayLabel(start);
+  const [day] = dayLabel(start).split(" ");
+  return start.slice(0, 7) === end.slice(0, 7)
+    ? `${day}–${dayLabel(end)}`
+    : `${dayLabel(start)}–${dayLabel(end)}`;
+}
+
+/** A psych-safety statement scoring under this (the scale's "neither agree nor disagree") is worth a retro. */
+const UNSAFE_BELOW = 3;
+
+/**
+ * Where the weakest maturity dimension is worked on in the toolkit, and the
+ * first thing to do there.
+ */
+const MATURITY_TOOL: Record<string, { href: string; start: string }> = {
+  "scrum-practices": {
+    href: "/ceremony-timer",
+    start: "Run each event to its timebox and agenda in the Ceremony Timer.",
+  },
+  "team-collaboration": {
+    href: "/working-agreement",
+    start: "Agree how the team works together in the Working Agreement.",
+  },
+  "technical-excellence": {
+    href: "/dod-builder",
+    start: "Raise the bar every story has to meet in the Definition of Done.",
+  },
+  "product-management": {
+    href: "/prioritizer",
+    start: "Order the backlog by value in the Prioritizer.",
+  },
+  "metrics-transparency": {
+    href: "/health-dashboard",
+    start: "Put the team's numbers in view on the Health Dashboard.",
+  },
+  "continuous-improvement": {
+    href: "/retro-actions",
+    start: "Follow the retro's actions through in Retro Actions.",
+  },
+  "stakeholder-engagement": {
+    href: "/stakeholder-map",
+    start: "Map who to involve, and how closely, on the Stakeholder Map.",
+  },
+  "agile-culture": { href: "/kudos", start: "Make good work visible with Kudos." },
+};
+
+interface BarrierStep {
+  id: string;
+  href: string;
+  label: (group: string, change: string) => string;
+  /** What the low score means, after "Support scored Desire 2/5: ". */
+  why: string;
+}
+
+const MAKE_THE_CASE: BarrierStep = {
+  id: "adkar-barrier-case",
+  href: "/stakeholder-map",
+  label: (_group, change) => `Plan who explains why “${change}” matters`,
+  why: "the case for the change hasn't landed with them yet.",
+};
+const COACH: BarrierStep = {
+  id: "adkar-barrier-coach",
+  href: "/one-on-one",
+  label: (group, change) => `Coach ${group} one-on-one on “${change}”`,
+  why: "they need training, or practice with support.",
+};
+const RECOGNISE: BarrierStep = {
+  id: "adkar-barrier-recognise",
+  href: "/kudos",
+  label: (group, change) => `Recognise ${group} for sticking with “${change}”`,
+  why: "make the new way of working visible, and thank people for it.",
+};
+
+/** Where an ADKAR barrier is worked on: making the case, coaching, or recognising. */
+const ADKAR_BARRIER_STEP: Record<AdkarElement, BarrierStep> = {
+  awareness: MAKE_THE_CASE,
+  desire: MAKE_THE_CASE,
+  knowledge: COACH,
+  ability: COACH,
+  reinforcement: RECOGNISE,
+};
 
 /**
  * The focus sprint's burn, as Burndown and Burnup chart it: from the board
@@ -565,11 +787,20 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "release-readiness": rule({
-    select: (ws) => ({ readiness: ws.releaseReadinesses, flags: ws.featureFlags }),
-    steps: ({ readiness, flags }) => {
+    select: (ws) => ({
+      readiness: ws.releaseReadinesses,
+      flags: ws.featureFlags,
+      dods: ws.definitionsOfDone,
+      stories: ws.stories,
+    }),
+    steps: ({ readiness, flags, dods, stories }) => {
       const doc = (readiness ?? []).find((d) => d.id === RELEASE_DOC_ID);
       const releases = real(doc?.releases);
       const today = todayIso();
+      // The DoD gate as the page reads it: the workspace DoD (dodOf says
+      // why not the old blob), against the release's linked stories.
+      const dod = (dods ?? []).find((d) => d.id === DOD_DOC_ID) ?? null;
+      const linkable = real(stories);
       const steps: NextStep[] = [];
       const since = addDays(today, -ROLLBACK_LEAD_DAYS) ?? today;
       const rolledBack = releases
@@ -586,9 +817,11 @@ const RULES: Record<string, NextStepRule<object>> = {
       const soon = addDays(today, RELEASE_LEAD_DAYS) ?? today;
       for (const r of releases) {
         if (r.status !== "planning" || r.plannedDate < today || r.plannedDate > soon) continue;
-        const open = gateResults(r, doc, releaseChecks(r, real(flags), null, today)).filter(
-          (g) => !g.passed
-        ).length;
+        const open = gateResults(
+          r,
+          doc,
+          releaseChecks(r, real(flags), dod, today, linkable)
+        ).filter((g) => !g.passed).length;
         if (open === 0) continue;
         steps.push({
           id: "release-premortem",
@@ -991,8 +1224,13 @@ const RULES: Record<string, NextStepRule<object>> = {
 
   // Run the sprint.
   kanban: rule({
-    select: (ws) => ({ sprints: ws.sprints, stories: ws.stories, boards: ws.kanbanBoards }),
-    steps: ({ sprints, stories, boards }) => {
+    select: (ws) => ({
+      sprints: ws.sprints,
+      stories: ws.stories,
+      boards: ws.kanbanBoards,
+      dods: ws.definitionsOfDone,
+    }),
+    steps: ({ sprints, stories, boards, dods }) => {
       const sprint = activeSprint(sprints);
       if (!sprint) {
         // No sprint running: the Flow board is the one in use.
@@ -1045,6 +1283,19 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: `Prepare the review of ${sprint.name}`,
           detail: `All ${plural(planned.length, "story", "stories")} on the board are done.`,
           href: sprintHref("/sprint-review", sprint.id),
+        });
+      }
+      const done = planned.filter((s) => s.status === "done").length;
+      const dod = dodOf(dods);
+      if (done > 0 && requiredCriteria(dod).length === 0) {
+        steps.push({
+          id: "kanban-dod",
+          label:
+            dod.items.length === 0
+              ? "Write a Definition of Done for the board's cards"
+              : "Mark the DoD criteria every story must meet",
+          detail: `${plural(done, "story", "stories")} on ${sprint.name}'s board ${be(done)} done with no required criteria to check ${done === 1 ? "it" : "them"} against.`,
+          href: "/dod-builder",
         });
       }
       return steps;
@@ -1454,6 +1705,582 @@ const RULES: Record<string, NextStepRule<object>> = {
           detail:
             "ICE is a quick filter. Put the top few on the backlog and score them with RICE's reach and effort before committing.",
           href: "/rice-scoring",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // Team & people. The pulse tools first: a vote round keeps only totals,
+  // so their steps read team-level numbers (saved checks, rounds of counts,
+  // the team's mood) and never name or single out anyone. One-on-One,
+  // Onboarding and the Stakeholder Map keep their records in the tool's own
+  // saved blob, which a rule can't read: their steps come from the roster,
+  // the sprints and the mood check-ins.
+  "health-check": rule({
+    select: (ws) => ({ docs: ws.healthChecks, boards: ws.retroBoards, sprints: ws.sprints }),
+    steps: ({ docs, boards, sprints }) => {
+      const doc = (docs ?? []).find((d) => d.id === HEALTH_CHECK_ID);
+      // Saved checks only (never the draft), example ones left out.
+      const checks = checksByDate(doc);
+      const latest = checks[checks.length - 1];
+      if (!latest) return [];
+      const steps: NextStep[] = [];
+      const name = latest.sprintName?.trim();
+      const where = name
+        ? `the ${name} check`
+        : `the check of ${dayLabel(latest.date) || "an unknown day"}`;
+      const reds = redDimensions(latest, doc).map((d) => ({
+        name: d.name,
+        at: retroTopicAt(scoreOf(latest, d.key)?.sentTo, boards),
+      }));
+      const unsent = reds.filter((r) => r.at === null);
+      const onBoard = reds.filter((r) => r.at === "current");
+      if (unsent.length > 0) {
+        // The check's own button: "Send N more" once some of its reds are topics.
+        const button =
+          unsent.length === reds.length ? "Send reds to retro" : `Send ${unsent.length} more`;
+        steps.push({
+          id: "health-check-send-reds",
+          label: `Send the ${plural(unsent.length, "red dimension")} to the retro`,
+          detail: `${listNames(unsent.map((r) => r.name))} ${unsent.length === 1 ? "was" : "were"} red in ${where}. “${button}” under Saved checks makes ${unsent.length === 1 ? "it" : "each one"} a topic.`,
+          href: "/health-check",
+        });
+      } else if (onBoard.length > 0) {
+        steps.push({
+          id: "health-check-discuss-reds",
+          label: `Discuss the ${plural(onBoard.length, "red dimension")} at the retro`,
+          detail: `${listNames(onBoard.map((r) => r.name))} from ${where} ${be(onBoard.length)} on the current retro board as ${onBoard.length === 1 ? "a topic" : "topics"}.`,
+          href: "/retro",
+        });
+      }
+      // Sprint Comparison reads Quality from the check it matches to a sprint.
+      const all = real(sprints);
+      const sprint = latest.sprintId ? all.find((s) => s.id === latest.sprintId) : undefined;
+      const others = sprint
+        ? all.filter((s) => s.id !== sprint.id && healthCheckFor(doc, s, all)).length
+        : 0;
+      if (sprint && others > 0) {
+        steps.push({
+          id: "health-check-compare",
+          label: "Compare quality across sprints",
+          detail: `Sprint Comparison suggests ${sprint.name}'s Quality from this check's ${listNames(QUALITY_DIMENSIONS)} lights, next to ${plural(others, "other sprint")} with a check.`,
+          href: sprintHref("/sprint-compare", sprint.id),
+        });
+      }
+      const before = checks[checks.length - 2];
+      const was = sharePct(entryShare(before));
+      const now = sharePct(entryShare(latest));
+      if (steps.length === 0 && was !== null && now !== null) {
+        steps.push({
+          id: "health-check-dashboard",
+          label: "See team health on the Team Dashboard",
+          detail:
+            was === now
+              ? `Health held at ${now}% since the check before.`
+              : `Health went from ${was}% to ${now}% since the check before.`,
+          href: "/health-dashboard",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "psych-safety": rule({
+    select: (ws) => ({ logs: ws.psychSafetyLogs, boards: ws.retroBoards }),
+    steps: ({ logs, boards }) => {
+      const stored = (logs ?? []).find((l) => l.id === PSYCH_SAFETY_ID);
+      // Example rounds and answer sheets left out (a sheet's answers are only
+      // ever counted), behind the guards roundsOf keeps against a malformed log.
+      const sheets = Array.isArray(stored?.responses) ? stored.responses : [];
+      const rounds = roundsOf(
+        stored && { ...stored, responses: sheets.filter((r) => r && !isExampleId(r.id)) }
+      ).filter((r) => !isExampleId(r.id));
+      const latest = rounds[rounds.length - 1];
+      // Below the minimum a round shows nothing, so it suggests nothing either.
+      const result = roundResult(latest);
+      if (!latest || !result) return [];
+      const steps: NextStep[] = [];
+      const previous = rounds[rounds.length - 2];
+      const cmp = compareRounds(previous, latest);
+      const dropped = cmp?.dropped ?? [];
+      const [fell] = dropped;
+      if (previous && fell) {
+        const what =
+          dropped.length === 1
+            ? `“${questionMeta(fell)?.text}”`
+            : `${dropped.length} statements, “${questionMeta(fell)?.text}” most,`;
+        const fact = `${what} fell by more than ${ANOMALY_DROP} since ${previous.name}`;
+        const at = retroTopicAt(latest.sentTo, boards);
+        // The legacy round is read-only: it has nowhere to keep a send.
+        if (at === null && latest.source !== "legacy") {
+          steps.push({
+            id: "psych-safety-send-drop",
+            label: "Send the drop to the retro",
+            detail: `${fact}. Use “Send to…” → “Retro topic (no names)” under Results: the topic names the statements, never who answered what.`,
+            href: "/psych-safety",
+          });
+        } else if (at !== "held") {
+          steps.push({
+            id: "psych-safety-drop",
+            label: "Talk about the drop at the retro",
+            detail:
+              at === "current"
+                ? `${fact}. It's on the current retro board as a topic.`
+                : `${fact}. Talk it through as a team, without asking who answered what.`,
+            href: "/retro",
+          });
+        }
+      }
+      // A statement that fell is raised with the drop already.
+      const low = result.perQuestion.find((q) => q.id === result.lowest);
+      if (
+        low &&
+        low.adjusted !== null &&
+        low.adjusted < UNSAFE_BELOW &&
+        !dropped.includes(low.id)
+      ) {
+        steps.push({
+          id: "psych-safety-lowest",
+          label: "Talk through the lowest-scoring statement at the retro",
+          detail: `“${low.text}” scored ${fmt(low.adjusted, 2)} out of 5${low.reversed ? " (reverse-scored)" : ""} in ${latest.name}. Ask what would make it safer, never who answered what.`,
+          href: "/retro",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "mood-tracker": rule({
+    select: (ws) => ({
+      entries: ws.moodEntries,
+      pulses: ws.moodPulses,
+      docs: ws.moodTrackerDocs,
+      boards: ws.retroBoards,
+      sprints: ws.sprints,
+    }),
+    steps: ({ entries, pulses, docs, boards, sprints }) => {
+      const steps: NextStep[] = [];
+      // Team level only: a streak day needs three check-ins, so it is never one person's mood.
+      const streak = lowMoodStreak(entries, pulses, todayIso());
+      if (streak) {
+        const doc = (docs ?? []).find((d) => d.id === MOOD_TRACKER_ID);
+        const at = retroTopicAt(streakLinks(doc, streak), boards);
+        const fact = `The team averaged ${fmt(streak.average)} out of 5 over ${streak.days} check-in days in a row (${daySpan(streak.start, streak.end)})`;
+        if (at === null) {
+          steps.push({
+            id: "mood-send-streak",
+            label: "Raise the low-mood streak at the retro",
+            detail: `${fact}. Use “Send to…” → “Retro topic (no names)” on the low-mood callout: the topic names no one.`,
+            href: "/mood-tracker",
+          });
+        } else if (at === "current") {
+          steps.push({
+            id: "mood-discuss-streak",
+            label: "Discuss the low-mood streak at the retro",
+            detail: `${fact}. It's on the current retro board as a topic.`,
+            href: "/retro",
+          });
+        }
+      }
+      // Sprint Comparison's Team Happiness reads the same check-ins, pulses included.
+      const sprint = pickDefaultSprint(real(sprints), null);
+      const mood =
+        sprint && sprint.status !== "cancelled" && !hasSyntheticDates(sprint)
+          ? moodDuring(entries, sprint.startDate.slice(0, 10), sprint.endDate.slice(0, 10), pulses)
+          : null;
+      if (sprint && mood && mood.average !== null) {
+        steps.push({
+          id: "mood-sprint-compare",
+          label: "See Team Happiness in Sprint Comparison",
+          detail: `${plural(mood.checkIns, "check-in")} during ${sprint.name} average ${fmt(mood.average)} out of 5: Sprint Comparison suggests its Team Happiness from them.`,
+          href: sprintHref("/sprint-compare", sprint.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
+  kudos: rule({
+    select: (ws) => ({
+      kudos: ws.kudos,
+      boards: ws.retroBoards,
+      sprints: ws.sprints,
+      members: ws.teamMembers,
+    }),
+    steps: ({ kudos, boards, sprints, members }) => {
+      const steps: NextStep[] = [];
+      const today = todayIso();
+      const current = (boards ?? []).find((b) => b.id === RETRO_CURRENT_ID && !b.archivedAt);
+      const sprint = kudosSprint(sprints, current?.sprintId, today);
+      const window = sprint ? sprintWindow(sprint) : null;
+      if (sprint && window) {
+        // A kudos on any retro board, this one or an archived one, was appreciated already.
+        const onBoard = new Set(
+          (boards ?? []).flatMap((b) =>
+            (b.cards ?? []).flatMap((c) =>
+              c.sourceRef?.tool === KUDOS_TOOL ? [c.sourceRef.id] : []
+            )
+          )
+        );
+        const waiting = (kudos ?? []).filter(
+          (k) => isRecognition(k) && sentIn(k, window) && !onBoard.has(k.id)
+        ).length;
+        if (waiting > 0) {
+          const named = current?.sprintId === sprint.id;
+          // The board lists the sprint's kudos in its Write phase only; a
+          // kudos' own "Add to retro" works in any phase.
+          const pastWrite = (current?.phase ?? "write") !== "write";
+          steps.push({
+            id: "kudos-retro",
+            label: `Bring ${waiting} kudos from ${sprint.name} to the retro`,
+            detail: pastWrite
+              ? named
+                ? `The retro is past its Write phase: step back to Write for “Kudos from ${sprint.name}”, or use “Add to retro” on each kudos.`
+                : "The retro is past its Write phase: use “Add to retro” on each kudos."
+              : named
+                ? `They go in the appreciations column: add them from “Kudos from ${sprint.name}” on the board.`
+                : `Pick ${sprint.name} on the retro board to add them to the appreciations column.`,
+            href: "/retro",
+          });
+        }
+      }
+      if (real(members).length === 0) {
+        steps.push({
+          id: "kudos-team",
+          label: "Add your team to see who the kudos reach",
+          detail: "With the roster, Recognition shows who has had kudos lately and who hasn't.",
+          href: "/team",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "one-on-one": rule({
+    select: (ws) => ({ members: ws.teamMembers, mood: ws.moodEntries, pulses: ws.moodPulses }),
+    steps: ({ members, mood, pulses }) => {
+      const steps: NextStep[] = [];
+      const today = todayIso();
+      // Anonymous pulse answers count as check-ins, as on the Mood Tracker.
+      const week = moodDuring(mood, addDays(today, -6) ?? today, today, pulses);
+      if (week.average !== null && week.average <= LOW_MOOD) {
+        steps.push({
+          id: "one-on-one-mood",
+          label: "Look at this week's low mood before your 1:1s",
+          detail: `${plural(week.checkIns, "mood check-in")} this week average ${week.average} out of 5.`,
+          href: "/mood-tracker",
+        });
+      }
+      if (real(members).length === 0) {
+        steps.push({
+          id: "one-on-one-team",
+          label: "Add your reports to the team",
+          detail: "With them on the Team page, each report's cadence and timeline follow them.",
+          href: "/team",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // No capacity step: who is new is in the tool's blob, and a roster
+  // member has no join date, so it would show for every open sprint.
+  "onboarding-tracker": rule({
+    select: (ws) => ({ members: ws.teamMembers }),
+    steps: ({ members }) =>
+      real(members).length === 0
+        ? [
+            {
+              id: "onboarding-team",
+              label: "Add the new joiner to the team",
+              detail:
+                "On the Team page they show up in capacity, standups and their buddy's picker.",
+              href: "/team",
+            },
+          ]
+        : [],
+  }),
+
+  "stakeholder-map": rule({
+    select: (ws) => ({ sprints: ws.sprints, cadences: ws.ceremonyCadences }),
+    steps: ({ sprints, cadences }) => {
+      const sprint = activeSprint(sprints);
+      if (!sprint) return [];
+      const now = new Date();
+      const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+      const review = ceremonyDates(sprint, cadence).find(
+        (o) => o.kind === "review" && o.at.getTime() >= now.getTime()
+      );
+      if (!review || review.at.getTime() - now.getTime() > REVIEW_INVITE_LEAD_MS) return [];
+      return [
+        {
+          id: "stakeholder-review",
+          label: `Invite your key stakeholders to the ${sprint.name} review`,
+          detail: `It's ${whenLabel(review.at, now)}. The ones you manage closely should see the increment and give feedback.`,
+          href: sprintHref("/sprint-review", sprint.id),
+        },
+      ];
+    },
+  }),
+
+  "working-agreement": rule({
+    select: (ws) => ({ docs: ws.workingAgreements, members: ws.teamMembers }),
+    steps: ({ docs, members }) => {
+      const stored = normalizeAgreement((docs ?? []).find((d) => d.id === WA_ID));
+      const doc = { ...stored, rules: real(stored.rules), checkIns: real(stored.checkIns) };
+      const steps: NextStep[] = [];
+      const today = todayIso();
+      const last = lastCheckIn(doc);
+      if (last) {
+        // Rules the last round found not working, still in the agreement, longest run first.
+        // The run counts rounds that found it not working: a "partly" round before them ends it.
+        const failing = doc.rules
+          .filter((r) => last.results[r.id] === "not_working")
+          .map((r) => {
+            const run = slippingRun(doc, r.id);
+            const partly = run.indexOf("partly");
+            return { rule: r, streak: partly < 0 ? run.length : partly };
+          })
+          .sort((a, b) => b.streak - a.streak);
+        const [worst] = failing;
+        if (worst) {
+          const more = failing.length - 1;
+          steps.push({
+            id: "working-agreement-retro",
+            label: `Talk through the ${plural(failing.length, "rule")} not working at the retro`,
+            detail: `The ${dayLabel(last.date)} check-in found “${worst.rule.text.trim()}” not working${
+              worst.streak >= 2 ? ` (${worst.streak} check-ins in a row)` : ""
+            }${more > 0 ? `, and ${plural(more, "other rule")}` : ""}.`,
+            href: "/retro",
+          });
+        }
+      }
+      const missing =
+        doc.rules.length > 0 ? agreementConsent(doc, real(members)).missingPeople : [];
+      if (missing.length > 0) {
+        steps.push({
+          id: "working-agreement-consent",
+          label: `Ask ${plural(missing.length, "teammate")} for consent to the working agreement`,
+          detail: `${listNames(missing)} ${missing.length === 1 ? "hasn't" : "haven't"} answered every rule yet.`,
+          href: "/working-agreement",
+        });
+      }
+      // Due a round some time after the last one, or after it was first published.
+      const published = doc.meta.version > 0 ? doc.meta.publishedAt : undefined;
+      const since = last?.date ?? doc.versions?.[0]?.publishedAt ?? published;
+      const age = published ? daysFrom(since, today) : null;
+      if (age !== null && age >= AGREEMENT_CHECK_IN_DAYS) {
+        steps.push({
+          id: "working-agreement-check-in",
+          label: "Check in on the working agreement",
+          detail: last
+            ? `The last check-in was ${age} days ago. Is each rule still working?`
+            : `It was published ${age} days ago and hasn't had a check-in yet. Is each rule working?`,
+          href: "/working-agreement",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "dod-builder": rule({
+    select: (ws) => ({ dods: ws.definitionsOfDone, stories: ws.stories, sprints: ws.sprints }),
+    steps: ({ dods, stories, sprints }) => {
+      const doc = dodOf(dods);
+      const sprint = pickDefaultSprint(real(sprints), null);
+      const adherence = dodAdherence(stories ?? [], doc, sprint?.id);
+      if (requiredCriteria(doc).length === 0) {
+        return adherence.done === 0
+          ? []
+          : [
+              {
+                id: "dod-required",
+                label:
+                  doc.items.length === 0
+                    ? "Write your Definition of Done"
+                    : "Mark the criteria every story must meet",
+                detail: `${plural(adherence.done, "story", "stories")}${sprint ? ` in ${sprint.name}` : ""} ${adherence.done === 1 ? "is" : "are"} done with nothing required to check ${adherence.done === 1 ? "it" : "them"} against.`,
+                href: "/dod-builder",
+              },
+            ];
+      }
+      const [first] = adherence.missing;
+      if (!sprint || !first) return [];
+      const more = adherence.missing.length - 1;
+      return [
+        {
+          id: "dod-missing",
+          label: `Check the ${plural(adherence.missing.length, "done story", "done stories")} that miss the DoD`,
+          detail: `In ${sprint.name}, “${first.title.trim() || "an untitled story"}” still needs ${listNames(first.open)}${
+            more > 0
+              ? `, and ${plural(more, "other story", "other stories")} need${more === 1 ? "s" : ""} ticks too`
+              : ""
+          }.`,
+          href: sprintHref("/kanban", sprint.id),
+        },
+      ];
+    },
+  }),
+
+  raci: rule({
+    select: (ws) => ({ matrices: ws.raciMatrices }),
+    steps: ({ matrices }) => {
+      const stored = normalizeRaci((matrices ?? []).find((m) => m.id === RACI_ID));
+      // Example rows out; their cells are never read once the rows are gone.
+      const m = { ...stored, roles: real(stored.roles), activities: real(stored.activities) };
+      const steps: NextStep[] = [];
+      const issues = activityIssues(m);
+      if (issues.length > 0) {
+        const n = new Set(issues.map((i) => i.activityId)).size;
+        steps.push({
+          id: "raci-issues",
+          label: `Give ${plural(n, "activity", "activities")} one Accountable and someone Responsible`,
+          detail: issues[0].message,
+          href: "/raci",
+        });
+      }
+      const load = loadWarnings(m).find((w) => w.kind === "accountable_load");
+      const role = load && m.roles.find((r) => r.id === load.roleId);
+      if (load && role) {
+        steps.push({
+          id: "raci-accountable-load",
+          label: `Share out some of ${role.name}'s accountability`,
+          detail: `${load.summary}.`,
+          href: "/raci",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  "skills-matrix": rule({
+    select: (ws) => ({ matrices: ws.skillsMatrices, members: ws.teamMembers, sprints: ws.sprints }),
+    steps: ({ matrices, members, sprints }) => {
+      const steps: NextStep[] = [];
+      const roster = realRoster(members);
+      if (roster.length === 0) {
+        steps.push({
+          id: "skills-team",
+          label: "Add your team to rate their skills",
+          detail: "The matrix rates the people on the Team page: each one becomes a column.",
+          href: "/team",
+        });
+      }
+      const doc = normalizeSkillsMatrix((matrices ?? []).find((d) => d.id === SKILLS_MATRIX_ID));
+      const columns = matrixColumns(doc, roster);
+      const pairs = openTraining(doc).filter((p) => !isExampleId(p.id));
+      const paired = new Set(pairs.map((p) => p.skillId));
+      // With one person every skill hangs on them, and there is nobody to pair with.
+      const alone =
+        columns.length < 2
+          ? []
+          : skillCoverage(doc, columns).filter(
+              (c) => c.spof && !paired.has(c.skillId) && !isExampleId(c.skillId)
+            );
+      const [first] = alone;
+      if (first) {
+        const next = nextPlannedSprint(sprints);
+        const more = alone.length - 1;
+        steps.push({
+          id: "skills-pairing",
+          label: `Plan pairing on ${first.name} into the next sprint`,
+          detail: `${first.name} depends on ${first.holders[0]} alone${
+            more > 0 ? `, and ${plural(more, "other skill")} on one person each` : ""
+          }. A pair spreads it before it becomes a blocker.`,
+          href: sprintHref("/sprint-planning", next?.id),
+        });
+      }
+      if (pairs.length > 0) {
+        steps.push({
+          id: "skills-one-on-one",
+          label: `Check progress on ${plural(pairs.length, "cross-training pair")} in 1:1s`,
+          detail:
+            "Talk each learner's progress through with them, and tick a pair off once they reach its level.",
+          href: "/one-on-one",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  maturity: rule({
+    select: (ws) => ({ docs: ws.maturityAssessments, boards: ws.retroBoards }),
+    steps: ({ docs, boards }) => {
+      const stored = (docs ?? []).find((d) => d.id === MATURITY_ID);
+      const doc = stored && { ...stored, history: real(stored.history) };
+      const latest = latestAssessment(doc);
+      if (!latest) return [];
+      const steps: NextStep[] = [];
+      const roadmap = roadmapFor(latest, targetOf(doc)).map((step) => ({
+        step,
+        cards: roadmapCards(boards, step.key).filter((c) => !isExampleId(c.id)),
+      }));
+      const open = roadmap.filter((r) => r.cards.length > 0 && !r.cards.some((c) => c.done));
+      if (open.length > 0) {
+        steps.push({
+          id: "maturity-follow-up",
+          label: `Follow up ${plural(open.length, "maturity step")} in Retro Actions`,
+          detail: `Sent from the roadmap and not done yet, starting with “${roadmapTitle(open[0].step)}”.`,
+          href: "/retro-actions",
+        });
+      }
+      // The weakest dimension not sent to the retro yet (roadmapFor orders weakest first).
+      const weakest = roadmap.find((r) => r.cards.length === 0)?.step;
+      const tool = weakest && MATURITY_TOOL[weakest.dimensionId];
+      if (weakest && tool) {
+        // A weaker one already sent (its card perhaps done) still heads the roadmap.
+        const lowest = weakest.current === roadmap[0].step.current;
+        steps.push({
+          id: "maturity-weakest",
+          label: `Work on ${weakest.name} (level ${weakest.current})`,
+          detail: `It's the weakest dimension ${lowest ? "in the latest assessment" : "not sent to the retro yet"}. ${tool.start}`,
+          href: tool.href,
+        });
+      }
+      return steps;
+    },
+  }),
+
+  adkar: rule({
+    select: (ws) => ({ docs: ws.adkarDocs }),
+    steps: ({ docs }) => {
+      const today = todayIso();
+      const initiatives = real(
+        normalizeAdkarDoc(
+          (docs ?? []).find((d) => d.id === ADKAR_DOC_ID),
+          today
+        ).initiatives
+      );
+      const steps: NextStep[] = [];
+      // The earliest barrier across the changes (then the lowest score): later elements wait on it.
+      const held = initiatives
+        .flatMap((i) => {
+          const b = initiativeBarrier(i);
+          return b ? [{ i, b }] : [];
+        })
+        .sort((x, y) => stageIndex(x.b.element) - stageIndex(y.b.element) || x.b.score - y.b.score);
+      const [worst] = held;
+      if (worst) {
+        const how = ADKAR_BARRIER_STEP[worst.b.element];
+        const group = worst.b.groupName.trim();
+        steps.push({
+          id: how.id,
+          label: how.label(group || "the group", worst.i.name),
+          detail: `${group || "The group"} scored ${ELEMENT_LABEL[worst.b.element]} ${worst.b.score}/5: ${how.why}`,
+          href: how.href,
+        });
+      }
+      // Stuck with no barrier to work on: the team has to find out what holds it.
+      const [stuck] = stuckInitiatives(initiatives, today)
+        .filter((i) => !initiativeBarrier(i))
+        .sort((a, b) => daysInStage(b, today) - daysInStage(a, today));
+      if (stuck) {
+        steps.push({
+          id: "adkar-stuck",
+          label: `Talk about “${stuck.name}” at the retro`,
+          detail: `It has been at ${ELEMENT_LABEL[stuck.currentStage]} for ${daysInStage(stuck, today)} days. Ask what's holding it.`,
+          href: "/retro",
         });
       }
       return steps;

@@ -6,7 +6,8 @@ import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { KanbanCard, Sprint, Story } from "@/lib/stores/workspace-types";
+import type { DodCriterion, KanbanCard, Sprint, Story } from "@/lib/stores/workspace-types";
+import { DOD_DOC_ID } from "@/lib/dod/model";
 import { SELECTED_SPRINT_KEY, resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { storyProgress } from "@/lib/sprints/progress";
 import { percentile } from "@/lib/sprints/metrics";
@@ -93,6 +94,7 @@ import {
   closedBoardNote,
   columnEnteredAt,
   daysInColumn,
+  doneMissingDod,
   isClosedSprint,
   moveMessage,
   revertMove,
@@ -450,6 +452,56 @@ describe("sprint board verdict", () => {
     ).toBe("1 of 2 stories done; 2 stories have no estimate yet.");
   });
 
+  it("on a closed sprint, says how it ended, with nothing left to do", () => {
+    // Its board is read-only: no "first" or "yet" for a story nobody can move.
+    const closedVerdict = (
+      stories: Story[],
+      status: Sprint["status"] = "completed",
+      limits = LIMITS
+    ) => {
+      const cols = storiesByColumn(stories, "s7");
+      return sprintBoardVerdict(
+        sprint({ status }),
+        storyProgress(stories, "s7"),
+        sprintBreaches(cols, limits)
+      );
+    };
+    const base = [
+      story("a", "A", { status: "done", points: 2 }),
+      story("b", "B", { status: "in_progress", points: 5 }),
+      story("c", "C", { status: "todo", points: 3 }),
+    ];
+    const blocked = [
+      ...base.slice(0, 2),
+      story("c", "C", { status: "todo", blocked: true, points: 3 }),
+    ];
+    expect(closedVerdict(blocked)).toBe("2 of 10 points done (20%); 1 story was still blocked.");
+    expect(
+      closedVerdict(
+        [...blocked, story("d", "D", { status: "review", blocked: true, points: 1 })],
+        "cancelled"
+      )
+    ).toBe("2 of 11 points done (18%); 2 stories were still blocked.");
+    expect(
+      closedVerdict([...base, story("d", "D", { status: "in_progress", points: 1 })], "completed", {
+        ...LIMITS,
+        in_progress: 1,
+      })
+    ).toBe("2 of 11 points done (18%); In progress ended over its WIP limit.");
+    expect(closedVerdict([...base, story("d", "D", { status: "todo" })])).toBe(
+      "2 of 10 points done (20%); 1 story had no estimate."
+    );
+    expect(closedVerdict([story("a", "A", { status: "todo", points: 3 })], "cancelled")).toBe(
+      "0 of 3 points done (0%); nothing was started."
+    );
+    expect(closedVerdict([])).toBe("Sprint 7 ended with no stories.");
+    expect(closedVerdict(base)).toBe("2 of 10 points done (20%).");
+    // An open sprint still says what to do.
+    expect(closedVerdict(blocked, "planned")).toBe(
+      "2 of 10 points done (20%); 1 story is blocked, so unblock it first."
+    );
+  });
+
   it("handles huge numbers", () => {
     expect(
       verdict([
@@ -457,6 +509,178 @@ describe("sprint board verdict", () => {
         story("b", "B", { status: "in_progress", points: 3_000_000 }),
       ])
     ).toBe("1000000 of 4000000 points done (25%).");
+  });
+});
+
+describe("the Definition of Done in the sprint board verdict", () => {
+  const DOD: DodCriterion[] = [
+    { id: "rev", label: "Code reviewed", category: "code", required: true },
+    { id: "ci", label: "Tests pass in CI", category: "testing", required: true },
+    { id: "doc", label: "Docs updated", category: "docs", required: false },
+  ];
+  const ticked = (...checked: string[]): Partial<Story> => ({
+    dodChecks: { checked, updatedAt: ago(1) },
+  });
+  const verdict = (stories: Story[], dod = DOD, limits = LIMITS) => {
+    const cols = storiesByColumn(stories, "s7");
+    return sprintBoardVerdict(
+      sprint(),
+      storyProgress(stories, "s7"),
+      sprintBreaches(cols, limits),
+      doneMissingDod(cols.done, { items: dod }).length
+    );
+  };
+  const base = () => [
+    story("a", "A", { status: "done", points: 2 }),
+    story("b", "B", { status: "in_progress", points: 5 }),
+    story("c", "C", { status: "todo", points: 3 }),
+  ];
+
+  afterEach(() => {
+    useWorkspaceStore.setState({ definitionsOfDone: [] });
+  });
+
+  it("finds the done stories with a required criterion still open", () => {
+    const stories = [
+      // Optional criteria don't count, and a ticked id no longer in the DoD is ignored.
+      story("a", "A", { status: "done", ...ticked("rev", "ci") }),
+      story("b", "B", { status: "done", ...ticked("rev") }),
+      story("c", "C", { status: "done" }),
+      story("d", "D", { status: "review" }),
+      story("e", "E", { status: "done", ...ticked("rev", "ci", "gone") }),
+    ];
+    expect(doneMissingDod(stories, { items: DOD }).map((s) => s.id)).toEqual(["b", "c"]);
+    // Nothing required: nothing to miss.
+    expect(doneMissingDod(stories, { items: [DOD[2]] })).toEqual([]);
+    expect(doneMissingDod(stories, { items: [] })).toEqual([]);
+  });
+
+  it("names done stories that miss it, after blocked stories and WIP, before estimates", () => {
+    expect(verdict(base())).toBe(
+      "2 of 10 points done (20%); 1 done story doesn't meet the DoD yet."
+    );
+    expect(verdict([...base(), story("d", "D", { status: "done", points: 1 })])).toBe(
+      "3 of 11 points done (27%); 2 done stories don't meet the DoD yet."
+    );
+    // No DoD, or every done story meets it: no caveat.
+    expect(verdict(base(), [])).toBe("2 of 10 points done (20%).");
+    expect(
+      verdict([
+        story("a", "A", { status: "done", points: 2, ...ticked("rev", "ci") }),
+        ...base().slice(1),
+      ])
+    ).toBe("2 of 10 points done (20%).");
+    // A blocked story or a column over its limit needs the team first.
+    expect(
+      verdict([
+        ...base().slice(0, 2),
+        story("c", "C", { status: "todo", blocked: true, points: 3 }),
+      ])
+    ).toBe("2 of 10 points done (20%); 1 story is blocked, so unblock it first.");
+    expect(
+      verdict([...base(), story("d", "D", { status: "in_progress", points: 1 })], DOD, {
+        ...LIMITS,
+        in_progress: 1,
+      })
+    ).toBe(
+      "2 of 11 points done (18%); In progress is over its WIP limit, so finish something before starting more."
+    );
+    // Before an unestimated story.
+    expect(verdict([...base(), story("d", "D", { status: "todo" })])).toBe(
+      "2 of 10 points done (20%); 1 done story doesn't meet the DoD yet."
+    );
+  });
+
+  it("still says so when every story is done", () => {
+    expect(
+      verdict([
+        story("a", "A", { status: "done", points: 3, ...ticked("rev", "ci") }),
+        story("b", "B", { status: "done", points: 5 }),
+      ])
+    ).toBe("Every story in Sprint 7 is done: 8 points, but 1 doesn't meet the DoD yet.");
+    expect(
+      verdict([story("a", "A", { status: "done" }), story("b", "B", { status: "done" })])
+    ).toBe("Every story in Sprint 7 is done, but 2 don't meet the DoD yet.");
+    expect(verdict([story("a", "A", { status: "done", points: 3, ...ticked("rev", "ci") })])).toBe(
+      "Every story in Sprint 7 is done: 3 points."
+    );
+  });
+
+  it("on a closed sprint, says its done stories didn't meet it, with no 'yet'", () => {
+    // Its board is read-only, DoD checklists included: nothing is left to tick.
+    const closedVerdict = (stories: Story[], status: Sprint["status"]) => {
+      const cols = storiesByColumn(stories, "s7");
+      return sprintBoardVerdict(
+        sprint({ status }),
+        storyProgress(stories, "s7"),
+        sprintBreaches(cols, LIMITS),
+        doneMissingDod(cols.done, { items: DOD }).length
+      );
+    };
+    expect(closedVerdict(base(), "completed")).toBe(
+      "2 of 10 points done (20%); 1 done story didn't meet the DoD."
+    );
+    expect(
+      closedVerdict([...base(), story("d", "D", { status: "done", points: 1 })], "cancelled")
+    ).toBe("3 of 11 points done (27%); 2 done stories didn't meet the DoD.");
+    expect(
+      closedVerdict(
+        [
+          story("a", "A", { status: "done", points: 3, ...ticked("rev", "ci") }),
+          story("b", "B", { status: "done", points: 5 }),
+        ],
+        "completed"
+      )
+    ).toBe("Every story in Sprint 7 is done: 8 points, but 1 didn't meet the DoD.");
+    expect(
+      closedVerdict(
+        [story("a", "A", { status: "done" }), story("b", "B", { status: "done" })],
+        "cancelled"
+      )
+    ).toBe("Every story in Sprint 7 is done, but 2 didn't meet the DoD.");
+    // A planned sprint can still be fixed.
+    expect(closedVerdict(base(), "planned")).toBe(
+      "2 of 10 points done (20%); 1 done story doesn't meet the DoD yet."
+    );
+    // The board's header and its export read the same.
+    const line = "2 of 10 points done (20%); 1 done story didn't meet the DoD.";
+    expect(
+      sprintBoardMarkdown(
+        { sprint: sprint({ status: "completed" }), stories: base(), wipLimits: LIMITS, dod: DOD },
+        NOW
+      )
+    ).toContain(line);
+    seed({ sprints: [sprint({ status: "completed" })], stories: base() });
+    useWorkspaceStore.setState({
+      definitionsOfDone: [{ id: DOD_DOC_ID, items: DOD, history: [] }],
+    });
+    window.history.replaceState(null, "", "/kanban?sprint=s7");
+    renderBoard();
+    expect(screen.getByText(line)).toBeInTheDocument();
+    expect(exported()).toContain(line);
+  });
+
+  it("reads the same in the board's header and its Markdown export", () => {
+    const stories = [
+      story("a", "Pay by card", { status: "done", points: 2 }),
+      story("b", "Receipts", { status: "todo", points: 3 }),
+    ];
+    const line = "2 of 5 points done (40%); 1 done story doesn't meet the DoD yet.";
+    expect(
+      sprintBoardMarkdown({ sprint: sprint(), stories, wipLimits: LIMITS, dod: DOD }, NOW)
+    ).toContain(line);
+    // Without the DoD passed in, the export has nothing to check against.
+    expect(sprintBoardMarkdown({ sprint: sprint(), stories, wipLimits: LIMITS }, NOW)).toContain(
+      "2 of 5 points done (40%)."
+    );
+
+    seed({ stories });
+    useWorkspaceStore.setState({
+      definitionsOfDone: [{ id: DOD_DOC_ID, items: DOD, history: [] }],
+    });
+    renderBoard();
+    expect(screen.getByText(line)).toBeInTheDocument();
+    expect(exported()).toContain(line);
   });
 });
 
@@ -765,11 +989,20 @@ describe("sprint board", () => {
   it("opens a completed sprint read-only: no moves, flags, owner edits or limits", () => {
     seed({
       sprints: [sprint({ status: "completed" })],
-      stories: [...stories(), story("o", "Saved cards", { status: "review", owner: "Ben" })],
+      stories: [
+        ...stories(),
+        story("o", "Saved cards", { status: "review", owner: "Ben", blocked: true }),
+      ],
     });
     window.history.replaceState(null, "", "/kanban?sprint=s7");
     renderBoard();
     expect(screen.getByText(closedBoardNote(sprint({ status: "completed" })))).toBeInTheDocument();
+    // Its header says how it ended, not what to do next.
+    expect(
+      screen.getByText(/; 1 story was still blocked\.$/, { selector: "p" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/unblock/)).toBeNull();
+    expect(exported()).toContain("; 1 story was still blocked.");
     expect(screen.getByText("Pay by card")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Move to…/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Flag blocked/ })).toBeNull();
@@ -793,6 +1026,8 @@ describe("sprint board", () => {
     window.history.replaceState(null, "", "/kanban?sprint=s7");
     renderBoard();
     expect(screen.getByText("No stories were planned into Sprint 7.")).toBeInTheDocument();
+    expect(screen.getByText("Sprint 7 ended with no stories.")).toBeInTheDocument();
+    expect(screen.queryByText(/planned into Sprint 7 yet/)).toBeNull();
     expect(screen.queryByRole("link", { name: /Plan stories into/ })).toBeNull();
   });
 

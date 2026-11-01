@@ -132,6 +132,7 @@ function impedimentsLine(f: RetroFacts, recorded: boolean): Omit<FactLine, "href
 
 function moodLine(f: RetroFacts): Omit<FactLine, "href" | "tool"> {
   const { average, checkIns, people } = f.mood;
+  const anonymous = f.mood.anonymous ?? 0;
   const base = { key: "mood" as const, label: "Mood" };
   if (checkIns === 0) return { ...base, sentence: "No mood check-ins this sprint.", missing: true };
   if (average === null) {
@@ -142,9 +143,18 @@ function moodLine(f: RetroFacts): Omit<FactLine, "href" | "tool"> {
       missing: true,
     };
   }
+  // `people` counts only who checked in by name: anonymous pulse answers are
+  // said apart, as Sprint Comparison says them, never as "by 0 people".
+  const named = checkIns - anonymous;
+  const who =
+    anonymous === 0
+      ? ` by ${plural(people, "person", "people")}`
+      : named === 0
+        ? ", all anonymous"
+        : ` (${fmt(anonymous)} anonymous, ${fmt(named)} by ${plural(people, "person", "people")})`;
   return {
     ...base,
-    sentence: `Average mood ${fmt(average)} out of 5, from ${plural(checkIns, "check-in")} by ${plural(people, "person", "people")}.`,
+    sentence: `Average mood ${fmt(average)} out of 5, from ${plural(checkIns, "check-in")}${who}.`,
     missing: false,
   };
 }

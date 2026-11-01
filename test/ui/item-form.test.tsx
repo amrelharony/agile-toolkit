@@ -117,4 +117,44 @@ describe("useItemForm + ItemForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear Size" }));
     expect(screen.getByRole("radio", { name: "3" })).toHaveAttribute("aria-checked", "false");
   });
+
+  it("describes a scale's radio group by its error, as a Field's control", () => {
+    render(<Harness onSave={vi.fn()} />);
+    const size = screen.getByRole("radiogroup", { name: "Size" });
+    expect(size).not.toHaveAttribute("aria-describedby");
+    fireEvent.click(screen.getByRole("button", { name: "Add story" }));
+    expect(size).toHaveAccessibleDescription("Pick a size.");
+    fireEvent.click(screen.getByRole("radio", { name: "3" }));
+    expect(size).not.toHaveAttribute("aria-describedby");
+  });
+});
+
+describe("ScalePicker", () => {
+  it("describes its radio group by the hint and the error, showing them as before", () => {
+    const steps = [{ value: 1 }, { value: 2 }];
+    const { rerender } = render(
+      <ScalePicker
+        label="Impact"
+        steps={steps}
+        value={null}
+        onValueChange={vi.fn()}
+        hint="1 low, 2 high"
+      />
+    );
+    const group = screen.getByRole("radiogroup", { name: "Impact" });
+    expect(group).toHaveAccessibleDescription("1 low, 2 high");
+    rerender(
+      <ScalePicker
+        label="Impact"
+        steps={steps}
+        value={null}
+        onValueChange={vi.fn()}
+        hint="1 low, 2 high"
+        error="Pick an impact."
+      />
+    );
+    expect(group).toHaveAccessibleDescription("1 low, 2 high Pick an impact.");
+    expect(screen.getByText("1 low, 2 high")).toHaveClass("text-xs", "text-sub");
+    expect(screen.getByRole("alert")).toHaveTextContent("Pick an impact.");
+  });
 });

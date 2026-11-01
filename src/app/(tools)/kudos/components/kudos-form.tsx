@@ -13,21 +13,32 @@
  *     read-only so they can sanity-check it. A signed-out visitor has
  *     no such identity, so the parent passes `onFromNameChange` and the
  *     field becomes an editable "Your name" input instead.
+ *   * `rosterRecipients` — the owner's typed recipient is matched to the
+ *     Team roster (and can be added to it, as an explicit click); a guest's
+ *     stays plain text, since the roster in a guest's browser isn't the
+ *     owner's team.
  *
- * Validation mirrors the original HTML's UX (50-word message cap,
- * short word caps on names) with live counters. The Send button is
- * disabled until the form is valid.
+ * Nothing is sent until the draft is valid: a recipient (never picked on
+ * the sender's behalf), a message of 1–50 words, and the short word caps on
+ * names. Send stays enabled; pressing it on an incomplete draft shows what's
+ * missing and focuses the first field to fix. Ctrl/Cmd+Enter in the message
+ * sends.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Send, Download, AlertTriangle, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SectionCard } from "@/components/shared/section-card";
+import { PersonPicker } from "@/components/team/person-picker";
+import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
+import { focusFirstInvalid } from "@/lib/utils/form";
 import type { Kudos, KudosSentiment, KudosTheme } from "@/lib/stores/workspace-types";
 import { KUDOS_THEMES, KUDOS_WORD_LIMITS, countWords } from "../types";
+import { RECIPIENT_MAX, validateKudosDraft } from "../form";
 import { KudosCard } from "./kudos-card";
 import { analyseSentiment } from "@/lib/kudos/llm/sentiment";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
@@ -41,6 +52,9 @@ export interface RecipientOption {
   /** When set, stamps `toProfileId` on the saved Kudos so the recipient's
    *  tab can highlight kudos addressed to them. */
   profileId?: string;
+  /** The roster member (TeamMember.id): stamps `toMemberId`, so a later
+   *  rename on the Team page still counts the kudos for them. */
+  memberId?: string;
   /** Visual hint for the dropdown — "squad" / "team" / "free". */
   source: "squad" | "team" | "free";
 }
@@ -60,6 +74,12 @@ interface Props {
   defaultTeamName?: string;
   /** Recipient options — populated by the parent based on mode. */
   recipients: RecipientOption[];
+  /**
+   * Owner only: a typed recipient is picked with the Team roster's
+   * PersonPicker (suggestions, and an explicit "Add to the team"), and a
+   * name on the roster stamps `toMemberId`.
+   */
+  rosterRecipients?: boolean;
   /** Called when the user clicks Send AND all validations pass. The
    *  parent is responsible for upserting + broadcasting; the form
    *  only builds the Kudos shape. */
@@ -72,10 +92,9 @@ interface Props {
    *  the AI-prompt generator). */
   aiSuggestSlot?: React.ReactNode;
   /**
-   * Phase 3 — predicted recipient (from `usePredictedDefault`). When set
-   * AND the user hasn't picked one yet, the form prefills the To select
-   * with the matching recipient option. Single-shot via
-   * `didAutoSelectRef` so subsequent updates don't clobber a manual pick.
+   * Phase 3 — predicted recipient (from `usePredictedDefault`). Shown as
+   * a "Suggested: X" button while nobody is picked; it never picks the
+   * recipient by itself.
    */
   predictedRecipientId?: string;
   /**
@@ -90,11 +109,8 @@ interface Props {
    * Phase 3 — when the parent's "send to under-recognized X" button
    * fires it bumps a counter via this callback shape: `{recipientId, token}`.
    * The token monotonically increases per click; the form treats a bump
-   * as a forced override of the auto-select latch and snaps the picker
-   * to `recipientId`. A bump that lands BEFORE the user has typed in
-   * the free-text field is safe; one that lands AFTER still wins (the
-   * user explicitly clicked the hint button). Optional — the form
-   * works without it.
+   * as an explicit pick and snaps the picker to `recipientId`. Optional —
+   * the form works without it.
    */
   forcedRecipient?: { id: string; token: number };
 }
@@ -109,6 +125,9 @@ const newKudosId = (): string => {
   return `kud_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 };
 
+const SELECT_CLASS =
+  "h-10 [@media(pointer:coarse)]:h-11 rounded-md bg-surface-deep border border-border px-3 text-sm text-text aria-[invalid=true]:border-danger";
+
 export function KudosForm({
   defaultFromName,
   fromPlaceholder,
@@ -116,6 +135,7 @@ export function KudosForm({
   defaultFromProfileId,
   defaultTeamName,
   recipients,
+  rosterRecipients = false,
   onSubmit,
   onDownload,
   aiSuggestSlot,
@@ -130,48 +150,36 @@ export function KudosForm({
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Errors show after the first failed Send, then follow the typing.
+  const [attempt, setAttempt] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const roster = useTeamRoster();
 
-  // Auto-select the first recipient ONCE per mount. Without the "once"
-  // latch the effect re-fires every time `recipients` changes — e.g.
-  // when an async fetch resolves AFTER the user has started reading
-  // the form. A user who chose "Pick a recipient…" (value="") then
-  // typed in the free-text field would see the dropdown jump to
-  // recipients[0] mid-edit and might Send to the wrong person.
-  //
-  // Phase 3 — if a predicted recipient is provided, prefer it over the
-  // raw alphabetical first pick. Same one-shot latch: a predicted match
-  // that lands AFTER the user has started picking should NOT overwrite
-  // their choice.
-  const didAutoSelectRef = useRef(false);
   useEffect(() => {
-    if (didAutoSelectRef.current) return;
-    if (recipientId) return;
-    if (recipients.length === 0) return;
-    if (predictedRecipientId) {
-      const match = recipients.find((r) => r.profileId === predictedRecipientId);
-      if (match) {
-        setRecipientId(match.id);
-        didAutoSelectRef.current = true;
-        return;
-      }
-    }
-    setRecipientId(recipients[0].id);
-    didAutoSelectRef.current = true;
-  }, [recipientId, recipients, predictedRecipientId]);
+    if (attempt > 0) focusFirstInvalid(formRef.current);
+  }, [attempt]);
 
   // Phase 3 — forced recipient override (fires when the parent's
   // under-recognized hint button is clicked). Re-runs ONLY when the
-  // monotonic token changes; the latch is intentionally not consulted
-  // here because the user explicitly clicked the hint.
+  // monotonic token changes. The message is what's left to write, so
+  // focus goes there (which also brings the form into view).
+  const messageRef = useRef<HTMLTextAreaElement>(null);
   const lastForcedTokenRef = useRef<number>(forcedRecipient?.token ?? -1);
   useEffect(() => {
     if (!forcedRecipient) return;
     if (forcedRecipient.token === lastForcedTokenRef.current) return;
     lastForcedTokenRef.current = forcedRecipient.token;
     setRecipientId(forcedRecipient.id);
-    didAutoSelectRef.current = true;
+    messageRef.current?.focus();
   }, [forcedRecipient]);
+
+  // The predicted recipient is offered, never picked: the first kudos
+  // after load used to go to whoever the prediction (or the list) put first.
+  const suggested =
+    !recipientId && predictedRecipientId
+      ? recipients.find((r) => r.profileId === predictedRecipientId)
+      : undefined;
 
   // Phase 3 — debounced sentiment classifier. Surfaces an inline soft
   // warning when the model reads the message as backhanded; it does NOT
@@ -255,24 +263,32 @@ export function KudosForm({
     if (recipientId === "free") {
       const cleaned = freeRecipient.trim();
       if (!cleaned) return null;
-      return { id: "free", displayName: cleaned, source: "free" };
+      // A typed name that is on the roster is that member (owner only).
+      const member = rosterRecipients ? findRosterMember(roster, cleaned) : undefined;
+      return {
+        id: "free",
+        displayName: member?.name ?? cleaned,
+        ...(member ? { memberId: member.id } : {}),
+        source: "free",
+      };
     }
     return recipients.find((r) => r.id === recipientId) ?? null;
-  }, [recipientId, freeRecipient, recipients]);
+  }, [recipientId, freeRecipient, recipients, rosterRecipients, roster]);
 
-  // Validation state.
+  const checked = validateKudosDraft({
+    to: selectedRecipient?.displayName ?? "",
+    message,
+    team: teamName,
+  });
+  const errors = attempt > 0 && !checked.ok ? checked.errors : {};
+  // The "To" error sits on the typed name when typing, else on the picker.
+  const toError = recipientId === "free" ? undefined : errors.to;
+  const freeError = recipientId === "free" ? errors.to : undefined;
   const messageWords = countWords(message);
-  const toWords = countWords(selectedRecipient?.displayName ?? "");
-  const teamWords = countWords(teamName);
-  const fromWords = countWords(defaultFromName);
-  const messageOk = messageWords > 0 && messageWords <= KUDOS_WORD_LIMITS.message;
-  const toOk = !!selectedRecipient && toWords > 0 && toWords <= KUDOS_WORD_LIMITS.to;
-  const teamOk = teamWords <= KUDOS_WORD_LIMITS.team;
   // Sender name is fixed; if it overflows the limit (e.g. a 5-word
   // squad display name), surface a warning but don't block send — the
   // user can't fix it from here.
-  const fromOk = fromWords <= KUDOS_WORD_LIMITS.from;
-  const canSubmit = messageOk && toOk && teamOk && !submitting;
+  const fromOk = countWords(defaultFromName) <= KUDOS_WORD_LIMITS.from;
 
   // Build the live-preview Kudos. Used by both the inline preview and
   // the PNG-export path; `id` and `sentAt` are stable across renders
@@ -285,6 +301,7 @@ export function KudosForm({
       theme,
       toName: selectedRecipient?.displayName.trim() || "Recipient's Name",
       toProfileId: selectedRecipient?.profileId,
+      ...(selectedRecipient?.memberId ? { toMemberId: selectedRecipient.memberId } : {}),
       fromName: defaultFromName.trim() || "—",
       fromProfileId: defaultFromProfileId,
       teamName: teamName.trim() || undefined,
@@ -296,14 +313,20 @@ export function KudosForm({
     [theme, selectedRecipient, defaultFromName, defaultFromProfileId, teamName, message]
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canSubmit || !selectedRecipient) return;
+  const send = async () => {
+    if (submitting) return;
+    if (!checked.ok || !selectedRecipient) {
+      setAttempt((a) => a + 1);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const finalised: Kudos = {
         ...preview,
+        toName: checked.values.to,
+        message: checked.values.message,
+        teamName: checked.values.team,
         sentAt: new Date().toISOString(),
       };
       await onSubmit(finalised);
@@ -312,6 +335,7 @@ export function KudosForm({
       setMessage("");
       setRecipientId("");
       setFreeRecipient("");
+      setAttempt(0);
       previewIdRef.current = newKudosId();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't send kudos");
@@ -327,13 +351,27 @@ export function KudosForm({
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void send();
+  };
+
+  const onMessageKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    void send();
+  };
+
   const handleDownload = () => {
     if (!cardRef.current) return;
     onDownload(preview, cardRef.current);
   };
 
+  const squad = recipients.filter((r) => r.source === "squad");
+  const team = recipients.filter((r) => r.source === "team");
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+    <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
       {fairnessHintSlot}
       <SectionCard
         title="Compose kudos"
@@ -380,55 +418,77 @@ export function KudosForm({
         {/* Recipient picker. Dropdown of squad profiles + team members,
             with a "Type a name…" free-text fallback. */}
         <div className="flex flex-col gap-2">
-          <Label htmlFor="kudos-to" className="text-sub text-sm">
-            To
-          </Label>
-          <select
-            id="kudos-to"
-            value={recipientId}
-            onChange={(e) => setRecipientId(e.target.value)}
-            className="h-10 [@media(pointer:coarse)]:h-11 rounded-md bg-surface-deep border border-border px-3 text-sm text-text"
-          >
-            {recipients.length === 0 && <option value="">No teammates yet</option>}
-            {recipients.length > 0 && <option value="">Pick a recipient…</option>}
-            {recipients.filter((r) => r.source === "squad").length > 0 && (
-              <optgroup label="Squad">
-                {recipients
-                  .filter((r) => r.source === "squad")
-                  .map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.displayName}
-                    </option>
-                  ))}
-              </optgroup>
+          <Field label="To" error={toError}>
+            {(props) => (
+              <select
+                {...props}
+                value={recipientId}
+                onChange={(e) => setRecipientId(e.target.value)}
+                className={SELECT_CLASS}
+              >
+                <option value="">
+                  {recipients.length === 0 ? "No teammates yet" : "Pick a recipient…"}
+                </option>
+                {squad.length > 0 && (
+                  <optgroup label="Squad">
+                    {squad.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.displayName}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {team.length > 0 && (
+                  <optgroup label="Team members">
+                    {team.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.displayName}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <option value="free">— Type a name…</option>
+              </select>
             )}
-            {recipients.filter((r) => r.source === "team").length > 0 && (
-              <optgroup label="Team members">
-                {recipients
-                  .filter((r) => r.source === "team")
-                  .map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.displayName}
-                    </option>
-                  ))}
-              </optgroup>
-            )}
-            <option value="free">— Type a name…</option>
-          </select>
-          {recipientId === "free" && (
-            <Input
-              placeholder="Recipient name"
-              aria-label="Recipient name"
-              value={freeRecipient}
-              onChange={(e) => setFreeRecipient(e.target.value)}
-              maxLength={64}
-              autoFocus
-              className="bg-surface-deep border-border text-text mt-1"
-            />
+          </Field>
+          {suggested && (
+            <p className="flex flex-wrap items-center gap-2 text-xs text-sub">
+              <Sparkles className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+              <span>Suggested:</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setRecipientId(suggested.id)}
+              >
+                {suggested.displayName}
+              </Button>
+            </p>
           )}
-          {!toOk && selectedRecipient && (
-            <p className="text-xs text-warning">Up to {KUDOS_WORD_LIMITS.to} words.</p>
-          )}
+          {recipientId === "free" &&
+            (rosterRecipients ? (
+              <PersonPicker
+                label="Recipient name"
+                value={freeRecipient}
+                onChange={setFreeRecipient}
+                error={freeError}
+                placeholder="Recipient name"
+              />
+            ) : (
+              <Field label="Recipient name" error={freeError}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    placeholder="Recipient name"
+                    value={freeRecipient}
+                    onChange={(e) => setFreeRecipient(e.target.value)}
+                    maxLength={RECIPIENT_MAX}
+                    autoFocus
+                    className="bg-surface-deep border-border text-text"
+                  />
+                )}
+              </Field>
+            ))}
         </div>
 
         {/* Sender — read-only display + optional team label. */}
@@ -463,44 +523,51 @@ export function KudosForm({
             )}
             {!fromOk && <p className="text-xs text-sub/60">Long names render small on the card.</p>}
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="kudos-team" className="text-sub text-sm">
-              Team (optional)
-            </Label>
-            <Input
-              id="kudos-team"
-              placeholder="e.g. Data Governance"
-              value={teamName}
-              onChange={(e) => setTeamName(e.target.value)}
-              maxLength={48}
-              className="bg-surface-deep border-border text-text"
-            />
-          </div>
+          <Field label="Team (optional)" error={errors.team}>
+            {(props) => (
+              <Input
+                {...props}
+                placeholder="e.g. Data Governance"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                maxLength={48}
+                className="bg-surface-deep border-border text-text"
+              />
+            )}
+          </Field>
         </div>
 
         {/* Message + live word counter. */}
         <div className="flex flex-col gap-2">
-          <Label htmlFor="kudos-message" className="text-sub text-sm">
-            Message
-          </Label>
-          <Textarea
-            id="kudos-message"
-            placeholder="Write your wonderful message here…"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            rows={4}
-            className={
-              "bg-surface-deep border-border resize-none text-sm text-text" +
-              (!messageOk && messageWords > KUDOS_WORD_LIMITS.message ? " border-danger/60" : "")
+          <Field
+            label="Message"
+            error={errors.message}
+            hint={
+              <span
+                className={`block text-right ${
+                  messageWords > KUDOS_WORD_LIMITS.message ? "font-semibold text-danger" : ""
+                }`}
+              >
+                {messageWords}/{KUDOS_WORD_LIMITS.message} words · Ctrl+Enter sends
+              </span>
             }
-          />
-          <div
-            className={`text-xs text-right ${
-              messageWords > KUDOS_WORD_LIMITS.message ? "text-danger font-semibold" : "text-sub/60"
-            }`}
           >
-            {messageWords}/{KUDOS_WORD_LIMITS.message} words
-          </div>
+            {(props) => (
+              <Textarea
+                {...props}
+                ref={messageRef}
+                placeholder="Write your wonderful message here…"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={onMessageKeyDown}
+                rows={4}
+                className={
+                  "bg-surface-deep border-border resize-none text-sm text-text" +
+                  (messageWords > KUDOS_WORD_LIMITS.message ? " border-danger/60" : "")
+                }
+              />
+            )}
+          </Field>
           {/* Phase 3 — backhanded warning. Advisory only; the Send
               button stays enabled so the user can override the model. */}
           {sentiment?.label === "backhanded" && (
@@ -534,8 +601,8 @@ export function KudosForm({
         <div className="flex flex-col sm:flex-row gap-2">
           <Button
             type="submit"
-            disabled={!canSubmit}
-            className="flex-1 bg-accent text-[#0a0e1a] hover:bg-accent/80 font-semibold gap-2"
+            disabled={submitting}
+            className="flex-1 bg-accent text-bg hover:bg-accent/80 font-semibold gap-2"
           >
             {submitting ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -548,7 +615,7 @@ export function KudosForm({
             type="button"
             variant="outline"
             onClick={handleDownload}
-            disabled={!messageOk || !toOk}
+            disabled={!checked.ok}
             className="border-border text-sub hover:text-text gap-2"
           >
             <Download className="h-4 w-4" aria-hidden="true" />

@@ -1,446 +1,611 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { nanoid } from "nanoid";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
+import { nanoid } from "nanoid";
+import { ArrowRight, BarChart3, ListChecks, Plus, ShieldCheck, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
-import {
-  Plus,
-  Trash2,
-  Code,
-  ShieldCheck,
-  FileCode,
-  Gauge,
-  Lock,
-  CircleHelp,
-  Camera,
-  Check,
-} from "lucide-react";
-import { generateDodBuilderPrompts } from "@/lib/ai-prompts/dod-builder";
 import { ActionRow } from "@/components/shared/action-row";
-import { usePersisted } from "@/lib/utils/use-persisted";
-import { DOD_STORAGE_KEY } from "./summary";
+import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { EmptyState } from "@/components/shared/empty-state";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { ResetButton } from "@/components/shared/reset-button";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
+import { Button } from "@/components/ui/button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { SprintPicker } from "@/components/sprints/sprint-picker";
+import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import { generateDodBuilderPrompts } from "@/lib/ai-prompts/dod-builder";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DOD_ACTIONS } from "@/lib/history/event-actions";
-import { pChartLimits } from "@/lib/analytics/control-chart";
-import { mannKendall } from "@/lib/analytics/trend-test";
-import { todayLocalISO } from "@/lib/utils/formatters";
+import { pickDefaultSprint, todayIso } from "@/lib/sprints/series";
+import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  DefinitionOfDone,
+  DodCategory,
+  DodCriterion,
+  Story,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { toast } from "@/lib/utils/toast";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import {
+  DOD_CATEGORIES,
+  DOD_CATEGORY_LABEL,
+  DOD_DOC_ID,
+  adherenceBySprint,
+  dodAdherence,
+  dodVerdict,
+  normalizeDefinitionOfDone,
+  quotableAdherence,
+  requiredCriteria,
+} from "@/lib/dod/model";
+import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
+import {
+  CHART_MIN_SPRINTS,
+  adherenceChartText,
+  adherenceControl,
+  adherencePoints,
+  adherenceTrend,
+  controlSentence,
+  trendSentence,
+} from "./adherence";
+import { AddCriterionForm } from "./criterion-form";
+import { CriterionRow } from "./criterion-row";
+import { buildExample, type DodExample } from "./example";
+import { labelKey, type CriterionValues } from "./form";
+import { dodMarkdown } from "./markdown";
+import { COMMON_CRITERIA } from "./starter";
 
-// Recharts loads with the adherence chart, not the page.
+// Recharts loads with the charts, not the page.
 const DodAdherenceChart = dynamic(() => import("./charts").then((m) => m.DodAdherenceChart), {
   ssr: false,
-  loading: () => (
-    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
-  ),
+});
+const DodControlChart = dynamic(() => import("./charts").then((m) => m.DodControlChart), {
+  ssr: false,
 });
 
-type CategoryId = "code" | "testing" | "docs" | "performance" | "security" | "other";
+export const TOOL_ID = "dod-builder";
 
-interface DodItem {
-  id: string;
-  label: string;
-  description?: string;
-  category: CategoryId;
-  required: boolean;
-  /** Per-current-sprint completion checkbox; cleared on snapshot. */
-  done?: boolean;
+const NO_STORIES: Story[] = [];
+
+/** A change to the DoD, applied to the document as it is when it runs. */
+type DocUpdate = (doc: DefinitionOfDone) => DefinitionOfDone;
+
+const noLog = () => undefined;
+
+/** Focus what `find` returns once React has re-rendered (a deleted or moved row took focus with it). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
 }
 
-interface SprintAdherence {
-  sprintName: string;
-  totalRequired: number;
-  completed: number;
-  ts: string;
+/** The control of criterion `id` that carries `attr` (data-criterion-edit or -category). */
+const criterionControl = (attr: string, id: string) =>
+  Array.from(document.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
+    (el) => el.getAttribute(attr) === id
+  );
+
+/** `c` with its words as edited; an emptied description goes. */
+function withText(c: DodCriterion, label: string, description: string | undefined): DodCriterion {
+  const next: DodCriterion = { ...c, label };
+  if (description !== undefined) {
+    if (description.trim()) next.description = description.trim();
+    else delete next.description;
+  }
+  return next;
 }
 
-interface DodState {
-  items: DodItem[];
-  history: SprintAdherence[];
-}
-
-const STARTER: DodItem[] = [
-  { id: "seed-code-review", label: "Code reviewed by peer", category: "code", required: true },
-  { id: "seed-unit-tests", label: "Unit tests added/updated", category: "testing", required: true },
-  { id: "seed-ci", label: "Integration tests pass in CI", category: "testing", required: true },
-  { id: "seed-docs", label: "README or inline docs updated", category: "docs", required: false },
-  { id: "seed-perf", label: "Load-tested against SLO", category: "performance", required: false },
-  {
-    id: "seed-security",
-    label: "Security review for sensitive changes",
-    category: "security",
-    required: false,
-  },
-];
-
-const CATEGORIES: { id: CategoryId; label: string; icon: typeof Code }[] = [
-  { id: "code", label: "Code", icon: Code },
-  { id: "testing", label: "Testing", icon: ShieldCheck },
-  { id: "docs", label: "Docs", icon: FileCode },
-  { id: "performance", label: "Performance", icon: Gauge },
-  { id: "security", label: "Security", icon: Lock },
-  { id: "other", label: "Other", icon: CircleHelp },
-];
-
+/**
+ * The Definition of Done builder: the team's criteria (Required by default,
+ * edited in place, deleted with Undo), and how many done stories meet
+ * them, from the ticks on each story's Sprint board card, per sprint and
+ * over time. The DoD is a workspace document, so the Sprint board, Release
+ * Readiness, the Team charter and agents read the same one.
+ */
 export function DodBuilderClient() {
-  const [state, setState] = usePersisted<DodState>(DOD_STORAGE_KEY, {
-    items: STARTER,
-    history: [],
+  const hydrated = useWorkspaceHydrated();
+  const { doc: teamDoc, moving } = useDefinitionOfDone();
+  const workspaceStories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const { sprints: workspaceSprints, selected, select } = useSelectedSprint();
+  const { log } = useHistoryLogger(TOOL_ID);
+  const announce = useAnnounce();
+  const [today] = useState(() => todayIso());
+  // The example lives here only: nothing in it reaches the workspace.
+  const [example, setExample] = useState<DodExample | null>(null);
+  const [exampleSprintId, setExampleSprintId] = useState<string | undefined>(undefined);
+  const preview = example !== null;
+  // The old blob is read, not edited, until it has moved in (the hook
+  // waits for the owner's first cloud pull): an edit now would be built
+  // from this device's copy and could beat a newer DoD from the cloud.
+  const locked = moving && !preview;
+  const doc = example?.doc ?? teamDoc;
+  const stories = example?.stories ?? workspaceStories;
+  const sprints = example?.sprints ?? workspaceSprints;
+  const sprint = example
+    ? (example.sprints.find((s) => s.id === exampleSprintId) ??
+      pickDefaultSprint(example.sprints, null))
+    : selected;
+  const resetSnapshot = useRef<DodCriterion[] | null>(null);
+  const addRef = useRef<HTMLDivElement>(null);
+
+  // The example counts its own rows; the team's numbers never count example rows.
+  const opts = preview ? { examples: true } : undefined;
+  const adherence = useMemo(
+    () => dodAdherence(stories, doc, sprint?.id, opts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- opts follows `preview`
+    [stories, doc, sprint?.id, preview]
+  );
+  const bySprint = useMemo(
+    () => adherenceBySprint(stories, sprints, doc, opts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- opts follows `preview`
+    [stories, sprints, doc, preview]
+  );
+  const points = adherencePoints(bySprint);
+  const chart = adherenceChartText(points);
+  const control = adherenceControl(points);
+  const trend = adherenceTrend(points);
+  const required = requiredCriteria(doc);
+  const verdict = dodVerdict(doc, adherence, sprint?.name);
+  const markdown = dodMarkdown(doc, {
+    verdict,
+    ...(sprint ? { sprint: { name: sprint.name, adherence } } : {}),
+    bySprint,
   });
-  const [newLabel, setNewLabel] = useState("");
-  const [newDescription, setNewDescription] = useState("");
-  const [activeCategory, setActiveCategory] = useState<CategoryId>("code");
-  const [snapshotName, setSnapshotName] = useState("");
-  const { log } = useHistoryLogger("dod-builder");
 
-  const addItem = () => {
-    if (!newLabel.trim()) return;
-    const description = newDescription.trim() || undefined;
-    const item: DodItem = {
-      id: nanoid(6),
-      label: newLabel.trim(),
-      description,
-      category: activeCategory,
-      required: false,
+  /* ── Writes ───────────────────────────────────────────────────────── */
+
+  /**
+   * Writes the workspace's DoD, read fresh from the store. The page offers
+   * no edit while the old blob is still moving in (`locked`), so a missing
+   * document here is a new, empty one.
+   */
+  const writeStore = (update: DocUpdate) => {
+    const { definitionsOfDone, upsertDefinitionOfDone } = useWorkspaceStore.getState();
+    const current = (definitionsOfDone ?? []).find((d) => d.id === DOD_DOC_ID);
+    upsertDefinitionOfDone({ ...update(normalizeDefinitionOfDone(current)), id: DOD_DOC_ID });
+  };
+  // Fixed for the render an edit starts in, so its Undo goes back to the
+  // same place even if the example is loaded or cleared in between. The
+  // example's edits aren't the team's history, so they aren't logged.
+  const write: (update: DocUpdate) => void = preview
+    ? (update) => setExample((ex) => (ex ? { ...ex, doc: update(ex.doc) } : ex))
+    : writeStore;
+  const record: typeof log = preview ? noLog : log;
+  const newId = () => (preview ? exampleId(`dod-${nanoid(6)}`) : `dod_${nanoid(8)}`);
+
+  const patch = (id: string, change: (c: DodCriterion) => DodCriterion) =>
+    write((d) => ({ ...d, items: d.items.map((c) => (c.id === id ? change(c) : c)) }));
+
+  const add = (v: CriterionValues) => {
+    const criterion: DodCriterion = {
+      id: newId(),
+      label: v.label,
+      category: v.category,
+      required: v.required,
+      ...(v.description ? { description: v.description } : {}),
     };
-    setState((s) => ({ ...s, items: [...s.items, item] }));
-    log(DOD_ACTIONS.CRITERION_ADDED, {
-      itemId: item.id,
-      label: item.label,
-      description,
-      category: item.category,
+    write((d) => ({ ...d, items: [...d.items, criterion] }));
+    record(DOD_ACTIONS.CRITERION_ADDED, {
+      itemId: criterion.id,
+      label: criterion.label,
+      category: criterion.category,
+      required: criterion.required,
     });
-    setNewLabel("");
-    setNewDescription("");
-  };
-
-  const toggleRequired = (id: string) => {
-    setState((s) => ({
-      ...s,
-      items: s.items.map((x) => (x.id === id ? { ...x, required: !x.required } : x)),
-    }));
-    const item = state.items.find((x) => x.id === id);
-    log(DOD_ACTIONS.CRITERION_TOGGLED, {
-      itemId: id,
-      label: item?.label,
-      required: !(item?.required ?? false),
-    });
-  };
-
-  const remove = (id: string) => {
-    const item = state.items.find((x) => x.id === id);
-    setState((s) => ({ ...s, items: s.items.filter((x) => x.id !== id) }));
-    log(DOD_ACTIONS.CRITERION_REMOVED, { itemId: id, label: item?.label });
-  };
-
-  const toggleDone = (id: string) => {
-    setState((s) => ({
-      ...s,
-      items: s.items.map((x) => (x.id === id ? { ...x, done: !x.done } : x)),
-    }));
-  };
-
-  // Snapshot the current sprint's adherence into history. Only required items
-  // count toward the trial-block; clearing `done` after lets the team start
-  // a fresh sprint without losing the historical record.
-  const snapshotSprint = () => {
-    const name = snapshotName.trim();
-    if (!name) return;
-    const required = state.items.filter((i) => i.required);
-    if (required.length === 0) return;
-    const completed = required.filter((i) => i.done === true).length;
-    const entry: SprintAdherence = {
-      sprintName: name,
-      totalRequired: required.length,
-      completed,
-      ts: todayLocalISO(),
-    };
-    setState((s) => ({
-      ...s,
-      history: [...s.history, entry],
-      items: s.items.map((i) => ({ ...i, done: false })),
-    }));
-    log(DOD_ACTIONS.DOD_RESET, {
-      sprintName: name,
-      totalRequired: required.length,
-      completed,
-    });
-    setSnapshotName("");
-  };
-
-  const adherence = useMemo(() => {
-    if (state.history.length === 0) return null;
-    const last = state.history[state.history.length - 1];
-    return last.totalRequired > 0 ? last.completed / last.totalRequired : 0;
-  }, [state.history]);
-
-  // Per-sprint adherence series, snapshotted at sprint close. We plot the
-  // trailing 20 sprints so the p-chart limits stay stable as the team's DoD
-  // bar evolves; older sprints are summarised but not plotted.
-  const adherenceSeries = useMemo(() => {
-    return state.history.slice(-20).map((h) => ({
-      sprintName: h.sprintName,
-      passed: h.completed,
-      required: h.totalRequired,
-      adherencePct: h.totalRequired > 0 ? (h.completed / h.totalRequired) * 100 : 0,
-    }));
-  }, [state.history]);
-
-  // p-chart on per-sprint DoD adherence. Each sprint = one trial-block where
-  // `passed` = met requirements, `required.length` = total trials. Returns
-  // null when fewer than 4 sprints — limits are unstable on tiny series.
-  const adherenceControl = useMemo(() => {
-    if (adherenceSeries.length < 4) return null;
-    const limits = pChartLimits(
-      adherenceSeries.map((s) => s.passed),
-      adherenceSeries.map((s) => s.required)
+    announce(
+      `Added “${criterion.label}” as ${criterion.required ? "required" : "optional"} under ${DOD_CATEGORY_LABEL[criterion.category]}`
     );
-    return {
-      centerLinePct: limits.centerLine * 100,
-      uclPct: limits.ucl * 100,
-      lclPct: limits.lcl * 100,
-    };
-  }, [adherenceSeries]);
+  };
 
-  // Mann-Kendall on the per-sprint adherence series. Reports a chip when
-  // the trend is significant at α=0.05 over 5+ sprints.
-  const adherenceTrend = useMemo(() => {
-    if (adherenceSeries.length < 5) return null;
-    return mannKendall(adherenceSeries.map((s) => s.adherencePct));
-  }, [adherenceSeries]);
+  const startFromCommon = () => {
+    const added = COMMON_CRITERIA.map((c) => ({ ...c, id: newId() }));
+    const ids = new Set(added.map((c) => c.id));
+    undoable({
+      label: `Added ${added.length} common criteria`,
+      apply: () => write((d) => ({ ...d, items: [...d.items, ...added] })),
+      revert: () => write((d) => ({ ...d, items: d.items.filter((c) => !ids.has(c.id)) })),
+    });
+    announce(`Added ${added.length} common criteria`);
+  };
+
+  const editText = (c: DodCriterion, label: string, description: string | undefined) => {
+    // The add form and update_criterion refuse a second copy; so does an edit in place.
+    if (doc.items.some((x) => x.id !== c.id && labelKey(x.label) === labelKey(label))) {
+      toast.error(`“${label}” is already in the Definition of Done.`);
+      return;
+    }
+    patch(c.id, (x) => withText(x, label, description));
+    record(DOD_ACTIONS.CRITERION_TOGGLED, { itemId: c.id, label });
+  };
+
+  const setRequired = (c: DodCriterion, value: boolean) => {
+    patch(c.id, (x) => ({ ...x, required: value }));
+    record(DOD_ACTIONS.CRITERION_TOGGLED, { itemId: c.id, label: c.label, required: value });
+    announce(`“${c.label}” is ${value ? "required" : "optional"}`);
+  };
+
+  const setCategory = (c: DodCriterion, category: DodCategory) => {
+    if (category === c.category) return;
+    patch(c.id, (x) => ({ ...x, category }));
+    announce(`Moved “${c.label}” to ${DOD_CATEGORY_LABEL[category]}`);
+    // The row mounts again under its new category; its category stays focused.
+    focusSoon(() => criterionControl("data-criterion-category", c.id));
+  };
+
+  const remove = (c: DodCriterion) => {
+    // Focus moves to the next criterion as listed (or the one before, or the form).
+    const listed = DOD_CATEGORIES.flatMap((cat) => doc.items.filter((x) => x.category === cat));
+    const at = listed.findIndex((x) => x.id === c.id);
+    const near = listed[at + 1] ?? listed[at - 1];
+    removeWithUndo<DodCriterion>({
+      label: `Deleted “${c.label}”`,
+      description: "Stories keep their ticks, so Undo brings it back as it was.",
+      update: (fn) => write((d) => ({ ...d, items: fn(d.items) })),
+      match: (x) => x.id === c.id,
+    });
+    record(DOD_ACTIONS.CRITERION_REMOVED, { itemId: c.id, label: c.label });
+    announce(`Deleted “${c.label}”`);
+    focusSoon(() =>
+      near
+        ? criterionControl("data-criterion-edit", near.id)
+        : addRef.current?.querySelector<HTMLElement>("input")
+    );
+  };
+
+  const loadExample = () => {
+    setExample(buildExample(today));
+    setExampleSprintId(undefined);
+  };
+  const clearExample = () => setExample(null);
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Definition of Done Builder",
-      prompts: generateDodBuilderPrompts({ items: state.items, history: state.history }),
+      prompts: generateDodBuilderPrompts({ items: doc.items, history: doc.history }),
     }),
-    [state.items, state.history]
+    [doc]
   );
 
-  return (
+  const page = (body: ReactNode) => (
     <ToolPageWrapper
-      toolId="dod-builder"
+      toolId={TOOL_ID}
       title="Definition of Done Builder"
-      description="Assemble your team's DoD across categories and track per-sprint adherence."
+      description="The team's Definition of Done, ticked on each story's Sprint board card, and how many done stories meet it, sprint by sprint."
       category="Risk & Governance"
     >
+      {body}
+    </ToolPageWrapper>
+  );
+
+  if (!hydrated) {
+    return page(
+      <p
+        role="status"
+        className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
+      >
+        Loading the Definition of Done…
+      </p>
+    );
+  }
+
+  const hasCriteria = doc.items.length > 0;
+  const groups = DOD_CATEGORIES.map((cat) => ({
+    cat,
+    items: doc.items.filter((c) => c.category === cat),
+  })).filter((g) => g.items.length > 0);
+
+  return page(
+    <>
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="definition-of-done"
+          markdown={markdown}
+          clipboardText={markdown}
           csvData={{
-            headers: ["Category", "Item", "Description", "Required"],
-            rows: state.items.map((i) => [
-              i.category,
+            headers: ["Category", "Criterion", "Description", "Required"],
+            rows: doc.items.map((i) => [
+              DOD_CATEGORY_LABEL[i.category],
               i.label,
               i.description ?? "",
               i.required ? "Yes" : "No",
             ]),
           }}
-          jsonData={state}
+          jsonData={doc}
         />
       </ActionRow>
 
-      {adherence !== null && (
-        <Card className="bg-surface border-border mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm text-sub">Last sprint DoD adherence</div>
-              <div className="text-fluid-h3 font-data text-accent">
-                {Math.round(adherence * 100)}%
-              </div>
-            </div>
-            <Progress
-              value={adherence * 100}
-              className="h-2"
-              aria-label="Last sprint DoD adherence"
-            />
-          </CardContent>
-        </Card>
+      {preview && (
+        <div>
+          <ExampleNotice onClear={clearExample} />
+          <p className="-mt-2 mb-4 text-xs text-sub">
+            Example: a checkout team&apos;s last six sprints. Nothing in it is saved, and your own
+            Definition of Done stays as it is.
+          </p>
+        </div>
       )}
 
-      {/* Sprint snapshot — captures count of `required && done` items into
-          history, so the p-chart and Mann-Kendall trend below have data. */}
-      <Card className="bg-surface border-border mb-6">
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-            <div className="flex-1">
-              <label
-                htmlFor="dod-sprint-name"
-                className="block text-xs text-sub uppercase tracking-wider font-mono mb-1.5"
-              >
-                Sprint name
-              </label>
-              <Input
-                id="dod-sprint-name"
-                value={snapshotName}
-                onChange={(e) => setSnapshotName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && snapshotSprint()}
-                placeholder="e.g. Sprint 42"
-                className="bg-bg border-border"
-              />
-            </div>
-            <div className="text-xs text-sub font-mono whitespace-nowrap">
-              {state.items.filter((i) => i.required && i.done).length}
-              <span className="text-text/40"> / </span>
-              {state.items.filter((i) => i.required).length}
-              <span className="text-text/40"> required done</span>
-            </div>
-            <Button
-              onClick={snapshotSprint}
-              disabled={!snapshotName.trim() || state.items.filter((i) => i.required).length === 0}
-              className="gap-2 bg-accent text-bg hover:bg-accent/90"
-            >
-              <Camera className="w-4 h-4" />
-              Snapshot this sprint
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* p-chart on per-sprint DoD adherence — UCL/X̄/LCL overlay so the team
-          can see when adherence drifts outside the natural variation band.
-          Renders alongside a Mann-Kendall trend chip when 5+ sprints exist. */}
-      {adherenceSeries.length >= 4 && adherenceControl && (
-        <Card className="bg-surface border-border mb-6">
-          <CardContent className="p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-sub">
-                DoD adherence — last {adherenceSeries.length} sprints
-              </div>
-              {adherenceTrend?.significant && (
-                <Badge
-                  variant="outline"
-                  className={`font-mono text-xs tracking-wider uppercase ${
-                    adherenceTrend.trend === "up"
-                      ? "border-success/40 text-success bg-success/10"
-                      : "border-warning/40 text-warning bg-warning/10"
-                  }`}
-                  title={`Mann-Kendall p=${adherenceTrend.pValue.toFixed(3)}`}
-                >
-                  {adherenceTrend.trend === "up" ? "↗" : "↘"} adherence trend
-                </Badge>
-              )}
-            </div>
-            <div style={{ height: 180 }}>
-              <DodAdherenceChart data={adherenceSeries} control={adherenceControl} />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as CategoryId)}>
-        <TabsList className="bg-surface border border-border mb-4 flex flex-wrap h-auto">
-          {CATEGORIES.map((c) => {
-            const Icon = c.icon;
-            const count = state.items.filter((i) => i.category === c.id).length;
-            return (
-              <TabsTrigger key={c.id} value={c.id} className="gap-1.5">
-                <Icon className="w-3.5 h-3.5" />
-                {c.label}
-                <span className="text-text/50 font-data text-xs">{count}</span>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-
-        {CATEGORIES.map((c) => (
-          <TabsContent key={c.id} value={c.id} className="space-y-2">
-            {state.items
-              .filter((i) => i.category === c.id)
-              .map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-3 rounded-lg border border-border bg-surface p-3"
-                >
-                  {/* Per-item done checkbox. Snapshot counts only required-done,
-                      but we show the checkbox for all items so users can track
-                      optional progress too. */}
-                  <button
-                    type="button"
-                    onClick={() => toggleDone(item.id)}
-                    role="checkbox"
-                    aria-checked={item.done}
-                    aria-label={`Done: ${item.label}`}
-                    className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse ${
-                      item.done
-                        ? "border-success/60 bg-success/10 text-success"
-                        : "border-border text-transparent hover:border-success/40"
-                    }`}
-                  >
-                    <Check className="w-3 h-3" />
-                  </button>
-                  {/* The visible text names the state, so it is the accessible
-                      name too (no aria-pressed: a toggle's name must not change). */}
-                  <button
-                    type="button"
-                    onClick={() => toggleRequired(item.id)}
-                    className={`px-2 py-0.5 rounded-md text-xs font-mono uppercase tracking-wider border transition mt-0.5 min-touch-coarse ${
-                      item.required
-                        ? "border-accent/60 bg-accent/10 text-accent"
-                        : "border-border text-sub hover:border-accent/30"
-                    }`}
-                  >
-                    {item.required ? "Required" : "Optional"}
-                    <span className="sr-only">: {item.label}</span>
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-text text-sm">{item.label}</div>
-                    {item.description && (
-                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
-                        {item.description}
-                      </div>
-                    )}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => remove(item.id)}
-                    aria-label={`Remove ${item.label}`}
-                    className="text-sub hover:text-danger min-touch-coarse"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              ))}
-            <div className="flex flex-col gap-2 pt-2">
-              <div className="flex gap-2">
-                <Input
-                  value={newLabel}
-                  onChange={(e) => setNewLabel(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addItem()}
-                  placeholder={`Add ${c.label.toLowerCase()} item...`}
-                  className="bg-bg border-border"
-                  aria-label={`New ${c.label.toLowerCase()} item`}
-                />
-                <Button onClick={addItem} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-                  <Plus className="w-4 h-4" />
-                  Add
+      {!hasCriteria && !preview && (
+        <EmptyState
+          icon={ShieldCheck}
+          className="mb-4"
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              {!locked && (
+                <Button type="button" size="sm" className="gap-1" onClick={startFromCommon}>
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  Start from common criteria
                 </Button>
-              </div>
-              <Textarea
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addItem();
+              )}
+              <LoadExampleButton onLoad={loadExample} />
+            </div>
+          }
+        >
+          No Definition of Done yet. Add the criteria every story must meet below, or start from
+          common ones; then tick them on each story&apos;s card on the Sprint board.
+        </EmptyState>
+      )}
+
+      {hasCriteria && (
+        <>
+          <div className="mb-3 space-y-3">
+            {sprints.length > 0 && (
+              <SprintPicker
+                sprints={sprints}
+                selectedId={sprint?.id}
+                onSelect={preview ? setExampleSprintId : select}
+                allowCreate={false}
+              />
+            )}
+            <p className="text-sm font-medium text-text">{verdict}</p>
+          </div>
+          <KpiGrid cols={4} gap="lg">
+            <StatCard
+              variant="compact"
+              icon={ListChecks}
+              label="Criteria"
+              value={doc.items.length}
+              hint={`${required.length} required`}
+              valueClassName="text-accent"
+            />
+            <StatCard
+              variant="compact"
+              icon={ShieldCheck}
+              label="Meeting the DoD"
+              value={
+                adherence.done > 0 && required.length > 0
+                  ? `${adherence.meeting} of ${adherence.done}`
+                  : "—"
+              }
+              hint={sprint ? `done stories in ${sprint.name}` : "done stories"}
+            />
+            <StatCard
+              variant="compact"
+              label="Adherence"
+              value={quotableAdherence(adherence) ? `${adherence.pct}%` : "—"}
+              hint={
+                required.length === 0
+                  ? "nothing required yet"
+                  : adherence.pct === null
+                    ? "no done stories"
+                    : quotableAdherence(adherence)
+                      ? "of done stories"
+                      : "too few done stories for a %"
+              }
+            />
+            <StatCard
+              variant="compact"
+              icon={BarChart3}
+              label="Sprints tracked"
+              value={bySprint.length}
+              hint="with done stories"
+            />
+          </KpiGrid>
+        </>
+      )}
+
+      <div className="space-y-6">
+        <SectionCard title="Criteria" icon={Plus}>
+          {locked ? (
+            <p className="text-sm text-sub" role="status">
+              Moving your Definition of Done into the workspace, so the Sprint board and agents can
+              read it; you can edit it once it has moved. Your earlier copy is kept as a backup.
+            </p>
+          ) : (
+            <div ref={addRef}>
+              <AddCriterionForm criteria={doc.items} onAdd={add} />
+            </div>
+          )}
+          {groups.length > 0 && (
+            <div className="mt-5 space-y-4">
+              {groups.map((g) => (
+                <section key={g.cat} aria-label={DOD_CATEGORY_LABEL[g.cat]} className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-sub">
+                    {DOD_CATEGORY_LABEL[g.cat]}{" "}
+                    <span className="font-data font-normal">{g.items.length}</span>
+                  </h3>
+                  <ul className="space-y-2">
+                    {g.items.map((c) => (
+                      <CriterionRow
+                        key={c.id}
+                        criterion={c}
+                        readOnly={locked}
+                        onText={editText}
+                        onRequired={setRequired}
+                        onCategory={setCategory}
+                        onDelete={remove}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
+          {!preview && !locked && hasCriteria && (
+            <div className="mt-4 flex justify-end">
+              <ResetButton
+                label="Clear the criteria"
+                title="Clear the Definition of Done?"
+                description={`${
+                  doc.items.length === 1 ? "The one criterion" : `All ${doc.items.length} criteria`
+                }. The ticks on stories stay, and come back with Undo.`}
+                confirmLabel="Clear criteria"
+                doneLabel="Cleared the Definition of Done"
+                onReset={() => {
+                  resetSnapshot.current = doc.items;
+                  writeStore((d) => ({ ...d, items: [] }));
+                  log(DOD_ACTIONS.DOD_RESET, { criteria: doc.items.length });
                 }}
-                placeholder="Description (optional)..."
-                rows={2}
-                className="bg-bg border-border resize-none text-xs"
-                aria-label="New DoD item description"
+                onUndo={() => {
+                  const items = resetSnapshot.current;
+                  if (items) writeStore((d) => ({ ...d, items: [...items, ...d.items] }));
+                }}
               />
             </div>
-          </TabsContent>
-        ))}
-      </Tabs>
-    </ToolPageWrapper>
+          )}
+        </SectionCard>
+
+        {hasCriteria && required.length > 0 && (
+          <SectionCard
+            title={sprint ? `Done stories in ${sprint.name}` : "Done stories"}
+            icon={ShieldCheck}
+          >
+            {adherence.done === 0 ? (
+              <p className="text-sm text-sub">No story is done yet.</p>
+            ) : adherence.missing.length === 0 ? (
+              <p className="text-sm text-success">Every done story meets the DoD.</p>
+            ) : (
+              <ul className="divide-y divide-border" aria-label="Done stories missing the DoD">
+                {adherence.missing.map((m) => (
+                  <li key={m.id} className="py-2 text-sm">
+                    <span className="font-medium text-text">{m.title}</span>
+                    <span className="text-sub"> still needs {m.open.join(", ")}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-3 text-sm text-sub">
+              {preview ? (
+                "Each story's criteria are ticked on its card on the Sprint board."
+              ) : (
+                <Link
+                  href={sprintHref("/kanban", sprint?.id)}
+                  className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
+                >
+                  Tick them on the Sprint board
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              )}
+            </p>
+          </SectionCard>
+        )}
+
+        {hasCriteria && required.length > 0 && (
+          <SectionCard title="Adherence by sprint" icon={BarChart3}>
+            {points.length >= CHART_MIN_SPRINTS ? (
+              <ChartFigure
+                label="Adherence by sprint"
+                summary={chart.summary}
+                table={chart.table}
+                caption="Done stories meeting the DoD, by sprint"
+                plotClassName="h-[200px]"
+              >
+                <DodAdherenceChart data={points} />
+              </ChartFigure>
+            ) : (
+              <NotEnoughData
+                have={points.length}
+                need={CHART_MIN_SPRINTS}
+                unit={["sprint with done stories", "sprints with done stories"]}
+                action="Finish"
+                what="adherence by sprint"
+              />
+            )}
+            <p className="mt-2 text-xs text-sub">
+              Every sprint is checked against today&apos;s required criteria, so a criterion added
+              later counts against earlier sprints too.
+            </p>
+            {points.length >= CHART_MIN_SPRINTS && (
+              <AdvancedAnalysis
+                summary="Advanced analysis: control limits and trend"
+                className="mt-4"
+              >
+                {control ? (
+                  <ChartFigure
+                    label="Adherence by sprint, with control limits"
+                    summary={controlSentence(points, control)}
+                    table={chart.table}
+                    caption="Adherence by sprint"
+                    plotClassName="h-[200px]"
+                  >
+                    <DodControlChart data={points} control={control} />
+                  </ChartFigure>
+                ) : (
+                  <NotEnoughData
+                    have={points.length}
+                    need="changePoint"
+                    unit={["sprint", "sprints"]}
+                    action="Finish"
+                    what="control limits on adherence"
+                  />
+                )}
+                {trend ? (
+                  <p className="text-sm text-text">{trendSentence(trend)}</p>
+                ) : (
+                  <NotEnoughData
+                    have={points.length}
+                    need="trend"
+                    unit={["sprint", "sprints"]}
+                    action="Finish"
+                    what="whether adherence is trending"
+                  />
+                )}
+              </AdvancedAnalysis>
+            )}
+          </SectionCard>
+        )}
+
+        {doc.history.length > 0 && (
+          <details className="rounded-lg border border-border bg-card">
+            <summary className="min-h-11 cursor-pointer px-4 py-2 text-sm font-medium text-text">
+              Before per-story checks ({doc.history.length}{" "}
+              {doc.history.length === 1 ? "sprint" : "sprints"})
+            </summary>
+            <div className="scroll-x-snap relative border-t border-border px-4 py-3">
+              <p className="mb-2 text-xs text-sub">
+                Team-level tallies saved before each story carried its own ticks. Kept as they were,
+                read-only.
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-sub">
+                    <th className="py-1 pr-3 font-medium">Sprint</th>
+                    <th className="py-1 pr-3 font-medium">Required met</th>
+                    <th className="py-1 font-medium">Saved</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {doc.history.map((h, i) => (
+                    <tr key={`${h.sprintName}-${h.ts}-${i}`} className="border-t border-border">
+                      <td className="py-1 pr-3 text-text">{h.sprintName}</td>
+                      <td className="py-1 pr-3 text-text">
+                        {h.completed} of {h.totalRequired}
+                      </td>
+                      <td className="py-1 text-sub">{h.ts.slice(0, 10)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        )}
+      </div>
+    </>
   );
 }

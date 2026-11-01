@@ -1,44 +1,23 @@
 /**
- * What the Definition of Done builder stores, as the Team charter reads it.
- * The page keeps its own richer types; this is the shape both agree on.
+ * What the Definition of Done holds, as the Team charter reads it. The DoD
+ * is a workspace document now (lib/dod/model); these names stay so the
+ * charter's view and older imports keep compiling.
  */
 
-/** MUST match the key the DoD builder page persists under. */
-export const DOD_STORAGE_KEY = "agile-toolkit:dod-builder";
+import type { DefinitionOfDone, DodCriterion, DodSnapshot } from "@/lib/stores/workspace-types";
+import { DOD_LEGACY_KEY, normalizeDefinitionOfDone } from "@/lib/dod/model";
 
-export interface DodDocItem {
-  id: string;
-  label: string;
-  description?: string;
-  category: string;
-  required: boolean;
-  /** Ticked for the current sprint (Release Readiness's DoD gate reads it). */
-  done?: boolean;
-}
+/** The DoD builder's old blob key, which the one-time move reads. */
+export const DOD_STORAGE_KEY = DOD_LEGACY_KEY;
 
-export interface DodDocSnapshot {
-  sprintName: string;
-  totalRequired: number;
-  completed: number;
-  ts: string;
-}
-
-export interface DodDoc {
-  items: DodDocItem[];
-  history: DodDocSnapshot[];
-}
+export type DodDocItem = DodCriterion;
+export type DodDocSnapshot = DodSnapshot;
+export type DodDoc = Pick<DefinitionOfDone, "items" | "history">;
 
 export const EMPTY_DOD: DodDoc = { items: [], history: [] };
 
-/** A stored blob in a usable shape (missing or older blobs included). */
+/** A stored DoD (the workspace document or the old blob) in a usable shape. */
 export function normalizeDod(raw: unknown): DodDoc {
-  const r = (raw && typeof raw === "object" ? raw : {}) as Partial<DodDoc>;
-  return {
-    items: Array.isArray(r.items)
-      ? r.items.filter((i): i is DodDocItem => Boolean(i && typeof i.label === "string"))
-      : [],
-    history: Array.isArray(r.history)
-      ? r.history.filter((h): h is DodDocSnapshot => Boolean(h && typeof h.sprintName === "string"))
-      : [],
-  };
+  const { items, history } = normalizeDefinitionOfDone(raw);
+  return { items, history };
 }
