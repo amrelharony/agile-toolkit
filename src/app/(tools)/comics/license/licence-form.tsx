@@ -15,7 +15,16 @@ import {
 
 const ENDPOINT = "/api/comics/licence";
 
-type Status = "idle" | "sending" | "sent" | "failed" | "limited";
+type Status = "idle" | "sending" | "sent" | "failed" | "limited" | "full";
+
+/** What the server calls a failure, or nothing when the answer isn't JSON. */
+async function errorCode(res: Response): Promise<string | undefined> {
+  try {
+    return ((await res.json()) as { error?: string }).error;
+  } catch {
+    return undefined;
+  }
+}
 
 const FAILURE: Partial<Record<Status, string>> = {
   failed: "We couldn't take your request just now. Please try again later.",
@@ -35,7 +44,8 @@ export function LicenceForm() {
         body: JSON.stringify({ ...values, website: honeypot.current?.value ?? "" }),
       });
       if (!res.ok) {
-        setStatus(res.status === 429 ? "limited" : "failed");
+        if (res.status === 429) setStatus("limited");
+        else setStatus((await errorCode(res)) === "inbox_full" ? "full" : "failed");
         return;
       }
       form.reset();
@@ -152,6 +162,22 @@ export function LicenceForm() {
       {FAILURE[status] ? (
         <p role="alert" className="text-sm text-danger">
           {FAILURE[status]}
+        </p>
+      ) : null}
+      {/* Spam can fill the inbox, so a real request needs another way through. */}
+      {status === "full" ? (
+        <p role="alert" className="text-sm text-danger">
+          Our request inbox is full right now. What you typed is still here. Please reach Amr
+          through{" "}
+          <a
+            href="https://amrelharony.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium underline"
+          >
+            amrelharony.com
+          </a>{" "}
+          instead.
         </p>
       ) : null}
     </ItemForm>

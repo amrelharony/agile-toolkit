@@ -63,7 +63,12 @@ export async function POST(req: NextRequest) {
     .select("id", { count: "exact", head: true })
     .is("handled_at", null);
   if (countError || count === null) return refuse(503, "service_unavailable");
-  if (count >= MAX_UNHANDLED) return refuse(503, "inbox_full");
+  if (count >= MAX_UNHANDLED) {
+    // The owner's only signal until the portal inbox exists: real requests are
+    // being turned away, and spam can be what filled it.
+    console.warn(`[comics] licence inbox is full (${count} unhandled): refusing new requests.`);
+    return refuse(503, "inbox_full");
+  }
 
   const { values } = checked;
   const { error } = await admin.from("comic_licence_requests").insert({

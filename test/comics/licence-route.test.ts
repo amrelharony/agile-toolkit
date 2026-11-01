@@ -167,10 +167,24 @@ describe("POST /api/comics/licence", () => {
     expect(h.insert).not.toHaveBeenCalled();
   });
 
+  it("logs a full inbox for the owner, without what the person typed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.unhandled = 500;
+    await POST(request(GOOD));
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = String(warn.mock.calls[0][0]);
+    expect(logged).toContain("licence inbox is full (500 unhandled)");
+    expect(logged).not.toMatch(/sara|acme/i);
+    warn.mockRestore();
+  });
+
   it("takes one more just under the cap", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     h.unhandled = 499;
     expect((await POST(request(GOOD))).status).toBe(204);
     expect(h.insert).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("refuses when the cap can't be checked, rather than guessing", async () => {

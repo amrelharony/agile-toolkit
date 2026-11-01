@@ -555,4 +555,28 @@ describe("the licence page", () => {
     expect(screen.getByText(/couldn't take your request/)).toBeTruthy();
     expect((screen.getByLabelText(/Your name/) as HTMLInputElement).value).toBe("Sara");
   });
+
+  it("offers another way through when the inbox is full", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error: "inbox_full" }, { status: 503 }))
+    );
+    render(<ComicLicensePage />);
+    const type = (label: RegExp, value: string) =>
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    type(/Your name/, "Sara");
+    type(/Company/, "Acme");
+    type(/Work email/, "sara@acme.example");
+    type(/How would you like/, "Training slides");
+    type(/Team size/, "40");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    });
+    expect(screen.getByRole("alert").textContent).toContain("inbox is full");
+    expect(screen.queryByText(/couldn't take your request/)).toBeNull();
+    expect(screen.getByRole("link", { name: "amrelharony.com" }).getAttribute("href")).toBe(
+      "https://amrelharony.com"
+    );
+    expect((screen.getByLabelText(/Your name/) as HTMLInputElement).value).toBe("Sara");
+  });
 });
