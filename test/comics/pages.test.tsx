@@ -227,6 +227,37 @@ describe("the story reader", () => {
     expect(document.body.style.overflow).not.toBe("hidden");
   });
 
+  it("keeps focus on the overlay's buttons at the ends of the panel list", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    // The trap moves focus in on the next frame; let it, so it can't mask a drop later.
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    const dialog = screen.getByRole("dialog");
+    const src = () => within(dialog).getByRole("img").getAttribute("src");
+    const previous = within(dialog).getByRole("button", { name: "Previous panel" });
+    const next = within(dialog).getByRole("button", { name: "Next panel" });
+
+    expect(previous.getAttribute("aria-disabled")).toBe("true");
+    expect(previous.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(previous);
+    expect(src()).toContain("one-1536.webp");
+
+    next.focus();
+    fireEvent.click(next);
+    expect(src()).toContain("two-1536.webp");
+    // A native disabled here is what drops focus out of the dialog.
+    expect(next.hasAttribute("disabled")).toBe(false);
+    expect(next.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(next);
+
+    fireEvent.click(next);
+    expect(src()).toContain("two-1536.webp");
+    expect(previous.getAttribute("aria-disabled")).toBe("false");
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
   it("makes the page behind inert while the overlay is open", async () => {
     const { container } = render(await ComicStoryPage(params(30)));
     fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));

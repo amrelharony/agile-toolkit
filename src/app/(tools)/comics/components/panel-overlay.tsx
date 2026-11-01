@@ -32,6 +32,11 @@ export function PanelOverlay({ panels, index, title, onClose, onMove }: PanelOve
   const hasPrevious = index > 0;
   const hasNext = index < panels.length - 1;
 
+  const moveBy = (step: -1 | 1) => {
+    const to = index + step;
+    if (to >= 0 && to < panels.length) onMove(to);
+  };
+
   useBodyScrollLock(true);
   useInertSiblings(overlayRef, true);
   useFocusTrap(overlayRef, { active: true, initialFocusRef: closeRef });
@@ -59,19 +64,23 @@ export function PanelOverlay({ panels, index, title, onClose, onMove }: PanelOve
           Panel {index + 1} of {panels.length}
         </p>
         <div className="flex items-center gap-1">
+          {/* aria-disabled, not disabled: pressing Next up to the last panel
+              must leave focus on the button, not drop it out of the dialog. */}
           <IconButton
             label="Previous panel"
             icon={<ChevronLeft aria-hidden="true" />}
             tooltip={false}
-            disabled={!hasPrevious}
-            onClick={() => onMove(index - 1)}
+            aria-disabled={!hasPrevious}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            onClick={() => moveBy(-1)}
           />
           <IconButton
             label="Next panel"
             icon={<ChevronRight aria-hidden="true" />}
             tooltip={false}
-            disabled={!hasNext}
-            onClick={() => onMove(index + 1)}
+            aria-disabled={!hasNext}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            onClick={() => moveBy(1)}
           />
           <IconButton
             ref={closeRef}
