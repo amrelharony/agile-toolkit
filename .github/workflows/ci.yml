@@ -19,7 +19,9 @@ jobs:
     # The suite is ~3,150 tests (407 files) and takes ~9 min on a hosted
     # runner, before the production build. 10 minutes cut master's run off
     # mid-tests on 2026-10-19; 25 leaves room to grow.
-    timeout-minutes: 25
+    # Slower runners take the suite and build past 25 minutes, which cancels the
+    # job mid-step and reads as a failed check.
+    timeout-minutes: 40
     # A full type check of the app needs about 2.7 GB of heap (tsc
     # --extendedDiagnostics, 2026-10-25), over Node's default of about 2 GB
     # on a hosted runner, so tsc and next build ran out of memory. The
