@@ -414,7 +414,7 @@ const kudos: ToolPalette = {
 };
 
 /**
- * Mascot (ElharonyClaw) — lifecycle + reaction cues. The vanilla mascot plays
+ * Mascot (Amr) — lifecycle + reaction cues. The vanilla mascot plays
  * literal-Hz chimes/sweeps; this engine is musical/pentatonic, so each event maps
  * to an in-key voice that approximates the source's intent (rising = positive,
  * dissonant = error/headshake). Plays in "full" mode.

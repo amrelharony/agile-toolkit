@@ -162,7 +162,7 @@ export function AgentConversation() {
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.15s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
             </span>
-            ElharonyClaw is thinking…
+            Amr is thinking…
           </div>
         )}
         <ConfirmAction />

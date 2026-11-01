@@ -2,7 +2,7 @@
 
 /**
  * Bridges the agent conversation (useAgentStore) to the mascot (useMascotStore):
- *   • talks (Talking clip) while the agent streams,
+ *   • talks (the review pose) while the agent streams,
  *   • plays a "thinking" reaction when a turn starts,
  *   • shifts mood to the reply's sentiment when the turn ends,
  *   • nods on a successful tool result, head-shakes on a tool error.
@@ -26,8 +26,6 @@ export function useMascotChatReactions(): void {
   useEffect(() => {
     const mascot = useMascotStore.getState();
     mascot.setTalking(streaming);
-    // Energise the particle aura while the agent is working.
-    mascot.setParticleSpeed(streaming ? 2.2 : 1);
 
     if (streaming && !wasStreaming.current) {
       mascot.queueReaction("thinking");
