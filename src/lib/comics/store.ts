@@ -1,7 +1,8 @@
 /**
  * The ONE public read of comic stories. Pages and feeds go through here, so
  * the release rule lives in one place: nothing leaves this file unless its
- * release_at has passed.
+ * release_at has passed. The early reads at the end are the only exception, and
+ * only /comics/early and the /vip hub call them, after checking VIP access.
  *
  * It uses the service role because the table is closed to everyone else (see
  * migration 0029). It deliberately avoids lib/supabase-server: reading cookies
@@ -163,6 +164,19 @@ interface SummaryRow {
   updated_at: string;
 }
 
+function toSummary(row: SummaryRow): StorySummary {
+  return {
+    ep: row.ep,
+    title: row.title,
+    lesson: row.lesson,
+    castNames: strings(row.cast_names),
+    themes: strings(row.themes),
+    cover: toCover(row.cover),
+    releaseAt: row.release_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 /** Released weekly stories, newest first. The book stays out by design. */
 export async function listReleasedWeekly(limit?: number): Promise<StorySummary[]> {
   const rows = await read<SummaryRow[]>([], (client, now, signal) => {
@@ -175,16 +189,7 @@ export async function listReleasedWeekly(limit?: number): Promise<StorySummary[]
       .order("ep", { ascending: false });
     return (limit ? query.limit(limit) : query).abortSignal(signal).returns<SummaryRow[]>();
   });
-  return rows.map((row) => ({
-    ep: row.ep,
-    title: row.title,
-    lesson: row.lesson,
-    castNames: strings(row.cast_names),
-    themes: strings(row.themes),
-    cover: toCover(row.cover),
-    releaseAt: row.release_at,
-    updatedAt: row.updated_at,
-  }));
+  return rows.map(toSummary);
 }
 
 /** Released episode numbers in a collection, lowest first. */
@@ -200,4 +205,58 @@ export async function listReleasedEps(collection: ComicCollection): Promise<numb
       .returns<{ ep: number }[]>()
   );
   return rows.map((row) => row.ep);
+}
+
+/** How far ahead book readers can see: the next four Mondays. */
+export const EARLY_WINDOW_DAYS = 28;
+const DAY_MS = 86_400_000;
+
+function earlyUntil(now: string): string {
+  return new Date(Date.parse(now) + EARLY_WINDOW_DAYS * DAY_MS).toISOString();
+}
+
+/**
+ * For VIP pages only: weekly stories scheduled within the window, soonest first.
+ * A draft has no release_at, so neither bound can match it, and a story further
+ * ahead stays out of reach.
+ */
+export async function listEarlyWeekly(): Promise<StorySummary[]> {
+  const rows = await read<SummaryRow[]>([], (client, now, signal) =>
+    client
+      .from("comic_stories")
+      .select(SUMMARY_COLUMNS)
+      .eq("collection", "weekly")
+      .gt("release_at", now)
+      .lte("release_at", earlyUntil(now))
+      .order("release_at", { ascending: true })
+      .order("ep", { ascending: true })
+      .abortSignal(signal)
+      .returns<SummaryRow[]>()
+  );
+  return rows.map(toSummary);
+}
+
+export type EarlyLookup =
+  | { status: "early"; story: Story }
+  /** It's out, so its home is the public page. */
+  | { status: "released" }
+  /** A draft, too far ahead, or no such number: all the same to the reader. */
+  | { status: "none" };
+
+/** For VIP pages only: one story by number, within the same window. */
+export async function getEarlyStory(ep: number): Promise<EarlyLookup> {
+  const row = await read<StoryRow | null>(null, (client, now, signal) =>
+    client
+      .from("comic_stories")
+      .select(STORY_COLUMNS)
+      .eq("ep", ep)
+      .lte("release_at", earlyUntil(now))
+      .abortSignal(signal)
+      .maybeSingle<StoryRow>()
+  );
+  if (!row) return { status: "none" };
+  if (Date.parse(row.release_at) <= Date.parse(releasedBefore())) return { status: "released" };
+  return row.collection === "weekly"
+    ? { status: "early", story: toStory(row) }
+    : { status: "none" };
 }
