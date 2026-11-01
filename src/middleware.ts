@@ -454,7 +454,7 @@ export const config = {
   //   - _next/static, _next/image, _next/data         (build artifacts)
   //   - favicon.ico, robots.txt, sitemap.xml, manifest (root statics)
   //   - .well-known/*                                  (security.txt et al.)
-  //   - the comics feed and sitemap, or a .glb directly under /mascot
+  //   - the comics feed and sitemap, or a .webp directly under /mascot
   //   - any top-level file with an extension served from /public (.svg, …)
   //
   // The inner `(?!…)` is a negative lookahead consumed by Next's matcher
@@ -470,8 +470,8 @@ export const config = {
     //
     // The comics feed and sitemap are named exactly, and fetched by machines
     // that have no session to check. Never the bare `comics/` prefix: the
-    // rewrite to the story pages lives in the middleware. The mascot model is
+    // rewrite to the story pages lives in the middleware. Amr's sprite sheet is
     // exempt so each fetch doesn't cost the owner a getUser round-trip.
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/(?:feed|sitemap)\\.xml$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/(?:feed|sitemap)\\.xml$|mascot/[^/]+\\.webp$|[^/]+\\.[a-zA-Z0-9]+$).*)",
   ],
 };

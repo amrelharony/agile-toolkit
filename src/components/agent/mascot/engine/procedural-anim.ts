@@ -2,11 +2,11 @@
  * Procedural animation — springs, idle fidgets, and squash-stretch, ported 1:1
  * from the vanilla mascot (Personal Website mascot-assistant.js 3208-3356).
  *
- * The springs rest at 0 (the skeletal Idle clip provides the base motion); every
- * 8-20s an idle fidget nudges a spring (weight shift, head cock, deep breath,
- * small bob, double blink) — but only when idle (no reaction, not talking, panel
- * closed). `update()` returns the per-frame offsets; the caller applies them to
- * the model's position + scale (keeping this module free of THREE/React).
+ * The springs rest at 0 (the idle row provides the base motion); every 8-20s an
+ * idle fidget nudges a spring (weight shift, head cock, deep breath, small bob,
+ * double blink) — but only when idle (no reaction, not talking, panel closed).
+ * `update()` returns the per-frame offsets; the caller applies them to the
+ * sprite's position + scale (keeping this module free of React).
  *
  * Pure `springStep` is unit-tested.
  */
@@ -37,7 +37,7 @@ export interface ProceduralHooks {
 
 export interface ProceduralCtx {
   dt: number;
-  /** A skeletal reaction is currently playing. */
+  /** A reaction is currently playing. */
   activeReaction: boolean;
   isTalking: boolean;
   /** Chat panel open. */
@@ -47,9 +47,9 @@ export interface ProceduralCtx {
 }
 
 export interface ProceduralOutput {
-  /** Add to model.position.x. */
+  /** Sideways offset, in model units. */
   bodyLean: number;
-  /** Part of model.position.y (with breathScale). */
+  /** Upward offset (with breathScale), in model units. */
   bobY: number;
   breathScale: number;
   /** Squash-stretch multipliers on baseScale. */

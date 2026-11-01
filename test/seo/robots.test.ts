@@ -54,6 +54,10 @@ describe("robots", () => {
     expect(rule().disallow).toEqual(expect.arrayContaining(["/join/"]));
   });
 
+  it("keeps the book readers' VIP link and page out of the index", () => {
+    expect(rule().disallow).toEqual(expect.arrayContaining(["/vip"]));
+  });
+
   it("does not block any tool route", () => {
     const disallow = [rule().disallow ?? []].flat();
     for (const path of ["/", "/planning-poker", "/retro", "/comics", "/history"]) {

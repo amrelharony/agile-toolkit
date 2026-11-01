@@ -1,35 +1,41 @@
 /**
- * Micro-expression ramp intensity (source updateMicroExpressions): 0 → 1 over
- * the ramp-in, hold at 1, then 1 → 0 over the ramp-out.
+ * Micro-expressions: a brief pose that plays one at a time and then ends.
  */
 
-import { describe, it, expect } from "vitest";
-import { microRampIntensity } from "@/components/agent/mascot/engine/reactions";
+import { describe, it, expect, vi } from "vitest";
+import { createReactionFx } from "@/components/agent/mascot/engine/reactions";
 
-describe("microRampIntensity", () => {
-  // duration 1.2, ramp 0.3 (the "smirk" expression).
-  const D = 1.2;
-  const R = 0.3;
+function fx() {
+  return createReactionFx({ queueReaction: vi.fn(), setBreathTarget: vi.fn() });
+}
 
-  it("ramps in from 0 to 1 over the ramp window", () => {
-    expect(microRampIntensity(0, D, R)).toBeCloseTo(0, 5);
-    expect(microRampIntensity(0.15, D, R)).toBeCloseTo(0.5, 5);
-    expect(microRampIntensity(0.3, D, R)).toBeCloseTo(1, 5);
+describe("micro-expressions", () => {
+  it("shows the expression's pose until its duration ends", () => {
+    const f = fx();
+    expect(f.activeMicroExpression(10)).toBeNull();
+    f.triggerMicroExpression("smirk", 10);
+    expect(f.activeMicroExpression(10.5)).toEqual({ pose: "review" });
+    expect(f.activeMicroExpression(11.3)).toBeNull();
   });
 
-  it("holds at 1 through the middle", () => {
-    expect(microRampIntensity(0.5, D, R)).toBe(1);
-    expect(microRampIntensity(0.7, D, R)).toBe(1);
+  it("plays one at a time", () => {
+    const f = fx();
+    f.triggerMicroExpression("pout", 0);
+    f.triggerMicroExpression("wideEyes", 0.1);
+    expect(f.activeMicroExpression(0.2)).toEqual({ pose: "failed" });
   });
+});
 
-  it("ramps out from 1 to 0 over the final window", () => {
-    expect(microRampIntensity(0.9, D, R)).toBeCloseTo(1, 5); // duration - ramp
-    expect(microRampIntensity(1.05, D, R)).toBeCloseTo(0.5, 5);
-    expect(microRampIntensity(1.2, D, R)).toBeCloseTo(0, 5);
-  });
-
-  it("clamps to [0,1] outside the window", () => {
-    expect(microRampIntensity(-1, D, R)).toBe(0);
-    expect(microRampIntensity(5, D, R)).toBe(0);
+describe("idle quirks", () => {
+  it("stay quiet while the panel is open, he's talking or a reaction plays", () => {
+    const queueReaction = vi.fn();
+    const f = createReactionFx({ queueReaction, setBreathTarget: vi.fn() });
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    f.updateQuirks(100, { isOpen: true, isTalking: false, activeReaction: false });
+    f.updateQuirks(100, { isOpen: false, isTalking: true, activeReaction: false });
+    f.updateQuirks(100, { isOpen: false, isTalking: false, activeReaction: true });
+    expect(f.activeMicroExpression(100)).toBeNull();
+    expect(queueReaction).not.toHaveBeenCalled();
+    random.mockRestore();
   });
 });

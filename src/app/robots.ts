@@ -7,15 +7,23 @@ const SITE_URL = "https://agile.amrelharony.com";
  * /robots.txt — the tools are public and indexable. Everything else is
  * kept out: the owner-only API and settings pages, the auth flow, the
  * squad-guest tree (invite-code pages), the visitor live-room join links
- * (/join/<tool>/<code>) and the not-authorized page. These also carry
- * `noindex` metadata where they render HTML; robots.txt just saves
- * crawlers the requests.
+ * (/join/<tool>/<code>), the book readers' VIP link and page (/vip) and
+ * the not-authorized page. These also carry `noindex` metadata where they
+ * render HTML; robots.txt just saves crawlers the requests.
  *
  * Known AI crawlers are also told to stay out of the comics. A crawler obeys
  * only the group that names it, so their group repeats the private paths too.
  * Only crawlers that follow the rules will take any notice.
  */
-const PRIVATE_PATHS = ["/api/", "/auth/", "/settings/", "/guest/", "/join/", "/not-authorized"];
+const PRIVATE_PATHS = [
+  "/api/",
+  "/auth/",
+  "/settings/",
+  "/guest/",
+  "/join/",
+  "/vip",
+  "/not-authorized",
+];
 
 const AI_CRAWLERS = [
   "GPTBot",

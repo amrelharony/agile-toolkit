@@ -1,23 +1,20 @@
 /**
  * Mascot chat commands + Konami easter egg.
  *
- * The vanilla mascot exposed `mascot-hat` / `mascot-aura` / `mascot-game`
- * terminal commands + a "dance" chat command + the Konami code. The toolkit has
+ * The vanilla mascot exposed `mascot-aura` / `mascot-game` terminal commands + a "dance" chat command + the Konami code. The toolkit has
  * no terminal, so the slash commands are intercepted in the agent chat input
  * before the message reaches the agent; the Konami listener is global.
  */
 
-import { useMascotStore, type HatId } from "@/lib/agent/mascot/store";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 
-const HATS: HatId[] = ["topHat", "partyHat", "crown"];
 const RAINBOW = ["#ff0000", "#ff8800", "#ffff00", "#00ff00", "#0088ff", "#8800ff"];
 
 /**
  * Parse + execute a mascot chat command. Returns true if the text was a mascot
  * command (and should NOT be forwarded to the agent).
  *
- * Supported: `/mascot-hat <topHat|partyHat|crown|none>`,
- * `/mascot-aura <#rrggbb|none>`, `/dance`.
+ * Supported: `/mascot-aura <#rrggbb|none>`, `/dance`.
  */
 export function handleMascotCommand(text: string): boolean {
   const raw = text.trim();
@@ -29,20 +26,6 @@ export function handleMascotCommand(text: string): boolean {
     setTimeout(() => store.queueReaction("excited"), 800);
     setTimeout(() => store.queueReaction("spin"), 1800);
     return true;
-  }
-
-  const hat = t.match(/^\/mascot-hat\s+(\w+)/);
-  if (hat) {
-    const id = hat[1];
-    if (id === "none" || id === "off") {
-      store.setHat(null);
-      return true;
-    }
-    if ((HATS as string[]).includes(id)) {
-      store.setHat(id as HatId);
-      return true;
-    }
-    return false; // unknown hat id → don't silently swallow; let it through
   }
 
   const aura = raw.match(/^\/mascot-aura\s+(#?[0-9a-fA-F]{6}|none|off)$/i);
