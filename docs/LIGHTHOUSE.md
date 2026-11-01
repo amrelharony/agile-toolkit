@@ -7,15 +7,16 @@ best-practices / SEO baselines for the app's **public routes**.
 
 `lighthouserc.json` runs Lighthouse's default **mobile** profile (a mid-range
 phone on slow 4G): most visitors arrive on phones, and it's the harder target.
-It covers five public routes:
+It covers six public routes:
 
-| URL                 | Why                                                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `/`                 | The landing page (search, jobs, tool index by section).                                                                    |
-| `/retro`            | The most-used ceremony tool.                                                                                               |
-| `/capacity-planner` | A representative form-style tool. Every tool route is public and browser-only, so a visitor sees what Lighthouse measures. |
-| `/burndown`         | A chart tool: shows whether Recharts stays out of the first load (charts load lazily).                                     |
-| `/agile-at-work`    | The comic reader. Until `public/comics/agile-at-work.pdf` is committed it renders the "coming soon" state, not the reader. |
+| URL                  | Why                                                                                                                        |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/`                  | The landing page (search, jobs, tool index by section).                                                                    |
+| `/retro`             | The most-used ceremony tool.                                                                                               |
+| `/capacity-planner`  | A representative form-style tool. Every tool route is public and browser-only, so a visitor sees what Lighthouse measures. |
+| `/burndown`          | A chart tool: shows whether Recharts stays out of the first load (charts load lazily).                                     |
+| `/comics`            | The comics gallery. Until stories are imported it renders the "coming soon" state.                                         |
+| `/comics?ep=01&b=01` | A printed poster link, rewritten by the middleware to a static page. Text only until stories are imported.                 |
 
 **Accessibility is a hard gate.** Every tool passed a jsx-a11y sweep, and the
 interaction and labelling rules are lint errors. Everything else warns until
@@ -45,7 +46,6 @@ paid once per browser; budgets count it because Lighthouse runs cold.
 | `/retro`            | 71   | 100  | 100 | 100 | 2.1 s | 5.6 s | 275 ms | 0.011 |
 | `/capacity-planner` | 73   | 100  | 100 | 100 | 2.1 s | 5.6 s | 239 ms | 0.013 |
 | `/burndown`         | 63   | 100  | 100 | 100 | 2.3 s | 7.1 s | 441 ms | 0.017 |
-| `/agile-at-work`    | 70   | 100  | 100 | 100 | 2.1 s | 5.5 s | 324 ms | 0     |
 
 How it got here (same build profile, before → after the UX overhaul's fixes):
 
@@ -91,9 +91,9 @@ mascot's start-up work.
   owner's Google sign-in. Baselining them needs an LHCI `puppeteerScript` that
   signs in first (and CI secrets for a test account) — deliberately out of
   scope here.
-- **The comic reader with a real PDF.** CI only has the PDF once the owner
-  commits it; after that, `/agile-at-work` measures the reader itself (pdf.js
-  load and first-page render count toward LCP / TBT).
+- **The comics with real art.** CI builds against a placeholder Supabase, so
+  it measures the text-only pages. Panels load lazily at 768 px from Supabase
+  Storage; measure those against the real project after the first import.
 - **The other tool routes.** They share the app shell measured above; add a
   URL to `collect.url` when a tool's own UI is worth a separate baseline.
 

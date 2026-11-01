@@ -10,14 +10,29 @@ const SITE_URL = "https://agile.amrelharony.com";
  * (/join/<tool>/<code>) and the not-authorized page. These also carry
  * `noindex` metadata where they render HTML; robots.txt just saves
  * crawlers the requests.
+ *
+ * Known AI crawlers are also told to stay out of the comics. A crawler obeys
+ * only the group that names it, so their group repeats the private paths too.
+ * Only crawlers that follow the rules will take any notice.
  */
+const PRIVATE_PATHS = ["/api/", "/auth/", "/settings/", "/guest/", "/join/", "/not-authorized"];
+
+const AI_CRAWLERS = [
+  "GPTBot",
+  "CCBot",
+  "Google-Extended",
+  "ClaudeBot",
+  "anthropic-ai",
+  "PerplexityBot",
+  "Bytespider",
+];
+
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: {
-      userAgent: "*",
-      allow: "/",
-      disallow: ["/api/", "/auth/", "/settings/", "/guest/", "/join/", "/not-authorized"],
-    },
-    sitemap: `${SITE_URL}/sitemap.xml`,
+    rules: [
+      { userAgent: "*", allow: "/", disallow: PRIVATE_PATHS },
+      { userAgent: AI_CRAWLERS, allow: "/", disallow: [...PRIVATE_PATHS, "/comics"] },
+    ],
+    sitemap: [`${SITE_URL}/sitemap.xml`, `${SITE_URL}/comics/sitemap.xml`],
   };
 }
