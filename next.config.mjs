@@ -117,8 +117,10 @@ const nextConfig = {
       // Comic PDFs: matching rules stack, so the security headers above still
       // apply. Not `immutable` — the filename is stable and the owner may
       // replace the file; the reader's `?v=<hash>` URL handles cache busting.
+      // PDF files only: /comics itself is a page, and a day-long public cache
+      // would keep serving an old one.
       {
-        source: "/comics/:path*",
+        source: "/comics/:file([^/]+\\.pdf)",
         headers: [
           {
             key: "Cache-Control",
