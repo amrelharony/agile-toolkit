@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/authorize";
 import { jsonError } from "@/lib/auth/json-error";
 import { routeKind } from "@/lib/auth/owner-routes";
+import { COMICS_ROUTE, comicInternalRedirect, comicRewritePath } from "@/lib/comics/entry";
 
 /**
  * How long the session check may take before we give up and treat the auth
@@ -126,6 +127,7 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
  *   /not-authorized   — the denied page itself
  *   /api/health       — uptime probes
  *   /api/mcp, /api/agent/stream — bearer-token / self-gated endpoints
+ *   /api/comics/hit, /api/comics/licence — public writes, gated by their handlers
  *   /guest/*, /api/guest/* — invite-cookie flows, gated by their handlers
  *   /_next/*          — Next.js static + image optimisation
  *   /favicon.ico, robots.txt, sitemap.xml — typical static
@@ -136,13 +138,23 @@ export async function middleware(request: NextRequest) {
 
   if (isBypassPath(pathname)) return bypass(request);
 
+  const internalComic = comicInternalRedirect(pathname);
+  if (internalComic) return NextResponse.redirect(new URL(internalComic, request.url));
+
   const kind = routeKind(pathname);
+
+  // /comics?ep=NN answers with a static page behind the same address, so the
+  // first paint is right with no I/O. Every "this page passes" branch below
+  // goes through passPage, so it holds for visitors and the owner alike.
+  const comicPage = comicRewriteUrl(request);
+  const passPage = (init?: PassInit): NextResponse =>
+    comicPage ? NextResponse.rewrite(comicPage, init) : NextResponse.next(init);
 
   // Fast path, no I/O: without a session cookie there is nobody to verify.
   // Checked before the env so the public site keeps serving even when the
   // deployment's auth config is broken.
   if (!hasSupabaseSessionCookie(request)) {
-    if (kind === "public-page") return NextResponse.next();
+    if (kind === "public-page") return passPage();
     if (kind === "api") return jsonError(401, "unauthenticated", "Sign in required.");
     return redirectTo(request, "/auth/sign-in", "unauthenticated");
   }
@@ -154,7 +166,7 @@ export async function middleware(request: NextRequest) {
   // cookies alone: nothing here says the session is bad.
   if (!url || !anon || authorizedEmailCount() === 0) {
     warnMisconfiguredOnce();
-    if (kind === "public-page") return NextResponse.next();
+    if (kind === "public-page") return passPage();
     if (kind === "api") {
       return jsonError(503, "auth_unavailable", "Owner sign-in is not configured.");
     }
@@ -225,7 +237,7 @@ export async function middleware(request: NextRequest) {
       `[middleware] auth backend unreachable within ${AUTH_TIMEOUT_MS}ms — pages pass, owner routes fail closed`
     );
     // The session may well still be valid, so nothing is expired here.
-    if (kind === "public-page") return buildResponse(NextResponse.next({ request }));
+    if (kind === "public-page") return buildResponse(passPage({ request }));
     if (kind === "api") {
       return buildResponse(
         jsonError(503, "auth_unreachable", "The auth backend is unreachable.", {
@@ -238,7 +250,7 @@ export async function middleware(request: NextRequest) {
 
   if (probe.status === "anonymous") {
     // A stale cookie. buildResponse carries Supabase's own removals for it.
-    if (kind === "public-page") return buildResponse(NextResponse.next({ request }));
+    if (kind === "public-page") return buildResponse(passPage({ request }));
     if (kind === "api") {
       return buildResponse(jsonError(401, "unauthenticated", "Sign in required."));
     }
@@ -255,7 +267,7 @@ export async function middleware(request: NextRequest) {
     const names = sessionCookieNames(request, cookiesToSet);
     for (const name of names) request.cookies.delete(name);
     let resp: NextResponse;
-    if (kind === "public-page") resp = NextResponse.next({ request });
+    if (kind === "public-page") resp = passPage({ request });
     else if (kind === "api") resp = jsonError(403, owner.code, OWNER_DENIAL_MESSAGES[owner.code]);
     else resp = redirectTo(request, "/not-authorized", "denied");
     // After buildResponse, so the expiry overwrites any rotated token
@@ -263,7 +275,20 @@ export async function middleware(request: NextRequest) {
     return expireCookies(buildResponse(resp), names);
   }
 
-  return buildResponse(NextResponse.next({ request }));
+  return buildResponse(passPage({ request }));
+}
+
+type PassInit = Parameters<typeof NextResponse.next>[0];
+
+/** The static page behind a valid /comics address, or null for everything else. */
+function comicRewriteUrl(request: NextRequest): URL | null {
+  if (request.nextUrl.pathname !== COMICS_ROUTE) return null;
+  const path = comicRewritePath(request.nextUrl.searchParams);
+  if (!path) return null;
+  // The query stays: the static poster page reads its building in the browser.
+  const url = request.nextUrl.clone();
+  url.pathname = path;
+  return url;
 }
 
 // Bypass paths that must remain reachable for the auth flow itself,
@@ -280,6 +305,10 @@ function isBypassPath(pathname: string): boolean {
     pathname === "/api/mcp" ||
     pathname.startsWith("/api/mcp/") ||
     pathname === "/api/agent/stream" ||
+    // Exact matches, never a prefix: a future /api/comics/* route stays
+    // owner-only until it is listed here on purpose.
+    pathname === "/api/comics/hit" ||
+    pathname === "/api/comics/licence" ||
     isGuestPath(pathname)
   );
 }
@@ -425,7 +454,7 @@ export const config = {
   //   - _next/static, _next/image, _next/data         (build artifacts)
   //   - favicon.ico, robots.txt, sitemap.xml, manifest (root statics)
   //   - .well-known/*                                  (security.txt et al.)
-  //   - a file directly under /comics or a .glb directly under /mascot
+  //   - the comics feed and sitemap, or a .glb directly under /mascot
   //   - any top-level file with an extension served from /public (.svg, …)
   //
   // The inner `(?!…)` is a negative lookahead consumed by Next's matcher
@@ -439,11 +468,10 @@ export const config = {
     // middleware. The prior `.*\.[a-zA-Z0-9]+$` rule matched the whole
     // pathname and silently exempted any dotted route. (BUG-A1)
     //
-    // The comic PDF is exempt because pdf.js fetches it in HTTP range
-    // requests: running middleware per chunk would cost the owner a getUser
-    // round-trip each time. Only a FILE directly under /comics is exempt,
-    // never the bare `comics/` prefix, which would also exempt any future
-    // page or nested route under /comics. Same idea for the mascot model.
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/[^/]+\\.[a-zA-Z0-9]+$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
+    // The comics feed and sitemap are named exactly, and fetched by machines
+    // that have no session to check. Never the bare `comics/` prefix: the
+    // rewrite to the story pages lives in the middleware. The mascot model is
+    // exempt so each fetch doesn't cost the owner a getUser round-trip.
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/(?:feed|sitemap)\\.xml$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
   ],
 };

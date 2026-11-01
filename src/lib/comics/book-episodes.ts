@@ -203,12 +203,7 @@ export const BOOK_EPISODES: readonly BookEpisode[] = [
   },
 ];
 
-/**
- * The episode a printed link asks for, or null. Poster QR codes pad the
- * number ("ep=07"), so both "7" and "07" count; anything else is not an
- * episode and the caller shows the normal comics page.
- */
-export function bookEpisodeFor(value: string | string[] | undefined): BookEpisode | null {
-  if (typeof value !== "string" || !/^\d{1,2}$/.test(value)) return null;
-  return BOOK_EPISODES[Number(value) - 1] ?? null;
+/** A book episode by number, or null outside 1-26. */
+export function bookEpisode(ep: number): BookEpisode | null {
+  return BOOK_EPISODES[ep - 1] ?? null;
 }
