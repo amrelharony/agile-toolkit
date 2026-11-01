@@ -65,8 +65,11 @@ async function handleNavigation(request) {
     return response;
   } catch {
     // Only this page's own copy: serving another page's HTML under this URL
-    // would hydrate the wrong route.
-    const cached = await cache.match(request, { ignoreSearch: true });
+    // would hydrate the wrong route. Every comic is /comics?ep=NN, so there the
+    // query is what says which page this is; elsewhere it's only page state.
+    const cached = await cache.match(request, {
+      ignoreSearch: new URL(request.url).pathname !== "/comics",
+    });
     return (
       cached ||
       new Response(OFFLINE_HTML, {
